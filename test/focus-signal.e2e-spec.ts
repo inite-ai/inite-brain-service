@@ -184,4 +184,75 @@ describe('Fovea Optics-1 — focus-signal capture + calibration surface', () => 
     expect(res.status).toBe(201);
     expect(res.body.updated).toBe(1);
   });
+
+  // Multilingual Tier 5 (migration 0103): prove the language/script columns
+  // round-trip on a real SurrealDB — the part unit tests can't cover (the
+  // `language IS NONE` predicate, the conditional CONTENT, the composite-key
+  // load). Off (default flag) the calibration is the global per-class one;
+  // ON, the fit persists (class × language) / (class × script) rows and the
+  // 0103 columns read back with the values written.
+  it('rounds-trips the 0103 language/script columns through fit + persist', async () => {
+    process.env.FOVEA_FOCUS_CAPTURE = '1';
+    process.env.MULTILINGUAL_CALIBRATION = '1';
+    try {
+      // Seed a well-sampled (class=default × ru/Cyrl) cell — enough to clear
+      // the per-language min-sample floor (MIN_CLASS_SAMPLES = 30).
+      await surreal.withCompany(f.companyId, async (db) => {
+        for (let i = 0; i < 34; i++) {
+          const x = (i + 0.5) / 34;
+          await db.query(
+            `CREATE focus_signal_sample CONTENT {
+                companyId: $c, sampleId: $s, queryClass: 'default',
+                stage: 'verdict', topScore: $x, coverageScore: $x, retrievalGap: $x,
+                verifierVerdict: 'none', rawConfidence: $r, correct: $correct,
+                language: 'ru', script: 'Cyrl'
+             }`,
+            { c: f.companyId, s: randomUUID(), x, r: 0.65 * x, correct: x > 0.5 ? 1 : 0 },
+          );
+        }
+      });
+
+      const fit = await f.http.post('/v1/admin/focus/fit').set(auth()).send({});
+      expect(fit.status).toBe(201);
+
+      // The persisted rows carry the 0103 columns: a (class × language) row
+      // (language='ru', script NONE) and a (class × script) row (script='Cyrl',
+      // language NONE), alongside the bare global-per-class rows.
+      const cal = await surreal.withCompany(f.companyId, async (db) => {
+        const [rows] = await db.query<
+          [
+            Array<{
+              queryClass: string;
+              language: string | null;
+              script: string | null;
+              thresholds: number[];
+              values: number[];
+            }>,
+          ]
+        >('SELECT queryClass, language, script, thresholds, values FROM focus_calibration');
+        return rows ?? [];
+      });
+      const langRow = cal.find((r) => r.language === 'ru');
+      expect(langRow).toBeDefined();
+      expect(langRow!.script == null).toBe(true);
+      expect(Array.isArray(langRow!.thresholds)).toBe(true);
+      expect(langRow!.thresholds.length).toBe(langRow!.values.length);
+
+      const scriptRow = cal.find((r) => r.script === 'Cyrl');
+      expect(scriptRow).toBeDefined();
+      expect(scriptRow!.language == null).toBe(true);
+
+      // `language IS NONE AND script IS NONE` still selects the global rows —
+      // the off-path (byte-identical) read.
+      const globalRows = await surreal.withCompany(f.companyId, async (db) => {
+        const [rows] = await db.query<[Array<{ queryClass: string }>]>(
+          'SELECT queryClass FROM focus_calibration WHERE language IS NONE AND script IS NONE',
+        );
+        return rows ?? [];
+      });
+      expect(globalRows.some((r) => r.queryClass === 'default')).toBe(true);
+    } finally {
+      delete process.env.MULTILINGUAL_CALIBRATION;
+    }
+  });
 });

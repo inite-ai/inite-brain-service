@@ -28,6 +28,7 @@ export function buildGeneratorUserMessage({
   dateArbitratedConflicts,
   arcInsights,
   answerLang,
+  answerLangStrict,
   dateContext,
   lane,
   instructions,
@@ -76,6 +77,13 @@ export function buildGeneratorUserMessage({
    */
   arcInsights?: boolean | undefined;
   answerLang: string | null;
+  /**
+   * Tier 5 answer-language guard: reinforce the language directive on the ONE
+   * corrective regeneration after an output-language mismatch. Off/undefined =
+   * the normal directive, byte-identical. Only meaningful when answerLang is
+   * set (a forced target).
+   */
+  answerLangStrict?: boolean | undefined;
   dateContext?: string | undefined;
   /** T1 typed dispatch: lane-specific answer instruction. */
   lane?: LaneId | null | undefined;
@@ -110,7 +118,9 @@ export function buildGeneratorUserMessage({
   strategyNotes?: string[] | undefined;
 }): string {
   const langInstruction = answerLang
-    ? `\n\nLanguage policy: write your answer in ${answerLang} (ISO 639-1). Keep citation spans in their original language.`
+    ? answerLangStrict
+      ? `\n\nLanguage policy (STRICT): You MUST write the ENTIRE answer in ${answerLang} (ISO 639-1) and in NO other language — a previous attempt answered in the wrong language. Translate all prose into ${answerLang}; keep only citation spans and proper nouns in their original language.`
+      : `\n\nLanguage policy: write your answer in ${answerLang} (ISO 639-1). Keep citation spans in their original language.`
     : '';
   const dateInstruction = dateContext
     ? `Today: ${dateContext}. Facts carry date stamps like (as of YYYY-MM-DD). Resolve relative time expressions ("last week", "next month") against the stamp of the fact that states them, and answer "when" questions with a specific date or period, using simple date arithmetic when needed.\n` +

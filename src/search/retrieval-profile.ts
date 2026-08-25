@@ -287,6 +287,17 @@ export interface RetrievalProfile {
    * adjudicator. Off (default) ⇒ byte-identical string-equality behavior.
    */
   multilingualConflict: boolean;
+  /**
+   * Multilingual Tier 5 (MULTILINGUAL_ANSWER_GUARD). When ON, the answer-
+   * language target follows a strict fallback ORDER — explicit answerLang →
+   * user/session locale (dto.queryLang) → confidently-detected query language
+   * (Tier 1 confidence floor) → no forced language — so the retrieved FACTS
+   * never decide the answer language; and after generation the answer's own
+   * language is checked against that target, with ONE bounded corrective
+   * regeneration on a cross-script mismatch (then flagged). Off (default) ⇒
+   * `resolveAnswerLang` is byte-identical and no output-language check runs.
+   */
+  answerLangGuard: boolean;
   /** HNSW ef candidate-list size for the scan legs (clamped up to the
    *  overfetched k at query time — ef below k is never useful). */
   scanHnswEf: number;
@@ -660,6 +671,7 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
     cjkSegmentation: envFlagEnabled(env.MULTILINGUAL_CJK_SEGMENTATION),
     multilingualLaneRouting: envFlagEnabled(env.MULTILINGUAL_LANE_ROUTING),
     multilingualConflict: envFlagEnabled(env.MULTILINGUAL_CONFLICT),
+    answerLangGuard: envFlagEnabled(env.MULTILINGUAL_ANSWER_GUARD),
     scanHnswEf: positiveIntEnv(env, 'RETRIEVAL_SCAN_HNSW_EF', 400),
     scanHnswOverfetch: positiveIntEnv(env, 'RETRIEVAL_SCAN_HNSW_OVERFETCH', 4),
     dateAnchoring:
@@ -860,6 +872,7 @@ export function resolveRetrievalProfileFor(
     'cjkSegmentation',
     'multilingualLaneRouting',
     'multilingualConflict',
+    'answerLangGuard',
   ] as const) {
     if (typeof o[key] === 'boolean') merged[key] = o[key] as boolean;
   }

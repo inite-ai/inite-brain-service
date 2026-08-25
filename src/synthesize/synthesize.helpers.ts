@@ -1,5 +1,5 @@
 import type { SearchHit } from '../search/search.service';
-import { detectLanguage } from '../ai/locale/language-detector';
+import { detectLanguage, type ScriptCode } from '../ai/locale/language-detector';
 import type { LaneId, RetrievalProfile } from '../search/retrieval-profile';
 import { routeLane, detectEvidenceConflicts } from './answer-router';
 import type { MultilingualLaneClassifierService } from './multilingual-lane-classifier.service';
@@ -11,6 +11,8 @@ import type { Citation } from './fact-index';
 import type { GeneratorOutput, SynthesizeResult } from './synthesize.types';
 import { buildDateMathLines } from './date-math';
 import { detectAnswerShape, shapeInstructionFor } from './answer-shape';
+import { resolvePromptFrames } from './evidence-gates';
+import type { GenerateRequest } from './generator-client';
 import type { MetricsService } from '../metrics/metrics.service';
 
 /**
@@ -41,7 +43,7 @@ export async function resolveRoutedLane(
  * Evidence-conflict detection, threaded with the Tier 4 typed-compare flag
  * (MULTILINGUAL_CONFLICT). Off ⇒ byte-identical surface-string comparison.
  */
-export function evidenceConflicts(
+function evidenceConflicts(
   results: SearchHit[],
   profile: RetrievalProfile,
 ): Array<{ factIds: string[]; label: string }> {
@@ -120,9 +122,73 @@ export function buildSecondaryDto(
   } as SearchDto;
 }
 
+/**
+ * Assemble the generator-client request from the query-invariant context
+ * (profile/lane/model/answerLang/collected sections) plus the per-round
+ * evidence (`o`). ONE builder for round-1, the refine round, and the Tier 5
+ * answer-language retry, so those calls cannot drift; the only per-round
+ * differences are the evidence lines, the conflict set (derived from
+ * `o.results`), and the two optional switches (`allowRefine`, `answerLangStrict`).
+ * Pure — no `this`, no IO; field VALUES match the historical inline calls
+ * (order is irrelevant, the client destructures by name) so the assembled
+ * prompt is byte-identical.
+ */
+export function buildGeneratorArgs(
+  ctx: {
+    dto: SynthesizeDto;
+    profile: RetrievalProfile;
+    lane: LaneId | null;
+    model: string;
+    answerLang: string | null;
+    guardrails: SynthesisGuardrails;
+    shapeInstruction?: string | undefined;
+    collected: {
+      transcriptLines: string[];
+      insightLines: string[];
+      instructions?: string[] | undefined;
+      timelineEvidence: boolean;
+      strategyNotes?: string[] | undefined;
+    };
+  },
+  o: {
+    results: SearchHit[];
+    promptFactLines: string[];
+    dateMathLines?: string[] | undefined;
+    allowRefine?: boolean | undefined;
+    answerLangStrict?: boolean | undefined;
+  },
+): Omit<GenerateRequest, 'openai' | 'metrics' | 'logger'> {
+  const { profile, dto, collected } = ctx;
+  return {
+    query: dto.query,
+    factLines: o.promptFactLines,
+    transcriptLines: collected.transcriptLines,
+    insightLines: collected.insightLines,
+    timelineEvidence: collected.timelineEvidence,
+    // V10 frame switches — resolved once by the kernel, not inline.
+    ...resolvePromptFrames(profile, collected.timelineEvidence),
+    model: ctx.model,
+    answerLang: ctx.answerLang,
+    neverAbstain: ctx.guardrails === 'answer',
+    // Date context anchors "today"; the temporal lane forces it from asOf.
+    dateContext: resolveLaneDateContext(profile, ctx.lane, dto.asOf),
+    lane: ctx.lane,
+    enumStrict: profile.enumStrict,
+    instructions: collected.instructions,
+    // T3: evidence-conditional conflict pairs (from THIS round's results).
+    conflicts: evidenceConflicts(o.results, profile),
+    dateMathLines: o.dateMathLines,
+    shapeInstruction: ctx.shapeInstruction,
+    // G4 strategy lane: advisory notes, GENERATOR-ONLY (parity exception).
+    strategyNotes: collected.strategyNotes,
+    ...(o.allowRefine !== undefined ? { allowRefine: o.allowRefine } : {}),
+    ...(o.answerLangStrict ? { answerLangStrict: true } : {}),
+  };
+}
+
 /** Temporal lane forces the Today anchor from asOf; others follow the
  *  profile's dateAnchoring. */
-export function resolveLaneDateContext(
+function resolveLaneDateContext(
   profile: RetrievalProfile,
   lane: LaneId | null,
   asOf: string | undefined,
@@ -221,16 +287,134 @@ export function attachDecisionLog(
 }
 
 /**
- * Detect the answer language: explicit DTO value wins, else the pure
- * detector on the query; `null` when the detector is undecided so the
- * caller can omit the language instruction from the prompt entirely
- * (the generator's own multilingual default is correct enough for
- * the `und` case).
+ * Confidence floor for treating a detected language as the answer target
+ * (Tier 5 answer-language guard). The Tier 1 detector reports `confidence`
+ * ∈ [0,1] — the dominant-script fraction (non-Latin) or the stopword
+ * fraction (Latin). Below this floor the query language is too weakly
+ * signalled to force, so the guard declines to `no forced language` (the
+ * generator's own multilingual default). Also the floor below which a
+ * DETECTED ANSWER language is not trusted enough to call a mismatch.
  */
-export function resolveAnswerLang(dto: SynthesizeDto): string | null {
+const ANSWER_LANG_MIN_CONFIDENCE = 0.3;
+
+/** Normalise a locale hint to a bare ISO 639-1 code, or null if unusable. */
+function normalizeLangCode(x: string | undefined): string | null {
+  if (!x) return null;
+  const code = x.trim().toLowerCase().slice(0, 2);
+  return /^[a-z]{2}$/.test(code) ? code : null;
+}
+
+/**
+ * Detect the answer language.
+ *
+ * Default (guard off / no profile) — BYTE-IDENTICAL to the historical
+ * behaviour: explicit DTO value wins, else the pure detector on the query;
+ * `null` when the detector is undecided (`und`) so the caller omits the
+ * language instruction and the generator's own multilingual default applies.
+ *
+ * Tier 5 (profile.answerLangGuard, MULTILINGUAL_ANSWER_GUARD) — a strict
+ * fallback ORDER so the retrieved FACTS never decide the answer language:
+ *   1. explicit `answerLang`,
+ *   2. the user/session locale (dto.queryLang),
+ *   3. a CONFIDENTLY-detected query language (Tier 1 confidence ≥ floor),
+ *   4. `null` — no forced language.
+ */
+export function resolveAnswerLang(
+  dto: SynthesizeDto,
+  profile?: { answerLangGuard?: boolean } | undefined,
+): string | null {
   if (dto.answerLang) return dto.answerLang;
+  if (profile?.answerLangGuard) {
+    const locale = normalizeLangCode(dto.queryLang);
+    if (locale) return locale;
+    const r = detectLanguage(dto.query);
+    return r.language !== 'und' && r.confidence >= ANSWER_LANG_MIN_CONFIDENCE ? r.language : null;
+  }
   const r = detectLanguage(dto.query);
   return r.language === 'und' ? null : r.language;
+}
+
+/** Canonical ISO 15924 script for an ISO 639-1 target language. Non-Latin
+ *  targets each map to their one script by the Tier 1 detector's convention;
+ *  everything else is Latin. */
+function scriptForLang(lang: string): ScriptCode {
+  switch (lang.slice(0, 2).toLowerCase()) {
+    case 'ru':
+      return 'Cyrl';
+    case 'zh':
+      return 'Hani';
+    case 'ja':
+      return 'Hira';
+    case 'ko':
+      return 'Hang';
+    case 'ar':
+      return 'Arab';
+    case 'hi':
+      return 'Deva';
+    default:
+      return 'Latn';
+  }
+}
+
+/**
+ * Whether a generated `answer` is in the wrong language for `targetLang`
+ * (Tier 5 output-language check). Deliberately CROSS-SCRIPT only: a Latin
+ * answer to a Cyrillic/CJK/Arabic/Devanagari target (and vice-versa) is the
+ * high-precision, high-value failure the detector catches reliably. Within-
+ * script disambiguation (e.g. Spanish vs English) is NOT adjudicated — short-
+ * answer Latin stopword scoring is too noisy (see language-detector.ts), and
+ * a false mismatch would waste a corrective LLM call. Undetermined (`und`) or
+ * low-confidence detections are never a mismatch, so proper-noun-only / numeric
+ * answers ("Paris", "42") in any target are left alone.
+ */
+export function answerLanguageMismatch(
+  answer: string,
+  targetLang: string,
+  minConfidence: number = ANSWER_LANG_MIN_CONFIDENCE,
+): boolean {
+  if (!answer.trim()) return false;
+  // Attribution OFF: a deterministic label independent of
+  // MULTILINGUAL_LANG_ATTRIBUTION — this check is about the SCRIPT.
+  const det = detectLanguage(answer, false);
+  if (det.language === 'und' || det.script === 'Zyyy') return false;
+  if (det.confidence < minConfidence) return false;
+  return det.script !== scriptForLang(targetLang);
+}
+
+/**
+ * Tier 5 output-language guard (the decision + bounded retry, side of the
+ * generator call the orchestrator owns via `regenerate`). Returns the
+ * CORRECTED answer when a cross-script mismatch was found and a regeneration
+ * ran, or `null` when nothing should change (guard off / no forced target /
+ * no mismatch / retry threw) — the caller then keeps the original. Bounded to
+ * ONE retry: a still-mismatched retry is flagged (metrics + log) and returned
+ * best-effort. Pure control-flow — the LLM call is injected.
+ */
+export async function enforceAnswerLanguage(
+  deps: { metrics?: MetricsService | undefined; logger: { warn(message: string): void } },
+  ctx: { guard: boolean; target: string | null; answer: string | null | undefined },
+  regenerate: () => Promise<GeneratorOutput>,
+): Promise<GeneratorOutput | null> {
+  const { guard, target, answer } = ctx;
+  if (!guard || !target || !answer || !answerLanguageMismatch(answer, target)) return null;
+  deps.metrics?.countSynthesize('answer_lang_retry');
+  try {
+    const retry = await regenerate();
+    if (answerLanguageMismatch(retry.answer, target)) {
+      // Bounded: one retry, then flag — the retry (reinforced directive) is the
+      // best-effort attempt, so it is still returned.
+      deps.metrics?.countSynthesize('answer_lang_unresolved');
+      deps.logger.warn(
+        `answer-language guard: answer still not in target '${target}' after one retry`,
+      );
+    }
+    return retry;
+  } catch (err) {
+    deps.logger.warn(
+      `answer-language retry failed (${(err as Error).message}); keeping the original answer`,
+    );
+    return null;
+  }
 }
 
 /**

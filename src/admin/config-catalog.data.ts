@@ -575,6 +575,30 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Typed conflict detection: detectEvidenceConflicts compares NORMALIZED TYPED VALUES (numbers/booleans, digit-script- and case-folded, locale number parsing) instead of surface strings, so a cross-lingual numeric/boolean disagreement on a typed slot ("70 kg" vs "75 kg") is caught even on derived rows without a COMPETING status, and cosmetic differences (digit script, case) no longer false-flag. Presentation of already-flagged COMPETING facts only — never the write-side adjudicator; model-based multilingual NLI (semantic string equivalence like "tea" ≡ "чай") is deliberately deferred (needs a model). Resolved into the RetrievalProfile. Off (default) → byte-identical string-equality behavior.',
   },
+  // ── Multilingual (Tier 5, migration 0103) ───────────
+  {
+    key: 'MULTILINGUAL_CALIBRATION',
+    category: 'pipeline',
+    // Read at fit / load time via fovea-flags.multilingualCalibrationEnabled()
+    // (a per-call function body const, never constructor-captured) — a flip
+    // takes effect on the next fit/load without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Hierarchical per-language focus calibration: the §4.2 per-class isotonic calibrator (focus-signal.ts) gains a LANGUAGE key with an exact (class × language) → (class × script/family) → (class) → global fallback, fitting a per-language / per-script map only when the bucket clears the same min-sample floor (so a sparse language never earns a noisy calibrator and degrades up the hierarchy). Focus-signal capture stamps the detected query language + script on each sample (migration 0103 optional columns). Serving-neutral — nothing on the answer path reads the calibration yet (Optics-2/3). Off (default) → the language dimension is never written or consulted and the global per-class calibration is byte-identical.',
+  },
+  {
+    key: 'MULTILINGUAL_ANSWER_GUARD',
+    category: 'pipeline',
+    // Resolved into the RetrievalProfile (answerLangGuard) by
+    // resolveRetrievalProfile — read per request, never constructor-captured.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Answer-language guard: the answer-language target follows a strict fallback ORDER — explicit answerLang → user/session locale (dto.queryLang) → confidently-detected query language (Tier 1 confidence floor) → no forced language — so on mixed retrieval the FACTS never decide the answer language. After generation the answer's own language is detected and, on a cross-script mismatch with the target, ONE bounded corrective regeneration runs with a reinforced language directive (temperature already 0); a still-mismatched answer is flagged (metrics) and served best-effort. Resolved into the RetrievalProfile. Off (default) → resolveAnswerLang byte-identical and no output-language check runs.",
+  },
   {
     key: 'INGEST_CONFUSABLES_CHECK',
     category: 'pipeline',

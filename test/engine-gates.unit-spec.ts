@@ -157,6 +157,11 @@ describe('S5.5 — dead exports in the engine dirs', () => {
     // focus-signal unit spec; no serving consumer yet (Optics-2/3).
     'MIN_CLASS_SAMPLES',
     'DEFAULT_CLASS',
+    // Multilingual Tier 5 — the pure cross-script output-language check.
+    // Consumed inside synthesize.helpers (enforceAnswerLanguage) but pinned
+    // DIRECTLY by the answer-lang-guard unit spec for its precision cases
+    // (within-script not adjudicated, proper-noun/numeric-safe, floor).
+    'answerLanguageMismatch',
   ]);
   const TESTS = walk(join(ROOT, 'test'))
     .map((f) => readFileSync(f, 'utf8'))

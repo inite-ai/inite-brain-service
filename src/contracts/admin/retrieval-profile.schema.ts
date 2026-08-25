@@ -23,6 +23,7 @@ export const RetrievalProfileWireSchema = z.object({
   cjkSegmentation: z.boolean(),
   multilingualLaneRouting: z.boolean(),
   multilingualConflict: z.boolean(),
+  answerLangGuard: z.boolean(),
   scanHnswEf: z.number().int(),
   scanHnswOverfetch: z.number().int(),
   dateAnchoring: z.enum(['none', 'session_date', 'absolute']),
