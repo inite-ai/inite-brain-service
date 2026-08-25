@@ -533,9 +533,11 @@ function registerEntityReadTools({
       },
     },
     async (args) => {
-      // Pass scopes — without them getConnections signs in with an
-      // empty scope set, bypassing the DB-level PII fence (every other
-      // MCP tool forwards scopes).
+      // Pass scopes — without them getConnections runs with an empty scope
+      // set, which would drop the caller's PII/row entitlements at the
+      // app-layer filter (the effective barrier; the DB-level PII fence is
+      // inert for the system brain_caller user). Every other MCP tool
+      // forwards scopes.
       const out = await deps.entities.getConnections({
         companyId,
         entityIdRaw: args.entityId,

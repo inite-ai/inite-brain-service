@@ -585,12 +585,14 @@ export class EntitiesService {
           direction: 'inbound' as const,
         })),
       ];
-      // Defense-in-depth: the DB-level PERMISSIONS fence (migration 0005)
-      // gates knowledge_fact.object, but knowledge_edge has no such fence,
-      // so a scoped caller could otherwise read a PII-classed relation
-      // (edge.kind maps to a predicate). Mirror the timeline scope gate,
-      // then the ABAC row verdict — edges evaluate with predicate = kind,
-      // so predicate/source rules apply to relations too.
+      // PII/row gate for relations. The app-layer filter is the effective
+      // PII barrier on knowledge_fact.object (the DB-level PERMISSIONS fence
+      // of migration 0005 is inert for the system brain_caller user); edges
+      // have no field-level fence at all, so a scoped caller could otherwise
+      // read a PII-classed relation (edge.kind maps to a predicate). Mirror
+      // the timeline scope gate, then the ABAC row verdict — edges evaluate
+      // with predicate = kind, so predicate/source rules apply to relations
+      // too.
       const rowPolicy = makeRowPolicyFilter({
         callerScopes: scopes,
         surface: 'entity_connections',

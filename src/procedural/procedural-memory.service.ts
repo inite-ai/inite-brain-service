@@ -74,8 +74,10 @@ export class ProceduralMemoryService {
    * 0=urgent).
    */
   async match(companyId: string, args: MatchProcedureArgs): Promise<MatchedProcedure[]> {
-    // Caller-facing reads ride the scoped pool when the caller
-    // identifies itself (MCP path) so DB-level PERMISSIONS apply.
+    // Caller-facing reads ride the scoped pool when the caller identifies
+    // itself (MCP path). NOTE (R4 audit): the DB-level PERMISSIONS fence
+    // does NOT fire for the system `brain_caller` user; access here is
+    // gated at the tool/action level (see below), not by DB PERMISSIONS.
     //
     // No ABAC row-filter here by design: procedures are a curated
     // OPERATOR layer (trigger→action how-tos), not user facts — they

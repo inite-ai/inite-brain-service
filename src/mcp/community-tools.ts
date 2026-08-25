@@ -15,8 +15,10 @@ export function registerCommunityTools(
   deps: {
     communities: CommunityService;
     /**
-     * Caller scopes — threads the DB-level PII fence through the
-     * scoped pool (community summaries are fact-derived).
+     * Caller scopes — thread the PII/row filter for community reads
+     * (community summaries are fact-derived). NOTE (R4 audit): the
+     * DB-level PII fence is inert for the system brain_caller user; the
+     * app-layer filter is the effective barrier.
      */
     scopes?: readonly string[];
   },

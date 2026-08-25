@@ -28,7 +28,10 @@ export interface MemoryStats {
 /**
  * StatsService — cheap per-company memory counts for the end-user
  * "Usage" surface. One batched round-trip of COUNT aggregates, run on a
- * scope-bound connection so PII permissions still apply.
+ * scope-bound connection. (NOTE, R4 audit: the DB-level PII PERMISSIONS
+ * fence does not currently fire for the system `brain_caller` user — these
+ * are non-PII aggregate counts so it is immaterial here; the app-layer
+ * filter is the effective PII barrier on value-bearing reads.)
  *
  * Two read paths behind STATS_VIEWS_ENABLED (default off):
  *   - off: live GROUP aggregates + 30s LRU (pre-0088 behavior).

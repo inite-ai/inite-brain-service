@@ -89,10 +89,14 @@ vector leg   lexical leg   (HyPE alt-emb leg)
 - **Bitemporal cutoff is in WHERE** — `validFrom <= asOf < validUntil`
   and `retractedAt IS NONE OR retractedAt > asOf` push down into the
   leg query, no JS post-filter.
-- **PII gating** — DB-level via `PERMISSIONS WHERE $caller_scopes
-  CONTAINS 'brain:read_pii'` on the `object` field of `address` /
-  `dob`. Scoped pool signs in as a non-root editor; scope-less callers
-  get NONE for the value but still see the predicate exists.
+- **PII gating** — enforced at the APPLICATION layer (the policy row/PII
+  filter): scope-less callers still see that a PII-classed predicate
+  (`address` / `dob`) exists, but not its `object` value. A mirrored
+  DB-level `PERMISSIONS WHERE $caller_scopes CONTAINS 'brain:read_pii'`
+  fence is declared on those fields (migrations 0005/0057) but is **inert
+  today** — SurrealDB skips PERMISSIONS for the system `brain_caller` user,
+  so it enforces nothing until callers move to Record Access (future). See
+  [ABAC § DB-level fence status](abac.md#db-level-fence-status-migration-0057).
 
 Full feature-flag matrix → [Operations § Retrieval feature flags](operations.md#retrieval-feature-flags).
 
