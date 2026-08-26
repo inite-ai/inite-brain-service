@@ -186,7 +186,7 @@ interface ExternalToolContext extends RegisterPackToolsOptions {
 }
 
 function registerExternalTool(ctx: ExternalToolContext): void {
-  const { server, binding, tool, fullName, deps } = ctx;
+  const { server, companyId, binding, tool, fullName, deps } = ctx;
   const inputSchema: Record<string, z.ZodTypeAny> = {};
   for (const p of tool.params ?? []) {
     inputSchema[p.name] = paramSchema(p);
@@ -210,7 +210,7 @@ function registerExternalTool(ctx: ExternalToolContext): void {
       const forwarded = Object.fromEntries(
         Object.entries(args ?? {}).filter(([k]) => declared.has(k)),
       );
-      const out = await deps.proxy!.call({ binding, tool, args: forwarded });
+      const out = await deps.proxy!.call({ binding, tool, args: forwarded, companyId });
       return {
         content: out.content,
         ...(out.structuredContent ? { structuredContent: out.structuredContent } : {}),

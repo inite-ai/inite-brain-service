@@ -1,6 +1,7 @@
 import { createHmac, randomUUID } from 'node:crypto';
-import { HttpException, Injectable, Logger } from '@nestjs/common';
+import { HttpException, Injectable, Logger, Optional } from '@nestjs/common';
 import { envFlagEnabled } from '../common/env-validation';
+import { ToolObservationService } from '../outcomes/tool-observation.service';
 import { assertPublicHttpUrl, EgressDeniedError } from '../common/egress-guard';
 import type { PackExternalToolSpec } from '../ai/domain-packs';
 import { sanitizePackText } from './pack-tool-render';
@@ -38,10 +39,17 @@ export class PackToolProxyService {
   /** endpoint → consecutive transport failures + latch expiry. */
   private readonly breaker = new Map<string, { fails: number; until: number }>();
 
+  // @Optional so bare `new PackToolProxyService()` unit fixtures stay
+  // valid; without it (or with the 0111 master flag off) no observation
+  // rows are written.
+  constructor(@Optional() private readonly observations?: ToolObservationService) {}
+
   async call(opts: {
     binding: PackToolBinding;
     tool: PackExternalToolSpec;
     args: Record<string, unknown>;
+    /** Tenant for the 0111 observation row; omitted = no row. */
+    companyId?: string;
   }): Promise<PackToolCallResult> {
     const { binding, tool } = opts;
     const endpoint = tool.endpoint;
@@ -66,18 +74,43 @@ export class PackToolProxyService {
       if (e instanceof EgressDeniedError) throw upstreamError(e.message);
       throw e;
     }
+    const requestId = randomUUID();
     const payload = JSON.stringify({
       event: 'mcp_tool_call',
       tool: tool.name,
       packId: binding.packId,
       installId: binding.installId,
-      requestId: randomUUID(),
+      requestId,
       ts: new Date().toISOString(),
       args: opts.args,
     });
     const signature = createHmac('sha256', binding.webhookSecret).update(payload).digest('hex');
     const timeoutMs = Math.min(tool.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
-    const text = await this.deliver({ endpoint, payload, signature, timeoutMs });
+    // Direct 0111 observation around deliver — this seam knows the pack
+    // identity (packId/installId/requestId) the generic per-tool wrapper
+    // in McpService cannot see. Fire-and-forget, digests only.
+    const record = (ok: boolean, result: unknown, started: number): void => {
+      if (!opts.companyId || !this.observations?.enabled()) return;
+      this.observations.record(opts.companyId, {
+        tool: tool.name,
+        args: opts.args,
+        result,
+        ok,
+        durationMs: Date.now() - started,
+        requestId,
+        packId: binding.packId,
+        installId: binding.installId ?? undefined,
+      });
+    };
+    const started = Date.now();
+    let text: string;
+    try {
+      text = await this.deliver({ endpoint, payload, signature, timeoutMs });
+    } catch (e) {
+      record(false, undefined, started);
+      throw e;
+    }
+    record(true, text, started);
     return this.shapeResponse(endpoint, text);
   }
 

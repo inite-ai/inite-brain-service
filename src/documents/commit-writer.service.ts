@@ -217,7 +217,31 @@ export class CommitWriterService {
           ref: doc.id,
           note: `chunk ${mf.leaderChunkSeq}`,
         },
+        ...this.toolObservationEvidence(doc),
       ],
     };
+  }
+
+  /**
+   * The 0111 provenance hop: when the ingest path validated + stored a
+   * toolObservationRef on the document header (see
+   * DocumentIngestService.threadToolObservation), every committed fact's
+   * evidence[] carries the tool_observation entry alongside the document
+   * one — tool result → document → fact, no schema change (evidence is
+   * an open array inside FLEXIBLE source). Content-free: ref + a
+   * '<tool> @ <iso>' note.
+   */
+  private toolObservationEvidence(doc: StoredDocument): Array<Record<string, unknown>> {
+    const meta = doc.meta as Record<string, unknown> | undefined;
+    const ref = meta?.['toolObservationRef'];
+    if (typeof ref !== 'string' || ref.length === 0) return [];
+    const note = meta?.['toolObservationNote'];
+    return [
+      {
+        kind: 'tool_observation',
+        ref,
+        ...(typeof note === 'string' ? { note } : {}),
+      },
+    ];
   }
 }

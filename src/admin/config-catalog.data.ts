@@ -267,6 +267,35 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Days the raw memory_outcome event log is kept; the 03:41 UTC prune cron deletes older rows. The memory_outcome_stat rollup is never pruned.',
   },
+  // Tool observations (0111) — filed under 'audit' like the 0107 pair
+  // (append-only telemetry trail + retention knob).
+  {
+    key: 'TOOL_OBSERVATIONS_ENABLED',
+    category: 'audit',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Master switch for tool observations (0111): the per-request MCP build applies the content-free observation wrapper, the pack-tool proxy stamps identity rows, ingest accepts toolObservationRef, and the nightly prune leg runs. Off = wrapper not applied (byte-identical).',
+  },
+  {
+    key: 'TOOL_OBSERVATION_CONTENT',
+    category: 'audit',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Opt-in gate for the one content-bearing tool_observation column (contentExcerpt, sanitized, ≤512 chars) on top of TOOL_OBSERVATIONS_ENABLED. Off = rows are digest-only (content-free contract).',
+  },
+  {
+    key: 'TOOL_OBSERVATION_RETENTION_DAYS',
+    category: 'audit',
+    defaultValue: '30',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Days raw tool_observation rows are kept; the 03:41 UTC prune cron deletes older rows in bounded batches.',
+  },
   // ── Router ────────────────────────────────────────────────
   {
     key: 'CHAT_ROUTE_CACHE_ENABLED',

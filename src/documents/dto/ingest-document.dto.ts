@@ -92,4 +92,16 @@ export class IngestDocumentDto {
   @IsOptional()
   @IsIn(['sync', 'async'])
   mode?: 'sync' | 'async';
+
+  /**
+   * Optional provenance hop back to the tool result this document was
+   * derived from (migration 0111): `tool_observation:<id>`. Honored only
+   * under TOOL_OBSERVATIONS_ENABLED — validated against the tenant's own
+   * rows, stored on the document header, and folded into every committed
+   * fact's source.evidence[] as a `tool_observation` entry.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  toolObservationRef?: string;
 }

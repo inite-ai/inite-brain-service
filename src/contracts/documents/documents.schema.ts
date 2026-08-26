@@ -65,6 +65,15 @@ export const IngestDocumentRequestSchema = z.object({
     .enum(['sync', 'async'])
     .optional()
     .describe("'async' requires DOCUMENT_MULTI_INDEXER_ENABLED and storeContent."),
+  toolObservationRef: z
+    .string()
+    .max(160)
+    .optional()
+    .describe(
+      'Provenance hop to the tool result this document derives from ' +
+        '(tool_observation:<id>, migration 0111). Honored only under ' +
+        "TOOL_OBSERVATIONS_ENABLED; folded into committed facts' source.evidence[].",
+    ),
 });
 
 /** Shared commit tally (CommitResult['counts']). */
