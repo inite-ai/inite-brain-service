@@ -7,9 +7,14 @@
  * 30d INCLUDE ORIGINAL but no consumer existed). We assert:
  *   1. A cold cursor (lastVersionstamp=0) consumes every change.
  *   2. perBatchLimit caps the batch and leaves pendingRemaining > 0.
- *   3. Cursor is advanced to the highest consumed versionstamp.
- *   4. The unknown-source guard rejects an out-of-allowlist table.
+ *   3. Cursor is advanced to the highest consumed versionstamp — in the
+ *      SAME transaction as the INSERT (R4 #3 atomicity).
+ *   4. The UPDATE post-image is read from `current`, not the reverse patch
+ *      array under `update` (R4 #3 post-image parsing).
+ *   5. Each event carries a deterministic record id so a re-drain is a
+ *      no-op via INSERT IGNORE (R4 #3 idempotency).
  */
+import { StringRecordId } from 'surrealdb';
 import { ChangefeedDrainService } from '../src/audit/changefeed-drain.service';
 
 type Captured = { sql: string; params?: Record<string, unknown> | undefined };
@@ -21,6 +26,9 @@ function mkSurreal(opts: {
   const calls: Captured[] = [];
   const cursors = { ...(opts.cursors ?? {}) };
   const changes = opts.changes ?? {};
+  // Mirror INSERT IGNORE semantics: a re-inserted primary key is skipped, so
+  // the store tracks which deterministic ids have already landed.
+  const inserted = new Set<string>();
   const db = {
     query: async (sql: string, params?: Record<string, unknown>) => {
       calls.push({ sql, params });
@@ -34,20 +42,24 @@ function mkSurreal(opts: {
         const table = match?.[1] ?? '';
         return [changes[table] ?? []];
       }
-      if (sql.startsWith('CREATE audit_event')) {
-        return [[]];
+      // The drain now composes the INSERT + cursor UPSERT into ONE
+      // BEGIN…COMMIT block (runTransaction), so both statements — and their
+      // merged params — arrive in a single query() call.
+      if (sql.includes('INSERT IGNORE INTO audit_event')) {
+        for (const e of (params?.events as Array<{ id: unknown }> | undefined) ?? []) {
+          inserted.add(String(e.id));
+        }
       }
-      if (sql.startsWith('UPSERT changefeed_state')) {
-        const s = params?.source as string;
-        cursors[s] = params?.vs as number;
-        return [[]];
+      if (sql.includes('UPSERT changefeed_state')) {
+        cursors[params?.source as string] = params?.vs as number;
       }
-      return [[]];
+      return [[], [], []];
     },
   };
   return {
     db,
     calls,
+    inserted,
     surreal: {
       withCompany: async (_c: string, fn: (d: any) => Promise<any>) => fn(db),
     },
@@ -63,6 +75,14 @@ function mkSvc(surreal: any, cfgOverrides: Record<string, string> = {}): Changef
     },
   } as any;
   return new ChangefeedDrainService(surreal, config);
+}
+
+/** The transaction call that carries the INSERT + cursor UPSERT (one block). */
+function drainTx(calls: Captured[]): Captured | undefined {
+  return calls.find(
+    (c) =>
+      c.sql.includes('INSERT IGNORE INTO audit_event') && c.sql.includes('UPSERT changefeed_state'),
+  );
 }
 
 describe('ChangefeedDrainService', () => {
@@ -86,20 +106,96 @@ describe('ChangefeedDrainService', () => {
     const r = await svc.consumeForTenant('co_a');
     expect(r.consumed.knowledge_entity).toBe(2);
     expect(r.pendingRemaining).toBe(0);
-    const advance = calls.find((c) => c.sql.startsWith('UPSERT changefeed_state'));
-    expect(advance).toBeTruthy();
-    expect(advance!.params?.vs).toBe(12);
-    // Consumer batches via `INSERT INTO audit_event $events` now —
-    // one round-trip per (tenant × source). The two emit rows ride
-    // in the same params.events array.
-    const inserts = calls.filter((c) => c.sql.startsWith('INSERT INTO audit_event'));
-    expect(inserts).toHaveLength(1);
-    expect(((inserts[0]!.params?.events ?? []) as unknown[]).length).toBe(2);
+
+    // ATOMICITY: the INSERT and the cursor advance ride ONE transaction
+    // (a crash can't insert events without advancing the cursor, or vice
+    // versa). Exactly one such block for the single (tenant × source).
+    const tx = drainTx(calls);
+    expect(tx).toBeTruthy();
+    // versionstamps are normalised to bigint (u64 on 3.x overflows number).
+    expect(tx!.params?.vs).toBe(12n);
+    expect(calls.filter((c) => c.sql.includes('INSERT IGNORE INTO audit_event'))).toHaveLength(1);
+
+    const events = (tx!.params?.events ?? []) as Array<Record<string, unknown>>;
+    expect(events).toHaveLength(2);
+    // DETERMINISTIC id: <source>_<versionstamp>_<ordinal>, as the record id
+    // (StringRecordId), so a re-drain collides and INSERT IGNORE no-ops it.
+    expect(events[0]!.id).toBeInstanceOf(StringRecordId);
+    expect(String(events[0]!.id)).toBe('audit_event:knowledge_entity_10_0');
+    expect(String(events[1]!.id)).toBe('audit_event:knowledge_entity_12_0');
+
     // SHOW CHANGES must carry a LIMIT so a cold cursor can't materialise
     // the whole 30-day retention into the process.
     const show = calls.find((c) => c.sql.startsWith('SHOW CHANGES'));
     expect(show).toBeTruthy();
     expect(show!.sql).toMatch(/LIMIT \d+/);
+  });
+
+  it('reads the UPDATE post-image from `current`, not the reverse patch array', async () => {
+    // INCLUDE ORIGINAL shape: row under `current`, a reverse PATCH ARRAY under
+    // `update`. The old Object.keys(item)[0] read the patch array → garbage
+    // `after` and an empty recordId. The helper must read `current`.
+    const { surreal, calls } = mkSurreal({
+      changes: {
+        knowledge_fact: [
+          {
+            versionstamp: 30,
+            changes: [
+              {
+                current: { id: 'knowledge_fact:p1', status: 'superseded', object: 'secret' },
+                update: [{ op: 'change', path: '/status', value: 'x' }],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const svc = mkSvc(surreal);
+    await svc.consumeForTenant('co_a');
+    const events = (drainTx(calls)!.params?.events ?? []) as Array<Record<string, unknown>>;
+    expect(events).toHaveLength(1);
+    expect(events[0]!.op).toBe('update');
+    expect(events[0]!.recordId).toBe('knowledge_fact:p1');
+    const after = events[0]!.after as Record<string, unknown>;
+    expect(after.status).toBe('superseded'); // post-image, not the patch op
+    expect(after.object).toBe('[redacted]'); // value field still redacted
+    expect(Array.isArray(after)).toBe(false);
+  });
+
+  it('is idempotent: a re-drain of the same window inserts no duplicates', async () => {
+    const changeSet = {
+      knowledge_entity: [
+        { versionstamp: 10, changes: [{ update: { id: 'knowledge_entity:a' } }] },
+        { versionstamp: 12, changes: [{ update: { id: 'knowledge_entity:b' } }] },
+      ],
+    };
+    const { surreal, inserted } = mkSurreal({ changes: changeSet });
+    const svc = mkSvc(surreal);
+    await svc.consumeForTenant('co_a');
+    expect(inserted.size).toBe(2);
+
+    // Re-drain the SAME window (cursor reset to 0) — deterministic ids collide
+    // and INSERT IGNORE no-ops them, so the row count is unchanged.
+    const {
+      surreal: surreal2,
+      inserted: inserted2,
+      calls: calls2,
+    } = mkSurreal({
+      cursors: {},
+      changes: changeSet,
+    });
+    // Seed the store with the same ids the first drain would have written.
+    inserted2.add('audit_event:knowledge_entity_10_0');
+    inserted2.add('audit_event:knowledge_entity_12_0');
+    const svc2 = mkSvc(surreal2);
+    await svc2.consumeForTenant('co_a');
+    // The INSERT still fires (IGNORE), but produces the SAME two ids → no growth.
+    expect(inserted2.size).toBe(2);
+    const events = (drainTx(calls2)!.params?.events ?? []) as Array<Record<string, unknown>>;
+    expect(events.map((e) => String(e.id))).toEqual([
+      'audit_event:knowledge_entity_10_0',
+      'audit_event:knowledge_entity_12_0',
+    ]);
   });
 
   it('caps batch size and reports pendingRemaining for the trailing slice', async () => {
@@ -136,10 +232,9 @@ describe('ChangefeedDrainService', () => {
     const svc = mkSvc(surreal);
     const r = await svc.consumeForTenant('co_a');
     expect(r.consumed.knowledge_entity).toBe(1);
-    const inserts = calls.filter((c) => c.sql.startsWith('INSERT INTO audit_event'));
-    expect(((inserts[0]!.params?.events ?? []) as unknown[]).length).toBe(1);
-    const advance = calls.find((c) => c.sql.startsWith('UPSERT changefeed_state'));
-    expect(advance!.params?.vs).toBe(14);
+    const tx = drainTx(calls);
+    expect(((tx!.params?.events ?? []) as unknown[]).length).toBe(1);
+    expect(tx!.params?.vs).toBe(14n);
   });
 
   it('emits nothing on a second tick with no new writes past the cursor', async () => {
@@ -153,7 +248,7 @@ describe('ChangefeedDrainService', () => {
     const svc = mkSvc(surreal);
     const r = await svc.consumeForTenant('co_a');
     expect(r.consumed).toEqual({});
-    expect(calls.filter((c) => c.sql.startsWith('INSERT INTO audit_event'))).toHaveLength(0);
+    expect(calls.filter((c) => c.sql.includes('INSERT IGNORE INTO audit_event'))).toHaveLength(0);
   });
 
   it('emits no audit_event rows when the source returns nothing', async () => {
@@ -161,7 +256,6 @@ describe('ChangefeedDrainService', () => {
     const svc = mkSvc(surreal);
     const r = await svc.consumeForTenant('co_a');
     expect(r.consumed).toEqual({});
-    const inserts = calls.filter((c) => c.sql.startsWith('INSERT INTO audit_event'));
-    expect(inserts).toHaveLength(0);
+    expect(calls.filter((c) => c.sql.includes('INSERT IGNORE INTO audit_event'))).toHaveLength(0);
   });
 });

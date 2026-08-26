@@ -4,6 +4,7 @@ import { Surreal, Table } from 'surrealdb';
 import type { LiveSubscription } from 'surrealdb';
 import { envFlagEnabled } from '../common/env-validation';
 import { queryRows } from '../db/surreal.service';
+import { changefeedRow } from '../db/changefeed-row';
 import { makeRowPolicyFilter, type PredicatePolicyLookup } from '../policy/row-filter';
 
 /** One `SHOW CHANGES` batch row: a versionstamp plus its changefeed items. */
@@ -366,7 +367,12 @@ export function toFactEvent(
 export function toReplayEvent(item: unknown): LiveFactEvent | null {
   if (!item || typeof item !== 'object') return null;
   const i = item as Record<string, unknown>;
-  const row = (i.update ?? i.delete) as Record<string, unknown> | undefined;
+  // Post-image via the shared helper: on a CREATE the row is under `update`,
+  // but on an UPDATE `update` is a reverse PATCH ARRAY and the row is under
+  // `current` — reading `item.update.id` there is undefined, which silently
+  // dropped every fact UPDATE from replay (same shape trap as the audit drain,
+  // R4 #3). A delete carries only its id, so keep the prior id-only path.
+  const row = changefeedRow(item) ?? (i.delete as Record<string, unknown> | undefined);
   if (!row) return null;
   return toFactEvent(
     { action: i.delete ? 'DELETE' : 'UPDATE', recordId: row.id, value: row },

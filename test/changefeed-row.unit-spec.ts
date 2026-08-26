@@ -1,4 +1,4 @@
-import { changefeedRow, changefeedRecordId } from '../src/db/changefeed-row';
+import { changefeedRow, changefeedRecordId, changefeedOp } from '../src/db/changefeed-row';
 
 /**
  * The `SHOW CHANGES` item shape under `CHANGEFEED … INCLUDE ORIGINAL`, pinned
@@ -55,8 +55,14 @@ describe('changefeedRow', () => {
     expect(row!.id).toBe('knowledge_fact:p1');
   });
 
-  it('returns null for a delete and for malformed items', () => {
+  // 3.2.4 under INCLUDE ORIGINAL emits delete as an OBJECT, not a string.
+  const deletedWithOriginal = {
+    delete: { id: 'knowledge_fact:p1', original: { id: 'knowledge_fact:p1', status: 'active' } },
+  };
+
+  it('returns null for a delete (no post-image) and for malformed items', () => {
     expect(changefeedRow({ delete: 'knowledge_fact:p1' })).toBeNull();
+    expect(changefeedRow(deletedWithOriginal)).toBeNull();
     expect(changefeedRow({ define_table: { name: 'knowledge_fact' } })).toBeNull();
     expect(changefeedRow(null)).toBeNull();
     expect(changefeedRow('nonsense')).toBeNull();
@@ -67,11 +73,27 @@ describe('changefeedRow', () => {
       expect(changefeedRecordId(created)).toBe('knowledge_fact:p1');
       expect(changefeedRecordId(updated)).toBe('knowledge_fact:p1');
       expect(changefeedRecordId({ delete: 'knowledge_fact:gone' })).toBe('knowledge_fact:gone');
+      // 3.2.4 delete-as-object shape.
+      expect(changefeedRecordId(deletedWithOriginal)).toBe('knowledge_fact:p1');
     });
 
     it('returns null when there is no id to read', () => {
       expect(changefeedRecordId({ define_table: {} })).toBeNull();
       expect(changefeedRecordId(undefined)).toBeNull();
+    });
+  });
+
+  describe('changefeedOp', () => {
+    it('labels each op from the same shape rules as changefeedRow', () => {
+      // A CREATE (row under `update`) is NOT `update` — the old
+      // Object.keys(item)[0] read mislabelled it.
+      expect(changefeedOp(created)).toBe('create');
+      expect(changefeedOp(updated)).toBe('update');
+      expect(changefeedOp({ delete: 'knowledge_fact:gone' })).toBe('delete');
+      expect(changefeedOp(deletedWithOriginal)).toBe('delete'); // 3.2.4 object shape
+      expect(changefeedOp({ define_table: { name: 'knowledge_fact' } })).toBe('define');
+      expect(changefeedOp(null)).toBe('unknown');
+      expect(changefeedOp('nonsense')).toBe('unknown');
     });
   });
 });
