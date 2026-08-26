@@ -17,6 +17,7 @@ import { CodeMemoryModule } from '../code-memory/code-memory.module';
 import { SourcesModule } from '../sources/sources.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { FeedbackModule } from '../feedback/feedback.module';
+import { OutcomesModule } from '../outcomes/outcomes.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
     SourcesModule,
     DocumentsModule,
     FeedbackModule,
+    OutcomesModule,
   ],
   controllers: [McpController],
   providers: [McpService, PackToolsReaderService, PackToolProxyService],

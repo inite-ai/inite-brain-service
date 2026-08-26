@@ -34,6 +34,8 @@ import { PACK_NAMESPACE_SEP } from '../ai/domain-packs';
 import { PackToolsReaderService, type PackToolBinding } from './pack-tools-reader.service';
 import { PackToolProxyService } from './pack-tool-proxy.service';
 import { registerPackTools } from './pack-tools';
+import { ToolObservationService } from '../outcomes/tool-observation.service';
+import { toolObservationsEnabled } from '../common/tool-observation-flags';
 
 const MCP_SERVER_VERSION = '0.3.0';
 
@@ -114,6 +116,9 @@ export class McpService {
     private readonly packToolsReader: PackToolsReaderService,
     private readonly packToolProxy: PackToolProxyService,
     @Optional() private readonly metrics?: MetricsService,
+    // @Optional so positionally-constructed unit fixtures stay valid
+    // (the OutcomesModule injection discipline).
+    @Optional() private readonly toolObservations?: ToolObservationService,
   ) {}
 
   /**
@@ -238,6 +243,57 @@ export class McpService {
       if (!allows(name)) tool.remove();
       return tool;
     };
+  }
+
+  /**
+   * Tool observation recorder (0111) — applied LAST in buildServer, so
+   * it is the INNERMOST wrapper at call time (earlier-applied patches
+   * are outermost): it runs INSIDE the policy + grant gates and the
+   * error wrapper. Consequences, by construction:
+   *   * a policy/grant-denied call never reaches this wrapper — denied
+   *     calls produce NO observation row;
+   *   * durationMs times the RAW handler, not the gates;
+   *   * a thrown handler error is recorded ok:false and RETHROWN, so the
+   *     outer wrapToolErrors keeps the client-facing error shape.
+   * The recorder is fire-and-forget and content-free (digests only) —
+   * see ToolObservationService. Only patched when the master flag is on
+   * at server build (per-request), so off = byte-identical.
+   */
+  private applyToolObservation(server: McpServer, companyId: string): void {
+    const recorder = this.toolObservations;
+    if (!recorder) return;
+    const raw = server.registerTool.bind(server);
+    (server as unknown as { registerTool: unknown }).registerTool = (
+      name: string,
+      config: unknown,
+      handler: (...args: unknown[]) => unknown,
+    ) =>
+      raw(
+        name as never,
+        config as never,
+        (async (...args: unknown[]) => {
+          const started = Date.now();
+          try {
+            const result = await handler(...args);
+            recorder.record(companyId, {
+              tool: name,
+              args: args[0],
+              result,
+              ok: (result as { isError?: boolean } | undefined)?.isError !== true,
+              durationMs: Date.now() - started,
+            });
+            return result;
+          } catch (e) {
+            recorder.record(companyId, {
+              tool: name,
+              args: args[0],
+              ok: false,
+              durationMs: Date.now() - started,
+            });
+            throw e;
+          }
+        }) as never,
+      );
   }
 
   /**
@@ -466,6 +522,12 @@ export class McpService {
         granted: caller.mcpGrantedActions,
         actionOf: resourceActionOf,
       });
+    }
+    // Applied LAST = INNERMOST: inside policy + grant gates (denied
+    // calls record nothing) and inside wrapToolErrors (thrown errors are
+    // recorded ok:false then rethrown to keep the client shape).
+    if (toolObservationsEnabled()) {
+      this.applyToolObservation(server, companyId);
     }
     registerReadTools({
       server,

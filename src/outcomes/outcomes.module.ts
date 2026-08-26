@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MemoryOutcomeService } from './memory-outcome.service';
 import { OutcomePruneService } from './outcome-prune.service';
+import { ToolObservationService } from './tool-observation.service';
 
 /**
  * Outcome telemetry (migration 0107): the append-only memory_outcome
@@ -12,7 +13,7 @@ import { OutcomePruneService } from './outcome-prune.service';
  * SurrealService and ApiKeyService come from @Global modules.
  */
 @Module({
-  providers: [MemoryOutcomeService, OutcomePruneService],
-  exports: [MemoryOutcomeService],
+  providers: [MemoryOutcomeService, OutcomePruneService, ToolObservationService],
+  exports: [MemoryOutcomeService, ToolObservationService],
 })
 export class OutcomesModule {}

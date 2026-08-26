@@ -1,0 +1,10 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`payload-digest snapshot: known digests (any drift here is a provenance break) 1`] = `
+{
+  "empty": "74234e98afe7498f",
+  "emptyObject": "44136fa355b3678a",
+  "list": "5638683081b5aced",
+  "sample": "cdab067e9f3beb32",
+}
+`;
