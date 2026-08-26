@@ -1,9 +1,10 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Surreal } from 'surrealdb';
-import { SurrealService } from '../db/surreal.service';
+import { StringRecordId, type Surreal } from 'surrealdb';
+import { SurrealService, runTransaction } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { redactAfterImage } from './changefeed-redaction';
+import { changefeedOp, changefeedRecordId, changefeedRow } from '../db/changefeed-row';
 import { envFlagEnabled } from '../common/env-validation';
 
 /**
@@ -86,25 +87,49 @@ export class ChangefeedDrainService {
         // N and leave the remainder for the next tick so a backlog
         // can't lock the cron up. Sort by versionstamp ascending to
         // guarantee we never advance the cursor past unconsumed rows.
-        const sorted = changes
-          .slice()
-          .sort((a, b) => (a.versionstamp as number) - (b.versionstamp as number));
+        // Compare, don't subtract: versionstamps are bigint on 3.x and
+        // `bigint - bigint` is fine but `number - number` from a unit stub
+        // isn't a bigint — a comparison works for both without conversion.
+        const sorted = changes.slice().sort((a, b) => {
+          const av = a.versionstamp as bigint;
+          const bv = b.versionstamp as bigint;
+          return av < bv ? -1 : av > bv ? 1 : 0;
+        });
         const batch = sorted.slice(0, this.perBatchLimit);
         const trailing = sorted.length - batch.length;
         pendingRemaining += trailing;
 
-        // Bulk-insert the whole batch in one round-trip. Sequential
-        // CREATE was the bottleneck under load: 500 changes × 3 sources
-        // × 50 tenants = 75K serial round-trips per tick, easily
-        // overflowing the EVERY_MINUTE budget. INSERT INTO ... [..]
-        // takes one RTT per source instead.
+        // Emit the batch AND advance the cursor in ONE transaction. They
+        // were two separate round-trips before: a crash in the gap either
+        // re-inserted the whole batch on restart (INSERT succeeded, cursor
+        // never advanced) or dropped it (cursor advanced first) — R4 #3.
+        // `runTransaction` sends both as one BEGIN…COMMIT block (the driver
+        // rejects BEGIN/COMMIT issued as separate query() calls). The batch
+        // still travels in a single INSERT so the per-tick round-trip count
+        // stays at one per (tenant × source) — the load fix that replaced
+        // 75K serial CREATEs.
         const events = this.buildAuditEventBatch(source, batch);
-        if (events.length > 0) {
-          await db.query(`INSERT INTO audit_event $events`, { events });
-        }
         const lastChange = batch[batch.length - 1];
-        if (lastChange) {
-          await this.advanceCursor(db, source, lastChange.versionstamp as number);
+        const lastVs = lastChange ? (lastChange.versionstamp as bigint) : undefined;
+        if (lastVs !== undefined) {
+          await runTransaction(db, (tx) => {
+            // INSERT IGNORE: each event carries a deterministic record id
+            // (source+versionstamp+ordinal), so a re-drain of the same
+            // window collides on the primary key and no-ops instead of
+            // duplicating — idempotent without a UNIQUE index / migration.
+            if (events.length > 0) {
+              tx.add('INSERT IGNORE INTO audit_event $events').bind('events', events);
+            }
+            tx.add(
+              `UPSERT changefeed_state:[$source] CONTENT {
+                  source: $source,
+                  lastVersionstamp: $vs,
+                  updatedAt: time::now()
+               }`,
+            )
+              .bind('source', source)
+              .bind('vs', lastVs);
+          });
         }
         consumed[source] = batch.length;
       }
@@ -132,7 +157,11 @@ export class ChangefeedDrainService {
       for (const source of ChangefeedDrainService.SOURCES) {
         try {
           const cursor = await this.loadCursor(db, source);
-          out.push({ source, cursor });
+          // Display value only (operator gauge): coerce the bigint cursor to a
+          // number so the admin JSON response can serialise it — JSON.stringify
+          // throws on a bigint. Precision loss on a ~1e17 versionstamp is
+          // immaterial for spotting a stuck tenant.
+          out.push({ source, cursor: Number(cursor) });
         } catch (e) {
           this.logger.warn(
             `[changefeed] cursor read failed (${companyId}/${source}): ${(e as Error).message}`,
@@ -145,20 +174,22 @@ export class ChangefeedDrainService {
 
   // ── Wire-format helpers ──────────────────────────────────────────
 
-  private async loadCursor(db: Surreal, source: string): Promise<number> {
+  private async loadCursor(db: Surreal, source: string): Promise<bigint> {
     const [rows] = await db.query(
       `SELECT lastVersionstamp FROM changefeed_state
         WHERE source = $s LIMIT 1`,
       { s: source },
     );
-    const arr = (rows as Array<{ lastVersionstamp: number }>) ?? [];
-    return arr[0]?.lastVersionstamp ?? 0;
+    const arr = (rows as Array<{ lastVersionstamp: number | bigint }>) ?? [];
+    // bigint throughout — see fetchChanges. BigInt() accepts the stored int
+    // (number or bigint) and the 0 cold-start default alike.
+    return BigInt(arr[0]?.lastVersionstamp ?? 0);
   }
 
   private async fetchChanges(
     db: Surreal,
     source: string,
-    since: number,
+    since: bigint,
   ): Promise<Array<Record<string, unknown>>> {
     // SHOW CHANGES is parameter-friendly for the SINCE clause but the
     // table name is a syntactic identifier — we whitelist it via the
@@ -169,15 +200,26 @@ export class ChangefeedDrainService {
     const [rows] = await db.query(
       `SHOW CHANGES FOR TABLE ${source} SINCE ${since} LIMIT ${this.fetchLimit}`,
     );
-    const changes = (rows as Array<Record<string, unknown>>) ?? [];
+    const raw = (rows as Array<Record<string, unknown>>) ?? [];
+    // SurrealDB 3.x returns the SHOW CHANGES versionstamp as a u64 BigInt
+    // (~1.17e17 — far above Number.MAX_SAFE_INTEGER, so Number() would both
+    // lose precision AND fail to re-encode). Keep it bigint ONCE, here, so
+    // every downstream consumer (sort, boundary filter, deterministic id,
+    // cursor UPSERT) stays bigint-typed — mixing bigint and number in
+    // arithmetic throws. A unit stub that emits plain-number versionstamps is
+    // normalised the same way (BigInt(10) === 10n).
+    const changes = raw.map((c) => ({
+      ...c,
+      versionstamp: BigInt(c.versionstamp as number | bigint),
+    }));
     // SurrealDB's SHOW CHANGES ... SINCE <vs> is inclusive of the boundary
     // versionstamp: a cursor parked at the last consumed vs would re-surface
     // that same row on the next tick → duplicate audit_event. Drop anything
     // at or below the cursor. Idempotent regardless of the DB's exact
     // boundary semantics; cold start (since=0) keeps all real changes since
     // versionstamps are strictly positive.
-    if (since > 0) {
-      return changes.filter((c) => (c.versionstamp as number) > since);
+    if (since > 0n) {
+      return changes.filter((c) => (c.versionstamp as bigint) > since);
     }
     return changes;
   }
@@ -185,12 +227,18 @@ export class ChangefeedDrainService {
   /**
    * Flatten a batch of SHOW CHANGES rows into the audit_event shape.
    *
-   * Each `change` row carries one or more items (`update` / `delete` /
-   * `define_table`); each item becomes one audit_event. We compute
-   * the array once so the consumer can submit them in a single
-   * `INSERT INTO audit_event [..]` round-trip instead of N serial
-   * CREATEs. Returning the array (not awaiting per-row) is what makes
-   * the operation bulk-able.
+   * Each `change` row carries one or more items (create / update / delete /
+   * define_table); each item becomes one audit_event. Shape parsing goes
+   * through the shared `changefeedRow` / `changefeedRecordId` / `changefeedOp`
+   * helpers — the old ad-hoc `Object.keys(item)[0]` read the reverse PATCH
+   * ARRAY that `INCLUDE ORIGINAL` puts under `update` on an UPDATE (the real
+   * post-image is under `current`), so every update was mislabelled and its
+   * `after` image was garbage (R4 #3).
+   *
+   * Each event gets a DETERMINISTIC record id — `<source>_<versionstamp>_<ordinal>`
+   * — so a re-drain of the same change window produces the same ids and the
+   * `INSERT IGNORE` in `consumeForTenant` no-ops the duplicates. We compute the
+   * array once so the whole batch rides one INSERT round-trip.
    */
   private buildAuditEventBatch(
     source: string,
@@ -198,40 +246,26 @@ export class ChangefeedDrainService {
   ): Array<Record<string, unknown>> {
     const out: Array<Record<string, unknown>> = [];
     for (const change of changes) {
-      const versionstamp = change.versionstamp as number;
+      const versionstamp = change.versionstamp as bigint;
       const items = (change.changes as Array<Record<string, unknown>> | undefined) ?? [];
-      for (const item of items) {
-        const op = Object.keys(item)[0] ?? 'unknown';
-        const payload = (item as Record<string, unknown>)[op] as
-          Record<string, unknown> | string | undefined;
-        const recordId =
-          op === 'delete'
-            ? String(payload)
-            : ((payload as { id?: unknown } | undefined)?.id?.toString() ?? '');
-        const after =
-          typeof payload === 'object'
-            ? redactAfterImage(payload as Record<string, unknown>)
-            : undefined;
-        out.push({
+      for (const [ordinal, item] of items.entries()) {
+        const op = changefeedOp(item);
+        const recordId = changefeedRecordId(item) ?? '';
+        const row = changefeedRow(item);
+        const event: Record<string, unknown> = {
+          // A full record id (`audit_event:<key>`) makes the id the primary
+          // key, so INSERT IGNORE dedupes on re-drain. Key parts are numeric /
+          // table-name tokens → a plain, unquoted-safe id tail.
+          id: new StringRecordId(`audit_event:${source}_${versionstamp}_${ordinal}`),
           source,
           recordId,
           op,
           versionstamp,
-          after,
-        });
+        };
+        if (row) event.after = redactAfterImage(row);
+        out.push(event);
       }
     }
     return out;
-  }
-
-  private async advanceCursor(db: Surreal, source: string, versionstamp: number): Promise<void> {
-    await db.query(
-      `UPSERT changefeed_state:[$source] CONTENT {
-          source: $source,
-          lastVersionstamp: $vs,
-          updatedAt: time::now()
-       }`,
-      { source, vs: versionstamp },
-    );
   }
 }

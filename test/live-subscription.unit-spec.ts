@@ -102,6 +102,21 @@ describe('LiveSubscriptionManager', () => {
       expect(toReplayEvent(null)).toBeNull();
     });
 
+    it('reads an UPDATE post-image from `current`, not the reverse patch array', () => {
+      // INCLUDE ORIGINAL puts the row under `current` and a reverse PATCH
+      // ARRAY under `update`. Reading `item.update.id` there is undefined, so
+      // every fact UPDATE was silently dropped from replay (R4 #3). The shared
+      // changefeedRow helper reads `current`.
+      const ev = toReplayEvent({
+        current: { id: 'knowledge_fact:f1', predicate: 'likes', object: 'o' },
+        update: [{ op: 'change', path: '/object', value: 'x' }],
+      });
+      expect(ev).not.toBeNull();
+      expect(ev?.factId).toBe('knowledge_fact:f1');
+      expect(ev?.predicate).toBe('likes');
+      expect(ev?.via).toBe('replay');
+    });
+
     it('uses the double-prefixed tenant database name', () => {
       expect(dbNameFor('co_acme')).toBe('co_co_acme');
     });
