@@ -7,6 +7,8 @@ import { PREDICATE_POLICIES } from '../ingest/conflict-resolver';
 import { ConcatSummaryGenerator, FactToSummarize, SummaryGenerator } from './summary-generator';
 import { SUMMARY_GENERATOR } from './compaction.types';
 import { envFlagEnabled } from '../common/env-validation';
+import { summaryEpisodeStampEnabled } from '../common/provenance-flags';
+import { unionEpisodeIds } from '../common/episode-ids';
 
 /**
  * PromotionRunnerService — episodic→semantic promotion.
@@ -55,6 +57,8 @@ interface PromotableRow {
   validUntil?: string | null;
   confidence: number;
   userId?: string | null;
+  /** `source.episodeIds AS eps` — grounding stamp of the member (FLEXIBLE). */
+  eps?: unknown;
 }
 
 @Injectable()
@@ -170,7 +174,8 @@ export class PromotionRunnerService {
   ): Promise<number> {
     const scopeClause = group.userId ? 'AND userId = $scopeUser' : 'AND userId IS NONE';
     const [rows] = (await db.query(
-      `SELECT id, entityId, predicate, object, validFrom, validUntil, confidence, userId
+      `SELECT id, entityId, predicate, object, validFrom, validUntil, confidence, userId,
+              source.episodeIds AS eps
        FROM knowledge_fact
        WHERE entityId = $entity AND predicate = $predicate
          AND status = 'active' AND retractedAt IS NONE
@@ -222,6 +227,14 @@ export class PromotionRunnerService {
     const earliest = first.validFrom;
     const meanConfidence = members.reduce((acc, m) => acc + m.confidence, 0) / members.length;
 
+    // Evidence plane (PROVENANCE_SUMMARY_EPISODE_STAMP): the summary
+    // carries the union of its members' grounding stamps (window-deriver
+    // idiom, capped 64). Flag off → empty union → the source object is
+    // byte-identical to today's `{ kind: 'promotion' }`.
+    const episodeIds = summaryEpisodeStampEnabled()
+      ? unionEpisodeIds(members.map((m) => m.eps))
+      : [];
+
     await dbCreate(db, 'knowledge_fact', {
       entityId: first.entityId,
       predicate: `summary_${group.predicate}`,
@@ -229,7 +242,7 @@ export class PromotionRunnerService {
       confidence: meanConfidence,
       validFrom: earliest,
       validUntil: last.validUntil ?? last.validFrom,
-      source: { kind: 'promotion' },
+      source: { kind: 'promotion', ...(episodeIds.length ? { episodeIds } : {}) },
       derivedFrom: members.map((m) => m.id),
       status: 'active',
       ...(group.userId ? { userId: group.userId } : {}),

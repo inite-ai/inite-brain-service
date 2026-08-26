@@ -55,6 +55,38 @@ export const FactProvenanceResponseSchema = z.object({
   factId: z.string(),
   /** Grounding turns (source.episodeIds), chronological. */
   episodes: z.array(FactProvenanceEpisodeSchema),
+  /**
+   * Recursive support closure (PROVENANCE_RECURSIVE_CLOSURE, default
+   * off): the facts this fact was derived from, transitively, with
+   * their derivedFrom distance and lifecycle status (compacted /
+   * retracted members still witness — status is reported, not hidden).
+   * Absent (not empty) when the flag is off or the fact has no
+   * derivedFrom → backward-compatible.
+   */
+  derivedFacts: z
+    .array(
+      z.object({
+        factId: z.string(),
+        predicate: z.string(),
+        depth: z.number(),
+        status: z.string(),
+      }),
+    )
+    .optional(),
+  /**
+   * Closure walk summary: deepest hop reached, supporting-fact count,
+   * whether a depth/fan-out/episode cap truncated the walk, and whether
+   * a visibility fence silently dropped ≥1 member. Absent with the flag
+   * off → backward-compatible.
+   */
+  closure: z
+    .object({
+      depth: z.number(),
+      factCount: z.number(),
+      truncated: z.boolean(),
+      filtered: z.boolean(),
+    })
+    .optional(),
 });
 
 export type FactReadResponse = z.infer<typeof FactReadResponseSchema>;

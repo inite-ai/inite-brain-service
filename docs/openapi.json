@@ -844,6 +844,57 @@
       "FactProvenanceResponse": {
         "additionalProperties": false,
         "properties": {
+          "closure": {
+            "additionalProperties": false,
+            "properties": {
+              "depth": {
+                "type": "number"
+              },
+              "factCount": {
+                "type": "number"
+              },
+              "filtered": {
+                "type": "boolean"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "depth",
+              "factCount",
+              "truncated",
+              "filtered"
+            ],
+            "type": "object"
+          },
+          "derivedFacts": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "depth": {
+                  "type": "number"
+                },
+                "factId": {
+                  "type": "string"
+                },
+                "predicate": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "factId",
+                "predicate",
+                "depth",
+                "status"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "episodes": {
             "items": {
               "$ref": "#/components/schemas/FactProvenanceEpisode"

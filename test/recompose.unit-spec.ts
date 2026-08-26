@@ -264,4 +264,103 @@ describe('RecomposeService', () => {
       expect(generator.generate).not.toHaveBeenCalled();
     });
   });
+
+  /**
+   * Evidence plane (PROVENANCE_SUMMARY_EPISODE_STAMP): the rewrite
+   * re-stamps source.episodeIds from the CURRENT parents' union in the
+   * same UPDATE — the incremental path that makes a backfill pass
+   * unnecessary. Flag off must produce today's EXACT statement (golden
+   * below); an empty union under the flag clears the field with NONE.
+   */
+  describe('rewrite — summary episode re-stamping', () => {
+    const saved = process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+    afterEach(() => {
+      if (saved === undefined) delete process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+      else process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = saved;
+    });
+
+    const staleSummary = {
+      id: 'knowledge_fact:sum1',
+      predicate: 'summary_lives_in',
+      derivedFrom: ['knowledge_fact:p1', 'knowledge_fact:p2'],
+      staleAt: '2023-06-01T00:00:00Z',
+    };
+    const stampedParents = {
+      'knowledge_fact:p1': parent('knowledge_fact:p1', 'Berlin', {
+        eps: ['episode:e1', 'episode:shared'],
+      }),
+      'knowledge_fact:p2': parent('knowledge_fact:p2', 'Dublin', {
+        validFrom: '2023-02-01T00:00:00Z',
+        eps: ['episode:shared', 'episode:e2'],
+      }),
+    };
+
+    it("flag OFF (default): today's EXACT statement — golden, no episodeIds fragment", async () => {
+      delete process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+      const { svc, queries } = make({ stale: [staleSummary], parents: stampedParents });
+      await svc.recompute('co_x');
+      const write = queries.find((q) => q.sql.includes('staleAt = NONE'));
+      expect(write!.sql).toBe(
+        `UPDATE $id SET
+         object = $object, confidence = $confidence,
+         validFrom = <datetime>$validFrom,
+         validUntil = <datetime>$validUntil,
+         derivedFrom = $derivedFrom,
+         staleAt = NONE, staleReason = NONE`,
+      );
+      expect(write!.params.episodeIds).toBeUndefined();
+    });
+
+    it('flag ON: re-stamps the union of the CURRENT parents (chronological parent order)', async () => {
+      process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = '1';
+      const { svc, queries } = make({ stale: [staleSummary], parents: stampedParents });
+      await svc.recompute('co_x');
+      const write = queries.find((q) => q.sql.includes('staleAt = NONE'));
+      expect(write!.sql).toContain('source.episodeIds = $episodeIds');
+      // Parents are fed chronologically (p1 2023-01 before p2 2023-02);
+      // the union follows that order, 'shared' deduped on first sight.
+      expect(write!.params.episodeIds).toEqual(['episode:e1', 'episode:shared', 'episode:e2']);
+    });
+
+    it('flag ON: follows supersededBy — the stamp comes from the LIVE parent', async () => {
+      process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = '1';
+      const { svc, queries } = make({
+        stale: [{ ...staleSummary, derivedFrom: ['knowledge_fact:p1'] }],
+        parents: {
+          'knowledge_fact:p1': parent('knowledge_fact:p1', 'old', {
+            supersededBy: 'knowledge_fact:p1v2',
+            eps: ['episode:stale'],
+          }),
+          'knowledge_fact:p1v2': parent('knowledge_fact:p1v2', 'new', {
+            eps: ['episode:current'],
+          }),
+        },
+      });
+      await svc.recompute('co_x');
+      const write = queries.find((q) => q.sql.includes('staleAt = NONE'));
+      expect(write!.params.episodeIds).toEqual(['episode:current']);
+    });
+
+    it('flag ON, unstamped parents: the fragment clears the field with NONE', async () => {
+      process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = '1';
+      const { svc, queries } = make({
+        stale: [staleSummary],
+        parents: {
+          'knowledge_fact:p1': parent('knowledge_fact:p1', 'Berlin'),
+          'knowledge_fact:p2': parent('knowledge_fact:p2', 'Dublin'),
+        },
+      });
+      await svc.recompute('co_x');
+      const write = queries.find((q) => q.sql.includes('staleAt = NONE'));
+      expect(write!.sql).toContain('source.episodeIds = NONE');
+      expect(write!.params.episodeIds).toBeUndefined();
+    });
+
+    it('the parent SELECTs carry the grounding stamp column', async () => {
+      const { svc, queries } = make({ stale: [staleSummary], parents: stampedParents });
+      await svc.recompute('co_x');
+      const batch = queries.find((q) => q.sql.includes('WHERE id INSIDE $ids'));
+      expect(batch!.sql).toContain('source.episodeIds AS eps');
+    });
+  });
 });

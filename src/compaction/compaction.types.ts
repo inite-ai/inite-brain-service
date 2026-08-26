@@ -27,4 +27,6 @@ export interface CandidateFactRow {
   confidence: number;
   /** Per-user scope (0055); NONE/undefined = tenant-global. */
   userId?: string | null;
+  /** `source.episodeIds AS eps` — grounding stamp of the member (FLEXIBLE). */
+  eps?: unknown;
 }

@@ -5,17 +5,33 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { Surreal } from 'surrealdb';
+import { StringRecordId, Surreal } from 'surrealdb';
 import { SurrealService, dbMerge, queryFirst, queryRows } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
-import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
+import { EpisodeReadStoreService, EpisodeQuoteRow } from '../episodes/episode-read-store.service';
 import { RetractFactDto } from './dto/retract.dto';
 import { BrainScope } from '../auth/api-key.types';
 import { pinUserScope } from '../auth/user-scope';
-import { principalScopeTags, scopeTagsEnabled, visibleUnderScope } from '../auth/scope-visibility';
-import { makeRowPolicyFilter, type PolicyFilterableRow } from '../policy/row-filter';
+import {
+  principalScopeTags,
+  scopeTagsEnabled,
+  visibleUnderScope,
+  type PrincipalScope,
+} from '../auth/scope-visibility';
+import {
+  makeRowPolicyFilter,
+  type PolicyFilterableRow,
+  type RowPolicyFilter,
+} from '../policy/row-filter';
 import { activeFactWhere } from '../entities/entity-read.helpers';
+import {
+  closureMaxDepth,
+  closureMaxEpisodes,
+  closureMaxFacts,
+  recursiveClosureEnabled,
+} from '../common/provenance-flags';
+import { indexCharSpans, walkProvenanceClosure, type ProvenanceSpan } from './provenance-closure';
 
 /**
  * Predicate-class allowlist that requires `brain:admin` for retract,
@@ -89,42 +105,6 @@ export interface RetractOptions {
  */
 const PROVENANCE_TEXT_CHAR_CAP = 600;
 
-/**
- * Defensive read of source.charSpans (G3 — written by the derive row
- * builder, but `source` is FLEXIBLE so shapes are never guaranteed).
- * Keeps the first well-formed span per episode; malformed entries are
- * ignored. Only {start, end, exact} go on the wire — prefix/suffix are
- * re-anchoring context for the store, not the API.
- */
-function indexCharSpans(
-  charSpans: unknown,
-): Map<string, { start: number; end: number; exact: string }> {
-  const byEpisode = new Map<string, { start: number; end: number; exact: string }>();
-  if (!Array.isArray(charSpans)) return byEpisode;
-  for (const raw of charSpans) {
-    const s = raw as {
-      episodeId?: unknown;
-      start?: unknown;
-      end?: unknown;
-      exact?: unknown;
-    };
-    if (
-      typeof s?.episodeId === 'string' &&
-      typeof s.start === 'number' &&
-      typeof s.end === 'number' &&
-      typeof s.exact === 'string' &&
-      !byEpisode.has(s.episodeId)
-    ) {
-      byEpisode.set(s.episodeId, {
-        start: s.start,
-        end: s.end,
-        exact: s.exact,
-      });
-    }
-  }
-  return byEpisode;
-}
-
 /** Wire shape of GET /v1/facts/:id. */
 export interface FactReadResult {
   factId: string;
@@ -164,11 +144,44 @@ export interface FactProvenanceEpisode {
   textTruncated?: boolean;
 }
 
+/**
+ * One supporting fact of the recursive closure
+ * (PROVENANCE_RECURSIVE_CLOSURE): what the root was derived from,
+ * transitively, with its derivedFrom distance and lifecycle status
+ * (compacted/retracted members still witness — status is reported,
+ * never hidden).
+ */
+export interface FactProvenanceDerivedFact {
+  factId: string;
+  predicate: string;
+  depth: number;
+  status: string;
+}
+
+/** Closure walk summary (PROVENANCE_RECURSIVE_CLOSURE). */
+export interface FactProvenanceClosure {
+  /** Deepest derivedFrom hop reached (root = 0). */
+  depth: number;
+  /** Supporting facts in the closure (root excluded). */
+  factCount: number;
+  /** True when a depth / fan-out / episode cap cut the walk short. */
+  truncated: boolean;
+  /** True when ≥1 member was silently dropped by a visibility fence. */
+  filtered: boolean;
+}
+
 /** Wire shape of GET /v1/facts/:id/provenance. */
 export interface FactProvenanceResult {
   factId: string;
   /** Grounding turns (source.episodeIds), chronological. */
   episodes: FactProvenanceEpisode[];
+  /**
+   * Recursive support closure (PROVENANCE_RECURSIVE_CLOSURE) — absent
+   * (not empty) when the flag is off or the root has no derivedFrom, so
+   * the default response stays byte-identical.
+   */
+  derivedFacts?: FactProvenanceDerivedFact[];
+  closure?: FactProvenanceClosure;
 }
 
 interface FactReadOptions {
@@ -178,7 +191,7 @@ interface FactReadOptions {
 }
 
 /** Row shape loadVisibleFact selects (superset of PolicyFilterableRow). */
-interface FactReadRow extends PolicyFilterableRow {
+export interface FactReadRow extends PolicyFilterableRow {
   id: unknown;
   object?: unknown;
   confidence?: unknown;
@@ -188,6 +201,54 @@ interface FactReadRow extends PolicyFilterableRow {
   derivedVersion?: unknown;
   /** Scope-tag AND-set (migration 0093); absent/empty = tenant-global. */
   scope?: unknown;
+  /** Provenance edges — the closure walk's frontier (option<array>). */
+  derivedFrom?: unknown;
+}
+
+/**
+ * The per-row read fences of loadVisibleFact, resolved once per request
+ * so the closure walk can apply the SAME verdict to every member row
+ * without rebuilding the policy filter per depth.
+ */
+export interface FactVisibilityGates {
+  /** pinUserScope(undefined) — undefined = M2M/tenant-wide. */
+  scopeUserId: string | undefined;
+  /** principalScopeTags() when SCOPE_TAGS_ENABLED; null ⇒ fence inert. */
+  principalTags: PrincipalScope | null;
+  /** Registry-backed scope fence + ABAC verdict (surface 'fact_read'). */
+  rowPolicy: Pick<RowPolicyFilter, 'filter'>;
+}
+
+/**
+ * The fence chain of the fact read path as a pure verdict — user scope
+ * (0055), scope tags (G6), then the registry-backed row policy, in the
+ * exact order loadVisibleFact has always applied them. No throwing: the
+ * root caller turns `false` into its 404, the closure walk turns it into
+ * a silent member drop.
+ */
+export function factVisible(fact: FactReadRow, gates: FactVisibilityGates): boolean {
+  // User scope (0055): another user's fact is invisible.
+  if (
+    gates.scopeUserId !== undefined &&
+    typeof fact.userId === 'string' &&
+    fact.userId.length > 0 &&
+    fact.userId !== gates.scopeUserId
+  ) {
+    return false;
+  }
+  // G6 scope-tag fence (SCOPE_TAGS_ENABLED) — ADDED alongside the
+  // userId ownership check above, never replacing it. Composed as an
+  // extra AND, it can only narrow visibility. Inert when the flag is
+  // off (principalTags null). See scope-visibility.ts.
+  if (gates.principalTags !== null) {
+    const recordScope = Array.isArray(fact.scope)
+      ? (fact.scope as unknown[]).map((t) => String(t))
+      : [];
+    if (!visibleUnderScope(recordScope, gates.principalTags)) return false;
+  }
+  // Registry-backed row policy (scope fence + ABAC) — same seam as the
+  // audit-fixed fact lanes under src/synthesize/.
+  return gates.rowPolicy.filter(fact);
 }
 
 export interface ListCompetingResult {
@@ -301,6 +362,16 @@ export class FactsService {
   async getProvenance(opts: FactReadOptions): Promise<FactProvenanceResult> {
     return this.surreal.withScopedCompany(opts.companyId, opts.scopes, async (db) => {
       const fact = await this.loadVisibleFact(db, opts);
+      // Recursive closure (PROVENANCE_RECURSIVE_CLOSURE) only for a root
+      // that HAS derivedFrom — flag off, or a leaf fact, takes the
+      // one-hop path below byte-identically (no optional fields).
+      if (
+        recursiveClosureEnabled() &&
+        Array.isArray(fact.derivedFrom) &&
+        fact.derivedFrom.length > 0
+      ) {
+        return this.provenanceWithClosure(db, opts, fact);
+      }
       const source = (fact.source ?? {}) as {
         episodeIds?: unknown;
         charSpans?: unknown;
@@ -320,37 +391,143 @@ export class FactsService {
             : pinUserScope(undefined),
         db,
       });
-      const episodes = rows
-        .slice()
-        .sort(
-          (a, b) =>
-            new Date(toIso(a.occurredAt)).getTime() - new Date(toIso(b.occurredAt)).getTime(),
-        )
-        .map((r): FactProvenanceEpisode => {
-          // G3: attach the fact's stored char span for this turn.
-          // textTruncated rides along because span offsets reference
-          // the FULL stored episode text, not the capped `text` view.
-          // Span-less episodes keep the pre-G3 shape byte-identical.
-          const span = spanByEpisode.get(String(r.id));
-          return {
-            episodeId: String(r.id),
-            ...(r.conversationId !== undefined ? { conversationId: r.conversationId } : {}),
-            ...(r.speaker !== undefined ? { speaker: r.speaker } : {}),
-            occurredAt: toIso(r.occurredAt),
-            text:
-              r.text.length > PROVENANCE_TEXT_CHAR_CAP
-                ? `${r.text.slice(0, PROVENANCE_TEXT_CHAR_CAP - 1)}…`
-                : r.text,
-            ...(span
-              ? {
-                  span,
-                  textTruncated: r.text.length > PROVENANCE_TEXT_CHAR_CAP,
-                }
-              : {}),
-          };
-        });
+      const episodes = this.mapProvenanceEpisodes(rows, spanByEpisode);
       return { factId: String(fact.id), episodes };
     });
+  }
+
+  /**
+   * PROVENANCE_RECURSIVE_CLOSURE read path: bounded BFS over the root's
+   * derivedFrom graph inside the ONE existing scoped connection. The
+   * fence gates are resolved ONCE (scope pin, scope tags, one row-policy
+   * filter for the whole walk — surface 'fact_read', finish() after) and
+   * applied to every member via the same `factVisible` verdict as the
+   * root; an invisible member is a silent drop (`filtered`), never an
+   * error. Episode fetches group per owning user — a member fact's own
+   * userId keys its turns (generalizing the root rule: '' falls back to
+   * the caller's pinned scope) — each group one PII-fenced byIds read.
+   */
+  private async provenanceWithClosure(
+    db: Surreal,
+    opts: FactReadOptions,
+    root: FactReadRow,
+  ): Promise<FactProvenanceResult> {
+    const scopeUserId = pinUserScope(undefined);
+    const principalTags = scopeTagsEnabled() ? principalScopeTags() : null;
+    const rowPolicy = makeRowPolicyFilter({
+      callerScopes: opts.scopes,
+      surface: 'fact_read',
+      policyLookup: await this.predicateRegistry?.rowPolicyLookup(opts.companyId),
+    });
+    const gates: FactVisibilityGates = { scopeUserId, principalTags, rowPolicy };
+    const closure = await walkProvenanceClosure<FactReadRow>({
+      root,
+      caps: {
+        maxDepth: closureMaxDepth(),
+        maxFacts: closureMaxFacts(),
+        maxEpisodes: closureMaxEpisodes(),
+      },
+      visible: (f) => factVisible(f, gates),
+      fetchByIds: async (ids) => {
+        // NO status filter — compacted/retracted members still witness;
+        // status is REPORTED on the wire, not hidden.
+        const [rows] = await db.query<[FactReadRow[]]>(
+          `SELECT id, predicate, object, confidence, validFrom, validUntil,
+                  recordedAt, retractedAt, status, source, userId, scope,
+                  derivedVersion, trustSnapshot, corroboration, derivedFrom
+             FROM knowledge_fact WHERE id INSIDE $ids`,
+          { ids: ids.map((id) => new StringRecordId(id)) },
+        );
+        return rows ?? [];
+      },
+    });
+    rowPolicy.finish();
+
+    // Episode fetch grouped per owning user ('' → the caller's pinned
+    // scope; else that fact's user — the caller already passed the
+    // fact-level gate for that member).
+    const includePii = opts.scopes.includes('brain:read_pii');
+    const byOwner = new Map<string, string[]>();
+    for (const [episodeId, owner] of closure.episodes) {
+      const group = byOwner.get(owner);
+      if (group) group.push(episodeId);
+      else byOwner.set(owner, [episodeId]);
+    }
+    const rows: EpisodeQuoteRow[] = [];
+    for (const [owner, ids] of byOwner) {
+      rows.push(
+        ...(await this.episodes.byIds({
+          companyId: opts.companyId,
+          ids,
+          includePii,
+          userId: owner === '' ? scopeUserId : owner,
+          db,
+        })),
+      );
+    }
+    const episodes = this.mapProvenanceEpisodes(rows, closure.spans);
+
+    const truncated =
+      closure.truncated.depth || closure.truncated.fanout || closure.truncated.episodes;
+    this.metrics?.countProvenanceClosure(
+      truncated ? 'truncated' : closure.closureFacts.length === 0 ? 'empty' : 'resolved',
+    );
+    return {
+      factId: String(root.id),
+      episodes,
+      derivedFacts: closure.closureFacts.map(({ fact, depth }) => ({
+        factId: String(fact.id),
+        predicate: String(fact.predicate),
+        depth,
+        status: String(fact.status ?? 'active'),
+      })),
+      closure: {
+        depth: closure.closureFacts.reduce((acc, c) => Math.max(acc, c.depth), 0),
+        factCount: closure.closureFacts.length,
+        truncated,
+        filtered: closure.filtered,
+      },
+    };
+  }
+
+  /**
+   * Chronological sort + wire mapping of provenance episode rows —
+   * shared by the one-hop path and the closure path so the per-episode
+   * shape (PROVENANCE_TEXT_CHAR_CAP, G3 span attachment) has ONE
+   * implementation.
+   */
+  private mapProvenanceEpisodes(
+    rows: EpisodeQuoteRow[],
+    spanByEpisode: Map<string, ProvenanceSpan>,
+  ): FactProvenanceEpisode[] {
+    return rows
+      .slice()
+      .sort(
+        (a, b) => new Date(toIso(a.occurredAt)).getTime() - new Date(toIso(b.occurredAt)).getTime(),
+      )
+      .map((r): FactProvenanceEpisode => {
+        // G3: attach the fact's stored char span for this turn.
+        // textTruncated rides along because span offsets reference
+        // the FULL stored episode text, not the capped `text` view.
+        // Span-less episodes keep the pre-G3 shape byte-identical.
+        const span = spanByEpisode.get(String(r.id));
+        return {
+          episodeId: String(r.id),
+          ...(r.conversationId !== undefined ? { conversationId: r.conversationId } : {}),
+          ...(r.speaker !== undefined ? { speaker: r.speaker } : {}),
+          occurredAt: toIso(r.occurredAt),
+          text:
+            r.text.length > PROVENANCE_TEXT_CHAR_CAP
+              ? `${r.text.slice(0, PROVENANCE_TEXT_CHAR_CAP - 1)}…`
+              : r.text,
+          ...(span
+            ? {
+                span,
+                textTruncated: r.text.length > PROVENANCE_TEXT_CHAR_CAP,
+              }
+            : {}),
+        };
+      });
   }
 
   /**
@@ -364,44 +541,28 @@ export class FactsService {
     const [rows] = await db.query<[FactReadRow[]]>(
       `SELECT id, predicate, object, confidence, validFrom, validUntil,
               recordedAt, retractedAt, status, source, userId, scope,
-              derivedVersion, trustSnapshot, corroboration
+              derivedVersion, trustSnapshot, corroboration, derivedFrom
          FROM type::record('knowledge_fact', $rid) LIMIT 1`,
       { rid: ref.id },
     );
     const notFound = () => new NotFoundException(`Fact ${opts.factId} not found`);
     const fact = rows?.[0];
     if (!fact) throw notFound();
-    // User scope (0055): 404, not 403 — don't leak existence.
-    const scopeUserId = pinUserScope(undefined);
-    if (
-      scopeUserId !== undefined &&
-      typeof fact.userId === 'string' &&
-      fact.userId.length > 0 &&
-      fact.userId !== scopeUserId
-    ) {
-      throw notFound();
-    }
-    // G6 scope-tag fence (SCOPE_TAGS_ENABLED) — ADDED alongside the
-    // userId ownership check above, never replacing it. Composed as an
-    // extra AND, it can only narrow visibility; a row hidden here (an
-    // unparseable or non-matching scope tag) is a 404 exactly like the
-    // userId miss. Inert when the flag is off. See scope-visibility.ts.
-    if (scopeTagsEnabled()) {
-      const recordScope = Array.isArray(fact.scope)
-        ? (fact.scope as unknown[]).map((t) => String(t))
-        : [];
-      if (!visibleUnderScope(recordScope, principalScopeTags())) {
-        throw notFound();
-      }
-    }
-    // Registry-backed row policy (scope fence + ABAC) — same seam as the
-    // audit-fixed fact lanes under src/synthesize/.
+    // The fence chain lives in factVisible (shared with the closure
+    // walk); ANY miss is the same 404 — user scope (0055) and scope tags
+    // (G6) 404 rather than 403 so existence never leaks, and a row-
+    // policy-fenced predicate is simply absent to callers without the
+    // scope.
     const rowPolicy = makeRowPolicyFilter({
       callerScopes: opts.scopes,
       surface: 'fact_read',
       policyLookup: await this.predicateRegistry?.rowPolicyLookup(opts.companyId),
     });
-    const visible = rowPolicy.filter(fact);
+    const visible = factVisible(fact, {
+      scopeUserId: pinUserScope(undefined),
+      principalTags: scopeTagsEnabled() ? principalScopeTags() : null,
+      rowPolicy,
+    });
     rowPolicy.finish();
     if (!visible) throw notFound();
     return fact;
@@ -822,5 +983,18 @@ function toIso(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
   if (typeof value === 'string') return value;
   if (typeof value === 'number') return new Date(value).toISOString();
+  // SurrealDB SDK 2.x decodes datetime columns to its own DateTime class
+  // (NOT a native Date — String()/JSON already yield the ISO form).
+  // Duck-type on toISOString so live rows don't fall through to the
+  // "now" fallback below, which silently served the REQUEST time as
+  // occurredAt/validFrom and broke chronological provenance ordering
+  // (caught by the closure e2e against a real SurrealDB).
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { toISOString?: unknown }).toISOString === 'function'
+  ) {
+    return (value as { toISOString: () => string }).toISOString();
+  }
   return new Date().toISOString();
 }

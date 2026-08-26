@@ -8,7 +8,13 @@ import type { FactEmbeddingService } from '../src/ingest/fact-embedding.service'
 
 function makeSvc(opts: {
   tops: Array<{ entityId: string; n: number }>;
-  facts: Array<{ id: string; predicate: string; object: string; validFrom: string }>;
+  facts: Array<{
+    id: string;
+    predicate: string;
+    object: string;
+    validFrom: string;
+    episodeIds?: string[];
+  }>;
   llm: unknown;
 }): {
   svc: AggregateComposerService;
@@ -177,5 +183,67 @@ describe('AggregateComposerService (Lane C v1)', () => {
     const res = await svc.run('co_x');
     expect(res.entities).toBe(0);
     expect(res.skipped).toEqual([{ entityId: 'knowledge_entity:mel', reason: 'llm down' }]);
+  });
+});
+
+/**
+ * Evidence plane (PROVENANCE_SUMMARY_EPISODE_STAMP): an aggregate row's
+ * source gains the union of its members' grounding stamps —
+ * window-deriver idiom (member order, deduped, capped 64). Off
+ * (default) the written source deep-equals today's exactly.
+ */
+describe('AggregateComposerService — summary episode stamping', () => {
+  const saved = process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+    else process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = saved;
+  });
+
+  const STAMPED_FACTS = FACTS.map((f, i) => ({
+    ...f,
+    episodeIds: [`episode:e${i}`, 'episode:shared'],
+  }));
+  const LLM = {
+    aggregates: [
+      {
+        aspect: 'pets',
+        proposition: "Melanie's pets: cat Bailey and a dog.",
+        members: [1, 0],
+      },
+    ],
+  };
+
+  it('flag OFF (default): written source deep-equals today’s', async () => {
+    delete process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+    const { svc, queries } = makeSvc({
+      tops: [{ entityId: 'knowledge_entity:mel', n: 5 }],
+      facts: STAMPED_FACTS,
+      llm: LLM,
+    });
+    await svc.run('co_x');
+    const swap = queries.find((q) => q.sql.includes('INSERT INTO knowledge_fact'));
+    const rows = swap?.params?.rows as Array<Record<string, unknown>>;
+    expect(rows[0]!.source).toEqual({
+      vertical: 'aggregate',
+      recorder: AGGREGATE_RECORDER,
+    });
+  });
+
+  it('flag ON: source carries the member union — member order, deduped, capped 64', async () => {
+    process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = '1';
+    const { svc, queries } = makeSvc({
+      tops: [{ entityId: 'knowledge_entity:mel', n: 5 }],
+      facts: STAMPED_FACTS,
+      llm: LLM,
+    });
+    await svc.run('co_x');
+    const swap = queries.find((q) => q.sql.includes('INSERT INTO knowledge_fact'));
+    const rows = swap?.params?.rows as Array<Record<string, unknown>>;
+    // Proposal member order [1, 0]; 'shared' deduped on first sight.
+    expect((rows[0]!.source as Record<string, unknown>).episodeIds).toEqual([
+      'episode:e1',
+      'episode:shared',
+      'episode:e0',
+    ]);
   });
 });

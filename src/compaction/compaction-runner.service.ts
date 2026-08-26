@@ -7,6 +7,8 @@ import { ReadPinService } from '../episodes/read-pin.service';
 import { ConcatSummaryGenerator, FactToSummarize, SummaryGenerator } from './summary-generator';
 import { CandidateFactRow, CompactionStats, SUMMARY_GENERATOR } from './compaction.types';
 import { envFlagEnabled } from '../common/env-validation';
+import { summaryEpisodeStampEnabled } from '../common/provenance-flags';
+import { unionEpisodeIds } from '../common/episode-ids';
 
 /**
  * CompactionRunnerService — the retention engine.
@@ -105,7 +107,8 @@ export class CompactionRunnerService {
       // tenant dominating the cron — anything past that gets compacted
       // on the next cycle.
       const [factRows] = await db.query<[CandidateFactRow[]]>(
-        `SELECT id, entityId, predicate, object, validFrom, validUntil, confidence, userId
+        `SELECT id, entityId, predicate, object, validFrom, validUntil, confidence, userId,
+                source.episodeIds AS eps
            FROM knowledge_fact
            WHERE status != 'compacted'
              AND embedding != NONE
@@ -201,6 +204,13 @@ export class CompactionRunnerService {
       const latest = last.validUntil ?? last.validFrom;
       const meanConfidence = sorted.reduce((acc, g) => acc + g.confidence, 0) / sorted.length;
 
+      // Evidence plane (PROVENANCE_SUMMARY_EPISODE_STAMP): union of the
+      // members' grounding stamps, member order, capped 64. Flag off →
+      // empty union → source byte-identical to today's.
+      const episodeIds = summaryEpisodeStampEnabled()
+        ? unionEpisodeIds(sorted.map((g) => g.eps))
+        : [];
+
       await dbCreate(db, 'knowledge_fact', {
         entityId: first.entityId,
         predicate: `summary_${first.predicate}`,
@@ -208,7 +218,10 @@ export class CompactionRunnerService {
         confidence: meanConfidence,
         validFrom: earliest,
         validUntil: latest,
-        source: { kind: 'compaction-summary' },
+        source: {
+          kind: 'compaction-summary',
+          ...(episodeIds.length ? { episodeIds } : {}),
+        },
         derivedFrom: sorted.map((g) => g.id),
         status: 'active',
         // The summary belongs to the same world as the facts it replaces

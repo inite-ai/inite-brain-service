@@ -770,6 +770,22 @@ const KNOWN_BOOLEAN_FLAGS = [
   // default off. Outside ENGINE_PREFIX by design (the FOVEA_ family sits off
   // the flag budget).
   'FOVEA_REQUIRE_CITATIONS',
+  // Evidence plane (Brain v2 gap #5): summary-producing writers
+  // (promotion, compaction rollups, recompose rewrites, arc/aggregate
+  // composers) stamp the union of member source.episodeIds onto the
+  // summary's source (window-deriver idiom, capped 64). Default off ⇒
+  // every summary write byte-identical. Outside ENGINE_PREFIX by design
+  // (the PROVENANCE_ family is a provenance surface, not an engine
+  // fork — sits off the flag budget like FOVEA_/MULTILINGUAL_).
+  'PROVENANCE_SUMMARY_EPISODE_STAMP',
+  // Evidence plane (Brain v2 gap #6): GET /v1/facts/:id/provenance runs
+  // a bounded recursive derivedFrom closure and serves the episode union
+  // + derivedFacts/closure fields. Member fences silently drop
+  // (filtered marker); root 404 semantics unchanged. Default off ⇒
+  // response byte-identical. The depth/fact/episode caps
+  // (PROVENANCE_CLOSURE_MAX_*) are integer knobs, not boolean flags.
+  // Outside ENGINE_PREFIX by design — off the flag budget.
+  'PROVENANCE_RECURSIVE_CLOSURE',
   // Multilingual Tier 1 (migration 0100). Confidence-aware attribution:
   // the detector returns `und` (not `en`) for short/stopword-less objects
   // and the resolver stamps langConfidence/langSource/detectorVersion/
