@@ -12,7 +12,8 @@ import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from '../src/app.module';
 import { EmbedderService } from '../src/ai/embedder.service';
 import { ExtractorService } from '../src/ai/extractor.service';
-import { StubEmbedder, StubExtractor } from './test-doubles';
+import { LocalCrossEncoderProvider } from '../src/ai/cross-encoder/local-cross-encoder.provider';
+import { StubEmbedder, StubExtractor, StubLocalCrossEncoder } from './test-doubles';
 import { randomUUID, createHash } from 'node:crypto';
 import supertest from 'supertest';
 
@@ -40,6 +41,8 @@ describe('POST /v1/facts/:id/retract — predicate-class auth', () => {
     process.env.OPENAI_API_KEY = 'sk-test-stub';
     process.env.THROTTLE_LIMIT = '1000000';
     process.env.THROTTLE_EXPENSIVE_LIMIT = '1000000';
+    // Mirrors createApp(): no ONNX model loads in e2e.
+    process.env.CHAT_ROUTE_NLI_ENABLED = 'false';
     delete process.env.SURREALDB_SCOPED_USER;
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
@@ -47,6 +50,11 @@ describe('POST /v1/facts/:id/retract — predicate-class auth', () => {
       .useValue(new StubEmbedder())
       .overrideProvider(ExtractorService)
       .useValue(new StubExtractor())
+      // This spec builds its own module instead of using createApp(), so it
+      // needs the fixture's no-ONNX stub explicitly — otherwise it boots the
+      // real ~279MB reranker worker. See test/jest-e2e.json.
+      .overrideProvider(LocalCrossEncoderProvider)
+      .useValue(new StubLocalCrossEncoder())
       .compile();
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));

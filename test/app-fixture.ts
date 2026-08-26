@@ -5,8 +5,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { AppModule } from '../src/app.module';
 import { EmbedderService } from '../src/ai/embedder.service';
 import { ExtractorService } from '../src/ai/extractor.service';
+import { LocalCrossEncoderProvider } from '../src/ai/cross-encoder/local-cross-encoder.provider';
 import { correlationIdMiddleware } from '../src/common/correlation-id.middleware';
-import { StubEmbedder, StubExtractor } from './test-doubles';
+import { StubEmbedder, StubExtractor, StubLocalCrossEncoder } from './test-doubles';
 
 export interface AppFixture {
   app: INestApplication;
@@ -83,6 +84,19 @@ export async function createApp(
   // 10/min). Hard-disable throttling in e2e so a suite firing >10
   // expensive calls doesn't 429. See TenantThrottlerGuard.shouldSkip.
   process.env.THROTTLE_DISABLED = '1';
+  // No ONNX model loads in the e2e process — the same policy the
+  // EmbedderService / ExtractorService stubs below already apply, now
+  // extended to the two models AppModule boots on its own. This is the
+  // NLI one: IntentClassifierService.onModuleInit fire-and-forgets a
+  // warmup that spawns a worker_thread and pulls ~135MB of weights
+  // (Xenova/distilbert-base-multilingual-cased-finetuned-mnli) on EVERY
+  // createApp(). No e2e spec asserts on NLI intent (the wire contract is
+  // covered by test/contracts-admin-health-components.unit-spec.ts, the
+  // classifier by test/chat-router-intent.unit-spec.ts), and the model
+  // never finished warming inside a spec anyway, so classify() already
+  // served the punctuation fallback — this only makes that deterministic
+  // and stops the load/teardown churn. See test/jest-e2e.json.
+  process.env.CHAT_ROUTE_NLI_ENABLED = 'false';
   if (opts.enableScopedPool) {
     process.env.SURREALDB_SCOPED_USER = 'brain_caller';
     process.env.SURREALDB_SCOPED_PASS = 'brain-caller-password-must-be-overridden-via-env';
@@ -100,6 +114,13 @@ export async function createApp(
     .useValue(new StubEmbedder())
     .overrideProvider(ExtractorService)
     .useValue(stubExtractor)
+    // The other model AppModule boots (see CHAT_ROUTE_NLI_ENABLED above):
+    // the ~279MB reranker. CrossEncoderService takes this provider
+    // @Optional(), so the stub keeps isLocalOnly()/isEnabled() true and
+    // the rerank stage is still entered — it just resolves to the
+    // identity permutation instead of spawning an ONNX worker thread.
+    .overrideProvider(LocalCrossEncoderProvider)
+    .useValue(new StubLocalCrossEncoder())
     .compile();
 
   const app = moduleRef.createNestApplication();
