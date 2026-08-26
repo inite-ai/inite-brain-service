@@ -13,6 +13,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { JobRunService } from '../src/jobs/job-run.service';
+import { DERIVED_REPRESENTATION_KINDS, EVIDENCE_MODALITIES } from '../src/common/evidence-taxonomy';
 
 const MIGRATIONS = join(__dirname, '..', 'src', 'db', 'migrations');
 
@@ -245,6 +246,43 @@ describe('0109_evidence_substrate indexes', () => {
       expect(sql).toContain(`DEFINE FIELD IF NOT EXISTS ${field} ON forgotten_entity`);
     }
   });
+
+  it('pins migration enums to the canonical TS Evidence Plane taxonomy', () => {
+    const modalityAssert = /modality ON evidence_asset[^;]*ASSERT[^;]*;/s.exec(sql)?.[0] ?? '';
+    const representationAssert =
+      /kind ON derived_representation[^;]*ASSERT[^;]*;/s.exec(sql)?.[0] ?? '';
+    const values = (statement: string) =>
+      [...statement.matchAll(/'([a-z_]+)'/g)].map((match) => match[1]);
+    expect(values(modalityAssert)).toEqual([...EVIDENCE_MODALITIES]);
+    expect(values(representationAssert)).toEqual([...DERIVED_REPRESENTATION_KINDS]);
+  });
+});
+
+describe('0114 evidence blob-GC outbox', () => {
+  const sql = readFileSync(join(MIGRATIONS, '0114_evidence_blob_gc.surql'), 'utf8');
+
+  it('keeps hard-erasure blob deletion durable without a changefeed copy', () => {
+    expect(sql).toContain('DEFINE TABLE IF NOT EXISTS evidence_blob_gc SCHEMAFULL;');
+    expect(sql).toContain(
+      'DEFINE INDEX IF NOT EXISTS evidence_blob_gc_ref_idx ON evidence_blob_gc FIELDS storageRef;',
+    );
+    const code = sql
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('--'))
+      .join('\n');
+    expect(code).not.toMatch(/CHANGEFEED|DEFINE EVENT/);
+  });
+
+  it('user-forget enqueues refs before deleting evidence rows', () => {
+    const src = readFileSync(
+      join(__dirname, '..', 'src', 'entities', 'user-forget.service.ts'),
+      'utf8',
+    );
+    expect(src.indexOf('INSERT INTO evidence_blob_gc')).toBeLessThan(
+      src.indexOf('DELETE $assetIds RETURN BEFORE'),
+    );
+    expect(src).toContain('queued for durable retry');
+  });
 });
 
 describe('evidence substrate DELETE-shape guards (0109)', () => {
@@ -285,10 +323,17 @@ describe('evidence substrate DELETE-shape guards (0109)', () => {
 
   it('the retention sweep pre-collects fragment/representation ids per asset', () => {
     const src = readFileSync(files[2]!, 'utf8');
-    expect(src).toContain('LET $fragIds = (SELECT VALUE id FROM evidence_fragment');
-    expect(src).toContain('LET $reprIds = (SELECT VALUE id FROM derived_representation');
-    expect(src).toContain('DELETE $fragIds RETURN BEFORE');
-    expect(src).toContain('DELETE $reprIds RETURN BEFORE');
+    expect(src).toContain('SELECT VALUE id FROM evidence_fragment WHERE assetId = $asset');
+    expect(src).toContain('SELECT VALUE id FROM derived_representation WHERE ${where} LIMIT 5000');
+    expect(src).toContain('await db.query(`DELETE $ids RETURN BEFORE`, { ids });');
+    const fragmentReprs = src.indexOf(
+      'await this.purgeRepresentationBatches(db, `subjectId INSIDE $subjects`',
+    );
+    const fragmentDelete = src.indexOf(
+      'await db.query(`DELETE $ids RETURN BEFORE`, { ids: fragIds })',
+    );
+    expect(fragmentReprs).toBeGreaterThan(0);
+    expect(fragmentReprs).toBeLessThan(fragmentDelete);
   });
 });
 

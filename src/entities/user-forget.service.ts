@@ -273,10 +273,10 @@ export class UserForgetService {
    * only pointer). LET-then-DELETE-by-ids, NOT `DELETE … WHERE`: the
    * fragment/representation WHEREs traverse indexed record fields — the
    * reproduced 3.2.4 planner no-op class (see the memory_outcome comment
-   * in forgetUser). Blobs go AFTER the rows (an aborted cascade must not
-   * leave rows pointing at deleted bytes), best-effort: with no row left
-   * to key the sweeper's reconciliation retry, a failed unlink is logged
-   * as an ERROR for manual sweep.
+   * in forgetUser). Before those rows disappear, storage refs enter the
+   * durable evidence_blob_gc outbox (0114). Blobs go AFTER the rows (an
+   * aborted cascade must not leave rows pointing at deleted bytes): an
+   * immediate failure remains queued for the nightly reconciliation pass.
    */
   private async eraseEvidenceRows(
     db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> },
@@ -292,7 +292,12 @@ export class UserForgetService {
         WHERE userId = $u AND storageRef != NONE`,
       { u: userId },
     );
-    const storageRefs = ((refRows as unknown[]) ?? []).map(String);
+    const storageRefs = [...new Set(((refRows as unknown[]) ?? []).map(String))];
+    if (storageRefs.length > 0) {
+      await db.query(`INSERT INTO evidence_blob_gc $rows`, {
+        rows: storageRefs.map((storageRef) => ({ storageRef, reason: 'user_forget' })),
+      });
+    }
     const [, , , reprsGone, fragsGone, assetsGone] = await db.query<
       [unknown, unknown, unknown, unknown[], unknown[], unknown[]]
     >(
@@ -308,11 +313,21 @@ export class UserForgetService {
     let blobFailures = 0;
     for (const ref of storageRefs) {
       const ok = (await this.evidence?.deleteBlobBestEffort(ref)) ?? false;
-      if (!ok) blobFailures++;
+      if (!ok) {
+        blobFailures++;
+        continue;
+      }
+      const [gcIds] = await db.query<[unknown[]]>(
+        `SELECT VALUE id FROM evidence_blob_gc WHERE storageRef = $ref`,
+        { ref },
+      );
+      if (((gcIds as unknown[]) ?? []).length > 0) {
+        await db.query(`DELETE $ids`, { ids: gcIds });
+      }
     }
     if (blobFailures > 0) {
       this.logger.error(
-        `user forget ${companyId}/${userId}: ${blobFailures}/${storageRefs.length} evidence blob delete(s) failed — bytes may outlive rows, sweep manually`,
+        `user forget ${companyId}/${userId}: ${blobFailures}/${storageRefs.length} evidence blob delete(s) failed — queued for durable retry`,
       );
     }
     return {

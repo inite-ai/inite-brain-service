@@ -302,8 +302,9 @@ to look, never WHAT is true. The section is contract-only today
 (validated, stored, cached, exposed read-only on the admin surface);
 the perception/episodization consumers arrive in sibling increments.
 
-Five optional arrays (a present section must declare at least one
-non-empty array; present-but-empty is rejected):
+The semantic plane has five optional arrays. The Evidence Plane adds
+three declarative capabilities. A present section must declare at least
+one non-empty field; present-but-empty is rejected:
 
 | Field | What it declares | Caps |
 | --- | --- | --- |
@@ -312,6 +313,9 @@ non-empty array; present-but-empty is rejected):
 | `attentionHints` | Literal `cue` → `prefer` (own predicates), `zoom` (own scenes ∪ `episodes`/`facts`/`scenes`), `weight` (0,1] | ≤ 16 hints, ≤ 8 prefer, ≤ 4 zoom |
 | `verificationRules` | Claim classes needing `human_confirmation` \| `corroboration` \| `recency_check` | ≤ 16 rules, `claimPattern` 2..128 chars |
 | `retentionHints` | ADVISORY `ephemeral`/`standard`/`durable` per own predicate/scene | ≤ 32 hints |
+| `modalities` | Evidence inputs the domain can perceive: `text`, `image`, `audio`, `video`, `document`, `sensor` | unique, ≤ 6 |
+| `processors` | Core-owned capability requests (`id`, input `modality`, derived `produces`) | ≤ 16; no code/model/prompt/endpoint |
+| `rawEvidence` | Explicit raw-serving capability (`{ "serve": true }`) | consent-, scope-, PII-, and per-call-gated |
 
 Three laws, enforced by `validateMemoryModel`
 (`src/ai/domain-packs/validate-memory-model.ts`):
@@ -331,13 +335,16 @@ Three laws, enforced by `validateMemoryModel`
   the fixed zoom literals. Cross-pack or core references are rejected at
   validation time, mirroring the mcpTools query fence.
 
-No consent flag: unlike `mcpTools`, a memoryModel registers nothing on
-any agent surface and causes zero egress, so install/upgrade proceeds
-without an `accept*` flag (the decision + its boundary are documented in
-`DomainPackInstallService`). It rides the signed/checksummed manifest,
-so integrity and version-immutability cover it with zero new machinery;
-an upgrade that changes the section flips `memoryModelChanged` in the
-upgrade diff and invalidates the `MemoryModelReaderService` cache.
+Semantic-only memory models need no consent: they register nothing on an
+agent surface and cause zero egress. A memory model that declares a
+non-text modality, a non-text processor capability, or raw-evidence
+serving requires `acceptModalities: true`; changing that media section
+re-requires consent. Processors are requirements, not implementations:
+the trusted core capability broker selects and runs them, and every
+output remains a recomputable `derived_representation` with provenance.
+The whole section rides the signed/checksummed manifest; an upgrade that
+changes it flips `memoryModelChanged` and invalidates the
+`MemoryModelReaderService` cache.
 
 ## The registry (global catalogue)
 

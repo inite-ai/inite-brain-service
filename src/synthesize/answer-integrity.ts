@@ -188,8 +188,10 @@ const CAPABILITY_RANK: Record<EvidenceCapability, number> = {
  * IO. required = max over the cited facts' predicate policies (any
  * non-text wins); the cited-capability set today is always {'text'}
  * (facts + episode spans are text), so the check can only abstain or
- * pass. A lookup failure FAILS SAFE to today's behavior (no gate) and is
- * logged — a registry hiccup must not abstain a grounded answer.
+ * pass. Once the operator enables this integrity gate, a lookup failure
+ * FAILS CLOSED: without predicate policy the system cannot prove that text
+ * evidence is sufficient, so availability must not silently erase the
+ * modality requirement.
  */
 export async function resolveEvidenceCapability(
   deps: EvidenceCapabilityDeps,
@@ -215,10 +217,11 @@ export async function resolveEvidenceCapability(
     if (citedCapabilities(input.evidenceCitations).has(required)) return {};
     return { evidenceCapabilityUnmet: true };
   } catch (e) {
+    deps.metrics?.countEvidenceCapability('checked');
     deps.logger.warn(
-      `evidence-capability resolution failed; serving ungated: ${(e as Error).message}`,
+      `evidence-capability resolution failed; failing closed: ${(e as Error).message}`,
     );
-    return {};
+    return { evidenceCapabilityUnmet: true };
   }
 }
 

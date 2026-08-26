@@ -41,7 +41,7 @@ export function gateRawEvidence(opts: {
   fragmentPiiClasses: readonly string[] | null | undefined;
 }): RawEvidenceDecision {
   const section = declaredModalitySection(opts.manifest);
-  if (!section || section.rawEvidence === undefined) {
+  if (!section || section.rawEvidence?.serve !== true) {
     return {
       allowed: false,
       reason: `pack "${opts.manifest.id}" does not declare the raw-evidence capability`,
