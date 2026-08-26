@@ -25,9 +25,12 @@ import {
   composePredicateId,
   diffPackUpgrade,
   DomainPackError,
+  declaredModalitySection,
   externalMcpTools,
   mcpConsentRequired,
   mcpToolsChecksum,
+  modalitiesChecksum,
+  modalityConsentRequired,
   packChecksum,
   validatePack,
   type DomainPackManifest,
@@ -61,6 +64,8 @@ interface DomainPackRow {
   installId?: unknown;
   acceptedMcpTools?: unknown;
   acceptedMcpToolsChecksum?: unknown;
+  acceptedModalities?: unknown;
+  acceptedModalitiesChecksum?: unknown;
 }
 
 /** `listInstalled` projection of `domain_pack`. */
@@ -160,6 +165,9 @@ export class DomainPackInstallService {
     opts: {
       expectedChecksum?: string | undefined;
       acceptMcpTools?: boolean | undefined;
+      /** Consent to the manifest's declared non-text modalities /
+       *  raw-evidence capability (0112) — see modality-consent.ts. */
+      acceptModalities?: boolean | undefined;
     } = {},
   ): Promise<{
     packId: string;
@@ -237,11 +245,21 @@ export class DomainPackInstallService {
     const mcpSet = mcpChecksum
       ? `, acceptedMcpTools = true, acceptedMcpToolsChecksum = $mcpChecksum`
       : `, acceptedMcpTools = NONE, acceptedMcpToolsChecksum = NONE`;
+    // Modality consent (0112) — same mold as the 0068 fields above: one
+    // checksum over the whole media section (non-text modalities +
+    // raw-evidence capability), stamped when declared, cleared when an
+    // upgrade drops the section. Inert for every manifest that declares
+    // no non-text modalities (all of them today).
+    const modalitySection = declaredModalitySection(manifest);
+    const modalityChecksum = modalitiesChecksum(modalitySection);
+    const modalitySet = modalityChecksum
+      ? `, acceptedModalities = true, acceptedModalitiesChecksum = $modalityChecksum`
+      : `, acceptedModalities = NONE, acceptedModalitiesChecksum = NONE`;
     let mintedInstallId: string | undefined;
     const seeded = await this.surreal.withCompany(companyId, async (db) => {
       const existing = await queryRows<DomainPackRow>(
         db,
-        `SELECT id, version, manifest, webhookSecret, installId, acceptedMcpTools, acceptedMcpToolsChecksum FROM domain_pack WHERE packId = $packId LIMIT 1`,
+        `SELECT id, version, manifest, webhookSecret, installId, acceptedMcpTools, acceptedMcpToolsChecksum, acceptedModalities, acceptedModalitiesChecksum FROM domain_pack WHERE packId = $packId LIMIT 1`,
         { packId: manifest.id },
       );
       const row = existing[0];
@@ -252,6 +270,17 @@ export class DomainPackInstallService {
         priorChecksum: row?.acceptedMcpToolsChecksum ? String(row.acceptedMcpToolsChecksum) : null,
       });
       if (consentMessage) throw new BadRequestException(consentMessage);
+      const modalityMessage = modalityConsentRequired({
+        packId: manifest.id,
+        version: manifest.version,
+        declared: modalitySection,
+        accepted: opts.acceptModalities,
+        priorAccepted: row?.acceptedModalities === true,
+        priorChecksum: row?.acceptedModalitiesChecksum
+          ? String(row.acceptedModalitiesChecksum)
+          : null,
+      });
+      if (modalityMessage) throw new BadRequestException(modalityMessage);
       // installId (0068) — the opaque per-install identity external tool
       // endpoints see instead of companyId. Minted once, kept forever.
       if (externalTools.length > 0 && !row?.installId) {
@@ -264,7 +293,14 @@ export class DomainPackInstallService {
           manifest,
           checksum,
           newIds,
-          mint: { wantsWebhook, mintedInstallId, mcpChecksum, mcpSet },
+          mint: {
+            wantsWebhook,
+            mintedInstallId,
+            mcpChecksum,
+            mcpSet,
+            modalityChecksum,
+            modalitySet,
+          },
         });
       } else {
         if (wantsWebhook) {
@@ -283,6 +319,12 @@ export class DomainPackInstallService {
               ? {
                   acceptedMcpTools: true,
                   acceptedMcpToolsChecksum: mcpChecksum,
+                }
+              : {}),
+            ...(modalityChecksum
+              ? {
+                  acceptedModalities: true,
+                  acceptedModalitiesChecksum: modalityChecksum,
                 }
               : {}),
           },
@@ -332,6 +374,8 @@ export class DomainPackInstallService {
       mintedInstallId?: string | undefined;
       mcpChecksum: string | null;
       mcpSet: string;
+      modalityChecksum: string | null;
+      modalitySet: string;
     };
   }): Promise<string | undefined> {
     const { db, row, manifest, checksum, newIds, mint } = opts;
@@ -354,7 +398,7 @@ export class DomainPackInstallService {
     await db.query(
       `UPDATE $id SET version = $version, manifest = $manifest, checksum = $checksum, status = 'active', updatedAt = time::now()${
         mintedSecret ? ', webhookSecret = $webhookSecret' : ''
-      }${mint.mintedInstallId ? ', installId = $installId' : ''}${mint.mcpSet}`,
+      }${mint.mintedInstallId ? ', installId = $installId' : ''}${mint.mcpSet}${mint.modalitySet}`,
       {
         id: row.id,
         version: manifest.version,
@@ -363,6 +407,7 @@ export class DomainPackInstallService {
         ...(mintedSecret ? { webhookSecret: mintedSecret } : {}),
         ...(mint.mintedInstallId ? { installId: mint.mintedInstallId } : {}),
         ...(mint.mcpChecksum ? { mcpChecksum: mint.mcpChecksum } : {}),
+        ...(mint.modalityChecksum ? { modalityChecksum: mint.modalityChecksum } : {}),
       },
     );
     // Reinstall/upgrade: uninstall DEPRECATED this pack's predicates and

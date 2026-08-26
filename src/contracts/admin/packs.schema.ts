@@ -34,6 +34,12 @@ export const InstallPackRequestSchema = z.object({
    *  non-empty, unless a prior install already accepted the identical
    *  section — an upgrade that CHANGES it re-requires the flag. */
   acceptMcpTools: z.boolean().optional(),
+  /** Explicit consent to the manifest's declared non-text modalities and
+   *  raw-evidence capability (media/biometric tier, 0112). Required (400
+   *  otherwise) whenever the manifest declares non-text modality
+   *  processing, unless a prior install already accepted the identical
+   *  media section — an upgrade that CHANGES it re-requires the flag. */
+  acceptModalities: z.boolean().optional(),
 });
 
 export const InstallFromRegistryRequestSchema = z.object({
@@ -42,6 +48,8 @@ export const InstallFromRegistryRequestSchema = z.object({
   version: z.string().optional(),
   /** See InstallPackRequest.acceptMcpTools — same consent gate. */
   acceptMcpTools: z.boolean().optional(),
+  /** See InstallPackRequest.acceptModalities — same consent gate. */
+  acceptModalities: z.boolean().optional(),
 });
 
 export const InstallPackResponseSchema = z.object({

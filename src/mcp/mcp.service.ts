@@ -211,6 +211,11 @@ export class McpService {
    * Applied AFTER the policy gate, and removals are independent, so
    * deny-overrides holds: a policy deny removes a tool the grant
    * allows, and a grant omission removes a tool the policy allows.
+   *
+   * Registration gates end here. A future pack tool that SERVES raw
+   * media evidence must additionally call gateRawEvidence
+   * (./raw-evidence-gate.ts) per served fragment — same deny-overrides
+   * discipline, applied per call rather than per registration.
    */
   private applyGrantToolGate(
     server: McpServer,
