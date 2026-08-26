@@ -9,6 +9,7 @@ import { CandidateFactRow, CompactionStats, SUMMARY_GENERATOR } from './compacti
 import { envFlagEnabled } from '../common/env-validation';
 import { summaryEpisodeStampEnabled } from '../common/provenance-flags';
 import { unionEpisodeIds } from '../common/episode-ids';
+import { compactionOverridesFor } from './compaction-overrides';
 
 /**
  * CompactionRunnerService — the retention engine.
@@ -81,12 +82,17 @@ export class CompactionRunnerService {
    *   3. UPDATE old facts: status = 'compacted', embedding = NONE.
    */
   async compactCompany(companyId: string): Promise<CompactionStats> {
+    // Per-tenant resolution schedule (COMPACTION_TENANT_OVERRIDES): a
+    // tenant entry overrides the process-global hot-retention window;
+    // unset = byte-identical to the ctor default.
+    const retentionDays =
+      compactionOverridesFor(companyId).hotRetentionDays ?? this.hotRetentionDays;
     // A Date param serialises as a native SurrealDB datetime. The previous
     // `d$cutoff` cast + ISO-string param was a 2.x idiom — SurrealDB 3.x
     // fails to PARSE it ("Unexpected token `a parameter`"), which made
     // every compaction pass throw (and log-and-skip) since the 3.1.5
     // upgrade. Caught by the promotion e2e reusing the same idiom.
-    const cutoff = new Date(Date.now() - this.hotRetentionDays * 24 * 60 * 60 * 1000);
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
 
     // Audit W2 #10: compaction used to be version-BLIND. Under a pinned
     // derived world it flipped that world's facts to status='compacted'

@@ -7,6 +7,7 @@
  * app-layer filter is the effective barrier). Production must refuse to
  * start without both creds.
  */
+import { Logger } from '@nestjs/common';
 import { validateEnv } from '../src/common/env-validation';
 
 function baseProdEnv(): NodeJS.ProcessEnv {
@@ -186,6 +187,65 @@ describe('validateEnv — PROCESS_ROLE', () => {
       env.PROCESS_ROLE = role;
       env.JOBS_QUEUE_MODE = 'inline';
       expect(() => validateEnv(env)).toThrow(/JOBS_QUEUE_MODE=enqueue/);
+    }
+  });
+});
+
+/**
+ * COMPACTION_TENANT_OVERRIDES clones the RETRIEVAL_PROFILE_OVERRIDES
+ * shape check (JSON object mapping companyId → object) but WARNS
+ * instead of refusing to start: the parser fails open to the process
+ * defaults per tenant, so a malformed schedule must degrade, not brick
+ * the boot.
+ */
+describe('validateEnv — COMPACTION_TENANT_OVERRIDES (warn, never throw)', () => {
+  const warnSpy = () => jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  afterEach(() => jest.restoreAllMocks());
+
+  it('accepts a valid schedule object (no warning)', () => {
+    const warn = warnSpy();
+    const env = baseProdEnv();
+    env.COMPACTION_TENANT_OVERRIDES = JSON.stringify({
+      co_a: { hotRetentionDays: 30, promotionMinEpisodes: 2 },
+    });
+    expect(() => validateEnv(env)).not.toThrow();
+    expect(warn.mock.calls.some(([m]) => String(m).includes('COMPACTION_TENANT_OVERRIDES'))).toBe(
+      false,
+    );
+  });
+
+  it('accepts the feature-off default (unset / blank)', () => {
+    const warn = warnSpy();
+    for (const value of [undefined, '', '   ']) {
+      const env = baseProdEnv();
+      if (value !== undefined) env.COMPACTION_TENANT_OVERRIDES = value;
+      expect(() => validateEnv(env)).not.toThrow();
+    }
+    expect(warn.mock.calls.some(([m]) => String(m).includes('COMPACTION_TENANT_OVERRIDES'))).toBe(
+      false,
+    );
+  });
+
+  it('warns (does NOT throw) on invalid JSON', () => {
+    const warn = warnSpy();
+    const env = baseProdEnv();
+    env.COMPACTION_TENANT_OVERRIDES = 'not-json{';
+    expect(() => validateEnv(env)).not.toThrow();
+    expect(warn.mock.calls.some(([m]) => String(m).includes('COMPACTION_TENANT_OVERRIDES'))).toBe(
+      true,
+    );
+  });
+
+  it('warns (does NOT throw) when the value is not an object-of-objects', () => {
+    for (const bad of ['[]', '"co_a"', '{"co_a": 30}', '{"co_a": null}', '{"co_a": [1]}']) {
+      const warn = warnSpy();
+      const env = baseProdEnv();
+      env.COMPACTION_TENANT_OVERRIDES = bad;
+      expect(() => validateEnv(env)).not.toThrow();
+      expect(warn.mock.calls.some(([m]) => String(m).includes('COMPACTION_TENANT_OVERRIDES'))).toBe(
+        true,
+      );
+      jest.restoreAllMocks();
     }
   });
 });

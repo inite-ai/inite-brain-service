@@ -213,6 +213,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: false,
     isBooleanFlag: true,
   },
+  {
+    key: 'COMPACTION_TENANT_OVERRIDES',
+    category: 'compaction',
+    defaultValue: null,
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Per-tenant retention/promotion schedule (Brain v2 PR8, docs/roadmap/brain-v2-resolution-2026-08.md): JSON object mapping companyId → { hotRetentionDays?, promotionAgeDays?, promotionMinGroup?, promotionMinEpisodes? } (positive ints; promotionMinEpisodes ≥ 0). Overrides the process-global COMPACTION_HOT_RETENTION_DAYS / COMPACTION_PROMOTION_AGE_DAYS / COMPACTION_PROMOTION_MIN_GROUP / COMPACTION_PROMOTION_MIN_EPISODES for that tenant only. RETRIEVAL_PROFILE_OVERRIDES idiom: boot-validated shape (warn, never throw), malformed entries fail open to the process defaults per tenant; read at call time, so the cron picks up changes without a restart.',
+  },
   // ── Audit / changefeed ────────────────────────────────────
   {
     key: 'AUDIT_CHANGEFEED_ENABLED',
@@ -2194,6 +2203,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: true,
     description:
       'Promote old corroborated append_only fact groups into a durable summary. Bounded by COMPACTION_PROMOTION_MAX_GROUPS per run.',
+  },
+  {
+    key: 'COMPACTION_PROMOTION_MIN_EPISODES',
+    category: 'compaction',
+    defaultValue: '0',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Corroboration floor of the promotion consolidation gate (Brain v2 PR8): minimum DISTINCT evidence contexts — union of the member facts’ source.episodeIds and source.conversationId — a group must span before it may fold into a summary. Five facts from one conversation are one witness, not five. 0 (default) = floor off, promotion byte-identical. Per-tenant override via COMPACTION_TENANT_OVERRIDES (promotionMinEpisodes).',
+  },
+  {
+    key: 'COMPACTION_PROMOTION_CONFLICT_GUARD',
+    category: 'compaction',
+    defaultValue: '0',
+    runtimeMutable: false,
+    isBooleanFlag: true,
+    description:
+      'Competing-evidence guard of the promotion consolidation gate (Brain v2 PR8): before folding a group, count sibling status=competing rows on the same (entity, predicate, user-scope); any hit ABORTS the group loudly (logger.warn "contested group NOT promoted") — a contested group must never fold silently into one summary. Off (default) = byte-identical promotion, no extra query.',
   },
   // ── Strategy-memory lane (G4) ────────────────────────────
   {
