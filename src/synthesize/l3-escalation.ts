@@ -217,6 +217,44 @@ export function rankL3Sessions(
   return ranked.slice(0, Math.max(1, opts.max)).map((r) => r.conversationId);
 }
 
+/** Where an anchor came from: the fact grounding stamps (the original
+ *  path) or one of the auxiliary sources consulted only when the fact
+ *  path yields zero anchors (L3 anchor independence). */
+export type L3AnchorSourceName = 'fact' | 'direct' | 'segment' | 'temporal';
+
+/** One aux source's contribution, pre-merge. */
+export interface L3AnchorSource {
+  source: L3AnchorSourceName;
+  anchors: L3SessionAnchor[];
+}
+
+/**
+ * Merge anchors from heterogeneous sources for rankL3Sessions. The
+ * sources score on incomparable scales (fact similarity ∈ [0,1], BM25
+ * unbounded, RRF ~1/60, turn counts in the tens) — raw concatenation
+ * would let the largest-scaled source dominate every score tie-break.
+ * Each source's scores are normalized by that source's own max (max ≤ 0
+ * guards to 1 — zero/negative-scored anchors pass through unscaled
+ * rather than dividing by zero), then concatenated. Density (hit count)
+ * stays the primary ranking key in rankL3Sessions — normalization only
+ * levels the tie-break. Pure; no IO.
+ */
+export function mergeAnchorSources(sources: ReadonlyArray<L3AnchorSource>): L3SessionAnchor[] {
+  const out: L3SessionAnchor[] = [];
+  for (const s of sources) {
+    let max = 0;
+    for (const a of s.anchors) {
+      const v = Number.isFinite(a.score) ? a.score : 0;
+      if (v > max) max = v;
+    }
+    const denom = max > 0 ? max : 1;
+    for (const a of s.anchors) {
+      out.push({ ...a, score: (Number.isFinite(a.score) ? a.score : 0) / denom });
+    }
+  }
+  return out;
+}
+
 /**
  * Cheap token estimate for the L3 budget check — chars / 4, the usual
  * English-token rule of thumb. Deliberately an over-approximation-safe

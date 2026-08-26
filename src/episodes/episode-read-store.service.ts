@@ -226,6 +226,55 @@ export class EpisodeReadStoreService {
     });
   }
 
+  /**
+   * L3 anchor independence (temporal aux source): the conversations
+   * ACTIVE in an absolute [from, to) period, densest first — one
+   * GROUP BY over the substrate with EXACTLY the same PII/user/scope
+   * gate composition as the sibling reads (a conversation the fences
+   * hide contributes no visible turns, so it ranks by — and may vanish
+   * on — only what the caller may see). `atMs` is the earliest visible
+   * turn's event time (the window center for the degrade path).
+   */
+  async conversationsInRange(opts: {
+    companyId: string;
+    fromIso: string;
+    toIso: string;
+    limit: number;
+    includePii: boolean;
+    /** Scope key of the asking end-user; omitted → tenant-global only. */
+    userId?: string | undefined;
+    db?: EpisodeDb | undefined;
+  }): Promise<Array<{ conversationId: string; atMs: number | undefined; turns: number }>> {
+    return this.run(opts.companyId, opts.db, async (db) => {
+      const scope = this.scopeGate(opts.userId);
+      const gates = `${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)} ${scope.clause}`;
+      const [rows] = await db.query<
+        [Array<{ conversationId?: string; turns: number; firstAt?: Date | string }>]
+      >(
+        `SELECT conversationId, count() AS turns, time::min(occurredAt) AS firstAt FROM episode
+          WHERE occurredAt >= $from AND occurredAt < $to
+            AND conversationId IS NOT NONE ${gates}
+          GROUP BY conversationId
+          ORDER BY turns DESC
+          LIMIT $k`,
+        {
+          from: new Date(opts.fromIso),
+          to: new Date(opts.toIso),
+          k: opts.limit,
+          ...this.userParams(opts.userId),
+          ...scope.params,
+        },
+      );
+      return (rows ?? [])
+        .filter((r) => r.conversationId !== undefined)
+        .map((r) => ({
+          conversationId: String(r.conversationId),
+          atMs: toEpochMs(r.firstAt),
+          turns: r.turns,
+        }));
+    });
+  }
+
   /** Quote rows for specific episode ids, PII-fenced, order unspecified. */
   async byIds(opts: {
     companyId: string;
@@ -411,4 +460,11 @@ export class EpisodeReadStoreService {
       return rows ?? [];
     });
   }
+}
+
+/** Defensive Date|string → epoch-ms (undefined when unparseable). */
+function toEpochMs(v: Date | string | undefined): number | undefined {
+  if (v === undefined) return undefined;
+  const t = v instanceof Date ? v.getTime() : Date.parse(String(v));
+  return Number.isNaN(t) ? undefined : t;
 }

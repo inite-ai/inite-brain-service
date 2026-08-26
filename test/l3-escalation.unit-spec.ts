@@ -18,6 +18,7 @@ import {
   verifierPasses,
   estimateTokens,
   adaptiveL3SessionCount,
+  mergeAnchorSources,
   type L3SessionAnchor,
 } from '../src/synthesize/l3-escalation';
 import { hasUsableCalibration } from '../src/synthesize/focus-signal';
@@ -25,6 +26,7 @@ import type { PerClassCalibration } from '../src/synthesize/focus-signal';
 import { L3EscalationService } from '../src/synthesize/l3-escalation.service';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { EpisodeReadStoreService } from '../src/episodes/episode-read-store.service';
+import type { SegmentLaneService } from '../src/synthesize/segment-lane.service';
 import type { MetricsService } from '../src/metrics/metrics.service';
 import { resolveRetrievalProfile } from '../src/search/retrieval-profile';
 import type { RetrievalProfile } from '../src/search/retrieval-profile';
@@ -270,6 +272,64 @@ describe('rankL3Sessions — density + temporal overlap', () => {
   });
 });
 
+// ── pure: aux anchor-source merge (L3 anchor independence) ──────────
+describe('mergeAnchorSources — per-source max normalization', () => {
+  it('normalizes each source by its own max (mixed scales level out)', () => {
+    const merged = mergeAnchorSources([
+      {
+        source: 'direct',
+        anchors: [
+          { conversationId: 'a', score: 12 },
+          { conversationId: 'b', score: 6 },
+        ],
+      },
+      { source: 'temporal', anchors: [{ conversationId: 'c', score: 400 }] },
+    ]);
+    // Each source's best anchor lands at exactly 1.0 — no source can
+    // dominate on scale alone.
+    expect(merged.find((a) => a.conversationId === 'a')?.score).toBe(1);
+    expect(merged.find((a) => a.conversationId === 'c')?.score).toBe(1);
+    expect(merged.find((a) => a.conversationId === 'b')?.score).toBe(0.5);
+  });
+
+  it('levels the rank tie-break: BM25 ~2.5 no longer loses to turns ~50', () => {
+    const raw: L3SessionAnchor[] = [
+      { conversationId: 'd1', score: 2.5 },
+      { conversationId: 't1', score: 50 },
+    ];
+    // Raw concatenation: the large-scaled temporal source wins the
+    // equal-density score tie-break outright.
+    expect(rankL3Sessions(raw, { max: 2 })).toEqual(['t1', 'd1']);
+    // Merged: both normalize to 1.0 → deterministic id tie-break.
+    const merged = mergeAnchorSources([
+      { source: 'direct', anchors: [{ conversationId: 'd1', score: 2.5 }] },
+      { source: 'temporal', anchors: [{ conversationId: 't1', score: 50 }] },
+    ]);
+    expect(rankL3Sessions(merged, { max: 2 })).toEqual(['d1', 't1']);
+  });
+
+  it('guards max ≤ 0 (zero-scored anchors pass through, no divide-by-zero)', () => {
+    const merged = mergeAnchorSources([
+      { source: 'direct', anchors: [{ conversationId: 'a', score: 0 }] },
+    ]);
+    expect(merged).toEqual([{ conversationId: 'a', score: 0, atMs: undefined }]);
+  });
+
+  it('preserves atMs and non-finite scores collapse to 0', () => {
+    const merged = mergeAnchorSources([
+      {
+        source: 'segment',
+        anchors: [
+          { conversationId: 'a', score: 4, atMs: 1234 },
+          { conversationId: 'b', score: Number.NaN },
+        ],
+      },
+    ]);
+    expect(merged[0]).toEqual({ conversationId: 'a', score: 1, atMs: 1234 });
+    expect(merged[1]).toEqual({ conversationId: 'b', score: 0, atMs: undefined });
+  });
+});
+
 describe('verifierPasses + estimateTokens', () => {
   it('passes only on supported (and answering under topic coverage)', () => {
     expect(verifierPasses({ verdict: 'supported' }, false)).toBe(true);
@@ -287,8 +347,12 @@ describe('verifierPasses + estimateTokens', () => {
 interface Mocks {
   outcomes: string[];
   triggerPaths: string[];
+  anchorSources: string[];
   windowAroundCalls: number;
   conversationTurnsCalls: number;
+  searchTextCalls: number;
+  conversationsInRangeCalls: number;
+  segmentAnchorCalls: number;
 }
 
 function fakeOpenAi(responses: string[]): OpenAI {
@@ -334,12 +398,29 @@ function makeService(opts: {
     Array<{ id: string; speaker: string; text: string; occurredAt: string }>
   >;
   windowTurns?: Array<{ id: string; speaker: string; text: string; occurredAt: string }>;
+  /** Rows the direct-anchor BM25 probe (episodes.searchText) returns. */
+  searchTextRows?: Array<{
+    id: string;
+    conversationId: string;
+    speaker: string;
+    text: string;
+    occurredAt: string;
+    score?: number;
+  }>;
+  /** Rows the temporal probe (episodes.conversationsInRange) returns. */
+  rangeConversations?: Array<{ conversationId: string; atMs: number | undefined; turns: number }>;
+  /** When set, a SegmentLaneService stub returning these anchors. */
+  segmentAnchors?: Array<{ conversationId: string; occurredAt: string; score: number }>;
 }): { service: L3EscalationService; mocks: Mocks } {
   const mocks: Mocks = {
     outcomes: [],
     triggerPaths: [],
+    anchorSources: [],
     windowAroundCalls: 0,
     conversationTurnsCalls: 0,
+    searchTextCalls: 0,
+    conversationsInRangeCalls: 0,
+    segmentAnchorCalls: 0,
   };
   const surreal = {
     withCompany: async <T>(_c: string, fn: (db: unknown) => Promise<T>) =>
@@ -355,13 +436,30 @@ function makeService(opts: {
       mocks.windowAroundCalls += 1;
       return opts.windowTurns ?? [];
     },
+    searchText: async () => {
+      mocks.searchTextCalls += 1;
+      return opts.searchTextRows ?? [];
+    },
+    conversationsInRange: async () => {
+      mocks.conversationsInRangeCalls += 1;
+      return opts.rangeConversations ?? [];
+    },
   } as unknown as EpisodeReadStoreService;
   const metrics = {
     countL3Escalation: (o: string) => mocks.outcomes.push(o),
     countL3TriggerPath: (p: string) => mocks.triggerPaths.push(p),
+    countL3AnchorSource: (s: string) => mocks.anchorSources.push(s),
     recordOpenAiCall: () => {},
   } as unknown as MetricsService;
-  return { service: new L3EscalationService(surreal, episodes, metrics), mocks };
+  const segments = opts.segmentAnchors
+    ? ({
+        topSegmentAnchors: async () => {
+          mocks.segmentAnchorCalls += 1;
+          return opts.segmentAnchors;
+        },
+      } as unknown as SegmentLaneService)
+    : undefined;
+  return { service: new L3EscalationService(surreal, episodes, metrics, segments), mocks };
 }
 
 const FACT_ID = 'knowledge_fact:f1';
@@ -687,6 +785,173 @@ describe('L3EscalationService.escalate', () => {
       });
       expect(mocks.triggerPaths).toEqual(['adaptive']);
       expect(mocks.conversationTurnsCalls).toBe(1);
+    }
+  });
+});
+
+// ── service: auxiliary anchor sources (L3 anchor independence) ──────
+describe('L3EscalationService — auxiliary anchor sources', () => {
+  const flipScript = () =>
+    fakeOpenAi([
+      JSON.stringify({ answer: 'The tier is sapphire.', citedFactIds: [FACT_ID] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+    ]);
+
+  const directRows = [
+    {
+      id: 'episode:d1',
+      conversationId: 'conv_direct',
+      speaker: 'user',
+      text: 'my tier is sapphire',
+      occurredAt: '2026-04-01T00:00:00Z',
+      score: 3.2,
+    },
+  ];
+  const segAnchors = [
+    { conversationId: 'conv_seg', occurredAt: '2026-04-01T00:00:00Z', score: 0.03 },
+  ];
+  const rangeRows = [{ conversationId: 'conv_range', atMs: Date.UTC(2023, 4, 3), turns: 4 }];
+
+  it('aux sources are NOT consulted when fact anchors exist (fact path unchanged)', async () => {
+    const { service, mocks } = makeService({
+      factEps: [{ id: FACT_ID, eps: ['episode:ep1'] }],
+      episodesByIds: [
+        { id: 'episode:ep1', conversationId: 'conv1', occurredAt: '2026-04-01T00:00:00Z' },
+      ],
+      sessionTurns: {
+        conv1: [
+          {
+            id: 'episode:ep1',
+            speaker: 'user',
+            text: 'my tier is sapphire',
+            occurredAt: '2026-04-01T00:00:00Z',
+          },
+        ],
+      },
+      searchTextRows: directRows,
+      segmentAnchors: segAnchors,
+      rangeConversations: rangeRows,
+    });
+    const profile = makeProfile({
+      l3DirectAnchor: true,
+      l3SegmentAnchor: true,
+      l3TemporalAnchor: true,
+    });
+    const out = await service.escalate(baseInput(flipScript(), profile));
+    expect(out?.answer).toBe('The tier is sapphire.');
+    // Every aux probe stayed cold; the fact source fed the ranked set.
+    expect(mocks.searchTextCalls).toBe(0);
+    expect(mocks.segmentAnchorCalls).toBe(0);
+    expect(mocks.conversationsInRangeCalls).toBe(0);
+    expect(mocks.anchorSources).toEqual(['fact']);
+  });
+
+  it('all aux flags off + no fact anchors → byte-identical skipped_no_anchor, no aux IO', async () => {
+    const { service, mocks } = makeService({
+      factEps: [],
+      episodesByIds: [],
+      sessionTurns: {},
+      searchTextRows: directRows,
+      segmentAnchors: segAnchors,
+      rangeConversations: rangeRows,
+    });
+    const out = await service.escalate(baseInput(fakeOpenAi(['{}']), makeProfile({})));
+    expect(out).toBeNull();
+    expect(mocks.outcomes).toEqual(['skipped_no_anchor']);
+    expect(mocks.anchorSources).toEqual([]);
+    expect(mocks.searchTextCalls).toBe(0);
+    expect(mocks.segmentAnchorCalls).toBe(0);
+    expect(mocks.conversationsInRangeCalls).toBe(0);
+    expect(mocks.conversationTurnsCalls).toBe(0);
+  });
+
+  it('direct source: zero fact anchors + l3DirectAnchor → fires off a BM25 episode anchor', async () => {
+    const { service, mocks } = makeService({
+      factEps: [],
+      episodesByIds: [],
+      sessionTurns: {
+        conv_direct: [
+          {
+            id: 'episode:d1',
+            speaker: 'user',
+            text: 'my tier is sapphire',
+            occurredAt: '2026-04-01T00:00:00Z',
+          },
+        ],
+      },
+      searchTextRows: directRows,
+    });
+    const out = await service.escalate(
+      baseInput(flipScript(), makeProfile({ l3DirectAnchor: true })),
+    );
+    expect(out?.answer).toBe('The tier is sapphire.');
+    expect(mocks.outcomes).toEqual(['fired', 'flipped']);
+    expect(mocks.anchorSources).toEqual(['direct']);
+    expect(mocks.searchTextCalls).toBe(1);
+    expect(mocks.conversationTurnsCalls).toBe(1);
+  });
+
+  it('segment source: zero fact anchors + l3SegmentAnchor → fires off a segment anchor', async () => {
+    const { service, mocks } = makeService({
+      factEps: [],
+      episodesByIds: [],
+      sessionTurns: {
+        conv_seg: [
+          {
+            id: 'episode:s1',
+            speaker: 'user',
+            text: 'my tier is sapphire',
+            occurredAt: '2026-04-01T00:00:00Z',
+          },
+        ],
+      },
+      segmentAnchors: segAnchors,
+    });
+    const out = await service.escalate(
+      baseInput(flipScript(), makeProfile({ l3SegmentAnchor: true })),
+    );
+    expect(out?.answer).toBe('The tier is sapphire.');
+    expect(mocks.outcomes).toEqual(['fired', 'flipped']);
+    expect(mocks.anchorSources).toEqual(['segment']);
+    expect(mocks.segmentAnchorCalls).toBe(1);
+  });
+
+  it('temporal source fires ONLY when the query names an absolute period', async () => {
+    const setup = {
+      factEps: [] as Array<{ id: string; eps: string[] }>,
+      episodesByIds: [],
+      sessionTurns: {
+        conv_range: [
+          {
+            id: 'episode:t1',
+            speaker: 'user',
+            text: 'my tier is sapphire',
+            occurredAt: '2023-05-03T00:00:00Z',
+          },
+        ],
+      },
+      rangeConversations: rangeRows,
+    };
+    // 'what tier?' names no absolute period → the probe never runs.
+    {
+      const { service, mocks } = makeService(setup);
+      const out = await service.escalate(
+        baseInput(fakeOpenAi(['{}']), makeProfile({ l3TemporalAnchor: true })),
+      );
+      expect(out).toBeNull();
+      expect(mocks.conversationsInRangeCalls).toBe(0);
+      expect(mocks.outcomes).toEqual(['skipped_no_anchor']);
+    }
+    // A query-named month-year parses → the probe runs and anchors.
+    {
+      const { service, mocks } = makeService(setup);
+      const out = await service.escalate({
+        ...baseInput(flipScript(), makeProfile({ l3TemporalAnchor: true })),
+        dto: { query: 'what tier did I have in May 2023?' } as SynthesizeDto,
+      });
+      expect(out?.answer).toBe('The tier is sapphire.');
+      expect(mocks.conversationsInRangeCalls).toBe(1);
+      expect(mocks.anchorSources).toEqual(['temporal']);
     }
   });
 });

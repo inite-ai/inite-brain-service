@@ -629,6 +629,13 @@ const KNOWN_BOOLEAN_FLAGS = [
   // session large-context generation, re-verify, return only on flip.
   // Default off = byte-identical (the fact-only verdict stands).
   'RETRIEVAL_L3_ESCALATION',
+  // L3 anchor independence: auxiliary anchor sources consulted only
+  // when zero retrieved facts name a session — BM25 episode hits /
+  // fused segment hits / query-period conversations. Default off =
+  // byte-identical skipped_no_anchor.
+  'RETRIEVAL_L3_DIRECT_ANCHOR',
+  'RETRIEVAL_L3_SEGMENT_ANCHOR',
+  'RETRIEVAL_L3_TEMPORAL_ANCHOR',
   // R3: agent-qa V2 tool set — masked search + timeline enumerator +
   // literal transcript grep in the ReAct loop.
   'AGENT_QA_TOOLS_V2',

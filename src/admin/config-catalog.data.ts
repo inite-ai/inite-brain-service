@@ -1544,6 +1544,33 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Token cap for the assembled L3 large-context prompt under RETRIEVAL_L3_ESCALATION (estimated from assembled length). Over the cap the lane degrades to widened L2 raw-turn windows around the anchor turns rather than truncating a session mid-way (metric outcome over_budget_degraded). Only read on that path.',
   },
   {
+    key: 'RETRIEVAL_L3_DIRECT_ANCHOR',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'L3 anchor independence (profile field l3DirectAnchor): auxiliary anchor source consulted ONLY when zero retrieved facts name a session (the skipped_no_anchor residual — L3 is most needed exactly where extraction missed the info, which is when no fact anchor exists). BM25 episode hits on the query text (PII/user-fenced, top 20) anchor their conversations; the merged aux anchors then feed the UNCHANGED ranking/caps/ladder. skipped_no_anchor then means "every enabled anchor source came up empty". brain_l3_anchor_source_total{source} traces which source fed each fired escalation. Off (with the sibling aux flags off) = byte-identical skipped_no_anchor.',
+  },
+  {
+    key: 'RETRIEVAL_L3_SEGMENT_ANCHOR',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'L3 anchor independence (profile field l3SegmentAnchor): auxiliary anchor source consulted ONLY when zero retrieved facts name a session. Dense+BM25 RRF-fused episode_segment hits (top 12, NO rerank — anchors need recall, not precision) anchor their conversations; merged anchors feed the unchanged L3 ranking/caps/ladder. Degrades to no contribution on any failure. Off = this source contributes nothing.',
+  },
+  {
+    key: 'RETRIEVAL_L3_TEMPORAL_ANCHOR',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'L3 anchor independence (profile field l3TemporalAnchor): auxiliary anchor source consulted ONLY when zero retrieved facts name a session. When the query names an absolute period (code-parsed, the RETRIEVAL_TIME_FILTER parser — no LLM), the conversations active in that period (top 10 by turn count, PII/user-fenced GROUP BY) anchor, scored by turn count. A query with no parseable period contributes nothing. Off = this source contributes nothing.',
+  },
+  {
     key: 'MINICHECK_URL',
     category: 'pipeline',
     defaultValue: 'http://127.0.0.1:11434',
