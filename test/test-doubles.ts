@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { EmbedderService } from '../src/ai/embedder.service';
 import type { ExtractorService, ExtractionResult } from '../src/ai/extractor.service';
+import type { LocalCrossEncoderProvider } from '../src/ai/cross-encoder/local-cross-encoder.provider';
 import { SynthesizeService } from '../src/synthesize/synthesize.service';
 
 /**
@@ -87,6 +88,51 @@ export class StubExtractor implements Pick<
       ],
       edges: [],
     };
+  }
+}
+
+/**
+ * Inert local cross-encoder for e2e — the third member of the fixture's
+ * stub set, next to StubEmbedder and StubExtractor, and for the same
+ * reason: the real provider loads a model.
+ *
+ * The real LocalCrossEncoderProvider spawns a worker_thread per app boot
+ * and loads `Xenova/bge-reranker-base` (xlm-roberta-base, ~279MB ONNX)
+ * through onnxruntime-node. In production that is paid once per process;
+ * in e2e it is paid on EVERY `createApp()` — measured at 85 worker
+ * threads across one full run — and torn down seconds later by
+ * `app.close()`. Both CI failure modes traced back to that (see the
+ * measurement note in test/jest-e2e.json).
+ *
+ * Behaviour is deliberately the SAME branch the real provider takes
+ * while its model is still loading, which is what e2e observed anyway:
+ * `isReady()` false and `score()` empty, so `CrossEncoderService.
+ * rerankLocal` sees a length mismatch and returns the identity
+ * permutation. `isLocalOnly()` / `isEnabled()` stay true, so the rerank
+ * stage is still entered and still emits its metrics — only the model
+ * load disappears. The provider's own logic is covered by
+ * test/local-cross-encoder.unit-spec.ts and test/cross-encoder.unit-spec.ts.
+ */
+export class StubLocalCrossEncoder implements Pick<
+  LocalCrossEncoderProvider,
+  'modelId' | 'isReady' | 'warmup' | 'score' | 'terminate'
+> {
+  readonly modelId = 'stub-cross-encoder';
+
+  isReady(): boolean {
+    return false;
+  }
+
+  async warmup(): Promise<void> {
+    // No model, no worker thread, no ONNX session.
+  }
+
+  async score(): Promise<number[]> {
+    return [];
+  }
+
+  async terminate(): Promise<void> {
+    // Nothing to tear down.
   }
 }
 
