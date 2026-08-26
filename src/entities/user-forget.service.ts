@@ -133,12 +133,28 @@ export class UserForgetService {
       // traverse in.userId, so they go FIRST while their scene rows are
       // still alive. A user-scoped scene's members are all that user's by
       // the fold rule, so this clears them completely.
-      await db.query(`DELETE memory_episode_member WHERE in.userId = $u`, { u: userId });
+      //
+      // Two-step (SELECT ids → DELETE $ids) DELIBERATELY: on SurrealDB
+      // 3.2.4 a DELETE whose WHERE traverses through an indexed record
+      // field silently matches NOTHING, while the same WHERE in a SELECT
+      // matches fine — verified against the pinned server, and for `in`
+      // (covered only by the COMPOUND scene_member_uq index) even a
+      // direct `in INSIDE $ids` DELETE no-ops. Deleting by explicit ids
+      // sidesteps the planner entirely. Same bug class as PR #372's
+      // preSweepOutcomeRows in entity-forget.service.ts.
+      const [ownMemberIds] = await db.query<[unknown[]]>(
+        `SELECT VALUE id FROM memory_episode_member WHERE in.userId = $u`,
+        { u: userId },
+      );
+      if (((ownMemberIds as unknown[]) ?? []).length > 0) {
+        await db.query(`DELETE $ids`, { ids: ownMemberIds });
+      }
       // Mixed-user scenes carry no userId stamp — resolve them BY
       // REFERENCE through the membership of the just-deleted episodes
       // (the `out` link keeps its record id after the episode row died).
       // Erasure wins over retention: a scene quoting an erased turn goes
-      // whole, exactly like a mixed-user segment.
+      // whole, exactly like a mixed-user segment. Same two-step idiom:
+      // the `in INSIDE` leg of a DELETE is dead on 3.2.4 (see above).
       if (deletedEpisodeRefs.length > 0) {
         const [sceneIdRows] = await db.query<[unknown[]]>(
           `SELECT VALUE in FROM memory_episode_member WHERE out INSIDE $eps`,
@@ -147,10 +163,13 @@ export class UserForgetService {
         const sceneIds = [...new Set(((sceneIdRows as unknown[]) ?? []).map(String))].map(
           (id) => new StringRecordId(id),
         );
-        await db.query(
-          `DELETE memory_episode_member WHERE in INSIDE $sceneIds OR out INSIDE $eps`,
+        const [refMemberIds] = await db.query<[unknown[]]>(
+          `SELECT VALUE id FROM memory_episode_member WHERE in INSIDE $sceneIds OR out INSIDE $eps`,
           { sceneIds, eps: deletedEpisodeRefs },
         );
+        if (((refMemberIds as unknown[]) ?? []).length > 0) {
+          await db.query(`DELETE $ids`, { ids: refMemberIds });
+        }
         if (sceneIds.length > 0) {
           await db.query(`DELETE memory_episode WHERE id INSIDE $sceneIds`, { sceneIds });
         }

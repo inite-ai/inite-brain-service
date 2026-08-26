@@ -147,16 +147,40 @@ describe('memory_episode — shadow scenes substrate (e2e)', () => {
   });
 
   it('user forget cascades over scenes and membership', async () => {
+    // Capture the user's scene ids BEFORE the forget so the membership
+    // assertion below targets exactly those scenes by id — it must not
+    // pass by way of the by-reference (out INSIDE deleted-episodes)
+    // sweep alone masking a silently no-oped membership delete (the
+    // 3.2.4 compound-index DELETE bug the cascade works around).
+    const before = await scenesInDb();
+    expect(before.length).toBeGreaterThan(0);
+    const sceneIds = before.map((s) => s.id);
+
     const forget = await f.http.post(`/v1/users/${USER}/forget`).set(auth()).send({});
     expect([200, 201]).toContain(forget.status);
     expect(await waitForSceneCount(0)).toHaveLength(0);
+
     const surreal = f.app.get(SurrealService);
-    const members = await surreal.withCompany(f.companyId, async (db) => {
-      const [rows] = await db.query<[Array<{ n: number }>]>(
+    const counts = await surreal.withCompany(f.companyId, async (db) => {
+      const [forScenes] = await db.query<[Array<{ n: number }>]>(
+        `SELECT count() AS n FROM memory_episode_member WHERE in INSIDE $sceneIds GROUP ALL`,
+        { sceneIds },
+      );
+      const [total] = await db.query<[Array<{ n: number }>]>(
         `SELECT count() AS n FROM memory_episode_member GROUP ALL`,
       );
-      return (rows ?? [])[0]?.n ?? 0;
+      const [userScenes] = await db.query<[Array<{ n: number }>]>(
+        `SELECT count() AS n FROM memory_episode WHERE userId = $u GROUP ALL`,
+        { u: USER },
+      );
+      return {
+        membersForScenes: (forScenes ?? [])[0]?.n ?? 0,
+        membersTotal: (total ?? [])[0]?.n ?? 0,
+        userScenes: (userScenes ?? [])[0]?.n ?? 0,
+      };
     });
-    expect(members).toBe(0);
+    expect(counts.membersForScenes).toBe(0);
+    expect(counts.membersTotal).toBe(0);
+    expect(counts.userScenes).toBe(0);
   });
 });

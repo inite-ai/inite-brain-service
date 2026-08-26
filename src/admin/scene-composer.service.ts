@@ -214,13 +214,25 @@ export class SceneComposerService {
     // previous set or the new one, never neither, and other segmenter
     // versions are untouched. No graph-arrow syntax anywhere (0106 note):
     // in/out are filtered as plain record fields.
+    //
+    // Member delete is two-step (SELECT ids → DELETE $ids) DELIBERATELY:
+    // on SurrealDB 3.2.4 a DELETE whose WHERE filters on `in` — covered
+    // only by the COMPOUND scene_member_uq index — can silently match
+    // NOTHING, while the same WHERE in a SELECT matches fine — verified
+    // against the pinned server. Deleting by explicit ids sidesteps the
+    // planner entirely (same bug class as preSweepOutcomeRows, PR #372).
+    // A silent no-op here would abort the whole swap on the UNIQUE
+    // (in, out) index at re-insert time.
     await runTransaction(db as unknown as Surreal, (tx) =>
       tx
         .add(
           `LET $scenes = (SELECT VALUE id FROM memory_episode
              WHERE conversationIds CONTAINS $conv AND segmenterVersion = $v)`,
         )
-        .add(`DELETE memory_episode_member WHERE in INSIDE $scenes`)
+        .add(
+          `LET $oldMemberIds = (SELECT VALUE id FROM memory_episode_member WHERE in INSIDE $scenes)`,
+        )
+        .add(`DELETE $oldMemberIds`)
         .add(`DELETE memory_episode WHERE id INSIDE $scenes`)
         .add(`INSERT INTO memory_episode $sceneRows`)
         .add(`INSERT RELATION INTO memory_episode_member $memberRows`)

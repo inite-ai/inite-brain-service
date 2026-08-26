@@ -257,10 +257,22 @@ export class EntityForgetService {
         // facts may keep stale source.memoryEpisodeIds strings after this,
         // the same class as stale source.episodeIds — repaired by the PR2
         // backlink re-run, not chased here.
+        //
+        // Two-step (SELECT ids → DELETE $ids) DELIBERATELY: on SurrealDB
+        // 3.2.4 a DELETE whose WHERE filters on `in` — covered only by
+        // the COMPOUND scene_member_uq index — silently matches NOTHING
+        // (even a direct `in INSIDE $ids` form; a traversal through it
+        // fails the same way), while the same WHERE in a SELECT matches
+        // fine — verified against the pinned server. Deleting by explicit
+        // ids sidesteps the planner entirely. Same bug class as
+        // preSweepOutcomeRows (PR #372).
         tx.add(
           `LET $sceneIds = (SELECT VALUE in FROM memory_episode_member WHERE out INSIDE $eps)`,
         );
-        tx.add(`DELETE memory_episode_member WHERE in INSIDE $sceneIds`);
+        tx.add(
+          `LET $sceneMemberIds = (SELECT VALUE id FROM memory_episode_member WHERE in INSIDE $sceneIds)`,
+        );
+        tx.add(`DELETE $sceneMemberIds`);
         tx.add(`LET $scenesDel = (DELETE memory_episode WHERE id INSIDE $sceneIds RETURN BEFORE)`);
         // L0: a segment that quotes an erased episode goes with it; segments
         // before episodes to keep the dependency order.
