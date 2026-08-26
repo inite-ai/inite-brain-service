@@ -145,7 +145,13 @@ export class SegmentComposerService {
     // round trip each (Surreal-usage audit §9).
     const rows = windows.map((w, i) => {
       const pii = [...new Set(w.turns.flatMap((t) => t.piiClass ?? []))];
-      const userIds = [...new Set(w.turns.map((t) => t.userId).filter((u): u is string => !!u))];
+      // Sorted distinct member set (distinctUserScopes idiom) —
+      // PERSISTED as `userIds` (0117, unconditional): [] = purely
+      // tenant-global window. The PRIVACY_SEGMENT_USER_FENCE read gate
+      // (segmentUserGate) serves a mixed window only to its members.
+      const userIds = [
+        ...new Set(w.turns.map((t) => t.userId).filter((u): u is string => !!u)),
+      ].sort();
       return {
         conversationId,
         seq: w.seq,
@@ -154,9 +160,10 @@ export class SegmentComposerService {
         occurredAt: new Date(w.turns[0]!.occurredAt as string), // windows are non-empty
         piiClass: pii.length > 0 ? pii : undefined,
         userId: userIds.length === 1 ? userIds[0] : undefined,
+        userIds,
         // G6 step 1: mirror the per-user scope as a scope tag (0093).
         // A mixed-user window stays tenant-global ([]) — same rule as
-        // the userId stamp above.
+        // the userId stamp above (0117's userIds carries the members).
         scope: scopeForUser(userIds.length === 1 ? userIds[0] : undefined),
         embedding: vectors[i],
         recorder: SEGMENT_RECORDER,

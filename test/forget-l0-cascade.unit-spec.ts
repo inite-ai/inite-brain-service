@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { EntityForgetService } from '../src/entities/entity-forget.service';
 import { UserForgetService } from '../src/entities/user-forget.service';
 import type { SurrealService } from '../src/db/surreal.service';
@@ -223,6 +225,29 @@ describe('entity forget → atomicity contract (R4)', () => {
           !q.sql.includes('memory_outcome'),
       ),
     ).toBe(false);
+  });
+});
+
+describe('user forget → userIds is never edited on erasure (0117 pin)', () => {
+  // Source-regex guard (audit-p1-guards style): erasure WINS over
+  // retention — any window quoting an erased user's turn dies WHOLE by
+  // episode reference. The 0117 userIds member set therefore never
+  // needs editing on forget; a refactor that starts UPDATE-ing
+  // episode_segment/memory_episode userIds instead of deleting whole
+  // rows would silently retain the erased user's verbatim text.
+  const source = readFileSync(
+    join(__dirname, '..', 'src', 'entities', 'user-forget.service.ts'),
+    'utf8',
+  );
+
+  it('mixed segments die WHOLE by episode reference', () => {
+    expect(source).toContain('DELETE episode_segment WHERE episodeIds CONTAINSANY $eps');
+  });
+
+  it('no forget path edits userIds arrays', () => {
+    expect(source).not.toMatch(/SET\s+userIds/);
+    expect(source).not.toMatch(/UPDATE\s+episode_segment/);
+    expect(source).not.toMatch(/UPDATE\s+memory_episode/);
   });
 });
 

@@ -2,6 +2,8 @@ import type { Logger } from '@nestjs/common';
 import { StringRecordId, type Surreal } from 'surrealdb';
 import { SurrealService, runTransaction } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
+import { scopeForUser } from '../auth/scope-tags';
+import { privacyComposerUserScopeEnabled } from '../common/privacy-flags';
 
 /**
  * The shared skeleton of the write-time insight composers (aggregates,
@@ -37,6 +39,12 @@ export interface FactRowLite {
    * composers' buildRow under PROVENANCE_SUMMARY_EPISODE_STAMP.
    */
   episodeIds?: unknown;
+  /**
+   * 0055 user scope of the member fact (option column) — selected
+   * unconditionally so the PRIVACY_COMPOSER_USER_SCOPE fold can decide
+   * whether a proposal is global, single-user, or cross-user.
+   */
+  userId?: string;
 }
 
 /**
@@ -85,6 +93,12 @@ export interface ComposerRunResult {
   entities: number;
   written: number;
   skipped: Array<{ entityId: string; reason: string }>;
+  /**
+   * Proposals dropped by the PRIVACY_COMPOSER_USER_SCOPE cross-user
+   * rule (≥2 distinct member-fact userIds — the deriver drop idiom).
+   * Always 0 with the flag off.
+   */
+  droppedCrossUser: number;
 }
 
 interface KernelDeps {
@@ -116,7 +130,7 @@ export async function runInsightComposer<P>(
   const entityCap = Math.min(Math.max(opts.entities ?? 12, 1), 50);
   const version = opts.version?.trim() || undefined;
   const versionClause = version ? 'AND derivedVersion = $version' : 'AND derivedVersion IS NONE';
-  const result: ComposerRunResult = { entities: 0, written: 0, skipped: [] };
+  const result: ComposerRunResult = { entities: 0, written: 0, skipped: [], droppedCrossUser: 0 };
   await deps.surreal.withCompany(companyId, async (db) => {
     const [tops] = await db.query<[Array<{ entityId: unknown; n: number }>]>(
       `SELECT entityId, count() AS n FROM knowledge_fact
@@ -129,7 +143,7 @@ export async function runInsightComposer<P>(
     for (const top of tops ?? []) {
       const entityId = String(top.entityId);
       try {
-        const written = await composeEntity(deps, db, {
+        const { written, droppedCrossUser } = await composeEntity(deps, db, {
           spec,
           entityId,
           version,
@@ -137,6 +151,7 @@ export async function runInsightComposer<P>(
         });
         result.entities += 1;
         result.written += written;
+        result.droppedCrossUser += droppedCrossUser;
       } catch (e) {
         result.skipped.push({ entityId, reason: (e as Error).message });
         deps.logger.warn(
@@ -157,7 +172,7 @@ async function composeEntity<P>(
     version?: string | undefined;
     versionClause: string;
   },
-): Promise<number> {
+): Promise<{ written: number; droppedCrossUser: number }> {
   const { spec, entityId, version, versionClause } = ctx;
   const [[entity]] = await db.query<[Array<{ canonicalName?: string }>]>(
     `SELECT canonicalName FROM $eid`,
@@ -165,7 +180,7 @@ async function composeEntity<P>(
   );
   const name = entity?.canonicalName ?? entityId;
   const [facts] = await db.query<[FactRowLite[]]>(
-    `SELECT id, predicate, object, validFrom, source.episodeIds AS episodeIds
+    `SELECT id, predicate, object, validFrom, userId, source.episodeIds AS episodeIds
        FROM knowledge_fact
       WHERE entityId = $eid AND status = 'active'
         ${spec.sourceExclusionSql}
@@ -177,25 +192,52 @@ async function composeEntity<P>(
       ...spec.sourceExclusionParams,
     },
   );
-  if (!facts || facts.length < spec.minFacts) return 0;
+  if (!facts || facts.length < spec.minFacts) return { written: 0, droppedCrossUser: 0 };
 
   const lines = facts.map((f, i) => `${i}. ${f.predicate}: ${f.object} (${factDay(f.validFrom)})`);
   const proposals = await spec.propose(name, lines);
   const valid = proposals.filter((p) => spec.valid(p, facts));
+  // Cross-user scope rule (PRIVACY_COMPOSER_USER_SCOPE — the deriver
+  // drop idiom, derive-row-builder.ts): fold each proposal's
+  // member-fact userIds BEFORE the paid embedding step. 0 users →
+  // global row (unchanged); exactly 1 → the built row is stamped
+  // userId + scope below, so the 0055/0093 read fences apply to it;
+  // ≥2 → DROPPED — a cross-user summary must never become a
+  // tenant-global row served to every user. Flag off → byte-identical.
+  const scopeOn = privacyComposerUserScopeEnabled();
+  const kept: Array<{ proposal: P; scopeUser: string | undefined }> = [];
+  let droppedCrossUser = 0;
+  for (const p of valid) {
+    const users = scopeOn ? proposalScopeUsers(p, facts) : [];
+    if (users.length >= 2) {
+      droppedCrossUser += 1;
+      deps.logger.warn(
+        `${spec.recorder}: dropped cross-user proposal for ${entityId} ` +
+          `(${users.length} distinct member users)`,
+      );
+      continue;
+    }
+    kept.push({ proposal: p, scopeUser: users[0] });
+  }
   // Every paid step (the proposal above, embeddings here) runs BEFORE
   // the delete — a failure leaves the previous derived set intact.
   const vectors =
-    valid.length > 0
-      ? await deps.embedding.embedMany(valid.map((p) => spec.embeddingTextOf(p)))
+    kept.length > 0
+      ? await deps.embedding.embedMany(kept.map((x) => spec.embeddingTextOf(x.proposal)))
       : [];
-  const rows = valid.map((p, i) =>
-    spec.buildRow(p, {
+  const rows = kept.map((x, i) => {
+    const row = spec.buildRow(x.proposal, {
       entityId: new StringRecordId(entityId),
       facts,
-      vector: vectors[i]!, // vectors is 1:1 with valid (embedMany) ⇒ in-bounds
+      vector: vectors[i]!, // vectors is 1:1 with kept (embedMany) ⇒ in-bounds
       version,
-    }),
-  );
+    });
+    // Kernel-central stamp AFTER buildRow — both composers inherit it,
+    // the specs stay untouched (D2).
+    return x.scopeUser !== undefined
+      ? { ...row, userId: x.scopeUser, scope: scopeForUser(x.scopeUser) }
+      : row;
+  });
   // Wholesale replace: composed rows are derived state, a re-run owns
   // them. Atomic swap (audit W2 #10/#11): the delete and the insert
   // share one transaction.
@@ -211,5 +253,27 @@ async function composeEntity<P>(
       .bind('version', version)
       .bind('rows', rows);
   });
-  return valid.length;
+  return { written: kept.length, droppedCrossUser };
+}
+
+/**
+ * The sorted distinct userIds of one proposal's member facts
+ * (PRIVACY_COMPOSER_USER_SCOPE fold). Proposals are generic in the
+ * kernel, but both composer specs (aggregates, arcs) shape them with
+ * `members: number[]` validated in-bounds by `spec.valid` — this
+ * structural read is the kernel-central seam that keeps the specs
+ * untouched. A proposal without a members array folds to [] (global),
+ * as do members whose facts carry no userId (tenant-global sources).
+ */
+function proposalScopeUsers(proposal: unknown, facts: FactRowLite[]): string[] {
+  const members = (proposal as { members?: unknown }).members;
+  if (!Array.isArray(members)) return [];
+  const users = new Set<string>();
+  for (const m of members) {
+    if (typeof m === 'number' && Number.isInteger(m) && m >= 0 && m < facts.length) {
+      const u = facts[m]?.userId;
+      if (u) users.add(u);
+    }
+  }
+  return [...users].sort();
 }

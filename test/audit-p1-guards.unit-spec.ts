@@ -398,3 +398,20 @@ describe('JobRunService.finish ownership guard', () => {
     expect(finishSql).toContain('claimedBy IS NONE');
   });
 });
+
+describe('0117_window_user_scope (mixed-user privacy fence substrate)', () => {
+  const sql = readFileSync(join(MIGRATIONS, '0117_window_user_scope.surql'), 'utf8');
+
+  it('defines the userIds member set on both window tables', () => {
+    expect(sql).toContain(
+      'DEFINE FIELD IF NOT EXISTS userIds ON episode_segment TYPE option<array<string>>;',
+    );
+    expect(sql).toContain(
+      'DEFINE FIELD IF NOT EXISTS userIds ON memory_episode TYPE option<array<string>>;',
+    );
+  });
+
+  it('deliberately defines NO index (3.2.4 compound-index planner risk)', () => {
+    expect(sql).not.toContain('DEFINE INDEX');
+  });
+});

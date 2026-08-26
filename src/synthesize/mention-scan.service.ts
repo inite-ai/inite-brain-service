@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
+import { segmentUserGate } from '../auth/segment-scope';
 import {
   bestMentionPerSession,
   dedupeMentionLines,
@@ -72,11 +73,9 @@ export class MentionScanService {
   }): Promise<string[]> {
     const topic = extractOrderingTopic(opts.query);
     const piiGate = opts.callerScopes.includes('brain:read_pii') ? '' : 'AND piiClass IS NONE';
-    // Fail-closed user scope — same contract as the segment lane (0055).
-    const userGate = opts.userId
-      ? 'AND (userId IS NONE OR userId = $scopeUserId)'
-      : 'AND userId IS NONE';
-    const userParams = opts.userId ? { scopeUserId: opts.userId } : {};
+    // Fail-closed user scope — same 0055 + 0117 contract as the segment
+    // lane (segmentUserGate, PRIVACY_SEGMENT_USER_FENCE).
+    const gate = segmentUserGate(opts.userId);
     const k = MentionScanService.SCAN_FETCH_CAP;
     try {
       const topicVector = await this.embedder.embed(topic);
@@ -85,8 +84,8 @@ export class MentionScanService {
           db,
           table: 'episode_segment',
           projection: 'id, text, occurredAt',
-          gates: `${piiGate} ${userGate}`,
-          params: { q: topicVector, k, ...userParams },
+          gates: `${piiGate} ${gate.clause}`,
+          params: { q: topicVector, k, ...gate.params },
           k,
           tuning: opts.scan ?? BRUTE_ONLY,
           logger: this.logger,
@@ -99,10 +98,10 @@ export class MentionScanService {
         const [bm25] = await db.query<[SegmentScanRow[]]>(
           `SELECT id, text, occurredAt, ${lexLeg.score} AS score
                FROM episode_segment
-              WHERE ${lexLeg.where} ${piiGate} ${userGate}
+              WHERE ${lexLeg.where} ${piiGate} ${gate.clause}
               ORDER BY score DESC
               LIMIT $k`,
-          { ...lexLeg.params, k, ...userParams },
+          { ...lexLeg.params, k, ...gate.params },
         );
         return mergeLegs(dense, bm25 ?? []);
       });

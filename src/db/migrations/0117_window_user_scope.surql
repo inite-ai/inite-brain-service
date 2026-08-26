@@ -1,0 +1,32 @@
+-- 0117: per-member user scope for verbatim windows (episode_segment) and
+-- scenes (memory_episode) — mixed-user windows fold userId=NONE ⇒
+-- tenant-global, so any segment-serving mode exposed user B's verbatim
+-- turns to every user-scoped caller in the tenant (same class as the
+-- 2026-08-21 deriver P0 and the 0087 digest fix).
+--
+-- userIds — the distinct sorted member-turn userIds of the window.
+-- [] = fully tenant-global content. NONE = legacy row, not yet
+-- backfilled (POST /v1/admin/maintenance/segments/backfill-user-ids).
+--
+-- READ CONTRACT (PRIVACY_SEGMENT_USER_FENCE, fail-closed):
+--   * tenant-global caller (M2M): unchanged — sees global + mixed;
+--   * user-scoped caller: own single-user rows (userId = $u), plus
+--     userId-NONE rows whose userIds is [] (purely global) or CONTAINS
+--     the caller (window membership — co-present verbatim is
+--     re-disclosure, not disclosure). userIds IS NONE is HIDDEN:
+--     backfill BEFORE enabling the fence.
+-- memory_episode (scenes) has no serving readers yet — this contract
+-- binds its future readers; scene backfill = re-run the composer
+-- (POST /v1/admin/maintenance/scenes: idempotent atomic swap per
+-- conversation × segmenterVersion), so no dedicated endpoint exists.
+--
+-- DDL-ONLY on purpose: recomputing userIds traverses episodeIds record
+-- links, an UPDATE shape the 3.2.4 planner mishandles (see
+-- user-forget.service.ts two-step idiom) — the backfill endpoint
+-- recomputes in code and updates by primary key.
+-- NO index on userIds on purpose: the fence legs ride inside already-
+-- scored (KNN/BM25) queries, and 0093 deliberately left episode_segment
+-- unindexed for scope (compound-index planner risk on 3.2.4).
+
+DEFINE FIELD IF NOT EXISTS userIds ON episode_segment TYPE option<array<string>>;
+DEFINE FIELD IF NOT EXISTS userIds ON memory_episode TYPE option<array<string>>;
