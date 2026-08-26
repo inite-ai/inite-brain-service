@@ -162,6 +162,11 @@ describe('S5.5 — dead exports in the engine dirs', () => {
     // DIRECTLY by the answer-lang-guard unit spec for its precision cases
     // (within-script not adjudicated, proper-noun/numeric-safe, floor).
     'answerLanguageMismatch',
+    // V11 §2 arm (b) low-level NLI call. Consumed inside minicheck-client
+    // (miniCheckVerdict — the orchestrator's seam since the 0119 file-budget
+    // extraction) but pinned DIRECTLY by the minicheck unit spec for its
+    // fetch-level cases (prompt shape, Yes/No parse, error surface).
+    'miniCheckConsistent',
   ]);
   const TESTS = walk(join(ROOT, 'test'))
     .map((f) => readFileSync(f, 'utf8'))

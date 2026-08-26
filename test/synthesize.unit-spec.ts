@@ -109,6 +109,8 @@ describe('SynthesizeService', () => {
     const outcomes: string[] = [];
     const metrics = {
       countSynthesize: (o: string) => outcomes.push(o),
+      // 0119: the serving-boundary latency observe runs on EVERY exit.
+      observeSearchDuration: () => undefined,
     } as unknown as ConstructorParameters<typeof SynthesizeService>[2];
     const answerCache = {
       begin: async () => ({ hit: cachedResult }),
@@ -134,6 +136,8 @@ describe('SynthesizeService', () => {
     const outcomes: string[] = [];
     const metrics = {
       countSynthesize: (o: string) => outcomes.push(o),
+      // 0119: the serving-boundary latency observe runs on EVERY exit.
+      observeSearchDuration: () => undefined,
     } as unknown as ConstructorParameters<typeof SynthesizeService>[2];
     const cfg = makeConfig({ OPENAI_API_KEY: 'sk-stub' });
     const svc = new SynthesizeService(makeSearch([]), cfg, metrics);

@@ -992,6 +992,17 @@ const KNOWN_BOOLEAN_FLAGS = [
   // retrieved rows even with the master on. The retention window knob
   // (OUTCOME_EVENT_RETENTION_DAYS) is an int, not a boolean flag.
   'OUTCOME_RETRIEVED_EVENTS',
+  // Outcome telemetry: transactional idempotent writes — deterministic
+  // record ids + INSERT IGNORE inside ONE BEGIN/COMMIT, in-tx delta
+  // gating, one OCC retry. Off (default) ⇒ the legacy two-statement
+  // write path runs byte-identical (pinned by the unit spec).
+  'OUTCOME_TX_WRITES',
+  // Decision-context telemetry (0119): content-free memory_decision rows
+  // at the abstain/L3 seams + the decisionId join columns + the decision
+  // prune leg. An INDEPENDENT master (the TOOL_OBSERVATIONS_ENABLED
+  // precedent) — not coupled to OUTCOME_TELEMETRY_ENABLED. The retention
+  // knob (OUTCOME_DECISION_RETENTION_DAYS) is an int, not a boolean flag.
+  'OUTCOME_DECISION_CAPTURE',
   // Tool observations master (0111): the per-request MCP build applies
   // the innermost observation wrapper, the pack-tool proxy stamps
   // identity rows, ingest accepts toolObservationRef, the prune leg

@@ -130,8 +130,20 @@ export class UserForgetService {
       // indexed record field (memory_outcome_subject_idx covers
       // subjectId) silently matches NOTHING, while the same WHERE in a
       // SELECT matches fine — verified against the pinned server.
+      //
+      // memory_decision (0119) goes FIRST: decision rows carry no
+      // subject/user linkage by design (content-free decision context),
+      // so their join keys (memory_outcome.decisionId) must be collected
+      // while the user's outcome rows are still alive. Accepted
+      // semantics: a decision row shared with another subject's outcomes
+      // dies too — content-free telemetry, prunable at 30d, over-deletion
+      // is the safe direction. Same two-step idiom.
       await db.query(
-        `LET $outIds = (SELECT VALUE id FROM memory_outcome WHERE subjectId.userId = $u);
+        `LET $decKeys = array::distinct((SELECT VALUE decisionId FROM memory_outcome
+           WHERE subjectId.userId = $u AND decisionId IS NOT NONE));
+         LET $decIds = (SELECT VALUE id FROM memory_decision WHERE decisionId INSIDE $decKeys);
+         DELETE $decIds;
+         LET $outIds = (SELECT VALUE id FROM memory_outcome WHERE subjectId.userId = $u);
          DELETE $outIds;
          LET $outStatIds = (SELECT VALUE id FROM memory_outcome_stat WHERE subjectId.userId = $u);
          DELETE $outStatIds;`,

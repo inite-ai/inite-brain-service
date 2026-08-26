@@ -90,21 +90,26 @@ describe('buildMriReport — free (live telemetry) dimensions', () => {
     expect(d.source).toMatch(/UPPER BOUND/);
   });
 
-  it('p50/p95 latency render pending — no serving-path histogram is emitted', () => {
-    for (const key of ['latencyP50Seconds', 'latencyP95Seconds'] as const) {
-      const d = report.dimensions[key]!;
-      expect(d.value).toBe('pending-eval');
-      expect(d.kind).toBe('pending');
-      expect(d.reason).toMatch(/no per-query latency histogram is emitted on the serving path/);
-    }
+  it('p50/p95 latency are LIVE off the serving-boundary histogram (audit pt-8)', () => {
+    // synthesize() observes brain_search_duration_seconds once per request,
+    // so the cells render histogram_quantile numbers, not `pending`.
+    const p50 = report.dimensions.latencyP50Seconds!;
+    expect(p50.value as number).toBeCloseTo(0.1, 6);
+    expect(p50.kind).toBe('live');
+    expect(p50.unit).toBe('seconds');
+    expect(p50.source).toMatch(/brain_search_duration_seconds/);
+    const p95 = report.dimensions.latencyP95Seconds!;
+    expect(p95.value as number).toBeCloseTo(0.40625, 6);
+    expect(p95.kind).toBe('live');
   });
 
-  it('exposes a live operating point (proxy-accuracy = ok ÷ terminal); latency null', () => {
+  it('exposes a live operating point (proxy-accuracy = ok ÷ terminal) with latency axes', () => {
     const p = report.operatingPoint;
     expect(p.accuracyProxy).toBeCloseTo(0.8, 6);
     expect(p.ece).toBeNull();
     expect(p.sampleCount).toBe(100);
-    expect(p.latencyP95).toBeNull();
+    expect(p.latencyP50).toBeCloseTo(0.1, 6);
+    expect(p.latencyP95).toBeCloseTo(0.40625, 6);
   });
 });
 

@@ -132,10 +132,19 @@ describe('collectOperatingPoint — from a telemetry reader', () => {
     expect(p.sampleCount).toBe(100);
   });
 
-  it('leaves latency null even when a search histogram is present (serving path emits none)', () => {
-    // brain_search_duration_seconds is in the snapshot, but the serving path
-    // never observes it — so it is not a real per-query latency signal.
+  it('fills latency p50/p95 from the serving-boundary histogram (histogram_quantile)', () => {
+    // synthesize() now observes brain_search_duration_seconds once per
+    // request at the serving boundary (audit pt-8), so the operating point
+    // fills the latency axes via histogram_quantile interpolation:
+    //   p50: target 50 → exactly the 0.1 bucket edge;
+    //   p95: target 95 → within [0.25, 0.5): 0.25 + (95−90)/8 · 0.25.
     const p = collectOperatingPoint(readerFromPromJson(json));
+    expect(p.latencyP50).toBeCloseTo(0.1, 6);
+    expect(p.latencyP95).toBeCloseTo(0.40625, 6);
+  });
+
+  it('latency stays null (never fabricated) when the histogram is absent', () => {
+    const p = collectOperatingPoint(readerFromPromJson(json.slice(0, 2)));
     expect(p.latencyP50).toBeNull();
     expect(p.latencyP95).toBeNull();
   });

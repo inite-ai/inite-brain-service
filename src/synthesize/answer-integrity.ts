@@ -53,6 +53,14 @@ export interface FinalizeContext {
    * callers) ⇒ no events, like the empty integrity gate.
    */
   companyId?: string | undefined;
+  /**
+   * 0119: the request's primary decision id (abstain gate or L3
+   * trigger), set ONLY under OUTCOME_DECISION_CAPTURE. finalizeAndAdmit
+   * threads it onto the outcome rows (emitAnswerUse) so an outcome can
+   * be joined back to the decision that produced it. Absent ⇒ rows
+   * byte-identical.
+   */
+  decisionId?: string | undefined;
 }
 
 /**

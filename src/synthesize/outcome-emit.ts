@@ -65,14 +65,25 @@ export function unverifiedServe(
  */
 export function emitAnswerUse(
   outcomes: MemoryOutcomeService | undefined,
-  opts: { companyId: string | undefined; citations: Citation[]; verdict?: VerifierOutput },
+  opts: {
+    companyId: string | undefined;
+    citations: Citation[];
+    verdict?: VerifierOutput;
+    /**
+     * 0119: the request's primary decision id (abstain gate or L3
+     * trigger), threaded by synthesize ONLY under
+     * OUTCOME_DECISION_CAPTURE — absent ⇒ rows byte-identical.
+     */
+    decisionId?: string | undefined;
+  },
 ): void {
-  const { companyId, citations, verdict } = opts;
+  const { companyId, citations, verdict, decisionId } = opts;
   if (!outcomes || !MemoryOutcomeService.enabled() || companyId === undefined) return;
   const events: OutcomeEventInput[] = citations.map((c) => ({
     subjectKind: 'fact',
     subjectId: c.factId,
     event: 'used_in_answer',
+    ...(decisionId !== undefined ? { decisionId } : {}),
   }));
   if (verdict?.verdict === 'supported') {
     events.push(
@@ -81,6 +92,7 @@ export function emitAnswerUse(
         subjectId: c.factId,
         event: 'verifier_supported',
         meta: { verdict: verdict.verdict },
+        ...(decisionId !== undefined ? { decisionId } : {}),
       })),
     );
   }

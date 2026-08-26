@@ -1,5 +1,5 @@
 import type { MetricsReader } from './metrics-reader';
-import { sumCounter } from './metrics-reader';
+import { histogramQuantile, sumCounter } from './metrics-reader';
 
 /**
  * Part 1 — the economics operating-point + Pareto reporter
@@ -23,17 +23,19 @@ import { sumCounter } from './metrics-reader';
  *     tokens (embed + chat across derive/dreams/ingest/synthesize) by the
  *     synthesize request count — it over-attributes non-synthesize spend. The
  *     field name + labels say so; it is never presented as the true answer cost.
- *   - latency is `null` here: no per-query latency histogram is emitted on the
- *     serving path (brain_search_duration_seconds is defined but its
- *     observe() is never called outside a unit test), so the cell renders
- *     `pending` with that reason rather than a fabricated number.
+ *   - latency is LIVE off `brain_search_duration_seconds`: synthesize()
+ *     observes its wall-clock duration once per request at the serving
+ *     boundary (the audit pt-8 fix — the histogram was defined but never
+ *     observed), and p50/p95 come from `histogramQuantile` over its buckets —
+ *     the Prometheus estimator, an honest bucket interpolation, not a claimed
+ *     exact latency. A window with no samples still yields `null` → the cell
+ *     renders `pending`, never a fabricated number.
  *
  * The reporter renders the Pareto frontier over a set of points and flags
  * the dominated ones (accuracy↑ better, cost↓ better, latency↓ better). The
  * ship-gate is ADVISORY ONLY (§1.3): it REPORTS that a candidate is
  * dominated; it never blocks. Only the accuracy axis is a proxy; cost is an
- * explicit upper bound and latency is pending until a serving-path histogram
- * exists — so a live operating point lands in `insufficientData` until then.
+ * explicit upper bound.
  */
 
 /** USD per 1,000,000 tokens. Assumed list price — the token COUNTS are exact
@@ -71,12 +73,12 @@ export interface PolicyOperatingPoint {
   accuracyProxy: number | null;
   /** Expected Calibration Error. null until a labeled gold set exists. */
   ece: number | null;
-  /** Median query latency in seconds. ALWAYS null today: no per-query latency
-   *  histogram is emitted on the serving path (brain_search_duration_seconds is
-   *  defined but never observed outside a unit test). Kept on the shape so a
-   *  future serving-path histogram fills it without a contract change. */
+  /** Median query latency in seconds — histogram_quantile(0.5) over
+   *  brain_search_duration_seconds (observed once per synthesize() request
+   *  at the serving boundary). null when the window carries no samples —
+   *  never a fabricated zero. */
   latencyP50: number | null;
-  /** p95 query latency in seconds. ALWAYS null today (see latencyP50). */
+  /** p95 query latency in seconds (see latencyP50). */
   latencyP95: number | null;
   /** Estimated USD per query — UPPER BOUND, NOT the true per-answer cost. All-AI
    *  tokens (embed + chat across derive/dreams/ingest/synthesize — the token
@@ -148,8 +150,9 @@ export function terminalSynthesizeCount(reader: MetricsReader): number {
  *   - costPerQueryUpperBound = (all-AI tokens × price) ÷ terminal count. An UPPER
  *     BOUND: the token counters are not separable by subsystem, so global AI
  *     spend is attributed to synthesize requests. NOT the per-answer cost.
- *   - latency stays null: no per-query latency histogram is emitted on the
- *     serving path (see the file header) — the dimension renders `pending`.
+ *   - latencyP50/P95 = histogram_quantile over brain_search_duration_seconds
+ *     (observed once per synthesize() request at the serving boundary); null
+ *     when the window carries no samples (never fabricated).
  *   - ece stays null — no labels here.
  */
 export function collectOperatingPoint(
@@ -182,14 +185,19 @@ export function collectOperatingPoint(
     1_000_000;
   const costPerQueryUpperBound = terminalTotal > 0 ? totalCostUsd / terminalTotal : null;
 
+  // Serving-boundary latency: synthesize() observes once per request.
+  // histogramQuantile returns null on an empty histogram (count 0), and a
+  // missing metric reads as null too — the never-fabricate rule holds.
+  const latencyHist = reader.histogram('brain_search_duration_seconds');
+  const latencyP50 = latencyHist ? histogramQuantile(latencyHist, 0.5) : null;
+  const latencyP95 = latencyHist ? histogramQuantile(latencyHist, 0.95) : null;
+
   return {
     flags,
     accuracyProxy,
     ece: null,
-    // No per-query latency histogram is emitted on the serving path — never a
-    // fabricated number; the cost/latency dims render this as `pending`.
-    latencyP50: null,
-    latencyP95: null,
+    latencyP50,
+    latencyP95,
     costPerQueryUpperBound,
     sampleCount: terminalTotal,
   };

@@ -7,10 +7,11 @@
  * answer whose text is not consistent with the evidence bundle should
  * decline instead of surfacing.
  *
- * Pure module — no DI, no env reads; the orchestrator passes the
- * endpoint. Errors throw (the caller owns the degrade contract, same
- * as the LLM verifier path).
+ * No DI, no env reads; the orchestrator passes the endpoint. Errors
+ * throw (the caller owns the degrade contract, same as the LLM
+ * verifier path).
  */
+import { withSpan } from '../common/tracing';
 
 export interface MiniCheckRequest {
   /** Ollama base URL, e.g. http://127.0.0.1:11434 */
@@ -23,6 +24,42 @@ export interface MiniCheckRequest {
   claim: string;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal | undefined;
+}
+
+/**
+ * V11 §2 arm (b): the local-NLI judgment mapped onto the verifier
+ * verdict shape, so it falls through the SAME finalizeVerdict gate
+ * (verdict.ts treats 'minicheck' like 'verifier'). The claim is the
+ * whole answer text; the document is the evidence bundle the generator
+ * saw. A refinement candidate from the V10 §5 lesson — decompose the
+ * answer and check the connecting claim separately — is deliberately
+ * NOT in v1 (measure the plain form first). Extracted from the
+ * orchestrator (file budget); the service supplies its span + abort
+ * signal so the call keeps its observability.
+ */
+export async function miniCheckVerdict(
+  cfg: { baseUrl: string; model: string; signal?: AbortSignal | undefined },
+  args: {
+    answer: string;
+    factLines: string[];
+    transcriptLines: string[];
+    insightLines: string[];
+    /** MM-zoom PR2 parity: the media lines the generator saw. */
+    fragmentLines?: string[] | undefined;
+  },
+): Promise<{ verdict: 'supported' | 'unsupported'; unsupportedClaims: string[] }> {
+  const consistent = await withSpan('synthesize.verify', () =>
+    miniCheckConsistent({
+      baseUrl: cfg.baseUrl,
+      model: cfg.model,
+      document: buildMiniCheckDocument(args),
+      claim: args.answer,
+      signal: cfg.signal,
+    }),
+  );
+  return consistent
+    ? { verdict: 'supported', unsupportedClaims: [] }
+    : { verdict: 'unsupported', unsupportedClaims: [args.answer] };
 }
 
 /** True = the claim is consistent with the document (grounded). */
@@ -59,9 +96,10 @@ export async function miniCheckConsistent(req: MiniCheckRequest): Promise<boolea
  * G4 advisory notes are excluded exactly as on the verifier path, and
  * the MM-zoom PR2 media lines join when the fragment lane rendered
  * any). Pure string work, split out of synthesize.service (file-size
- * gate) at the natural seam.
+ * gate) at the natural seam. Not exported: miniCheckVerdict above is
+ * the one consumer (S5.5 dead-export gate).
  */
-export function buildMiniCheckDocument(args: {
+function buildMiniCheckDocument(args: {
   factLines: string[];
   transcriptLines: string[];
   insightLines: string[];

@@ -142,6 +142,14 @@ export class FocusSignalService {
       verdict: FocusVerdict;
       lane: LaneId | null;
       query?: string;
+      /**
+       * 0119 join key: the request's primary decision id, threaded by
+       * synthesize ONLY under OUTCOME_DECISION_CAPTURE. Absent (the
+       * default, and always when that flag is off) ⇒ the CREATE is
+       * byte-identical to pre-0119 — 0094's fit/measure surface stays
+       * the sole consumer of samples; new rows merely gain the column.
+       */
+      decisionId?: string | undefined;
     },
     stage: FocusStage = 'verdict',
   ): Promise<void> {
@@ -169,7 +177,7 @@ export class FocusSignalService {
           signal.script = det.script;
         }
       }
-      await this.insertSample(companyId, signal, stage);
+      await this.insertSample(companyId, { sig: signal, stage, decisionId: args.decisionId });
     } catch (e) {
       this.logger.warn(`focus-signal capture failed (${(e as Error).message}); ignored`);
     }
@@ -177,16 +185,18 @@ export class FocusSignalService {
 
   private async insertSample(
     companyId: string,
-    sig: FocusSignal,
-    stage: FocusStage = 'verdict',
+    args: { sig: FocusSignal; stage: FocusStage; decisionId?: string | undefined },
   ): Promise<void> {
+    const { sig, stage, decisionId } = args;
     await this.surreal.withCompany(companyId, async (db) => {
       // Tier 5 language/script columns are appended to the CONTENT only when
       // detected — an omitted optional field stays NONE (not NULL), so
       // `language IS NONE` still selects the global per-class pool. Off ⇒ the
       // clause is empty and the insert is byte-identical to pre-Tier-5.
+      // The 0119 decisionId join key follows the same appended-only idiom.
       const langFields =
         (sig.language ? ', language: $language' : '') + (sig.script ? ', script: $script' : '');
+      const decisionField = decisionId ? ', decisionId: $decisionId' : '';
       await db.query(
         `CREATE focus_signal_sample CONTENT {
             companyId: $companyId,
@@ -198,7 +208,7 @@ export class FocusSignalService {
             verifierVerdict: $verifierVerdict,
             retrievalGap: $retrievalGap,
             rawConfidence: $rawConfidence,
-            correct: NONE${langFields}
+            correct: NONE${langFields}${decisionField}
          }`,
         {
           companyId,
@@ -212,6 +222,7 @@ export class FocusSignalService {
           rawConfidence: rawFocusConfidence(sig),
           ...(sig.language ? { language: sig.language } : {}),
           ...(sig.script ? { script: sig.script } : {}),
+          ...(decisionId ? { decisionId } : {}),
         },
       );
     });

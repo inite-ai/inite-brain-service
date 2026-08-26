@@ -294,14 +294,13 @@ function costLatencyDims(
   // unit, and source all say so — it is never presented as the per-answer cost.
   const costSource =
     'all-AI tokens (embed+chat across derive/dreams/ingest/synthesize — NOT synthesize-only; the token counters carry no per-subsystem label) × assumed price table ÷ terminal synthesize count. UPPER BOUND, not the true per-answer cost.';
-  // No per-query latency histogram is emitted on the serving path:
-  // brain_search_duration_seconds is defined in metrics.service.ts but
-  // observeSearchDuration() is never called outside a unit test. Adding a
-  // serving-path histogram is a separate follow-up (this layer is read-only), so
-  // latency renders `pending` with that reason — never a fabricated number.
-  const latencyReason = 'no per-query latency histogram is emitted on the serving path';
+  // Latency is LIVE: synthesize() observes brain_search_duration_seconds once
+  // per request at the serving boundary (the audit pt-8 fix), and the operating
+  // point fills p50/p95 via histogram_quantile — an honest bucket-interpolation
+  // estimate. A window with no samples yields null → the cell renders `pending`
+  // with that reason, never a fabricated number.
   const latencySource =
-    'per-query latency histogram (brain_search_duration_seconds is defined but never observed on the serving path)';
+    'histogram_quantile over brain_search_duration_seconds (observed once per synthesize() request at the serving boundary)';
 
   const cost: MriDimension =
     point.costPerQueryUpperBound === null
@@ -321,19 +320,29 @@ function costLatencyDims(
           kind: 'live',
         };
 
-  const latencyPending = (): MriDimension =>
-    pendingCell({
-      source: latencySource,
-      reason: latencyReason,
-      evalGated: false,
-      kind: 'pending',
-      asOf: nowIso,
-    });
+  const latencyCell = (value: number | null): MriDimension =>
+    value === null
+      ? pendingCell({
+          source: latencySource,
+          reason:
+            'no latency samples in the current window (no synthesize request observed the histogram yet)',
+          evalGated: false,
+          kind: 'live',
+          asOf: nowIso,
+        })
+      : {
+          value,
+          unit: 'seconds',
+          source: latencySource,
+          asOf: nowIso,
+          evalGated: false,
+          kind: 'live',
+        };
 
   return {
     costPerQueryUpperBoundUsd: cost,
-    latencyP50Seconds: latencyPending(),
-    latencyP95Seconds: latencyPending(),
+    latencyP50Seconds: latencyCell(point.latencyP50),
+    latencyP95Seconds: latencyCell(point.latencyP95),
   };
 }
 
