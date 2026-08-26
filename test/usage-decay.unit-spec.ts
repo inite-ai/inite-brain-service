@@ -67,4 +67,21 @@ describe('scoreRows — usage-aware decay', () => {
     })[0]!;
     expect(scored.breakdown.decay).toBeCloseTo(Math.exp((-Math.LN2 * 120) / 60), 10);
   });
+
+  it('0107 verified-use options absent → output byte-identical (fields and scores)', () => {
+    // The verified-use wave adds lastVerifiedUseAt / policyResolver /
+    // verifiedUseBeta as default-inert options; with none of the new
+    // fields attached the legacy decay behavior is pinned unchanged.
+    const rows = [row(), row({ lastReadAt: new Date(NOW - DAY).toISOString() })];
+    const legacy = scoreRows({ rows, now: NOW });
+    const withDefaults = scoreRows({
+      rows,
+      now: NOW,
+      verifiedUseBeta: 0,
+      policyResolver: null,
+    });
+    expect(withDefaults.map((s) => s.score)).toEqual(legacy.map((s) => s.score));
+    expect(withDefaults.map((s) => s.breakdown)).toEqual(legacy.map((s) => s.breakdown));
+    for (const s of legacy) expect(s.breakdown.verifiedUse).toBeUndefined();
+  });
 });

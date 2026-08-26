@@ -124,6 +124,12 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   nonNegativeFloat(env, 'SEARCH_USAGE_BETA', errors);
   positiveInt(env, 'SEARCH_USAGE_SATURATION', errors);
 
+  // ── Verified-use successor ranking (0107 outcome telemetry) ────────
+  // Same shape as the G8 pair: β = strength (0 = off); saturation = the
+  // verifiedUseScore at which the boost tops out.
+  nonNegativeFloat(env, 'SEARCH_VERIFIED_USE_BETA', errors);
+  positiveInt(env, 'SEARCH_VERIFIED_USE_SATURATION', errors);
+
   // ── Retrieval fact-shaping (chatter demotion) ──────────────────────
   // Penalty is read with a (0,1] clamp; nonNegativeFloat only guards the
   // "is a number" contract here (≥1 is accepted and means "no penalty").
@@ -677,6 +683,16 @@ const KNOWN_BOOLEAN_FLAGS = [
   'RETRIEVAL_L3_DIRECT_ANCHOR',
   'RETRIEVAL_L3_SEGMENT_ANCHOR',
   'RETRIEVAL_L3_TEMPORAL_ANCHOR',
+  // Verified-use successor decay (0107): decay clock may restart at the
+  // last VERIFIED use (memory_outcome_stat.lastVerifiedUseAt) instead
+  // of the last mere retrieval. Default off.
+  'RETRIEVAL_VERIFIED_USE_DECAY',
+  // Verified-use successor ranking (0107): verifiedUseScore feeds a
+  // saturating ranking factor (SEARCH_VERIFIED_USE_BETA). Default off.
+  'RETRIEVAL_VERIFIED_USE_RANKING',
+  // Tenant-aware read-time decay: half-lives resolve through the
+  // per-tenant predicate registry instead of the code seed. Default off.
+  'RETRIEVAL_TENANT_DECAY',
   // R3: agent-qa V2 tool set — masked search + timeline enumerator +
   // literal transcript grep in the ReAct loop.
   'AGENT_QA_TOOLS_V2',

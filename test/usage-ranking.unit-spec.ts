@@ -121,4 +121,23 @@ describe('scoreRows — G8 usage ranking factor', () => {
       6,
     );
   });
+
+  it('0107 verified-use options absent → G8 output byte-identical (fields and scores)', () => {
+    // Belt for the successor wave: with no verifiedUseScore attached and
+    // the new options at their defaults, the legacy usage factor path is
+    // pinned unchanged — scores AND breakdown shapes.
+    const rows = [row({ readCount: 10 }), row()];
+    const legacy = scoreRows({ rows, now: NOW, usageBeta: 0.5 });
+    const withDefaults = scoreRows({
+      rows,
+      now: NOW,
+      usageBeta: 0.5,
+      verifiedUseBeta: 0,
+      verifiedUseSaturation: 10,
+      policyResolver: null,
+    });
+    expect(withDefaults.map((s) => s.score)).toEqual(legacy.map((s) => s.score));
+    expect(withDefaults.map((s) => s.breakdown)).toEqual(legacy.map((s) => s.breakdown));
+    for (const s of legacy) expect(s.breakdown.verifiedUse).toBeUndefined();
+  });
 });

@@ -155,6 +155,13 @@ export class SearchRetrievalService {
             object: r.object.slice(0, 120),
           })),
         );
+        // Verified-use / tenant-decay opts deliberately absent here:
+        // segment rows carry synthetic predicates outside the predicate
+        // registry (nothing for a tenant policy to resolve — the legacy
+        // seed fallback is the correct policy either way) and no
+        // memory_outcome_stat enrichment ran on them (outcome subjects
+        // are facts/episodes/beliefs/evidence, not segments), so both
+        // signals are structurally inert on this leg.
         const buckets = this.scoreAndBucket(fused, {
           temporalAnchor: ctx.profile.temporalMode === 'overlap_boost' ? ctx.asOf : null,
           tuning: ctx.tuning,
@@ -219,6 +226,20 @@ export class SearchRetrievalService {
        * byte-identical ranking.
        */
       langBoost?: { lang: string } | null;
+      /**
+       * Verified-use successor ranking (0107): rankingOn is the
+       * per-tenant profile gate (RETRIEVAL_VERIFIED_USE_RANKING),
+       * beta/saturation the deployment knobs. Omitted → β 0 → factor
+       * exactly 1.0, byte-identical ranking.
+       */
+      verifiedUse?: { beta: number; saturation: number; rankingOn: boolean };
+      /**
+       * Tenant-aware decay resolution (profile tenantDecayPolicy): the
+       * registry-backed predicate lookup the orchestrator already
+       * resolved for the row fence — zero extra IO. Null/omitted →
+       * legacy code-seed policyFor, byte-identical decay.
+       */
+      policyResolver?: ((predicate: string) => { decayHalfLifeDays: number | null }) | null;
     },
   ): Map<string, EntityBucket> {
     const tuning = opts?.tuning ?? resolveSearchTuning();
@@ -241,6 +262,13 @@ export class SearchRetrievalService {
       // unattached readCount.
       usageBeta: tuning.usageRanking ? tuning.usageBeta : 0,
       usageSaturation: tuning.usageSaturation,
+      // Verified-use successor factor (0107): the same belt-and-
+      // suspenders — the profile flag gates β (and the enrichment that
+      // attaches verifiedUseScore at all), so flag-off is byte-identical
+      // even if a stale score somehow reached the rows.
+      verifiedUseBeta: opts?.verifiedUse?.rankingOn ? opts.verifiedUse.beta : 0,
+      ...(opts?.verifiedUse ? { verifiedUseSaturation: opts.verifiedUse.saturation } : {}),
+      policyResolver: opts?.policyResolver ?? null,
       langBoost: opts?.langBoost ?? null,
     });
     return bucketByEntity(scored);
