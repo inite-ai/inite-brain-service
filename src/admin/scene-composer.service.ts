@@ -8,12 +8,15 @@ import { ProjectionRegistryService } from '../episodes/projection-registry.servi
 import { scopeForUser } from '../auth/scope-tags';
 import { segmentSessions } from '../episodes/session-window';
 import {
+  sceneFactBacklinkEnabled,
+  sceneLlmEnrichmentEnabled,
   sceneMaxTurns,
   sceneSegmentationEnabled,
   sceneTopicBoundaryEnabled,
   sceneTopicMinCosine,
 } from '../common/scene-flags';
 import {
+  SEGMENTER_VERSION,
   detectSceneBoundaries,
   foldSceneScope,
   meanVector,
@@ -22,6 +25,8 @@ import {
   scoreSceneDeterministic,
   type SceneTurnRow,
 } from './scene-segmentation';
+import { SceneEnricherService } from './scene-enricher.service';
+import { SceneBacklinkService } from './scene-backlink.service';
 
 /**
  * Scene composer (Brain v2 PR1): batch-derives the SHADOW memory_episode
@@ -42,7 +47,10 @@ import {
  * world is only ever 'built', NEVER 'live' — there is no reader to flip.
  */
 export const SCENE_RECORDER = 'scene-composer-v1';
-export const SEGMENTER_VERSION = 'scene-segmenter-v1';
+// PR2: the version stamp moved to the pure segmentation module so the
+// enricher/backlinker can name the current world without a module cycle;
+// re-exported here for API continuity.
+export { SEGMENTER_VERSION };
 /** sceneLabel budget enforced in code (the 0106 header's ≤200 contract). */
 const SCENE_LABEL_MAX = 200;
 
@@ -57,13 +65,16 @@ export class SceneComposerService {
   private readonly logger = new Logger(SceneComposerService.name);
 
   // Fourth dep is the projection-registry ledger (observes the lifecycle,
-  // never fails it — every registry write degrades to a warning).
+  // never fails it — every registry write degrades to a warning); the PR2
+  // enricher/backlinker are the optional flag-gated post-swap passes.
   // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     private readonly embedding: FactEmbeddingService,
     private readonly episodes: EpisodeReadStoreService,
     private readonly registry: ProjectionRegistryService,
+    private readonly enricher: SceneEnricherService,
+    private readonly backlinker: SceneBacklinkService,
   ) {}
 
   async run(companyId: string, opts: { conversationId?: string } = {}): Promise<SceneRunResult> {
@@ -115,7 +126,64 @@ export class SceneComposerService {
         skipped: result.skipped.length,
       },
     });
+    // PR2 post-swap passes, both flag-gated (default off) and both
+    // degrade-never-fail: the swap has landed and its result must not be
+    // retracted by an optional pass. The enricher/backlinker re-check
+    // their own flags too — these outer guards just skip the no-op calls.
+    if (sceneLlmEnrichmentEnabled()) {
+      try {
+        const enrich = await this.enricher.enrich(companyId, opts);
+        this.logger.log(
+          `scene enrichment pass: ${enrich.enriched}/${enrich.scenes} enriched, ${enrich.failed} degraded`,
+        );
+      } catch (e) {
+        this.logger.warn(`scene enrichment pass failed: ${(e as Error).message}`);
+      }
+    }
+    if (sceneFactBacklinkEnabled()) {
+      try {
+        await this.backlinker.run(companyId, opts);
+      } catch (e) {
+        this.logger.warn(`scene backlink pass failed: ${(e as Error).message}`);
+      }
+    }
     return result;
+  }
+
+  /**
+   * Purge ONE segmenter version's scene world: members then scenes, one
+   * transaction, then demote the projection ledger row to 'residual' (the
+   * row records that the world existed and is no longer queryable; the
+   * builder stamp survives for audit — deleting the row is the gc path,
+   * not the purge path).
+   *
+   * Both deletes go through LET-selected explicit id lists. scene_version_idx
+   * and scene_member_ver_idx are SINGLE-field indexes — an equality DELETE
+   * should be safe — but memory_episode_member is ALSO covered by the
+   * compound scene_member_uq whose planner interaction is exactly the
+   * 3.2.4 silent-no-op bug (see the swap comment above), so both use the
+   * id-list idiom for defensive consistency.
+   */
+  async purgeVersion(
+    companyId: string,
+    segmenterVersion: string,
+  ): Promise<{ scenes: number; members: number }> {
+    const purged = await this.surreal.withCompany(companyId, (db) =>
+      runTransaction<{ scenes: number; members: number }>(db, (tx) =>
+        tx
+          .add(
+            `LET $memberIds = (SELECT VALUE id FROM memory_episode_member
+               WHERE segmenterVersion = $v)`,
+          )
+          .add(`DELETE $memberIds`)
+          .add(`LET $sceneIds = (SELECT VALUE id FROM memory_episode WHERE segmenterVersion = $v)`)
+          .add(`DELETE $sceneIds`)
+          .add(`RETURN { scenes: array::len($sceneIds), members: array::len($memberIds) }`)
+          .bind('v', segmenterVersion),
+      ),
+    );
+    await this.registry.markResidual({ companyId, name: 'scenes', version: segmenterVersion });
+    return purged ?? { scenes: 0, members: 0 };
   }
 
   private async composeConversation({

@@ -4,6 +4,7 @@ import type { EmbedderService } from '../src/ai/embedder.service';
 import type { ExtractorService, ExtractionResult } from '../src/ai/extractor.service';
 import type { LocalCrossEncoderProvider } from '../src/ai/cross-encoder/local-cross-encoder.provider';
 import { SynthesizeService } from '../src/synthesize/synthesize.service';
+import { SceneEnricherService } from '../src/admin/scene-enricher.service';
 
 /**
  * Deterministic embedder stub for e2e tests. Same text → same vector;
@@ -167,6 +168,38 @@ export interface OpenAiMockState {
 export function mockSynthesizeOpenAi(app: INestApplication, responses: string[]): OpenAiMockState {
   const state: OpenAiMockState = { calls: [] };
   const svc = app.get(SynthesizeService);
+  const stub = {
+    chat: {
+      completions: {
+        create: async (req: { messages: Array<{ role: string; content: string }> }) => {
+          const system = req.messages.find((m) => m.role === 'system')?.content ?? '';
+          const user = req.messages.find((m) => m.role === 'user')?.content ?? '';
+          const idx = state.calls.length;
+          const content = responses[idx] ?? responses[responses.length - 1] ?? '{}';
+          state.calls.push({ system, user, response: content, request: req });
+          return { choices: [{ message: { content } }] };
+        },
+      },
+    },
+  };
+  (svc as unknown as { openai: typeof stub }).openai = stub;
+  return state;
+}
+
+/**
+ * Replace the OpenAI client on the running SceneEnricherService with a
+ * scripted stub — the same seam as `mockSynthesizeOpenAi` (the enricher's
+ * `openai` field is the one admin-side LLM surface of the Brain v2 scene
+ * pass). Each call drains one response; the last repeats indefinitely, so
+ * a multi-scene pass can share a single scripted reply. NO paid call is
+ * ever made.
+ */
+export function mockSceneEnricherOpenAi(
+  app: INestApplication,
+  responses: string[],
+): OpenAiMockState {
+  const state: OpenAiMockState = { calls: [] };
+  const svc = app.get(SceneEnricherService);
   const stub = {
     chat: {
       completions: {

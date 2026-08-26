@@ -94,6 +94,23 @@ export class ProjectionRegistryService {
     });
   }
 
+  /**
+   * Demote (name, version) to 'residual' WITHOUT deleting the row — the
+   * verb for a PURGED world (Brain v2 scenes version purge): the ledger
+   * keeps who built it and when, while 'residual' says it is no longer
+   * queryable. UPDATE (not UPSERT) on the array-literal id: a version
+   * that never registered stays absent rather than gaining a ghost row.
+   */
+  async markResidual(opts: { companyId: string; name: string; version: string }): Promise<void> {
+    await this.safely('markResidual', opts.companyId, async (db) => {
+      await db.query(
+        `UPDATE projection:[$name, $version]
+           SET status = 'residual', finishedAt = time::now()`,
+        { name: opts.name, version: opts.version },
+      );
+    });
+  }
+
   /** Reaped worlds lose their rows — a row promises a queryable world. */
   async dropVersions(opts: { companyId: string; name: string; versions: string[] }): Promise<void> {
     if (opts.versions.length === 0) return;

@@ -588,6 +588,32 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Scenes: force a scene boundary once a scene reaches this many turns, regardless of topic continuity. Positive integer; default 40.',
   },
+  {
+    key: 'SCENES_LLM_ENRICHMENT',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneLlmEnrichmentEnabled) by the
+    // admin 404 guard, the enricher's defensive early return and the
+    // composer's post-swap hook — never captured in a constructor — so a
+    // flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Scenes LLM enrichment (Brain v2 PR2): after the composer swap (and via POST /v1/admin/maintenance/scenes/enrich), ONE structured LLM call per scene of the current segmenter version — abstractive gist replaces the deterministic one, full memoryValue vector (scorerVersion scene-scorer-llm-v1), stateDeltas, unexpectedDetails, gistPromptVersion scene-gist-v1. Degrade-never-fail per scene. Off = no LLM call ever runs, enrich route 404s, byte-identical to PR1.',
+  },
+  {
+    key: 'SCENES_FACT_BACKLINK',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneFactBacklinkEnabled) by the
+    // admin 404 guard, the backlink service's defensive early return and
+    // the composer's post-run hook — never captured in a constructor — so
+    // a flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Scenes fact backlink (Brain v2 PR2): stamp knowledge_fact rows whose source.episodeIds intersect a scene’s membership with source.memoryEpisodeIds (idempotent array::union) + source.sceneLinkVersion — facts become pointers into the episodic plane. FLEXIBLE source ride, no migration; nothing on the serving path reads the keys (additively visible where `source` is already returned). Off = no fact row is ever touched, backlink route 404s.',
+  },
   // ── Multilingual (Tier 1, migration 0100) ───────────
   {
     key: 'MULTILINGUAL_LANG_ATTRIBUTION',
