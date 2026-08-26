@@ -6,7 +6,12 @@ import { buildDecisionLog, type DecisionLogEntry } from './decision-log';
 import { assessMemoryCoverage, NOT_IN_MEMORY_ANSWER } from './abstention';
 import { attachDecisionLog } from './synthesize.helpers';
 import type { Citation } from './fact-index';
-import type { GeneratorOutput, SynthesisReason, SynthesizeResult } from './synthesize.types';
+import type {
+  EvidenceCitation,
+  GeneratorOutput,
+  SynthesisReason,
+  SynthesizeResult,
+} from './synthesize.types';
 
 /**
  * Verdict → response shaping, split out of synthesize.service.ts (the
@@ -79,6 +84,7 @@ export function finalizeVerdict(
     abstention,
     plausibilityDowngrade,
     requireCitations,
+    evidenceCitations,
   }: {
     verdict: 'supported' | 'partial' | 'unsupported';
     questionAnswered?: boolean | undefined;
@@ -92,6 +98,15 @@ export function finalizeVerdict(
     plausibilityDowngrade?: boolean | undefined;
     /** Part C: abstain a supported answer with zero citations. */
     requireCitations?: boolean | undefined;
+    /**
+     * L3 evidence citations (FOVEA_L3_EPISODE_CITATIONS): episode-level
+     * references for transcript-grounded claims, supplied ONLY by the L3
+     * flip path (the primary serve passes nothing). The Part C guard
+     * counts them as citations — an episode-cited answer serves — and the
+     * supported ok-path spreads them onto the served result when
+     * non-empty. Abstain/downgrade branches never carry them.
+     */
+    evidenceCitations?: EvidenceCitation[] | undefined;
   },
 ): SynthesizeResult {
   if (verdict === 'supported') {
@@ -130,8 +145,11 @@ export function finalizeVerdict(
     }
     // Part C (FOVEA_REQUIRE_CITATIONS): a supported answer with zero
     // citations breaks the citation-bearing promise (audit F2(b)) — abstain
-    // rather than serve an uncited "supported" answer. Off ⇒ byte-identical.
-    if (requireCitations && citations.length === 0) {
+    // rather than serve an uncited "supported" answer. An L3 answer whose
+    // transcript-grounded claims carry evidence citations
+    // (FOVEA_L3_EPISODE_CITATIONS) IS cited — it serves. Off ⇒
+    // byte-identical.
+    if (requireCitations && whollyUncited(citations, evidenceCitations)) {
       deps.metrics?.countSynthesize('low_coverage');
       deps.metrics?.countCitationGuardAbstain();
       return attachDecisionLog(
@@ -145,7 +163,12 @@ export function finalizeVerdict(
       );
     }
     deps.metrics?.countSynthesize('ok');
-    return attachDecisionLog({ answer, citations, results }, decisionLog);
+    // Evidence citations ride ONLY the supported serve (spread when
+    // non-empty); every abstain/downgrade shape above omits them.
+    return attachDecisionLog(
+      { answer, citations, results, ...evidenceField(evidenceCitations) },
+      decisionLog,
+    );
   }
   // V9 §4 'verifier' abstention: the verifier's verdict IS the
   // coverage signal — an unsupported/partial answer means the memory
@@ -172,6 +195,25 @@ export function finalizeVerdict(
   }
   // strict — fail closed.
   return attachDecisionLog({ answer: null, reason, citations: [], results }, decisionLog);
+}
+
+/** Part C predicate: zero fact citations AND zero evidence citations —
+ *  the wholly-uncited state the require-citations guard abstains. */
+function whollyUncited(
+  citations: Citation[],
+  evidenceCitations: EvidenceCitation[] | undefined,
+): boolean {
+  return (
+    citations.length === 0 && (evidenceCitations === undefined || evidenceCitations.length === 0)
+  );
+}
+
+/** The served-shape fragment: evidence citations spread only when
+ *  non-empty (an empty/absent array emits NO field). */
+function evidenceField(evidenceCitations: EvidenceCitation[] | undefined): {
+  evidenceCitations?: EvidenceCitation[];
+} {
+  return evidenceCitations && evidenceCitations.length > 0 ? { evidenceCitations } : {};
 }
 
 /**

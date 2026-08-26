@@ -74,6 +74,15 @@ describe('G2 L3 escalation e2e', () => {
     return m ? parseInt(m[1]!, 10) : 0;
   }
 
+  async function episodeCitationCount(app: AppFixture, outcome: string): Promise<number> {
+    const metrics = app.app.get(MetricsService);
+    const { body } = await metrics.serialize();
+    const m = body.match(
+      new RegExp(`brain_l3_episode_citation_total\\{outcome="${outcome}"\\} (\\d+)`),
+    );
+    return m ? parseInt(m[1]!, 10) : 0;
+  }
+
   // A flipping L3 re-verification (supported + answering).
   const L3_VERIFY_PASS = JSON.stringify({
     verdict: 'supported',
@@ -224,6 +233,7 @@ describe('G2 L3 escalation e2e', () => {
   afterEach(() => {
     delete process.env.FOVEA_PLAUSIBILITY_CHECK;
     delete process.env.FOVEA_REQUIRE_CITATIONS;
+    delete process.env.FOVEA_L3_EPISODE_CITATIONS;
     delete process.env.RETRIEVAL_L3_DIRECT_ANCHOR;
     delete process.env.RETRIEVAL_L3_SEGMENT_ANCHOR;
     delete process.env.RETRIEVAL_L3_TEMPORAL_ANCHOR;
@@ -236,6 +246,7 @@ describe('G2 L3 escalation e2e', () => {
     delete process.env.RETRIEVAL_L3_TEMPORAL_ANCHOR;
     delete process.env.FOVEA_PLAUSIBILITY_CHECK;
     delete process.env.FOVEA_REQUIRE_CITATIONS;
+    delete process.env.FOVEA_L3_EPISODE_CITATIONS;
     if (f) await f.close();
     if (f2) await f2.close();
   });
@@ -493,5 +504,163 @@ describe('G2 L3 escalation e2e', () => {
     expect(state.calls[2]!.user).not.toContain('conv_l3_direct');
     expect(await l3Count(f2, 'fired')).toBe(firedBefore + 1);
     expect(await anchorSourceCount(f2, 'temporal')).toBe(temporalBefore + 1);
+  });
+
+  // ── L3 evidence citations (FOVEA_L3_EPISODE_CITATIONS) ────────────
+  // Gap #4: rule 2's transcript-citation exemption. Flag on, transcript-
+  // grounded claims cite {episodeId, quote} pairs resolved into
+  // span-verified evidence citations; flag off is pinned byte-identical.
+
+  // The historical L3 system prompt, pinned byte-for-byte: any flag-off
+  // drift in the prompt (rule 2's exemption included) fails here.
+  const L3_SYSTEM_PINNED = `You are an answer synthesizer with access to FULL raw conversation transcripts.
+
+The extracted facts did not ground an answer, so you are given the complete raw sessions the relevant facts came from. Read the transcripts as the primary evidence and answer the user's query.
+1. Use ONLY information present in the provided transcripts and facts. Do NOT speculate or use outside knowledge.
+2. When a numbered fact supports a claim, inline its factId in square brackets EXACTLY as it appears (including the "knowledge_fact:" prefix) and mirror it into citedFactIds. Claims taken from the raw transcript need no citation.
+3. If the transcripts do not answer the question, output the exact string "I don't have grounded evidence for that." with citedFactIds set to [].
+
+Output strictly the JSON shape requested by the schema. No preamble, no chain-of-thought.`;
+
+  /** The captured L3 request, narrowed to prompt + schema assertions. */
+  interface CapturedL3Request {
+    response_format: { json_schema: { schema: unknown } };
+  }
+
+  it('episode-citations flag OFF → L3 prompt + schema + transcript lines byte-identical (pinned)', async () => {
+    process.env.RETRIEVAL_L3_ESCALATION = '1';
+    const state = mockSynthesizeOpenAi(f.app, [
+      R1_GEN,
+      R1_VERIFY,
+      JSON.stringify({ answer: L3_ANSWER, citedFactIds: [anchoredFactId] }),
+      L3_VERIFY_PASS,
+    ]);
+    const res = await f.http
+      .post('/v1/synthesize')
+      .set(auth())
+      .send({ query: ANCHOR_QUERY, limit: 5 });
+    expect(res.status).toBe(201);
+    expect(res.body.answer).toBe(L3_ANSWER);
+    // No evidenceCitations field is ever emitted with the flag off.
+    expect(res.body.evidenceCitations).toBeUndefined();
+    // The system prompt is the historical one, byte-for-byte.
+    expect(state.calls[2]!.system).toBe(L3_SYSTEM_PINNED);
+    // The strict JSON schema is the historical two-field shape.
+    const req = state.calls[2]!.request as CapturedL3Request;
+    expect(req.response_format.json_schema.schema).toEqual({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        answer: { type: 'string' },
+        citedFactIds: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['answer', 'citedFactIds'],
+    });
+    // And the transcript lines carry no [episode:...] headers.
+    expect(state.calls[2]!.user).not.toContain('[episode:');
+  });
+
+  it('flag ON → [episode:...] headers; citedEpisodes → evidenceCitations end-to-end; hallucinated id never surfaces', async () => {
+    process.env.RETRIEVAL_L3_ESCALATION = '1';
+    process.env.FOVEA_L3_EPISODE_CITATIONS = '1';
+    const spanBefore = await episodeCitationCount(f, 'span_anchored');
+    const droppedBefore = await episodeCitationCount(f, 'dropped_unknown');
+    const quote = `My tier is ${ANCHOR_OBJECT}`;
+    const state = mockSynthesizeOpenAi(f.app, [
+      R1_GEN,
+      R1_VERIFY,
+      JSON.stringify({
+        answer: L3_ANSWER,
+        citedFactIds: [anchoredFactId],
+        citedEpisodes: [
+          { episodeId: 'episode:l3ep1', quote },
+          // A hallucinated id — never rendered into the transcript, must
+          // be dropped by the fence and never surface in the response.
+          { episodeId: 'episode:ghost_l3', quote: 'anything' },
+        ],
+      }),
+      L3_VERIFY_PASS,
+    ]);
+    const res = await f.http
+      .post('/v1/synthesize')
+      .set(auth())
+      .send({ query: ANCHOR_QUERY, limit: 5 });
+    expect(res.status).toBe(201);
+    expect(res.body.answer).toBe(L3_ANSWER);
+    // The transcript lines carry the per-turn episode headers.
+    expect(state.calls[2]!.user).toContain('[episode:l3ep1]');
+    expect(state.calls[2]!.user).toContain('[episode:l3ep2]');
+    // The fact citation is untouched; the evidence citation resolved with
+    // a verified code-point span over the stored turn text.
+    expect(res.body.citations.map((c: { factId: string }) => c.factId)).toContain(anchoredFactId);
+    expect(res.body.evidenceCitations).toEqual([
+      {
+        episodeId: 'episode:l3ep1',
+        conversationId: 'conv_l3',
+        occurredAt: '2026-04-01T10:00:00.000Z',
+        span: { start: 0, end: [...quote].length, exact: quote },
+      },
+    ]);
+    expect(JSON.stringify(res.body)).not.toContain('ghost_l3');
+    expect(await episodeCitationCount(f, 'span_anchored')).toBe(spanBefore + 1);
+    expect(await episodeCitationCount(f, 'dropped_unknown')).toBe(droppedBefore + 1);
+  });
+
+  it('FOVEA_REQUIRE_CITATIONS + zero fact citations + ≥1 evidence citation → SERVES', async () => {
+    process.env.RETRIEVAL_L3_ESCALATION = '1';
+    process.env.FOVEA_L3_EPISODE_CITATIONS = '1';
+    process.env.FOVEA_REQUIRE_CITATIONS = '1';
+    const guardBefore = await counter(f, 'brain_citation_guard_abstain_total');
+    const quote = `you are on ${ANCHOR_OBJECT}`;
+    const state = mockSynthesizeOpenAi(f.app, [
+      R1_GEN,
+      R1_VERIFY,
+      JSON.stringify({
+        answer: L3_ANSWER,
+        citedFactIds: [] as string[],
+        citedEpisodes: [{ episodeId: 'episode:l3ep2', quote }],
+      }),
+      L3_VERIFY_PASS,
+    ]);
+    const res = await f.http
+      .post('/v1/synthesize')
+      .set(auth())
+      .send({ query: ANCHOR_QUERY, limit: 5 });
+    expect(res.status).toBe(201);
+    // Episode-cited ⇒ the require-citations guard counts it as cited.
+    expect(res.body.answer).toBe(L3_ANSWER);
+    expect(res.body.reason).toBeUndefined();
+    expect(res.body.citations).toEqual([]);
+    expect(res.body.evidenceCitations).toHaveLength(1);
+    expect(res.body.evidenceCitations[0].episodeId).toBe('episode:l3ep2');
+    expect(state.calls.length).toBe(4);
+    expect(await counter(f, 'brain_citation_guard_abstain_total')).toBe(guardBefore);
+  });
+
+  it('FOVEA_REQUIRE_CITATIONS + zero of BOTH → abstains, and the abstain carries no evidenceCitations', async () => {
+    process.env.RETRIEVAL_L3_ESCALATION = '1';
+    process.env.FOVEA_L3_EPISODE_CITATIONS = '1';
+    process.env.FOVEA_REQUIRE_CITATIONS = '1';
+    const guardBefore = await counter(f, 'brain_citation_guard_abstain_total');
+    mockSynthesizeOpenAi(f.app, [
+      R1_GEN,
+      R1_VERIFY,
+      JSON.stringify({
+        answer: L3_ANSWER,
+        citedFactIds: [] as string[],
+        citedEpisodes: [] as Array<{ episodeId: string; quote: string }>,
+      }),
+      L3_VERIFY_PASS,
+    ]);
+    const res = await f.http
+      .post('/v1/synthesize')
+      .set(auth())
+      .send({ query: ANCHOR_QUERY, limit: 5 });
+    expect(res.status).toBe(201);
+    expect(res.body.answer).not.toBe(L3_ANSWER);
+    expect(res.body.reason).toBe('low_coverage');
+    expect(res.body.citations ?? []).toEqual([]);
+    expect(res.body.evidenceCitations).toBeUndefined();
+    expect(await counter(f, 'brain_citation_guard_abstain_total')).toBe(guardBefore + 1);
   });
 });

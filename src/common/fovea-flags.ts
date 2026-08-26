@@ -155,6 +155,37 @@ export function requireCitationsEnabled(): boolean {
 }
 
 /**
+ * Fovea serving-integrity family — L3 evidence citations master flag —
+ * FOVEA_L3_EPISODE_CITATIONS.
+ *
+ * WHAT IT CHANGES: closes the L3 citation exemption ("Claims taken from the
+ * raw transcript need no citation", L3_SYSTEM rule 2). When on, the L3
+ * escalation transcript renders per-turn `[episode:<id>]` headers, the
+ * generator must cite each transcript-grounded claim as an {episodeId, quote}
+ * pair (citedEpisodes, added to the strict JSON schema), and the service
+ * resolves those into span-verified EvidenceCitations over the STORED turn
+ * text (anchorQuote: NFC, code points, fail-safe episodeId-only) — every
+ * served claim becomes unrollable to an observation. Only turns actually
+ * rendered into the transcript are citable: an unknown episodeId is dropped,
+ * so an L3 citation can never name an episode the caller couldn't read.
+ *
+ * VERDICT INTERACTION: changes the FOVEA_REQUIRE_CITATIONS contract — the
+ * zero-citation guard in verdict.ts counts evidence citations too, so an L3
+ * answer carrying zero fact citations but ≥1 evidence citation SERVES under
+ * require-citations instead of abstaining. The answer cache is deliberately
+ * unchanged: an episode-only-cited answer still has citations.length 0 and
+ * is never admitted (check-on-read cannot invalidate episode citations yet).
+ *
+ * SAFETY: the env read lives here in the common layer, NOT inside the engine
+ * dirs (engine-gates S5.2). Read at call time so a flip is runtime-mutable.
+ * Default off ⇒ the L3 prompt, JSON schema, and transcript lines are
+ * byte-identical to before and no evidenceCitations field is ever emitted.
+ */
+export function l3EpisodeCitationsEnabled(): boolean {
+  return envFlagEnabled(process.env.FOVEA_L3_EPISODE_CITATIONS);
+}
+
+/**
  * Multilingual Tier 5 master flag — MULTILINGUAL_CALIBRATION.
  *
  * When on, the §4.2 per-class focus calibrator (focus-signal.ts) gains a

@@ -686,6 +686,19 @@ describe('AnswerCacheService.admit — admission rules', () => {
     ['abstention (null answer)', { ...grounded, answer: null }, 'supported'],
     ['reason-tagged return (low_coverage)', { ...grounded, reason: 'low_coverage' }, 'supported'],
     ['zero citations', { ...grounded, citations: [] }, 'supported'],
+    // FOVEA_L3_EPISODE_CITATIONS: an episode-only-cited L3 answer (zero
+    // FACT citations) is DELIBERATELY not admitted — check-on-read cannot
+    // invalidate episode citations, so caching it would be
+    // uninvalidatable (see admit()'s docblock).
+    [
+      'episode-only-cited (evidence citations, zero fact citations)',
+      {
+        ...grounded,
+        citations: [],
+        evidenceCitations: [{ episodeId: 'episode:ep1', conversationId: 'conv1' }],
+      },
+      'supported',
+    ],
   ] as Array<[string, SynthesizeResult, 'supported' | 'partial' | 'unsupported']>)(
     'never caches: %s',
     async (_name, result, verdict) => {

@@ -27,11 +27,38 @@ export interface TokenUsage {
   completionTokens: number;
 }
 
+/**
+ * L3 evidence citation (FOVEA_L3_EPISODE_CITATIONS): a transcript-grounded
+ * claim's reference to the stored episode turn it came from. `span`, when
+ * present, is a W3C-style VERIFIED span over the NFC-normalized STORED turn
+ * text, measured in Unicode code points — the span-anchor contract
+ * (src/admin/span-anchor.ts): `start` inclusive, `end` exclusive, `exact`
+ * the verified verbatim quote. An absent span = episodeId-only citation
+ * (the quote was missing, absent from the turn, or ambiguous — fail-safe,
+ * never a guessed highlight).
+ */
+export interface EvidenceCitation {
+  episodeId: string;
+  conversationId?: string;
+  occurredAt?: string;
+  span?: { start: number; end: number; exact: string };
+}
+
 export interface SynthesizeResult {
   answer: string | null;
   reason?: SynthesisReason;
   citations: Citation[];
   results: SearchHit[];
+  /**
+   * L3 evidence citations (FOVEA_L3_EPISODE_CITATIONS): episode-level
+   * references for the transcript-grounded claims of an L3-escalated
+   * answer. A SEPARATE array from `citations` — consumers of fact
+   * citations (answer-cache admit, multi-hop, agent-qa) read `c.factId`
+   * and must never see episode refs there. Present ONLY on a served L3
+   * answer that resolved ≥1 evidence citation; absent otherwise (and
+   * always absent when the flag is off).
+   */
+  evidenceCitations?: EvidenceCitation[];
   /**
    * Populated only when the request was made with `explain: true`. One
    * entry per retrieved fact, with score breakdown, retrieval-stage

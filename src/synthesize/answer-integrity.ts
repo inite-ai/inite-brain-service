@@ -57,12 +57,16 @@ export interface FinalizeContext {
  * cited premises (see resolvePlausibilityDowngrade). The auditor model is
  * profile.verifierModel || the synthesis model.
  *
- * Consequence on L3: an L3 answer that grounds on the raw transcript may be
- * UNCITED by design ("claims from transcript need no citation"). With
- * FOVEA_REQUIRE_CITATIONS on, such an answer therefore abstains — the correct
- * end-to-end reading of the citation-bearing promise. An operator enabling
- * require-citations is explicitly opting into "no uncited answers, including
- * L3". (Default-off, so no prod impact.)
+ * Consequence on L3 (with FOVEA_L3_EPISODE_CITATIONS off): an L3 answer that
+ * grounds on the raw transcript may be UNCITED by design ("claims from
+ * transcript need no citation"). With FOVEA_REQUIRE_CITATIONS on, such an
+ * answer therefore abstains — the correct end-to-end reading of the
+ * citation-bearing promise. An operator enabling require-citations is
+ * explicitly opting into "no uncited answers, including L3". With
+ * FOVEA_L3_EPISODE_CITATIONS ALSO on, transcript-grounded claims carry
+ * episode-level evidence citations instead, and the finalizeVerdict guard
+ * counts those: an episode-cited L3 answer SERVES under require-citations
+ * (verdict.ts). (All default-off, so no prod impact.)
  *
  * NOTE on the serving-cost boundary: the judge fires on a `supported` verdict
  * when the flag is on and cited premises exist. In the narrow lenient +
@@ -103,7 +107,9 @@ export async function resolveAnswerIntegrity(
  * premises there is nothing to judge (Part C owns the zero-citation case) →
  * false, no call. A judge error FAILS SAFE to today's behavior (no downgrade)
  * and is logged — a transient LLM error must not turn a grounded answer into
- * an abstain.
+ * an abstain. The judge audits FACT citations only — L3 episode evidence
+ * citations are verbatim-verified mechanically by anchorQuote and carry no
+ * premise to audit.
  */
 async function resolvePlausibilityDowngrade(
   deps: AnswerIntegrityDeps,

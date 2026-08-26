@@ -310,6 +310,13 @@ export class AnswerCacheService {
    * Abstentions, unverified returns, low_coverage and partial verdicts
    * are never cached — an uncited answer is uninvalidatable, and a
    * non-supported one failed the grounding audit.
+   *
+   * L3 evidence citations (FOVEA_L3_EPISODE_CITATIONS) are DELIBERATELY
+   * not admission-bearing: an episode-only-cited L3 answer (zero fact
+   * citations, ≥1 evidence citation) has citations.length 0 and is
+   * rejected by the gate below. Check-on-read revalidates cited FACT
+   * rows against the live substrate and cannot (yet) invalidate episode
+   * citations, so caching such an answer would make it uninvalidatable.
    */
   async admit(
     ctx: AnswerCacheStoreContext,

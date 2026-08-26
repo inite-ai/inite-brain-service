@@ -187,6 +187,88 @@ describe('finalizeVerdict — Part C require-citations guard', () => {
   });
 });
 
+// ── L3 evidence citations × the require-citations guard ─────────────
+describe('finalizeVerdict — evidence citations (FOVEA_L3_EPISODE_CITATIONS)', () => {
+  const EVIDENCE = [
+    {
+      episodeId: 'episode:ep1',
+      conversationId: 'conv1',
+      span: { start: 0, end: 4, exact: 'safe' },
+    },
+  ];
+
+  it('requireCitations + zero fact citations + ≥1 evidence citation → SERVES, evidenceCitations on the result', () => {
+    const { deps, synth, counts } = fakeDeps();
+    const r = finalizeVerdict(deps, {
+      verdict: 'supported',
+      answer: 'A transcript-grounded answer.',
+      citations: [],
+      results: RESULTS,
+      guardrails: 'strict',
+      requireCitations: true,
+      evidenceCitations: EVIDENCE,
+    });
+    expect(r.answer).toBe('A transcript-grounded answer.');
+    expect(r.reason).toBeUndefined();
+    expect(r.evidenceCitations).toEqual(EVIDENCE);
+    expect(synth).toEqual(['ok']);
+    expect(counts.citationGuards).toBe(0);
+  });
+
+  it('requireCitations + zero of BOTH → abstains, and the abstain carries no evidenceCitations', () => {
+    const { deps, counts } = fakeDeps();
+    const r = finalizeVerdict(deps, {
+      verdict: 'supported',
+      answer: 'An uncited answer.',
+      citations: [],
+      results: RESULTS,
+      guardrails: 'strict',
+      requireCitations: true,
+      evidenceCitations: [],
+    });
+    expect(r.answer).toBe(NOT_IN_MEMORY_ANSWER);
+    expect(r.reason).toBe('low_coverage');
+    expect(r.evidenceCitations).toBeUndefined();
+    expect(counts.citationGuards).toBe(1);
+  });
+
+  it('plausibility downgrade never leaks evidenceCitations onto the abstain', () => {
+    const { deps } = fakeDeps();
+    const r = finalizeVerdict(deps, {
+      verdict: 'supported',
+      answer: 'A distorted answer.',
+      citations: [CITE],
+      results: RESULTS,
+      guardrails: 'strict',
+      plausibilityDowngrade: true,
+      evidenceCitations: EVIDENCE,
+    });
+    expect(r.answer).toBe(NOT_IN_MEMORY_ANSWER);
+    expect(r.evidenceCitations).toBeUndefined();
+  });
+
+  it('no evidence citations supplied (the primary path) → byte-identical serve, no field emitted', () => {
+    const { deps } = fakeDeps();
+    const ref = finalizeVerdict(fakeDeps().deps, {
+      verdict: 'supported',
+      answer: 'A cited answer.',
+      citations: [CITE],
+      results: RESULTS,
+      guardrails: 'strict',
+    });
+    const out = finalizeVerdict(deps, {
+      verdict: 'supported',
+      answer: 'A cited answer.',
+      citations: [CITE],
+      results: RESULTS,
+      guardrails: 'strict',
+      evidenceCitations: [],
+    });
+    expect(out).toEqual(ref);
+    expect('evidenceCitations' in out).toBe(false);
+  });
+});
+
 // ── the judge itself: parse + cost contract ─────────────────────────
 describe('runPlausibilityJudge — parse + one-call cost', () => {
   const base = {

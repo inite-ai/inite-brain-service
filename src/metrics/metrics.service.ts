@@ -250,6 +250,26 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // L3 evidence citations (FOVEA_L3_EPISODE_CITATIONS): per-citation
+  // resolution outcome of the citedEpisodes the L3 generator emitted —
+  //   span_anchored   — the quote verified verbatim against the stored
+  //                     turn text (anchorQuote) → the citation carries a
+  //                     code-point span
+  //   episode_only    — quote absent/ambiguous/unverifiable → the
+  //                     citation degrades to episodeId-only
+  //   dropped_unknown — the generator named an episodeId NOT rendered
+  //                     into the transcript (hallucination / probe) →
+  //                     dropped, never surfaced
+  // Emitted only when the flag is on (nothing on the path when off). A
+  // separate counter — NOT new labels on brain_l3_escalation_total —
+  // keeps the existing outcome series stable (the Optics-2 precedent).
+  readonly l3EpisodeCitationCount = new Counter({
+    name: 'brain_l3_episode_citation_total',
+    help: 'L3 evidence (episode) citation resolution outcomes (FOVEA_L3_EPISODE_CITATIONS)',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
   // Optics §4.2 (docs/roadmap/fovea-optics-2026-08.md §4.2): which sub-
   // condition fired the pre-generation memory-coverage ABSTAIN decision —
   //   adaptive — the calibrated-pre-answer-confidence floor
@@ -693,6 +713,15 @@ export class MetricsService implements OnModuleInit {
 
   countL3AnchorSource(source: 'fact' | 'direct' | 'segment' | 'temporal'): void {
     this.l3AnchorSourceCount.inc({ source } as LabelValues<'source'>);
+  }
+
+  countL3EpisodeCitation(
+    outcome: 'span_anchored' | 'episode_only' | 'dropped_unknown',
+    n = 1,
+  ): void {
+    if (n > 0) {
+      this.l3EpisodeCitationCount.inc({ outcome } as LabelValues<'outcome'>, n);
+    }
   }
 
   countAbstainPath(path: 'adaptive' | 'static'): void {

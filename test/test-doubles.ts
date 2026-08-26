@@ -101,6 +101,11 @@ export interface OpenAiMockState {
     system: string;
     user: string;
     response: string;
+    /** The full raw request payload (messages + response_format + params)
+     *  — lets byte-identity tests pin the prompt AND the JSON schema the
+     *  service actually sent (e.g. the L3 evidence-citations flag-off
+     *  pin). */
+    request: unknown;
   }>;
 }
 
@@ -124,7 +129,7 @@ export function mockSynthesizeOpenAi(app: INestApplication, responses: string[])
           const user = req.messages.find((m) => m.role === 'user')?.content ?? '';
           const idx = state.calls.length;
           const content = responses[idx] ?? responses[responses.length - 1] ?? '{}';
-          state.calls.push({ system, user, response: content });
+          state.calls.push({ system, user, response: content, request: req });
           return { choices: [{ message: { content } }] };
         },
       },
