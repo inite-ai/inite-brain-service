@@ -3,6 +3,17 @@ export type BrainScope =
   | 'brain:write'
   | 'brain:admin'
   | 'brain:read_pii'
+  // Media/biometric evidence access (faces, voices, ID documents — see
+  // src/common/media-pii.ts). A STRICTER regime than brain:read_pii, not
+  // an extension of it: read_pii opens text rows whose piiClass is set,
+  // read_media opens media rows whose piiClasses gate would otherwise
+  // fail closed (unclassified AND classified states). Deliberately a NEW
+  // scope rather than reusing read_pii — conflating the tiers would
+  // silently grant every existing read_pii holder biometric access.
+  // Hosting-operator only: granted via env-key config like
+  // brain:platform_admin, deliberately NOT added to the jwks
+  // VALID_SCOPES set (never mintable through the token path).
+  | 'brain:read_media'
   // Cross-tenant (company-level) operator authority — distinct from and
   // strictly HIGHER than brain:admin ("operate MY tenant"). Required for
   // any admin op that addresses a tenant other than the credential's own

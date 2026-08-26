@@ -27,6 +27,7 @@ export * from './validate-memory-model';
 export * from './upgrade-diff';
 export * from './checksum';
 export * from './mcp-consent';
+export * from './modality-consent';
 export * from './signature';
 export * from './semver';
 export * from './eval-fixture';

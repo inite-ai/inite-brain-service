@@ -59,11 +59,14 @@ export class AdminPacksController {
       expectedChecksum?: string;
       /** Consent to the manifest's mcpTools section (docs/mcp-pack-tools.md). */
       acceptMcpTools?: boolean;
+      /** Consent to declared non-text modalities (docs/mcp-pack-tools.md). */
+      acceptModalities?: boolean;
     },
   ): Promise<InstallPackResponse> {
     return this.packs.install(req.brainAuth.companyId, body?.manifest, {
       expectedChecksum: body?.expectedChecksum,
       acceptMcpTools: body?.acceptMcpTools,
+      acceptModalities: body?.acceptModalities,
     });
   }
 
@@ -76,7 +79,12 @@ export class AdminPacksController {
   async installFromRegistry(
     @Req() req: AuthenticatedRequest,
     @Body()
-    body: { packId: string; version?: string; acceptMcpTools?: boolean },
+    body: {
+      packId: string;
+      version?: string;
+      acceptMcpTools?: boolean;
+      acceptModalities?: boolean;
+    },
   ): Promise<InstallPackResponse> {
     const { manifest, checksum } = await this.registry.resolveForInstall({
       packId: body?.packId,
@@ -86,6 +94,7 @@ export class AdminPacksController {
     return this.packs.install(req.brainAuth.companyId, manifest, {
       expectedChecksum: checksum,
       acceptMcpTools: body?.acceptMcpTools,
+      acceptModalities: body?.acceptModalities,
     });
   }
 

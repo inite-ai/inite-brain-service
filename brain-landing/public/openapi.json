@@ -1378,6 +1378,9 @@
           "acceptMcpTools": {
             "type": "boolean"
           },
+          "acceptModalities": {
+            "type": "boolean"
+          },
           "packId": {
             "type": "string"
           },
@@ -1394,6 +1397,9 @@
         "additionalProperties": false,
         "properties": {
           "acceptMcpTools": {
+            "type": "boolean"
+          },
+          "acceptModalities": {
             "type": "boolean"
           },
           "expectedChecksum": {
