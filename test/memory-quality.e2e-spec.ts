@@ -39,7 +39,15 @@ describe('memory-quality nightly pass (real SurrealDB)', () => {
     // Pre-fix this threw a parse error inside collectTenant → the tenant
     // was skipped and every gauge fell to 0. Post-fix the query parses and
     // the active fact we just ingested is counted.
-    const snapshot = await svc.collectNow();
+    //
+    // Scope the pass to THIS suite's freshly-created tenant. The e2e shares
+    // one SurrealDB container across all suites, so the system-DB
+    // tenant_registry (which now backs knownCompanyIds) accumulates other
+    // suites' tenants — e.g. promotion.e2e leaves 5 backdated active facts
+    // under co_promotion_e2e. Enumerating every registered tenant is correct
+    // in production; here it makes a global aggregate non-deterministic, so
+    // the assertion is scoped to a known-clean tenant.
+    const snapshot = await svc.collectNow([f.companyId]);
 
     expect(snapshot.factsByStatus['active']).toBeGreaterThanOrEqual(1);
     // Stale buckets must be present (all three keys populated, not skipped).
