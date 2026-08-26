@@ -213,17 +213,8 @@ export class EntityForgetService {
         { ids: recordIds },
       );
       const auditCount = auditCountRow?.count ?? 0;
-      let segmentCount = 0;
-      if (episodeRefs.length > 0) {
-        const segCountRow = await queryFirst<{ count: number }>(
-          db,
-          `SELECT count() FROM episode_segment WHERE episodeIds CONTAINSANY $eps GROUP ALL`,
-          { eps: episodeRefs },
-        );
-        segmentCount = segCountRow?.count ?? 0;
-      }
-      const txRecordCount =
-        factsDeleted + edgesDeleted + episodeIds.length + segmentCount + auditCount;
+      const l0FanOut = await this.countL0FanOut(db, episodeRefs);
+      const txRecordCount = factsDeleted + edgesDeleted + episodeIds.length + l0FanOut + auditCount;
       if (txRecordCount > this.maxTxRecords) {
         throw new PayloadTooLargeException(
           `Entity forget fan-out (${txRecordCount} records) exceeds ` +
@@ -259,6 +250,30 @@ export class EntityForgetService {
         // record — the traversal dies with the facts, so purge first.
         tx.add(`DELETE fact_usage WHERE factId.entityId = $ent`);
         tx.add(`DELETE retrieval_feedback WHERE factId.entityId = $ent`);
+        // Scenes (0106): a scene whose membership quotes an erased episode
+        // goes whole, with ALL its member rows (mixed-subject scenes lose
+        // the scene, other subjects keep their own facts) — members before
+        // scenes, scenes before the episodes they quote. NOTE: surviving
+        // facts may keep stale source.memoryEpisodeIds strings after this,
+        // the same class as stale source.episodeIds — repaired by the PR2
+        // backlink re-run, not chased here.
+        //
+        // Two-step (SELECT ids → DELETE $ids) DELIBERATELY: on SurrealDB
+        // 3.2.4 a DELETE whose WHERE filters on `in` — covered only by
+        // the COMPOUND scene_member_uq index — silently matches NOTHING
+        // (even a direct `in INSIDE $ids` form; a traversal through it
+        // fails the same way), while the same WHERE in a SELECT matches
+        // fine — verified against the pinned server. Deleting by explicit
+        // ids sidesteps the planner entirely. Same bug class as
+        // preSweepOutcomeRows (PR #372).
+        tx.add(
+          `LET $sceneIds = (SELECT VALUE in FROM memory_episode_member WHERE out INSIDE $eps)`,
+        );
+        tx.add(
+          `LET $sceneMemberIds = (SELECT VALUE id FROM memory_episode_member WHERE in INSIDE $sceneIds)`,
+        );
+        tx.add(`DELETE $sceneMemberIds`);
+        tx.add(`LET $scenesDel = (DELETE memory_episode WHERE id INSIDE $sceneIds RETURN BEFORE)`);
         // L0: a segment that quotes an erased episode goes with it; segments
         // before episodes to keep the dependency order.
         tx.add(
@@ -305,6 +320,7 @@ export class EntityForgetService {
             auditEventsDeleted: array::len($audit),
             episodesDeleted: array::len($epsDel),
             segmentsDeleted: array::len($segs),
+            scenesDeleted: array::len($scenesDel),
             forgottenBy: $forgottenBy,
             forgottenAt: $forgottenAt
           } RETURN AFTER)`);
@@ -362,5 +378,36 @@ export class EntityForgetService {
     }
 
     return result;
+  }
+
+  /**
+   * L0 fan-out of the erase for the transaction-size guard: segments that
+   * quote the dying episodes (audit W1 #13) PLUS — scenes, 0106 — the
+   * membership rows of those episodes and the distinct scene rows they
+   * resolve to. All of these join the same single transaction, so they
+   * count toward FORGET_MAX_TX_RECORDS BEFORE any mutation.
+   */
+  private async countL0FanOut(
+    db: Parameters<Parameters<SurrealService['withCompany']>[1]>[0],
+    episodeRefs: StringRecordId[],
+  ): Promise<number> {
+    if (episodeRefs.length === 0) return 0;
+    const segCountRow = await queryFirst<{ count: number }>(
+      db,
+      `SELECT count() FROM episode_segment WHERE episodeIds CONTAINSANY $eps GROUP ALL`,
+      { eps: episodeRefs },
+    );
+    const sceneMemberCountRow = await queryFirst<{ count: number }>(
+      db,
+      `SELECT count() FROM memory_episode_member WHERE out INSIDE $eps GROUP ALL`,
+      { eps: episodeRefs },
+    );
+    const sceneIdRows = await queryRows<{ in: unknown }>(
+      db,
+      `SELECT in FROM memory_episode_member WHERE out INSIDE $eps`,
+      { eps: episodeRefs },
+    );
+    const sceneCount = new Set(sceneIdRows.map((r) => String(r.in))).size;
+    return (segCountRow?.count ?? 0) + (sceneMemberCountRow?.count ?? 0) + sceneCount;
   }
 }

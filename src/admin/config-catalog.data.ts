@@ -491,6 +491,53 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Fovea optics (verifier answer-integrity arm, Part C): treat a `supported` verdict whose answer carries ZERO citations as low_coverage/abstain instead of serving an uncited "supported" answer (audit F2(b)). LIVE-behavior change when enabled — prod answers can shift, so default off until the owner enables + validates. Off = byte-identical serving.',
   },
+  // ── Scenes (Brain v2) ──
+  {
+    key: 'SCENES_SEGMENTATION_ENABLED',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneSegmentationEnabled) by the
+    // admin controller 404 guard + the composer's defensive early return
+    // — never captured in a constructor — so a flip takes effect without
+    // restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Scenes shadow substrate (Brain v2 PR1, migration 0106): enable the batch scene composer + POST /v1/admin/maintenance/scenes. Shadow — no serving path reads memory_episode. Off = route 404s, no scene row is ever written, byte-identical prod.',
+  },
+  {
+    key: 'SCENES_TOPIC_BOUNDARY',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneTopicBoundaryEnabled) per
+    // composer run — never captured in a constructor — runtime-mutable.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Scenes: within-session topic-boundary refinement — ONE embedding batch per conversation (the surface’s only paid step; no LLM anywhere) and a cosine split below SCENES_TOPIC_MIN_COSINE. Off = session-gap + max-turns segmentation only, embedder-free.',
+  },
+  {
+    key: 'SCENES_TOPIC_MIN_COSINE',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneTopicMinCosine) per composer
+    // run — never captured in a constructor — runtime-mutable.
+    defaultValue: '0.55',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Scenes: split between turns when cosine(mean of the last 3 member embeddings, next turn) < this floor, in [-1,1]. Ignored unless SCENES_TOPIC_BOUNDARY is on. Default 0.55.',
+  },
+  {
+    key: 'SCENES_MAX_TURNS',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneMaxTurns) per composer run —
+    // never captured in a constructor — runtime-mutable.
+    defaultValue: '40',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Scenes: force a scene boundary once a scene reaches this many turns, regardless of topic continuity. Positive integer; default 40.',
+  },
   // ── Multilingual (Tier 1, migration 0100) ───────────
   {
     key: 'MULTILINGUAL_LANG_ATTRIBUTION',

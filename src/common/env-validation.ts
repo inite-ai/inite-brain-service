@@ -228,6 +228,12 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Worker-loop concurrency (per-jobType poller) ────────────────────
   validateWorkerConcurrencyEnv(env, errors);
 
+  // ── Scenes shadow substrate (Brain v2 PR1, migration 0106) ─────────
+  // The composer clamps bad values to defaults at read time; boot
+  // validation catches the typo before it silently reads as a default.
+  positiveInt(env, 'SCENES_MAX_TURNS', errors);
+  floatInRange(env, 'SCENES_TOPIC_MIN_COSINE', -1, 1, errors);
+
   // ── Retrieval profile (per-tenant genre configuration) ─────────────
   validateRetrievalProfileEnv(env, errors);
 
@@ -726,6 +732,18 @@ const KNOWN_BOOLEAN_FLAGS = [
   // master. Default off ⇒ no trajectory column is written or selected
   // and the capture endpoint 404s (byte-identical to pre-0098).
   'STRATEGY_TRAJECTORIES_ENABLED',
+  // Scenes shadow substrate (Brain v2 PR1, migration 0106): the batch
+  // scene composer + its admin trigger. Default off ⇒ no memory_episode
+  // row is ever written and the admin route 404s (byte-identical prod;
+  // shadow even when on — no serving path reads the tables). SCENES_
+  // family sits off the ENGINE flag budget by design (a shadow-substrate
+  // builder, not an engine fork).
+  'SCENES_SEGMENTATION_ENABLED',
+  // Scenes: within-session topic-boundary refinement — one embedding
+  // batch per conversation, the surface's only paid step. Off ⇒ the
+  // segmenter is session-gap + max-turns only (embedder-free). The
+  // cosine floor (SCENES_TOPIC_MIN_COSINE) is a float, not a boolean.
+  'SCENES_TOPIC_BOUNDARY',
   // Fovea optics (Optics-1, docs/roadmap/fovea-optics-2026-08.md): capture
   // the focus signal at the synthesize verdict point + expose the admin
   // fit/measure surface. SERVING-NEUTRAL — nothing consumes the calibrated
@@ -1032,5 +1050,22 @@ function nonNegativeFloat(env: NodeJS.ProcessEnv, name: string, errors: string[]
   const n = Number(v);
   if (!Number.isFinite(n) || n < 0) {
     errors.push(`${name} must be a non-negative number`);
+  }
+}
+
+/** Bounded float knob (e.g. a cosine floor, which may be negative). */
+// eslint-disable-next-line max-params -- validator helper family shape + explicit bounds
+function floatInRange(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  min: number,
+  max: number,
+  errors: string[],
+): void {
+  const v = env[name];
+  if (v === undefined) return;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < min || n > max) {
+    errors.push(`${name} must be a number in [${min}, ${max}]`);
   }
 }

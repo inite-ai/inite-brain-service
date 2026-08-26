@@ -43,6 +43,8 @@ import { ProjectionsController } from './projections.controller';
 import { WindowDeriverService } from './window-deriver.service';
 import { AdminSegmentsController } from './admin-segments.controller';
 import { SegmentComposerService } from './segment-composer.service';
+import { AdminScenesController } from './admin-scenes.controller';
+import { SceneComposerService } from './scene-composer.service';
 import { HnswMaintenanceService } from './hnsw-maintenance.service';
 import { CodeMemoryModule } from '../code-memory/code-memory.module';
 import { RegistryModule } from '../registry/registry.module';
@@ -109,6 +111,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     AdminAggregatesController,
     AdminDeriveController,
     AdminSegmentsController,
+    AdminScenesController,
     ProjectionsController,
   ],
   providers: [
@@ -118,6 +121,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     ArcComposerService,
     WindowDeriverService,
     SegmentComposerService,
+    SceneComposerService,
     AdminInfraService,
     HealthComponentsService,
     LiveSnapshotService,
