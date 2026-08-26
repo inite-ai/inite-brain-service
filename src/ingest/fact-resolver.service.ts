@@ -6,6 +6,8 @@ import { MetricsService } from '../metrics/metrics.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { detectLanguage } from '../ai/locale/language-detector';
 import { envFlagEnabled } from '../common/env-validation';
+import { supportEdgesEnabled } from '../common/provenance-flags';
+import { buildConflictEdgeRows } from '../common/support-edges';
 import { KeyedMutex } from '../common/keyed-mutex';
 import { ConflictConfig, type DerivedSemantics, type ResolveOutcome } from './conflict-resolver';
 import { idTailOf, sourceTrustFor } from './ingest-utils';
@@ -329,6 +331,34 @@ export class FactResolverService {
       this.metrics?.countIngestFact(String(outcome));
     }
     this.emitConflictOutcomes(p.companyId, result);
+    await this.writeConflictSupportEdges(db, result);
+  }
+
+  /**
+   * Typed support graph (PROVENANCE_SUPPORT_EDGES, 0116): mirror a
+   * conflict verdict as contradicted_by edges — SUPERSEDED → one edge
+   * per displaced fact (loser→winner), COMPETING → the mutual pair per
+   * standing competitor — capped by CONFLICT_OUTCOME_CAP (row assembly
+   * in support-edges.ts). Runs in the shared post-call tail, AFTER
+   * resolveFactCall, never inside the KeyedMutex critical section.
+   * Best-effort: warn, never fail the ingest (the emitConflictOutcomes
+   * idiom). Off (default) ⇒ zero queries, byte-identical.
+   */
+  private async writeConflictSupportEdges(db: Surreal, result: ResolveOutcome): Promise<void> {
+    if (!supportEdgesEnabled()) return;
+    const rows = buildConflictEdgeRows(result, FactResolverService.CONFLICT_OUTCOME_CAP);
+    if (rows.length === 0) return;
+    try {
+      await db.query(`INSERT RELATION IGNORE INTO memory_support $rows`, {
+        rows: rows.map((r) => ({
+          ...r,
+          in: new StringRecordId(r.in),
+          out: new StringRecordId(r.out),
+        })),
+      });
+    } catch (e) {
+      this.logger.warn(`conflict support-edge write failed (non-fatal): ${(e as Error).message}`);
+    }
   }
 
   /** 0107 cap — bounds a pathological conflict fan-out. */

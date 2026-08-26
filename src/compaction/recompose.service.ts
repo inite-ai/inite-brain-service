@@ -9,8 +9,9 @@ import { WorkerLoopService } from '../jobs/worker-loop.service';
 import { SUMMARY_GENERATOR } from './compaction.types';
 import { changefeedRow } from '../db/changefeed-row';
 import type { SummaryGenerator, FactToSummarize } from './summary-generator';
-import { summaryEpisodeStampEnabled } from '../common/provenance-flags';
+import { summaryEpisodeStampEnabled, supportEdgesEnabled } from '../common/provenance-flags';
 import { unionEpisodeIds } from '../common/episode-ids';
+import { replaceDerivedFromEdges } from './support-edge-mirror';
 
 /** Changefeed cursor key — distinct from the audit drain's per-table keys. */
 const CURSOR = 'recompose:knowledge_fact';
@@ -339,6 +340,26 @@ export class RecomposeService implements OnModuleInit {
         ...(episodeIds.length > 0 ? { episodeIds } : {}),
       },
     );
+    // Typed support graph (PROVENANCE_SUPPORT_EDGES, default off): the
+    // UPDATE above REWROTE derivedFrom to the current parents, so the
+    // typed mirror is REPLACED — stale edges deleted (two-step
+    // LET-select-ids → DELETE, mandatory on 3.2.4 — see the mirror
+    // module), then the new set inserted. Best-effort: the summary
+    // rewrite already landed, a mirror failure warns, never aborts.
+    // Off ⇒ block skipped, the statement above is byte-identical.
+    if (supportEdgesEnabled()) {
+      try {
+        await replaceDerivedFromEdges(db, {
+          summaryId,
+          memberIds: parents.map((p) => p.factId),
+          writer: 'recompose',
+        });
+      } catch (e) {
+        this.logger.warn(
+          `recompose derived_from edge mirror failed (non-fatal): ${(e as Error).message}`,
+        );
+      }
+    }
     return true;
   }
 

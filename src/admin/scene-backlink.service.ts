@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { sceneFactBacklinkEnabled } from '../common/scene-flags';
 import { SceneVersionService } from './scene-version';
+import { supportEdgesEnabled } from '../common/provenance-flags';
+import { buildSupportEdgeBatches } from '../common/support-edges';
 
 /**
  * Scene fact backlinker (Brain v2 PR2, SCENES_FACT_BACKLINK — default
@@ -146,6 +149,41 @@ export class SceneBacklinkService {
           );
         }
         result.factsLinked += factIds.length;
+
+        // Typed support graph (PROVENANCE_SUPPORT_EDGES, default off):
+        // fact-supported_by->scene edges IN ADDITION to the string
+        // stamps above (stamps are existing default-on behavior; their
+        // removal is a separate cleanup once the typed reader is
+        // proven). Replay-idempotent: INSERT RELATION IGNORE over
+        // UNIQUE(in, out, kind) — a re-segmentation re-run lands on the
+        // same deterministic scene ids and inserts nothing new. Off ⇒
+        // this whole block is skipped and the query sequence above is
+        // byte-identical. writerVersion follows the SAME effective
+        // version as the sceneLinkVersion stamp above (SceneVersionService,
+        // resolved once per run) — under SCENES_VERSION_FINGERPRINT the
+        // edge names the fingerprinted world that was linked; flag off ⇒
+        // the literal SEGMENTER_VERSION, byte-identical to the pre-#386
+        // stamp.
+        if (supportEdgesEnabled()) {
+          const { batches, skipped } = buildSupportEdgeBatches({
+            kind: 'supported_by',
+            writer: 'scene_backlink',
+            writerVersion: version,
+            pairs: factIds.map((id) => ({ in: String(id), out: String(scene.id) })),
+          });
+          if (skipped > 0) {
+            this.logger.warn(`scene backlink: ${skipped} malformed support-edge pair(s) skipped`);
+          }
+          for (const batch of batches) {
+            await db.query(`INSERT RELATION IGNORE INTO memory_support $rows`, {
+              rows: batch.map((r) => ({
+                ...r,
+                in: new StringRecordId(r.in),
+                out: new StringRecordId(r.out),
+              })),
+            });
+          }
+        }
       }
     });
     this.logger.log(

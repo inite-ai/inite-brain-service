@@ -288,3 +288,170 @@ describe('indexCharSpans (shared helper)', () => {
     expect(indexCharSpans({ episodeId: 'episode:e1' }).size).toBe(0);
   });
 });
+
+/**
+ * Typed support graph read (Drift-5, PROVENANCE_SUPPORT_GRAPH_READ):
+ * the optional fetchEdges callback. ABSENT ⇒ the walk is byte-identical
+ * to the pre-edge walker (pinned by deep-equal below AND by every
+ * legacy spec above running unchanged). PRESENT ⇒ derived_from targets
+ * join the generation through the SAME visited set and fact budget,
+ * and every crossed edge lands in `edges`.
+ */
+describe('walkProvenanceClosure — fetchEdges (support graph read)', () => {
+  type EdgeSeed = { in: string; out: string; kind: string };
+
+  function makeEdgeDb(edges: EdgeSeed[]) {
+    const batches: string[][] = [];
+    return {
+      batches,
+      fetchEdges: async (ids: string[]) => {
+        batches.push(ids);
+        return edges.filter((e) => ids.includes(e.in));
+      },
+    };
+  }
+
+  it('fetchEdges ABSENT: result deep-equals the pre-edge shape (edges empty, no other change)', async () => {
+    const rows = [fact('c1', { episodeIds: ['episode:e1'] })];
+    const out = await walkProvenanceClosure({
+      root: fact('root', { derivedFrom: ['knowledge_fact:c1'], episodeIds: ['episode:e0'] }),
+      caps: CAPS,
+      visible: allVisible,
+      fetchByIds: makeDb(rows).fetchByIds,
+    });
+    expect(out.edges).toEqual([]);
+    expect(out.closureFacts.map((c) => String(c.fact.id))).toEqual(['knowledge_fact:c1']);
+    expect([...out.episodes.keys()]).toEqual(['episode:e0', 'episode:e1']);
+    expect(out.truncated).toEqual({ depth: false, fanout: false, episodes: false });
+    expect(out.filtered).toBe(false);
+  });
+
+  it('derived_from edges union targets into the generation (root with EMPTY derivedFrom walks)', async () => {
+    const rows = [fact('c1', { episodeIds: ['episode:e1'] })];
+    const edb = makeEdgeDb([
+      { in: 'knowledge_fact:root', out: 'knowledge_fact:c1', kind: 'derived_from' },
+    ]);
+    const out = await walkProvenanceClosure({
+      root: fact('root', { episodeIds: ['episode:e0'] }),
+      caps: CAPS,
+      visible: allVisible,
+      fetchByIds: makeDb(rows).fetchByIds,
+      fetchEdges: edb.fetchEdges,
+    });
+    expect(out.closureFacts.map((c) => [String(c.fact.id), c.depth])).toEqual([
+      ['knowledge_fact:c1', 1],
+    ]);
+    expect(out.edges).toEqual([
+      { kind: 'derived_from', from: 'knowledge_fact:root', to: 'knowledge_fact:c1' },
+    ]);
+    // Harvest reaches the edge-discovered child too.
+    expect([...out.episodes.keys()]).toEqual(['episode:e0', 'episode:e1']);
+    // One batched edge fetch per depth over the frontier.
+    expect(edb.batches).toEqual([['knowledge_fact:root'], ['knowledge_fact:c1']]);
+  });
+
+  it('edge children pass the SAME visited set (derivedFrom twin deduped) and fact budget', async () => {
+    const rows = [fact('c1', {}), fact('c2', {})];
+    const edb = makeEdgeDb([
+      // c1 arrives via BOTH the array and the edge — admitted once.
+      { in: 'knowledge_fact:root', out: 'knowledge_fact:c1', kind: 'derived_from' },
+      { in: 'knowledge_fact:root', out: 'knowledge_fact:c2', kind: 'derived_from' },
+    ]);
+    const db = makeDb(rows);
+    const out = await walkProvenanceClosure({
+      root: fact('root', { derivedFrom: ['knowledge_fact:c1'] }),
+      caps: { ...CAPS, maxFacts: 2 },
+      visible: allVisible,
+      fetchByIds: db.fetchByIds,
+      fetchEdges: edb.fetchEdges,
+    });
+    expect(db.batches).toEqual([['knowledge_fact:c1', 'knowledge_fact:c2']]);
+    expect(out.closureFacts).toHaveLength(2);
+    expect(out.truncated.fanout).toBe(false);
+  });
+
+  it('fact budget exhausted by edge children → truncated.fanout', async () => {
+    const rows = [fact('c1', {})];
+    const edb = makeEdgeDb([
+      { in: 'knowledge_fact:root', out: 'knowledge_fact:c1', kind: 'derived_from' },
+      { in: 'knowledge_fact:root', out: 'knowledge_fact:c2', kind: 'derived_from' },
+    ]);
+    const out = await walkProvenanceClosure({
+      root: fact('root', {}),
+      caps: { ...CAPS, maxFacts: 1 },
+      visible: allVisible,
+      fetchByIds: makeDb(rows).fetchByIds,
+      fetchEdges: edb.fetchEdges,
+    });
+    expect(out.closureFacts.map((c) => String(c.fact.id))).toEqual(['knowledge_fact:c1']);
+    expect(out.truncated.fanout).toBe(true);
+  });
+
+  it('supported_by / contradicted_by are collected but never walked; non-fact targets never walked', async () => {
+    const edb = makeEdgeDb([
+      { in: 'knowledge_fact:root', out: 'memory_episode:s1', kind: 'supported_by' },
+      { in: 'knowledge_fact:root', out: 'knowledge_fact:rival', kind: 'contradicted_by' },
+      // A derived_from pointing OUTSIDE the fact table: reported, not walked.
+      { in: 'knowledge_fact:root', out: 'episode:e9', kind: 'derived_from' },
+      // Reserved / unknown kinds are dropped entirely.
+      { in: 'knowledge_fact:root', out: 'episode:e1', kind: 'reconstructed_from' },
+      { in: 'knowledge_fact:root', out: 'knowledge_fact:x', kind: 'bogus' },
+    ]);
+    const db = makeDb([]);
+    const out = await walkProvenanceClosure({
+      root: fact('root', {}),
+      caps: CAPS,
+      visible: allVisible,
+      fetchByIds: db.fetchByIds,
+      fetchEdges: edb.fetchEdges,
+    });
+    expect(out.edges).toEqual([
+      { kind: 'supported_by', from: 'knowledge_fact:root', to: 'memory_episode:s1' },
+      { kind: 'contradicted_by', from: 'knowledge_fact:root', to: 'knowledge_fact:rival' },
+      { kind: 'derived_from', from: 'knowledge_fact:root', to: 'episode:e9' },
+    ]);
+    // contradicted_by target is NOT a child; no fact fetch ever fired.
+    expect(db.batches).toEqual([]);
+    expect(out.closureFacts).toEqual([]);
+  });
+
+  it('a cycle via edges terminates (visited set covers edge children)', async () => {
+    const rows = [fact('c1', {})];
+    const edb = makeEdgeDb([
+      { in: 'knowledge_fact:root', out: 'knowledge_fact:c1', kind: 'derived_from' },
+      { in: 'knowledge_fact:c1', out: 'knowledge_fact:root', kind: 'derived_from' },
+    ]);
+    const out = await walkProvenanceClosure({
+      root: fact('root', {}),
+      caps: CAPS,
+      visible: allVisible,
+      fetchByIds: makeDb(rows).fetchByIds,
+      fetchEdges: edb.fetchEdges,
+    });
+    expect(out.closureFacts.map((c) => String(c.fact.id))).toEqual(['knowledge_fact:c1']);
+    // The back-edge is still REPORTED — it just cannot re-admit root.
+    expect(out.edges).toEqual([
+      { kind: 'derived_from', from: 'knowledge_fact:root', to: 'knowledge_fact:c1' },
+      { kind: 'derived_from', from: 'knowledge_fact:c1', to: 'knowledge_fact:root' },
+    ]);
+  });
+
+  it('edge surface shares the fact-budget cap (overflow marks truncated.fanout)', async () => {
+    const edb = makeEdgeDb(
+      Array.from({ length: 4 }, (_, i) => ({
+        in: 'knowledge_fact:root',
+        out: `memory_episode:s${i}`,
+        kind: 'supported_by',
+      })),
+    );
+    const out = await walkProvenanceClosure({
+      root: fact('root', {}),
+      caps: { ...CAPS, maxFacts: 2 },
+      visible: allVisible,
+      fetchByIds: makeDb([]).fetchByIds,
+      fetchEdges: edb.fetchEdges,
+    });
+    expect(out.edges).toHaveLength(2);
+    expect(out.truncated.fanout).toBe(true);
+  });
+});

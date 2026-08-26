@@ -279,6 +279,25 @@ export class EntityForgetService {
         );
         tx.add(`DELETE $sceneMemberIds`);
         tx.add(`LET $scenesDel = (DELETE memory_episode WHERE id INSIDE $sceneIds RETURN BEFORE)`);
+        // Typed support graph (0116): every memory_support edge touching
+        // this entity's facts (either endpoint) or a dying scene (edge
+        // target) goes with them. The fact ids MUST be pre-collected
+        // here, BEFORE the `DELETE knowledge_fact WHERE entityId = $ent`
+        // below erases the rows the SELECT traverses. Runs
+        // UNCONDITIONALLY — rows written while PROVENANCE_SUPPORT_EDGES
+        // was on must stay erasable after it is off (the
+        // EVIDENCE_SUBSTRATE_ENABLED precedent). Two-step
+        // (SELECT ids → DELETE $ids) MANDATORY: `in` is covered by the
+        // COMPOUND support_edge_uq index — `DELETE memory_support WHERE
+        // in INSIDE …` is the reproduced 3.2.4 silent planner no-op.
+        // Uncounted in txRecordCount, like fact_usage (bookkeeping
+        // rows, content-free by construction — record ids only).
+        tx.add(`LET $entFactIds = (SELECT VALUE id FROM knowledge_fact WHERE entityId = $ent)`);
+        tx.add(
+          `LET $supIds = (SELECT VALUE id FROM memory_support
+             WHERE in INSIDE $entFactIds OR out INSIDE $entFactIds OR out INSIDE $sceneIds)`,
+        );
+        tx.add(`DELETE $supIds`);
         // 0107 outcome telemetry: stragglers written after the pre-tx
         // bulk sweep, plus the one-row-per-subject rollup (small enough
         // to live inside the tx). Uncounted in txRecordCount, like

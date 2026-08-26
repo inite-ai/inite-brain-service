@@ -7,9 +7,10 @@ import { PREDICATE_POLICIES } from '../ingest/conflict-resolver';
 import { ConcatSummaryGenerator, FactToSummarize, SummaryGenerator } from './summary-generator';
 import { SUMMARY_GENERATOR } from './compaction.types';
 import { envFlagEnabled } from '../common/env-validation';
-import { summaryEpisodeStampEnabled } from '../common/provenance-flags';
+import { summaryEpisodeStampEnabled, supportEdgesEnabled } from '../common/provenance-flags';
 import { ungroundedExcludeEnabled } from '../common/evidence-flags';
 import { unionEpisodeIds } from '../common/episode-ids';
+import { insertDerivedFromEdges } from './support-edge-mirror';
 import { compactionOverridesFor } from './compaction-overrides';
 
 /**
@@ -350,7 +351,7 @@ export class PromotionRunnerService {
       ? unionEpisodeIds(members.map((m) => m.eps))
       : [];
 
-    await dbCreate(db, 'knowledge_fact', {
+    const summary = await dbCreate(db, 'knowledge_fact', {
       entityId: first.entityId,
       predicate: `summary_${group.predicate}`,
       object: summaryText,
@@ -364,6 +365,11 @@ export class PromotionRunnerService {
       ...(embedding ? { embedding } : {}),
     });
 
+    await this.mirrorDerivedFromEdges(db, {
+      summaryId: String(summary.id),
+      memberIds: members.map((m) => String(m.id)),
+    });
+
     // Record-id params — 3.x does not coerce string↔record (see
     // compaction-runner).
     const ids = members.map((m) => new StringRecordId(String(m.id)));
@@ -374,6 +380,28 @@ export class PromotionRunnerService {
       { ids },
     );
     return members.length;
+  }
+
+  /**
+   * Typed support graph (PROVENANCE_SUPPORT_EDGES, default off): mirror
+   * the EXACT derivedFrom array just written as
+   * summary-derived_from->member edges. Best-effort — the summary
+   * already landed and the members must still be compacted, so a mirror
+   * failure warns, never aborts. Off ⇒ zero queries, the write sequence
+   * is byte-identical.
+   */
+  private async mirrorDerivedFromEdges(
+    db: Surreal,
+    mirror: { summaryId: string; memberIds: string[] },
+  ): Promise<void> {
+    if (!supportEdgesEnabled()) return;
+    try {
+      await insertDerivedFromEdges(db, { ...mirror, writer: 'promotion_runner' });
+    } catch (e) {
+      this.logger.warn(
+        `promotion derived_from edge mirror failed (non-fatal): ${(e as Error).message}`,
+      );
+    }
   }
 }
 

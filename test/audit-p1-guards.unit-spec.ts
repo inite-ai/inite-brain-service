@@ -10,7 +10,7 @@
  * 3. JobRunService.finish() must carry the inline-ownership guard so it
  *    can't clobber a row a queue worker has claimed.
  */
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import { JobRunService } from '../src/jobs/job-run.service';
 import { DERIVED_REPRESENTATION_KINDS, EVIDENCE_MODALITIES } from '../src/common/evidence-taxonomy';
@@ -439,6 +439,80 @@ describe('SurrealDB 3.2.4 DELETE-WHERE planner no-op guards', () => {
     expect(src).toContain(
       'DELETE (SELECT id FROM tool_observation WHERE createdAt < $cutoff LIMIT 5000) RETURN BEFORE',
     );
+  });
+});
+
+describe('0116_memory_support indexes', () => {
+  const sql = readFileSync(join(MIGRATIONS, '0116_memory_support.surql'), 'utf8');
+
+  it.each([
+    ['support_edge_uq', 'memory_support', 'in, out, kind UNIQUE'],
+    ['support_out_idx', 'memory_support', 'out'],
+    ['support_kind_idx', 'memory_support', 'kind'],
+  ])('defines %s on %s(%s)', (name, table, fields) => {
+    const re = new RegExp(`DEFINE INDEX IF NOT EXISTS ${name}\\s+ON ${table} FIELDS ${fields};`);
+    expect(sql).toMatch(re);
+  });
+
+  it('deliberately defines NO changefeed and NO event', () => {
+    // The 0053/0107 separation rationale: provenance edges must not
+    // feed the audit mirror, and an erased subject's edges must not
+    // stay readable in a feed. The header EXPLAINS the absence in
+    // prose, so judge only non-comment lines.
+    const code = sql
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('--'))
+      .join('\n');
+    expect(code).not.toMatch(/CHANGEFEED/);
+    expect(code).not.toMatch(/DEFINE EVENT/);
+  });
+});
+
+describe('memory_support GDPR cascade + DELETE-shape guards (0116)', () => {
+  const SRC = join(__dirname, '..', 'src');
+
+  it('both forget services erase support edges via the two-step SELECT-ids → DELETE idiom', () => {
+    // The compound support_edge_uq index covers `in` — a
+    // `DELETE memory_support WHERE in INSIDE …` is the REPRODUCED
+    // 3.2.4 silent planner no-op (returns OK, deletes zero rows), so
+    // the cascade must pre-select ids and delete by them. And it must
+    // run UNCONDITIONALLY — rows written while PROVENANCE_SUPPORT_EDGES
+    // was on must stay erasable after it is off.
+    const userForget = readFileSync(join(SRC, 'entities', 'user-forget.service.ts'), 'utf8');
+    expect(userForget).toContain('SELECT VALUE id FROM memory_support');
+    expect(userForget).toContain('DELETE $supIds');
+    const entityForget = readFileSync(join(SRC, 'entities', 'entity-forget.service.ts'), 'utf8');
+    expect(entityForget).toContain('SELECT VALUE id FROM memory_support');
+    expect(entityForget).toContain('DELETE $supIds');
+    // The entity tx must pre-collect fact ids BEFORE the fact delete
+    // erases the rows the subject SELECT enumerates.
+    expect(entityForget).toContain(
+      'LET $entFactIds = (SELECT VALUE id FROM knowledge_fact WHERE entityId = $ent)',
+    );
+  });
+
+  it('NO file in src/ uses the 3.2.4-broken DELETE memory_support WHERE shape', () => {
+    const walk = (dir: string): string[] => {
+      const out: string[] = [];
+      for (const name of readdirSync(dir)) {
+        const p = join(dir, name);
+        if (statSync(p).isDirectory()) out.push(...walk(p));
+        else if (p.endsWith('.ts') || p.endsWith('.surql')) out.push(p);
+      }
+      return out;
+    };
+    for (const file of walk(SRC)) {
+      // Comment lines EXPLAIN the trap (0058-guard idiom) — judge only
+      // code lines.
+      const code = readFileSync(file, 'utf8')
+        .split('\n')
+        .filter((l) => {
+          const t = l.trimStart();
+          return !t.startsWith('--') && !t.startsWith('//') && !t.startsWith('*');
+        })
+        .join('\n');
+      expect(code).not.toMatch(/DELETE memory_support\s+WHERE/);
+    }
   });
 });
 

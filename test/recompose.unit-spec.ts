@@ -363,4 +363,76 @@ describe('RecomposeService', () => {
       expect(batch!.sql).toContain('source.episodeIds AS eps');
     });
   });
+
+  /**
+   * Typed support graph (Drift-5, PROVENANCE_SUPPORT_EDGES): recompose
+   * REWRITES derivedFrom, so its typed mirror is REPLACED — the stale
+   * edges deleted by the two-step LET-select-ids → DELETE idiom
+   * (mandatory: `in` is under the compound support_edge_uq index, the
+   * 3.2.4 DELETE-WHERE planner no-op), then the new set inserted. Off
+   * (default) the query log carries NO memory_support statement.
+   */
+  describe('rewrite — derived_from edge mirror (PROVENANCE_SUPPORT_EDGES)', () => {
+    const saved = process.env.PROVENANCE_SUPPORT_EDGES;
+    afterEach(() => {
+      if (saved === undefined) delete process.env.PROVENANCE_SUPPORT_EDGES;
+      else process.env.PROVENANCE_SUPPORT_EDGES = saved;
+    });
+
+    const staleSummary = {
+      id: 'knowledge_fact:sum1',
+      predicate: 'summary_lives_in',
+      derivedFrom: ['knowledge_fact:p1', 'knowledge_fact:p2'],
+      staleAt: '2023-06-01T00:00:00Z',
+    };
+    const parents = {
+      'knowledge_fact:p1': parent('knowledge_fact:p1', 'Berlin'),
+      'knowledge_fact:p2': parent('knowledge_fact:p2', 'Dublin', {
+        validFrom: '2023-02-01T00:00:00Z',
+      }),
+    };
+
+    it('flag OFF (default): no memory_support statement in the log', async () => {
+      delete process.env.PROVENANCE_SUPPORT_EDGES;
+      const { svc, queries } = make({ stale: [staleSummary], parents });
+      await svc.recompute('co_x');
+      expect(queries.filter((q) => q.sql.includes('memory_support'))).toEqual([]);
+    });
+
+    it('flag ON: two-step delete of the stale mirror, then the re-insert of the CURRENT parents', async () => {
+      process.env.PROVENANCE_SUPPORT_EDGES = '1';
+      const { svc, queries } = make({ stale: [staleSummary], parents });
+      await svc.recompute('co_x');
+      const support = queries.filter((q) => q.sql.includes('memory_support'));
+      expect(support).toHaveLength(2);
+      // 1. The two-step erase — string-pinned: a `DELETE memory_support
+      //    WHERE` here would be the 3.2.4 silent no-op.
+      expect(support[0]!.sql).toContain(`LET $edgeIds = (SELECT VALUE id FROM memory_support`);
+      expect(support[0]!.sql).toContain(`WHERE in = $summary AND kind = 'derived_from'`);
+      expect(support[0]!.sql).toContain('DELETE $edgeIds');
+      expect(String(support[0]!.params.summary)).toBe('knowledge_fact:sum1');
+      // 2. The re-insert mirrors the rewritten derivedFrom (chronological
+      //    parent order), writer 'recompose'.
+      expect(support[1]!.sql).toContain('INSERT RELATION IGNORE INTO memory_support');
+      const rows = (support[1]!.params.rows as Array<Record<string, unknown>>).map((r) => ({
+        ...r,
+        in: String(r.in),
+        out: String(r.out),
+      }));
+      expect(rows).toEqual([
+        {
+          in: 'knowledge_fact:sum1',
+          out: 'knowledge_fact:p1',
+          kind: 'derived_from',
+          writer: 'recompose',
+        },
+        {
+          in: 'knowledge_fact:sum1',
+          out: 'knowledge_fact:p2',
+          kind: 'derived_from',
+          writer: 'recompose',
+        },
+      ]);
+    });
+  });
 });

@@ -1006,6 +1006,20 @@ const KNOWN_BOOLEAN_FLAGS = [
   // (PROVENANCE_CLOSURE_MAX_*) are integer knobs, not boolean flags.
   // Outside ENGINE_PREFIX by design — off the flag budget.
   'PROVENANCE_RECURSIVE_CLOSURE',
+  // Typed support graph, write side (Drift-5, 0116): writers emit
+  // canonical memory_support edges — scene-backlink supported_by
+  // (alongside the legacy stamps), conflict resolver contradicted_by,
+  // promotion/compaction/recompose derived_from mirrors. GDPR cascades
+  // erase edges regardless of this flag. Default off ⇒ no edge written,
+  // every writer byte-identical. Outside ENGINE_PREFIX by design (the
+  // PROVENANCE_ family sits off the flag budget).
+  'PROVENANCE_SUPPORT_EDGES',
+  // Typed support graph, read side (Drift-5): the recursive closure
+  // additionally follows derived_from edges and serves the crossed
+  // edges as the optional supportEdges field. Default off ⇒ walk and
+  // response byte-identical (field absent). Outside ENGINE_PREFIX by
+  // design — off the flag budget.
+  'PROVENANCE_SUPPORT_GRAPH_READ',
   // Multilingual Tier 1 (migration 0100). Confidence-aware attribution:
   // the detector returns `und` (not `en`) for short/stopword-less objects
   // and the resolver stamps langConfidence/langSource/detectorVersion/

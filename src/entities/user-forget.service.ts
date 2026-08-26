@@ -244,6 +244,16 @@ export class UserForgetService {
       if (((ownMemberIds as unknown[]) ?? []).length > 0) {
         await db.query(`DELETE $ids`, { ids: ownMemberIds });
       }
+      // Typed support graph (0116): every dying scene is a possible
+      // supported_by edge target, so scene ids are collected BEFORE
+      // their rows go (the edge erase below goes by these explicit
+      // ids). User-scoped scenes here; mixed-user scenes join the list
+      // in the by-reference branch below.
+      const [ownSceneIdRows] = await db.query<[unknown[]]>(
+        `SELECT VALUE id FROM memory_episode WHERE userId = $u`,
+        { u: userId },
+      );
+      const supportSceneIds = ((ownSceneIdRows as unknown[]) ?? []).map(String);
       // Mixed-user scenes carry no userId stamp — resolve them BY
       // REFERENCE through the membership of the just-deleted episodes
       // (the `out` link keeps its record id after the episode row died).
@@ -258,6 +268,7 @@ export class UserForgetService {
         const sceneIds = [...new Set(((sceneIdRows as unknown[]) ?? []).map(String))].map(
           (id) => new StringRecordId(id),
         );
+        supportSceneIds.push(...sceneIds.map(String));
         const [refMemberIds] = await db.query<[unknown[]]>(
           `SELECT VALUE id FROM memory_episode_member WHERE in INSIDE $sceneIds OR out INSIDE $eps`,
           { sceneIds, eps: deletedEpisodeRefs },
@@ -270,6 +281,27 @@ export class UserForgetService {
         }
       }
       await db.query(`DELETE memory_episode WHERE userId = $u`, { u: userId });
+
+      // Typed support graph (0116): erase every memory_support edge
+      // touching the user's facts (either endpoint) or a dying scene
+      // (edge target). Runs UNCONDITIONALLY — rows written while
+      // PROVENANCE_SUPPORT_EDGES was on must stay erasable after it is
+      // off (the EVIDENCE_SUBSTRATE_ENABLED precedent). Two-step
+      // (SELECT ids → DELETE $ids) MANDATORY: `in` is covered by the
+      // COMPOUND support_edge_uq index — `DELETE memory_support WHERE
+      // in INSIDE …` is the reproduced 3.2.4 silent planner no-op (OK,
+      // zero rows) while the same WHERE in a SELECT matches fine.
+      const supportSubjects = [...factIds, ...new Set(supportSceneIds)].map(
+        (id) => new StringRecordId(id),
+      );
+      if (supportSubjects.length > 0) {
+        await db.query(
+          `LET $supIds = (SELECT VALUE id FROM memory_support
+             WHERE in INSIDE $subjects OR out INSIDE $subjects);
+           DELETE $supIds;`,
+          { subjects: supportSubjects },
+        );
+      }
 
       // Evidence substrate (0109) — see eraseEvidenceRows.
       const { evidenceAssetsDeleted, evidenceFragmentsDeleted, representationsDeleted } =
