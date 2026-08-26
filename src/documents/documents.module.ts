@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AiModule } from '../ai/ai.module';
 import { IngestCoreModule } from '../ingest/ingest-core.module';
 import { IndexersModule } from '../indexers/indexers.module';
+import { EvidenceModule } from '../evidence/evidence.module';
 import { DocumentsController } from './documents.controller';
 import { DocumentsIngestController } from './documents-ingest.controller';
 import { ExternalCandidatesController } from './external-candidates.controller';
@@ -30,7 +31,8 @@ import { MentionViaDocumentService } from './mention-via-document.service';
  * dedicated extraction + relevance routing machinery.
  */
 @Module({
-  imports: [AiModule, IngestCoreModule, IndexersModule],
+  // EvidenceModule: the sweeper's evidence retention/reconciliation leg (0109).
+  imports: [AiModule, IngestCoreModule, IndexersModule, EvidenceModule],
   controllers: [
     DocumentsController,
     DocumentsIngestController,

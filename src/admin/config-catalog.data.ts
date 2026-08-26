@@ -1004,6 +1004,34 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Effective-meta union: a corroborated fact inherits its confirming documents’ meta for DENY evaluation (union = most restrictive).',
   },
+  // ── Evidence plane (Brain v2.1) ──
+  {
+    key: 'EVIDENCE_SUBSTRATE_ENABLED',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Master switch for the multimodal evidence substrate writers (evidence_asset / evidence_fragment / derived_representation, migration 0109). Off = EvidenceStoreService refuses every write (503) and no row is ever written; GDPR cascade + retention sweep run regardless so rows written while on stay erasable.',
+  },
+  {
+    key: 'EVIDENCE_FS_ROOT',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Directory root for the fs:// evidence storage adapter (<root>/<companyId>/<hash[0..1]>/<hash>). NO default on purpose — unset means the adapter throws a clear unconfigured error instead of silently accumulating tenant media in an unmanaged path.',
+  },
+  {
+    key: 'EVIDENCE_MAX_BYTES',
+    category: 'pipeline',
+    defaultValue: '1073741824',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Sanity cap on the DECLARED byteLength of a registered evidence asset (default 1 GiB). A claim bound, not a transfer limit — this release ships no upload endpoint.',
+  },
   // ── Document pipeline (migrations 0048–0050) ─────────────
   {
     key: 'DOCUMENT_INGEST_ENABLED',

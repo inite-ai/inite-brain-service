@@ -146,6 +146,9 @@ export const EMBEDDING_TABLES = [
   { table: 'knowledge_predicate', vectorFields: ['embedding'] },
   { table: 'episode', vectorFields: ['embedding'] },
   { table: 'episode_segment', vectorFields: ['embedding'] },
+  // 0106 landed after 0101 — without this entry the reindex-all sweep
+  // silently skipped scene gist vectors (space column added in 0109).
+  { table: 'memory_episode', vectorFields: ['gistEmbedding'] },
   { table: 'strategy_memory', vectorFields: ['embedding'] },
   { table: 'community_node', vectorFields: ['summaryEmbedding'] },
   { table: 'procedural_memory', vectorFields: ['triggerEmbedding'] },

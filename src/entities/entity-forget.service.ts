@@ -326,6 +326,14 @@ export class EntityForgetService {
         tx.add(`DELETE ingest_dead_letter WHERE payload.entityId = $ent`);
         // entity_external_ref: external subject identifier + pointer.
         tx.add(`DELETE entity_external_ref WHERE entity = $ent`);
+        // evidence_asset / evidence_fragment / derived_representation
+        // (0109) are DELIBERATELY NOT deleted here: an asset is a
+        // user/tenant-scoped OBSERVATION, not an entity-scoped claim —
+        // erasing a subject entity removes what the brain BELIEVES about
+        // it, while the tenant's original observation may ground other
+        // subjects. Assets die with their user (user-forget cascade),
+        // their retainUntil (sweeper), or their tenant (offboarding).
+        // See the 0109 migration header.
         // Tombstone — GDPR accountability (Art. 5(2)/30): record WHO
         // performed the erasure (hashed credential) + requestId so a repeat
         // is detectable. factsDeleted/edgesDeleted are the pre-collected

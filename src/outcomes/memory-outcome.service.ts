@@ -25,6 +25,12 @@ import { outcomeTelemetryEnabled } from '../common/outcome-flags';
  * never fact text (see the 0107 header for why that is load-bearing).
  */
 
+/**
+ * 'evidence' binds to evidence_asset ids ONLY (0109): a fragment-level
+ * outcome ROLLS UP to its parent asset — the ranking currency is
+ * per-observation, and a per-fragment rollup would split the signal.
+ * outcomeSubjectFor() in src/common/evidence-ref.ts owns the mapping.
+ */
 export type OutcomeSubjectKind = 'fact' | 'episode' | 'belief' | 'evidence';
 
 export type OutcomeEventName =
