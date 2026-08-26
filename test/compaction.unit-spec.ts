@@ -159,6 +159,43 @@ describe('CompactionService — mark + drop (default mode)', () => {
     expect(cutoffMs).toBeLessThanOrEqual(after - 30 * 24 * 60 * 60 * 1000);
   });
 
+  it('honours a per-tenant hotRetentionDays override (COMPACTION_TENANT_OVERRIDES)', async () => {
+    const saved = process.env.COMPACTION_TENANT_OVERRIDES;
+    process.env.COMPACTION_TENANT_OVERRIDES = JSON.stringify({
+      co_a: { hotRetentionDays: 30 },
+    });
+    try {
+      const { surreal, calls } = makeFakeSurreal({
+        co_a: { rows: rows([{ id: 'f1' }]) },
+        co_b: { rows: rows([{ id: 'g1' }]) },
+      });
+      const runner = new CompactionRunnerService(
+        surreal,
+        new StubConfig() as unknown as ConfigService, // process default 90d
+      );
+
+      const before = Date.now();
+      await runner.compactCompany('co_a');
+      await runner.compactCompany('co_b');
+      const after = Date.now();
+
+      const cutoffOf = (companyId: string): number => {
+        const tenant = calls.find((c) => c.companyId === companyId)!;
+        const select = tenant.calls.find((c) => c.sql.includes('SELECT id, entityId'))!;
+        return (select.params!.cutoff as Date).getTime();
+      };
+      // co_a follows its 30d override…
+      expect(cutoffOf('co_a')).toBeGreaterThanOrEqual(before - 30 * 24 * 60 * 60 * 1000);
+      expect(cutoffOf('co_a')).toBeLessThanOrEqual(after - 30 * 24 * 60 * 60 * 1000);
+      // …while co_b keeps the process-global 90d default.
+      expect(cutoffOf('co_b')).toBeGreaterThanOrEqual(before - 90 * 24 * 60 * 60 * 1000);
+      expect(cutoffOf('co_b')).toBeLessThanOrEqual(after - 90 * 24 * 60 * 60 * 1000);
+    } finally {
+      if (saved === undefined) delete process.env.COMPACTION_TENANT_OVERRIDES;
+      else process.env.COMPACTION_TENANT_OVERRIDES = saved;
+    }
+  });
+
   it('rejects invalid retention config at construction', () => {
     const surreal = {} as SurrealService;
     expect(

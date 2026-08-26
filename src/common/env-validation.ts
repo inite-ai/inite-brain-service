@@ -159,6 +159,12 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'COMPACTION_PROMOTION_AGE_DAYS', errors);
   positiveInt(env, 'COMPACTION_PROMOTION_MIN_GROUP', errors);
   positiveInt(env, 'COMPACTION_PROMOTION_MAX_GROUPS', errors);
+  // Corroboration floor of the promotion consolidation gate (Brain v2
+  // PR8). 0 is meaningful (= floor off, the default), so non-negative.
+  nonNegativeInt(env, 'COMPACTION_PROMOTION_MIN_EPISODES', errors);
+
+  // ── Per-tenant compaction schedule (COMPACTION_TENANT_OVERRIDES) ───
+  validateCompactionOverridesEnv(env, warnings);
 
   // ── HNSW vector leg ────────────────────────────────────────────────
   positiveInt(env, 'SEARCH_HNSW_EF', errors);
@@ -460,6 +466,41 @@ function validateRetrievalProfileEnv(env: NodeJS.ProcessEnv, errors: string[]): 
   }
 }
 
+/**
+ * COMPACTION_TENANT_OVERRIDES — the per-tenant retention/promotion
+ * schedule (Brain v2 PR8). Clones the RETRIEVAL_PROFILE_OVERRIDES shape
+ * check (JSON object mapping companyId → partial override), but WARNS
+ * instead of refusing to start: the parser fails open to the process
+ * defaults per tenant (src/compaction/compaction-overrides.ts), so a
+ * malformed value degrades to today's global schedule rather than
+ * breaking boot. Per-field validation stays lenient in the parser.
+ */
+function validateCompactionOverridesEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
+  const raw = env.COMPACTION_TENANT_OVERRIDES;
+  if (raw === undefined || raw.trim() === '') return;
+  try {
+    const parsed = JSON.parse(raw);
+    if (
+      parsed === null ||
+      typeof parsed !== 'object' ||
+      Array.isArray(parsed) ||
+      Object.values(parsed).some((o) => o === null || typeof o !== 'object' || Array.isArray(o))
+    ) {
+      warnings.push(
+        'COMPACTION_TENANT_OVERRIDES must be a JSON object mapping ' +
+          'companyId → partial compaction schedule — ignoring it (every ' +
+          'tenant keeps the process-global retention/promotion defaults).',
+      );
+    }
+  } catch (e) {
+    warnings.push(
+      `COMPACTION_TENANT_OVERRIDES is not valid JSON: ${(e as Error).message} — ` +
+        'ignoring it (every tenant keeps the process-global ' +
+        'retention/promotion defaults).',
+    );
+  }
+}
+
 function validateBodySize(env: NodeJS.ProcessEnv, errors: string[]): void {
   const maxBody = env.MAX_BODY_SIZE;
   if (maxBody !== undefined && !/^\d+(\.\d+)?(b|kb|mb)?$/i.test(maxBody.trim())) {
@@ -654,6 +695,11 @@ const KNOWN_BOOLEAN_FLAGS = [
   'DREAMS_LLM_SUMMARY_ENABLED',
   'COMPACTION_PROMOTION_ENABLED',
   'COMPACTION_SUMMARIES',
+  // Promotion consolidation gate (Brain v2 PR8): a group with sibling
+  // COMPETING rows on the same (entity, predicate, user-scope) is NOT
+  // folded into a summary — it aborts loudly (logger.warn) and stays for
+  // the conflict engine to settle. Default off = byte-identical.
+  'COMPACTION_PROMOTION_CONFLICT_GUARD',
   'INGEST_INLINE_RESOLUTION_ENABLED',
   'INGEST_INLINE_RESOLUTION_HNSW',
   'EXTRACTOR_DROP_SAID',
