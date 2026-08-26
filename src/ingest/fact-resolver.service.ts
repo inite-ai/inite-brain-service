@@ -9,6 +9,7 @@ import { envFlagEnabled } from '../common/env-validation';
 import { KeyedMutex } from '../common/keyed-mutex';
 import { ConflictConfig, type DerivedSemantics, type ResolveOutcome } from './conflict-resolver';
 import { idTailOf, sourceTrustFor } from './ingest-utils';
+import { stampGroundingStatus } from './grounding-stamp';
 import { FactEmbeddingService } from './fact-embedding.service';
 import { MemoryOutcomeService, type OutcomeEventInput } from '../outcomes/memory-outcome.service';
 
@@ -530,6 +531,18 @@ export class FactResolverService {
       db,
       prepared.map((c, k) => ({ factId: out[k]?.factId, meta: c.langMeta })),
     );
+    // Drift-1 (0115): grounding-status stamp on the winner rows — the
+    // same post-resolve seam, gated inside on EVIDENCE_GROUNDING_STAMP
+    // (off ⇒ immediate return, byte-identical). See grounding-stamp.ts.
+    await stampGroundingStatus({
+      db,
+      items: prepared.map((c, k) => ({
+        factId: out[k]?.factId,
+        outcome: out[k]?.outcome,
+        source: c.source,
+      })),
+      logger: this.logger,
+    });
     return out;
   }
 
@@ -725,6 +738,14 @@ export class FactResolverService {
     // Multilingual Tier 1: stamp attribution metadata (0100). No-op when
     // langMeta is undefined (attribution off) — byte-identical.
     await this.stampLangAttribution(db, [{ factId: r?.factId, meta: p.langMeta }]);
+    // Drift-1 (0115): grounding-status stamp on the winner row — gated
+    // inside on EVIDENCE_GROUNDING_STAMP (off ⇒ immediate return,
+    // byte-identical). See grounding-stamp.ts.
+    await stampGroundingStatus({
+      db,
+      items: [{ factId: r?.factId, outcome: r?.outcome, source: p.source }],
+      logger: this.logger,
+    });
     return r;
   }
 

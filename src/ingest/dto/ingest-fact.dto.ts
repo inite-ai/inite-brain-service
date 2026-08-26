@@ -47,6 +47,14 @@ export interface FactSource {
   recorder?: string;
   /** Supporting observations behind the claim — ≤10 entries. */
   evidence?: SourceEvidence[];
+  /**
+   * Grounding episode record ids ('episode:…') behind the claim — ≤64
+   * entries (Drift-1). Stored verbatim inside the FLEXIBLE `source`;
+   * shape-checked in FactIngestService (episodeIdsValidationError) only
+   * while EVIDENCE_GROUNDING_STAMP is on, so a caller cannot spoof
+   * grounded status with garbage.
+   */
+  episodeIds?: string[];
   // NOTE: `originKey` (corroboration origin identity, migration 0050) is
   // NOT part of this contract. It is stamped only by the content-addressed
   // document/commit path; FactIngestService strips any client-supplied

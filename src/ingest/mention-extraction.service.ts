@@ -7,6 +7,12 @@ import { FactEmbeddingService } from './fact-embedding.service';
 import { envFlagEnabled } from '../common/env-validation';
 
 export interface MentionSource {
+  /**
+   * Grounding episode id(s) of the captured turn (Drift-1) — stamped by
+   * mention-ingest ONLY under EVIDENCE_FAIL_CLOSED_CAPTURE; absent
+   * otherwise (byte-identical off-state).
+   */
+  episodeIds?: string[];
   vertical: string;
   eventId?: string | undefined;
   conversationId?: string | undefined;

@@ -10,6 +10,7 @@ import {
   plausibilityCheckEnabled,
   requireCitationsEnabled,
 } from '../common/fovea-flags';
+import { ungroundedServingGateEnabled } from '../common/evidence-flags';
 import type { Citation } from './fact-index';
 import type { EvidenceCapability, EvidenceCitation } from './synthesize.types';
 import { runPlausibilityJudge, type VerifierOutput } from './verifier';
@@ -102,11 +103,19 @@ export async function resolveAnswerIntegrity(
      * guarded no-op, like an off flag.
      */
     registry?: Pick<PredicateRegistryService, 'rowPolicyLookup'> | undefined;
+    /**
+     * Ungrounded-support gate (EVIDENCE_UNGROUNDED_SERVING_GATE, 0115):
+     * the batched grounding fetch, threaded from the service's @Optional
+     * Surreal injection. Absent (trimmed fixtures / no DB) ⇒ the arm is
+     * a guarded no-op, like an off flag.
+     */
+    fetchGrounding?: GroundingFetchPort | undefined;
   },
 ): Promise<{
   plausibilityDowngrade?: boolean;
   requireCitations?: boolean;
   evidenceCapabilityUnmet?: boolean;
+  ungroundedOnlySupport?: boolean;
 }> {
   const { ctx } = input;
   if (input.verdict.verdict !== 'supported') return {};
@@ -122,7 +131,14 @@ export async function resolveAnswerIntegrity(
       evidenceCitations: input.args.evidenceCitations,
     },
   );
-  if (!ctx.dto || !ctx.profile) return capability;
+  // The ungrounded-support arm likewise needs only companyId + the fetch
+  // port — resolved alongside the capability arm so finalizeAndAdmit
+  // keeps ONE gate call. Flag off ⇒ {} with no fetch.
+  const ungrounded = await resolveUngroundedSupport(
+    { fetchGrounding: input.fetchGrounding, logger: deps.logger },
+    { ctx, verdict: input.verdict, citations: input.args.citations },
+  );
+  if (!ctx.dto || !ctx.profile) return { ...capability, ...ungrounded };
   const requireCitations = requireCitationsEnabled();
   const plausibilityDowngrade = await resolvePlausibilityDowngrade(deps, {
     query: ctx.dto.query,
@@ -132,6 +148,7 @@ export async function resolveAnswerIntegrity(
   });
   return {
     ...capability,
+    ...ungrounded,
     ...(plausibilityDowngrade ? { plausibilityDowngrade } : {}),
     ...(requireCitations ? { requireCitations } : {}),
   };
@@ -238,6 +255,67 @@ function citedCapabilities(
   _evidenceCitations: EvidenceCitation[] | undefined,
 ): Set<EvidenceCapability> {
   return new Set<EvidenceCapability>(['text']);
+}
+
+/**
+ * Batched grounding fetch port (EVIDENCE_UNGROUNDED_SERVING_GATE, 0115):
+ * `SELECT id, groundingStatus FROM knowledge_fact WHERE id INSIDE $ids`
+ * behind a function type, so this module stays free of DB imports (the
+ * registry-port precedent). The service builds it over its @Optional
+ * SurrealService; trimmed fixtures leave it undefined ⇒ guarded no-op.
+ */
+export type GroundingFetchPort = (
+  companyId: string,
+  factIds: string[],
+) => Promise<Array<{ groundingStatus?: unknown }>>;
+
+/** Ungrounded-support gate deps — port + warn sink (fail-open on error). */
+export interface UngroundedSupportDeps {
+  fetchGrounding?: GroundingFetchPort | undefined;
+  logger: { warn(message: string): void };
+}
+
+/**
+ * Resolve the ungrounded-support gate flag for finalizeVerdict — the
+ * resolveEvidenceCapability sibling in the finalizeAndAdmit
+ * gate-resolution. Flag off ⇒ {} with NO fetch (byte-identical); likewise
+ * for a non-supported verdict, a bare-cache caller (no companyId), a
+ * trimmed fixture (no port), or zero cited facts (Part C owns uncited).
+ *
+ * Flag on: ONE batched by-id fetch of the cited facts' stored
+ * groundingStatus (Citation carries factId/predicate only — no grounding
+ * data exists at verdict time). The gate fires ONLY when every returned
+ * row is 'ungrounded' ("ungrounded-only support"): mixed support serves,
+ * and legacy rows (absent status — pre-flag, never backfilled) count as
+ * NOT ungrounded — fail-open for legacy by design. A fetch failure FAILS
+ * OPEN to today's behavior (no gate) and is logged — a DB hiccup must
+ * not abstain a grounded answer.
+ */
+export async function resolveUngroundedSupport(
+  deps: UngroundedSupportDeps,
+  input: {
+    ctx: FinalizeContext;
+    verdict: VerifierOutput;
+    citations: Citation[];
+  },
+): Promise<{ ungroundedOnlySupport?: boolean }> {
+  if (!ungroundedServingGateEnabled()) return {};
+  const { ctx, verdict, citations } = input;
+  if (verdict.verdict !== 'supported') return {};
+  if (!ctx.companyId || !deps.fetchGrounding || citations.length === 0) return {};
+  try {
+    const rows = await deps.fetchGrounding(
+      ctx.companyId,
+      citations.map((c) => c.factId),
+    );
+    const ungroundedOnly = rows.length > 0 && rows.every((r) => r.groundingStatus === 'ungrounded');
+    return ungroundedOnly ? { ungroundedOnlySupport: true } : {};
+  } catch (e) {
+    deps.logger.warn(
+      `ungrounded-support resolution failed; serving ungated: ${(e as Error).message}`,
+    );
+    return {};
+  }
 }
 
 async function resolvePlausibilityDowngrade(

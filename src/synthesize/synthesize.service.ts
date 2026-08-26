@@ -32,7 +32,9 @@ import { laneProbeDto, type LaneId } from './answer-router';
 import { getActiveRetrievalProfile, type RetrievalProfile } from '../search/retrieval-profile';
 import { buildFactIndex } from './fact-index';
 import { resolveAnswerIntegrity, type FinalizeContext } from './answer-integrity';
+import { makeGroundingFetchPort } from './grounding-fetch';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
+import { SurrealService } from '../db/surreal.service';
 import { applyFactSuffixes } from './update-story';
 import { buildDateMathLines } from './date-math';
 export { buildFactIndex } from './fact-index';
@@ -140,6 +142,8 @@ export class SynthesizeService {
     // is @Global, so this resolves in every app composition). @Optional so
     // positional unit fixtures stay valid — absent ⇒ the resolver no-ops.
     @Optional() private readonly predicateRegistry?: PredicateRegistryService,
+    // 0115 ungrounded-support gate: grounding fetch source (grounding-fetch.ts).
+    @Optional() private readonly surreal?: SurrealService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
@@ -686,9 +690,11 @@ export class SynthesizeService {
     // resolveAnswerIntegrity sibling in answer-integrity.ts): does the
     // supported answer's cited predicate set REQUIRE non-text evidence no
     // citation carries? Flag off / no registry ⇒ absent ⇒ byte-identical.
+    const fetchGrounding = makeGroundingFetchPort(this.surreal);
+    const registry = this.predicateRegistry;
     const gate = await resolveAnswerIntegrity(
       { openai: this.openai, metrics: this.metrics, logger: this.logger, limiter: this.limiter },
-      { ctx, verdict, args, defaultModel: this.defaultModel, registry: this.predicateRegistry },
+      { ctx, verdict, args, defaultModel: this.defaultModel, registry, fetchGrounding },
     );
     const final = this.finalizeVerdict({
       verdict: verdict.verdict,

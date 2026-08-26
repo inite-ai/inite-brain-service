@@ -52,6 +52,7 @@ function fakeDeps(): DepsCapture {
           counts.citationGuards++;
         },
         countEvidenceCapability: () => {},
+        countUngroundedDowngrade: () => {},
       },
     },
   };
