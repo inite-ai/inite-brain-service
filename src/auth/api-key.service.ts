@@ -1,7 +1,8 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { ApiKeyRecord } from './api-key.types';
+import { TenantRegistryService } from './tenant-registry.service';
 
 /**
  * In-memory ApiKey registry, sourced from BRAIN_API_KEYS env var (JSON).
@@ -17,7 +18,13 @@ export class ApiKeyService implements OnModuleInit {
   private readonly logger = new Logger(ApiKeyService.name);
   private byHash = new Map<string, ApiKeyRecord>();
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    // Optional so unit-test fixtures can construct ApiKeyService with just
+    // ConfigService: absent → knownCompanyIds() computes from byHash exactly
+    // as before (byte-identical). Present → the roster is registry-backed.
+    @Optional() private readonly tenantRegistry?: TenantRegistryService,
+  ) {}
 
   onModuleInit() {
     const raw = this.configService.get<string>('BRAIN_API_KEYS', '[]');
@@ -92,12 +99,44 @@ export class ApiKeyService implements OnModuleInit {
   }
 
   /**
-   * Distinct companyIds that have at least one registered key. Used by
-   * background jobs (compaction, retention) that need to fan out across
-   * tenants without owning a registry of their own.
+   * Distinct companyIds the platform knows about — the roster every
+   * background fan-out (compaction, retention, dreams, calibration, reindex,
+   * changefeed drain, subscriptions) and the platform-operator cross-tenant
+   * scope enumerate through.
+   *
+   * The static BRAIN_API_KEYS set (byHash) is the dev/bootstrap seed and the
+   * fallback; the DB-backed tenant_registry (TenantRegistryService, R4) is
+   * the production source that fills as tenants authenticate/provision. We
+   * UNION the two, static-first, so:
+   *   - registry EMPTY (dev, single-tenant, bootstrap, or a remote verifier
+   *     that hasn't seen its first request yet) ⇒ return the static set
+   *     unchanged — byte-identical to pre-R4 behaviour, including order.
+   *   - static EMPTY (prod-JWKS, BRAIN_API_KEYS unset) ⇒ return the
+   *     registry roster, which is the whole point: fan-out is no longer [].
+   *   - both present (dev with registered tenants) ⇒ the deduped union;
+   *     where the registry only mirrors static keys the result equals the
+   *     static set byte-for-byte.
+   * knownCompanyIds() stays SYNCHRONOUS: the registry read is served from
+   * TenantRegistryService's in-memory cache, so no fan-out caller changes.
    */
   knownCompanyIds(): string[] {
-    return [...new Set([...this.byHash.values()].map((r) => r.companyId))];
+    const staticIds = [...new Set([...this.byHash.values()].map((r) => r.companyId))];
+    const registryIds = this.tenantRegistry?.activeCompanyIds() ?? [];
+    if (registryIds.length === 0) return staticIds; // fallback: byte-identical
+    return [...new Set([...staticIds, ...registryIds])];
+  }
+
+  /**
+   * Registration hook for the credential path (R4): a bearer token just
+   * resolved to this tenant, so it is live — record it in the production
+   * roster. Delegates to the registry (synchronous cache-add + throttled
+   * fire-and-forget write; never throws). No-op when the registry is not
+   * wired (dev / unit tests), where the static set already covers the
+   * roster. Kept here so CredentialResolverService needs no extra injected
+   * dependency (its DI list is capped at 3).
+   */
+  noteResolvedTenant(companyId: string): void {
+    this.tenantRegistry?.touch(companyId);
   }
 
   /**

@@ -49,8 +49,17 @@ export class MemoryQualityService {
     }
   }
 
-  /** Compute the cross-tenant snapshot and publish it to the gauges. */
-  async collectNow(): Promise<MemoryQualitySnapshot> {
+  /**
+   * Compute the cross-tenant snapshot and publish it to the gauges.
+   *
+   * `tenantScope` overrides the roster: the nightly cron passes nothing and
+   * fans out over the full production roster (ApiKeyService.knownCompanyIds()),
+   * while a caller that needs a deterministic, self-contained measurement —
+   * the e2e, where the shared test container's tenant_registry accumulates
+   * every suite's tenants — passes an explicit tenant list. Production
+   * behaviour is unchanged (enumerating every real tenant is correct there).
+   */
+  async collectNow(tenantScope?: readonly string[]): Promise<MemoryQualitySnapshot> {
     const snapshot: MemoryQualitySnapshot = {
       factsByStatus: {},
       staleActiveFacts: {},
@@ -59,7 +68,7 @@ export class MemoryQualityService {
       policySetsActive: 0,
     };
     let failed = 0;
-    const tenants = this.apiKeys.knownCompanyIds();
+    const tenants = tenantScope ?? this.apiKeys.knownCompanyIds();
     for (const companyId of tenants) {
       try {
         this.mergeInto(snapshot, await this.collectTenant(companyId));
