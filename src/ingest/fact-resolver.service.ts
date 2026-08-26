@@ -10,6 +10,7 @@ import { KeyedMutex } from '../common/keyed-mutex';
 import { ConflictConfig, type DerivedSemantics, type ResolveOutcome } from './conflict-resolver';
 import { idTailOf, sourceTrustFor } from './ingest-utils';
 import { FactEmbeddingService } from './fact-embedding.service';
+import { MemoryOutcomeService, type OutcomeEventInput } from '../outcomes/memory-outcome.service';
 
 /**
  * V9 §1 — aspect classes for the derived-world lifecycle. The deriver's
@@ -71,10 +72,14 @@ export class FactResolverService {
   private readonly resolveLock = new KeyedMutex();
   private readonly conflict: ConflictConfig;
 
+  // Fourth dep is the optional 0107 outcome-telemetry writer; @Optional
+  // so positionally-constructed unit tests stay three-argument.
+  // eslint-disable-next-line max-params
   constructor(
     private readonly factEmbedding: FactEmbeddingService,
     private readonly predicateRegistry: PredicateRegistryService,
     @Optional() private readonly metrics?: MetricsService,
+    @Optional() private readonly outcomes?: MemoryOutcomeService,
   ) {
     this.conflict = {
       similarityThreshold: this.cfgNum('CONFLICT_SIMILARITY_THRESHOLD', 0.85),
@@ -322,6 +327,46 @@ export class FactResolverService {
     if (p.recordOutcomeMetric && outcome) {
       this.metrics?.countIngestFact(String(outcome));
     }
+    this.emitConflictOutcomes(p.companyId, result);
+  }
+
+  /** 0107 cap — bounds a pathological conflict fan-out. */
+  private static readonly CONFLICT_OUTCOME_CAP = 20;
+
+  /**
+   * Outcome telemetry (0107): a resolver SUPERSEDED verdict is a
+   * `contradicted` outcome for each standing fact the new one displaced;
+   * a COMPETING verdict marks every party to the standoff — the standing
+   * competitors AND the new fact. Runs in the shared post-call tail,
+   * i.e. AFTER resolveFactCall returned — never inside the KeyedMutex
+   * critical section — and the service detaches the write onto the root
+   * pool (a telemetry failure warns, never fails the ingest). Guarded
+   * no-op when the module isn't wired or the master flag is off. meta is
+   * CONTENT-FREE: the winning fact id only.
+   */
+  private emitConflictOutcomes(companyId: string, result: ResolveOutcome): void {
+    if (!this.outcomes || !MemoryOutcomeService.enabled()) return;
+    const outcome = String(result?.outcome ?? '');
+    const newFactId = result?.factId ? String(result.factId) : undefined;
+    let subjects: string[] = [];
+    if (outcome === 'SUPERSEDED') {
+      subjects = ((result?.supersededFactIds as unknown[]) ?? []).map(String);
+    } else if (outcome === 'COMPETING') {
+      subjects = [
+        ...((result?.competingFactIds as unknown[]) ?? []).map(String),
+        ...(newFactId ? [newFactId] : []),
+      ];
+    }
+    if (subjects.length === 0) return;
+    const events: OutcomeEventInput[] = subjects
+      .slice(0, FactResolverService.CONFLICT_OUTCOME_CAP)
+      .map((id) => ({
+        subjectKind: 'fact' as const,
+        subjectId: id,
+        event: 'contradicted' as const,
+        ...(newFactId && id !== newFactId ? { meta: { byFactId: newFactId } } : {}),
+      }));
+    this.outcomes.recordOutcomes({ companyId, events });
   }
 
   /**

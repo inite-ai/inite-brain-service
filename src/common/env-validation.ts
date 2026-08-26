@@ -744,6 +744,18 @@ const KNOWN_BOOLEAN_FLAGS = [
   // segmenter is session-gap + max-turns only (embedder-free). The
   // cosine floor (SCENES_TOPIC_MIN_COSINE) is a float, not a boolean.
   'SCENES_TOPIC_BOUNDARY',
+  // Outcome telemetry master (0107): writers append memory_outcome rows
+  // + fold memory_outcome_stat counters; the nightly raw-log prune runs.
+  // Default off = byte-identical (every writer is a guarded no-op).
+  // OUTCOME_ prefix sits outside ENGINE_PREFIX by design — measurement
+  // substrate, not an engine fork — so it is off the flag budget, like
+  // the FOVEA_ family.
+  'OUTCOME_TELEMETRY_ENABLED',
+  // Outcome telemetry: extra gate on the high-volume `retrieved` writer
+  // (one event per surfaced fact per search). Off (default) ⇒ no
+  // retrieved rows even with the master on. The retention window knob
+  // (OUTCOME_EVENT_RETENTION_DAYS) is an int, not a boolean flag.
+  'OUTCOME_RETRIEVED_EVENTS',
   // Fovea optics (Optics-1, docs/roadmap/fovea-optics-2026-08.md): capture
   // the focus signal at the synthesize verdict point + expose the admin
   // fit/measure surface. SERVING-NEUTRAL — nothing consumes the calibrated

@@ -70,6 +70,20 @@ export class UserForgetService {
       await db.query(`DELETE retrieval_feedback WHERE factId.userId = $u`, {
         u: userId,
       });
+      // Outcome telemetry (0107): both tables traverse subjectId into
+      // the user's facts — purge while the facts are alive, same as
+      // fact_usage above. LET-then-DELETE-by-ids, NOT `DELETE … WHERE`:
+      // on SurrealDB 3.2.4 a DELETE whose WHERE traverses through an
+      // indexed record field (memory_outcome_subject_idx covers
+      // subjectId) silently matches NOTHING, while the same WHERE in a
+      // SELECT matches fine — verified against the pinned server.
+      await db.query(
+        `LET $outIds = (SELECT VALUE id FROM memory_outcome WHERE subjectId.userId = $u);
+         DELETE $outIds;
+         LET $outStatIds = (SELECT VALUE id FROM memory_outcome_stat WHERE subjectId.userId = $u);
+         DELETE $outStatIds;`,
+        { u: userId },
+      );
       // Edges touching a personal entity (either endpoint) or stamped
       // with the scope directly — before the entities go.
       const [edgesDeletedRows] = await db.query<[Array<{ id?: unknown }>]>(

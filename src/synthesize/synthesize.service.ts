@@ -12,7 +12,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { SynthesisGuardrails, SynthesizeDto } from './dto/synthesize.dto';
 import { buildDecisionLog } from './decision-log';
 import { applyConformalGuardrail } from './conformal-guardrail';
-import { coverageAbstention, finalizeVerdict, unverifiedReturn } from './verdict';
+import { coverageAbstention, finalizeVerdict } from './verdict';
 import type { AbstainAdaptiveGate } from './verdict';
 import {
   attachDecisionLog,
@@ -55,6 +55,8 @@ import {
   AnswerCacheService,
   type AnswerCacheBeginResult,
 } from '../answer-cache/answer-cache.service';
+import { MemoryOutcomeService } from '../outcomes/memory-outcome.service';
+import { emitAnswerUse, emitSelectedForContext, unverifiedServe } from './outcome-emit';
 import { NOOP_REPORTER, type ProgressReporter } from '../mcp/progress-reporter';
 
 export interface SynthesizeOptions {
@@ -131,6 +133,8 @@ export class SynthesizeService {
     @Optional() private readonly focusSignal?: FocusSignalService,
     @Optional() private readonly lensSuppression?: LensSuppressionService,
     @Optional() private readonly laneClassifier?: MultilingualLaneClassifierService,
+    // 0107 outcome writer — @Optional so positional unit fixtures stay valid.
+    @Optional() private readonly outcomes?: MemoryOutcomeService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
@@ -360,13 +364,11 @@ export class SynthesizeService {
     const citedSet = new Set(citations.map((c) => c.factId));
     const decisionLog = explain ? buildDecisionLog(results, citedSet) : undefined;
 
-    const unverified = this.unverifiedReturn({
-      guardrails,
-      generated,
-      citations,
-      results,
-      decisionLog,
-    });
+    const unverified = unverifiedServe(
+      { metrics: this.metrics, outcomes: this.outcomes },
+      companyId,
+      { guardrails, generated, citations, results, decisionLog },
+    );
     if (unverified) return unverified;
 
     onProgress({ stage: 'verify', message: 'verifier checking claim grounding' });
@@ -476,7 +478,7 @@ export class SynthesizeService {
         guardrails,
         explain,
       })) ??
-      this.finalizeAndAdmit({ cache, dto, profile, model }, verdict, {
+      this.finalizeAndAdmit({ cache, dto, profile, model, companyId }, verdict, {
         answer: generated.answer,
         citations,
         results,
@@ -530,7 +532,7 @@ export class SynthesizeService {
     guardrails: SynthesisGuardrails;
     explain: boolean;
   }): Promise<SynthesizeResult | null> {
-    const { profile } = args;
+    const { profile, companyId } = args;
     if (!this.l3 || !profile.l3Escalation) return null;
     const adaptiveL3 = await this.resolveAdaptiveL3(args.companyId);
     const l3 = await this.l3.escalate({
@@ -563,7 +565,7 @@ export class SynthesizeService {
     // → admit(final); a downgraded L3 abstain (reason=low_coverage, citations=[])
     // is rejected by admit()'s existing gate, so it is never cached.
     return this.finalizeAndAdmit(
-      { cache: args.cache, dto: args.dto, profile: args.profile, model: args.model },
+      { cache: args.cache, dto: args.dto, profile: args.profile, model: args.model, companyId },
       l3.verdict,
       {
         answer: l3.answer,
@@ -666,6 +668,9 @@ export class SynthesizeService {
     verdict: VerifierOutput,
     args: Omit<Parameters<typeof finalizeVerdict>[1], 'verdict' | 'questionAnswered'>,
   ): Promise<SynthesizeResult> {
+    // 0107: cited facts were USED; a supported verdict ⇒ VERIFIED use.
+    // Both serving paths (primary + L3 flip) land here with companyId.
+    emitAnswerUse(this.outcomes, { companyId: ctx.companyId, citations: args.citations, verdict });
     const gate = await resolveAnswerIntegrity(
       { openai: this.openai, metrics: this.metrics, logger: this.logger, limiter: this.limiter },
       { ctx, verdict, args, defaultModel: this.defaultModel },
@@ -773,6 +778,9 @@ export class SynthesizeService {
           generated,
           refined: false,
         };
+    // 0107: the FINAL evidence set (post-refine) was selected for
+    // context — once per request, at the point the set is final.
+    emitSelectedForContext(this.outcomes, args.companyId, round.factIndex.keys());
     // Tier 5 answer-language guard — no-op unless on AND the final answer's
     // language mismatches; then the corrected regeneration replaces `generated`.
     const corrected = await enforceAnswerLanguage(
@@ -887,10 +895,6 @@ export class SynthesizeService {
   // the call sites and the spec bindings unchanged.
   private finalizeVerdict(args: Parameters<typeof finalizeVerdict>[1]): SynthesizeResult {
     return finalizeVerdict({ metrics: this.metrics }, args);
-  }
-
-  private unverifiedReturn(args: Parameters<typeof unverifiedReturn>[1]): SynthesizeResult | null {
-    return unverifiedReturn({ metrics: this.metrics }, args);
   }
 
   private coverageAbstention(

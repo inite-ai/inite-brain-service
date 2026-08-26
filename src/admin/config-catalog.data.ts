@@ -229,6 +229,35 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: false,
     isBooleanFlag: false,
   },
+  // Outcome telemetry (0107) — filed under 'audit' (the nearest existing
+  // category for an append-only event trail + its retention knob).
+  {
+    key: 'OUTCOME_TELEMETRY_ENABLED',
+    category: 'audit',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Master switch for outcome telemetry (0107): writers append memory_outcome events + fold the memory_outcome_stat rollup; nightly raw-log prune runs.',
+  },
+  {
+    key: 'OUTCOME_RETRIEVED_EVENTS',
+    category: 'audit',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Extra gate on the high-volume `retrieved` outcome stream (one event per surfaced fact per search) on top of OUTCOME_TELEMETRY_ENABLED.',
+  },
+  {
+    key: 'OUTCOME_EVENT_RETENTION_DAYS',
+    category: 'audit',
+    defaultValue: '30',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Days the raw memory_outcome event log is kept; the 03:41 UTC prune cron deletes older rows. The memory_outcome_stat rollup is never pruned.',
+  },
   // ── Router ────────────────────────────────────────────────
   {
     key: 'CHAT_ROUTE_CACHE_ENABLED',
