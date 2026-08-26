@@ -313,6 +313,23 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Evidence-capability verdict gate (FOVEA_EVIDENCE_CAPABILITY, 0113):
+  //   checked    — the gate resolved the required capability over a
+  //                supported answer's cited facts (fires once per resolved
+  //                check, pass or downgrade — the denominator)
+  //   downgraded — a supported answer was abstained because its required
+  //                NON-TEXT capability had no cited evidence (reason
+  //                'evidence_capability_unmet' on the wire)
+  // Counted only when the flag is on. The synthesize outcome series stays
+  // stable (the downgrade still tags 'low_coverage' there, the Part A/C
+  // idiom) — this separate series carries the capability-specific signal.
+  readonly evidenceCapabilityCount = new Counter({
+    name: 'brain_evidence_capability_total',
+    help: 'Evidence-capability verdict gate outcomes (FOVEA_EVIDENCE_CAPABILITY)',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
   // Optics §4.3 (docs/roadmap/fovea-optics-2026-08.md §4.3): the
   // lens-suppression governor's per-request outcome —
   //   suppressed     — a confident class match removed ≥1 active lane
@@ -734,6 +751,10 @@ export class MetricsService implements OnModuleInit {
 
   countCitationGuardAbstain(): void {
     this.citationGuardAbstainCount.inc();
+  }
+
+  countEvidenceCapability(outcome: 'checked' | 'downgraded'): void {
+    this.evidenceCapabilityCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
   countLensSuppression(

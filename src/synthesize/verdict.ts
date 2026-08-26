@@ -30,6 +30,7 @@ export interface VerdictDeps {
         | 'countAbstainPath'
         | 'countPlausibilityDowngrade'
         | 'countCitationGuardAbstain'
+        | 'countEvidenceCapability'
       >
     | undefined;
   logger?: { debug(message: string): void } | undefined;
@@ -60,7 +61,7 @@ export interface AbstainAdaptiveGate {
  * ok path.
  *
  * Verifier answer-integrity arm (default-off, resolved by the service and
- * passed in — this function stays pure): two orthogonal downgrades on the
+ * passed in — this function stays pure): three orthogonal downgrades on the
  * supported serve-path, each byte-identical to today when its input is
  * absent/false.
  *  - Part A `plausibilityDowngrade` (FOVEA_PLAUSIBILITY_CHECK): the
@@ -70,6 +71,10 @@ export interface AbstainAdaptiveGate {
  *  - Part C `requireCitations` (FOVEA_REQUIRE_CITATIONS): a supported answer
  *    carrying ZERO citations (audit F2(b)) is abstained rather than served as
  *    an uncited "supported" answer.
+ *  - `evidenceCapabilityUnmet` (FOVEA_EVIDENCE_CAPABILITY, 0113): a cited
+ *    fact's predicate REQUIRES non-text evidence and none is cited — the
+ *    supported verdict rests on the wrong KIND of evidence; abstain under
+ *    reason 'evidence_capability_unmet'.
  */
 export function finalizeVerdict(
   deps: VerdictDeps,
@@ -84,6 +89,7 @@ export function finalizeVerdict(
     abstention,
     plausibilityDowngrade,
     requireCitations,
+    evidenceCapabilityUnmet,
     evidenceCitations,
   }: {
     verdict: 'supported' | 'partial' | 'unsupported';
@@ -98,6 +104,14 @@ export function finalizeVerdict(
     plausibilityDowngrade?: boolean | undefined;
     /** Part C: abstain a supported answer with zero citations. */
     requireCitations?: boolean | undefined;
+    /**
+     * Evidence-capability gate (FOVEA_EVIDENCE_CAPABILITY, 0113):
+     * resolved by the service (resolveEvidenceCapability) — true when the
+     * supported answer's cited facts REQUIRE a non-text evidence
+     * capability and no cited evidence of that capability exists.
+     * Absent/false ⇒ byte-identical (flag off resolves to {}).
+     */
+    evidenceCapabilityUnmet?: boolean | undefined;
     /**
      * L3 evidence citations (FOVEA_L3_EPISODE_CITATIONS): episode-level
      * references for transcript-grounded claims, supplied ONLY by the L3
@@ -156,6 +170,28 @@ export function finalizeVerdict(
         {
           answer: NOT_IN_MEMORY_ANSWER,
           reason: 'low_coverage',
+          citations: [],
+          results,
+        },
+        decisionLog,
+      );
+    }
+    // Evidence-capability gate (FOVEA_EVIDENCE_CAPABILITY, 0113) — the
+    // FOURTH sequential downgrade on the supported serve: a cited fact's
+    // predicate requires non-text evidence and none is cited, so the
+    // "supported" verdict rests on the WRONG KIND of evidence — abstain,
+    // fail-closed, under its own reason (the caller's remedy is "attach /
+    // verify the picture", not "the memory doesn't know"). The synthesize
+    // OUTCOME series keeps the stable 'low_coverage' tag (the Part A/C
+    // idiom — no new outcome value); the dedicated capability series
+    // carries the specific signal. Absent/false ⇒ byte-identical.
+    if (evidenceCapabilityUnmet) {
+      deps.metrics?.countSynthesize('low_coverage');
+      deps.metrics?.countEvidenceCapability('downgraded');
+      return attachDecisionLog(
+        {
+          answer: NOT_IN_MEMORY_ANSWER,
+          reason: 'evidence_capability_unmet',
           citations: [],
           results,
         },

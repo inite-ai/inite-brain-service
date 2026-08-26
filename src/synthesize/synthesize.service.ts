@@ -32,6 +32,7 @@ import { laneProbeDto, type LaneId } from './answer-router';
 import { getActiveRetrievalProfile, type RetrievalProfile } from '../search/retrieval-profile';
 import { buildFactIndex } from './fact-index';
 import { resolveAnswerIntegrity, type FinalizeContext } from './answer-integrity';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { applyFactSuffixes } from './update-story';
 import { buildDateMathLines } from './date-math';
 export { buildFactIndex } from './fact-index';
@@ -135,6 +136,10 @@ export class SynthesizeService {
     @Optional() private readonly laneClassifier?: MultilingualLaneClassifierService,
     // 0107 outcome writer — @Optional so positional unit fixtures stay valid.
     @Optional() private readonly outcomes?: MemoryOutcomeService,
+    // 0113 evidence-capability gate: per-predicate policy source (AiModule
+    // is @Global, so this resolves in every app composition). @Optional so
+    // positional unit fixtures stay valid — absent ⇒ the resolver no-ops.
+    @Optional() private readonly predicateRegistry?: PredicateRegistryService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
@@ -676,9 +681,14 @@ export class SynthesizeService {
     // 0107: cited facts were USED; a supported verdict ⇒ VERIFIED use.
     // Both serving paths (primary + L3 flip) land here with companyId.
     emitAnswerUse(this.outcomes, { companyId: ctx.companyId, citations: args.citations, verdict });
+    // The gate-resolution also folds in the evidence-capability flag
+    // (FOVEA_EVIDENCE_CAPABILITY, 0113 — resolveEvidenceCapability, the
+    // resolveAnswerIntegrity sibling in answer-integrity.ts): does the
+    // supported answer's cited predicate set REQUIRE non-text evidence no
+    // citation carries? Flag off / no registry ⇒ absent ⇒ byte-identical.
     const gate = await resolveAnswerIntegrity(
       { openai: this.openai, metrics: this.metrics, logger: this.logger, limiter: this.limiter },
-      { ctx, verdict, args, defaultModel: this.defaultModel },
+      { ctx, verdict, args, defaultModel: this.defaultModel, registry: this.predicateRegistry },
     );
     const final = this.finalizeVerdict({
       verdict: verdict.verdict,

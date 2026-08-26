@@ -541,6 +541,18 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Fovea serving-integrity: L3 evidence citations — the L3 escalation transcript renders per-turn [episode:...] headers and transcript-grounded claims are cited as {episodeId, quote} pairs, resolved into span-verified evidence citations over the stored turn text (episodeId-only when the quote cannot be verified; episodeIds not rendered into the transcript are dropped). An episode-cited answer satisfies FOVEA_REQUIRE_CITATIONS; the answer cache still never admits an episode-only-cited answer. Off = L3 prompt/schema/transcript byte-identical, no evidenceCitations emitted.',
   },
+  {
+    key: 'FOVEA_EVIDENCE_CAPABILITY',
+    category: 'calibration',
+    // Read at call time (fovea-flags.evidenceCapabilityEnabled) on the
+    // finalizeAndAdmit gate-resolution seam — never captured in a
+    // constructor — so a flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Fovea serving-integrity: evidence-capability verdict gate (0113). A `supported` answer citing a fact whose predicate declares requiredEvidenceCapability != 'text' (knowledge_predicate column; absent = text = unconstrained) is DOWNGRADED to an abstain with reason 'evidence_capability_unmet' unless cited evidence of that capability exists. v1 is fail-closed abstain-or-pass plumbing: every citation today is text, so claims requiring visual/audio/document_region evidence can no longer verify on text alone — confirmation arrives with the media verifiers (M-track). Off = no registry lookup, byte-identical serving.",
+  },
   // ── Scenes (Brain v2) ──
   {
     key: 'SCENES_SEGMENTATION_ENABLED',

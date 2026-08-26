@@ -96,6 +96,17 @@ export interface VerifyRequest {
   /** V13 (profile.dateMath): the computed date table the generator
    *  saw — weekday/gap claims grounded in it must not be flagged. */
   dateMathLines?: string[] | undefined;
+  /**
+   * Evidence-capability arm (FOVEA_EVIDENCE_CAPABILITY, 0113) — SEAM,
+   * nothing populates it yet: rendered lines of NON-TEXT evidence the
+   * generator was allowed to answer from, each prefixed
+   * `[capability:<kind>]` (e.g. `[capability:visual] whiteboard photo:
+   * …`). Composed as its own section in the auditor prompt ONLY when
+   * non-empty — absent/empty ⇒ the prompt is byte-identical. The
+   * M-track fragment mapping starts supplying it alongside per-citation
+   * capabilities (answer-integrity.ts citedCapabilities).
+   */
+  capabilityEvidenceLines?: string[] | undefined;
   model: string;
 }
 
@@ -108,6 +119,7 @@ function buildVerifierUserMessage({
   insightLines,
   timelineEvidence,
   dateMathLines,
+  capabilityEvidenceLines,
 }: {
   query: string;
   answer: string;
@@ -116,6 +128,7 @@ function buildVerifierUserMessage({
   insightLines?: string[] | undefined;
   timelineEvidence?: boolean | undefined;
   dateMathLines?: string[] | undefined;
+  capabilityEvidenceLines?: string[] | undefined;
 }): string {
   const sections = [`Source facts:\n${factLines.join('\n')}`];
   if (transcriptLines && transcriptLines.length > 0) {
@@ -131,6 +144,14 @@ function buildVerifierUserMessage({
     sections.push(
       `Computed date table (derived in code from the fact date stamps — weekday and gap claims grounded in it are valid support):\n` +
         dateMathLines.join('\n'),
+    );
+  }
+  // Evidence-capability section (0113 seam) — only when non-empty, so
+  // every text-path audit prompt stays byte-identical.
+  if (capabilityEvidenceLines && capabilityEvidenceLines.length > 0) {
+    sections.push(
+      `Non-text evidence (each line tagged [capability:<kind>] — equally valid support for claims of that kind):\n` +
+        capabilityEvidenceLines.join('\n'),
     );
   }
   return `Query: ${query}\n\nAnswer:\n${answer}\n\n${sections.join('\n\n')}`;

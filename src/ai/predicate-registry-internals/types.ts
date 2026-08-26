@@ -4,6 +4,8 @@
  * type-only without dragging in NestJS DI.
  */
 
+import type { EvidenceCapability } from '../../synthesize/synthesize.types';
+
 export type Semantics = 'append_only' | 'single_active' | 'bitemporal';
 export type PiiClass = 'none' | 'identifier' | 'behavioral' | 'text' | 'sensitive';
 export type PredicateStatus = 'active' | 'proposed' | 'aliased' | 'deprecated';
@@ -24,6 +26,16 @@ export interface PredicateDefinition {
   decayHalfLifeDays: number | null;
   piiClass: PiiClass;
   requiresScope?: string;
+  /**
+   * 0113 (FOVEA_EVIDENCE_CAPABILITY): the evidence capability a claim
+   * under this predicate REQUIRES to verify — absent = 'text' =
+   * unconstrained (every CORE seed). A verdict-gate policy, not an
+   * extractor concern: deliberately NOT folded into computeHash (the
+   * extractor cache key, db-mapping.ts) — serving picks up an operator
+   * edit via the snapshot TTL, and an extraction made against the old
+   * value is still valid.
+   */
+  requiredEvidenceCapability?: EvidenceCapability;
   parentPredicateId?: string;
   subjectClasses?: string[];
   allowedValues?: string[];

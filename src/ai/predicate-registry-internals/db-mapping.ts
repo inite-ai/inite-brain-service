@@ -43,6 +43,9 @@ export function serializeForInsert(p: PredicateDefinition): Record<string, unkno
       : {}),
     piiClass: p.piiClass,
     ...(p.requiresScope ? { requiresScope: p.requiresScope } : {}),
+    ...(p.requiredEvidenceCapability
+      ? { requiredEvidenceCapability: p.requiredEvidenceCapability }
+      : {}),
     ...(p.parentPredicateId ? { parentPredicateId: p.parentPredicateId } : {}),
     ...(p.subjectClasses ? { subjectClasses: p.subjectClasses } : {}),
     ...(p.allowedValues ? { allowedValues: p.allowedValues } : {}),
@@ -52,7 +55,23 @@ export function serializeForInsert(p: PredicateDefinition): Record<string, unkno
   };
 }
 
+/**
+ * 0113: the DB column is an open option<string>; the TS union is the
+ * closed contract. Unknown/legacy values map to ABSENT = 'text' =
+ * unconstrained — deliberately fail-open: a malformed row value must
+ * degrade to today's behavior, never turn the verdict gate into a
+ * tenant-wide abstain storm.
+ */
+function evidenceCapabilityOf(
+  value: unknown,
+): PredicateDefinition['requiredEvidenceCapability'] | undefined {
+  return value === 'text' || value === 'visual' || value === 'audio' || value === 'document_region'
+    ? value
+    : undefined;
+}
+
 export function deserializeFromRow(row: Record<string, unknown>): PredicateDefinition {
+  const requiredEvidenceCapability = evidenceCapabilityOf(row.requiredEvidenceCapability);
   return {
     predicateId: String(row.predicateId),
     displayLabel: String(row.displayLabel ?? row.predicateId),
@@ -62,6 +81,7 @@ export function deserializeFromRow(row: Record<string, unknown>): PredicateDefin
     decayHalfLifeDays: typeof row.decayHalfLifeDays === 'number' ? row.decayHalfLifeDays : null,
     piiClass: row.piiClass as PiiClass,
     ...(row.requiresScope ? { requiresScope: String(row.requiresScope) } : {}),
+    ...(requiredEvidenceCapability ? { requiredEvidenceCapability } : {}),
     ...(row.parentPredicateId ? { parentPredicateId: String(row.parentPredicateId) } : {}),
     ...(Array.isArray(row.subjectClasses)
       ? { subjectClasses: row.subjectClasses as string[] }

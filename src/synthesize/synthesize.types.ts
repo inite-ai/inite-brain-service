@@ -16,10 +16,32 @@ export type SynthesisReason =
   | 'no_grounded_evidence'
   /** V9 §4: the memory-coverage abstention path fired. */
   | 'low_coverage'
+  /**
+   * Evidence-capability gate (FOVEA_EVIDENCE_CAPABILITY, 0113): a
+   * `supported` answer cites a fact whose predicate REQUIRES a non-text
+   * evidence capability, and no cited evidence of that capability
+   * exists. A DISTINCT reason from 'low_coverage' on purpose: the
+   * caller's remedy is different — "attach/verify the picture", not
+   * "the memory doesn't know".
+   */
+  | 'evidence_capability_unmet'
   | 'verifier_failed'
   | 'verifier_partial'
   | 'generator_error'
   | 'verifier_error';
+
+/**
+ * Evidence-capability axis (0113): what KIND of evidence a claim can be
+ * verified against. Per-predicate requirement source:
+ * PredicatePolicy.requiredEvidenceCapability (absent = 'text' =
+ * unconstrained). The verdict-side gate (FOVEA_EVIDENCE_CAPABILITY)
+ * compares a supported answer's required capability — max over its cited
+ * facts — against the capabilities its cited evidence actually carries.
+ * Today every citation is text (facts + episode spans), so the check can
+ * only abstain or pass — no media verifier exists yet (honest v1 bound;
+ * the M-track fragment mapping adds non-text cited capabilities).
+ */
+export type EvidenceCapability = 'text' | 'visual' | 'audio' | 'document_region';
 
 /** Prompt/completion cost of one LLM call, surfaced for token accounting. */
 export interface TokenUsage {

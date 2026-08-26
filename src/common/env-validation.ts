@@ -895,6 +895,15 @@ const KNOWN_BOOLEAN_FLAGS = [
   // evidenceCitations emitted. Outside ENGINE_PREFIX by design (the FOVEA_
   // family sits off the flag budget).
   'FOVEA_L3_EPISODE_CITATIONS',
+  // Fovea serving-integrity: evidence-capability gate (0113) — a `supported`
+  // answer citing a fact whose predicate requires a NON-TEXT evidence
+  // capability (requiredEvidenceCapability on knowledge_predicate) abstains
+  // (reason 'evidence_capability_unmet') unless cited evidence of that
+  // capability exists. v1 is abstain-or-pass plumbing — every citation today
+  // is text; media verifiers arrive with the M-track. Off = no registry
+  // lookup, byte-identical serving. Outside ENGINE_PREFIX by design (the
+  // FOVEA_ family sits off the flag budget).
+  'FOVEA_EVIDENCE_CAPABILITY',
   // Evidence plane (Brain v2 gap #5): summary-producing writers
   // (promotion, compaction rollups, recompose rewrites, arc/aggregate
   // composers) stamp the union of member source.episodeIds onto the

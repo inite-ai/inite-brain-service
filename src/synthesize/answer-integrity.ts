@@ -2,10 +2,16 @@ import type OpenAI from 'openai';
 import type { MetricsService } from '../metrics/metrics.service';
 import type { Semaphore } from '../common/semaphore';
 import type { AnswerCacheBeginResult } from '../answer-cache/answer-cache.service';
+import type { PredicateRegistryService } from '../ai/predicate-registry.service';
 import type { RetrievalProfile } from '../search/retrieval-profile';
 import type { SynthesizeDto } from './dto/synthesize.dto';
-import { plausibilityCheckEnabled, requireCitationsEnabled } from '../common/fovea-flags';
+import {
+  evidenceCapabilityEnabled,
+  plausibilityCheckEnabled,
+  requireCitationsEnabled,
+} from '../common/fovea-flags';
 import type { Citation } from './fact-index';
+import type { EvidenceCapability, EvidenceCitation } from './synthesize.types';
 import { runPlausibilityJudge, type VerifierOutput } from './verifier';
 
 /**
@@ -49,10 +55,13 @@ export interface FinalizeContext {
 }
 
 /**
- * Resolve the Part A + Part C gate flags for finalizeVerdict. Returns an empty
- * object — no LLM call — unless the caller supplied dto+profile AND the verdict
- * is `supported`. Both the primary serve and the L3 flip supply dto+profile, so
- * both are gated. Part C (FOVEA_REQUIRE_CITATIONS) is a pure flag; Part A
+ * Resolve the Part A + Part C gate flags for finalizeVerdict, plus the
+ * evidence-capability flag (FOVEA_EVIDENCE_CAPABILITY, 0113 — composed from
+ * resolveEvidenceCapability below so finalizeAndAdmit keeps ONE gate call).
+ * Returns an empty object — no LLM call, no registry lookup — on a
+ * non-supported verdict; A + C additionally require dto+profile. Both the
+ * primary serve and the L3 flip supply dto+profile, so both are gated. Part C
+ * (FOVEA_REQUIRE_CITATIONS) is a pure flag; Part A
  * (FOVEA_PLAUSIBILITY_CHECK) runs ONE extra LLM plausibility judge over the
  * cited premises (see resolvePlausibilityDowngrade). The auditor model is
  * profile.verifierModel || the synthesis model.
@@ -80,12 +89,40 @@ export async function resolveAnswerIntegrity(
   input: {
     ctx: FinalizeContext;
     verdict: VerifierOutput;
-    args: { answer: string; citations: Citation[] };
+    args: {
+      answer: string;
+      citations: Citation[];
+      evidenceCitations?: EvidenceCitation[] | undefined;
+    };
     defaultModel: string;
+    /**
+     * Evidence-capability gate (FOVEA_EVIDENCE_CAPABILITY, 0113): the
+     * per-predicate policy source, threaded from the service's @Optional
+     * injection. Absent (trimmed fixtures) ⇒ the capability arm is a
+     * guarded no-op, like an off flag.
+     */
+    registry?: Pick<PredicateRegistryService, 'rowPolicyLookup'> | undefined;
   },
-): Promise<{ plausibilityDowngrade?: boolean; requireCitations?: boolean }> {
+): Promise<{
+  plausibilityDowngrade?: boolean;
+  requireCitations?: boolean;
+  evidenceCapabilityUnmet?: boolean;
+}> {
   const { ctx } = input;
-  if (!ctx.dto || !ctx.profile || input.verdict.verdict !== 'supported') return {};
+  if (input.verdict.verdict !== 'supported') return {};
+  // The capability arm needs only companyId + registry (both serving
+  // paths carry dto/profile/companyId anyway; bare-cache callers lack
+  // companyId and no-op inside the resolver).
+  const capability = await resolveEvidenceCapability(
+    { registry: input.registry, metrics: deps.metrics, logger: deps.logger },
+    {
+      ctx,
+      verdict: input.verdict,
+      citations: input.args.citations,
+      evidenceCitations: input.args.evidenceCitations,
+    },
+  );
+  if (!ctx.dto || !ctx.profile) return capability;
   const requireCitations = requireCitationsEnabled();
   const plausibilityDowngrade = await resolvePlausibilityDowngrade(deps, {
     query: ctx.dto.query,
@@ -94,6 +131,7 @@ export async function resolveAnswerIntegrity(
     model: ctx.profile.verifierModel || ctx.model || input.defaultModel,
   });
   return {
+    ...capability,
     ...(plausibilityDowngrade ? { plausibilityDowngrade } : {}),
     ...(requireCitations ? { requireCitations } : {}),
   };
@@ -111,6 +149,97 @@ export async function resolveAnswerIntegrity(
  * citations are verbatim-verified mechanically by anchorQuote and carry no
  * premise to audit.
  */
+/**
+ * Evidence-capability gate deps (FOVEA_EVIDENCE_CAPABILITY, 0113). The
+ * registry arrives @Optional from the service — absent (trimmed unit
+ * fixtures) ⇒ the resolver is a guarded no-op, like an off flag.
+ */
+export interface EvidenceCapabilityDeps {
+  registry?: Pick<PredicateRegistryService, 'rowPolicyLookup'> | undefined;
+  metrics?: Pick<MetricsService, 'countEvidenceCapability'> | undefined;
+  logger: { warn(message: string): void };
+}
+
+/**
+ * "max over cited facts": severity order for the required-capability fold.
+ * 'text' is the floor (unconstrained); ANY non-text requirement outranks
+ * it and forces the gate. The relative order among non-text kinds is a
+ * deterministic tie-break only — with today's all-text cited set every
+ * non-text requirement abstains identically; the order starts mattering
+ * once the M-track fragment mapping supplies non-text cited capabilities.
+ */
+const CAPABILITY_RANK: Record<EvidenceCapability, number> = {
+  text: 0,
+  visual: 1,
+  audio: 2,
+  document_region: 3,
+};
+
+/**
+ * Resolve the evidence-capability gate flag for finalizeVerdict — the
+ * resolveAnswerIntegrity sibling in the finalizeAndAdmit gate-resolution.
+ * Flag off ⇒ {} with NO registry lookup (byte-identical, the
+ * answer-integrity precedent); likewise for a non-supported verdict, a
+ * bare-cache caller (no companyId), a trimmed fixture (no registry), or
+ * zero cited facts (Part C owns the uncited case).
+ *
+ * Flag on: ONE snapshot-warm (rowPolicyLookup — TTL-cached, herd-deduped)
+ * then sync per-citation lookups against the tenant registry — no per-fact
+ * IO. required = max over the cited facts' predicate policies (any
+ * non-text wins); the cited-capability set today is always {'text'}
+ * (facts + episode spans are text), so the check can only abstain or
+ * pass. A lookup failure FAILS SAFE to today's behavior (no gate) and is
+ * logged — a registry hiccup must not abstain a grounded answer.
+ */
+export async function resolveEvidenceCapability(
+  deps: EvidenceCapabilityDeps,
+  input: {
+    ctx: FinalizeContext;
+    verdict: VerifierOutput;
+    citations: Citation[];
+    evidenceCitations?: EvidenceCitation[] | undefined;
+  },
+): Promise<{ evidenceCapabilityUnmet?: boolean }> {
+  if (!evidenceCapabilityEnabled()) return {};
+  const { ctx, verdict, citations } = input;
+  if (verdict.verdict !== 'supported') return {};
+  if (!ctx.companyId || !deps.registry || citations.length === 0) return {};
+  try {
+    const policyFor = await deps.registry.rowPolicyLookup(ctx.companyId);
+    const required = citations.reduce<EvidenceCapability>((acc, c) => {
+      const cap = policyFor(c.predicate).requiredEvidenceCapability ?? 'text';
+      return CAPABILITY_RANK[cap] > CAPABILITY_RANK[acc] ? cap : acc;
+    }, 'text');
+    deps.metrics?.countEvidenceCapability('checked');
+    if (required === 'text') return {};
+    if (citedCapabilities(input.evidenceCitations).has(required)) return {};
+    return { evidenceCapabilityUnmet: true };
+  } catch (e) {
+    deps.logger.warn(
+      `evidence-capability resolution failed; serving ungated: ${(e as Error).message}`,
+    );
+    return {};
+  }
+}
+
+/**
+ * The capabilities the answer's cited evidence actually carries.
+ *
+ * SEAM (M-track fragment mapping): today EVERY citation is text — fact
+ * citations are extracted text lines and EvidenceCitation is an
+ * episode/span over stored turn TEXT — so this is the constant {'text'}
+ * and the gate is honestly abstain-or-pass. The M-track sibling maps
+ * media fragments into citations carrying their own capability kind;
+ * it extends THIS function (and populates
+ * VerifyRequest.capabilityEvidenceLines) — nothing else in the gate
+ * changes.
+ */
+function citedCapabilities(
+  _evidenceCitations: EvidenceCitation[] | undefined,
+): Set<EvidenceCapability> {
+  return new Set<EvidenceCapability>(['text']);
+}
+
 async function resolvePlausibilityDowngrade(
   deps: AnswerIntegrityDeps,
   input: { query: string; answer: string; citations: Citation[]; model: string },

@@ -15,11 +15,15 @@
  */
 import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
+import { MemoryOutcomeService } from '../src/outcomes/memory-outcome.service';
 
 interface OutcomeRow {
   event: string;
   actor?: string;
   meta?: Record<string, unknown>;
+  /** 0113 dimensions — NONE (absent) on every legacy/text row. */
+  modality?: string;
+  representationKind?: string;
 }
 
 interface StatRow {
@@ -54,7 +58,7 @@ describe('memory_outcome — outcome telemetry recording and cascade', () => {
     const surreal = f.app.get(SurrealService);
     return surreal.withCompany(f.companyId, async (db) => {
       const [rows] = await db.query<[OutcomeRow[]]>(
-        `SELECT event, actor, meta FROM memory_outcome
+        `SELECT event, actor, meta, modality, representationKind FROM memory_outcome
           WHERE subjectId = type::record('knowledge_fact', $tail)
           ${event ? 'AND event = $event' : ''}`,
         { tail: tail(factId), ...(event ? { event } : {}) },
@@ -312,6 +316,59 @@ describe('memory_outcome — outcome telemetry recording and cascade', () => {
       delete process.env.RETRIEVAL_VERIFIED_USE_RANKING;
       delete process.env.SEARCH_VERIFIED_USE_BETA;
     }
+  });
+
+  it('(g) 0113: a stamped outcome row round-trips modality and dies in the GDPR sweep', async () => {
+    const { factId } = await ingestFact(
+      'outcome_modality_subj',
+      'name',
+      'Outcome Modality Subject',
+    );
+    // No text-path writer stamps the dimensions yet (media paths arrive in
+    // sibling PRs) — drive the ONE write seam directly, as those writers will.
+    f.app.get(MemoryOutcomeService).recordOutcomes({
+      companyId: f.companyId,
+      events: [
+        {
+          subjectKind: 'fact',
+          subjectId: factId,
+          event: 'used_in_answer',
+          modality: 'visual',
+          representationKind: 'caption',
+        },
+      ],
+    });
+    const rows = await waitFor(
+      () => rawRows(factId, 'used_in_answer'),
+      (r) => r.length >= 1,
+    );
+    expect(rows).toHaveLength(1);
+    // Top-level columns round-trip (NOT meta keys — the 0113 contract).
+    expect(rows[0]).toMatchObject({ modality: 'visual', representationKind: 'caption' });
+    expect(rows[0]!.meta).toBeUndefined();
+    // The rollup folded the counter with no per-modality column.
+    const stat = await waitFor(
+      () => statFor(factId),
+      (s) => (s?.usedCount ?? 0) >= 1,
+    );
+    expect(stat!.usedCount).toBe(1);
+
+    // GDPR entity-forget still sweeps the dimensioned rows.
+    const surreal = f.app.get(SurrealService);
+    const entityId = await surreal.withCompany(f.companyId, async (db) => {
+      const [r] = await db.query<[Array<{ entityId: unknown }>]>(
+        `SELECT entityId FROM type::record('knowledge_fact', $tail)`,
+        { tail: tail(factId) },
+      );
+      return String((r as Array<{ entityId: unknown }>)?.[0]?.entityId);
+    });
+    const forget = await f.http
+      .post(`/v1/entities/${encodeURIComponent(entityId)}/forget`)
+      .set(auth())
+      .send({ reason: 'gdpr_request', requestId: 'req-outcome-modality' });
+    expect([200, 201]).toContain(forget.status);
+    expect(await rawRows(factId)).toHaveLength(0);
+    expect(await statFor(factId)).toBeNull();
   });
 
   it('(e) master off ⇒ zero rows written (byte-identical)', async () => {
