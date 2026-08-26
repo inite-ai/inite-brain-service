@@ -6,6 +6,7 @@ import { JwksService } from './jwks.service';
 import { ProtectedResourceController } from './protected-resource.controller';
 import { RevocationCacheService } from './revocation-cache.service';
 import { SsfReceiverService } from './ssf-receiver.service';
+import { TenantRegistryService } from './tenant-registry.service';
 
 @Global()
 @Module({
@@ -17,6 +18,7 @@ import { SsfReceiverService } from './ssf-receiver.service';
     ApiKeyGuard,
     RevocationCacheService,
     SsfReceiverService,
+    TenantRegistryService,
   ],
   exports: [
     ApiKeyService,
@@ -24,6 +26,7 @@ import { SsfReceiverService } from './ssf-receiver.service';
     CredentialResolverService,
     ApiKeyGuard,
     RevocationCacheService,
+    TenantRegistryService,
   ],
 })
 export class AuthModule {}
