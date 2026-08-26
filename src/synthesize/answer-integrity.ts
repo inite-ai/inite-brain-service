@@ -39,6 +39,13 @@ export interface FinalizeContext {
   dto?: SynthesizeDto | undefined;
   profile?: RetrievalProfile | undefined;
   model?: string | undefined;
+  /**
+   * Tenant for the 0107 outcome-telemetry writer inside finalizeAndAdmit
+   * (used_in_answer / verifier_supported). Both serving paths — the
+   * primary serve and the L3 flip — carry it; absent (bare-cache
+   * callers) ⇒ no events, like the empty integrity gate.
+   */
+  companyId?: string | undefined;
 }
 
 /**

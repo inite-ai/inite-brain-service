@@ -1,0 +1,80 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
+import { SurrealService } from '../db/surreal.service';
+import { ApiKeyService } from '../auth/api-key.service';
+import { outcomeEventRetentionDays, outcomeTelemetryEnabled } from '../common/outcome-flags';
+
+/**
+ * One bounded prune batch: delete the oldest raw rows past the cutoff,
+ * ≤ 5000 per round so a long-unpruned tenant never builds one huge
+ * write transaction. RETURN BEFORE hands back the deleted rows, so the
+ * loop can tell a full batch (go again) from the final partial one.
+ * Exported for the query-shape unit spec.
+ */
+export const OUTCOME_PRUNE_BATCH_QUERY = `DELETE (SELECT id FROM memory_outcome WHERE createdAt < $cutoff LIMIT 5000) RETURN BEFORE`;
+
+/**
+ * OutcomePruneService — retention for the RAW outcome event log
+ * (memory_outcome, migration 0107). The rollup (memory_outcome_stat) is
+ * deliberately never pruned: it is the compact per-subject currency that
+ * SURVIVES raw retention — that asymmetry is why the rollup is a
+ * write-path table and not a 0088 computed view (see the 0107 header).
+ *
+ * Nightly at 03:41 UTC — offset from the 03:xx cron neighbourhood
+ * (compaction 03:17, memory-quality 03:35, calibration refit 03:42) —
+ * gated on the master flag, with an in-flight guard so an overlapping
+ * tick never doubles the work. Tenant roster comes from
+ * ApiKeyService.knownCompanyIds(), the same way the compaction cron
+ * enumerates tenants.
+ */
+@Injectable()
+export class OutcomePruneService {
+  private readonly logger = new Logger(OutcomePruneService.name);
+  private running = false;
+
+  constructor(
+    private readonly surreal: SurrealService,
+    private readonly apiKeys: ApiKeyService,
+  ) {}
+
+  @Cron('41 3 * * *', { timeZone: 'UTC' })
+  async runNightly(): Promise<{ tenants: number; pruned: number }> {
+    if (!outcomeTelemetryEnabled()) return { tenants: 0, pruned: 0 };
+    if (this.running) {
+      this.logger.warn('outcome prune still running — skipping this tick');
+      return { tenants: 0, pruned: 0 };
+    }
+    this.running = true;
+    try {
+      const tenants = this.apiKeys.knownCompanyIds();
+      let pruned = 0;
+      for (const companyId of tenants) {
+        try {
+          pruned += await this.pruneTenant(companyId);
+        } catch (e) {
+          this.logger.warn(`outcome prune for ${companyId} failed: ${(e as Error).message}`);
+        }
+      }
+      this.logger.log(`outcome prune: ${pruned} row(s) across ${tenants.length} tenant(s)`);
+      return { tenants: tenants.length, pruned };
+    } finally {
+      this.running = false;
+    }
+  }
+
+  /** Batched delete-until-empty of raw rows older than the retention window. */
+  async pruneTenant(companyId: string): Promise<number> {
+    const cutoff = new Date(Date.now() - outcomeEventRetentionDays() * 86_400_000);
+    return this.surreal.withCompany(companyId, async (db) => {
+      let total = 0;
+      for (;;) {
+        const [batch] = await db.query<[unknown[]]>(OUTCOME_PRUNE_BATCH_QUERY, { cutoff });
+        const n = ((batch as unknown[]) ?? []).length;
+        total += n;
+        // A partial batch means the cutoff range is drained.
+        if (n < 5000) break;
+      }
+      return total;
+    });
+  }
+}

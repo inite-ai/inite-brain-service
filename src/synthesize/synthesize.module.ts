@@ -3,6 +3,7 @@ import { SearchModule } from '../search/search.module';
 import { EpisodesModule } from '../episodes/episodes.module';
 import { AnswerCacheModule } from '../answer-cache/answer-cache.module';
 import { StrategyModule } from '../strategy/strategy.module';
+import { OutcomesModule } from '../outcomes/outcomes.module';
 import { SynthesizeController } from './synthesize.controller';
 import { FocusAdminController } from './focus-admin.controller';
 import { LensAdminController } from './lens-admin.controller';
@@ -21,7 +22,7 @@ import { EvidenceCollectorService } from './evidence-collector.service';
 import { L3EscalationService } from './l3-escalation.service';
 
 @Module({
-  imports: [SearchModule, EpisodesModule, AnswerCacheModule, StrategyModule],
+  imports: [SearchModule, EpisodesModule, AnswerCacheModule, StrategyModule, OutcomesModule],
   controllers: [SynthesizeController, FocusAdminController, LensAdminController],
   providers: [
     SynthesizeService,

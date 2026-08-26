@@ -225,6 +225,12 @@ export class EntityForgetService {
         );
       }
 
+      // ── 0107 outcome telemetry: bulk-purge the raw event log OUTSIDE
+      // the atomic erase (see preSweepOutcomeRows — content-free by
+      // contract, deliberately uncounted in txRecordCount like
+      // fact_usage, so FORGET_MAX_TX_RECORDS never trips on telemetry).
+      await this.preSweepOutcomeRows(db, ref.id);
+
       // ── Atomic erase. Everything below commits together or rolls back
       // together (single BEGIN/COMMIT). Ordering inside the transaction is
       // for readability only — the commit is atomic — but we keep the
@@ -274,6 +280,20 @@ export class EntityForgetService {
         );
         tx.add(`DELETE $sceneMemberIds`);
         tx.add(`LET $scenesDel = (DELETE memory_episode WHERE id INSIDE $sceneIds RETURN BEFORE)`);
+        // 0107 outcome telemetry: stragglers written after the pre-tx
+        // bulk sweep, plus the one-row-per-subject rollup (small enough
+        // to live inside the tx). Uncounted in txRecordCount, like
+        // fact_usage. LET-then-DELETE-by-ids, NOT `DELETE … WHERE`
+        // (the 3.2.4 indexed-traversal DELETE bug — see the pre-tx sweep
+        // comment above).
+        tx.add(
+          `LET $outIds = (SELECT VALUE id FROM memory_outcome WHERE subjectId.entityId = $ent)`,
+        );
+        tx.add(`DELETE $outIds`);
+        tx.add(
+          `LET $outStatIds = (SELECT VALUE id FROM memory_outcome_stat WHERE subjectId.entityId = $ent)`,
+        );
+        tx.add(`DELETE $outStatIds`);
         // L0: a segment that quotes an erased episode goes with it; segments
         // before episodes to keep the dependency order.
         tx.add(
@@ -409,5 +429,38 @@ export class EntityForgetService {
     );
     const sceneCount = new Set(sceneIdRows.map((r) => String(r.in))).size;
     return (segCountRow?.count ?? 0) + (sceneMemberCountRow?.count ?? 0) + sceneCount;
+  }
+
+  /**
+   * 0107 outcome telemetry pre-sweep: bulk-purge the subject's raw
+   * memory_outcome rows OUTSIDE the atomic erase, in bounded batches, so
+   * a telemetry-heavy subject can't inflate the erase transaction. Safe
+   * outside the tx because meta is CONTENT-FREE by contract (ids /
+   * verdict strings only, never fact text): an erase that aborts after
+   * this merely deleted telemetry early. The in-tx DELETEs catch
+   * stragglers written between this sweep and the commit.
+   *
+   * Two-step (SELECT ids → DELETE $ids) DELIBERATELY: on SurrealDB 3.2.4
+   * a DELETE whose WHERE traverses through an indexed record field
+   * (memory_outcome_subject_idx covers subjectId) silently matches
+   * NOTHING, while the same WHERE in a SELECT matches fine — verified
+   * against the pinned server. Deleting by explicit ids sidesteps the
+   * planner entirely.
+   */
+  private async preSweepOutcomeRows(
+    db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> },
+    rid: string,
+  ): Promise<void> {
+    for (;;) {
+      const [, batch] = await db.query<[unknown, unknown[]]>(
+        `LET $ids = (SELECT VALUE id FROM memory_outcome
+           WHERE subjectId.entityId = type::record('knowledge_entity', $rid)
+           LIMIT 5000);
+         DELETE $ids RETURN BEFORE`,
+        { rid },
+      );
+      // A partial batch means the subject's raw rows are drained.
+      if (((batch as unknown[]) ?? []).length < 5000) break;
+    }
   }
 }

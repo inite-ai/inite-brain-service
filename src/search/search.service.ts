@@ -43,6 +43,8 @@ import { PipelineContext } from './pipeline-context';
 import { ReadPinService } from '../episodes/read-pin.service';
 import { getActiveRetrievalProfile, resolveSearchTuning } from './retrieval-profile';
 import { JobWorkerPool } from '../jobs/job-worker-pool.service';
+import { MemoryOutcomeService } from '../outcomes/memory-outcome.service';
+import { outcomeRetrievedEventsEnabled } from '../common/outcome-flags';
 
 export type { SearchHit } from './search.types';
 export type { GraphRetrieveHit } from './internals/graph-retrieve';
@@ -109,6 +111,10 @@ export class SearchService {
     // MULTILINGUAL_LANG_ATTRIBUTION is on). Optional so positional unit
     // constructions omit it.
     @Optional() private readonly metrics?: MetricsService,
+    // Eighth: outcome telemetry (0107) `retrieved` writer — optional so
+    // positional unit constructions omit it; double-gated at the call
+    // site (OUTCOME_RETRIEVED_EVENTS) and inside the service (master).
+    @Optional() private readonly outcomes?: MemoryOutcomeService,
   ) {}
 
   /**
@@ -400,6 +406,24 @@ export class SearchService {
         logger: this.logger,
         companyId,
         factIds: out.results.flatMap((h) => (h.facts ?? []).map((f) => f.factId)),
+      });
+    }
+    // Outcome telemetry (0107, default off): the raw `retrieved` stream
+    // for the same surfaced-fact list. DOUBLE-gated — the dedicated
+    // OUTCOME_RETRIEVED_EVENTS gate here (this is the highest-volume
+    // writer of the family) on top of the master flag inside the
+    // service. The fact_usage stamp above is UNTOUCHED (compat):
+    // readCount keeps feeding decay/G8 ranking regardless.
+    if (this.outcomes && outcomeRetrievedEventsEnabled()) {
+      this.outcomes.recordOutcomes({
+        companyId,
+        events: out.results.flatMap((h) =>
+          (h.facts ?? []).map((f) => ({
+            subjectKind: 'fact' as const,
+            subjectId: f.factId,
+            event: 'retrieved' as const,
+          })),
+        ),
       });
     }
     return out;

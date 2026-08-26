@@ -209,9 +209,19 @@ describe('entity forget → atomicity contract (R4)', () => {
     // write that could survive a rolled-back erase.
     expect(tx!.sql).toContain('CREATE forgotten_entity');
     // No DELETE / tombstone CREATE was issued as a standalone statement
-    // outside the transaction.
+    // outside the transaction — with ONE documented exception: the 0107
+    // outcome-telemetry pre-sweep (memory_outcome) deliberately runs
+    // outside the atomic unit. Telemetry meta is content-free by
+    // contract, so an aborted erase merely deleted telemetry early (see
+    // EntityForgetService), and the sweep keeps a telemetry-heavy
+    // subject from inflating the erase transaction.
     expect(
-      queries.some((q) => !q.sql.includes('BEGIN TRANSACTION') && q.sql.includes('DELETE')),
+      queries.some(
+        (q) =>
+          !q.sql.includes('BEGIN TRANSACTION') &&
+          q.sql.includes('DELETE') &&
+          !q.sql.includes('memory_outcome'),
+      ),
     ).toBe(false);
   });
 });

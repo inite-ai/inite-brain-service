@@ -123,6 +123,36 @@ describe('entity-forget scenes cascade (0106)', () => {
   });
 });
 
+describe('0107_memory_outcome indexes', () => {
+  const sql = readFileSync(join(MIGRATIONS, '0107_memory_outcome.surql'), 'utf8');
+
+  it.each([
+    ['memory_outcome_subject_idx', 'memory_outcome', 'subjectId, event'],
+    ['memory_outcome_created_idx', 'memory_outcome', 'createdAt'],
+  ])('defines %s on %s(%s)', (name, table, fields) => {
+    const re = new RegExp(`DEFINE INDEX IF NOT EXISTS ${name}\\s+ON ${table} FIELDS ${fields};`);
+    expect(sql).toMatch(re);
+  });
+
+  it('pins the rollup to one row per subject (UNIQUE subjectId)', () => {
+    expect(sql).toMatch(
+      /DEFINE INDEX IF NOT EXISTS memory_outcome_stat_subject_idx\s+ON memory_outcome_stat FIELDS subjectId UNIQUE;/,
+    );
+  });
+
+  it('deliberately defines NO changefeed and NO event on either table', () => {
+    // The 0053 separation rationale: telemetry must not feed the audit
+    // mirror or any dirty-marking event. The header EXPLAINS the absence
+    // in prose, so judge only non-comment lines.
+    const code = sql
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('--'))
+      .join('\n');
+    expect(code).not.toMatch(/CHANGEFEED/);
+    expect(code).not.toMatch(/DEFINE EVENT/);
+  });
+});
+
 describe('JobRunService.finish ownership guard', () => {
   function mkSurreal(db: { query: (s: string, p?: any) => Promise<any> }) {
     return {

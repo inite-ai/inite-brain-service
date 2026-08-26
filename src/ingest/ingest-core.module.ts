@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { OutcomesModule } from '../outcomes/outcomes.module';
 import { EntityResolverService } from './entity-resolver.service';
 import { EntityUpsertService } from './entity-upsert.service';
 import { FactEmbeddingService } from './fact-embedding.service';
@@ -13,6 +14,9 @@ import { FactResolverService } from './fact-resolver.service';
  * mention-via-document wrapper) without an import cycle.
  */
 @Module({
+  // OutcomesModule supplies the 0107 contradicted-outcome writer the
+  // fact resolver emits from its post-call tail (@Optional injection).
+  imports: [OutcomesModule],
   providers: [
     EntityResolverService,
     EntityUpsertService,
