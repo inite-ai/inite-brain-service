@@ -15,6 +15,12 @@ import type { FactRow } from './types';
  *
  * Both soft-fail: usage is a ranking refinement, never a reason for a
  * search to error or slow down.
+ *
+ * NOTE: lastReadAt/readCount are LEGACY self-reinforcing signals — they
+ * grow on every surfacing, so retrieval alone extends a memory's life.
+ * Prefer the verified-use successors RETRIEVAL_VERIFIED_USE_DECAY /
+ * RETRIEVAL_VERIFIED_USE_RANKING (memory_outcome_stat, 0107; see
+ * outcome-stats.ts), which only move on verified use.
  */
 
 /** Max facts stamped per search — bounds the write amplification. */

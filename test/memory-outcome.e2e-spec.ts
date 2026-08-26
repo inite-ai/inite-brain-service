@@ -8,7 +8,10 @@
  *   (c) OUTCOME_RETRIEVED_EVENTS adds the raw retrieved stream while
  *       fact_usage.readCount still increments (compat pin);
  *   (d) GDPR entity-forget + user-forget cascade BOTH tables;
- *   (e) master off ⇒ zero rows (byte-identical).
+ *   (e) master off ⇒ zero rows (byte-identical);
+ *   (f) verified-use SERVING (read side): with RETRIEVAL_VERIFIED_USE_RANKING
+ *       + SEARCH_VERIFIED_USE_BETA the enriched fact's score breakdown
+ *       carries the verifiedUse factor; flags off ⇒ no fragment.
  */
 import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
@@ -260,6 +263,55 @@ describe('memory_outcome — outcome telemetry recording and cascade', () => {
     expect([200, 201]).toContain(userForget.status);
     expect(await rawRows(userFact.factId)).toHaveLength(0);
     expect(await statFor(userFact.factId)).toBeNull();
+  });
+
+  it('(f) verified-use serving: the ranking flag surfaces the verifiedUse breakdown factor; flags off ⇒ no fragment', async () => {
+    interface WireFact {
+      factId: string;
+      breakdown?: { verifiedUse?: { count: number; factor: number } };
+    }
+    const factsFor = (body: { results: Array<{ facts: WireFact[] }> }): WireFact[] =>
+      body.results.flatMap((r) => r.facts);
+
+    // Seed: one fact + a confirmed vote → memory_outcome_stat row with
+    // confirmedCount 1 ⇒ verifiedUseScore 1 on the read side.
+    const { factId } = await ingestFact('outcome_serving', 'name', 'Verified Serving Subject');
+    await vote(factId, 'helpful');
+    await waitFor(
+      () => statFor(factId),
+      (s) => (s?.confirmedCount ?? 0) >= 1,
+    );
+
+    // Flags off (default): the fragment must be absent — byte-identical.
+    const before = await f.http
+      .post('/v1/search')
+      .set(auth())
+      .send({ query: 'Verified Serving Subject', limit: 5 });
+    expect(before.status).toBe(201);
+    const beforeFact = factsFor(before.body).find((x) => x.factId === factId);
+    expect(beforeFact).toBeDefined();
+    expect(beforeFact!.breakdown?.verifiedUse).toBeUndefined();
+
+    process.env.RETRIEVAL_VERIFIED_USE_RANKING = '1';
+    process.env.SEARCH_VERIFIED_USE_BETA = '0.3';
+    try {
+      const after = await f.http
+        .post('/v1/search')
+        .set(auth())
+        .send({ query: 'Verified Serving Subject', limit: 5 });
+      expect(after.status).toBe(201);
+      const served = factsFor(after.body).find((x) => x.factId === factId);
+      expect(served).toBeDefined();
+      // The "because" fragment: attached score + the saturating factor
+      // (1 + 0.3·log1p(1)/log1p(10) ≈ 1.0867 at the default saturation).
+      expect(served!.breakdown?.verifiedUse).toBeDefined();
+      expect(served!.breakdown!.verifiedUse!.count).toBeGreaterThanOrEqual(1);
+      expect(served!.breakdown!.verifiedUse!.factor).toBeGreaterThan(1);
+      expect(served!.breakdown!.verifiedUse!.factor).toBeLessThanOrEqual(1.3);
+    } finally {
+      delete process.env.RETRIEVAL_VERIFIED_USE_RANKING;
+      delete process.env.SEARCH_VERIFIED_USE_BETA;
+    }
   });
 
   it('(e) master off ⇒ zero rows written (byte-identical)', async () => {

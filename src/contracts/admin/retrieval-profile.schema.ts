@@ -69,6 +69,9 @@ export const RetrievalProfileWireSchema = z.object({
   abstentionCalibration: z.enum(['off', 'coverage', 'verifier', 'minicheck']),
   abstentionMinTopScore: z.number(),
   abstentionMinEvidence: z.number().int(),
+  verifiedUseDecay: z.boolean(),
+  verifiedUseRanking: z.boolean(),
+  tenantDecayPolicy: z.boolean(),
   lanes: z.array(z.string()),
 });
 

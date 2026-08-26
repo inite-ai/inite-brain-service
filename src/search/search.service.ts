@@ -13,7 +13,8 @@ import type { SearchHit } from './search.types';
 import type { EntityBucket, FactRow, NeighbourEdge } from './internals/types';
 import { buildBaseWhere } from './internals/where-builder';
 import { hydrateSurvivors, reattributeMerged } from './internals/identity-merge';
-import { makeRowPolicyFilter, type PredicatePolicyLookup } from '../policy/row-filter';
+import { makeRowPolicyFilter } from '../policy/row-filter';
+import type { PredicateDefinition } from '../ai/predicate-registry-internals/types';
 import { applyMetaUnion } from '../policy/meta-union';
 import { getPolicyContext } from '../common/request-context';
 import { pinUserScope } from '../auth/user-scope';
@@ -28,6 +29,7 @@ import { applyPprPrior } from './internals/ppr';
 import { shouldSkipRerankByMargin } from './internals/rerank-skip';
 import { selectFactCentric } from './internals/fact-centric';
 import { enrichWithUsage, recordFactUsage } from './internals/usage';
+import { enrichWithOutcomeStats } from './internals/outcome-stats';
 import { assembleHits, applyOutputShaping } from './internals/response-builder';
 import { assembleGraphHits, type GraphRetrieveHit } from './internals/graph-retrieve';
 import {
@@ -118,11 +120,18 @@ export class SearchService {
   ) {}
 
   /**
-   * Registry-backed predicate-policy lookup for the row fence; falls
-   * back to the static seed when the registry isn't wired (unit tests
-   * construct SearchService positionally).
+   * Registry-backed predicate-policy lookup, resolved ONCE per request
+   * and reused by TWO consumers: the row fence (requiresScope/piiClass)
+   * and — under profile.tenantDecayPolicy — read-time decay resolution
+   * in scoring (decayHalfLifeDays), hence the full PredicateDefinition
+   * return. The snapshot warm happens inside rowPolicyLookup, so the
+   * second consumer costs zero extra IO. Undefined when the registry
+   * isn't wired (unit tests construct SearchService positionally) —
+   * callers fall back to the static seed / legacy policyFor.
    */
-  private async policyLookupFor(companyId: string): Promise<PredicatePolicyLookup | undefined> {
+  private async policyLookupFor(
+    companyId: string,
+  ): Promise<((predicate: string) => PredicateDefinition) | undefined> {
     return this.predicateRegistry ? this.predicateRegistry.rowPolicyLookup(companyId) : undefined;
   }
 
@@ -429,6 +438,52 @@ export class SearchService {
     return out;
   }
 
+  /**
+   * Stage 2b/2c serving-signal enrichment over the primary filtered
+   * pool. Two batched lookups, each feeding two decoupled consumers
+   * via the per-flag attach split (the UsageAttach idiom):
+   *   * fact_usage (0053, LEGACY self-reinforcing — grows on every
+   *     surfacing): lastReadAt (SEARCH_USAGE_DECAY_ENABLED) restarts
+   *     the decay clock at the last retrieval, readCount
+   *     (SEARCH_USAGE_RANKING_ENABLED, G8) feeds the usage factor;
+   *   * memory_outcome_stat (0107, the verified-use successor):
+   *     lastVerifiedUseAt (profile.verifiedUseDecay) lets the clock
+   *     restart at the last VERIFIED use instead, verifiedUseScore
+   *     (profile.verifiedUseRanking) feeds the saturating verified-use
+   *     factor.
+   * Both soft-fail inside; rows injected later (edge expansion /
+   * backfill) stay unenriched — supplementary context, not primary
+   * relevance.
+   */
+  private async enrichServingSignals(
+    db: Surreal,
+    ctx: PipelineContext,
+    rows: FactRow[],
+  ): Promise<void> {
+    if (ctx.tuning.usageDecay || ctx.tuning.usageRanking) {
+      await enrichWithUsage({
+        db,
+        logger: this.logger,
+        rows,
+        attach: {
+          lastReadAt: ctx.tuning.usageDecay,
+          readCount: ctx.tuning.usageRanking,
+        },
+      });
+    }
+    if (ctx.profile.verifiedUseDecay || ctx.profile.verifiedUseRanking) {
+      await enrichWithOutcomeStats({
+        db,
+        logger: this.logger,
+        rows,
+        attach: {
+          lastVerifiedUseAt: ctx.profile.verifiedUseDecay,
+          verifiedUseScore: ctx.profile.verifiedUseRanking,
+        },
+      });
+    }
+  }
+
   private async runDbStages(db: Surreal, ctx: PipelineContext): Promise<StagedPipeline> {
     // Phase 4.B locale-aware retrieval. Detect the query language
     // (or honour the explicit dto.queryLang) and apply a two-pass
@@ -519,10 +574,13 @@ export class SearchService {
     // 2. Identity-merge re-attribution + scope/ABAC row filter. One
     // filter instance covers the whole pipeline (fusion + edge
     // expansion) so the decision summary aggregates once.
+    // Resolved once, reused twice: row fence here, tenant-aware decay
+    // resolution in scoring below (zero extra IO — see policyLookupFor).
+    const policyLookup = await this.policyLookupFor(ctx.companyId);
     const rowPolicy = makeRowPolicyFilter({
       callerScopes: ctx.callerScopes,
       surface: 'search',
-      policyLookup: await this.policyLookupFor(ctx.companyId),
+      policyLookup,
     });
     const rowFilterFn = (row: FactRow) => rowPolicy.filter(row);
     const survivorRecords = await hydrateSurvivors(db, fused);
@@ -542,23 +600,11 @@ export class SearchService {
       });
     }
 
-    // 2b. Usage enrichment (opt-in) — one batched fact_usage lookup that
-    // feeds two decoupled consumers: lastReadAt (SEARCH_USAGE_DECAY_ENABLED)
-    // restarts the decay clock, readCount (SEARCH_USAGE_RANKING_ENABLED, G8)
-    // feeds the usage ranking factor. Soft-fails inside; rows injected
-    // later (edge expansion) stay unenriched — supplementary context, not
-    // primary relevance.
-    if (ctx.tuning.usageDecay || ctx.tuning.usageRanking) {
-      await enrichWithUsage({
-        db,
-        logger: this.logger,
-        rows: filtered,
-        attach: {
-          lastReadAt: ctx.tuning.usageDecay,
-          readCount: ctx.tuning.usageRanking,
-        },
-      });
-    }
+    // 2b/2c. Usage + verified-use enrichment (opt-in) — both batched
+    // lookups over the primary `filtered` pool only; rows injected
+    // later (edge expansion / backfill) stay unenriched. Extracted so
+    // runDbStages stays under the cognitive-complexity gate.
+    await this.enrichServingSignals(db, ctx, filtered);
 
     // 4. Scoring + per-entity bucketing with diversity-aware degree boost.
     // Under temporalMode='overlap_boost' the asOf anchor feeds the
@@ -572,6 +618,18 @@ export class SearchService {
       // Multilingual Tier 1: same-language ranking boost, only in softBoost
       // mode (soft flag on + high-confidence query language). Null → 1.0.
       langBoost: softBoost && langFilter ? { lang: langFilter } : null,
+      // Verified-use successor ranking (0107): the per-tenant profile
+      // flag gates, the deployment knobs set strength/saturation.
+      verifiedUse: {
+        beta: ctx.tuning.verifiedUseBeta,
+        saturation: ctx.tuning.verifiedUseSaturation,
+        rankingOn: ctx.profile.verifiedUseRanking,
+      },
+      // Tenant-aware decay (profile.tenantDecayPolicy): reuse the
+      // registry lookup already resolved for the row fence — zero extra
+      // IO, one snapshot read per query. Registry absent (positional
+      // unit constructions) → null → legacy code-seed policyFor.
+      policyResolver: ctx.profile.tenantDecayPolicy && policyLookup ? policyLookup : null,
     });
 
     // 5. Edge expansion (default ON) — graph-walk from top seeds. When the
