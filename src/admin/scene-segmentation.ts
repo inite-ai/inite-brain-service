@@ -15,6 +15,14 @@ import type { EpisodeRow } from '../episodes/session-window';
  * same scenes, gists, labels, and scores.
  */
 
+/**
+ * Version stamp of the CURRENT deterministic segmenter. Lives in this
+ * pure module (PR2) so the composer, the LLM enricher and the fact
+ * backlinker can all name "the current scene world" without importing
+ * each other — the composer re-exports it for API continuity.
+ */
+export const SEGMENTER_VERSION = 'scene-segmenter-v1';
+
 /** Member turn shape — the raw L0 read row (piiClass rides for folding). */
 export interface SceneTurnRow extends EpisodeRow {
   piiClass?: string[];

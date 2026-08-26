@@ -52,6 +52,45 @@ export function sceneTopicMinCosine(): number {
   return Number.isFinite(v) && v >= -1 && v <= 1 ? v : DEFAULT_TOPIC_MIN_COSINE;
 }
 
+/**
+ * Scenes LLM enrichment flag — SCENES_LLM_ENRICHMENT (Brain v2 PR2).
+ *
+ * When on, an OPTIONAL pass runs AFTER the composer's atomic swap (and is
+ * also triggerable standalone via POST /v1/admin/maintenance/scenes/enrich):
+ * ONE structured LLM call per scene of the current segmenter version,
+ * replacing the deterministic gist with an abstractive one and filling the
+ * FULL memoryValue vector (scorerVersion 'scene-scorer-llm-v1'), stateDeltas
+ * and unexpectedDetails. The env read lives here in the common layer, NOT
+ * inside the engine dirs (engine-gates S5.2). Read at call time so a flip is
+ * runtime-mutable. Default off ⇒ NO LLM call is ever made and scenes keep
+ * their deterministic gist/score — byte-identical to PR1 behavior. Enrichment
+ * degrades, never fails: a bad reply for one scene logs a warning and leaves
+ * that scene untouched.
+ */
+export function sceneLlmEnrichmentEnabled(): boolean {
+  return envFlagEnabled(process.env.SCENES_LLM_ENRICHMENT);
+}
+
+/**
+ * Scenes fact-backlink flag — SCENES_FACT_BACKLINK (Brain v2 PR2).
+ *
+ * When on, a batch pass (end of the composer run + standalone POST
+ * /v1/admin/maintenance/scenes/backlink) stamps each knowledge_fact whose
+ * source.episodeIds intersect a scene's membership with
+ * source.memoryEpisodeIds (idempotent array::union) + source.sceneLinkVersion
+ * — facts become pointers into the episodic plane. FLEXIBLE `source` ride, no
+ * migration. The env read lives here in the common layer, NOT inside the
+ * engine dirs (engine-gates S5.2). Read at call time so a flip is
+ * runtime-mutable. Default off ⇒ no fact row is ever touched. Serving stays
+ * byte-identical even when on — nothing READS source.memoryEpisodeIds; the
+ * keys are merely visible wherever `source` is already returned verbatim
+ * (facts read/provenance API) — an additive payload change, not a behavioral
+ * one.
+ */
+export function sceneFactBacklinkEnabled(): boolean {
+  return envFlagEnabled(process.env.SCENES_FACT_BACKLINK);
+}
+
 /** Default hard cap on turns per scene (Brain v2 PR1). */
 const DEFAULT_MAX_TURNS = 40;
 

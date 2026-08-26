@@ -45,6 +45,8 @@ import { AdminSegmentsController } from './admin-segments.controller';
 import { SegmentComposerService } from './segment-composer.service';
 import { AdminScenesController } from './admin-scenes.controller';
 import { SceneComposerService } from './scene-composer.service';
+import { SceneEnricherService } from './scene-enricher.service';
+import { SceneBacklinkService } from './scene-backlink.service';
 import { HnswMaintenanceService } from './hnsw-maintenance.service';
 import { CodeMemoryModule } from '../code-memory/code-memory.module';
 import { RegistryModule } from '../registry/registry.module';
@@ -122,6 +124,8 @@ import { ConfigInspectorService } from './config-inspector.service';
     WindowDeriverService,
     SegmentComposerService,
     SceneComposerService,
+    SceneEnricherService,
+    SceneBacklinkService,
     AdminInfraService,
     HealthComponentsService,
     LiveSnapshotService,
