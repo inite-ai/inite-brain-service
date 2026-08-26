@@ -129,6 +129,34 @@ export class UserForgetService {
       }
       await db.query(`DELETE episode_segment WHERE userId = $u`, { u: userId });
 
+      // Scenes (0106, same finding-#13 class as segments): membership rows
+      // traverse in.userId, so they go FIRST while their scene rows are
+      // still alive. A user-scoped scene's members are all that user's by
+      // the fold rule, so this clears them completely.
+      await db.query(`DELETE memory_episode_member WHERE in.userId = $u`, { u: userId });
+      // Mixed-user scenes carry no userId stamp — resolve them BY
+      // REFERENCE through the membership of the just-deleted episodes
+      // (the `out` link keeps its record id after the episode row died).
+      // Erasure wins over retention: a scene quoting an erased turn goes
+      // whole, exactly like a mixed-user segment.
+      if (deletedEpisodeRefs.length > 0) {
+        const [sceneIdRows] = await db.query<[unknown[]]>(
+          `SELECT VALUE in FROM memory_episode_member WHERE out INSIDE $eps`,
+          { eps: deletedEpisodeRefs },
+        );
+        const sceneIds = [...new Set(((sceneIdRows as unknown[]) ?? []).map(String))].map(
+          (id) => new StringRecordId(id),
+        );
+        await db.query(
+          `DELETE memory_episode_member WHERE in INSIDE $sceneIds OR out INSIDE $eps`,
+          { sceneIds, eps: deletedEpisodeRefs },
+        );
+        if (sceneIds.length > 0) {
+          await db.query(`DELETE memory_episode WHERE id INSIDE $sceneIds`, { sceneIds });
+        }
+      }
+      await db.query(`DELETE memory_episode WHERE userId = $u`, { u: userId });
+
       // Purge the materialised audit mirror (same contract as entity
       // forget): recordId is the full `table:id` string. The changefeed
       // consumer's PII redaction covers any still-unconsumed lag.

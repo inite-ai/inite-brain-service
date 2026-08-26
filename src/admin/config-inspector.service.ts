@@ -13,6 +13,7 @@ export type ConfigCategory =
   | 'search'
   | 'multihop'
   | 'calibration'
+  | 'scenes'
   | 'conflict'
   | 'cost'
   | 'throttle'

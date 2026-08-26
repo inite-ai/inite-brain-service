@@ -18,6 +18,7 @@ const ConfigCategorySchema = z.enum([
   'search',
   'multihop',
   'calibration',
+  'scenes',
   'conflict',
   'cost',
   'throttle',

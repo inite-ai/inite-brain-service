@@ -1,0 +1,71 @@
+import { envFlagEnabled } from './env-validation';
+
+/**
+ * Scenes (Brain v2 PR1) master flag — SCENES_SEGMENTATION_ENABLED.
+ *
+ * When on, the admin scene-composer surface (POST
+ * /v1/admin/maintenance/scenes) batch-derives the shadow memory_episode
+ * substrate (migration 0106) from raw L0 episodes. The env read lives here
+ * in the common layer, NOT inside the engine dirs (engine-gates S5.2).
+ * Read at call time so a flip is runtime-mutable (no restart). Default off
+ * ⇒ the admin route 404s and NO memory_episode row is ever written —
+ * byte-identical prod (shadow substrate: nothing on the serving path reads
+ * these tables even when on). SCENES_ family sits off the ENGINE flag
+ * budget by design (a shadow-substrate builder, not an engine fork).
+ */
+export function sceneSegmentationEnabled(): boolean {
+  return envFlagEnabled(process.env.SCENES_SEGMENTATION_ENABLED);
+}
+
+/**
+ * Scenes topic-boundary flag — SCENES_TOPIC_BOUNDARY.
+ *
+ * When on, the composer spends ONE embedding batch per conversation (its
+ * only paid step — no LLM anywhere in v1) and the segmenter additionally
+ * splits WITHIN a session where cosine(mean of the last 3 turns, next
+ * turn) drops below the SCENES_TOPIC_MIN_COSINE floor. The env read lives
+ * here in the common layer, NOT inside the engine dirs (engine-gates
+ * S5.2). Read at call time so a flip is runtime-mutable. Default off ⇒
+ * session-gap + max-turns segmentation only, embedder-free — and with the
+ * master flag off the whole surface is byte-identical prod.
+ */
+export function sceneTopicBoundaryEnabled(): boolean {
+  return envFlagEnabled(process.env.SCENES_TOPIC_BOUNDARY);
+}
+
+/** Default cosine floor for the topic-boundary split (Brain v2 PR1). */
+const DEFAULT_TOPIC_MIN_COSINE = 0.55;
+
+/**
+ * Topic-boundary cosine floor (SCENES_TOPIC_MIN_COSINE): split between
+ * turns when cosine(mean of the last 3 member embeddings, next turn's
+ * embedding) < this value. A non-boolean knob resolved here in the common
+ * layer so the segmenter takes a resolved number (engine-gates S5.2); read
+ * at call time so a change is runtime-mutable. Cosine lives in [-1,1], so
+ * the full range is accepted; unset, blank, or out of range → the 0.55
+ * default. Ignored unless SCENES_TOPIC_BOUNDARY is on.
+ */
+export function sceneTopicMinCosine(): number {
+  const raw = process.env.SCENES_TOPIC_MIN_COSINE;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_TOPIC_MIN_COSINE;
+  const v = Number(raw);
+  return Number.isFinite(v) && v >= -1 && v <= 1 ? v : DEFAULT_TOPIC_MIN_COSINE;
+}
+
+/** Default hard cap on turns per scene (Brain v2 PR1). */
+const DEFAULT_MAX_TURNS = 40;
+
+/**
+ * Scene size cap (SCENES_MAX_TURNS): force a boundary once a scene reaches
+ * this many turns, regardless of topic continuity — a bound on gist length
+ * and on the eventual consolidation unit. A non-boolean knob resolved here
+ * in the common layer so the segmenter takes a resolved number
+ * (engine-gates S5.2); read at call time so a change is runtime-mutable.
+ * Must be a positive integer; unset, blank, or invalid → the 40 default.
+ */
+export function sceneMaxTurns(): number {
+  const raw = process.env.SCENES_MAX_TURNS;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_MAX_TURNS;
+  const v = Number(raw);
+  return Number.isInteger(v) && v > 0 ? v : DEFAULT_MAX_TURNS;
+}

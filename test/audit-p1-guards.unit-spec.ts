@@ -57,6 +57,49 @@ describe('0059_perf_indexes', () => {
   });
 });
 
+describe('0106_memory_episode indexes', () => {
+  const sql = readFileSync(join(MIGRATIONS, '0106_memory_episode.surql'), 'utf8');
+
+  it.each([
+    ['scene_version_idx', 'memory_episode', 'segmenterVersion'],
+    ['scene_conv_idx', 'memory_episode', 'conversationIds'],
+    ['scene_user_idx', 'memory_episode', 'userId'],
+    ['scene_time_idx', 'memory_episode', 'occurredFrom'],
+    ['scene_member_uq', 'memory_episode_member', 'in, out UNIQUE'],
+    ['scene_member_out_idx', 'memory_episode_member', 'out'],
+    ['scene_member_ver_idx', 'memory_episode_member', 'segmenterVersion'],
+  ])('defines %s on %s(%s)', (name, table, fields) => {
+    expect(sql).toContain(`DEFINE INDEX IF NOT EXISTS ${name} ON ${table} FIELDS ${fields};`);
+  });
+
+  it('defines the BM25 gist index with the lowercase-only analyzer', () => {
+    expect(sql).toContain(
+      'DEFINE ANALYZER IF NOT EXISTS scene_gist TOKENIZERS class FILTERS lowercase;',
+    );
+    expect(sql).toMatch(
+      /DEFINE INDEX IF NOT EXISTS scene_gist_search ON memory_episode\s+FIELDS gist FULLTEXT ANALYZER scene_gist BM25;/,
+    );
+  });
+});
+
+describe('entity-forget scenes cascade (0106)', () => {
+  // Source-regex guard, same spirit as the index tuples above: the atomic
+  // erase transaction must take scene membership AND scene rows with the
+  // episodes it deletes — dropping either line reopens the GDPR hole that
+  // audit W1 #13 closed for segments.
+  const src = readFileSync(
+    join(__dirname, '..', 'src', 'entities', 'entity-forget.service.ts'),
+    'utf8',
+  );
+
+  it('the erase transaction deletes scene membership and scenes', () => {
+    expect(src).toContain('DELETE memory_episode_member WHERE in INSIDE $sceneIds');
+    expect(src).toContain('DELETE memory_episode WHERE id INSIDE $sceneIds');
+    // Scene resolution must come from membership of the dying episodes.
+    expect(src).toContain('SELECT VALUE in FROM memory_episode_member WHERE out INSIDE $eps');
+  });
+});
+
 describe('JobRunService.finish ownership guard', () => {
   function mkSurreal(db: { query: (s: string, p?: any) => Promise<any> }) {
     return {
