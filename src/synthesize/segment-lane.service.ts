@@ -10,6 +10,14 @@ interface SegmentRow {
   score?: number;
 }
 
+/** Anchor-shaped segment row (no text — session attribution only). */
+interface SegmentAnchorRow {
+  id: unknown;
+  conversationId: string;
+  occurredAt: Date | string;
+  score?: number;
+}
+
 /**
  * L0 segment lane (memory-rebuild R1,
  * docs/roadmap/memory-rebuild-2026-07.md §2).
@@ -104,6 +112,66 @@ export class SegmentLaneService {
     }
   }
 
+  /**
+   * L3 anchor independence (segment aux source): the same dense+BM25
+   * RRF retrieval as `transcriptLines`, but selecting the segments'
+   * conversationId/occurredAt (both first-class since migration 0075)
+   * and returning session anchors instead of rendered text. NO rerank
+   * — anchors need recall, not the precision trim. Score is the RRF
+   * fusion score (the caller normalizes per-source). Same contracts as
+   * the lane read: PII/user gates, degrade to [] on any failure.
+   */
+  async topSegmentAnchors(opts: {
+    companyId: string;
+    query: string;
+    callerScopes: string[];
+    /** Scope key of the asking end-user; omitted → tenant-global only. */
+    userId?: string | undefined;
+    limit: number;
+  }): Promise<Array<{ conversationId: string; occurredAt: Date | string; score: number }>> {
+    const piiGate = opts.callerScopes.includes('brain:read_pii') ? '' : 'AND piiClass IS NONE';
+    const userGate = opts.userId
+      ? 'AND (userId IS NONE OR userId = $scopeUserId)'
+      : 'AND userId IS NONE';
+    const userParams = opts.userId ? { scopeUserId: opts.userId } : {};
+    try {
+      const queryVector = await this.embedder.embed(opts.query);
+      const fused = await this.surreal.withCompany(opts.companyId, async (db) => {
+        const [dense] = await db.query<[SegmentAnchorRow[]]>(
+          `SELECT id, conversationId, occurredAt,
+                    vector::similarity::cosine(embedding, $q) AS score
+               FROM episode_segment
+              WHERE embedding != NONE ${piiGate} ${userGate}
+              ORDER BY score DESC
+              LIMIT $k`,
+          { q: queryVector, k: opts.limit, ...userParams },
+        );
+        const [bm25] = await db.query<[SegmentAnchorRow[]]>(
+          `SELECT id, conversationId, occurredAt, search::score(1) AS score
+               FROM episode_segment
+              WHERE text @1@ $q ${piiGate} ${userGate}
+              ORDER BY score DESC
+              LIMIT $k`,
+          { q: opts.query, k: opts.limit, ...userParams },
+        );
+        return rrfFuseScored([dense ?? [], bm25 ?? []]);
+      });
+      return fused
+        .slice(0, opts.limit)
+        .filter((x) => Boolean(x.row.conversationId))
+        .map((x) => ({
+          conversationId: x.row.conversationId,
+          occurredAt: x.row.occurredAt,
+          score: x.score,
+        }));
+    } catch (e) {
+      this.logger.warn(
+        `segment anchor source failed (companyId=${opts.companyId}): ${(e as Error).message}`,
+      );
+      return [];
+    }
+  }
+
   /** Listwise-rerank the fused pool when the profile asks; else head. */
   private async maybeRerank(
     query: string,
@@ -135,7 +203,15 @@ export class SegmentLaneService {
 
 /** Reciprocal-rank fusion over ranked lists, dedup by record id. */
 export function rrfFuse(lists: SegmentRow[][], k = 60): SegmentRow[] {
-  const scores = new Map<string, { row: SegmentRow; score: number }>();
+  return rrfFuseScored(lists, k).map((x) => x.row);
+}
+
+/** RRF keeping the fused score (the anchor source scores by it). */
+function rrfFuseScored<T extends { id: unknown }>(
+  lists: T[][],
+  k = 60,
+): Array<{ row: T; score: number }> {
+  const scores = new Map<string, { row: T; score: number }>();
   for (const list of lists) {
     list.forEach((row, rank) => {
       const id = String(row.id);
@@ -145,5 +221,5 @@ export function rrfFuse(lists: SegmentRow[][], k = 60): SegmentRow[] {
       else scores.set(id, { row, score: add });
     });
   }
-  return [...scores.values()].sort((a, b) => b.score - a.score).map((x) => x.row);
+  return [...scores.values()].sort((a, b) => b.score - a.score);
 }

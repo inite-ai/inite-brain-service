@@ -67,6 +67,13 @@ describe('G2 L3 escalation e2e', () => {
     return m ? parseInt(m[1]!, 10) : 0;
   }
 
+  async function anchorSourceCount(app: AppFixture, source: string): Promise<number> {
+    const metrics = app.app.get(MetricsService);
+    const { body } = await metrics.serialize();
+    const m = body.match(new RegExp(`brain_l3_anchor_source_total\\{source="${source}"\\} (\\d+)`));
+    return m ? parseInt(m[1]!, 10) : 0;
+  }
+
   // A flipping L3 re-verification (supported + answering).
   const L3_VERIFY_PASS = JSON.stringify({
     verdict: 'supported',
@@ -80,8 +87,12 @@ describe('G2 L3 escalation e2e', () => {
 
   beforeAll(async () => {
     delete process.env.RETRIEVAL_L3_ESCALATION;
+    delete process.env.RETRIEVAL_L3_DIRECT_ANCHOR;
+    delete process.env.RETRIEVAL_L3_SEGMENT_ANCHOR;
+    delete process.env.RETRIEVAL_L3_TEMPORAL_ANCHOR;
     f = await createApp();
-    f2 = await createApp();
+    // Extra key WITHOUT brain:read_pii — the aux-anchor PII fence case.
+    f2 = await createApp({ extraKeys: [{ scopes: ['brain:read', 'brain:write'] }] });
 
     // Anchored fact.
     const a = await f.http
@@ -112,6 +123,30 @@ describe('G2 L3 escalation e2e', () => {
       });
     expect(b.body.factId).toBeTruthy();
 
+    // More non-anchored facts (ISOLATED tenant), one per aux-anchor e2e
+    // query — synthesize returns no_results BEFORE the L3 seam when
+    // retrieval is empty, so each query must retrieve SOMETHING; none of
+    // these carries source.episodeIds, so the fact path still resolves
+    // zero anchors.
+    for (const [id, predicate, object] of [
+      ['cust_l3_fence', 'ledger', 'nickel-slate'],
+      ['cust_l3_pii', 'passphrase', 'opal-thorn'],
+      ['cust_l3_relay', 'status', 'relay-bank'],
+    ] as const) {
+      const r = await f2.http
+        .post('/v1/ingest/fact')
+        .set(auth2())
+        .send({
+          entityRef: { vertical: 'rent', id },
+          predicate,
+          object,
+          validFrom: new Date('2026-04-02').toISOString(),
+          source: { vertical: 'rent', messageId: `m_${id}` },
+          confidence: 0.9,
+        });
+      expect(r.body.factId).toBeTruthy();
+    }
+
     // Create the anchoring episode session and link the fact to it.
     const surreal = f.app.get(SurrealService);
     await surreal.withCompany(f.companyId, async (db) => {
@@ -135,15 +170,70 @@ describe('G2 L3 escalation e2e', () => {
         rid: new StringRecordId(anchoredFactId),
       });
     });
+
+    // L3 anchor independence seeds (ISOLATED tenant — no fact names any
+    // of these sessions, so the fact path keeps resolving zero anchors):
+    //  - conv_l3_direct: global searchable session (direct-anchor case);
+    //  - conv_l3_usera:  user-A-scoped session (user fence case);
+    //  - conv_l3_pii:    PII-classed session (read_pii fence case);
+    //  - conv_l3_april:  April-2026 session (temporal-anchor case; the
+    //    other seeds sit in March so the period isolates it).
+    const surreal2 = f2.app.get(SurrealService);
+    await surreal2.withCompany(f2.companyId, async (db) => {
+      await db.query(
+        `CREATE episode:l3d1 CONTENT {
+           kind: 'turn', messageId: 'm_l3_d1', conversationId: 'conv_l3_direct',
+           speaker: 'user', text: $d1, occurredAt: $mar1, source: {}
+         };
+         CREATE episode:l3d2 CONTENT {
+           kind: 'turn', messageId: 'm_l3_d2', conversationId: 'conv_l3_direct',
+           speaker: 'assistant', text: $d2, occurredAt: $mar2, source: {}
+         };
+         CREATE episode:l3u1 CONTENT {
+           kind: 'turn', messageId: 'm_l3_u1', conversationId: 'conv_l3_usera',
+           speaker: 'user', text: $u1, occurredAt: $mar1, userId: 'user-a', source: {}
+         };
+         CREATE episode:l3p1 CONTENT {
+           kind: 'turn', messageId: 'm_l3_p1', conversationId: 'conv_l3_pii',
+           speaker: 'user', text: $p1, occurredAt: $mar1, piiClass: ['contact'], source: {}
+         };
+         CREATE episode:l3t1 CONTENT {
+           kind: 'turn', messageId: 'm_l3_t1', conversationId: 'conv_l3_april',
+           speaker: 'user', text: $t1, occurredAt: $apr1, source: {}
+         };
+         CREATE episode:l3t2 CONTENT {
+           kind: 'turn', messageId: 'm_l3_t2', conversationId: 'conv_l3_april',
+           speaker: 'assistant', text: $t2, occurredAt: $apr2, source: {}
+         }`,
+        {
+          d1: `what is the status meridian-blue-l3 — you asked me to log it.`,
+          d2: `the status meridian-blue-l3 is what we call dormant standby.`,
+          u1: `my nickel-slate ledger balance is 42 entries.`,
+          p1: `the opal-thorn passphrase vault code is 9142.`,
+          t1: `we rewired the meridian relay bank this week.`,
+          t2: `confirmed — the relay bank cutover is complete.`,
+          mar1: new Date('2026-03-05T10:00:00Z'),
+          mar2: new Date('2026-03-05T10:01:00Z'),
+          apr1: new Date('2026-04-03T09:00:00Z'),
+          apr2: new Date('2026-04-04T09:00:00Z'),
+        },
+      );
+    });
   });
 
   afterEach(() => {
     delete process.env.FOVEA_PLAUSIBILITY_CHECK;
     delete process.env.FOVEA_REQUIRE_CITATIONS;
+    delete process.env.RETRIEVAL_L3_DIRECT_ANCHOR;
+    delete process.env.RETRIEVAL_L3_SEGMENT_ANCHOR;
+    delete process.env.RETRIEVAL_L3_TEMPORAL_ANCHOR;
   });
 
   afterAll(async () => {
     delete process.env.RETRIEVAL_L3_ESCALATION;
+    delete process.env.RETRIEVAL_L3_DIRECT_ANCHOR;
+    delete process.env.RETRIEVAL_L3_SEGMENT_ANCHOR;
+    delete process.env.RETRIEVAL_L3_TEMPORAL_ANCHOR;
     delete process.env.FOVEA_PLAUSIBILITY_CHECK;
     delete process.env.FOVEA_REQUIRE_CITATIONS;
     if (f) await f.close();
@@ -296,5 +386,112 @@ describe('G2 L3 escalation e2e', () => {
     expect(state.calls.length).toBe(4);
     expect(await l3Count(f, 'flipped')).toBe(flippedBefore + 1);
     expect(await counter(f, 'brain_plausibility_downgrade_total')).toBe(downgradeBefore);
+  });
+
+  // ── L3 anchor independence: aux anchor sources on the empty-fact-
+  // anchor residual (skipped_no_anchor becomes "every enabled source
+  // came up empty"). All on the ISOLATED tenant, whose facts never
+  // name a session.
+
+  it('aux: zero fact anchors + RETRIEVAL_L3_DIRECT_ANCHOR → fires off a BM25 episode anchor', async () => {
+    process.env.RETRIEVAL_L3_ESCALATION = '1';
+    process.env.RETRIEVAL_L3_DIRECT_ANCHOR = '1';
+    const firedBefore = await l3Count(f2, 'fired');
+    const directBefore = await anchorSourceCount(f2, 'direct');
+    const answer = 'The status is dormant standby, per the raw session.';
+    const state = mockSynthesizeOpenAi(f2.app, [
+      R1_GEN,
+      R1_VERIFY,
+      JSON.stringify({ answer, citedFactIds: [] as string[] }),
+      L3_VERIFY_PASS,
+    ]);
+    const res = await f2.http
+      .post('/v1/synthesize')
+      .set(auth2())
+      .send({ query: LONELY_QUERY, limit: 5 });
+    expect(res.status).toBe(201);
+    expect(res.body.answer).toBe(answer);
+    // round-1 generate + verify, then L3 generate + verify.
+    expect(state.calls.length).toBe(4);
+    // The L3 generator saw the BM25-anchored raw session.
+    expect(state.calls[2]!.user).toContain('Full conversation transcripts');
+    expect(state.calls[2]!.user).toContain('conv_l3_direct');
+    expect(await l3Count(f2, 'fired')).toBe(firedBefore + 1);
+    expect(await anchorSourceCount(f2, 'direct')).toBe(directBefore + 1);
+  });
+
+  it('aux fence: dto.userId=B never anchors off user-A episodes → skipped_no_anchor', async () => {
+    process.env.RETRIEVAL_L3_ESCALATION = '1';
+    process.env.RETRIEVAL_L3_DIRECT_ANCHOR = '1';
+    const skipBefore = await l3Count(f2, 'skipped_no_anchor');
+    const state = mockSynthesizeOpenAi(f2.app, [R1_GEN, R1_VERIFY, '{}', '{}']);
+    const res = await f2.http
+      .post('/v1/synthesize')
+      .set(auth2())
+      .send({ query: 'nickel-slate ledger balance', userId: 'user-b', limit: 5 });
+    expect(res.status).toBe(201);
+    expect(res.body.answer).toBeNull();
+    // The only matching episode is user-A's — fenced out, no L3 call.
+    expect(state.calls.length).toBe(2);
+    expect(await l3Count(f2, 'skipped_no_anchor')).toBe(skipBefore + 1);
+  });
+
+  it('aux fence: PII-classed episodes anchor only with brain:read_pii', async () => {
+    process.env.RETRIEVAL_L3_ESCALATION = '1';
+    process.env.RETRIEVAL_L3_DIRECT_ANCHOR = '1';
+    const query = 'opal-thorn passphrase vault';
+    // Key WITHOUT read_pii: the only matching episode is PII-classed →
+    // fenced out → skipped_no_anchor, no L3 call.
+    const skipBefore = await l3Count(f2, 'skipped_no_anchor');
+    const restricted = mockSynthesizeOpenAi(f2.app, [R1_GEN, R1_VERIFY, '{}', '{}']);
+    const resA = await f2.http
+      .post('/v1/synthesize')
+      .set({ Authorization: `Bearer ${f2.extraApiKeys[0]}` })
+      .send({ query, limit: 5 });
+    expect(resA.status).toBe(201);
+    expect(resA.body.answer).toBeNull();
+    expect(restricted.calls.length).toBe(2);
+    expect(await l3Count(f2, 'skipped_no_anchor')).toBe(skipBefore + 1);
+    // Same query with the read_pii key: the episode anchors and L3 fires.
+    const firedBefore = await l3Count(f2, 'fired');
+    const answer = 'The vault code is 9142, per the raw session.';
+    const full = mockSynthesizeOpenAi(f2.app, [
+      R1_GEN,
+      R1_VERIFY,
+      JSON.stringify({ answer, citedFactIds: [] as string[] }),
+      L3_VERIFY_PASS,
+    ]);
+    const resB = await f2.http.post('/v1/synthesize').set(auth2()).send({ query, limit: 5 });
+    expect(resB.status).toBe(201);
+    expect(resB.body.answer).toBe(answer);
+    expect(full.calls.length).toBe(4);
+    expect(full.calls[2]!.user).toContain('conv_l3_pii');
+    expect(await l3Count(f2, 'fired')).toBe(firedBefore + 1);
+  });
+
+  it('aux: RETRIEVAL_L3_TEMPORAL_ANCHOR anchors conversations in the query-named period', async () => {
+    process.env.RETRIEVAL_L3_ESCALATION = '1';
+    process.env.RETRIEVAL_L3_TEMPORAL_ANCHOR = '1';
+    const firedBefore = await l3Count(f2, 'fired');
+    const temporalBefore = await anchorSourceCount(f2, 'temporal');
+    const answer = 'The relay bank cutover completed in April 2026.';
+    const state = mockSynthesizeOpenAi(f2.app, [
+      R1_GEN,
+      R1_VERIFY,
+      JSON.stringify({ answer, citedFactIds: [] as string[] }),
+      L3_VERIFY_PASS,
+    ]);
+    const res = await f2.http
+      .post('/v1/synthesize')
+      .set(auth2())
+      .send({ query: 'what changed at the relay bank in April 2026', limit: 5 });
+    expect(res.status).toBe(201);
+    expect(res.body.answer).toBe(answer);
+    expect(state.calls.length).toBe(4);
+    // Only the April session is in-period (the other seeds sit in March).
+    expect(state.calls[2]!.user).toContain('conv_l3_april');
+    expect(state.calls[2]!.user).not.toContain('conv_l3_direct');
+    expect(await l3Count(f2, 'fired')).toBe(firedBefore + 1);
+    expect(await anchorSourceCount(f2, 'temporal')).toBe(temporalBefore + 1);
   });
 });

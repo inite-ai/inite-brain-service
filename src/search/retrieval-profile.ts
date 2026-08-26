@@ -519,6 +519,21 @@ export interface RetrievalProfile {
   /** G2: token cap for the assembled L3 context; over it the lane
    *  degrades to widened L2 windows rather than truncating a session. */
   l3TokenCap: number;
+  /**
+   * L3 anchor independence — auxiliary anchor sources consulted ONLY
+   * when zero retrieved facts name a session (the skipped_no_anchor
+   * residual: L3 is most needed exactly where extraction missed the
+   * info, which is when no fact anchor exists). Each source is its own
+   * flag; all off = byte-identical skipped_no_anchor. Direct: BM25
+   * episode hits on the query text anchor their conversations.
+   */
+  l3DirectAnchor: boolean;
+  /** L3 anchor independence: dense+BM25 fused segment hits (episode_
+   *  segment, no rerank — anchors need recall) anchor their sessions. */
+  l3SegmentAnchor: boolean;
+  /** L3 anchor independence: when the query names an absolute period
+   *  (code-parsed), conversations active in that period anchor. */
+  l3TemporalAnchor: boolean;
   /** Coverage floor: minimum best fact score (see abstention.ts). */
   abstentionMinTopScore: number;
   /** Coverage floor: minimum evidence fact count. */
@@ -734,6 +749,9 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
     l3Escalation: presetFlag(env, 'RETRIEVAL_L3_ESCALATION', preset.l3Escalation),
     l3MaxSessions: positiveIntEnv(env, 'RETRIEVAL_L3_MAX_SESSIONS', 3),
     l3TokenCap: positiveIntEnv(env, 'RETRIEVAL_L3_TOKEN_CAP', 60000),
+    l3DirectAnchor: presetFlag(env, 'RETRIEVAL_L3_DIRECT_ANCHOR', preset.l3DirectAnchor),
+    l3SegmentAnchor: presetFlag(env, 'RETRIEVAL_L3_SEGMENT_ANCHOR', preset.l3SegmentAnchor),
+    l3TemporalAnchor: presetFlag(env, 'RETRIEVAL_L3_TEMPORAL_ANCHOR', preset.l3TemporalAnchor),
     abstentionMinTopScore: nonNegativeFloatEnv(env, 'RETRIEVAL_ABSTENTION_MIN_SCORE', 0.35),
     abstentionMinEvidence: positiveIntEnv(env, 'RETRIEVAL_ABSTENTION_MIN_EVIDENCE', 2),
     lanes,
@@ -867,6 +885,9 @@ export function resolveRetrievalProfileFor(
     'noiseFilter',
     'searchLoop',
     'l3Escalation',
+    'l3DirectAnchor',
+    'l3SegmentAnchor',
+    'l3TemporalAnchor',
     'assistantLane',
     'factsAsKeys',
     'cjkSegmentation',

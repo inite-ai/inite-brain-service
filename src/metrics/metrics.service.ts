@@ -228,6 +228,28 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // L3 anchor independence: which anchor source(s) fed a fired
+  // escalation's final ranked session set —
+  //   fact     — grounding stamps of already-retrieved facts (the
+  //              original resolveAnchors path)
+  //   direct   — BM25 episode hits on the query text
+  //              (RETRIEVAL_L3_DIRECT_ANCHOR)
+  //   segment  — dense+BM25 RRF-fused episode_segment hits
+  //              (RETRIEVAL_L3_SEGMENT_ANCHOR)
+  //   temporal — conversations active in the query-named period
+  //              (RETRIEVAL_L3_TEMPORAL_ANCHOR)
+  // Counted once per fired escalation per source that contributed ≥1
+  // anchor to the ranked set (several sources can count on one fire).
+  // A separate counter — NOT new labels on brain_l3_escalation_total —
+  // keeps the existing outcome series stable (the Optics-2 precedent
+  // above).
+  readonly l3AnchorSourceCount = new Counter({
+    name: 'brain_l3_anchor_source_total',
+    help: 'L3 escalation anchor sources contributing to the fired session set',
+    labelNames: ['source'] as const,
+    registers: [this.registry],
+  });
+
   // Optics §4.2 (docs/roadmap/fovea-optics-2026-08.md §4.2): which sub-
   // condition fired the pre-generation memory-coverage ABSTAIN decision —
   //   adaptive — the calibrated-pre-answer-confidence floor
@@ -653,6 +675,10 @@ export class MetricsService implements OnModuleInit {
 
   countL3TriggerPath(path: 'adaptive' | 'static'): void {
     this.l3TriggerPathCount.inc({ path } as LabelValues<'path'>);
+  }
+
+  countL3AnchorSource(source: 'fact' | 'direct' | 'segment' | 'temporal'): void {
+    this.l3AnchorSourceCount.inc({ source } as LabelValues<'source'>);
   }
 
   countAbstainPath(path: 'adaptive' | 'static'): void {

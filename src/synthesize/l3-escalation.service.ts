@@ -16,6 +16,7 @@ import { runVerifier, type VerifierOutput } from './verifier';
 import { resolveCitations } from './synthesize.helpers';
 import type { Citation } from './fact-index';
 import type { GeneratorOutput } from './synthesize.types';
+import { SegmentLaneService } from './segment-lane.service';
 import {
   l3TriggerDecision,
   l3Covered,
@@ -23,8 +24,10 @@ import {
   rankL3Sessions,
   adaptiveL3SessionCount,
   estimateTokens,
+  mergeAnchorSources,
   type L3SessionAnchor,
   type L3AdaptiveGate,
+  type L3AnchorSource,
 } from './l3-escalation';
 import {
   buildFocusSignal,
@@ -48,7 +51,11 @@ import {
  * Loop-proof by construction: a monotone single-shot ladder (the
  * `escalated` guard in l3TriggerDecision, each tier entered at most
  * once) and an anchor requirement (no session named → abstain, never
- * burn a full-context call on empty memory). Bounded by
+ * burn a full-context call on empty memory). When the retrieved facts
+ * name no session, the flag-gated auxiliary anchor sources (direct
+ * BM25 / segment / temporal — resolveAuxiliaryAnchors) may still name
+ * one; with them off (the default) the anchor requirement reads
+ * exactly as before. Bounded by
  * profile.l3MaxSessions and profile.l3TokenCap — over budget it
  * degrades to widened L2 raw-turn windows rather than truncating a
  * session mid-way. Every failure path returns null: the lane can only
@@ -67,6 +74,12 @@ interface L3Turn {
   speaker?: string;
   text: string;
   occurredAt: Date | string;
+}
+
+/** The PII/user read fences threaded through every L3 episode read. */
+interface L3Fences {
+  includePii: boolean;
+  userId?: string | undefined;
 }
 
 export interface L3EscalateInput {
@@ -121,15 +134,23 @@ Output strictly the JSON shape requested by the schema. No preamble, no chain-of
 const L3_DEGRADE_SPAN_MULT = 4;
 /** Ceiling on episode ids resolved per escalation (bounds the IN set). */
 const ANCHOR_EPISODE_CAP = 300;
+/** Aux anchor source top-Ks (L3 anchor independence). Their sum stays
+ *  far under ANCHOR_EPISODE_CAP, so aux episodeById insertions are
+ *  bounded by construction. */
+const L3_DIRECT_ANCHOR_TOPK = 20;
+const L3_SEGMENT_ANCHOR_TOPK = 12;
+const L3_TEMPORAL_ANCHOR_TOPK = 10;
 
 @Injectable()
 export class L3EscalationService {
   private readonly logger = new Logger(L3EscalationService.name);
 
+  // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token and cannot be folded into an options object without breaking DI
   constructor(
     private readonly surreal: SurrealService,
     private readonly episodes: EpisodeReadStoreService,
     @Optional() private readonly metrics?: MetricsService,
+    @Optional() private readonly segments?: SegmentLaneService,
   ) {}
 
   /**
@@ -211,10 +232,18 @@ export class L3EscalationService {
     const { profile, dto } = input;
     const includePii = input.callerScopes.includes('brain:read_pii');
     const userId = dto.userId || undefined;
-    const { anchors, episodeById } = await this.resolveAnchors(input, {
-      includePii,
-      userId,
-    });
+    const fences = { includePii, userId };
+    const { anchors: factAnchors, episodeById } = await this.resolveAnchors(input, fences);
+    let sources: L3AnchorSource[] = [{ source: 'fact', anchors: factAnchors }];
+    let anchors = factAnchors;
+    if (factAnchors.length === 0) {
+      // L3 anchor independence: the aux sources run ONLY on the empty-
+      // fact-anchor residual, so a fact-anchored escalation is byte-
+      // identical to before, and skipped_no_anchor below now means
+      // "every ENABLED anchor source came up empty".
+      sources = await this.resolveAuxiliaryAnchors(input, fences, episodeById);
+      anchors = mergeAnchorSources(sources);
+    }
     if (anchors.length === 0) {
       this.metrics?.countL3Escalation('skipped_no_anchor');
       return null;
@@ -237,6 +266,14 @@ export class L3EscalationService {
       max: maxSessions,
       window,
     });
+    // Anchor-source observability: once per fired escalation per source
+    // that contributed ≥1 anchor to the final ranked set.
+    const selected = new Set(sessionIds);
+    for (const s of sources) {
+      if (s.anchors.some((a) => selected.has(a.conversationId))) {
+        this.metrics?.countL3AnchorSource(s.source);
+      }
+    }
     const ctx = await this.assembleContext(input, {
       sessionIds,
       episodeById,
@@ -337,6 +374,135 @@ export class L3EscalationService {
       }
     }
     return { anchors, episodeById };
+  }
+
+  /**
+   * L3 anchor independence — auxiliary anchor DISCOVERY, consulted only
+   * when the fact grounding stamps yielded zero anchors (L3 is most
+   * needed exactly where extraction missed the info, and that is when
+   * no fact anchor exists). Three independent probes, each behind its
+   * own profile flag, each individually fail-soft (warn + contribute
+   * nothing):
+   *   direct   — BM25 episode hits on the query text, via the SAME
+   *              fenced searchText read the episode lane uses; returned
+   *              rows also seed `episodeById` (bounded by the source
+   *              topK ≪ ANCHOR_EPISODE_CAP) so the over-budget degrade
+   *              path has window centers.
+   *   segment  — dense+BM25 RRF-fused segment hits, recall-first (no
+   *              rerank).
+   *   temporal — conversations active in a query-named absolute period,
+   *              scored by visible turn count. parseQueryTimeRange runs
+   *              here UNCONDITIONALLY (discovery) — distinct from the
+   *              lane-gated rank-only window preference in
+   *              runEscalation, which is untouched.
+   * All flags off ⇒ empty result, byte-identical skipped_no_anchor.
+   * Every read composes the same PII/user/scope fences as the fact
+   * path.
+   */
+  private async resolveAuxiliaryAnchors(
+    input: L3EscalateInput,
+    fences: L3Fences,
+    episodeById: Map<string, { conversationId: string; atMs?: number | undefined }>,
+  ): Promise<L3AnchorSource[]> {
+    const { profile } = input;
+    const probes: Array<{
+      source: L3AnchorSource['source'];
+      run: () => Promise<L3SessionAnchor[]>;
+    }> = [];
+    if (profile.l3DirectAnchor) {
+      probes.push({ source: 'direct', run: () => this.directAnchors(input, fences, episodeById) });
+    }
+    if (profile.l3SegmentAnchor && this.segments) {
+      probes.push({ source: 'segment', run: () => this.segmentAnchors(input, fences) });
+    }
+    if (profile.l3TemporalAnchor) {
+      probes.push({ source: 'temporal', run: () => this.temporalAnchors(input, fences) });
+    }
+    const sources: L3AnchorSource[] = [];
+    for (const probe of probes) {
+      try {
+        const anchors = await probe.run();
+        if (anchors.length > 0) sources.push({ source: probe.source, anchors });
+      } catch (e) {
+        this.logger.warn(
+          `L3 ${probe.source} anchor source failed (companyId=${input.companyId}): ${(e as Error).message}`,
+        );
+      }
+    }
+    return sources;
+  }
+
+  /** Direct aux probe: fenced BM25 episode hits → session anchors; the
+   *  rows also seed episodeById (window centers for the degrade path),
+   *  bounded by the source topK ≪ ANCHOR_EPISODE_CAP. */
+  private async directAnchors(
+    input: L3EscalateInput,
+    fences: L3Fences,
+    episodeById: Map<string, { conversationId: string; atMs?: number | undefined }>,
+  ): Promise<L3SessionAnchor[]> {
+    const rows = await this.episodes.searchText({
+      companyId: input.companyId,
+      query: input.dto.query,
+      limit: L3_DIRECT_ANCHOR_TOPK,
+      includePii: fences.includePii,
+      ...(fences.userId !== undefined ? { userId: fences.userId } : {}),
+    });
+    const anchors: L3SessionAnchor[] = [];
+    for (const r of rows) {
+      if (!r.conversationId) continue;
+      const conversationId = String(r.conversationId);
+      const atMs = toMs(r.occurredAt);
+      anchors.push({ conversationId, score: r.score ?? 0, atMs });
+      if (r.id !== undefined && episodeById.size < ANCHOR_EPISODE_CAP) {
+        const key = String(r.id);
+        if (!episodeById.has(key)) episodeById.set(key, { conversationId, atMs });
+      }
+    }
+    return anchors;
+  }
+
+  /** Segment aux probe: fused segment hits → session anchors. */
+  private async segmentAnchors(
+    input: L3EscalateInput,
+    fences: L3Fences,
+  ): Promise<L3SessionAnchor[]> {
+    const rows =
+      (await this.segments?.topSegmentAnchors({
+        companyId: input.companyId,
+        query: input.dto.query,
+        callerScopes: input.callerScopes,
+        ...(fences.userId !== undefined ? { userId: fences.userId } : {}),
+        limit: L3_SEGMENT_ANCHOR_TOPK,
+      })) ?? [];
+    return rows.map((r): L3SessionAnchor => ({
+      conversationId: r.conversationId,
+      score: r.score,
+      atMs: toMs(r.occurredAt),
+    }));
+  }
+
+  /** Temporal aux probe: conversations active in the query-named
+   *  absolute period, scored by visible turn count. No parseable
+   *  period → no read, no anchors. */
+  private async temporalAnchors(
+    input: L3EscalateInput,
+    fences: L3Fences,
+  ): Promise<L3SessionAnchor[]> {
+    const range = parseQueryTimeRange(input.dto.query);
+    if (!range) return [];
+    const rows = await this.episodes.conversationsInRange({
+      companyId: input.companyId,
+      fromIso: new Date(range.fromMs).toISOString(),
+      toIso: new Date(range.toMs).toISOString(),
+      limit: L3_TEMPORAL_ANCHOR_TOPK,
+      includePii: fences.includePii,
+      ...(fences.userId !== undefined ? { userId: fences.userId } : {}),
+    });
+    return rows.map((r): L3SessionAnchor => ({
+      conversationId: r.conversationId,
+      score: r.turns,
+      atMs: r.atMs,
+    }));
   }
 
   /**

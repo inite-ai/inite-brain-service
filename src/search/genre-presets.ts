@@ -68,6 +68,9 @@ export type GenrePreset = Partial<
     | 'noiseFilter'
     | 'searchLoop'
     | 'l3Escalation'
+    | 'l3DirectAnchor'
+    | 'l3SegmentAnchor'
+    | 'l3TemporalAnchor'
   >
 >;
 
