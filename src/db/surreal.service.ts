@@ -36,10 +36,16 @@ export {
 export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(SurrealService.name);
   // Two pools — admin (root) and scoped (brain_caller user).
-  // Caller-facing reads route through scopedPool so PERMISSIONS clauses
-  // on PII fields (migration 0005) actually fire. Admin paths
-  // (migration apply, GDPR forget, drop database) use rootPool because
-  // PERMISSIONS would block them and we want infra ops to bypass.
+  // Caller-facing reads route through scopedPool. NOTE (R4 audit): the
+  // DB-level field/table PERMISSIONS fence (migrations 0005/0057) does NOT
+  // currently fire — SurrealDB skips PERMISSIONS for SYSTEM users, and
+  // brain_caller is a NAMESPACE-level EDITOR (a system user); `LET` session
+  // vars also don't persist across query() boundaries. The EFFECTIVE
+  // PII/row barrier is the application-layer filter. The scoped pool is
+  // kept for the future Record Access (DEFINE ACCESS … TYPE RECORD WITH
+  // JWT) track that WILL make PERMISSIONS apply — see withScopedCompany
+  // and docs/abac.md. Admin paths (migration apply, GDPR forget, drop
+  // database) use rootPool (root bypasses PERMISSIONS by design).
   private readonly all: Surreal[] = [];
   private readonly rootIdle: Surreal[] = [];
   private readonly scopedIdle: Surreal[] = [];
@@ -186,10 +192,14 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     }
 
     // Scoped pool — sign in as `brain_caller` (defined in migration 0005).
-    // Disabled cleanly when the user/password aren't set; falls back to
-    // the root pool for everything (defense-in-depth becomes app-only,
-    // matching pre-0005 behaviour). Production deployments MUST set
-    // SURREALDB_SCOPED_USER + SURREALDB_SCOPED_PASS for DB-level fences.
+    // Disabled cleanly when the user/password aren't set; falls back to the
+    // root pool for everything. NOTE (R4 audit): the DB-level PERMISSIONS
+    // fence does NOT fire even when the scoped pool IS enabled — SurrealDB
+    // skips PERMISSIONS for the system `brain_caller` user, so the
+    // application-layer filter is the effective barrier either way. The
+    // scoped pool is retained for the future Record Access track; set
+    // SURREALDB_SCOPED_USER + SURREALDB_SCOPED_PASS to exercise it. See
+    // docs/abac.md.
     const scopedUser = this.configService.get<string>('SURREALDB_SCOPED_USER');
     const scopedPass = this.configService.get<string>('SURREALDB_SCOPED_PASS');
     if (scopedUser && scopedPass) {
@@ -263,8 +273,10 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    * The connection is exclusive to this callback for its lifetime.
    *
    * Use this for admin paths: schema apply, GDPR forget, drop database,
-   * compaction, ops scripts. Caller-facing paths must use
-   * `withScopedCompany` so DB-level PII permissions apply.
+   * compaction, ops scripts. Caller-facing paths use `withScopedCompany`
+   * (the application-layer filter is the effective PII/row barrier — the
+   * DB-level PERMISSIONS fence does NOT fire for the system `brain_caller`
+   * user today; see withScopedCompany and docs/abac.md).
    */
   async withCompany<T>(companyId: string, fn: (db: Surreal) => Promise<T>): Promise<T> {
     if (!/^[a-zA-Z0-9_-]+$/.test(companyId)) {
@@ -314,18 +326,29 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
 
   /**
    * Run a callback inside a per-tenant DB scope on a SCOPED connection.
-   * The connection is signed in as `brain_caller` (EDITOR role, not
-   * root), so PERMISSIONS clauses defined on schema fields apply.
+   * The connection is signed in as `brain_caller` (EDITOR role, not root).
    *
-   * Per-request, the service binds the caller's brain scopes to the
-   * SurrealDB session variable `$caller_scopes` via `LET`. PERMISSIONS
-   * clauses on PII-classed predicates check this variable; absence
-   * means PII fields return NONE for `object` while non-PII fields
-   * still return their values.
+   * IMPORTANT (R4 audit — do not claim a barrier that does not exist): the
+   * DB-level field/table PERMISSIONS fence DOES NOT CURRENTLY FIRE on this
+   * connection. `brain_caller` is a NAMESPACE-level system (EDITOR) user,
+   * and SurrealDB evaluates table/field PERMISSIONS for RECORD
+   * (ACCESS/SCOPE) users only — system users bypass them entirely.
+   * Independently, `LET $caller_scopes` / `$caller_policy_deny` do not
+   * persist across query() boundaries on this driver/server, so a later
+   * statement reads them as NONE. The EFFECTIVE PII/row barrier is the
+   * APPLICATION-LAYER filter (policy/row-filter.ts, entity-read.helpers),
+   * which covers every read surface and is e2e-enforced.
    *
-   * If the scoped pool is disabled (env var unset, dev mode without
-   * a non-root user), this falls back to `withCompany` semantics —
-   * defense-in-depth becomes app-layer-only.
+   * The scoped connection and the `$caller_scopes` / `$caller_policy_deny`
+   * `LET` binding below are kept intact so a real DB fence can be switched
+   * on the day callers move to Record Access (DEFINE ACCESS … TYPE RECORD
+   * WITH JWT) — a future track. The 0057 canary
+   * (test/abac-db-fence.e2e-spec.ts) fails loudly if the stack ever starts
+   * honoring PERMISSIONS. See docs/abac.md § DB-level fence status.
+   *
+   * If the scoped pool is disabled (env var unset, dev without a non-root
+   * user), this falls back to `withCompany` semantics — identical effective
+   * enforcement, since the app-layer filter is the gate either way.
    */
   async withScopedCompany<T>(
     companyId: string,
@@ -343,10 +366,12 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       });
     }
     // ABAC DB fence (migration 0057, flag default off): compile the
-    // request's pushdown-safe deny rules off the AsyncLocalStorage
-    // policy context so the knowledge_fact field PERMISSIONS can null
-    // object/objectMeta for matching rows — defense-in-depth behind
-    // the app-layer row filter.
+    // request's pushdown-safe deny rules off the AsyncLocalStorage policy
+    // context and bind them for the knowledge_fact field PERMISSIONS. NOTE
+    // (R4 audit): this fence is INERT today (PERMISSIONS are skipped for the
+    // system brain_caller user — see the withScopedCompany docstring); the
+    // app-layer row filter is the effective gate. The binding is kept armed
+    // for the future Record Access track.
     const policyDeny = envFlagEnabled(process.env.ABAC_DB_FENCE_ENABLED)
       ? compileDenyPushdown(getPolicyContext())
       : [];

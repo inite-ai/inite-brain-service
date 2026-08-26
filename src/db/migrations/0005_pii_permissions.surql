@@ -1,4 +1,20 @@
--- 0005_pii_permissions — DB-level PII enforcement gate.
+-- 0005_pii_permissions — DB-level PII enforcement gate
+-- (PREPARED, NOT EFFECTIVE — read the finding below).
+--
+-- ── FINDING (R4 audit, verified; canary test/abac-db-fence.e2e-spec.ts) ──
+-- This DB-level PII fence DOES NOT FIRE on the current stack. SurrealDB
+-- evaluates table/field PERMISSIONS for RECORD (ACCESS/SCOPE) users only —
+-- it SKIPS them for SYSTEM users, and `brain_caller` is a NAMESPACE-level
+-- EDITOR (a system user). Independently, `LET $caller_scopes` does not
+-- persist across query() boundaries on this driver/server, so the clause
+-- reads it as NONE regardless. The EFFECTIVE PII barrier is the
+-- APPLICATION-LAYER filter (policy/row-filter.ts, entity-read.helpers); it
+-- covers every read surface and is e2e-enforced. A real DB fence requires
+-- Record Access (DEFINE ACCESS … TYPE RECORD WITH JWT) — a future track.
+-- This migration ships the fence ARMED for that day; the 0057 canary fails
+-- loudly if the stack ever starts honoring PERMISSIONS. The historical
+-- framing below is kept for context but is SUPERSEDED by this finding.
+-- See docs/abac.md § DB-level fence status.
 --
 -- Architecture (cf. AGENTS A1 + Pinecone-Nexus governance framing):
 --

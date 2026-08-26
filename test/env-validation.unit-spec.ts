@@ -1,8 +1,11 @@
 /**
  * Unit coverage for validateEnv — focuses on the production fail-closed
  * assertion for the scoped DB pool (SURREALDB_SCOPED_USER/PASS). Without
- * those, withScopedCompany() silently falls back to the root pool and the
- * DB-level PII fence is bypassed; production must refuse to start.
+ * those, withScopedCompany() silently falls back to the root pool; the
+ * scoped pool is required in production for parity/readiness (the DB-level
+ * PII fence itself is inert for the system brain_caller user — the
+ * app-layer filter is the effective barrier). Production must refuse to
+ * start without both creds.
  */
 import { validateEnv } from '../src/common/env-validation';
 

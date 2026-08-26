@@ -114,9 +114,12 @@ export class CommunityService {
 
   /**
    * Caller-facing reads (REST controller, MCP tools) thread scopes and
-   * ride the SCOPED pool so DB-level PERMISSIONS apply — community rows
-   * carry LLM summaries synthesized from facts. Internal consumers
-   * (reranker type hints, builder) stay on the root pool.
+   * ride the SCOPED pool — community rows carry LLM summaries synthesized
+   * from facts. NOTE (R4 audit): the DB-level PERMISSIONS fence does NOT
+   * fire for the system `brain_caller` user; the application-layer filter
+   * is the effective barrier. The scoped pool is kept for the future
+   * Record Access track. Internal consumers (reranker type hints, builder)
+   * stay on the root pool.
    */
   private run<T>(
     companyId: string,

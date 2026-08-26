@@ -270,13 +270,19 @@ function validateProductionGuards(
     if (isProd) {
       errors.push(
         'SURREALDB_SCOPED_USER and SURREALDB_SCOPED_PASS must BOTH be set in ' +
-          'production — without them withScopedCompany() falls back to the ' +
-          'root pool and the DB-level PII fence (migration 0005) is bypassed.',
+          'production so withScopedCompany() uses the non-root scoped pool ' +
+          'instead of falling back to root. NOTE (R4 audit): the DB-level ' +
+          'PERMISSIONS fence (migration 0005) does not currently fire even ' +
+          'on the scoped pool — SurrealDB skips PERMISSIONS for the system ' +
+          'brain_caller user, so the app-layer filter is the effective PII ' +
+          'barrier; the scoped pool is required for parity/readiness for the ' +
+          'future Record Access fence.',
       );
     } else {
       warnings.push(
-        'SURREALDB_SCOPED_USER/PASS not set — DB-level PII fence inactive ' +
-          '(app-layer policy only). Set both before deploying.',
+        'SURREALDB_SCOPED_USER/PASS not set — running on the root pool ' +
+          '(app-layer policy is the effective PII barrier; the DB-level fence ' +
+          'is inert regardless). Set both before deploying.',
       );
     }
   } else if (env.SURREALDB_SCOPED_PASS?.trim() === SHIPPED_SCOPED_PASS_DEFAULT) {

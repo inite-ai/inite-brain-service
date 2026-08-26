@@ -10,7 +10,15 @@
  *   4. Verify the entity + its facts + its edges are gone from the
  *      tenant DB (cascade actually deleted).
  *   5. Verify a `forgotten_entity` tombstone row was written.
+ *
+ * R4 audit adds two more, exercised against the real SurrealDB:
+ *   6. Idempotent retry — re-forget with the same requestId replays the
+ *      stored result and writes no duplicate tombstone.
+ *   7. Atomicity — a mid-transaction failure (a pre-seeded tombstone
+ *      hash-conflict) rolls the whole erase back: nothing partially erased.
  */
+import { ConfigService } from '@nestjs/config';
+import { createHmac } from 'node:crypto';
 import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
@@ -246,5 +254,113 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
       .set(auth())
       .send({ reason: 'gdpr_request', requestId: 'req-2' });
     expect(r.status).toBe(404);
+  });
+
+  // Resolve the knowledge_entity id backing a freshly-ingested fact.
+  const seedEntity = async (extId: string, object: string): Promise<string> => {
+    const fact = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: extId },
+        predicate: 'name',
+        object,
+        validFrom: '2026-01-01',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'bot' },
+      });
+    expect([200, 201]).toContain(fact.status);
+    const surreal = f.app.get(SurrealService);
+    const entityId = await surreal.withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<any[][]>(
+        `SELECT entityId FROM type::record('knowledge_fact', $tail)`,
+        { tail: String(fact.body.factId).split(':')[1] },
+      );
+      return String((rows as any[])?.[0]?.entityId ?? '');
+    });
+    expect(entityId).toMatch(/^knowledge_entity:/);
+    return entityId;
+  };
+
+  it('idempotent retry: re-forget with the same requestId replays the stored result (no duplicate tombstone)', async () => {
+    const entityId = await seedEntity('idem_subj', 'Idempotent Person');
+    const surreal = f.app.get(SurrealService);
+
+    const r1 = await f.http
+      .post(`/v1/entities/${encodeURIComponent(entityId)}/forget`)
+      .set(auth())
+      .send({ reason: 'gdpr_request', requestId: 'idem-1' });
+    expect([200, 201]).toContain(r1.status);
+    const hash = r1.body.entityIdHash as string;
+    expect(hash).toMatch(/^hmac:[0-9a-f]{64}$/);
+    expect(r1.body.factsDeleted).toBeGreaterThanOrEqual(1);
+
+    // Retry with the SAME requestId — the entity is already gone, so this
+    // must be a no-op replay of the stored result, NOT a 404 or a re-erase.
+    const r2 = await f.http
+      .post(`/v1/entities/${encodeURIComponent(entityId)}/forget`)
+      .set(auth())
+      .send({ reason: 'gdpr_request', requestId: 'idem-1' });
+    expect([200, 201]).toContain(r2.status);
+    expect(r2.body.entityIdHash).toBe(hash);
+    expect(r2.body.factsDeleted).toBe(r1.body.factsDeleted);
+    expect(r2.body.forgottenAt).toBe(r1.body.forgottenAt);
+
+    // Exactly one tombstone for this entity — the replay wrote none.
+    const tombCount = await surreal.withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<any[][]>(
+        `SELECT id FROM forgotten_entity WHERE entityIdHash = $h`,
+        { h: hash },
+      );
+      return (rows as any[]).length;
+    });
+    expect(tombCount).toBe(1);
+  });
+
+  it('atomic erase: a mid-transaction failure rolls the whole erase back (nothing partially erased)', async () => {
+    const entityId = await seedEntity('atomic_subj', 'Atomic Person');
+    const surreal = f.app.get(SurrealService);
+
+    // Compute the tombstone hash the erase will attempt to CREATE, then
+    // PRE-SEED a conflicting tombstone (same hash, DIFFERENT requestId).
+    // The transaction's final `CREATE forgotten_entity` hits the UNIQUE
+    // index on entityIdHash and aborts the transaction — the DELETEs that
+    // ran earlier in the same transaction must roll back.
+    const key = f.app.get(ConfigService).get<string>('FORGET_HMAC_KEY') ?? 'inite-brain-default';
+    const hash =
+      'hmac:' + createHmac('sha256', key).update(`${f.companyId}/${entityId}`).digest('hex');
+    await surreal.withCompany(f.companyId, async (db) => {
+      await db.query(
+        `CREATE forgotten_entity CONTENT {
+           entityIdHash: $h, reason: 'operator_request', requestId: 'pre-existing-conflict',
+           factsDeleted: 0, edgesDeleted: 0, auditEventsDeleted: 0,
+           episodesDeleted: 0, segmentsDeleted: 0, forgottenBy: 'seed', forgottenAt: time::now() }`,
+        { h: hash },
+      );
+    });
+
+    // Forget with a DIFFERENT requestId so the idempotency check does not
+    // short-circuit; the erase must reach the failing CREATE and roll back.
+    const r = await f.http
+      .post(`/v1/entities/${encodeURIComponent(entityId)}/forget`)
+      .set(auth())
+      .send({ reason: 'gdpr_request', requestId: 'atomic-test' });
+    expect(r.status).toBeGreaterThanOrEqual(500);
+
+    // Atomicity proof: the subject entity + its fact are STILL PRESENT —
+    // the erase deleted nothing because the transaction rolled back.
+    await surreal.withCompany(f.companyId, async (db) => {
+      const tail = entityId.split(':')[1];
+      const [entRows] = await db.query<any[][]>(
+        `SELECT id FROM type::record('knowledge_entity', $tail)`,
+        { tail },
+      );
+      expect((entRows as any[]).length).toBe(1);
+      const [factRows] = await db.query<any[][]>(
+        `SELECT id FROM knowledge_fact WHERE entityId = type::record('knowledge_entity', $tail)`,
+        { tail },
+      );
+      expect((factRows as any[]).length).toBeGreaterThanOrEqual(1);
+    });
   });
 });

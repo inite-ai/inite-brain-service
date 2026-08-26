@@ -32,6 +32,7 @@ the operator's reference for running Brain.
 |---|---|---|
 | `PORT` | `3000` | |
 | `NODE_ENV` | unset | Set `production` to enable strict env checks (FORGET_HMAC_KEY required, empty BRAIN_API_KEYS warned). |
+| `FORGET_MAX_TX_RECORDS` | `10000` | Max records a single entity-forget erase may touch in ONE atomic transaction (facts + edges + episodes + segments + audit-mirror rows). The GDPR erase is all-or-nothing (one `BEGIN`/`COMMIT`); an entity whose fan-out exceeds this is refused with `413` **before any mutation** rather than building an oversized transaction that risks the server write-key limit — use whole-tenant offboarding (drop database) for that case, or raise the cap deliberately. |
 | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | |
 | `OPENAI_EMBEDDING_DIMENSIONS` | `1536` | Must match the schema's HNSW dim if HNSW is later enabled. |
 | `OPENAI_CHAT_MODEL` | `gpt-4o-mini` | Used by `ingest-mention` extraction. |
