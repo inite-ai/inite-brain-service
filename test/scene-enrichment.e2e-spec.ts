@@ -1,15 +1,19 @@
 /**
- * Brain v2 PR2 e2e: LLM enrichment (stubbed model — no paid calls),
- * fact backlink (idempotent source.memoryEpisodeIds stamps), and version
- * purge (rows gone + projection ledger row demoted to 'residual').
- * Mirrors memory-episode.e2e-spec.ts: episode-only ingest, embedder-free
- * segmentation (SCENES_TOPIC_BOUNDARY stays off), flags flipped via
- * process.env after boot and restored in afterAll.
+ * Brain v2 PR2 e2e: LLM enrichment (stubbed model — no paid calls) as a
+ * REVISION beside the deterministic originals (Drift-3b / migration 0118:
+ * gist/memoryValue immutable, enriched* siblings + model/version stamps,
+ * idempotent skip on re-run, compose-over-enrich reset + post-swap hook
+ * re-enrichment), fact backlink (idempotent source.memoryEpisodeIds
+ * stamps), and version purge (rows gone + projection ledger row demoted
+ * to 'residual'). Mirrors memory-episode.e2e-spec.ts: episode-only
+ * ingest, embedder-free segmentation (SCENES_TOPIC_BOUNDARY stays off),
+ * flags flipped via process.env after boot and restored in afterAll.
  */
 import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 import { mockSceneEnricherOpenAi } from './test-doubles';
 import { SurrealService } from '../src/db/surreal.service';
+import { sceneEnrichmentVersion } from '../src/admin/scene-enricher.service';
 
 const CONV = 'proj:scene-enrich';
 const USER = 'scene2_user';
@@ -21,6 +25,11 @@ interface SceneRow {
   memoryValue?: Record<string, unknown>;
   stateDeltas?: Array<Record<string, unknown>>;
   unexpectedDetails?: string[];
+  enrichedGist?: string;
+  enrichedMemoryValue?: Record<string, unknown>;
+  enrichmentModel?: string;
+  enrichmentVersion?: string;
+  enrichedAt?: unknown;
 }
 
 const ENRICHMENT_REPLY = JSON.stringify({
@@ -163,13 +172,15 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
     });
   };
 
-  it('enriches scenes via the stubbed model: gist replaced, full memoryValue, version stamps', async () => {
+  it('enriches scenes as a revision: originals intact, enriched* siblings + stamps', async () => {
     // Deterministic world before enrichment (flag off ⇒ 404, gist intact).
     const before = await scenesInDb();
     expect(before).toHaveLength(2);
     for (const scene of before) {
       expect(scene.gist).toContain('opens:'); // PR1 deterministic render
       expect(scene.gistPromptVersion).toBeUndefined();
+      expect(scene.enrichedGist).toBeUndefined();
+      expect(scene.enrichmentVersion).toBeUndefined();
     }
     const gated = await f.http.post('/v1/admin/maintenance/scenes/enrich').set(auth()).send({});
     expect(gated.status).toBe(404);
@@ -178,7 +189,7 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
     const mock = mockSceneEnricherOpenAi(f.app, [ENRICHMENT_REPLY]);
     const res = await f.http.post('/v1/admin/maintenance/scenes/enrich').set(auth()).send({});
     expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ scenes: 2, enriched: 2, failed: 0 });
+    expect(res.body).toMatchObject({ scenes: 2, enriched: 2, failed: 0, skipped: 0 });
     expect(mock.calls).toHaveLength(2);
     // The scene transcripts (not the deterministic gists) are what the
     // model saw — one call per scene, in unspecified scene order.
@@ -187,12 +198,19 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
     expect(prompts).toContain('near the river');
 
     const after = await scenesInDb();
+    const originals = new Map(before.map((s) => [String(s.id), s]));
     for (const scene of after) {
-      expect(scene.gist).toBe(
+      // Drift-3b: the deterministic originals are byte-identical — the
+      // enricher writes ONLY the revision siblings + stamps (0118).
+      const original = originals.get(String(scene.id))!;
+      expect(scene.gist).toBe(original.gist);
+      expect(scene.gist).toContain('opens:');
+      expect(scene.memoryValue).toEqual(original.memoryValue);
+      expect(scene.gistPromptVersion).toBeUndefined(); // legacy-dead, never written
+      expect(scene.enrichedGist).toBe(
         'Mika planned the Lisbon trip: compared flights and booked the morning one.',
       );
-      expect(scene.gistPromptVersion).toBe('scene-gist-v1');
-      expect(scene.memoryValue).toMatchObject({
+      expect(scene.enrichedMemoryValue).toMatchObject({
         novelty: 0.8,
         contradiction: 0,
         stateChange: 0.6,
@@ -201,11 +219,53 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
         estimatedUtility: 0.7,
         scorerVersion: 'scene-scorer-llm-v1',
       });
-      expect(scene.memoryValue!.scoredAt).toBeDefined();
+      expect(scene.enrichedMemoryValue!.scoredAt).toBeDefined();
       expect(scene.stateDeltas).toEqual([
         { subject: 'mika', field: 'trip.flight', from: '', to: 'booked' },
       ]);
       expect(scene.unexpectedDetails).toEqual(['booked the morning flight']);
+      // The resolved model id is stamped, and the composite names it.
+      expect(typeof scene.enrichmentModel).toBe('string');
+      expect(scene.enrichmentModel!.length).toBeGreaterThan(0);
+      expect(scene.enrichmentVersion).toBe(sceneEnrichmentVersion(scene.enrichmentModel!));
+      expect(scene.enrichedAt).toBeDefined();
+    }
+  });
+
+  it('re-enrich with unchanged prompt+scorer+model is idempotent: zero calls, all skipped', async () => {
+    const mock = mockSceneEnricherOpenAi(f.app, [ENRICHMENT_REPLY]);
+    const res = await f.http.post('/v1/admin/maintenance/scenes/enrich').set(auth()).send({});
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ scenes: 2, enriched: 0, failed: 0, skipped: 2 });
+    expect(mock.calls).toHaveLength(0);
+  });
+
+  it('composer re-run resets the revision; the post-swap hook re-enriches', async () => {
+    // Flag off: a re-compose swaps in fresh rows WITHOUT enriched*
+    // columns (deterministic-only) — enrichment is a revision on rows,
+    // not a property of the world.
+    delete process.env.SCENES_LLM_ENRICHMENT;
+    const plain = await f.http.post('/v1/admin/maintenance/scenes').set(auth()).send({});
+    expect(plain.status).toBe(201);
+    expect(plain.body).toMatchObject({ conversations: 1, scenes: 2 });
+    const fresh = await scenesInDb();
+    expect(fresh).toHaveLength(2);
+    for (const scene of fresh) {
+      expect(scene.gist).toContain('opens:');
+      expect(scene.enrichedGist).toBeUndefined();
+      expect(scene.enrichmentVersion).toBeUndefined();
+    }
+    // Flag on: the composer's post-swap hook re-enriches the fresh rows.
+    process.env.SCENES_LLM_ENRICHMENT = '1';
+    const mock = mockSceneEnricherOpenAi(f.app, [ENRICHMENT_REPLY]);
+    const hooked = await f.http.post('/v1/admin/maintenance/scenes').set(auth()).send({});
+    expect(hooked.status).toBe(201);
+    expect(mock.calls).toHaveLength(2);
+    for (const scene of await scenesInDb()) {
+      expect(scene.gist).toContain('opens:'); // originals still intact
+      expect(scene.enrichedGist).toBe(
+        'Mika planned the Lisbon trip: compared flights and booked the morning one.',
+      );
     }
   });
 

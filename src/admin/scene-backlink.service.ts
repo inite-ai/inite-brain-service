@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { sceneFactBacklinkEnabled } from '../common/scene-flags';
-import { SEGMENTER_VERSION } from './scene-segmentation';
+import { SceneVersionService } from './scene-version';
 
 /**
  * Scene fact backlinker (Brain v2 PR2, SCENES_FACT_BACKLINK — default
@@ -13,7 +13,10 @@ import { SEGMENTER_VERSION } from './scene-segmentation';
  * then stamps the matches:
  *
  *   source.memoryEpisodeIds ∪= [scene id]   (array::union — idempotent)
- *   source.sceneLinkVersion  = <segmenter version>
+ *   source.sceneLinkVersion  = <EFFECTIVE segmenter version — under
+ *   SCENES_VERSION_FINGERPRINT the fingerprinted string, resolved once
+ *   per run (SceneVersionService), so the stamp always names the world
+ *   that was linked>
  *
  * FLEXIBLE-source ride, no migration. Idempotent and re-runnable after a
  * re-segmentation (scene record ids are deterministic per (conversation,
@@ -69,7 +72,10 @@ export interface SceneBacklinkResult {
 export class SceneBacklinkService {
   private readonly logger = new Logger(SceneBacklinkService.name);
 
-  constructor(private readonly surreal: SurrealService) {}
+  constructor(
+    private readonly surreal: SurrealService,
+    private readonly versions: SceneVersionService,
+  ) {}
 
   async run(
     companyId: string,
@@ -79,12 +85,16 @@ export class SceneBacklinkService {
     // Defense in depth: the controller already 404s with the flag off; a
     // programmatic caller must not stamp fact rows past a disabled flag.
     if (!sceneFactBacklinkEnabled()) return result;
+    // Effective version resolved ONCE per run: the scene selection AND the
+    // sceneLinkVersion stamp both follow the composer's stamps. CONTAINS
+    // filters below stay — backlink only ADDS pointers, never deletes.
+    const { version } = this.versions.resolve();
     await this.surreal.withCompany(companyId, async (db) => {
       const [scenes] = await db.query<[Array<{ id: unknown; conversationIds: string[] }>]>(
         `SELECT id, conversationIds FROM memory_episode WHERE segmenterVersion = $v` +
           (opts.conversationId !== undefined ? ` AND conversationIds CONTAINS $conv` : ''),
         {
-          v: SEGMENTER_VERSION,
+          v: version,
           ...(opts.conversationId !== undefined ? { conv: opts.conversationId } : {}),
         },
       );
@@ -130,7 +140,7 @@ export class SceneBacklinkService {
              WHERE id INSIDE $factIds`,
             {
               sceneId: String(scene.id),
-              v: SEGMENTER_VERSION,
+              v: version,
               factIds: factIds.slice(i, i + FACTS_PER_UPDATE),
             },
           );

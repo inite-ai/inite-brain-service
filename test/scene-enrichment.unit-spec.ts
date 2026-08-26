@@ -1,22 +1,26 @@
 /**
  * Brain v2 PR2 unit tests: the scene-enrichment reply parser (malformed →
- * null; well-formed → clamped/capped), the pure backlink intersection, and
- * the enricher service's degrade contract exercised against a scripted
- * provider stub — a malformed reply leaves the scene row untouched and
- * warns; a well-formed reply updates the row with the
- * 'scene-scorer-llm-v1' / 'scene-gist-v1' stamps. No network, no Nest, no
- * paid calls.
+ * null; well-formed → clamped/capped), the pure backlink intersection, the
+ * enrichmentVersion composite, and the enricher service's degrade contract
+ * exercised against a scripted provider stub — a malformed reply leaves
+ * the scene row untouched and warns; a well-formed reply writes ONLY the
+ * enriched* sibling columns + stamps (Drift-3b: the deterministic
+ * gist/memoryValue are immutable post-compose); a scene already at the
+ * current enrichmentVersion is skipped with zero model calls. No network,
+ * no Nest, no paid calls.
  */
 import type { ConfigService } from '@nestjs/config';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { EpisodeReadStoreService } from '../src/episodes/episode-read-store.service';
 import {
   parseSceneEnrichment,
+  sceneEnrichmentVersion,
   SceneEnricherService,
-  SCENE_GIST_PROMPT_VERSION,
   SCENE_SCORER_LLM_VERSION,
 } from '../src/admin/scene-enricher.service';
 import { matchFactsToScene } from '../src/admin/scene-backlink.service';
+import { SEGMENTER_VERSION } from '../src/admin/scene-segmentation';
+import type { SceneVersionService } from '../src/admin/scene-version';
 
 const WELL_FORMED = {
   gist: 'Mika planned the Lisbon trip and booked the morning flight.',
@@ -85,6 +89,14 @@ describe('parseSceneEnrichment', () => {
   });
 });
 
+describe('sceneEnrichmentVersion', () => {
+  it('is the readable prompt|scorer|model composite', () => {
+    expect(sceneEnrichmentVersion('gpt-4o-mini')).toBe(
+      'scene-gist-v1|scene-scorer-llm-v1|gpt-4o-mini',
+    );
+  });
+});
+
 describe('matchFactsToScene', () => {
   it('returns exactly the facts whose episodeIds intersect the membership', () => {
     const members = new Set(['episode:a', 'episode:b']);
@@ -113,22 +125,36 @@ describe('SceneEnricherService degrade contract (scripted provider)', () => {
   });
 
   interface Captured {
-    updates: Array<Record<string, unknown>>;
+    updates: Array<{ sql: string; params: Record<string, unknown> }>;
+    modelCalls: number;
   }
 
-  function build(reply: string): { svc: SceneEnricherService; captured: Captured } {
-    const captured: Captured = { updates: [] };
+  function build(
+    reply: string,
+    opts: { sceneEnrichmentVersion?: string } = {},
+  ): { svc: SceneEnricherService; captured: Captured } {
+    const captured: Captured = { updates: [], modelCalls: 0 };
     const fakeDb = {
       query: async (sql: string, params?: Record<string, unknown>) => {
-        if (sql.includes('FROM memory_episode WHERE')) {
-          return [[{ id: 'memory_episode:s1', conversationIds: ['conv'] }]];
+        if (sql.includes('UPDATE $scene')) {
+          captured.updates.push({ sql, params: params ?? {} });
+          return [[]];
         }
         if (sql.includes('FROM memory_episode_member')) {
           return [[{ out: 'episode:e1', ord: 0 }]];
         }
-        if (sql.includes('UPDATE $scene')) {
-          captured.updates.push(params ?? {});
-          return [[]];
+        if (sql.includes('FROM memory_episode')) {
+          return [
+            [
+              {
+                id: 'memory_episode:s1',
+                conversationIds: ['conv'],
+                ...(opts.sceneEnrichmentVersion !== undefined
+                  ? { enrichmentVersion: opts.sceneEnrichmentVersion }
+                  : {}),
+              },
+            ],
+          ];
         }
         throw new Error(`unexpected query: ${sql}`);
       },
@@ -147,11 +173,20 @@ describe('SceneEnricherService degrade contract (scripted provider)', () => {
         },
       ],
     } as unknown as EpisodeReadStoreService;
-    const svc = new SceneEnricherService(fakeSurreal, fakeConfig, fakeEpisodes);
+    const fakeVersions = {
+      resolve: () => ({
+        version: SEGMENTER_VERSION,
+        cfg: { topicBoundary: false, minCosine: 0.55, maxTurns: 40, embeddingSpaceId: null },
+      }),
+    } as unknown as SceneVersionService;
+    const svc = new SceneEnricherService(fakeSurreal, fakeConfig, fakeEpisodes, fakeVersions);
     (svc as unknown as { openai: unknown }).openai = {
       chat: {
         completions: {
-          create: async () => ({ choices: [{ message: { content: reply } }] }),
+          create: async () => {
+            captured.modelCalls += 1;
+            return { choices: [{ message: { content: reply } }] };
+          },
         },
       },
     };
@@ -164,25 +199,55 @@ describe('SceneEnricherService degrade contract (scripted provider)', () => {
       .spyOn((svc as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn')
       .mockImplementation(() => undefined);
     const result = await svc.enrich('co_test');
-    expect(result).toEqual({ scenes: 1, enriched: 0, failed: 1 });
+    expect(result).toEqual({ scenes: 1, enriched: 0, failed: 1, skipped: 0 });
     expect(captured.updates).toHaveLength(0);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('malformed'));
   });
 
-  it('updates the row with the scorer + prompt version stamps on a well-formed reply', async () => {
+  it('writes ONLY the enriched* siblings + stamps on a well-formed reply', async () => {
     const { svc, captured } = build(JSON.stringify(WELL_FORMED));
     const result = await svc.enrich('co_test');
-    expect(result).toEqual({ scenes: 1, enriched: 1, failed: 0 });
+    expect(result).toEqual({ scenes: 1, enriched: 1, failed: 0, skipped: 0 });
     expect(captured.updates).toHaveLength(1);
-    const update = captured.updates[0]!;
-    expect(update.gist).toBe(WELL_FORMED.gist);
-    expect(update.gistPromptVersion).toBe(SCENE_GIST_PROMPT_VERSION);
-    const mv = update.memoryValue as Record<string, unknown>;
+    const { sql, params } = captured.updates[0]!;
+    // Drift-3b contract: the deterministic originals are immutable — the
+    // UPDATE touches only the revision siblings and stamps.
+    expect(sql).toContain('enrichedGist = $gist');
+    expect(sql).toContain('enrichedMemoryValue = $memoryValue');
+    expect(sql).toContain('enrichmentModel = $model');
+    expect(sql).toContain('enrichmentVersion = $enrichmentVersion');
+    expect(sql).toContain('enrichedAt = time::now()');
+    expect(sql).not.toMatch(/\bgist\s*=/); // never `gist =` (only enrichedGist =)
+    expect(sql).not.toMatch(/\bmemoryValue\s*=/);
+    expect(sql).not.toContain('gistPromptVersion'); // legacy-dead column
+    expect(params.gist).toBe(WELL_FORMED.gist);
+    const mv = params.memoryValue as Record<string, unknown>;
     expect(mv.scorerVersion).toBe(SCENE_SCORER_LLM_VERSION);
     expect(mv.scoredAt).toBeInstanceOf(Date);
     expect(mv.novelty).toBeCloseTo(0.8);
-    expect(update.stateDeltas).toEqual(WELL_FORMED.stateDeltas);
-    expect(update.unexpectedDetails).toEqual(WELL_FORMED.unexpectedDetails);
+    expect(params.stateDeltas).toEqual(WELL_FORMED.stateDeltas);
+    expect(params.unexpectedDetails).toEqual(WELL_FORMED.unexpectedDetails);
+    expect(params.model).toBe('gpt-4o-mini');
+    expect(params.enrichmentVersion).toBe(sceneEnrichmentVersion('gpt-4o-mini'));
+  });
+
+  it('skips a scene already at the current enrichmentVersion — zero model calls', async () => {
+    const { svc, captured } = build(JSON.stringify(WELL_FORMED), {
+      sceneEnrichmentVersion: sceneEnrichmentVersion('gpt-4o-mini'),
+    });
+    const result = await svc.enrich('co_test');
+    expect(result).toEqual({ scenes: 1, enriched: 0, failed: 0, skipped: 1 });
+    expect(captured.modelCalls).toBe(0);
+    expect(captured.updates).toHaveLength(0);
+  });
+
+  it('re-enriches when the stamped revision differs from the current composite', async () => {
+    const { svc, captured } = build(JSON.stringify(WELL_FORMED), {
+      sceneEnrichmentVersion: sceneEnrichmentVersion('some-older-model'),
+    });
+    const result = await svc.enrich('co_test');
+    expect(result).toEqual({ scenes: 1, enriched: 1, failed: 0, skipped: 0 });
+    expect(captured.modelCalls).toBe(1);
   });
 
   it('is a no-op with the flag off', async () => {
@@ -190,7 +255,7 @@ describe('SceneEnricherService degrade contract (scripted provider)', () => {
     try {
       const { svc, captured } = build(JSON.stringify(WELL_FORMED));
       const result = await svc.enrich('co_test');
-      expect(result).toEqual({ scenes: 0, enriched: 0, failed: 0 });
+      expect(result).toEqual({ scenes: 0, enriched: 0, failed: 0, skipped: 0 });
       expect(captured.updates).toHaveLength(0);
     } finally {
       process.env.SCENES_LLM_ENRICHMENT = '1';

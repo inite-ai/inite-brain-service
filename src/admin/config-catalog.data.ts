@@ -655,6 +655,19 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Scenes fact backlink (Brain v2 PR2): stamp knowledge_fact rows whose source.episodeIds intersect a scene’s membership with source.memoryEpisodeIds (idempotent array::union) + source.sceneLinkVersion — facts become pointers into the episodic plane. FLEXIBLE source ride, no migration; nothing on the serving path reads the keys (additively visible where `source` is already returned). Off = no fact row is ever touched, backlink route 404s.',
   },
+  {
+    key: 'SCENES_VERSION_FINGERPRINT',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneVersionFingerprintEnabled) once
+    // per composer/enricher/backlinker run (SceneVersionService.resolve) —
+    // never captured in a constructor — so a flip takes effect without
+    // restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Scenes: fingerprint the segmenter config into the effective version — scene-segmenter-v1+<8-hex sha256 over impl|scorer|maxTurns|topicBoundary[|minCosine|space]> — so a config change forks a NEW coexisting scene id-space (ids, stamps, registry keys, swap WHERE and backlink stamps all follow) instead of overwriting the old world in place; abandoned worlds are purged via DELETE /scenes/versions/:v. Off = the literal scene-segmenter-v1 constant: byte-identical ids, stamps and registry keys.',
+  },
   // ── Multilingual (Tier 1, migration 0100) ───────────
   {
     key: 'MULTILINGUAL_LANG_ATTRIBUTION',

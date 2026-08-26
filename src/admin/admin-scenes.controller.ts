@@ -35,15 +35,21 @@ const SEGMENTER_VERSION_MAX_CHARS = 64;
  *    flags are on it also runs the enrichment/backlink passes after the
  *    swap.
  *  - POST /scenes/enrich — standalone re-enrichment (PR2): ONE structured
- *    LLM call per scene of the current segmenter version. 404 unless BOTH
- *    the master flag and SCENES_LLM_ENRICHMENT are on.
+ *    LLM call per scene of the current effective segmenter version. 404
+ *    unless BOTH the master flag and SCENES_LLM_ENRICHMENT are on.
+ *    Idempotent (0118): scenes already at the current enrichmentVersion
+ *    composite (prompt|scorer|model) are SKIPPED — a re-run with an
+ *    unchanged configuration makes zero paid calls.
  *  - POST /scenes/backlink — standalone fact backlink (PR2): idempotent
  *    source.memoryEpisodeIds stamps. 404 unless BOTH the master flag and
  *    SCENES_FACT_BACKLINK are on.
  *  - DELETE /scenes/versions/:segmenterVersion — purge one version's
  *    scene world (members → scenes, one transaction) and demote its
  *    projection ledger row to 'residual'. 404 when the master flag is
- *    off.
+ *    off. Accepts fingerprinted version strings
+ *    (`scene-segmenter-v1+<8hex>`, SCENES_VERSION_FINGERPRINT) — `+` is a
+ *    literal character in a URL path segment — so abandoned fingerprint
+ *    worlds are purged through the same verb.
  *
  * All flags are read at call time (runtime-mutable).
  */

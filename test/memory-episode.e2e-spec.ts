@@ -3,12 +3,21 @@
  * 404, no rows), scene derivation over episode-only ingest (two sessions →
  * two scenes with contiguous core membership, gist, version + generation
  * stamps, a 'built' projection row), idempotent re-run on a fresh
- * generation, and the user-forget GDPR cascade taking scenes + members.
- * Embedder-free path (SCENES_TOPIC_BOUNDARY stays off) — no paid calls.
+ * generation, the SCENES_VERSION_FINGERPRINT coexistence contract
+ * (Drift-3: flag off = the literal constant version + the locked id
+ * formula; flag on + config change = a disjoint id-space beside the old
+ * world; purge removes only the purged world), the exact-match swap
+ * ownership rule (Drift-4: a foreign multi-conversation scene survives a
+ * per-conversation rebuild), and the user-forget GDPR cascade taking
+ * scenes + members. Embedder-free path (SCENES_TOPIC_BOUNDARY stays off)
+ * — no paid calls.
  */
+import { createHash } from 'node:crypto';
+import { RecordId, StringRecordId } from 'surrealdb';
 import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
+import { effectiveSegmenterVersion } from '../src/admin/scene-segmentation';
 
 const CONV = 'proj:scenes';
 const USER = 'scene_user';
@@ -17,6 +26,7 @@ interface SceneRow {
   id: unknown;
   gist: string;
   sceneLabel: string;
+  conversationIds: string[];
   segmenterVersion: string;
   generation: string;
   userId?: string;
@@ -35,6 +45,12 @@ describe('memory_episode — shadow scenes substrate (e2e)', () => {
     }
     saved.SCENES_SEGMENTATION_ENABLED = process.env.SCENES_SEGMENTATION_ENABLED;
     delete process.env.SCENES_SEGMENTATION_ENABLED;
+    // The fingerprint/coexistence test flips these; start from a known-off
+    // state and restore whatever the environment had in afterAll.
+    for (const k of ['SCENES_VERSION_FINGERPRINT', 'SCENES_MAX_TURNS']) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
     f = await createApp({ companyId: 'co_scenes_e2e' });
     // One conversation, two sessions: 3 turns, then a >60-min gap, then 2.
     const turns = [
@@ -112,9 +128,23 @@ describe('memory_episode — shadow scenes substrate (e2e)', () => {
 
     const scenes = await scenesInDb();
     expect(scenes).toHaveLength(2);
-    for (const scene of scenes) {
+    for (const [index, scene] of scenes.entries()) {
       expect(scene.gist.length).toBeGreaterThan(0);
+      // Flag off ⇒ the LITERAL constant version — byte-identical to the
+      // pre-fingerprint build (SCENES_VERSION_FINGERPRINT default-off
+      // contract) — and the locked id formula:
+      // sha256(conversation|version|index) first 24 hex chars.
       expect(scene.segmenterVersion).toBe('scene-segmenter-v1');
+      const expectedTail = createHash('sha256')
+        .update(`${CONV}|scene-segmenter-v1|${index}`)
+        .digest('hex')
+        .slice(0, 24);
+      expect(String(scene.id)).toContain(expectedTail);
+      // The composer only ever writes single-conversation scenes — the
+      // invariant that makes the swap's exact-match delete
+      // (conversationIds = [$conv]) byte-identical to the previous
+      // CONTAINS filter on all producible data (Drift-4).
+      expect(scene.conversationIds).toEqual([CONV]);
       expect(scene.generation).toBeDefined();
       // Single-user conversation → per-user scope folded onto the scene.
       expect(scene.userId).toBe(USER);
@@ -144,6 +174,164 @@ describe('memory_episode — shadow scenes substrate (e2e)', () => {
     const after = await scenesInDb();
     expect(after).toHaveLength(before.length);
     expect(after[0]!.generation).not.toBe(before[0]!.generation);
+  });
+
+  it('fingerprinted world coexists with the constant world; purge removes only it', async () => {
+    const before = await scenesInDb();
+    expect(before).toHaveLength(2);
+    // The expected effective version of world B, recomputed here from the
+    // exact config the run will resolve (boundary off ⇒ minCosine/space
+    // are excluded from the fingerprint, so their values are irrelevant).
+    const effectiveB = effectiveSegmenterVersion({
+      topicBoundary: false,
+      minCosine: 0.55,
+      maxTurns: 2,
+      embeddingSpaceId: null,
+    });
+    expect(effectiveB).toMatch(/^scene-segmenter-v1\+[0-9a-f]{8}$/);
+    const key = (s: SceneRow) => String(s.id);
+    const sortById = (rows: SceneRow[]) => [...rows].sort((a, b) => key(a).localeCompare(key(b)));
+
+    process.env.SCENES_VERSION_FINGERPRINT = '1';
+    process.env.SCENES_MAX_TURNS = '2';
+    try {
+      // World B: maxTurns=2 splits the 3+2 turn sessions into 2+1+2 turns
+      // ⇒ 3 scenes, under the fingerprinted version.
+      const res = await f.http.post('/v1/admin/maintenance/scenes').set(auth()).send({});
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({ conversations: 1, scenes: 3 });
+
+      const all = await scenesInDb();
+      expect(all).toHaveLength(5);
+      expect(new Set(all.map((s) => s.segmenterVersion))).toEqual(
+        new Set(['scene-segmenter-v1', effectiveB]),
+      );
+      const worldA = all.filter((s) => s.segmenterVersion === 'scene-segmenter-v1');
+      const worldB = all.filter((s) => s.segmenterVersion === effectiveB);
+      expect(worldB).toHaveLength(3);
+      // World A rows byte-unchanged; the two id-spaces are disjoint.
+      expect(sortById(worldA)).toEqual(sortById(before));
+      const beforeIds = new Set(before.map(key));
+      for (const scene of worldB) expect(beforeIds.has(key(scene))).toBe(false);
+
+      // Member rows carry the fingerprinted version too.
+      const surreal = f.app.get(SurrealService);
+      const bMemberVersions = await surreal.withCompany(f.companyId, async (db) => {
+        const [rows] = await db.query<[Array<{ segmenterVersion: string }>]>(
+          `SELECT segmenterVersion FROM memory_episode_member WHERE in INSIDE $ids`,
+          { ids: worldB.map((s) => s.id) },
+        );
+        return rows ?? [];
+      });
+      expect(bMemberVersions).toHaveLength(5);
+      expect(bMemberVersions.every((m) => m.segmenterVersion === effectiveB)).toBe(true);
+
+      // Purge world B (the '+' is a literal character in a path segment):
+      // world A intact, B gone, B's registry row demoted to residual while
+      // A's row (keyed per version) stays built.
+      const purge = await f.http
+        .delete(`/v1/admin/maintenance/scenes/versions/${effectiveB}`)
+        .set(auth())
+        .send({});
+      expect(purge.status).toBe(200);
+      expect(purge.body).toMatchObject({ scenes: 3, members: 5 });
+      expect(sortById(await scenesInDb())).toEqual(sortById(before));
+      const registry = await surreal.withCompany(f.companyId, async (db) => {
+        const [rows] = await db.query<[Array<{ version: string; status: string }>]>(
+          `SELECT version, status FROM projection WHERE name = 'scenes'`,
+        );
+        return rows ?? [];
+      });
+      const byVersion = new Map(registry.map((r) => [r.version, r.status]));
+      expect(byVersion.get('scene-segmenter-v1')).toBe('built');
+      expect(byVersion.get(effectiveB)).toBe('residual');
+    } finally {
+      delete process.env.SCENES_VERSION_FINGERPRINT;
+      delete process.env.SCENES_MAX_TURNS;
+    }
+  });
+
+  it('per-conversation swap leaves a foreign multi-conversation scene untouched', async () => {
+    const surreal = f.app.get(SurrealService);
+    const before = await scenesInDb();
+    expect(before).toHaveLength(2);
+    const beforeGenerations = new Set(before.map((s) => s.generation));
+
+    // Hand-INSERT a synthetic MULTI-conversation scene (a future
+    // consolidation output) under the current version, with one member
+    // row. The pre-fix CONTAINS filter would have deleted it on any CONV
+    // rebuild; the exact-match [$conv] filter must not (Drift-4).
+    const epId = await surreal.withCompany(f.companyId, async (db) => {
+      const [eps] = await db.query<[Array<{ id: unknown }>]>(
+        `SELECT id, occurredAt FROM episode WHERE conversationId = $conv
+           ORDER BY occurredAt ASC LIMIT 1`,
+        { conv: CONV },
+      );
+      expect(eps ?? []).toHaveLength(1);
+      await db.query(`CREATE memory_episode:multiconv CONTENT $content`, {
+        content: {
+          sceneLabel: 'synthetic multi-conversation scene',
+          conversationIds: [CONV, 'proj:other-conv'],
+          occurredFrom: new Date('2026-02-01T10:00:00.000Z'),
+          occurredTo: new Date('2026-02-01T12:05:00.000Z'),
+          gist: 'synthetic multi-conversation gist',
+          confidence: 1,
+          segmenterVersion: 'scene-segmenter-v1',
+          generation: 'synthetic-generation',
+          source: { recorder: 'test-seed' },
+          userId: USER,
+          scope: [`user:${USER}`],
+        },
+      });
+      await db.query(`INSERT RELATION INTO memory_episode_member $rows`, {
+        rows: [
+          {
+            in: new RecordId('memory_episode', 'multiconv'),
+            out: new StringRecordId(String((eps ?? [])[0]!.id)),
+            role: 'core',
+            ord: 0,
+            relevance: 1,
+            segmenterVersion: 'scene-segmenter-v1',
+          },
+        ],
+      });
+      return String((eps ?? [])[0]!.id);
+    });
+    expect(epId.length).toBeGreaterThan(0);
+
+    try {
+      const res = await f.http
+        .post('/v1/admin/maintenance/scenes')
+        .set(auth())
+        .send({ conversationId: CONV });
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({ conversations: 1, scenes: 2 });
+
+      const after = await scenesInDb();
+      expect(after).toHaveLength(3);
+      const synthetic = after.find((s) => String(s.id).includes('multiconv'));
+      expect(synthetic).toBeDefined();
+      expect(synthetic!.generation).toBe('synthetic-generation'); // untouched
+      expect(await membersOf(synthetic!.id)).toHaveLength(1); // member survived
+      // The single-conversation scenes WERE swapped (fresh generation).
+      const swapped = after.filter((s) => !String(s.id).includes('multiconv'));
+      expect(swapped).toHaveLength(2);
+      for (const scene of swapped) {
+        expect(beforeGenerations.has(scene.generation)).toBe(false);
+      }
+    } finally {
+      // Restore the 2-scene world for the forget-cascade test below.
+      // Cleanup uses the id-list idiom (3.2.4 compound-index DELETE bug).
+      await surreal.withCompany(f.companyId, async (db) => {
+        await db.query(
+          `LET $ids = (SELECT VALUE id FROM memory_episode_member
+             WHERE in = memory_episode:multiconv);
+           DELETE $ids;
+           DELETE memory_episode:multiconv;`,
+        );
+      });
+    }
+    expect(await scenesInDb()).toHaveLength(2);
   });
 
   it('user forget cascades over scenes and membership', async () => {

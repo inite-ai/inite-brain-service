@@ -8,12 +8,15 @@
  */
 import {
   detectSceneBoundaries,
+  effectiveSegmenterVersion,
   foldSceneScope,
   meanVector,
   renderSceneGist,
   renderSceneLabel,
+  sceneConfigFingerprint,
   scoreSceneDeterministic,
   SCENE_SCORER_VERSION,
+  type SceneSegmenterConfig,
   type SceneTurnRow,
 } from '../src/admin/scene-segmentation';
 import { segmentSessions } from '../src/episodes/session-window';
@@ -188,6 +191,50 @@ describe('scoreSceneDeterministic', () => {
       ]),
     ).toEqual([0.5, 0.5]);
     expect(meanVector([])).toEqual([]);
+  });
+});
+
+describe('sceneConfigFingerprint / effectiveSegmenterVersion (Drift-3)', () => {
+  const base: SceneSegmenterConfig = {
+    topicBoundary: false,
+    minCosine: 0.55,
+    maxTurns: 40,
+    embeddingSpaceId: null,
+  };
+  const boundaryOn: SceneSegmenterConfig = {
+    ...base,
+    topicBoundary: true,
+    embeddingSpaceId: 'openai:text-embedding-3-small:1536:l2',
+  };
+
+  it('formats as scene-segmenter-v1+<8hex> and is deterministic', () => {
+    const version = effectiveSegmenterVersion(base);
+    expect(version).toMatch(/^scene-segmenter-v1\+[0-9a-f]{8}$/);
+    expect(effectiveSegmenterVersion({ ...base })).toBe(version);
+    expect(sceneConfigFingerprint({ ...base })).toBe(sceneConfigFingerprint(base));
+  });
+
+  it('every effective knob forks the fingerprint', () => {
+    // topicBoundary flip forks.
+    expect(sceneConfigFingerprint(boundaryOn)).not.toBe(sceneConfigFingerprint(base));
+    // maxTurns change forks.
+    expect(sceneConfigFingerprint({ ...base, maxTurns: 20 })).not.toBe(
+      sceneConfigFingerprint(base),
+    );
+    // With the boundary ON, minCosine and the embedding space each fork.
+    expect(sceneConfigFingerprint({ ...boundaryOn, minCosine: 0.7 })).not.toBe(
+      sceneConfigFingerprint(boundaryOn),
+    );
+    expect(
+      sceneConfigFingerprint({ ...boundaryOn, embeddingSpaceId: 'local:bge-m3:1024:l2' }),
+    ).not.toBe(sceneConfigFingerprint(boundaryOn));
+  });
+
+  it('excludes knobs that cannot affect output when the boundary is off', () => {
+    expect(sceneConfigFingerprint({ ...base, minCosine: 0.9 })).toBe(sceneConfigFingerprint(base));
+    expect(sceneConfigFingerprint({ ...base, embeddingSpaceId: 'any:space:1:l2' })).toBe(
+      sceneConfigFingerprint(base),
+    );
   });
 });
 
