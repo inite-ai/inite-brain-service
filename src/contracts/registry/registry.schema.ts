@@ -102,6 +102,10 @@ export const DomainPackManifestSchema = z.looseObject({
    *  NO raw JSON Schema passthrough by design; runtime validation is
    *  validateMcpTools on the install/publish path. */
   mcpTools: z.array(z.record(z.string(), z.unknown())).optional(),
+  /** Domain perception contract (PackMemoryModel — docs/domain-packs.md).
+   *  Opaque here on purpose; runtime validation is validateMemoryModel on
+   *  the install/publish path, never this schema. */
+  memoryModel: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const PublishPackRequestSchema = z.object({

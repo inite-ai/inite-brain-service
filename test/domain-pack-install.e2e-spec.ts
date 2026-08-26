@@ -226,4 +226,77 @@ describe('/v1/admin/packs — runtime Domain Pack install', () => {
     // Added predicate seeded active.
     expect((byId.get('oncology__regimen') as any)?.status).toBe('active');
   });
+  // ── memoryModel — the domain perception contract (P1, contract-only) ──
+
+  const REALTY_MM_MANIFEST = (version: string, cue: string) => ({
+    id: 'realty_mm',
+    version,
+    description: 'Realty perception test pack (memoryModel e2e).',
+    predicates: [
+      {
+        localId: 'deal_stage',
+        displayLabel: 'deal stage',
+        description: 'TYPE subject is a deal; value is its stage',
+        datatype: 'string',
+        semantics: 'single_active',
+        decayHalfLifeDays: null,
+        piiClass: 'none',
+        status: 'active',
+      },
+    ],
+    memoryModel: {
+      sceneSchemas: [{ id: 'viewing', description: 'A property viewing.', cues: [cue] }],
+      attentionHints: [{ cue: 'asking price', prefer: ['deal_stage'], zoom: ['viewing', 'facts'] }],
+      retentionHints: [{ predicateOrScene: 'deal_stage', hint: 'durable' }],
+    },
+  });
+
+  it('installs a memoryModel-bearing pack (no consent flag needed) and GET returns the section', async () => {
+    const r = await f.http
+      .post('/v1/admin/packs')
+      .set(auth())
+      .send({ manifest: REALTY_MM_MANIFEST('1.0.0', 'showed the flat') });
+    expect([200, 201]).toContain(r.status);
+    expect(r.body.packId).toBe('realty_mm');
+
+    const list = await f.http.get('/v1/admin/packs').set(auth());
+    expect(list.status).toBe(200);
+    const installed = list.body.installed.find((p: any) => p.packId === 'realty_mm');
+    expect(installed).toBeDefined();
+    expect(installed.memoryModel).toBeDefined();
+    expect(installed.memoryModel.sceneSchemas[0].id).toBe('viewing');
+    expect(installed.memoryModel.sceneSchemas[0].cues).toEqual(['showed the flat']);
+    // Packs without the section expose null, not a missing key.
+    const medical = list.body.installed.find((p: any) => p.packId === 'medical');
+    expect(medical.memoryModel).toBeNull();
+  });
+
+  it('upgrades with a CHANGED memoryModel section without any re-consent', async () => {
+    const r = await f.http
+      .post('/v1/admin/packs')
+      .set(auth())
+      .send({ manifest: REALTY_MM_MANIFEST('1.1.0', 'open house') });
+    expect([200, 201]).toContain(r.status);
+
+    const list = await f.http.get('/v1/admin/packs').set(auth());
+    const installed = list.body.installed.find((p: any) => p.packId === 'realty_mm');
+    expect(installed.version).toBe('1.1.0');
+    expect(installed.memoryModel.sceneSchemas[0].cues).toEqual(['open house']);
+  });
+
+  it('rejects an invalid memoryModel (template syntax in a cue) with 400', async () => {
+    const bad = REALTY_MM_MANIFEST('1.2.0', 'ok cue') as any;
+    bad.memoryModel.attentionHints[0].cue = 'price {{template}}';
+    const r = await f.http.post('/v1/admin/packs').set(auth()).send({ manifest: bad });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/plain literal text/);
+  });
+
+  it('rejects a memoryModel referencing a foreign predicate with 400', async () => {
+    const bad = REALTY_MM_MANIFEST('1.2.0', 'ok cue') as any;
+    bad.memoryModel.attentionHints[0].prefer = ['not_our_predicate'];
+    const r = await f.http.post('/v1/admin/packs').set(auth()).send({ manifest: bad });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/not a predicate of this pack/);
+  });
 });

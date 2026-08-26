@@ -35,6 +35,7 @@ import {
 } from '../ai/domain-packs';
 import { assertPublicHttpUrl, EgressDeniedError } from '../common/egress-guard';
 import { PackToolsReaderService } from '../mcp/pack-tools-reader.service';
+import { MemoryModelReaderService } from '../ai/memory-model-reader.service';
 
 export interface InstalledPack {
   packId: string;
@@ -42,6 +43,11 @@ export interface InstalledPack {
   installedAt: string;
   predicateCount: number;
   checksum: string | null;
+  /** The stored manifest's memoryModel section (PackMemoryModel —
+   *  docs/domain-packs.md); null when the pack declares none. Read-only
+   *  admin exposure — the list projection otherwise drops the manifest.
+   *  Typed opaquely to match the wire contract (InstalledPackSchema). */
+  memoryModel: Record<string, unknown> | null;
 }
 
 export interface AvailablePack {
@@ -68,7 +74,7 @@ interface InstalledPackRow {
   packId?: unknown;
   version?: unknown;
   installedAt: string | Date;
-  manifest?: { predicates?: unknown };
+  manifest?: { predicates?: unknown; memoryModel?: Record<string, unknown> };
   checksum?: unknown;
 }
 
@@ -94,10 +100,19 @@ export class DomainPackInstallService {
   private readonly logger = new Logger(DomainPackInstallService.name);
   private readonly builtinIds = new Set(BUILTIN_PACKS.map((p) => p.id));
 
-  // The optional 4th/5th deps are hooks — the REINDEX_ON_PACK_INSTALL /
-  // seed-ingest queue enqueues and the MCP pack-tools cache invalidation
-  // — fire-and-forget concerns, not responsibilities worth a wrapper
-  // class.
+  // The optional 4th..6th deps are hooks — the REINDEX_ON_PACK_INSTALL /
+  // seed-ingest queue enqueues and the MCP pack-tools / memory-model
+  // cache invalidations — fire-and-forget concerns, not responsibilities
+  // worth a wrapper class.
+  //
+  // CONSENT DECISION (memoryModel): installing/upgrading a manifest with
+  // a memoryModel section requires NO consent flag. Unlike mcpTools it is
+  // purely declarative data — it registers nothing on any agent surface
+  // and causes zero egress; every proposal derived from it is a candidate
+  // the core pipeline may reject. mcpToolsChecksum stays scoped to the
+  // mcpTools section only. BOUNDARY: any future memoryModel field that
+  // grants the pack READ access (or any other capability) moves under its
+  // own accepted<Section>Checksum consent gate, mcpConsentRequired-style.
   // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
@@ -105,6 +120,7 @@ export class DomainPackInstallService {
     private readonly registry: PredicateRegistryService,
     @Optional() private readonly claim?: JobClaimService,
     @Optional() private readonly packToolsReader?: PackToolsReaderService,
+    @Optional() private readonly memoryModelReader?: MemoryModelReaderService,
   ) {}
 
   /** Trust store: publisher → PEM public key, from DOMAIN_PACK_TRUSTED_KEYS
@@ -149,6 +165,7 @@ export class DomainPackInstallService {
           installedAt: new Date(r.installedAt).toISOString(),
           predicateCount: Array.isArray(preds) ? preds.length : 0,
           checksum: r.checksum ? String(r.checksum) : null,
+          memoryModel: r.manifest?.memoryModel ?? null,
         };
       });
     });
@@ -298,6 +315,9 @@ export class DomainPackInstallService {
 
     this.registry.invalidate(companyId);
     this.packToolsReader?.invalidate(companyId);
+    // Covers both fresh installs and upgrades whose diff flipped
+    // memoryModelChanged (applyPackUpgrade rewrites the manifest row).
+    this.memoryModelReader?.invalidate(companyId);
     this.logger.log(
       `Installed pack ${manifest.id} v${manifest.version} into ${companyId} (${seeded} predicate(s) seeded)`,
     );
@@ -555,6 +575,7 @@ export class DomainPackInstallService {
 
     this.registry.invalidate(companyId);
     this.packToolsReader?.invalidate(companyId);
+    this.memoryModelReader?.invalidate(companyId);
     this.logger.log(
       `Uninstalled pack ${packId} from ${companyId} (${deprecated} predicate(s) deprecated)`,
     );

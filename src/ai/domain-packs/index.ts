@@ -23,6 +23,7 @@ export const SEED_PREDICATES: PredicateDefinition[] = assembleSeed(CORE_PREDICAT
 
 export * from './manifest';
 export * from './validate';
+export * from './validate-memory-model';
 export * from './upgrade-diff';
 export * from './checksum';
 export * from './mcp-consent';

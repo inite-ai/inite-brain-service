@@ -538,6 +538,13 @@
             },
             "type": "array"
           },
+          "memoryModel": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
           "predicates": {
             "items": {
               "additionalProperties": {},
@@ -1472,6 +1479,20 @@
           "installedAt": {
             "type": "string"
           },
+          "memoryModel": {
+            "anyOf": [
+              {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "packId": {
             "type": "string"
           },
@@ -1489,7 +1510,8 @@
           "version",
           "installedAt",
           "predicateCount",
-          "checksum"
+          "checksum",
+          "memoryModel"
         ],
         "type": "object"
       },
