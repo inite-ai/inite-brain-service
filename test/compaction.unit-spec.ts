@@ -1,10 +1,14 @@
 /**
  * Unit-test for CompactionService. Mocks SurrealService, ApiKeyService,
  * and the SummaryGenerator to verify retention math, multi-tenant fan-out,
- * error isolation, and the optional summary leg.
+ * error isolation, and the optional summary leg — plus the evidence-plane
+ * episode stamping of compaction AND promotion summaries
+ * (PROVENANCE_SUMMARY_EPISODE_STAMP; both runners live in src/compaction).
  */
 import { ConfigService } from '@nestjs/config';
 import { CompactionRunnerService } from '../src/compaction/compaction-runner.service';
+import { PromotionRunnerService } from '../src/compaction/promotion-runner.service';
+import type { EmbedderService } from '../src/ai/embedder.service';
 import type { FactToSummarize, SummaryGenerator } from '../src/compaction/summary-generator';
 import type { SurrealService } from '../src/db/surreal.service';
 
@@ -33,6 +37,8 @@ interface CandidateRow {
   validFrom: string;
   validUntil?: string;
   confidence: number;
+  /** `source.episodeIds AS eps` — grounding stamp of the member. */
+  eps?: string[];
 }
 
 interface TenantSeed {
@@ -296,6 +302,202 @@ describe('CompactionService — summary mode (COMPACTION_SUMMARIES=true)', () =>
     expect(stats!.summariesCreated).toBe(0);
     expect(gen.calls).toHaveLength(0);
     expect(created).toHaveLength(0);
+  });
+});
+
+/**
+ * Evidence plane (PROVENANCE_SUMMARY_EPISODE_STAMP): a compaction
+ * rollup's source gains the union of its members' grounding stamps
+ * (window-deriver idiom — member order, deduped, capped 64). Off
+ * (default) the written source deep-equals today's exactly.
+ */
+describe('CompactionRunnerService — summary episode stamping', () => {
+  const saved = process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+    else process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = saved;
+  });
+
+  const stampedRows = () =>
+    rows([
+      {
+        id: 'fact:1',
+        predicate: 'tier',
+        object: 'gold',
+        validFrom: '2025-01-01T00:00:00Z',
+        eps: ['episode:e1', 'episode:shared'],
+      },
+      {
+        id: 'fact:2',
+        predicate: 'tier',
+        object: 'platinum',
+        validFrom: '2025-04-01T00:00:00Z',
+        eps: ['episode:shared', 'episode:e2'],
+      },
+    ]);
+
+  const makeRunner = (surreal: SurrealService) =>
+    new CompactionRunnerService(
+      surreal,
+      new StubConfig({ COMPACTION_SUMMARIES: 'true' }) as unknown as ConfigService,
+      { generate: async () => 'S' },
+    );
+
+  it('flag OFF (default): written source deep-equals today’s', async () => {
+    delete process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+    const { surreal, created } = makeFakeSurreal({ co_a: { rows: stampedRows() } });
+    await makeRunner(surreal).compactAll(['co_a']);
+    expect(created).toHaveLength(1);
+    expect(created[0]!.payload.source).toEqual({ kind: 'compaction-summary' });
+  });
+
+  it('flag ON: source carries the member union — member order, deduped', async () => {
+    process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = '1';
+    const { surreal, created } = makeFakeSurreal({ co_a: { rows: stampedRows() } });
+    await makeRunner(surreal).compactAll(['co_a']);
+    expect(created).toHaveLength(1);
+    expect(created[0]!.payload.source).toEqual({
+      kind: 'compaction-summary',
+      episodeIds: ['episode:e1', 'episode:shared', 'episode:e2'],
+    });
+  });
+
+  it('flag ON: members without stamps yield today’s source (no empty key)', async () => {
+    process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = '1';
+    const { surreal, created } = makeFakeSurreal({
+      co_a: {
+        rows: rows([
+          { id: 'fact:1', predicate: 'tier', object: 'gold' },
+          { id: 'fact:2', predicate: 'tier', object: 'platinum' },
+        ]),
+      },
+    });
+    await makeRunner(surreal).compactAll(['co_a']);
+    expect(created[0]!.payload.source).toEqual({ kind: 'compaction-summary' });
+  });
+
+  it('the candidate SELECT carries the grounding stamp column', async () => {
+    const { surreal, calls } = makeFakeSurreal({ co_a: { rows: [] } });
+    await makeRunner(surreal).compactAll(['co_a']);
+    const select = calls[0]!.calls.find((c) => c.sql.includes('SELECT id, entityId'))!;
+    expect(select.sql).toContain('source.episodeIds AS eps');
+  });
+});
+
+/**
+ * Evidence plane (PROVENANCE_SUMMARY_EPISODE_STAMP) on the promotion
+ * runner: the episodic→semantic summary carries the union of the folded
+ * members' grounding stamps. Off (default) the written source
+ * deep-equals today's `{ kind: 'promotion' }` exactly.
+ */
+describe('PromotionRunnerService — summary episode stamping', () => {
+  const saved = process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+    else process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = saved;
+  });
+
+  interface PromotableSeed {
+    id: string;
+    object: string;
+    validFrom: string;
+    eps?: string[];
+  }
+
+  function makePromotionStack(seeds: PromotableSeed[]) {
+    const calls: QueryCall[] = [];
+    const created: Array<Record<string, unknown>> = [];
+    const fakeDb = {
+      async query<R>(sql: string, params?: Record<string, unknown>): Promise<R> {
+        calls.push({ sql, params });
+        if (sql.includes('GROUP BY entityId, predicate, userId')) {
+          return [
+            [{ entityId: 'knowledge_entity:e1', predicate: 'said', n: seeds.length }],
+          ] as unknown as R;
+        }
+        if (sql.includes('WHERE entityId = $entity AND predicate = $predicate')) {
+          return [
+            seeds.map((s) => ({
+              id: s.id,
+              entityId: 'knowledge_entity:e1',
+              predicate: 'said',
+              object: s.object,
+              validFrom: s.validFrom,
+              confidence: 0.9,
+              ...(s.eps ? { eps: s.eps } : {}),
+            })),
+          ] as unknown as R;
+        }
+        if (sql.startsWith('CREATE type::table($t)')) {
+          created.push(params!.d as Record<string, unknown>);
+          return [[{ id: 'knowledge_fact:summary1' }]] as unknown as R;
+        }
+        return [[]] as unknown as R;
+      },
+    };
+    const surreal = {
+      withCompany: async <T>(_c: string, fn: (db: unknown) => Promise<T>) => fn(fakeDb),
+    } as unknown as SurrealService;
+    const embedder = { embed: async () => [1, 0] } as unknown as EmbedderService;
+    const runner = new PromotionRunnerService(
+      surreal,
+      new StubConfig({
+        COMPACTION_PROMOTION_ENABLED: '1',
+        COMPACTION_PROMOTION_MIN_GROUP: '2',
+      }) as unknown as ConfigService,
+      embedder,
+      { generate: async () => 'promoted summary' },
+    );
+    return { runner, calls, created };
+  }
+
+  // 'said' is a seed append_only predicate — the only class promotion folds.
+  const SEEDS: PromotableSeed[] = [
+    {
+      id: 'knowledge_fact:s1',
+      object: 'old remark 1',
+      validFrom: '2025-01-01T00:00:00Z',
+      eps: ['episode:e1', 'episode:shared'],
+    },
+    {
+      id: 'knowledge_fact:s2',
+      object: 'old remark 2',
+      validFrom: '2025-02-01T00:00:00Z',
+      eps: ['episode:shared', 'episode:e2'],
+    },
+  ];
+
+  it('flag OFF (default): written source deep-equals today’s { kind: promotion }', async () => {
+    delete process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+    const { runner, created } = makePromotionStack(SEEDS);
+    const stats = await runner.promoteCompany('co_a');
+    expect(stats.groupsPromoted).toBe(1);
+    expect(created).toHaveLength(1);
+    expect(created[0]!.source).toEqual({ kind: 'promotion' });
+  });
+
+  it('flag ON: source carries the member union — member order, deduped', async () => {
+    process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = '1';
+    const { runner, created } = makePromotionStack(SEEDS);
+    await runner.promoteCompany('co_a');
+    expect(created[0]!.source).toEqual({
+      kind: 'promotion',
+      episodeIds: ['episode:e1', 'episode:shared', 'episode:e2'],
+    });
+  });
+
+  it('flag ON: unstamped members yield today’s source (no empty key)', async () => {
+    process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = '1';
+    const { runner, created } = makePromotionStack(SEEDS.map(({ eps: _eps, ...s }) => s));
+    await runner.promoteCompany('co_a');
+    expect(created[0]!.source).toEqual({ kind: 'promotion' });
+  });
+
+  it('the member SELECT carries the grounding stamp column', async () => {
+    const { runner, calls } = makePromotionStack(SEEDS);
+    await runner.promoteCompany('co_a');
+    const select = calls.find((c) => c.sql.includes('WHERE entityId = $entity'))!;
+    expect(select.sql).toContain('source.episodeIds AS eps');
   });
 });
 

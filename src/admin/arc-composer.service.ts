@@ -5,6 +5,8 @@ import { StringRecordId } from 'surrealdb';
 import { createOpenAiClientOrThrow } from '../ai/openai-client';
 import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
+import { summaryEpisodeStampEnabled } from '../common/provenance-flags';
+import { unionEpisodeIds } from '../common/episode-ids';
 import { AGGREGATE_RECORDER } from './aggregate-composer.service';
 import {
   factDay,
@@ -132,13 +134,23 @@ export class ArcComposerService {
         .toLowerCase()
         .replace(/[^a-z0-9_]+/g, '_')
         .slice(0, 28);
+      // Evidence plane (PROVENANCE_SUMMARY_EPISODE_STAMP): union of the
+      // proposal members' grounding stamps (window-deriver idiom,
+      // capped 64). Flag off → empty union → source byte-identical.
+      const episodeIds = summaryEpisodeStampEnabled()
+        ? unionEpisodeIds(arc.members.map((m) => ctx.facts[m]!.episodeIds))
+        : [];
       return {
         entityId: ctx.entityId,
         predicate: `summary_arc_${slug}`,
         object: arc.narrative.slice(0, ARC_NARRATIVE_CHAR_CAP),
         confidence: 0.9,
         validFrom: arcValidFrom(arc, ctx.facts),
-        source: { vertical: 'arc', recorder: ARC_RECORDER },
+        source: {
+          vertical: 'arc',
+          recorder: ARC_RECORDER,
+          ...(episodeIds.length ? { episodeIds } : {}),
+        },
         status: 'active',
         embedding: ctx.vector,
         derivedFrom: arc.members.map(

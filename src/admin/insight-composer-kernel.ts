@@ -31,6 +31,12 @@ export interface FactRowLite {
   predicate: string;
   object: string;
   validFrom?: string | Date;
+  /**
+   * `source.episodeIds AS episodeIds` — the member's grounding stamp
+   * (FLEXIBLE source, shape never guaranteed). Consumed by the
+   * composers' buildRow under PROVENANCE_SUMMARY_EPISODE_STAMP.
+   */
+  episodeIds?: unknown;
 }
 
 /**
@@ -159,7 +165,8 @@ async function composeEntity<P>(
   );
   const name = entity?.canonicalName ?? entityId;
   const [facts] = await db.query<[FactRowLite[]]>(
-    `SELECT id, predicate, object, validFrom FROM knowledge_fact
+    `SELECT id, predicate, object, validFrom, source.episodeIds AS episodeIds
+       FROM knowledge_fact
       WHERE entityId = $eid AND status = 'active'
         ${spec.sourceExclusionSql}
         ${versionClause}

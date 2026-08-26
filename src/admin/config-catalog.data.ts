@@ -1740,6 +1740,51 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Fact read + provenance API ("show me why I remember this"): GET /v1/facts/:id serves the fact as stored (aspect/statement/confidence/validFrom, source attribution, retracted flag, derivedVersion) and GET /v1/facts/:id/provenance serves its verbatim grounding turns (source.episodeIds via the shared episode read port, text capped at 600 chars). Every miss is a 404 — tenant fence, fail-closed user scope (another user\'s fact is indistinguishable from absent), registry-backed row policy on scope-fenced predicates; episode text respects brain:read_pii. POST /v1/facts/:id/retract is deliberately NOT gated by this flag (write/GDPR path). Off (default) → read routes answer 404.',
   },
   {
+    key: 'PROVENANCE_SUMMARY_EPISODE_STAMP',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Evidence plane, write side (Brain v2 gap #5): every summary-producing writer — promotion runner, compaction rollups, recompose rewrites, arc/aggregate composers — stamps the union of its members' source.episodeIds onto the summary row's source (window-deriver idiom: 'episode:'-prefixed, deduped, member order preserved, capped at 64), so a summary keeps a direct line to the verbatim turns behind its members. No backfill: the recursive closure reads member stamps through derivedFrom, and recompose re-stamps incrementally as summaries recompute. Off (default) → every summary write is byte-identical (no episodeIds key, no SET fragment).",
+  },
+  {
+    key: 'PROVENANCE_RECURSIVE_CLOSURE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Evidence plane, read side (Brain v2 gap #6): GET /v1/facts/:id/provenance of a fact WITH derivedFrom walks the support graph breadth-first (bounded by PROVENANCE_CLOSURE_MAX_DEPTH/_FACTS/_EPISODES) and serves the union of grounding episodes across the closure plus optional derivedFacts (factId/predicate/depth/status — compacted/retracted members still witness, status reported not hidden) and closure ({depth, factCount, truncated, filtered}) fields. Every member passes the same fences as the root (user scope, scope tags, row policy); an invisible member is a SILENT drop marked filtered:true — the root keeps its exact 404 semantics. Off (default) → the one-hop response is byte-identical (optional fields absent).',
+  },
+  {
+    key: 'PROVENANCE_CLOSURE_MAX_DEPTH',
+    category: 'pipeline',
+    defaultValue: '5',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Depth cap of the PROVENANCE_RECURSIVE_CLOSURE walk — max derivedFrom hops from the root (root = 0). Clamped to 1..10; unset/invalid → 5. Unvisited children past the cap mark the closure truncated.',
+  },
+  {
+    key: 'PROVENANCE_CLOSURE_MAX_FACTS',
+    category: 'pipeline',
+    defaultValue: '256',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Fact budget of the PROVENANCE_RECURSIVE_CLOSURE walk — total supporting facts admitted across all depths. Clamped to 1..1024; unset/invalid → 256. Children past the cap mark the closure truncated (fan-out cap).',
+  },
+  {
+    key: 'PROVENANCE_CLOSURE_MAX_EPISODES',
+    category: 'pipeline',
+    defaultValue: '200',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Episode budget of the PROVENANCE_RECURSIVE_CLOSURE walk — distinct grounding episodes harvested across the closure. Clamped to 1..500; unset/invalid → 200. Ids past the cap mark the closure truncated.',
+  },
+  {
     key: 'PROJECTIONS_API_ENABLED',
     category: 'pipeline',
     defaultValue: '0',

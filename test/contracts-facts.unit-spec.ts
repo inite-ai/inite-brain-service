@@ -18,6 +18,9 @@ import type {
   FactReadResult,
 } from '../src/facts/facts.service';
 
+const expectKeys = (shape: Record<string, unknown>, sample: Record<string, unknown>) =>
+  expect(Object.keys(shape).sort()).toEqual(Object.keys(sample).sort());
+
 const fullFact: Required<FactReadResult> = {
   factId: 'knowledge_fact:abc',
   aspect: 'residence',
@@ -44,9 +47,20 @@ const fullEpisode: Required<FactProvenanceEpisode> = {
   textTruncated: false,
 };
 
-const fullProvenance: FactProvenanceResult = {
+const fullProvenance: Required<FactProvenanceResult> = {
   factId: 'knowledge_fact:abc',
   episodes: [fullEpisode],
+  // PROVENANCE_RECURSIVE_CLOSURE optionals — absent when the flag is
+  // off; the fully-populated sample pins the on-shape both ways.
+  derivedFacts: [
+    {
+      factId: 'knowledge_fact:member1',
+      predicate: 'residence',
+      depth: 1,
+      status: 'compacted',
+    },
+  ],
+  closure: { depth: 1, factCount: 1, truncated: false, filtered: false },
 };
 
 describe('facts wire contracts', () => {
@@ -64,9 +78,19 @@ describe('facts wire contracts', () => {
     expect(parsed.success).toBe(true);
   });
 
+  it('FactProvenanceResponseSchema parses the flag-off shape (optionals absent)', () => {
+    const parsed = FactProvenanceResponseSchema.safeParse({
+      factId: 'knowledge_fact:abc',
+      episodes: [fullEpisode],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('FactProvenanceResponseSchema covers every response field — both directions', () => {
+    expectKeys(FactProvenanceResponseSchema.shape, fullProvenance);
+  });
+
   it('FactProvenanceEpisodeSchema covers every episode field — both directions', () => {
-    expect(Object.keys(FactProvenanceEpisodeSchema.shape).sort()).toEqual(
-      Object.keys(fullEpisode).sort(),
-    );
+    expectKeys(FactProvenanceEpisodeSchema.shape, fullEpisode);
   });
 });

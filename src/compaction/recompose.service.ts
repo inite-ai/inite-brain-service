@@ -9,6 +9,8 @@ import { WorkerLoopService } from '../jobs/worker-loop.service';
 import { SUMMARY_GENERATOR } from './compaction.types';
 import { changefeedRow } from '../db/changefeed-row';
 import type { SummaryGenerator, FactToSummarize } from './summary-generator';
+import { summaryEpisodeStampEnabled } from '../common/provenance-flags';
+import { unionEpisodeIds } from '../common/episode-ids';
 
 /** Changefeed cursor key — distinct from the audit drain's per-table keys. */
 const CURSOR = 'recompose:knowledge_fact';
@@ -58,7 +60,12 @@ interface FactRow {
   validUntil?: unknown;
   retractedAt?: unknown;
   supersededBy?: unknown;
+  /** `source.episodeIds AS eps` — grounding stamp of the parent (FLEXIBLE). */
+  eps?: unknown;
 }
+
+/** A live parent as fed to the generator, carrying its grounding stamp. */
+type RecomposeParent = FactToSummarize & { eps?: unknown };
 
 /**
  * RecomposeService — Phase 1 of docs/roadmap/cascade-recompose-2026-07.md.
@@ -239,16 +246,16 @@ export class RecomposeService implements OnModuleInit {
    * at status='compacted' is NORMAL — that is what compaction does to its
    * sources — so it counts as surviving.
    */
-  private async currentParents(db: Surreal, recorded: unknown[]): Promise<FactToSummarize[]> {
+  private async currentParents(db: Surreal, recorded: unknown[]): Promise<RecomposeParent[]> {
     if (recorded.length === 0) return [];
     const rows = await queryRows<FactRow>(
       db,
       `SELECT id, predicate, object, confidence, validFrom, validUntil,
-              retractedAt, supersededBy
+              retractedAt, supersededBy, source.episodeIds AS eps
          FROM knowledge_fact WHERE id INSIDE $ids`,
       { ids: recorded.map((r) => new StringRecordId(String(r))) },
     );
-    const out: FactToSummarize[] = [];
+    const out: RecomposeParent[] = [];
     for (const row of rows) {
       const live = await this.followSupersedes(db, row);
       if (!live || live.retractedAt) continue;
@@ -259,6 +266,7 @@ export class RecomposeService implements OnModuleInit {
         validFrom: isoOf(live.validFrom),
         validUntil: live.validUntil ? isoOf(live.validUntil) : undefined,
         confidence: Number(live.confidence ?? 0),
+        eps: live.eps,
       });
     }
     // Chronological, matching how compaction built the summary originally.
@@ -272,7 +280,7 @@ export class RecomposeService implements OnModuleInit {
       const next = await queryRows<FactRow>(
         db,
         `SELECT id, predicate, object, confidence, validFrom, validUntil,
-                retractedAt, supersededBy
+                retractedAt, supersededBy, source.episodeIds AS eps
            FROM knowledge_fact WHERE id = $id`,
         { id: new StringRecordId(String(current.supersededBy)) },
       );
@@ -287,7 +295,7 @@ export class RecomposeService implements OnModuleInit {
   private async rewrite(
     db: Surreal,
     summaryId: string,
-    parents: FactToSummarize[],
+    parents: RecomposeParent[],
   ): Promise<boolean> {
     const text = await this.summaryGenerator.generate(parents);
     if (!text) return false;
@@ -295,12 +303,28 @@ export class RecomposeService implements OnModuleInit {
     const last = parents[parents.length - 1];
     if (!first || !last) return false; // no parents to recompose from
     const meanConfidence = parents.reduce((acc, p) => acc + p.confidence, 0) / parents.length;
+    // Evidence plane (PROVENANCE_SUMMARY_EPISODE_STAMP): re-stamp the
+    // union of the CURRENT parents' grounding stamps in the same UPDATE
+    // (incremental re-stamp — this is why stamping needs no backfill
+    // pass). The SET fragment is emitted ONLY when the flag is on, so
+    // flag off produces today's exact statement; an empty union under
+    // the flag clears a possibly-stale field with NONE rather than
+    // leaving it behind.
+    const stamp = summaryEpisodeStampEnabled();
+    const episodeIds = stamp ? unionEpisodeIds(parents.map((p) => p.eps)) : [];
+    const episodeIdsSet = stamp
+      ? episodeIds.length > 0
+        ? `,
+         source.episodeIds = $episodeIds`
+        : `,
+         source.episodeIds = NONE`
+      : '';
     await db.query(
       `UPDATE $id SET
          object = $object, confidence = $confidence,
          validFrom = <datetime>$validFrom,
          validUntil = <datetime>$validUntil,
-         derivedFrom = $derivedFrom,
+         derivedFrom = $derivedFrom${episodeIdsSet},
          staleAt = NONE, staleReason = NONE`,
       {
         id: new StringRecordId(summaryId),
@@ -312,6 +336,7 @@ export class RecomposeService implements OnModuleInit {
         // no longer what this summary is derived from, and leaving the old id
         // would make the next invalidation pass chase a dead row.
         derivedFrom: parents.map((p) => new StringRecordId(p.factId)),
+        ...(episodeIds.length > 0 ? { episodeIds } : {}),
       },
     );
     return true;

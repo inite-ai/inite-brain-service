@@ -44,6 +44,13 @@ function makeStack(opts: {
         );
         return [rows];
       }
+      // Closure walk: ONE batched member SELECT per depth.
+      if (sql.includes('FROM knowledge_fact WHERE id INSIDE $ids')) {
+        const wanted = ((params?.ids as unknown[]) ?? []).map(ridOf);
+        return [
+          (opts.factsByCompany[companyId] ?? []).filter((f) => wanted.includes(String(f.id))),
+        ];
+      }
       if (sql.includes('FROM episode')) {
         const wanted = ((params?.ids as unknown[]) ?? []).map(ridOf);
         let rows = (opts.episodesByCompany?.[companyId] ?? []).filter((e) =>
@@ -390,6 +397,183 @@ describe('GET /v1/facts/:id/provenance — grounding episodes', () => {
       scopes: READ_PII,
     });
     expect(withScope.episodes.map((e) => e.episodeId)).toEqual(['episode:e1', 'episode:e3']);
+  });
+});
+
+/**
+ * Evidence plane: PROVENANCE_RECURSIVE_CLOSURE. Off (default) the
+ * provenance response is byte-identical to the one-hop shape — the
+ * promotion-summary golden below pins today's empty-episodes response.
+ * On, a summary's provenance walks derivedFrom and serves the member
+ * episode union + derivedFacts + closure; a fenced member is a SILENT
+ * drop marked filtered:true, and the root keeps its 404 semantics.
+ */
+describe('PROVENANCE_RECURSIVE_CLOSURE — recursive support closure', () => {
+  const saved = process.env.PROVENANCE_RECURSIVE_CLOSURE;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.PROVENANCE_RECURSIVE_CLOSURE;
+    else process.env.PROVENANCE_RECURSIVE_CLOSURE = saved;
+  });
+
+  // Promotion-style members: folded to 'compacted', each carrying its
+  // own grounding stamp. m1 carries the LATER episode — the response
+  // must still be chronological.
+  const MEMBER_1: Row = {
+    id: 'knowledge_fact:m1',
+    predicate: 'said',
+    object: 'remark about routes',
+    status: 'compacted',
+    source: { kind: 'fact', episodeIds: ['episode:e2'] },
+  };
+  const MEMBER_2: Row = {
+    id: 'knowledge_fact:m2',
+    predicate: 'said',
+    object: 'remark about hiking',
+    status: 'compacted',
+    source: { kind: 'fact', episodeIds: ['episode:e1'] },
+  };
+  const SUMMARY: Row = {
+    id: 'knowledge_fact:sum1',
+    predicate: 'summary_said',
+    object: '[2026-07-01] said: … | [2026-07-02] said: …',
+    confidence: 0.9,
+    validFrom: '2026-08-01T00:00:00.000Z',
+    status: 'active',
+    source: { kind: 'promotion' },
+    derivedFrom: ['knowledge_fact:m1', 'knowledge_fact:m2'],
+  };
+
+  it('flag OFF (default): promotion-summary response is byte-identical — GOLDEN empty episodes', async () => {
+    delete process.env.PROVENANCE_RECURSIVE_CLOSURE;
+    const { svc } = makeStack({
+      factsByCompany: { co_a: [SUMMARY, MEMBER_1, MEMBER_2] },
+      episodesByCompany: { co_a: EPISODES },
+    });
+    const res = await svc.getProvenance({
+      companyId: 'co_a',
+      factId: 'sum1',
+      scopes: READ,
+    });
+    // GOLDEN: today's exact shape — an unstamped summary serves an empty
+    // list; no derivedFacts/closure keys exist.
+    expect(res).toEqual({ factId: 'knowledge_fact:sum1', episodes: [] });
+  });
+
+  it('flag OFF: a leaf fact keeps its exact one-hop shape (no optional keys)', async () => {
+    delete process.env.PROVENANCE_RECURSIVE_CLOSURE;
+    const { svc } = makeStack({
+      factsByCompany: { co_a: [FACT_GLOBAL] },
+      episodesByCompany: { co_a: EPISODES },
+    });
+    const res = await svc.getProvenance({
+      companyId: 'co_a',
+      factId: 'f1',
+      scopes: READ,
+    });
+    expect(Object.keys(res).sort()).toEqual(['episodes', 'factId']);
+    expect(res.episodes.map((e) => e.episodeId)).toEqual(['episode:e1', 'episode:e2']);
+  });
+
+  it('flag ON: a leaf (no derivedFrom) still takes the one-hop path byte-identically', async () => {
+    process.env.PROVENANCE_RECURSIVE_CLOSURE = '1';
+    const { svc } = makeStack({
+      factsByCompany: { co_a: [FACT_GLOBAL] },
+      episodesByCompany: { co_a: EPISODES },
+    });
+    const res = await svc.getProvenance({
+      companyId: 'co_a',
+      factId: 'f1',
+      scopes: READ,
+    });
+    expect(Object.keys(res).sort()).toEqual(['episodes', 'factId']);
+  });
+
+  it('flag ON: summary serves the member episode union chronologically + derivedFacts + closure', async () => {
+    process.env.PROVENANCE_RECURSIVE_CLOSURE = '1';
+    const { svc } = makeStack({
+      factsByCompany: { co_a: [SUMMARY, MEMBER_1, MEMBER_2] },
+      episodesByCompany: { co_a: EPISODES },
+    });
+    const res = await svc.getProvenance({
+      companyId: 'co_a',
+      factId: 'sum1',
+      scopes: READ,
+    });
+    expect(res.factId).toBe('knowledge_fact:sum1');
+    // m1 stamped the later turn — the union is still chronological.
+    expect(res.episodes.map((e) => e.episodeId)).toEqual(['episode:e1', 'episode:e2']);
+    // Members are REPORTED with their lifecycle status, never hidden.
+    expect(res.derivedFacts).toEqual([
+      { factId: 'knowledge_fact:m1', predicate: 'said', depth: 1, status: 'compacted' },
+      { factId: 'knowledge_fact:m2', predicate: 'said', depth: 1, status: 'compacted' },
+    ]);
+    expect(res.closure).toEqual({
+      depth: 1,
+      factCount: 2,
+      truncated: false,
+      filtered: false,
+    });
+  });
+
+  it("flag ON: another user's member is a SILENT drop — filtered:true, no error", async () => {
+    process.env.PROVENANCE_RECURSIVE_CLOSURE = '1';
+    const { svc } = makeStack({
+      factsByCompany: {
+        co_a: [SUMMARY, { ...MEMBER_1, userId: 'u2' }, MEMBER_2],
+      },
+      episodesByCompany: { co_a: EPISODES },
+    });
+    await runWithRequestContext({ correlationId: 'test', authUserId: 'u1' }, async () => {
+      const res = await svc.getProvenance({
+        companyId: 'co_a',
+        factId: 'sum1',
+        scopes: READ,
+      });
+      // u2's member (and its episode) never surfaces; the walk reports it.
+      expect(res.episodes.map((e) => e.episodeId)).toEqual(['episode:e1']);
+      expect(res.derivedFacts).toEqual([
+        { factId: 'knowledge_fact:m2', predicate: 'said', depth: 1, status: 'compacted' },
+      ]);
+      expect(res.closure).toEqual({
+        depth: 1,
+        factCount: 1,
+        truncated: false,
+        filtered: true,
+      });
+    });
+  });
+
+  it("flag ON: a user-scoped member's episodes are fetched under THAT user's scope", async () => {
+    process.env.PROVENANCE_RECURSIVE_CLOSURE = '1';
+    const userEpisode: Row = {
+      id: 'episode:eu',
+      conversationId: 'conv-1',
+      speaker: 'Caroline',
+      text: 'my private remark',
+      occurredAt: '2026-07-03T10:00:00.000Z',
+      userId: 'u2',
+    };
+    const { svc, queries } = makeStack({
+      factsByCompany: {
+        co_a: [
+          { ...SUMMARY, derivedFrom: ['knowledge_fact:m1', 'knowledge_fact:m2'] },
+          { ...MEMBER_1, userId: 'u2', source: { kind: 'fact', episodeIds: ['episode:eu'] } },
+          MEMBER_2,
+        ],
+      },
+      episodesByCompany: { co_a: [...EPISODES, userEpisode] },
+    });
+    // M2M caller: sees the u2 member; its episode fetch must be keyed to
+    // u2 (the generalized :317-320 rule), the global group to no user.
+    const res = await svc.getProvenance({
+      companyId: 'co_a',
+      factId: 'sum1',
+      scopes: READ,
+    });
+    expect(res.episodes.map((e) => e.episodeId)).toEqual(['episode:e1', 'episode:eu']);
+    const episodeQueries = queries.filter((q) => q.sql.includes('FROM episode'));
+    const scoped = episodeQueries.find((q) => q.sql.includes('userId = $scopeUserId'));
+    expect(scoped?.params?.scopeUserId).toBe('u2');
   });
 });
 

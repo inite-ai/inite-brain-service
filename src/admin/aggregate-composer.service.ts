@@ -5,6 +5,8 @@ import { StringRecordId } from 'surrealdb';
 import { createOpenAiClientOrThrow } from '../ai/openai-client';
 import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
+import { summaryEpisodeStampEnabled } from '../common/provenance-flags';
+import { unionEpisodeIds } from '../common/episode-ids';
 import { runInsightComposer, type InsightComposerSpec } from './insight-composer-kernel';
 
 /**
@@ -91,13 +93,23 @@ export class AggregateComposerService {
         .toLowerCase()
         .replace(/[^a-z0-9_]+/g, '_')
         .slice(0, 40);
+      // Evidence plane (PROVENANCE_SUMMARY_EPISODE_STAMP): union of the
+      // proposal members' grounding stamps (window-deriver idiom,
+      // capped 64). Flag off → empty union → source byte-identical.
+      const episodeIds = summaryEpisodeStampEnabled()
+        ? unionEpisodeIds(agg.members.map((m) => ctx.facts[m]!.episodeIds))
+        : [];
       return {
         entityId: ctx.entityId,
         predicate: `aggregate_${slug}`,
         object: agg.proposition,
         confidence: 0.9,
         validFrom: new Date(),
-        source: { vertical: 'aggregate', recorder: AGGREGATE_RECORDER },
+        source: {
+          vertical: 'aggregate',
+          recorder: AGGREGATE_RECORDER,
+          ...(episodeIds.length ? { episodeIds } : {}),
+        },
         status: 'active',
         embedding: ctx.vector,
         derivedFrom: agg.members.map(

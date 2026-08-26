@@ -335,6 +335,20 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Evidence plane (PROVENANCE_RECURSIVE_CLOSURE): one recursive
+  // support-closure walk over derivedFrom per provenance read —
+  //   resolved  — walk completed inside every cap, ≥1 supporting fact
+  //   truncated — a depth / fan-out / episode cap cut the walk short
+  //               (partial closure still served)
+  //   empty     — walk ran but no visible supporting fact remained
+  //               (dangling derivedFrom, or every member fenced)
+  readonly provenanceClosureCount = new Counter({
+    name: 'brain_provenance_closure_total',
+    help: 'Recursive provenance closure walks by outcome',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
   readonly forgets = new Counter({
     name: 'brain_forget_total',
     help: 'Number of entity forgets (cascade)',
@@ -700,6 +714,10 @@ export class MetricsService implements OnModuleInit {
 
   countRetract(): void {
     this.retracts.inc();
+  }
+
+  countProvenanceClosure(outcome: 'resolved' | 'truncated' | 'empty'): void {
+    this.provenanceClosureCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
   countForget(): void {
