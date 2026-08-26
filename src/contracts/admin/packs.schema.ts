@@ -19,6 +19,10 @@ export const InstalledPackSchema = z.object({
   installedAt: z.string(),
   predicateCount: z.number().int().nonnegative(),
   checksum: z.string().nullable(),
+  /** The stored manifest's memoryModel section (PackMemoryModel —
+   *  docs/domain-packs.md); null when the pack declares none. Opaque here
+   *  on purpose; runtime validation is validateMemoryModel. */
+  memoryModel: z.record(z.string(), z.unknown()).nullable(),
 });
 
 export const PacksListResponseSchema = z.object({

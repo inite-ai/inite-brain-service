@@ -8,6 +8,7 @@ import {
   type DomainPackManifest,
   type PackToolParam,
 } from './manifest';
+import { validateMemoryModel } from './validate-memory-model';
 
 /**
  * Validation + assembly for the Domain Pack standard. `validatePack` is what a
@@ -94,6 +95,9 @@ export function validatePack(pack: DomainPackManifest): void {
   }
   if (pack.mcpTools !== undefined) {
     validateMcpTools(pack, pack.mcpTools);
+  }
+  if (pack.memoryModel !== undefined) {
+    validateMemoryModel(pack, pack.memoryModel);
   }
 }
 

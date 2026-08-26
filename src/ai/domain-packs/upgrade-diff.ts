@@ -1,4 +1,5 @@
 import type { PredicateDefinition } from '../predicate-registry-internals/types';
+import { canonicalJson } from './checksum';
 import { composePredicateId, type DomainPackManifest, type PackPredicate } from './manifest';
 
 /**
@@ -32,6 +33,9 @@ export interface PackUpgradeDiff {
   changed: PredicateDefinition[];
   /** Namespaced ids present in the prior manifest but gone in the new — deprecate. */
   removedIds: string[];
+  /** True when the memoryModel section differs (added, removed, or edited) —
+   *  the install service invalidates the memory-model reader cache on it. */
+  memoryModelChanged: boolean;
 }
 
 function defsDiffer(a: PackPredicate, b: PackPredicate): boolean {
@@ -72,5 +76,10 @@ export function diffPackUpgrade(
     }
   }
 
-  return { changed, removedIds };
+  // Canonical-JSON compare (defsDiffer idiom, but key-order-stable): a
+  // reordered-but-equivalent section is NOT a change; absent === absent.
+  const memoryModelChanged =
+    canonicalJson(prior?.memoryModel ?? null) !== canonicalJson(next.memoryModel ?? null);
+
+  return { changed, removedIds, memoryModelChanged };
 }

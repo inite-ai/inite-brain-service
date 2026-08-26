@@ -100,6 +100,16 @@ export interface DomainPackManifest {
    * consent at install time (`acceptMcpTools`).
    */
   mcpTools?: PackToolSpec[];
+  /**
+   * How this domain PERCEIVES memory (see PackMemoryModel below and
+   * docs/domain-packs.md). Declarative data ONLY — no code, templates, or
+   * patterns; every proposal derived from it is a CANDIDATE the core
+   * pipeline may accept or reject, never truth. Rides inside the manifest,
+   * so checksum + signature cover it automatically (canonical JSON) with
+   * zero new machinery. No consent flag: it is declarative, registers
+   * nothing, and causes zero egress.
+   */
+  memoryModel?: PackMemoryModel;
 }
 
 /** Compose the stored, namespaced predicate id for a pack-local predicate. */
@@ -219,3 +229,99 @@ export interface PackExternalToolSpec {
 }
 
 export type PackToolSpec = PackQueryToolSpec | PackExternalToolSpec;
+
+// ── memoryModel — the domain perception contract (docs/domain-packs.md) ──
+//
+// A pack may declare HOW its domain perceives and episodizes memory:
+// which scene shapes exist, which subjects carry state machines, which
+// cues deserve attention, which claims need verification, and which
+// predicates/scenes are worth keeping. Everything here is DECLARATIVE
+// DATA — no code, no templates, no patterns (cues and claimPattern are
+// literal substrings, NEVER regexes or template syntax). Consumers treat
+// every derived proposal as a CANDIDATE for the core pipeline, never as
+// truth. The section lives inside the signed/checksummed manifest, so
+// integrity + immutability cover it automatically (canonical JSON).
+
+/** Caps for the memoryModel section (validate-memory-model.ts enforces). */
+export const MM_MAX_SCENE_SCHEMAS = 8;
+export const MM_MAX_STATE_MODELS = 8;
+export const MM_MAX_ATTENTION_HINTS = 16;
+export const MM_MAX_STATES = 16;
+export const MM_MAX_TRANSITIONS = 64;
+export const MM_MAX_CUES = 12;
+export const MM_MAX_VERIFICATION_RULES = 16;
+export const MM_MAX_RETENTION_HINTS = 32;
+
+/** A recurring scene shape of the domain ("viewing", "claim_intake", …).
+ *  Cues are literal substrings (2..64 chars) that suggest — never assert —
+ *  the scene; a match yields a scene CANDIDATE only. */
+export interface PackSceneSchema {
+  /** snake_case, no `__`; unique within the pack's memoryModel. */
+  id: string;
+  /** 1..500 chars, plain text. */
+  description: string;
+  /** ≤ MM_MAX_CUES literal substrings, each 2..64 chars. */
+  cues?: string[];
+}
+
+/** One allowed state transition of a PackStateModel. */
+export interface PackStateTransition {
+  /** Must be one of the model's declared states. */
+  from: string;
+  /** Must be one of the model's declared states. */
+  to: string;
+}
+
+/** A subject-typed state machine ("deal: open → under_offer → closed").
+ *  Advisory vocabulary for lifecycle-aware consumers — never a gate. */
+export interface PackStateModel {
+  /** snake_case, no `__`; unique within the pack's memoryModel. */
+  id: string;
+  /** What kind of subject carries this lifecycle. 1..64 chars. */
+  subjectType: string;
+  /** 2..MM_MAX_STATES snake_case states, unique. */
+  states: string[];
+  /** ≤ MM_MAX_TRANSITIONS; both ends must be declared states. */
+  transitions?: PackStateTransition[];
+}
+
+/** "When you see this, look closer": a literal cue that biases retrieval /
+ *  perception toward the pack's own vocabulary. NEVER a pattern. */
+export interface PackAttentionHint {
+  /** Literal substring, 2..64 chars — NEVER a regex or template. */
+  cue: string;
+  /** ≤ 8 of the pack's OWN predicate localIds to prefer. */
+  prefer?: string[];
+  /** ≤ 4 zoom targets: the pack's own sceneSchema ids and/or the fixed
+   *  literals 'episodes' | 'facts' | 'scenes'. */
+  zoom?: string[];
+  /** Bias strength in (0, 1]; default 0.5. */
+  weight?: number;
+}
+
+/** A claim class the domain wants double-checked before it hardens. */
+export interface PackVerificationRule {
+  /** Literal substring (2..128 chars) selecting claims — NOT a pattern;
+   *  absent = the rule applies to all of the pack's claims. */
+  claimPattern?: string;
+  requires: 'human_confirmation' | 'corroboration' | 'recency_check';
+}
+
+/** ADVISORY retention preference for one of the pack's own predicates
+ *  (localId) or sceneSchemas (id). Never overrides core retention/GDPR. */
+export interface PackRetentionHint {
+  /** ∈ own predicate localIds ∪ own sceneSchema ids. */
+  predicateOrScene: string;
+  hint: 'ephemeral' | 'standard' | 'durable';
+}
+
+/** The pack's declared perception of its domain — all five arrays are
+ *  optional, but a present section must declare at least one non-empty
+ *  array (present-but-empty is an authoring error). */
+export interface PackMemoryModel {
+  sceneSchemas?: PackSceneSchema[];
+  stateModels?: PackStateModel[];
+  attentionHints?: PackAttentionHint[];
+  verificationRules?: PackVerificationRule[];
+  retentionHints?: PackRetentionHint[];
+}

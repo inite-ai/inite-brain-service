@@ -293,6 +293,52 @@ Both are flag-gated (`MCP_PACK_TOOLS_ENABLED` master, default off).
 Full reference — manifest fields, consent flow, endpoint protocol with
 signature verification, security model: [mcp-pack-tools.md](mcp-pack-tools.md).
 
+## Memory model (contract)
+
+A pack MAY ship a `memoryModel` section — the **domain perception
+contract**: how this domain perceives and episodizes memory. It turns a
+pack from a vocabulary into a domain *projection*: the pack declares HOW
+to look, never WHAT is true. The section is contract-only today
+(validated, stored, cached, exposed read-only on the admin surface);
+the perception/episodization consumers arrive in sibling increments.
+
+Five optional arrays (a present section must declare at least one
+non-empty array; present-but-empty is rejected):
+
+| Field | What it declares | Caps |
+| --- | --- | --- |
+| `sceneSchemas` | Recurring scene shapes (`id`, `description`, literal `cues`) | ≤ 8 schemas, ≤ 12 cues of 2..64 chars |
+| `stateModels` | Subject-typed lifecycles (`states`, optional `transitions`) | ≤ 8 models, 2..16 states, ≤ 64 transitions |
+| `attentionHints` | Literal `cue` → `prefer` (own predicates), `zoom` (own scenes ∪ `episodes`/`facts`/`scenes`), `weight` (0,1] | ≤ 16 hints, ≤ 8 prefer, ≤ 4 zoom |
+| `verificationRules` | Claim classes needing `human_confirmation` \| `corroboration` \| `recency_check` | ≤ 16 rules, `claimPattern` 2..128 chars |
+| `retentionHints` | ADVISORY `ephemeral`/`standard`/`durable` per own predicate/scene | ≤ 32 hints |
+
+Three laws, enforced by `validateMemoryModel`
+(`src/ai/domain-packs/validate-memory-model.ts`):
+
+- **Candidates, never truth.** Everything a consumer derives from a
+  memoryModel — a scene match, a state transition, an attention bias —
+  is a CANDIDATE for the core pipeline, which may reject it. A pack can
+  bias perception; it can never assert memory.
+- **Anti-DSL.** Every free-text field is plain literal text:
+  length-capped, no control characters, no template/DSL syntax (`{{`,
+  `${`, `<%`, backticks, `|`, `\`). `cues` and `claimPattern` are
+  literal substrings — `claimPattern` additionally rejects the regex
+  metacharacters `[]()*+?^$`. No code, templates, or patterns ever ride
+  a manifest.
+- **Referential fence.** Hints may only reference the pack's OWN
+  namespaces: its predicate `localId`s, its own `sceneSchema` ids, and
+  the fixed zoom literals. Cross-pack or core references are rejected at
+  validation time, mirroring the mcpTools query fence.
+
+No consent flag: unlike `mcpTools`, a memoryModel registers nothing on
+any agent surface and causes zero egress, so install/upgrade proceeds
+without an `accept*` flag (the decision + its boundary are documented in
+`DomainPackInstallService`). It rides the signed/checksummed manifest,
+so integrity and version-immutability cover it with zero new machinery;
+an upgrade that changes the section flips `memoryModelChanged` in the
+upgrade diff and invalidates the `MemoryModelReaderService` cache.
+
 ## The registry (global catalogue)
 
 Packs are published to and installed from a **global registry** — a shared,
