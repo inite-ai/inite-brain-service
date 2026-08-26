@@ -273,7 +273,11 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     // namespace — the old digest is DELETED even with the flag off (a
     // stale narrative must not outlive the facts rewritten next to it);
     // nothing is CREATED.
-    expect(off.queries.some((q) => q.sql.includes('DELETE conversation_digest'))).toBe(true);
+    // (Two-step LET-ids → DELETE since the 3.2.4 planner-no-op fix: the
+    // namespace claim is pinned by its id-probe SELECT.)
+    expect(
+      off.queries.some((q) => q.sql.includes('SELECT VALUE id FROM conversation_digest')),
+    ).toBe(true);
     expect(off.queries.some((q) => q.sql.includes('CREATE conversation_digest'))).toBe(false);
 
     process.env.DERIVER_DIGEST = '1';
@@ -283,8 +287,11 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       const write = on.queries.find((q) => q.sql.includes('CREATE conversation_digest'));
       expect(write).toBeDefined();
       // The DELETE is its own statement now (it must run even when the
-      // fold produces nothing).
-      expect(on.queries.some((q) => q.sql.includes('DELETE conversation_digest'))).toBe(true);
+      // fold produces nothing) — pinned by the two-step id-probe SELECT
+      // (3.2.4 planner-no-op fix).
+      expect(
+        on.queries.some((q) => q.sql.includes('SELECT VALUE id FROM conversation_digest')),
+      ).toBe(true);
       // Digest writes stage like fact writes; the digest flip
       // transaction promotes them alongside the facts.
       expect(String(write?.params?.version).startsWith(`${WINDOW_DERIVER_VERSION}.staging.`)).toBe(

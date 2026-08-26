@@ -64,12 +64,26 @@ export class UserForgetService {
       const touchedEntityIds = [...new Set(((factEntityRows as unknown[]) ?? []).map(String))];
 
       // Side tables keyed by fact records — traversal needs live facts.
+      // fact_usage stays one-step: its factId carries a single-field
+      // UNIQUE index, the verified-working shape on the pinned server.
       await db.query(`DELETE fact_usage WHERE factId.userId = $u`, {
         u: userId,
       });
-      await db.query(`DELETE retrieval_feedback WHERE factId.userId = $u`, {
-        u: userId,
-      });
+      // Two-step (SELECT ids → DELETE $ids) DELIBERATELY: on SurrealDB
+      // 3.2.4 a DELETE whose WHERE traverses through factId — covered by
+      // the COMPOUND (factId, actor) UNIQUE index — silently matches
+      // NOTHING (returns OK, deletes zero rows) while the same WHERE in
+      // a SELECT matches fine — reproduced 12/12 against the pinned
+      // server. Deleting by explicit ids sidesteps the planner entirely.
+      // Same bug class as preSweepOutcomeRows (PR #372) / scene
+      // membership (PR #370).
+      const [feedbackIds] = await db.query<[unknown[]]>(
+        `SELECT VALUE id FROM retrieval_feedback WHERE factId.userId = $u`,
+        { u: userId },
+      );
+      if (((feedbackIds as unknown[]) ?? []).length > 0) {
+        await db.query(`DELETE $ids`, { ids: feedbackIds });
+      }
       // Outcome telemetry (0107): both tables traverse subjectId into
       // the user's facts — purge while the facts are alive, same as
       // fact_usage above. LET-then-DELETE-by-ids, NOT `DELETE … WHERE`:
@@ -85,17 +99,24 @@ export class UserForgetService {
         { u: userId },
       );
       // Edges touching a personal entity (either endpoint) or stamped
-      // with the scope directly — before the entities go.
-      const [edgesDeletedRows] = await db.query<[Array<{ id?: unknown }>]>(
-        `DELETE knowledge_edge
-          WHERE userId = $u OR in.userId = $u OR out.userId = $u
-          RETURN BEFORE`,
+      // with the scope directly — before the entities go. Same two-step
+      // idiom DEFENSIVELY: the in.userId/out.userId arms traverse record
+      // fields with compound coverage (edge_unique_idx) into the indexed
+      // entity_user_idx — the exact reproduced trigger combination; the
+      // one-step form only works today because the OR keeps the planner
+      // off the index, and that choice is plan-dependent.
+      const [edgeIdRows] = await db.query<[unknown[]]>(
+        `SELECT VALUE id FROM knowledge_edge
+          WHERE userId = $u OR in.userId = $u OR out.userId = $u`,
         { u: userId },
       );
-      const edgeRows = (edgesDeletedRows as Array<{ id?: unknown }>) ?? [];
+      const edgeRecordIds = (edgeIdRows as unknown[]) ?? [];
+      if (edgeRecordIds.length > 0) {
+        await db.query(`DELETE $ids`, { ids: edgeRecordIds });
+      }
       // Edges are mirrored to audit_event (changefeed-drain), so their
       // mirror rows must be purged with the fact/entity ones below.
-      const edgeIds = edgeRows.map((r) => String(r.id)).filter((s) => s && s !== 'undefined');
+      const edgeIds = edgeRecordIds.map(String).filter((s) => s && s !== 'undefined');
       // Dedup refs traverse the entity link — before the entities go.
       await db.query(`DELETE entity_external_ref WHERE entity.userId = $u`, {
         u: userId,
@@ -105,15 +126,23 @@ export class UserForgetService {
       // facts) on next read. Must precede the fact delete: entityId is a
       // record link the artifact carries independently, but doing it here
       // keeps the erasure atomic with the rest of the cascade.
+      // Two-step: knowledge_artifact.entityId is covered ONLY by the
+      // COMPOUND (entityId, artifactType) UNIQUE index — the risky 3.2.4
+      // planner shape (see the retrieval_feedback comment above); the
+      // one-step DELETE passed probes but the failure is plan-dependent,
+      // so it is hardened defensively.
       for (const eid of touchedEntityIds) {
         const tail = eid.startsWith('knowledge_entity:')
           ? eid.slice('knowledge_entity:'.length)
           : eid;
-        await db.query(
-          `DELETE knowledge_artifact
+        const [artifactIds] = await db.query<[unknown[]]>(
+          `SELECT VALUE id FROM knowledge_artifact
              WHERE entityId = type::record('knowledge_entity', $tail)`,
           { tail },
         );
+        if (((artifactIds as unknown[]) ?? []).length > 0) {
+          await db.query(`DELETE $ids`, { ids: artifactIds });
+        }
       }
 
       await db.query(`DELETE knowledge_fact WHERE userId = $u`, { u: userId });
@@ -208,7 +237,7 @@ export class UserForgetService {
         userId,
         factsDeleted: factIds.length,
         entitiesDeleted: entityIds.length,
-        edgesDeleted: edgeRows.length,
+        edgesDeleted: edgeRecordIds.length,
         auditEventsDeleted,
       };
       this.logger.log(

@@ -37,11 +37,23 @@ export async function persistDigest({
   // run produced a new one (flag now off, or the fold degraded).
   // Leaving it would serve a narrative inconsistent with the facts
   // that were just rewritten next to it.
-  await db.query(
-    `DELETE conversation_digest
+  //
+  // Two-step (SELECT ids → DELETE $ids) DELIBERATELY: this WHERE pair is
+  // exactly the COMPOUND digest_conv_version_idx (conversationId,
+  // derivedVersion) UNIQUE index — on SurrealDB 3.2.4 a DELETE planned
+  // through a compound index can be a silent no-op (returns OK, deletes
+  // nothing) while the same WHERE in a SELECT matches fine — the bug
+  // class reproduced for preSweepOutcomeRows (PR #372). A no-op here
+  // would collide the CREATE below into the UNIQUE pair. At most one row
+  // by the UNIQUE index, so no batching.
+  const [digestIds] = await db.query<[unknown[]]>(
+    `SELECT VALUE id FROM conversation_digest
       WHERE conversationId = $conv AND derivedVersion = $version`,
     { conv: conversationId, version },
   );
+  if (((digestIds as unknown[]) ?? []).length > 0) {
+    await db.query(`DELETE $ids`, { ids: digestIds });
+  }
   if (digest === null || !digest.trim() || !digestEventAt) return;
   await db.query(
     `CREATE conversation_digest SET

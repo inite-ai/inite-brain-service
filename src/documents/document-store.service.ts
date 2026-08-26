@@ -224,9 +224,24 @@ export class DocumentStoreService {
         { id: idTailOf(docId) },
       );
       if (!existing) return false;
-      await db.query(`DELETE source_chunk WHERE docId = type::record('source_document', $id)`, {
-        id: idTailOf(docId),
-      });
+      // Two-step batched DELETE-by-ids DELIBERATELY: docId is covered
+      // ONLY by the COMPOUND source_chunk_doc_idx (docId, seq) UNIQUE
+      // index — on SurrealDB 3.2.4 a DELETE planned through a compound
+      // index can be a silent no-op (returns OK, deletes nothing) while
+      // the same WHERE in a SELECT matches fine — the bug class
+      // reproduced for preSweepOutcomeRows (PR #372). Batched with LIMIT
+      // because a large document's chunk count is unbounded.
+      for (;;) {
+        const [, batch] = await db.query<[unknown, unknown[]]>(
+          `LET $ids = (SELECT VALUE id FROM source_chunk
+             WHERE docId = type::record('source_document', $id)
+             LIMIT 5000);
+           DELETE $ids RETURN BEFORE`,
+          { id: idTailOf(docId) },
+        );
+        // A partial batch means the document's chunks are drained.
+        if (((batch as unknown[]) ?? []).length < 5000) break;
+      }
       await db.query(
         `UPDATE type::record('source_document', $id)
            SET status = 'purged', hasContent = false`,

@@ -23,7 +23,7 @@ describe('user-forget purges edge audit_event rows', () => {
 
   it('erases the audit_event mirror of a forgotten user’s edge', async () => {
     const surreal = f.app.get(SurrealService);
-    const edgeId = await surreal.withCompany(f.companyId, async (db) => {
+    const seeded = await surreal.withCompany(f.companyId, async (db) => {
       // A personal entity for user_x and a global one to point at.
       const [personal] = await db.query<[Array<{ id: unknown }>]>(
         `CREATE knowledge_entity SET type='other', canonicalName='Personal X',
@@ -53,8 +53,30 @@ describe('user-forget purges edge audit_event rows', () => {
            op='create', versionstamp=1, consumedBy='test'`,
         { rid: eid },
       );
-      return eid;
+
+      // A personal fact + its retrieval_feedback row: the feedback DELETE
+      // traverses compound-covered factId — the SurrealDB 3.2.4 planner
+      // no-op shape (see preSweepOutcomeRows, PR #372). Capture the ids
+      // BEFORE the forget: afterwards the factId link dangles, so a
+      // traversal count reads 0 whether or not the rows really died.
+      const [fact] = await db.query<[Array<{ id: unknown }>]>(
+        `CREATE knowledge_fact SET entityId=$ent, predicate='note', object='secret-pii',
+           confidence=0.9, validFrom=time::now(), userId='user_x',
+           source={ recorder: 'test' } RETURN id`,
+        { ent: new StringRecordId(pid) },
+      );
+      const factId = (fact as Array<{ id: unknown }>)[0]!.id;
+      const [feedback] = await db.query<[Array<{ id: unknown }>]>(
+        `CREATE retrieval_feedback SET factId=$f, verdict='helpful', actor='reviewer-1',
+           reason='secret-pii' RETURN id`,
+        { f: factId },
+      );
+      return {
+        edgeId: eid,
+        feedbackId: String((feedback as Array<{ id: unknown }>)[0]!.id),
+      };
     });
+    const edgeId = seeded.edgeId;
 
     const countAudit = () =>
       surreal.withCompany(f.companyId, async (db) => {
@@ -73,5 +95,18 @@ describe('user-forget purges edge audit_event rows', () => {
 
     // The edge's audit mirror is gone with it.
     expect(await countAudit()).toBe(0);
+
+    // The edge row and the fact-keyed feedback row must be gone BY THEIR
+    // CAPTURED IDS — the reported counts and the traversal-based reads
+    // both stay green through a 3.2.4 DELETE planner no-op (the rows
+    // survive with dangling links), so only an id-addressed SELECT can
+    // prove the erase landed.
+    const remaining = await surreal.withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<[Array<{ id: unknown }>]>(`SELECT id FROM $ids`, {
+        ids: [new StringRecordId(edgeId), new StringRecordId(seeded.feedbackId)],
+      });
+      return (rows as Array<{ id: unknown }>).length;
+    });
+    expect(remaining).toBe(0);
   });
 });

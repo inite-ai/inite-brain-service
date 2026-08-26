@@ -153,6 +153,75 @@ describe('0107_memory_outcome indexes', () => {
   });
 });
 
+describe('SurrealDB 3.2.4 DELETE-WHERE planner no-op guards', () => {
+  // Bug class (reproduced against the pinned surrealdb/surrealdb:v3.2.4,
+  // rocksdb, WS driver with CBOR binds AND HTTP /sql): a `DELETE <table>
+  // WHERE <predicate>` can silently match NOTHING (returns OK, deletes
+  // zero rows) while a SELECT with the identical WHERE matches — when the
+  // filtered field's index coverage includes a COMPOUND index, or when
+  // the WHERE traverses a record field into an indexed target field.
+  // Every such statement must use the two-step SELECT-ids → DELETE $ids
+  // idiom (see preSweepOutcomeRows, PR #372). These guards pin the fixed
+  // files so the one-step shapes cannot regress.
+  const SRC = join(__dirname, '..', 'src');
+  const read = (...p: string[]) => readFileSync(join(SRC, ...p), 'utf8');
+
+  it('user-forget: retrieval_feedback / knowledge_edge / knowledge_artifact go by ids', () => {
+    const src = read('entities', 'user-forget.service.ts');
+    // Reproduced no-op: traversal through compound-covered factId.
+    expect(src).not.toMatch(/DELETE retrieval_feedback WHERE/);
+    expect(src).toContain('SELECT VALUE id FROM retrieval_feedback WHERE factId.userId = $u');
+    // Defensive: in.userId/out.userId traverse compound-covered fields.
+    expect(src).not.toMatch(/DELETE knowledge_edge\s+WHERE/);
+    expect(src).toContain('SELECT VALUE id FROM knowledge_edge');
+    // Defensive: entityId covered only by the COMPOUND artifact index.
+    expect(src).not.toMatch(/DELETE knowledge_artifact\s+WHERE/);
+    expect(src).toContain('SELECT VALUE id FROM knowledge_artifact');
+  });
+
+  it('entity-forget tx: retrieval_feedback / knowledge_artifact go by pre-collected ids', () => {
+    const src = read('entities', 'entity-forget.service.ts');
+    expect(src).not.toMatch(/DELETE retrieval_feedback WHERE/);
+    expect(src).toContain(
+      "SELECT VALUE id FROM retrieval_feedback WHERE factId.entityId = type::record('knowledge_entity', $rid)",
+    );
+    expect(src).toContain('DELETE $feedbackIds');
+    expect(src).not.toMatch(/DELETE knowledge_artifact WHERE/);
+    expect(src).toContain(
+      "SELECT VALUE id FROM knowledge_artifact WHERE entityId = type::record('knowledge_entity', $rid)",
+    );
+    expect(src).toContain('DELETE $artifactIds');
+  });
+
+  it('digest writers: no DELETE conversation_digest filtered on the compound pair', () => {
+    // (conversationId, derivedVersion) is exactly digest_conv_version_idx
+    // UNIQUE — the risky compound shape. The version-only DELETEs
+    // (second field of the compound, planner cannot use it) stay.
+    const digestPersist = read('admin', 'digest-persist.ts');
+    expect(digestPersist).not.toMatch(/DELETE conversation_digest\s+WHERE conversationId/);
+    expect(digestPersist).toContain('SELECT VALUE id FROM conversation_digest');
+    const staging = read('admin', 'derive-staging.ts');
+    expect(staging).not.toMatch(
+      /DELETE conversation_digest\s+WHERE derivedVersion = \$final AND conversationId/,
+    );
+    expect(staging).toContain('LET $digestIds = (SELECT VALUE id FROM conversation_digest');
+    expect(staging).toContain('DELETE $digestIds');
+  });
+
+  it('source_chunk purges: no DELETE filtered on compound-only docId', () => {
+    // docId is covered ONLY by source_chunk_doc_idx (docId, seq) UNIQUE.
+    for (const file of [
+      ['documents', 'candidate-sweeper.service.ts'],
+      ['documents', 'document-store.service.ts'],
+    ]) {
+      const src = read(...file);
+      expect(src).not.toMatch(/DELETE source_chunk WHERE/);
+      expect(src).toContain('SELECT VALUE id FROM source_chunk');
+      expect(src).toContain('DELETE $ids RETURN BEFORE');
+    }
+  });
+});
+
 describe('JobRunService.finish ownership guard', () => {
   function mkSurreal(db: { query: (s: string, p?: any) => Promise<any> }) {
     return {
