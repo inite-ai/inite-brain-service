@@ -203,27 +203,17 @@ export class EntityForgetService {
       const episodeRefs = episodeIds.map((id) => new StringRecordId(id));
       const recordIds = [entityIdStr, ...factIds, ...edgeIds];
 
-      // ── Transaction-size guard. Count the two open-ended tables (audit
-      // mirror rows grow with every mutation; segments with every turn) so
-      // the cap reflects the real transaction footprint, then refuse an
-      // oversized single transaction BEFORE mutating anything.
-      const auditCountRow = await queryFirst<{ count: number }>(
-        db,
-        `SELECT count() FROM audit_event WHERE recordId IN $ids GROUP ALL`,
-        { ids: recordIds },
-      );
-      const auditCount = auditCountRow?.count ?? 0;
-      const l0FanOut = await this.countL0FanOut(db, episodeRefs);
-      const txRecordCount = factsDeleted + edgesDeleted + episodeIds.length + l0FanOut + auditCount;
-      if (txRecordCount > this.maxTxRecords) {
-        throw new PayloadTooLargeException(
-          `Entity forget fan-out (${txRecordCount} records) exceeds ` +
-            `FORGET_MAX_TX_RECORDS (${this.maxTxRecords}); refusing to build an ` +
-            `oversized single transaction. Use whole-tenant offboarding ` +
-            `(drop database), raise the cap deliberately, or use the ` +
-            `resumable-chunked erase follow-up.`,
-        );
-      }
+      // Side-table rows to erase BY EXPLICIT ID — see the
+      // preCollectSideTableIds docblock for the 3.2.4 planner contract.
+      const { feedbackIds, artifactIds } = await this.preCollectSideTableIds(db, ref.id);
+
+      // ── Transaction-size guard — see the guardTxRecordCap docblock.
+      await this.guardTxRecordCap(db, {
+        recordIds,
+        episodeRefs,
+        fixedCount:
+          factsDeleted + edgesDeleted + episodeIds.length + feedbackIds.length + artifactIds.length,
+      });
 
       // ── 0107 outcome telemetry: bulk-purge the raw event log OUTSIDE
       // the atomic erase (see preSweepOutcomeRows — content-free by
@@ -250,12 +240,19 @@ export class EntityForgetService {
           .bind('factsDeleted', factsDeleted)
           .bind('edgesDeleted', edgesDeleted)
           .bind('forgottenBy', actorKeyHash ?? 'unknown')
-          .bind('forgottenAt', forgottenAt);
+          .bind('forgottenAt', forgottenAt)
+          .bind('feedbackIds', feedbackIds)
+          .bind('artifactIds', artifactIds);
         tx.add(`LET $ent = type::record('knowledge_entity', $rid)`);
         // fact_usage (0053) + retrieval_feedback (0054) are keyed by fact
         // record — the traversal dies with the facts, so purge first.
+        // fact_usage stays one-step: its factId carries a single-field
+        // UNIQUE index, the verified-working shape on the pinned server.
+        // retrieval_feedback goes BY THE PRE-COLLECTED IDS — its
+        // traversal DELETE is the 3.2.4 planner no-op (see the
+        // pre-collect comment above).
         tx.add(`DELETE fact_usage WHERE factId.entityId = $ent`);
-        tx.add(`DELETE retrieval_feedback WHERE factId.entityId = $ent`);
+        tx.add(`DELETE $feedbackIds`);
         // Scenes (0106): a scene whose membership quotes an erased episode
         // goes whole, with ALL its member rows (mixed-subject scenes lose
         // the scene, other subjects keep their own facts) — members before
@@ -321,8 +318,10 @@ export class EntityForgetService {
           `DELETE debug_trace WHERE companyId = $cid AND string::contains(<string>artifacts, $needle)`,
         );
         // knowledge_artifact: compiled per-entity dossiers carry
-        // name/contact/complaints — entityId-keyed.
-        tx.add(`DELETE knowledge_artifact WHERE entityId = $ent`);
+        // name/contact/complaints — entityId-keyed, erased by the
+        // pre-collected ids (compound-only index coverage — the risky
+        // 3.2.4 planner shape, see the pre-collect comment above).
+        tx.add(`DELETE $artifactIds`);
         // ingest_dead_letter: rejected facts keep payload.{object,entityId}.
         tx.add(`DELETE ingest_dead_letter WHERE payload.entityId = $ent`);
         // entity_external_ref: external subject identifier + pointer.
@@ -461,6 +460,71 @@ export class EntityForgetService {
       );
       // A partial batch means the subject's raw rows are drained.
       if (((batch as unknown[]) ?? []).length < 5000) break;
+    }
+  }
+
+  /**
+   * Side-table rows the erase transaction must delete BY EXPLICIT ID
+   * (same pre-collect contract as recordIds): on SurrealDB 3.2.4 a
+   * DELETE whose WHERE traverses through factId — covered by the
+   * COMPOUND (factId, actor) UNIQUE index — silently matches NOTHING
+   * (returns OK, deletes zero rows) while the same WHERE in a SELECT
+   * matches fine — reproduced 12/12 against the pinned server. Deleting
+   * by explicit ids sidesteps the planner entirely. Same bug class as
+   * preSweepOutcomeRows (PR #372) / scene membership (PR #370).
+   * knowledge_artifact.entityId is covered ONLY by the COMPOUND
+   * (entityId, artifactType) UNIQUE index — same risky shape, hardened
+   * defensively. Collected OUTSIDE the transaction (like every other id
+   * set) so the tx read-set does not grow side-table scans; both tables
+   * are keyed by rows the transaction deletes, so nothing can recreate
+   * them post-commit. Both counts feed the transaction-size guard.
+   */
+  private async preCollectSideTableIds(
+    db: Parameters<Parameters<SurrealService['withCompany']>[1]>[0],
+    rid: string,
+  ): Promise<{ feedbackIds: unknown[]; artifactIds: unknown[] }> {
+    const [feedbackIdRows] = await db.query<[unknown[]]>(
+      `SELECT VALUE id FROM retrieval_feedback WHERE factId.entityId = type::record('knowledge_entity', $rid)`,
+      { rid },
+    );
+    const [artifactIdRows] = await db.query<[unknown[]]>(
+      `SELECT VALUE id FROM knowledge_artifact WHERE entityId = type::record('knowledge_entity', $rid)`,
+      { rid },
+    );
+    return {
+      feedbackIds: (feedbackIdRows as unknown[]) ?? [],
+      artifactIds: (artifactIdRows as unknown[]) ?? [],
+    };
+  }
+
+  /**
+   * Transaction-size guard. Count the two open-ended tables (audit
+   * mirror rows grow with every mutation; L0 fan-out with every turn) on
+   * top of the caller's pre-collected fixed counts so the cap reflects
+   * the real transaction footprint, then refuse an oversized single
+   * transaction BEFORE anything mutates (nothing partially erased —
+   * see the maxTxRecords docblock for the bound-don't-chunk rationale).
+   */
+  private async guardTxRecordCap(
+    db: Parameters<Parameters<SurrealService['withCompany']>[1]>[0],
+    counts: { recordIds: string[]; episodeRefs: StringRecordId[]; fixedCount: number },
+  ): Promise<void> {
+    const auditCountRow = await queryFirst<{ count: number }>(
+      db,
+      `SELECT count() FROM audit_event WHERE recordId IN $ids GROUP ALL`,
+      { ids: counts.recordIds },
+    );
+    const auditCount = auditCountRow?.count ?? 0;
+    const l0FanOut = await this.countL0FanOut(db, counts.episodeRefs);
+    const txRecordCount = counts.fixedCount + l0FanOut + auditCount;
+    if (txRecordCount > this.maxTxRecords) {
+      throw new PayloadTooLargeException(
+        `Entity forget fan-out (${txRecordCount} records) exceeds ` +
+          `FORGET_MAX_TX_RECORDS (${this.maxTxRecords}); refusing to build an ` +
+          `oversized single transaction. Use whole-tenant offboarding ` +
+          `(drop database), raise the cap deliberately, or use the ` +
+          `resumable-chunked erase follow-up.`,
+      );
     }
   }
 }

@@ -289,8 +289,11 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
     // now runs against the FINAL world at flip time.
     expect(flips[0]!.sql).toContain("status = 'superseded'");
     expect(flips[0]!.sql).toContain('supersededBy IN');
-    // Digest slice flips inside the SAME transaction.
-    expect(flips[0]!.sql).toContain('DELETE conversation_digest');
+    // Digest slice flips inside the SAME transaction — via the two-step
+    // LET-ids → DELETE idiom (the WHERE pair is the compound
+    // digest_conv_version_idx, the SurrealDB 3.2.4 planner no-op shape).
+    expect(flips[0]!.sql).toContain('LET $digestIds = (SELECT VALUE id FROM conversation_digest');
+    expect(flips[0]!.sql).toContain('DELETE $digestIds');
     expect(flips[0]!.params?.conv).toBe('conv-1');
   });
 });
@@ -436,10 +439,14 @@ describe('promoteStaging / sweepStagingRows primitives', () => {
       queries[0]!.sql.indexOf('DELETE knowledge_fact'),
     );
     expect(queries[0]!.sql).toContain('source.conversationId = $conv');
-    // Digest slice flips inside the SAME transaction, same scoping.
+    // Digest slice flips inside the SAME transaction, same scoping —
+    // via the two-step LET-ids → DELETE idiom (the WHERE pair is the
+    // compound digest_conv_version_idx, the SurrealDB 3.2.4 planner
+    // no-op shape).
     expect(queries[0]!.sql).toContain(
-      'DELETE conversation_digest\n            WHERE derivedVersion = $final AND conversationId = $conv',
+      'LET $digestIds = (SELECT VALUE id FROM conversation_digest\n            WHERE derivedVersion = $final AND conversationId = $conv)',
     );
+    expect(queries[0]!.sql).toContain('DELETE $digestIds');
   });
 
   it('sweep probes before deleting and scopes to the staging namespace', async () => {

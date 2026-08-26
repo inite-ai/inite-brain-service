@@ -311,10 +311,20 @@ export async function promoteStaging(
           `UPDATE knowledge_fact SET derivedVersion = $final
             WHERE derivedVersion = $staging AND source.conversationId = $conv`,
         )
+        // Two-step (LET ids → DELETE $ids) DELIBERATELY: this WHERE pair
+        // is covered by the COMPOUND digest_conv_version_idx
+        // (conversationId, derivedVersion) UNIQUE index — on SurrealDB
+        // 3.2.4 a DELETE planned through a compound index can be a
+        // silent no-op (returns OK, deletes nothing) while the same
+        // WHERE in a SELECT matches fine — the bug class reproduced for
+        // preSweepOutcomeRows (PR #372). A no-op here would collide the
+        // staging→final UPDATE below into the UNIQUE pair and abort the
+        // whole flip.
         .add(
-          `DELETE conversation_digest
-            WHERE derivedVersion = $final AND conversationId = $conv`,
+          `LET $digestIds = (SELECT VALUE id FROM conversation_digest
+            WHERE derivedVersion = $final AND conversationId = $conv)`,
         )
+        .add(`DELETE $digestIds`)
         .add(
           `UPDATE conversation_digest SET derivedVersion = $final
             WHERE derivedVersion = $staging AND conversationId = $conv`,

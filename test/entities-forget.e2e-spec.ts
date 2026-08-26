@@ -117,7 +117,28 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
     // including PII fact `object` values. Seed one keyed by the entity's
     // recordId so we can assert the forget cascade purges it.
     const tail = entityId.split(':')[1];
-    await surreal.withCompany(f.companyId, async (db) => {
+    const sideTableIds = await surreal.withCompany(f.companyId, async (db) => {
+      // Side tables keyed by the subject's fact records (fact_usage 0053,
+      // retrieval_feedback 0054). Their ids are captured HERE, before the
+      // forget: after the cascade the factId link dangles, so any
+      // traversal-based count reads 0 even when the rows survived — a
+      // SurrealDB 3.2.4 DELETE planner no-op (see preSweepOutcomeRows,
+      // PR #372) is only observable by asserting on the captured ids.
+      const [usageRows] = await db.query<any[][]>(
+        `CREATE fact_usage CONTENT {
+            factId: type::record('knowledge_fact', $ftail), readCount: 3 } RETURN id`,
+        { ftail: String(subjFactId).split(':')[1] },
+      );
+      const [feedbackRows] = await db.query<any[][]>(
+        `CREATE retrieval_feedback CONTENT {
+            factId: type::record('knowledge_fact', $ftail),
+            verdict: 'helpful', actor: 'reviewer-1',
+            reason: 'secret-pii-value' } RETURN id`,
+        { ftail: String(subjFactId).split(':')[1] },
+      );
+      const capturedIds = [(usageRows as any[])[0]?.id, (feedbackRows as any[])[0]?.id].filter(
+        Boolean,
+      );
       await db.query(
         `CREATE audit_event CONTENT {
             source: 'knowledge_entity',
@@ -165,7 +186,9 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
             spans: [], artifacts: [{ ref: $rid, text: 'secret-pii-value' }] }`,
         { cid: f.companyId, rid: entityId },
       );
+      return capturedIds;
     });
+    expect(sideTableIds.length).toBe(2);
 
     // Forget.
     const r = await f.http
@@ -245,6 +268,16 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
       expect(
         await countWhere(`SELECT id FROM debug_trace WHERE companyId = $cid`, { cid: f.companyId }),
       ).toBe(0);
+
+      // Fact-keyed side tables (fact_usage + retrieval_feedback) must be
+      // gone BY THEIR CAPTURED IDS: a 3.2.4 DELETE planner no-op leaves
+      // the rows in place while every factId-traversal count reads 0
+      // (the facts died, the link dangles) — id-addressed SELECT is the
+      // only assertion the masking cannot hide from.
+      const [sideRows] = await db.query<any[][]>(`SELECT id FROM $ids`, {
+        ids: sideTableIds,
+      });
+      expect((sideRows as any[]).length).toBe(0);
     });
   });
 
