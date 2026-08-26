@@ -186,6 +186,38 @@ export function l3EpisodeCitationsEnabled(): boolean {
 }
 
 /**
+ * Fovea serving-integrity family — evidence-capability gate master flag —
+ * FOVEA_EVIDENCE_CAPABILITY.
+ *
+ * WHAT IT CHANGES: closes the modality gap in the verifier's supported
+ * serve. A predicate can declare (0113 knowledge_predicate column
+ * `requiredEvidenceCapability`, threaded through PredicatePolicy) that its
+ * claims verify only against non-text evidence — a whiteboard photo, a call
+ * recording, a contract region. When on, the finalizeAndAdmit gate-resolution
+ * (resolveEvidenceCapability, beside resolveAnswerIntegrity) computes the
+ * required capability over a `supported` answer's cited facts (max over
+ * citations — any non-text requirement wins) and DOWNGRADES the answer to an
+ * abstain (reason 'evidence_capability_unmet') unless cited evidence of that
+ * capability exists.
+ *
+ * HONEST v1 BOUND: no media verifier exists yet — every citation today is
+ * text (fact lines + L3 episode spans), so the cited-capability set is
+ * always {'text'} and the check can only ABSTAIN (required non-text) or PASS
+ * (required text). It is fail-closed plumbing: claims requiring visual/audio
+ * evidence can no longer verify on text alone; CONFIRMATION of such claims
+ * arrives with the media verifiers (the M-track fragment mapping populates
+ * per-citation capabilities and VerifyRequest.capabilityEvidenceLines).
+ *
+ * SAFETY: the env read lives here in the common layer, NOT inside the engine
+ * dirs (engine-gates S5.2). Read at call time so a flip is runtime-mutable.
+ * Default off ⇒ the resolver returns {} — no registry lookup, no verdict
+ * param — serving byte-identical (the answer-integrity precedent).
+ */
+export function evidenceCapabilityEnabled(): boolean {
+  return envFlagEnabled(process.env.FOVEA_EVIDENCE_CAPABILITY);
+}
+
+/**
  * Multilingual Tier 5 master flag — MULTILINGUAL_CALIBRATION.
  *
  * When on, the §4.2 per-class focus calibrator (focus-signal.ts) gains a

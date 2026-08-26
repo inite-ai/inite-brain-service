@@ -51,12 +51,35 @@ export type OutcomeCounter =
   | 'rejectedCount'
   | 'contradictedCount';
 
+/**
+ * 0113 dimension: which evidence modality the outcome concerns. Mirrors
+ * the `EvidenceCapability` union (synthesize.types.ts) value-for-value —
+ * duplicated here as its own name so this substrate layer never imports
+ * from the engine dirs it serves. Absent = legacy/text (the migration's
+ * NONE contract).
+ */
+export type OutcomeModality = 'text' | 'visual' | 'audio' | 'document_region';
+
 export interface OutcomeEventInput {
   subjectKind: OutcomeSubjectKind;
   /** Full record id string, e.g. 'knowledge_fact:abc'. */
   subjectId: string;
   event: OutcomeEventName;
   actor?: string | undefined;
+  /**
+   * 0113: evidence modality of the outcome. A TOP-LEVEL column, not a
+   * meta key — meta is content-free ids-only AND the dedupe key ignores
+   * meta, so a meta-buried dimension would be invisible to partitioning
+   * (see the 0113 migration header). Absent = legacy/text. No writer in
+   * the text pipeline stamps it yet — the media paths (sibling PRs) do.
+   */
+  modality?: OutcomeModality | undefined;
+  /**
+   * 0113: free-form representation tag within the modality (e.g.
+   * 'caption', 'ocr_text', 'frame_embedding'). Same top-level-column
+   * rationale as `modality`; absent = legacy.
+   */
+  representationKind?: string | undefined;
   /** CONTENT-FREE: ids / verdict strings only — never fact text. */
   meta?: Record<string, unknown> | undefined;
 }
@@ -97,14 +120,21 @@ const AUTO_STAT: Partial<
 };
 
 /**
- * Dedupe on (subjectKind, subjectId, event, actor) then cap. Pure and
- * exported for the unit spec.
+ * Dedupe on (subjectKind, subjectId, event, actor, modality,
+ * representationKind) then cap. Pure and exported for the unit spec.
+ *
+ * 0113: the two dimension components extend the key so the SAME event on
+ * DIFFERENT modalities stays two rows. Every existing (text-path) writer
+ * passes neither field, so its key gains a constant `||` suffix —
+ * partitioning identical to pre-0113, pinned by the unit spec.
  */
 export function dedupeOutcomeEvents(events: OutcomeEventInput[]): OutcomeEventInput[] {
   const seen = new Set<string>();
   const out: OutcomeEventInput[] = [];
   for (const ev of events) {
-    const key = `${ev.subjectKind}|${ev.subjectId}|${ev.event}|${ev.actor ?? ''}`;
+    const key =
+      `${ev.subjectKind}|${ev.subjectId}|${ev.event}|${ev.actor ?? ''}` +
+      `|${ev.modality ?? ''}|${ev.representationKind ?? ''}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(ev);
@@ -224,6 +254,13 @@ export class MemoryOutcomeService {
       // undefined → dropped from the payload → NONE (option<...> rejects NULL).
       ...(ev.actor !== undefined ? { actor: ev.actor } : {}),
       ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+      // 0113 dimensions ride the raw row only. The rollup (statRows below)
+      // stays UNIQUE-per-subject with NO per-modality columns — deliberate:
+      // no scorer consumes a per-modality stat yet, and the raw rows retain
+      // full dimensionality, so a modality rollup can be added later
+      // without loss. Existing writers pass neither → row byte-identical.
+      ...(ev.modality !== undefined ? { modality: ev.modality } : {}),
+      ...(ev.representationKind !== undefined ? { representationKind: ev.representationKind } : {}),
       ...(ev.meta !== undefined ? { meta: ev.meta } : {}),
     }));
 

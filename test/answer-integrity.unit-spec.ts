@@ -51,6 +51,7 @@ function fakeDeps(): DepsCapture {
         countCitationGuardAbstain: () => {
           counts.citationGuards++;
         },
+        countEvidenceCapability: () => {},
       },
     },
   };

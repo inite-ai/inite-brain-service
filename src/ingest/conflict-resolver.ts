@@ -45,6 +45,7 @@
  */
 
 import { CORE_PREDICATES } from '../ai/predicate-registry.service';
+import type { EvidenceCapability } from '../synthesize/synthesize.types';
 
 export type Semantics = 'append_only' | 'single_active' | 'bitemporal';
 
@@ -88,6 +89,14 @@ export interface PredicatePolicy {
   decayHalfLifeDays: number | null; // null = never decay
   piiClass: 'none' | 'identifier' | 'behavioral' | 'text' | 'sensitive';
   requiresScope?: 'brain:read_pii';
+  /**
+   * 0113 (FOVEA_EVIDENCE_CAPABILITY): the evidence capability claims
+   * under this predicate REQUIRE to verify. Absent = 'text' =
+   * unconstrained — every CORE seed predicate carries no value (all
+   * text); only tenant registry rows (knowledge_predicate column) set
+   * it. Consumed by the verdict-side evidence-capability gate.
+   */
+  requiredEvidenceCapability?: EvidenceCapability;
 }
 
 export const DEFAULT_POLICY: PredicatePolicy = {
@@ -119,6 +128,11 @@ export function policyFor(predicate: string): PredicatePolicy {
     decayHalfLifeDays: seed.decayHalfLifeDays,
     piiClass: seed.piiClass,
     ...(seed.requiresScope ? { requiresScope: seed.requiresScope as 'brain:read_pii' } : {}),
+    // 0113: no CORE seed sets it (all text) — threaded for shape parity
+    // with the registry rows so a future seed value is not silently lost.
+    ...(seed.requiredEvidenceCapability
+      ? { requiredEvidenceCapability: seed.requiredEvidenceCapability }
+      : {}),
   };
 }
 
@@ -136,6 +150,9 @@ export const PREDICATE_POLICIES: Record<string, PredicatePolicy> = Object.fromEn
       decayHalfLifeDays: p.decayHalfLifeDays,
       piiClass: p.piiClass,
       ...(p.requiresScope ? { requiresScope: p.requiresScope as 'brain:read_pii' } : {}),
+      ...(p.requiredEvidenceCapability
+        ? { requiredEvidenceCapability: p.requiredEvidenceCapability }
+        : {}),
     } as PredicatePolicy,
   ]),
 );

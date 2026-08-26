@@ -75,6 +75,7 @@ function fakeDeps(): DepsCapture {
         countAbstainPath: (p: 'adaptive' | 'static') => paths.push(p),
         countPlausibilityDowngrade: () => {},
         countCitationGuardAbstain: () => {},
+        countEvidenceCapability: () => {},
       },
       logger: { debug: () => {} },
     },

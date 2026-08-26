@@ -190,6 +190,111 @@ describe('MemoryOutcomeService.recordOutcomes', () => {
       { counter: 'selectedCount', delta: 1 },
     ]);
   });
+
+  // ── 0113 modality dimensions ──────────────────────────────────────
+  describe('0113 modality dimensions', () => {
+    it('dedupe partitioning pin: legacy (no-dimension) events partition exactly as before', () => {
+      // Same legacy pair that deduped to 1 pre-0113 — the appended
+      // constant `||` key suffix must not change the partitioning.
+      expect(
+        dedupeOutcomeEvents([
+          ev('knowledge_fact:a', 'used_in_answer'),
+          ev('knowledge_fact:a', 'used_in_answer'),
+        ]),
+      ).toHaveLength(1);
+      // Distinct actors still partition.
+      expect(
+        dedupeOutcomeEvents([
+          ev('knowledge_fact:a', 'user_confirmed', { actor: 'k1' }),
+          ev('knowledge_fact:a', 'user_confirmed', { actor: 'k2' }),
+        ]),
+      ).toHaveLength(2);
+    });
+
+    it('dedupe: modality/representationKind SPLIT otherwise-identical events', () => {
+      // Same event on different modalities = two rows.
+      expect(
+        dedupeOutcomeEvents([
+          ev('knowledge_fact:a', 'used_in_answer', { modality: 'visual' }),
+          ev('knowledge_fact:a', 'used_in_answer', { modality: 'audio' }),
+        ]),
+      ).toHaveLength(2);
+      // Dimensioned vs legacy (absent = legacy/text) = two rows.
+      expect(
+        dedupeOutcomeEvents([
+          ev('knowledge_fact:a', 'used_in_answer', { modality: 'visual' }),
+          ev('knowledge_fact:a', 'used_in_answer'),
+        ]),
+      ).toHaveLength(2);
+      // Same modality, different representationKind = two rows.
+      expect(
+        dedupeOutcomeEvents([
+          ev('knowledge_fact:a', 'used_in_answer', {
+            modality: 'visual',
+            representationKind: 'caption',
+          }),
+          ev('knowledge_fact:a', 'used_in_answer', {
+            modality: 'visual',
+            representationKind: 'ocr_text',
+          }),
+        ]),
+      ).toHaveLength(2);
+      // True duplicates (same dimensions) still collapse.
+      expect(
+        dedupeOutcomeEvents([
+          ev('knowledge_fact:a', 'used_in_answer', { modality: 'visual' }),
+          ev('knowledge_fact:a', 'used_in_answer', { modality: 'visual' }),
+        ]),
+      ).toHaveLength(1);
+    });
+
+    it('INSERT row for an existing (no-dimension) writer is byte-identical — no new keys', async () => {
+      const captured: CapturedQuery[] = [];
+      const svc = new MemoryOutcomeService(makeSurreal(captured));
+      svc.recordOutcomes({
+        companyId: 'co_x',
+        events: [ev('knowledge_fact:a', 'used_in_answer', { actor: 'k1' })],
+        requestId: 'req-1',
+      });
+      await flush();
+      const rows = captured[0]!.params.rows as Array<Record<string, unknown>>;
+      expect(rows).toHaveLength(1);
+      // The EXACT pre-0113 key set — modality/representationKind absent
+      // (undefined → dropped → NONE), so legacy writers stay byte-identical.
+      expect(Object.keys(rows[0]!).sort()).toEqual([
+        'actor',
+        'createdAt',
+        'event',
+        'requestId',
+        'subjectId',
+        'subjectKind',
+      ]);
+    });
+
+    it('a dimensioned event threads modality + representationKind onto the raw row (rollup untouched)', async () => {
+      const captured: CapturedQuery[] = [];
+      const svc = new MemoryOutcomeService(makeSurreal(captured));
+      svc.recordOutcomes({
+        companyId: 'co_x',
+        events: [
+          ev('knowledge_fact:a', 'used_in_answer', {
+            modality: 'visual',
+            representationKind: 'caption',
+          }),
+        ],
+      });
+      await flush();
+      const rows = captured[0]!.params.rows as Array<Record<string, unknown>>;
+      expect(rows[0]).toMatchObject({ modality: 'visual', representationKind: 'caption' });
+      // The rollup stays UNIQUE-per-subject with NO per-modality columns
+      // (deliberately deferred — no scorer consumes them; raw rows retain
+      // full dimensionality).
+      const statRows = captured[0]!.params.statRows as Array<Record<string, unknown>>;
+      expect(statRows).toHaveLength(1);
+      expect(Object.keys(statRows[0]!)).not.toContain('modality');
+      expect(Object.keys(statRows[0]!)).not.toContain('representationKind');
+    });
+  });
 });
 
 describe('OutcomePruneService', () => {
