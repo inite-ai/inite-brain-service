@@ -246,6 +246,11 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'SCENES_MAX_TURNS', errors);
   floatInRange(env, 'SCENES_TOPIC_MIN_COSINE', -1, 1, errors);
 
+  // ── Evidence substrate (Brain v2.1 M1, migration 0109) ─────────────
+  // The write seam clamps bad values to the default at read time; boot
+  // validation catches the typo before it silently reads as a default.
+  positiveInt(env, 'EVIDENCE_MAX_BYTES', errors);
+
   // ── Retrieval profile (per-tenant genre configuration) ─────────────
   validateRetrievalProfileEnv(env, errors);
 
@@ -829,6 +834,18 @@ const KNOWN_BOOLEAN_FLAGS = [
   // verbatim (facts read/provenance API) — additive. Default off ⇒ no
   // fact row is ever touched and the backlink admin route 404s.
   'SCENES_FACT_BACKLINK',
+  // Evidence substrate master (Brain v2.1 M1, migration 0109): the
+  // EvidenceStoreService writers for evidence_asset / evidence_fragment /
+  // derived_representation. Default off ⇒ every writer 503s and no row is
+  // ever written (byte-identical prod; no serving path reads the tables
+  // even when on). The GDPR cascade + retention sweep run regardless —
+  // rows written while on must stay erasable. EVIDENCE_ family sits off
+  // the ENGINE flag budget by design (a substrate builder, not an engine
+  // fork). The fs root (EVIDENCE_FS_ROOT) is a string and the size cap
+  // (EVIDENCE_MAX_BYTES) an int — not booleans. Reserved for sibling PRs
+  // (not defined yet): EVIDENCE_INGEST_ENABLED / EVIDENCE_SCENE_LINKS /
+  // EVIDENCE_FRAGMENT_CITATIONS.
+  'EVIDENCE_SUBSTRATE_ENABLED',
   // Outcome telemetry master (0107): writers append memory_outcome rows
   // + fold memory_outcome_stat counters; the nightly raw-log prune runs.
   // Default off = byte-identical (every writer is a guarded no-op).

@@ -7,6 +7,7 @@ import { WorkerLoopService, JobContext } from '../jobs/worker-loop.service';
 import { CandidateStoreService } from './candidate-store.service';
 import { markFactsProvenancePurged } from './document-store.service';
 import { idTailOf as idTail } from '../ingest/ingest-utils';
+import { EvidenceStoreService } from '../evidence/evidence-store.service';
 
 /** count()…GROUP ALL projection — `c` is the group count. */
 interface CountRow {
@@ -39,6 +40,7 @@ export class CandidateSweeperService implements OnModuleInit {
     private readonly candidates: CandidateStoreService,
     @Optional() private readonly workerLoop?: WorkerLoopService,
     @Optional() private readonly claim?: JobClaimService,
+    @Optional() private readonly evidence?: EvidenceStoreService,
   ) {}
 
   onModuleInit(): void {
@@ -83,7 +85,7 @@ export class CandidateSweeperService implements OnModuleInit {
   async sweepTenant(companyId: string): Promise<Record<string, unknown>> {
     const retentionDays = envInt('CANDIDATE_RETENTION_DAYS', 30);
     const pendingTtlDays = envInt('CANDIDATE_PENDING_TTL_DAYS', 7);
-    return this.surreal.withCompany(companyId, async (db) => {
+    const base = await this.surreal.withCompany(companyId, async (db) => {
       const expired = await this.countThen(db, {
         countWhere: `status = 'pending' AND createdAt < time::now() - duration::from_days($days)`,
         mutation: `UPDATE candidate SET status = 'expired',
@@ -145,6 +147,14 @@ export class CandidateSweeperService implements OnModuleInit {
       );
       return { expired, deleted, purgedDocs: purgeIds.length, factsFlagged };
     });
+    // Evidence retention leg (0109): assets past retainUntil lose
+    // fragments/representations/blob and become 'gone' tombstones, plus
+    // the blob-delete reconciliation retry. Owned by the evidence module
+    // (the sweeper stays lifecycle-cron glue) and run on its OWN scoped
+    // connection (never nested inside the closure above); @Optional so
+    // positionally-constructed fixtures stay valid.
+    const evidenceCounts = (await this.evidence?.sweepTenantEvidence(companyId)) ?? {};
+    return { ...base, ...evidenceCounts };
   }
 
   /**

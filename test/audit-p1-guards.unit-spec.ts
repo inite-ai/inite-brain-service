@@ -153,6 +153,107 @@ describe('0107_memory_outcome indexes', () => {
   });
 });
 
+describe('0109_evidence_substrate indexes', () => {
+  const sql = readFileSync(join(MIGRATIONS, '0109_evidence_substrate.surql'), 'utf8');
+
+  // ALL single-field, deliberately: compound coverage would put these
+  // tables' delete paths (GDPR cascade + retention sweep) under the
+  // 3.2.4 compound-planner DELETE no-op. byteHash UNIQUE doubles as the
+  // 1:1 row↔blob invariant.
+  it.each([
+    ['evidence_asset_hash_idx', 'evidence_asset', 'byteHash UNIQUE'],
+    ['evidence_asset_user_idx', 'evidence_asset', 'userId'],
+    ['evidence_asset_avail_idx', 'evidence_asset', 'availability'],
+    ['evidence_asset_retain_idx', 'evidence_asset', 'retainUntil'],
+    ['evidence_fragment_asset_idx', 'evidence_fragment', 'assetId'],
+    ['derived_repr_subject_idx', 'derived_representation', 'subjectId'],
+    ['derived_repr_kind_idx', 'derived_representation', 'kind'],
+    ['derived_repr_ver_idx', 'derived_representation', 'producerVersion'],
+  ])('defines %s on %s(%s)', (name, table, fields) => {
+    expect(sql).toContain(`DEFINE INDEX IF NOT EXISTS ${name} ON ${table} FIELDS ${fields};`);
+  });
+
+  it('defines no compound index on any of the three tables', () => {
+    const indexLines = sql
+      .split('\n')
+      .filter((l) => l.trimStart().startsWith('DEFINE INDEX'))
+      .filter((l) => /evidence_asset|evidence_fragment|derived_representation/.test(l));
+    for (const line of indexLines) {
+      // A compound tuple would read `FIELDS a, b` — no comma may follow
+      // the FIELDS clause outside the trailing UNIQUE/; suffix.
+      expect(line).not.toMatch(/FIELDS [A-Za-z]+,/);
+    }
+  });
+
+  it('deliberately defines NO changefeed and NO event on any table', () => {
+    // Same GDPR reasoning as 0073/0106/0107: fragment labels + derived
+    // caption/ocr/asr text must not stay readable in a feed after an
+    // erasure. The header EXPLAINS the absence in prose, so judge only
+    // non-comment lines.
+    const code = sql
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('--'))
+      .join('\n');
+    expect(code).not.toMatch(/CHANGEFEED/);
+    expect(code).not.toMatch(/DEFINE EVENT/);
+  });
+
+  it('stamps the GDPR tombstone counters on forgotten_entity', () => {
+    for (const field of [
+      'evidenceAssetsDeleted',
+      'evidenceFragmentsDeleted',
+      'representationsDeleted',
+    ]) {
+      expect(sql).toContain(`DEFINE FIELD IF NOT EXISTS ${field} ON forgotten_entity`);
+    }
+  });
+});
+
+describe('evidence substrate DELETE-shape guards (0109)', () => {
+  // The three tables sit on TWO delete paths; every delete must be the
+  // two-step SELECT-ids → DELETE $ids idiom (the 3.2.4 planner no-op
+  // class — see the suite below). A `DELETE <evidence table> WHERE`
+  // anywhere in these writers is a regression.
+  const files = [
+    join(__dirname, '..', 'src', 'entities', 'user-forget.service.ts'),
+    join(__dirname, '..', 'src', 'documents', 'candidate-sweeper.service.ts'),
+    join(__dirname, '..', 'src', 'evidence', 'evidence-store.service.ts'),
+  ];
+
+  it('no writer uses a one-step DELETE-WHERE on the evidence tables', () => {
+    for (const file of files) {
+      const text = readFileSync(file, 'utf8');
+      expect(text).not.toMatch(/DELETE evidence_fragment WHERE/);
+      expect(text).not.toMatch(/DELETE derived_representation WHERE/);
+      expect(text).not.toMatch(/DELETE evidence_asset WHERE/);
+    }
+  });
+
+  it('user-forget pre-collects the cascade ids (and blob refs) before deleting', () => {
+    const src = readFileSync(files[0]!, 'utf8');
+    expect(src).toContain(
+      'LET $assetIds = (SELECT VALUE id FROM evidence_asset WHERE userId = $u)',
+    );
+    expect(src).toContain(
+      'LET $fragIds = (SELECT VALUE id FROM evidence_fragment WHERE assetId INSIDE $assetIds)',
+    );
+    expect(src).toContain('LET $reprIds = (SELECT VALUE id FROM derived_representation');
+    expect(src).toContain('DELETE $reprIds RETURN BEFORE');
+    expect(src).toContain('DELETE $fragIds RETURN BEFORE');
+    expect(src).toContain('DELETE $assetIds RETURN BEFORE');
+    // Blob refs must be collected while the rows still exist.
+    expect(src).toContain('SELECT VALUE storageRef FROM evidence_asset');
+  });
+
+  it('the retention sweep pre-collects fragment/representation ids per asset', () => {
+    const src = readFileSync(files[2]!, 'utf8');
+    expect(src).toContain('LET $fragIds = (SELECT VALUE id FROM evidence_fragment');
+    expect(src).toContain('LET $reprIds = (SELECT VALUE id FROM derived_representation');
+    expect(src).toContain('DELETE $fragIds RETURN BEFORE');
+    expect(src).toContain('DELETE $reprIds RETURN BEFORE');
+  });
+});
+
 describe('SurrealDB 3.2.4 DELETE-WHERE planner no-op guards', () => {
   // Bug class (reproduced against the pinned surrealdb/surrealdb:v3.2.4,
   // rocksdb, WS driver with CBOR binds AND HTTP /sql): a `DELETE <table>

@@ -71,6 +71,7 @@ const ALL_PAGES = {
   ],
   episode: [{ id: 'episode:1', text: 'hello world' }],
   episode_segment: [{ id: 'episode_segment:1', text: 'segment text' }],
+  memory_episode: [{ id: 'memory_episode:1', gist: 'scene gist' }],
   strategy_memory: [{ id: 'strategy_memory:1', title: 'T', situation: 'S' }],
 };
 
@@ -119,6 +120,7 @@ describe('ReindexEngineService — opt-in all-tables sweep', () => {
       'knowledge_predicate',
       'episode',
       'episode_segment',
+      'memory_episode',
       'strategy_memory',
     ]);
     for (const t of res.tables ?? []) {
@@ -141,7 +143,7 @@ describe('ReindexEngineService — EMBEDDING_SPACE_TRACKING stamping', () => {
     const { engine, calls } = makeEngine({ pages: ALL_PAGES, tracking: '1' });
     await engine.reindexTenant('acme', { dryRun: false, remaining: 1000, allTables: true });
     const updates = calls.filter((c) => /^\s*UPDATE/.test(c.sql));
-    expect(updates).toHaveLength(6); // fact + 5 tables
+    expect(updates).toHaveLength(7); // fact + 6 tables
     for (const u of updates) {
       expect(u.sql).toContain('embeddingSpaceId = $space');
       expect(u.params?.space).toBe(ACTIVE_SPACE);

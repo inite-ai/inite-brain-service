@@ -35,6 +35,9 @@ interface ReindexTableSpec {
  *                          yet backfilled; the != NONE guard makes this a
  *                          safe no-op until they are)
  *   - episode_segment    — segment-composer stores the exact embedded `text`
+ *   - memory_episode     — scene gist (0106; gistEmbedding is unpopulated
+ *                          derived state today — the != NONE guard makes
+ *                          this a safe no-op until a scorer fills it)
  *   - strategy_memory    — `<title>\n<situation>` (strategy-memory.service)
  *
  * community_node (summaryEmbedding) and procedural_memory (triggerEmbedding)
@@ -73,6 +76,16 @@ const ADDITIONAL_TABLE_SPECS: ReindexTableSpec[] = [
     vectorField: 'embedding',
     select: 'id, text, embedding',
     text: (r) => asStr(r.text),
+  },
+  {
+    // Scenes (0106): the deterministic gist IS the embedded text (the
+    // composer embeds `gist` verbatim when it fills gistEmbedding). The
+    // `!= NONE` guard makes this a safe no-op while gist vectors remain
+    // unpopulated derived state.
+    table: 'memory_episode',
+    vectorField: 'gistEmbedding',
+    select: 'id, gist, gistEmbedding',
+    text: (r) => asStr(r.gist),
   },
   {
     table: 'strategy_memory',

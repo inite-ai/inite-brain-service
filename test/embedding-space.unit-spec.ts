@@ -122,6 +122,7 @@ describe('EMBEDDING_TABLES / field constant', () => {
       'knowledge_predicate',
       'episode',
       'episode_segment',
+      'memory_episode',
       'strategy_memory',
       'community_node',
       'procedural_memory',

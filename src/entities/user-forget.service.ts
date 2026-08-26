@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
+import { EvidenceStoreService } from '../evidence/evidence-store.service';
 
 /**
  * UserForgetService — GDPR erasure for a per-user memory scope
@@ -32,13 +33,22 @@ export interface UserForgetResult {
   entitiesDeleted: number;
   edgesDeleted: number;
   auditEventsDeleted: number;
+  /** Evidence substrate (0109): content-bearing rows erased with the user. */
+  evidenceAssetsDeleted: number;
+  evidenceFragmentsDeleted: number;
+  representationsDeleted: number;
 }
 
 @Injectable()
 export class UserForgetService {
   private readonly logger = new Logger(UserForgetService.name);
 
-  constructor(private readonly surreal: SurrealService) {}
+  constructor(
+    private readonly surreal: SurrealService,
+    // Blob deletion only — the ROW cascade below runs inline SQL so a
+    // fixture constructed without the evidence module still erases rows.
+    @Optional() private readonly evidence?: EvidenceStoreService,
+  ) {}
 
   async forgetUser(companyId: string, userId: string): Promise<UserForgetResult> {
     return this.surreal.withCompany(companyId, async (db) => {
@@ -219,6 +229,10 @@ export class UserForgetService {
       }
       await db.query(`DELETE memory_episode WHERE userId = $u`, { u: userId });
 
+      // Evidence substrate (0109) — see eraseEvidenceRows.
+      const { evidenceAssetsDeleted, evidenceFragmentsDeleted, representationsDeleted } =
+        await this.eraseEvidenceRows(db, companyId, userId);
+
       // Purge the materialised audit mirror (same contract as entity
       // forget): recordId is the full `table:id` string. The changefeed
       // consumer's PII redaction covers any still-unconsumed lag.
@@ -239,11 +253,72 @@ export class UserForgetService {
         entitiesDeleted: entityIds.length,
         edgesDeleted: edgeRecordIds.length,
         auditEventsDeleted,
+        evidenceAssetsDeleted,
+        evidenceFragmentsDeleted,
+        representationsDeleted,
       };
       this.logger.log(
-        `user forget ${companyId}/${userId}: facts=${result.factsDeleted} entities=${result.entitiesDeleted} edges=${result.edgesDeleted} audit=${result.auditEventsDeleted}`,
+        `user forget ${companyId}/${userId}: facts=${result.factsDeleted} entities=${result.entitiesDeleted} edges=${result.edgesDeleted} audit=${result.auditEventsDeleted} ` +
+          `evidenceAssets=${result.evidenceAssetsDeleted} evidenceFragments=${result.evidenceFragmentsDeleted} representations=${result.representationsDeleted}`,
       );
       return result;
     });
+  }
+
+  /**
+   * Evidence substrate (0109): assets are user/tenant-scoped, so a
+   * user's assets die with them — with their fragments and derived
+   * representations (both content-bearing: labels, captions, OCR/ASR
+   * text). Blob refs are collected BEFORE the rows die (the row is the
+   * only pointer). LET-then-DELETE-by-ids, NOT `DELETE … WHERE`: the
+   * fragment/representation WHEREs traverse indexed record fields — the
+   * reproduced 3.2.4 planner no-op class (see the memory_outcome comment
+   * in forgetUser). Blobs go AFTER the rows (an aborted cascade must not
+   * leave rows pointing at deleted bytes), best-effort: with no row left
+   * to key the sweeper's reconciliation retry, a failed unlink is logged
+   * as an ERROR for manual sweep.
+   */
+  private async eraseEvidenceRows(
+    db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> },
+    companyId: string,
+    userId: string,
+  ): Promise<{
+    evidenceAssetsDeleted: number;
+    evidenceFragmentsDeleted: number;
+    representationsDeleted: number;
+  }> {
+    const [refRows] = await db.query<[unknown[]]>(
+      `SELECT VALUE storageRef FROM evidence_asset
+        WHERE userId = $u AND storageRef != NONE`,
+      { u: userId },
+    );
+    const storageRefs = ((refRows as unknown[]) ?? []).map(String);
+    const [, , , reprsGone, fragsGone, assetsGone] = await db.query<
+      [unknown, unknown, unknown, unknown[], unknown[], unknown[]]
+    >(
+      `LET $assetIds = (SELECT VALUE id FROM evidence_asset WHERE userId = $u);
+       LET $fragIds = (SELECT VALUE id FROM evidence_fragment WHERE assetId INSIDE $assetIds);
+       LET $reprIds = (SELECT VALUE id FROM derived_representation
+         WHERE subjectId INSIDE $assetIds OR subjectId INSIDE $fragIds);
+       DELETE $reprIds RETURN BEFORE;
+       DELETE $fragIds RETURN BEFORE;
+       DELETE $assetIds RETURN BEFORE;`,
+      { u: userId },
+    );
+    let blobFailures = 0;
+    for (const ref of storageRefs) {
+      const ok = (await this.evidence?.deleteBlobBestEffort(ref)) ?? false;
+      if (!ok) blobFailures++;
+    }
+    if (blobFailures > 0) {
+      this.logger.error(
+        `user forget ${companyId}/${userId}: ${blobFailures}/${storageRefs.length} evidence blob delete(s) failed — bytes may outlive rows, sweep manually`,
+      );
+    }
+    return {
+      evidenceAssetsDeleted: ((assetsGone as unknown[]) ?? []).length,
+      evidenceFragmentsDeleted: ((fragsGone as unknown[]) ?? []).length,
+      representationsDeleted: ((reprsGone as unknown[]) ?? []).length,
+    };
   }
 }
