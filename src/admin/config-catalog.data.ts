@@ -529,6 +529,18 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Fovea optics (verifier answer-integrity arm, Part C): treat a `supported` verdict whose answer carries ZERO citations as low_coverage/abstain instead of serving an uncited "supported" answer (audit F2(b)). LIVE-behavior change when enabled — prod answers can shift, so default off until the owner enables + validates. Off = byte-identical serving.',
   },
+  {
+    key: 'FOVEA_L3_EPISODE_CITATIONS',
+    category: 'calibration',
+    // Read at call time (fovea-flags.l3EpisodeCitationsEnabled) on the L3
+    // escalation seam — never captured in a constructor — so a flip takes
+    // effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Fovea serving-integrity: L3 evidence citations — the L3 escalation transcript renders per-turn [episode:...] headers and transcript-grounded claims are cited as {episodeId, quote} pairs, resolved into span-verified evidence citations over the stored turn text (episodeId-only when the quote cannot be verified; episodeIds not rendered into the transcript are dropped). An episode-cited answer satisfies FOVEA_REQUIRE_CITATIONS; the answer cache still never admits an episode-only-cited answer. Off = L3 prompt/schema/transcript byte-identical, no evidenceCitations emitted.',
+  },
   // ── Scenes (Brain v2) ──
   {
     key: 'SCENES_SEGMENTATION_ENABLED',

@@ -570,6 +570,11 @@ export class SynthesizeService {
       {
         answer: l3.answer,
         citations: l3.citations,
+        // L3 evidence citations (FOVEA_L3_EPISODE_CITATIONS): episode-level
+        // refs for transcript-grounded claims — [] when the flag is off, so
+        // finalizeVerdict never spreads the field. The primary serve path
+        // passes nothing here.
+        evidenceCitations: l3.evidenceCitations,
         results: args.results,
         guardrails: args.guardrails,
         decisionLog: args.explain

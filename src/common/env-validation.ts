@@ -853,6 +853,16 @@ const KNOWN_BOOLEAN_FLAGS = [
   // default off. Outside ENGINE_PREFIX by design (the FOVEA_ family sits off
   // the flag budget).
   'FOVEA_REQUIRE_CITATIONS',
+  // Fovea serving-integrity: L3 evidence citations — the L3 transcript gains
+  // per-turn [episode:...] headers and transcript-grounded claims are cited
+  // as {episodeId, quote} pairs, resolved into span-verified evidence
+  // citations over the stored turn text (only turns actually rendered into
+  // the transcript are citable; unknown episodeIds dropped). Changes the
+  // FOVEA_REQUIRE_CITATIONS verdict interaction (an episode-cited answer
+  // serves). Off = prompt/schema/transcript byte-identical, no
+  // evidenceCitations emitted. Outside ENGINE_PREFIX by design (the FOVEA_
+  // family sits off the flag budget).
+  'FOVEA_L3_EPISODE_CITATIONS',
   // Evidence plane (Brain v2 gap #5): summary-producing writers
   // (promotion, compaction rollups, recompose rewrites, arc/aggregate
   // composers) stamp the union of member source.episodeIds onto the

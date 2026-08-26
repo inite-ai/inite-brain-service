@@ -348,6 +348,8 @@ interface Mocks {
   outcomes: string[];
   triggerPaths: string[];
   anchorSources: string[];
+  /** One entry per counted episode-citation outcome (n expanded). */
+  episodeCitationOutcomes: string[];
   windowAroundCalls: number;
   conversationTurnsCalls: number;
   searchTextCalls: number;
@@ -355,21 +357,24 @@ interface Mocks {
   segmentAnchorCalls: number;
 }
 
-function fakeOpenAi(responses: string[]): OpenAI {
+function fakeOpenAi(responses: string[], captured?: unknown[]): OpenAI {
   let i = 0;
   return {
     chat: {
       completions: {
-        create: async () => ({
-          id: 'stub',
-          choices: [
-            {
-              message: {
-                content: responses[i++] ?? responses[responses.length - 1],
+        create: async (req: unknown) => {
+          captured?.push(req);
+          return {
+            id: 'stub',
+            choices: [
+              {
+                message: {
+                  content: responses[i++] ?? responses[responses.length - 1],
+                },
               },
-            },
-          ],
-        }),
+            ],
+          };
+        },
       },
     },
   } as unknown as OpenAI;
@@ -397,7 +402,13 @@ function makeService(opts: {
     string,
     Array<{ id: string; speaker: string; text: string; occurredAt: string }>
   >;
-  windowTurns?: Array<{ id: string; speaker: string; text: string; occurredAt: string }>;
+  windowTurns?: Array<{
+    id: string;
+    conversationId?: string;
+    speaker: string;
+    text: string;
+    occurredAt: string;
+  }>;
   /** Rows the direct-anchor BM25 probe (episodes.searchText) returns. */
   searchTextRows?: Array<{
     id: string;
@@ -416,6 +427,7 @@ function makeService(opts: {
     outcomes: [],
     triggerPaths: [],
     anchorSources: [],
+    episodeCitationOutcomes: [],
     windowAroundCalls: 0,
     conversationTurnsCalls: 0,
     searchTextCalls: 0,
@@ -449,6 +461,9 @@ function makeService(opts: {
     countL3Escalation: (o: string) => mocks.outcomes.push(o),
     countL3TriggerPath: (p: string) => mocks.triggerPaths.push(p),
     countL3AnchorSource: (s: string) => mocks.anchorSources.push(s),
+    countL3EpisodeCitation: (o: string, n = 1) => {
+      for (let k = 0; k < n; k++) mocks.episodeCitationOutcomes.push(o);
+    },
     recordOpenAiCall: () => {},
   } as unknown as MetricsService;
   const segments = opts.segmentAnchors
@@ -953,5 +968,162 @@ describe('L3EscalationService — auxiliary anchor sources', () => {
       expect(mocks.conversationsInRangeCalls).toBe(1);
       expect(mocks.anchorSources).toEqual(['temporal']);
     }
+  });
+});
+
+// ── service: L3 evidence citations (FOVEA_L3_EPISODE_CITATIONS) ─────
+describe('L3EscalationService — evidence citations', () => {
+  afterEach(() => {
+    delete process.env.FOVEA_L3_EPISODE_CITATIONS;
+  });
+
+  /** The captured L3 generator request, narrowed for assertions. */
+  interface CapturedL3Request {
+    messages: Array<{ role: string; content: string }>;
+    response_format: {
+      json_schema: { schema: { properties: Record<string, unknown>; required: string[] } };
+    };
+  }
+
+  const oneTurnSetup = () => ({
+    factEps: [{ id: FACT_ID, eps: ['episode:ep1'] }],
+    episodesByIds: [
+      { id: 'episode:ep1', conversationId: 'conv1', occurredAt: '2026-04-01T00:00:00Z' },
+    ],
+    sessionTurns: {
+      conv1: [
+        {
+          id: 'episode:ep1',
+          speaker: 'user',
+          text: 'my tier is sapphire',
+          occurredAt: '2026-04-01T00:00:00Z',
+        },
+      ],
+    },
+  });
+
+  it('flag OFF (default) → evidenceCitations [], and prompt/schema/lines byte-identical', async () => {
+    const captured: unknown[] = [];
+    const { service } = makeService(oneTurnSetup());
+    const openai = fakeOpenAi(
+      [
+        JSON.stringify({ answer: 'The tier is sapphire.', citedFactIds: [FACT_ID] }),
+        JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      ],
+      captured,
+    );
+    const out = await service.escalate(baseInput(openai, makeProfile({})));
+    expect(out?.evidenceCitations).toEqual([]);
+    const req = captured[0] as CapturedL3Request;
+    // Rule 2 keeps the historical transcript-citation exemption verbatim.
+    expect(req.messages[0]!.content).toContain(
+      'Claims taken from the raw transcript need no citation.',
+    );
+    expect(req.messages[0]!.content).not.toContain('citedEpisodes');
+    // The strict schema is exactly the historical two-field shape.
+    expect(req.response_format.json_schema.schema.properties).toEqual({
+      answer: { type: 'string' },
+      citedFactIds: { type: 'array', items: { type: 'string' } },
+    });
+    expect(req.response_format.json_schema.schema.required).toEqual(['answer', 'citedFactIds']);
+    // Transcript lines carry no [episode:...] headers.
+    expect(req.messages[1]!.content).toContain('[2026-04-01] user: my tier is sapphire');
+    expect(req.messages[1]!.content).not.toContain('[episode:');
+  });
+
+  it('flag ON → [episode:...] headers, citedEpisodes in schema+required, spans resolved, hallucinated id dropped', async () => {
+    process.env.FOVEA_L3_EPISODE_CITATIONS = '1';
+    const captured: unknown[] = [];
+    const { service, mocks } = makeService(oneTurnSetup());
+    const openai = fakeOpenAi(
+      [
+        JSON.stringify({
+          answer: 'The tier is sapphire.',
+          citedFactIds: [],
+          citedEpisodes: [
+            { episodeId: 'episode:ep1', quote: 'tier is sapphire' },
+            { episodeId: 'episode:hallucinated', quote: 'anything at all' },
+          ],
+        }),
+        JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      ],
+      captured,
+    );
+    const out = await service.escalate(baseInput(openai, makeProfile({})));
+    const req = captured[0] as CapturedL3Request;
+    // The transcript line now carries its stable episode header.
+    expect(req.messages[1]!.content).toContain(
+      '[episode:ep1] [2026-04-01] user: my tier is sapphire',
+    );
+    // Rule 2 swapped to the citedEpisodes instruction; schema gained the
+    // field in properties AND required (strict mode).
+    expect(req.messages[0]!.content).toContain('citedEpisodes');
+    expect(req.messages[0]!.content).not.toContain('need no citation');
+    expect(req.response_format.json_schema.schema.properties).toHaveProperty('citedEpisodes');
+    expect(req.response_format.json_schema.schema.required).toEqual([
+      'answer',
+      'citedFactIds',
+      'citedEpisodes',
+    ]);
+    // The known turn resolves to a span-anchored citation; the
+    // hallucinated id never surfaces (dropped + counted).
+    expect(out?.evidenceCitations).toEqual([
+      {
+        episodeId: 'episode:ep1',
+        conversationId: 'conv1',
+        occurredAt: '2026-04-01T00:00:00.000Z',
+        span: { start: 3, end: 19, exact: 'tier is sapphire' },
+      },
+    ]);
+    expect(mocks.episodeCitationOutcomes.sort()).toEqual(['dropped_unknown', 'span_anchored']);
+  });
+
+  it('flag ON, over-budget degrade → windowAround lines carry the SAME headers and stay citable', async () => {
+    process.env.FOVEA_L3_EPISODE_CITATIONS = '1';
+    const captured: unknown[] = [];
+    const bigText = 'x'.repeat(2000);
+    const { service, mocks } = makeService({
+      factEps: [{ id: FACT_ID, eps: ['episode:ep1'] }],
+      episodesByIds: [
+        { id: 'episode:ep1', conversationId: 'conv1', occurredAt: '2026-04-01T00:00:00Z' },
+      ],
+      sessionTurns: {
+        conv1: [
+          { id: 'episode:ep1', speaker: 'user', text: bigText, occurredAt: '2026-04-01T00:00:00Z' },
+        ],
+      },
+      windowTurns: [
+        {
+          id: 'episode:epw',
+          conversationId: 'conv1',
+          speaker: 'user',
+          text: 'tier is sapphire',
+          occurredAt: '2026-04-01T00:00:00Z',
+        },
+      ],
+    });
+    const openai = fakeOpenAi(
+      [
+        JSON.stringify({
+          answer: 'sapphire',
+          citedFactIds: [],
+          citedEpisodes: [{ episodeId: 'episode:epw', quote: 'sapphire' }],
+        }),
+        JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      ],
+      captured,
+    );
+    const out = await service.escalate(baseInput(openai, makeProfile({ l3TokenCap: 10 })));
+    expect(mocks.outcomes).toEqual(['fired', 'over_budget_degraded', 'flipped']);
+    const req = captured[0] as CapturedL3Request;
+    expect(req.messages[1]!.content).toContain('[episode:epw] [2026-04-01] user: tier is sapphire');
+    expect(out?.evidenceCitations).toEqual([
+      {
+        episodeId: 'episode:epw',
+        conversationId: 'conv1',
+        occurredAt: '2026-04-01T00:00:00.000Z',
+        span: { start: 8, end: 16, exact: 'sapphire' },
+      },
+    ]);
   });
 });

@@ -12,10 +12,12 @@ import type { SearchHit } from '../search/search.service';
 import type { RetrievalProfile, LaneId } from '../search/retrieval-profile';
 import { parseQueryTimeRange } from '../search/internals/time-range';
 import type { SynthesizeDto } from './dto/synthesize.dto';
+import { l3EpisodeCitationsEnabled } from '../common/fovea-flags';
 import { runVerifier, type VerifierOutput } from './verifier';
 import { resolveCitations } from './synthesize.helpers';
 import type { Citation } from './fact-index';
-import type { GeneratorOutput } from './synthesize.types';
+import type { EvidenceCitation, GeneratorOutput } from './synthesize.types';
+import { resolveEpisodeCitations, type CitableTurn } from './l3-citations';
 import { SegmentLaneService } from './segment-lane.service';
 import {
   l3TriggerDecision,
@@ -66,11 +68,21 @@ import {
 interface L3Context {
   transcriptLines: string[];
   degraded: boolean;
+  /**
+   * episodeId → rendered-turn info for the evidence-citation resolver.
+   * Populated ONLY when FOVEA_L3_EPISODE_CITATIONS is on; contains
+   * EXACTLY the turns rendered into transcriptLines — the fence set of
+   * resolveEpisodeCitations (only readable, rendered turns are citable).
+   */
+  turnsById: Map<string, CitableTurn>;
 }
 
 /** Minimal turn shape shared by conversationTurns and windowAround rows. */
 interface L3Turn {
   id?: unknown;
+  /** Present on windowAround rows (the degrade path); the full-session
+   *  path carries the conversation on the session wrapper instead. */
+  conversationId?: string;
   speaker?: string;
   text: string;
   occurredAt: Date | string;
@@ -118,16 +130,39 @@ export interface L3EscalateResult {
   verdict: VerifierOutput;
   answer: string;
   citations: Citation[];
+  /** Episode-level evidence citations for transcript-grounded claims
+   *  (FOVEA_L3_EPISODE_CITATIONS); always [] when the flag is off. */
+  evidenceCitations: EvidenceCitation[];
 }
 
-const L3_SYSTEM = `You are an answer synthesizer with access to FULL raw conversation transcripts.
+/**
+ * The L3 system prompt, split around rule 2 so the evidence-citation flag
+ * swaps ONLY the transcript-citation sentence: flag off concatenates to the
+ * historical prompt byte-for-byte (pinned by the L3 e2e), flag on replaces
+ * the exemption with the citedEpisodes instruction.
+ */
+const L3_SYSTEM_HEAD = `You are an answer synthesizer with access to FULL raw conversation transcripts.
 
 The extracted facts did not ground an answer, so you are given the complete raw sessions the relevant facts came from. Read the transcripts as the primary evidence and answer the user's query.
 1. Use ONLY information present in the provided transcripts and facts. Do NOT speculate or use outside knowledge.
-2. When a numbered fact supports a claim, inline its factId in square brackets EXACTLY as it appears (including the "knowledge_fact:" prefix) and mirror it into citedFactIds. Claims taken from the raw transcript need no citation.
+2. When a numbered fact supports a claim, inline its factId in square brackets EXACTLY as it appears (including the "knowledge_fact:" prefix) and mirror it into citedFactIds. `;
+
+/** Rule-2 tail, flag OFF: the historical transcript-citation exemption. */
+const L3_RULE2_EXEMPT = `Claims taken from the raw transcript need no citation.`;
+
+/** Rule-2 tail, flag ON: transcript-grounded claims cite their turn. */
+const L3_RULE2_EPISODE_CITE = `When a claim comes from the raw transcript, cite the supporting turn: add {episodeId, quote} to citedEpisodes — episodeId EXACTLY as it appears in the turn's [episode:...] header, quote a SHORT verbatim excerpt of that turn. When a numbered fact supports a claim, cite its factId as before.`;
+
+const L3_SYSTEM_TAIL = `
 3. If the transcripts do not answer the question, output the exact string "I don't have grounded evidence for that." with citedFactIds set to [].
 
 Output strictly the JSON shape requested by the schema. No preamble, no chain-of-thought.`;
+
+function l3SystemPrompt(episodeCitations: boolean): string {
+  return (
+    L3_SYSTEM_HEAD + (episodeCitations ? L3_RULE2_EPISODE_CITE : L3_RULE2_EXEMPT) + L3_SYSTEM_TAIL
+  );
+}
 
 /** How much wider than the raw-window span the L2 degrade reaches when
  *  full sessions blow the token cap (still bounded, still fenced). */
@@ -274,24 +309,45 @@ export class L3EscalationService {
         this.metrics?.countL3AnchorSource(s.source);
       }
     }
+    // Evidence citations (FOVEA_L3_EPISODE_CITATIONS): resolved ONCE per
+    // escalation so the transcript headers, the prompt/schema, and the
+    // resolver all see the same flag state within one request.
+    const episodeCitations = l3EpisodeCitationsEnabled();
     const ctx = await this.assembleContext(input, {
       sessionIds,
       episodeById,
       includePii,
       userId,
+      episodeCitations,
     });
     if (ctx.transcriptLines.length === 0) return null;
     if (ctx.degraded) this.metrics?.countL3Escalation('over_budget_degraded');
 
-    const generated = await this.generate(input, ctx.transcriptLines);
+    const generated = await this.generate(input, ctx.transcriptLines, episodeCitations);
     const citations = resolveCitations(generated.citedFactIds, generated.answer, input.factIndex);
+    const evidenceCitations = episodeCitations
+      ? this.resolveEvidence(generated.citedEpisodes, ctx.turnsById)
+      : [];
     const verdict = await this.verify(input, generated.answer, ctx);
     if (!verifierPasses(verdict, profile.verifierTopicCoverage)) {
       this.metrics?.countL3Escalation('no_flip');
       return null;
     }
     this.metrics?.countL3Escalation('flipped');
-    return { verdict, answer: generated.answer, citations };
+    return { verdict, answer: generated.answer, citations, evidenceCitations };
+  }
+
+  /** Resolve raw citedEpisodes via the pure fence (l3-citations.ts) and
+   *  emit the per-outcome telemetry. */
+  private resolveEvidence(
+    citedEpisodes: ReadonlyArray<unknown>,
+    turnsById: ReadonlyMap<string, CitableTurn>,
+  ): EvidenceCitation[] {
+    const { citations, counts } = resolveEpisodeCitations(citedEpisodes, turnsById);
+    for (const outcome of ['span_anchored', 'episode_only', 'dropped_unknown'] as const) {
+      if (counts[outcome] > 0) this.metrics?.countL3EpisodeCitation(outcome, counts[outcome]);
+    }
+    return citations;
   }
 
   /**
@@ -518,6 +574,9 @@ export class L3EscalationService {
       episodeById: Map<string, { conversationId: string; atMs?: number | undefined }>;
       includePii: boolean;
       userId?: string | undefined;
+      /** FOVEA_L3_EPISODE_CITATIONS: render [episode:...] turn headers
+       *  and collect the citable-turn map. */
+      episodeCitations: boolean;
     },
   ): Promise<L3Context> {
     const sessions = await Promise.all(
@@ -532,9 +591,13 @@ export class L3EscalationService {
           .then((turns) => ({ conversationId, turns })),
       ),
     );
-    const full = this.renderSessions(sessions);
+    const full = this.renderSessions(sessions, args.episodeCitations);
     if (estimateTokens(full.join('\n')) <= input.profile.l3TokenCap) {
-      return { transcriptLines: full, degraded: false };
+      return {
+        transcriptLines: full,
+        degraded: false,
+        turnsById: args.episodeCitations ? citableTurnsOf(sessions) : new Map(),
+      };
     }
     // Over budget: widen the L2 windows around the anchor turns of the
     // selected sessions (reuse windowAround) rather than truncating.
@@ -564,16 +627,30 @@ export class L3EscalationService {
         if (!byId.has(key)) byId.set(key, row);
       }
     }
+    const windowSessions = [{ conversationId: 'windows', turns: [...byId.values()] }];
     return {
-      transcriptLines: this.renderSessions([
-        { conversationId: 'windows', turns: [...byId.values()] },
-      ]),
+      transcriptLines: this.renderSessions(windowSessions, args.episodeCitations),
       degraded: true,
+      // windowAround rows carry their own conversationId, so the 'windows'
+      // pseudo-session name never reaches a citation.
+      turnsById: args.episodeCitations
+        ? citableTurnsOf(windowSessions.map((s) => ({ ...s, conversationId: undefined })))
+        : new Map(),
     };
   }
 
-  /** One fenced section per session, chronological dated turns. */
-  private renderSessions(sessions: Array<{ conversationId: string; turns: L3Turn[] }>): string[] {
+  /**
+   * One fenced section per session, chronological dated turns. With
+   * `episodeHeaders` (FOVEA_L3_EPISODE_CITATIONS) each turn line is
+   * prefixed with its `[episode:<id>]` header — the id the generator must
+   * echo into citedEpisodes — on BOTH the full-session and the degrade
+   * (windowAround) renders; a rare id-less row falls back to the plain
+   * line (uncitable but still evidence). Off ⇒ byte-identical lines.
+   */
+  private renderSessions(
+    sessions: Array<{ conversationId: string; turns: L3Turn[] }>,
+    episodeHeaders: boolean,
+  ): string[] {
     const lines: string[] = [];
     for (const s of sessions) {
       if (s.turns.length === 0) continue;
@@ -585,18 +662,23 @@ export class L3EscalationService {
         const day = String(
           t.occurredAt instanceof Date ? t.occurredAt.toISOString() : t.occurredAt,
         ).slice(0, 10);
-        lines.push(`[${day}] ${t.speaker ?? 'unknown'}: ${t.text}`);
+        const base = `[${day}] ${t.speaker ?? 'unknown'}: ${t.text}`;
+        lines.push(episodeHeaders && t.id !== undefined ? `[${String(t.id)}] ${base}` : base);
       }
     }
     return lines;
   }
 
   /** The ONE large-context generation. chatCallParams owns the token
-   *  policy (reasoningCap for the large context); no hand-rolled params. */
+   *  policy (reasoningCap for the large context); no hand-rolled params.
+   *  `episodeCitations` (FOVEA_L3_EPISODE_CITATIONS) swaps rule 2 of the
+   *  system prompt and adds `citedEpisodes` to the strict schema; off ⇒
+   *  prompt and schema byte-identical (pinned by the L3 e2e). */
   private async generate(
     input: L3EscalateInput,
     transcriptLines: string[],
-  ): Promise<GeneratorOutput> {
+    episodeCitations: boolean,
+  ): Promise<GeneratorOutput & { citedEpisodes: unknown[] }> {
     const sections = [
       `Full conversation transcripts:\n${transcriptLines.join('\n')}`,
       `Extracted facts (cite by factId when one supports a claim):\n${input.factLines.join('\n')}`,
@@ -606,8 +688,9 @@ export class L3EscalationService {
     }
     const langLine = input.answerLang ? `\n\nAnswer in ${input.answerLang}.` : '';
     const user = `Query: ${input.dto.query}\n\n${sections.join('\n\n')}${langLine}`;
+    const system = l3SystemPrompt(episodeCitations);
     traceArtifact('synthesize.l3_prompt', {
-      system: L3_SYSTEM,
+      system,
       user,
       model: input.model,
     });
@@ -624,7 +707,7 @@ export class L3EscalationService {
           {
             model: input.model,
             messages: [
-              { role: 'system', content: L3_SYSTEM },
+              { role: 'system', content: system },
               { role: 'user', content: user },
             ],
             response_format: {
@@ -638,8 +721,26 @@ export class L3EscalationService {
                   properties: {
                     answer: { type: 'string' },
                     citedFactIds: { type: 'array', items: { type: 'string' } },
+                    ...(episodeCitations
+                      ? {
+                          citedEpisodes: {
+                            type: 'array',
+                            items: {
+                              type: 'object',
+                              additionalProperties: false,
+                              properties: {
+                                episodeId: { type: 'string' },
+                                quote: { type: 'string' },
+                              },
+                              required: ['episodeId', 'quote'],
+                            },
+                          },
+                        }
+                      : {}),
                   },
-                  required: ['answer', 'citedFactIds'],
+                  required: episodeCitations
+                    ? ['answer', 'citedFactIds', 'citedEpisodes']
+                    : ['answer', 'citedFactIds'],
                 },
               },
             },
@@ -656,13 +757,18 @@ export class L3EscalationService {
     );
     const content = res.choices[0]?.message?.content;
     if (!content) throw new Error('empty L3 generator response');
-    const parsed = JSON.parse(content) as GeneratorOutput;
+    const parsed = JSON.parse(content) as GeneratorOutput & { citedEpisodes?: unknown };
     if (typeof parsed.answer !== 'string') {
       throw new Error('L3 generator returned non-string answer');
     }
     if (!Array.isArray(parsed.citedFactIds)) parsed.citedFactIds = [];
     traceArtifact('synthesize.l3_output', parsed);
-    return parsed;
+    // Defensive parse: a non-array (or flag-off) citedEpisodes is [].
+    return {
+      ...parsed,
+      citedEpisodes:
+        episodeCitations && Array.isArray(parsed.citedEpisodes) ? parsed.citedEpisodes : [],
+    };
   }
 
   /** Re-run the SAME verifier over the L3 answer against the session
@@ -690,4 +796,32 @@ function toMs(v: Date | string | undefined): number | undefined {
   if (v === undefined) return undefined;
   const t = v instanceof Date ? v.getTime() : Date.parse(String(v));
   return Number.isNaN(t) ? undefined : t;
+}
+
+/**
+ * Collect the citable-turn map from EXACTLY the sessions renderSessions
+ * rendered — the anti-hallucination fence set of resolveEpisodeCitations
+ * (a turn absent here was never shown to the generator and can never be
+ * cited). Per-row conversationId (windowAround rows) wins over the
+ * session wrapper's; id-less rows are uncitable and skipped.
+ */
+function citableTurnsOf(
+  sessions: Array<{ conversationId: string | undefined; turns: L3Turn[] }>,
+): Map<string, CitableTurn> {
+  const map = new Map<string, CitableTurn>();
+  for (const s of sessions) {
+    for (const t of s.turns) {
+      if (t.id === undefined) continue;
+      const key = String(t.id);
+      if (map.has(key)) continue;
+      const conversationId = t.conversationId ?? s.conversationId;
+      const atMs = toMs(t.occurredAt);
+      map.set(key, {
+        text: t.text,
+        ...(conversationId !== undefined ? { conversationId } : {}),
+        ...(atMs !== undefined ? { occurredAt: new Date(atMs).toISOString() } : {}),
+      });
+    }
+  }
+  return map;
 }
