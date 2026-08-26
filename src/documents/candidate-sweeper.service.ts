@@ -5,7 +5,7 @@ import { ApiKeyService } from '../auth/api-key.service';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService, JobContext } from '../jobs/worker-loop.service';
 import { CandidateStoreService } from './candidate-store.service';
-import { markFactsProvenancePurged } from './document-store.service';
+import { markFactsProvenancePurged, purgeDocumentChunks } from './document-purge.util';
 import { idTailOf as idTail } from '../ingest/ingest-utils';
 import { EvidenceStoreService } from '../evidence/evidence-store.service';
 
@@ -117,24 +117,8 @@ export class CandidateSweeperService implements OnModuleInit {
       let factsFlagged = 0;
       for (const docId of purgeIds) {
         const tail = docId.slice(docId.indexOf(':') + 1);
-        // Two-step batched DELETE-by-ids DELIBERATELY: docId is covered
-        // ONLY by the COMPOUND source_chunk_doc_idx (docId, seq) UNIQUE
-        // index — on SurrealDB 3.2.4 a DELETE planned through a compound
-        // index can be a silent no-op (returns OK, deletes nothing) while
-        // the same WHERE in a SELECT matches fine — the bug class
-        // reproduced for preSweepOutcomeRows (PR #372). Batched with
-        // LIMIT because a large document's chunk count is unbounded.
-        for (;;) {
-          const [, batch] = await db.query<[unknown, unknown[]]>(
-            `LET $ids = (SELECT VALUE id FROM source_chunk
-               WHERE docId = type::record('source_document', $doc)
-               LIMIT 5000);
-             DELETE $ids RETURN BEFORE`,
-            { doc: tail },
-          );
-          // A partial batch means the document's chunks are drained.
-          if (((batch as unknown[]) ?? []).length < 5000) break;
-        }
+        // Batched two-step chunk purge — shared idiom, see document-purge.util.
+        await purgeDocumentChunks(db, docId);
         await db.query(
           `UPDATE type::record('source_document', $doc)
              SET status = 'purged', hasContent = false`,

@@ -311,14 +311,42 @@ describe('SurrealDB 3.2.4 DELETE-WHERE planner no-op guards', () => {
 
   it('source_chunk purges: no DELETE filtered on compound-only docId', () => {
     // docId is covered ONLY by source_chunk_doc_idx (docId, seq) UNIQUE.
+    // The two-step idiom now lives in ONE place (document-purge.util) —
+    // every purge path delegates to it.
+    const util = read('documents', 'document-purge.util.ts');
+    expect(util).toContain('SELECT VALUE id FROM source_chunk');
+    expect(util).toContain('DELETE $ids RETURN BEFORE');
     for (const file of [
       ['documents', 'candidate-sweeper.service.ts'],
       ['documents', 'document-store.service.ts'],
+      ['documents', 'document-purge.util.ts'],
+      ['entities', 'entity-forget.service.ts'],
+      ['entities', 'user-forget.service.ts'],
+    ]) {
+      expect(read(...file)).not.toMatch(/DELETE source_chunk\s+WHERE/);
+    }
+  });
+
+  it('forget document cascade: candidate/indexer_run/source_document go by pre-collected ids', () => {
+    // candidate.docId and indexer_run.docId are record fields with
+    // compound-index-adjacent coverage — the SurrealDB 3.2.4 DELETE
+    // planner no-op shape. Every cascade delete must be the two-step
+    // LET-select-ids → DELETE form.
+    for (const file of [
+      ['documents', 'document-purge.util.ts'],
+      ['entities', 'entity-forget.service.ts'],
+      ['entities', 'user-forget.service.ts'],
     ]) {
       const src = read(...file);
-      expect(src).not.toMatch(/DELETE source_chunk WHERE/);
-      expect(src).toContain('SELECT VALUE id FROM source_chunk');
-      expect(src).toContain('DELETE $ids RETURN BEFORE');
+      expect(src).not.toMatch(/DELETE candidate\s+WHERE docId/);
+      expect(src).not.toMatch(/DELETE indexer_run\s+WHERE/);
+      expect(src).not.toMatch(/DELETE source_document\s+WHERE/);
+    }
+    const util = read('documents', 'document-purge.util.ts');
+    const entityForget = read('entities', 'entity-forget.service.ts');
+    for (const src of [util, entityForget]) {
+      expect(src).toContain('SELECT VALUE id FROM candidate WHERE docId INSIDE');
+      expect(src).toContain('SELECT VALUE id FROM indexer_run WHERE docId INSIDE');
     }
   });
 });
