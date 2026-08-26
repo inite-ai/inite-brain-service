@@ -35,18 +35,12 @@ describe('changefeed drain: create/update/delete + idempotent re-drain', () => {
     const surreal = f.app.get(SurrealService);
     const drain = f.app.get(ChangefeedDrainService);
 
-    // Precondition: ensure the CHANGEFEED is live on knowledge_entity.
-    // migration 0002 declares it via `DEFINE TABLE IF NOT EXISTS … CHANGEFEED`,
-    // but on SurrealDB 3.x that is a NO-OP when 0001 already created the table
-    // (verified: the clause is silently dropped) — so a tenant DB first created
-    // under 3.x, like this ephemeral testcontainer, has no changefeed. Tenants
-    // migrated under v2.x (where IF NOT EXISTS DID apply the clause) still carry
-    // it. OVERWRITE re-applies the table-level attribute; fields/indexes persist.
-    await surreal.withCompany(f.companyId, async (db) => {
-      await db.query(
-        'DEFINE TABLE OVERWRITE knowledge_entity SCHEMAFULL CHANGEFEED 30d INCLUDE ORIGINAL',
-      );
-    });
+    // Precondition: the CHANGEFEED on knowledge_entity is attached by
+    // migration 0105 (DEFINE TABLE OVERWRITE) — 0002's IF NOT EXISTS form is a
+    // no-op on SurrealDB 3.x when 0001 already created the table, so this
+    // 3.x-first testcontainer used to need a manual OVERWRITE here. Relying on
+    // the migration doubles as its integration proof; the migration itself is
+    // pinned in changefeed-migration.e2e-spec.ts.
 
     // Seed CREATE → UPDATE → DELETE on a CHANGEFEED table (each is its own
     // versionstamp). `type` is a STRUCTURAL field, so its post-image value
