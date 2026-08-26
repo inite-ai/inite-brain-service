@@ -1277,6 +1277,11 @@
           "title": {
             "maxLength": 512,
             "type": "string"
+          },
+          "toolObservationRef": {
+            "description": "Provenance hop to the tool result this document derives from (tool_observation:<id>, migration 0111). Honored only under TOOL_OBSERVATIONS_ENABLED; folded into committed facts' source.evidence[].",
+            "maxLength": 160,
+            "type": "string"
           }
         },
         "required": [
@@ -1378,6 +1383,9 @@
           "acceptMcpTools": {
             "type": "boolean"
           },
+          "acceptModalities": {
+            "type": "boolean"
+          },
           "packId": {
             "type": "string"
           },
@@ -1394,6 +1402,9 @@
         "additionalProperties": false,
         "properties": {
           "acceptMcpTools": {
+            "type": "boolean"
+          },
+          "acceptModalities": {
             "type": "boolean"
           },
           "expectedChecksum": {

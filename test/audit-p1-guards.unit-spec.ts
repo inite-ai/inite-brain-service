@@ -153,6 +153,44 @@ describe('0107_memory_outcome indexes', () => {
   });
 });
 
+describe('0111_tool_observation indexes', () => {
+  const sql = readFileSync(join(MIGRATIONS, '0111_tool_observation.surql'), 'utf8');
+
+  it.each([
+    ['tool_observation_created_idx', 'tool_observation', 'createdAt'],
+    ['tool_observation_tool_idx', 'tool_observation', 'tool'],
+    ['tool_observation_request_idx', 'tool_observation', 'requestId'],
+  ])('defines %s on %s(%s)', (name, table, fields) => {
+    const re = new RegExp(`DEFINE INDEX IF NOT EXISTS ${name}\\s+ON ${table} FIELDS ${fields};`);
+    expect(sql).toMatch(re);
+  });
+
+  it('every index is SINGLE-FIELD (the 3.2.4 planner rule)', () => {
+    // A compound index over this table would put its fields into the
+    // DELETE-WHERE planner no-op class the prune's SELECT-ids shape
+    // avoids — 0111 commits to single-field indexes only.
+    const defs = sql.match(/DEFINE INDEX[^;]+;/g) ?? [];
+    expect(defs.length).toBeGreaterThan(0);
+    for (const def of defs) {
+      const fields = /FIELDS ([^;]+);/.exec(def)?.[1] ?? '';
+      expect(fields).not.toContain(',');
+    }
+  });
+
+  it('deliberately defines NO changefeed and NO event', () => {
+    // The 0053/0107 separation rationale carries over: per-call
+    // telemetry must not feed the audit mirror or any dirty-marking
+    // event. The header EXPLAINS the absence in prose, so judge only
+    // non-comment lines.
+    const code = sql
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('--'))
+      .join('\n');
+    expect(code).not.toMatch(/CHANGEFEED/);
+    expect(code).not.toMatch(/DEFINE EVENT/);
+  });
+});
+
 describe('0109_evidence_substrate indexes', () => {
   const sql = readFileSync(join(MIGRATIONS, '0109_evidence_substrate.surql'), 'utf8');
 
@@ -348,6 +386,14 @@ describe('SurrealDB 3.2.4 DELETE-WHERE planner no-op guards', () => {
       expect(src).toContain('SELECT VALUE id FROM candidate WHERE docId INSIDE');
       expect(src).toContain('SELECT VALUE id FROM indexer_run WHERE docId INSIDE');
     }
+  });
+
+  it('tool_observation prune (0111): bounded DELETE-subquery, never DELETE-WHERE', () => {
+    const src = read('outcomes', 'outcome-prune.service.ts');
+    expect(src).not.toMatch(/DELETE tool_observation\s+WHERE/);
+    expect(src).toContain(
+      'DELETE (SELECT id FROM tool_observation WHERE createdAt < $cutoff LIMIT 5000) RETURN BEFORE',
+    );
   });
 });
 

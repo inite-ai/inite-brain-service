@@ -858,6 +858,20 @@ const KNOWN_BOOLEAN_FLAGS = [
   // retrieved rows even with the master on. The retention window knob
   // (OUTCOME_EVENT_RETENTION_DAYS) is an int, not a boolean flag.
   'OUTCOME_RETRIEVED_EVENTS',
+  // Tool observations master (0111): the per-request MCP build applies
+  // the innermost observation wrapper, the pack-tool proxy stamps
+  // identity rows, ingest accepts toolObservationRef, the prune leg
+  // runs. Default off = byte-identical (wrapper not applied). TOOL_
+  // OBSERVATION_ prefix sits outside ENGINE_PREFIX by design —
+  // evidence/telemetry substrate, not an engine fork — so it is off the
+  // flag budget, like the OUTCOME_/FOVEA_ families.
+  'TOOL_OBSERVATIONS_ENABLED',
+  // Tool observations: extra opt-in gate for the ONE content-bearing
+  // column (contentExcerpt, sanitized, ≤512 chars) on top of the master.
+  // Off (default) ⇒ rows are digest-only, content-free by contract. The
+  // retention window knob (TOOL_OBSERVATION_RETENTION_DAYS) is an int,
+  // not a boolean flag.
+  'TOOL_OBSERVATION_CONTENT',
   // Fovea optics (Optics-1, docs/roadmap/fovea-optics-2026-08.md): capture
   // the focus signal at the synthesize verdict point + expose the admin
   // fit/measure surface. SERVING-NEUTRAL — nothing consumes the calibrated

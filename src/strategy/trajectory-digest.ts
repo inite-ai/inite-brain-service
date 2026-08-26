@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { sanitizePackText, stripUnsafeUnicode } from '../common/text-sanitizer';
+import { sanitizePackText } from '../common/text-sanitizer';
+import { digestPayload, PAYLOAD_DIGEST_LEN } from '../common/payload-digest';
 
 /**
  * Trajectory digesting for the experience-memory extension of G4 (bet #3,
@@ -28,8 +28,15 @@ import { sanitizePackText, stripUnsafeUnicode } from '../common/text-sanitizer';
  * advisory section only — see strategy-memory.service.renderStrategyNote.
  */
 
-/** Digest length (hex chars) — enough to identify a payload, reveals nothing. */
-export const TRAJECTORY_DIGEST_LEN = 16;
+/**
+ * Digest length (hex chars) — enough to identify a payload, reveals
+ * nothing. The digest itself lives in src/common/payload-digest.ts
+ * (extracted so the tool-observation recorder shares the IDIOM without
+ * touching this advice surface) and is re-exported below unchanged.
+ */
+export const TRAJECTORY_DIGEST_LEN = PAYLOAD_DIGEST_LEN;
+
+export { digestPayload };
 
 /** Tool-name clear-text cap (a function identifier, not free text). */
 export const TRAJECTORY_TOOL_CAP = 80;
@@ -66,36 +73,6 @@ export interface TrajectoryBundle {
   trajectory: ToolStep[];
   verifiedOutcome: VerifiedOutcome;
   outcomeEvidenceRef?: string | undefined;
-}
-
-/**
- * Deterministic stable JSON of an arbitrary value — object keys sorted so
- * the digest is stable across key ordering. Pure; no IO.
- */
-function stableStringify(value: unknown): string {
-  if (value === undefined) return 'null';
-  return JSON.stringify(value, (_k, v) => {
-    if (v && typeof v === 'object' && !Array.isArray(v)) {
-      const rec = v as Record<string, unknown>;
-      return Object.keys(rec)
-        .sort()
-        .reduce<Record<string, unknown>>((acc, k) => {
-          acc[k] = rec[k];
-          return acc;
-        }, {});
-    }
-    return v as unknown;
-  });
-}
-
-/**
- * One-way short digest of a payload: sanitize invisibles out of the
- * canonical JSON, then SHA-256 and truncate. A raw secret in `value`
- * never survives — only its hash prefix does.
- */
-export function digestPayload(value: unknown): string {
-  const canonical = stripUnsafeUnicode(stableStringify(value));
-  return createHash('sha256').update(canonical).digest('hex').slice(0, TRAJECTORY_DIGEST_LEN);
 }
 
 /** Redact a raw capture step into the stored, digest-only ToolStep. */

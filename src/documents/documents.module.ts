@@ -22,6 +22,7 @@ import { DocumentReindexService } from './document-reindex.service';
 import { PackSeedIngestService } from './pack-seed-ingest.service';
 import { CandidateSweeperService } from './candidate-sweeper.service';
 import { MentionViaDocumentService } from './mention-via-document.service';
+import { OutcomesModule } from '../outcomes/outcomes.module';
 
 /**
  * The Source → Indexer → Candidates → Brain pipeline (migrations
@@ -32,7 +33,7 @@ import { MentionViaDocumentService } from './mention-via-document.service';
  */
 @Module({
   // EvidenceModule: the sweeper's evidence retention/reconciliation leg (0109).
-  imports: [AiModule, IngestCoreModule, IndexersModule, EvidenceModule],
+  imports: [AiModule, IngestCoreModule, IndexersModule, EvidenceModule, OutcomesModule],
   controllers: [
     DocumentsController,
     DocumentsIngestController,

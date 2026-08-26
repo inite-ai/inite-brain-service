@@ -105,6 +105,37 @@ Consent is stored with a sha256 checksum of the canonical-JSON
 The MCP reader only ever registers tools whose stored consent checksum
 matches the stored section — a row edited out-of-band serves nothing.
 
+## Modality consent (media/biometric tier)
+
+The same consent shape covers a pack's **non-text modality declaration**
+(image/audio/video processing and any raw-evidence serving capability,
+migration 0112). Installing a pack that declares non-text modalities
+fails with 400 unless the request carries `acceptModalities: true` —
+on both install routes, exactly like `acceptMcpTools`.
+
+ONE checksum (canonical-JSON sha256) covers the whole media section:
+the declared non-text modalities **plus** any raw-evidence capability
+declaration. Any change to either is a single re-consent trigger; an
+upgrade that leaves the section byte-identical carries consent over; an
+upgrade that drops it clears the stored consent. No manifest declares
+modalities today, so the gate is inert by construction for every
+existing pack.
+
+Two further gates stack on top of consent (deny-overrides — every layer
+must pass):
+
+- **Raw-evidence per-call gate** (`src/mcp/raw-evidence-gate.ts`): a
+  future pack tool that serves raw media evidence must call
+  `gateRawEvidence` per served fragment — pack declares the capability,
+  stored consent checksum is current, and the fragment passes the media
+  PII gate.
+- **Media PII gate** (`src/common/media-pii.ts`): media rows carry
+  `piiClasses` with INVERTED polarity vs the text `piiClass` fence —
+  absence (unclassified) is **blocked**, only the affirmatively-clean
+  empty array is open, and non-empty classes require the env-key-only
+  `brain:read_media` scope (deliberately stricter than, and never
+  conflated with, `brain:read_pii`; never mintable via jwks).
+
 ## Query tools
 
 Query tools are served entirely by Brain. The input schemas are fixed

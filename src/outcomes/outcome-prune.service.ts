@@ -3,6 +3,10 @@ import { Cron } from '@nestjs/schedule';
 import { SurrealService } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
 import { outcomeEventRetentionDays, outcomeTelemetryEnabled } from '../common/outcome-flags';
+import {
+  toolObservationRetentionDays,
+  toolObservationsEnabled,
+} from '../common/tool-observation-flags';
 
 /**
  * One bounded prune batch: delete the oldest raw rows past the cutoff,
@@ -12,6 +16,14 @@ import { outcomeEventRetentionDays, outcomeTelemetryEnabled } from '../common/ou
  * Exported for the query-shape unit spec.
  */
 export const OUTCOME_PRUNE_BATCH_QUERY = `DELETE (SELECT id FROM memory_outcome WHERE createdAt < $cutoff LIMIT 5000) RETURN BEFORE`;
+
+/**
+ * Same bounded SELECT-ids → DELETE shape for the tool_observation raw
+ * log (migration 0111) — its own retention window
+ * (TOOL_OBSERVATION_RETENTION_DAYS), same 03:41 cron, shared in-flight
+ * guard. Exported for the query-shape unit spec.
+ */
+export const TOOL_OBSERVATION_PRUNE_BATCH_QUERY = `DELETE (SELECT id FROM tool_observation WHERE createdAt < $cutoff LIMIT 5000) RETURN BEFORE`;
 
 /**
  * OutcomePruneService — retention for the RAW outcome event log
@@ -39,7 +51,12 @@ export class OutcomePruneService {
 
   @Cron('41 3 * * *', { timeZone: 'UTC' })
   async runNightly(): Promise<{ tenants: number; pruned: number }> {
-    if (!outcomeTelemetryEnabled()) return { tenants: 0, pruned: 0 };
+    // Two independently-flagged legs share the tick + in-flight guard:
+    // memory_outcome (0107, OUTCOME_TELEMETRY_ENABLED) and
+    // tool_observation (0111, TOOL_OBSERVATIONS_ENABLED).
+    const outcomeLeg = outcomeTelemetryEnabled();
+    const observationLeg = toolObservationsEnabled();
+    if (!outcomeLeg && !observationLeg) return { tenants: 0, pruned: 0 };
     if (this.running) {
       this.logger.warn('outcome prune still running — skipping this tick');
       return { tenants: 0, pruned: 0 };
@@ -50,7 +67,8 @@ export class OutcomePruneService {
       let pruned = 0;
       for (const companyId of tenants) {
         try {
-          pruned += await this.pruneTenant(companyId);
+          if (outcomeLeg) pruned += await this.pruneTenant(companyId);
+          if (observationLeg) pruned += await this.pruneToolObservations(companyId);
         } catch (e) {
           this.logger.warn(`outcome prune for ${companyId} failed: ${(e as Error).message}`);
         }
@@ -65,10 +83,20 @@ export class OutcomePruneService {
   /** Batched delete-until-empty of raw rows older than the retention window. */
   async pruneTenant(companyId: string): Promise<number> {
     const cutoff = new Date(Date.now() - outcomeEventRetentionDays() * 86_400_000);
+    return this.drain(companyId, OUTCOME_PRUNE_BATCH_QUERY, cutoff);
+  }
+
+  /** Same drain for the tool_observation raw log (0111). */
+  async pruneToolObservations(companyId: string): Promise<number> {
+    const cutoff = new Date(Date.now() - toolObservationRetentionDays() * 86_400_000);
+    return this.drain(companyId, TOOL_OBSERVATION_PRUNE_BATCH_QUERY, cutoff);
+  }
+
+  private async drain(companyId: string, query: string, cutoff: Date): Promise<number> {
     return this.surreal.withCompany(companyId, async (db) => {
       let total = 0;
       for (;;) {
-        const [batch] = await db.query<[unknown[]]>(OUTCOME_PRUNE_BATCH_QUERY, { cutoff });
+        const [batch] = await db.query<[unknown[]]>(query, { cutoff });
         const n = ((batch as unknown[]) ?? []).length;
         total += n;
         // A partial batch means the cutoff range is drained.
