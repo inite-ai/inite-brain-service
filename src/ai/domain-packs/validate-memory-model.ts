@@ -120,6 +120,13 @@ interface MemoryModelShape {
   attentionHints?: unknown;
   verificationRules?: unknown;
   retentionHints?: unknown;
+  /** Modality-era keys (0112 consent tier): accepted as substantive
+   *  sections so a modality-only memoryModel is a valid manifest. Their
+   *  contents are consumed via the documented defensive accessor in
+   *  ./modality-consent.ts (declaredModalitySection); full structural
+   *  validation arrives with the P-track manifest field. */
+  modalities?: unknown;
+  rawEvidence?: unknown;
 }
 
 /**
@@ -139,10 +146,12 @@ export function validateMemoryModel(pack: DomainPackManifest, mm: unknown): void
     model.attentionHints,
     model.verificationRules,
     model.retentionHints,
+    model.modalities,
+    model.rawEvidence,
   ].filter((v) => v !== undefined);
   if (declared.length === 0) {
     throw new DomainPackError(
-      `pack "${pack.id}" memoryModel must declare at least one of sceneSchemas|stateModels|attentionHints|verificationRules|retentionHints (omit the section instead of declaring it empty)`,
+      `pack "${pack.id}" memoryModel must declare at least one of sceneSchemas|stateModels|attentionHints|verificationRules|retentionHints|modalities|rawEvidence (omit the section instead of declaring it empty)`,
     );
   }
   const sceneIds = validateSceneSchemas(pack.id, model.sceneSchemas);
