@@ -20,6 +20,7 @@ import { CandidateSweeperService } from '../src/documents/candidate-sweeper.serv
 
 const COMPANY = 'co_evidence_e2e';
 const USER = 'evidence_user';
+const RETRY_USER = 'evidence_retry_user';
 const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 
 describe('evidence substrate (e2e)', () => {
@@ -161,6 +162,28 @@ describe('evidence substrate (e2e)', () => {
     expect(await adapter.exists(storageRef)).toBe(false);
   });
 
+  it('durably retries a blob deletion that fails after user-forget removed its rows', async () => {
+    const data = randomBytes(384);
+    const created = await registerFsAsset(data, { userId: RETRY_USER });
+    const storageRef = `fs://${COMPANY}/${sha256(data)}`;
+    expect(await adapter.exists(storageRef)).toBe(true);
+    const deleteSpy = jest.spyOn(adapter, 'delete').mockRejectedValueOnce(new Error('disk busy'));
+
+    const forget = await f.http.post(`/v1/users/${RETRY_USER}/forget`).set(auth()).send({});
+    expect([200, 201]).toContain(forget.status);
+    expect(forget.body.evidenceAssetsDeleted).toBe(1);
+    expect(await store.getAsset(COMPANY, created.assetId)).toBeNull();
+    expect(await adapter.exists(storageRef)).toBe(true);
+    expect(await countRows('evidence_blob_gc')).toBe(1);
+
+    deleteSpy.mockRestore();
+    const sweep = await f.app.get(CandidateSweeperService).sweepTenant(COMPANY);
+    expect(sweep.evidenceBlobGcReconciled).toBe(1);
+    expect(sweep.evidenceBlobGcPending).toBe(0);
+    expect(await countRows('evidence_blob_gc')).toBe(0);
+    expect(await adapter.exists(storageRef)).toBe(false);
+  });
+
   it('the sweeper retention leg tombstones an expired asset and deletes its blob', async () => {
     const data = randomBytes(512);
     const created = await registerFsAsset(data, {
@@ -189,5 +212,49 @@ describe('evidence substrate (e2e)', () => {
     expect(row!.storageRef ?? null).toBeNull();
     expect(await countRows('evidence_fragment')).toBe(0);
     expect(await adapter.exists(storageRef)).toBe(false);
+  });
+
+  it('purges every representation before its fragment across the 5000-row batch boundary', async () => {
+    const data = randomBytes(768);
+    const created = await registerFsAsset(data, {
+      retainUntil: new Date('2020-01-01T00:00:00.000Z'),
+    });
+    const fragment = await store.addFragment(COMPANY, {
+      assetId: created.assetId,
+      locator: { kind: 'pageRegion', page: 0, x: 0, y: 0, w: 1, h: 1 },
+    });
+    const surreal = f.app.get(SurrealService);
+    await surreal.withCompany(f.companyId, async (db) => {
+      const [subjectRows] = await db.query<[unknown[]]>(
+        `SELECT VALUE id FROM type::record('evidence_fragment', $tail)`,
+        { tail: fragment.fragmentId.slice(fragment.fragmentId.indexOf(':') + 1) },
+      );
+      const subjectId = subjectRows[0];
+      const rows = Array.from({ length: 5001 }, (_, i) => ({
+        subjectId,
+        subjectKind: 'fragment',
+        kind: 'caption',
+        producerVersion: `batch-boundary-${i}`,
+      }));
+      for (let offset = 0; offset < rows.length; offset += 1000) {
+        await db.query(`INSERT INTO derived_representation $rows`, {
+          rows: rows.slice(offset, offset + 1000),
+        });
+      }
+    });
+    expect(await countRows('derived_representation')).toBe(5001);
+
+    const result = await f.app.get(CandidateSweeperService).sweepTenant(COMPANY);
+    expect(result.evidenceExpired).toBe(1);
+    expect(await countRows('derived_representation')).toBe(0);
+    expect(await countRows('evidence_fragment')).toBe(0);
+    await expect(
+      store.addRepresentation(COMPANY, {
+        subjectId: created.assetId,
+        subjectKind: 'asset',
+        kind: 'caption',
+        producerVersion: 'too-late',
+      }),
+    ).rejects.toThrow(/unavailable evidence/);
   });
 });

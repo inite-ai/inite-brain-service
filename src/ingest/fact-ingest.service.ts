@@ -9,7 +9,8 @@ import { IngestOutcome, IngestResult } from './ingest-result';
 import { buildConflictExplanation, type ResolverConflictPayload } from './conflict-explainer';
 import { EntityUpsertService } from './entity-upsert.service';
 import { FactResolverService } from './fact-resolver.service';
-import { evidenceValidationError } from './ingest-utils';
+import { episodeIdsValidationError, evidenceValidationError } from './ingest-utils';
+import { groundingStampEnabled } from '../common/evidence-flags';
 import { pinUserScope } from '../auth/user-scope';
 import { getRequestContext } from '../common/request-context';
 
@@ -71,6 +72,17 @@ export class FactIngestService {
     const evidenceError = evidenceValidationError(dto.source?.evidence);
     if (evidenceError) {
       throw new BadRequestException(evidenceError);
+    }
+    // Drift-1: while the grounding stamp is live, source.episodeIds is a
+    // grounding INPUT (groundingStatusOf reads it) — shape-check it so a
+    // caller cannot spoof grounded status with garbage. Flag off ⇒ no
+    // check — acceptance byte-identical (the field rides the FLEXIBLE
+    // source verbatim, as any opaque key always has).
+    if (groundingStampEnabled()) {
+      const episodeIdsError = episodeIdsValidationError(dto.source?.episodeIds);
+      if (episodeIdsError) {
+        throw new BadRequestException(episodeIdsError);
+      }
     }
     // `originKey` is content-addressed ORIGIN identity for corroboration
     // (migration 0050), stamped ONLY by the document/commit path where it

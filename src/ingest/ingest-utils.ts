@@ -140,3 +140,30 @@ export function evidenceValidationError(evidence: unknown): string | null {
   }
   return null;
 }
+
+const EPISODE_IDS_MAX_ITEMS = 64;
+const EPISODE_IDS_MAX_REF = 512;
+
+/**
+ * Shape-check for `source.episodeIds` (Drift-1) — the evidenceValidationError
+ * idiom for the grounding-stamp input: `source` is an opaque @IsObject, so a
+ * caller could otherwise assert grounded status with garbage (or an unbounded
+ * blob) in episodeIds. Array of non-empty strings, capped at 64 entries (the
+ * unionEpisodeIds cap) and 512 chars each. Returns a human-readable error
+ * string, or null when valid/absent. Checked ONLY while
+ * EVIDENCE_GROUNDING_STAMP is on (fact-ingest.service.ts) — off-state
+ * acceptance is byte-identical.
+ */
+export function episodeIdsValidationError(episodeIds: unknown): string | null {
+  if (episodeIds === undefined) return null;
+  if (!Array.isArray(episodeIds)) return 'source.episodeIds must be an array';
+  if (episodeIds.length > EPISODE_IDS_MAX_ITEMS) {
+    return `source.episodeIds must have at most ${EPISODE_IDS_MAX_ITEMS} entries`;
+  }
+  for (const [i, id] of episodeIds.entries()) {
+    if (typeof id !== 'string' || id.length === 0 || id.length > EPISODE_IDS_MAX_REF) {
+      return `source.episodeIds[${i}] must be a non-empty string of at most ${EPISODE_IDS_MAX_REF} chars`;
+    }
+  }
+  return null;
+}

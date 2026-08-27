@@ -25,6 +25,16 @@ export type SynthesisReason =
    * "the memory doesn't know".
    */
   | 'evidence_capability_unmet'
+  /**
+   * Ungrounded-support gate (EVIDENCE_UNGROUNDED_SERVING_GATE, 0115): a
+   * `supported` answer whose EVERY cited fact carries
+   * groundingStatus='ungrounded' — the answer rests exclusively on claims
+   * with no recorded observation behind them. A DISTINCT reason (the
+   * evidence_capability_unmet idiom): the caller's remedy is "ground the
+   * claims", not "the memory doesn't know". Mixed or legacy (absent
+   * status) support serves.
+   */
+  | 'ungrounded_evidence'
   | 'verifier_failed'
   | 'verifier_partial'
   | 'generator_error'

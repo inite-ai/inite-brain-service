@@ -254,6 +254,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Retrieval profile (per-tenant genre configuration) ─────────────
   validateRetrievalProfileEnv(env, errors);
 
+  // ── Evidence plane: claim grounding (Drift-1, migration 0115) ──────
+  validateEvidenceGroundingEnv(env, warnings);
+
   // ── All remaining boolean feature flags ────────────────────────────
   validateBooleanFlags(env, warnings);
 
@@ -392,6 +395,27 @@ function validateAbacEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
   positiveInt(env, 'POLICY_CACHE_CAP', errors);
   positiveInt(env, 'POLICY_DECISION_RETENTION_DAYS', errors);
   nonNegativeFloat(env, 'POLICY_DECISION_SAMPLE_RATE', errors);
+}
+
+/**
+ * Cross-flag consistency for the claim-grounding family (Drift-1): a
+ * WARNING, not an error — the pair is not security-relevant, but
+ * EVIDENCE_FAIL_CLOSED_CAPTURE without EPISODE_SUBSTRATE_ENABLED means
+ * captureTurn is a guaranteed no-op returning null, so EVERY mention
+ * would be rejected 503. The operator should know before the first
+ * mention bounces.
+ */
+function validateEvidenceGroundingEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
+  if (
+    envFlagEnabled(env.EVIDENCE_FAIL_CLOSED_CAPTURE) &&
+    !envFlagEnabled(env.EPISODE_SUBSTRATE_ENABLED)
+  ) {
+    warnings.push(
+      'EVIDENCE_FAIL_CLOSED_CAPTURE is set while EPISODE_SUBSTRATE_ENABLED is not — ' +
+        'fail-closed capture requires the episode substrate; every mention will be ' +
+        'rejected (503) until EPISODE_SUBSTRATE_ENABLED is turned on.',
+    );
+  }
 }
 
 /**
@@ -858,6 +882,16 @@ const KNOWN_BOOLEAN_FLAGS = [
   // (not defined yet): EVIDENCE_INGEST_ENABLED / EVIDENCE_SCENE_LINKS /
   // EVIDENCE_FRAGMENT_CITATIONS.
   'EVIDENCE_SUBSTRATE_ENABLED',
+  // Claim grounding (Drift-1, migration 0115): write-side post-resolve
+  // stamp of knowledge_fact.groundingStatus; fail-closed mention capture
+  // (requires EPISODE_SUBSTRATE_ENABLED — validateEvidenceGroundingEnv
+  // warns on the inconsistent pair); consolidation exclude; strict
+  // serving gate. All default off = byte-identical. EVIDENCE_ family
+  // sits off the ENGINE flag budget by design (see above).
+  'EVIDENCE_GROUNDING_STAMP',
+  'EVIDENCE_FAIL_CLOSED_CAPTURE',
+  'EVIDENCE_UNGROUNDED_EXCLUDE',
+  'EVIDENCE_UNGROUNDED_SERVING_GATE',
   // Outcome telemetry master (0107): writers append memory_outcome rows
   // + fold memory_outcome_stat counters; the nightly raw-log prune runs.
   // Default off = byte-identical (every writer is a guarded no-op).

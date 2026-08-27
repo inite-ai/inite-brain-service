@@ -35,6 +35,55 @@ export interface AdminToolDeps {
 }
 
 /**
+ * record_fact input schema, hoisted to module scope (registerWriteTools'
+ * max-lines-per-function budget). Closure-free by construction — the
+ * per-tenant recorder is applied in the handler, not here.
+ */
+const RECORD_FACT_INPUT = {
+  entityRef: z.union([
+    z.object({ vertical: z.string(), id: z.string() }),
+    z.object({ entityId: z.string() }),
+  ]),
+  predicate: z.string(),
+  object: z.string(),
+  validFrom: z.string().datetime(),
+  validUntil: z.string().datetime().optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  sourceVertical: z.string().describe('Vertical name attributed as source (e.g. "rent")'),
+  userId: z
+    .string()
+    .max(200)
+    .optional()
+    .describe(
+      "Per-user memory scope: the fact (and, for a vertical+id entityRef, the entity) belongs to this end-user only — invisible to other users and to requests that don't assert the same userId",
+    ),
+  // Drift-1 grounding inputs (additive, not flag-gated — the tool
+  // LISTING grows either way): an MCP agent CAN name the observation
+  // behind its claim, so its facts count as grounded instead of being
+  // permanently observation-free.
+  conversationId: z
+    .string()
+    .max(512)
+    .optional()
+    .describe(
+      'Conversation this fact was observed in — names an observation, so the fact counts as grounded (claim-grounding plane)',
+    ),
+  evidence: z
+    .array(
+      z.object({
+        kind: z.enum(['event', 'message', 'conversation', 'url', 'document', 'commit', 'other']),
+        ref: z.string().min(1).max(512).describe('The pointer itself — id, URL, path, sha…'),
+        note: z.string().max(512).optional(),
+      }),
+    )
+    .max(10)
+    .optional()
+    .describe(
+      'Supporting observations behind the claim (≤10 typed pointers) — stored verbatim in the fact source; their presence marks the fact grounded (claim-grounding plane)',
+    ),
+};
+
+/**
  * Registers the brain:write mutation surface — record_fact, link_entities,
  * retract_fact, record_procedure, retire_procedure — on an MCP server
  * bound to one tenant. buildServer only calls this when the caller holds
@@ -67,25 +116,7 @@ export function registerWriteTools({
       title: 'Record a fact about an entity',
       description:
         'Insert a fact about an entity. Triggers brain conflict resolution (INSERTED / SUPERSEDED / COMPETING / REJECTED). Use sparingly from agents — most facts should come from event ingestion.',
-      inputSchema: {
-        entityRef: z.union([
-          z.object({ vertical: z.string(), id: z.string() }),
-          z.object({ entityId: z.string() }),
-        ]),
-        predicate: z.string(),
-        object: z.string(),
-        validFrom: z.string().datetime(),
-        validUntil: z.string().datetime().optional(),
-        confidence: z.number().min(0).max(1).optional(),
-        sourceVertical: z.string().describe('Vertical name attributed as source (e.g. "rent")'),
-        userId: z
-          .string()
-          .max(200)
-          .optional()
-          .describe(
-            "Per-user memory scope: the fact (and, for a vertical+id entityRef, the entity) belongs to this end-user only — invisible to other users and to requests that don't assert the same userId",
-          ),
-      },
+      inputSchema: RECORD_FACT_INPUT,
     },
     async (args) => {
       // G9 write-anomaly signal: the `mcp` origin overlay (the direct-
@@ -100,7 +131,22 @@ export function registerWriteTools({
         ...(args.validUntil !== undefined ? { validUntil: args.validUntil } : {}),
         ...(args.confidence !== undefined ? { confidence: args.confidence } : {}),
         ...(args.userId !== undefined ? { userId: args.userId } : {}),
-        source: { vertical: args.sourceVertical, recorder },
+        source: {
+          vertical: args.sourceVertical,
+          recorder,
+          ...(args.conversationId !== undefined ? { conversationId: args.conversationId } : {}),
+          // Omit-when-undefined per entry (exactOptionalPropertyTypes):
+          // an absent note must stay ABSENT on the stored source.
+          ...(args.evidence !== undefined
+            ? {
+                evidence: args.evidence.map(({ kind, ref, note }) => ({
+                  kind,
+                  ref,
+                  ...(note !== undefined ? { note } : {}),
+                })),
+              }
+            : {}),
+        },
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],

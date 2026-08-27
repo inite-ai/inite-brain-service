@@ -24,6 +24,14 @@ export const FactReadResponseSchema = z.object({
   conversationId: z.string().optional(),
   retracted: z.boolean(),
   derivedVersion: z.string().optional(),
+  /**
+   * Claim grounding state (Drift-1, migration 0115): 'grounded' = the
+   * source names an observation (episode ids / evidence[] /
+   * conversationId); 'ungrounded' = explicitly marked observation-free.
+   * Absent = legacy row (predates the EVIDENCE_GROUNDING_STAMP writer) —
+   * additive, backward-compatible.
+   */
+  groundingStatus: z.enum(['grounded', 'ungrounded']).optional(),
 });
 
 export const FactProvenanceEpisodeSchema = z.object({

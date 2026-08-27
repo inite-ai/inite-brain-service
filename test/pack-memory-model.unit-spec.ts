@@ -98,6 +98,59 @@ describe('validateMemoryModel — the domain perception contract', () => {
     expect(() => validatePack(withMm('x'))).toThrow(DomainPackError);
   });
 
+  it('accepts modality-only, processor-only, and raw-evidence-only contracts', () => {
+    expect(() => validatePack(withMm({ modalities: ['text', 'image', 'audio'] }))).not.toThrow();
+    expect(() =>
+      validatePack(
+        withMm({
+          processors: [
+            {
+              id: 'visual_index',
+              modality: 'image',
+              produces: ['caption', 'embedding'],
+            },
+          ],
+        }),
+      ),
+    ).not.toThrow();
+    expect(() => validatePack(withMm({ rawEvidence: { serve: true } }))).not.toThrow();
+  });
+
+  it('validates the closed multimodal vocabulary and rejects executable processor config', () => {
+    expect(() => validateMemoryModel(manifest(), { modalities: ['image', 'image'] })).toThrow(
+      /duplicate modality/,
+    );
+    expect(() => validateMemoryModel(manifest(), { modalities: ['smell'] })).toThrow(
+      /text\|image\|audio\|video\|document\|sensor/,
+    );
+    expect(() =>
+      validateMemoryModel(manifest(), {
+        processors: [{ id: 'vision', modality: 'image', produces: ['thought'] }],
+      }),
+    ).toThrow(/representation/);
+    expect(() =>
+      validateMemoryModel(manifest(), {
+        processors: [
+          {
+            id: 'vision',
+            modality: 'image',
+            produces: ['caption'],
+            endpoint: 'https://processor.invalid',
+          },
+        ],
+      }),
+    ).toThrow(/unknown field "endpoint"/);
+    expect(() => validateMemoryModel(manifest(), { rawEvidence: { serve: false } })).toThrow(
+      /literal true/,
+    );
+    expect(() =>
+      validateMemoryModel(manifest(), {
+        modalities: ['image'],
+        executableCode: 'do_not_run_this',
+      }),
+    ).toThrow(/unknown field "executableCode"/);
+  });
+
   it('enforces the per-list caps', () => {
     const scene = (i: number) => ({ id: `scene_${i}`, description: 'x' });
     expect(() =>

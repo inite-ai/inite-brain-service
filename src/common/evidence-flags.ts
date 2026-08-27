@@ -61,3 +61,73 @@ export function evidenceMaxBytes(): number {
   const v = Number(raw);
   return Number.isInteger(v) && v > 0 ? v : DEFAULT_MAX_BYTES;
 }
+
+/**
+ * Claim-state write side (Drift-1, migration 0115) —
+ * EVIDENCE_GROUNDING_STAMP.
+ *
+ * When on, the fact resolver's post-resolve tail stamps
+ * `knowledge_fact.groundingStatus` ('grounded' | 'ungrounded', computed
+ * by common/grounding-status.ts from the presence of observational
+ * source) onto every created/updated winner row — both ingest paths
+ * (typed fact REST/MCP and mention-persist) and the derive batch, the
+ * stampFactScope idiom: best-effort, warn-never-fail, kept OUT of
+ * fn::resolve_fact. Absent field = legacy row (pre-flag), never
+ * backfilled. Off (default) ⇒ no extra UPDATE is ever issued —
+ * byte-identical rows. Read at call time (runtime-mutable).
+ *
+ * Reserved for a FUTURE sibling (NOT defined — do not read it):
+ * EVIDENCE_REQUIRE_OBSERVATION_STRICT — a reject-mode on top of the same
+ * groundingStatusOf helper; this PR deliberately marks, never rejects.
+ */
+export function groundingStampEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_GROUNDING_STAMP);
+}
+
+/**
+ * Fail-closed mention capture — EVIDENCE_FAIL_CLOSED_CAPTURE.
+ *
+ * When on, ingestMention REQUIRES the L0 episode write
+ * (EPISODE_SUBSTRATE_ENABLED) to succeed: captureTurn must return an
+ * episode id, else the mention is rejected 503 (retryable infra state,
+ * not caller error) — no extraction without a stored observation. On
+ * success the captured id is stamped into every extracted fact's
+ * source.episodeIds. Requires the substrate flag (env-validation warns
+ * on the inconsistent pair — with capture disabled every mention would
+ * be rejected). Off (default) ⇒ capture stays the non-fatal advisory it
+ * is today — byte-identical. Read at call time (runtime-mutable).
+ */
+export function failClosedCaptureEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_FAIL_CLOSED_CAPTURE);
+}
+
+/**
+ * Consolidation gate — EVIDENCE_UNGROUNDED_EXCLUDE.
+ *
+ * When on, the promotion runner excludes members whose stored
+ * groundingStatus = 'ungrounded' from summary groups BEFORE the
+ * group-size floor — an unfounded claim must not consolidate into
+ * long-term memory, nor count toward a group qualifying. Legacy rows
+ * (absent field) still promote (no backfill ⇒ fail-open for legacy by
+ * design). Off (default) ⇒ member selection AND the member SELECT string
+ * are byte-identical. Read at call time (runtime-mutable).
+ */
+export function ungroundedExcludeEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_UNGROUNDED_EXCLUDE);
+}
+
+/**
+ * Strict serving — EVIDENCE_UNGROUNDED_SERVING_GATE.
+ *
+ * When on, a supported verdict batch-checks its cited facts' stored
+ * groundingStatus; when EVERY citation is 'ungrounded' the answer
+ * abstains under reason 'ungrounded_evidence' (the fifth sequential
+ * downgrade on the supported serve — the evidence_capability_unmet
+ * idiom). Mixed or legacy support serves; resolution failure fails OPEN
+ * with a warn (a DB hiccup must not abstain a grounded answer). Off
+ * (default) ⇒ no fetch, byte-identical serve. Read at call time
+ * (runtime-mutable).
+ */
+export function ungroundedServingGateEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_UNGROUNDED_SERVING_GATE);
+}

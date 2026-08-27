@@ -1,0 +1,24 @@
+-- 0115_fact_grounding_status — claim grounding state (Drift-1, evidence
+-- plane): no claim without observation, or the claim is explicitly marked
+-- ungrounded and excluded from consolidation and strict serving.
+--
+-- NUMBERING NOTE: 0108/0110/0114 are claimed by in-flight sibling PRs of
+-- the same wave; this migration deliberately takes 0115. The migrator
+-- applies by numeric order and tracks per-id, so the gap is harmless
+-- whichever order the siblings land in.
+--
+-- Absent = legacy (pre-flag row, never backfilled — the 0099
+-- outcomeEvidenceVerified idiom: a writer-stamped option<> field whose
+-- absence encodes "predates the stamp", so no backfill posture is ever
+-- forced). Stamped by the TS post-resolve writer (EVIDENCE_GROUNDING_STAMP,
+-- the stampFactScope idiom — kept OUT of fn::resolve_fact so the resolver's
+-- pinned 25-arg signature and invariants are untouched), computed from the
+-- presence of observational source: 'episode:'-prefixed ids in
+-- source.episodeIds, a non-empty source.evidence[], or a non-empty
+-- source.conversationId ⇒ 'grounded'; else 'ungrounded'.
+--
+-- Deliberately NO index: the promotion filter is TS-side over
+-- already-selected members and the serving gate fetches cited facts by id —
+-- an index on the hottest table buys nothing here.
+DEFINE FIELD IF NOT EXISTS groundingStatus ON knowledge_fact TYPE option<string>
+  ASSERT $value = NONE OR $value INSIDE ['grounded', 'ungrounded'];

@@ -32,11 +32,20 @@ export class EpisodeStoreService {
   }
 
   /**
-   * Capture one mention as an episode. Never throws; returns whether a
-   * write was attempted (for tests/metrics, not for control flow).
+   * Capture one mention as an episode. Never throws; returns the episode
+   * record id (as a string) when the turn is stored — fresh insert OR
+   * idempotent duplicate — and null when disabled or failed. The
+   * fail-closed DECISION lives in the caller (mention-ingest under
+   * EVIDENCE_FAIL_CLOSED_CAPTURE); this store stays advisory.
+   *
+   * Duplicate handling: INSERT IGNORE against the UNIQUE
+   * (conversationId, messageId) index returns no row for an ignored
+   * duplicate (the row id is server-generated, not derivable), so the
+   * existing row is recovered by a fallback SELECT on the same unique
+   * key. The INSERT statement itself is byte-identical to before.
    */
-  async captureTurn(companyId: string, dto: IngestMentionDto): Promise<boolean> {
-    if (!this.isEnabled()) return false;
+  async captureTurn(companyId: string, dto: IngestMentionDto): Promise<string | null> {
+    if (!this.isEnabled()) return null;
     try {
       // G9 ingest sanitization (INGEST_SANITIZE_UNICODE, default off):
       // NFC-normalize + strip bidi/zero-width/control chars BEFORE
@@ -76,13 +85,37 @@ export class EpisodeStoreService {
           ...(dto.contextRef.recorder ? { recorder: dto.contextRef.recorder } : {}),
         },
       };
-      await this.surreal.withCompany(companyId, async (db) => {
-        await db.query(`INSERT IGNORE INTO episode $row`, { row });
+      return await this.surreal.withCompany(companyId, async (db) => {
+        const [rows] = await db.query<[Array<{ id?: unknown }>]>(
+          `INSERT IGNORE INTO episode $row`,
+          {
+            row,
+          },
+        );
+        const created = rows?.[0]?.id;
+        if (created !== undefined && created !== null) return String(created);
+        // Duplicate (INSERT IGNORE returned no row): recover the existing
+        // row via the unique (conversationId, messageId) key. contextRef
+        // .conversationId is OPTIONAL — an absent value is stored as NONE,
+        // so the WHERE must say IS NONE, not `= $conv` (which never
+        // matches NONE).
+        const where =
+          row.conversationId === undefined
+            ? 'conversationId IS NONE AND messageId = $mid'
+            : 'conversationId = $conv AND messageId = $mid';
+        const [found] = await db.query<[Array<unknown>]>(
+          `SELECT VALUE id FROM episode WHERE ${where} LIMIT 1`,
+          {
+            mid: row.messageId,
+            ...(row.conversationId !== undefined ? { conv: row.conversationId } : {}),
+          },
+        );
+        const existing = found?.[0];
+        return existing !== undefined && existing !== null ? String(existing) : null;
       });
-      return true;
     } catch (e) {
       this.logger.warn(`episode capture failed (companyId=${companyId}): ${(e as Error).message}`);
-      return false;
+      return null;
     }
   }
 

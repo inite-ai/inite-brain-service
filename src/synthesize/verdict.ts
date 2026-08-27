@@ -31,6 +31,7 @@ export interface VerdictDeps {
         | 'countPlausibilityDowngrade'
         | 'countCitationGuardAbstain'
         | 'countEvidenceCapability'
+        | 'countUngroundedDowngrade'
       >
     | undefined;
   logger?: { debug(message: string): void } | undefined;
@@ -90,6 +91,7 @@ export function finalizeVerdict(
     plausibilityDowngrade,
     requireCitations,
     evidenceCapabilityUnmet,
+    ungroundedOnlySupport,
     evidenceCitations,
   }: {
     verdict: 'supported' | 'partial' | 'unsupported';
@@ -113,6 +115,14 @@ export function finalizeVerdict(
      */
     evidenceCapabilityUnmet?: boolean | undefined;
     /**
+     * Ungrounded-support gate (EVIDENCE_UNGROUNDED_SERVING_GATE, 0115):
+     * resolved by the service (resolveUngroundedSupport) — true when the
+     * supported answer's EVERY cited fact carries
+     * groundingStatus='ungrounded'. Mixed or legacy support resolves
+     * absent. Absent/false ⇒ byte-identical (flag off resolves to {}).
+     */
+    ungroundedOnlySupport?: boolean | undefined;
+    /**
      * L3 evidence citations (FOVEA_L3_EPISODE_CITATIONS): episode-level
      * references for transcript-grounded claims, supplied ONLY by the L3
      * flip path (the primary serve passes nothing). The Part C guard
@@ -124,6 +134,84 @@ export function finalizeVerdict(
   },
 ): SynthesizeResult {
   if (verdict === 'supported') {
+    return serveSupported(deps, {
+      questionAnswered,
+      answer,
+      citations,
+      results,
+      guardrails,
+      decisionLog,
+      abstention,
+      plausibilityDowngrade,
+      requireCitations,
+      evidenceCapabilityUnmet,
+      ungroundedOnlySupport,
+      evidenceCitations,
+    });
+  }
+  // V9 §4 'verifier' abstention: the verifier's verdict IS the
+  // coverage signal — an unsupported/partial answer means the memory
+  // does not support what was asked, so a lenient caller gets the
+  // explicit decline instead of ungrounded text. The V11 §2
+  // 'minicheck' arm shares the gate — only the judge differs (local
+  // NLI verdict mapped onto supported/unsupported upstream).
+  if (guardrails === 'lenient' && (abstention === 'verifier' || abstention === 'minicheck')) {
+    deps.metrics?.countSynthesize('low_coverage');
+    return attachDecisionLog(
+      {
+        answer: NOT_IN_MEMORY_ANSWER,
+        reason: 'low_coverage',
+        citations: [],
+        results,
+      },
+      decisionLog,
+    );
+  }
+  const reason: SynthesisReason = verdict === 'partial' ? 'verifier_partial' : 'verifier_failed';
+  deps.metrics?.countSynthesize(reason);
+  if (guardrails === 'lenient') {
+    return attachDecisionLog({ answer, reason, citations, results }, decisionLog);
+  }
+  // strict — fail closed.
+  return attachDecisionLog({ answer: null, reason, citations: [], results }, decisionLog);
+}
+
+/**
+ * The supported serve — the five sequential downgrades + the ok path,
+ * extracted verbatim from finalizeVerdict (complexity budget; the fifth
+ * Drift-1 branch pushed the single function over 25). Pure, same deps.
+ */
+function serveSupported(
+  deps: VerdictDeps,
+  {
+    questionAnswered,
+    answer,
+    citations,
+    results,
+    guardrails,
+    decisionLog,
+    abstention,
+    plausibilityDowngrade,
+    requireCitations,
+    evidenceCapabilityUnmet,
+    ungroundedOnlySupport,
+    evidenceCitations,
+  }: {
+    questionAnswered?: boolean | undefined;
+    answer: string;
+    citations: Citation[];
+    results: SynthesizeResult['results'];
+    guardrails: SynthesisGuardrails;
+    decisionLog?: DecisionLogEntry[] | undefined;
+    abstention?: RetrievalProfile['abstentionCalibration'] | undefined;
+    plausibilityDowngrade?: boolean | undefined;
+    requireCitations?: boolean | undefined;
+    evidenceCapabilityUnmet?: boolean | undefined;
+    ungroundedOnlySupport?: boolean | undefined;
+    evidenceCitations?: EvidenceCitation[] | undefined;
+  },
+): SynthesizeResult {
+  {
     // V10 §5: supported-but-not-answering — the V9 abstention residual
     // (fabrications assembled from real facts pass the grounding
     // audit). Only the topic-coverage audit produces the judgment
@@ -198,6 +286,29 @@ export function finalizeVerdict(
         decisionLog,
       );
     }
+    // Ungrounded-support gate (EVIDENCE_UNGROUNDED_SERVING_GATE, 0115) —
+    // the FIFTH sequential downgrade on the supported serve: EVERY cited
+    // fact is an ungrounded claim (groundingStatus='ungrounded' — no
+    // recorded observation behind it), so the "supported" verdict rests
+    // entirely on unfounded memory — abstain, fail-closed, under its own
+    // reason (the caller's remedy is "ground the claims", not "the
+    // memory doesn't know"). The synthesize OUTCOME series keeps the
+    // stable 'low_coverage' tag (the Part A/C idiom — no new outcome
+    // value); the dedicated series carries the specific signal.
+    // Absent/false ⇒ byte-identical.
+    if (ungroundedOnlySupport) {
+      deps.metrics?.countSynthesize('low_coverage');
+      deps.metrics?.countUngroundedDowngrade();
+      return attachDecisionLog(
+        {
+          answer: NOT_IN_MEMORY_ANSWER,
+          reason: 'ungrounded_evidence',
+          citations: [],
+          results,
+        },
+        decisionLog,
+      );
+    }
     deps.metrics?.countSynthesize('ok');
     // Evidence citations ride ONLY the supported serve (spread when
     // non-empty); every abstain/downgrade shape above omits them.
@@ -206,31 +317,6 @@ export function finalizeVerdict(
       decisionLog,
     );
   }
-  // V9 §4 'verifier' abstention: the verifier's verdict IS the
-  // coverage signal — an unsupported/partial answer means the memory
-  // does not support what was asked, so a lenient caller gets the
-  // explicit decline instead of ungrounded text. The V11 §2
-  // 'minicheck' arm shares the gate — only the judge differs (local
-  // NLI verdict mapped onto supported/unsupported upstream).
-  if (guardrails === 'lenient' && (abstention === 'verifier' || abstention === 'minicheck')) {
-    deps.metrics?.countSynthesize('low_coverage');
-    return attachDecisionLog(
-      {
-        answer: NOT_IN_MEMORY_ANSWER,
-        reason: 'low_coverage',
-        citations: [],
-        results,
-      },
-      decisionLog,
-    );
-  }
-  const reason: SynthesisReason = verdict === 'partial' ? 'verifier_partial' : 'verifier_failed';
-  deps.metrics?.countSynthesize(reason);
-  if (guardrails === 'lenient') {
-    return attachDecisionLog({ answer, reason, citations, results }, decisionLog);
-  }
-  // strict — fail closed.
-  return attachDecisionLog({ answer: null, reason, citations: [], results }, decisionLog);
 }
 
 /** Part C predicate: zero fact citations AND zero evidence citations —

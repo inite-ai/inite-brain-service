@@ -14,6 +14,7 @@ import { sanitizeSourceMeta } from '../policy/source-meta';
 import { idTailOf, redactPii } from '../ingest/ingest-utils';
 import { MetricsService } from '../metrics/metrics.service';
 import { chunkDocument, DocumentChunk } from './chunker';
+import { markFactsProvenancePurged, purgeDocumentChunks } from './document-purge.util';
 import { IngestDocumentDto } from './dto/ingest-document.dto';
 
 /** Header row of a stored document, as the rest of the pipeline sees it. */
@@ -224,24 +225,8 @@ export class DocumentStoreService {
         { id: idTailOf(docId) },
       );
       if (!existing) return false;
-      // Two-step batched DELETE-by-ids DELIBERATELY: docId is covered
-      // ONLY by the COMPOUND source_chunk_doc_idx (docId, seq) UNIQUE
-      // index — on SurrealDB 3.2.4 a DELETE planned through a compound
-      // index can be a silent no-op (returns OK, deletes nothing) while
-      // the same WHERE in a SELECT matches fine — the bug class
-      // reproduced for preSweepOutcomeRows (PR #372). Batched with LIMIT
-      // because a large document's chunk count is unbounded.
-      for (;;) {
-        const [, batch] = await db.query<[unknown, unknown[]]>(
-          `LET $ids = (SELECT VALUE id FROM source_chunk
-             WHERE docId = type::record('source_document', $id)
-             LIMIT 5000);
-           DELETE $ids RETURN BEFORE`,
-          { id: idTailOf(docId) },
-        );
-        // A partial batch means the document's chunks are drained.
-        if (((batch as unknown[]) ?? []).length < 5000) break;
-      }
+      // Batched two-step chunk purge — shared idiom, see document-purge.util.
+      await purgeDocumentChunks(db, docId);
       await db.query(
         `UPDATE type::record('source_document', $id)
            SET status = 'purged', hasContent = false`,
@@ -274,39 +259,9 @@ export function originKeyOf(contentHash: string): string {
   return `doc:${contentHash}`;
 }
 
-/**
- * Purging a document's text does NOT retract the facts committed from it —
- * the claims stay believed; what's gone is the reproducible evidence behind
- * them. Flag those facts (`source.provenancePurged = true`) so operators
- * and read paths can tell "grounded in retrievable text" from "source text
- * erased" instead of silently orphaning the provenance. Idempotent —
- * already-flagged facts are skipped; returns the number flagged. Shared by
- * both purge paths (explicit endpoint + retainUntil sweeper).
- */
-export async function markFactsProvenancePurged(
-  db: Pick<Surreal, 'query'>,
-  docId: string,
-): Promise<number> {
-  // Facts store the FULL record id string ('source_document:<tail>', see
-  // commit-writer); accept a bare tail defensively.
-  const fullId = docId.includes(':') ? docId : `source_document:${docId}`;
-  const [rows] = await db.query<[Array<{ n: number }>]>(
-    `SELECT count() AS n FROM knowledge_fact
-      WHERE source.documentId = $docId AND source.provenancePurged != true
-      GROUP ALL`,
-    { docId: fullId },
-  );
-  const n = (rows as Array<{ n: number }>)?.[0]?.n ?? 0;
-  if (n > 0) {
-    await db.query(
-      `UPDATE knowledge_fact SET source.provenancePurged = true
-        WHERE source.documentId = $docId AND source.provenancePurged != true
-        RETURN NONE`,
-      { docId: fullId },
-    );
-  }
-  return n;
-}
+// Re-exported from its extracted home (document-purge.util) so existing
+// importers keep working; the GDPR forget cascade shares the same helper.
+export { markFactsProvenancePurged } from './document-purge.util';
 
 function mapDoc(row: Record<string, unknown>): StoredDocument {
   return {

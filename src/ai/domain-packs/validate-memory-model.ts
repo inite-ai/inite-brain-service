@@ -3,15 +3,19 @@ import {
   MM_MAX_ATTENTION_HINTS,
   MM_MAX_CUES,
   MM_MAX_RETENTION_HINTS,
+  MM_MAX_MODALITY_PROCESSORS,
   MM_MAX_SCENE_SCHEMAS,
   MM_MAX_STATES,
   MM_MAX_STATE_MODELS,
   MM_MAX_TRANSITIONS,
   MM_MAX_VERIFICATION_RULES,
+  PACK_MEMORY_MODALITIES,
+  PACK_REPRESENTATION_KINDS,
   PACK_NAMESPACE_SEP,
   type DomainPackManifest,
   type PackAttentionHint,
   type PackRetentionHint,
+  type PackModalityProcessor,
   type PackSceneSchema,
   type PackStateModel,
   type PackVerificationRule,
@@ -41,6 +45,18 @@ const SNAKE = /^[a-z][a-z0-9_]*$/;
 const ZOOM_LITERALS = new Set(['episodes', 'facts', 'scenes']);
 const REQUIRES = new Set(['human_confirmation', 'corroboration', 'recency_check']);
 const RETENTION_HINTS = new Set(['ephemeral', 'standard', 'durable']);
+const MEMORY_MODEL_FIELDS = new Set([
+  'sceneSchemas',
+  'stateModels',
+  'attentionHints',
+  'verificationRules',
+  'retentionHints',
+  'modalities',
+  'processors',
+  'rawEvidence',
+]);
+const MODALITIES = new Set<string>(PACK_MEMORY_MODALITIES);
+const REPRESENTATION_KINDS = new Set<string>(PACK_REPRESENTATION_KINDS);
 
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 const DSL_MARKERS = ['{{', '${', '<%', '`', '|', '\\'];
@@ -93,6 +109,21 @@ function assertObjectEntry(packId: string, field: string, value: unknown): void 
   }
 }
 
+function assertKnownKeys(opts: {
+  packId: string;
+  field: string;
+  value: Record<string, unknown>;
+  allowed: ReadonlySet<string>;
+}): void {
+  const { packId, field, value, allowed } = opts;
+  const unknown = Object.keys(value).find((key) => !allowed.has(key));
+  if (unknown) {
+    throw new DomainPackError(
+      `pack "${packId}" memoryModel ${field} contains unknown field "${unknown}"`,
+    );
+  }
+}
+
 /** A present list must be a non-empty array within its cap (mcpTools mold:
  *  "declare it or omit it" — present-but-empty is an authoring error). */
 function assertPresentList(opts: {
@@ -120,6 +151,13 @@ interface MemoryModelShape {
   attentionHints?: unknown;
   verificationRules?: unknown;
   retentionHints?: unknown;
+  /** Modality-era keys (0112 consent tier). Substantive sections in their
+   *  own right — a modality-only memoryModel is a valid manifest — and now
+   *  structurally validated below (validateModalities / validateProcessors /
+   *  validateRawEvidence). */
+  modalities?: unknown;
+  processors?: unknown;
+  rawEvidence?: unknown;
 }
 
 /**
@@ -133,16 +171,25 @@ export function validateMemoryModel(pack: DomainPackManifest, mm: unknown): void
     throw new DomainPackError(`pack "${pack.id}" memoryModel must be an object`);
   }
   const model = mm as MemoryModelShape;
+  assertKnownKeys({
+    packId: pack.id,
+    field: 'section',
+    value: mm as Record<string, unknown>,
+    allowed: MEMORY_MODEL_FIELDS,
+  });
   const declared = [
     model.sceneSchemas,
     model.stateModels,
     model.attentionHints,
     model.verificationRules,
     model.retentionHints,
+    model.modalities,
+    model.processors,
+    model.rawEvidence,
   ].filter((v) => v !== undefined);
   if (declared.length === 0) {
     throw new DomainPackError(
-      `pack "${pack.id}" memoryModel must declare at least one of sceneSchemas|stateModels|attentionHints|verificationRules|retentionHints (omit the section instead of declaring it empty)`,
+      `pack "${pack.id}" memoryModel must declare at least one of sceneSchemas|stateModels|attentionHints|verificationRules|retentionHints|modalities|processors|rawEvidence (omit the section instead of declaring it empty)`,
     );
   }
   const sceneIds = validateSceneSchemas(pack.id, model.sceneSchemas);
@@ -161,6 +208,101 @@ export function validateMemoryModel(pack: DomainPackManifest, mm: unknown): void
     predicateLocalIds,
     sceneIds,
   });
+  validateModalities(pack.id, model.modalities);
+  validateProcessors(pack.id, model.processors);
+  validateRawEvidence(pack.id, model.rawEvidence);
+}
+
+function validateModalities(packId: string, modalities: unknown): void {
+  if (modalities === undefined) return;
+  assertPresentList({
+    packId,
+    field: 'modalities',
+    value: modalities,
+    cap: PACK_MEMORY_MODALITIES.length,
+  });
+  const seen = new Set<string>();
+  for (const modality of modalities as unknown[]) {
+    if (typeof modality !== 'string' || !MODALITIES.has(modality)) {
+      throw new DomainPackError(
+        `pack "${packId}" memoryModel modality "${String(modality)}" must be one of ${PACK_MEMORY_MODALITIES.join('|')}`,
+      );
+    }
+    if (seen.has(modality)) {
+      throw new DomainPackError(
+        `pack "${packId}" memoryModel declares duplicate modality "${modality}"`,
+      );
+    }
+    seen.add(modality);
+  }
+}
+
+function validateProcessors(packId: string, processors: unknown): void {
+  if (processors === undefined) return;
+  assertPresentList({
+    packId,
+    field: 'processors',
+    value: processors,
+    cap: MM_MAX_MODALITY_PROCESSORS,
+  });
+  const ids = new Set<string>();
+  for (const entry of processors as unknown[]) {
+    assertObjectEntry(packId, 'processors', entry);
+    assertKnownKeys({
+      packId,
+      field: 'processor',
+      value: entry as Record<string, unknown>,
+      allowed: new Set(['id', 'modality', 'produces']),
+    });
+    const processor = entry as Partial<PackModalityProcessor>;
+    assertSnakeId(packId, 'processor id', processor.id);
+    if (ids.has(processor.id)) {
+      throw new DomainPackError(
+        `pack "${packId}" memoryModel declares duplicate processor id "${processor.id}"`,
+      );
+    }
+    ids.add(processor.id);
+    if (typeof processor.modality !== 'string' || !MODALITIES.has(processor.modality)) {
+      throw new DomainPackError(
+        `pack "${packId}" memoryModel processor "${processor.id}" modality must be one of ${PACK_MEMORY_MODALITIES.join('|')}`,
+      );
+    }
+    if (
+      !Array.isArray(processor.produces) ||
+      processor.produces.length === 0 ||
+      processor.produces.length > PACK_REPRESENTATION_KINDS.length
+    ) {
+      throw new DomainPackError(
+        `pack "${packId}" memoryModel processor "${processor.id}" produces must be 1..${PACK_REPRESENTATION_KINDS.length} representation kinds`,
+      );
+    }
+    const produced = new Set<string>();
+    for (const kind of processor.produces) {
+      if (typeof kind !== 'string' || !REPRESENTATION_KINDS.has(kind)) {
+        throw new DomainPackError(
+          `pack "${packId}" memoryModel processor "${processor.id}" representation "${String(kind)}" must be one of ${PACK_REPRESENTATION_KINDS.join('|')}`,
+        );
+      }
+      if (produced.has(kind)) {
+        throw new DomainPackError(
+          `pack "${packId}" memoryModel processor "${processor.id}" declares duplicate representation "${kind}"`,
+        );
+      }
+      produced.add(kind);
+    }
+  }
+}
+
+function validateRawEvidence(packId: string, rawEvidence: unknown): void {
+  if (rawEvidence === undefined) return;
+  assertObjectEntry(packId, 'rawEvidence', rawEvidence);
+  const raw = rawEvidence as Record<string, unknown>;
+  assertKnownKeys({ packId, field: 'rawEvidence', value: raw, allowed: new Set(['serve']) });
+  if (raw.serve !== true) {
+    throw new DomainPackError(
+      `pack "${packId}" memoryModel rawEvidence.serve must be literal true (omit rawEvidence to deny serving)`,
+    );
+  }
 }
 
 /** Returns the declared sceneSchema ids (the zoom/retention namespace). */
