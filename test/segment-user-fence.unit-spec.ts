@@ -4,6 +4,7 @@ import { MentionScanService } from '../src/synthesize/mention-scan.service';
 import { runSegmentLegs } from '../src/search/internals/segment-leg';
 import { SegmentComposerService } from '../src/admin/segment-composer.service';
 import { SceneComposerService } from '../src/admin/scene-composer.service';
+import { SEGMENTER_VERSION } from '../src/admin/scene-segmentation';
 import { EpisodeReadStoreService } from '../src/episodes/episode-read-store.service';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { EmbedderService } from '../src/ai/embedder.service';
@@ -11,6 +12,7 @@ import type { FactEmbeddingService } from '../src/ingest/fact-embedding.service'
 import type { ProjectionRegistryService } from '../src/episodes/projection-registry.service';
 import type { SceneEnricherService } from '../src/admin/scene-enricher.service';
 import type { SceneBacklinkService } from '../src/admin/scene-backlink.service';
+import type { SceneVersionService } from '../src/admin/scene-version';
 
 /**
  * Mixed-user scope fence (migration 0117, PRIVACY_SEGMENT_USER_FENCE).
@@ -324,6 +326,14 @@ describe('scene composer persists fold.userIds (0117 write side)', () => {
         enrich: async () => ({ scenes: 0, enriched: 0, failed: 0 }),
       } as unknown as SceneEnricherService,
       { run: async () => undefined } as unknown as SceneBacklinkService,
+      // Neutral version world: fingerprint off (default), literal PR2
+      // version — this spec pins the userIds fold, not scene identity.
+      {
+        resolve: () => ({
+          version: SEGMENTER_VERSION,
+          cfg: { topicBoundary: false, minCosine: 0.55, maxTurns: 40, embeddingSpaceId: null },
+        }),
+      } as unknown as SceneVersionService,
     );
     await svc.run('co_x');
     const swap = queries.find((q) => q.sql.includes('INSERT INTO memory_episode'));
