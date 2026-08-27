@@ -804,6 +804,18 @@ const KNOWN_BOOLEAN_FLAGS = [
   // filter. Off (default) → the scope column is written but never read;
   // enforcement is byte-identical pre-0093.
   'SCOPE_TAGS_ENABLED',
+  // PRIVACY_ family (0117): data-protection fences, deliberately off
+  // the ENGINE flag budget (they fork no engine behavior). Segment
+  // fence: per-member visibility for mixed-user verbatim windows at the
+  // four segment read seams, FAIL-CLOSED on un-backfilled rows — run
+  // POST /v1/admin/maintenance/segments/backfill-user-ids BEFORE the
+  // first enable. Off (default) → the userIds column is written but
+  // never read; the seams keep their exact pre-0117 WHERE strings.
+  'PRIVACY_SEGMENT_USER_FENCE',
+  // Composer scope rule (deriver drop idiom): single-user insight
+  // proposals get userId+scope stamped; cross-user proposals are
+  // dropped. Off (default) → composed rows byte-identical.
+  'PRIVACY_COMPOSER_USER_SCOPE',
   'INDEXER_WEBHOOK_PUSH_ENABLED',
   'REINDEX_ON_PACK_INSTALL',
   'DOCUMENT_ALLOW_UNGROUNDED_EXTERNAL',

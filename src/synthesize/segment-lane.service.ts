@@ -2,6 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { RerankerService } from '../ai/reranker.service';
+import { segmentUserGate } from '../auth/segment-scope';
 
 interface SegmentRow {
   id: unknown;
@@ -63,13 +64,11 @@ export class SegmentLaneService {
     const topK = opts.topK;
     const fetchK = Math.max(topK * 3, 12);
     const piiGate = opts.callerScopes.includes('brain:read_pii') ? '' : 'AND piiClass IS NONE';
-    // Fail-closed user scope (0055, audit W1 #14): segments inherit the
-    // window's userId only when it is unanimous, so an unscoped read must
-    // stay tenant-global rather than serve another user's window.
-    const userGate = opts.userId
-      ? 'AND (userId IS NONE OR userId = $scopeUserId)'
-      : 'AND userId IS NONE';
-    const userParams = opts.userId ? { scopeUserId: opts.userId } : {};
+    // Fail-closed user scope (0055 + 0117, PRIVACY_SEGMENT_USER_FENCE):
+    // an unscoped read stays tenant-global; a scoped read never serves
+    // another user's window, and with the fence on a mixed-user window
+    // is served only to its own members (segmentUserGate).
+    const gate = segmentUserGate(opts.userId);
     try {
       const queryVector = await this.embedder.embed(opts.query);
       const fused = await this.surreal.withCompany(opts.companyId, async (db) => {
@@ -77,18 +76,18 @@ export class SegmentLaneService {
           `SELECT id, text, occurredAt,
                     vector::similarity::cosine(embedding, $q) AS score
                FROM episode_segment
-              WHERE embedding != NONE ${piiGate} ${userGate}
+              WHERE embedding != NONE ${piiGate} ${gate.clause}
               ORDER BY score DESC
               LIMIT $k`,
-          { q: queryVector, k: fetchK, ...userParams },
+          { q: queryVector, k: fetchK, ...gate.params },
         );
         const [bm25] = await db.query<[SegmentRow[]]>(
           `SELECT id, text, occurredAt, search::score(1) AS score
                FROM episode_segment
-              WHERE text @1@ $q ${piiGate} ${userGate}
+              WHERE text @1@ $q ${piiGate} ${gate.clause}
               ORDER BY score DESC
               LIMIT $k`,
-          { q: opts.query, k: fetchK, ...userParams },
+          { q: opts.query, k: fetchK, ...gate.params },
         );
         return rrfFuse([dense ?? [], bm25 ?? []]);
       });
@@ -130,10 +129,8 @@ export class SegmentLaneService {
     limit: number;
   }): Promise<Array<{ conversationId: string; occurredAt: Date | string; score: number }>> {
     const piiGate = opts.callerScopes.includes('brain:read_pii') ? '' : 'AND piiClass IS NONE';
-    const userGate = opts.userId
-      ? 'AND (userId IS NONE OR userId = $scopeUserId)'
-      : 'AND userId IS NONE';
-    const userParams = opts.userId ? { scopeUserId: opts.userId } : {};
+    // Same 0055 + 0117 fence as the lane read (segmentUserGate).
+    const gate = segmentUserGate(opts.userId);
     try {
       const queryVector = await this.embedder.embed(opts.query);
       const fused = await this.surreal.withCompany(opts.companyId, async (db) => {
@@ -141,18 +138,18 @@ export class SegmentLaneService {
           `SELECT id, conversationId, occurredAt,
                     vector::similarity::cosine(embedding, $q) AS score
                FROM episode_segment
-              WHERE embedding != NONE ${piiGate} ${userGate}
+              WHERE embedding != NONE ${piiGate} ${gate.clause}
               ORDER BY score DESC
               LIMIT $k`,
-          { q: queryVector, k: opts.limit, ...userParams },
+          { q: queryVector, k: opts.limit, ...gate.params },
         );
         const [bm25] = await db.query<[SegmentAnchorRow[]]>(
           `SELECT id, conversationId, occurredAt, search::score(1) AS score
                FROM episode_segment
-              WHERE text @1@ $q ${piiGate} ${userGate}
+              WHERE text @1@ $q ${piiGate} ${gate.clause}
               ORDER BY score DESC
               LIMIT $k`,
-          { q: opts.query, k: opts.limit, ...userParams },
+          { q: opts.query, k: opts.limit, ...gate.params },
         );
         return rrfFuseScored([dense ?? [], bm25 ?? []]);
       });

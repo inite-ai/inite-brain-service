@@ -210,4 +210,17 @@ describe('foldSceneScope (segment-composer :147-160 rule)', () => {
     expect(fold.userIds).toEqual(['u1', 'u2']);
     expect(fold.piiClass).toBeUndefined();
   });
+
+  it('userIds is SORTED regardless of turn order (0117 persisted determinism)', () => {
+    const fold = foldSceneScope([
+      at('2026-01-01T10:00:00.000Z', 'a', { userId: 'u2' }),
+      at('2026-01-01T10:01:00.000Z', 'b', { userId: 'u1' }),
+      at('2026-01-01T10:02:00.000Z', 'c', { userId: 'u2' }),
+    ]);
+    expect(fold.userIds).toEqual(['u1', 'u2']);
+  });
+
+  it('all-global scene folds to userIds [] (the "purely global" stamp, not NONE)', () => {
+    expect(foldSceneScope([at('2026-01-01T10:00:00.000Z', 'a')]).userIds).toEqual([]);
+  });
 });
