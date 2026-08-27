@@ -33,11 +33,12 @@ permissions:
 jobs:
   build-test:
     runs-on: ubuntu-latest
-    # 20, not 15: now that the boot bug is fixed the e2e suite actually
-    # runs to completion (it used to crash instantly), and CI gained the
-    # unit + jobs-real steps. Two testcontainer lifecycles + cold installs
-    # need headroom; forceExit (jest configs) prevents the post-suite hang.
-    timeout-minutes: 20
+    # 30, not 20: the serialized e2e suite (maxWorkers 1, 2026-08 CI-stability
+    # fix) plus the growing suite count runs 18-20+ min on cold runners, and
+    # jobs were dying at exactly 20:00 as spurious "cancelled" conclusions.
+    # Two testcontainer lifecycles + cold installs need headroom; forceExit
+    # (jest configs) prevents the post-suite hang.
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
