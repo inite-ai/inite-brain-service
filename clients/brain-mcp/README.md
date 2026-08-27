@@ -18,8 +18,19 @@ harness ──stdio──▶ brain-mcp ──HTTP + Bearer──▶ https://brai
 ```
 
 It is a **transparent passthrough** — it does not rename or curate tools.
-`tools/list` and `tools/call` are forwarded verbatim, so the harness sees
-exactly the surface the key unlocks (read → 15 tools, +write → 20, +admin → 21).
+Forwarded verbatim (as of v0.2.0):
+
+- `tools/list` / `tools/call` — the harness sees exactly the tool surface
+  the key unlocks (read / +write / +admin; flag-gated tools appear only
+  when the server has them enabled).
+- `resources/list`, `resources/templates/list`, `resources/read` — brain's
+  `brain://entity/<id>` and `brain://entity/<id>/timeline` resources are
+  visible and readable through the bridge.
+- **Sampling, in reverse**: brain's `sampling/createMessage` requests are
+  forwarded to the harness, so `summarize_entity` with
+  `styleHint='client_llm'` uses the **harness's** model. If the harness
+  does not advertise the `sampling` capability, the request fails cleanly
+  and brain falls back to its local template (the pre-0.2.0 behavior).
 
 ## Configuration
 
