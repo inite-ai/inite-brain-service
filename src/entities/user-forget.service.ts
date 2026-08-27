@@ -2,6 +2,11 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { EvidenceStoreService } from '../evidence/evidence-store.service';
+import {
+  deleteDocumentIdentityRows,
+  planDocumentCascade,
+  purgeExclusiveDocContent,
+} from '../documents/document-purge.util';
 
 /**
  * UserForgetService — GDPR erasure for a per-user memory scope
@@ -25,6 +30,20 @@ import { EvidenceStoreService } from '../evidence/evidence-store.service';
  *     must sweep/redact dead-letter rows out of band. Adding a userId
  *     stamp at reject time (fn::resolve_fact et al.) would close this —
  *     tracked, not done here.
+ *
+ * Document cascade (fact-mediated) — HONEST LIMITS. source_document has
+ * no userId/entityId (0048); the only subject→document linkage is
+ * knowledge_fact.source.documentId on the user's committed facts, so the
+ * cascade purges exactly the documents those facts tie to the user (see
+ * planDocumentCascade). What it can NOT do:
+ *   - SHARED documents (another subject still grounds facts in them)
+ *     survive WITH their content — no per-chunk attribution to erase
+ *     selectively. Mitigations: the retainUntil retention sweeper, and
+ *     an operator DELETE /v1/documents/:id/content for targeted purges.
+ *   - Documents that produced ZERO committed facts for the user are
+ *     unreachable from here (nothing links them to the user).
+ *   - candidate payloads mentioning the user in free text only are not
+ *     attributable (no userId column on candidate).
  */
 export interface UserForgetResult {
   companyId: string;
@@ -37,6 +56,14 @@ export interface UserForgetResult {
   evidenceAssetsDeleted: number;
   evidenceFragmentsDeleted: number;
   representationsDeleted: number;
+  /** source_document headers fully erased (EXCLUSIVE to this user). */
+  purgedSourceDocs: number;
+  /** source_chunk rows drained from those exclusive docs. */
+  purgedSourceChunks: number;
+  /** candidate rows erased with those exclusive docs. */
+  purgedCandidates: number;
+  /** indexer_run rows erased with those exclusive docs. */
+  purgedIndexerRuns: number;
 }
 
 @Injectable()
@@ -155,6 +182,21 @@ export class UserForgetService {
         }
       }
 
+      // ── Document cascade (fact-mediated — see the file docblock's
+      // HONEST LIMITS). MUST run BEFORE the fact delete below: the facts'
+      // source.documentId is the only user→document linkage. Sequence per
+      // exclusive doc: provenance flag FIRST, then the batched chunk
+      // drain + header purge (a mid-failure rests in the defined
+      // purgeContent state), then the bounded identity rows — candidates,
+      // indexer_runs, headers — by pre-selected ids (3.2.4 planner
+      // contract, see document-purge.util).
+      const docPlan = await planDocumentCascade(db, {
+        predicate: 'userId = $u',
+        params: { u: userId },
+      });
+      const purgedSourceChunks = await purgeExclusiveDocContent(db, docPlan);
+      const docRows = await deleteDocumentIdentityRows(db, docPlan.exclusiveDocRefs);
+
       await db.query(`DELETE knowledge_fact WHERE userId = $u`, { u: userId });
       await db.query(`DELETE knowledge_entity WHERE userId = $u`, {
         u: userId,
@@ -256,10 +298,15 @@ export class UserForgetService {
         evidenceAssetsDeleted,
         evidenceFragmentsDeleted,
         representationsDeleted,
+        purgedSourceDocs: docRows.docs,
+        purgedSourceChunks,
+        purgedCandidates: docRows.candidates,
+        purgedIndexerRuns: docRows.indexerRuns,
       };
       this.logger.log(
         `user forget ${companyId}/${userId}: facts=${result.factsDeleted} entities=${result.entitiesDeleted} edges=${result.edgesDeleted} audit=${result.auditEventsDeleted} ` +
-          `evidenceAssets=${result.evidenceAssetsDeleted} evidenceFragments=${result.evidenceFragmentsDeleted} representations=${result.representationsDeleted}`,
+          `evidenceAssets=${result.evidenceAssetsDeleted} evidenceFragments=${result.evidenceFragmentsDeleted} representations=${result.representationsDeleted} ` +
+          `docs=${result.purgedSourceDocs} chunks=${result.purgedSourceChunks} candidates=${result.purgedCandidates} indexerRuns=${result.purgedIndexerRuns}`,
       );
       return result;
     });
