@@ -5,16 +5,29 @@ import { SurrealService } from '../db/surreal.service';
 import { EpisodeReadStoreService, type EpisodeDb } from '../episodes/episode-read-store.service';
 import { chatCallParams, createOpenAiClient } from '../ai/openai-client';
 import { sceneLlmEnrichmentEnabled } from '../common/scene-flags';
-import { SEGMENTER_VERSION, type SceneTurnRow } from './scene-segmentation';
+import { type SceneTurnRow } from './scene-segmentation';
+import { SceneVersionService } from './scene-version';
 
 /**
  * Scene LLM enricher (Brain v2 PR2, SCENES_LLM_ENRICHMENT — default off):
  * the optional pass AFTER the composer's atomic swap. For each scene of
- * the CURRENT segmenter version it makes ONE structured LLM call (strict
- * JSON schema, same call idiom as deriver-client) and updates the scene
- * row: abstractive gist replaces the deterministic render, the FULL
- * memoryValue vector lands under scorerVersion 'scene-scorer-llm-v1',
- * plus stateDeltas / unexpectedDetails and the gistPromptVersion stamp.
+ * the CURRENT effective segmenter version it makes ONE structured LLM call
+ * (strict JSON schema, same call idiom as deriver-client) and writes a
+ * REVISION beside the composer's deterministic originals (Drift-3b): the
+ * abstractive gist lands in `enrichedGist`, the FULL memoryValue vector in
+ * `enrichedMemoryValue` (scorerVersion 'scene-scorer-llm-v1'), plus
+ * stateDeltas / unexpectedDetails (enrichment-owned — the deterministic
+ * pass never writes them) and the `enrichmentModel` / `enrichmentVersion`
+ * / `enrichedAt` stamps (migration 0118). The composer's `gist` /
+ * `memoryValue` are IMMUTABLE post-compose — a composer re-run naturally
+ * produces fresh un-enriched rows and the post-swap hook re-enriches.
+ * `gistPromptVersion` (0106) is legacy-dead like encoderVersion — its
+ * prompt identity now lives inside the enrichmentVersion composite.
+ *
+ * IDEMPOTENT: a scene whose `enrichmentVersion` already equals the current
+ * `prompt|scorer|model` composite is SKIPPED — a re-run with unchanged
+ * prompt+scorer+model makes ZERO paid calls; changing any of the three
+ * changes the composite and re-enriches naturally.
  *
  * DEGRADE, NEVER FAIL: a transport error or an off-contract reply for one
  * scene logs a warning and leaves THAT scene untouched (it keeps its
@@ -35,10 +48,23 @@ import { SEGMENTER_VERSION, type SceneTurnRow } from './scene-segmentation';
  * would poison that column's contract.
  */
 
-/** Stamp on memoryValue written by this enricher (0106 scorerVersion). */
+/** Stamp on enrichedMemoryValue written by this enricher (scorerVersion). */
 export const SCENE_SCORER_LLM_VERSION = 'scene-scorer-llm-v1';
-/** Stamp on the scene row for the prompt below (0106 gistPromptVersion). */
+/**
+ * Version of the prompt below. No longer written to the legacy-dead
+ * gistPromptVersion column — it is the first component of the
+ * enrichmentVersion composite (sceneEnrichmentVersion).
+ */
 export const SCENE_GIST_PROMPT_VERSION = 'scene-gist-v1';
+
+/**
+ * Pure: the enrichment revision composite stored in `enrichmentVersion`
+ * (0118) — readable, NOT hashed: cardinality is low and the model id must
+ * stay recoverable. E.g. `scene-gist-v1|scene-scorer-llm-v1|gpt-4o-mini`.
+ */
+export function sceneEnrichmentVersion(model: string): string {
+  return `${SCENE_GIST_PROMPT_VERSION}|${SCENE_SCORER_LLM_VERSION}|${model}`;
+}
 
 export const SCENE_ENRICHMENT_SYSTEM = `You analyze ONE scene — a contiguous span of turns from a conversation — and produce its memory encoding. Output strictly the JSON schema:
 - "gist": 1-3 sentences, abstractive — what happened in this scene, who did what, with the concrete names, dates, numbers and decisions. State the content itself, never meta-language ("the user discussed" is always wrong).
@@ -154,11 +180,15 @@ export interface SceneEnrichResult {
   scenes: number;
   enriched: number;
   failed: number;
+  /** Already at the current enrichmentVersion — no call made (idempotency). */
+  skipped: number;
 }
 
 interface SceneHead {
   id: unknown;
   conversationIds: string[];
+  /** Present when a previous enrichment pass stamped the row (0118). */
+  enrichmentVersion?: string;
 }
 
 /** The one client surface the enricher uses (mock-swappable in tests). */
@@ -176,10 +206,14 @@ export class SceneEnricherService {
   private readonly openai: ChatCompletionsClient | null;
   private readonly model: string;
 
+  // Fourth dep is the run-scoped version resolver (Drift-3): the enricher
+  // must select scenes by the SAME effective version the composer stamps.
+  // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     configService: ConfigService,
     private readonly episodes: EpisodeReadStoreService,
+    private readonly versions: SceneVersionService,
   ) {
     this.openai = createOpenAiClient(configService);
     this.model = configService.get<string>(
@@ -197,7 +231,7 @@ export class SceneEnricherService {
     companyId: string,
     opts: { conversationId?: string } = {},
   ): Promise<SceneEnrichResult> {
-    const result: SceneEnrichResult = { scenes: 0, enriched: 0, failed: 0 };
+    const result: SceneEnrichResult = { scenes: 0, enriched: 0, failed: 0, skipped: 0 };
     // Defense in depth: the controller already 404s with the flag off; a
     // programmatic caller must not spend LLM calls past a disabled flag.
     if (!sceneLlmEnrichmentEnabled()) return result;
@@ -205,12 +239,18 @@ export class SceneEnricherService {
       this.logger.warn('scene enrichment skipped: no OPENAI_API_KEY configured');
       return result;
     }
+    // Effective version + revision composite, resolved ONCE per run: the
+    // scene selection follows the composer's stamps, and the composite is
+    // the idempotency key for the skip below.
+    const { version } = this.versions.resolve();
+    const enrichmentVersion = sceneEnrichmentVersion(this.model);
     await this.surreal.withCompany(companyId, async (db) => {
       const [scenes] = await db.query<[SceneHead[]]>(
-        `SELECT id, conversationIds FROM memory_episode WHERE segmenterVersion = $v` +
+        `SELECT id, conversationIds, enrichmentVersion FROM memory_episode
+          WHERE segmenterVersion = $v` +
           (opts.conversationId !== undefined ? ` AND conversationIds CONTAINS $conv` : ''),
         {
-          v: SEGMENTER_VERSION,
+          v: version,
           ...(opts.conversationId !== undefined ? { conv: opts.conversationId } : {}),
         },
       );
@@ -218,8 +258,17 @@ export class SceneEnricherService {
       const turnCache = new Map<string, Map<string, SceneTurnRow>>();
       for (const scene of scenes ?? []) {
         result.scenes += 1;
+        // Idempotent skip: this scene already carries the current
+        // prompt|scorer|model revision — zero paid calls on a re-run.
+        if (scene.enrichmentVersion === enrichmentVersion) {
+          result.skipped += 1;
+          this.logger.debug(
+            `scene enrichment skipped ${String(scene.id)}: already at ${enrichmentVersion}`,
+          );
+          continue;
+        }
         try {
-          const ok = await this.enrichScene({ db, scene, turnCache });
+          const ok = await this.enrichScene({ db, scene, turnCache, enrichmentVersion });
           if (ok) result.enriched += 1;
           else result.failed += 1;
         } catch (e) {
@@ -238,22 +287,39 @@ export class SceneEnricherService {
     db,
     scene,
     turnCache,
+    enrichmentVersion,
   }: {
     db: EpisodeDb;
     scene: SceneHead;
     turnCache: Map<string, Map<string, SceneTurnRow>>;
+    enrichmentVersion: string;
   }): Promise<boolean> {
-    const conversationId = scene.conversationIds[0];
-    if (conversationId === undefined) return false;
-    let turnsById = turnCache.get(conversationId);
-    if (!turnsById) {
-      const turns = (await this.episodes.conversationTurnsRaw(
-        db,
-        conversationId,
-      )) as SceneTurnRow[];
-      turnsById = new Map(turns.map((t) => [String(t.id), t]));
-      turnCache.set(conversationId, turnsById);
+    if (scene.conversationIds.length === 0) return false;
+    // Member lookup merged over ALL of the scene's conversations (the
+    // cache stays per-conversation): identical behavior today — the
+    // composer only writes single-conversation scenes — but a future
+    // multi-conversation scene is enriched from its FULL transcript
+    // instead of silently reading only conversationIds[0].
+    const conversationMaps: Array<Map<string, SceneTurnRow>> = [];
+    for (const conversationId of scene.conversationIds) {
+      let turnsById = turnCache.get(conversationId);
+      if (!turnsById) {
+        const turns = (await this.episodes.conversationTurnsRaw(
+          db,
+          conversationId,
+        )) as SceneTurnRow[];
+        turnsById = new Map(turns.map((t) => [String(t.id), t]));
+        turnCache.set(conversationId, turnsById);
+      }
+      conversationMaps.push(turnsById);
     }
+    const lookupTurn = (id: string): SceneTurnRow | undefined => {
+      for (const m of conversationMaps) {
+        const t = m.get(id);
+        if (t) return t;
+      }
+      return undefined;
+    };
     // Plain WHERE in = $scene SELECT — safe on 3.2.4 (only DELETE trips
     // the compound-index planner bug; see scene-composer's swap comment).
     const [members] = await db.query<[Array<{ out: unknown; ord: number }>]>(
@@ -261,7 +327,7 @@ export class SceneEnricherService {
       { scene: scene.id },
     );
     const memberTurns = (members ?? [])
-      .map((m) => turnsById.get(String(m.out)))
+      .map((m) => lookupTurn(String(m.out)))
       .filter((t): t is SceneTurnRow => t !== undefined);
     if (memberTurns.length === 0) {
       this.logger.warn(`scene enrichment skipped ${String(scene.id)}: no member turns readable`);
@@ -284,18 +350,22 @@ export class SceneEnricherService {
     }
 
     // Single-record UPDATE by bound id — primary-key addressed, immune to
-    // the 3.2.4 secondary-index planner bug by construction.
+    // the 3.2.4 secondary-index planner bug by construction. Writes ONLY
+    // the enrichment-revision siblings + stamps (0118): the composer's
+    // deterministic gist / memoryValue are immutable post-compose, and
+    // gistPromptVersion is legacy-dead (superseded by enrichmentVersion).
     await db.query(
       `UPDATE $scene SET
-         gist = $gist,
-         gistPromptVersion = $gistPromptVersion,
-         memoryValue = $memoryValue,
+         enrichedGist = $gist,
+         enrichedMemoryValue = $memoryValue,
          stateDeltas = $stateDeltas,
-         unexpectedDetails = $unexpectedDetails`,
+         unexpectedDetails = $unexpectedDetails,
+         enrichmentModel = $model,
+         enrichmentVersion = $enrichmentVersion,
+         enrichedAt = time::now()`,
       {
         scene: scene.id,
         gist: enrichment.gist,
-        gistPromptVersion: SCENE_GIST_PROMPT_VERSION,
         memoryValue: {
           ...enrichment.memoryValue,
           scorerVersion: SCENE_SCORER_LLM_VERSION,
@@ -303,6 +373,8 @@ export class SceneEnricherService {
         },
         stateDeltas: enrichment.stateDeltas,
         unexpectedDetails: enrichment.unexpectedDetails,
+        model: this.model,
+        enrichmentVersion,
       },
     );
     return true;

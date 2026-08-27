@@ -91,6 +91,30 @@ export function sceneFactBacklinkEnabled(): boolean {
   return envFlagEnabled(process.env.SCENES_FACT_BACKLINK);
 }
 
+/**
+ * Scenes version-fingerprint flag — SCENES_VERSION_FINGERPRINT (Drift-3).
+ *
+ * When on, SceneVersionService resolves the EFFECTIVE segmenter version as
+ * `scene-segmenter-v1+<fp>` where <fp> is an 8-hex-char sha256 over the
+ * resolved segmenter config (impl, scorer, maxTurns, topicBoundary, and —
+ * only when the boundary is on — minCosine + the embedding-space id).
+ * Scene record ids, the segmenterVersion stamps on scene AND member rows,
+ * the projection-registry key, the composer's swap WHERE, the enricher's
+ * and backlinker's scene selection and the backlink source.sceneLinkVersion
+ * stamp all follow the effective string — so changing any config knob
+ * forks a NEW coexisting id-space instead of overwriting the old world in
+ * place (abandoned worlds are purged via DELETE /scenes/versions/:v). The
+ * env read lives here in the common layer, NOT inside the engine dirs
+ * (engine-gates S5.2). Read once per composer/enricher/backlinker run
+ * (SceneVersionService.resolve) so a flip is runtime-mutable and a mid-run
+ * flip can never mix id-spaces. Default off ⇒ the effective version is
+ * exactly the literal SEGMENTER_VERSION constant — byte-identical
+ * ids/stamps/registry keys.
+ */
+export function sceneVersionFingerprintEnabled(): boolean {
+  return envFlagEnabled(process.env.SCENES_VERSION_FINGERPRINT);
+}
+
 /** Default hard cap on turns per scene (Brain v2 PR1). */
 const DEFAULT_MAX_TURNS = 40;
 

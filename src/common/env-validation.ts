@@ -870,6 +870,15 @@ const KNOWN_BOOLEAN_FLAGS = [
   // verbatim (facts read/provenance API) — additive. Default off ⇒ no
   // fact row is ever touched and the backlink admin route 404s.
   'SCENES_FACT_BACKLINK',
+  // Scenes version fingerprint (Drift-3): when on, the EFFECTIVE segmenter
+  // version becomes 'scene-segmenter-v1+<8-hex sha256 over the resolved
+  // segmenter config>' (impl, scorer, maxTurns, topicBoundary, and — only
+  // when the boundary is on — minCosine + the embedding-space id), so a
+  // config change forks a NEW coexisting scene id-space instead of
+  // overwriting the old world's record ids in place. Default off ⇒ the
+  // literal constant version — byte-identical ids, stamps and registry
+  // keys.
+  'SCENES_VERSION_FINGERPRINT',
   // Evidence substrate master (Brain v2.1 M1, migration 0109): the
   // EvidenceStoreService writers for evidence_asset / evidence_fragment /
   // derived_representation. Default off ⇒ every writer 503s and no row is

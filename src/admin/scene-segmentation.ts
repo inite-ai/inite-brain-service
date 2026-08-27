@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { cosineSimilarity } from '../common/vector-math';
 import type { EpisodeRow } from '../episodes/session-window';
 
@@ -245,4 +246,65 @@ export function foldSceneScope(turns: SceneTurnRow[]): SceneScopeFold {
     userId: userIds.length === 1 ? userIds[0] : undefined,
     userIds,
   };
+}
+
+/**
+ * The EFFECTIVE segmenter config — everything that changes what the
+ * composer writes for the same input turns. Scene CONTENT depends on these
+ * knobs, so scene IDENTITY must too (Drift-3): under
+ * SCENES_VERSION_FINGERPRINT the composer derives its effective version
+ * from this config via `effectiveSegmenterVersion`, and a knob change
+ * forks a NEW id-space instead of overwriting the old world's rows.
+ */
+export interface SceneSegmenterConfig {
+  /** SCENES_TOPIC_BOUNDARY — flips the algorithm AND novelty scoring. */
+  topicBoundary: boolean;
+  /**
+   * SCENES_TOPIC_MIN_COSINE. Ignored — and EXCLUDED from the fingerprint —
+   * when !topicBoundary: it cannot affect output there, and including it
+   * would fork id-spaces on irrelevant knob changes.
+   */
+  minCosine: number;
+  /** SCENES_MAX_TURNS (resolved positive integer). */
+  maxTurns: number;
+  /**
+   * Canonical embedding-space id (`provider:model:dim:norm`, the 0101
+   * idiom via EmbedderService.activeSpaceId). null when !topicBoundary —
+   * no embedding is ever taken, so the space cannot affect output.
+   */
+  embeddingSpaceId: string | null;
+}
+
+/**
+ * Pure: 8-hex-char sha256 fingerprint over the effective segmenter config.
+ * Canonical input string (order fixed, `|`-joined, no JSON):
+ *   impl=<SEGMENTER_VERSION> | scorer=<SCENE_SCORER_VERSION>
+ *   | maxTurns=<int> | topicBoundary=<0|1>
+ *   [ | minCosine=<String(v)> | space=<embeddingSpaceId> ]   // boundary on only
+ * The scorer constant is included because `scoreSceneDeterministic` output
+ * is stored in the composed row — a scorer bump changes row content and
+ * must fork the id-space; being a code constant, the fp moves with the
+ * code automatically. Deliberately EXCLUDED: minCosine + embedding space
+ * when the boundary is off (cannot affect output), the enrichment
+ * prompt/scorer/model (a post-compose revision layer with its own
+ * `enrichmentVersion` composite), and `generation` (a per-run
+ * observability stamp, 0081 idiom — never part of identity).
+ */
+export function sceneConfigFingerprint(cfg: SceneSegmenterConfig): string {
+  const parts = [
+    `impl=${SEGMENTER_VERSION}`,
+    `scorer=${SCENE_SCORER_VERSION}`,
+    `maxTurns=${cfg.maxTurns}`,
+    `topicBoundary=${cfg.topicBoundary ? 1 : 0}`,
+  ];
+  if (cfg.topicBoundary) {
+    parts.push(`minCosine=${String(cfg.minCosine)}`);
+    parts.push(`space=${cfg.embeddingSpaceId ?? ''}`);
+  }
+  return createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 8);
+}
+
+/** Pure: `scene-segmenter-v1+<8-hex fp>` — the fingerprinted version. */
+export function effectiveSegmenterVersion(cfg: SceneSegmenterConfig): string {
+  return `${SEGMENTER_VERSION}+${sceneConfigFingerprint(cfg)}`;
 }

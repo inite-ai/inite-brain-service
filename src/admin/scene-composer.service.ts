@@ -10,10 +10,7 @@ import { segmentSessions } from '../episodes/session-window';
 import {
   sceneFactBacklinkEnabled,
   sceneLlmEnrichmentEnabled,
-  sceneMaxTurns,
   sceneSegmentationEnabled,
-  sceneTopicBoundaryEnabled,
-  sceneTopicMinCosine,
 } from '../common/scene-flags';
 import {
   SEGMENTER_VERSION,
@@ -23,8 +20,10 @@ import {
   renderSceneGist,
   renderSceneLabel,
   scoreSceneDeterministic,
+  type SceneSegmenterConfig,
   type SceneTurnRow,
 } from './scene-segmentation';
+import { SceneVersionService } from './scene-version';
 import { SceneEnricherService } from './scene-enricher.service';
 import { SceneBacklinkService } from './scene-backlink.service';
 
@@ -66,7 +65,8 @@ export class SceneComposerService {
 
   // Fourth dep is the projection-registry ledger (observes the lifecycle,
   // never fails it — every registry write degrades to a warning); the PR2
-  // enricher/backlinker are the optional flag-gated post-swap passes.
+  // enricher/backlinker are the optional flag-gated post-swap passes; the
+  // version service resolves the run's effective scene world once (Drift-3).
   // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
@@ -75,6 +75,7 @@ export class SceneComposerService {
     private readonly registry: ProjectionRegistryService,
     private readonly enricher: SceneEnricherService,
     private readonly backlinker: SceneBacklinkService,
+    private readonly versions: SceneVersionService,
   ) {}
 
   async run(companyId: string, opts: { conversationId?: string } = {}): Promise<SceneRunResult> {
@@ -86,10 +87,14 @@ export class SceneComposerService {
     // rebuild carries it, so a partially-failed run is observable
     // (conversations still on the old generation = swaps that never landed).
     const generation = new Date().toISOString();
+    // The effective scene world, resolved ONCE for the whole run (Drift-3):
+    // flags/knobs are never re-read inside the loop, so a mid-run env flip
+    // cannot mix id-spaces or stamp a version disagreeing with the content.
+    const { version, cfg } = this.versions.resolve();
     await this.registry.begin({
       companyId,
       name: 'scenes',
-      version: SEGMENTER_VERSION,
+      version,
       builder: SCENE_RECORDER,
     });
     try {
@@ -101,7 +106,14 @@ export class SceneComposerService {
           // tenant re-run (and vice versa).
           if (opts.conversationId && conversationId !== opts.conversationId) continue;
           try {
-            await this.composeConversation({ db, conversationId, result, generation });
+            await this.composeConversation({
+              db,
+              conversationId,
+              result,
+              generation,
+              version,
+              cfg,
+            });
             result.conversations += 1;
           } catch (e) {
             result.skipped.push({ conversationId, reason: (e as Error).message });
@@ -110,7 +122,7 @@ export class SceneComposerService {
         }
       });
     } catch (e) {
-      await this.registry.fail({ companyId, name: 'scenes', version: SEGMENTER_VERSION });
+      await this.registry.fail({ companyId, name: 'scenes', version });
       throw e;
     }
     // 'built', never 'live': the scene world has no serving reader to
@@ -118,7 +130,7 @@ export class SceneComposerService {
     await this.registry.complete({
       companyId,
       name: 'scenes',
-      version: SEGMENTER_VERSION,
+      version,
       live: false,
       stats: {
         conversations: result.conversations,
@@ -134,7 +146,8 @@ export class SceneComposerService {
       try {
         const enrich = await this.enricher.enrich(companyId, opts);
         this.logger.log(
-          `scene enrichment pass: ${enrich.enriched}/${enrich.scenes} enriched, ${enrich.failed} degraded`,
+          `scene enrichment pass: ${enrich.enriched}/${enrich.scenes} enriched, ` +
+            `${enrich.failed} degraded, ${enrich.skipped} already current`,
         );
       } catch (e) {
         this.logger.warn(`scene enrichment pass failed: ${(e as Error).message}`);
@@ -155,7 +168,10 @@ export class SceneComposerService {
    * transaction, then demote the projection ledger row to 'residual' (the
    * row records that the world existed and is no longer queryable; the
    * builder stamp survives for audit — deleting the row is the gc path,
-   * not the purge path).
+   * not the purge path). Takes ANY version string — fingerprinted
+   * versions (`scene-segmenter-v1+<fp>`, SCENES_VERSION_FINGERPRINT) pass
+   * through here too: this is the cleanup path for abandoned fingerprint
+   * worlds after a config change forked a new id-space.
    *
    * Both deletes go through LET-selected explicit id lists. scene_version_idx
    * and scene_member_ver_idx are SINGLE-field indexes — an equality DELETE
@@ -191,11 +207,15 @@ export class SceneComposerService {
     conversationId,
     result,
     generation,
+    version,
+    cfg,
   }: {
     db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> };
     conversationId: string;
     result: SceneRunResult;
     generation: string;
+    version: string;
+    cfg: SceneSegmenterConfig;
   }): Promise<void> {
     const turns = (await this.episodes.conversationTurnsRaw(db, conversationId)) as SceneTurnRow[];
     if (turns.length === 0) return;
@@ -203,16 +223,18 @@ export class SceneComposerService {
     // Paid step BEFORE any delete (segment-composer rule): an embedding
     // failure leaves the old scene set intact instead of an emptied
     // conversation. ONE batch per conversation, and only when the topic
-    // boundary is on — the default segmenter is embedder-free.
+    // boundary is on — the default segmenter is embedder-free. Resolved
+    // ONCE per run (SceneVersionService), never re-read here, so the batch
+    // decision always agrees with the version being stamped.
     let vectors: number[][] | undefined;
-    if (sceneTopicBoundaryEnabled()) {
+    if (cfg.topicBoundary) {
       vectors = await this.embedding.embedMany(turns.map((t) => t.text));
     }
 
     // Session boundaries first (shared 60-min gap rule), then the
     // within-session detector. Sessions partition `turns` in order, so a
     // running offset maps each session onto its embedding slice.
-    const boundaryOpts = { minCosine: sceneTopicMinCosine(), maxTurns: sceneMaxTurns() };
+    const boundaryOpts = { minCosine: cfg.minCosine, maxTurns: cfg.maxTurns };
     const scenes: SceneTurnRow[][] = [];
     let offset = 0;
     for (const session of segmentSessions(turns) as SceneTurnRow[][]) {
@@ -242,7 +264,10 @@ export class SceneComposerService {
       const fold = foldSceneScope(scene);
       const first = scene[0]!; // scenes are non-empty by construction
       const last = scene[scene.length - 1]!;
-      const sceneId = new RecordId('memory_episode', this.sceneIdTail(conversationId, index));
+      const sceneId = new RecordId(
+        'memory_episode',
+        this.sceneIdTail(conversationId, version, index),
+      );
       sceneRows.push({
         id: sceneId,
         // Scope/PII fold — same rule as segment-composer :147-160: pii is
@@ -264,7 +289,7 @@ export class SceneComposerService {
         // knob for "how sure was the boundary model" arrives with a
         // learned segmenter.
         confidence: 1,
-        segmenterVersion: SEGMENTER_VERSION,
+        segmenterVersion: version,
         generation,
         source: { recorder: SCENE_RECORDER },
       });
@@ -275,7 +300,7 @@ export class SceneComposerService {
           role: 'core',
           ord,
           relevance: 1,
-          segmenterVersion: SEGMENTER_VERSION,
+          segmenterVersion: version,
         });
       }
     }
@@ -285,6 +310,23 @@ export class SceneComposerService {
     // previous set or the new one, never neither, and other segmenter
     // versions are untouched. No graph-arrow syntax anywhere (0106 note):
     // in/out are filtered as plain record fields.
+    //
+    // OWNERSHIP RULE (Drift-4): the delete matches conversationIds =
+    // [$conv] EXACTLY — i.e. only the id-space this per-conversation
+    // rebuild regenerates (the sha256(conv|version|index) ids below).
+    // Byte-identical to the previous CONTAINS filter on all data this
+    // producer can have written (it only ever writes [conversationId]),
+    // but a future MULTI-conversation scene (consolidation output) is
+    // explicitly NOT owned by a per-conversation rebuild: a CONTAINS
+    // delete would destroy it whenever ANY member conversation re-runs,
+    // rebuild only the re-run half, and the id scheme could not even
+    // reconstruct its identity. Multi-conv scenes belong to a future
+    // WORLD-LEVEL generation swap (window-deriver triad): build ALL
+    // conversations into a staging id-space `<version>.staging.<runToken>`
+    // (derive-staging idiom), add a `promote` verb to
+    // ProjectionRegistryService (none today), then atomically delete the
+    // final world + restamp staging→final in ONE transaction, with
+    // multi-conv scene ids hashing a SORTED conversation-id list.
     //
     // Member delete is two-step (SELECT ids → DELETE $ids) DELIBERATELY:
     // on SurrealDB 3.2.4 a DELETE whose WHERE filters on `in` — covered
@@ -298,7 +340,7 @@ export class SceneComposerService {
       tx
         .add(
           `LET $scenes = (SELECT VALUE id FROM memory_episode
-             WHERE conversationIds CONTAINS $conv AND segmenterVersion = $v)`,
+             WHERE conversationIds = [$conv] AND segmenterVersion = $v)`,
         )
         .add(
           `LET $oldMemberIds = (SELECT VALUE id FROM memory_episode_member WHERE in INSIDE $scenes)`,
@@ -308,17 +350,21 @@ export class SceneComposerService {
         .add(`INSERT INTO memory_episode $sceneRows`)
         .add(`INSERT RELATION INTO memory_episode_member $memberRows`)
         .bind('conv', conversationId)
-        .bind('v', SEGMENTER_VERSION)
+        .bind('v', version)
         .bind('sceneRows', sceneRows)
         .bind('memberRows', memberRows),
     );
     result.scenes += sceneRows.length;
   }
 
-  /** Deterministic scene id tail over (conversation, version, index). */
-  private sceneIdTail(conversationId: string, index: number): string {
+  /**
+   * Deterministic scene id tail over (conversation, EFFECTIVE version,
+   * index) — under SCENES_VERSION_FINGERPRINT the version carries the
+   * config fingerprint, so a config change lands in a fresh id-space.
+   */
+  private sceneIdTail(conversationId: string, version: string, index: number): string {
     return createHash('sha256')
-      .update(`${conversationId}|${SEGMENTER_VERSION}|${index}`)
+      .update(`${conversationId}|${version}|${index}`)
       .digest('hex')
       .slice(0, 24);
   }
