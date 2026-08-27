@@ -1,4 +1,5 @@
 import type { ExtractionProfile, PredicateDefinition } from '../predicate-registry-internals/types';
+import { DERIVED_REPRESENTATION_KINDS, EVIDENCE_MODALITIES } from '../../common/evidence-taxonomy';
 
 export type { ExtractionProfile, ExtractionExample } from '../predicate-registry-internals/types';
 
@@ -105,9 +106,9 @@ export interface DomainPackManifest {
    * docs/domain-packs.md). Declarative data ONLY — no code, templates, or
    * patterns; every proposal derived from it is a CANDIDATE the core
    * pipeline may accept or reject, never truth. Rides inside the manifest,
-   * so checksum + signature cover it automatically (canonical JSON) with
-   * zero new machinery. No consent flag: it is declarative, registers
-   * nothing, and causes zero egress.
+   * so checksum + signature cover it automatically (canonical JSON).
+   * Semantic declarations are inert; non-text modalities, processor needs,
+   * and raw-evidence serving additionally require `acceptModalities`.
    */
   memoryModel?: PackMemoryModel;
 }
@@ -251,6 +252,15 @@ export const MM_MAX_TRANSITIONS = 64;
 export const MM_MAX_CUES = 12;
 export const MM_MAX_VERIFICATION_RULES = 16;
 export const MM_MAX_RETENTION_HINTS = 32;
+export const MM_MAX_MODALITY_PROCESSORS = 16;
+
+/** Stable Evidence Plane modalities a pack may ask the core to perceive. */
+export const PACK_MEMORY_MODALITIES = ['text', ...EVIDENCE_MODALITIES] as const;
+export type PackMemoryModality = (typeof PACK_MEMORY_MODALITIES)[number];
+
+/** Recomputable interpretations a core-owned processor may produce. */
+export const PACK_REPRESENTATION_KINDS = DERIVED_REPRESENTATION_KINDS;
+export type PackRepresentationKind = (typeof PACK_REPRESENTATION_KINDS)[number];
 
 /** A recurring scene shape of the domain ("viewing", "claim_intake", …).
  *  Cues are literal substrings (2..64 chars) that suggest — never assert —
@@ -315,13 +325,41 @@ export interface PackRetentionHint {
   hint: 'ephemeral' | 'standard' | 'durable';
 }
 
-/** The pack's declared perception of its domain — all five arrays are
- *  optional, but a present section must declare at least one non-empty
- *  array (present-but-empty is an authoring error). */
+/**
+ * A declarative request for a CORE-OWNED perception capability. This is
+ * deliberately not an executable processor descriptor: no model name,
+ * prompt, endpoint, module, or code may ride in the manifest. The capability
+ * broker chooses an installed processor; its output remains a derived
+ * representation linked back to immutable evidence.
+ */
+export interface PackModalityProcessor {
+  /** snake_case, no `__`; unique within processors. */
+  id: string;
+  /** Evidence modality consumed by the requested capability. */
+  modality: PackMemoryModality;
+  /** One or more recomputable representation kinds the pack needs. */
+  produces: PackRepresentationKind[];
+}
+
+/** Explicit capability to serve raw evidence after all per-call gates. */
+export interface PackRawEvidenceCapability {
+  /** Only literal true is meaningful; omit rawEvidence to deny serving. */
+  serve: true;
+}
+
+/** The pack's declared perception of its domain. Every list is optional,
+ *  but a present section must carry at least one non-empty declaration or
+ *  `rawEvidence: { serve: true }` (present-but-empty is an authoring error). */
 export interface PackMemoryModel {
   sceneSchemas?: PackSceneSchema[];
   stateModels?: PackStateModel[];
   attentionHints?: PackAttentionHint[];
   verificationRules?: PackVerificationRule[];
   retentionHints?: PackRetentionHint[];
+  /** Input modalities this domain can use. Text-only remains consent-free. */
+  modalities?: PackMemoryModality[];
+  /** Desired derived representations; execution stays in trusted core. */
+  processors?: PackModalityProcessor[];
+  /** Raw serving is separately scope-, consent-, and PII-gated per call. */
+  rawEvidence?: PackRawEvidenceCapability;
 }

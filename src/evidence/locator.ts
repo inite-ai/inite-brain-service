@@ -46,6 +46,11 @@ const SHAPE_VALIDATORS: Record<string, (loc: Record<string, unknown>) => string 
       const v = loc[k];
       if (!isNum(v) || v < 0 || v > 1) return `pageRegion needs ${k} in [0,1]`;
     }
+    if ((loc.w as number) === 0 || (loc.h as number) === 0) {
+      return 'pageRegion needs positive w and h';
+    }
+    if ((loc.x as number) + (loc.w as number) > 1) return 'pageRegion x + w must be <= 1';
+    if ((loc.y as number) + (loc.h as number) > 1) return 'pageRegion y + h must be <= 1';
     return null;
   },
   timeRange: (loc) =>
@@ -64,8 +69,23 @@ const SHAPE_VALIDATORS: Record<string, (loc: Record<string, unknown>) => string 
       const v = loc[k];
       if (v !== undefined && (!isInt(v) || v < 0)) return `track ${k} must be a non-negative int`;
     }
+    if (
+      isInt(loc.startMs) &&
+      isInt(loc.endMs) &&
+      (loc.endMs as number) <= (loc.startMs as number)
+    ) {
+      return 'track endMs must be greater than startMs';
+    }
     return null;
   },
+};
+
+const LOCATOR_FIELDS: Record<string, ReadonlySet<string>> = {
+  charRange: new Set(['kind', 'start', 'end']),
+  pageRegion: new Set(['kind', 'page', 'x', 'y', 'w', 'h']),
+  timeRange: new Set(['kind', 'startMs', 'endMs']),
+  frameRange: new Set(['kind', 'startFrame', 'endFrame']),
+  track: new Set(['kind', 'trackId', 'startMs', 'endMs']),
 };
 
 /**
@@ -85,6 +105,8 @@ export function validateLocator(modality: string, locator: unknown): string | nu
   const allowed = KIND_MODALITIES[kind];
   const validate = SHAPE_VALIDATORS[kind];
   if (!allowed || !validate) return `unknown locator kind '${String(loc.kind)}'`;
+  const unknownField = Object.keys(loc).find((field) => !LOCATOR_FIELDS[kind]!.has(field));
+  if (unknownField) return `locator kind '${kind}' has unknown field '${unknownField}'`;
   if (!allowed.includes(modality)) {
     return `locator kind '${kind}' does not apply to modality '${modality}'`;
   }

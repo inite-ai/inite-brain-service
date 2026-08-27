@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { createReadStream } from 'node:fs';
 import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import { evidenceFsRoot } from '../../common/evidence-flags';
 import { EvidenceStorageAdapter } from './storage-adapter';
@@ -83,6 +83,10 @@ export class FsEvidenceStorageAdapter implements EvidenceStorageAdapter {
   ): Promise<{ storageRef: string; byteLength: number }> {
     if (!TENANT_RE.test(companyId)) throw new Error(`invalid companyId for fs put: ${companyId}`);
     if (!HASH_RE.test(byteHash)) throw new Error(`invalid byteHash for fs put: ${byteHash}`);
+    const actualHash = createHash('sha256').update(data).digest('hex');
+    if (actualHash !== byteHash) {
+      throw new Error(`byteHash does not match the supplied bytes`);
+    }
     const storageRef = `fs://${companyId}/${byteHash}`;
     const dest = this.pathFor(storageRef);
     const existing = await this.head(storageRef);
@@ -98,6 +102,10 @@ export class FsEvidenceStorageAdapter implements EvidenceStorageAdapter {
       throw e;
     }
     return { storageRef, byteLength: data.byteLength };
+  }
+
+  belongsToTenant(companyId: string, storageRef: string): boolean {
+    return parseStorageRef(storageRef)?.companyId === companyId;
   }
 
   async get(storageRef: string): Promise<Readable> {
