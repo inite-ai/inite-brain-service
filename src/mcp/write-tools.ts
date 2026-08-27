@@ -442,6 +442,13 @@ function registerIngestDocumentTool({
           .describe(
             "'general' (default) = generalist union pass only; 'auto' = also route relevant installed domain packs (server must have DOCUMENT_MULTI_INDEXER_ENABLED)",
           ),
+        toolObservationRef: z
+          .string()
+          .max(160)
+          .optional()
+          .describe(
+            'Provenance hop back to the tool result this document was derived from: tool_observation:<id> (migration 0111). Honored only under TOOL_OBSERVATIONS_ENABLED — validated against this tenant\'s own observation rows, stored on the document header, and folded into every committed fact\'s source.evidence[] as a "tool_observation" entry. Closes the tool result → document → fact loop.',
+          ),
       },
     },
     async (args) => {
@@ -463,6 +470,9 @@ function registerIngestDocumentTool({
         contextRef: { vertical: args.vertical, recorder },
         ...(args.storeContent !== undefined ? { storeContent: args.storeContent } : {}),
         indexers: args.indexers ?? 'general',
+        ...(args.toolObservationRef !== undefined
+          ? { toolObservationRef: args.toolObservationRef }
+          : {}),
         mode: 'sync',
       });
       return {

@@ -21,6 +21,7 @@
  * it for the test only — production code never touches it.
  */
 import { McpService } from '../src/mcp/mcp.service';
+import { ACTIONS } from '../src/policy/action-registry';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { BrainScope } from '../src/auth/api-key.types';
 
@@ -142,6 +143,46 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
     expect(names).toContain('entity-timeline');
   });
 
+  it('does NOT register get_fact / get_fact_provenance with FACTS_API_ENABLED off (default)', async () => {
+    // Gating parity with REST: facts.controller 404s the GET routes when
+    // the flag is off ("indistinguishable from an absent route"); the MCP
+    // twin of an absent route is an absent tool.
+    const names = toolNames(await buildWithScopes(['brain:read']));
+    expect(names).not.toContain('get_fact');
+    expect(names).not.toContain('get_fact_provenance');
+  });
+
+  it('registers get_fact / get_fact_provenance under FACTS_API_ENABLED with a factId input', async () => {
+    const prev = process.env.FACTS_API_ENABLED;
+    process.env.FACTS_API_ENABLED = '1';
+    try {
+      const server = await buildWithScopes(['brain:read']);
+      const names = toolNames(server);
+      expect(names).toContain('get_fact');
+      expect(names).toContain('get_fact_provenance');
+      const internals = server as unknown as {
+        _registeredTools: Record<string, { inputSchema?: { shape?: object } }>;
+      };
+      for (const t of ['get_fact', 'get_fact_provenance']) {
+        expect(Object.keys(internals._registeredTools[t]!.inputSchema?.shape ?? {})).toEqual([
+          'factId',
+        ]);
+      }
+    } finally {
+      if (prev === undefined) delete process.env.FACTS_API_ENABLED;
+      else process.env.FACTS_API_ENABLED = prev;
+    }
+  });
+
+  it('get_fact / get_fact_provenance tool names map to read actions in the policy registry', () => {
+    // The ABAC tool gate and the RFC 9396 grant gate both resolve a tool
+    // by NAME through ACTIONS — name-equality with the registry entry IS
+    // the wiring. Both must be read-kind (grant macro 'read' covers them;
+    // any policy over the REST route governs the MCP tool identically).
+    expect(ACTIONS['get_fact']).toMatchObject({ kind: 'read' });
+    expect(ACTIONS['get_fact_provenance']).toMatchObject({ kind: 'read' });
+  });
+
   it('ingest_document exposes the indexers param (REST parity: auto routes packs)', async () => {
     const prev = process.env.DOCUMENT_INGEST_ENABLED;
     process.env.DOCUMENT_INGEST_ENABLED = '1';
@@ -197,7 +238,179 @@ describe('McpService.health — unauthenticated probe payload', () => {
     // exactly what it doesn't have permission to call.
     expect(health.tools).not.toContain('record_fact');
     expect(health.tools).not.toContain('forget_entity');
+    // Flag-gated read tools stay OFF the probe too: HEALTH_TOOLS is the
+    // always-present read baseline, and get_fact / get_fact_provenance
+    // exist only under FACTS_API_ENABLED (default off) — listing them
+    // would make the probe advertise tools a default deployment lacks.
+    expect(health.tools).not.toContain('get_fact');
+    expect(health.tools).not.toContain('get_fact_provenance');
     expect(health.embedder).toBe('openai:text-embedding-3-small (1536d)');
+  });
+});
+
+describe('get_fact / get_fact_provenance — delegation to FactsService', () => {
+  // detect_contradiction-style delegation: the tool is a thin seam over
+  // the SAME service method the REST route calls, forwarding the tenant
+  // pin and the caller's scope set (every visibility fence lives in
+  // FactsService; omitting scopes would skip the row-policy filter).
+  async function buildFactHandlers(factsStub: object): Promise<{
+    handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+    scopes: BrainScope[];
+  }> {
+    const handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {};
+    const fakeServer = {
+      registerTool: (
+        name: string,
+        _meta: unknown,
+        cb: (args: Record<string, unknown>) => Promise<unknown>,
+      ) => {
+        handlers[name] = cb;
+      },
+      registerResource: () => ({ remove: () => undefined }),
+    };
+    const scopes: BrainScope[] = ['brain:read'];
+    const { registerReadTools } = await import('../src/mcp/read-tools');
+    registerReadTools({
+      server: fakeServer as never,
+      companyId: 'co_test',
+      scopes,
+      deps: {
+        search: {} as never,
+        entities: {} as never,
+        facts: factsStub as never,
+        multiHop: {} as never,
+        synth: {} as never,
+        memoryDiff: {} as never,
+        predictor: {} as never,
+        summarizer: {} as never,
+        embedderDescription: () => 'stub-embedder',
+      },
+    });
+    return { handlers, scopes };
+  }
+
+  const prevFlag = process.env.FACTS_API_ENABLED;
+  beforeAll(() => {
+    process.env.FACTS_API_ENABLED = '1';
+  });
+  afterAll(() => {
+    if (prevFlag === undefined) delete process.env.FACTS_API_ENABLED;
+    else process.env.FACTS_API_ENABLED = prevFlag;
+  });
+
+  it('get_fact forwards {companyId, factId, scopes} and returns the service result verbatim', async () => {
+    const captured: unknown[] = [];
+    const serviceResult = {
+      factId: 'knowledge_fact:f1',
+      aspect: 'status',
+      statement: 'active',
+      confidence: 0.9,
+      validFrom: '2026-01-01T00:00:00.000Z',
+      retracted: false,
+      groundingStatus: 'grounded',
+    };
+    const { handlers, scopes } = await buildFactHandlers({
+      getFact: async (o: unknown) => {
+        captured.push(o);
+        return serviceResult;
+      },
+    });
+    const out = (await handlers['get_fact']!({ factId: 'f1' })) as {
+      structuredContent: unknown;
+    };
+    expect(captured).toEqual([{ companyId: 'co_test', factId: 'f1', scopes }]);
+    // Passthrough — no field filtering; groundingStatus rides through.
+    expect(out.structuredContent).toEqual(serviceResult);
+  });
+
+  it('get_fact_provenance forwards {companyId, factId, scopes} and passes the shape through', async () => {
+    const captured: unknown[] = [];
+    const serviceResult = {
+      factId: 'knowledge_fact:f1',
+      episodes: [],
+      derivedFacts: [
+        { factId: 'knowledge_fact:f0', predicate: 'status', depth: 1, status: 'active' },
+      ],
+      closure: { depth: 1, factCount: 1, truncated: false, filtered: false },
+    };
+    const { handlers, scopes } = await buildFactHandlers({
+      getProvenance: async (o: unknown) => {
+        captured.push(o);
+        return serviceResult;
+      },
+    });
+    const out = (await handlers['get_fact_provenance']!({ factId: 'f1' })) as {
+      structuredContent: unknown;
+    };
+    expect(captured).toEqual([{ companyId: 'co_test', factId: 'f1', scopes }]);
+    // Passthrough — recursive-closure fields (derivedFacts / closure)
+    // ride the service response untouched as server-side flags land.
+    expect(out.structuredContent).toEqual(serviceResult);
+  });
+});
+
+describe('ingest_document — toolObservationRef plumbing (0111 loop over MCP)', () => {
+  it('passes toolObservationRef through to DocumentIngestService, and omits it when absent', async () => {
+    const prev = process.env.DOCUMENT_INGEST_ENABLED;
+    process.env.DOCUMENT_INGEST_ENABLED = '1';
+    try {
+      const captured: Array<Record<string, unknown>> = [];
+      const handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {};
+      const configs: Record<string, { inputSchema?: Record<string, unknown> }> = {};
+      const fakeServer = {
+        registerTool: (
+          name: string,
+          config: { inputSchema?: Record<string, unknown> },
+          cb: (args: Record<string, unknown>) => Promise<unknown>,
+        ) => {
+          handlers[name] = cb;
+          configs[name] = config;
+        },
+      };
+      const { registerWriteTools } = await import('../src/mcp/write-tools');
+      registerWriteTools({
+        server: fakeServer as never,
+        companyId: 'co_test',
+        scopes: ['brain:read', 'brain:write'],
+        deps: {
+          ingest: {} as never,
+          facts: {} as never,
+          procedural: {} as never,
+          documents: {
+            ingestDocument: async (_companyId: string, dto: Record<string, unknown>) => {
+              captured.push(dto);
+              return { documentId: 'document:d1', outcome: 'INGESTED' };
+            },
+          } as never,
+        },
+      });
+
+      // The MCP input schema advertises the field (the DTO accepted it
+      // all along — the schema was the missing half of the 0111 loop).
+      expect(Object.keys(configs['ingest_document']!.inputSchema ?? {})).toContain(
+        'toolObservationRef',
+      );
+
+      const base = {
+        kind: 'chat',
+        text: 'tool result body',
+        occurredAt: '2026-08-01T00:00:00.000Z',
+        vertical: 'agent',
+      };
+      await handlers['ingest_document']!({
+        ...base,
+        toolObservationRef: 'tool_observation:obs1',
+      });
+      expect(captured[0]!['toolObservationRef']).toBe('tool_observation:obs1');
+
+      await handlers['ingest_document']!(base);
+      // Absent must stay ABSENT (exactOptionalPropertyTypes discipline):
+      // the service treats the key's presence as the 0111 opt-in.
+      expect('toolObservationRef' in captured[1]!).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.DOCUMENT_INGEST_ENABLED;
+      else process.env.DOCUMENT_INGEST_ENABLED = prev;
+    }
   });
 });
 

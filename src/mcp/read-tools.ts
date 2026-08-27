@@ -1,5 +1,6 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { envFlagEnabled } from '../common/env-validation';
 import type { SearchService } from '../search/search.service';
 import type { EntitiesService } from '../entities/entities.service';
 import type { FactsService } from '../facts/facts.service';
@@ -514,6 +515,19 @@ function registerEntityReadTools({
 
   registerDetectContradictionTool({ server, companyId, scopes, deps });
 
+  // ── get_fact / get_fact_provenance ────────────────────────────────
+  // Registered only when the REST fact-read surface is switched on —
+  // same conditional-registration idiom as ingest_document (agents
+  // shouldn't see a tool that answers 404). The REST twin 404s behind
+  // FACTS_API_ENABLED "indistinguishable from an absent route"; the MCP
+  // analogue of an absent route is an absent tool (tools/list omits it,
+  // a blind tools/call gets the SDK's standard unknown-tool error).
+  // buildServer runs per request, so a flag flip applies on the next
+  // request — exactly like the REST gate.
+  if (envFlagEnabled(process.env.FACTS_API_ENABLED)) {
+    registerFactReadTools({ server, companyId, scopes, deps });
+  }
+
   // ── find_related_entities ─────────────────────────────────────────
   server.registerTool(
     'find_related_entities',
@@ -544,6 +558,68 @@ function registerEntityReadTools({
         kind: args.kind,
         scopes,
         asOf: args.asOf,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        structuredContent: asStructuredContent(out),
+      };
+    },
+  );
+}
+
+/**
+ * Fact-level read surface (FACTS_API_ENABLED): the MCP twins of
+ * GET /v1/facts/:id and GET /v1/facts/:id/provenance, delegating to the
+ * same FactsService methods — one implementation of every visibility
+ * fence (tenant pin, user scope, row policy; each an absence, never a
+ * 403). Tool names equal the registry action ids (get_fact /
+ * get_fact_provenance, both kind 'read'), so the ABAC + RFC 9396 grant
+ * gates govern them exactly as they govern the REST routes.
+ */
+function registerFactReadTools({
+  server,
+  companyId,
+  scopes,
+  deps,
+}: RegisterReadToolsOptions): void {
+  server.registerTool(
+    'get_fact',
+    {
+      title: 'Get one fact by id',
+      description:
+        'Read a single fact as stored — predicate (aspect), object (statement), confidence, validity window, source attribution (vertical / recorder / conversationId), and lifecycle state. Retracted facts still resolve (retracted: true) — "why did I stop remembering this" is part of the trust story; only visibility fences turn into not-found. groundingStatus (grounded | ungrounded) appears on facts stamped by the claim-grounding plane (EVIDENCE_GROUNDING_STAMP); legacy rows carry no key. Same shape as GET /v1/facts/:id. Use after search_knowledge / record_fact when you hold a factId and need the full trust record behind it.',
+      inputSchema: {
+        factId: z.string().describe('Fact id (knowledge_fact:...) or short id'),
+      },
+    },
+    async (args) => {
+      const out = await deps.facts.getFact({
+        companyId,
+        factId: args.factId,
+        scopes,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        structuredContent: asStructuredContent(out),
+      };
+    },
+  );
+
+  server.registerTool(
+    'get_fact_provenance',
+    {
+      title: 'Show why a fact is remembered (grounding provenance)',
+      description:
+        'Return the grounding provenance behind one fact: the verbatim conversation turns it was derived from (episodes, chronological, with char-span quotes when the deriver stamped them). When the server runs with the recursive-closure flag the response additionally carries derivedFacts + closure (the transitive derivedFrom support graph); a plain deployment returns episodes only — the response is a passthrough of GET /v1/facts/:id/provenance, no field filtering. Traversal depth is a server-side policy (flag + caps), not a caller knob. Use to audit a surprising fact before trusting or retracting it.',
+      inputSchema: {
+        factId: z.string().describe('Fact id (knowledge_fact:...) or short id'),
+      },
+    },
+    async (args) => {
+      const out = await deps.facts.getProvenance({
+        companyId,
+        factId: args.factId,
+        scopes,
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
