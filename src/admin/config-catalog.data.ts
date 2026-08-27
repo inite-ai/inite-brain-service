@@ -1073,6 +1073,42 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Sanity cap on the DECLARED byteLength of a registered evidence asset (default 1 GiB). A claim bound, not a transfer limit — this release ships no upload endpoint.',
   },
+  {
+    key: 'EVIDENCE_GROUNDING_STAMP',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Evidence plane, claim-state write side: after fn::resolve_fact returns, stamp knowledge_fact.groundingStatus ('grounded'|'ungrounded') computed from the presence of observational source (episode: ids in source.episodeIds, non-empty source.evidence[], or source.conversationId) — the stampFactScope post-resolve idiom, best-effort, warn-never-fail. Absent field = legacy row (pre-flag), never backfilled. Off (default) → no extra UPDATE is issued, rows are byte-identical.",
+  },
+  {
+    key: 'EVIDENCE_FAIL_CLOSED_CAPTURE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Evidence plane, fail-closed mention capture: ingestMention requires the L0 episode write (EPISODE_SUBSTRATE_ENABLED) to succeed and stamps the captured episode id into every extracted fact's source.episodeIds — no extraction without a stored observation. Requires EPISODE_SUBSTRATE_ENABLED (env-validation warns on the inconsistent pair). Off (default) → capture stays non-fatal advisory, byte-identical.",
+  },
+  {
+    key: 'EVIDENCE_UNGROUNDED_EXCLUDE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Evidence plane, consolidation gate: the promotion runner excludes ungrounded members (knowledge_fact.groundingStatus='ungrounded') from summary groups — an unfounded claim must not consolidate into long-term memory. Legacy rows (absent field) still promote. Off (default) → member selection byte-identical.",
+  },
+  {
+    key: 'EVIDENCE_UNGROUNDED_SERVING_GATE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Evidence plane, strict serving: on a supported verdict, batch-check the cited facts' groundingStatus; when every citation is ungrounded the answer abstains under reason 'ungrounded_evidence' (the evidence_capability_unmet fourth-branch idiom, 0113). Mixed or legacy support serves. Resolution failure fails open with a warn. Off (default) → no fetch, byte-identical.",
+  },
   // ── Document pipeline (migrations 0048–0050) ─────────────
   {
     key: 'DOCUMENT_INGEST_ENABLED',

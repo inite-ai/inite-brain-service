@@ -123,6 +123,13 @@ export interface FactReadResult {
   conversationId?: string;
   retracted: boolean;
   derivedVersion?: string;
+  /**
+   * Claim grounding state (Drift-1, migration 0115): 'grounded' = the
+   * source names an observation; 'ungrounded' = explicitly marked
+   * observation-free. Absent = legacy row (predates the
+   * EVIDENCE_GROUNDING_STAMP writer — never backfilled).
+   */
+  groundingStatus?: 'grounded' | 'ungrounded';
 }
 
 export interface FactProvenanceEpisode {
@@ -199,6 +206,8 @@ export interface FactReadRow extends PolicyFilterableRow {
   retractedAt?: unknown;
   status?: unknown;
   derivedVersion?: unknown;
+  /** Claim grounding state (0115); absent = legacy (pre-stamp). */
+  groundingStatus?: unknown;
   /** Scope-tag AND-set (migration 0093); absent/empty = tenant-global. */
   scope?: unknown;
   /** Provenance edges — the closure walk's frontier (option<array>). */
@@ -342,6 +351,12 @@ export class FactsService {
         ...optional('conversationId', str(source.conversationId)),
         retracted: Boolean(fact.retractedAt) || fact.status === 'retracted',
         ...optional('derivedVersion', str(fact.derivedVersion)),
+        // Claim grounding state (0115): emitted only for the two stamped
+        // values — legacy rows (absent) and any off-contract value emit
+        // NO key, so the pre-0115 wire shape is byte-identical.
+        ...(fact.groundingStatus === 'grounded' || fact.groundingStatus === 'ungrounded'
+          ? { groundingStatus: fact.groundingStatus }
+          : {}),
       };
     });
   }
@@ -541,7 +556,8 @@ export class FactsService {
     const [rows] = await db.query<[FactReadRow[]]>(
       `SELECT id, predicate, object, confidence, validFrom, validUntil,
               recordedAt, retractedAt, status, source, userId, scope,
-              derivedVersion, trustSnapshot, corroboration, derivedFrom
+              derivedVersion, trustSnapshot, corroboration, derivedFrom,
+              groundingStatus
          FROM type::record('knowledge_fact', $rid) LIMIT 1`,
       { rid: ref.id },
     );

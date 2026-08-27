@@ -55,6 +55,7 @@ function fakeDeps(): DepsCapture {
         countPlausibilityDowngrade: () => {},
         countCitationGuardAbstain: () => {},
         countEvidenceCapability: ((o: string) => capability.push(o)) as never,
+        countUngroundedDowngrade: () => {},
       },
     },
   };

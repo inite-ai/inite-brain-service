@@ -249,3 +249,39 @@ describe('validateEnv — COMPACTION_TENANT_OVERRIDES (warn, never throw)', () =
     }
   });
 });
+
+describe('validateEnv — evidence grounding pair (Drift-1, warn never throw)', () => {
+  const warnSpy = () => jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  afterEach(() => jest.restoreAllMocks());
+
+  it('warns when EVIDENCE_FAIL_CLOSED_CAPTURE is set without EPISODE_SUBSTRATE_ENABLED', () => {
+    const warn = warnSpy();
+    const env = baseProdEnv();
+    env.EVIDENCE_FAIL_CLOSED_CAPTURE = '1';
+    expect(() => validateEnv(env)).not.toThrow();
+    expect(
+      warn.mock.calls.some(([m]) =>
+        String(m).includes('fail-closed capture requires the episode substrate'),
+      ),
+    ).toBe(true);
+  });
+
+  it('no pair warning when both flags are on', () => {
+    const warn = warnSpy();
+    const env = baseProdEnv();
+    env.EVIDENCE_FAIL_CLOSED_CAPTURE = '1';
+    env.EPISODE_SUBSTRATE_ENABLED = '1';
+    expect(() => validateEnv(env)).not.toThrow();
+    expect(
+      warn.mock.calls.some(([m]) => String(m).includes('EVIDENCE_FAIL_CLOSED_CAPTURE is set')),
+    ).toBe(false);
+  });
+
+  it('no pair warning when neither flag is set', () => {
+    const warn = warnSpy();
+    expect(() => validateEnv(baseProdEnv())).not.toThrow();
+    expect(
+      warn.mock.calls.some(([m]) => String(m).includes('EVIDENCE_FAIL_CLOSED_CAPTURE is set')),
+    ).toBe(false);
+  });
+});

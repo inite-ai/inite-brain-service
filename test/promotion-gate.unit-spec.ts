@@ -41,6 +41,8 @@ interface PromotableSeed {
   validFrom: string;
   eps?: string[];
   conversationId?: string;
+  /** Claim grounding state (0115) — absent = legacy row. */
+  groundingStatus?: string;
 }
 
 function makePromotionStack(
@@ -74,6 +76,7 @@ function makePromotionStack(
             confidence: 0.9,
             ...(s.eps ? { eps: s.eps } : {}),
             ...(s.conversationId ? { conversationId: s.conversationId } : {}),
+            ...(s.groundingStatus ? { groundingStatus: s.groundingStatus } : {}),
           })),
         ] as unknown as R;
       }
@@ -118,9 +121,12 @@ const TWO_CONVERSATIONS: PromotableSeed[] = ONE_CONVERSATION.map((s, i) => ({
 }));
 
 const savedOverrides = process.env.COMPACTION_TENANT_OVERRIDES;
+const savedUngrounded = process.env.EVIDENCE_UNGROUNDED_EXCLUDE;
 afterEach(() => {
   if (savedOverrides === undefined) delete process.env.COMPACTION_TENANT_OVERRIDES;
   else process.env.COMPACTION_TENANT_OVERRIDES = savedOverrides;
+  if (savedUngrounded === undefined) delete process.env.EVIDENCE_UNGROUNDED_EXCLUDE;
+  else process.env.EVIDENCE_UNGROUNDED_EXCLUDE = savedUngrounded;
   jest.restoreAllMocks();
 });
 
@@ -223,6 +229,69 @@ describe('PromotionRunnerService — gate off/unset is byte-identical (pin)', ()
     expect((summary.derivedFrom as unknown[]).length).toBe(5);
     // No consolidation-gate query was issued.
     expect(calls.some((c) => c.sql.includes("status = 'competing'"))).toBe(false);
+  });
+});
+
+describe('PromotionRunnerService — ungrounded exclude (EVIDENCE_UNGROUNDED_EXCLUDE, Drift-1)', () => {
+  it('flag ON: ungrounded members drop out BEFORE the group-size floor → group skips', async () => {
+    process.env.EVIDENCE_UNGROUNDED_EXCLUDE = '1';
+    // 5 members, 4 ungrounded → 1 grounded survivor < minGroup 2 → skip.
+    const seeds = ONE_CONVERSATION.map((s, i) => ({
+      ...s,
+      groundingStatus: i === 0 ? 'grounded' : 'ungrounded',
+    }));
+    const { runner, created } = makePromotionStack(seeds, {});
+    const stats = await runner.promoteCompany('co_a');
+    expect(stats.groupsPromoted).toBe(0);
+    expect(created).toHaveLength(0);
+  });
+
+  it('flag ON: legacy members (absent status) still promote; ungrounded are excluded from the fold', async () => {
+    process.env.EVIDENCE_UNGROUNDED_EXCLUDE = '1';
+    // 3 legacy + 1 grounded promote; 1 ungrounded is dropped.
+    const seeds = ONE_CONVERSATION.map((s, i) => ({
+      ...s,
+      ...(i === 3 ? { groundingStatus: 'grounded' } : {}),
+      ...(i === 4 ? { groundingStatus: 'ungrounded' } : {}),
+    }));
+    const { runner, created } = makePromotionStack(seeds, {});
+    const stats = await runner.promoteCompany('co_a');
+    expect(stats.groupsPromoted).toBe(1);
+    expect(stats.factsPromoted).toBe(4);
+    expect((created[0]!.derivedFrom as unknown[]).length).toBe(4);
+  });
+
+  it('flag ON: the member SELECT carries the groundingStatus column', async () => {
+    process.env.EVIDENCE_UNGROUNDED_EXCLUDE = '1';
+    const { runner, calls } = makePromotionStack(ONE_CONVERSATION, {});
+    await runner.promoteCompany('co_a');
+    const select = calls.find((c) => c.sql.includes('WHERE entityId = $entity'))!;
+    expect(select.sql).toContain('groundingStatus');
+  });
+
+  it('flag OFF (default): the member SELECT string is byte-identical and every member promotes', async () => {
+    delete process.env.EVIDENCE_UNGROUNDED_EXCLUDE;
+    const seeds = ONE_CONVERSATION.map((s) => ({ ...s, groundingStatus: 'ungrounded' }));
+    const { runner, created, calls } = makePromotionStack(seeds, {});
+    const stats = await runner.promoteCompany('co_a');
+    // Byte-identity pin of the OFF-state query string.
+    const select = calls.find((c) => c.sql.includes('WHERE entityId = $entity'))!;
+    expect(select.sql).toBe(
+      `SELECT id, entityId, predicate, object, validFrom, validUntil, confidence, userId,
+              source.episodeIds AS eps,
+              source.conversationId AS conversationId
+       FROM knowledge_fact
+       WHERE entityId = $entity AND predicate = $predicate
+         AND status = 'active' AND retractedAt IS NONE
+         AND recordedAt < $cutoff
+         AND userId IS NONE
+       ORDER BY validFrom ASC`,
+    );
+    expect(select.sql).not.toContain('groundingStatus');
+    // Member selection unchanged: all 5 fold, ungrounded or not.
+    expect(stats.groupsPromoted).toBe(1);
+    expect(stats.factsPromoted).toBe(5);
+    expect(created).toHaveLength(1);
   });
 });
 

@@ -34,6 +34,8 @@ const fullFact: Required<FactReadResult> = {
   conversationId: 'conv-1',
   retracted: false,
   derivedVersion: 'wd-v2',
+  // 0115: claim grounding state — absent = legacy (pre-stamp) row.
+  groundingStatus: 'grounded',
 };
 
 const fullEpisode: Required<FactProvenanceEpisode> = {

@@ -1,4 +1,4 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { Injectable, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { MetricsService } from '../metrics/metrics.service';
 import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { traceSpan } from '../common/debug-trace';
@@ -6,6 +6,7 @@ import { MentionExtractionService } from './mention-extraction.service';
 import { MentionPersistService } from './mention-persist.service';
 import { EpisodeStoreService } from './episode-store.service';
 import { envFlagEnabled } from '../common/env-validation';
+import { failClosedCaptureEnabled } from '../common/evidence-flags';
 import { pinUserScope } from '../auth/user-scope';
 
 /**
@@ -52,7 +53,21 @@ export class MentionIngestService {
       // L0 episode capture (EPISODE_SUBSTRATE_ENABLED) runs BEFORE
       // extraction, so an extractor failure or skip no longer loses the
       // turn forever. Non-fatal by contract; idempotent on retry.
-      await this.episodes?.captureTurn(companyId, dto);
+      const episodeId = (await this.episodes?.captureTurn(companyId, dto)) ?? null;
+
+      // Drift-1 fail-closed capture (EVIDENCE_FAIL_CLOSED_CAPTURE): no
+      // extraction without a stored observation. A missing episode id —
+      // substrate off, wiring absent, or a failed write — is a retryable
+      // INFRA state, not a caller error, so 503 (the evidence-store
+      // idiom); the ingestMention catch counts it on the 'failed' metric
+      // before re-throwing. Flag off (default) ⇒ the capture result is
+      // advisory exactly as before — byte-identical.
+      if (failClosedCaptureEnabled() && !episodeId) {
+        throw new ServiceUnavailableException(
+          'episode capture unavailable — fail-closed ingest (EVIDENCE_FAIL_CLOSED_CAPTURE ' +
+            'requires EPISODE_SUBSTRATE_ENABLED and a successful L0 episode write)',
+        );
+      }
 
       // Episode-only mode (INGEST_EPISODE_ONLY): capture the raw turn and
       // stop — no LLM extraction, no fact persistence. The readable world
@@ -80,11 +95,20 @@ export class MentionIngestService {
         };
       }
 
+      // Drift-1: with fail-closed capture on, the captured episode id is
+      // stamped into every extracted fact's source — the grounding stamp
+      // (EVIDENCE_GROUNDING_STAMP) then reads it as observational. Flag
+      // off ⇒ the SAME source object rides through — byte-identical.
+      const source =
+        failClosedCaptureEnabled() && episodeId
+          ? { ...prep.source, episodeIds: [episodeId] }
+          : prep.source;
+
       const out = await this.persist.persistAll({
         companyId,
         dto,
         extraction: prep.extraction,
-        source: prep.source,
+        source,
         factEmbeddings: prep.factEmbeddings,
       });
 
