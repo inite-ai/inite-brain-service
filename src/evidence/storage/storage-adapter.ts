@@ -29,6 +29,8 @@ export interface EvidenceStorageAdapter {
     byteHash: string,
     data: Buffer,
   ): Promise<{ storageRef: string; byteLength: number }>;
+  /** True only when this ref is structurally owned by the calling tenant. */
+  belongsToTenant(companyId: string, storageRef: string): boolean;
   /** Stream the blob back; throws when the ref is invalid or missing. */
   get(storageRef: string): Promise<Readable>;
   /** Blob metadata without reading it; null when absent. */

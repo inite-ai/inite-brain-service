@@ -64,7 +64,7 @@ const manifest = (memoryModel?: Record<string, unknown>): DomainPackManifest =>
     ...(memoryModel ? { memoryModel } : {}),
   }) as unknown as DomainPackManifest;
 
-describe('declaredModalitySection — the defensive manifest probe', () => {
+describe('declaredModalitySection — typed modality contract', () => {
   it('returns null when nothing is declared (every existing pack — inert)', () => {
     expect(declaredModalitySection(manifest())).toBeNull();
   });
@@ -78,11 +78,21 @@ describe('declaredModalitySection — the defensive manifest probe', () => {
     expect(s).toEqual({ modalities: ['image', 'audio'] });
   });
 
-  it('accepts the processors spelling and object entries', () => {
+  it('includes non-text processor capabilities and drops text processors', () => {
+    const imageProcessor = {
+      id: 'visual_index',
+      modality: 'image',
+      produces: ['caption', 'embedding'],
+    };
     const s = declaredModalitySection(
-      manifest({ processors: [{ kind: 'text' }, { kind: 'image', model: 'x' }] }),
+      manifest({
+        processors: [
+          { id: 'text_index', modality: 'text', produces: ['embedding'] },
+          imageProcessor,
+        ],
+      }),
     );
-    expect(s?.modalities).toEqual([{ kind: 'image', model: 'x' }]);
+    expect(s).toEqual({ modalities: [], processors: [imageProcessor] });
   });
 
   it('a raw-evidence declaration alone makes the section non-null', () => {
@@ -152,6 +162,31 @@ describe('modalityConsentRequired — checksum matrix', () => {
       priorChecksum: chk,
     });
     expect(msg).toContain('acceptModalities');
+  });
+
+  it('changed processor outputs re-require consent even when modalities are identical', () => {
+    const first = declaredModalitySection(
+      manifest({
+        modalities: ['image'],
+        processors: [{ id: 'visual_index', modality: 'image', produces: ['caption'] }],
+      }),
+    );
+    const changed = declaredModalitySection(
+      manifest({
+        modalities: ['image'],
+        processors: [{ id: 'visual_index', modality: 'image', produces: ['caption', 'embedding'] }],
+      }),
+    );
+    expect(modalitiesChecksum(changed)).not.toBe(modalitiesChecksum(first));
+    expect(
+      modalityConsentRequired({
+        ...base,
+        declared: changed,
+        accepted: undefined,
+        priorAccepted: true,
+        priorChecksum: modalitiesChecksum(first),
+      }),
+    ).toContain('acceptModalities');
   });
 
   it('removed: a manifest that drops the section needs no consent', () => {

@@ -258,7 +258,7 @@ describe('resolveEvidenceCapability', () => {
     expect(calls).toEqual([]);
   });
 
-  it('registry failure FAILS SAFE to today (no gate) and warns', async () => {
+  it('registry failure FAILS CLOSED when the integrity gate is enabled', async () => {
     const warned: string[] = [];
     const broken = {
       rowPolicyLookup: async () => {
@@ -270,7 +270,8 @@ describe('resolveEvidenceCapability', () => {
       verdict: SUPPORTED,
       citations: [cite('whiteboard_layout')],
     });
-    expect(out).toEqual({});
+    expect(out).toEqual({ evidenceCapabilityUnmet: true });
+    expect(warned.join(' ')).toContain('failing closed');
     expect(warned.join(' ')).toContain('snapshot load exploded');
   });
 });

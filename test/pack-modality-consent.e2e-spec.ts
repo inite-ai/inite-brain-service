@@ -1,7 +1,7 @@
 /**
  * Modality consent tier (0112) — lean install-flow e2e: a manifest that
- * declares non-text modalities (via the defensive accessor's documented
- * shape, `memoryModel.modalities` + `memoryModel.rawEvidence`) is
+ * declares non-text modalities (`memoryModel.modalities` plus the
+ * `memoryModel.rawEvidence` capability) is
  * rejected without acceptModalities, installs with it, carries consent
  * over on a byte-identical re-install, and re-requires the flag when the
  * media section changes. A modality-free manifest stays byte-identical
@@ -30,8 +30,6 @@ describe('pack modality consent (e2e)', () => {
     version: '1.0.0',
     description: 'Modality consent test pack (e2e).',
     predicates: [predicate],
-    // The defensive accessor's documented probe shape — see
-    // src/ai/domain-packs/modality-consent.ts declaredModalitySection().
     memoryModel: { modalities: ['text', 'image'], rawEvidence: { serve: true } },
     ...over,
   });
