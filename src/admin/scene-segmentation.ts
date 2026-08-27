@@ -230,10 +230,17 @@ export interface SceneScopeFold {
  * :147-160): piiClass is the union of member tags; userId is stamped only
  * when the whole scene is ONE user's; a mixed-user scene stays
  * tenant-global (userId undefined ⇒ scopeForUser yields []).
+ *
+ * `userIds` is the SORTED distinct member set (distinctUserScopes
+ * idiom) and is PERSISTED on memory_episode (migration 0117): [] means
+ * purely tenant-global. Scenes have no serving readers yet, but the
+ * 0117 read contract binds future ones — a user-scoped reader must
+ * admit a userId-NONE scene only when userIds is [] or CONTAINS the
+ * caller, failing closed on userIds IS NONE (see segmentUserGate).
  */
 export function foldSceneScope(turns: SceneTurnRow[]): SceneScopeFold {
   const pii = [...new Set(turns.flatMap((t) => t.piiClass ?? []))];
-  const userIds = [...new Set(turns.map((t) => t.userId).filter((u): u is string => !!u))];
+  const userIds = [...new Set(turns.map((t) => t.userId).filter((u): u is string => !!u))].sort();
   return {
     piiClass: pii.length > 0 ? pii : undefined,
     userId: userIds.length === 1 ? userIds[0] : undefined,

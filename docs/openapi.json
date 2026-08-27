@@ -936,6 +936,13 @@
           "factId": {
             "type": "string"
           },
+          "groundingStatus": {
+            "enum": [
+              "grounded",
+              "ungrounded"
+            ],
+            "type": "string"
+          },
           "kind": {
             "type": "string"
           },

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import type { Surreal } from 'surrealdb';
 import { SurrealService, queryRows } from '../db/surreal.service';
+import { retryOnUniqueViolation } from '../db/surreal-retry';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { EmbedderService } from '../ai/embedder.service';
@@ -273,87 +274,103 @@ export class DomainPackInstallService {
       ? `, acceptedModalities = true, acceptedModalitiesChecksum = $modalityChecksum`
       : `, acceptedModalities = NONE, acceptedModalitiesChecksum = NONE`;
     let mintedInstallId: string | undefined;
-    const seeded = await this.surreal.withCompany(companyId, async (db) => {
-      const existing = await queryRows<DomainPackRow>(
-        db,
-        `SELECT id, version, manifest, webhookSecret, installId, acceptedMcpTools, acceptedMcpToolsChecksum, acceptedModalities, acceptedModalitiesChecksum FROM domain_pack WHERE packId = $packId LIMIT 1`,
-        { packId: manifest.id },
-      );
-      const row = existing[0];
-      const consentMessage = mcpConsentRequired({
-        manifest,
-        acceptMcpTools: opts.acceptMcpTools,
-        priorAccepted: row?.acceptedMcpTools === true,
-        priorChecksum: row?.acceptedMcpToolsChecksum ? String(row.acceptedMcpToolsChecksum) : null,
-      });
-      if (consentMessage) throw new BadRequestException(consentMessage);
-      const modalityMessage = modalityConsentRequired({
-        packId: manifest.id,
-        version: manifest.version,
-        declared: modalitySection,
-        accepted: opts.acceptModalities,
-        priorAccepted: row?.acceptedModalities === true,
-        priorChecksum: row?.acceptedModalitiesChecksum
-          ? String(row.acceptedModalitiesChecksum)
-          : null,
-      });
-      if (modalityMessage) throw new BadRequestException(modalityMessage);
-      // installId (0068) — the opaque per-install identity external tool
-      // endpoints see instead of companyId. Minted once, kept forever.
-      if (externalTools.length > 0 && !row?.installId) {
-        mintedInstallId = randomUUID();
-      }
-      if (row) {
-        mintedSecret = await this.applyPackUpgrade({
+    // Concurrent installs of the same pack both pass the SELECT (no prior
+    // row) and race to CREATE; on the rocksdb backend the loser surfaces
+    // either a unique violation or a commit-time OCC "read or write
+    // conflict" that would otherwise escape as a raw 500 through the
+    // ExceptionsHandler. retryOnUniqueViolation re-runs the closure — the
+    // retry's SELECT sees the winner's row and takes the upgrade path
+    // (same mold as PackRegistryService.publish).
+    const seeded = await this.surreal.withCompany(companyId, (db) =>
+      retryOnUniqueViolation(async () => {
+        // Attempt-scoped state: a retry that now sees the racing
+        // committer's row must not carry a stale minted identity/secret
+        // into the upgrade path (it would overwrite the winner's).
+        mintedSecret = undefined;
+        mintedInstallId = undefined;
+        const existing = await queryRows<DomainPackRow>(
           db,
-          row,
+          `SELECT id, version, manifest, webhookSecret, installId, acceptedMcpTools, acceptedMcpToolsChecksum, acceptedModalities, acceptedModalitiesChecksum FROM domain_pack WHERE packId = $packId LIMIT 1`,
+          { packId: manifest.id },
+        );
+        const row = existing[0];
+        const consentMessage = mcpConsentRequired({
           manifest,
-          checksum,
-          newIds,
-          mint: {
-            wantsWebhook,
-            mintedInstallId,
-            mcpChecksum,
-            mcpSet,
-            modalityChecksum,
-            modalitySet,
-          },
+          acceptMcpTools: opts.acceptMcpTools,
+          priorAccepted: row?.acceptedMcpTools === true,
+          priorChecksum: row?.acceptedMcpToolsChecksum
+            ? String(row.acceptedMcpToolsChecksum)
+            : null,
         });
-      } else {
-        if (wantsWebhook) {
-          mintedSecret = randomBytes(32).toString('hex');
+        if (consentMessage) throw new BadRequestException(consentMessage);
+        const modalityMessage = modalityConsentRequired({
+          packId: manifest.id,
+          version: manifest.version,
+          declared: modalitySection,
+          accepted: opts.acceptModalities,
+          priorAccepted: row?.acceptedModalities === true,
+          priorChecksum: row?.acceptedModalitiesChecksum
+            ? String(row.acceptedModalitiesChecksum)
+            : null,
+        });
+        if (modalityMessage) throw new BadRequestException(modalityMessage);
+        // installId (0068) — the opaque per-install identity external tool
+        // endpoints see instead of companyId. Minted once, kept forever.
+        if (externalTools.length > 0 && !row?.installId) {
+          mintedInstallId = randomUUID();
         }
-        await db.query(`CREATE domain_pack CONTENT $content`, {
-          content: {
-            packId: manifest.id,
-            version: manifest.version,
+        if (row) {
+          mintedSecret = await this.applyPackUpgrade({
+            db,
+            row,
             manifest,
             checksum,
-            status: 'active',
-            ...(mintedSecret ? { webhookSecret: mintedSecret } : {}),
-            ...(mintedInstallId ? { installId: mintedInstallId } : {}),
-            ...(mcpChecksum
-              ? {
-                  acceptedMcpTools: true,
-                  acceptedMcpToolsChecksum: mcpChecksum,
-                }
-              : {}),
-            ...(modalityChecksum
-              ? {
-                  acceptedModalities: true,
-                  acceptedModalitiesChecksum: modalityChecksum,
-                }
-              : {}),
-          },
+            newIds,
+            mint: {
+              wantsWebhook,
+              mintedInstallId,
+              mcpChecksum,
+              mcpSet,
+              modalityChecksum,
+              modalitySet,
+            },
+          });
+        } else {
+          if (wantsWebhook) {
+            mintedSecret = randomBytes(32).toString('hex');
+          }
+          await db.query(`CREATE domain_pack CONTENT $content`, {
+            content: {
+              packId: manifest.id,
+              version: manifest.version,
+              manifest,
+              checksum,
+              status: 'active',
+              ...(mintedSecret ? { webhookSecret: mintedSecret } : {}),
+              ...(mintedInstallId ? { installId: mintedInstallId } : {}),
+              ...(mcpChecksum
+                ? {
+                    acceptedMcpTools: true,
+                    acceptedMcpToolsChecksum: mcpChecksum,
+                  }
+                : {}),
+              ...(modalityChecksum
+                ? {
+                    acceptedModalities: true,
+                    acceptedModalitiesChecksum: modalityChecksum,
+                  }
+                : {}),
+            },
+          });
+        }
+        return seedMissingPredicates({
+          db,
+          predicates,
+          embedder: this.embedder,
+          log: (m) => this.logger.log(`[pack ${manifest.id}] ${m}`),
         });
-      }
-      return seedMissingPredicates({
-        db,
-        predicates,
-        embedder: this.embedder,
-        log: (m) => this.logger.log(`[pack ${manifest.id}] ${m}`),
-      });
-    });
+      }),
+    );
 
     this.registry.invalidate(companyId);
     this.packToolsReader?.invalidate(companyId);

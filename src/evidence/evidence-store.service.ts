@@ -16,6 +16,12 @@ import {
   queryRows,
 } from '../db/surreal.service';
 import { evidenceMaxBytes, evidenceSubstrateEnabled } from '../common/evidence-flags';
+import {
+  DERIVED_REPRESENTATION_KINDS,
+  EVIDENCE_MODALITIES,
+  type DerivedRepresentationKind,
+  type EvidenceModality,
+} from '../common/evidence-taxonomy';
 import { idTailOf, redactPiiWithReport } from '../ingest/ingest-utils';
 import { validateLocator } from './locator';
 import {
@@ -23,17 +29,16 @@ import {
   EvidenceStorageRegistry,
   storageRefScheme,
 } from './storage/storage-adapter';
-import { parseStorageRef } from './storage/fs-storage.adapter';
 
 const HASH_RE = /^[0-9a-f]{64}$/;
 // IANA media-type shape (type "/" subtype over the registered-name
 // charset) — open vocabulary, shape-only (0048 `kind` doctrine).
 const MEDIA_TYPE_RE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/i;
-const MODALITIES = ['image', 'audio', 'video', 'document', 'sensor'] as const;
 const LABEL_MAX = 200;
-const REPR_KINDS = ['caption', 'ocr', 'asr', 'object_track', 'scene_graph', 'embedding', 'text'];
+const MODALITIES = new Set<string>(EVIDENCE_MODALITIES);
+const REPR_KINDS = new Set<string>(DERIVED_REPRESENTATION_KINDS);
 
-export type EvidenceModality = (typeof MODALITIES)[number];
+export type { DerivedRepresentationKind, EvidenceModality } from '../common/evidence-taxonomy';
 
 export interface RegisterAssetInput {
   modality: EvidenceModality;
@@ -66,7 +71,7 @@ export interface AddFragmentInput {
 export interface AddRepresentationInput {
   subjectId: string;
   subjectKind: 'asset' | 'fragment';
-  kind: string;
+  kind: DerivedRepresentationKind;
   content?: string | undefined;
   model?: string | undefined;
   modelVersion?: string | undefined;
@@ -165,7 +170,7 @@ export class EvidenceStoreService {
 
   /** Shape checks that need no I/O — extracted for max-lines discipline. */
   private validateAssetShape(input: RegisterAssetInput): void {
-    if (!MODALITIES.includes(input.modality)) {
+    if (!MODALITIES.has(input.modality)) {
       throw new BadRequestException(`invalid modality '${String(input.modality)}'`);
     }
     if (!MEDIA_TYPE_RE.test(input.mediaType)) {
@@ -186,8 +191,9 @@ export class EvidenceStoreService {
    *   adapter AND adapter.head() must find the blob AND the blob's
    *   byteLength must equal the declared one (else 400) → 'hot';
    *   else originUri present → 'external'; neither → 400.
-   * For the fs scheme the ref's embedded tenant must be the calling
-   * tenant — a cross-tenant blob reference is a 400, not a dedup.
+   * Every adapter must affirm tenant ownership — a cross-tenant blob
+   * reference is a 400, not a dedup. This lives in the generic adapter
+   * contract so a future s3:// implementation cannot forget the fence.
    */
   private async deriveAvailability(companyId: string, input: RegisterAssetInput): Promise<string> {
     if (input.storageRef) {
@@ -196,7 +202,7 @@ export class EvidenceStoreService {
       if (!adapter) {
         throw new BadRequestException(`storageRef scheme '${String(scheme)}' has no adapter`);
       }
-      if (scheme === 'fs' && parseStorageRef(input.storageRef)?.companyId !== companyId) {
+      if (!adapter.belongsToTenant(companyId, input.storageRef)) {
         throw new BadRequestException('storageRef does not belong to this tenant');
       }
       const head = await adapter.head(input.storageRef);
@@ -216,12 +222,16 @@ export class EvidenceStoreService {
   async addFragment(companyId: string, input: AddFragmentInput): Promise<{ fragmentId: string }> {
     this.gate();
     return this.surreal.withCompany(companyId, async (db) => {
-      const asset = await queryFirst<{ id: unknown; modality: string }>(
+      const asset = await queryFirst<{ id: unknown; modality: string; availability: string }>(
         db,
-        `SELECT id, modality FROM type::record('evidence_asset', $tail) LIMIT 1`,
+        `SELECT id, modality, availability
+           FROM type::record('evidence_asset', $tail) LIMIT 1`,
         { tail: idTailOf(input.assetId) },
       );
       if (!asset) throw new NotFoundException(`asset ${input.assetId} not found`);
+      if (asset.availability === 'gone') {
+        throw new ConflictException(`asset ${input.assetId} is no longer available`);
+      }
       const err = validateLocator(asset.modality, input.locator);
       if (err) throw new BadRequestException(`invalid locator: ${err}`);
       // Label rides the 0106 sceneLabel discipline: redact then cap.
@@ -251,21 +261,26 @@ export class EvidenceStoreService {
         `subjectId must be a ${expectedPrefix.slice(0, -1)} record for subjectKind '${input.subjectKind}'`,
       );
     }
-    if (!REPR_KINDS.includes(input.kind)) {
+    if (!REPR_KINDS.has(input.kind)) {
       throw new BadRequestException(`invalid representation kind '${input.kind}'`);
     }
     if (!input.producerVersion || input.producerVersion.trim() === '') {
       throw new BadRequestException('producerVersion is required');
     }
     return this.surreal.withCompany(companyId, async (db) => {
-      const subject = await queryFirst<{ id: unknown }>(
+      const subject = await queryFirst<{ id: unknown; availability: string }>(
         db,
         input.subjectKind === 'asset'
-          ? `SELECT id FROM type::record('evidence_asset', $tail) LIMIT 1`
-          : `SELECT id FROM type::record('evidence_fragment', $tail) LIMIT 1`,
+          ? `SELECT id, availability
+               FROM type::record('evidence_asset', $tail) LIMIT 1`
+          : `SELECT id, assetId.availability AS availability
+               FROM type::record('evidence_fragment', $tail) LIMIT 1`,
         { tail: idTailOf(input.subjectId) },
       );
       if (!subject) throw new NotFoundException(`subject ${input.subjectId} not found`);
+      if (subject.availability === 'gone') {
+        throw new ConflictException(`subject ${input.subjectId} belongs to unavailable evidence`);
+      }
       const row = await dbCreate<Record<string, unknown>>(db, 'derived_representation', {
         subjectId: subject.id,
         subjectKind: input.subjectKind,
@@ -334,51 +349,72 @@ export class EvidenceStoreService {
       );
       let blobsDeleted = 0;
       for (const asset of expired) {
+        // Close the write gate before purging dependents. If the process
+        // crashes from here onward, the gone-row reconciliation leg below
+        // resumes both the row and blob cleanup on the next sweep.
+        await db.query(`UPDATE $id SET availability = 'gone'`, { id: asset.id });
         await this.purgeAssetDependents(db, asset.id);
         const cleared = asset.storageRef ? await this.deleteBlobBestEffort(asset.storageRef) : true;
         if (asset.storageRef && cleared) blobsDeleted++;
         // Failed blob delete keeps storageRef for the reconciliation leg.
-        await db.query(
-          cleared
-            ? `UPDATE $id SET availability = 'gone', storageRef = NONE`
-            : `UPDATE $id SET availability = 'gone'`,
-          { id: asset.id },
-        );
+        if (cleared) await db.query(`UPDATE $id SET storageRef = NONE`, { id: asset.id });
       }
       const reconciled = await this.reconcileGoneBlobs(db);
-      if (expired.length > 0 || reconciled > 0) {
+      const gc = await this.reconcileQueuedBlobs(db);
+      if (expired.length > 0 || reconciled > 0 || gc.reconciled > 0) {
         this.logger.log(
-          `evidence sweep ${companyId}: expired=${expired.length} blobs=${blobsDeleted} reconciled=${reconciled}`,
+          `evidence sweep ${companyId}: expired=${expired.length} blobs=${blobsDeleted} reconciled=${reconciled} gc=${gc.reconciled}/${gc.scanned}`,
         );
       }
       return {
         evidenceExpired: expired.length,
         evidenceBlobsDeleted: blobsDeleted,
         evidenceBlobsReconciled: reconciled,
+        evidenceBlobGcReconciled: gc.reconciled,
+        evidenceBlobGcPending: gc.pending,
       };
     });
   }
 
   /**
-   * Fragments then representations of one dying asset, LET-batched
-   * (LIMIT 5000 loop) by explicit ids — the 3.2.4 compound/traversal
-   * DELETE-WHERE planner no-op class (preSweepOutcomeRows, PR #372)
-   * makes a one-step DELETE-WHERE on the fragment table untrustworthy.
+   * Representations then fragments of one dying asset, batched by
+   * explicit ids. Representations MUST be exhausted before their fragment
+   * rows disappear: otherwise >5000 representations over one fragment
+   * become undiscoverable orphans after the first batch. The two-step
+   * SELECT-ids → DELETE-ids shape also avoids SurrealDB 3.2.4's
+   * compound/traversal DELETE-WHERE planner no-op class.
    */
   private async purgeAssetDependents(db: Surreal, assetId: unknown): Promise<void> {
+    await this.purgeRepresentationBatches(db, `subjectId = $asset`, { asset: assetId });
     for (;;) {
-      const [, , fragBatch, reprBatch] = await db.query<[unknown, unknown, unknown[], unknown[]]>(
-        `LET $fragIds = (SELECT VALUE id FROM evidence_fragment
-           WHERE assetId = $asset LIMIT 5000);
-         LET $reprIds = (SELECT VALUE id FROM derived_representation
-           WHERE subjectId = $asset OR subjectId INSIDE $fragIds LIMIT 5000);
-         DELETE $fragIds RETURN BEFORE;
-         DELETE $reprIds RETURN BEFORE;`,
+      const fragIds = await queryRows<unknown>(
+        db,
+        `SELECT VALUE id FROM evidence_fragment WHERE assetId = $asset LIMIT 5000`,
         { asset: assetId },
       );
-      const frags = ((fragBatch as unknown[]) ?? []).length;
-      const reprs = ((reprBatch as unknown[]) ?? []).length;
-      if (frags < 5000 && reprs < 5000) break;
+      if (fragIds.length === 0) break;
+      await this.purgeRepresentationBatches(db, `subjectId INSIDE $subjects`, {
+        subjects: fragIds,
+      });
+      await db.query(`DELETE $ids RETURN BEFORE`, { ids: fragIds });
+      if (fragIds.length < 5000) break;
+    }
+  }
+
+  private async purgeRepresentationBatches(
+    db: Surreal,
+    where: string,
+    vars: Record<string, unknown>,
+  ): Promise<void> {
+    for (;;) {
+      const ids = await queryRows<unknown>(
+        db,
+        `SELECT VALUE id FROM derived_representation WHERE ${where} LIMIT 5000`,
+        vars,
+      );
+      if (ids.length === 0) break;
+      await db.query(`DELETE $ids RETURN BEFORE`, { ids });
+      if (ids.length < 5000) break;
     }
   }
 
@@ -391,6 +427,9 @@ export class EvidenceStoreService {
     );
     let reconciled = 0;
     for (const row of stragglers) {
+      // Also repairs a crash after the asset was marked gone but before
+      // its dependent rows were fully removed.
+      await this.purgeAssetDependents(db, row.id);
       // deleteBlobBestEffort returns false when the blob is ALREADY gone
       // (ENOENT) — the ref is stale either way, so clear it unless the
       // adapter threw/was missing, in which case exists() still finding
@@ -405,12 +444,43 @@ export class EvidenceStoreService {
     return reconciled;
   }
 
-  /** exists() through the registry, false on any failure. */
+  /** Drain a bounded page of the durable hard-erasure blob outbox (0114). */
+  private async reconcileQueuedBlobs(
+    db: Surreal,
+  ): Promise<{ scanned: number; reconciled: number; pending: number }> {
+    const queued = await queryRows<{ id: unknown; storageRef: string }>(
+      db,
+      `SELECT id, storageRef, queuedAt FROM evidence_blob_gc ORDER BY queuedAt ASC LIMIT 500`,
+    );
+    let reconciled = 0;
+    for (const row of queued) {
+      const removed = await this.deleteBlobBestEffort(row.storageRef);
+      const stillThere = !removed && (await this.blobStillExists(row.storageRef));
+      if (!stillThere) {
+        const ids = await queryRows<unknown>(
+          db,
+          `SELECT VALUE id FROM evidence_blob_gc WHERE storageRef = $ref`,
+          { ref: row.storageRef },
+        );
+        if (ids.length > 0) await db.query(`DELETE $ids`, { ids });
+        reconciled++;
+      } else {
+        await db.query(`UPDATE $id SET attempts += 1, lastAttemptAt = time::now()`, { id: row.id });
+      }
+    }
+    const pendingRow = await queryFirst<{ count?: number }>(
+      db,
+      `SELECT count() AS count FROM evidence_blob_gc GROUP ALL`,
+    );
+    return { scanned: queued.length, reconciled, pending: Number(pendingRow?.count ?? 0) };
+  }
+
+  /** Confirm absence through the registry; unknown/missing adapter stays pending. */
   private async blobStillExists(storageRef: string): Promise<boolean> {
     try {
       const scheme = storageRefScheme(storageRef);
       const adapter = scheme ? this.adapters.get(scheme) : undefined;
-      return adapter ? await adapter.exists(storageRef) : false;
+      return adapter ? await adapter.exists(storageRef) : true;
     } catch {
       return true; // unknown state — keep the ref, retry next run
     }

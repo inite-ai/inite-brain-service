@@ -330,6 +330,19 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Ungrounded-support serving gate (EVIDENCE_UNGROUNDED_SERVING_GATE,
+  // 0115): a supported answer whose EVERY cited fact carries
+  // groundingStatus='ungrounded' was abstained (reason
+  // 'ungrounded_evidence' on the wire). Counted once per downgrade,
+  // alongside the stable countSynthesize('low_coverage') outcome tag —
+  // the Part A/C separate-series idiom. Incremented only when the flag
+  // is on.
+  readonly ungroundedDowngradeCount = new Counter({
+    name: 'brain_ungrounded_downgrade_total',
+    help: 'Supported answers abstained because every cited fact was ungrounded (EVIDENCE_UNGROUNDED_SERVING_GATE)',
+    registers: [this.registry],
+  });
+
   // Optics §4.3 (docs/roadmap/fovea-optics-2026-08.md §4.3): the
   // lens-suppression governor's per-request outcome —
   //   suppressed     — a confident class match removed ≥1 active lane
@@ -755,6 +768,10 @@ export class MetricsService implements OnModuleInit {
 
   countEvidenceCapability(outcome: 'checked' | 'downgraded'): void {
     this.evidenceCapabilityCount.inc({ outcome } as LabelValues<'outcome'>);
+  }
+
+  countUngroundedDowngrade(): void {
+    this.ungroundedDowngradeCount.inc();
   }
 
   countLensSuppression(

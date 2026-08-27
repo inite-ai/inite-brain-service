@@ -114,12 +114,11 @@ fails with 400 unless the request carries `acceptModalities: true` —
 on both install routes, exactly like `acceptMcpTools`.
 
 ONE checksum (canonical-JSON sha256) covers the whole media section:
-the declared non-text modalities **plus** any raw-evidence capability
-declaration. Any change to either is a single re-consent trigger; an
-upgrade that leaves the section byte-identical carries consent over; an
-upgrade that drops it clears the stored consent. No manifest declares
-modalities today, so the gate is inert by construction for every
-existing pack.
+the declared non-text modalities, non-text core processor requirements,
+and any raw-evidence capability declaration. Any change is a single
+re-consent trigger; an upgrade that leaves the section byte-identical
+carries consent over; an upgrade that drops it clears the stored consent. No manifest declares
+modalities today, so the gate is inert by construction for existing packs.
 
 Two further gates stack on top of consent (deny-overrides — every layer
 must pass):

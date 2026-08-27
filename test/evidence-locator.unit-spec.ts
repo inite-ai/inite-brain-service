@@ -71,6 +71,17 @@ describe('validateLocator — shapes and edges', () => {
 
   it('rejects out-of-range pageRegion coords and empty trackId', () => {
     expect(validateLocator('image', { ...pageRegion, w: 1.5 })).toMatch(/w in \[0,1\]/);
+    expect(validateLocator('image', { ...pageRegion, x: 0.8, w: 0.4 })).toMatch(/x \+ w/);
+    expect(validateLocator('image', { ...pageRegion, h: 0 })).toMatch(/positive w and h/);
     expect(validateLocator('audio', { kind: 'track', trackId: '' })).toMatch(/trackId/);
+    expect(
+      validateLocator('audio', { kind: 'track', trackId: 'speaker', startMs: 5, endMs: 4 }),
+    ).toMatch(/endMs must be greater/);
+  });
+
+  it('rejects unknown fields instead of persisting shape drift in the FLEXIBLE column', () => {
+    expect(validateLocator('image', { ...pageRegion, executable: 'nope' })).toMatch(
+      /unknown field 'executable'/,
+    );
   });
 });

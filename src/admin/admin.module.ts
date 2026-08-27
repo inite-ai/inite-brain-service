@@ -43,6 +43,7 @@ import { ProjectionsController } from './projections.controller';
 import { WindowDeriverService } from './window-deriver.service';
 import { AdminSegmentsController } from './admin-segments.controller';
 import { SegmentComposerService } from './segment-composer.service';
+import { SegmentBackfillService } from './segment-backfill.service';
 import { AdminScenesController } from './admin-scenes.controller';
 import { SceneComposerService } from './scene-composer.service';
 import { SceneEnricherService } from './scene-enricher.service';
@@ -125,6 +126,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     ArcComposerService,
     WindowDeriverService,
     SegmentComposerService,
+    SegmentBackfillService,
     SceneComposerService,
     SceneEnricherService,
     SceneBacklinkService,

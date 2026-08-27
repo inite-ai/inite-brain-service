@@ -196,7 +196,16 @@ describe('AdminSegmentsController — tenant isolation (P0)', () => {
         return {};
       },
     };
-    return { ctrl: new AdminSegmentsController(composer as never, apiKeys), seen };
+    const backfill = {
+      backfillUserIds: async (t: string) => {
+        seen.push(t);
+        return {};
+      },
+    };
+    return {
+      ctrl: new AdminSegmentsController(composer as never, backfill as never, apiKeys),
+      seen,
+    };
   }
 
   it('brain:admin + foreign tenant → 403', async () => {
@@ -207,6 +216,14 @@ describe('AdminSegmentsController — tenant isolation (P0)', () => {
   it('own tenant → operates on own', async () => {
     const { ctrl, seen } = make();
     await ctrl.run(req(ADMIN), {});
+    expect(seen).toEqual(['tenant-a']);
+  });
+  it('backfill route: brain:admin + foreign tenant → 403; own tenant → own', async () => {
+    await expect(make().ctrl.backfillUserIds(req(ADMIN), { tenant: 'tenant-b' })).rejects.toThrow(
+      ForbiddenException,
+    );
+    const { ctrl, seen } = make();
+    await ctrl.backfillUserIds(req(ADMIN), {});
     expect(seen).toEqual(['tenant-a']);
   });
 });

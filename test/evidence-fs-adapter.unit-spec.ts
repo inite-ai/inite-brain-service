@@ -63,6 +63,8 @@ describe('FsEvidenceStorageAdapter', () => {
     const { storageRef, byteLength } = await adapter.put('co_a', hash, data);
     expect(storageRef).toBe(`fs://co_a/${hash}`);
     expect(byteLength).toBe(1024);
+    expect(adapter.belongsToTenant('co_a', storageRef)).toBe(true);
+    expect(adapter.belongsToTenant('co_b', storageRef)).toBe(false);
 
     expect(await adapter.head(storageRef)).toEqual({ byteLength: 1024 });
     expect(await adapter.exists(storageRef)).toBe(true);
@@ -90,6 +92,9 @@ describe('FsEvidenceStorageAdapter', () => {
 
   it('rejects invalid hash and tenant shapes on put', async () => {
     await expect(adapter.put('co_a', 'nothex', Buffer.from('x'))).rejects.toThrow(/byteHash/);
+    await expect(adapter.put('co_a', 'a'.repeat(64), Buffer.from('x'))).rejects.toThrow(
+      /does not match/,
+    );
     await expect(adapter.put('../evil', 'a'.repeat(64), Buffer.from('x'))).rejects.toThrow(
       /companyId/,
     );
@@ -106,8 +111,9 @@ describe('FsEvidenceStorageAdapter', () => {
   it('throws the clear unconfigured error when EVIDENCE_FS_ROOT is unset', async () => {
     delete process.env.EVIDENCE_FS_ROOT;
     const bare = new FsEvidenceStorageAdapter();
-    const hash = 'a'.repeat(64);
-    await expect(bare.put('co_a', hash, Buffer.from('x'))).rejects.toThrow(/EVIDENCE_FS_ROOT/);
+    const data = Buffer.from('x');
+    const hash = sha256(data);
+    await expect(bare.put('co_a', hash, data)).rejects.toThrow(/EVIDENCE_FS_ROOT/);
     await expect(bare.head(`fs://co_a/${hash}`)).rejects.toThrow(/EVIDENCE_FS_ROOT/);
     await expect(bare.delete(`fs://co_a/${hash}`)).rejects.toThrow(/EVIDENCE_FS_ROOT/);
   });

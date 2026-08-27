@@ -1,4 +1,5 @@
 import type { Surreal } from 'surrealdb';
+import { segmentUserGate } from '../../auth/segment-scope';
 import type { FactRow } from './types';
 
 /**
@@ -114,11 +115,11 @@ export async function runSegmentLegs({
   lexicalRows: FactRow[];
 }> {
   const piiGate = callerScopes.includes('brain:read_pii') ? '' : 'AND piiClass IS NONE';
-  // Fail-closed user scope (0055, audit W1 #14): segments inherit the
-  // window's userId only when unanimous; an unscoped read stays
-  // tenant-global rather than serving another user's window.
-  const userGate = userId ? 'AND (userId IS NONE OR userId = $scopeUserId)' : 'AND userId IS NONE';
-  const userParams = userId ? { scopeUserId: userId } : {};
+  // Fail-closed user scope (0055 + 0117, PRIVACY_SEGMENT_USER_FENCE):
+  // an unscoped read stays tenant-global; with the fence on, a
+  // mixed-user window is served only to its own members
+  // (segmentUserGate — the shared gate of all four segment seams).
+  const gate = segmentUserGate(userId);
 
   const [denseRes, bm25Res] = await Promise.all([
     mode !== 'lexical' && queryVector
@@ -126,10 +127,10 @@ export async function runSegmentLegs({
           `SELECT id, conversationId, text, occurredAt,
                   vector::similarity::cosine(embedding, $q) AS score
              FROM episode_segment
-            WHERE embedding != NONE ${piiGate} ${userGate}
+            WHERE embedding != NONE ${piiGate} ${gate.clause}
             ORDER BY score DESC
             LIMIT $k`,
-          { q: queryVector, k: fetchK, ...userParams },
+          { q: queryVector, k: fetchK, ...gate.params },
         )
       : Promise.resolve([[] as SegmentRow[]]),
     mode !== 'vector'
@@ -137,10 +138,10 @@ export async function runSegmentLegs({
           `SELECT id, conversationId, text, occurredAt,
                   search::score(1) AS score
              FROM episode_segment
-            WHERE text @1@ $q ${piiGate} ${userGate}
+            WHERE text @1@ $q ${piiGate} ${gate.clause}
             ORDER BY score DESC
             LIMIT $k`,
-          { q: queryText, k: fetchK, ...userParams },
+          { q: queryText, k: fetchK, ...gate.params },
         )
       : Promise.resolve([[] as SegmentRow[]]),
   ]);

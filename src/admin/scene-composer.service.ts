@@ -273,8 +273,11 @@ export class SceneComposerService {
         // Scope/PII fold — same rule as segment-composer :147-160: pii is
         // the member union; userId only when single-user; a mixed-user
         // scene stays tenant-global (scopeForUser(undefined) = []).
+        // userIds (0117) persists the sorted member set for the read
+        // contract future scene readers must implement (foldSceneScope).
         piiClass: fold.piiClass,
         userId: fold.userId,
+        userIds: fold.userIds,
         scope: scopeForUser(fold.userId),
         sceneLabel: renderSceneLabel(scene).slice(0, SCENE_LABEL_MAX),
         conversationIds: [conversationId],

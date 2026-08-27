@@ -8,6 +8,7 @@ import { ConcatSummaryGenerator, FactToSummarize, SummaryGenerator } from './sum
 import { SUMMARY_GENERATOR } from './compaction.types';
 import { envFlagEnabled } from '../common/env-validation';
 import { summaryEpisodeStampEnabled } from '../common/provenance-flags';
+import { ungroundedExcludeEnabled } from '../common/evidence-flags';
 import { unionEpisodeIds } from '../common/episode-ids';
 import { compactionOverridesFor } from './compaction-overrides';
 
@@ -62,6 +63,9 @@ interface PromotableRow {
   eps?: unknown;
   /** `source.conversationId AS conversationId` — evidence context of the member (FLEXIBLE). */
   conversationId?: unknown;
+  /** Claim grounding state (0115) — selected ONLY under
+   *  EVIDENCE_UNGROUNDED_EXCLUDE; absent = legacy (still promotes). */
+  groundingStatus?: unknown;
 }
 
 /**
@@ -196,6 +200,48 @@ export class PromotionRunnerService {
   }
 
   /**
+   * The member SELECT + the Drift-1 consolidation gate
+   * (EVIDENCE_UNGROUNDED_EXCLUDE), extracted from promoteGroup for the
+   * complexity budget. The groundingStatus column joins the SELECT only
+   * while the flag is on, so the off-state query string stays
+   * byte-identical; the TS-side exclusion runs BEFORE the group-size
+   * floor — an ungrounded member must not consolidate NOR count toward
+   * the group qualifying. Legacy rows (absent groundingStatus) still
+   * promote: no backfill, fail-open for pre-flag data by design.
+   */
+  private async loadPromotableMembers(
+    db: Surreal,
+    args: {
+      group: { entityId: unknown; predicate: string; userId?: string | null };
+      schedule: PromotionSchedule;
+      scopeClause: string;
+      scopeParams: Record<string, unknown>;
+    },
+  ): Promise<PromotableRow[]> {
+    const ungroundedExclude = ungroundedExcludeEnabled();
+    const groundingColumn = ungroundedExclude ? ',\n              groundingStatus' : '';
+    const [rows] = (await db.query(
+      `SELECT id, entityId, predicate, object, validFrom, validUntil, confidence, userId,
+              source.episodeIds AS eps,
+              source.conversationId AS conversationId${groundingColumn}
+       FROM knowledge_fact
+       WHERE entityId = $entity AND predicate = $predicate
+         AND status = 'active' AND retractedAt IS NONE
+         AND recordedAt < $cutoff
+         ${args.scopeClause}
+       ORDER BY validFrom ASC`,
+      {
+        entity: args.group.entityId,
+        predicate: args.group.predicate,
+        cutoff: args.schedule.cutoff,
+        ...args.scopeParams,
+      },
+    )) as [PromotableRow[]];
+    const members = (rows ?? []) as PromotableRow[];
+    return ungroundedExclude ? members.filter((m) => m.groundingStatus !== 'ungrounded') : members;
+  }
+
+  /**
    * Fold one group's aged tail into a summary fact. Returns count folded.
    *
    * Consolidation gate order (Brain v2 PR8): corroboration floor →
@@ -206,26 +252,13 @@ export class PromotionRunnerService {
     group: { entityId: unknown; predicate: string; userId?: string | null },
     schedule: PromotionSchedule,
   ): Promise<number> {
-    const scopeClause = group.userId ? 'AND userId = $scopeUser' : 'AND userId IS NONE';
-    const scopeParams = group.userId ? { scopeUser: group.userId } : {};
-    const [rows] = (await db.query(
-      `SELECT id, entityId, predicate, object, validFrom, validUntil, confidence, userId,
-              source.episodeIds AS eps,
-              source.conversationId AS conversationId
-       FROM knowledge_fact
-       WHERE entityId = $entity AND predicate = $predicate
-         AND status = 'active' AND retractedAt IS NONE
-         AND recordedAt < $cutoff
-         ${scopeClause}
-       ORDER BY validFrom ASC`,
-      {
-        entity: group.entityId,
-        predicate: group.predicate,
-        cutoff: schedule.cutoff,
-        ...scopeParams,
-      },
-    )) as [PromotableRow[]];
-    const members = (rows ?? []) as PromotableRow[];
+    const { scopeClause, scopeParams } = scopeFilterFor(group);
+    const members = await this.loadPromotableMembers(db, {
+      group,
+      schedule,
+      scopeClause,
+      scopeParams,
+    });
     if (members.length < schedule.minGroup) return 0;
 
     // Corroboration floor (COMPACTION_PROMOTION_MIN_EPISODES > 0): a
@@ -346,4 +379,16 @@ export class PromotionRunnerService {
 
 function isoOf(v: unknown): string {
   return v instanceof Date ? v.toISOString() : String(v);
+}
+
+/** User-scope member filter (0055) — shared by the member SELECT and the
+ *  conflict-guard count so the two can never disagree on scope. */
+function scopeFilterFor(group: { userId?: string | null }): {
+  scopeClause: string;
+  scopeParams: Record<string, unknown>;
+} {
+  return {
+    scopeClause: group.userId ? 'AND userId = $scopeUser' : 'AND userId IS NONE',
+    scopeParams: group.userId ? { scopeUser: group.userId } : {},
+  };
 }

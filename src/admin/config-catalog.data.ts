@@ -1041,6 +1041,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'G6 hierarchical scope-tag fence (migration 0093). When on, the scope-tag visibility evaluator runs as an ADDITIONAL AND-fence alongside the untouched migration-0055 userId filter at every per-user read seam (episode L0 reads, fact search legs, get-fact/provenance) — a row must pass BOTH. Composed with AND it can only narrow, never open, what userId filtering already returns; for current single-tag data (every row scope is [] or [user:<id>]) the two fences keep provably identical row sets, so enabling it changes nothing (the parity property that makes it safe to ship on). Fail-closed: a record scope with an unparseable or unknown-namespace tag is hidden from a scoped principal. Off (default) → the scope column is written by backfill/ingest but never read for filtering; enforcement is byte-identical pre-0093. Steps 3-5 (ABAC widen / share-up staging / revocation tokens) are a follow-up.',
   },
   {
+    key: 'PRIVACY_SEGMENT_USER_FENCE',
+    category: 'auth',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Per-member user-scope fence for verbatim windows (migration 0117). Mixed-user episode_segment windows fold userId=NONE (tenant-global), so the legacy gate served an A+B window — verbatim text included — to EVERY user-scoped caller in the tenant. When on, all four segment read seams (segment lane transcript + anchors, fused search leg, mention scan) admit a user-scoped caller to a userId-NONE window only when its persisted userIds member set is [] (purely global) or CONTAINS the caller (window membership: co-present verbatim is re-disclosure, not disclosure). Tenant-global (M2M) callers unchanged. WARNING: OFF + any segment-serving mode ON (verbatimEvidence/timelineEvidence/l3SegmentAnchor, e.g. RETRIEVAL_GENRE=dialogue or SEARCH_SEGMENT_LANE_ENABLED) = cross-user verbatim disclosure. FAIL-CLOSED on legacy rows: userIds IS NONE (pre-0117) is hidden from user-scoped callers — run POST /v1/admin/maintenance/segments/backfill-user-ids once per tenant BEFORE the first enable on an existing deployment (order: migrate → backfill → flip). Default off in code for byte-identity only; will default ON in a future release.',
+  },
+  {
+    key: 'PRIVACY_COMPOSER_USER_SCOPE',
+    category: 'auth',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'User-scope rule for the write-time insight composers (aggregates, arcs — shared kernel). Composed summary rows were stamped with NO userId, so one user’s personal facts folded into tenant-global summary_*/aggregate_* rows readable by every user. When on, each valid proposal folds its member facts’ distinct userIds (the deriver drop idiom): 0 users → global (unchanged); exactly 1 → row stamped userId + scope (the 0055/0093 read fences then apply); ≥2 → proposal dropped, warned and counted. WARNING: OFF = composer runs keep writing single-user-derived content as tenant-global rows; no backfill exists — re-run the composers after enabling to rebuild the derived set under the rule. Default off in code for byte-identity only; will default ON in a future release.',
+  },
+  {
     key: 'SOURCE_META_STRICT',
     category: 'pipeline',
     defaultValue: '0',
@@ -1085,6 +1103,42 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
     description:
       'Sanity cap on the DECLARED byteLength of a registered evidence asset (default 1 GiB). A claim bound, not a transfer limit — this release ships no upload endpoint.',
+  },
+  {
+    key: 'EVIDENCE_GROUNDING_STAMP',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Evidence plane, claim-state write side: after fn::resolve_fact returns, stamp knowledge_fact.groundingStatus ('grounded'|'ungrounded') computed from the presence of observational source (episode: ids in source.episodeIds, non-empty source.evidence[], or source.conversationId) — the stampFactScope post-resolve idiom, best-effort, warn-never-fail. Absent field = legacy row (pre-flag), never backfilled. Off (default) → no extra UPDATE is issued, rows are byte-identical.",
+  },
+  {
+    key: 'EVIDENCE_FAIL_CLOSED_CAPTURE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Evidence plane, fail-closed mention capture: ingestMention requires the L0 episode write (EPISODE_SUBSTRATE_ENABLED) to succeed and stamps the captured episode id into every extracted fact's source.episodeIds — no extraction without a stored observation. Requires EPISODE_SUBSTRATE_ENABLED (env-validation warns on the inconsistent pair). Off (default) → capture stays non-fatal advisory, byte-identical.",
+  },
+  {
+    key: 'EVIDENCE_UNGROUNDED_EXCLUDE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Evidence plane, consolidation gate: the promotion runner excludes ungrounded members (knowledge_fact.groundingStatus='ungrounded') from summary groups — an unfounded claim must not consolidate into long-term memory. Legacy rows (absent field) still promote. Off (default) → member selection byte-identical.",
+  },
+  {
+    key: 'EVIDENCE_UNGROUNDED_SERVING_GATE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Evidence plane, strict serving: on a supported verdict, batch-check the cited facts' groundingStatus; when every citation is ungrounded the answer abstains under reason 'ungrounded_evidence' (the evidence_capability_unmet fourth-branch idiom, 0113). Mixed or legacy support serves. Resolution failure fails open with a warn. Off (default) → no fetch, byte-identical.",
   },
   // ── Document pipeline (migrations 0048–0050) ─────────────
   {
