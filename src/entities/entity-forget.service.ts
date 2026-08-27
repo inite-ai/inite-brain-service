@@ -10,6 +10,11 @@ import { createHmac } from 'node:crypto';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService, runTransaction, queryRows, queryFirst } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
+import {
+  DocumentCascadePlan,
+  planDocumentCascade,
+  purgeExclusiveDocContent,
+} from '../documents/document-purge.util';
 import { normalizeEntityId } from './entity-read.helpers';
 import { ForgetOptions, ForgetResult } from './entities.service';
 
@@ -56,6 +61,22 @@ interface ForgetTxResult {
  * Structural REFERENCE ON DELETE CASCADE/UNSET (SurrealDB record
  * references) for the derived deps is a documented follow-up — it needs a
  * schema migration and is intentionally out of scope here.
+ *
+ * Document cascade (fact-mediated) — HONEST LIMITS. source_document has
+ * no userId/entityId (0048); the only subject→document linkage is
+ * knowledge_fact.source.documentId on the subject's committed facts, so
+ * the cascade purges exactly the documents those facts tie to the subject
+ * (see planDocumentCascade). What it can NOT do:
+ *   * SHARED documents (another subject still grounds facts in them)
+ *     survive WITH their content — there is no per-chunk attribution to
+ *     erase selectively. Mitigations: the retainUntil retention sweeper,
+ *     and an operator DELETE /v1/documents/:id/content for targeted
+ *     purges.
+ *   * Documents that produced ZERO committed facts for the subject are
+ *     unreachable from here (nothing links them to the subject).
+ *   * candidate payloads that mention the subject in FREE TEXT ONLY
+ *     (no entityId stamp, no resolvable id string) are not attributable;
+ *     the defensive sweep below catches id-bearing payloads only.
  */
 @Injectable()
 export class EntityForgetService {
@@ -104,37 +125,13 @@ export class EntityForgetService {
       createHmac('sha256', this.forgetHmacKey).update(`${companyId}/${ref.full}`).digest('hex');
 
     const result = await this.surreal.withCompany(companyId, async (db) => {
-      // ── Idempotent retry (R4). The whole erase is atomic, so a failed or
-      // partial attempt left NO tombstone — only a fully-committed erase is
-      // visible here. A tombstone matching BOTH this requestId AND this
-      // entity hash is a true replay: return the stored result, never
-      // re-erase, never double-error. Matching on the pair (not requestId
-      // alone) means a requestId accidentally reused across DIFFERENT
-      // entities still erases each one.
-      const prior = await queryFirst<ForgottenTombstoneRow>(
-        db,
-        `SELECT entityIdHash, factsDeleted, edgesDeleted, auditEventsDeleted,
-                episodesDeleted, segmentsDeleted, forgottenAt
-           FROM forgotten_entity
-          WHERE requestId = $requestId AND entityIdHash = $hash
-          LIMIT 1`,
-        { requestId: dto.requestId, hash: entityIdHash },
-      );
-      if (prior) {
-        this.logger.warn(
-          `[knowledge.entity.forgotten] idempotent replay companyId=${companyId} ` +
-            `hash=${entityIdHash} requestId=${dto.requestId} — returning stored result`,
-        );
-        return {
-          entityIdHash: prior.entityIdHash,
-          factsDeleted: prior.factsDeleted ?? 0,
-          edgesDeleted: prior.edgesDeleted ?? 0,
-          auditEventsDeleted: prior.auditEventsDeleted ?? 0,
-          episodesDeleted: prior.episodesDeleted ?? 0,
-          segmentsDeleted: prior.segmentsDeleted ?? 0,
-          forgottenAt: new Date(prior.forgottenAt).toISOString(),
-        } satisfies ForgetResult;
-      }
+      // ── Idempotent retry (R4) — see findReplayedResult.
+      const prior = await this.findReplayedResult(db, {
+        companyId,
+        requestId: dto.requestId,
+        entityIdHash,
+      });
+      if (prior) return prior;
 
       // Verify exists. After a committed erase the entity is gone AND the
       // idempotency check above already returned; so reaching here with a
@@ -177,42 +174,39 @@ export class EntityForgetService {
       const factsDeleted = factIds.length;
       const edgesDeleted = edgeIds.length;
 
-      // L0 grounding turns (audit W1, finding #13). Erasure used to stop at
-      // L1: the verbatim episodes naming the subject stayed readable through
-      // the episodic/segment lanes and GET /v1/episodes, AND a re-derive
-      // resurrected the deleted facts from them. Resolve the grounding
-      // episodes BEFORE the facts go — source.episodeIds is the only link.
-      //
-      // A turn that grounds facts of several subjects is deleted whole: the
-      // other subjects keep their derived facts (separate rows), they lose
-      // only the raw turn. Erasure wins over retention.
-      const groundingRows = await queryRows<{ eps: unknown }>(
-        db,
-        `SELECT source.episodeIds AS eps FROM knowledge_fact
-         WHERE entityId = type::record('knowledge_entity', $rid)
-           AND source.episodeIds IS NOT NONE`,
-        { rid: ref.id },
-      );
-      const episodeIds = [
-        ...new Set(
-          groundingRows.flatMap((r) =>
-            Array.isArray(r.eps) ? r.eps.map((e: unknown) => String(e)) : [],
-          ),
-        ),
-      ].filter((id) => id.startsWith('episode:'));
-      const episodeRefs = episodeIds.map((id) => new StringRecordId(id));
+      // L0 grounding turns — see collectGroundingEpisodes.
+      const { episodeIds, episodeRefs } = await this.collectGroundingEpisodes(db, ref.id);
       const recordIds = [entityIdStr, ...factIds, ...edgeIds];
 
       // Side-table rows to erase BY EXPLICIT ID — see the
       // preCollectSideTableIds docblock for the 3.2.4 planner contract.
       const { feedbackIds, artifactIds } = await this.preCollectSideTableIds(db, ref.id);
 
+      // ── Document cascade plan (fact-mediated — see the class docblock's
+      // HONEST LIMITS). MUST be planned BEFORE the facts die: their
+      // source.documentId is the only subject→document linkage. Reads only.
+      const { docPlan, sweepCount } = await this.planDocCascade(db, {
+        rid: ref.id,
+        needle: entityIdStr,
+      });
+
       // ── Transaction-size guard — see the guardTxRecordCap docblock.
+      // Chunks are purged PRE-TX but still COUNT toward the cap: they are
+      // the subject's evidence (unlike the exempt content-free telemetry).
       await this.guardTxRecordCap(db, {
         recordIds,
         episodeRefs,
         fixedCount:
-          factsDeleted + edgesDeleted + episodeIds.length + feedbackIds.length + artifactIds.length,
+          factsDeleted +
+          edgesDeleted +
+          episodeIds.length +
+          feedbackIds.length +
+          artifactIds.length +
+          docPlan.chunkCount +
+          docPlan.candidateCount +
+          docPlan.indexerRunCount +
+          docPlan.exclusiveDocIds.length +
+          sweepCount,
       });
 
       // ── 0107 outcome telemetry: bulk-purge the raw event log OUTSIDE
@@ -220,6 +214,12 @@ export class EntityForgetService {
       // contract, deliberately uncounted in txRecordCount like
       // fact_usage, so FORGET_MAX_TX_RECORDS never trips on telemetry).
       await this.preSweepOutcomeRows(db, ref.id);
+
+      // ── PRE-TX bulk leg of the document cascade: provenance flag first,
+      // then the batched chunk drain + header purge, so a mid-sequence
+      // failure rests in the defined purgeContent state ("facts believed,
+      // evidence purged") — see purgeExclusiveDocContent.
+      const purgedSourceChunks = await purgeExclusiveDocContent(db, docPlan);
 
       // ── Atomic erase. Everything below commits together or rolls back
       // together (single BEGIN/COMMIT). Ordering inside the transaction is
@@ -242,7 +242,9 @@ export class EntityForgetService {
           .bind('forgottenBy', actorKeyHash ?? 'unknown')
           .bind('forgottenAt', forgottenAt)
           .bind('feedbackIds', feedbackIds)
-          .bind('artifactIds', artifactIds);
+          .bind('artifactIds', artifactIds)
+          .bind('purgeDocs', docPlan.exclusiveDocRefs)
+          .bind('purgedSourceChunks', purgedSourceChunks);
         tx.add(`LET $ent = type::record('knowledge_entity', $rid)`);
         // fact_usage (0053) + retrieval_feedback (0054) are keyed by fact
         // record — the traversal dies with the facts, so purge first.
@@ -297,6 +299,28 @@ export class EntityForgetService {
           `LET $segs = (DELETE episode_segment WHERE episodeIds CONTAINSANY $eps RETURN BEFORE)`,
         );
         tx.add(`LET $epsDel = (DELETE episode WHERE id INSIDE $eps RETURN BEFORE)`);
+        // ── Document cascade, in-tx bounded leg (chunks already drained
+        // pre-tx): candidates and indexer_runs of the EXCLUSIVE docs, then
+        // the source_document headers themselves. All LET-select-ids →
+        // DELETE (candidate/indexer_run docId shares the compound-index
+        // planner no-op shape — see document-purge.util).
+        tx.add(`LET $candIds = (SELECT VALUE id FROM candidate WHERE docId INSIDE $purgeDocs)`);
+        tx.add(`LET $candDel = (DELETE $candIds RETURN BEFORE)`);
+        tx.add(`LET $runIds = (SELECT VALUE id FROM indexer_run WHERE docId INSIDE $purgeDocs)`);
+        tx.add(`LET $runDel = (DELETE $runIds RETURN BEFORE)`);
+        // Defensive candidate sweep: candidates of NON-purged (shared /
+        // unrelated) docs whose payload carries the resolved entity — by
+        // id stamp or by the id string anywhere in the serialised payload
+        // (same string-contains precedent as the debug_trace purge below).
+        // Runs AFTER the cascade delete above, so inside this tx it only
+        // sees the survivors. Free-text-only mentions are NOT attributable
+        // — see the class docblock's HONEST LIMITS.
+        tx.add(
+          `LET $sweepIds = (SELECT VALUE id FROM candidate
+             WHERE payload.entityId = $ent OR string::contains(<string>payload, $needle))`,
+        );
+        tx.add(`LET $sweepDel = (DELETE $sweepIds RETURN BEFORE)`);
+        tx.add(`LET $docsDel = (DELETE $purgeDocs RETURN BEFORE)`);
         // Cascade hard-delete. Embedding columns die with the rows.
         tx.add(`DELETE knowledge_fact WHERE entityId = $ent`);
         tx.add(`DELETE knowledge_edge WHERE in = $ent OR out = $ent`);
@@ -348,6 +372,10 @@ export class EntityForgetService {
             episodesDeleted: array::len($epsDel),
             segmentsDeleted: array::len($segs),
             scenesDeleted: array::len($scenesDel),
+            purgedSourceDocs: array::len($docsDel),
+            purgedSourceChunks: $purgedSourceChunks,
+            purgedCandidates: array::len($candDel) + array::len($sweepDel),
+            purgedIndexerRuns: array::len($runDel),
             forgottenBy: $forgottenBy,
             forgottenAt: $forgottenAt
           } RETURN AFTER)`);
@@ -405,6 +433,76 @@ export class EntityForgetService {
     }
 
     return result;
+  }
+
+  /**
+   * Idempotent retry (R4). The whole erase is atomic, so a failed or
+   * partial attempt left NO tombstone — only a fully-committed erase is
+   * visible here. A tombstone matching BOTH this requestId AND this
+   * entity hash is a true replay: return the stored result, never
+   * re-erase, never double-error. Matching on the pair (not requestId
+   * alone) means a requestId accidentally reused across DIFFERENT
+   * entities still erases each one.
+   */
+  private async findReplayedResult(
+    db: Parameters<Parameters<SurrealService['withCompany']>[1]>[0],
+    keys: { companyId: string; requestId: string; entityIdHash: string },
+  ): Promise<ForgetResult | null> {
+    const prior = await queryFirst<ForgottenTombstoneRow>(
+      db,
+      `SELECT entityIdHash, factsDeleted, edgesDeleted, auditEventsDeleted,
+              episodesDeleted, segmentsDeleted, forgottenAt
+         FROM forgotten_entity
+        WHERE requestId = $requestId AND entityIdHash = $hash
+        LIMIT 1`,
+      { requestId: keys.requestId, hash: keys.entityIdHash },
+    );
+    if (!prior) return null;
+    this.logger.warn(
+      `[knowledge.entity.forgotten] idempotent replay companyId=${keys.companyId} ` +
+        `hash=${keys.entityIdHash} requestId=${keys.requestId} — returning stored result`,
+    );
+    return {
+      entityIdHash: prior.entityIdHash,
+      factsDeleted: prior.factsDeleted ?? 0,
+      edgesDeleted: prior.edgesDeleted ?? 0,
+      auditEventsDeleted: prior.auditEventsDeleted ?? 0,
+      episodesDeleted: prior.episodesDeleted ?? 0,
+      segmentsDeleted: prior.segmentsDeleted ?? 0,
+      forgottenAt: new Date(prior.forgottenAt).toISOString(),
+    } satisfies ForgetResult;
+  }
+
+  /**
+   * L0 grounding turns (audit W1, finding #13). Erasure used to stop at
+   * L1: the verbatim episodes naming the subject stayed readable through
+   * the episodic/segment lanes and GET /v1/episodes, AND a re-derive
+   * resurrected the deleted facts from them. Resolve the grounding
+   * episodes BEFORE the facts go — source.episodeIds is the only link.
+   *
+   * A turn that grounds facts of several subjects is deleted whole: the
+   * other subjects keep their derived facts (separate rows), they lose
+   * only the raw turn. Erasure wins over retention.
+   */
+  private async collectGroundingEpisodes(
+    db: Parameters<Parameters<SurrealService['withCompany']>[1]>[0],
+    rid: string,
+  ): Promise<{ episodeIds: string[]; episodeRefs: StringRecordId[] }> {
+    const groundingRows = await queryRows<{ eps: unknown }>(
+      db,
+      `SELECT source.episodeIds AS eps FROM knowledge_fact
+       WHERE entityId = type::record('knowledge_entity', $rid)
+         AND source.episodeIds IS NOT NONE`,
+      { rid },
+    );
+    const episodeIds = [
+      ...new Set(
+        groundingRows.flatMap((r) =>
+          Array.isArray(r.eps) ? r.eps.map((e: unknown) => String(e)) : [],
+        ),
+      ),
+    ].filter((id) => id.startsWith('episode:'));
+    return { episodeIds, episodeRefs: episodeIds.map((id) => new StringRecordId(id)) };
   }
 
   /**
@@ -503,6 +601,34 @@ export class EntityForgetService {
       feedbackIds: (feedbackIdRows as unknown[]) ?? [],
       artifactIds: (artifactIdRows as unknown[]) ?? [],
     };
+  }
+
+  /**
+   * Document-cascade plan for THIS entity (reads only, no mutation):
+   * classify the docs the subject's facts ground in as EXCLUSIVE/SHARED
+   * (see planDocumentCascade) and pre-count the defensive candidate
+   * sweep, so guardTxRecordCap sees the full erase footprint BEFORE
+   * anything mutates. The sweep count can overlap the exclusive-doc
+   * candidate count (a candidate can match both) — the guard is
+   * deliberately conservative.
+   */
+  private async planDocCascade(
+    db: Parameters<Parameters<SurrealService['withCompany']>[1]>[0],
+    subject: { rid: string; needle: string },
+  ): Promise<{ docPlan: DocumentCascadePlan; sweepCount: number }> {
+    const docPlan = await planDocumentCascade(db, {
+      predicate: `entityId = type::record('knowledge_entity', $rid)`,
+      params: { rid: subject.rid },
+    });
+    const sweepRow = await queryFirst<{ n: number }>(
+      db,
+      `SELECT count() AS n FROM candidate
+        WHERE payload.entityId = type::record('knowledge_entity', $rid)
+           OR string::contains(<string>payload, $needle)
+        GROUP ALL`,
+      { rid: subject.rid, needle: subject.needle },
+    );
+    return { docPlan, sweepCount: sweepRow?.n ?? 0 };
   }
 
   /**
