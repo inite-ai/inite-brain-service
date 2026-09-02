@@ -353,6 +353,74 @@ describe('0114 evidence blob-GC outbox', () => {
   });
 });
 
+describe('0122_evidence_grant indexes', () => {
+  const sql = readFileSync(join(MIGRATIONS, '0122_evidence_grant.surql'), 'utf8');
+
+  // ALL single-field, deliberately: this table sits on BOTH delete paths
+  // (GDPR user-forget + retention sweep), and compound coverage would put
+  // assetId under the 3.2.4 compound-planner DELETE no-op. No UNIQUE
+  // (assetId, ownerKind, ownerId) natural key — dedup lives at the write
+  // seam (EvidenceStoreService.addGrant), the 0109 fragment precedent.
+  it.each([
+    ['evidence_grant_asset_idx', 'evidence_grant', 'assetId'],
+    ['evidence_grant_owner_idx', 'evidence_grant', 'ownerId'],
+    ['evidence_grant_kind_idx', 'evidence_grant', 'ownerKind'],
+    ['evidence_grant_revoked_idx', 'evidence_grant', 'revokedAt'],
+  ])('defines %s on %s(%s)', (name, table, fields) => {
+    expect(sql).toContain(`DEFINE INDEX IF NOT EXISTS ${name} ON ${table} FIELDS ${fields};`);
+  });
+
+  it('every index is SINGLE-FIELD (the 3.2.4 planner rule)', () => {
+    const defs = sql.match(/DEFINE INDEX[^;]+;/g) ?? [];
+    expect(defs.length).toBeGreaterThan(0);
+    for (const def of defs) {
+      const fields = /FIELDS ([^;]+);/.exec(def)?.[1] ?? '';
+      expect(fields).not.toContain(',');
+      expect(fields).not.toContain('UNIQUE');
+    }
+  });
+
+  it('deliberately defines NO changefeed and NO event', () => {
+    // A grant row names a principal; a 30-day feed would keep GDPR-erased
+    // ownership readable after the rows die (0109/0114 reasoning). The
+    // header EXPLAINS the absence in prose, so judge only non-comment
+    // lines.
+    const code = sql
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('--'))
+      .join('\n');
+    expect(code).not.toMatch(/CHANGEFEED/);
+    expect(code).not.toMatch(/DEFINE EVENT/);
+  });
+
+  it('stamps the GDPR tombstone counter on forgotten_entity', () => {
+    expect(sql).toContain('DEFINE FIELD IF NOT EXISTS evidenceGrantsDeleted ON forgotten_entity');
+  });
+
+  it('backfills legacy-owned assets idempotently (grant-less assets only)', () => {
+    // The FOR-loop must guard each CREATE on the asset having ZERO grant
+    // rows — a re-applied migration (or crash-retry) must not duplicate.
+    // LET-then-FOR: on the pinned 3.2.4 a FOR over an inline SELECT
+    // subquery fails ("Cannot execute statement using value: NONE");
+    // iterating a LET-bound variable is the working fn::resolve_fact
+    // idiom.
+    expect(sql).toContain(
+      'LET $legacyOwned = (SELECT id, userId, createdAt FROM evidence_asset WHERE userId != NONE);',
+    );
+    expect(sql).toContain('FOR $a IN $legacyOwned {');
+    // The header EXPLAINS the broken shape in prose — judge only code.
+    const code = sql
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('--'))
+      .join('\n');
+    expect(code).not.toMatch(/FOR \$a IN \(SELECT/);
+    expect(sql).toMatch(
+      /IF array::len\(\(SELECT VALUE id FROM evidence_grant WHERE assetId = \$a\.id\)\) = 0/,
+    );
+    expect(sql).toContain("ownerKind: 'user'");
+  });
+});
+
 describe('evidence substrate DELETE-shape guards (0109)', () => {
   // The three tables sit on TWO delete paths; every delete must be the
   // two-step SELECT-ids → DELETE $ids idiom (the 3.2.4 planner no-op
@@ -370,29 +438,40 @@ describe('evidence substrate DELETE-shape guards (0109)', () => {
       expect(text).not.toMatch(/DELETE evidence_fragment WHERE/);
       expect(text).not.toMatch(/DELETE derived_representation WHERE/);
       expect(text).not.toMatch(/DELETE evidence_asset WHERE/);
+      expect(text).not.toMatch(/DELETE evidence_grant WHERE/);
     }
   });
 
   it('user-forget pre-collects the cascade ids (and blob refs) before deleting', () => {
     const src = readFileSync(files[0]!, 'utf8');
+    // 0122 grant-aware shape: the user's grant rows and the legacy
+    // userId-stamped assets are collected in JS, classified by remaining
+    // live grants, and only the SOLE-OWNED ids are bound as $assetIds.
     expect(src).toContain(
-      'LET $assetIds = (SELECT VALUE id FROM evidence_asset WHERE userId = $u)',
+      "SELECT id, assetId FROM evidence_grant WHERE ownerKind = 'user' AND ownerId = $u",
     );
+    expect(src).toContain('SELECT VALUE id FROM evidence_asset WHERE userId = $u');
     expect(src).toContain(
       'LET $fragIds = (SELECT VALUE id FROM evidence_fragment WHERE assetId INSIDE $assetIds)',
     );
     expect(src).toContain('LET $reprIds = (SELECT VALUE id FROM derived_representation');
+    expect(src).toContain(
+      'LET $residualGrantIds = (SELECT VALUE id FROM evidence_grant WHERE assetId INSIDE $assetIds)',
+    );
     expect(src).toContain('DELETE $reprIds RETURN BEFORE');
     expect(src).toContain('DELETE $fragIds RETURN BEFORE');
+    expect(src).toContain('DELETE $residualGrantIds RETURN BEFORE');
     expect(src).toContain('DELETE $assetIds RETURN BEFORE');
     // Blob refs must be collected while the rows still exist.
     expect(src).toContain('SELECT VALUE storageRef FROM evidence_asset');
   });
 
-  it('the retention sweep pre-collects fragment/representation ids per asset', () => {
+  it('the retention sweep pre-collects fragment/representation/grant ids per asset', () => {
     const src = readFileSync(files[2]!, 'utf8');
     expect(src).toContain('SELECT VALUE id FROM evidence_fragment WHERE assetId = $asset');
     expect(src).toContain('SELECT VALUE id FROM derived_representation WHERE ${where} LIMIT 5000');
+    // 0122: retention death is whole-asset death — grants go too.
+    expect(src).toContain('SELECT VALUE id FROM evidence_grant WHERE assetId = $asset');
     expect(src).toContain('await db.query(`DELETE $ids RETURN BEFORE`, { ids });');
     const fragmentReprs = src.indexOf(
       'await this.purgeRepresentationBatches(db, `subjectId INSIDE $subjects`',

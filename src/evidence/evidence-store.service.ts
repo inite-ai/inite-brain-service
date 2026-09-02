@@ -39,8 +39,14 @@ const HASH_RE = /^[0-9a-f]{64}$/;
 // charset) — open vocabulary, shape-only (0048 `kind` doctrine).
 const MEDIA_TYPE_RE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/i;
 const LABEL_MAX = 200;
+// Purpose is a short machine tag ('ingest', 'share', 'processor'…) — open
+// vocabulary, code-capped (the 0048 `kind` doctrine; DB stores option<string>).
+const PURPOSE_MAX = 64;
 const MODALITIES = new Set<string>(EVIDENCE_MODALITIES);
 const REPR_KINDS = new Set<string>(DERIVED_REPRESENTATION_KINDS);
+export const EVIDENCE_GRANT_OWNER_KINDS = ['user', 'pack', 'system'] as const;
+export type EvidenceGrantOwnerKind = (typeof EVIDENCE_GRANT_OWNER_KINDS)[number];
+const GRANT_OWNER_KINDS = new Set<string>(EVIDENCE_GRANT_OWNER_KINDS);
 
 export type { DerivedRepresentationKind, EvidenceModality } from '../common/evidence-taxonomy';
 
@@ -74,6 +80,21 @@ export interface AddFragmentInput {
   locator: Record<string, unknown>;
   label?: string | undefined;
   piiClasses?: string[] | undefined;
+}
+
+export interface AddGrantInput {
+  assetId: string;
+  ownerKind: EvidenceGrantOwnerKind;
+  ownerId: string;
+  purpose?: string | undefined;
+}
+
+export interface EvidenceGrantRow {
+  grantId: string;
+  ownerKind: string;
+  ownerId: string;
+  purpose?: string | undefined;
+  grantedAt: Date;
 }
 
 export interface AddRepresentationInput {
@@ -125,7 +146,16 @@ export class EvidenceStoreService {
    * A DIFFERENT user hitting an existing hash gets a bare 409 WITHOUT the
    * stored row's metadata — otherwise registering probe hashes would leak
    * whether (and as what) another principal already holds those bytes
-   * (the dedup-probe leak, closed here on purpose).
+   * (the dedup-probe leak, closed here on purpose). Sharing is an
+   * explicit addGrant() by an authorized caller, never a side effect of
+   * hash-collision probing.
+   *
+   * Ownership (0122): the asset row is content identity; the initial
+   * OWNERSHIP row is a synthetic evidence_grant — user-owned when userId
+   * is present, system-owned otherwise. The legacy userId column keeps
+   * being stamped as registering-user provenance (additive; no reader
+   * changes). The dedup path re-ensures a live grant so a re-register
+   * after an administrative revoke restores ownership idempotently.
    */
   async registerAsset(
     companyId: string,
@@ -135,6 +165,9 @@ export class EvidenceStoreService {
     this.validateAssetShape(input);
     const quarantineStatus = this.quarantineStampFor(input.origin);
     const availability = await this.deriveAvailability(companyId, input);
+    const owner: { ownerKind: EvidenceGrantOwnerKind; ownerId: string } = input.userId
+      ? { ownerKind: 'user', ownerId: input.userId }
+      : { ownerKind: 'system', ownerId: 'system' };
     return this.surreal.withCompany(companyId, async (db) => {
       try {
         const row = await dbCreate<Record<string, unknown>>(db, 'evidence_asset', {
@@ -161,6 +194,10 @@ export class EvidenceStoreService {
           // the off-state row must be byte-identical (0121).
           ...(quarantineStatus !== undefined ? { quarantineStatus } : {}),
         });
+        // A failure between the two creates leaves an asset without a
+        // grant row — covered by the forget cascade's legacy userId leg
+        // and repaired by the next same-user re-register (ensure below).
+        await this.ensureLiveGrant(db, { assetId: row.id, ...owner, purpose: 'ingest' });
         return { assetId: String(row.id), availability, deduped: false };
       } catch (err) {
         if (!isUniqueViolation(err)) throw err;
@@ -173,6 +210,7 @@ export class EvidenceStoreService {
         if ((existing.userId ?? undefined) !== (input.userId ?? undefined)) {
           throw new ConflictException('evidence asset with this byteHash already registered');
         }
+        await this.ensureLiveGrant(db, { assetId: existing.id, ...owner, purpose: 'ingest' });
         return {
           assetId: String(existing.id),
           availability: String(existing.availability),
@@ -200,6 +238,122 @@ export class EvidenceStoreService {
       return undefined;
     }
     return origin === 'external_ingest' ? 'quarantined' : 'clean';
+  }
+
+  /**
+   * Idempotent write seam for ownership rows: an existing LIVE
+   * (revokedAt = NONE) grant for the (asset, ownerKind, ownerId) triple
+   * is returned as-is — dedup lives HERE, not in a UNIQUE compound index
+   * (the 3.2.4 planner rule; see the 0122 header). Works on an open db
+   * handle so registerAsset can call it inside its own withCompany
+   * closure.
+   */
+  private async ensureLiveGrant(
+    db: Surreal,
+    grant: { assetId: unknown; ownerKind: string; ownerId: string; purpose?: string | undefined },
+  ): Promise<{ grantId: string; created: boolean }> {
+    const existing = await queryFirst<{ id: unknown }>(
+      db,
+      `SELECT id FROM evidence_grant
+        WHERE assetId = $asset AND ownerKind = $kind AND ownerId = $owner
+          AND revokedAt = NONE
+        LIMIT 1`,
+      { asset: grant.assetId, kind: grant.ownerKind, owner: grant.ownerId },
+    );
+    if (existing) return { grantId: String(existing.id), created: false };
+    const row = await dbCreate<Record<string, unknown>>(db, 'evidence_grant', {
+      assetId: grant.assetId,
+      ownerKind: grant.ownerKind,
+      ownerId: grant.ownerId,
+      purpose: grant.purpose,
+    });
+    return { grantId: String(row.id), created: true };
+  }
+
+  /**
+   * Grant an owner access to an existing asset (0122). Service-only —
+   * this PR ships NO HTTP sharing surface; callers are authorized code
+   * paths (and future PRs), never a hash-probing client.
+   */
+  async addGrant(
+    companyId: string,
+    input: AddGrantInput,
+  ): Promise<{ grantId: string; created: boolean }> {
+    this.gate();
+    if (!GRANT_OWNER_KINDS.has(input.ownerKind)) {
+      throw new BadRequestException(`invalid ownerKind '${String(input.ownerKind)}'`);
+    }
+    if (!input.ownerId || input.ownerId.trim() === '') {
+      throw new BadRequestException('ownerId is required');
+    }
+    if (input.purpose !== undefined && input.purpose.length > PURPOSE_MAX) {
+      throw new BadRequestException(`purpose must be <= ${PURPOSE_MAX} chars`);
+    }
+    return this.surreal.withCompany(companyId, async (db) => {
+      const asset = await queryFirst<{ id: unknown; availability: string }>(
+        db,
+        `SELECT id, availability
+           FROM type::record('evidence_asset', $tail) LIMIT 1`,
+        { tail: idTailOf(input.assetId) },
+      );
+      if (!asset) throw new NotFoundException(`asset ${input.assetId} not found`);
+      if (asset.availability === 'gone') {
+        throw new ConflictException(`asset ${input.assetId} is no longer available`);
+      }
+      return this.ensureLiveGrant(db, {
+        assetId: asset.id,
+        ownerKind: input.ownerKind,
+        ownerId: input.ownerId,
+        purpose: input.purpose,
+      });
+    });
+  }
+
+  /**
+   * Administrative revocation: stamps revokedAt and KEEPS the row for
+   * audit. GDPR user-forget does NOT use this — it hard-deletes (a
+   * revoked grant still names its owner). Idempotent: an already-revoked
+   * grant keeps its original timestamp.
+   */
+  async revokeGrant(companyId: string, grantId: string): Promise<{ grantId: string }> {
+    this.gate();
+    return this.surreal.withCompany(companyId, async (db) => {
+      const grant = await queryFirst<{ id: unknown; revokedAt?: unknown }>(
+        db,
+        `SELECT id, revokedAt FROM type::record('evidence_grant', $tail) LIMIT 1`,
+        { tail: idTailOf(grantId) },
+      );
+      if (!grant) throw new NotFoundException(`grant ${grantId} not found`);
+      if (grant.revokedAt === undefined || grant.revokedAt === null) {
+        await db.query(`UPDATE $id SET revokedAt = time::now()`, { id: grant.id });
+      }
+      return { grantId: String(grant.id) };
+    });
+  }
+
+  /** Live (unrevoked) grants of one asset — PR-2's gate ladder currency. */
+  async liveGrants(companyId: string, assetId: string): Promise<EvidenceGrantRow[]> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      const rows = await queryRows<{
+        id: unknown;
+        ownerKind: string;
+        ownerId: string;
+        purpose?: string;
+        grantedAt: Date;
+      }>(
+        db,
+        `SELECT id, ownerKind, ownerId, purpose, grantedAt FROM evidence_grant
+          WHERE assetId = type::record('evidence_asset', $tail) AND revokedAt = NONE`,
+        { tail: idTailOf(assetId) },
+      );
+      return rows.map((r) => ({
+        grantId: String(r.id),
+        ownerKind: r.ownerKind,
+        ownerId: r.ownerId,
+        purpose: r.purpose,
+        grantedAt: r.grantedAt,
+      }));
+    });
   }
 
   /** Shape checks that need no I/O — extracted for max-lines discipline. */
@@ -476,6 +630,10 @@ export class EvidenceStoreService {
    * become undiscoverable orphans after the first batch. The two-step
    * SELECT-ids → DELETE-ids shape also avoids SurrealDB 3.2.4's
    * compound/traversal DELETE-WHERE planner no-op class.
+   *
+   * Grants (0122) go last: retention/reconciliation death is WHOLE-ASSET
+   * death — every ownership row (live or revoked) dies with the content
+   * it granted, unlike user-forget which removes one owner at a time.
    */
   private async purgeAssetDependents(db: Surreal, assetId: unknown): Promise<void> {
     await this.purgeRepresentationBatches(db, `subjectId = $asset`, { asset: assetId });
@@ -491,6 +649,16 @@ export class EvidenceStoreService {
       });
       await db.query(`DELETE $ids RETURN BEFORE`, { ids: fragIds });
       if (fragIds.length < 5000) break;
+    }
+    for (;;) {
+      const grantIds = await queryRows<unknown>(
+        db,
+        `SELECT VALUE id FROM evidence_grant WHERE assetId = $asset LIMIT 5000`,
+        { asset: assetId },
+      );
+      if (grantIds.length === 0) break;
+      await db.query(`DELETE $ids RETURN BEFORE`, { ids: grantIds });
+      if (grantIds.length < 5000) break;
     }
     // Processing runs (0121) go LAST: run rows are discoverable via
     // assetId, which survives as the tombstone header, so batch

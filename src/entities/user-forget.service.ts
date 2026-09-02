@@ -58,6 +58,8 @@ export interface UserForgetResult {
   evidenceAssetsDeleted: number;
   evidenceFragmentsDeleted: number;
   representationsDeleted: number;
+  /** Ownership rows (0122) hard-deleted — the user's own grants. */
+  evidenceGrantsDeleted: number;
   /** source_document headers fully erased (EXCLUSIVE to this user). */
   purgedSourceDocs: number;
   /** source_chunk rows drained from those exclusive docs. */
@@ -316,9 +318,13 @@ export class UserForgetService {
       // live row, but the order keeps the dependency reading honest).
       await this.eraseBeliefRows(db, beliefIds);
 
-      // Evidence substrate (0109) — see eraseEvidenceRows.
-      const { evidenceAssetsDeleted, evidenceFragmentsDeleted, representationsDeleted } =
-        await this.eraseEvidenceRows(db, companyId, userId);
+      // Evidence substrate (0109/0122) — see eraseEvidenceRows.
+      const {
+        evidenceAssetsDeleted,
+        evidenceFragmentsDeleted,
+        representationsDeleted,
+        evidenceGrantsDeleted,
+      } = await this.eraseEvidenceRows(db, companyId, userId);
 
       // Purge the materialised audit mirror (same contract as entity
       // forget): recordId is the full `table:id` string. The changefeed
@@ -344,6 +350,7 @@ export class UserForgetService {
         evidenceAssetsDeleted,
         evidenceFragmentsDeleted,
         representationsDeleted,
+        evidenceGrantsDeleted,
         purgedSourceDocs: docRows.docs,
         purgedSourceChunks,
         purgedCandidates: docRows.candidates,
@@ -351,7 +358,7 @@ export class UserForgetService {
       };
       this.logger.log(
         `user forget ${companyId}/${userId}: facts=${result.factsDeleted} entities=${result.entitiesDeleted} edges=${result.edgesDeleted} audit=${result.auditEventsDeleted} beliefs=${result.beliefsDeleted} ` +
-          `evidenceAssets=${result.evidenceAssetsDeleted} evidenceFragments=${result.evidenceFragmentsDeleted} representations=${result.representationsDeleted} ` +
+          `evidenceAssets=${result.evidenceAssetsDeleted} evidenceFragments=${result.evidenceFragmentsDeleted} representations=${result.representationsDeleted} evidenceGrants=${result.evidenceGrantsDeleted} ` +
           `docs=${result.purgedSourceDocs} chunks=${result.purgedSourceChunks} candidates=${result.purgedCandidates} indexerRuns=${result.purgedIndexerRuns}`,
       );
       return result;
@@ -401,15 +408,29 @@ export class UserForgetService {
   }
 
   /**
-   * Evidence substrate (0109): assets are user/tenant-scoped, so a
-   * user's assets die with them — with their fragments and derived
-   * representations (both content-bearing: labels, captions, OCR/ASR
-   * text). Blob refs are collected BEFORE the rows die (the row is the
-   * only pointer). LET-then-DELETE-by-ids, NOT `DELETE … WHERE`: the
-   * fragment/representation WHEREs traverse indexed record fields — the
-   * reproduced 3.2.4 planner no-op class (see the memory_outcome comment
-   * in forgetUser). Before those rows disappear, storage refs enter the
-   * durable evidence_blob_gc outbox (0114). Blobs go AFTER the rows (an
+   * Evidence substrate (0109/0122), grant-aware. Ownership lives in
+   * evidence_grant rows; the asset row is content identity (byteHash
+   * UNIQUE). Erasure order:
+   *   1. HARD-DELETE the user's grant rows — live AND revoked, both name
+   *      the erased principal (administrative revokeGrant keeps rows for
+   *      audit; GDPR must not).
+   *   2. Candidate assets = those grants' assets ∪ the legacy
+   *      `userId = $u` stamp (pre-0122-backfill belt-and-braces).
+   *   3. Candidates with ZERO live grants remaining are SOLE-OWNED and
+   *      die exactly like before: blob refs into the durable
+   *      evidence_blob_gc outbox (0114) BEFORE the rows go, then
+   *      representations → fragments → residual (revoked) grant rows →
+   *      assets, then best-effort blob deletes.
+   *   4. Candidates with live grants remaining SURVIVE whole — asset,
+   *      fragments, representations, and blob all stay: they ground the
+   *      other owners' citations. Only the legacy userId stamp is
+   *      scrubbed where it names the erased user — the 0108/#384
+   *      EXCLUSIVE-document semantics applied to bytes, documented in
+   *      the 0122 header.
+   * LET/SELECT-ids-then-DELETE-by-ids everywhere, NOT `DELETE … WHERE`:
+   * the fragment/representation/grant WHEREs traverse indexed record
+   * fields — the reproduced 3.2.4 planner no-op class (see the
+   * memory_outcome comment in forgetUser). Blobs go AFTER the rows (an
    * aborted cascade must not leave rows pointing at deleted bytes): an
    * immediate failure remains queued for the nightly reconciliation pass.
    */
@@ -421,34 +442,94 @@ export class UserForgetService {
     evidenceAssetsDeleted: number;
     evidenceFragmentsDeleted: number;
     representationsDeleted: number;
+    evidenceGrantsDeleted: number;
   }> {
-    const [refRows] = await db.query<[unknown[]]>(
-      `SELECT VALUE storageRef FROM evidence_asset
-        WHERE userId = $u AND storageRef != NONE`,
+    // 1. The user's own grant rows, collected then hard-deleted by ids.
+    const [grantRows] = await db.query<[Array<{ id: unknown; assetId: unknown }>]>(
+      `SELECT id, assetId FROM evidence_grant WHERE ownerKind = 'user' AND ownerId = $u`,
       { u: userId },
     );
-    const storageRefs = [...new Set(((refRows as unknown[]) ?? []).map(String))];
-    if (storageRefs.length > 0) {
-      await db.query(`INSERT INTO evidence_blob_gc $rows`, {
-        rows: storageRefs.map((storageRef) => ({ storageRef, reason: 'user_forget' })),
+    const userGrants = (grantRows as Array<{ id: unknown; assetId: unknown }>) ?? [];
+    if (userGrants.length > 0) {
+      await db.query(`DELETE $ids RETURN BEFORE`, { ids: userGrants.map((g) => g.id) });
+    }
+    // 2. Candidate assets: grant-referenced ∪ legacy-stamped.
+    const [legacyIdRows] = await db.query<[unknown[]]>(
+      `SELECT VALUE id FROM evidence_asset WHERE userId = $u`,
+      { u: userId },
+    );
+    const candidates = new Map<string, unknown>();
+    for (const g of userGrants) candidates.set(String(g.assetId), g.assetId);
+    for (const id of (legacyIdRows as unknown[]) ?? []) candidates.set(String(id), id);
+    const candidateIds = [...candidates.values()];
+    if (candidateIds.length === 0) {
+      return {
+        evidenceAssetsDeleted: 0,
+        evidenceFragmentsDeleted: 0,
+        representationsDeleted: 0,
+        evidenceGrantsDeleted: userGrants.length,
+      };
+    }
+    // 3. Classify: the user's grants are already gone, so any live grant
+    // left on a candidate belongs to ANOTHER owner — that asset survives.
+    const [liveRows] = await db.query<[unknown[]]>(
+      `SELECT VALUE assetId FROM evidence_grant
+        WHERE assetId INSIDE $ids AND revokedAt = NONE`,
+      { ids: candidateIds },
+    );
+    const stillOwned = new Set(((liveRows as unknown[]) ?? []).map(String));
+    const dyingIds = candidateIds.filter((id) => !stillOwned.has(String(id)));
+    const survivorIds = candidateIds.filter((id) => stillOwned.has(String(id)));
+    // 4. Survivors: content survives for other owners; the erased user's
+    // grant and identity stamp are gone — the #384 exclusive-document
+    // semantics applied to bytes. Targeted UPDATE by explicit ids.
+    if (survivorIds.length > 0) {
+      await db.query(`UPDATE $ids SET userId = NONE WHERE userId = $u`, {
+        ids: survivorIds,
+        u: userId,
       });
     }
-    // Processing runs (0121) key off assetId only — no ordering hazard
-    // with the repr/frag legs; reprs-before-frags stays exactly as is.
-    const [, , , , , reprsGone, fragsGone, assetsGone] = await db.query<
-      [unknown, unknown, unknown, unknown, unknown[], unknown[], unknown[], unknown[]]
-    >(
-      `LET $assetIds = (SELECT VALUE id FROM evidence_asset WHERE userId = $u);
-       LET $fragIds = (SELECT VALUE id FROM evidence_fragment WHERE assetId INSIDE $assetIds);
-       LET $reprIds = (SELECT VALUE id FROM derived_representation
-         WHERE subjectId INSIDE $assetIds OR subjectId INSIDE $fragIds);
-       LET $runIds = (SELECT VALUE id FROM processing_run WHERE assetId INSIDE $assetIds);
-       DELETE $runIds RETURN BEFORE;
-       DELETE $reprIds RETURN BEFORE;
-       DELETE $fragIds RETURN BEFORE;
-       DELETE $assetIds RETURN BEFORE;`,
-      { u: userId },
-    );
+    // 5. Sole-owned assets die exactly like pre-0122: refs first (the
+    // row is the only pointer), then rows, then blobs. Processing runs
+    // (0121) key off assetId only — no ordering hazard with the
+    // repr/frag legs; reprs-before-frags stays exactly as is. Runs on
+    // SURVIVING shared assets stay too: lineage is asset-scoped, like
+    // the fragments it produced.
+    let deleted = { reprs: 0, frags: 0, assets: 0 };
+    let storageRefs: string[] = [];
+    if (dyingIds.length > 0) {
+      const [refRows] = await db.query<[unknown[]]>(
+        `SELECT VALUE storageRef FROM evidence_asset
+          WHERE id INSIDE $ids AND storageRef != NONE`,
+        { ids: dyingIds },
+      );
+      storageRefs = [...new Set(((refRows as unknown[]) ?? []).map(String))];
+      if (storageRefs.length > 0) {
+        await db.query(`INSERT INTO evidence_blob_gc $rows`, {
+          rows: storageRefs.map((storageRef) => ({ storageRef, reason: 'user_forget' })),
+        });
+      }
+      const [, , , , , reprsGone, fragsGone, , assetsGone] = await db.query<
+        [unknown, unknown, unknown, unknown, unknown[], unknown[], unknown[], unknown[], unknown[]]
+      >(
+        `LET $fragIds = (SELECT VALUE id FROM evidence_fragment WHERE assetId INSIDE $assetIds);
+         LET $reprIds = (SELECT VALUE id FROM derived_representation
+           WHERE subjectId INSIDE $assetIds OR subjectId INSIDE $fragIds);
+         LET $residualGrantIds = (SELECT VALUE id FROM evidence_grant WHERE assetId INSIDE $assetIds);
+         LET $runIds = (SELECT VALUE id FROM processing_run WHERE assetId INSIDE $assetIds);
+         DELETE $runIds RETURN BEFORE;
+         DELETE $reprIds RETURN BEFORE;
+         DELETE $fragIds RETURN BEFORE;
+         DELETE $residualGrantIds RETURN BEFORE;
+         DELETE $assetIds RETURN BEFORE;`,
+        { assetIds: dyingIds },
+      );
+      deleted = {
+        reprs: ((reprsGone as unknown[]) ?? []).length,
+        frags: ((fragsGone as unknown[]) ?? []).length,
+        assets: ((assetsGone as unknown[]) ?? []).length,
+      };
+    }
     let blobFailures = 0;
     for (const ref of storageRefs) {
       const ok = (await this.evidence?.deleteBlobBestEffort(ref)) ?? false;
@@ -470,9 +551,10 @@ export class UserForgetService {
       );
     }
     return {
-      evidenceAssetsDeleted: ((assetsGone as unknown[]) ?? []).length,
-      evidenceFragmentsDeleted: ((fragsGone as unknown[]) ?? []).length,
-      representationsDeleted: ((reprsGone as unknown[]) ?? []).length,
+      evidenceAssetsDeleted: deleted.assets,
+      evidenceFragmentsDeleted: deleted.frags,
+      representationsDeleted: deleted.reprs,
+      evidenceGrantsDeleted: userGrants.length,
     };
   }
 }
