@@ -15,10 +15,11 @@ import { envFlagEnabled } from './env-validation';
  * stay erasable after it is turned off. EVIDENCE_ family sits off the
  * ENGINE flag budget by design (a substrate builder, not an engine fork).
  *
- * Reserved for sibling PRs (NOT defined yet — do not read them):
- * EVIDENCE_SCENE_LINKS (scene↔asset membership).
- * EVIDENCE_FRAGMENT_CITATIONS (MM-zoom PR2) and EVIDENCE_INGEST_ENABLED
- * (PR-C ingest surface) landed below.
+ * Formerly reserved here, all landed: EVIDENCE_FRAGMENT_CITATIONS
+ * (MM-zoom PR2) and EVIDENCE_INGEST_ENABLED (PR-C ingest surface) live
+ * below; the scene↔asset membership seam landed as
+ * SCENES_EVIDENCE_LINKS — the writer is a scene pass, so it keeps the
+ * SCENES_ family naming (see scene-flags.ts).
  */
 export function evidenceSubstrateEnabled(): boolean {
   return envFlagEnabled(process.env.EVIDENCE_SUBSTRATE_ENABLED);
