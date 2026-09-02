@@ -167,6 +167,12 @@ describe('S5.5 — dead exports in the engine dirs', () => {
     // extraction) but pinned DIRECTLY by the minicheck unit spec for its
     // fetch-level cases (prompt shape, Yes/No parse, error surface).
     'miniCheckConsistent',
+    // MM-zoom PR3 (FOVEA_FRAGMENT_ZOOM) pure decision seams. Consumed
+    // inside fragment-zoom.ts (runFragmentZoom) but pinned DIRECTLY by the
+    // fragment-zoom unit spec for their precision cases (cited-first /
+    // truncated-only / cap selection; the substitution prefix fence).
+    'selectZoomFragments',
+    'buildZoomedLines',
   ]);
   const TESTS = walk(join(ROOT, 'test'))
     .map((f) => readFileSync(f, 'utf8'))

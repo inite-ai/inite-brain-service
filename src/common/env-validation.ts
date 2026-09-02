@@ -1138,6 +1138,20 @@ const KNOWN_BOOLEAN_FLAGS = [
   // lookup, byte-identical serving. Outside ENGINE_PREFIX by design (the
   // FOVEA_ family sits off the flag budget).
   'FOVEA_EVIDENCE_CAPABILITY',
+  // Fovea serving-integrity: fragment zoom (MM-zoom PR3) — ONE monotone
+  // bounded zoom step at the post-verifier seam: on a verifier-fail with a
+  // rendered fragment line TRUNCATED by the lane's 600-char excerpt cap,
+  // fetch the fuller DERIVED TEXT of the same derived_representation rows
+  // (≤2 fragments, per-fragment chars capped by the int knob
+  // FOVEA_FRAGMENT_ZOOM_MAX_CHARS — not a boolean flag) through the lane's
+  // own fence stack, and RE-VERIFY ONLY (never regenerate). A flipped
+  // verdict serves; anything else (or any error) falls through to the
+  // static downgrade unchanged. Raw bytes stay behind the
+  // EVIDENCE_RAW_READ_ENABLED gateway — zoom cannot reach them. Default
+  // off = verifier runs exactly once, no extra read, byte-identical
+  // serving. Outside ENGINE_PREFIX by design (the FOVEA_ family sits off
+  // the flag budget).
+  'FOVEA_FRAGMENT_ZOOM',
   // Fovea optics: attention-hints anchor boost — on a fired L3 escalation
   // with fact anchors, the installed packs' memoryModel.attentionHints are
   // resolved against the query (case-folded literal cue match) and anchors

@@ -3,6 +3,7 @@ import type { SearchHit } from '../search/search.service';
 import type { LaneId } from './answer-router';
 import type { AbstainAdaptiveGate } from './verdict';
 import type { L3DecisionDraft } from './l3-escalation.service';
+import { FRAGMENT_ZOOM_MAX_FRAGMENTS, type FragmentZoomResult } from './fragment-zoom';
 import {
   buildFocusSignal,
   queryClassOf,
@@ -127,4 +128,37 @@ export function buildL3DecisionCallback(
     });
     if (id !== undefined) decisionCtx.primaryDecisionId ??= id;
   };
+}
+
+/**
+ * The 'zoom' decision writer (FOVEA_FRAGMENT_ZOOM, MM-zoom PR3), called
+ * once per EVALUATED zoom step — flag on and the primary verdict failed
+ * (mirrors the metric: no row when the step never gated). chosenAction
+ * carries the outcome directly ('zoom:flipped' / 'zoom:unchanged' /
+ * 'skip:no_deeper' / 'error'); observedState.candidateCount is the
+ * TRUNCATED-candidate count at this seam (the L3 maxSessions precedent:
+ * candidateCount is the seam's budget-relevant count). Content-free by
+ * the 0119 contract; claims the primary-decision slot when free.
+ */
+export function captureZoomDecision(
+  decisions: MemoryDecisionService | undefined,
+  companyId: string,
+  args: { result: FragmentZoomResult; decisionCtx: DecisionContext },
+): void {
+  if (!decisions || !MemoryDecisionService.enabled()) return;
+  const { result } = args;
+  const chosenAction =
+    result.outcome === 'flipped' || result.outcome === 'unchanged'
+      ? `zoom:${result.outcome}`
+      : result.outcome === 'skipped'
+        ? 'skip:no_deeper'
+        : 'error';
+  const id = decisions.record(companyId, {
+    decisionKind: 'zoom',
+    policyVersion: `static@cap=${FRAGMENT_ZOOM_MAX_FRAGMENTS}`,
+    chosenAction,
+    observedState: { candidateCount: result.candidateCount },
+    costs: { latencyMs: Date.now() - args.decisionCtx.t0 },
+  });
+  if (id !== undefined) args.decisionCtx.primaryDecisionId ??= id;
 }

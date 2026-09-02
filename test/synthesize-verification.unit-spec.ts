@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SynthesizeService } from '../src/synthesize/synthesize.service';
+import { runVerifier } from '../src/synthesize/verifier';
 import type { SearchService } from '../src/search/search.service';
 import type { ConfigService } from '@nestjs/config';
+import type OpenAI from 'openai';
 
 /**
  * Audit W5 (engine-architecture-audit-2026-08.md #22/#24/#26):
@@ -79,21 +81,38 @@ const HITS = [
   },
 ] as never;
 
+/** Scripted auditor client for the runVerifier prompt-composition pins
+ *  (the callVerifier adapter moved into fragment-zoom-seam.ts with the
+ *  verify stage — verifyAndZoom now calls runVerifier directly, so the
+ *  W5 #22 bundle shape is pinned at the module seam). */
+function stubAuditor(captured: Captured[]): OpenAI {
+  return {
+    chat: {
+      completions: {
+        create: async (req: { messages: Array<{ role: string; content: string }> }) => {
+          captured.push({
+            system: req.messages[0]!.content,
+            user: req.messages[1]!.content,
+          });
+          return {
+            choices: [
+              {
+                message: { content: JSON.stringify({ verdict: 'supported' }) },
+                finish_reason: 'stop',
+              },
+            ],
+          };
+        },
+      },
+    },
+  } as unknown as OpenAI;
+}
+
 describe('verifier sees the whole evidence bundle (W5 #22)', () => {
   it('transcript quotes reach the auditor prompt', async () => {
     const captured: Captured[] = [];
-    const svc = makeService({
-      generatorContent: JSON.stringify({
-        answer: 'You suggested a token bucket [knowledge_fact:f1]',
-        citedFactIds: ['knowledge_fact:f1'],
-      }),
-      captured,
-    });
-    await (
-      svc as unknown as {
-        callVerifier(a: Record<string, unknown>): Promise<unknown>;
-      }
-    ).callVerifier({
+    await runVerifier({
+      openai: stubAuditor(captured),
       query: 'What did you suggest?',
       answer: 'You suggested a token bucket',
       factLines: ['[knowledge_fact:f1] activities: …'],
@@ -109,12 +128,8 @@ describe('verifier sees the whole evidence bundle (W5 #22)', () => {
 
   it('without quotes the prompt is the facts-only shape (no empty sections)', async () => {
     const captured: Captured[] = [];
-    const svc = makeService({ generatorContent: '{}', captured });
-    await (
-      svc as unknown as {
-        callVerifier(a: Record<string, unknown>): Promise<unknown>;
-      }
-    ).callVerifier({
+    await runVerifier({
+      openai: stubAuditor(captured),
       query: 'q',
       answer: 'a',
       factLines: ['[knowledge_fact:f1] x'],

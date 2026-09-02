@@ -6,7 +6,6 @@ import { SearchService, SearchHit } from '../search/search.service';
 import { Semaphore } from '../common/semaphore';
 import { withSpan } from '../common/tracing';
 import { clampLlmInputText } from '../common/input-limits';
-import { getAbortSignal } from '../common/request-context';
 import { pinUserScope } from '../auth/user-scope';
 import { MetricsService } from '../metrics/metrics.service';
 import { SynthesisGuardrails, SynthesizeDto } from './dto/synthesize.dto';
@@ -23,7 +22,6 @@ import {
   resolveCitations,
   resolveRoutedLane,
   serveCacheHit,
-  verifierErrorResult,
 } from './synthesize.helpers';
 import { applyEvidenceUnion } from './evidence-union';
 import type { LaneId } from './answer-router';
@@ -32,6 +30,8 @@ import { getActiveRetrievalProfile, type RetrievalProfile } from '../search/retr
 import { buildFactIndex } from './fact-index';
 import { fragmentCitationsEnabled } from '../common/evidence-flags';
 import { resolveAndCountFragmentCitations } from './fragment-citations';
+import { verifyAndZoom } from './fragment-zoom-seam';
+import { FragmentLaneService } from './fragment-lane.service';
 import { resolveAnswerIntegrity, type FinalizeContext } from './answer-integrity';
 import { makeGroundingFetchPort } from './grounding-fetch';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
@@ -40,8 +40,7 @@ import { applyFactSuffixes } from './update-story';
 import { buildDateMathLines } from './date-math';
 export { buildFactIndex } from './fact-index';
 import { runGenerator, type GenerateRequest } from './generator-client';
-import { runVerifier, type VerifierOutput } from './verifier';
-import { miniCheckVerdict } from './minicheck-client';
+import type { VerifierOutput } from './verifier';
 export { buildGeneratorUserMessage } from './generator-prompt';
 import {
   EvidenceCollectorService,
@@ -154,6 +153,10 @@ export class SynthesizeService {
     // fixtures stay valid; absent (or flag off) ⇒ no decision rows, no
     // join columns, byte-identical serving.
     @Optional() private readonly decisions?: MemoryDecisionService,
+    // MM-zoom PR3 (FOVEA_FRAGMENT_ZOOM): the fenced fuller-text read for
+    // the zoom step. @Optional so positional unit fixtures stay valid —
+    // absent ⇒ the zoom seam no-ops (static behavior).
+    @Optional() private readonly fragmentLane?: FragmentLaneService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
@@ -329,9 +332,9 @@ export class SynthesizeService {
       factIds: [...factIndex.keys()],
       evidence,
     });
-    const { transcriptLines, insightLines, timelineEvidence, fragmentLines, fragmentsById } =
-      collected;
-    const { updateStories, groundingQuotes } = collected;
+    // The other rendered sections stay on `collected` — the verify stage
+    // (verifyAndZoom) and produceAnswer read them from there directly.
+    const { fragmentsById, updateStories, groundingQuotes } = collected;
 
     // V10 §2 update stories + multiworld §10 grounding quotes: both
     // suffix maps land on the SAME lines the generator and the
@@ -396,92 +399,45 @@ export class SynthesizeService {
     if (unverified) return unverified;
 
     onProgress({ stage: 'verify', message: 'verifier checking claim grounding' });
-    // Verifier — the corrective guardrail. Runs in strict and
-    // lenient modes. Strict gates the answer behind a 'supported'
+    // Verifier — the corrective guardrail — plus the MM-zoom PR3
+    // fragment-zoom step (FOVEA_FRAGMENT_ZOOM), ONE stage behind one
+    // seam (fragment-zoom-seam.ts, moved whole for the size gates: the
+    // primary audit and the zoom re-verify build their VerifyRequest in
+    // one module, so evidence parity between them holds by
+    // construction). Strict gates the answer behind a 'supported'
     // verdict; lenient surfaces the verdict but returns the answer
-    // either way.
-    // V11 §2 arm (b): lenient 'minicheck' delegates the judgment to
-    // the local NLI; the verdict falls through to the SAME
-    // finalizeVerdict gate below (verdict.ts treats the mode like
-    // 'verifier'). A throw lands in the shared verifier_error catch.
-    const nliMode = guardrails === 'lenient' && profile.abstentionCalibration === 'minicheck';
-    let verdict: VerifierOutput;
-    try {
-      verdict = nliMode
-        ? await miniCheckVerdict(
-            { baseUrl: this.minicheckUrl, model: this.minicheckModel, signal: getAbortSignal() },
-            {
-              answer: generated.answer,
-              factLines: promptFactLines,
-              transcriptLines,
-              insightLines,
-              // MM-zoom PR2 parity: the media lines the generator saw.
-              fragmentLines,
-            },
-          )
-        : await withSpan(
-            'synthesize.verify',
-            () =>
-              this.limiter.run(() =>
-                this.callVerifier({
-                  query: dto.query,
-                  answer: generated.answer,
-                  factLines: promptFactLines,
-                  // Audit W5 #22: the verifier used to see ONLY factLines,
-                  // so an answer correctly built from transcript quotes or
-                  // the computed interval table had claims present in no
-                  // fact line — strict mode dropped correct answers, and
-                  // lenient/answer shipped quoted L0 content with zero
-                  // faithfulness scoring. It now audits against the same
-                  // evidence the generator was given.
-                  transcriptLines,
-                  insightLines,
-                  // W5 #22 parity for the mention record (V9 §2 closes the
-                  // V8 gap): the auditor sees the same MENTION RECORD
-                  // framing the generator saw — the collector computed it
-                  // exactly once for both.
-                  timelineEvidence,
-                  // V10 §5: topic-coverage audit (relationship-claim
-                  // strictness + the questionAnswered judgment).
-                  topicCoverage: profile.verifierTopicCoverage,
-                  // V13 date-table parity: the auditor sees the same
-                  // computed table the generator saw.
-                  dateMathLines,
-                  // MM-zoom PR2 parity: the same media lines the
-                  // generator saw (the 0113 capabilityEvidenceLines seam).
-                  capabilityEvidenceLines: fragmentLines,
-                  // G4 strategyNotes are DELIBERATELY absent — the one
-                  // documented exception to the W5 #22 parity invariant:
-                  // advisory strategy notes are guidance, not evidence,
-                  // and must never make an unsupported claim verify as
-                  // supported (see verifier.ts + CollectedEvidence).
-                  // V11 §2 arm (a): the audit may run on a stronger judge
-                  // than the generator; empty override = same model.
-                  model: profile.verifierModel || model,
-                }),
-              ),
-            { 'synthesize.facts': factIndex.size },
-          );
-    } catch (err) {
-      this.logger.warn(`Synthesize verifier failed: ${(err as Error).message}`);
-      this.metrics?.countSynthesize('verifier_error');
-      return verifierErrorResult({
-        guardrails,
-        answer: generated.answer,
-        citations,
-        results,
-        decisionLog,
-      });
-    }
-
-    // Optics-1 focus capture — SERVING-NEUTRAL guarded no-op (see method).
-    // `dto.query` carries the Tier 5 language key onto the verdict sample;
-    // the 0119 primary decision id (if any) joins sample → decision row.
-    await this.maybeCaptureFocusSignal(
-      companyId,
-      { results, verdict: verdict.verdict, lane, decisionId: decisionCtx.primaryDecisionId },
-      dto.query,
-    );
+    // either way; 'minicheck' delegates to the local NLI. A verifier
+    // throw returns the historical verifier_error result. On a
+    // zoom flip the returned verdict is the RE-verified one — the L3
+    // trigger below then reads 'skip_verdict_ok' and the normal
+    // supported serve runs; otherwise (and always with the flag off)
+    // it is the primary verdict, byte for byte.
+    //
+    // Optics-1 focus capture rides the onPrimaryVerdict callback so the
+    // sample sees the PRE-zoom verdict (fit-shape discipline; see
+    // maybeCaptureFocusSignal — SERVING-NEUTRAL guarded no-op).
+    // `dto.query` carries the Tier 5 language key onto the verdict
+    // sample; the 0119 primary decision id joins sample → decision row.
+    const verified = await verifyAndZoom(this.verifyDeps(), {
+      ctx: cacheArgs,
+      generated,
+      collected,
+      promptFactLines,
+      dateMathLines,
+      citations,
+      results,
+      decisionLog,
+      factCount: factIndex.size,
+      decisionCtx,
+      onPrimaryVerdict: (v) =>
+        this.maybeCaptureFocusSignal(
+          companyId,
+          { results, verdict: v.verdict, lane, decisionId: decisionCtx.primaryDecisionId },
+          dto.query,
+        ),
+    });
+    if ('failed' in verified) return verified.failed;
+    const { verdict } = verified;
 
     // G2 L3 escalation — the pre-abstention seam. On a verifier-fail with
     // an anchoring session it escalates ONCE to full-raw-session context
@@ -687,6 +643,21 @@ export class SynthesizeService {
         abstention: profile.abstentionCalibration,
       },
     );
+  }
+
+  /** The verify-stage ports, bundled once (fragment-zoom-seam.ts owns
+   *  the primary audit + the MM-zoom PR3 step; this service only lends
+   *  its ports — the resolveAnswerIntegrity deps idiom). */
+  private verifyDeps() {
+    return {
+      openai: this.openai,
+      metrics: this.metrics,
+      logger: this.logger,
+      limiter: this.limiter,
+      fragmentLane: this.fragmentLane,
+      decisions: this.decisions,
+      minicheck: { baseUrl: this.minicheckUrl, model: this.minicheckModel },
+    };
   }
 
   /**
@@ -1116,8 +1087,9 @@ export class SynthesizeService {
 
   /**
    * Thin adapter over the generator client (V10 architecture pass) —
-   * same seam as callVerifier/runVerifier: the orchestrator supplies
-   * its client/metrics/logger, the module owns the call.
+   * the orchestrator supplies its client/metrics/logger, the module owns
+   * the call. (The verifier twin moved into fragment-zoom-seam.ts with
+   * the verify stage — verifyAndZoom calls runVerifier directly.)
    */
   private async callGenerator(
     args: Omit<GenerateRequest, 'openai' | 'metrics' | 'logger'>,
@@ -1126,26 +1098,6 @@ export class SynthesizeService {
       openai: this.openai,
       metrics: this.metrics,
       logger: this.logger,
-      ...args,
-    });
-  }
-
-  private async callVerifier(args: {
-    query: string;
-    answer: string;
-    factLines: string[];
-    transcriptLines?: string[] | undefined;
-    insightLines?: string[] | undefined;
-    timelineEvidence?: boolean | undefined;
-    topicCoverage?: boolean | undefined;
-    dateMathLines?: string[] | undefined;
-    /** MM-zoom PR2: the fragment lane's rendered media lines (parity). */
-    capabilityEvidenceLines?: string[] | undefined;
-    model: string;
-  }): Promise<VerifierOutput> {
-    return runVerifier({
-      openai: this.openai,
-      metrics: this.metrics,
       ...args,
     });
   }

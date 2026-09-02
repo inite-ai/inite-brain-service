@@ -12,8 +12,9 @@ import {
 /**
  * MemoryDecisionService — the ONE write seam for memory_decision rows
  * (migration 0119): decision-context telemetry for the serving path's
- * policy decisions (this PR: the abstain gate + the L3 escalation
- * trigger; 'lane_route'/'zoom' reserve the audit's other seams).
+ * policy decisions (the abstain gate, the L3 escalation trigger, and —
+ * MM-zoom PR3 — the fragment-zoom step; 'lane_route' reserves the
+ * audit's remaining seam).
  *
  * Discipline (the ToolObservationService/MemoryOutcomeService idiom):
  *   * master-flag guard INSIDE the service (OUTCOME_DECISION_CAPTURE,
@@ -34,8 +35,9 @@ import {
  * design — see the forget services).
  */
 
-/** The decision seams 0119 reserves. Only the first two get writers in
- *  this PR; the enum reserves the audit's other seams. */
+/** The decision seams 0119 reserves. 'l3_escalation'/'abstain' got their
+ *  writers with 0119, 'zoom' with MM-zoom PR3 (decision-emit.ts
+ *  captureZoomDecision); 'lane_route' still reserves its seam. */
 export type DecisionKind = 'l3_escalation' | 'abstain' | 'lane_route' | 'zoom';
 
 /** Cap on the alternatives array (contract-bounded row size). */

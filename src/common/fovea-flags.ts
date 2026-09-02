@@ -239,6 +239,64 @@ export function attentionHintsEnabled(): boolean {
 }
 
 /**
+ * Fovea serving-integrity family — fragment-zoom master flag —
+ * FOVEA_FRAGMENT_ZOOM (MM-zoom PR3).
+ *
+ * WHAT IT CHANGES: ONE monotone bounded zoom step at the post-verifier
+ * seam (the adaptive-L3 ladder idiom — single-shot, capped, fail-safe to
+ * static). When the verifier verdict fails (not supported, or
+ * supported-but-not-answering under topic coverage) AND at least one
+ * RENDERED fragment line was TRUNCATED by the lane's 600-char excerpt
+ * cap, the service fetches the FULLER derived TEXT of the same
+ * derived_representation rows — capped per fragment by
+ * FOVEA_FRAGMENT_ZOOM_MAX_CHARS, at most FRAGMENT_ZOOM_MAX_FRAGMENTS
+ * fragments, through the SAME fence stack the lane applied — and
+ * RE-VERIFIES ONLY (never regenerates) against the enriched evidence
+ * document. A flipped verdict serves through the normal finalize path;
+ * anything else falls through to the existing downgrade path unchanged.
+ *
+ * DERIVED TEXT ONLY — NEVER RAW BYTES: zoom widens the auditor's view of
+ * derived_representation.content (captions / OCR / ASR text renders).
+ * Original media bytes stay exclusively behind the raw-read gateway
+ * (EVIDENCE_RAW_READ_ENABLED, EvidenceReadService — gate ladder, grants,
+ * signed URLs, access audit); the zoom step can never reach them.
+ *
+ * SAFETY: one step max, before and independent of L3 escalation; any
+ * error degrades to the static (pre-zoom) behavior. The env read lives
+ * here in the common layer, NOT inside the engine dirs (engine-gates
+ * S5.2). Read at call time so a flip is runtime-mutable. Default off ⇒
+ * the verifier runs exactly once and no extra read happens —
+ * byte-identical serving.
+ */
+export function fragmentZoomEnabled(): boolean {
+  return envFlagEnabled(process.env.FOVEA_FRAGMENT_ZOOM);
+}
+
+/** Default per-fragment char cap on the zoomed derived text. */
+const DEFAULT_FRAGMENT_ZOOM_MAX_CHARS = 4000;
+/** Sanity ceiling on the knob (keeps a fat OCR from blowing the audit
+ *  prompt); values above it fall back to the default. */
+const FRAGMENT_ZOOM_MAX_CHARS_CEILING = 100_000;
+
+/**
+ * MM-zoom PR3 char-cap knob (FOVEA_FRAGMENT_ZOOM_MAX_CHARS): the
+ * per-fragment ceiling on the fuller derived text a zoom step may hand
+ * the re-verifier. A non-boolean knob resolved here in the common layer
+ * so the engine dirs take a resolved number. Must be a positive integer
+ * ≤ 100000; unset, blank, or out of range → the 4000 default. A value
+ * at or below the lane's 600-char excerpt cap makes no candidate
+ * "deeper" and the zoom step skips — safe, just useless.
+ */
+export function fragmentZoomMaxChars(): number {
+  const raw = process.env.FOVEA_FRAGMENT_ZOOM_MAX_CHARS;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_FRAGMENT_ZOOM_MAX_CHARS;
+  const v = Number(raw);
+  return Number.isInteger(v) && v > 0 && v <= FRAGMENT_ZOOM_MAX_CHARS_CEILING
+    ? v
+    : DEFAULT_FRAGMENT_ZOOM_MAX_CHARS;
+}
+
+/**
  * Multilingual Tier 5 master flag — MULTILINGUAL_CALIBRATION.
  *
  * When on, the §4.2 per-class focus calibrator (focus-signal.ts) gains a

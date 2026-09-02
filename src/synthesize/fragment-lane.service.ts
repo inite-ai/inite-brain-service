@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { mediaPiiGate } from '../common/media-pii';
@@ -6,6 +7,7 @@ import { capabilityForModality } from '../common/evidence-taxonomy';
 import { hasCurrentModalityConsent, type ModalityConsentRow } from '../ai/domain-packs';
 import { rrfFuse } from './segment-lane.service';
 import type { CitableFragment } from './fragment-citations';
+import type { ZoomCandidate } from './fragment-zoom';
 
 /** Fragment lines per prompt (design constant, MM-zoom PR2 —
  *  deliberately NOT an env knob until the lane is measured). */
@@ -37,9 +39,18 @@ export interface FragmentLaneResult {
    * off: no headers rendered, nothing citable).
    */
   byId: Map<string, CitableFragment>;
+  /**
+   * Zoom affordances for EXACTLY the fragments rendered into `lines`
+   * (FOVEA_FRAGMENT_ZOOM, MM-zoom PR3) — which derived_representation
+   * row each line excerpted and whether the 600-char cap truncated it.
+   * Pure bookkeeping over rows already in memory: populated
+   * unconditionally (no IO, no rendered-byte change); consumed only by
+   * the flag-gated zoom step.
+   */
+  zoom: ZoomCandidate[];
 }
 
-const EMPTY_RESULT: FragmentLaneResult = { lines: [], byId: new Map() };
+const EMPTY_RESULT: FragmentLaneResult = { lines: [], byId: new Map(), zoom: [] };
 
 /**
  * Fragment retrieval lane (MM-zoom PR2, profile.fragmentLane /
@@ -97,17 +108,7 @@ export class FragmentLaneService {
     withIds: boolean;
   }): Promise<FragmentLaneResult> {
     const fetchK = Math.max(FRAGMENT_LANE_TOP_K * 3, 12);
-    // Fence 3: the fragment's own piiClasses, through the record link.
-    const piiGate = mediaPiiGate(opts.callerScopes, 'subjectId.piiClasses');
-    // Fence 2: asset-join user fence (single-owner 0055 gate — see class doc).
-    const userFence =
-      opts.userId === undefined
-        ? { clause: 'AND subjectId.assetId.userId IS NONE', params: {} }
-        : {
-            clause:
-              'AND (subjectId.assetId.userId IS NONE OR subjectId.assetId.userId = $scopeUserId)',
-            params: { scopeUserId: opts.userId },
-          };
+    const { piiGate, userFence } = this.rowFences(opts.callerScopes, opts.userId);
     try {
       // Fence 4 (0112): tenant-level consent — absent/stale ⇒ EMPTY.
       const consented = await this.surreal.withCompany(opts.companyId, async (db) => {
@@ -178,7 +179,9 @@ export class FragmentLaneService {
    * with the `[<fragmentId>]` header only under `withIds` (the L3
    * episode-header idiom — flag off renders byte-identical lines with
    * no citable surface). The capability tag leads every line — the
-   * VerifyRequest.capabilityEvidenceLines contract.
+   * VerifyRequest.capabilityEvidenceLines contract. Each kept row also
+   * records its ZoomCandidate (which repr row the excerpt came from +
+   * whether the cap truncated it) — bookkeeping only, no byte change.
    */
   private render(fused: FragmentReprRow[], withIds: boolean): FragmentLaneResult {
     const byFragment = new Map<string, FragmentReprRow>();
@@ -194,16 +197,25 @@ export class FragmentLaneService {
     );
     const lines: string[] = [];
     const byId = new Map<string, CitableFragment>();
+    const zoom: ZoomCandidate[] = [];
     for (const [fragmentId, row] of kept) {
       const modality = String(row.modality ?? 'unknown');
       const capability = capabilityForModality(modality);
-      const excerpt = String(row.content).slice(0, FRAGMENT_EXCERPT_MAX_CHARS);
+      const content = String(row.content);
+      const excerpt = content.slice(0, FRAGMENT_EXCERPT_MAX_CHARS);
       const day = isoDay(row.occurredAt);
-      const base =
+      const linePrefix =
         `[capability:${capability}] ` +
         (withIds ? `[${fragmentId}] ` : '') +
-        `(${modality} ${String(row.kind ?? 'text')}${day ? `, ${day}` : ''}) ${excerpt}`;
-      lines.push(base);
+        `(${modality} ${String(row.kind ?? 'text')}${day ? `, ${day}` : ''}) `;
+      zoom.push({
+        fragmentId,
+        reprId: String(row.id ?? ''),
+        lineIndex: lines.length,
+        linePrefix,
+        truncated: content.length > FRAGMENT_EXCERPT_MAX_CHARS,
+      });
+      lines.push(linePrefix + excerpt);
       if (withIds) {
         byId.set(fragmentId, {
           fragmentId,
@@ -214,7 +226,75 @@ export class FragmentLaneService {
         });
       }
     }
-    return { lines, byId };
+    return { lines, byId, zoom };
+  }
+
+  /**
+   * Fuller derived TEXT for the given derived_representation rows — the
+   * FOVEA_FRAGMENT_ZOOM read (MM-zoom PR3). Re-applies the lane's OWN
+   * fence stack per read (defense in depth — the rows passed it seconds
+   * ago in the same request, but rows can change): tenant (withCompany),
+   * 0112 modality consent, asset-join user fence, media PII, and
+   * availability. Content is capped at `maxChars` per row. DERIVED TEXT
+   * ONLY: this reads derived_representation.content — original media
+   * bytes stay exclusively behind the raw-read gateway
+   * (EVIDENCE_RAW_READ_ENABLED, EvidenceReadService). Errors PROPAGATE:
+   * the zoom runner (fragment-zoom.ts) owns the fail-safe-to-static
+   * catch and the 'error' outcome count.
+   */
+  async fullerTexts(opts: {
+    companyId: string;
+    reprIds: string[];
+    maxChars: number;
+    callerScopes: string[];
+    userId?: string | undefined;
+  }): Promise<Map<string, string>> {
+    if (opts.reprIds.length === 0) return new Map();
+    const { piiGate, userFence } = this.rowFences(opts.callerScopes, opts.userId);
+    const rows = await this.surreal.withCompany(opts.companyId, async (db) => {
+      const [consentRows] = await db.query<[ModalityConsentRow[]]>(
+        `SELECT manifest, acceptedModalities, acceptedModalitiesChecksum FROM domain_pack`,
+      );
+      if (!hasCurrentModalityConsent(consentRows ?? [])) return [];
+      const [reprRows] = await db.query<[Array<{ id?: unknown; content?: unknown }>]>(
+        `SELECT id, content FROM derived_representation
+            WHERE id INSIDE $ids AND subjectKind = 'fragment'
+            ${userFence.clause}
+            ${piiGate}
+            AND subjectId.assetId.availability != 'gone'`,
+        { ids: opts.reprIds.map((id) => new StringRecordId(id)), ...userFence.params },
+      );
+      return reprRows ?? [];
+    });
+    const out = new Map<string, string>();
+    for (const row of rows) {
+      if (typeof row.content !== 'string') continue;
+      out.set(String(row.id ?? ''), row.content.slice(0, opts.maxChars));
+    }
+    return out;
+  }
+
+  /** The lane's row-level fences (2: asset-join user fence, 3: media
+   *  PII), shared verbatim by the retrieval read and the zoom read. */
+  private rowFences(
+    callerScopes: string[],
+    userId: string | undefined,
+  ): {
+    piiGate: string;
+    userFence: { clause: string; params: Record<string, string> };
+  } {
+    // Fence 3: the fragment's own piiClasses, through the record link.
+    const piiGate = mediaPiiGate(callerScopes, 'subjectId.piiClasses');
+    // Fence 2: asset-join user fence (single-owner 0055 gate — see class doc).
+    const userFence =
+      userId === undefined
+        ? { clause: 'AND subjectId.assetId.userId IS NONE', params: {} }
+        : {
+            clause:
+              'AND (subjectId.assetId.userId IS NONE OR subjectId.assetId.userId = $scopeUserId)',
+            params: { scopeUserId: userId },
+          };
+    return { piiGate, userFence };
   }
 }
 
