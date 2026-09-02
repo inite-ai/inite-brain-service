@@ -138,10 +138,7 @@ describe('Belief serving lane e2e (the dogfood stale-answer scenario)', () => {
     });
     process.env.SCENES_SEGMENTATION_ENABLED = '1';
     process.env.SCENES_BELIEF_PROMOTION = '1';
-    const promoted = await f.http
-      .post('/v1/admin/maintenance/scenes/beliefs')
-      .set(auth())
-      .send({});
+    const promoted = await f.http.post('/v1/admin/maintenance/scenes/beliefs').set(auth()).send({});
     expect(promoted.status).toBe(201);
     expect(promoted.body).toMatchObject({ beliefsCreated: 1 });
     delete process.env.SCENES_SEGMENTATION_ENABLED;

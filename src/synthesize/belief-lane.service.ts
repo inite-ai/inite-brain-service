@@ -156,9 +156,7 @@ export class BeliefLaneService {
       return this.render(fused, userId);
     } catch (e) {
       // Fence 6: degrade to an empty section, never fail the answer.
-      this.logger.warn(
-        `belief lane failed (companyId=${opts.companyId}): ${(e as Error).message}`,
-      );
+      this.logger.warn(`belief lane failed (companyId=${opts.companyId}): ${(e as Error).message}`);
       return EMPTY_RESULT;
     }
   }

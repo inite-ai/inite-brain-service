@@ -116,10 +116,7 @@ export function resolveAndCountBeliefCitations(opts: {
   metrics?: BeliefCitationMetrics | undefined;
 }): EvidenceCitation[] {
   if (!opts.beliefsById) return [];
-  const { citations, counts } = resolveBeliefCitations(
-    opts.citedBeliefIds ?? [],
-    opts.beliefsById,
-  );
+  const { citations, counts } = resolveBeliefCitations(opts.citedBeliefIds ?? [], opts.beliefsById);
   for (const outcome of ['cited', 'dropped_unknown'] as const) {
     if (counts[outcome] > 0) opts.metrics?.countBeliefCitation(outcome, counts[outcome]);
   }

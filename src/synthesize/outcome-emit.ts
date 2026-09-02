@@ -153,15 +153,13 @@ export function emitBeliefAnswerUse(
   }));
   if (verdict?.verdict === 'supported') {
     events.push(
-      ...beliefIds.map(
-        (id): OutcomeEventInput => ({
-          subjectKind: 'belief',
-          subjectId: id,
-          event: 'verifier_supported',
-          meta: { verdict: verdict.verdict },
-          ...(decisionId !== undefined ? { decisionId } : {}),
-        }),
-      ),
+      ...beliefIds.map((id): OutcomeEventInput => ({
+        subjectKind: 'belief',
+        subjectId: id,
+        event: 'verifier_supported',
+        meta: { verdict: verdict.verdict },
+        ...(decisionId !== undefined ? { decisionId } : {}),
+      })),
     );
   }
   if (events.length === 0) return;
