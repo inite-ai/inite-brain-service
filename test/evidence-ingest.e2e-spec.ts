@@ -176,6 +176,16 @@ describe('evidence ingest surface (e2e)', () => {
     expect(await countRows('evidence_asset')).toBe(1);
   });
 
+  it('a prototype-chain locator kind is a clean 400, not a 500', async () => {
+    const res = await post({
+      ...baseBody(),
+      byteHash: HASH_B,
+      fragments: [{ locator: { kind: 'constructor' } }],
+    }).expect(400);
+    expect(JSON.stringify(res.body.message)).toContain('unknown locator kind');
+    expect(await countRows('evidence_asset')).toBe(1);
+  });
+
   it('same-user re-registration dedupes and appends the requested fragments', async () => {
     const res = await post({
       ...baseBody(),

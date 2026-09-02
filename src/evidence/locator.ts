@@ -102,8 +102,16 @@ export function validateLocator(modality: string, locator: unknown): string | nu
   }
   const loc = locator as Record<string, unknown>;
   const kind = typeof loc.kind === 'string' ? loc.kind : '';
-  const allowed = KIND_MODALITIES[kind];
-  const validate = SHAPE_VALIDATORS[kind];
+  // OWN-property membership only: a prototype-chain name ('constructor',
+  // '__proto__', 'toString'…) would resolve to an inherited member on
+  // these record literals, pass a bare truthiness guard, and then crash
+  // the unknown-field walk with a TypeError (500 instead of 400). The
+  // kind vocabulary is the records' own keys, nothing else — and the
+  // surface is caller-reachable via POST /v1/ingest/evidence-asset
+  // (CodeQL js/unvalidated-dynamic-method-call).
+  const isKnownKind = Object.prototype.hasOwnProperty.call(SHAPE_VALIDATORS, kind);
+  const allowed = isKnownKind ? KIND_MODALITIES[kind] : undefined;
+  const validate = isKnownKind ? SHAPE_VALIDATORS[kind] : undefined;
   if (!allowed || !validate) return `unknown locator kind '${String(loc.kind)}'`;
   const unknownField = Object.keys(loc).find((field) => !LOCATOR_FIELDS[kind]!.has(field));
   if (unknownField) return `locator kind '${kind}' has unknown field '${unknownField}'`;
