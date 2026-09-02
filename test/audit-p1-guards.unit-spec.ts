@@ -639,3 +639,46 @@ describe('0117_window_user_scope (mixed-user privacy fence substrate)', () => {
     expect(sql).not.toContain('DEFINE INDEX');
   });
 });
+
+describe('0124_fragment_content_search (fragment lane BM25 leg)', () => {
+  const sql = readFileSync(join(MIGRATIONS, '0124_fragment_content_search.surql'), 'utf8');
+
+  it('defines the BM25 content index with the lowercase-only analyzer', () => {
+    // The 0073/0075/0106 analyzer contract: lowercase only — snowball
+    // stemming would mangle non-Latin scripts, and caption/OCR/ASR text
+    // is multilingual by nature.
+    expect(sql).toContain(
+      'DEFINE ANALYZER IF NOT EXISTS fragment_content TOKENIZERS class FILTERS lowercase;',
+    );
+    expect(sql).toMatch(
+      /DEFINE INDEX IF NOT EXISTS derived_repr_content_search ON derived_representation\s+FIELDS content FULLTEXT ANALYZER fragment_content BM25;/,
+    );
+  });
+
+  it.each([['derived_repr_content_search', 'derived_representation', 'content']])(
+    'defines %s on %s(%s) single-field (3.2.4 compound-planner DELETE risk)',
+    (name, table) => {
+      const indexLines = sql
+        .split('\n')
+        .filter((l) => l.trimStart().startsWith('DEFINE INDEX'))
+        .filter((l) => l.includes(name) && l.includes(table));
+      expect(indexLines.length).toBeGreaterThan(0);
+      for (const line of indexLines) {
+        expect(line).not.toMatch(/FIELDS [A-Za-z]+,/);
+      }
+    },
+  );
+
+  it('deliberately defines NO changefeed, NO event, NO new field', () => {
+    // Index-only migration: the 0109 GDPR reasoning stands (derived
+    // caption/OCR/ASR text must not stay readable in a feed after an
+    // erasure), and the storage shape is untouched.
+    const code = sql
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('--'))
+      .join('\n');
+    expect(code).not.toMatch(/CHANGEFEED/);
+    expect(code).not.toMatch(/DEFINE EVENT/);
+    expect(code).not.toMatch(/DEFINE FIELD/);
+  });
+});
