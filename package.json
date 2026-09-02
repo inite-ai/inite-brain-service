@@ -35,6 +35,7 @@
     "test:e2e:jobs": "jest --config ./test/jest-e2e-real.json --runInBand --testPathPatterns=jobs.real",
     "test:eval": "pnpm build && jest --config ./test/jest-e2e-real.json --runInBand --testPathPatterns=quality",
     "eval:diff": "ts-node -r tsconfig-paths/register scripts/eval-baseline-diff.ts",
+    "eval:memory-fitness": "ts-node -T test/eval/memory-fitness/runner.ts",
     "openapi:build": "ts-node -T scripts/build-openapi.ts",
     "mri:report": "ts-node -T scripts/mri-report.ts",
     "mri:record-suite": "ts-node -T scripts/mri-record-suite.ts",
