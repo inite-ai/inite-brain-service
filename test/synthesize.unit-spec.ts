@@ -587,6 +587,26 @@ describe('buildGeneratorUserMessage — belief section (BELIEFS_SERVING_LANE sea
     expect(out).toContain('cite factIds only');
     expect(out).not.toContain('citedBeliefIds');
   });
+
+  it('abstention discipline (memory-fitness D5): BOTH header variants condition the belief preference and pin the evidence-only clause', () => {
+    const line = '[semantic_belief:b1] (s — f, rev 1) s';
+    const cited = buildGeneratorUserMessage({
+      ...BASE,
+      beliefLines: [line],
+      beliefCitations: true,
+    });
+    const plain = buildGeneratorUserMessage({ ...BASE, beliefLines: [line] });
+    for (const out of [cited, plain]) {
+      // The preference is conditional on a covering line — never a blanket
+      // license to answer current-state questions from the belief record.
+      expect(out).toContain('prefer these lines ONLY when one covers the asked subject/field');
+      // The lane adds evidence without relaxing the base abstention rule.
+      expect(out).toContain(
+        'These lines ADD evidence — they never relax the base evidence rules: when NEITHER a belief line NOR the facts/transcript cover the question, follow the base instructions for an unanswerable question unchanged',
+      );
+      expect(out).not.toContain('prefer these lines;');
+    }
+  });
 });
 
 describe('buildVerifierUserMessage — beliefLines (BELIEFS_SERVING_LANE seam)', () => {
@@ -674,6 +694,52 @@ describe('runGenerator — belief-citation affordance (BELIEFS_SERVING_LANE)', (
     expect(JSON.stringify(emptyLane[0])).toBe(JSON.stringify(base[0]));
     expect(JSON.stringify(base[0])).not.toContain('citedBeliefIds');
     expect(JSON.stringify(base[0])).not.toContain('BELIEF CITATIONS');
+    expect(JSON.stringify(base[0])).not.toContain('BELIEF LINES PRESERVE ABSTENTION');
+  });
+
+  it('rendered lane (default mode) ⇒ the abstention guard mirrors the base rule VERBATIM', async () => {
+    const reqs: unknown[] = [];
+    await runGenerator({
+      ...BASE,
+      beliefCitations: true,
+      beliefLines: ['[semantic_belief:b1] (s — f, rev 1) s'],
+      openai: capturingOpenAi(
+        reqs,
+        JSON.stringify({ answer: 'x', citedFactIds: [], citedBeliefIds: [] }),
+      ),
+    });
+    const system = (
+      reqs[0] as { messages: Array<{ role: string; content: string }> }
+    ).messages.find((m) => m.role === 'system')!.content;
+    expect(system).toContain('BELIEF LINES PRESERVE ABSTENTION');
+    expect(system).toContain('Prefer a belief line only when one covers the asked subject/field.');
+    // Verbatim mirror of the base GENERATOR_SYSTEM rule 3 abstention tail —
+    // the belief lane must not weaken the absence-honesty contract (D5).
+    expect(system).toContain(
+      `If neither a belief line nor the facts answer the question, output the exact answer string "I don't have grounded evidence for that." with citedFactIds set to [].`,
+    );
+    // The base rule itself is still present (the guard adds, never replaces).
+    expect(system).toContain('If the facts do not answer the question');
+  });
+
+  it('neverAbstain mode keeps its always-commit contract — NO abstention guard with the lane rendered', async () => {
+    const reqs: unknown[] = [];
+    await runGenerator({
+      ...BASE,
+      neverAbstain: true,
+      beliefCitations: true,
+      beliefLines: ['[semantic_belief:b1] (s — f, rev 1) s'],
+      openai: capturingOpenAi(
+        reqs,
+        JSON.stringify({ answer: 'x', citedFactIds: [], citedBeliefIds: [] }),
+      ),
+    });
+    const system = (
+      reqs[0] as { messages: Array<{ role: string; content: string }> }
+    ).messages.find((m) => m.role === 'system')!.content;
+    expect(system).toContain('ALWAYS commit to an answer');
+    expect(system).not.toContain('BELIEF LINES PRESERVE ABSTENTION');
+    expect(system).not.toContain("I don't have grounded evidence for that.");
   });
 
   it('live affordance ⇒ schema gains citedBeliefIds (properties + required) and the addendum', async () => {

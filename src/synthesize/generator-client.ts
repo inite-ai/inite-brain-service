@@ -142,6 +142,21 @@ const BELIEF_CITE_ADDENDUM = `
 
 BELIEF CITATIONS: some evidence lines are distilled current-state beliefs headed by a [semantic_belief:...] id. When a claim in your answer rests on such a line, copy that id EXACTLY as it appears into the citedBeliefIds array (in addition to any factIds you cite). Cite only ids present in the evidence — never invent one. citedBeliefIds is [] when no belief line supports a claim.`;
 
+/**
+ * BELIEFS_SERVING_LANE abstention guard (memory-fitness D5): the
+ * current-state preference in the belief section must not weaken the
+ * base evidence-only/abstention discipline — the lane adds evidence,
+ * never permission to answer. The closing sentence mirrors the base
+ * GENERATOR_SYSTEM rule 3 abstention sentence VERBATIM. Appended only
+ * when the belief section actually rendered (flag off / empty lane ⇒
+ * byte-identical system prompt) and only in the default abstaining
+ * mode — never with GENERATOR_SYSTEM_ANSWER, whose always-commit
+ * contract (neverAbstain) is deliberately unchanged.
+ */
+const BELIEF_ABSTENTION_ADDENDUM = `
+
+BELIEF LINES PRESERVE ABSTENTION: the current-state record is ADDITIONAL evidence, not permission to answer beyond the evidence. Prefer a belief line only when one covers the asked subject/field. If neither a belief line nor the facts answer the question, output the exact answer string "I don't have grounded evidence for that." with citedFactIds set to [].`;
+
 /** The strict-JSON answer schema, affordance-conditional fields included
  *  (extracted from runGenerator for the complexity budget — pure). */
 function buildAnswerSchema(opts: {
@@ -179,6 +194,9 @@ export async function runGenerator(req: GenerateRequest): Promise<GeneratorOutpu
   // Same guard for beliefs: flag-on with an empty lane keeps prompt and
   // schema byte-identical (BELIEFS_SERVING_LANE).
   const beliefAffordance = req.beliefCitations === true && (req.beliefLines?.length ?? 0) > 0;
+  // The abstention guard rides the RENDERED section, not the citation
+  // affordance — it must hold even under a future header/flag split.
+  const beliefRendered = (req.beliefLines?.length ?? 0) > 0;
   const answerSchema = buildAnswerSchema({
     allowRefine: req.allowRefine === true,
     fragmentAffordance,
@@ -188,7 +206,8 @@ export async function runGenerator(req: GenerateRequest): Promise<GeneratorOutpu
     (neverAbstain ? GENERATOR_SYSTEM_ANSWER : GENERATOR_SYSTEM) +
     (req.allowRefine ? REFINE_ADDENDUM : '') +
     (fragmentAffordance ? FRAGMENT_CITE_ADDENDUM : '') +
-    (beliefAffordance ? BELIEF_CITE_ADDENDUM : '');
+    (beliefAffordance ? BELIEF_CITE_ADDENDUM : '') +
+    (beliefRendered && !neverAbstain ? BELIEF_ABSTENTION_ADDENDUM : '');
   const user = buildGeneratorUserMessage(req);
   traceArtifact('synthesize.generator_prompt', {
     system: systemPrompt,
