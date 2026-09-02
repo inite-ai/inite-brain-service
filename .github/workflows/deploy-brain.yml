@@ -221,9 +221,10 @@ jobs:
                 # subset_of_previous, expand the prior entity set to
                 # include 1-hop neighbours over knowledge_edge before
                 # anchoring. Turns the chain into a true graph-walk
-                # instead of pure set-membership. Off by default — opt
-                # in once the eval baseline is rerun and accepted.
-                - MULTI_HOP_EDGE_EXPANSION_ENABLED=0
+                # instead of pure set-membership. ON as part of the
+                # 2026-09 full-enablement wave (measured null, not
+                # negative, in the eval program).
+                - MULTI_HOP_EDGE_EXPANSION_ENABLED=1
                 # Per-stage budgets (ms). Tunable without redeploy of
                 # search.service.ts. Defaults match the constants there;
                 # overrides only when prod traffic shape changes.
@@ -377,6 +378,184 @@ jobs:
                 # when a handler opts in via register({ cpuBound: true,
                 # workerModule: __dirname + '/X.worker-job.js' }).
                 - JOB_WORKER_POOL_SIZE=0
+                # ═══ FULL ENABLEMENT WAVE (2026-09) ══════════════════════
+                # Owner decision: every default-off FEATURE flag goes ON.
+                # Excluded by agreement: operational/eval toggles
+                # (INGEST_EPISODE_ONLY, THROTTLE_DISABLED, tenant override,
+                # debug traces), EMBEDDING_* space-migration tooling, the
+                # experimental MULTILINGUAL T1-T5 family, and
+                # mutually-exclusive mode switches (RETRIEVAL_GENRE stays
+                # assistant_chat; PPR stays adaptive via threshold).
+                # ── L0 episode substrate + read APIs ─────────────────────
+                - EPISODE_SUBSTRATE_ENABLED=1
+                - EPISODES_API_ENABLED=1
+                - EPISODE_SUBSCRIPTIONS_ENABLED=1
+                - PROJECTIONS_API_ENABLED=1
+                - FACTS_API_ENABLED=1
+                - USER_PROFILE_API_ENABLED=1
+                - STATS_VIEWS_ENABLED=1
+                - LIVE_SUBSCRIPTIONS_ENABLED=1
+                - AUDIT_CHANGEFEED_ENABLED=1
+                # ── Ingest / extraction quality ──────────────────────────
+                - EXTRACTION_OBJECT_NORMALIZE=1
+                - EXTRACTOR_ROUTING_ENABLED=1
+                - EXTRACTOR_DROP_SAID=1
+                - INGEST_INLINE_RESOLUTION_ENABLED=1
+                - INGEST_INLINE_RESOLUTION_HNSW=1
+                - INGEST_CONTEXTUAL_FACT_EMBEDDING=1
+                - INGEST_EVENT_TIME_EXTRACTION=1
+                - INGEST_BATCH_EDGES=1
+                - INGEST_BATCH_FACTS=1
+                - INGEST_SANITIZE_UNICODE=1
+                # ── Session deriver (prompt/schema change ⇒ new derivedVersion)
+                - DERIVER_ASSISTANT_CONTENT=1
+                - DERIVER_SLOT_SEMANTICS=1
+                - DERIVER_MENTION_STAMP=1
+                - DERIVER_TURN_HEADERS=1
+                - DERIVER_DATE_RESOLVE=1
+                - DERIVER_DATE_AUDIT=1
+                - DERIVER_ASPECT_ROLLUPS=1
+                - DERIVER_COMPOSE_PASS=1
+                - DERIVER_SCENE_TRACE=1
+                - DERIVER_TYPED_ATOMS=1
+                - DERIVER_SPANS=1
+                - DERIVER_DIGEST=1
+                - DERIVER_COMPLETION_PASS=1
+                - DERIVER_SALIENCE_STAMP=1
+                # ── Verbatim/segment/episodic lanes + rerank legs ────────
+                # PIN: the legacy lane flags imply verbatim='always'
+                # (dialogue profile) when RETRIEVAL_VERBATIM_EVIDENCE is
+                # unset — pin the assistant-chat mode explicitly so
+                # enabling the lanes does NOT flip the genre.
+                - RETRIEVAL_VERBATIM_EVIDENCE=shape_conditioned
+                - SEARCH_EPISODIC_LANE_ENABLED=1
+                - SYNTHESIZE_SOURCE_EXCERPTS=1
+                - SEARCH_SEGMENT_LANE_ENABLED=1
+                - SEARCH_SEGMENT_LANE_RERANK=1
+                - SEARCH_FACT_RERANK=1
+                # ── Search stack ─────────────────────────────────────────
+                - SEARCH_HNSW_ENABLED=1
+                - SEARCH_COMBINED_VECTOR_GRAPH=1
+                - SEARCH_HIGHLIGHT_ENABLED=1
+                - SEARCH_USAGE_RECORDING_ENABLED=1
+                - SEARCH_USAGE_DECAY_ENABLED=1
+                - SEARCH_USAGE_RANKING_ENABLED=1
+                - SEARCH_USAGE_BETA=0.1
+                - RETRIEVAL_VERIFIED_USE_DECAY=1
+                - RETRIEVAL_VERIFIED_USE_RANKING=1
+                - SEARCH_VERIFIED_USE_BETA=0.1
+                - RETRIEVAL_TENANT_DECAY=1
+                # ── Retrieval profile boolean points (V8-V13 + G2 L3) ────
+                - RETRIEVAL_ENTITY_EXPANSION=1
+                - RETRIEVAL_SALIENCE_SCORING=1
+                - RETRIEVAL_UPDATE_STORY=1
+                - RETRIEVAL_DIGEST_EVIDENCE=1
+                - RETRIEVAL_ORDERING_FRAME=1
+                - RETRIEVAL_VERIFIER_TOPIC_COVERAGE=1
+                - RETRIEVAL_MENTION_DATES=1
+                - RETRIEVAL_ENUM_STRICT=1
+                - RETRIEVAL_SCENE_TRACES=1
+                - RETRIEVAL_RAW_WINDOW=1
+                - RETRIEVAL_ASSISTANT_LANE=1
+                - RETRIEVAL_FACTS_AS_KEYS=1
+                - RETRIEVAL_FRAGMENT_LANE=1
+                - RETRIEVAL_TIME_FILTER=1
+                - RETRIEVAL_DATE_MATH=1
+                - RETRIEVAL_ANSWER_CONDITIONING=1
+                - RETRIEVAL_NOISE_FILTER=1
+                - RETRIEVAL_SEARCH_LOOP=1
+                - RETRIEVAL_L3_ESCALATION=1
+                - RETRIEVAL_L3_DIRECT_ANCHOR=1
+                - RETRIEVAL_L3_SEGMENT_ANCHOR=1
+                - RETRIEVAL_L3_TEMPORAL_ANCHOR=1
+                # ── Synthesize: typed dispatch + wide probe + cache ──────
+                - SYNTHESIZE_ANSWER_ROUTER_ENABLED=1
+                - SYNTHESIZE_LANE_WIDE_PROBE=1
+                - SYNTHESIZE_INSTRUCTION_LANE=1
+                - SYNTHESIZE_ANSWER_CACHE=1
+                # ── G4 strategy-memory lane ──────────────────────────────
+                - STRATEGY_MEMORY_ENABLED=1
+                - STRATEGY_RETRIEVAL_ENABLED=1
+                - STRATEGY_DISTILL_CRON_ENABLED=1
+                - STRATEGY_TRAJECTORIES_ENABLED=1
+                # ── Dreams + compaction lifecycle ────────────────────────
+                - DREAMS_ENABLED=1
+                - DREAMS_RUN_SUMMARIZE=1
+                - DREAMS_DEDUP_ENABLED=1
+                - DREAMS_RESOLVE_ENABLED=1
+                - DREAMS_CORROBORATE_ENABLED=1
+                - DREAMS_COMMUNITIES_ENABLED=1
+                - DREAMS_LLM_SUMMARY_ENABLED=1
+                - COMPACTION_PROMOTION_ENABLED=1
+                - COMPACTION_SUMMARIES=1
+                - COMPACTION_PROMOTION_CONFLICT_GUARD=1
+                # ── Scenes + beliefs (Brain v2 episodic/semantic planes) ─
+                - SCENES_SEGMENTATION_ENABLED=1
+                - SCENES_TOPIC_BOUNDARY=1
+                - SCENES_LLM_ENRICHMENT=1
+                - SCENES_FACT_BACKLINK=1
+                - SCENES_VERSION_FINGERPRINT=1
+                - SCENES_BELIEF_PROMOTION=1
+                - SCENES_BELIEF_LLM_SYNTHESIS=1
+                - SCENES_EVIDENCE_LINKS=1
+                - PACK_MEMORY_PROJECTIONS_ENABLED=1
+                - BELIEFS_API_ENABLED=1
+                - BELIEFS_SERVING_LANE=1
+                - BELIEFS_FACT_DAMPING=1
+                # ── Evidence plane (grounding + lifecycle + raw-read) ────
+                - EVIDENCE_SUBSTRATE_ENABLED=1
+                - EVIDENCE_INGEST_ENABLED=1
+                - EVIDENCE_GROUNDING_STAMP=1
+                - EVIDENCE_FAIL_CLOSED_CAPTURE=1
+                - EVIDENCE_UNGROUNDED_EXCLUDE=1
+                - EVIDENCE_UNGROUNDED_SERVING_GATE=1
+                - EVIDENCE_PROCESSOR_BROKER=1
+                - EVIDENCE_QUARANTINE=1
+                - EVIDENCE_RAW_READ_ENABLED=1
+                - EVIDENCE_FRAGMENT_CITATIONS=1
+                # HMAC for minted raw-evidence URLs. Empty/unset secret is
+                # a boot WARNING (streaming serves; mint 503s) — set the
+                # BRAIN_EVIDENCE_URL_SECRET repo secret (>= 32 chars) to
+                # activate signed URLs; a short secret is a boot ERROR.
+                - EVIDENCE_SIGNED_URL_SECRET=${{ secrets.BRAIN_EVIDENCE_URL_SECRET }}
+                # ── Provenance DAG ───────────────────────────────────────
+                - PROVENANCE_SUMMARY_EPISODE_STAMP=1
+                - PROVENANCE_RECURSIVE_CLOSURE=1
+                - PROVENANCE_SUPPORT_EDGES=1
+                - PROVENANCE_SUPPORT_GRAPH_READ=1
+                # ── Outcome telemetry + tool observations ────────────────
+                - OUTCOME_TELEMETRY_ENABLED=1
+                - OUTCOME_RETRIEVED_EVENTS=1
+                - OUTCOME_TX_WRITES=1
+                - OUTCOME_DECISION_CAPTURE=1
+                - TOOL_OBSERVATIONS_ENABLED=1
+                - TOOL_OBSERVATION_CONTENT=1
+                # ── Fovea optics + serving integrity ─────────────────────
+                - FOVEA_FOCUS_CAPTURE=1
+                - FOVEA_ADAPTIVE_L3=1
+                - FOVEA_ADAPTIVE_ABSTAIN=1
+                - FOVEA_LENS_SUPPRESS=1
+                - FOVEA_PLAUSIBILITY_CHECK=1
+                - FOVEA_REQUIRE_CITATIONS=1
+                - FOVEA_L3_EPISODE_CITATIONS=1
+                - FOVEA_EVIDENCE_CAPABILITY=1
+                - FOVEA_FRAGMENT_ZOOM=1
+                - FOVEA_ATTENTION_HINTS=1
+                # ── Access control / privacy fences ──────────────────────
+                # PRIVACY_SEGMENT_USER_FENCE is fail-closed on legacy rows:
+                # run POST /v1/admin/maintenance/segments/backfill-user-ids
+                # per tenant right after this deploy (documented sequence:
+                # migrate -> deploy -> backfill).
+                - ABAC_ENABLED=1
+                - ABAC_DB_FENCE_ENABLED=1
+                - SCOPE_TAGS_ENABLED=1
+                - SOURCE_META_STRICT=1
+                - POLICY_META_UNION_ENABLED=1
+                - PRIVACY_SEGMENT_USER_FENCE=1
+                - PRIVACY_COMPOSER_USER_SCOPE=1
+                # ── Packs / MCP / QA ─────────────────────────────────────
+                - MCP_PACK_EXTERNAL_TOOLS_ENABLED=1
+                - AGENT_QA_TOOLS_V2=1
               volumes:
                 - /opt/projects/${{ env.PROJECT_NAME }}/baselines:/var/brain/baselines
               labels:
@@ -419,9 +598,12 @@ jobs:
               # Resource ceilings: local ONNX (BGE-M3 / NER) + worker pool
               # + LLM fan-out can balloon RSS. Without a cap an unbounded
               # container can OOM the shared host / trip the kernel OOM
-              # killer mid-job. Tune per box; these are conservative.
-              mem_limit: 2g
-              mem_reservation: 768m
+              # killer mid-job. Raised 2g -> 4g for the enablement wave:
+              # SEARCH_FACT_RERANK / SEGMENT_LANE_RERANK / NOISE_FILTER
+              # lazily load the local cross-encoder worker (~280MB
+              # bge-reranker-base) on top of BGE-M3 + NER.
+              mem_limit: 4g
+              mem_reservation: 1536m
               cpus: 2.0
               pids_limit: 512
               networks:
