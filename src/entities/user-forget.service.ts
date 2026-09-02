@@ -52,6 +52,8 @@ export interface UserForgetResult {
   entitiesDeleted: number;
   edgesDeleted: number;
   auditEventsDeleted: number;
+  /** Semantic beliefs (0120): promoted belief rows erased with the user. */
+  beliefsDeleted: number;
   /** Evidence substrate (0109): content-bearing rows erased with the user. */
   evidenceAssetsDeleted: number;
   evidenceFragmentsDeleted: number;
@@ -282,16 +284,23 @@ export class UserForgetService {
       }
       await db.query(`DELETE memory_episode WHERE userId = $u`, { u: userId });
 
+      // Semantic beliefs (0120): ids pre-collected here so the
+      // belief-side memory_support edges join the subject list below
+      // BEFORE the rows die — see collectBeliefIds.
+      const beliefIds = await this.collectBeliefIds(db, userId, supportSceneIds);
+
       // Typed support graph (0116): erase every memory_support edge
-      // touching the user's facts (either endpoint) or a dying scene
-      // (edge target). Runs UNCONDITIONALLY — rows written while
+      // touching the user's facts (either endpoint), a dying scene
+      // (edge target) or a dying belief (0120 edges: supported_by /
+      // contradicted_by / derived_from with a belief endpoint). Runs
+      // UNCONDITIONALLY — rows written while
       // PROVENANCE_SUPPORT_EDGES was on must stay erasable after it is
       // off (the EVIDENCE_SUBSTRATE_ENABLED precedent). Two-step
       // (SELECT ids → DELETE $ids) MANDATORY: `in` is covered by the
       // COMPOUND support_edge_uq index — `DELETE memory_support WHERE
       // in INSIDE …` is the reproduced 3.2.4 silent planner no-op (OK,
       // zero rows) while the same WHERE in a SELECT matches fine.
-      const supportSubjects = [...factIds, ...new Set(supportSceneIds)].map(
+      const supportSubjects = [...factIds, ...new Set(supportSceneIds), ...beliefIds].map(
         (id) => new StringRecordId(id),
       );
       if (supportSubjects.length > 0) {
@@ -302,6 +311,10 @@ export class UserForgetService {
           { subjects: supportSubjects },
         );
       }
+
+      // Belief rows go AFTER their edges (the edge SELECT above needs no
+      // live row, but the order keeps the dependency reading honest).
+      await this.eraseBeliefRows(db, beliefIds);
 
       // Evidence substrate (0109) — see eraseEvidenceRows.
       const { evidenceAssetsDeleted, evidenceFragmentsDeleted, representationsDeleted } =
@@ -327,6 +340,7 @@ export class UserForgetService {
         entitiesDeleted: entityIds.length,
         edgesDeleted: edgeRecordIds.length,
         auditEventsDeleted,
+        beliefsDeleted: beliefIds.length,
         evidenceAssetsDeleted,
         evidenceFragmentsDeleted,
         representationsDeleted,
@@ -336,11 +350,53 @@ export class UserForgetService {
         purgedIndexerRuns: docRows.indexerRuns,
       };
       this.logger.log(
-        `user forget ${companyId}/${userId}: facts=${result.factsDeleted} entities=${result.entitiesDeleted} edges=${result.edgesDeleted} audit=${result.auditEventsDeleted} ` +
+        `user forget ${companyId}/${userId}: facts=${result.factsDeleted} entities=${result.entitiesDeleted} edges=${result.edgesDeleted} audit=${result.auditEventsDeleted} beliefs=${result.beliefsDeleted} ` +
           `evidenceAssets=${result.evidenceAssetsDeleted} evidenceFragments=${result.evidenceFragmentsDeleted} representations=${result.representationsDeleted} ` +
           `docs=${result.purgedSourceDocs} chunks=${result.purgedSourceChunks} candidates=${result.purgedCandidates} indexerRuns=${result.purgedIndexerRuns}`,
       );
       return result;
+    });
+  }
+
+  /**
+   * Semantic beliefs (0120): a belief ALWAYS carries the single-user
+   * scope of its scenes (the promotion skips mixed-user/legacy scene
+   * groups fail-closed, #387), so the userId leg is the primary erase;
+   * the sourceSceneIds leg defensively catches any belief referencing a
+   * scene dying in this cascade (erasure wins over retention —
+   * CONTAINSANY over an empty ref list matches nothing, so the userId
+   * leg carries a scene-less cascade). Runs UNCONDITIONALLY — rows
+   * written while SCENES_BELIEF_PROMOTION was on must stay erasable
+   * after it is off (the EVIDENCE_SUBSTRATE_ENABLED precedent).
+   */
+  private async collectBeliefIds(
+    db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> },
+    userId: string,
+    sceneIds: string[],
+  ): Promise<string[]> {
+    const [rows] = await db.query<[unknown[]]>(
+      `SELECT VALUE id FROM semantic_belief
+        WHERE userId = $u OR sourceSceneIds CONTAINSANY $scenes`,
+      {
+        u: userId,
+        scenes: [...new Set(sceneIds)].map((id) => new StringRecordId(id)),
+      },
+    );
+    return ((rows as unknown[]) ?? []).map(String);
+  }
+
+  /**
+   * Two-step leg of the belief erase (0120 pins a repo-wide
+   * `DELETE semantic_belief WHERE` prohibition — the 3.2.4 planner
+   * class): the ids were pre-collected by collectBeliefIds.
+   */
+  private async eraseBeliefRows(
+    db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> },
+    beliefIds: string[],
+  ): Promise<void> {
+    if (beliefIds.length === 0) return;
+    await db.query(`DELETE $ids`, {
+      ids: beliefIds.map((id) => new StringRecordId(id)),
     });
   }
 

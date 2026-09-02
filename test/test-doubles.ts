@@ -5,6 +5,7 @@ import type { ExtractorService, ExtractionResult } from '../src/ai/extractor.ser
 import type { LocalCrossEncoderProvider } from '../src/ai/cross-encoder/local-cross-encoder.provider';
 import { SynthesizeService } from '../src/synthesize/synthesize.service';
 import { SceneEnricherService } from '../src/admin/scene-enricher.service';
+import { BeliefPromotionService } from '../src/admin/belief-promotion.service';
 
 /**
  * Deterministic embedder stub for e2e tests. Same text → same vector;
@@ -200,6 +201,37 @@ export function mockSceneEnricherOpenAi(
 ): OpenAiMockState {
   const state: OpenAiMockState = { calls: [] };
   const svc = app.get(SceneEnricherService);
+  const stub = {
+    chat: {
+      completions: {
+        create: async (req: { messages: Array<{ role: string; content: string }> }) => {
+          const system = req.messages.find((m) => m.role === 'system')?.content ?? '';
+          const user = req.messages.find((m) => m.role === 'user')?.content ?? '';
+          const idx = state.calls.length;
+          const content = responses[idx] ?? responses[responses.length - 1] ?? '{}';
+          state.calls.push({ system, user, response: content, request: req });
+          return { choices: [{ message: { content } }] };
+        },
+      },
+    },
+  };
+  (svc as unknown as { openai: typeof stub }).openai = stub;
+  return state;
+}
+
+/**
+ * Replace the OpenAI client on the running BeliefPromotionService with a
+ * scripted stub — the same seam as `mockSceneEnricherOpenAi` (Belief-A's
+ * optional SCENES_BELIEF_LLM_SYNTHESIS statement phrasing). Each call
+ * drains one response; the last repeats indefinitely. NO paid call is
+ * ever made.
+ */
+export function mockBeliefSynthesisOpenAi(
+  app: INestApplication,
+  responses: string[],
+): OpenAiMockState {
+  const state: OpenAiMockState = { calls: [] };
+  const svc = app.get(BeliefPromotionService);
   const stub = {
     chat: {
       completions: {

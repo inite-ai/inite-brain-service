@@ -245,6 +245,8 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // validation catches the typo before it silently reads as a default.
   positiveInt(env, 'SCENES_MAX_TURNS', errors);
   floatInRange(env, 'SCENES_TOPIC_MIN_COSINE', -1, 1, errors);
+  // Belief promotion floor (Belief-A, migration 0120): 0 = off.
+  nonNegativeInt(env, 'SCENES_BELIEF_MIN_SCENES', errors);
 
   // ── Evidence substrate (Brain v2.1 M1, migration 0109) ─────────────
   // The write seam clamps bad values to the default at read time; boot
@@ -923,6 +925,20 @@ const KNOWN_BOOLEAN_FLAGS = [
   // PACK_ sits off the ENGINE flag budget (shadow-substrate writer, the
   // SCENES_/EVIDENCE_ precedent).
   'PACK_MEMORY_PROJECTIONS_ENABLED',
+  // Belief promotion (Belief-A, migration 0120): fold ENRICHED scenes of
+  // the current effective segmenter version into the shadow
+  // semantic_belief substrate via POST /v1/admin/maintenance/scenes/
+  // beliefs. Default off ⇒ the route 404s and the service returns with
+  // ZERO queries — no semantic_belief row is ever written
+  // (byte-identical prod; shadow even when on — no serving path reads
+  // the table). The corroboration floor (SCENES_BELIEF_MIN_SCENES) is an
+  // int, the model knob (SCENES_BELIEF_MODEL) a string — not booleans.
+  'SCENES_BELIEF_PROMOTION',
+  // Belief statement synthesis (Belief-A): ONE structured LLM call per
+  // belief create/revise to phrase the statement; any failure degrades
+  // to the deterministic template. Default off ⇒ no LLM call ever runs —
+  // every statement is the deterministic template.
+  'SCENES_BELIEF_LLM_SYNTHESIS',
   // Evidence substrate master (Brain v2.1 M1, migration 0109): the
   // EvidenceStoreService writers for evidence_asset / evidence_fragment /
   // derived_representation. Default off ⇒ every writer 503s and no row is

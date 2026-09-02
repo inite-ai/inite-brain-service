@@ -41,6 +41,7 @@ export const SUPPORT_EDGE_WRITERS = [
   'promotion_runner',
   'compaction_runner',
   'recompose',
+  'belief_promotion',
 ] as const;
 export type SupportEdgeWriter = (typeof SUPPORT_EDGE_WRITERS)[number];
 
@@ -66,13 +67,15 @@ export interface SupportEdgeRow {
  * ONE prefix vocabulary; the two support-graph-native tables are
  * matched directly. 'unknown' is never a guess.
  */
-export type SupportTargetClass = 'fact' | 'scene' | 'episode' | 'fragment' | 'asset' | 'unknown';
+export type SupportTargetClass =
+  'fact' | 'belief' | 'scene' | 'episode' | 'fragment' | 'asset' | 'unknown';
 
 export function classifySupportTarget(raw: string): SupportTargetClass {
   const ref = parseRecordRef(raw);
   if (ref !== null && ref.kind !== 'external') return ref.kind;
   if (raw.startsWith('knowledge_fact:')) return 'fact';
   if (raw.startsWith('memory_episode:')) return 'scene';
+  if (raw.startsWith('semantic_belief:')) return 'belief';
   return 'unknown';
 }
 
@@ -81,16 +84,23 @@ export function classifySupportTarget(raw: string): SupportTargetClass {
  * FROM/TO types one polymorphic RELATION table cannot carry — 0116
  * header). Returns a boolean verdict: writers SKIP invalid rows with a
  * warn, never throw. reconstructed_from is always false (reserved).
+ *
+ * Belief edges (0120, writer 'belief_promotion') follow the SAME
+ * direction semantics with `in` = semantic_belief: supported_by
+ * belief->scene mirrors the fact rule; contradicted_by / derived_from
+ * pair a belief ONLY with another belief (revision chains never cross
+ * into the claim plane — the SemanticBelief/Claim separation).
  */
 export function assertEdgeShape(kind: SupportEdgeKind, inId: string, outId: string): boolean {
-  if (classifySupportTarget(inId) !== 'fact') return false;
+  const inClass = classifySupportTarget(inId);
+  if (inClass !== 'fact' && inClass !== 'belief') return false;
   const out = classifySupportTarget(outId);
   switch (kind) {
     case 'supported_by':
       return out === 'scene';
     case 'contradicted_by':
     case 'derived_from':
-      return out === 'fact';
+      return out === inClass;
     case 'reconstructed_from':
       return false;
   }

@@ -14,6 +14,7 @@ import { AuthenticatedRequest } from '../auth/api-key.types';
 import { ApiKeyService } from '../auth/api-key.service';
 import { resolvePlatformTenant } from '../auth/tenant-scope';
 import {
+  sceneBeliefPromotionEnabled,
   sceneFactBacklinkEnabled,
   sceneLlmEnrichmentEnabled,
   sceneSegmentationEnabled,
@@ -21,6 +22,7 @@ import {
 import { SceneComposerService, SceneRunResult } from './scene-composer.service';
 import { SceneEnricherService, SceneEnrichResult } from './scene-enricher.service';
 import { SceneBacklinkService, SceneBacklinkResult } from './scene-backlink.service';
+import { BeliefPromotionService, BeliefPromotionResult } from './belief-promotion.service';
 
 /** Purge param belt: DB stamps are short version slugs, not free text. */
 // 128 (was 64): pack scene worlds (0110) are versioned
@@ -46,6 +48,12 @@ const SEGMENTER_VERSION_MAX_CHARS = 128;
  *  - POST /scenes/backlink — standalone fact backlink (PR2): idempotent
  *    source.memoryEpisodeIds stamps. 404 unless BOTH the master flag and
  *    SCENES_FACT_BACKLINK are on.
+ *  - POST /scenes/beliefs — belief promotion (Belief-A, migration 0120):
+ *    folds ENRICHED scenes of the current effective segmenter version
+ *    into semantic_belief upserts keyed by free-text (subject, field).
+ *    404 unless BOTH the master flag and SCENES_BELIEF_PROMOTION are on.
+ *    Replay-idempotent (deterministic revision ids + INSERT IGNORE +
+ *    array::union stamps).
  *  - DELETE /scenes/versions/:segmenterVersion — purge one version's
  *    scene world (members → scenes, one transaction) and demote its
  *    projection ledger row to 'residual'. 404 when the master flag is
@@ -64,6 +72,7 @@ export class AdminScenesController {
     private readonly composer: SceneComposerService,
     private readonly enricher: SceneEnricherService,
     private readonly backlinker: SceneBacklinkService,
+    private readonly beliefs: BeliefPromotionService,
     private readonly apiKeys: ApiKeyService,
   ) {}
 
@@ -108,6 +117,24 @@ export class AdminScenesController {
     }
     const tenant = this.resolveTenant(req, body.tenant);
     return this.backlinker.run(
+      tenant,
+      body.conversationId !== undefined ? { conversationId: body.conversationId } : {},
+    );
+  }
+
+  @Post('maintenance/scenes/beliefs')
+  @RequireScopes('brain:admin')
+  async promoteBeliefs(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { tenant?: string; conversationId?: string } = {},
+  ): Promise<BeliefPromotionResult> {
+    // Double-gate idiom: controller 404 here + the service's defensive
+    // early return (off = zero queries, byte-identical prod).
+    if (!sceneSegmentationEnabled() || !sceneBeliefPromotionEnabled()) {
+      throw new NotFoundException();
+    }
+    const tenant = this.resolveTenant(req, body.tenant);
+    return this.beliefs.run(
       tenant,
       body.conversationId !== undefined ? { conversationId: body.conversationId } : {},
     );
