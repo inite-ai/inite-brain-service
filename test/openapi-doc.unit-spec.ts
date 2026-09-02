@@ -38,6 +38,8 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   ['/v1/admin/packs/{packId}/eval', 'post'],
   ['/v1/facts/{id}', 'get'],
   ['/v1/facts/{id}/provenance', 'get'],
+  ['/v1/beliefs', 'get'],
+  ['/v1/beliefs/{id}', 'get'],
   ['/v1/users/{userId}/profile', 'get'],
   ['/v1/ingest/document', 'post'],
   ['/v1/documents/{id}', 'get'],

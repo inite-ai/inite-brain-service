@@ -116,6 +116,10 @@ import {
   FactReadResponseSchema,
 } from '../src/contracts/facts/facts.schema';
 import {
+  BeliefReadResponseSchema,
+  BeliefsListResponseSchema,
+} from '../src/contracts/beliefs/beliefs.schema';
+import {
   ProfileFactSchema,
   ProfileSectionSchema,
   UserProfileResponseSchema,
@@ -212,6 +216,9 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   FactReadResponse: FactReadResponseSchema,
   FactProvenanceEpisode: FactProvenanceEpisodeSchema,
   FactProvenanceResponse: FactProvenanceResponseSchema,
+  // --- belief reads (src/contracts/beliefs/beliefs.schema.ts)
+  BeliefReadResponse: BeliefReadResponseSchema,
+  BeliefsListResponse: BeliefsListResponseSchema,
   // --- rolling user profile (src/contracts/users/user-profile.schema.ts)
   ProfileFact: ProfileFactSchema,
   ProfileSection: ProfileSectionSchema,
@@ -252,8 +259,7 @@ function generateComponentSchemas(): Json {
   out.FeatureDisabledResponse = {
     type: 'object',
     description:
-      'Answered by every document-pipeline route while ' +
-      'DOCUMENT_INGEST_ENABLED is off.',
+      'Answered by every document-pipeline route while ' + 'DOCUMENT_INGEST_ENABLED is off.',
     properties: {
       error: { type: 'string', const: 'feature_disabled' },
       message: { type: 'string' },
@@ -376,8 +382,7 @@ function registryPaths(): Json {
         tag: 'Registry',
         summary: "One pack's published version history",
         description:
-          'All published versions of a pack, newest first, including ' +
-          'yanked ones (flagged).',
+          'All published versions of a pack, newest first, including ' + 'yanked ones (flagged).',
         scope: 'brain:read',
         parameters: [pathParam('packId', 'The pack id.')],
         responses: {
@@ -403,10 +408,7 @@ function registryPaths(): Json {
           pathParam('version', 'A published version, or `latest`.'),
         ],
         responses: {
-          '200': jsonResponse(
-            'The resolved manifest.',
-            ref('RegistryManifestResponse'),
-          ),
+          '200': jsonResponse('The resolved manifest.', ref('RegistryManifestResponse')),
           ...AUTH_ERRORS,
           '404': errorRef('NotFound'),
         },
@@ -483,9 +485,7 @@ function registryPaths(): Json {
           'is entirely unknown (no profile AND no packs). ' +
           'Source: src/registry/registry.controller.ts.',
         scope: 'brain:read',
-        parameters: [
-          pathParam('publisher', 'The publisher id (trust-store key id).'),
-        ],
+        parameters: [pathParam('publisher', 'The publisher id (trust-store key id).')],
         responses: {
           '200': jsonResponse('The publisher page.', ref('PublisherResponse')),
           ...AUTH_ERRORS,
@@ -582,9 +582,7 @@ function marketplacePaths(): Json {
           "instance's trust store is what ties a company to the " +
           'publisher name (403 otherwise).',
         scope: 'registry:publish',
-        parameters: [
-          pathParam('publisher', 'The publisher id (trust-store key id).'),
-        ],
+        parameters: [pathParam('publisher', 'The publisher id (trust-store key id).')],
         requestBody: jsonBody(ref('UpsertPublisherProfileRequest')),
         responses: {
           '200': jsonResponse('The stored profile.', ref('PublisherProfile')),
@@ -600,7 +598,7 @@ function marketplacePaths(): Json {
         summary: 'Start a hosted checkout for a paid pack',
         description:
           'Creates a billing checkout session for the BUYING tenant ' +
-          '(the caller\'s company is the billing userId). Open ' +
+          "(the caller's company is the billing userId). Open " +
           '`checkoutUrl`, pay, then retry ' +
           'POST /v1/admin/packs/from-registry — the 402 hint on that ' +
           'route points here. Answers 400 for a free pack or while the ' +
@@ -691,9 +689,7 @@ function packsAdminPaths(): Json {
         operationId: 'uninstallDomainPack',
         tag: 'Domain Packs',
         summary: 'Uninstall a pack from this tenant',
-        description:
-          "Deprecates the pack's predicates; facts extracted with them " +
-          'survive.',
+        description: "Deprecates the pack's predicates; facts extracted with them " + 'survive.',
         scope: 'brain:admin',
         parameters: [pathParam('packId', 'The installed pack id.')],
         responses: {
@@ -753,10 +749,7 @@ function documentsPaths(): Json {
         requestBody: jsonBody(ref('IngestDocumentRequest')),
         responses: {
           '201': jsonResponse('Ingest outcome — shape follows the requested `mode`.', {
-            oneOf: [
-              ref('IngestDocumentSyncResponse'),
-              ref('IngestDocumentAsyncResponse'),
-            ],
+            oneOf: [ref('IngestDocumentSyncResponse'), ref('IngestDocumentAsyncResponse')],
           }),
           '400': errorRef('BadRequest'),
           '429': errorRef('TooManyRequests'),
@@ -769,9 +762,7 @@ function documentsPaths(): Json {
         operationId: 'getDocument',
         tag: 'Documents',
         summary: 'Read a document header and its indexer runs',
-        description:
-          `${FLAG_NOTE} ` +
-          'Source: src/documents/documents.controller.ts.',
+        description: `${FLAG_NOTE} ` + 'Source: src/documents/documents.controller.ts.',
         scope: 'brain:read',
         parameters: [
           pathParam('id', 'The document id.'),
@@ -855,10 +846,7 @@ function sourcesPaths(): Json {
           'Source: src/sources/public-sources.controller.ts.',
         scope: 'brain:read',
         parameters: [
-          queryParam(
-            'domain',
-            'Capture this domain’s learned rate per source (`domainTrust`).',
-          ),
+          queryParam('domain', 'Capture this domain’s learned rate per source (`domainTrust`).'),
           queryParam('type', 'Only sources declared with this type.', {
             type: 'string',
             enum: [...SOURCE_TYPES],
@@ -876,10 +864,7 @@ function sourcesPaths(): Json {
           queryParam('offset', 'Page offset.', { type: 'integer' }),
         ],
         responses: {
-          '200': jsonResponse(
-            'The reputation catalogue page.',
-            ref('PublicSourcesListResponse'),
-          ),
+          '200': jsonResponse('The reputation catalogue page.', ref('PublicSourcesListResponse')),
           '400': errorRef('BadRequest'),
           ...AUTH_ERRORS,
         },
@@ -898,16 +883,10 @@ function sourcesPaths(): Json {
           'MCP tool serves.',
         scope: 'brain:read',
         parameters: [
-          pathParam(
-            'sourceKey',
-            'Source key, `vertical:recorder` (e.g. `rent:tenant_bot`).',
-          ),
+          pathParam('sourceKey', 'Source key, `vertical:recorder` (e.g. `rent:tenant_bot`).'),
         ],
         responses: {
-          '200': jsonResponse(
-            'The source reputation detail.',
-            ref('PublicSourceDetailResponse'),
-          ),
+          '200': jsonResponse('The source reputation detail.', ref('PublicSourceDetailResponse')),
           ...AUTH_ERRORS,
           '404': errorRef('NotFound'),
         },
@@ -952,10 +931,7 @@ function driverPaths(): Json {
           queryParam('limit', 'Page size (max 200, default 50).', {
             type: 'integer',
           }),
-          queryParam(
-            'cursor',
-            'Opaque keyset cursor from the previous page (`nextCursor`).',
-          ),
+          queryParam('cursor', 'Opaque keyset cursor from the previous page (`nextCursor`).'),
         ],
         responses: {
           '200': jsonResponse('One page of episodes.', ref('EpisodesListResponse')),
@@ -1022,15 +998,10 @@ function driverPaths(): Json {
         operationId: 'listEpisodeSubscriptions',
         tag: 'Episodes',
         summary: 'List registered webhook endpoints',
-        description:
-          'Secrets are never included. 404 until ' +
-          'EPISODE_SUBSCRIPTIONS_ENABLED=1.',
+        description: 'Secrets are never included. 404 until ' + 'EPISODE_SUBSCRIPTIONS_ENABLED=1.',
         scope: 'brain:read',
         responses: {
-          '200': jsonResponse(
-            'Registered endpoints.',
-            ref('EpisodeSubscriptionsListResponse'),
-          ),
+          '200': jsonResponse('Registered endpoints.', ref('EpisodeSubscriptionsListResponse')),
           ...DRIVER_404,
         },
       }),
@@ -1042,9 +1013,7 @@ function driverPaths(): Json {
         summary: 'Delete a webhook endpoint',
         description: '404 until EPISODE_SUBSCRIPTIONS_ENABLED=1.',
         scope: 'brain:admin',
-        parameters: [
-          pathParam('id', 'The episode_subscription record id.'),
-        ],
+        parameters: [pathParam('id', 'The episode_subscription record id.')],
         responses: {
           '200': jsonResponse(
             'Whether a subscription was deleted.',
@@ -1069,10 +1038,7 @@ function driverPaths(): Json {
           'src/admin/projections.controller.ts.',
         scope: 'brain:read',
         responses: {
-          '200': jsonResponse(
-            'Derived worlds + read pin.',
-            ref('ProjectionsListResponse'),
-          ),
+          '200': jsonResponse('Derived worlds + read pin.', ref('ProjectionsListResponse')),
           ...DRIVER_404,
         },
       }),
@@ -1089,9 +1055,7 @@ function driverPaths(): Json {
           'live read pin (`activate`). Rewriting the pinned world needs ' +
           '`force`. 404 until PROJECTIONS_API_ENABLED=1.',
         scope: 'brain:admin',
-        parameters: [
-          pathParam('name', 'The projection name (v1: `facts`).'),
-        ],
+        parameters: [pathParam('name', 'The projection name (v1: `facts`).')],
         requestBody: {
           required: false,
           content: {
@@ -1099,10 +1063,7 @@ function driverPaths(): Json {
           },
         },
         responses: {
-          '200': jsonResponse(
-            'The batch result.',
-            ref('RebuildProjectionResponse'),
-          ),
+          '200': jsonResponse('The batch result.', ref('RebuildProjectionResponse')),
           '400': errorRef('BadRequest'),
           ...DRIVER_404,
         },
@@ -1113,9 +1074,9 @@ function driverPaths(): Json {
 
 /**
  * Memory read surface: fact-by-id + provenance ("show me why I
- * remember this") and the rolling user profile. Dark behind
- * default-off flags with 404 (an absent surface is indistinguishable
- * from a disabled one).
+ * remember this"), belief reads (semantic_belief) and the rolling user
+ * profile. Dark behind default-off flags with 404 (an absent surface
+ * is indistinguishable from a disabled one).
  */
 function memoryReadPaths(): Json {
   return {
@@ -1152,10 +1113,65 @@ function memoryReadPaths(): Json {
         scope: 'brain:read',
         parameters: [pathParam('id', 'Fact record id (`knowledge_fact:…`).')],
         responses: {
-          '200': jsonResponse(
-            'The grounding episodes.',
-            ref('FactProvenanceResponse'),
+          '200': jsonResponse('The grounding episodes.', ref('FactProvenanceResponse')),
+          ...DRIVER_404,
+        },
+      }),
+    },
+    '/v1/beliefs': {
+      get: operation({
+        operationId: 'listBeliefs',
+        tag: 'Beliefs',
+        summary: 'List beliefs by their free-text (subject, field) key',
+        description:
+          'Beliefs the brain currently holds (semantic_belief, promoted ' +
+          'from enriched scenes), filtered by exact subject/field key, ' +
+          'lifecycle status (default active) and user scope. A ' +
+          'user-bound token is pinned to its own user (userId mismatch ' +
+          'is 403); M2M keys may scope to any user or list tenant-wide. ' +
+          'Page capped at 100 (default 25). 404 until ' +
+          'BELIEFS_API_ENABLED=1. Source: ' +
+          'src/beliefs/beliefs.controller.ts.',
+        scope: 'brain:read',
+        parameters: [
+          queryParam('subject', 'Free-text subject key (exact match).'),
+          queryParam('field', 'Free-text field key (exact match).'),
+          queryParam(
+            'userId',
+            'End-user scope key. M2M keys may assert any user; ' +
+              'user-bound tokens are pinned to their own.',
           ),
+          queryParam('status', 'Lifecycle filter: `active` (default), `superseded`, `all`.'),
+          queryParam('limit', 'Page size (default 25, max 100).', {
+            type: 'integer',
+          }),
+        ],
+        responses: {
+          '200': jsonResponse('The visible beliefs.', ref('BeliefsListResponse')),
+          '400': errorRef('BadRequest'),
+          ...DRIVER_404,
+        },
+      }),
+    },
+    '/v1/beliefs/{id}': {
+      get: operation({
+        operationId: 'getBelief',
+        tag: 'Beliefs',
+        summary: 'Read one belief revision by id',
+        description:
+          'One semantic_belief revision as stored: the held value, its ' +
+          'rendered statement, confidence, the supersede chain ' +
+          '(revision/status/supersededBy/validFrom/validUntil), inline ' +
+          'scene provenance (sourceSceneIds) and corroboration ' +
+          'counters. Superseded revisions still resolve. Every ' +
+          'visibility fence (tenant, fail-closed single-user scope) ' +
+          'answers 404 — existence never leaks. 404 until ' +
+          'BELIEFS_API_ENABLED=1. Source: ' +
+          'src/beliefs/beliefs.controller.ts.',
+        scope: 'brain:read',
+        parameters: [pathParam('id', 'Belief record id (`semantic_belief:…`).')],
+        responses: {
+          '200': jsonResponse('The belief.', ref('BeliefReadResponse')),
           ...DRIVER_404,
         },
       }),
@@ -1179,16 +1195,10 @@ function memoryReadPaths(): Json {
           queryParam('maxFacts', 'Global fact budget (default 60, max 200).', {
             type: 'integer',
           }),
-          queryParam(
-            'lang',
-            'Soft locale filter (facts in this language or unmarked).',
-          ),
+          queryParam('lang', 'Soft locale filter (facts in this language or unmarked).'),
         ],
         responses: {
-          '200': jsonResponse(
-            'The assembled profile.',
-            ref('UserProfileResponse'),
-          ),
+          '200': jsonResponse('The assembled profile.', ref('UserProfileResponse')),
           '400': errorRef('BadRequest'),
           ...DRIVER_404,
         },
@@ -1315,8 +1325,7 @@ function sortKeysDeep(value: unknown): unknown {
 }
 
 function errorResponses(): Json {
-  const err = (description: string): Json =>
-    jsonResponse(description, ref('ErrorResponse'));
+  const err = (description: string): Json => jsonResponse(description, ref('ErrorResponse'));
   return {
     BadRequest: err('Validation failed.'),
     Unauthorized: err('Missing or unknown bearer key.'),
@@ -1340,9 +1349,9 @@ function errorResponses(): Json {
 }
 
 export function buildOpenApiDocument(): Json {
-  const pkg = JSON.parse(
-    readFileSync(join(__dirname, '..', 'package.json'), 'utf8'),
-  ) as { version: string };
+  const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')) as {
+    version: string;
+  };
 
   const document: Json = {
     openapi: '3.1.0',
@@ -1377,14 +1386,12 @@ export function buildOpenApiDocument(): Json {
       {
         name: 'Registry',
         description:
-          'Discovery reads over the global Domain Pack registry ' +
-          '(shared across all tenants).',
+          'Discovery reads over the global Domain Pack registry ' + '(shared across all tenants).',
       },
       {
         name: 'Registry publishing',
         description:
-          'Publisher-facing writes to the global registry ' +
-          '(scope `registry:publish`).',
+          'Publisher-facing writes to the global registry ' + '(scope `registry:publish`).',
       },
       {
         name: 'Marketplace',
@@ -1445,6 +1452,15 @@ export function buildOpenApiDocument(): Json {
           'provenance-first memory ("show me why I remember this"). ' +
           'Flag: FACTS_API_ENABLED (off → 404); fact retraction stays ' +
           'flag-independent.',
+      },
+      {
+        name: 'Beliefs',
+        description:
+          'Belief-level reads over the semantic_belief substrate: what ' +
+          'the brain currently holds about a free-text (subject, field) ' +
+          'key, with its supersede chain and inline scene provenance. ' +
+          'Read-only — the scene promotion pass is the only writer. ' +
+          'Flag: BELIEFS_API_ENABLED (off → 404).',
       },
       {
         name: 'Users',
@@ -1542,12 +1558,8 @@ function main(): void {
   const body = JSON.stringify(document, null, 2) + '\n';
   for (const outPath of OUT_PATHS) writeFileSync(outPath, body, 'utf8');
   const paths = Object.keys(document.paths as Json).length;
-  const schemas = Object.keys(
-    (document.components as Json).schemas as Json,
-  ).length;
-  process.stdout.write(
-    `wrote ${OUT_PATHS.length} copies (${paths} paths, ${schemas} schemas)\n`,
-  );
+  const schemas = Object.keys((document.components as Json).schemas as Json).length;
+  process.stdout.write(`wrote ${OUT_PATHS.length} copies (${paths} paths, ${schemas} schemas)\n`);
 }
 
 if (require.main === module) main();

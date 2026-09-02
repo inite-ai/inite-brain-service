@@ -614,6 +614,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   // Fact read + provenance API: GET /v1/facts/:id and /:id/provenance
   // (grounding episodes). The retract write path stays ungated (GDPR).
   'FACTS_API_ENABLED',
+  // Belief read API (Belief-B): GET /v1/beliefs and /v1/beliefs/:id over
+  // the semantic_belief substrate (0120). Read-only — the promotion pass
+  // stays the only writer. Default off → routes 404.
+  'BELIEFS_API_ENABLED',
   // Raw-substrate driver v1 surface 3: projections registry API + rebuild verb.
   'PROJECTIONS_API_ENABLED',
   // Raw-substrate driver v1 surface 4: new-episode webhook push (watermark
