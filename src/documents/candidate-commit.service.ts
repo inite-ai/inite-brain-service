@@ -11,6 +11,8 @@ import {
 } from './commit-writer.service';
 import type { StoredDocument } from './document-store.service';
 import { mergeCandidates, MergedFact, MergeResult } from './candidate-merge';
+import { SceneCandidateWriterService } from './scene-candidate-writer.service';
+import { packMemoryProjectionsEnabled } from '../common/pack-projection-flags';
 import type { CandidateKind } from '../indexers/candidate.types';
 
 export interface CommitResult {
@@ -59,6 +61,9 @@ export class CandidateCommitService {
     private readonly candidates: CandidateStoreService,
     private readonly writer: CommitWriterService,
     private readonly factEmbedding: FactEmbeddingService,
+    // 0110 episodic-plane projection; @Optional so direct unit
+    // constructions of the semantic path need no stub.
+    @Optional() private readonly sceneWriter?: SceneCandidateWriterService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
@@ -124,6 +129,22 @@ export class CandidateCommitService {
       this.metrics?.countCandidate(u.kind, u.status);
     }
     this.metrics?.countCommitMemory('ok');
+
+    // 0110 episodic-plane projection, AFTER the semantic path settled and
+    // inside the same per-(company, doc) lock: pending scene/state_delta
+    // candidates (the mergers above skip them by kind) become shadow
+    // memory_episode rows. Flag-gated at the call site so the flag-off
+    // commit is byte-identical; the writer marks its own candidate
+    // statuses and swallows its own failures (a projection error must not
+    // fail a semantic commit that already landed). CommitResult counts
+    // stay semantic-plane-only either way — the wire contract is
+    // unchanged.
+    if (packMemoryProjectionsEnabled() && this.sceneWriter) {
+      const projectionRows = pending.filter((c) => c.kind === 'scene' || c.kind === 'state_delta');
+      if (projectionRows.length > 0) {
+        await this.sceneWriter.projectDocument(companyId, doc, projectionRows);
+      }
+    }
 
     return {
       committed: true,

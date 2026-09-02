@@ -294,8 +294,11 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
   });
 
   it('purges the segmenter version: rows gone, registry row residual', async () => {
+    // Bound raised 64 → 128 in 0110: pack scene worlds
+    // (`pack:<packId≤64>+<8-hex fp>`, up to 78 chars) purge through this
+    // verb, so the input cap had to admit them.
     const tooLong = await f.http
-      .delete(`/v1/admin/maintenance/scenes/versions/${'x'.repeat(65)}`)
+      .delete(`/v1/admin/maintenance/scenes/versions/${'x'.repeat(129)}`)
       .set(auth())
       .send({});
     expect(tooLong.status).toBe(400);

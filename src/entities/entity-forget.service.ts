@@ -8,7 +8,13 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'node:crypto';
 import { StringRecordId } from 'surrealdb';
-import { SurrealService, runTransaction, queryRows, queryFirst } from '../db/surreal.service';
+import {
+  SurrealService,
+  runTransaction,
+  queryRows,
+  queryFirst,
+  type TxBuilder,
+} from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import {
   DocumentCascadePlan,
@@ -339,6 +345,7 @@ export class EntityForgetService {
              WHERE payload.entityId = $ent OR string::contains(<string>payload, $needle))`,
         );
         tx.add(`LET $sweepDel = (DELETE $sweepIds RETURN BEFORE)`);
+        this.addDocSceneCascade(tx);
         tx.add(`LET $docsDel = (DELETE $purgeDocs RETURN BEFORE)`);
         // Cascade hard-delete. Embedding columns die with the rows.
         tx.add(`DELETE knowledge_fact WHERE entityId = $ent`);
@@ -391,6 +398,7 @@ export class EntityForgetService {
             episodesDeleted: array::len($epsDel),
             segmentsDeleted: array::len($segs),
             scenesDeleted: array::len($scenesDel),
+            purgedDocScenes: array::len($docScenesDel),
             purgedSourceDocs: array::len($docsDel),
             purgedSourceChunks: $purgedSourceChunks,
             purgedCandidates: array::len($candDel) + array::len($sweepDel),
@@ -452,6 +460,29 @@ export class EntityForgetService {
     }
 
     return result;
+  }
+
+  /**
+   * Doc-derived scene projections (0110): a memory_episode row the
+   * pack-scene projector wrote from a purged document is keyed by
+   * source.docId — NOT by memory_episode_member (a document scene quotes
+   * no L0 episode turn), so the membership-based scene leg cannot reach
+   * it. Runs UNCONDITIONALLY (never behind
+   * PACK_MEMORY_PROJECTIONS_ENABLED — rows written while the flag was on
+   * must stay erasable after a flip off). Members are defensive (this
+   * projector writes none); LET-select-ids → DELETE like every other leg
+   * (the 3.2.4 compound-index planner no-op). Binds $purgeDocs from the
+   * enclosing transaction; leaves $docScenesDel for the tombstone.
+   */
+  private addDocSceneCascade(tx: TxBuilder): void {
+    tx.add(
+      `LET $docSceneIds = (SELECT VALUE id FROM memory_episode WHERE source.docId INSIDE $purgeDocs)`,
+    );
+    tx.add(
+      `LET $docSceneMemberIds = (SELECT VALUE id FROM memory_episode_member WHERE in INSIDE $docSceneIds)`,
+    );
+    tx.add(`DELETE $docSceneMemberIds`);
+    tx.add(`LET $docScenesDel = (DELETE $docSceneIds RETURN BEFORE)`);
   }
 
   /**

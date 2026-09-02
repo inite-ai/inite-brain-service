@@ -230,4 +230,46 @@ describe('mergeCandidates', () => {
     expect(out.facts).toHaveLength(1);
     expect(out.entities).toHaveLength(1);
   });
+
+  it('ignores 0110 episodic kinds byte-identically (scene/state_delta are inert here)', () => {
+    // The semantic mergers dispatch on kind and skip everything else —
+    // pinned so widening the candidate enum can never leak episodic rows
+    // into the graph-commit path, NOT EVEN as rejections.
+    const semantic = [
+      entity('Acme Corp', 0),
+      row({
+        kind: 'fact',
+        payload: { entityIndex: 0, predicate: 'tier', object: 'gold', indexerId: 'core' },
+      }),
+    ];
+    const baseline = mergeCandidates(semantic);
+    seq = 0; // re-issue the same candidate ids for the mixed run
+    const mixed = mergeCandidates([
+      entity('Acme Corp', 0),
+      row({
+        kind: 'fact',
+        payload: { entityIndex: 0, predicate: 'tier', object: 'gold', indexerId: 'core' },
+      }),
+      {
+        id: 'candidate:scene1',
+        runId: 'indexer_run:r1',
+        chunkSeq: 0,
+        kind: 'scene',
+        confidence: 0.7,
+        status: 'pending',
+        payload: { sceneIndex: 0, schemaId: 'viewing', label: 'L', gist: 'G' },
+      },
+      {
+        id: 'candidate:delta1',
+        runId: 'indexer_run:r1',
+        chunkSeq: 0,
+        kind: 'state_delta',
+        confidence: 0.7,
+        status: 'pending',
+        payload: { sceneIndex: 0, stateModelId: 'deal', subject: 's', to: 'open' },
+      },
+    ]);
+    expect(mixed).toEqual(baseline);
+    expect(mixed.rejected).toHaveLength(0);
+  });
 });

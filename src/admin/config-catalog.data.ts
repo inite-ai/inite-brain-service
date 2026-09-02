@@ -680,6 +680,19 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Scenes: fingerprint the segmenter config into the effective version — scene-segmenter-v1+<8-hex sha256 over impl|scorer|maxTurns|topicBoundary[|minCosine|space]> — so a config change forks a NEW coexisting scene id-space (ids, stamps, registry keys, swap WHERE and backlink stamps all follow) instead of overwriting the old world in place; abandoned worlds are purged via DELETE /scenes/versions/:v. Off = the literal scene-segmenter-v1 constant: byte-identical ids, stamps and registry keys.',
   },
+  {
+    key: 'PACK_MEMORY_PROJECTIONS_ENABLED',
+    category: 'scenes',
+    // Read at call time (pack-projection-flags.packMemoryProjectionsEnabled)
+    // by the external-submission validator and the commit-side projection
+    // hook — never captured in a constructor — so a flip takes effect
+    // without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Pack memory projections (migration 0110): external candidate submissions may carry scenes/stateDeltas validated against the submitting pack’s manifest memoryModel (sceneSchemas / stateModels), staged as candidate kinds scene/state_delta and projected at commit time into shadow memory_episode rows under segmenterVersion pack:<packId>+<fp> (registry scenes:<packId>; purge via DELETE /scenes/versions/:v). Off = submissions carrying either array are rejected 400, no such candidate row is written, no projection runs — byte-identical. The GDPR forget doc-cascade leg for projected rows runs regardless.',
+  },
   // ── Multilingual (Tier 1, migration 0100) ───────────
   {
     key: 'MULTILINGUAL_LANG_ATTRIBUTION',

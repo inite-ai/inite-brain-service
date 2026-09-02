@@ -1,0 +1,62 @@
+-- 0110_candidate_scene_kinds — widen the candidate `kind` enum for
+-- pack-declared memory projections (scene / state_delta candidates).
+--
+-- NUMBERING NOTE: 0110 was reserved by this PR's wave (see the 0115 header:
+-- "0108/0110/0114 are claimed by in-flight sibling PRs"); 0108 and 0114
+-- landed, this file redeems the 0110 claim. The migrator applies by numeric
+-- order and tracks per-id, so landing after 0118 is harmless.
+--
+-- WHY. A domain pack may declare HOW its domain episodizes memory
+-- (manifest memoryModel.sceneSchemas / stateModels, 0112-adjacent). Until
+-- now the Candidates staging layer could only carry the semantic-plane
+-- trio (entity/fact/relation) — an external indexer that recognizes a
+-- SCENE ("viewing", "claim_intake") or a STATE TRANSITION ("deal:
+-- open → under_offer") had no staging shape for it, so the episodic plane
+-- was writable only by the in-process scene composer. Two new kinds:
+--
+--   scene:       { schemaId, label, gist, occurredFrom?, occurredTo?,
+--                  clause?, indexerId } — a pack-schema-conforming scene
+--                  hypothesis; projected (behind
+--                  PACK_MEMORY_PROJECTIONS_ENABLED, default off) into
+--                  shadow memory_episode rows under the namespaced
+--                  segmenterVersion `pack:<packId>+<fp>` — disjoint by
+--                  construction from the composer's `scene-segmenter-v1*`
+--                  versions, so the two writers can never collide.
+--   state_delta: { stateModelId, subjectType, subject, from?, to,
+--                  clause?, indexerId } — a lifecycle transition claim
+--                  validated against the pack's declared state model.
+--
+-- Both shapes are TS-validated before the row is written (the 0049
+-- "payload is FLEXIBLE, TS owns the shape" precedent) and are validated
+-- against the SUBMITTING pack's own memoryModel declarations — a pack
+-- cannot stage scenes for schemas it never declared.
+--
+-- WHY OVERWRITE: 0049 declared the field with IF NOT EXISTS; on an
+-- existing table that is a full no-op (the 0105 lesson), so widening the
+-- ASSERT requires a re-declaration. DEFINE FIELD OVERWRITE replaces only
+-- this field's definition — data, other fields, and indexes persist
+-- untouched. The statement mirrors 0049 EXACTLY (type, no default) with
+-- only the two enum values appended; existing rows all hold values inside
+-- the old subset, so the widened ASSERT accepts every pre-0110 row.
+--
+-- The commit/merge path deliberately ignores unknown kinds (it reads
+-- entity/fact/relation batches by kind), so staged scene/state_delta rows
+-- are inert to the semantic-plane commit — the projection service is
+-- their only consumer. Pinned by unit test (candidate-merge ignores
+-- non-semantic kinds byte-identically).
+--
+-- Deliberately NO new index (kind rides the existing candidate indexes),
+-- NO changefeed, NO event.
+
+DEFINE FIELD OVERWRITE kind ON candidate TYPE string
+  ASSERT $value INSIDE ['entity','fact','relation','scene','state_delta'];
+
+-- GDPR tombstone counter (0080/0106 idiom): doc-derived scene projections
+-- erased by the forget document-cascade. Scenes projected from a purged
+-- document are keyed by source.docId (not by memory_episode_member — a
+-- document scene quotes no L0 episode turn), so the entity-forget doc
+-- cascade gets its own LET-select-ids → DELETE leg and its own counter.
+-- The cascade leg runs UNCONDITIONALLY (never behind
+-- PACK_MEMORY_PROJECTIONS_ENABLED): rows written while the flag was on
+-- must stay erasable after it is turned off.
+DEFINE FIELD IF NOT EXISTS purgedDocScenes ON forgotten_entity TYPE option<int>;

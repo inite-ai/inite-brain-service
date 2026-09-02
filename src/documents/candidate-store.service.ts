@@ -12,6 +12,19 @@ import { idTailOf } from '../ingest/ingest-utils';
 import type { CandidateBatch, CandidateKind } from '../indexers/candidate.types';
 import { indexerIdOfPredicate } from '../indexers/virtual-attributor';
 
+/**
+ * insertBatch tallies, echoed into the submission response (`staged`) and
+ * the run stats. scenes/stateDeltas appear ONLY when the batch carried
+ * the 0110 arrays — flag-off payloads stay byte-identical.
+ */
+export interface InsertBatchCounts {
+  entities: number;
+  facts: number;
+  relations: number;
+  scenes?: number;
+  stateDeltas?: number;
+}
+
 /** A candidate row as loaded for the Brain commit step. */
 export interface CandidateRow {
   id: string;
@@ -374,7 +387,7 @@ export class CandidateStoreService {
   async insertBatch(
     companyId: string,
     p: { docId: string; runId: string; chunkSeq: number; batch: CandidateBatch },
-  ): Promise<{ entities: number; facts: number; relations: number }> {
+  ): Promise<InsertBatchCounts> {
     const { batch } = p;
     const prov = batch.provenance;
     return this.surreal.withCompany(companyId, async (db) => {
@@ -441,6 +454,44 @@ export class CandidateStoreService {
             model: prov.model,
           },
         })),
+        // 0110 episodic kinds (PACK_MEMORY_PROJECTIONS_ENABLED): absent on
+        // every batch unless the external validator admitted them, so the
+        // flag-off write path stages exactly the pre-0110 row set.
+        ...(batch.scenes ?? []).map((s) => ({
+          ...shared(),
+          kind: 'scene',
+          confidence: s.confidence,
+          payload: {
+            sceneIndex: s.sceneIndex,
+            schemaId: s.schemaId,
+            label: s.label,
+            gist: s.gist,
+            occurredFrom: s.occurredFrom,
+            occurredTo: s.occurredTo,
+            ungrounded: s.ungrounded,
+            indexerId: prov.indexerId,
+            packVersion: prov.packVersion,
+            executionMode: prov.executionMode,
+            model: prov.model,
+          },
+        })),
+        ...(batch.stateDeltas ?? []).map((d) => ({
+          ...shared(),
+          kind: 'state_delta',
+          confidence: d.confidence,
+          payload: {
+            sceneIndex: d.sceneIndex,
+            stateModelId: d.stateModelId,
+            subject: d.subject,
+            from: d.from,
+            to: d.to,
+            ungrounded: d.ungrounded,
+            indexerId: prov.indexerId,
+            packVersion: prov.packVersion,
+            executionMode: prov.executionMode,
+            model: prov.model,
+          },
+        })),
       ];
       if (rows.length > 0) {
         await db.query(`INSERT INTO candidate $rows`, { rows });
@@ -448,10 +499,16 @@ export class CandidateStoreService {
       this.metrics?.countCandidate('entity', 'created', batch.entities.length);
       this.metrics?.countCandidate('fact', 'created', batch.facts.length);
       this.metrics?.countCandidate('relation', 'created', batch.relations.length);
+      this.metrics?.countCandidate('scene', 'created', batch.scenes?.length ?? 0);
+      this.metrics?.countCandidate('state_delta', 'created', batch.stateDeltas?.length ?? 0);
       return {
         entities: batch.entities.length,
         facts: batch.facts.length,
         relations: batch.relations.length,
+        // Present only when the batch carried the 0110 arrays — the
+        // flag-off staged/stats payloads stay byte-identical.
+        ...(batch.scenes ? { scenes: batch.scenes.length } : {}),
+        ...(batch.stateDeltas ? { stateDeltas: batch.stateDeltas.length } : {}),
       };
     });
   }

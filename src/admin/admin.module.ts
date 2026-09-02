@@ -55,7 +55,6 @@ import { RegistryModule } from '../registry/registry.module';
 import { IndexersModule } from '../indexers/indexers.module';
 import { McpModule } from '../mcp/mcp.module';
 import { DomainPackInstallService } from './domain-pack-install.service';
-import { MemoryModelReaderService } from '../ai/memory-model-reader.service';
 import { PackEvalService } from './pack-eval.service';
 import { ScenarioRunnerService } from './scenario-runner.service';
 import { ScenarioWriteService } from './scenario-write.service';
@@ -138,11 +137,9 @@ import { ConfigInspectorService } from './config-inspector.service';
     DemoPipelineService,
     DemoChatService,
     DomainPackInstallService,
-    // Read side of pack-declared memoryModel sections (contract-only for
-    // now; perception consumers arrive in sibling increments). Registered
-    // here so DomainPackInstallService can invalidate its cache on
-    // install/upgrade/uninstall.
-    MemoryModelReaderService,
+    // MemoryModelReaderService moved to AiModule (@Global, exported) in
+    // 0110: the documents pipeline consumes it too, and two per-module
+    // instances would split the cache the install path invalidates.
     PackEvalService,
     ScenarioRunnerService,
     // Scenario-runner phase services (max-params split):

@@ -162,6 +162,66 @@ describe('GDPR forget — source-document cascade', () => {
     });
   });
 
+  it('entity-forget erases doc-derived scene projections (0110) with the doc, unconditionally', async () => {
+    // A memory_episode row the pack-scene projector wrote from a document
+    // is keyed by source.docId — NOT by memory_episode_member — so the
+    // membership-based scene leg cannot reach it; the doc cascade must.
+    // PACK_MEMORY_PROJECTIONS_ENABLED stays OFF here on purpose: erasure
+    // of rows written while the flag was on must not depend on the flag.
+    const seeded = await surreal().withCompany(f.companyId, async (db) => {
+      const entityId = await seedEntity(db, 'Doc Scene Subject');
+      const doc = await seedDoc(db, {
+        hash: 'cascade-hash-docscene-1',
+        chunkTexts: ['scene subject private text'],
+      });
+      await seedFact(db, { entityId, object: 'scene-doc-object', docId: doc.docId });
+      const episodeId = await createRow(
+        db,
+        `CREATE memory_episode SET
+           scope=[], sceneLabel='Viewing at 12 Elm St', conversationIds=[],
+           occurredFrom=time::now(), occurredTo=time::now(),
+           gist='Client toured the property and discussed financing.',
+           confidence=0.7, segmenterVersion='pack:realty+deadbeef',
+           generation='2026-09-01T00:00:00.000Z',
+           source={ recorder: 'pack-scene-projector-v1', docId: $doc,
+                    packId: 'realty', schemaId: 'viewing' }
+         RETURN id`,
+        { doc: new StringRecordId(doc.docId) },
+      );
+      // A scene of ANOTHER doc must survive this forget untouched.
+      const bystanderId = await createRow(
+        db,
+        `CREATE memory_episode SET
+           scope=[], sceneLabel='Unrelated scene', conversationIds=[],
+           occurredFrom=time::now(), occurredTo=time::now(),
+           gist='Different document entirely.',
+           confidence=0.7, segmenterVersion='pack:realty+deadbeef',
+           generation='2026-09-01T00:00:00.000Z',
+           source={ recorder: 'pack-scene-projector-v1', docId: source_document:nonexistent }
+         RETURN id`,
+      );
+      return { entityId, episodeId, bystanderId, ...doc };
+    });
+
+    const forget = await f.http
+      .post(`/v1/entities/${encodeURIComponent(seeded.entityId)}/forget`)
+      .set(auth())
+      .send({ reason: 'gdpr_request', requestId: 'req-doc-scene-1' });
+    expect([200, 201]).toContain(forget.status);
+
+    expect(await surviving([seeded.docId, seeded.episodeId])).toBe(0);
+    expect(await surviving([seeded.bystanderId])).toBe(1);
+
+    const tombs = await surreal().withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<[Array<Record<string, unknown>>]>(
+        `SELECT purgedDocScenes, purgedSourceDocs FROM forgotten_entity WHERE requestId = $r`,
+        { r: 'req-doc-scene-1' },
+      );
+      return (rows as Array<Record<string, unknown>>) ?? [];
+    });
+    expect(tombs).toEqual([{ purgedDocScenes: 1, purgedSourceDocs: 1 }]);
+  });
+
   it('entity-forget replay on the same requestId is a stored-result no-op', async () => {
     // The entity is already erased; the same (requestId, entity) pair must
     // replay the stored tombstone — no 404, no re-erase, ONE tombstone.

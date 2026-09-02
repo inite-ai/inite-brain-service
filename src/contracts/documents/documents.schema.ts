@@ -155,7 +155,7 @@ export const CandidateSchema = z.object({
   id: z.string(),
   runId: z.string(),
   chunkSeq: z.number().int(),
-  kind: z.enum(['entity', 'fact', 'relation']),
+  kind: z.enum(['entity', 'fact', 'relation', 'scene', 'state_delta']),
   confidence: z.number(),
   status: z.string(),
   statusReason: z.string().optional(),
@@ -164,7 +164,10 @@ export const CandidateSchema = z.object({
     .record(z.string(), z.unknown())
     .describe(
       'Extraction payload. `object`/`clause` of scope-gated fact candidates ' +
-        'are redacted for callers without the required predicate scope.',
+        'are redacted for callers without the required predicate scope. ' +
+        'scene/state_delta payloads (0110) are default-deny: content fields ' +
+        'open only under brain:read_pii; other callers see structural fields ' +
+        'plus `redacted: true`.',
     ),
 });
 
@@ -197,6 +200,33 @@ export const SubmittedRelationSchema = z.object({
   confidence: z.number().optional(),
 });
 
+/** Mirror of SubmittedScene (0110, PACK_MEMORY_PROJECTIONS_ENABLED). */
+export const SubmittedSceneSchema = z.object({
+  schemaId: z.string().describe("∈ the pack's memoryModel.sceneSchemas[].id."),
+  label: z.string().describe('Short human label (≤200 chars).'),
+  gist: z.string().describe('Scene gist text (≤2000 chars).'),
+  occurredFrom: z
+    .string()
+    .optional()
+    .describe('ISO datetime; provided together with occurredTo, from ≤ to.'),
+  occurredTo: z.string().optional(),
+  confidence: z.number().optional(),
+});
+
+/** Mirror of SubmittedStateDelta (0110). */
+export const SubmittedStateDeltaSchema = z.object({
+  sceneIndex: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe("Index into this submission's `scenes` array."),
+  stateModelId: z.string().describe("∈ the pack's memoryModel.stateModels[].id."),
+  subject: z.string().describe('The subject whose lifecycle moved (≤256 chars).'),
+  from: z.string().optional().describe('Declared state of the model, when known.'),
+  to: z.string().describe('Declared state of the model.'),
+  confidence: z.number().optional(),
+});
+
 /** Mirror of SubmitCandidatesDto (top-level class-validated; item shapes
  *  service-validated — ≤200 items per kind). */
 export const SubmitCandidatesRequestSchema = z.object({
@@ -221,6 +251,22 @@ export const SubmitCandidatesRequestSchema = z.object({
   entities: z.array(SubmittedEntitySchema),
   facts: z.array(SubmittedFactSchema),
   relations: z.array(SubmittedRelationSchema).optional(),
+  scenes: z
+    .array(SubmittedSceneSchema)
+    .optional()
+    .describe(
+      'Pack-schema-conforming scene hypotheses (0110). Rejected 400 unless ' +
+        'PACK_MEMORY_PROJECTIONS_ENABLED; schemaId must be one of the ' +
+        "submitting pack's declared memoryModel.sceneSchemas ids.",
+    ),
+  stateDeltas: z
+    .array(SubmittedStateDeltaSchema)
+    .optional()
+    .describe(
+      'Lifecycle-transition claims (0110) riding scenes of this submission ' +
+        "(sceneIndex). Validated against the pack's memoryModel.stateModels; " +
+        'declared transitions stay advisory (never a gate).',
+    ),
 });
 
 /** Mirror of GroundingDrop (candidate-grounding.ts). */
@@ -244,6 +290,10 @@ export const SubmitCandidatesResponseSchema = z.object({
     entities: z.number().int().nonnegative(),
     facts: z.number().int().nonnegative(),
     relations: z.number().int().nonnegative(),
+    // Present ONLY when the submission carried the 0110 arrays — the
+    // flag-off response stays byte-identical.
+    scenes: z.number().int().nonnegative().optional(),
+    stateDeltas: z.number().int().nonnegative().optional(),
   }),
   dropped: z.array(GroundingDropSchema),
   ungrounded: z

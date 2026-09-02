@@ -109,27 +109,89 @@ export function redactGatedCandidates(
   ctx: PolicyContext | null,
 ): CandidateRow[] {
   return candidates.map((c) => {
-    if (c.kind !== 'fact') return c;
-    const predicate = String(c.payload?.predicate ?? '');
-    const requiresScope = policyFor(predicate).requiresScope;
-    const scopeGated = !!requiresScope && !scopes.includes(requiresScope);
-    const abacDenied =
-      !!ctx &&
-      evaluateRow(
-        ctx,
-        toRowView({ predicate }, (p) => policyFor(p).piiClass),
-      ).decision === 'deny';
-    if (!scopeGated && !abacDenied) return c;
-    // Redact BOTH the extracted value and the verbatim grounding
-    // sentence: `clause` is a quote from the source document and carries
-    // the same PII the `object` does, so redacting object alone still
-    // leaked the value through the citation.
-    const redactedPayload: Record<string, unknown> = {
-      ...c.payload,
-      object: '[redacted]',
-      redacted: true,
-    };
-    if ('clause' in redactedPayload) redactedPayload.clause = '[redacted]';
-    return { ...c, payload: redactedPayload };
+    // Kind-dispatch with DEFAULT-DENY (0110): every kind must be listed
+    // here EXPLICITLY, and any kind this dispatcher does not recognize —
+    // scene/state_delta today, whatever a future migration widens the
+    // enum to tomorrow — falls through to the PII gate instead of passing
+    // through open. The previous form (`if (kind !== 'fact') return c`)
+    // was a fail-open passthrough: a scene candidate's gist quotes the
+    // source document exactly like `includeText` does, and would have
+    // surfaced under plain brain:read.
+    switch (c.kind) {
+      case 'entity':
+      case 'relation':
+        // Structural rows (names, types, endpoint indexes) — the audit
+        // view returns them whole, exactly as before 0110.
+        return c;
+      case 'fact':
+        return redactGatedFact(c, scopes, ctx);
+      default:
+        return redactEpisodicCandidate(c, scopes);
+    }
   });
+}
+
+/** The pre-0110 fact gate, byte-identical (pinned by unit test). */
+function redactGatedFact(
+  c: CandidateRow,
+  scopes: string[],
+  ctx: PolicyContext | null,
+): CandidateRow {
+  const predicate = String(c.payload?.predicate ?? '');
+  const requiresScope = policyFor(predicate).requiresScope;
+  const scopeGated = !!requiresScope && !scopes.includes(requiresScope);
+  const abacDenied =
+    !!ctx &&
+    evaluateRow(
+      ctx,
+      toRowView({ predicate }, (p) => policyFor(p).piiClass),
+    ).decision === 'deny';
+  if (!scopeGated && !abacDenied) return c;
+  // Redact BOTH the extracted value and the verbatim grounding
+  // sentence: `clause` is a quote from the source document and carries
+  // the same PII the `object` does, so redacting object alone still
+  // leaked the value through the citation.
+  const redactedPayload: Record<string, unknown> = {
+    ...c.payload,
+    object: '[redacted]',
+    redacted: true,
+  };
+  if ('clause' in redactedPayload) redactedPayload.clause = '[redacted]';
+  return { ...c, payload: redactedPayload };
+}
+
+/**
+ * Structural fields an episodic/unknown candidate keeps for the audit
+ * trail under plain brain:read: provenance + schema references + batch
+ * indexes. Everything else (label, gist, subject, states, and any field a
+ * future kind might carry) is content and stays behind brain:read_pii.
+ */
+const EPISODIC_AUDIT_FIELDS = [
+  'sceneIndex',
+  'schemaId',
+  'stateModelId',
+  'entityIndex',
+  'ungrounded',
+  'indexerId',
+  'packVersion',
+  'executionMode',
+  'model',
+] as const;
+
+/**
+ * Default-deny gate for scene/state_delta and any future kind: free text
+ * in these payloads (gist, label, subject) quotes or summarizes the
+ * source document — the same PII class as the raw text `includeText`
+ * serves — so full payloads open only under brain:read_pii (the
+ * getDocument precedent above). Unlike the fact gate this is an ALLOWLIST
+ * (fields kept), not a blocklist (fields scrubbed): a blocklist over an
+ * unknown payload shape silently leaks every field it did not anticipate.
+ */
+function redactEpisodicCandidate(c: CandidateRow, scopes: string[]): CandidateRow {
+  if (scopes.includes('brain:read_pii')) return c;
+  const redactedPayload: Record<string, unknown> = { redacted: true };
+  for (const key of EPISODIC_AUDIT_FIELDS) {
+    if (key in c.payload) redactedPayload[key] = c.payload[key];
+  }
+  return { ...c, payload: redactedPayload };
 }
