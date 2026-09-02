@@ -12,8 +12,13 @@
  *   harness ──stdio──▶ brain-mcp ──HTTP+Bearer──▶ https://brain.inite.ai/mcp/<company>
  *
  * It is a thin, transparent passthrough — it does NOT curate or rename tools.
- * `tools/list` and `tools/call` are forwarded verbatim, so the harness sees
- * exactly the surface the API key unlocks (read / write / admin).
+ * `tools/list`, `tools/call`, and the resource surface (`resources/list`,
+ * `resources/templates/list`, `resources/read` — brain://entity/… lives
+ * there) are forwarded verbatim, so the harness sees exactly the surface
+ * the API key unlocks (read / write / admin). Sampling is bridged the
+ * other way: brain's sampling/createMessage requests are forwarded to the
+ * harness so summarize_entity(styleHint='client_llm') can use ITS model.
+ * See bridge.ts for the wiring.
  *
  * Config is entirely via environment (harnesses pass `env` to the subprocess):
  *   BRAIN_API_KEY      (required)  e.g. brain_xxxxx
@@ -26,15 +31,11 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { createBridgeServer, registerSamplingPassthrough } from './bridge.js';
 
 const PKG_NAME = '@inite/brain-mcp';
-const PKG_VERSION = '0.1.0';
+const PKG_VERSION = '0.2.0';
 const DEFAULT_BASE_URL = 'https://brain.inite.ai';
 const COMPANY_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -93,9 +94,15 @@ function resolveConfig(): Resolved {
 }
 
 async function connectUpstream({ url, apiKey }: Resolved): Promise<Client> {
+  // `sampling` is declared upstream unconditionally: MCP has no
+  // capability renegotiation, and the harness's own capabilities are
+  // only known after the stdio side connects (which needs the upstream
+  // capabilities first, to mirror them). If the harness turns out not
+  // to support sampling, the forwarded request errors cleanly and brain
+  // falls back to its local template — see registerSamplingPassthrough.
   const client = new Client(
     { name: PKG_NAME, version: PKG_VERSION },
-    { capabilities: {} },
+    { capabilities: { sampling: {} } },
   );
 
   const transport = new StreamableHTTPClientTransport(new URL(url), {
@@ -136,22 +143,19 @@ async function main(): Promise<void> {
       `(capabilities: ${Object.keys(upstreamCaps).join(', ') || 'none'})`,
   );
 
-  // Downstream server faces the harness over stdio. We only advertise the
-  // capabilities the upstream actually has; brain is tools-only today, but
-  // this keeps the bridge honest if that grows.
-  const server = new Server(
-    { name: 'brain', version: upstreamInfo?.version ?? PKG_VERSION },
-    { capabilities: { tools: upstreamCaps.tools ?? {} } },
-  );
-
-  // Transparent passthrough — forward verbatim, including pagination cursors.
-  server.setRequestHandler(ListToolsRequestSchema, async (request) => {
-    return upstream.listTools(request.params);
+  // Downstream server faces the harness over stdio. It advertises the
+  // capabilities the upstream actually has (tools + resources) and
+  // forwards every surface verbatim, including pagination cursors.
+  const server = createBridgeServer({
+    upstream,
+    upstreamCapabilities: upstreamCaps,
+    name: 'brain',
+    version: upstreamInfo?.version ?? PKG_VERSION,
   });
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    return upstream.callTool(request.params);
-  });
+  // Reverse direction: brain's sampling/createMessage requests reach the
+  // harness's LLM (summarize_entity styleHint='client_llm').
+  registerSamplingPassthrough({ upstream, server, log });
 
   // If the remote connection drops, take the bridge down so the harness
   // surfaces it instead of silently serving a dead proxy.

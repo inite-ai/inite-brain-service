@@ -1,6 +1,6 @@
 {
   "name": "@inite/brain-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "First-party stdio MCP connector for the INITE Brain service. Lets stdio-only harnesses that can't attach auth headers (e.g. openclaw, Goose 1.x) use brain as long-term memory by transparently proxying every scoped tool over Streamable HTTP with Bearer auth. Harnesses with native remote MCP (Hermes, Claude Desktop, Cursor) connect directly by URL instead.",
   "author": "INITE",
   "license": "AGPL-3.0-or-later",
