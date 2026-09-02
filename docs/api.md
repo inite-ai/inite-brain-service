@@ -74,8 +74,10 @@ Protocol: [indexer-protocol.md](indexer-protocol.md).
 | `GET /v1/entities/autocomplete?q=` | Entity-name typeahead over the edge-ngram `prefix` fulltext index (word-start match, BM25-ranked via `search::score`). `?limit=` 1–25 (default 10); a query under 2 chars returns empty. Live, tenant-global entities only (merged-away redirects and personal-scoped entities excluded). |
 | `GET /v1/entities/:id` | Entity profile + active facts (PII-gated by scope). `?asOf=` slices world-time; `?recordedAt=` slices transaction-time (what the graph believed at T — a later retract/supersede is ignored). |
 | `GET /v1/entities/:id/timeline` | Bitemporal sweep — `fact.recorded` / `fact.retracted` events on the transaction-time axis. `?since=`/`?until=` page the window; `?recordedAt=` cuts to events known by T. |
-| `GET /v1/facts/:id` | One fact by id: statement, aspect, validity, user scope, provenance coordinates, `retracted` flag. Every visibility fence (tenant, user scope, row policy) answers 404 — existence never leaks. Flag `FACTS_API_ENABLED`. |
-| `GET /v1/facts/:id/provenance` | The verbatim grounding turns behind a fact (`source.episodeIds`), chronological, text capped; PII-classed text needs `brain:read_pii`. Flag `FACTS_API_ENABLED`. |
+| `GET /v1/facts/:id` | One fact by id: statement, aspect, validity, user scope, provenance coordinates, `retracted` flag, and `groundingStatus` (`grounded` \| `ungrounded`) on rows stamped by the claim-grounding plane (`EVIDENCE_GROUNDING_STAMP`; legacy rows carry no key). Every visibility fence (tenant, user scope, row policy) answers 404 — existence never leaks. Flag `FACTS_API_ENABLED`. Also on MCP as `get_fact`. |
+| `GET /v1/facts/:id/provenance` | The verbatim grounding turns behind a fact (`source.episodeIds`), chronological, text capped; PII-classed text needs `brain:read_pii`. Optional read-flag extensions: `derivedFacts` + `closure` (`PROVENANCE_RECURSIVE_CLOSURE`) and typed `supportEdges` (`PROVENANCE_SUPPORT_GRAPH_READ`) — see [fact-provenance-api.md](fact-provenance-api.md). Flag `FACTS_API_ENABLED`. Also on MCP as `get_fact_provenance`. |
+| `GET /v1/beliefs` | Read-only list over the `semantic_belief` substrate (Belief-B): filter by free-text `subject` / `field`, `userId`, `status` (`active` default \| `superseded` \| `all`), page-capped (default 25, max 100). Fail-closed single-user scope; the only writer stays the Belief-A promotion pass. Flag `BELIEFS_API_ENABLED`. |
+| `GET /v1/beliefs/:id` | One belief revision — value/priorValue, statement, confidence, revision/status/supersededBy supersede chain, validity, inline `sourceSceneIds` provenance, corroboration counters. Every miss is a 404. Flag `BELIEFS_API_ENABLED`. |
 | `GET /v1/users/:userId/profile` | Deterministic, prompt-ready profile of one user's OWN memory (strict `userId` scope; persona-first sections + `profileText`). A user-bound token only fetches its own profile; M2M any. Flag `USER_PROFILE_API_ENABLED`. |
 | `GET /v1/entities/:id/connections` | Typed edges + direct neighbours. |
 | `GET /v1/artifacts/:type/:entityId` | Derived artifacts (profile / digest / etc) with manual `recompile` POST. |
@@ -102,6 +104,25 @@ All routes 404 until their flag is on.
 | `DELETE /v1/episodes/subscriptions/:id` | Remove an endpoint (`brain:admin`). |
 | `GET /v1/projections` | Derived surfaces as first-class records (migration 0076): status `building/built/live/residual/failed`, watermark, builder, stats, plus the live read pin (`RETRIEVAL_DERIVED_VERSION`). Flag `PROJECTIONS_API_ENABLED`. |
 | `POST /v1/projections/:name/rebuild` | The public rebuild verb over the maintenance batch engine (`brain:admin`; v1 rebuilds `facts` via the session-window deriver). Body: `version` / `conversation` / `activate` / `force`. Flag `PROJECTIONS_API_ENABLED`. |
+
+## Evidence raw-read gateway
+
+The ONE surface that turns stored evidence rows back into original
+bytes (Brain v2.1 MM-3, migration 0125). All routes answer a bare 404
+while `EVIDENCE_RAW_READ_ENABLED` is off — indistinguishable from
+absent routes. Every attempt (allow or deny) lands as a content-free
+`evidence_access` audit row; every deny is a uniform 404 (no existence
+oracle). Gate ladder (deny-overrides): scope → ABAC action
+`rest.evidence.raw` → tenant fence → live grants → modality consent →
+media-PII (`brain:read_media`) → blob head.
+
+| Endpoint | Notes |
+|---|---|
+| `GET /v1/evidence/:assetId/raw` | Stream the asset blob (`brain:read` + the full gate ladder). Defensive headers: nosniff, no-store, attachment disposition. |
+| `GET /v1/evidence/:assetId/raw-url` | Mint a short-lived signed URL (`EVIDENCE_SIGNED_URL_TTL_SECONDS`, default 300 s). 503 until `EVIDENCE_SIGNED_URL_SECRET` (≥ 32 chars) is configured. |
+| `GET /v1/evidence/fragments/:fragmentId/raw` | Fragment twin — serves WHOLE parent-asset bytes in v1 (no locator cropping) under the STRICTEST union of fragment+asset piiClasses. |
+| `GET /v1/evidence/fragments/:fragmentId/raw-url` | Signed-URL twin for fragments. |
+| `GET /v1/evidence/redeem/:token` | Redeem a signed URL — unauthenticated by design; the token IS the capability. Fail-closed re-checks only: signature (timing-safe, before any DB touch), expiry, tenant pin, availability, ≥1 live grant (revocation backstop). Bad/expired/revoked all answer the same bare 404. |
 
 ## Mutation (audited)
 
@@ -177,6 +198,13 @@ in [source-reputation.md](source-reputation.md).
 | `POST /v1/admin/maintenance/reindex` | Async re-embed `knowledge_fact`, optionally per tenant. |
 | `POST /v1/admin/maintenance/compaction` | Fire-and-forget kick of the compaction (+promotion) pass. |
 | `POST /v1/admin/maintenance/hnsw` | Per-tenant HNSW vector-index lifecycle: `{action: 'create' \| 'drop', tenant?}`. Synchronous. `create` refuses (`400`) when an index already exists at a different dimension — recover in order: drop → reindex embeddings → create. |
+| `POST /v1/admin/maintenance/segments` | L0 segment composer (embedding-only, no LLM); idempotent per conversation. Enable the read lane afterwards with `SEARCH_SEGMENT_LANE_ENABLED`. |
+| `POST /v1/admin/maintenance/segments/backfill-user-ids` | 0117 backfill: stamp `userIds` on legacy segment rows so `PRIVACY_SEGMENT_USER_FENCE` (fail-closed on `userIds IS NONE`) can be enabled without hiding pre-0117 windows. Run once per tenant BEFORE the first fence enable (order: migrate → backfill → flip). Scenes are not covered — re-run `…/maintenance/scenes` instead. |
+| `POST /v1/admin/maintenance/scenes` | Scene composer over the shadow `memory_episode` substrate (0106) — LLM-free, idempotent per (conversation × segmenterVersion), atomic swap. 404 unless `SCENES_SEGMENTATION_ENABLED`. Optional body: `{tenant?, conversationId?}`. |
+| `POST /v1/admin/maintenance/scenes/enrich` | Standalone re-enrichment: ONE structured LLM call per scene of the current segmenter version; idempotent per enrichmentVersion composite (unchanged config = zero paid calls). 404 unless the master flag AND `SCENES_LLM_ENRICHMENT` are on. |
+| `POST /v1/admin/maintenance/scenes/backlink` | Standalone fact backlink: idempotent `source.memoryEpisodeIds` stamps on facts whose episodes intersect scene membership. 404 unless the master flag AND `SCENES_FACT_BACKLINK` are on. |
+| `POST /v1/admin/maintenance/scenes/beliefs` | Belief promotion (Belief-A, 0120): folds ENRICHED scenes into `semantic_belief` upserts keyed by free-text (subject, field); replay-idempotent. 404 unless the master flag AND `SCENES_BELIEF_PROMOTION` are on. Read the result via the [beliefs API](#read). |
+| `DELETE /v1/admin/maintenance/scenes/versions/:segmenterVersion` | Purge one version's scene world (members → scenes, one transaction) and demote its projection ledger row to `residual`. Accepts fingerprinted versions (`scene-segmenter-v1+<8hex>`) and pack worlds (`pack:<packId>+<fp>`). |
 | `GET /v1/admin/changefeed/state` | Consumer lag + per-(tenant, source) cursor table. |
 | `POST /v1/admin/changefeed/drain` | Manual drain of pending change events. |
 
@@ -217,7 +245,9 @@ the admin UI at brain-landing is the primary consumer):
 | `brain:read` | All read endpoints; PII facts only as `__pii_redacted__` placeholder. |
 | `brain:write` | All ingest endpoints. |
 | `brain:read_pii` | Lifts the PII gate — `dob` / `email` / `phone` / `address` facts return real values. |
+| `brain:read_media` | Media/biometric evidence access (faces, voices, ID documents) — a STRICTER regime than `brain:read_pii`, not an extension of it: `read_pii` opens text rows whose piiClass is set, `read_media` opens media rows whose piiClasses gate would otherwise fail closed. Hosting-operator only: granted via env-key config, deliberately absent from the JWT `VALID_SCOPES` set (never mintable through the token path). Gates the [evidence raw-read gateway](#evidence-raw-read-gateway)'s media-PII rung. |
 | `brain:admin` | All `/v1/admin/*` endpoints, dreams trigger, retraction / forget. |
+| `brain:platform_admin` | Cross-tenant operator authority — distinct from and strictly HIGHER than `brain:admin` ("operate MY tenant"). Required for any admin op addressing a tenant other than the credential's own (with `BRAIN_TENANT_OVERRIDE_ENABLED`, e.g. the `{tenant}` body field on maintenance verbs). Hosting-operator only: env-key config, never mintable through the token path. |
 | `registry:publish` | Publish/yank in the global pack registry (catalogue shared across tenants); also pricing + publisher-profile writes for the publisher's own packs. |
 | `registry:curate` | Feature/unfeature packs in the catalogue — a hosting-operator scope, distinct from `registry:publish` (publishers manage their own packs; curation ranks everyone's). Env-key-only, like `registry:publish`. |
 | `indexer:write` | Stage candidates as an external indexer (`POST /v1/documents/:id/candidates`) — can propose hypotheses, never write facts directly. Optionally pack-bound: a key with `packIds` (static entry) or a `packs` JWT claim acts ONLY as those pack identities (403 outside the binding). |

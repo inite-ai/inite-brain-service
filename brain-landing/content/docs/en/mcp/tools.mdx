@@ -1,6 +1,6 @@
 # MCP tools reference
 
-The server registers **28 built-in tools + 2 resources** against `McpServer({ name: 'inite-brain-service' })`, gated by scope: 19 read (`brain:read`), 8 more with `brain:write` (one of which, `ingest_document`, is registered only when `DOCUMENT_INGEST_ENABLED=1`), and 1 with `brain:admin`. Sensitive PII values require an additional `brain:read_pii` scope. On top of the built-ins, installed Domain Packs can contribute consented, namespaced tools — see the "Pack-declared tools" section below. This page documents the most commonly used tools; the full surface (communities, procedural memory, source reputation, code memory) is enumerated per scope in the [MCP setup scope matrix](/en/docs/mcp/setup) and in the repo's [`docs/api.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/api.md).
+The server registers **up to 30 built-in tools + 2 resources** against `McpServer({ name: 'inite-brain-service' })`, gated by scope: 19 read (`brain:read`) always, plus 2 more read tools (`get_fact`, `get_fact_provenance`) when the server runs with `FACTS_API_ENABLED=1`; 8 more with `brain:write` (one of which, `ingest_document`, is registered only when `DOCUMENT_INGEST_ENABLED=1`); and 1 with `brain:admin`. Sensitive PII values require an additional `brain:read_pii` scope. On top of the built-ins, installed Domain Packs can contribute consented, namespaced tools — see the "Pack-declared tools" section below. This page documents the most commonly used tools; the full surface (communities, procedural memory, source reputation, code memory) is enumerated per scope in the [MCP setup scope matrix](/en/docs/mcp/setup) and in the repo's [`docs/api.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/api.md).
 
 ## search_knowledge
 
@@ -63,6 +63,30 @@ Returns retracted rows too — the audit invariant.
 }
 ```
 
+## get_fact
+
+> Read a single fact as stored — predicate (aspect), object (statement), confidence, validity window, source attribution, and lifecycle state. Retracted facts still resolve (`retracted: true`); only visibility fences turn into not-found. `groundingStatus` (`grounded` | `ungrounded`) appears on facts stamped by the claim-grounding plane (`EVIDENCE_GROUNDING_STAMP`); legacy rows carry no key.
+
+**Required scope:** `brain:read` — registered only when the server runs with `FACTS_API_ENABLED=1` (the REST twin of `GET /v1/facts/:id`).
+
+```ts
+{
+  factId: string                 // knowledge_fact:… or short id
+}
+```
+
+## get_fact_provenance
+
+> Show why a fact is remembered: the verbatim conversation turns it was derived from (chronological, with char-span quotes when the deriver stamped them). Servers running the recursive-closure flags additionally return `derivedFacts` + `closure` (the transitive support graph) and typed `supportEdges` — a passthrough of `GET /v1/facts/:id/provenance`, no field filtering.
+
+**Required scope:** `brain:read` — same `FACTS_API_ENABLED` gate as `get_fact`.
+
+```ts
+{
+  factId: string
+}
+```
+
 ## record_fact
 
 > Insert a fact about an entity. Triggers brain's conflict resolution (`INSERTED` / `SUPERSEDED` / `COMPETING` / `REJECTED`). Use sparingly from agents — most facts should come from event ingestion.
@@ -80,8 +104,17 @@ Returns retracted rows too — the audit invariant.
   validUntil?: string
   confidence?: number            // 0..1
   sourceVertical: string         // attributed source vertical
+  userId?: string                // per-user memory scope
+  conversationId?: string        // grounding: the conversation this was observed in
+  evidence?: Array<{             // grounding: ≤10 typed observation pointers
+    kind: 'event' | 'message' | 'conversation' | 'url' | 'document' | 'commit' | 'other'
+    ref: string                  // the pointer itself — id, URL, path, sha…
+    note?: string
+  }>
 }
 ```
+
+Pass `conversationId` and/or `evidence[]` whenever you can — naming the observation behind the claim marks the fact **grounded** on the claim-grounding plane (servers stamping `groundingStatus` treat bare writes as permanently observation-free, which can exclude them from consolidation and strict serving). Verify with `get_fact`.
 
 ## retract_fact
 
