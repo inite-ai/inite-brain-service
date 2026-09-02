@@ -15,13 +15,33 @@ import { envFlagEnabled } from './env-validation';
  * stay erasable after it is turned off. EVIDENCE_ family sits off the
  * ENGINE flag budget by design (a substrate builder, not an engine fork).
  *
- * Reserved for sibling PRs (NOT defined yet — do not read them):
- * EVIDENCE_INGEST_ENABLED (PR-C ingest surface), EVIDENCE_SCENE_LINKS
- * (scene↔asset membership). EVIDENCE_FRAGMENT_CITATIONS landed below
- * (MM-zoom PR2).
+ * Formerly reserved here, all landed: EVIDENCE_FRAGMENT_CITATIONS
+ * (MM-zoom PR2) and EVIDENCE_INGEST_ENABLED (PR-C ingest surface) live
+ * below; the scene↔asset membership seam landed as
+ * SCENES_EVIDENCE_LINKS — the writer is a scene pass, so it keeps the
+ * SCENES_ family naming (see scene-flags.ts).
  */
 export function evidenceSubstrateEnabled(): boolean {
   return envFlagEnabled(process.env.EVIDENCE_SUBSTRATE_ENABLED);
+}
+
+/**
+ * Evidence ingest surface (Brain v2.1 M3) — EVIDENCE_INGEST_ENABLED.
+ *
+ * When on, POST /v1/ingest/evidence-asset exists; off (default) the
+ * route answers a bare 404 (the scenes-surface precedent — a dark route
+ * does not advertise itself) and prod stays byte-identical. The surface
+ * is METADATA-ONLY (MM-6 boundary): originUri required, no bytes, no
+ * storageRef — blob-backed registration stays service-level until the
+ * upload/quarantine design lands. Both this flag AND
+ * EVIDENCE_SUBSTRATE_ENABLED must be on for a call to succeed: ingest-on
+ * with substrate-off answers 503 from the write seam and env-validation
+ * warns at boot about the inconsistent pair. Read at call time
+ * (runtime-mutable). Env read lives here in the common layer, NOT inside
+ * the engine dirs (engine-gates S5.2).
+ */
+export function evidenceIngestEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_INGEST_ENABLED);
 }
 
 /**

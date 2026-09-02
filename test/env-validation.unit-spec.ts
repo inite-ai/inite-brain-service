@@ -285,3 +285,39 @@ describe('validateEnv — evidence grounding pair (Drift-1, warn never throw)', 
     ).toBe(false);
   });
 });
+
+describe('validateEnv — evidence ingest pair (M3, warn never throw)', () => {
+  const warnSpy = () => jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  afterEach(() => jest.restoreAllMocks());
+
+  it('warns when EVIDENCE_INGEST_ENABLED is set without EVIDENCE_SUBSTRATE_ENABLED', () => {
+    const warn = warnSpy();
+    const env = baseProdEnv();
+    env.EVIDENCE_INGEST_ENABLED = '1';
+    expect(() => validateEnv(env)).not.toThrow();
+    expect(
+      warn.mock.calls.some(([m]) =>
+        String(m).includes('the evidence write seam refuses every call'),
+      ),
+    ).toBe(true);
+  });
+
+  it('no pair warning when both flags are on', () => {
+    const warn = warnSpy();
+    const env = baseProdEnv();
+    env.EVIDENCE_INGEST_ENABLED = '1';
+    env.EVIDENCE_SUBSTRATE_ENABLED = '1';
+    expect(() => validateEnv(env)).not.toThrow();
+    expect(
+      warn.mock.calls.some(([m]) => String(m).includes('EVIDENCE_INGEST_ENABLED is set')),
+    ).toBe(false);
+  });
+
+  it('no pair warning when neither flag is set', () => {
+    const warn = warnSpy();
+    expect(() => validateEnv(baseProdEnv())).not.toThrow();
+    expect(
+      warn.mock.calls.some(([m]) => String(m).includes('EVIDENCE_INGEST_ENABLED is set')),
+    ).toBe(false);
+  });
+});

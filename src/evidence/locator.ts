@@ -18,14 +18,25 @@ export type FragmentLocator =
   /** A tracked object/channel, optionally time-bounded. */
   | { kind: 'track'; trackId: string; startMs?: number; endMs?: number };
 
+/**
+ * The three kind registries are Maps, NOT record literals, on purpose:
+ * `kind` is caller-controlled (POST /v1/ingest/evidence-asset), and on a
+ * record literal a prototype-chain name ('constructor', '__proto__',
+ * 'toString'…) resolves to an INHERITED member — it passes a truthiness
+ * guard and then crashes the unknown-field walk with a TypeError (500
+ * where a 400 belongs; CodeQL js/unvalidated-dynamic-method-call).
+ * Map.get never walks a prototype chain, so every non-registered name is
+ * simply an unknown kind.
+ */
+
 /** Locator kind → modalities it may target (the cross-check matrix). */
-const KIND_MODALITIES: Record<string, readonly string[]> = {
-  charRange: ['document'],
-  pageRegion: ['document', 'image'],
-  timeRange: ['audio', 'video', 'sensor'],
-  frameRange: ['video'],
-  track: ['audio', 'video', 'sensor'],
-};
+const KIND_MODALITIES = new Map<string, readonly string[]>([
+  ['charRange', ['document']],
+  ['pageRegion', ['document', 'image']],
+  ['timeRange', ['audio', 'video', 'sensor']],
+  ['frameRange', ['video']],
+  ['track', ['audio', 'video', 'sensor']],
+]);
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -37,56 +48,70 @@ function rangeError(lo: unknown, hi: unknown, msg: string): string | null {
 }
 
 /** Per-kind shape validators; each returns an error string or null. */
-const SHAPE_VALIDATORS: Record<string, (loc: Record<string, unknown>) => string | null> = {
-  charRange: (loc) =>
-    rangeError(loc.start, loc.end, 'charRange needs int start >= 0 and end > start'),
-  pageRegion: (loc) => {
-    if (!isInt(loc.page) || loc.page < 0) return 'pageRegion needs int page >= 0';
-    for (const k of ['x', 'y', 'w', 'h']) {
-      const v = loc[k];
-      if (!isNum(v) || v < 0 || v > 1) return `pageRegion needs ${k} in [0,1]`;
-    }
-    if ((loc.w as number) === 0 || (loc.h as number) === 0) {
-      return 'pageRegion needs positive w and h';
-    }
-    if ((loc.x as number) + (loc.w as number) > 1) return 'pageRegion x + w must be <= 1';
-    if ((loc.y as number) + (loc.h as number) > 1) return 'pageRegion y + h must be <= 1';
-    return null;
-  },
-  timeRange: (loc) =>
-    rangeError(loc.startMs, loc.endMs, 'timeRange needs int startMs >= 0 and endMs > startMs'),
-  frameRange: (loc) =>
-    rangeError(
-      loc.startFrame,
-      loc.endFrame,
-      'frameRange needs int startFrame >= 0 and endFrame > startFrame',
-    ),
-  track: (loc) => {
-    if (typeof loc.trackId !== 'string' || loc.trackId.length === 0 || loc.trackId.length > 256) {
-      return 'track needs a non-empty trackId (<=256 chars)';
-    }
-    for (const k of ['startMs', 'endMs']) {
-      const v = loc[k];
-      if (v !== undefined && (!isInt(v) || v < 0)) return `track ${k} must be a non-negative int`;
-    }
-    if (
-      isInt(loc.startMs) &&
-      isInt(loc.endMs) &&
-      (loc.endMs as number) <= (loc.startMs as number)
-    ) {
-      return 'track endMs must be greater than startMs';
-    }
-    return null;
-  },
-};
+const SHAPE_VALIDATORS = new Map<string, (loc: Record<string, unknown>) => string | null>([
+  [
+    'charRange',
+    (loc) => rangeError(loc.start, loc.end, 'charRange needs int start >= 0 and end > start'),
+  ],
+  [
+    'pageRegion',
+    (loc) => {
+      if (!isInt(loc.page) || loc.page < 0) return 'pageRegion needs int page >= 0';
+      for (const k of ['x', 'y', 'w', 'h']) {
+        const v = loc[k];
+        if (!isNum(v) || v < 0 || v > 1) return `pageRegion needs ${k} in [0,1]`;
+      }
+      if ((loc.w as number) === 0 || (loc.h as number) === 0) {
+        return 'pageRegion needs positive w and h';
+      }
+      if ((loc.x as number) + (loc.w as number) > 1) return 'pageRegion x + w must be <= 1';
+      if ((loc.y as number) + (loc.h as number) > 1) return 'pageRegion y + h must be <= 1';
+      return null;
+    },
+  ],
+  [
+    'timeRange',
+    (loc) =>
+      rangeError(loc.startMs, loc.endMs, 'timeRange needs int startMs >= 0 and endMs > startMs'),
+  ],
+  [
+    'frameRange',
+    (loc) =>
+      rangeError(
+        loc.startFrame,
+        loc.endFrame,
+        'frameRange needs int startFrame >= 0 and endFrame > startFrame',
+      ),
+  ],
+  [
+    'track',
+    (loc) => {
+      if (typeof loc.trackId !== 'string' || loc.trackId.length === 0 || loc.trackId.length > 256) {
+        return 'track needs a non-empty trackId (<=256 chars)';
+      }
+      for (const k of ['startMs', 'endMs']) {
+        const v = loc[k];
+        if (v !== undefined && (!isInt(v) || v < 0)) return `track ${k} must be a non-negative int`;
+      }
+      if (
+        isInt(loc.startMs) &&
+        isInt(loc.endMs) &&
+        (loc.endMs as number) <= (loc.startMs as number)
+      ) {
+        return 'track endMs must be greater than startMs';
+      }
+      return null;
+    },
+  ],
+]);
 
-const LOCATOR_FIELDS: Record<string, ReadonlySet<string>> = {
-  charRange: new Set(['kind', 'start', 'end']),
-  pageRegion: new Set(['kind', 'page', 'x', 'y', 'w', 'h']),
-  timeRange: new Set(['kind', 'startMs', 'endMs']),
-  frameRange: new Set(['kind', 'startFrame', 'endFrame']),
-  track: new Set(['kind', 'trackId', 'startMs', 'endMs']),
-};
+const LOCATOR_FIELDS = new Map<string, ReadonlySet<string>>([
+  ['charRange', new Set(['kind', 'start', 'end'])],
+  ['pageRegion', new Set(['kind', 'page', 'x', 'y', 'w', 'h'])],
+  ['timeRange', new Set(['kind', 'startMs', 'endMs'])],
+  ['frameRange', new Set(['kind', 'startFrame', 'endFrame'])],
+  ['track', new Set(['kind', 'trackId', 'startMs', 'endMs'])],
+]);
 
 /**
  * Validate a locator against the parent asset's modality. Returns a
@@ -102,10 +127,13 @@ export function validateLocator(modality: string, locator: unknown): string | nu
   }
   const loc = locator as Record<string, unknown>;
   const kind = typeof loc.kind === 'string' ? loc.kind : '';
-  const allowed = KIND_MODALITIES[kind];
-  const validate = SHAPE_VALIDATORS[kind];
-  if (!allowed || !validate) return `unknown locator kind '${String(loc.kind)}'`;
-  const unknownField = Object.keys(loc).find((field) => !LOCATOR_FIELDS[kind]!.has(field));
+  // Map.get: no prototype chain, so 'constructor'/'__proto__'/'toString'
+  // read as unknown kinds (see the registry doc comment above).
+  const allowed = KIND_MODALITIES.get(kind);
+  const validate = SHAPE_VALIDATORS.get(kind);
+  const fields = LOCATOR_FIELDS.get(kind);
+  if (!allowed || !validate || !fields) return `unknown locator kind '${String(loc.kind)}'`;
+  const unknownField = Object.keys(loc).find((field) => !fields.has(field));
   if (unknownField) return `locator kind '${kind}' has unknown field '${unknownField}'`;
   if (!allowed.includes(modality)) {
     return `locator kind '${kind}' does not apply to modality '${modality}'`;

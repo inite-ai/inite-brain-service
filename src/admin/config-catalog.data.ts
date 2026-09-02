@@ -1187,6 +1187,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Master switch for the multimodal evidence substrate writers (evidence_asset / evidence_fragment / derived_representation, migration 0109). Off = EvidenceStoreService refuses every write (503) and no row is ever written; GDPR cascade + retention sweep run regardless so rows written while on stay erasable.',
   },
   {
+    key: 'EVIDENCE_INGEST_ENABLED',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Evidence ingest surface (Brain v2.1 M3): POST /v1/ingest/evidence-asset. Off (default) = the route answers a bare 404 (scenes-surface precedent), byte-identical prod. Metadata-only by design (MM-6 boundary): originUri required, storageRef rejected, no bytes accepted. Requires EVIDENCE_SUBSTRATE_ENABLED — ingest-on/substrate-off answers 503 from the write seam and env-validation warns at boot.',
+  },
+  {
     key: 'EVIDENCE_FS_ROOT',
     category: 'pipeline',
     defaultValue: '',

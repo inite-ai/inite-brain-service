@@ -125,6 +125,13 @@ import {
   UserProfileResponseSchema,
 } from '../src/contracts/users/user-profile.schema';
 import { EvidenceRawUrlResponseSchema } from '../src/contracts/evidence/raw.schema';
+import {
+  EvidenceFragmentLocatorSchema,
+  IngestEvidenceAssetRequestSchema,
+  IngestEvidenceAssetResponseSchema,
+  IngestEvidenceFragmentResultSchema,
+  IngestEvidenceFragmentSchema,
+} from '../src/contracts/evidence/evidence-ingest.schema';
 
 type Json = Record<string, unknown>;
 
@@ -226,6 +233,12 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   UserProfileResponse: UserProfileResponseSchema,
   // --- raw-evidence read gateway (src/contracts/evidence/raw.schema.ts)
   EvidenceRawUrlResponse: EvidenceRawUrlResponseSchema,
+  // --- evidence ingest (src/contracts/evidence/evidence-ingest.schema.ts)
+  EvidenceFragmentLocator: EvidenceFragmentLocatorSchema,
+  IngestEvidenceFragment: IngestEvidenceFragmentSchema,
+  IngestEvidenceAssetRequest: IngestEvidenceAssetRequestSchema,
+  IngestEvidenceFragmentResult: IngestEvidenceFragmentResultSchema,
+  IngestEvidenceAssetResponse: IngestEvidenceAssetResponseSchema,
 };
 
 function generateComponentSchemas(): Json {
@@ -1441,6 +1454,52 @@ function sortKeysDeep(value: unknown): unknown {
   return value;
 }
 
+function evidenceIngestPaths(): Json {
+  return {
+    '/v1/ingest/evidence-asset': {
+      post: operation({
+        operationId: 'ingestEvidenceAsset',
+        tag: 'Evidence',
+        summary: 'Register a multimodal evidence asset (metadata-only)',
+        description:
+          'Registers one multimodal evidence asset header (image / audio ' +
+          '/ video / document / sensor) plus optional citation-target ' +
+          'fragments — WITHOUT transferring bytes. The surface is ' +
+          'metadata-only by design (the MM-6 quarantine boundary): ' +
+          '`originUri` (a caller-owned location the brain never fetches) ' +
+          'is required, `storageRef` is rejected (400), and no upload is ' +
+          'accepted, so a fresh registration is always availability ' +
+          '`external`. `byteHash` (sha256 of the original bytes) is ' +
+          'REQUIRED — the UNIQUE asset identity (migration 0109): ' +
+          'same-user re-registration dedupes to the existing asset ' +
+          '(`deduped: true`, requested fragments still appended); a ' +
+          'different principal hitting a known hash gets a bare 409 ' +
+          'without the stored row’s metadata. Fragment locators are ' +
+          'validated against the kind→modality matrix BEFORE any row is ' +
+          'written — one bad locator fails the whole request. A fragment ' +
+          '`excerpt` lands as a caller-asserted `derived_representation` ' +
+          'of kind `text` (producerVersion `ingest-excerpt-v1`). ' +
+          'Answers a bare 404 until `EVIDENCE_INGEST_ENABLED=1`; answers ' +
+          '503 while `EVIDENCE_SUBSTRATE_ENABLED` is off. ' +
+          'Source: src/evidence/evidence-ingest.controller.ts.',
+        scope: 'brain:write',
+        requestBody: jsonBody(ref('IngestEvidenceAssetRequest')),
+        responses: {
+          '201': jsonResponse(
+            'Registered (or same-user deduped) asset + created fragments.',
+            ref('IngestEvidenceAssetResponse'),
+          ),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+          '409': errorRef('Conflict'),
+          '503': errorRef('SubstrateDisabled'),
+        },
+      }),
+    },
+  };
+}
+
 function errorResponses(): Json {
   const err = (description: string): Json => jsonResponse(description, ref('ErrorResponse'));
   return {
@@ -1456,6 +1515,11 @@ function errorResponses(): Json {
     FeatureDisabled: jsonResponse(
       'The document pipeline is dark (DOCUMENT_INGEST_ENABLED off).',
       ref('FeatureDisabledResponse'),
+    ),
+    SubstrateDisabled: err(
+      'The evidence write seam is off (EVIDENCE_SUBSTRATE_ENABLED) — ' +
+        'the route exists but every write is refused. Boot-time ' +
+        'env-validation warns about this inconsistent flag pair.',
     ),
     BadGateway: err('The billing service rejected the request.'),
     BillingUnavailable: err(
@@ -1582,12 +1646,18 @@ export function buildOpenApiDocument(): Json {
       {
         name: 'Evidence',
         description:
-          'The raw-evidence read gateway: original observation bytes ' +
-          'back out — direct stream, signed short-lived URLs, fragment ' +
-          'twins — behind the full deny-overrides gate ladder (scope, ' +
-          'ABAC, tenant/availability/quarantine, ownership grants, pack ' +
-          'modality consent, media-PII polarity), every attempt audited ' +
-          'content-free. Flag: EVIDENCE_RAW_READ_ENABLED (off → 404).',
+          'The multimodal evidence substrate, both directions. IN: the ' +
+          'metadata-only ingest surface — register asset headers + ' +
+          'citation-target fragments (originUri required, storageRef ' +
+          'rejected, no bytes — the MM-6 boundary); flags ' +
+          'EVIDENCE_INGEST_ENABLED (off → 404) and ' +
+          'EVIDENCE_SUBSTRATE_ENABLED (off → 503). OUT: the raw-evidence ' +
+          'read gateway — original observation bytes back out via direct ' +
+          'stream, signed short-lived URLs, fragment twins — behind the ' +
+          'full deny-overrides gate ladder (scope, ABAC, tenant/' +
+          'availability/quarantine, ownership grants, pack modality ' +
+          'consent, media-PII polarity), every attempt audited ' +
+          'content-free; flag EVIDENCE_RAW_READ_ENABLED (off → 404).',
       },
       {
         name: 'Users',
@@ -1607,6 +1677,7 @@ export function buildOpenApiDocument(): Json {
       ...driverPaths(),
       ...memoryReadPaths(),
       ...evidencePaths(),
+      ...evidenceIngestPaths(),
     },
     webhooks: {
       episodesAvailable: {

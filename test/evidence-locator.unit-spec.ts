@@ -46,6 +46,15 @@ describe('validateLocator — shapes and edges', () => {
     expect(validateLocator('image', {})).toMatch(/unknown locator kind/);
   });
 
+  it('treats prototype-chain names as unknown kinds — never a thrown TypeError', () => {
+    // On a record literal these resolve to INHERITED members and would
+    // pass a bare truthiness guard, then crash the unknown-field walk
+    // (500 instead of 400) — caller-reachable via the ingest surface.
+    for (const kind of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf']) {
+      expect(validateLocator('document', { kind })).toMatch(/unknown locator kind/);
+    }
+  });
+
   it('rejects non-objects', () => {
     expect(validateLocator('image', null)).toMatch(/must be an object/);
     expect(validateLocator('image', [charRange])).toMatch(/must be an object/);
