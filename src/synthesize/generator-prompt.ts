@@ -212,12 +212,24 @@ export function buildGeneratorUserMessage({
 /** Belief lane (BELIEFS_SERVING_LANE): distilled current-state lines in
  *  their own section. Empty input = empty string (byte-identical prompt
  *  without the lane). The citations variant instructs mirroring cited
- *  [semantic_belief:...] ids into citedBeliefIds. */
+ *  [semantic_belief:...] ids into citedBeliefIds.
+ *
+ *  Abstention discipline (memory-fitness D5 regression): the original
+ *  #412 header said "prefer these lines" unconditionally, which read as
+ *  a license to answer current-state questions FROM the belief record
+ *  even when no line covered the asked subject — confabulation on
+ *  never-written questions. The preference is now conditional on a
+ *  covering line, and the header states explicitly that belief lines
+ *  add evidence without relaxing the base unanswerable-question rule
+ *  (the verbatim base abstention sentence is re-asserted system-side in
+ *  generator-client.ts BELIEF_ABSTENTION_ADDENDUM). */
+const BELIEF_EVIDENCE_ONLY_CLAUSE =
+  ' These lines ADD evidence — they never relax the base evidence rules: when NEITHER a belief line NOR the facts/transcript cover the question, follow the base instructions for an unanswerable question unchanged';
 function renderBeliefSection(beliefLines?: string[], beliefCitations?: boolean): string {
   if (!beliefLines || beliefLines.length === 0) return '';
   const header = beliefCitations
-    ? 'Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any older or conflicting fact above; each line is headed by its [semantic_belief:...] id. For questions asking the CURRENT state, prefer these lines; when a claim rests on one, copy its id EXACTLY into citedBeliefIds. For questions about history, sequence, or why something changed, use the facts and transcript instead; cite factIds for fact-grounded claims as before):'
-    : 'Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any older or conflicting fact above. For questions asking the CURRENT state, prefer these lines; for questions about history, sequence, or why something changed, use the facts and transcript instead; cite factIds only):';
+    ? `Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any older or conflicting fact above; each line is headed by its [semantic_belief:...] id. For questions asking the CURRENT state, prefer these lines ONLY when one covers the asked subject/field; when a claim rests on one, copy its id EXACTLY into citedBeliefIds. For questions about history, sequence, or why something changed, use the facts and transcript instead; cite factIds for fact-grounded claims as before.${BELIEF_EVIDENCE_ONLY_CLAUSE}):`
+    : `Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any older or conflicting fact above. For questions asking the CURRENT state, prefer these lines ONLY when one covers the asked subject/field; for questions about history, sequence, or why something changed, use the facts and transcript instead; cite factIds only.${BELIEF_EVIDENCE_ONLY_CLAUSE}):`;
   return `\n\n${header}\n${beliefLines.join('\n')}`;
 }
 

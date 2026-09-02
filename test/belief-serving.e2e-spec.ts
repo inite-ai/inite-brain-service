@@ -186,6 +186,7 @@ describe('Belief serving lane e2e (the dogfood stale-answer scenario)', () => {
     expect(state.calls[0]!.user).not.toContain('Current-state record');
     expect(state.calls[0]!.user).not.toContain('[semantic_belief:');
     expect(state.calls[0]!.system).not.toContain('BELIEF CITATIONS');
+    expect(state.calls[0]!.system).not.toContain('BELIEF LINES PRESERVE ABSTENTION');
     expect(state.calls[1]!.user).not.toContain('Current-state record');
   });
 
@@ -222,6 +223,11 @@ describe('Belief serving lane e2e (the dogfood stale-answer scenario)', () => {
     expect(genPrompt).toContain(`[${beliefId}]`);
     expect(genPrompt).toContain(STATEMENT);
     expect(state.calls[0]!.system).toContain('BELIEF CITATIONS');
+    // Abstention discipline (memory-fitness D5): the rendered lane pulls in
+    // the system-side guard mirroring the base abstention rule verbatim,
+    // and the current-state preference is conditional on a covering line.
+    expect(state.calls[0]!.system).toContain('BELIEF LINES PRESERVE ABSTENTION');
+    expect(genPrompt).toContain('ONLY when one covers the asked subject/field');
     // Verifier parity (W5 #22): the SAME line arrives as its own section.
     const verifyPrompt = state.calls[1]!.user;
     expect(verifyPrompt).toContain('Current-state record (distilled belief lines');
