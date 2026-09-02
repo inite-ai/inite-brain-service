@@ -260,6 +260,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
 
   // ── Evidence plane: claim grounding (Drift-1, migration 0115) ──────
   validateEvidenceGroundingEnv(env, warnings);
+  validateEvidenceIngestEnv(env, warnings);
 
   // ── Evidence plane: processing lifecycle (migration 0121) ──────────
   validateEvidenceProcessingEnv(env, warnings);
@@ -500,6 +501,28 @@ function validateEvidenceRawReadEnv(
       'EVIDENCE_SIGNED_URL_SECRET must be at least 32 characters while ' +
         'EVIDENCE_RAW_READ_ENABLED is on — a short secret makes minted ' +
         'raw-evidence URLs forgeable.',
+    );
+  }
+}
+
+/**
+ * Cross-flag consistency for the evidence ingest surface (Brain v2.1
+ * M3): a WARNING, not an error — the pair is not security-relevant, but
+ * EVIDENCE_INGEST_ENABLED without EVIDENCE_SUBSTRATE_ENABLED means the
+ * route exists while the write seam refuses every call, so EVERY ingest
+ * would be rejected 503. The operator should know before the first
+ * caller bounces.
+ */
+function validateEvidenceIngestEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
+  if (
+    envFlagEnabled(env.EVIDENCE_INGEST_ENABLED) &&
+    !envFlagEnabled(env.EVIDENCE_SUBSTRATE_ENABLED)
+  ) {
+    warnings.push(
+      'EVIDENCE_INGEST_ENABLED is set while EVIDENCE_SUBSTRATE_ENABLED is not — ' +
+        'the ingest surface is exposed but the evidence write seam refuses every ' +
+        'call; every POST /v1/ingest/evidence-asset will be rejected (503) until ' +
+        'EVIDENCE_SUBSTRATE_ENABLED is turned on.',
     );
   }
 }
@@ -1029,9 +1052,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   // the ENGINE flag budget by design (a substrate builder, not an engine
   // fork). The fs root (EVIDENCE_FS_ROOT) is a string and the size cap
   // (EVIDENCE_MAX_BYTES) an int — not booleans. Reserved for sibling PRs
-  // (not defined yet): EVIDENCE_INGEST_ENABLED. (The scene-links seam
-  // reserved here landed as SCENES_EVIDENCE_LINKS — the writer is a
-  // scene pass, so it keeps the SCENES_ family naming.)
+  // (none left): EVIDENCE_INGEST_ENABLED landed below (PR-C ingest
+  // surface); the scene-links seam reserved here landed as
+  // SCENES_EVIDENCE_LINKS — the writer is a scene pass, so it keeps the
+  // SCENES_ family naming.
   'EVIDENCE_SUBSTRATE_ENABLED',
   // Fragment citations (MM-zoom PR2): generator schema gains
   // citedFragmentIds over the rendered fragment lane; resolved through
@@ -1039,6 +1063,13 @@ const KNOWN_BOOLEAN_FLAGS = [
   // satisfy the 0113 capability gate for non-text. Default off =
   // byte-identical even with the lane on.
   'EVIDENCE_FRAGMENT_CITATIONS',
+  // Evidence ingest surface (Brain v2.1 M3): POST /v1/ingest/evidence-asset.
+  // Default off ⇒ the route answers a bare 404 (scenes-surface precedent)
+  // and prod is byte-identical. Metadata-only (MM-6): originUri required,
+  // no bytes, no storageRef. Requires EVIDENCE_SUBSTRATE_ENABLED to
+  // actually accept writes — validateEvidenceIngestEnv warns on the
+  // inconsistent pair (ingest-on/substrate-off ⇒ every call 503s).
+  'EVIDENCE_INGEST_ENABLED',
   // Claim grounding (Drift-1, migration 0115): write-side post-resolve
   // stamp of knowledge_fact.groundingStatus; fail-closed mention capture
   // (requires EPISODE_SUBSTRATE_ENABLED — validateEvidenceGroundingEnv

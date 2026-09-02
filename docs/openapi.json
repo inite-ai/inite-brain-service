@@ -71,6 +71,16 @@
         },
         "description": "No such resource in this tenant."
       },
+      "SubstrateDisabled": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "description": "The evidence write seam is off (EVIDENCE_SUBSTRATE_ENABLED) — the route exists but every write is refused. Boot-time env-validation warns about this inconsistent flag pair."
+      },
       "TooManyRequests": {
         "content": {
           "application/json": {
@@ -910,6 +920,157 @@
         ],
         "type": "object"
       },
+      "EvidenceFragmentLocator": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "charRange",
+                "type": "string"
+              },
+              "start": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "start",
+              "end"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "h": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "kind": {
+                "const": "pageRegion",
+                "type": "string"
+              },
+              "page": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "w": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "x": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "y": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              }
+            },
+            "required": [
+              "kind",
+              "page",
+              "x",
+              "y",
+              "w",
+              "h"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "endMs": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "timeRange",
+                "type": "string"
+              },
+              "startMs": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "startMs",
+              "endMs"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "endFrame": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "frameRange",
+                "type": "string"
+              },
+              "startFrame": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "startFrame",
+              "endFrame"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "endMs": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "track",
+                "type": "string"
+              },
+              "startMs": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "trackId": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "trackId"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "EvidenceRawUrlResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1541,6 +1702,209 @@
           "runs",
           "committed",
           "counts"
+        ],
+        "type": "object"
+      },
+      "IngestEvidenceAssetRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "byteHash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "byteLength": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "durationMs": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "fragments": {
+            "items": {
+              "$ref": "#/components/schemas/IngestEvidenceFragment"
+            },
+            "maxItems": 64,
+            "type": "array"
+          },
+          "height": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "mediaType": {
+            "maxLength": 255,
+            "type": "string"
+          },
+          "meta": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "modality": {
+            "enum": [
+              "image",
+              "audio",
+              "video",
+              "document",
+              "sensor"
+            ],
+            "type": "string"
+          },
+          "occurredAt": {
+            "type": "string"
+          },
+          "originUri": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "pageCount": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "piiClasses": {
+            "items": {
+              "enum": [
+                "face",
+                "voice",
+                "biometric",
+                "id_document",
+                "sensitive"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "recorder": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "retainUntil": {
+            "type": "string"
+          },
+          "scope": {
+            "items": {
+              "maxLength": 200,
+              "type": "string"
+            },
+            "maxItems": 32,
+            "type": "array"
+          },
+          "userId": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "vertical": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "width": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "modality",
+          "mediaType",
+          "byteHash",
+          "byteLength",
+          "occurredAt",
+          "originUri",
+          "vertical"
+        ],
+        "type": "object"
+      },
+      "IngestEvidenceAssetResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "availability": {
+            "enum": [
+              "hot",
+              "cold",
+              "external",
+              "gone"
+            ],
+            "type": "string"
+          },
+          "deduped": {
+            "type": "boolean"
+          },
+          "fragments": {
+            "items": {
+              "$ref": "#/components/schemas/IngestEvidenceFragmentResult"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "assetId",
+          "availability",
+          "deduped",
+          "fragments"
+        ],
+        "type": "object"
+      },
+      "IngestEvidenceFragment": {
+        "additionalProperties": false,
+        "properties": {
+          "excerpt": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "lang": {
+            "maxLength": 35,
+            "type": "string"
+          },
+          "locator": {
+            "$ref": "#/components/schemas/EvidenceFragmentLocator"
+          },
+          "piiClasses": {
+            "items": {
+              "enum": [
+                "face",
+                "voice",
+                "biometric",
+                "id_document",
+                "sensitive"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "locator"
+        ],
+        "type": "object"
+      },
+      "IngestEvidenceFragmentResult": {
+        "additionalProperties": false,
+        "properties": {
+          "fragmentId": {
+            "type": "string"
+          },
+          "representationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "fragmentId"
         ],
         "type": "object"
       },
@@ -5030,6 +5394,56 @@
         ]
       }
     },
+    "/v1/ingest/evidence-asset": {
+      "post": {
+        "description": "Registers one multimodal evidence asset header (image / audio / video / document / sensor) plus optional citation-target fragments — WITHOUT transferring bytes. The surface is metadata-only by design (the MM-6 quarantine boundary): `originUri` (a caller-owned location the brain never fetches) is required, `storageRef` is rejected (400), and no upload is accepted, so a fresh registration is always availability `external`. `byteHash` (sha256 of the original bytes) is REQUIRED — the UNIQUE asset identity (migration 0109): same-user re-registration dedupes to the existing asset (`deduped: true`, requested fragments still appended); a different principal hitting a known hash gets a bare 409 without the stored row’s metadata. Fragment locators are validated against the kind→modality matrix BEFORE any row is written — one bad locator fails the whole request. A fragment `excerpt` lands as a caller-asserted `derived_representation` of kind `text` (producerVersion `ingest-excerpt-v1`). Answers a bare 404 until `EVIDENCE_INGEST_ENABLED=1`; answers 503 while `EVIDENCE_SUBSTRATE_ENABLED` is off. Source: src/evidence/evidence-ingest.controller.ts.\n\nRequired scope: `brain:write`.",
+        "operationId": "ingestEvidenceAsset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestEvidenceAssetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestEvidenceAssetResponse"
+                }
+              }
+            },
+            "description": "Registered (or same-user deduped) asset + created fragments."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/SubstrateDisabled"
+          }
+        },
+        "summary": "Register a multimodal evidence asset (metadata-only)",
+        "tags": [
+          "Evidence"
+        ]
+      }
+    },
     "/v1/projections": {
       "get": {
         "description": "Every derived world (facts@version, …) with its lifecycle status (building/built/live/residual/failed), watermark, builder identity and stats, plus the process-local read pin (RETRIEVAL_DERIVED_VERSION). A registry row promises a queryable world. 404 until PROJECTIONS_API_ENABLED=1. Source: src/admin/projections.controller.ts.\n\nRequired scope: `brain:read`.",
@@ -5573,7 +5987,7 @@
       "name": "Beliefs"
     },
     {
-      "description": "The raw-evidence read gateway: original observation bytes back out — direct stream, signed short-lived URLs, fragment twins — behind the full deny-overrides gate ladder (scope, ABAC, tenant/availability/quarantine, ownership grants, pack modality consent, media-PII polarity), every attempt audited content-free. Flag: EVIDENCE_RAW_READ_ENABLED (off → 404).",
+      "description": "The multimodal evidence substrate, both directions. IN: the metadata-only ingest surface — register asset headers + citation-target fragments (originUri required, storageRef rejected, no bytes — the MM-6 boundary); flags EVIDENCE_INGEST_ENABLED (off → 404) and EVIDENCE_SUBSTRATE_ENABLED (off → 503). OUT: the raw-evidence read gateway — original observation bytes back out via direct stream, signed short-lived URLs, fragment twins — behind the full deny-overrides gate ladder (scope, ABAC, tenant/availability/quarantine, ownership grants, pack modality consent, media-PII polarity), every attempt audited content-free; flag EVIDENCE_RAW_READ_ENABLED (off → 404).",
       "name": "Evidence"
     },
     {

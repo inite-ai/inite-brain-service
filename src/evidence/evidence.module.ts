@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { EvidenceIngestController } from './evidence-ingest.controller';
 import { EvidenceReadController } from './evidence-read.controller';
 import { EvidenceReadService } from './evidence-read.service';
 import { EvidenceStoreService } from './evidence-store.service';
@@ -25,10 +26,12 @@ import {
  * write seam (EvidenceStoreService) + the blob storage-adapter registry.
  * v1 registers ONE adapter (fs://); an s3-class adapter is a new
  * provider + one more Map entry — consumers resolve by storageRef
- * scheme, never by concrete class. No controller in this PR (the ingest
- * surface is sibling PR-C). Injections into the GDPR / sweeper paths are
- * @Optional so positionally-constructed unit fixtures stay valid.
- * SurrealService comes from the @Global db module.
+ * scheme, never by concrete class. The metadata-only ingest controller
+ * (POST /v1/ingest/evidence-asset, dark behind EVIDENCE_INGEST_ENABLED
+ * → bare 404) is the ONE write-side HTTP surface; the read gateway
+ * below is its bytes-out counterpart. Injections into the GDPR /
+ * sweeper paths are @Optional so positionally-constructed unit
+ * fixtures stay valid. SurrealService comes from the @Global db module.
  *
  * Processing lifecycle (migration 0121): the trusted processor broker
  * (adapter registry array — first match wins at dispatch), the
@@ -47,7 +50,7 @@ import {
  * @Global auth/policy modules.
  */
 @Module({
-  controllers: [EvidenceReadController],
+  controllers: [EvidenceIngestController, EvidenceReadController],
   providers: [
     FsEvidenceStorageAdapter,
     {

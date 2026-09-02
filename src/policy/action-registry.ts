@@ -83,6 +83,11 @@ export const ACTIONS: Record<string, ActionSpec> = {
   // REST-only actions
   'rest.users.forget': { kind: 'write', family: 'rest', title: 'GDPR user forget' },
   'rest.ingest.mention': { kind: 'write', family: 'rest', title: 'Ingest mention' },
+  'rest.ingest.evidence_asset': {
+    kind: 'write',
+    family: 'rest',
+    title: 'Ingest evidence asset (metadata-only)',
+  },
   'rest.documents.get': { kind: 'read', family: 'rest', title: 'Get document' },
   'rest.documents.candidates': { kind: 'read', family: 'rest', title: 'List candidates' },
   'rest.documents.commit': { kind: 'write', family: 'rest', title: 'Commit candidates' },
