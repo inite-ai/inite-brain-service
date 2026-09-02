@@ -18,6 +18,7 @@ import { MentionScanService } from './mention-scan.service';
 import { QueryArcService } from './query-arc.service';
 import { UpdateStoryService } from './update-story.service';
 import { DigestLaneService } from './digest-lane.service';
+import { FragmentLaneService } from './fragment-lane.service';
 import { EvidenceCollectorService } from './evidence-collector.service';
 import { L3EscalationService } from './l3-escalation.service';
 import { MemoryModelReaderService } from '../ai/memory-model-reader.service';
@@ -38,6 +39,7 @@ import { MemoryModelReaderService } from '../ai/memory-model-reader.service';
     QueryArcService,
     UpdateStoryService,
     DigestLaneService,
+    FragmentLaneService,
     L3EscalationService,
     // FOVEA_ATTENTION_HINTS: the L3 escalation lane's lazy read of pack
     // memory models. A second DI instance beside admin.module's — its

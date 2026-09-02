@@ -52,3 +52,27 @@ export async function miniCheckConsistent(req: MiniCheckRequest): Promise<boolea
   if (out.startsWith('no')) return false;
   throw new Error(`minicheck unparseable verdict: '${out.slice(0, 40)}'`);
 }
+
+/**
+ * Compose the evidence-bundle document the answer-claim is checked
+ * against — the SAME sections the generator saw (evidence parity; the
+ * G4 advisory notes are excluded exactly as on the verifier path, and
+ * the MM-zoom PR2 media lines join when the fragment lane rendered
+ * any). Pure string work, split out of synthesize.service (file-size
+ * gate) at the natural seam.
+ */
+export function buildMiniCheckDocument(args: {
+  factLines: string[];
+  transcriptLines: string[];
+  insightLines: string[];
+  fragmentLines?: string[] | undefined;
+}): string {
+  return [
+    `Facts:\n${args.factLines.join('\n')}`,
+    ...(args.transcriptLines.length
+      ? [`Conversation excerpts:\n${args.transcriptLines.join('\n')}`]
+      : []),
+    ...(args.insightLines.length ? [`Derived insights:\n${args.insightLines.join('\n')}`] : []),
+    ...(args.fragmentLines?.length ? [`Media evidence:\n${args.fragmentLines.join('\n')}`] : []),
+  ].join('\n\n');
+}

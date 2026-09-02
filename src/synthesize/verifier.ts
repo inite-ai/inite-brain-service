@@ -97,14 +97,15 @@ export interface VerifyRequest {
    *  saw — weekday/gap claims grounded in it must not be flagged. */
   dateMathLines?: string[] | undefined;
   /**
-   * Evidence-capability arm (FOVEA_EVIDENCE_CAPABILITY, 0113) — SEAM,
-   * nothing populates it yet: rendered lines of NON-TEXT evidence the
-   * generator was allowed to answer from, each prefixed
-   * `[capability:<kind>]` (e.g. `[capability:visual] whiteboard photo:
-   * …`). Composed as its own section in the auditor prompt ONLY when
-   * non-empty — absent/empty ⇒ the prompt is byte-identical. The
-   * M-track fragment mapping starts supplying it alongside per-citation
-   * capabilities (answer-integrity.ts citedCapabilities).
+   * Evidence-capability arm (FOVEA_EVIDENCE_CAPABILITY, 0113): rendered
+   * lines of NON-TEXT evidence the generator was allowed to answer
+   * from, each prefixed `[capability:<kind>]` (e.g. `[capability:visual]
+   * whiteboard photo: …`). Composed as its own section in the auditor
+   * prompt ONLY when non-empty — absent/empty ⇒ the prompt is
+   * byte-identical. Populated by the fragment lane (MM-zoom PR2,
+   * profile.fragmentLane): the SAME media lines the generator's section
+   * rendered — evidence parity — alongside per-citation capabilities
+   * (answer-integrity.ts citedCapabilities).
    */
   capabilityEvidenceLines?: string[] | undefined;
   model: string;

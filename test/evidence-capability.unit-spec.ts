@@ -6,8 +6,10 @@
  *    reason 'evidence_capability_unmet'; no-rule → pass; gate absent
  *    (flag off) → byte-identical verdict object;
  *  - resolveEvidenceCapability: flag gating, the max-over-citations fold,
- *    the honest v1 bound (cited capabilities are always {'text'}), and
- *    the fail-safe on registry errors;
+ *    the text-only bound (no fragment cited → non-text requirements
+ *    abstain), the MM-zoom PR2 satisfaction arm (a matching-modality
+ *    fragment citation passes the gate), and the fail-safe on registry
+ *    errors;
  *  - policy threading: knowledge_predicate row → PredicateDefinition →
  *    PredicatePolicy (db-mapping round-trip, unknown values dropped);
  *  - verifier prompt composer: capabilityEvidenceLines render as their
@@ -220,6 +222,61 @@ describe('resolveEvidenceCapability', () => {
     const out = await resolveEvidenceCapability(
       capDeps(registryOf({ whiteboard_layout: 'visual', status: 'text' })),
       { ctx, verdict: SUPPORTED, citations: [cite('status'), cite('whiteboard_layout')] },
+    );
+    expect(out).toEqual({ evidenceCapabilityUnmet: true });
+  });
+
+  it('required visual + a cited VISUAL fragment → satisfied (MM-zoom PR2 citedCapabilities union)', async () => {
+    const counted: string[] = [];
+    const out = await resolveEvidenceCapability(
+      capDeps(registryOf({ whiteboard_layout: 'visual' }), counted),
+      {
+        ctx,
+        verdict: SUPPORTED,
+        citations: [cite('whiteboard_layout')],
+        evidenceCitations: [
+          {
+            fragmentId: 'evidence_fragment:f1',
+            assetId: 'evidence_asset:a1',
+            capability: 'visual',
+            excerpt: 'a whiteboard with the evacuation plan',
+          },
+        ],
+      },
+    );
+    expect(out).toEqual({});
+    expect(counted).toEqual(['checked']);
+  });
+
+  it('required visual + a cited AUDIO fragment → still unmet (modality must match)', async () => {
+    const out = await resolveEvidenceCapability(
+      capDeps(registryOf({ whiteboard_layout: 'visual' })),
+      {
+        ctx,
+        verdict: SUPPORTED,
+        citations: [cite('whiteboard_layout')],
+        evidenceCitations: [
+          {
+            fragmentId: 'evidence_fragment:f2',
+            assetId: 'evidence_asset:a2',
+            capability: 'audio',
+            excerpt: 'a voice memo transcript',
+          },
+        ],
+      },
+    );
+    expect(out).toEqual({ evidenceCapabilityUnmet: true });
+  });
+
+  it('episode-arm evidence citations (no capability stamp) contribute nothing beyond text', async () => {
+    const out = await resolveEvidenceCapability(
+      capDeps(registryOf({ whiteboard_layout: 'visual' })),
+      {
+        ctx,
+        verdict: SUPPORTED,
+        citations: [cite('whiteboard_layout')],
+        evidenceCitations: [{ episodeId: 'episode:e1' }],
+      },
     );
     expect(out).toEqual({ evidenceCapabilityUnmet: true });
   });
