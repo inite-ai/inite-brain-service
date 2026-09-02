@@ -32,6 +32,7 @@ import {
   recursiveClosureEnabled,
   supportGraphReadEnabled,
 } from '../common/provenance-flags';
+import { readSurfaceUserScopeEnabled } from '../common/read-scope-flags';
 import {
   collectSceneTargets,
   indexCharSpans,
@@ -866,6 +867,12 @@ export class FactsService {
     opts: {
       predicate?: string;
       asOf?: string;
+      /** Per-user memory scope (0055), READ_SURFACE_USER_SCOPE gated.
+       *  Caller-asserted; pinned to a user-bound token's end-user via
+       *  pinUserScope. Flag on + userId → groups over tenant-global
+       *  rows PLUS this user's personal ones; otherwise the historical
+       *  tenant-global-only fence, byte-identical. */
+      userId?: string;
       /** Caller's scopes — drive the app-layer PII/row filter (the DB-level
        *  PII fence of migration 0005 is inert for the system brain_caller
        *  user; see SurrealService.withScopedCompany). */
@@ -881,17 +888,27 @@ export class FactsService {
       opts.callerScopes
         ? this.surreal.withScopedCompany(companyId, opts.callerScopes, fn)
         : this.surreal.withCompany(companyId, fn);
+    // READ_SURFACE_USER_SCOPE (default off): this surface predates the
+    // 0055 per-user scope and pinned `userId IS NONE`, so a user-scoped
+    // COMPETING pair was invisible to adjudication. Flag on → the
+    // caller-asserted userId is pinned to a user-bound token's end-user
+    // (the ingestFact idiom — 403 on mismatch, defaulted when omitted)
+    // and the fence widens to the search-lane union below. Off — or on
+    // with no userId in play — keeps the exact historical clause.
+    const scopeUserId = readSurfaceUserScopeEnabled() ? pinUserScope(opts.userId) : undefined;
     return run(async (db) => {
       const ref = this.normalizeEntityId(entityIdRaw);
       const asOf = opts.asOf ? new Date(opts.asOf) : null;
 
-      const clauses = [
-        `entityId = type::record('knowledge_entity', $rid)`,
-        `status = 'competing'`,
-        // User scope (0055): competing adjudication is tenant-global v1.
-        `userId IS NONE`,
-      ];
+      const clauses = [`entityId = type::record('knowledge_entity', $rid)`, `status = 'competing'`];
       const params: Record<string, unknown> = { rid: ref.id };
+      if (scopeUserId !== undefined) {
+        clauses.push(`(userId IS NONE OR userId = $scopeUserId)`);
+        params.scopeUserId = scopeUserId;
+      } else {
+        // User scope (0055): competing adjudication is tenant-global v1.
+        clauses.push(`userId IS NONE`);
+      }
       if (opts.predicate) {
         clauses.push(`predicate = $predicate`);
         params.predicate = opts.predicate;

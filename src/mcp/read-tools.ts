@@ -407,6 +407,13 @@ function registerEntityReadTools({
         entityId: z.string(),
         since: z.string().datetime().optional(),
         until: z.string().datetime().optional(),
+        userId: z
+          .string()
+          .max(200)
+          .optional()
+          .describe(
+            "Per-user memory scope: results include tenant-global facts plus this user's personal ones; omit for tenant-global only (fail-closed)",
+          ),
       },
     },
     async (args) => {
@@ -415,6 +422,7 @@ function registerEntityReadTools({
         entityIdRaw: args.entityId,
         sinceRaw: args.since,
         untilRaw: args.until,
+        ...(args.userId !== undefined ? { userId: args.userId } : {}),
         scopes,
       });
       return {
@@ -498,12 +506,20 @@ function registerEntityReadTools({
           .datetime()
           .optional()
           .describe('Show what was competing at this ISO 8601 moment'),
+        userId: z
+          .string()
+          .max(200)
+          .optional()
+          .describe(
+            "Per-user memory scope: preflight a user-scoped record_fact against tenant-global priors PLUS this user's personal ones. Omit for tenant-global candidates (matches record_fact's userId)",
+          ),
       },
     },
     async (args) => {
       const out = await deps.facts.listCompeting(companyId, args.entityId, {
         ...(args.predicate !== undefined ? { predicate: args.predicate } : {}),
         ...(args.asOf !== undefined ? { asOf: args.asOf } : {}),
+        ...(args.userId !== undefined ? { userId: args.userId } : {}),
         callerScopes: scopes,
       });
       return {

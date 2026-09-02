@@ -1103,6 +1103,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: false,
     isBooleanFlag: false,
   },
+  {
+    key: 'CONFLICT_DIRECT_FACT_SLOT',
+    category: 'conflict',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Direct-fact conflict semantics. When on, the typed direct ingest path (record_fact / POST /v1/ingest/fact) promotes an unknown-predicate fact — one that resolves to the registry '__default__' append_only fallback — to 'bitemporal', so two direct writes on the same (entity, predicate) slot with contradicting objects form a conflict (close-scored → COMPETING for get_competing_facts, clear winner → SUPERSEDED) instead of both landing INSERTED forever. Mention-extracted bulk and the DEFAULT_FALLBACK policy itself are untouched; known predicates keep their registry semantics. Off (default) = append_only passthrough, byte-identical.",
+  },
   // ── ABAC (migrations 0056/0057) ──────────────────────────
   {
     key: 'ABAC_ENABLED',
@@ -1148,6 +1157,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: true,
     description:
       'Per-member user-scope fence for verbatim windows (migration 0117). Mixed-user episode_segment windows fold userId=NONE (tenant-global), so the legacy gate served an A+B window — verbatim text included — to EVERY user-scoped caller in the tenant. When on, all four segment read seams (segment lane transcript + anchors, fused search leg, mention scan) admit a user-scoped caller to a userId-NONE window only when its persisted userIds member set is [] (purely global) or CONTAINS the caller (window membership: co-present verbatim is re-disclosure, not disclosure). Tenant-global (M2M) callers unchanged. WARNING: OFF + any segment-serving mode ON (verbatimEvidence/timelineEvidence/l3SegmentAnchor, e.g. RETRIEVAL_GENRE=dialogue or SEARCH_SEGMENT_LANE_ENABLED) = cross-user verbatim disclosure. FAIL-CLOSED on legacy rows: userIds IS NONE (pre-0117) is hidden from user-scoped callers — run POST /v1/admin/maintenance/segments/backfill-user-ids once per tenant BEFORE the first enable on an existing deployment (order: migrate → backfill → flip). Default off in code for byte-identity only; will default ON in a future release.',
+  },
+  {
+    key: 'READ_SURFACE_USER_SCOPE',
+    category: 'auth',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Per-user read scope on the two read surfaces that predate migration 0055 and hardcode `userId IS NONE`: the entity timeline (GET /v1/entities/:id/timeline, get_entity_timeline) and the competing-facts listing (get_competing_facts). When on and the caller supplies a userId (pinned to a user-bound token’s end-user via pinUserScope — 403 on mismatch), the fence widens to the search-lane union `(userId IS NONE OR userId = $scopeUserId)`: tenant-global rows plus that one user’s personal ones, never a third user’s. Off (default) — or on with no userId — keeps the exact historical tenant-global-only clause, byte-identical.',
   },
   {
     key: 'PRIVACY_COMPOSER_USER_SCOPE',

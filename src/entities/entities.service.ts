@@ -7,6 +7,8 @@ import { BrainScope } from '../auth/api-key.types';
 import { EntityForgetService } from './entity-forget.service';
 import { normalizeEntityId, blockedPredicates, activeFactWhere } from './entity-read.helpers';
 import { makeRowPolicyFilter, PolicyFilterableRow } from '../policy/row-filter';
+import { readSurfaceUserScopeEnabled } from '../common/read-scope-flags';
+import { pinUserScope } from '../auth/user-scope';
 
 // Centralised SELECT-clause field lists. Adding a new field to a table
 // touches one place here, not every read site. The strings below are
@@ -101,6 +103,14 @@ export interface GetTimelineOptions {
    * Distinct from `until`, which is an audit paging window over rows.
    */
   recordedAtRaw?: string | undefined;
+  /**
+   * Per-user memory scope (0055), READ_SURFACE_USER_SCOPE gated.
+   * Caller-asserted; pinned to a user-bound token's end-user via
+   * pinUserScope. Flag on + userId → events over tenant-global facts
+   * PLUS this user's personal ones; otherwise the historical
+   * tenant-global-only fence, byte-identical.
+   */
+  userId?: string | undefined;
   scopes: BrainScope[];
 }
 
@@ -430,20 +440,35 @@ export class EntitiesService {
     sinceRaw,
     untilRaw,
     recordedAtRaw,
+    userId,
     scopes,
   }: GetTimelineOptions): Promise<{ entityId: string; events: TimelineEvent[] }> {
     const ref = normalizeEntityId(entityIdRaw);
     const since = sinceRaw ? new Date(sinceRaw) : null;
     const until = untilRaw ? new Date(untilRaw) : null;
     const txAt = recordedAtRaw ? new Date(recordedAtRaw) : null;
+    // READ_SURFACE_USER_SCOPE (default off): this surface predates the
+    // 0055 per-user scope and pinned `userId IS NONE`, so a personal
+    // fact never produced a timeline event. Flag on → the
+    // caller-asserted userId is pinned to a user-bound token's end-user
+    // (the ingestFact idiom — 403 on mismatch, defaulted when omitted)
+    // and the fence widens to the search-lane union below. Off — or on
+    // with no userId in play — keeps the exact historical clause.
+    const scopeUserId = readSurfaceUserScopeEnabled() ? pinUserScope(userId) : undefined;
 
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       // Range pushdown — recordedAt window is part of the WHERE so
       // long-lived entities don't pay for full timeline materialisation
       // on every query. The composite (entityId, status, recordedAt)
       // index covers the entityId+range combination directly.
-      const clauses = [`entityId = type::record('knowledge_entity', $rid)`, `userId IS NONE`];
+      const clauses = [`entityId = type::record('knowledge_entity', $rid)`];
       const params: Record<string, unknown> = { rid: ref.id };
+      if (scopeUserId !== undefined) {
+        clauses.push(`(userId IS NONE OR userId = $scopeUserId)`);
+        params.scopeUserId = scopeUserId;
+      } else {
+        clauses.push(`userId IS NONE`);
+      }
       if (since) {
         clauses.push(`recordedAt >= $since`);
         params.since = since;

@@ -8,6 +8,9 @@
  *   - the active fact is excluded
  *   - filtering by predicate narrows the result
  *   - asOf < competing.recordedAt excludes the pair
+ *   - READ_SURFACE_USER_SCOPE: user-scoped competing rows are invisible
+ *     with the flag off (byte-identical pre-flag behavior) and join the
+ *     result as the tenant-global∪user union with flag on + userId
  *
  * Direct DB seed instead of the ingest path because forcing the
  * conflict resolver into COMPETING requires similarity tuning that
@@ -84,6 +87,36 @@ describe('FactsService.listCompeting — groups competing pairs by predicate', (
          }`,
         { eid: ENT_ID, vf: new Date('2026-01-01'), ra: now },
       );
+
+      // A USER-SCOPED competing pair (0055) on a different predicate —
+      // invisible pre-flag (hardcoded `userId IS NONE`), part of the
+      // union under READ_SURFACE_USER_SCOPE + userId.
+      for (const [tail, object, recorder] of [
+        ['lc_u_a', 'monthly', 'bot_u1'],
+        ['lc_u_b', 'annual', 'bot_u2'],
+      ] as const) {
+        await db.query(
+          `CREATE type::record('knowledge_fact', $fid) CONTENT {
+              entityId: type::record('knowledge_entity', $eid),
+              predicate: 'plan',
+              object: $object,
+              confidence: 0.7,
+              validFrom: $vf,
+              recordedAt: $ra,
+              status: 'competing',
+              userId: 'u_lc',
+              source: { vertical: 'rent', recorder: $recorder }
+           }`,
+          {
+            fid: tail,
+            eid: ENT_ID,
+            object,
+            recorder,
+            vf: new Date('2026-01-01'),
+            ra: new Date(now.getTime() - 1_500),
+          },
+        );
+      }
     });
   });
 
@@ -133,5 +166,43 @@ describe('FactsService.listCompeting — groups competing pairs by predicate', (
     const b = await facts.listCompeting(f.companyId, ENT_FULL);
     expect(a.groups.length).toBe(b.groups.length);
     expect(a.entityId).toBe(b.entityId);
+  });
+
+  describe('READ_SURFACE_USER_SCOPE (per-user competing visibility)', () => {
+    afterEach(() => {
+      delete process.env.READ_SURFACE_USER_SCOPE;
+    });
+
+    it('flag off: user-scoped rows stay invisible even when a userId is passed', async () => {
+      const facts = f.app.get(FactsService);
+      const out = await facts.listCompeting(f.companyId, ENT_ID, { userId: 'u_lc' });
+      // Byte-identical pre-flag behavior — only the tenant-global group.
+      expect(out.groups.map((g) => g.predicate)).toEqual(['status']);
+    });
+
+    it('flag on + userId: tenant-global ∪ user union returns both groups', async () => {
+      process.env.READ_SURFACE_USER_SCOPE = '1';
+      const facts = f.app.get(FactsService);
+      const out = await facts.listCompeting(f.companyId, ENT_ID, { userId: 'u_lc' });
+      const byPredicate = new Map(out.groups.map((g) => [g.predicate, g]));
+      expect([...byPredicate.keys()].sort()).toEqual(['plan', 'status']);
+      const plan = byPredicate.get('plan')!;
+      expect(plan.facts).toHaveLength(2);
+      expect(plan.facts.map((x) => x.object).sort()).toEqual(['annual', 'monthly']);
+    });
+
+    it('flag on without userId: fail-closed to tenant-global only', async () => {
+      process.env.READ_SURFACE_USER_SCOPE = '1';
+      const facts = f.app.get(FactsService);
+      const out = await facts.listCompeting(f.companyId, ENT_ID);
+      expect(out.groups.map((g) => g.predicate)).toEqual(['status']);
+    });
+
+    it("flag on + ANOTHER user's id: the first user's rows stay invisible", async () => {
+      process.env.READ_SURFACE_USER_SCOPE = '1';
+      const facts = f.app.get(FactsService);
+      const out = await facts.listCompeting(f.companyId, ENT_ID, { userId: 'u_other' });
+      expect(out.groups.map((g) => g.predicate)).toEqual(['status']);
+    });
   });
 });

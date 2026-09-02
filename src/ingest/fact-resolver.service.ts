@@ -4,8 +4,10 @@ import { queryRows, retryOnUniqueViolation } from '../db/surreal.service';
 import { scopeForUser } from '../auth/scope-tags';
 import { MetricsService } from '../metrics/metrics.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
+import { DEFAULT_FALLBACK } from '../ai/predicate-registry-internals/types';
 import { detectLanguage } from '../ai/locale/language-detector';
 import { envFlagEnabled } from '../common/env-validation';
+import { conflictDirectFactSlotEnabled } from '../common/conflict-flags';
 import { supportEdgesEnabled } from '../common/provenance-flags';
 import { buildConflictEdgeRows } from '../common/support-edges';
 import { KeyedMutex } from '../common/keyed-mutex';
@@ -242,6 +244,25 @@ export class FactResolverService {
     p: Parameters<FactResolverService['resolve']>[1],
   ): Promise<Parameters<FactResolverService['resolveFactCall']>[1]> {
     const policy = this.predicateRegistry.policyFor(p.companyId, p.predicate);
+    // CONFLICT_DIRECT_FACT_SLOT (default off): on the typed direct path
+    // (recordOutcomeMetric — set ONLY by FactIngestService.ingestFact),
+    // an unknown predicate falls to the registry DEFAULT_FALLBACK
+    // ('__default__', append_only), which short-circuits
+    // fn::resolve_fact's conflict pool to [] — two direct writes on one
+    // (entity, predicate) slot with contradicting objects both landed
+    // INSERTED and no conflict ever formed. Promote JUST that
+    // combination to 'bitemporal' (margin doctrine: close-scored →
+    // COMPETING, clear winner → SUPERSEDED). NOT 'single_active' — its
+    // resolver branch supersedes unconditionally (0085 $supersede) and
+    // can never surface a COMPETING pair. Known predicates keep their
+    // registry policy; the mention path (no recordOutcomeMetric) and
+    // DEFAULT_FALLBACK itself are untouched. Off ⇒ byte-identical.
+    const semantics =
+      conflictDirectFactSlotEnabled() &&
+      p.recordOutcomeMetric === true &&
+      policy.predicateId === DEFAULT_FALLBACK.predicateId
+        ? 'bitemporal'
+        : policy.semantics;
     const sourceTrust = sourceTrustFor(p.source as Parameters<typeof sourceTrustFor>[0]);
     // Confidence-aware attribution (MULTILINGUAL_LANG_ATTRIBUTION, default
     // off). Off → detectLanguage keeps its Phase-4 `en` fallback and no new
@@ -310,7 +331,7 @@ export class FactResolverService {
       validUntil: p.validUntil,
       source: p.source,
       sourceTrust,
-      semantics: policy.semantics,
+      semantics,
       lang,
       script,
       langMeta,
