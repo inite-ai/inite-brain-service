@@ -49,6 +49,7 @@ import { SceneComposerService } from './scene-composer.service';
 import { SceneEnricherService } from './scene-enricher.service';
 import { SceneBacklinkService } from './scene-backlink.service';
 import { BeliefPromotionService } from './belief-promotion.service';
+import { SceneEvidenceLinkerService } from './scene-evidence-linker.service';
 import { SceneVersionService } from './scene-version';
 import { HnswMaintenanceService } from './hnsw-maintenance.service';
 import { CodeMemoryModule } from '../code-memory/code-memory.module';
@@ -131,6 +132,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     SceneEnricherService,
     SceneBacklinkService,
     BeliefPromotionService,
+    SceneEvidenceLinkerService,
     SceneVersionService,
     AdminInfraService,
     HealthComponentsService,

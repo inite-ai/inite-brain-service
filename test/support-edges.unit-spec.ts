@@ -1,11 +1,13 @@
 /**
  * Typed support graph (Drift-5, 0116) — the pure edge-row assembly
- * module. Pins the endpoint-pairing verdicts (assertEdgeShape,
- * reconstructed_from reserved), the (in, out, kind) dedupe with
- * emission order + SUPPORT_EDGE_CAP, the conflict-verdict directions
- * (SUPERSEDED loser→winner; COMPETING mutual, capped), and the
- * EvidenceRef runtime adoption (classifySupportTarget dispatches the
- * evidence-plane prefixes through parseRecordRef).
+ * module. Pins the endpoint-pairing verdicts (assertEdgeShape —
+ * reconstructed_from activated by 0123 as scene → fragment|asset, the
+ * three claim-plane kinds byte-identical to their pre-0123 verdicts),
+ * the (in, out, kind) dedupe with emission order + SUPPORT_EDGE_CAP,
+ * the conflict-verdict directions (SUPERSEDED loser→winner; COMPETING
+ * mutual, capped), and the EvidenceRef runtime adoption
+ * (classifySupportTarget dispatches the evidence-plane prefixes through
+ * parseRecordRef).
  */
 import {
   SUPPORT_EDGE_CAP,
@@ -49,14 +51,40 @@ describe('assertEdgeShape (endpoint pairing per kind)', () => {
     }
   });
 
-  it('reconstructed_from is RESERVED — always rejected (0106 stays canonical)', () => {
+  it('reconstructed_from (0123): scene → fragment|asset only', () => {
+    expect(
+      assertEdgeShape('reconstructed_from', 'memory_episode:s1', 'evidence_fragment:fr1'),
+    ).toBe(true);
+    expect(assertEdgeShape('reconstructed_from', 'memory_episode:s1', 'evidence_asset:a1')).toBe(
+      true,
+    );
+    // Membership stays in memory_episode_member — a turn episode is NOT
+    // a reconstruction source.
+    expect(assertEdgeShape('reconstructed_from', 'memory_episode:s1', 'episode:e1')).toBe(false);
+    expect(assertEdgeShape('reconstructed_from', 'memory_episode:s1', 'memory_episode:s2')).toBe(
+      false,
+    );
+    // Only the episodic plane roots this kind.
+    expect(assertEdgeShape('reconstructed_from', 'knowledge_fact:f1', 'evidence_asset:a1')).toBe(
+      false,
+    );
     expect(assertEdgeShape('reconstructed_from', 'knowledge_fact:f1', 'knowledge_fact:f2')).toBe(
       false,
     );
-    expect(assertEdgeShape('reconstructed_from', 'memory_episode:s1', 'episode:e1')).toBe(false);
   });
 
-  it('isEmittedEdgeKind excludes the reserved kind', () => {
+  it('the claim-plane kinds keep their pre-0123 verdicts with a scene/evidence in (byte-identity pin)', () => {
+    // The 0123 restructure moved the in-class gate INTO the switch —
+    // these pin that nothing changed for the three walk kinds.
+    expect(assertEdgeShape('supported_by', 'memory_episode:s1', 'memory_episode:s2')).toBe(false);
+    expect(assertEdgeShape('supported_by', 'evidence_asset:a1', 'memory_episode:s1')).toBe(false);
+    for (const kind of ['contradicted_by', 'derived_from'] as const) {
+      expect(assertEdgeShape(kind, 'memory_episode:s1', 'knowledge_fact:f1')).toBe(false);
+      expect(assertEdgeShape(kind, 'evidence_fragment:fr1', 'evidence_fragment:fr2')).toBe(false);
+    }
+  });
+
+  it('isEmittedEdgeKind excludes reconstructed_from (post-walk fetch, never a frontier kind)', () => {
     expect(isEmittedEdgeKind('supported_by')).toBe(true);
     expect(isEmittedEdgeKind('reconstructed_from')).toBe(false);
     expect(isEmittedEdgeKind('bogus')).toBe(false);

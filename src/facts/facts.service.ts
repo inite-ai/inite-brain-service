@@ -33,11 +33,14 @@ import {
   supportGraphReadEnabled,
 } from '../common/provenance-flags';
 import {
+  collectSceneTargets,
   indexCharSpans,
+  normalizeReconstructedEdges,
   walkProvenanceClosure,
   type ClosureEdgeRow,
   type ProvenanceClosureEdge,
   type ProvenanceSpan,
+  type ReconstructedSupportEdge,
 } from './provenance-closure';
 
 /**
@@ -200,8 +203,10 @@ export interface FactProvenanceResult {
    * Typed support edges crossed by the walk
    * (PROVENANCE_SUPPORT_GRAPH_READ, 0116) — absent (not empty) when the
    * read flag is off, so the default response stays byte-identical.
+   * Includes the post-walk scene-evidence zoom edges (reconstructed_from,
+   * 0123) for every scene a crossed supported_by edge named.
    */
-  supportEdges?: ProvenanceClosureEdge[];
+  supportEdges?: Array<ProvenanceClosureEdge | ReconstructedSupportEdge>;
 }
 
 interface FactReadOptions {
@@ -454,13 +459,14 @@ export class FactsService {
     // is safe for a SELECT; only DELETE hits the 3.2.4 planner no-op.
     // Flag off ⇒ no fetchEdges ⇒ the walk is byte-identical.
     const readEdges = supportGraphReadEnabled();
+    const caps = {
+      maxDepth: closureMaxDepth(),
+      maxFacts: closureMaxFacts(),
+      maxEpisodes: closureMaxEpisodes(),
+    };
     const closure = await walkProvenanceClosure<FactReadRow>({
       root,
-      caps: {
-        maxDepth: closureMaxDepth(),
-        maxFacts: closureMaxFacts(),
-        maxEpisodes: closureMaxEpisodes(),
-      },
+      caps,
       visible: (f) => factVisible(f, gates),
       fetchByIds: async (ids) => {
         // NO status filter — compacted/retracted members still witness;
@@ -487,6 +493,28 @@ export class FactsService {
         : {}),
     });
     rowPolicy.finish();
+
+    // Scene-evidence zoom (reconstructed_from, 0123 — MM-zoom PR1): ONE
+    // post-walk batched fetch over the scenes the crossed supported_by
+    // edges named. Keyed on the SAME read flag as the walk's edge fetch;
+    // edges are record-id-only rows (content-free by construction — the
+    // 0116 doctrine), the same exposure class as the crossed supported_by
+    // targets. Plain WHERE on `in` is SELECT-safe (only DELETE hits the
+    // 3.2.4 planner no-op). Flag off ⇒ no fetch, and with no scenes
+    // crossed (or no zoom edges written) the appended set is empty — the
+    // supportEdges array is byte-identical to the pre-0123 shape.
+    let reconstructed: ReconstructedSupportEdge[] = [];
+    if (readEdges) {
+      const sceneIds = collectSceneTargets(closure.edges);
+      if (sceneIds.length > 0) {
+        const [edgeRows] = await db.query<[ClosureEdgeRow[]]>(
+          `SELECT in, out, kind FROM memory_support
+            WHERE kind = 'reconstructed_from' AND in INSIDE $ids`,
+          { ids: sceneIds.map((id) => new StringRecordId(id)) },
+        );
+        reconstructed = normalizeReconstructedEdges(edgeRows ?? [], caps.maxFacts);
+      }
+    }
 
     // Episode fetch grouped per owning user ('' → the caller's pinned
     // scope; else that fact's user — the caller already passed the
@@ -534,8 +562,9 @@ export class FactsService {
       },
       // Additive and flag-keyed: PRESENT (possibly empty) whenever the
       // read flag drove the walk, ABSENT otherwise — never an empty
-      // array on the default path.
-      ...(readEdges ? { supportEdges: closure.edges } : {}),
+      // array on the default path. Crossed edges first (walk order),
+      // then the post-walk scene-evidence zoom edges.
+      ...(readEdges ? { supportEdges: [...closure.edges, ...reconstructed] } : {}),
     };
   }
 

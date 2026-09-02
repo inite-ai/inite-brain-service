@@ -507,6 +507,14 @@ export class UserForgetService {
     // repr/frag legs; reprs-before-frags stays exactly as is. Runs on
     // SURVIVING shared assets stay too: lineage is asset-scoped, like
     // the fragments it produced.
+    // Scene-evidence zoom edges (0123): a dying asset/fragment is a
+    // possible reconstructed_from edge TARGET whose scene may SURVIVE
+    // this cascade (a scene without this user's turns can still
+    // reference this user's evidence), so the out-side leg runs here,
+    // keyed on the same pre-collected dying ids, BEFORE the endpoint
+    // rows die. Two-step LET-select-ids → DELETE (the 0116 planner
+    // no-op idiom); runs UNCONDITIONALLY (the
+    // EVIDENCE_SUBSTRATE_ENABLED precedent).
     let deleted = { reprs: 0, frags: 0, assets: 0 };
     let storageRefs: string[] = [];
     if (dyingIds.length > 0) {
@@ -521,14 +529,29 @@ export class UserForgetService {
           rows: storageRefs.map((storageRef) => ({ storageRef, reason: 'user_forget' })),
         });
       }
-      const [, , , , , reprsGone, fragsGone, , assetsGone] = await db.query<
-        [unknown, unknown, unknown, unknown, unknown[], unknown[], unknown[], unknown[], unknown[]]
+      const [, , , , , , , reprsGone, fragsGone, , assetsGone] = await db.query<
+        [
+          unknown,
+          unknown,
+          unknown,
+          unknown,
+          unknown,
+          unknown[],
+          unknown[],
+          unknown[],
+          unknown[],
+          unknown[],
+          unknown[],
+        ]
       >(
         `LET $fragIds = (SELECT VALUE id FROM evidence_fragment WHERE assetId INSIDE $assetIds);
          LET $reprIds = (SELECT VALUE id FROM derived_representation
            WHERE subjectId INSIDE $assetIds OR subjectId INSIDE $fragIds);
          LET $residualGrantIds = (SELECT VALUE id FROM evidence_grant WHERE assetId INSIDE $assetIds);
          LET $runIds = (SELECT VALUE id FROM processing_run WHERE assetId INSIDE $assetIds);
+         LET $supEvIds = (SELECT VALUE id FROM memory_support
+           WHERE out INSIDE $assetIds OR out INSIDE $fragIds);
+         DELETE $supEvIds;
          DELETE $runIds RETURN BEFORE;
          DELETE $reprIds RETURN BEFORE;
          DELETE $fragIds RETURN BEFORE;

@@ -12,6 +12,7 @@ import type { FactEmbeddingService } from '../src/ingest/fact-embedding.service'
 import type { ProjectionRegistryService } from '../src/episodes/projection-registry.service';
 import type { SceneEnricherService } from '../src/admin/scene-enricher.service';
 import type { SceneBacklinkService } from '../src/admin/scene-backlink.service';
+import type { SceneEvidenceLinkerService } from '../src/admin/scene-evidence-linker.service';
 import type { SceneVersionService } from '../src/admin/scene-version';
 
 /**
@@ -326,6 +327,9 @@ describe('scene composer persists fold.userIds (0117 write side)', () => {
         enrich: async () => ({ scenes: 0, enriched: 0, failed: 0 }),
       } as unknown as SceneEnricherService,
       { run: async () => undefined } as unknown as SceneBacklinkService,
+      {
+        run: async () => ({ scenes: 0, scenesLinked: 0, edges: 0 }),
+      } as unknown as SceneEvidenceLinkerService,
       // Neutral version world: fingerprint off (default), literal PR2
       // version — this spec pins the userIds fold, not scene identity.
       {

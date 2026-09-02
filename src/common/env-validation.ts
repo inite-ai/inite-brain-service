@@ -943,6 +943,17 @@ const KNOWN_BOOLEAN_FLAGS = [
   // to the deterministic template. Default off ⇒ no LLM call ever runs —
   // every statement is the deterministic template.
   'SCENES_BELIEF_LLM_SYNTHESIS',
+  // Scene evidence links (MM-zoom PR1, migration 0123): typed
+  // scene-reconstructed_from->evidence_fragment|evidence_asset edges in
+  // memory_support from the union of member episodes' source.evidenceRefs
+  // (end of the composer run + POST /v1/admin/maintenance/scenes/
+  // evidence-links). Replay-idempotent (INSERT RELATION IGNORE over
+  // UNIQUE(in, out, kind)); a world without evidence refs is a graceful
+  // no-op. Default off ⇒ no edge is ever written, the route 404s and the
+  // composer hook is skipped — byte-identical prod. The GDPR cascades
+  // erase the edges regardless — rows written while on must stay
+  // erasable.
+  'SCENES_EVIDENCE_LINKS',
   // Evidence substrate master (Brain v2.1 M1, migration 0109): the
   // EvidenceStoreService writers for evidence_asset / evidence_fragment /
   // derived_representation. Default off ⇒ every writer 503s and no row is
@@ -952,7 +963,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   // the ENGINE flag budget by design (a substrate builder, not an engine
   // fork). The fs root (EVIDENCE_FS_ROOT) is a string and the size cap
   // (EVIDENCE_MAX_BYTES) an int — not booleans. Reserved for sibling PRs
-  // (not defined yet): EVIDENCE_INGEST_ENABLED / EVIDENCE_SCENE_LINKS.
+  // (not defined yet): EVIDENCE_INGEST_ENABLED. (The scene-links seam
+  // reserved here landed as SCENES_EVIDENCE_LINKS — the writer is a
+  // scene pass, so it keeps the SCENES_ family naming.)
   'EVIDENCE_SUBSTRATE_ENABLED',
   // Fragment citations (MM-zoom PR2): generator schema gains
   // citedFragmentIds over the rendered fragment lane; resolved through

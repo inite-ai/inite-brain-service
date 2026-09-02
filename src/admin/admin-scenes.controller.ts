@@ -15,6 +15,7 @@ import { ApiKeyService } from '../auth/api-key.service';
 import { resolvePlatformTenant } from '../auth/tenant-scope';
 import {
   sceneBeliefPromotionEnabled,
+  sceneEvidenceLinksEnabled,
   sceneFactBacklinkEnabled,
   sceneLlmEnrichmentEnabled,
   sceneSegmentationEnabled,
@@ -23,6 +24,10 @@ import { SceneComposerService, SceneRunResult } from './scene-composer.service';
 import { SceneEnricherService, SceneEnrichResult } from './scene-enricher.service';
 import { SceneBacklinkService, SceneBacklinkResult } from './scene-backlink.service';
 import { BeliefPromotionService, BeliefPromotionResult } from './belief-promotion.service';
+import {
+  SceneEvidenceLinkerService,
+  SceneEvidenceLinkResult,
+} from './scene-evidence-linker.service';
 
 /** Purge param belt: DB stamps are short version slugs, not free text. */
 // 128 (was 64): pack scene worlds (0110) are versioned
@@ -48,6 +53,12 @@ const SEGMENTER_VERSION_MAX_CHARS = 128;
  *  - POST /scenes/backlink — standalone fact backlink (PR2): idempotent
  *    source.memoryEpisodeIds stamps. 404 unless BOTH the master flag and
  *    SCENES_FACT_BACKLINK are on.
+ *  - POST /scenes/evidence-links — scene evidence linker (MM-zoom PR1,
+ *    migration 0123): typed scene-reconstructed_from->evidence edges
+ *    from member episodes' source.evidenceRefs. 404 unless BOTH the
+ *    master flag and SCENES_EVIDENCE_LINKS are on. Replay-idempotent
+ *    (INSERT RELATION IGNORE over UNIQUE(in, out, kind)); a world
+ *    without evidence refs is a graceful no-op.
  *  - POST /scenes/beliefs — belief promotion (Belief-A, migration 0120):
  *    folds ENRICHED scenes of the current effective segmenter version
  *    into semantic_belief upserts keyed by free-text (subject, field).
@@ -73,6 +84,7 @@ export class AdminScenesController {
     private readonly enricher: SceneEnricherService,
     private readonly backlinker: SceneBacklinkService,
     private readonly beliefs: BeliefPromotionService,
+    private readonly evidenceLinker: SceneEvidenceLinkerService,
     private readonly apiKeys: ApiKeyService,
   ) {}
 
@@ -117,6 +129,24 @@ export class AdminScenesController {
     }
     const tenant = this.resolveTenant(req, body.tenant);
     return this.backlinker.run(
+      tenant,
+      body.conversationId !== undefined ? { conversationId: body.conversationId } : {},
+    );
+  }
+
+  @Post('maintenance/scenes/evidence-links')
+  @RequireScopes('brain:admin')
+  async evidenceLinks(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { tenant?: string; conversationId?: string } = {},
+  ): Promise<SceneEvidenceLinkResult> {
+    // Double-gate idiom: controller 404 here + the service's defensive
+    // early return (off = zero queries, byte-identical prod).
+    if (!sceneSegmentationEnabled() || !sceneEvidenceLinksEnabled()) {
+      throw new NotFoundException();
+    }
+    const tenant = this.resolveTenant(req, body.tenant);
+    return this.evidenceLinker.run(
       tenant,
       body.conversationId !== undefined ? { conversationId: body.conversationId } : {},
     );

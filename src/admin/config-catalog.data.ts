@@ -755,6 +755,19 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Belief promotion statement synthesis: ONE structured LLM call per belief create/revise phrasing the statement text (statementSource llm); any failure degrades to the deterministic template — the fold never depends on the model. Off = no LLM call ever runs, every statement is the deterministic template (statementSource template).',
   },
+  {
+    key: 'SCENES_EVIDENCE_LINKS',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneEvidenceLinksEnabled) by the
+    // admin 404 guard, the linker's defensive early return and the
+    // composer's post-swap hook — never captured in a constructor — so a
+    // flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Scene evidence links (MM-zoom PR1, migration 0123): after the composer swap (and via POST /v1/admin/maintenance/scenes/evidence-links), write typed scene-reconstructed_from->evidence_fragment|evidence_asset memory_support edges from the union of member episodes source.evidenceRefs — scenes become zoomable into the multimodal evidence substrate (0109). Replay-idempotent (INSERT RELATION IGNORE over UNIQUE(in,out,kind)); a world without evidence refs is a graceful no-op. Off = no edge is ever written, route 404s, composer hook skipped — byte-identical prod. GDPR cascades erase the edges regardless.',
+  },
   // ── Multilingual (Tier 1, migration 0100) ───────────
   {
     key: 'MULTILINGUAL_LANG_ATTRIBUTION',

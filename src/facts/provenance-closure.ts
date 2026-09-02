@@ -49,6 +49,62 @@ export interface ProvenanceClosureEdge {
 }
 
 /**
+ * One scene-evidence zoom edge, normalized for the wire (MM-zoom PR1,
+ * 0123): scene -reconstructed_from-> evidence_fragment | evidence_asset.
+ * Harvested by a dedicated POST-walk fetch — its `in` is a scene, so it
+ * can never surface in the walk's fact/belief-rooted frontier fetches.
+ */
+export interface ReconstructedSupportEdge {
+  kind: 'reconstructed_from';
+  from: string;
+  to: string;
+}
+
+/**
+ * The scenes named by the walk's crossed supported_by edges — the
+ * post-walk reconstructed_from fetch keys on exactly these (deduped,
+ * crossing order preserved). Pure; targets are already String()s.
+ */
+export function collectSceneTargets(edges: readonly ProvenanceClosureEdge[]): string[] {
+  const out = new Set<string>();
+  for (const edge of edges) {
+    if (edge.kind === 'supported_by' && classifySupportTarget(edge.to) === 'scene') {
+      out.add(edge.to);
+    }
+  }
+  return [...out];
+}
+
+/**
+ * Defensive normalization of the post-walk reconstructed_from rows —
+ * kind-filtered, endpoint-classified (scene -> fragment|asset ONLY, the
+ * assertEdgeShape pairing — a foreign row shape is dropped, never a
+ * guess), String()-normalized, deduped by (from, to), capped (the
+ * walker's maxFacts budget — same bound the crossed-edge surface obeys).
+ */
+export function normalizeReconstructedEdges(
+  rows: readonly ClosureEdgeRow[],
+  cap: number,
+): ReconstructedSupportEdge[] {
+  const seen = new Set<string>();
+  const out: ReconstructedSupportEdge[] = [];
+  for (const row of rows) {
+    if (String(row.kind) !== 'reconstructed_from') continue;
+    const from = String(row.in);
+    const to = String(row.out);
+    const target = classifySupportTarget(to);
+    if (classifySupportTarget(from) !== 'scene') continue;
+    if (target !== 'fragment' && target !== 'asset') continue;
+    const key = `${from} ${to}`;
+    if (seen.has(key)) continue;
+    if (out.length >= cap) break;
+    seen.add(key);
+    out.push({ kind: 'reconstructed_from', from, to });
+  }
+  return out;
+}
+
+/**
  * Defensive read of source.charSpans (G3 — written by the derive row
  * builder, but `source` is FLEXIBLE so shapes are never guaranteed).
  * Keeps the first well-formed span per episode; malformed entries are

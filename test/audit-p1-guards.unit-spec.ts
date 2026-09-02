@@ -807,6 +807,21 @@ describe('memory_support GDPR cascade + DELETE-shape guards (0116)', () => {
     );
   });
 
+  it('the 0123 scene-evidence zoom direction is covered on BOTH sides of the cascade', () => {
+    // reconstructed_from edges carry the scene as `in` and the evidence
+    // row as `out` — a dying scene must kill the edge from the in side
+    // (entity-forget names scenes on BOTH endpoints), and a dying
+    // asset/fragment whose scene SURVIVES must kill it from the out
+    // side (user-forget's evidence leg, same LET-select-ids → DELETE
+    // idiom, unconditional).
+    const entityForget = readFileSync(join(SRC, 'entities', 'entity-forget.service.ts'), 'utf8');
+    expect(entityForget).toContain('OR in INSIDE $sceneIds OR out INSIDE $sceneIds');
+    const userForget = readFileSync(join(SRC, 'entities', 'user-forget.service.ts'), 'utf8');
+    expect(userForget).toContain('LET $supEvIds = (SELECT VALUE id FROM memory_support');
+    expect(userForget).toContain('WHERE out INSIDE $assetIds OR out INSIDE $fragIds');
+    expect(userForget).toContain('DELETE $supEvIds');
+  });
+
   it('NO file in src/ uses the 3.2.4-broken DELETE memory_support WHERE shape', () => {
     const walk = (dir: string): string[] => {
       const out: string[] = [];
@@ -967,6 +982,30 @@ describe('semantic_belief GDPR cascade + DELETE-shape guards (0120)', () => {
         .join('\n');
       expect(code).not.toMatch(/DELETE semantic_belief\s+WHERE/);
     }
+  });
+});
+
+describe('0123_scene_evidence_links (reconstructed_from activation)', () => {
+  const sql = readFileSync(join(MIGRATIONS, '0123_scene_evidence_links.surql'), 'utf8');
+
+  it('widens the 0116 writer enum with scene_evidence_linker via OVERWRITE (full list restated)', () => {
+    expect(sql).toContain('DEFINE FIELD OVERWRITE writer ON memory_support');
+    expect(sql).toMatch(
+      /writer ON memory_support[^;]*'scene_backlink', 'fact_resolver', 'promotion_runner', 'compaction_runner', 'recompose', 'belief_promotion', 'scene_evidence_linker'/s,
+    );
+  });
+
+  it('defines NO new table, index, changefeed or event (the 0116 surface is reused as-is)', () => {
+    // UNIQUE(in, out, kind) + support_out_idx/support_kind_idx already
+    // serve the new kind; the 0116 no-feed doctrine applies unchanged.
+    const code = sql
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('--'))
+      .join('\n');
+    expect(code).not.toMatch(/DEFINE TABLE/);
+    expect(code).not.toMatch(/DEFINE INDEX/);
+    expect(code).not.toMatch(/CHANGEFEED/);
+    expect(code).not.toMatch(/DEFINE EVENT/);
   });
 });
 
