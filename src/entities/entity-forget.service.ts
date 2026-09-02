@@ -32,6 +32,7 @@ interface ForgottenTombstoneRow {
   auditEventsDeleted?: number;
   episodesDeleted?: number;
   segmentsDeleted?: number;
+  beliefsDeleted?: number;
   forgottenAt: string | Date;
 }
 
@@ -40,6 +41,7 @@ interface ForgetTxResult {
   auditEventsDeleted: number;
   episodesDeleted: number;
   segmentsDeleted: number;
+  beliefsDeleted: number;
   tombstone: { id: unknown; entityIdHash: string } | null;
 }
 
@@ -284,6 +286,19 @@ export class EntityForgetService {
           `LET $sceneMemberIds = (SELECT VALUE id FROM memory_episode_member WHERE in INSIDE $sceneIds)`,
         );
         tx.add(`DELETE $sceneMemberIds`);
+        // Semantic beliefs (0120): a belief grounded in a dying scene
+        // goes with it (erasure wins over retention — the mixed-subject
+        // scene rule carries to what was distilled FROM the scene).
+        // sourceSceneIds holds record refs as stored VALUES, so the
+        // match works before or after the scene rows die; collected here
+        // so the belief-side memory_support edges join $supIds below.
+        // Two-step by-ids (0120 pins a repo-wide `DELETE semantic_belief
+        // WHERE` prohibition — the 3.2.4 planner class). Runs
+        // UNCONDITIONALLY (the EVIDENCE_SUBSTRATE_ENABLED precedent).
+        tx.add(
+          `LET $beliefIds = (SELECT VALUE id FROM semantic_belief
+             WHERE sourceSceneIds CONTAINSANY $sceneIds)`,
+        );
         tx.add(`LET $scenesDel = (DELETE memory_episode WHERE id INSIDE $sceneIds RETURN BEFORE)`);
         // Typed support graph (0116): every memory_support edge touching
         // this entity's facts (either endpoint) or a dying scene (edge
@@ -301,9 +316,13 @@ export class EntityForgetService {
         tx.add(`LET $entFactIds = (SELECT VALUE id FROM knowledge_fact WHERE entityId = $ent)`);
         tx.add(
           `LET $supIds = (SELECT VALUE id FROM memory_support
-             WHERE in INSIDE $entFactIds OR out INSIDE $entFactIds OR out INSIDE $sceneIds)`,
+             WHERE in INSIDE $entFactIds OR out INSIDE $entFactIds OR out INSIDE $sceneIds
+                OR in INSIDE $beliefIds OR out INSIDE $beliefIds)`,
         );
         tx.add(`DELETE $supIds`);
+        // Belief rows go AFTER their edges (dependency-order reading; the
+        // pre-collected $beliefIds carry the erase either way).
+        tx.add(`LET $beliefsDel = (DELETE $beliefIds RETURN BEFORE)`);
         // 0107 outcome telemetry: stragglers written after the pre-tx
         // bulk sweep, plus the one-row-per-subject rollup (small enough
         // to live inside the tx). Uncounted in txRecordCount, like
@@ -399,6 +418,7 @@ export class EntityForgetService {
             segmentsDeleted: array::len($segs),
             scenesDeleted: array::len($scenesDel),
             purgedDocScenes: array::len($docScenesDel),
+            beliefsDeleted: array::len($beliefsDel),
             purgedSourceDocs: array::len($docsDel),
             purgedSourceChunks: $purgedSourceChunks,
             purgedCandidates: array::len($candDel) + array::len($sweepDel),
@@ -410,6 +430,7 @@ export class EntityForgetService {
             auditEventsDeleted: array::len($audit),
             episodesDeleted: array::len($epsDel),
             segmentsDeleted: array::len($segs),
+            beliefsDeleted: array::len($beliefsDel),
             tombstone: $tomb[0]
           }`);
       });
@@ -419,28 +440,16 @@ export class EntityForgetService {
       if (!txResult?.tombstone) {
         throw new Error('entity forget: transaction returned no tombstone row');
       }
-      const auditEventsDeleted = txResult.auditEventsDeleted ?? 0;
-      const episodesDeleted = txResult.episodesDeleted ?? 0;
-      const segmentsDeleted = txResult.segmentsDeleted ?? 0;
-
-      this.logger.warn(
-        `[knowledge.entity.forgotten] companyId=${companyId} hash=${entityIdHash} ` +
-          `factsDeleted=${factsDeleted} edgesDeleted=${edgesDeleted} ` +
-          `auditEventsDeleted=${auditEventsDeleted} ` +
-          `episodesDeleted=${episodesDeleted} segmentsDeleted=${segmentsDeleted} ` +
-          `reason=${dto.reason} requestId=${dto.requestId} ` +
-          `by=${actorKeyHash ?? 'unknown'}`,
-      );
-
-      return {
+      return this.finishForgetResult({
+        companyId,
         entityIdHash,
+        dto,
+        actorKeyHash,
         factsDeleted,
         edgesDeleted,
-        auditEventsDeleted,
-        episodesDeleted,
-        segmentsDeleted,
-        forgottenAt: forgottenAt.toISOString(),
-      } satisfies ForgetResult;
+        txResult,
+        forgottenAt,
+      });
     });
 
     // Best-effort: drop the in-process embedder cache so the forgotten
@@ -486,6 +495,58 @@ export class EntityForgetService {
   }
 
   /**
+   * Committed-erase epilogue: fold the transaction's RETURN counters
+   * with the pre-collected ones into the wire result + the audit log
+   * line (extracted from forget() for the function-size budget only —
+   * no behavior of its own).
+   */
+  private finishForgetResult({
+    companyId,
+    entityIdHash,
+    dto,
+    actorKeyHash,
+    factsDeleted,
+    edgesDeleted,
+    txResult,
+    forgottenAt,
+  }: {
+    companyId: string;
+    entityIdHash: string;
+    dto: ForgetOptions['dto'];
+    actorKeyHash: ForgetOptions['actorKeyHash'];
+    factsDeleted: number;
+    edgesDeleted: number;
+    txResult: ForgetTxResult;
+    forgottenAt: Date;
+  }): ForgetResult {
+    const auditEventsDeleted = txResult.auditEventsDeleted ?? 0;
+    const episodesDeleted = txResult.episodesDeleted ?? 0;
+    const segmentsDeleted = txResult.segmentsDeleted ?? 0;
+    const beliefsDeleted = txResult.beliefsDeleted ?? 0;
+
+    this.logger.warn(
+      `[knowledge.entity.forgotten] companyId=${companyId} hash=${entityIdHash} ` +
+        `factsDeleted=${factsDeleted} edgesDeleted=${edgesDeleted} ` +
+        `auditEventsDeleted=${auditEventsDeleted} ` +
+        `episodesDeleted=${episodesDeleted} segmentsDeleted=${segmentsDeleted} ` +
+        `beliefsDeleted=${beliefsDeleted} ` +
+        `reason=${dto.reason} requestId=${dto.requestId} ` +
+        `by=${actorKeyHash ?? 'unknown'}`,
+    );
+
+    return {
+      entityIdHash,
+      factsDeleted,
+      edgesDeleted,
+      auditEventsDeleted,
+      episodesDeleted,
+      segmentsDeleted,
+      beliefsDeleted,
+      forgottenAt: forgottenAt.toISOString(),
+    } satisfies ForgetResult;
+  }
+
+  /**
    * Idempotent retry (R4). The whole erase is atomic, so a failed or
    * partial attempt left NO tombstone — only a fully-committed erase is
    * visible here. A tombstone matching BOTH this requestId AND this
@@ -501,7 +562,7 @@ export class EntityForgetService {
     const prior = await queryFirst<ForgottenTombstoneRow>(
       db,
       `SELECT entityIdHash, factsDeleted, edgesDeleted, auditEventsDeleted,
-              episodesDeleted, segmentsDeleted, forgottenAt
+              episodesDeleted, segmentsDeleted, beliefsDeleted, forgottenAt
          FROM forgotten_entity
         WHERE requestId = $requestId AND entityIdHash = $hash
         LIMIT 1`,
@@ -519,6 +580,7 @@ export class EntityForgetService {
       auditEventsDeleted: prior.auditEventsDeleted ?? 0,
       episodesDeleted: prior.episodesDeleted ?? 0,
       segmentsDeleted: prior.segmentsDeleted ?? 0,
+      beliefsDeleted: prior.beliefsDeleted ?? 0,
       forgottenAt: new Date(prior.forgottenAt).toISOString(),
     } satisfies ForgetResult;
   }
@@ -559,8 +621,11 @@ export class EntityForgetService {
    * L0 fan-out of the erase for the transaction-size guard: segments that
    * quote the dying episodes (audit W1 #13) PLUS — scenes, 0106 — the
    * membership rows of those episodes and the distinct scene rows they
-   * resolve to. All of these join the same single transaction, so they
-   * count toward FORGET_MAX_TX_RECORDS BEFORE any mutation.
+   * resolve to, PLUS — beliefs, 0120 — the semantic_belief rows grounded
+   * in those scenes (content-bearing statement text, so they COUNT,
+   * unlike the exempt content-free bookkeeping tables). All of these
+   * join the same single transaction, so they count toward
+   * FORGET_MAX_TX_RECORDS BEFORE any mutation.
    */
   private async countL0FanOut(
     db: Parameters<Parameters<SurrealService['withCompany']>[1]>[0],
@@ -582,8 +647,19 @@ export class EntityForgetService {
       `SELECT in FROM memory_episode_member WHERE out INSIDE $eps`,
       { eps: episodeRefs },
     );
-    const sceneCount = new Set(sceneIdRows.map((r) => String(r.in))).size;
-    return (segCountRow?.count ?? 0) + (sceneMemberCountRow?.count ?? 0) + sceneCount;
+    const sceneIds = [...new Set(sceneIdRows.map((r) => String(r.in)))];
+    let beliefCount = 0;
+    if (sceneIds.length > 0) {
+      const beliefCountRow = await queryFirst<{ count: number }>(
+        db,
+        `SELECT count() FROM semantic_belief WHERE sourceSceneIds CONTAINSANY $scenes GROUP ALL`,
+        { scenes: sceneIds.map((id) => new StringRecordId(id)) },
+      );
+      beliefCount = beliefCountRow?.count ?? 0;
+    }
+    return (
+      (segCountRow?.count ?? 0) + (sceneMemberCountRow?.count ?? 0) + sceneIds.length + beliefCount
+    );
   }
 
   /**

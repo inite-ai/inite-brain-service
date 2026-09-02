@@ -693,6 +693,41 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Pack memory projections (migration 0110): external candidate submissions may carry scenes/stateDeltas validated against the submitting pack’s manifest memoryModel (sceneSchemas / stateModels), staged as candidate kinds scene/state_delta and projected at commit time into shadow memory_episode rows under segmenterVersion pack:<packId>+<fp> (registry scenes:<packId>; purge via DELETE /scenes/versions/:v). Off = submissions carrying either array are rejected 400, no such candidate row is written, no projection runs — byte-identical. The GDPR forget doc-cascade leg for projected rows runs regardless.',
   },
+  {
+    key: 'SCENES_BELIEF_PROMOTION',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneBeliefPromotionEnabled) by the
+    // admin 404 guard + the promotion service's defensive early return —
+    // never captured in a constructor — so a flip takes effect without
+    // restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Belief promotion (Belief-A, migration 0120): POST /v1/admin/maintenance/scenes/beliefs folds ENRICHED scenes of the current effective segmenter version (stateDeltas/memoryValue/gist, 0118) into the shadow semantic_belief substrate keyed by free-text (subject, field) — supersede-chain revisions, inline sourceSceneIds provenance, consolidatedInto/baselineRef stamps on consumed scenes, optional memory_support mirror under PROVENANCE_SUPPORT_EDGES. Mixed-user/legacy scenes are skipped fail-closed (#387). Off = route 404s, zero queries, no belief row is ever written — byte-identical prod (shadow: no serving path reads the table).',
+  },
+  {
+    key: 'SCENES_BELIEF_MIN_SCENES',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneBeliefMinScenes) once per
+    // promotion run — never captured in a constructor — runtime-mutable.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Belief promotion corroboration floor (#377 promotion-floor idiom): promote a (subject, field) group only when its winning value is corroborated by scenes from at least this many DISTINCT CONVERSATIONS. Non-negative integer; 0 (default) = floor off.',
+  },
+  {
+    key: 'SCENES_BELIEF_LLM_SYNTHESIS',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneBeliefLlmSynthesisEnabled) per
+    // belief write — never captured in a constructor — runtime-mutable.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Belief promotion statement synthesis: ONE structured LLM call per belief create/revise phrasing the statement text (statementSource llm); any failure degrades to the deterministic template — the fold never depends on the model. Off = no LLM call ever runs, every statement is the deterministic template (statementSource template).',
+  },
   // ── Multilingual (Tier 1, migration 0100) ───────────
   {
     key: 'MULTILINGUAL_LANG_ATTRIBUTION',

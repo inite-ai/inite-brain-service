@@ -66,6 +66,11 @@ export interface ForgetResult {
   episodesDeleted: number;
   /** Rebuildable segment projection rows quoting those turns. */
   segmentsDeleted: number;
+  /**
+   * Semantic beliefs (0120) grounded in scenes dying with those turns —
+   * erased scene-mediated (a belief's sourceSceneIds are the linkage).
+   */
+  beliefsDeleted: number;
   forgottenAt: string;
 }
 

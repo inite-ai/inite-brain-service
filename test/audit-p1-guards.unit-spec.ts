@@ -686,6 +686,114 @@ describe('JobRunService.finish ownership guard', () => {
   });
 });
 
+describe('0120_semantic_belief (belief substrate)', () => {
+  const sql = readFileSync(join(MIGRATIONS, '0120_semantic_belief.surql'), 'utf8');
+
+  it.each([
+    ['belief_user_idx', 'semantic_belief', 'userId'],
+    ['belief_subject_idx', 'semantic_belief', 'subject'],
+    ['belief_status_idx', 'semantic_belief', 'status'],
+  ])('defines %s on %s(%s)', (name, table, fields) => {
+    expect(sql).toContain(`DEFINE INDEX IF NOT EXISTS ${name} ON ${table} FIELDS ${fields};`);
+  });
+
+  it('every index is SINGLE-FIELD (the 3.2.4 planner rule)', () => {
+    // A compound index would put its fields into the DELETE-WHERE
+    // planner no-op class (reproduced on memory_support during the 0116
+    // smoke) — 0120 commits to single-field indexes only;
+    // (userId, subject, field, revision) uniqueness is code-enforced via
+    // deterministic record ids.
+    const defs = sql.match(/DEFINE INDEX[^;]+;/g) ?? [];
+    expect(defs.length).toBeGreaterThan(0);
+    for (const def of defs) {
+      const fields = /FIELDS ([^;]+);/.exec(def)?.[1] ?? '';
+      expect(fields).not.toContain(',');
+    }
+  });
+
+  it('deliberately defines NO changefeed and NO event', () => {
+    // The 0053/0107 separation rationale: belief statements
+    // quote-derive from scene enrichment, and an erased user's beliefs
+    // must not stay readable in a feed. The header EXPLAINS the absence
+    // in prose, so judge only non-comment lines.
+    const code = sql
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('--'))
+      .join('\n');
+    expect(code).not.toMatch(/CHANGEFEED/);
+    expect(code).not.toMatch(/DEFINE EVENT/);
+  });
+
+  it('widens the 0116 writer enum with belief_promotion via OVERWRITE', () => {
+    expect(sql).toContain('DEFINE FIELD OVERWRITE writer ON memory_support');
+    expect(sql).toMatch(
+      /writer ON memory_support[^;]*'scene_backlink', 'fact_resolver', 'promotion_runner', 'compaction_runner', 'recompose', 'belief_promotion'/s,
+    );
+  });
+
+  it('widens the never-written consolidatedInto column to generic records', () => {
+    expect(sql).toContain(
+      'DEFINE FIELD OVERWRITE consolidatedInto ON memory_episode TYPE option<array<record>>;',
+    );
+  });
+
+  it('stamps the GDPR tombstone counter on forgotten_entity', () => {
+    expect(sql).toContain('DEFINE FIELD IF NOT EXISTS beliefsDeleted ON forgotten_entity');
+  });
+
+  it('carries the bitemporal vocabulary + explicit revision', () => {
+    for (const field of ['validFrom', 'validUntil', 'status', 'supersededBy', 'revision']) {
+      expect(sql).toContain(`DEFINE FIELD IF NOT EXISTS ${field} ON semantic_belief`);
+    }
+  });
+});
+
+describe('semantic_belief GDPR cascade + DELETE-shape guards (0120)', () => {
+  const SRC = join(__dirname, '..', 'src');
+
+  it('both forget services erase beliefs via the two-step SELECT-ids → DELETE idiom, unconditionally', () => {
+    // user-forget: the userId leg is the primary erase (a belief always
+    // carries the single-user scope of its scenes — #387 fail-closed
+    // promotion), plus the defensive dying-scene leg; belief ids join
+    // the memory_support subject list BEFORE the rows die.
+    const userForget = readFileSync(join(SRC, 'entities', 'user-forget.service.ts'), 'utf8');
+    expect(userForget).toContain('SELECT VALUE id FROM semantic_belief');
+    expect(userForget).toContain('sourceSceneIds CONTAINSANY $scenes');
+    // entity-forget: scene-mediated — beliefs grounded in dying scenes
+    // go with them, pre-collected inside the atomic transaction.
+    const entityForget = readFileSync(join(SRC, 'entities', 'entity-forget.service.ts'), 'utf8');
+    expect(entityForget).toContain('LET $beliefIds = (SELECT VALUE id FROM semantic_belief');
+    expect(entityForget).toContain('sourceSceneIds CONTAINSANY $sceneIds');
+    expect(entityForget).toContain('LET $beliefsDel = (DELETE $beliefIds RETURN BEFORE)');
+    // The belief endpoints must join the support-edge subject SELECT.
+    expect(entityForget).toContain('OR in INSIDE $beliefIds OR out INSIDE $beliefIds');
+  });
+
+  it('NO file in src/ uses the 3.2.4-broken DELETE semantic_belief WHERE shape', () => {
+    const walk = (dir: string): string[] => {
+      const out: string[] = [];
+      for (const name of readdirSync(dir)) {
+        const p = join(dir, name);
+        if (statSync(p).isDirectory()) out.push(...walk(p));
+        else if (p.endsWith('.ts') || p.endsWith('.surql')) out.push(p);
+      }
+      return out;
+    };
+    for (const file of walk(SRC)) {
+      // Comment lines EXPLAIN the trap (0058-guard idiom) — judge only
+      // code lines.
+      const code = readFileSync(file, 'utf8')
+        .split('\n')
+        .filter((l) => {
+          const t = l.trimStart();
+          return !t.startsWith('--') && !t.startsWith('//') && !t.startsWith('*');
+        })
+        .join('\n');
+      expect(code).not.toMatch(/DELETE semantic_belief\s+WHERE/);
+    }
+  });
+});
+
 describe('0117_window_user_scope (mixed-user privacy fence substrate)', () => {
   const sql = readFileSync(join(MIGRATIONS, '0117_window_user_scope.surql'), 'utf8');
 

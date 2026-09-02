@@ -115,6 +115,58 @@ export function sceneVersionFingerprintEnabled(): boolean {
   return envFlagEnabled(process.env.SCENES_VERSION_FINGERPRINT);
 }
 
+/**
+ * Scenes belief-promotion flag — SCENES_BELIEF_PROMOTION (Belief-A).
+ *
+ * When on, the admin promotion surface (POST
+ * /v1/admin/maintenance/scenes/beliefs) folds ENRICHED scenes of the
+ * current effective segmenter version (stateDeltas / memoryValue / gist,
+ * migration 0118) into the shadow semantic_belief substrate (migration
+ * 0120), keyed by free-text (subject, field). The env read lives here in
+ * the common layer, NOT inside the engine dirs (engine-gates S5.2). Read
+ * at call time so a flip is runtime-mutable. Default off ⇒ the admin
+ * route 404s and the promotion service returns without a single query —
+ * NO semantic_belief row is ever written, byte-identical prod (shadow
+ * substrate: no serving path reads the table even when on). SCENES_
+ * family sits off the ENGINE flag budget by design.
+ */
+export function sceneBeliefPromotionEnabled(): boolean {
+  return envFlagEnabled(process.env.SCENES_BELIEF_PROMOTION);
+}
+
+/**
+ * Scenes belief LLM-synthesis flag — SCENES_BELIEF_LLM_SYNTHESIS
+ * (Belief-A). When on AND an OpenAI key is configured, the promotion
+ * pass makes ONE structured LLM call per belief WRITE (create/revise —
+ * never for a pure corroboration update) to phrase the `statement` text;
+ * any failure degrades to the deterministic template (statementSource
+ * 'template'), never fails the write. The env read lives here in the
+ * common layer (engine-gates S5.2); read at call time so a flip is
+ * runtime-mutable. Default off ⇒ NO LLM call is ever made and every
+ * statement is the deterministic template — the fold works identically.
+ */
+export function sceneBeliefLlmSynthesisEnabled(): boolean {
+  return envFlagEnabled(process.env.SCENES_BELIEF_LLM_SYNTHESIS);
+}
+
+/**
+ * Belief corroboration floor (SCENES_BELIEF_MIN_SCENES): promote a
+ * (subject, field) group only when its winning value is corroborated by
+ * scenes from at least this many DISTINCT CONVERSATIONS (the #377
+ * promotion-floor idiom; the knob keeps the family's SCENES_ naming —
+ * the unit is distinct conversations, the anti-single-mention lever).
+ * 0 = floor off (default): every folded group promotes. A non-boolean
+ * knob resolved here in the common layer (engine-gates S5.2); read at
+ * call time so a change is runtime-mutable. Must be a non-negative
+ * integer; unset, blank, or invalid → 0.
+ */
+export function sceneBeliefMinScenes(): number {
+  const raw = process.env.SCENES_BELIEF_MIN_SCENES;
+  if (raw === undefined || raw.trim() === '') return 0;
+  const v = Number(raw);
+  return Number.isInteger(v) && v >= 0 ? v : 0;
+}
+
 /** Default hard cap on turns per scene (Brain v2 PR1). */
 const DEFAULT_MAX_TURNS = 40;
 
