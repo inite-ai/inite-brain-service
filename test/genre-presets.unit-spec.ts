@@ -203,6 +203,8 @@ describe('genre presets — full effective profile per genre (snapshot)', () => 
     assistantLaneMatch: 'assistant',
     factsAsKeys: false,
     factsAsKeysCap: 8,
+    // MM-zoom PR2: unmeasured on every genre — no preset sets it.
+    fragmentLane: false,
     timeFilter: false,
     dateMath: false,
     answerConditioning: false,

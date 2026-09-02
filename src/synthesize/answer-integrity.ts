@@ -203,12 +203,14 @@ const CAPABILITY_RANK: Record<EvidenceCapability, number> = {
  * Flag on: ONE snapshot-warm (rowPolicyLookup — TTL-cached, herd-deduped)
  * then sync per-citation lookups against the tenant registry — no per-fact
  * IO. required = max over the cited facts' predicate policies (any
- * non-text wins); the cited-capability set today is always {'text'}
- * (facts + episode spans are text), so the check can only abstain or
- * pass. Once the operator enables this integrity gate, a lookup failure
- * FAILS CLOSED: without predicate policy the system cannot prove that text
- * evidence is sufficient, so availability must not silently erase the
- * modality requirement.
+ * non-text wins); the cited-capability set is 'text' plus whatever the
+ * FRAGMENT-arm evidence citations carry (EVIDENCE_FRAGMENT_CITATIONS —
+ * see citedCapabilities), so a non-text requirement now passes when a
+ * matching-modality fragment is cited and abstains otherwise. Once the
+ * operator enables this integrity gate, a lookup failure FAILS CLOSED:
+ * without predicate policy the system cannot prove that text evidence is
+ * sufficient, so availability must not silently erase the modality
+ * requirement.
  */
 export async function resolveEvidenceCapability(
   deps: EvidenceCapabilityDeps,
@@ -245,19 +247,25 @@ export async function resolveEvidenceCapability(
 /**
  * The capabilities the answer's cited evidence actually carries.
  *
- * SEAM (M-track fragment mapping): today EVERY citation is text — fact
- * citations are extracted text lines and EvidenceCitation is an
- * episode/span over stored turn TEXT — so this is the constant {'text'}
- * and the gate is honestly abstain-or-pass. The M-track sibling maps
- * media fragments into citations carrying their own capability kind;
- * it extends THIS function (and populates
- * VerifyRequest.capabilityEvidenceLines) — nothing else in the gate
- * changes.
+ * Baseline 'text' always: fact citations are extracted text lines and
+ * episode-arm EvidenceCitations are spans over stored turn TEXT. The
+ * M-track fragment mapping (EVIDENCE_FRAGMENT_CITATIONS, MM-zoom PR2)
+ * lands here as designed: a FRAGMENT-arm citation carries the
+ * capability of its asset's modality (capabilityForModality, stamped by
+ * the rendered-set resolver), so the union can now contain
+ * visual / audio / document_region — and the gate above can PASS a
+ * non-text requirement when a matching-modality fragment is cited.
+ * Citations without a capability stamp (every episode-arm citation)
+ * contribute nothing beyond the text baseline.
  */
 function citedCapabilities(
-  _evidenceCitations: EvidenceCitation[] | undefined,
+  evidenceCitations: EvidenceCitation[] | undefined,
 ): Set<EvidenceCapability> {
-  return new Set<EvidenceCapability>(['text']);
+  const capabilities = new Set<EvidenceCapability>(['text']);
+  for (const citation of evidenceCitations ?? []) {
+    if (citation.capability !== undefined) capabilities.add(citation.capability);
+  }
+  return capabilities;
 }
 
 /**

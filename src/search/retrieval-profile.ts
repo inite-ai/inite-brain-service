@@ -465,6 +465,19 @@ export interface RetrievalProfile {
   /** Top evidence facts that carry a grounding quote. */
   factsAsKeysCap: number;
   /**
+   * MM-zoom PR2 fragment retrieval lane: dense+BM25 (0124) over
+   * derived_representation.content — captions / OCR / ASR / text
+   * renders of registered media observations (0109) — rendered as a
+   * media-evidence prompt section the generator AND verifier both read
+   * (parity by construction; the verifier takes them as
+   * capabilityEvidenceLines). The full media fence stack applies inside
+   * the lane: tenant → asset-join user fence → media PII (fail-closed
+   * on the fragment's piiClasses) → 0112 modality consent (absent or
+   * stale ⇒ the lane is EMPTY) → availability ≠ 'gone'; any failure
+   * degrades to []. Off = byte-identical.
+   */
+  fragmentLane: boolean;
+  /**
    * V13 time-constrained retrieval (TSM shape): when the query names an
    * absolute period (a day, month, year or range — code-parsed, no
    * LLM), facts overlapping the period rank above out-of-period facts
@@ -770,6 +783,7 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
     assistantLaneMatch: speakerMatchEnv(env, 'RETRIEVAL_ASSISTANT_LANE_MATCH'),
     factsAsKeys: presetFlag(env, 'RETRIEVAL_FACTS_AS_KEYS', preset.factsAsKeys),
     factsAsKeysCap: positiveIntEnv(env, 'RETRIEVAL_FACTS_AS_KEYS_CAP', 8),
+    fragmentLane: presetFlag(env, 'RETRIEVAL_FRAGMENT_LANE', preset.fragmentLane),
     timeFilter: presetFlag(env, 'RETRIEVAL_TIME_FILTER', preset.timeFilter),
     dateMath: presetFlag(env, 'RETRIEVAL_DATE_MATH', preset.dateMath),
     answerConditioning: presetFlag(env, 'RETRIEVAL_ANSWER_CONDITIONING', preset.answerConditioning),
@@ -925,6 +939,7 @@ export function resolveRetrievalProfileFor(
     'l3TemporalAnchor',
     'assistantLane',
     'factsAsKeys',
+    'fragmentLane',
     'cjkSegmentation',
     'multilingualLaneRouting',
     'multilingualConflict',

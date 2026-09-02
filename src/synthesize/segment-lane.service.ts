@@ -198,8 +198,10 @@ export class SegmentLaneService {
   }
 }
 
-/** Reciprocal-rank fusion over ranked lists, dedup by record id. */
-export function rrfFuse(lists: SegmentRow[][], k = 60): SegmentRow[] {
+/** Reciprocal-rank fusion over ranked lists, dedup by record id.
+ *  Generic over the row shape (MM-zoom PR2: the fragment lane fuses
+ *  derived-representation rows through the same function). */
+export function rrfFuse<T extends { id: unknown }>(lists: T[][], k = 60): T[] {
   return rrfFuseScored(lists, k).map((x) => x.row);
 }
 

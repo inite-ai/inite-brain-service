@@ -20,6 +20,8 @@ import { MentionScanService } from './mention-scan.service';
 import { QueryArcService } from './query-arc.service';
 import { UpdateStoryService } from './update-story.service';
 import { DigestLaneService } from './digest-lane.service';
+import { FragmentLaneService } from './fragment-lane.service';
+import type { CitableFragment } from './fragment-citations';
 import type { CoverageScanTuning } from './scan-leg';
 
 /** Grounding anchors the raw-window lane expands (top evidence order). */
@@ -93,6 +95,26 @@ export interface CollectedEvidence {
    */
   groundingQuotes?: Map<string, string> | undefined;
   /**
+   * MM-zoom PR2 fragment lane (profile.fragmentLane): rendered media-
+   * evidence lines — `[capability:<kind>]`-tagged derived-representation
+   * excerpts of 0109 media observations — the prompt's OWN media
+   * section. Evidence parity by construction: the generator renders them
+   * as a section and the verifier reads the SAME lines as
+   * capabilityEvidenceLines. Deliberately NOT noise-filtered (bounded at
+   * 4 lines by the lane; a relevance cut on so small a section risks
+   * more than it saves). Empty when the lane is off / unwired / fenced
+   * out (consent, PII, availability) / failed.
+   */
+  fragmentLines: string[];
+  /**
+   * The rendered-set citation fence for resolveFragmentCitations
+   * (EVIDENCE_FRAGMENT_CITATIONS): fragmentId → rendered-fragment info
+   * for EXACTLY the fragments in fragmentLines. undefined when the
+   * citations flag was off for this request (no headers rendered,
+   * nothing citable) or the lane produced nothing.
+   */
+  fragmentsById?: ReadonlyMap<string, CitableFragment> | undefined;
+  /**
    * G4 strategy lane: rendered advisory notes (k≤2, default 1) from
    * the separate strategy_memory store; undefined when the lane is off
    * the profile or read-side serving is disabled.
@@ -109,6 +131,30 @@ export interface CollectedEvidence {
    * documented.)
    */
   strategyNotes?: string[] | undefined;
+}
+
+/**
+ * Collector-absent fallback (unit fixtures, trimmed deployments): empty
+ * sections; only the timeline gate is still computed, exactly as the
+ * collector would. Lives beside CollectedEvidence so a new section
+ * cannot be added without the fallback seeing it (the orchestrator
+ * imports this instead of hand-rolling the empty shape).
+ */
+export function emptyCollectedEvidence(
+  profile: RetrievalProfile,
+  query: string,
+): CollectedEvidence {
+  return {
+    transcriptLines: [],
+    insightLines: [],
+    instructions: undefined,
+    timelineEvidence: wantsTimelineEvidence(profile, query),
+    updateStories: undefined,
+    groundingQuotes: undefined,
+    strategyNotes: undefined,
+    fragmentLines: [],
+    fragmentsById: undefined,
+  };
 }
 
 @Injectable()
@@ -130,6 +176,7 @@ export class EvidenceCollectorService {
     @Optional() private readonly digestLane?: DigestLaneService,
     @Optional() private readonly crossEncoder?: CrossEncoderService,
     @Optional() private readonly strategyMemory?: StrategyMemoryService,
+    @Optional() private readonly fragmentLane?: FragmentLaneService,
   ) {}
 
   /**
@@ -149,6 +196,9 @@ export class EvidenceCollectorService {
     dto?: SearchDto;
     factIds: string[];
     evidence: SearchHit[];
+    /** EVIDENCE_FRAGMENT_CITATIONS, resolved ONCE by the caller (the L3
+     *  single-resolution idiom) — this service reads no env. */
+    fragmentCitations?: boolean | undefined;
   }): Promise<CollectedEvidence> {
     const { profile, query } = opts;
     const timelineEvidence = wantsTimelineEvidence(profile, query);
@@ -160,6 +210,7 @@ export class EvidenceCollectorService {
       digestLines,
       groundingQuotes,
       strategyNotes,
+      fragmentEvidence,
     ] = await Promise.all([
       this.collectStandingInstructions(opts),
       this.collectTranscriptLines(opts, timelineEvidence),
@@ -168,6 +219,7 @@ export class EvidenceCollectorService {
       this.collectDigestLines(opts),
       this.collectGroundingQuotes(opts),
       this.collectStrategyNotes(opts),
+      this.collectFragmentEvidence(opts),
     ]);
     // V12 §2: digests merge AHEAD of retrieved insight lines under
     // the same slot — generator, verifier and NLI judge all see them
@@ -192,7 +244,42 @@ export class EvidenceCollectorService {
       updateStories,
       groundingQuotes,
       strategyNotes,
+      fragmentLines: fragmentEvidence.lines,
+      fragmentsById: fragmentEvidence.byId.size > 0 ? fragmentEvidence.byId : undefined,
     };
+  }
+
+  /**
+   * MM-zoom PR2 fragment lane — gated on profile.fragmentLane; degrades
+   * to an empty section on absence/abort (the lane owns its own error
+   * degrade). The citations switch arrives resolved from the caller
+   * (EVIDENCE_FRAGMENT_CITATIONS — no env read here).
+   */
+  private async collectFragmentEvidence({
+    profile,
+    companyId,
+    query,
+    callerScopes,
+    userId,
+    fragmentCitations,
+  }: {
+    profile: RetrievalProfile;
+    companyId: string;
+    query: string;
+    callerScopes: string[];
+    userId?: string | undefined;
+    fragmentCitations?: boolean | undefined;
+  }): Promise<{ lines: string[]; byId: ReadonlyMap<string, CitableFragment> }> {
+    const empty = { lines: [], byId: new Map<string, CitableFragment>() };
+    if (!profile.fragmentLane || !this.fragmentLane) return empty;
+    if (getAbortSignal()?.aborted) return empty;
+    return this.fragmentLane.fragmentLines({
+      companyId,
+      query,
+      callerScopes,
+      userId,
+      withIds: fragmentCitations === true,
+    });
   }
 
   /**

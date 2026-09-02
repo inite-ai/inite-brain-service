@@ -62,6 +62,10 @@ export type GenrePreset = Partial<
     | 'rawWindow'
     | 'assistantLane'
     | 'factsAsKeys'
+    // MM-zoom PR2 fragment lane — preset-eligible but UNMEASURED on
+    // every genre benchmark, so no preset sets it (inclusion rule 2):
+    // it resolves false everywhere until a measured positive exists.
+    | 'fragmentLane'
     | 'timeFilter'
     | 'dateMath'
     | 'answerConditioning'

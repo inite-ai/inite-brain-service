@@ -26,11 +26,13 @@ import {
   serveCacheHit,
   verifierErrorResult,
 } from './synthesize.helpers';
-import { wantsTimelineEvidence } from './evidence-gates';
 import { applyEvidenceUnion } from './evidence-union';
-import { laneProbeDto, type LaneId } from './answer-router';
+import type { LaneId } from './answer-router';
+import { runLaneProbe } from './lane-probe';
 import { getActiveRetrievalProfile, type RetrievalProfile } from '../search/retrieval-profile';
 import { buildFactIndex } from './fact-index';
+import { fragmentCitationsEnabled } from '../common/evidence-flags';
+import { resolveAndCountFragmentCitations } from './fragment-citations';
 import { resolveAnswerIntegrity, type FinalizeContext } from './answer-integrity';
 import { makeGroundingFetchPort } from './grounding-fetch';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
@@ -40,9 +42,13 @@ import { buildDateMathLines } from './date-math';
 export { buildFactIndex } from './fact-index';
 import { runGenerator, type GenerateRequest } from './generator-client';
 import { runVerifier, type VerifierOutput } from './verifier';
-import { miniCheckConsistent } from './minicheck-client';
+import { buildMiniCheckDocument, miniCheckConsistent } from './minicheck-client';
 export { buildGeneratorUserMessage } from './generator-prompt';
-import { EvidenceCollectorService, type CollectedEvidence } from './evidence-collector.service';
+import {
+  EvidenceCollectorService,
+  emptyCollectedEvidence,
+  type CollectedEvidence,
+} from './evidence-collector.service';
 import { L3EscalationService } from './l3-escalation.service';
 import { FocusSignalService } from './focus-signal.service';
 import {
@@ -238,14 +244,10 @@ export class SynthesizeService {
       () => this.search.search(companyId, dto, callerScopes),
       { 'synthesize.guardrails': guardrails },
     );
-    const laneProbeHits = await this.runLaneProbe({
-      profile,
-      lane,
-      dto,
-      companyId,
-      callerScopes,
-      baseHits: searchResult.results,
-    });
+    const laneProbeHits = await runLaneProbe(
+      { search: this.search, logger: this.logger },
+      { profile, lane, dto, companyId, callerScopes, baseHits: searchResult.results },
+    );
     // Conformal guardrail: drop facts below the calibrated-confidence floor
     // (default SYNTHESIZE_MIN_CONFIDENCE=0.30) BEFORE the generator sees them
     // as citation targets. Facts still appear in the DecisionLog (with the
@@ -292,30 +294,18 @@ export class SynthesizeService {
     // contract (V9 quality pass; all lanes concurrent inside). Running
     // it AFTER the empty/abstention exits also stops the pre-V9 waste
     // of an abandoned in-flight instruction probe on those paths.
-    const {
-      transcriptLines,
-      insightLines,
-      instructions,
-      timelineEvidence,
-      updateStories,
-      groundingQuotes,
-      strategyNotes,
-    } = this.evidenceCollector
-      ? await this.evidenceCollector.collect({
-          profile,
-          lane,
-          companyId,
-          query: dto.query,
-          callerScopes,
-          // Same fail-closed user scope the fact read path applies (0055).
-          userId: dto.userId,
-          // Audit 2026-08-19 P1: secondary searches inside the collector
-          // (instruction probe) inherit the caller's filter contract.
-          dto,
-          factIds: [...factIndex.keys()],
-          evidence,
-        })
-      : this.emptyCollected(profile, dto.query);
+    const collected = await this.collectSections({
+      profile,
+      lane,
+      companyId,
+      dto,
+      callerScopes,
+      factIds: [...factIndex.keys()],
+      evidence,
+    });
+    const { transcriptLines, insightLines, timelineEvidence, fragmentLines, fragmentsById } =
+      collected;
+    const { updateStories, groundingQuotes } = collected;
 
     // V10 §2 update stories + multiworld §10 grounding quotes: both
     // suffix maps land on the SAME lines the generator and the
@@ -358,11 +348,10 @@ export class SynthesizeService {
       dateMathLines,
       shapeInstruction,
       collected: {
-        transcriptLines,
-        insightLines,
-        instructions,
-        timelineEvidence,
-        strategyNotes,
+        ...collected,
+        // MM-zoom PR2: citation affordance (populated fence map ⟺
+        // switch on AND rendered); round 2 carries both.
+        fragmentCitations: fragmentsById !== undefined,
       },
     });
     if ('failed' in produced) return produced.failed;
@@ -398,6 +387,7 @@ export class SynthesizeService {
             factLines: promptFactLines,
             transcriptLines,
             insightLines,
+            fragmentLines,
           })
         : await withSpan(
             'synthesize.verify',
@@ -427,6 +417,9 @@ export class SynthesizeService {
                   // V13 date-table parity: the auditor sees the same
                   // computed table the generator saw.
                   dateMathLines,
+                  // MM-zoom PR2 parity: the same media lines the
+                  // generator saw (the 0113 capabilityEvidenceLines seam).
+                  capabilityEvidenceLines: fragmentLines,
                   // G4 strategyNotes are DELIBERATELY absent — the one
                   // documented exception to the W5 #22 parity invariant:
                   // advisory strategy notes are guidance, not evidence,
@@ -494,8 +487,52 @@ export class SynthesizeService {
         guardrails,
         decisionLog,
         abstention: profile.abstentionCalibration,
+        // MM-zoom PR2: fragment-arm evidence citations through the
+        // rendered-set fence — spread onto the served result only when
+        // non-empty (finalizeVerdict) and fed to the 0113 capability
+        // gate (citedCapabilities). [] with the flag off ⇒ byte-identical.
+        evidenceCitations: resolveAndCountFragmentCitations({
+          citedFragmentIds: generated.citedFragmentIds,
+          fragmentsById,
+          metrics: this.metrics,
+        }),
       })
     );
+  }
+
+  /**
+   * Every non-fact prompt section behind one seam (extracted from
+   * synthesize() for the function-size gate): the collector when wired,
+   * else the empty fallback. The instruction probe inside inherits the
+   * caller's filter contract via `dto` (audit 2026-08-19 P1), and the
+   * lanes read the same fail-closed user scope as the fact path (0055).
+   * EVIDENCE_FRAGMENT_CITATIONS is resolved ONCE here (the L3
+   * single-resolution idiom): the rendered headers, the generator
+   * schema/affordance, and the resolver all key off the resulting
+   * fence map (populated ⟺ switch on AND fragments rendered).
+   */
+  private async collectSections(opts: {
+    profile: RetrievalProfile;
+    lane: LaneId | null;
+    companyId: string;
+    dto: SynthesizeDto;
+    callerScopes: string[];
+    factIds: string[];
+    evidence: SearchHit[];
+  }): Promise<CollectedEvidence> {
+    if (!this.evidenceCollector) return emptyCollectedEvidence(opts.profile, opts.dto.query);
+    return this.evidenceCollector.collect({
+      profile: opts.profile,
+      lane: opts.lane,
+      companyId: opts.companyId,
+      query: opts.dto.query,
+      callerScopes: opts.callerScopes,
+      userId: opts.dto.userId,
+      dto: opts.dto,
+      factIds: opts.factIds,
+      evidence: opts.evidence,
+      fragmentCitations: fragmentCitationsEnabled(),
+    });
   }
 
   /**
@@ -709,23 +746,6 @@ export class SynthesizeService {
   }
 
   /**
-   * Collector-absent fallback (unit fixtures, trimmed deployments):
-   * empty sections; only the timeline gate is still computed, exactly
-   * as the collector would.
-   */
-  private emptyCollected(profile: RetrievalProfile, query: string): CollectedEvidence {
-    return {
-      transcriptLines: [],
-      insightLines: [],
-      instructions: undefined,
-      timelineEvidence: wantsTimelineEvidence(profile, query),
-      updateStories: undefined,
-      groundingQuotes: undefined,
-      strategyNotes: undefined,
-    };
-  }
-
-  /**
    * Round-1 generation plus the V13 refine round behind one seam
    * (extracted from synthesize() for the function-size gates). A
    * generator failure returns `{failed}` — the historical
@@ -857,6 +877,10 @@ export class SynthesizeService {
       timelineEvidence: boolean;
       /** G4 advisory notes — generator-only (parity exception). */
       strategyNotes?: string[] | undefined;
+      /** MM-zoom PR2: media lines + citation affordance — round 2
+       *  carries them identically (buildGeneratorArgs reads both). */
+      fragmentLines?: string[] | undefined;
+      fragmentCitations?: boolean | undefined;
     };
   }): Promise<{
     results: SearchHit[];
@@ -968,45 +992,6 @@ export class SynthesizeService {
    * (complexity budget). Returns `{empty}` with the early-return result,
    * or the prepared evidence for the generator.
    */
-  /**
-   * Deterministic second retrievals per lane. T4 preference: the fixed
-   * tastes probe (recommendation queries rarely surface stored tastes
-   * by similarity). T6/T2 wide probe (flag-gated): PRF query built from
-   * the base hits — recall breadth for summary/enumeration questions.
-   * Degrades to [] on failure; other lanes probe nothing.
-   */
-  private async runLaneProbe({
-    profile,
-    lane,
-    dto,
-    companyId,
-    callerScopes,
-    baseHits,
-  }: {
-    profile: RetrievalProfile;
-    lane: LaneId | null;
-    dto: SynthesizeDto;
-    companyId: string;
-    callerScopes: string[];
-    baseHits: SearchHit[];
-  }): Promise<SearchHit[]> {
-    const probeDto = laneProbeDto(profile, lane, { query: dto.query, baseHits });
-    if (!probeDto || getAbortSignal()?.aborted) return [];
-    try {
-      // Audit 2026-08-19 P1: the probe inherits the caller's full
-      // filter contract; the lane supplies only its query and limit.
-      const probe = await withSpan('synthesize.lane_probe', () =>
-        this.search.search(companyId, buildSecondaryDto(dto, probeDto), callerScopes),
-      );
-      return probe.results;
-    } catch (e) {
-      this.logger.warn(
-        `lane probe failed (lane=${lane}, companyId=${companyId}): ${(e as Error).message}`,
-      );
-      return [];
-    }
-  }
-
   /**
    * Build the per-request evidence-preparation options from the routed
    * lane + profile. Extracted from synthesize() to keep it under the
@@ -1141,19 +1126,14 @@ export class SynthesizeService {
     factLines: string[];
     transcriptLines: string[];
     insightLines: string[];
+    /** MM-zoom PR2 parity: the media lines the generator saw. */
+    fragmentLines?: string[] | undefined;
   }): Promise<VerifierOutput> {
-    const document = [
-      `Facts:\n${args.factLines.join('\n')}`,
-      ...(args.transcriptLines.length
-        ? [`Conversation excerpts:\n${args.transcriptLines.join('\n')}`]
-        : []),
-      ...(args.insightLines.length ? [`Derived insights:\n${args.insightLines.join('\n')}`] : []),
-    ].join('\n\n');
     const consistent = await withSpan('synthesize.verify', () =>
       miniCheckConsistent({
         baseUrl: this.minicheckUrl,
         model: this.minicheckModel,
-        document,
+        document: buildMiniCheckDocument(args),
         claim: args.answer,
         signal: getAbortSignal(),
       }),
@@ -1172,6 +1152,8 @@ export class SynthesizeService {
     timelineEvidence?: boolean | undefined;
     topicCoverage?: boolean | undefined;
     dateMathLines?: string[] | undefined;
+    /** MM-zoom PR2: the fragment lane's rendered media lines (parity). */
+    capabilityEvidenceLines?: string[] | undefined;
     model: string;
   }): Promise<VerifierOutput> {
     return runVerifier({

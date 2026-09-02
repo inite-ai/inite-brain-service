@@ -37,6 +37,8 @@ export function buildGeneratorUserMessage({
   dateMathLines,
   shapeInstruction,
   strategyNotes,
+  fragmentLines,
+  fragmentCitations,
 }: {
   query: string;
   factLines: string[];
@@ -116,6 +118,20 @@ export function buildGeneratorUserMessage({
    * and verifier.ts). Empty/undefined = no section, byte-identical.
    */
   strategyNotes?: string[] | undefined;
+  /**
+   * MM-zoom PR2 (profile.fragmentLane): rendered media-evidence lines —
+   * `[capability:<kind>]`-tagged derived-representation excerpts of
+   * registered media observations — their own section. The verifier
+   * reads the SAME lines (capabilityEvidenceLines — evidence parity).
+   * Empty/undefined = no section, byte-identical.
+   */
+  fragmentLines?: string[] | undefined;
+  /**
+   * EVIDENCE_FRAGMENT_CITATIONS: the lines carry [evidence_fragment:...]
+   * headers and the section header instructs mirroring cited ids into
+   * citedFragmentIds. Off = the cite-factIds-only header.
+   */
+  fragmentCitations?: boolean | undefined;
 }): string {
   const langInstruction = answerLang
     ? answerLangStrict
@@ -165,11 +181,26 @@ export function buildGeneratorUserMessage({
     insightLines && insightLines.length > 0
       ? `\n\n${insightHeader}\n${insightLines.join('\n')}`
       : '';
+  const fragmentSection = renderFragmentSection(fragmentLines, fragmentCitations);
   const dateMathSection =
     dateMathLines && dateMathLines.length > 0
       ? `\n\nDate table (computed from the fact date stamps — trust it over your own arithmetic; gaps are between EVIDENCE dates, not from today):\n${dateMathLines.join('\n')}`
       : '';
-  return `Query: ${query}\n${dateInstruction}${shapeInstruction ?? ''}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${dateMathSection}${renderStrategySection(strategyNotes)}${langInstruction}`;
+  return `Query: ${query}\n${dateInstruction}${shapeInstruction ?? ''}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${fragmentSection}${dateMathSection}${renderStrategySection(strategyNotes)}${langInstruction}`;
+}
+
+/**
+ * MM-zoom PR2 media-evidence section. Empty input = empty string
+ * (byte-identical prompt without the lane). The citations variant of
+ * the header instructs mirroring cited [evidence_fragment:...] ids into
+ * citedFragmentIds (EVIDENCE_FRAGMENT_CITATIONS).
+ */
+function renderFragmentSection(fragmentLines?: string[], fragmentCitations?: boolean): string {
+  if (!fragmentLines || fragmentLines.length === 0) return '';
+  const header = fragmentCitations
+    ? 'Media evidence (derived from registered observations — captions/OCR/transcripts; each line is tagged [capability:...] and headed by its [evidence_fragment:...] id — use them to answer; when a claim rests on one, copy its id EXACTLY into citedFragmentIds; cite factIds for fact-grounded claims as before):'
+    : 'Media evidence (derived from registered observations — captions/OCR/transcripts; use them to answer, but cite factIds only):';
+  return `\n\n${header}\n${fragmentLines.join('\n')}`;
 }
 
 /**

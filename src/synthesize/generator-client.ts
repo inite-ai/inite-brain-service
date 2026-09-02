@@ -95,6 +95,20 @@ export interface GenerateRequest {
    * simply omits this, so the cap is structural, not behavioral.
    */
   allowRefine?: boolean | undefined;
+  /**
+   * MM-zoom PR2 (profile.fragmentLane): rendered media-evidence lines,
+   * their own section — the verifier reads the same lines
+   * (capabilityEvidenceLines, evidence parity).
+   */
+  fragmentLines?: string[] | undefined;
+  /**
+   * EVIDENCE_FRAGMENT_CITATIONS: expose the fragment-citation
+   * affordance — the schema gains `citedFragmentIds` and the system
+   * prompt the matching rule. Effective only when fragmentLines are
+   * non-empty (no rendered fragments ⇒ nothing citable ⇒ prompt and
+   * schema byte-identical).
+   */
+  fragmentCitations?: boolean | undefined;
 }
 
 /** V13 refine affordance — appended to either system prompt. */
@@ -102,11 +116,21 @@ const REFINE_ADDENDUM = `
 
 RETRIEVAL REFINEMENT: you may request ONE better retrieval before your answer is final. If the facts do not contain the specific detail the query asks for, set "refineQuery" to a self-contained search query that would find it — name the entity and the missing detail, in different words than the original query. Otherwise set "refineQuery" to null. Fill "answer" with your best grounded attempt either way.`;
 
+/** MM-zoom PR2 fragment-citation affordance — appended when the media
+ *  section rendered AND EVIDENCE_FRAGMENT_CITATIONS is on. */
+const FRAGMENT_CITE_ADDENDUM = `
+
+FRAGMENT CITATIONS: some evidence lines are media-derived and headed by an [evidence_fragment:...] id. When a claim in your answer rests on such a line, copy that id EXACTLY as it appears into the citedFragmentIds array (in addition to any factIds you cite). Cite only ids present in the evidence — never invent one. citedFragmentIds is [] when no media line supports a claim.`;
+
 export async function runGenerator(req: GenerateRequest): Promise<GeneratorOutput> {
   const { openai, metrics, logger, model, answerLang, neverAbstain } = req;
+  // The affordance is real only when fragments actually rendered —
+  // flag-on with an empty lane keeps prompt and schema byte-identical.
+  const fragmentAffordance = req.fragmentCitations === true && (req.fragmentLines?.length ?? 0) > 0;
   const systemPrompt =
     (neverAbstain ? GENERATOR_SYSTEM_ANSWER : GENERATOR_SYSTEM) +
-    (req.allowRefine ? REFINE_ADDENDUM : '');
+    (req.allowRefine ? REFINE_ADDENDUM : '') +
+    (fragmentAffordance ? FRAGMENT_CITE_ADDENDUM : '');
   const user = buildGeneratorUserMessage(req);
   traceArtifact('synthesize.generator_prompt', {
     system: systemPrompt,
@@ -143,8 +167,16 @@ export async function runGenerator(req: GenerateRequest): Promise<GeneratorOutpu
                   answer: { type: 'string' },
                   citedFactIds: { type: 'array', items: { type: 'string' } },
                   ...(req.allowRefine ? { refineQuery: { type: ['string', 'null'] } } : {}),
+                  ...(fragmentAffordance
+                    ? { citedFragmentIds: { type: 'array', items: { type: 'string' } } }
+                    : {}),
                 },
-                required: ['answer', 'citedFactIds', ...(req.allowRefine ? ['refineQuery'] : [])],
+                required: [
+                  'answer',
+                  'citedFactIds',
+                  ...(req.allowRefine ? ['refineQuery'] : []),
+                  ...(fragmentAffordance ? ['citedFragmentIds'] : []),
+                ],
               },
             },
           },
@@ -182,6 +214,11 @@ export async function runGenerator(req: GenerateRequest): Promise<GeneratorOutpu
   }
   if (!Array.isArray(parsed.citedFactIds)) {
     parsed.citedFactIds = [];
+  }
+  // Defensive parse: a non-array (or affordance-off) citedFragmentIds is
+  // absent — the resolver fence downstream re-validates every id anyway.
+  if (parsed.citedFragmentIds !== undefined && !Array.isArray(parsed.citedFragmentIds)) {
+    delete parsed.citedFragmentIds;
   }
   if (res.usage) {
     parsed.usage = {

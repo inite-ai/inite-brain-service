@@ -55,6 +55,7 @@ export const RetrievalProfileWireSchema = z.object({
   assistantLaneMatch: z.string(),
   factsAsKeys: z.boolean(),
   factsAsKeysCap: z.number().int(),
+  fragmentLane: z.boolean(),
   timeFilter: z.boolean(),
   dateMath: z.boolean(),
   answerConditioning: z.boolean(),

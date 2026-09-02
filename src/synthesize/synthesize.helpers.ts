@@ -148,6 +148,10 @@ export function buildGeneratorArgs(
       instructions?: string[] | undefined;
       timelineEvidence: boolean;
       strategyNotes?: string[] | undefined;
+      /** MM-zoom PR2: rendered media-evidence lines (own section). */
+      fragmentLines?: string[] | undefined;
+      /** EVIDENCE_FRAGMENT_CITATIONS, resolved once per request. */
+      fragmentCitations?: boolean | undefined;
     };
   },
   o: {
@@ -181,6 +185,10 @@ export function buildGeneratorArgs(
     shapeInstruction: ctx.shapeInstruction,
     // G4 strategy lane: advisory notes, GENERATOR-ONLY (parity exception).
     strategyNotes: collected.strategyNotes,
+    // MM-zoom PR2: media evidence + the fragment-citation affordance —
+    // both rounds of the search loop carry them identically.
+    fragmentLines: collected.fragmentLines,
+    fragmentCitations: collected.fragmentCitations,
     ...(o.allowRefine !== undefined ? { allowRefine: o.allowRefine } : {}),
     ...(o.answerLangStrict ? { answerLangStrict: true } : {}),
   };

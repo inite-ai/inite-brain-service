@@ -1,4 +1,5 @@
 import type { SearchHit } from '../search/search.service';
+import type { EvidenceCapability } from '../common/evidence-taxonomy';
 import type { DecisionLogEntry } from './decision-log';
 import type { Citation } from './fact-index';
 
@@ -47,11 +48,14 @@ export type SynthesisReason =
  * unconstrained). The verdict-side gate (FOVEA_EVIDENCE_CAPABILITY)
  * compares a supported answer's required capability — max over its cited
  * facts — against the capabilities its cited evidence actually carries.
- * Today every citation is text (facts + episode spans), so the check can
- * only abstain or pass — no media verifier exists yet (honest v1 bound;
- * the M-track fragment mapping adds non-text cited capabilities).
+ * Fact citations and episode spans are text; a FRAGMENT citation
+ * (EVIDENCE_FRAGMENT_CITATIONS, MM-zoom PR2) carries the capability of
+ * its asset's modality (capabilityForModality), so a non-text
+ * requirement can now be satisfied by a matching-modality fragment.
+ * Canonical union: src/common/evidence-taxonomy.ts (re-exported here so
+ * the existing verdict-gate consumers keep their import path).
  */
-export type EvidenceCapability = 'text' | 'visual' | 'audio' | 'document_region';
+export type { EvidenceCapability } from '../common/evidence-taxonomy';
 
 /** Prompt/completion cost of one LLM call, surfaced for token accounting. */
 export interface TokenUsage {
@@ -60,20 +64,41 @@ export interface TokenUsage {
 }
 
 /**
- * L3 evidence citation (FOVEA_L3_EPISODE_CITATIONS): a transcript-grounded
- * claim's reference to the stored episode turn it came from. `span`, when
- * present, is a W3C-style VERIFIED span over the NFC-normalized STORED turn
- * text, measured in Unicode code points — the span-anchor contract
- * (src/admin/span-anchor.ts): `start` inclusive, `end` exclusive, `exact`
- * the verified verbatim quote. An absent span = episodeId-only citation
- * (the quote was missing, absent from the turn, or ambiguous — fail-safe,
- * never a guessed highlight).
+ * Non-fact evidence citation — a claim's reference to the stored
+ * observation it came from. TWO arms behind a ONE-OF invariant
+ * (exactly one of `episodeId` / `fragmentId` is present; resolvers
+ * construct only well-formed arms, never both, never neither):
+ *
+ *  - EPISODE arm (FOVEA_L3_EPISODE_CITATIONS): a transcript-grounded
+ *    claim's reference to the stored episode turn. `span`, when present,
+ *    is a W3C-style VERIFIED span over the NFC-normalized STORED turn
+ *    text, measured in Unicode code points — the span-anchor contract
+ *    (src/admin/span-anchor.ts): `start` inclusive, `end` exclusive,
+ *    `exact` the verified verbatim quote. An absent span = episodeId-only
+ *    citation (fail-safe, never a guessed highlight).
+ *
+ *  - FRAGMENT arm (EVIDENCE_FRAGMENT_CITATIONS, MM-zoom PR2): a
+ *    media-grounded claim's reference to an evidence_fragment (0109).
+ *    `assetId` is the fragment's parent asset; `capability` the kind of
+ *    evidence the citation carries (capabilityForModality over the
+ *    asset's modality — how the 0113 verdict gate can be SATISFIED for
+ *    non-text); `excerpt` is the RENDERED derived-representation excerpt
+ *    the generator actually saw (the rendered-set fence of
+ *    resolveFragmentCitations — never generator-authored text).
+ *
+ * Widened ADDITIVELY from the episode-only shape: every pre-existing
+ * consumer reads `episodeId?`/`span?` and is untouched by absent
+ * fragment fields.
  */
 export interface EvidenceCitation {
-  episodeId: string;
+  episodeId?: string;
   conversationId?: string;
   occurredAt?: string;
   span?: { start: number; end: number; exact: string };
+  fragmentId?: string;
+  assetId?: string;
+  capability?: EvidenceCapability;
+  excerpt?: string;
 }
 
 export interface SynthesizeResult {
@@ -125,6 +150,14 @@ export interface GeneratorOutput {
    * made with the refine affordance; null/absent = no request.
    */
   refineQuery?: string | null;
+  /**
+   * Fragment citations (EVIDENCE_FRAGMENT_CITATIONS, MM-zoom PR2): the
+   * fragment ids the generator grounds media-derived claims on, echoed
+   * from the rendered `[evidence_fragment:...]` headers. Only present
+   * when the call was made with the fragment-citation affordance;
+   * resolved defensively via resolveFragmentCitations — never trusted.
+   */
+  citedFragmentIds?: string[];
   /** Generator-call usage, when the provider reported it. */
   usage?: TokenUsage;
 }
