@@ -76,6 +76,15 @@ export class EvidenceIngestController {
     if (!evidenceIngestEnabled()) throw new NotFoundException();
     this.validateFragments(body);
     const companyId = req.brainAuth.companyId;
+    // Composition with 0121/0122 (deliberate, not an omission):
+    //  - `origin` stays the default 'internal' — origin means "where the
+    //    BYTES came from", and this surface never takes bytes into
+    //    custody ('external_ingest' + the quarantine seam govern
+    //    byte-backed ingestion, which stays service-level);
+    //  - the initial ownership evidence_grant is created BY registerAsset
+    //    itself (user-owned when userId is present, system-owned
+    //    otherwise; the dedup path re-ensures a live grant) — nothing to
+    //    add here.
     const asset = await this.store.registerAsset(companyId, {
       modality: body.modality,
       mediaType: body.mediaType,
