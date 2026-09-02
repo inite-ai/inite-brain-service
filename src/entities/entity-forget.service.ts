@@ -329,6 +329,21 @@ export class EntityForgetService {
         // fact_usage. LET-then-DELETE-by-ids, NOT `DELETE … WHERE`
         // (the 3.2.4 indexed-traversal DELETE bug — see the pre-tx sweep
         // comment above).
+        //
+        // memory_decision (0119) rides the SAME straggler sweep: decision
+        // rows carry NO subject/user linkage by design (content-free
+        // decision context), so they are resolved THROUGH the subject's
+        // straggler outcome rows — collected BEFORE those rows die (the
+        // pre-swept bulk was handled the same way in preSweepOutcomeRows).
+        // Accepted semantics: a decision row shared with another subject's
+        // outcomes dies too — content-free telemetry, prunable at 30d,
+        // over-deletion is the safe direction. Decisions are ≤1-2 rows per
+        // request (bounded), so no dedicated pre-sweep batching is needed
+        // and they stay uncounted in txRecordCount like the rest of the
+        // telemetry. Two-step LET→DELETE mandatory (same planner bug).
+        // Statements live in addDecisionPurgeLeg (max-lines-per-function
+        // gate on forget()).
+        this.addDecisionPurgeLeg(tx);
         tx.add(
           `LET $outIds = (SELECT VALUE id FROM memory_outcome WHERE subjectId.entityId = $ent)`,
         );
@@ -677,11 +692,26 @@ export class EntityForgetService {
    * NOTHING, while the same WHERE in a SELECT matches fine — verified
    * against the pinned server. Deleting by explicit ids sidesteps the
    * planner entirely.
+   *
+   * memory_decision (0119) is purged FIRST, through the same rows:
+   * decision rows carry no subject linkage by design, so the join keys
+   * (memory_outcome.decisionId) must be collected while the subject's
+   * outcome rows are still alive — purging decisions after this sweep
+   * would find nothing to join. Same content-free rationale, same
+   * two-step idiom; bounded by array::distinct over the subject's rows.
    */
   private async preSweepOutcomeRows(
     db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> },
     rid: string,
   ): Promise<void> {
+    await db.query(
+      `LET $decKeys = array::distinct((SELECT VALUE decisionId FROM memory_outcome
+         WHERE subjectId.entityId = type::record('knowledge_entity', $rid)
+           AND decisionId IS NOT NONE));
+       LET $decIds = (SELECT VALUE id FROM memory_decision WHERE decisionId INSIDE $decKeys);
+       DELETE $decIds;`,
+      { rid },
+    );
     for (;;) {
       const [, batch] = await db.query<[unknown, unknown[]]>(
         `LET $ids = (SELECT VALUE id FROM memory_outcome
@@ -693,6 +723,22 @@ export class EntityForgetService {
       // A partial batch means the subject's raw rows are drained.
       if (((batch as unknown[]) ?? []).length < 5000) break;
     }
+  }
+
+  /**
+   * memory_decision (0119) in-tx straggler leg — the transaction twin of
+   * the preSweepOutcomeRows decision purge above (same join through the
+   * subject's live memory_outcome rows, same two-step LET→DELETE idiom,
+   * same content-free rationale). Split out of forget() for the
+   * max-lines-per-function gate; see the call-site comment for the
+   * shared-decision-row semantics.
+   */
+  private addDecisionPurgeLeg(tx: TxBuilder): void {
+    tx.add(
+      `LET $decKeys = (SELECT VALUE decisionId FROM memory_outcome WHERE subjectId.entityId = $ent AND decisionId IS NOT NONE)`,
+    );
+    tx.add(`LET $decIds = (SELECT VALUE id FROM memory_decision WHERE decisionId INSIDE $decKeys)`);
+    tx.add(`DELETE $decIds`);
   }
 
   /**

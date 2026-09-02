@@ -1,7 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
-import { outcomeTelemetryEnabled } from '../common/outcome-flags';
+import { isReadConflict } from '../db/surreal-retry';
+import { outcomeTelemetryEnabled, outcomeTxWritesEnabled } from '../common/outcome-flags';
+import {
+  getCorrelationId,
+  getRequestContext,
+  type RequestContext,
+} from '../common/request-context';
+import { AUTO_STAT, buildOutcomeTxPayload, outcomeDedupeKey, runOutcomeTx } from './outcome-tx';
+
+export { outcomeDedupeKey, outcomeEventId } from './outcome-tx';
 
 /**
  * MemoryOutcomeService — the ONE write seam for outcome telemetry
@@ -82,6 +92,16 @@ export interface OutcomeEventInput {
   representationKind?: string | undefined;
   /** CONTENT-FREE: ids / verdict strings only — never fact text. */
   meta?: Record<string, unknown> | undefined;
+  /**
+   * 0119: join key to the memory_decision row this outcome descends from
+   * (the request's primary decision — abstain gate or L3 trigger). A
+   * plain string column (== the decision record-id tail), stamped by the
+   * synthesize emit seam ONLY under OUTCOME_DECISION_CAPTURE; absent =
+   * legacy / capture-off. NOT part of the dedupe key (0113-pinned):
+   * callers stamp one decision per request path, so two same-key events
+   * with different decisionIds do not occur.
+   */
+  decisionId?: string | undefined;
 }
 
 /**
@@ -103,25 +123,11 @@ export interface StatDelta {
 export const OUTCOME_RECORD_CAP = 100;
 
 /**
- * Event → rollup mapping for statDeltas: 'auto'. `retrieved` is
- * DELIBERATELY absent: the raw stream is prunable volume, and readCount
- * already lives on fact_usage (0053) — a retrieved counter here would
- * duplicate it.
- */
-const AUTO_STAT: Partial<
-  Record<OutcomeEventName, { counter: OutcomeCounter; used?: boolean; verified?: boolean }>
-> = {
-  selected_for_context: { counter: 'selectedCount' },
-  used_in_answer: { counter: 'usedCount', used: true },
-  verifier_supported: { counter: 'verifiedUseCount', verified: true },
-  user_confirmed: { counter: 'confirmedCount', verified: true },
-  user_rejected: { counter: 'rejectedCount' },
-  contradicted: { counter: 'contradictedCount' },
-};
-
-/**
  * Dedupe on (subjectKind, subjectId, event, actor, modality,
  * representationKind) then cap. Pure and exported for the unit spec.
+ * The key string lives in outcome-tx.ts (outcomeDedupeKey) because the
+ * OUTCOME_TX_WRITES deterministic event id derives from the SAME key —
+ * one definition, no drift.
  *
  * 0113: the two dimension components extend the key so the SAME event on
  * DIFFERENT modalities stays two rows. Every existing (text-path) writer
@@ -132,9 +138,7 @@ export function dedupeOutcomeEvents(events: OutcomeEventInput[]): OutcomeEventIn
   const seen = new Set<string>();
   const out: OutcomeEventInput[] = [];
   for (const ev of events) {
-    const key =
-      `${ev.subjectKind}|${ev.subjectId}|${ev.event}|${ev.actor ?? ''}` +
-      `|${ev.modality ?? ''}|${ev.representationKind ?? ''}`;
+    const key = outcomeDedupeKey(ev);
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(ev);
@@ -209,6 +213,16 @@ function buildStatRows(deltas: StatDelta[], now: Date): StatRow[] {
   return [...bySubject.values()];
 }
 
+/**
+ * OUTCOME_TX_WRITES batch counter, per request context (D2 batchSeq):
+ * two recordOutcomes calls in ONE request (the search-loop refine case —
+ * identical dedupe keys) get distinct seqs and stay distinct rows
+ * exactly like today. WeakMap keyed on the ALS context object so the
+ * counter dies with the request; no context (cron/jobs) → seq 0, where
+ * the randomUUID request-scope fallback already makes the call unique.
+ */
+const txBatchSeq = new WeakMap<RequestContext, number>();
+
 @Injectable()
 export class MemoryOutcomeService {
   private readonly logger = new Logger(MemoryOutcomeService.name);
@@ -239,6 +253,14 @@ export class MemoryOutcomeService {
     if (!outcomeTelemetryEnabled()) return;
     const now = new Date();
     const events = dedupeOutcomeEvents(opts.events);
+    // OUTCOME_TX_WRITES: the atomic/idempotent branch (outcome-tx.ts).
+    // A SEPARATE branch by design — the flag-off path below stays the
+    // VERBATIM legacy two-statement shape (byte-identity pinned by the
+    // unit spec against literal SQL constants).
+    if (outcomeTxWritesEnabled()) {
+      this.recordOutcomesTx(opts, events, now);
+      return;
+    }
     const deltas =
       opts.statDeltas === undefined || opts.statDeltas === 'auto'
         ? autoStatDeltas(events, now)
@@ -254,6 +276,10 @@ export class MemoryOutcomeService {
       // undefined → dropped from the payload → NONE (option<...> rejects NULL).
       ...(ev.actor !== undefined ? { actor: ev.actor } : {}),
       ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+      // 0119: decision join key — stamped only when a caller threads it
+      // (OUTCOME_DECISION_CAPTURE emit seams); existing writers pass
+      // nothing → row byte-identical.
+      ...(ev.decisionId !== undefined ? { decisionId: ev.decisionId } : {}),
       // 0113 dimensions ride the raw row only. The rollup (statRows below)
       // stays UNIQUE-per-subject with NO per-modality columns — deliberate:
       // no scorer consumes a per-modality stat yet, and the raw rows retain
@@ -294,6 +320,65 @@ export class MemoryOutcomeService {
     void this.surreal
       .withCompany(opts.companyId, async (db) => {
         await db.query(statements.join(';\n'), params);
+      })
+      .catch((e: Error) => {
+        this.logger.warn(`outcome recording failed for ${opts.companyId}: ${e.message}`);
+      });
+  }
+
+  /**
+   * OUTCOME_TX_WRITES branch: deterministic ids + one BEGIN/COMMIT
+   * (outcome-tx.ts) with a SINGLE immediate retry on the OCC-abort
+   * class only. Request scope + batch seq are captured SYNCHRONOUSLY
+   * before detaching (ALS is dead inside the detached promise); the
+   * payload — ids included — is computed once and reused verbatim by
+   * the retry, so the retry can never mint different ids. The
+   * fire-and-forget contract is unchanged: after the one retry (or on
+   * any non-retriable error) we warn and drop, never throw into the
+   * serving path. Callers untouched.
+   */
+  private recordOutcomesTx(
+    opts: {
+      companyId: string;
+      events: OutcomeEventInput[];
+      requestId?: string | undefined;
+      statDeltas?: 'auto' | StatDelta[] | undefined;
+    },
+    events: OutcomeEventInput[],
+    now: Date,
+  ): void {
+    const ctx = getRequestContext();
+    let batchSeq = 0;
+    if (ctx) {
+      batchSeq = txBatchSeq.get(ctx) ?? 0;
+      txBatchSeq.set(ctx, batchSeq + 1);
+    }
+    // The requestId COLUMN carries only a real correlation id; the id
+    // SCOPE additionally falls back to a random UUID so an uncorrelated
+    // call (cron/jobs) is unique rather than colliding on seq 0.
+    const correlated = opts.requestId ?? getCorrelationId();
+    const payload = buildOutcomeTxPayload({
+      events,
+      statDeltas: opts.statDeltas ?? 'auto',
+      now,
+      requestScope: correlated ?? randomUUID(),
+      batchSeq,
+      requestId: correlated,
+    });
+    if (!payload) return;
+    void this.surreal
+      .withCompany(opts.companyId, async (db) => {
+        try {
+          await runOutcomeTx(db, payload);
+        } catch (e) {
+          // One immediate retry, ONLY for the enriched OCC-abort class
+          // (runTransaction already enriches the bare "failed
+          // transaction" wrapper). No backoff machinery: the racing
+          // committer's row is visible immediately, and the re-run's
+          // pre-select then gates every already-applied delta.
+          if (!isReadConflict(e)) throw e;
+          await runOutcomeTx(db, payload);
+        }
       })
       .catch((e: Error) => {
         this.logger.warn(`outcome recording failed for ${opts.companyId}: ${e.message}`);

@@ -11,11 +11,20 @@
  *   (e) master off ⇒ zero rows (byte-identical);
  *   (f) verified-use SERVING (read side): with RETRIEVAL_VERIFIED_USE_RANKING
  *       + SEARCH_VERIFIED_USE_BETA the enriched fact's score breakdown
- *       carries the verifiedUse factor; flags off ⇒ no fragment.
+ *       carries the verifiedUse factor; flags off ⇒ no fragment;
+ *   (h/i) OUTCOME_TX_WRITES against the REAL pinned server (this IS the
+ *       SurrealQL semantics verification for the tx branch — INSERT
+ *       IGNORE on deterministic ids, SELECT-from-array-param, FOR loop
+ *       + per-delta ON DUPLICATE fold inside BEGIN/COMMIT): a replayed
+ *       batch changes NOTHING, and a failing batch lands NOTHING.
  */
 import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
-import { MemoryOutcomeService } from '../src/outcomes/memory-outcome.service';
+import { runWithRequestContext } from '../src/common/request-context';
+import {
+  MemoryOutcomeService,
+  type OutcomeSubjectKind,
+} from '../src/outcomes/memory-outcome.service';
 
 interface OutcomeRow {
   event: string;
@@ -369,6 +378,83 @@ describe('memory_outcome — outcome telemetry recording and cascade', () => {
     expect([200, 201]).toContain(forget.status);
     expect(await rawRows(factId)).toHaveLength(0);
     expect(await statFor(factId)).toBeNull();
+  });
+
+  it('(h) OUTCOME_TX_WRITES: an upstream replay of the same batch is idempotent (raw + stats)', async () => {
+    process.env.OUTCOME_TX_WRITES = '1';
+    try {
+      const { factId } = await ingestFact('outcome_tx_subj', 'name', 'Outcome Tx Subject');
+      const svc = f.app.get(MemoryOutcomeService);
+      const dispatch = () =>
+        // A FRESH context object with the SAME correlation id per dispatch
+        // (the WeakMap batch-seq restarts) — mirrors an upstream HTTP
+        // replay that reuses x-request-id.
+        runWithRequestContext({ correlationId: 'corr-tx-replay' }, () =>
+          svc.recordOutcomes({
+            companyId: f.companyId,
+            events: [
+              { subjectKind: 'fact', subjectId: factId, event: 'selected_for_context' },
+              { subjectKind: 'fact', subjectId: factId, event: 'used_in_answer' },
+            ],
+          }),
+        );
+      dispatch();
+      const rows1 = await waitFor(
+        () => rawRows(factId),
+        (r) => r.length >= 2,
+      );
+      expect(rows1).toHaveLength(2);
+      const stat1 = await waitFor(
+        () => statFor(factId),
+        (s) => (s?.usedCount ?? 0) >= 1 && (s?.selectedCount ?? 0) >= 1,
+      );
+      expect(stat1).toMatchObject({ selectedCount: 1, usedCount: 1 });
+
+      // Replay: identical deterministic ids → INSERT IGNORE no-ops the raw
+      // rows AND the in-tx pre-select gates every delta — raw count and
+      // ALL SIX counters unchanged.
+      dispatch();
+      await new Promise((r) => setTimeout(r, 700));
+      expect(await rawRows(factId)).toHaveLength(2);
+      expect(await statFor(factId)).toMatchObject({
+        selectedCount: 1,
+        usedCount: 1,
+        verifiedUseCount: 0,
+        confirmedCount: 0,
+        rejectedCount: 0,
+        contradictedCount: 0,
+      });
+    } finally {
+      delete process.env.OUTCOME_TX_WRITES;
+    }
+  });
+
+  it('(i) OUTCOME_TX_WRITES: a failing batch leaves BOTH tables untouched (atomicity)', async () => {
+    process.env.OUTCOME_TX_WRITES = '1';
+    try {
+      const { factId } = await ingestFact('outcome_tx_atomic', 'name', 'Outcome Tx Atomic');
+      const svc = f.app.get(MemoryOutcomeService);
+      runWithRequestContext({ correlationId: 'corr-tx-atomic' }, () =>
+        svc.recordOutcomes({
+          companyId: f.companyId,
+          events: [
+            // subjectKind outside the 0107 ASSERT enum: the raw INSERT
+            // fails → the whole BEGIN/COMMIT aborts → the stat fold this
+            // event maps to (usedCount) must not land either.
+            {
+              subjectKind: 'bogus' as OutcomeSubjectKind,
+              subjectId: factId,
+              event: 'used_in_answer',
+            },
+          ],
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 700));
+      expect(await rawRows(factId)).toHaveLength(0);
+      expect(await statFor(factId)).toBeNull();
+    } finally {
+      delete process.env.OUTCOME_TX_WRITES;
+    }
   });
 
   it('(e) master off ⇒ zero rows written (byte-identical)', async () => {

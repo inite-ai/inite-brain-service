@@ -260,6 +260,103 @@ describe('0111_tool_observation indexes', () => {
   });
 });
 
+describe('0119_decision_telemetry', () => {
+  const sql = readFileSync(join(MIGRATIONS, '0119_decision_telemetry.surql'), 'utf8');
+
+  it.each([
+    ['memory_decision_id_idx', 'memory_decision', 'decisionId'],
+    ['memory_decision_created_idx', 'memory_decision', 'createdAt'],
+    ['memory_decision_request_idx', 'memory_decision', 'requestId'],
+    ['memory_outcome_decision_idx', 'memory_outcome', 'decisionId'],
+  ])('defines %s on %s(%s)', (name, table, fields) => {
+    const re = new RegExp(`DEFINE INDEX IF NOT EXISTS ${name}\\s+ON ${table} FIELDS ${fields};`);
+    expect(sql).toMatch(re);
+  });
+
+  it('adds the decisionId join column to BOTH memory_outcome and focus_signal_sample', () => {
+    expect(sql).toContain('DEFINE FIELD IF NOT EXISTS decisionId ON memory_outcome');
+    expect(sql).toContain('DEFINE FIELD IF NOT EXISTS decisionId ON focus_signal_sample');
+  });
+
+  it('every index is SINGLE-FIELD and NON-UNIQUE (idempotency = record id, 3.2.4 planner rule)', () => {
+    // A UNIQUE index over an option<string> column would collide across
+    // every legacy NONE row (the 0119 header) — uniqueness must stay in
+    // the deterministic record id; compound coverage would put the GDPR
+    // join-purge / prune deletes into the 3.2.4 planner no-op class.
+    const defs = sql.match(/DEFINE INDEX[^;]+;/g) ?? [];
+    expect(defs.length).toBeGreaterThan(0);
+    for (const def of defs) {
+      const fields = /FIELDS ([^;]+);/.exec(def)?.[1] ?? '';
+      expect(fields).not.toContain(',');
+      expect(def).not.toContain('UNIQUE');
+    }
+  });
+
+  it('deliberately defines NO changefeed and NO event', () => {
+    const code = sql
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('--'))
+      .join('\n');
+    expect(code).not.toMatch(/CHANGEFEED/);
+    expect(code).not.toMatch(/DEFINE EVENT/);
+  });
+});
+
+describe('memory_decision GDPR join-purge (0119)', () => {
+  // Decision rows carry NO subject/user linkage by design — both forget
+  // services must resolve them THROUGH the subject's outcome rows
+  // (memory_outcome.decisionId) BEFORE those rows die, with the two-step
+  // LET-select → DELETE-by-ids idiom (the 3.2.4 planner no-op class).
+  const entitySrc = readFileSync(
+    join(__dirname, '..', 'src', 'entities', 'entity-forget.service.ts'),
+    'utf8',
+  );
+  const userSrc = readFileSync(
+    join(__dirname, '..', 'src', 'entities', 'user-forget.service.ts'),
+    'utf8',
+  );
+
+  it('entity-forget: pre-sweep AND in-tx legs collect keys through the outcome join', () => {
+    // Pre-sweep leg (before the bulk outcome purge deletes the join rows).
+    expect(entitySrc).toContain(
+      'LET $decKeys = array::distinct((SELECT VALUE decisionId FROM memory_outcome',
+    );
+    // In-tx straggler leg, keyed on the subject.
+    expect(entitySrc).toContain(
+      'LET $decKeys = (SELECT VALUE decisionId FROM memory_outcome WHERE subjectId.entityId = $ent AND decisionId IS NOT NONE)',
+    );
+    expect(entitySrc).toContain(
+      'LET $decIds = (SELECT VALUE id FROM memory_decision WHERE decisionId INSIDE $decKeys)',
+    );
+    expect(entitySrc).toContain('DELETE $decIds');
+  });
+
+  it('user-forget: decisions go FIRST, through the user-scoped outcome join', () => {
+    expect(userSrc).toContain(
+      'LET $decKeys = array::distinct((SELECT VALUE decisionId FROM memory_outcome',
+    );
+    expect(userSrc).toContain('subjectId.userId = $u AND decisionId IS NOT NONE');
+    expect(userSrc).toContain(
+      'LET $decIds = (SELECT VALUE id FROM memory_decision WHERE decisionId INSIDE $decKeys)',
+    );
+    expect(userSrc).toContain('DELETE $decIds');
+    // Ordering is load-bearing: the join keys must be collected while the
+    // outcome rows are alive — decisions before outcomes in the block.
+    expect(userSrc.indexOf('DELETE $decIds')).toBeLessThan(userSrc.indexOf('DELETE $outIds'));
+  });
+
+  it('no writer uses a one-step DELETE-WHERE on memory_decision', () => {
+    for (const src of [
+      entitySrc,
+      userSrc,
+      readFileSync(join(__dirname, '..', 'src', 'outcomes', 'outcome-prune.service.ts'), 'utf8'),
+      readFileSync(join(__dirname, '..', 'src', 'outcomes', 'memory-decision.service.ts'), 'utf8'),
+    ]) {
+      expect(src).not.toMatch(/DELETE memory_decision\s+WHERE/);
+    }
+  });
+});
+
 describe('0109_evidence_substrate indexes', () => {
   const sql = readFileSync(join(MIGRATIONS, '0109_evidence_substrate.surql'), 'utf8');
 

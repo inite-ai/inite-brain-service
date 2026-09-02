@@ -267,6 +267,33 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Days the raw memory_outcome event log is kept; the 03:41 UTC prune cron deletes older rows. The memory_outcome_stat rollup is never pruned.',
   },
+  {
+    key: 'OUTCOME_TX_WRITES',
+    category: 'audit',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Transactional idempotent outcome writes: raw append + stat fold in ONE BEGIN/COMMIT with deterministic record ids + INSERT IGNORE, an in-tx pre-select gates the stat deltas so a replayed batch folds nothing twice, and an OCC abort gets exactly one retry. Off = the legacy two-statement write shape, byte-identical.',
+  },
+  {
+    key: 'OUTCOME_DECISION_CAPTURE',
+    category: 'audit',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Decision-context telemetry (0119): content-free memory_decision rows at the abstain gate and the L3 escalation trigger, plus the decisionId join columns on memory_outcome / focus_signal_sample and the nightly decision prune leg. Independent master — not coupled to OUTCOME_TELEMETRY_ENABLED.',
+  },
+  {
+    key: 'OUTCOME_DECISION_RETENTION_DAYS',
+    category: 'audit',
+    defaultValue: '30',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Days memory_decision rows are kept; the 03:41 UTC prune cron deletes older rows in bounded batches (third leg, gated on OUTCOME_DECISION_CAPTURE).',
+  },
   // Tool observations (0111) — filed under 'audit' like the 0107 pair
   // (append-only telemetry trail + retention knob).
   {

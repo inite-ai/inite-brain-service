@@ -36,11 +36,13 @@ import {
   type L3SessionAnchor,
   type L3AdaptiveGate,
   type L3AnchorSource,
+  type L3TriggerReason,
 } from './l3-escalation';
 import {
   buildFocusSignal,
   calibratedConfidence,
   queryClassOf,
+  type FocusSignal,
   type PerClassCalibration,
 } from './focus-signal';
 
@@ -129,6 +131,48 @@ export interface L3EscalateInput {
    * confidence.
    */
   adaptiveL3?: { calibration: PerClassCalibration; threshold: number } | undefined;
+  /**
+   * 0119 decision-context capture: invoked EXACTLY ONCE per escalate()
+   * evaluation with the trigger outcome + the adaptive-gate numbers (an
+   * optional CALLBACK, deliberately not a 5th constructor dep and not an
+   * env read — this engine dir takes resolved config only, S5.2; the
+   * synthesize orchestrator owns the MemoryDecisionService injection and
+   * builds the callback only when capture is on). Absent ⇒ byte-identical
+   * evaluation. The existing l3_adaptive traceArtifact stays AS WELL —
+   * debug ring and durable telemetry serve different consumers.
+   */
+  onDecision?: ((draft: L3DecisionDraft) => void) | undefined;
+}
+
+/**
+ * What one escalate() evaluation decided — the material the synthesize
+ * orchestrator maps onto a memory_decision row (kind 'l3_escalation').
+ * Mapping contract: `reason` → chosenAction ('escalate' on 'fire', else
+ * 'skip:<reason>'); `adaptive` → actionScore/policyVersion/observedState
+ * signal numbers; `maxSessions` → observedState.candidateCount —
+ * candidateCount is semantically the RANKED-SESSION BUDGET at this seam
+ * (present only when the ladder fired).
+ */
+export interface L3DecisionDraft {
+  /** The l3TriggerDecision result ('fire' | skip_*). */
+  reason: L3TriggerReason;
+  /** Adaptive-gate numbers when a usable model gated the trigger. */
+  adaptive?:
+    | {
+        confidence: number;
+        threshold: number;
+        queryClass: string;
+        topScore: number;
+        coverageScore: number;
+        retrievalGap: number;
+      }
+    | undefined;
+  /** Ranked-session budget of the fired escalation (adaptive-scaled or
+   *  the static profile cap). Absent when the ladder did not fire. */
+  maxSessions?: number | undefined;
+  /** Whether the fired escalation flipped the verdict fail→pass.
+   *  Absent when the ladder did not fire. */
+  flipped?: boolean | undefined;
 }
 
 /** A flipped L3 answer to finalise; null = fall through to abstention. */
@@ -219,18 +263,54 @@ export class L3EscalationService {
       escalated: input.escalated,
       adaptive,
     });
-    if (reason !== 'fire') return null;
+    // 0119 decision draft — completed along the evaluation (maxSessions/
+    // flipped on the fire path) and emitted EXACTLY ONCE per evaluation.
+    const draft: L3DecisionDraft = {
+      reason,
+      ...(adaptive
+        ? {
+            adaptive: {
+              confidence: adaptive.confidence,
+              threshold: adaptive.threshold,
+              queryClass: adaptive.signal.queryClass,
+              topScore: adaptive.signal.topScore,
+              coverageScore: adaptive.signal.coverageScore,
+              retrievalGap: adaptive.signal.retrievalGap,
+            },
+          }
+        : {}),
+    };
+    if (reason !== 'fire') {
+      this.emitDecision(input, draft);
+      return null;
+    }
     // Which sub-condition fired — the observability that tells the operator
     // whether the adaptive optic or the static floor is doing the gating.
     this.metrics?.countL3TriggerPath(adaptive ? 'adaptive' : 'static');
     try {
-      return await this.runEscalation(input, adaptive);
+      const result = await this.runEscalation(input, adaptive, draft);
+      draft.flipped = result !== null;
+      return result;
     } catch (e) {
       // Fail-closed to abstention — the lane must never break synthesis.
+      draft.flipped = false;
       this.logger.warn(
         `L3 escalation failed (companyId=${input.companyId}): ${(e as Error).message}`,
       );
       return null;
+    } finally {
+      this.emitDecision(input, draft);
+    }
+  }
+
+  /** Invoke the optional decision callback, fail-open: telemetry must
+   *  never break the escalation (or the abstention fall-through). */
+  private emitDecision(input: L3EscalateInput, draft: L3DecisionDraft): void {
+    if (!input.onDecision) return;
+    try {
+      input.onDecision(draft);
+    } catch (e) {
+      this.logger.warn(`L3 decision capture failed: ${(e as Error).message}`);
     }
   }
 
@@ -240,10 +320,15 @@ export class L3EscalationService {
    * per-class calibration, and return {confidence, threshold}. Returns
    * undefined when no model was supplied (adaptiveL3 absent) — the static
    * coverage path then runs. Also records the calibrated confidence on the
-   * existing L3 ladder trace for observability. Pure math over pure
-   * helpers (buildFocusSignal / calibratedConfidence); no IO.
+   * existing L3 ladder trace for observability, and carries the built
+   * signal alongside the gate (extra property, structurally invisible to
+   * the L3AdaptiveGate consumers) so the 0119 decision draft reuses the
+   * SAME numbers instead of recomputing. Pure math over pure helpers
+   * (buildFocusSignal / calibratedConfidence); no IO.
    */
-  private resolveAdaptiveGate(input: L3EscalateInput): L3AdaptiveGate | undefined {
+  private resolveAdaptiveGate(
+    input: L3EscalateInput,
+  ): (L3AdaptiveGate & { signal: FocusSignal }) | undefined {
     const a = input.adaptiveL3;
     if (!a) return undefined;
     const factScores: number[] = [];
@@ -264,12 +349,13 @@ export class L3EscalationService {
       topScore: signal.topScore,
       retrievalGap: signal.retrievalGap,
     });
-    return { confidence, threshold: a.threshold };
+    return { confidence, threshold: a.threshold, signal };
   }
 
   private async runEscalation(
     input: L3EscalateInput,
-    adaptive?: L3AdaptiveGate,
+    adaptive: L3AdaptiveGate | undefined,
+    draft: L3DecisionDraft,
   ): Promise<L3EscalateResult | null> {
     const { profile, dto } = input;
     const includePii = input.callerScopes.includes('brain:read_pii');
@@ -317,6 +403,8 @@ export class L3EscalationService {
           maxSessions: profile.l3MaxSessions,
         })
       : profile.l3MaxSessions;
+    // 0119: the ranked-session budget of THIS fired escalation.
+    draft.maxSessions = maxSessions;
     const sessionIds = rankL3Sessions(anchors, {
       max: maxSessions,
       window,

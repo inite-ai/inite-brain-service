@@ -2,7 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { SurrealService } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
-import { outcomeEventRetentionDays, outcomeTelemetryEnabled } from '../common/outcome-flags';
+import {
+  outcomeDecisionCaptureEnabled,
+  outcomeDecisionRetentionDays,
+  outcomeEventRetentionDays,
+  outcomeTelemetryEnabled,
+} from '../common/outcome-flags';
 import {
   toolObservationRetentionDays,
   toolObservationsEnabled,
@@ -24,6 +29,15 @@ export const OUTCOME_PRUNE_BATCH_QUERY = `DELETE (SELECT id FROM memory_outcome 
  * guard. Exported for the query-shape unit spec.
  */
 export const TOOL_OBSERVATION_PRUNE_BATCH_QUERY = `DELETE (SELECT id FROM tool_observation WHERE createdAt < $cutoff LIMIT 5000) RETURN BEFORE`;
+
+/**
+ * Same bounded SELECT-ids → DELETE shape for the memory_decision rows
+ * (migration 0119) — its own retention window
+ * (OUTCOME_DECISION_RETENTION_DAYS), same 03:41 cron, shared in-flight
+ * guard, gated on OUTCOME_DECISION_CAPTURE. Exported for the
+ * query-shape unit spec.
+ */
+export const DECISION_PRUNE_BATCH_QUERY = `DELETE (SELECT id FROM memory_decision WHERE createdAt < $cutoff LIMIT 5000) RETURN BEFORE`;
 
 /**
  * OutcomePruneService — retention for the RAW outcome event log
@@ -51,12 +65,14 @@ export class OutcomePruneService {
 
   @Cron('41 3 * * *', { timeZone: 'UTC' })
   async runNightly(): Promise<{ tenants: number; pruned: number }> {
-    // Two independently-flagged legs share the tick + in-flight guard:
-    // memory_outcome (0107, OUTCOME_TELEMETRY_ENABLED) and
-    // tool_observation (0111, TOOL_OBSERVATIONS_ENABLED).
+    // Three independently-flagged legs share the tick + in-flight guard:
+    // memory_outcome (0107, OUTCOME_TELEMETRY_ENABLED), tool_observation
+    // (0111, TOOL_OBSERVATIONS_ENABLED) and memory_decision (0119,
+    // OUTCOME_DECISION_CAPTURE).
     const outcomeLeg = outcomeTelemetryEnabled();
     const observationLeg = toolObservationsEnabled();
-    if (!outcomeLeg && !observationLeg) return { tenants: 0, pruned: 0 };
+    const decisionLeg = outcomeDecisionCaptureEnabled();
+    if (!outcomeLeg && !observationLeg && !decisionLeg) return { tenants: 0, pruned: 0 };
     if (this.running) {
       this.logger.warn('outcome prune still running — skipping this tick');
       return { tenants: 0, pruned: 0 };
@@ -69,6 +85,7 @@ export class OutcomePruneService {
         try {
           if (outcomeLeg) pruned += await this.pruneTenant(companyId);
           if (observationLeg) pruned += await this.pruneToolObservations(companyId);
+          if (decisionLeg) pruned += await this.pruneDecisions(companyId);
         } catch (e) {
           this.logger.warn(`outcome prune for ${companyId} failed: ${(e as Error).message}`);
         }
@@ -90,6 +107,12 @@ export class OutcomePruneService {
   async pruneToolObservations(companyId: string): Promise<number> {
     const cutoff = new Date(Date.now() - toolObservationRetentionDays() * 86_400_000);
     return this.drain(companyId, TOOL_OBSERVATION_PRUNE_BATCH_QUERY, cutoff);
+  }
+
+  /** Same drain for the memory_decision rows (0119). */
+  async pruneDecisions(companyId: string): Promise<number> {
+    const cutoff = new Date(Date.now() - outcomeDecisionRetentionDays() * 86_400_000);
+    return this.drain(companyId, DECISION_PRUNE_BATCH_QUERY, cutoff);
   }
 
   private async drain(companyId: string, query: string, cutoff: Date): Promise<number> {

@@ -13,7 +13,6 @@ import { SynthesisGuardrails, SynthesizeDto } from './dto/synthesize.dto';
 import { buildDecisionLog } from './decision-log';
 import { applyConformalGuardrail } from './conformal-guardrail';
 import { coverageAbstention, finalizeVerdict } from './verdict';
-import type { AbstainAdaptiveGate } from './verdict';
 import {
   attachDecisionLog,
   buildGeneratorArgs,
@@ -42,7 +41,7 @@ import { buildDateMathLines } from './date-math';
 export { buildFactIndex } from './fact-index';
 import { runGenerator, type GenerateRequest } from './generator-client';
 import { runVerifier, type VerifierOutput } from './verifier';
-import { buildMiniCheckDocument, miniCheckConsistent } from './minicheck-client';
+import { miniCheckVerdict } from './minicheck-client';
 export { buildGeneratorUserMessage } from './generator-prompt';
 import {
   EvidenceCollectorService,
@@ -51,13 +50,13 @@ import {
 } from './evidence-collector.service';
 import { L3EscalationService } from './l3-escalation.service';
 import { FocusSignalService } from './focus-signal.service';
+import type { FocusVerdict } from './focus-signal';
+import { resolveAdaptiveAbstain, resolveAdaptiveL3 } from './adaptive-gates';
 import {
-  buildFocusSignal,
-  calibratedConfidence,
-  hasUsableCalibration,
-  queryClassOf,
-} from './focus-signal';
-import type { FocusVerdict, PerClassCalibration } from './focus-signal';
+  buildL3DecisionCallback,
+  captureAbstainDecision,
+  type DecisionContext,
+} from './decision-emit';
 import { LensSuppressionService } from './lens-suppression.service';
 import { MultilingualLaneClassifierService } from './multilingual-lane-classifier.service';
 import {
@@ -65,6 +64,7 @@ import {
   type AnswerCacheBeginResult,
 } from '../answer-cache/answer-cache.service';
 import { MemoryOutcomeService } from '../outcomes/memory-outcome.service';
+import { MemoryDecisionService } from '../outcomes/memory-decision.service';
 import { emitAnswerUse, emitSelectedForContext, unverifiedServe } from './outcome-emit';
 import { NOOP_REPORTER, type ProgressReporter } from '../mcp/progress-reporter';
 
@@ -150,6 +150,10 @@ export class SynthesizeService {
     @Optional() private readonly predicateRegistry?: PredicateRegistryService,
     // 0115 ungrounded-support gate: grounding fetch source (grounding-fetch.ts).
     @Optional() private readonly surreal?: SurrealService,
+    // 0119 decision-context writer — @Optional so positional unit
+    // fixtures stay valid; absent (or flag off) ⇒ no decision rows, no
+    // join columns, byte-identical serving.
+    @Optional() private readonly decisions?: MemoryDecisionService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
@@ -185,14 +189,36 @@ export class SynthesizeService {
     this.minicheckModel = this.configService.get<string>('MINICHECK_MODEL', 'bespoke-minicheck');
   }
 
-  async synthesize({
-    companyId,
-    dto,
-    callerScopes,
-    onProgress = NOOP_REPORTER,
-    extraHits,
-    profile = getActiveRetrievalProfile(),
-  }: SynthesizeOptions): Promise<SynthesizeResult> {
+  /**
+   * Public entry — the grounded flow plus the ONE flag-free change of
+   * the 0119 wave: a synthesize-boundary latency observe. The
+   * brain_search_duration_seconds histogram was defined but never
+   * observed on the serving path, so the MRI latency cells rendered
+   * `pending` forever (audit pt-8). A prom histogram observe() has no
+   * serving-path branch and alters no response bytes — metrics-only,
+   * zero behavioral effect — and the `finally` guarantees EXACTLY ONE
+   * observation per request, including error/abstain/cache-hit exits.
+   */
+  async synthesize(opts: SynthesizeOptions): Promise<SynthesizeResult> {
+    const t0 = Date.now();
+    try {
+      return await this.synthesizeGrounded(opts, { t0 });
+    } finally {
+      this.metrics?.observeSearchDuration((Date.now() - t0) / 1000);
+    }
+  }
+
+  private async synthesizeGrounded(
+    {
+      companyId,
+      dto,
+      callerScopes,
+      onProgress = NOOP_REPORTER,
+      extraHits,
+      profile = getActiveRetrievalProfile(),
+    }: SynthesizeOptions,
+    decisionCtx: DecisionContext,
+  ): Promise<SynthesizeResult> {
     // Defence-in-depth clamp. SynthesizeDto.@MaxLength('query', 8000)
     // covers HTTP callers, but multi-hop and admin-demo drive
     // synthesize() with bodies that bypass class-validator. Clamp here
@@ -284,7 +310,7 @@ export class SynthesizeService {
     // V9 §4 coverage abstention + Optics §4.2 pre-answer capture/gate (seam).
     const abstained = await this.maybeCoverageAbstain(
       companyId,
-      { lane, query: dto.query },
+      { lane, query: dto.query, decisionCtx },
       { profile, guardrails, results, explain },
     );
     if (abstained) return abstained;
@@ -382,13 +408,17 @@ export class SynthesizeService {
     let verdict: VerifierOutput;
     try {
       verdict = nliMode
-        ? await this.miniCheckVerdict({
-            answer: generated.answer,
-            factLines: promptFactLines,
-            transcriptLines,
-            insightLines,
-            fragmentLines,
-          })
+        ? await miniCheckVerdict(
+            { baseUrl: this.minicheckUrl, model: this.minicheckModel, signal: getAbortSignal() },
+            {
+              answer: generated.answer,
+              factLines: promptFactLines,
+              transcriptLines,
+              insightLines,
+              // MM-zoom PR2 parity: the media lines the generator saw.
+              fragmentLines,
+            },
+          )
         : await withSpan(
             'synthesize.verify',
             () =>
@@ -445,10 +475,11 @@ export class SynthesizeService {
     }
 
     // Optics-1 focus capture — SERVING-NEUTRAL guarded no-op (see method).
-    // `dto.query` carries the Tier 5 language key onto the verdict sample.
+    // `dto.query` carries the Tier 5 language key onto the verdict sample;
+    // the 0119 primary decision id (if any) joins sample → decision row.
     await this.maybeCaptureFocusSignal(
       companyId,
-      { results, verdict: verdict.verdict, lane },
+      { results, verdict: verdict.verdict, lane, decisionId: decisionCtx.primaryDecisionId },
       dto.query,
     );
 
@@ -461,43 +492,46 @@ export class SynthesizeService {
     // A + C): on no-flip the primary finalizeAndAdmit runs it, and the L3 flip
     // path runs it too (its raw-transcript answer is the most exposed, so the
     // gate is end-to-end).
-    return (
-      (await this.tryL3Escalation({
-        cache,
-        verdict,
-        companyId,
-        callerScopes,
-        dto,
-        profile,
-        lane,
-        model,
-        answerLang,
-        refineAttempted: produced.refined,
-        results,
-        factIndex,
-        promptFactLines,
-        dateMathLines,
-        guardrails,
-        explain,
-      })) ??
-      this.finalizeAndAdmit({ cache, dto, profile, model, companyId }, verdict, {
-        answer: generated.answer,
-        citations,
-        results,
-        guardrails,
-        decisionLog,
-        abstention: profile.abstentionCalibration,
-        // MM-zoom PR2: fragment-arm evidence citations through the
-        // rendered-set fence — spread onto the served result only when
-        // non-empty (finalizeVerdict) and fed to the 0113 capability
-        // gate (citedCapabilities). [] with the flag off ⇒ byte-identical.
-        evidenceCitations: resolveAndCountFragmentCitations({
-          citedFragmentIds: generated.citedFragmentIds,
-          fragmentsById,
-          metrics: this.metrics,
-        }),
-      })
-    );
+    const escalated = await this.tryL3Escalation({
+      cache,
+      verdict,
+      companyId,
+      callerScopes,
+      dto,
+      profile,
+      lane,
+      model,
+      answerLang,
+      refineAttempted: produced.refined,
+      results,
+      factIndex,
+      promptFactLines,
+      dateMathLines,
+      guardrails,
+      explain,
+      decisionCtx,
+    });
+    if (escalated) return escalated;
+    // decisionId read AFTER the L3 evaluation: a skip/no-flip escalation
+    // still minted its decision row, and the primary serve joins to it.
+    const decisionId = decisionCtx.primaryDecisionId;
+    return this.finalizeAndAdmit({ cache, dto, profile, model, companyId, decisionId }, verdict, {
+      answer: generated.answer,
+      citations,
+      results,
+      guardrails,
+      decisionLog,
+      abstention: profile.abstentionCalibration,
+      // MM-zoom PR2: fragment-arm evidence citations through the
+      // rendered-set fence — spread onto the served result only when
+      // non-empty (finalizeVerdict) and fed to the 0113 capability
+      // gate (citedCapabilities). [] with the flag off ⇒ byte-identical.
+      evidenceCitations: resolveAndCountFragmentCitations({
+        citedFragmentIds: generated.citedFragmentIds,
+        fragmentsById,
+        metrics: this.metrics,
+      }),
+    });
   }
 
   /**
@@ -543,7 +577,13 @@ export class SynthesizeService {
    */
   private async maybeCaptureFocusSignal(
     companyId: string,
-    signal: { results: SearchHit[]; verdict: FocusVerdict; lane: LaneId | null },
+    signal: {
+      results: SearchHit[];
+      verdict: FocusVerdict;
+      lane: LaneId | null;
+      /** 0119 join key — present only under OUTCOME_DECISION_CAPTURE. */
+      decisionId?: string | undefined;
+    },
     query: string,
   ): Promise<void> {
     if (!this.focusSignal || !FocusSignalService.captureEnabled()) return;
@@ -577,10 +617,20 @@ export class SynthesizeService {
     dateMathLines?: string[] | undefined;
     guardrails: SynthesisGuardrails;
     explain: boolean;
+    decisionCtx: DecisionContext;
   }): Promise<SynthesizeResult | null> {
-    const { profile, companyId } = args;
+    const { profile, companyId, decisionCtx } = args;
     if (!this.l3 || !profile.l3Escalation) return null;
-    const adaptiveL3 = await this.resolveAdaptiveL3(args.companyId);
+    const adaptiveL3 = await resolveAdaptiveL3(
+      { focusSignal: this.focusSignal, logger: this.logger },
+      args.companyId,
+    );
+    // 0119 decision capture: the service invokes the callback ONCE per
+    // escalate() evaluation (an optional callback — the L3 engine dir
+    // never reads env and never grows a MemoryDecisionService dep, S5.2).
+    // Escalate() awaits before finalize, so a minted id is visible to the
+    // L3-flip finalizeAndAdmit below via decisionCtx.
+    const onDecision = buildL3DecisionCallback(this.decisions, companyId, decisionCtx);
     const l3 = await this.l3.escalate({
       openai: this.openai,
       model: args.model,
@@ -598,6 +648,7 @@ export class SynthesizeService {
       answerLang: args.answerLang,
       dateMathLines: args.dateMathLines,
       ...(adaptiveL3 ? { adaptiveL3 } : {}),
+      ...(onDecision ? { onDecision } : {}),
     });
     if (!l3) return null;
     // Route the L3 supported answer through the SAME answer-integrity gate as
@@ -611,7 +662,14 @@ export class SynthesizeService {
     // → admit(final); a downgraded L3 abstain (reason=low_coverage, citations=[])
     // is rejected by admit()'s existing gate, so it is never cached.
     return this.finalizeAndAdmit(
-      { cache: args.cache, dto: args.dto, profile: args.profile, model: args.model, companyId },
+      {
+        cache: args.cache,
+        dto: args.dto,
+        profile: args.profile,
+        model: args.model,
+        companyId,
+        decisionId: decisionCtx.primaryDecisionId,
+      },
       l3.verdict,
       {
         answer: l3.answer,
@@ -629,73 +687,6 @@ export class SynthesizeService {
         abstention: profile.abstentionCalibration,
       },
     );
-  }
-
-  /**
-   * Optics-2 (§4.1) adaptive-L3 inputs. Returns the loaded per-class
-   * calibration + escalate threshold ONLY when FOVEA_ADAPTIVE_L3 is on AND
-   * a USABLE model (a class fit from real labeled samples) is persisted for
-   * the tenant; otherwise undefined so the L3 lane takes its static
-   * coverage-floor path. This is the load-bearing safety property: flag off
-   * → undefined → static; no/empty/bootstrap model → undefined → static —
-   * an unconfigured tenant serves byte-identically to the pre-Optics-2 L3.
-   * The env reads live in the common layer (fovea-flags, via the
-   * FocusSignalService statics), never in this engine dir (engine-gates
-   * S5.2). A load failure returns undefined (fail-safe to static).
-   */
-  private async resolveAdaptiveL3(
-    companyId: string,
-  ): Promise<{ calibration: PerClassCalibration; threshold: number } | undefined> {
-    if (!this.focusSignal || !FocusSignalService.adaptiveL3Enabled()) return undefined;
-    try {
-      const calibration = await this.focusSignal.loadCalibration(companyId);
-      if (!hasUsableCalibration(calibration)) return undefined;
-      return { calibration, threshold: FocusSignalService.adaptiveL3EscalateThreshold() };
-    } catch (e) {
-      this.logger.warn(
-        `adaptive-L3 calibration load failed; static fallback: ${(e as Error).message}`,
-      );
-      return undefined;
-    }
-  }
-
-  /**
-   * Optics §4.2 adaptive-abstention gate. Returns the calibrated pre-answer
-   * {confidence, threshold} for the coverage-abstention decision ONLY when
-   * FOVEA_ADAPTIVE_ABSTAIN is on AND a USABLE per-class PRE-ANSWER model is
-   * persisted for the tenant; otherwise undefined so the gate takes its
-   * static coverage-floor path. The confidence is computed from the SAME
-   * per-fact scores the pre-answer capture used, with verdict='none' (the
-   * constant that keys the pre-answer stage — fit-shape = apply-shape §4.2)
-   * and the loaded PRE-ANSWER calibration. Load-bearing safety property: flag
-   * off → undefined → static; no/empty/bootstrap model → undefined → static
-   * — an unconfigured tenant serves byte-identically to the static coverage
-   * abstention. The env reads live in the common layer (fovea-flags, via the
-   * FocusSignalService statics), never in this engine dir (engine-gates
-   * S5.2). A load failure returns undefined (fail-safe to static).
-   */
-  private async resolveAdaptiveAbstain(
-    companyId: string,
-    args: { results: SearchHit[]; lane: LaneId | null },
-  ): Promise<AbstainAdaptiveGate | undefined> {
-    if (!this.focusSignal || !FocusSignalService.adaptiveAbstainEnabled()) return undefined;
-    try {
-      const calibration = await this.focusSignal.loadCalibration(companyId, 'preanswer');
-      if (!hasUsableCalibration(calibration)) return undefined;
-      const factScores = args.results.flatMap((hit) => hit.facts.map((f) => f.score));
-      const signal = buildFocusSignal({
-        queryClass: queryClassOf(args.lane),
-        factScores,
-        verifierVerdict: 'none',
-      });
-      const confidence = calibratedConfidence(calibration, signal);
-      return { confidence, threshold: FocusSignalService.adaptiveAbstainThreshold() };
-    } catch (e) {
-      this.logger.warn(
-        `adaptive-abstain calibration load failed; static fallback: ${(e as Error).message}`,
-      );
-      return undefined;
-    }
   }
 
   /**
@@ -720,8 +711,14 @@ export class SynthesizeService {
     args: Omit<Parameters<typeof finalizeVerdict>[1], 'verdict' | 'questionAnswered'>,
   ): Promise<SynthesizeResult> {
     // 0107: cited facts were USED; a supported verdict ⇒ VERIFIED use.
-    // Both serving paths (primary + L3 flip) land here with companyId.
-    emitAnswerUse(this.outcomes, { companyId: ctx.companyId, citations: args.citations, verdict });
+    // Both serving paths (primary + L3 flip) land here with companyId;
+    // the 0119 primary decision id (capture on) joins outcome → decision.
+    emitAnswerUse(this.outcomes, {
+      companyId: ctx.companyId,
+      citations: args.citations,
+      verdict,
+      decisionId: ctx.decisionId,
+    });
     // The gate-resolution also folds in the evidence-capability flag
     // (FOVEA_EVIDENCE_CAPABILITY, 0113 — resolveEvidenceCapability, the
     // resolveAnswerIntegrity sibling in answer-integrity.ts): does the
@@ -959,7 +956,7 @@ export class SynthesizeService {
    */
   private async maybeCoverageAbstain(
     companyId: string,
-    ctx: { lane: LaneId | null; query: string },
+    ctx: { lane: LaneId | null; query: string; decisionCtx?: DecisionContext },
     args: Parameters<typeof coverageAbstention>[1],
   ): Promise<SynthesizeResult | null> {
     const { lane, query } = ctx;
@@ -975,6 +972,9 @@ export class SynthesizeService {
       (guardrails === 'strict' || guardrails === 'lenient');
     if (coverageRegime && this.focusSignal && FocusSignalService.captureEnabled()) {
       // `query` threads the Tier 5 language key into the pre-answer sample.
+      // (No decisionId here by construction: the abstain decision is minted
+      // AFTER the gate below decides — only the verdict-stage sample can
+      // carry the join key.)
       await this.focusSignal.maybeCapture(
         companyId,
         { results, verdict: 'none', lane, query },
@@ -982,9 +982,27 @@ export class SynthesizeService {
       );
     }
     const adaptive = coverageRegime
-      ? await this.resolveAdaptiveAbstain(companyId, { results, lane })
+      ? await resolveAdaptiveAbstain(
+          { focusSignal: this.focusSignal, logger: this.logger },
+          companyId,
+          { results, lane },
+        )
       : undefined;
-    return this.coverageAbstention({ ...args, ...(adaptive ? { adaptive } : {}) });
+    const result = this.coverageAbstention({ ...args, ...(adaptive ? { adaptive } : {}) });
+    // 0119 decision capture: ONE 'abstain' row per request where the gate
+    // was LIVE (coverage regime), recording which action it took. Guarded
+    // no-op unless OUTCOME_DECISION_CAPTURE is on and the writer is wired
+    // (decision-emit.ts); claims the primary-decision slot when free.
+    if (coverageRegime && ctx.decisionCtx) {
+      captureAbstainDecision(this.decisions, companyId, {
+        results,
+        lane,
+        adaptive,
+        abstained: result !== null,
+        decisionCtx: ctx.decisionCtx,
+      });
+    }
+    return result;
   }
 
   /**
@@ -1110,37 +1128,6 @@ export class SynthesizeService {
       logger: this.logger,
       ...args,
     });
-  }
-
-  /**
-   * V11 §2 arm (b): the local-NLI judgment mapped onto the verifier
-   * verdict shape, so it falls through the SAME finalizeVerdict gate
-   * (verdict.ts treats 'minicheck' like 'verifier'). The claim is the
-   * whole answer text; the document is the evidence bundle the
-   * generator saw. A refinement candidate from the V10 §5 lesson —
-   * decompose the answer and check the connecting claim separately —
-   * is deliberately NOT in v1 (measure the plain form first).
-   */
-  private async miniCheckVerdict(args: {
-    answer: string;
-    factLines: string[];
-    transcriptLines: string[];
-    insightLines: string[];
-    /** MM-zoom PR2 parity: the media lines the generator saw. */
-    fragmentLines?: string[] | undefined;
-  }): Promise<VerifierOutput> {
-    const consistent = await withSpan('synthesize.verify', () =>
-      miniCheckConsistent({
-        baseUrl: this.minicheckUrl,
-        model: this.minicheckModel,
-        document: buildMiniCheckDocument(args),
-        claim: args.answer,
-        signal: getAbortSignal(),
-      }),
-    );
-    return consistent
-      ? { verdict: 'supported', unsupportedClaims: [] }
-      : { verdict: 'unsupported', unsupportedClaims: [args.answer] };
   }
 
   private async callVerifier(args: {
