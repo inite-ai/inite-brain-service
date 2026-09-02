@@ -6,6 +6,55 @@ The bundle ships as a single versioned unit (semver in `skills/VERSION`).
 No per-skill versions — bump-skill-versions patch-bumps the bundle when
 any file under `skills/<name>/**` changes.
 
+## [0.4.0] — 2026-09-02
+
+Docs refresh to the current MCP surface. The bundle had drifted badly:
+skills described a 21-tool surface (15 read / +5 write / +1 admin)
+while the server now registers up to **30 built-in tools + 2
+resources** — 19 read always (+ `get_fact`, `get_fact_provenance`
+under `FACTS_API_ENABLED` = 21), 8 write under `brain:write` (incl.
+`ingest_document` under `DOCUMENT_INGEST_ENABLED`), 1 admin — plus
+pack-declared tools under `MCP_PACK_TOOLS_ENABLED`. Minor bundle bump
+— no breaking changes.
+
+### MCP tools now covered
+
+- `get_fact` / `get_fact_provenance` — one fact's full trust record
+  (incl. `groundingStatus`) and the verbatim grounding turns behind
+  it; registered when the server runs `FACTS_API_ENABLED`. Read scope.
+- `graph_retrieve` — graph-first retrieval around named entities
+  (1-hop neighbourhood, predicateHints, soft-fail to empty). Read scope.
+- `why` / `recall_decisions` — code-memory recall (one anchor /
+  semantic search). Read scope.
+- `get_source_reputation` — learned trust profile of a source
+  vertical. Read scope.
+- `ingest_document` — Source → Indexer → Candidates → Brain pipeline
+  for multi-claim prose, incl. the `toolObservationRef` provenance hop
+  (`TOOL_OBSERVATIONS_ENABLED`). Write scope.
+- `record_feedback` — helpful / not_helpful / incorrect per fact, one
+  standing vote per caller key. Write scope.
+- `record_decision` — code-memory write. Write scope.
+
+### Skill updates
+
+- `brain-mcp-setup` — scope matrix rewritten to the real surface
+  (19/21 read → up to 29 with write → up to 30 with admin; the old
+  matrix said 15/20/21 and the description claimed "all 14 brain
+  tools"); `brain:read_media` row added (env-key-only media evidence
+  scope); resources + pack-tools noted.
+- `brain-write` — `record_fact` examples now show the
+  `conversationId` + `evidence[]` grounding inputs and explain the
+  claim-grounding plane (`groundingStatus`); new `ingest_document`
+  (with `toolObservationRef`) and `record_feedback` sections.
+- `brain-search` — `graph_retrieve` routing rule; `limit` bound fixed
+  (1..100); companion list picks up the fact-read, source-reputation
+  and code-memory tools.
+- `brain-recall` — `styleHint: 'client_llm'` (MCP sampling) documented;
+  `get_fact` / `get_fact_provenance` as the "why do you remember this"
+  companions.
+- `brain-conflict` — `get_source_reputation` for adjudication and the
+  detect_contradiction fidelity note; fact-read companions.
+
 ## [0.3.0] — 2026-06-23
 
 Read surface picked up four more MCP tools and two new workflow

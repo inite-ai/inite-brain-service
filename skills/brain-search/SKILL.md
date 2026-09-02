@@ -16,6 +16,7 @@ Search the company's bitemporal knowledge graph for entities and their facts. Br
 Do **not** use for:
 - Recording new facts → use `record_fact` instead
 - Walking one entity's full history → use `brain-recall` (it combines profile + timeline + connections)
+- You already know WHICH entities the question is about → use **`graph_retrieve`** (resolves the named entities, walks their 1-hop neighbourhood, returns facts across seeds ∪ neighbours — "who runs engineering at Acme" lives on a neighbour, not on Acme itself; it soft-fails to empty so you can fall back to `search_knowledge`)
 - Questions that combine evidence across multiple entities or sessions → use **`search_multi_hop`** (it runs a planner-LLM and chains sub-queries; the running entity set is anchored across hops so compute stays bounded)
 - Direct natural-language answers with citations → use **`synthesize`** (the LLM generator runs a verifier; the strict guardrail returns `null` when grounding is thin, lenient returns the verdict)
 
@@ -24,7 +25,7 @@ Do **not** use for:
 ```ts
 search_knowledge({
   query: "tenants who complained about maintenance",
-  limit: 10,            // 1..50, default 10
+  limit: 10,            // 1..100, default 10
   predicates: ["complained_about"],  // optional filter
   asOf: "2026-04-01T00:00:00Z",      // optional bitemporal cutoff
   minConfidence: 0.6,    // optional 0..1 floor on fact confidence
@@ -95,13 +96,17 @@ If the search needs `email`, `phone`, `dob`, or `address`, the caller must hold 
 
 ## Companion tools
 
+- `graph_retrieve` — graph-first retrieval when the entities are already known by name; predicateHints narrow the neighbour facts
 - `search_multi_hop` — for chained reasoning over multiple entities ("tenants who complained in April AND upgraded after"); set `synthesize: true` to fold the answer in
 - `synthesize` — when the user wants a direct natural-language answer with citations rather than raw search hits; pair with `synthesisGuardrails: 'strict'` when hallucinated answers cost more than null
 - `memory_diff` — for "what changed between two cursors" questions (see `brain-bitemporal`)
 - `summarize_entity` — one-line briefing when full profile is overkill (see `brain-recall`)
 - `get_entity_profile` — when you already have a specific entity in mind
 - `get_entity_timeline` — when you need every fact ever recorded for one entity
+- `get_fact` / `get_fact_provenance` — the full trust record and grounding turns behind one factId a search surfaced (`FACTS_API_ENABLED` servers)
 - `get_competing_facts` / `detect_contradiction` — adjudication and preflight (see `brain-conflict`)
+- `get_source_reputation` — how much to trust a hit's source vertical
 - `find_related_entities` — graph walk from a known node
+- `why` / `recall_decisions` — code-memory recall: the recorded "why" behind a code anchor / semantic search over recorded decisions
 - `record_fact` / `link_entities` / `retract_fact` — write surface (see `brain-write`)
 - `forget_entity` — GDPR-grade hard cascade; admin scope only

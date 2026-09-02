@@ -42,7 +42,8 @@ Scope: `brain:read`. Policy action: `get_fact`.
   "recorder": "session-deriver-v1",
   "conversationId": "conv-1",
   "retracted": false,
-  "derivedVersion": "wd-v3s"
+  "derivedVersion": "wd-v3s",
+  "groundingStatus": "grounded"
 }
 ```
 
@@ -51,6 +52,13 @@ Scope: `brain:read`. Policy action: `get_fact`.
   `source` stamp and are present only when stamped.
 - `userId` is the per-user memory scope (migration 0055); absent =
   tenant-global.
+- `groundingStatus` (`grounded` | `ungrounded`, migration 0115) is the
+  claim-grounding state stamped by servers running
+  `EVIDENCE_GROUNDING_STAMP`: `grounded` = the source names an
+  observation (episode ids in `source.episodeIds`, non-empty
+  `source.evidence[]`, or a `source.conversationId`); `ungrounded` =
+  explicitly observation-free. Absent = legacy row (predates the stamp
+  writer) — additive, never backfilled.
 - Retracted facts still resolve, with `retracted: true` — what was
   un-remembered and why it disappeared is part of the trust story.
 
@@ -80,6 +88,42 @@ characters:
 
 A fact with no grounding stamp (e.g. directly recorded via the write
 API) serves an empty `episodes` list.
+
+### Read-flag extensions: closure + support edges
+
+Three additive response fields appear when the server enables the
+corresponding read flags (absent — not empty — otherwise, so plain
+deployments stay byte-identical):
+
+- `derivedFacts` + `closure` (`PROVENANCE_RECURSIVE_CLOSURE`, default
+  off): for a fact WITH `derivedFrom`, the walk serves the transitive
+  support graph — each supporting fact as `{factId, predicate, depth,
+  status}` (compacted / retracted members still witness; status is
+  reported, not hidden) and a `closure` summary `{depth, factCount,
+  truncated, filtered}`. The `episodes` list becomes the union of
+  grounding episodes across the closure. Every member passes the same
+  visibility fences as the root; an invisible member is a SILENT drop
+  marked `filtered: true`. Traversal depth is server-side policy
+  (`PROVENANCE_CLOSURE_MAX_DEPTH` / `_FACTS` / `_EPISODES`), not a
+  caller knob.
+- `supportEdges` (`PROVENANCE_SUPPORT_GRAPH_READ`, migration 0116): the
+  typed `memory_support` edges the walk crossed, each `{kind, from,
+  to}` with full record ids:
+
+| Kind | Direction (`in` = the claim being supported) |
+| --- | --- |
+| `supported_by` | fact → the `memory_episode` scene that witnessed it |
+| `contradicted_by` | loser fact → winner fact (COMPETING writes the mutual pair) |
+| `derived_from` | summary fact → member fact (typed mirror of the untyped `derivedFrom` array) |
+
+The `memory_support` substrate vocabulary reserves a fourth kind,
+`reconstructed_from` — scene membership stays in
+`memory_episode_member` (0106), NO writer emits it (the edge-shape
+guard rejects it), and the wire enum deliberately excludes it. If it
+ever appears in a response, that is a bug, not a new feature.
+
+The MCP twin `get_fact_provenance` is a passthrough of this response —
+no field filtering.
 
 ## Auth semantics
 

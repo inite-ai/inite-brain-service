@@ -23,11 +23,18 @@ that can only spawn stdio servers use the first-party shim
   "env": { "BRAIN_API_KEY": "brain_…", "BRAIN_COMPANY_ID": "…" } }
 ```
 
-Self-hosted: add `BRAIN_BASE_URL` (or `BRAIN_MCP_URL`). The shim is a
-transparent passthrough; auth, tenancy, scopes, and PII fencing are enforced
-server-side from the key. Key scopes decide what `tools/list` returns:
-`brain:read` → read surface; `brain:write` adds mutations; `brain:admin`
-adds GDPR forget.
+Self-hosted: add `BRAIN_BASE_URL` (or `BRAIN_MCP_URL`). The shim (v0.2) is a
+transparent passthrough for tools AND resources (`resources/list`,
+`resources/templates/list`, `resources/read`), and bridges sampling in
+reverse — brain's `sampling/createMessage` reaches YOUR model, falling back
+to a server-side template when your harness doesn't advertise sampling.
+Auth, tenancy, scopes, and PII fencing are enforced server-side from the
+key. Key scopes decide what `tools/list` returns: `brain:read` → read
+surface; `brain:write` adds mutations; `brain:admin` adds GDPR forget.
+Two further scopes exist but are hosting-operator-only (granted via env-key
+config, never mintable through tokens): `brain:read_media` (media/biometric
+evidence — stricter than `brain:read_pii`, not implied by it) and
+`brain:platform_admin` (cross-tenant operator authority).
 
 ## Tool surface
 
@@ -50,14 +57,20 @@ Read (with `brain:read`):
 | `search_communities`, `list_communities`, `find_entity_communities` | Graph community summaries (thematic clusters) |
 | `why`, `recall_decisions` | Code-memory: why code is the way it is; past recorded decisions |
 | `get_source_reputation` | Learned trust profile of a source vertical |
+| `get_fact` | One fact as stored: statement, validity, source attribution, lifecycle (`retracted: true` still resolves), and `groundingStatus` (`grounded`/`ungrounded`; absent = legacy row). Registered when the server runs `FACTS_API_ENABLED` |
+| `get_fact_provenance` | Why a fact is remembered: the verbatim grounding turns (with char-span quotes when stamped); plus `derivedFacts`/`closure`/`supportEdges` on servers running the closure/support-graph read flags. Same `FACTS_API_ENABLED` gate |
 
 MCP resources (droppable into context without a tool call):
 `brain://entity/<id>` (profile) and `brain://entity/<id>/timeline`.
 
-Write (adds with `brain:write`): `record_fact`, `link_entities`,
-`retract_fact`, `record_procedure`, `retire_procedure`, `record_feedback`,
+Write (adds with `brain:write`): `record_fact` (accepts `conversationId` +
+`evidence[]` — see grounding below), `link_entities`, `retract_fact`,
+`record_procedure`, `retire_procedure`, `record_feedback`,
 `ingest_document` (Source→Indexer→Candidates pipeline; prefer over
-`record_fact` for anything longer than one claim), `record_decision`.
+`record_fact` for anything longer than one claim; accepts
+`toolObservationRef: tool_observation:<id>` to close the tool result →
+document → fact provenance loop under `TOOL_OBSERVATIONS_ENABLED`),
+`record_decision`.
 
 Admin (adds with `brain:admin`): `forget_entity` — GDPR hard-delete with a
 synchronous cascade and tombstones.
@@ -86,13 +99,46 @@ synchronous cascade and tombstones.
   only tombstones remain. Do not use forget for "this fact is now wrong" —
   record the new fact or retract.
 - **Provenance is first-class.** Every fact is attributable:
-  `GET /v1/facts/:id` and `GET /v1/facts/:id/provenance` return the source
-  chain ([docs/fact-provenance-api.md](docs/fact-provenance-api.md));
+  `get_fact` / `get_fact_provenance` (and their REST twins) return the
+  source chain ([docs/fact-provenance-api.md](docs/fact-provenance-api.md));
   `search_multi_hop` returns supporting fact ids; `synthesize` cites
   `[factId]` per claim and a verifier judges support.
+- **Ground your writes.** `record_fact` accepts `conversationId` (the
+  conversation the fact was observed in) and `evidence[]` (≤10 typed
+  pointers: event/message/conversation/url/document/commit/other). Naming
+  the observation marks the fact **grounded** — servers stamping
+  `groundingStatus` (EVIDENCE_GROUNDING_STAMP) can exclude ungrounded
+  claims from consolidation and from strict serving. A bare `record_fact`
+  is permanently observation-free; always pass what you have.
+- **`evidenceCitations` is a SEPARATE array from `citations`.** `synthesize`
+  answers carry fact citations in `citations[]` (`c.factId`); episode- or
+  fragment-grounded claims arrive in `evidenceCitations[]` (episode arm:
+  `episodeId` + optional verified `span`; fragment arm: `fragmentId` +
+  `assetId` + `capability` + rendered `excerpt`). Never flatten the two —
+  consumers reading `factId` off an evidence citation (or vice versa) will
+  corrupt their provenance handling.
 - **Abstention is a feature.** `synthesize` in `strict` mode returns `null`
   rather than an unsupported answer. Treat `null` as "brain does not know",
-  not as an error to retry around.
+  not as an error to retry around. Beyond the classic reasons
+  (`no_results`, `low_coverage`, verifier verdicts) there are two
+  evidence-plane reasons with DIFFERENT remedies: `ungrounded_evidence`
+  (every cited fact is `groundingStatus='ungrounded'` — remedy: ground the
+  claims, not "the memory doesn't know") and `evidence_capability_unmet`
+  (a claim's predicate requires non-text evidence — visual/audio/document
+  — and no cited evidence of that capability exists; remedy: attach/verify
+  the media).
+- **Cached answers are legitimate.** A `synthesize` response with
+  `cached: true` was served from the fact-lifecycle-gated answer cache:
+  citations were re-validated against live fact rows at serve time, and
+  `results` is EMPTY because retrieval never ran. Do not treat the empty
+  `results[]` as "no evidence".
+- **Your tool calls may be observed — content-free.** Under
+  `TOOL_OBSERVATIONS_ENABLED` the server records per-call observation rows
+  (tool name, argument/result DIGESTS, ok flag, duration — no content
+  unless the operator additionally opts into a sanitized 512-char excerpt).
+  Denied calls record nothing. Reference an observation from
+  `ingest_document.toolObservationRef` to link derived documents back to
+  the tool result they came from.
 
 ## Common mistakes
 

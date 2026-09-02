@@ -1,6 +1,6 @@
 # Справочник MCP-инструментов
 
-Сервер регистрирует **28 встроенных инструментов + 2 ресурса** на `McpServer({ name: 'inite-brain-service' })`, с гейтингом по scope: 19 на чтение (`brain:read`), ещё 8 с `brain:write` (один из них, `ingest_document`, регистрируется только при `DOCUMENT_INGEST_ENABLED=1`) и 1 с `brain:admin`. Чувствительным PII-значениям нужен дополнительный scope `brain:read_pii`. Поверх встроенных установленные Domain Packs могут добавлять одобренные оператором namespaced-инструменты — см. раздел «Инструменты из паков» ниже. На этой странице описаны самые используемые инструменты; полный список (communities, процедурная память, репутация источников, code memory) перечислен по scope в [матрице scope настройки MCP](/ru/docs/mcp/setup) и в [`docs/api.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/api.md) репозитория.
+Сервер регистрирует **до 30 встроенных инструментов + 2 ресурса** на `McpServer({ name: 'inite-brain-service' })`, с гейтингом по scope: 19 на чтение (`brain:read`) всегда, плюс ещё 2 инструмента чтения (`get_fact`, `get_fact_provenance`) при `FACTS_API_ENABLED=1` на сервере; ещё 8 с `brain:write` (один из них, `ingest_document`, регистрируется только при `DOCUMENT_INGEST_ENABLED=1`) и 1 с `brain:admin`. Чувствительным PII-значениям нужен дополнительный scope `brain:read_pii`. Поверх встроенных установленные Domain Packs могут добавлять одобренные оператором namespaced-инструменты — см. раздел «Инструменты из паков» ниже. На этой странице описаны самые используемые инструменты; полный список (communities, процедурная память, репутация источников, code memory) перечислен по scope в [матрице scope настройки MCP](/ru/docs/mcp/setup) и в [`docs/api.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/api.md) репозитория.
 
 ## search_knowledge
 
@@ -63,6 +63,30 @@
 }
 ```
 
+## get_fact
+
+> Прочитать один факт как он хранится — предикат (aspect), объект (statement), confidence, окно валидности, атрибуция источника и состояние жизненного цикла. Отозванные факты по-прежнему резолвятся (`retracted: true`); в not-found превращаются только фенсы видимости. `groundingStatus` (`grounded` | `ungrounded`) появляется на фактах, проштампованных плоскостью claim-grounding (`EVIDENCE_GROUNDING_STAMP`); на легаси-строках ключа нет.
+
+**Нужный scope:** `brain:read` — регистрируется только при `FACTS_API_ENABLED=1` на сервере (REST-близнец `GET /v1/facts/:id`).
+
+```ts
+{
+  factId: string                 // knowledge_fact:… or short id
+}
+```
+
+## get_fact_provenance
+
+> Показать, почему факт запомнен: дословные реплики разговора, из которых он выведен (хронологически, с char-span цитатами, если деривер их проштамповал). Серверы с флагами рекурсивного замыкания дополнительно возвращают `derivedFacts` + `closure` (транзитивный граф поддержки) и типизированные `supportEdges` — это passthrough `GET /v1/facts/:id/provenance`, без фильтрации полей.
+
+**Нужный scope:** `brain:read` — тот же гейт `FACTS_API_ENABLED`, что и у `get_fact`.
+
+```ts
+{
+  factId: string
+}
+```
+
 ## record_fact
 
 > Вставить факт о сущности. Запускает разрешение конфликтов brain (`INSERTED` / `SUPERSEDED` / `COMPETING` / `REJECTED`). Из агентов используй экономно — большинство фактов должно приходить через ингест событий.
@@ -80,8 +104,17 @@
   validUntil?: string
   confidence?: number            // 0..1
   sourceVertical: string         // attributed source vertical
+  userId?: string                // per-user memory scope
+  conversationId?: string        // grounding: the conversation this was observed in
+  evidence?: Array<{             // grounding: ≤10 typed observation pointers
+    kind: 'event' | 'message' | 'conversation' | 'url' | 'document' | 'commit' | 'other'
+    ref: string                  // the pointer itself — id, URL, path, sha…
+    note?: string
+  }>
 }
 ```
+
+Передавай `conversationId` и/или `evidence[]` всегда, когда можешь — именование наблюдения за утверждением помечает факт **grounded** на плоскости claim-grounding (серверы, штампующие `groundingStatus`, считают «голые» записи навсегда безнаблюдательными — такие факты могут исключаться из консолидации и строгого сервинга). Проверяй результат через `get_fact`.
 
 ## retract_fact
 

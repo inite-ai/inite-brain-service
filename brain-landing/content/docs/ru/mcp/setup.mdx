@@ -28,7 +28,7 @@ Brain не принимает анонимный MCP-трафик. Режима 
 }
 ```
 
-Полностью выйди из Claude Desktop (не просто закрой окно) и открой заново. Сервер brain появится в панели MCP — read-only ключ открывает 19 инструментов, ключ с полным набором scope — до 28 (см. матрицу scope ниже).
+Полностью выйди из Claude Desktop (не просто закрой окно) и открой заново. Сервер brain появится в панели MCP — read-only ключ открывает 19 инструментов (21 при `FACTS_API_ENABLED=1` на сервере), ключ с полным набором scope — до 30 (см. матрицу scope ниже).
 
 ## Cursor
 
@@ -100,7 +100,7 @@ Hermes на старте обнаружит инструменты brain и за
 харнес ──stdio──▶ @inite/brain-mcp ──HTTP + Bearer──▶ /mcp/<companyId>
 ```
 
-Это чистый проксипасс — `tools/list` и `tools/call` форвардятся вербатим, так что агент видит ровно ту поверхность, что открывает ключ. Пропиши его в MCP-конфиг харнеса (пример для `mcp.servers` у openclaw):
+Это чистый проксипасс — с v0.2 вербатим форвардятся `tools/list` / `tools/call` И поверхность ресурсов (`resources/list`, `resources/templates/list`, `resources/read` — ресурсы `brain://entity/…`), так что агент видит ровно ту поверхность, что открывает ключ. Sampling мостится в обратную сторону: запросы brain `sampling/createMessage` (от `summarize_entity` со `styleHint='client_llm'`) форвардятся харнесу, чтобы сводку писала его собственная модель; харнес без capability sampling получает чистую ошибку, и brain откатывается на локальный шаблон. Пропиши его в MCP-конфиг харнеса (пример для `mcp.servers` у openclaw):
 
 ```json
 {
@@ -134,7 +134,7 @@ Hermes на старте обнаружит инструменты brain и за
 
 > Покажи доступные инструменты brain и вызови `search_knowledge` с query `"hello"` limit 1.
 
-Ты увидишь количество инструментов, соответствующее scope ключа (19 для read-only, до 28 для read+write+admin), и результат `search_knowledge` — либо пустой (свежий тенант), либо одно попадание (seed-данные).
+Ты увидишь количество инструментов, соответствующее scope ключа (19 для read-only — 21 при `FACTS_API_ENABLED` — до 30 для read+write+admin), и результат `search_knowledge` — либо пустой (свежий тенант), либо одно попадание (seed-данные).
 
 Получил 401 — bearer-токен битый или ключ невалиден. Получил `400: MCP path companyId (...) does not match ApiKey companyId` — вставил не тот companyId для этого ключа.
 
@@ -142,14 +142,15 @@ Hermes на старте обнаружит инструменты brain и за
 
 | Scope | Видимые инструменты |
 | --- | --- |
-| `brain:read` (всегда) | **19 инструментов чтения** — поиск (`search_knowledge`, `search_multi_hop`, `synthesize`, `memory_diff`, `graph_retrieve`), чтение сущностей (`get_entity_profile`, `get_entity_timeline`, `summarize_entity`, `get_competing_facts`, `find_related_entities`, `detect_contradiction`), сообщества (`search_communities`, `list_communities`, `find_entity_communities`), процедурная память (`match_procedure`, `list_procedures`), репутация источников (`get_source_reputation`), code memory (`why`, `recall_decisions`) — плюс 2 ресурса (`brain://entity/{id}`, `brain://entity/{id}/timeline`) |
+| `brain:read` (всегда) | **19 инструментов чтения** — поиск (`search_knowledge`, `search_multi_hop`, `synthesize`, `memory_diff`, `graph_retrieve`), чтение сущностей (`get_entity_profile`, `get_entity_timeline`, `summarize_entity`, `get_competing_facts`, `find_related_entities`, `detect_contradiction`), сообщества (`search_communities`, `list_communities`, `find_entity_communities`), процедурная память (`match_procedure`, `list_procedures`), репутация источников (`get_source_reputation`), code memory (`why`, `recall_decisions`) — **21** при `FACTS_API_ENABLED=1` на сервере (добавляются `get_fact`, `get_fact_provenance`) — плюс 2 ресурса (`brain://entity/{id}`, `brain://entity/{id}/timeline`) |
 | `brain:write` (дополнительно) | **+8 инструментов записи** — `record_fact`, `link_entities`, `retract_fact`, `record_procedure`, `retire_procedure`, `record_feedback`, `record_decision` и `ingest_document` (регистрируется только при `DOCUMENT_INGEST_ENABLED=1` у оператора) |
 | `brain:admin` (дополнительно) | **+1** — `forget_entity`, деструктивный GDPR-каскад |
 | `brain:read_pii` (дополнительно) | новых инструментов нет — открывает значения `email` / `phone` / `dob` / `address` в результатах |
+| `brain:read_media` (дополнительно) | новых инструментов нет — доступ к медиа/биометрическим уликам, более строгий режим, чем `brain:read_pii`; только для оператора хостинга (env-key конфиг, через токены не выдаётся) |
 
 Установленные [Domain Packs](/ru/docs/platform/domain-packs) с одобренной секцией `mcpTools` добавляют поверх этого свои инструменты (`<packId>__<tool>`) — см. [справочник инструментов](/ru/docs/mcp/tools).
 
-Ключ только с `brain:read` видит 19 инструментов, а не 28. Это инвариант безопасности, а не баг.
+Ключ только с `brain:read` видит 19 инструментов (21 при `FACTS_API_ENABLED`), а не 30. Это инвариант безопасности, а не баг.
 
 ## Stateless-режим
 

@@ -1,6 +1,6 @@
 ---
 name: brain-mcp-setup
-description: Walk a developer through connecting a fresh MCP client (Claude Desktop, Cursor, Goose v2, Aider, Continue.dev, n8n, or a raw @modelcontextprotocol/sdk client) to the INITE Brain service. Covers obtaining an API key, the per-tenant URL shape, config snippets per client, the scope matrix for all 14 brain tools, and the smoke test. Use when the user says "add brain MCP", "connect brain to Claude", "set up brain for Cursor", or names any MCP-capable client.
+description: Walk a developer through connecting a fresh MCP client (Claude Desktop, Cursor, Goose v2, Aider, Continue.dev, n8n, or a raw @modelcontextprotocol/sdk client) to the INITE Brain service. Covers obtaining an API key, the per-tenant URL shape, config snippets per client, the scope matrix for the full tool surface (up to 30 built-in tools + 2 resources), and the smoke test. Use when the user says "add brain MCP", "connect brain to Claude", "set up brain for Cursor", or names any MCP-capable client.
 ---
 
 # brain-mcp-setup
@@ -34,7 +34,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 }
 ```
 
-Restart Claude Desktop. The brain server should appear in the MCP panel with six tools (or four, if the key only has `brain:read`).
+Restart Claude Desktop. The brain server should appear in the MCP panel — 19 tools for a read-only key (21 when the server runs with `FACTS_API_ENABLED`), up to 30 for a full read+write+admin key (see the scope matrix below).
 
 ## Cursor
 
@@ -159,12 +159,13 @@ Expected: a tool list whose count depends on the key's scopes (see matrix below)
 
 | Scope | Tools unlocked |
 | --- | --- |
-| `brain:read` (always) | `search_knowledge`, `search_multi_hop`, `synthesize`, `memory_diff`, `get_entity_profile`, `get_entity_timeline`, `summarize_entity`, `get_competing_facts`, `detect_contradiction`, `find_related_entities`, `match_procedure`, `list_procedures`, `search_communities`, `list_communities`, `find_entity_communities` (15 tools) |
-| `brain:write` | + `record_fact`, `link_entities`, `retract_fact`, `record_procedure`, `retire_procedure` (5 more = 20 total) |
-| `brain:admin` | + `forget_entity` (1 more = 21 total) |
+| `brain:read` (always) | search: `search_knowledge`, `search_multi_hop`, `graph_retrieve`, `synthesize`, `memory_diff`; entity reads: `get_entity_profile`, `get_entity_timeline`, `summarize_entity`, `get_competing_facts`, `detect_contradiction`, `find_related_entities`; procedural: `match_procedure`, `list_procedures`; communities: `search_communities`, `list_communities`, `find_entity_communities`; code memory: `why`, `recall_decisions`; sources: `get_source_reputation` (**19 tools**) — plus `get_fact`, `get_fact_provenance` when the server runs with `FACTS_API_ENABLED` (**21**), plus 2 resources (`brain://entity/{id}`, `brain://entity/{id}/timeline`) |
+| `brain:write` | + `record_fact`, `link_entities`, `retract_fact`, `record_feedback`, `record_procedure`, `retire_procedure`, `record_decision` (**7 more**), plus `ingest_document` when the server runs with `DOCUMENT_INGEST_ENABLED` (**8 more** = up to 29 total) |
+| `brain:admin` | + `forget_entity` (1 more = up to **30 total**) |
 | `brain:read_pii` | unlocks `email` / `phone` / `dob` / `address` object values in read results (predicate stays visible without it; no new tool surface) |
+| `brain:read_media` | media/biometric evidence access (faces, voices, ID documents) — a stricter regime than `brain:read_pii`, hosting-operator-only (granted via env-key config, never mintable through tokens); no new tool surface |
 
-A key with only `brain:read` will see 15 tools, not 21 — that's the security invariant, not a bug. Tell the user explicitly when their key is read-only so they don't waste time looking for `record_fact` / `forget_entity`.
+A key with only `brain:read` will see 19 tools (21 with `FACTS_API_ENABLED`), not 30 — that's the security invariant, not a bug. Tell the user explicitly when their key is read-only so they don't waste time looking for `record_fact` / `forget_entity`. On top of the built-ins, installed Domain Packs with a consented `mcpTools` section contribute namespaced tools (`<packId>__<tool>`) behind `MCP_PACK_TOOLS_ENABLED`.
 
 The detailed taxonomy (which tool for which question) lives in the workflow skills — `brain-search`, `brain-recall`, `brain-bitemporal`, `brain-write`, `brain-conflict`.
 
@@ -188,4 +189,4 @@ Once connected, point the user at the workflow skills:
 - `brain-write` — recording, linking, and retracting (with `detect_contradiction` preflight)
 - `brain-conflict` — adjudicating COMPETING facts and 3+ multi-way disagreements
 
-These describe how to actually *use* the 21 tools brain exposes, not just how to wire them in.
+These describe how to actually *use* the up-to-30 tools brain exposes, not just how to wire them in.

@@ -7,6 +7,7 @@ the operator's reference for running Brain.
 **Contents:**
 [Required env vars](#required-env-vars) ·
 [Optional env vars](#optional-env-vars) ·
+[Brain v2 flag families](#brain-v2-flag-families) ·
 [Job queue](#job-queue-phase-jk--env-vars) ·
 [Splitting API and worker roles](#splitting-api-and-worker-roles) ·
 [Retrieval feature flags](#retrieval-feature-flags) ·
@@ -107,6 +108,121 @@ Prod observability (metrics scrape, log shipping, trace storage,
 Grafana dashboards + alert rules) is the `monitoring/` compose stack on
 the droplet — entry point [`monitoring/README.md`](../monitoring/README.md),
 Grafana at `https://brain.inite.ai/grafana`.
+
+## Brain v2 flag families
+
+The Brain v2 waves (evidence plane, scenes/beliefs, fovea optics,
+outcome/decision telemetry, tool observations, privacy fences) shipped
+default-off behind these families. `GET /v1/admin/config` is the live
+catalogue (effective values + defaults); this section is the operator
+overview — one line per flag, plus the orderings that matter.
+
+### `EVIDENCE_*` — evidence plane + claim grounding (Brain v2.1)
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `EVIDENCE_SUBSTRATE_ENABLED` | `0` | Master switch for the multimodal evidence substrate writers (evidence_asset / evidence_fragment / derived_representation, 0109); off = every write 503s. GDPR cascade + retention run regardless. |
+| `EVIDENCE_FS_ROOT` | unset | Directory root for the `fs://` storage adapter; unset = the adapter throws a clear unconfigured error. |
+| `EVIDENCE_MAX_BYTES` | 1 GiB | Sanity cap on a registered asset's DECLARED byteLength (a claim bound — no upload endpoint ships). |
+| `EVIDENCE_PROCESSOR_BROKER` | `0` | Trusted platform-owned processor adapters over registered assets, each run an idempotent `processing_run` row (0121). Requires the substrate flag. |
+| `EVIDENCE_QUARANTINE` | `0` | External-ingest quarantine seam (0121): assets get `quarantineStatus` (`clean` internal / `quarantined` external_ingest); the broker refuses non-clean assets. **Off = `origin:'external_ingest'` is rejected 503 outright (fail closed)** — enable BEFORE accepting any externally-sourced media. |
+| `EVIDENCE_DERIVED_MAX_BYTES` | 1 MiB | Cap on what an adapter may read from a blob and on any single derived output (reject, never truncate). |
+| `EVIDENCE_GROUNDING_STAMP` | `0` | Write-side: stamp `knowledge_fact.groundingStatus` (`grounded`/`ungrounded`) from the presence of observational source (episode ids / `evidence[]` / conversationId). Absent field = legacy row, never backfilled. |
+| `EVIDENCE_FAIL_CLOSED_CAPTURE` | `0` | ingestMention REQUIRES the L0 episode write to succeed and stamps the episode id into every extracted fact — no extraction without a stored observation. Requires `EPISODE_SUBSTRATE_ENABLED`. |
+| `EVIDENCE_UNGROUNDED_EXCLUDE` | `0` | Consolidation gate: the promotion runner excludes `ungrounded` members from summary groups (legacy rows still promote). |
+| `EVIDENCE_UNGROUNDED_SERVING_GATE` | `0` | Strict serving: a supported answer whose EVERY citation is `ungrounded` abstains with reason `ungrounded_evidence`; mixed/legacy support serves. |
+| `EVIDENCE_FRAGMENT_CITATIONS` | `0` | Fragment-arm evidence citations: rendered media evidence carries `[evidence_fragment:...]` headers, the generator may cite fragments (rendered-set fenced), citations carry assetId + capability — how `FOVEA_EVIDENCE_CAPABILITY` passes for non-text. |
+| `EVIDENCE_RAW_READ_ENABLED` | `0` | The raw-read gateway (`/v1/evidence/*` — see [api.md](api.md#evidence-raw-read-gateway)); off = bare 404s. |
+| `EVIDENCE_SIGNED_URL_SECRET` | unset | HMAC secret for signed raw URLs; boot hard-errors when shorter than 32 chars while the gateway is on. No default on purpose. |
+| `EVIDENCE_SIGNED_URL_TTL_SECONDS` | `300` | Signed-URL lifetime — deliberately short; expiry + the live-grant re-check at redeem are the only revocation levers. |
+
+**Grounding order:** stamp before you gate. Enable
+`EVIDENCE_GROUNDING_STAMP` first and let writes accrue stamps; only
+then consider `EVIDENCE_UNGROUNDED_EXCLUDE` / `_SERVING_GATE` (both
+treat legacy unstamped rows leniently, but a gate enabled on a corpus
+with zero stamps protects nothing). **Quarantine order:** enable
+`EVIDENCE_QUARANTINE` before any external media ingest — while it is
+off, external-origin registration is refused entirely.
+
+### `TOOL_OBSERVATION*` — MCP tool-call observations (0111)
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `TOOL_OBSERVATIONS_ENABLED` | `0` | Per-request MCP builds apply the content-free observation wrapper (tool, digests, ok, durationMs); ingest accepts `toolObservationRef`; nightly prune runs. Denied calls record nothing. |
+| `TOOL_OBSERVATION_CONTENT` | `0` | Opt-in for the ONE content-bearing column (`contentExcerpt`, sanitized, ≤512 chars) on top of the master flag. Off = digest-only rows (the content-free contract). |
+| `TOOL_OBSERVATION_RETENTION_DAYS` | `30` | Days raw observation rows are kept (03:41 UTC prune). |
+
+### `SCENES_*` — scene substrate + belief promotion (Brain v2)
+
+All shadow: no serving path reads `memory_episode` / `semantic_belief`
+(the beliefs READ API is its own flag, `BELIEFS_API_ENABLED`).
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `SCENES_SEGMENTATION_ENABLED` | `0` | Master: scene composer + `POST /v1/admin/maintenance/scenes` (0106). |
+| `SCENES_TOPIC_BOUNDARY` | `0` | Within-session topic split (one embedding batch per conversation — the surface's only paid step; no LLM anywhere). |
+| `SCENES_TOPIC_MIN_COSINE` | `0.55` | Cosine floor for the topic split. |
+| `SCENES_MAX_TURNS` | `40` | Force a scene boundary at this many turns. |
+| `SCENES_LLM_ENRICHMENT` | `0` | ONE structured LLM call per scene (gist, memoryValue vector, stateDeltas); idempotent per enrichment-version composite. |
+| `SCENES_FACT_BACKLINK` | `0` | Stamp facts with `source.memoryEpisodeIds` (idempotent) — facts become pointers into the episodic plane. |
+| `SCENES_VERSION_FINGERPRINT` | `0` | Fingerprint the segmenter config into the version so a config change forks a NEW coexisting scene world instead of overwriting in place. |
+| `SCENES_BELIEF_PROMOTION` | `0` | Belief promotion (Belief-A, 0120): fold ENRICHED scenes into `semantic_belief` supersede-chain revisions via `…/scenes/beliefs`. |
+| `SCENES_BELIEF_MIN_SCENES` | `0` | Corroboration floor: promote a (subject, field) only when the winning value spans at least this many DISTINCT conversations (0 = off). |
+| `SCENES_BELIEF_LLM_SYNTHESIS` | `0` | ONE LLM call per belief create/revise to phrase the statement; any failure degrades to the deterministic template. |
+
+Order: master flag → compose → (`SCENES_LLM_ENRICHMENT` → enrich) →
+(`SCENES_BELIEF_PROMOTION` → beliefs). Enrichment is a prerequisite for
+promotion — the belief fold reads enriched fields only.
+
+### `FOVEA_*` — focus calibration + serving integrity
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `FOVEA_FOCUS_CAPTURE` | `0` | Capture the per-query focus signal at the synthesize verdict point + the admin fit/measure surface. Serving-neutral — the prerequisite for every adaptive flag below. |
+| `FOVEA_ADAPTIVE_L3` (+`_THRESHOLD`, `0.5`) | `0` | L3 escalation trigger + session count adapt to the calibrated focus confidence (needs a fitted per-class model; without one, byte-identical to static). |
+| `FOVEA_ADAPTIVE_ABSTAIN` (+`_THRESHOLD`, `0.5`) | `0` | Pre-generation coverage abstention adapts to the calibrated PRE-ANSWER confidence (only where `RETRIEVAL_ABSTENTION_CALIBRATION=coverage`). |
+| `FOVEA_LENS_SUPPRESS` (+`_MIN_COSINE`, `0.5`) | `0` | Subtractive per-class lane suppression before retrieval (never adds, never reorders; needs a fitted model). |
+| `FOVEA_PLAUSIBILITY_CHECK` | `0` | ONE extra LLM judge over CITED premises after a supported verdict; implausible → abstain. Adds one paid call per supported answer. |
+| `FOVEA_REQUIRE_CITATIONS` | `0` | A supported answer with ZERO citations becomes low_coverage/abstain. Live-behavior change — validate before enabling. |
+| `FOVEA_L3_EPISODE_CITATIONS` | `0` | L3 transcript renders per-turn `[episode:...]` headers; transcript-grounded claims come back as span-verified `evidenceCitations`. |
+| `FOVEA_EVIDENCE_CAPABILITY` | `0` | Verdict gate (0113): a supported answer citing a predicate that REQUIRES non-text evidence abstains with `evidence_capability_unmet` unless matching-capability evidence is cited. |
+| `FOVEA_ATTENTION_HINTS` | `0` | Pack attention hints as an ordering-only L3 anchor boost. |
+
+### `PRIVACY_*` — user-scope security fences (0117)
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `PRIVACY_SEGMENT_USER_FENCE` | `0` (code) | Per-member fence for verbatim windows: a user-scoped caller is admitted to a mixed-user (`userId=NONE`) window only when its persisted `userIds` set is empty or CONTAINS the caller. **Fail-closed on pre-0117 rows (`userIds IS NONE`).** |
+| `PRIVACY_COMPOSER_USER_SCOPE` | `0` (code) | Write-time composers stamp single-user-derived summary rows with that userId (≥2 users → proposal dropped); off = single-user content keeps folding into tenant-global rows. |
+
+**Privacy fence order (existing deployments): migrate → backfill →
+enable.** Run migrations through 0117, then
+`POST /v1/admin/maintenance/segments/backfill-user-ids` once per
+tenant, THEN flip `PRIVACY_SEGMENT_USER_FENCE` — the fence hides
+un-backfilled legacy windows from user-scoped callers. Scenes need no
+backfill — re-run the scene composer. For the composer rule there is no
+backfill either: re-run the composers after enabling to rebuild the
+derived set under the rule. `.env.example` ships BOTH fences `=1` on
+purpose (default-off in code is for byte-identity only; they will
+default on in a future release). While the segment fence is off and any
+segment-serving mode is on, cross-user verbatim disclosure is possible.
+
+### `OUTCOME_*` — outcome + decision telemetry (0107 / 0119)
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `OUTCOME_TELEMETRY_ENABLED` | `0` | Writers append `memory_outcome` events + fold the `memory_outcome_stat` rollup; nightly raw-log prune. Feeds verified-use decay/ranking (`SEARCH_VERIFIED_USE_*`). |
+| `OUTCOME_RETRIEVED_EVENTS` | `0` | Extra gate on the high-volume `retrieved` stream (one event per surfaced fact per search). |
+| `OUTCOME_EVENT_RETENTION_DAYS` | `30` | Raw event log retention (the stat rollup is never pruned). |
+| `OUTCOME_TX_WRITES` | `0` | Transactional idempotent outcome writes (one BEGIN/COMMIT, deterministic ids, replay folds nothing twice). |
+| `OUTCOME_DECISION_CAPTURE` | `0` | Content-free `memory_decision` rows at the abstain gate + L3 trigger (0119); independent master, not coupled to `OUTCOME_TELEMETRY_ENABLED`. |
+| `OUTCOME_DECISION_RETENTION_DAYS` | `30` | Decision-row retention (03:41 UTC prune, gated on the capture flag). |
+
+Related read-surface flags documented in [api.md](api.md):
+`FACTS_API_ENABLED` (fact read + provenance, also registers the MCP
+`get_fact` / `get_fact_provenance` tools), `BELIEFS_API_ENABLED`
+(belief read API), `PROVENANCE_RECURSIVE_CLOSURE` /
+`PROVENANCE_SUPPORT_GRAPH_READ` (provenance response extensions).
 
 ## Job queue (Phase J/K) — env vars
 

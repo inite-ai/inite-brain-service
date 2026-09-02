@@ -28,7 +28,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 }
 ```
 
-Quit Claude Desktop fully (not just close the window) and reopen. The brain server appears in the MCP panel — a read-only key exposes 19 tools, a full-scope key up to 28 (see the scope matrix below).
+Quit Claude Desktop fully (not just close the window) and reopen. The brain server appears in the MCP panel — a read-only key exposes 19 tools (21 when the server runs with `FACTS_API_ENABLED=1`), a full-scope key up to 30 (see the scope matrix below).
 
 ## Cursor
 
@@ -100,7 +100,7 @@ Some harnesses can only launch **stdio** MCP servers as subprocesses and have no
 harness ──stdio──▶ @inite/brain-mcp ──HTTP + Bearer──▶ /mcp/<companyId>
 ```
 
-It is a pure passthrough — `tools/list` and `tools/call` are forwarded verbatim, so the agent sees exactly the surface the key unlocks. Wire it into the harness's MCP config (shown here for openclaw's `mcp.servers`):
+It is a pure passthrough — as of v0.2, `tools/list` / `tools/call` AND the resource surface (`resources/list`, `resources/templates/list`, `resources/read` — the `brain://entity/…` resources) are forwarded verbatim, so the agent sees exactly the surface the key unlocks. Sampling is bridged in reverse: brain's `sampling/createMessage` requests (from `summarize_entity` with `styleHint='client_llm'`) are forwarded to the harness so its own model writes the summary; a harness that doesn't advertise sampling gets a clean error and brain falls back to its local template. Wire it into the harness's MCP config (shown here for openclaw's `mcp.servers`):
 
 ```json
 {
@@ -134,7 +134,7 @@ Once connected, ask the assistant:
 
 > List available brain tools and call `search_knowledge` with query `"hello"` limit 1.
 
-You should see the tool count that matches the key's scopes (19 for read-only, up to 28 for read+write+admin) and a `search_knowledge` result that is either empty (fresh tenant) or one hit (seed data).
+You should see the tool count that matches the key's scopes (19 for read-only — 21 with `FACTS_API_ENABLED` — up to 30 for read+write+admin) and a `search_knowledge` result that is either empty (fresh tenant) or one hit (seed data).
 
 If you get a 401, the bearer token is malformed or the key is invalid. If you get `400: MCP path companyId (...) does not match ApiKey companyId`, you've pasted the wrong companyId for this key.
 
@@ -142,14 +142,15 @@ If you get a 401, the bearer token is malformed or the key is invalid. If you ge
 
 | Scope | Tools visible |
 | --- | --- |
-| `brain:read` (always) | **19 read tools** — search (`search_knowledge`, `search_multi_hop`, `synthesize`, `memory_diff`, `graph_retrieve`), entity reads (`get_entity_profile`, `get_entity_timeline`, `summarize_entity`, `get_competing_facts`, `find_related_entities`, `detect_contradiction`), communities (`search_communities`, `list_communities`, `find_entity_communities`), procedural memory (`match_procedure`, `list_procedures`), source reputation (`get_source_reputation`), code memory (`why`, `recall_decisions`) — plus 2 resources (`brain://entity/{id}`, `brain://entity/{id}/timeline`) |
+| `brain:read` (always) | **19 read tools** — search (`search_knowledge`, `search_multi_hop`, `synthesize`, `memory_diff`, `graph_retrieve`), entity reads (`get_entity_profile`, `get_entity_timeline`, `summarize_entity`, `get_competing_facts`, `find_related_entities`, `detect_contradiction`), communities (`search_communities`, `list_communities`, `find_entity_communities`), procedural memory (`match_procedure`, `list_procedures`), source reputation (`get_source_reputation`), code memory (`why`, `recall_decisions`) — **21** when the server runs with `FACTS_API_ENABLED=1` (adds `get_fact`, `get_fact_provenance`) — plus 2 resources (`brain://entity/{id}`, `brain://entity/{id}/timeline`) |
 | `brain:write` (extra) | **+8 write tools** — `record_fact`, `link_entities`, `retract_fact`, `record_procedure`, `retire_procedure`, `record_feedback`, `record_decision`, and `ingest_document` (registered only when the operator sets `DOCUMENT_INGEST_ENABLED=1`) |
 | `brain:admin` (extra) | **+1** — `forget_entity`, the GDPR-grade destructive cascade |
 | `brain:read_pii` (extra) | no new tools — unlocks `email` / `phone` / `dob` / `address` object values in results |
+| `brain:read_media` (extra) | no new tools — media/biometric evidence access, a stricter regime than `brain:read_pii`; hosting-operator-only (env-key config, never mintable through tokens) |
 
 Installed [Domain Packs](/en/docs/platform/domain-packs) with consented `mcpTools` add pack-declared tools (`<packId>__<tool>`) on top of these — see the [tools reference](/en/docs/mcp/tools).
 
-A key with only `brain:read` sees 19 tools, not 28. That's the security invariant, not a bug.
+A key with only `brain:read` sees 19 tools (21 with `FACTS_API_ENABLED`), not 30. That's the security invariant, not a bug.
 
 ## Stateless mode
 

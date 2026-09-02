@@ -1,6 +1,6 @@
 ---
 name: brain-write
-description: How to write to the INITE Brain knowledge graph from an agent loop — record_fact, link_entities, retract_fact, and the detect_contradiction preflight. Covers confidence picking, retract vs forget semantics, identity_of cycle-guards. Use when the user explicitly wants to record, merge, or revise structured knowledge from a conversation (not when they're just asking a question).
+description: How to write to the INITE Brain knowledge graph from an agent loop — record_fact (with the conversationId / evidence[] grounding inputs), ingest_document, link_entities, retract_fact, record_feedback, and the detect_contradiction preflight. Covers confidence picking, claim grounding, retract vs forget semantics, identity_of cycle-guards. Use when the user explicitly wants to record, merge, or revise structured knowledge from a conversation (not when they're just asking a question).
 ---
 
 # brain-write
@@ -10,10 +10,12 @@ The write surface is small but consequential — every fact you record gets scor
 ## When to use
 
 - The user says "remember that …" / "make a note that …" / "let's record …" → `record_fact`
+- Multi-claim prose (meeting transcript, email body, markdown doc) → `ingest_document` — prefer it over `record_fact` for anything longer than one claim
 - A fact you have on hand says "X is the same person as Y" → `link_entities` with `kind: identity_of`
 - A typed edge between two known entities (`paid_for`, `mentioned_in`, `worked_with`, …) → `link_entities`
 - Something brain previously believed is now known to be wrong → `retract_fact`
 - "Before I save this, would it conflict with anything?" → `detect_contradiction`
+- A retrieved fact turned out useful / wrong / irrelevant → `record_feedback`
 
 Do **not** use for:
 - Bulk ingest from a vertical's event stream — that's a /v1/ingest path, not an agent loop
@@ -32,8 +34,32 @@ record_fact({
   validUntil: undefined,            // optional — leave open-ended unless the user said "until X"
   confidence: 0.9,                  // 0..1
   sourceVertical: "rent",
+  // Grounding inputs (claim-grounding plane) — name the observation
+  // behind the claim so the fact counts as GROUNDED:
+  conversationId: "conv-2026-05-01-support",   // the conversation you observed it in
+  evidence: [                                  // ≤10 typed pointers, stored verbatim
+    { kind: "message", ref: "msg_9f3", note: "user stated tier explicitly" },
+  ],
 })
 ```
+
+### Ground your claims — conversationId + evidence[]
+
+An MCP agent CAN name the observation behind its claim — always do. Pass
+`conversationId` (the conversation the fact was observed in) and/or
+`evidence[]` (up to 10 typed pointers: `event` / `message` /
+`conversation` / `url` / `document` / `commit` / `other`, each
+`{ kind, ref, note? }`). Their presence marks the fact **grounded** on
+the claim-grounding plane: servers running `EVIDENCE_GROUNDING_STAMP`
+stamp `groundingStatus: 'grounded'` on the row, and downstream gates
+(ungrounded-exclusion from consolidation, the `ungrounded_evidence`
+serving abstention) treat it as observation-backed. A bare `record_fact`
+with neither input is permanently observation-free — the fact still
+records, but it can be excluded from long-term consolidation and can
+cause a strict server to abstain rather than serve answers resting only
+on such claims. Verify what landed with `get_fact` (shows
+`groundingStatus`) and `get_fact_provenance` (shows the grounding
+turns), both available when the server runs `FACTS_API_ENABLED`.
 
 ### Picking confidence
 
@@ -73,6 +99,60 @@ Returns `{ wouldOutcome, reasoning, opposingFacts, predicatePolicy }`:
 | `REJECTED` | Score below reject threshold (too unconfident, too low-trust). | Either raise confidence (only if honest), drop the fact, or ask for a stronger source. |
 
 The dry-run is JS-side approximation of `fn::resolve_fact` — small fidelity gap on `source_trust` (uses the seed table, not the per-tenant learned rate) but matches the resolver's logic on every other axis.
+
+## ingest_document — multi-claim prose
+
+For anything longer than one claim (meeting transcript, email body,
+markdown), don't loop `record_fact` — feed the whole document through
+the Source → Indexer → Candidates → Brain pipeline:
+
+```ts
+ingest_document({
+  kind: "chat",                       // chat | email | markdown | pdf | …
+  text: "<normalized document text>",
+  title: "Support call with Alice",   // optional
+  occurredAt: "2026-05-01T14:00:00Z", // the document's own timestamp → facts' validFrom
+  vertical: "rent",
+  indexers: "general",                // 'auto' also routes installed domain packs
+  toolObservationRef: "tool_observation:abc123",  // optional provenance hop, see below
+})
+```
+
+The document is stored (content-hash deduped), read by the indexer,
+staged as candidates, and committed through the same conflict
+resolution as `record_fact` — extraction and superseding are handled
+for you. The tool is registered only when the server runs
+`DOCUMENT_INGEST_ENABLED`.
+
+`toolObservationRef` closes the tool-result → document → fact loop: when
+the document you're ingesting was derived from a tool result the server
+observed (servers running `TOOL_OBSERVATIONS_ENABLED` record content-free
+observation rows per MCP tool call), pass the `tool_observation:<id>` so
+every committed fact's `source.evidence[]` carries a `tool_observation`
+entry pointing back at it.
+
+## record_feedback — closing the retrieval loop
+
+After using a fact from `search_knowledge` / `synthesize`, report how it
+went:
+
+```ts
+record_feedback({
+  factId: "knowledge_fact:01HXYZ...",
+  verdict: "incorrect",             // 'helpful' | 'not_helpful' | 'incorrect'
+  reason: "Tier was gold, not platinum — confirmed by billing.",  // optional
+})
+```
+
+- `helpful` — the fact answered the question (positive reliability signal)
+- `incorrect` — the fact is wrong; counts against its source's learned
+  reputation at the nightly refit
+- `not_helpful` — irrelevant hit; stored, but not a reliability signal
+
+One standing vote per caller key per fact — repeat calls replace your
+previous verdict. Note the trust effect is prospective: it shifts the
+SOURCE's trust for facts ingested after the refit, it does not demote
+the flagged fact itself (retract it if it's wrong).
 
 ## link_entities — declaring a typed edge
 
@@ -156,5 +236,7 @@ Default to retract. Reach for forget only when a DSAR or tenant-offboarding even
 
 - `detect_contradiction` — preflight before record_fact
 - `get_competing_facts` — see what's already unresolved on this entity (see `brain-conflict`)
+- `get_source_reputation` — the learned trust profile of a source vertical; check it when `detect_contradiction`'s seed-table approximation isn't precise enough
 - `search_knowledge` / `get_entity_profile` — find the existing fact before retracting (see `brain-search`, `brain-recall`)
+- `get_fact` / `get_fact_provenance` — read back the full trust record (incl. `groundingStatus`) and the grounding turns behind a fact you just recorded or are about to retract (`FACTS_API_ENABLED` servers)
 - `memory_diff` — confirm the change landed (see `brain-bitemporal`)

@@ -41,11 +41,13 @@ If the user just wants context, not the full graph:
 ```ts
 summarize_entity({
   entityId: "knowledge_entity:01HXYZ...",
-  styleHint: "neutral", // 'neutral' | 'sales' | 'support'
+  styleHint: "neutral", // 'neutral' | 'sales' | 'support' | 'client_llm'
 })
 ```
 
 Returns a one-line briefing — name, type, top 6 most-confident facts, externalRefs. Cached in-process per (entityId, asOf, styleHint), so a hot entity touched across many turns doesn't reload the profile. Use this BEFORE reaching for `get_entity_profile` if all you need is "tell me about them in one breath".
+
+`styleHint: 'client_llm'` opts into MCP sampling: brain asks YOUR client (Claude Desktop / agent runtime) to phrase the one-liner with its own model — zero brain-side LLM cost. Falls back to the neutral template (`sampledBy: 'local_template'`) when the client doesn't advertise the sampling capability.
 
 When you do need more than a line, drop down to Step 1.
 
@@ -134,7 +136,9 @@ Never lie that the fact never existed. Brain holds the audit trail precisely so 
 ## Companion tools
 
 - `search_knowledge` — when entity isn't yet identified
+- `graph_retrieve` — when you know the entity NAMES and want what the graph knows around them in one call
 - `search_multi_hop` — when the user's question chains evidence across entities
 - `memory_diff` — when the question is "what changed in the last week / since last conversation?" (see `brain-bitemporal`)
+- `get_fact` / `get_fact_provenance` — "why do you remember this?": one fact's full trust record (incl. `groundingStatus`) and the verbatim conversation turns behind it (`FACTS_API_ENABLED` servers)
 - `record_fact` / `link_entities` / `retract_fact` — write surface (see `brain-write`)
 - `get_competing_facts` + `detect_contradiction` — adjudication workflow (see `brain-conflict`)
