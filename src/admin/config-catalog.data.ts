@@ -755,6 +755,19 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Belief promotion statement synthesis: ONE structured LLM call per belief create/revise phrasing the statement text (statementSource llm); any failure degrades to the deterministic template — the fold never depends on the model. Off = no LLM call ever runs, every statement is the deterministic template (statementSource template).',
   },
+  {
+    key: 'SCENES_EVIDENCE_LINKS',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneEvidenceLinksEnabled) by the
+    // admin 404 guard, the linker's defensive early return and the
+    // composer's post-swap hook — never captured in a constructor — so a
+    // flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Scene evidence links (MM-zoom PR1, migration 0123): after the composer swap (and via POST /v1/admin/maintenance/scenes/evidence-links), write typed scene-reconstructed_from->evidence_fragment|evidence_asset memory_support edges from the union of member episodes source.evidenceRefs — scenes become zoomable into the multimodal evidence substrate (0109). Replay-idempotent (INSERT RELATION IGNORE over UNIQUE(in,out,kind)); a world without evidence refs is a graceful no-op. Off = no edge is ever written, route 404s, composer hook skipped — byte-identical prod. GDPR cascades erase the edges regardless.',
+  },
   // ── Multilingual (Tier 1, migration 0100) ───────────
   {
     key: 'MULTILINGUAL_LANG_ATTRIBUTION',
@@ -1262,6 +1275,29 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: true,
     description:
       "Evidence plane, fragment citations (MM-zoom PR2): with the fragment lane rendering media evidence (RETRIEVAL_FRAGMENT_LANE), each rendered line carries its [evidence_fragment:...] header and the generator schema gains citedFragmentIds; emitted ids resolve through the rendered-set fence (the FOVEA_L3_EPISODE_CITATIONS idiom: an id not rendered into the prompt is dropped and counted, never surfaced; the citation's excerpt is the RENDERED excerpt, never generator text; dedupe; cap 16) into fragment-arm evidenceCitations carrying assetId + capability. Those citations let the FOVEA_EVIDENCE_CAPABILITY gate PASS for non-text requirements when a matching-modality fragment is cited. Off (default) → no header, no schema field, no resolver — byte-identical even with the lane on.",
+  },
+  {
+    key: 'FOVEA_FRAGMENT_ZOOM',
+    category: 'pipeline',
+    // Read at call time (fovea-flags fragmentZoomEnabled) on the
+    // synthesize post-verifier seam — never captured in a constructor —
+    // so a flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Evidence plane, fragment zoom (MM-zoom PR3): ONE monotone bounded zoom step at the post-verifier seam. On a verifier-fail with a rendered fragment line truncated by the lane's 600-char excerpt cap, fetch the fuller DERIVED TEXT of the same derived_representation rows (cited fragments first, ≤2 fragments, per-fragment chars capped by FOVEA_FRAGMENT_ZOOM_MAX_CHARS) through the lane's own fence stack (tenant → consent → asset-join user fence → media PII → availability), and RE-VERIFY ONLY — the answer is never regenerated. A flipped verdict serves through the normal finalize path (and the L3 ladder then skips on verdict-ok); no flip or any error falls through to the existing downgrade unchanged. Raw bytes stay exclusively behind EVIDENCE_RAW_READ_ENABLED. Runs before/independent of L3, at most once per request. Off (default) → the verifier runs exactly once and no extra read happens — byte-identical.",
+  },
+  {
+    key: 'FOVEA_FRAGMENT_ZOOM_MAX_CHARS',
+    category: 'pipeline',
+    // Read at call time (fovea-flags fragmentZoomMaxChars) per zoom
+    // step; runtime-mutable.
+    defaultValue: '4000',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "Evidence plane, fragment zoom (MM-zoom PR3): per-fragment ceiling on the fuller derived text one zoom step may hand the re-verifier. A positive integer ≤ 100000; unset/blank/out-of-range → 4000. Values at or below the lane's 600-char excerpt cap make no candidate deeper — the step then skips (safe, just useless). Ignored unless FOVEA_FRAGMENT_ZOOM is on.",
   },
   {
     key: 'EVIDENCE_RAW_READ_ENABLED',

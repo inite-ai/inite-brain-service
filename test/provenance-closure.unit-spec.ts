@@ -1,4 +1,6 @@
 import {
+  collectSceneTargets,
+  normalizeReconstructedEdges,
   walkProvenanceClosure,
   indexCharSpans,
   type ClosureFactRow,
@@ -453,5 +455,43 @@ describe('walkProvenanceClosure — fetchEdges (support graph read)', () => {
     });
     expect(out.edges).toHaveLength(2);
     expect(out.truncated.fanout).toBe(true);
+  });
+});
+
+describe('scene-evidence zoom helpers (reconstructed_from post-walk fetch, 0123)', () => {
+  it('collectSceneTargets: supported_by scene targets only, deduped, crossing order kept', () => {
+    expect(
+      collectSceneTargets([
+        { kind: 'supported_by', from: 'knowledge_fact:f1', to: 'memory_episode:s2' },
+        { kind: 'derived_from', from: 'knowledge_fact:f1', to: 'knowledge_fact:f2' },
+        { kind: 'supported_by', from: 'knowledge_fact:f2', to: 'memory_episode:s1' },
+        { kind: 'supported_by', from: 'knowledge_fact:f3', to: 'memory_episode:s2' }, // dupe
+        // A belief-rooted supported_by names a scene too — same harvest.
+        { kind: 'supported_by', from: 'semantic_belief:b1', to: 'memory_episode:s3' },
+        // Non-scene target never harvested (defensive — the writer
+        // rejects this shape, but rows are FLEXIBLE-sourced).
+        { kind: 'supported_by', from: 'knowledge_fact:f4', to: 'episode:e1' },
+      ]),
+    ).toEqual(['memory_episode:s2', 'memory_episode:s1', 'memory_episode:s3']);
+    expect(collectSceneTargets([])).toEqual([]);
+  });
+
+  it('normalizeReconstructedEdges: kind + endpoint-class filtered, deduped, capped', () => {
+    const rows = [
+      { in: 'memory_episode:s1', out: 'evidence_fragment:fr1', kind: 'reconstructed_from' },
+      { in: 'memory_episode:s1', out: 'evidence_asset:a1', kind: 'reconstructed_from' },
+      { in: 'memory_episode:s1', out: 'evidence_fragment:fr1', kind: 'reconstructed_from' }, // dupe
+      { in: 'memory_episode:s1', out: 'episode:e1', kind: 'reconstructed_from' }, // wrong out class
+      { in: 'knowledge_fact:f1', out: 'evidence_asset:a2', kind: 'reconstructed_from' }, // wrong in class
+      { in: 'memory_episode:s1', out: 'memory_episode:s2', kind: 'supported_by' }, // wrong kind
+    ];
+    expect(normalizeReconstructedEdges(rows, 10)).toEqual([
+      { kind: 'reconstructed_from', from: 'memory_episode:s1', to: 'evidence_fragment:fr1' },
+      { kind: 'reconstructed_from', from: 'memory_episode:s1', to: 'evidence_asset:a1' },
+    ]);
+    expect(normalizeReconstructedEdges(rows, 1)).toEqual([
+      { kind: 'reconstructed_from', from: 'memory_episode:s1', to: 'evidence_fragment:fr1' },
+    ]);
+    expect(normalizeReconstructedEdges([], 10)).toEqual([]);
   });
 });

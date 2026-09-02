@@ -286,6 +286,23 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // MM-zoom PR3 (FOVEA_FRAGMENT_ZOOM): what the ONE bounded zoom step did
+  // per evaluation —
+  //   flipped   — the re-verify over the fuller derived text passed →
+  //               the answer served
+  //   unchanged — the re-verify still failed → the normal downgrade ran
+  //   skipped   — the step evaluated (flag on, verdict failed) but had
+  //               nothing to zoom (no truncated rendered fragment / no
+  //               deeper text fetched)
+  //   error     — any failure inside the step (degraded to static)
+  // Emitted only when the flag is on (nothing on the path when off).
+  readonly fragmentZoomCount = new Counter({
+    name: 'brain_fragment_zoom_total',
+    help: 'Fragment zoom step outcomes (FOVEA_FRAGMENT_ZOOM)',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
   // Optics §4.2 (docs/roadmap/fovea-optics-2026-08.md §4.2): which sub-
   // condition fired the pre-generation memory-coverage ABSTAIN decision —
   //   adaptive — the calibrated-pre-answer-confidence floor
@@ -774,6 +791,10 @@ export class MetricsService implements OnModuleInit {
     if (n > 0) {
       this.fragmentCitationCount.inc({ outcome } as LabelValues<'outcome'>, n);
     }
+  }
+
+  countFragmentZoom(outcome: 'flipped' | 'unchanged' | 'skipped' | 'error'): void {
+    this.fragmentZoomCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
   countAbstainPath(path: 'adaptive' | 'static'): void {

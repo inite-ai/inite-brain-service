@@ -13,9 +13,12 @@
  *     (winner); COMPETING writes the mutual pair
  *   * derived_from:    in = summary knowledge_fact, out = member
  *     knowledge_fact (typed mirror of the untyped derivedFrom array)
- *   * reconstructed_from: RESERVED — scene membership stays in
- *     memory_episode_member (0106); NO writer emits it (assertEdgeShape
- *     rejects it so a stray caller cannot start).
+ *   * reconstructed_from: in = memory_episode (scene), out =
+ *     evidence_fragment | evidence_asset — the scene is reconstructed
+ *     from that piece of recorded evidence (MM-zoom PR1, kind activated
+ *     by 0123, writer scene_evidence_linker). Scene -> turn membership
+ *     STAYS in memory_episode_member (0106) — this kind names
+ *     evidence-plane reconstruction sources, NOT membership.
  */
 import { parseRecordRef } from './evidence-ref';
 
@@ -27,7 +30,14 @@ export const SUPPORT_EDGE_KINDS = [
 ] as const;
 export type SupportEdgeKind = (typeof SUPPORT_EDGE_KINDS)[number];
 
-/** The kinds a writer may actually emit (reconstructed_from reserved). */
+/**
+ * The kinds the closure WALK crosses mid-walk (fact/belief-rooted
+ * frontier fetches). reconstructed_from is deliberately NOT here even
+ * though the linker writes it: its `in` is a scene, so it can never
+ * appear in a frontier fetch — the provenance reader harvests it in a
+ * dedicated POST-walk fetch over the crossed scenes instead
+ * (provenance-closure.ts, normalizeReconstructedEdges).
+ */
 export const EMITTED_EDGE_KINDS = ['supported_by', 'contradicted_by', 'derived_from'] as const;
 export type EmittedEdgeKind = (typeof EMITTED_EDGE_KINDS)[number];
 
@@ -42,6 +52,7 @@ export const SUPPORT_EDGE_WRITERS = [
   'compaction_runner',
   'recompose',
   'belief_promotion',
+  'scene_evidence_linker',
 ] as const;
 export type SupportEdgeWriter = (typeof SUPPORT_EDGE_WRITERS)[number];
 
@@ -83,26 +94,30 @@ export function classifySupportTarget(raw: string): SupportTargetClass {
  * Endpoint-table pairing per kind (the TS-side substitute for the
  * FROM/TO types one polymorphic RELATION table cannot carry — 0116
  * header). Returns a boolean verdict: writers SKIP invalid rows with a
- * warn, never throw. reconstructed_from is always false (reserved).
+ * warn, never throw.
  *
  * Belief edges (0120, writer 'belief_promotion') follow the SAME
  * direction semantics with `in` = semantic_belief: supported_by
  * belief->scene mirrors the fact rule; contradicted_by / derived_from
  * pair a belief ONLY with another belief (revision chains never cross
  * into the claim plane — the SemanticBelief/Claim separation).
+ *
+ * reconstructed_from (0123) is the ONE kind rooted in the episodic
+ * plane: in = scene, out = fragment | asset — every other pairing stays
+ * rejected, and the three claim-plane kinds keep their exact pre-0123
+ * verdicts (in must classify fact/belief; pinned in the unit spec).
  */
 export function assertEdgeShape(kind: SupportEdgeKind, inId: string, outId: string): boolean {
   const inClass = classifySupportTarget(inId);
-  if (inClass !== 'fact' && inClass !== 'belief') return false;
   const out = classifySupportTarget(outId);
   switch (kind) {
     case 'supported_by':
-      return out === 'scene';
+      return (inClass === 'fact' || inClass === 'belief') && out === 'scene';
     case 'contradicted_by':
     case 'derived_from':
-      return out === inClass;
+      return (inClass === 'fact' || inClass === 'belief') && out === inClass;
     case 'reconstructed_from':
-      return false;
+      return inClass === 'scene' && (out === 'fragment' || out === 'asset');
   }
 }
 

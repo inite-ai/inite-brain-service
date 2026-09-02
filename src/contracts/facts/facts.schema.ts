@@ -99,14 +99,16 @@ export const FactProvenanceResponseSchema = z.object({
    * Typed support edges crossed by the walk
    * (PROVENANCE_SUPPORT_GRAPH_READ, migration 0116): supported_by
    * (fact -> scene), contradicted_by (loser fact -> winner fact),
-   * derived_from (summary fact -> member fact). `from`/`to` are full
-   * record ids. Absent (not empty) when the read flag is off →
-   * backward-compatible.
+   * derived_from (summary fact -> member fact), plus the post-walk
+   * scene-evidence zoom edges — reconstructed_from (scene ->
+   * evidence_fragment | evidence_asset, migration 0123) for every scene
+   * a crossed supported_by edge named. `from`/`to` are full record ids.
+   * Absent (not empty) when the read flag is off → backward-compatible.
    */
   supportEdges: z
     .array(
       z.object({
-        kind: z.enum(['supported_by', 'contradicted_by', 'derived_from']),
+        kind: z.enum(['supported_by', 'contradicted_by', 'derived_from', 'reconstructed_from']),
         from: z.string(),
         to: z.string(),
       }),
