@@ -273,3 +273,46 @@ describe('user forget → segments follow the deleted episodes', () => {
     expect(byUser).toBeDefined();
   });
 });
+
+describe('user forget → memory_support cascade (0116)', () => {
+  const saved = {
+    edges: process.env.PROVENANCE_SUPPORT_EDGES,
+    read: process.env.PROVENANCE_SUPPORT_GRAPH_READ,
+  };
+  afterEach(() => {
+    if (saved.edges === undefined) delete process.env.PROVENANCE_SUPPORT_EDGES;
+    else process.env.PROVENANCE_SUPPORT_EDGES = saved.edges;
+    if (saved.read === undefined) delete process.env.PROVENANCE_SUPPORT_GRAPH_READ;
+    else process.env.PROVENANCE_SUPPORT_GRAPH_READ = saved.read;
+  });
+
+  it('erases support edges by pre-collected subject ids with BOTH flags OFF', async () => {
+    // GDPR runs regardless of flags: rows written while
+    // PROVENANCE_SUPPORT_EDGES was on must stay erasable after off.
+    delete process.env.PROVENANCE_SUPPORT_EDGES;
+    delete process.env.PROVENANCE_SUPPORT_GRAPH_READ;
+    const { db, queries } = makeDb((sql) => {
+      if (sql.includes('SELECT VALUE id FROM knowledge_fact')) return ['knowledge_fact:f1'];
+      if (sql.includes('SELECT VALUE id FROM memory_episode WHERE userId'))
+        return ['memory_episode:s1'];
+      return [];
+    });
+    const surreal = {
+      withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) => fn(db),
+    } as unknown as SurrealService;
+    await new UserForgetService(surreal).forgetUser('co_x', 'u1');
+
+    // Two-step (SELECT ids → DELETE $ids): `in` sits under the COMPOUND
+    // support_edge_uq index — the 3.2.4 DELETE-WHERE silent no-op class.
+    const cascade = queries.find(
+      (q) =>
+        q.sql.includes('SELECT VALUE id FROM memory_support') && q.sql.includes('DELETE $supIds'),
+    );
+    expect(cascade).toBeDefined();
+    const subjects = (cascade!.params!.subjects as unknown[]).map(String);
+    expect(subjects).toContain('knowledge_fact:f1');
+    expect(subjects).toContain('memory_episode:s1');
+    // Never the broken one-step shape.
+    expect(queries.some((q) => /DELETE memory_support\s+WHERE/.test(q.sql))).toBe(false);
+  });
+});

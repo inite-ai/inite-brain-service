@@ -910,6 +910,34 @@
           },
           "factId": {
             "type": "string"
+          },
+          "supportEdges": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "from": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "supported_by",
+                    "contradicted_by",
+                    "derived_from"
+                  ],
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "from",
+                "to"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           }
         },
         "required": [

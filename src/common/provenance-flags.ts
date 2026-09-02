@@ -41,6 +41,46 @@ export function recursiveClosureEnabled(): boolean {
   return envFlagEnabled(process.env.PROVENANCE_RECURSIVE_CLOSURE);
 }
 
+/**
+ * Typed support graph — write side — PROVENANCE_SUPPORT_EDGES.
+ *
+ * When on, the three writer families emit canonical memory_support
+ * edges (0116): scene-backlink adds fact-supported_by->scene edges
+ * ALONGSIDE the legacy source.memoryEpisodeIds stamps, the conflict
+ * resolver records loser-contradicted_by->winner on SUPERSEDED and the
+ * mutual pair on COMPETING (CONFLICT_OUTCOME_CAP idiom), and
+ * promotion/compaction/recompose mirror derivedFrom as
+ * summary-derived_from->member edges (recompose deletes-then-reinserts
+ * its summary's set to track rewrites). Writes are replay-idempotent
+ * (`INSERT RELATION IGNORE` over UNIQUE(in, out, kind)). The GDPR
+ * cascades erase edges REGARDLESS of this flag. The env read lives here
+ * in the common layer, NOT inside the engine dirs (engine-gates S5.2).
+ * Read at call time so a flip is runtime-mutable. Default off ⇒ no edge
+ * is ever written and every writer's query sequence is byte-identical.
+ */
+export function supportEdgesEnabled(): boolean {
+  return envFlagEnabled(process.env.PROVENANCE_SUPPORT_EDGES);
+}
+
+/**
+ * Typed support graph — read side — PROVENANCE_SUPPORT_GRAPH_READ.
+ *
+ * When on, the provenance closure walk (PROVENANCE_RECURSIVE_CLOSURE)
+ * additionally follows derived_from edges as children (same visited
+ * set, same depth/fact/episode caps) and returns the supported_by /
+ * contradicted_by / derived_from edges it crossed in the optional
+ * `supportEdges` response field; a root with typed edges but an EMPTY
+ * derivedFrom array now walks too. Members pass the same per-row
+ * fences; edge targets are classified via the EvidenceRef prefix
+ * vocabulary (support-edges.ts). The env read lives here in the common
+ * layer, NOT inside the engine dirs (engine-gates S5.2). Read at call
+ * time so a flip is runtime-mutable. Default off ⇒ the walk and the
+ * provenance response are byte-identical (field absent, not empty).
+ */
+export function supportGraphReadEnabled(): boolean {
+  return envFlagEnabled(process.env.PROVENANCE_SUPPORT_GRAPH_READ);
+}
+
 /** Closure walk caps — defaults + clamp bounds (see the knobs below). */
 const DEFAULT_CLOSURE_MAX_DEPTH = 5;
 const DEFAULT_CLOSURE_MAX_FACTS = 256;

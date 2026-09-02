@@ -21,11 +21,31 @@
  * wire, not hidden.
  */
 
+import {
+  classifySupportTarget,
+  isEmittedEdgeKind,
+  type EmittedEdgeKind,
+} from '../common/support-edges';
+
 /** Wire span shape — {start, end, exact} only (G3). */
 export interface ProvenanceSpan {
   start: number;
   end: number;
   exact: string;
+}
+
+/** The minimal memory_support row shape the walk reads (0116). */
+export interface ClosureEdgeRow {
+  in: unknown;
+  out: unknown;
+  kind: unknown;
+}
+
+/** One crossed support edge, normalized for the wire. */
+export interface ProvenanceClosureEdge {
+  kind: EmittedEdgeKind;
+  from: string;
+  to: string;
 }
 
 /**
@@ -95,6 +115,14 @@ export interface ProvenanceClosureResult<Row extends ClosureFactRow> {
   truncated: { depth: boolean; fanout: boolean; episodes: boolean };
   /** True when ≥1 member row was silently dropped by the fence. */
   filtered: boolean;
+  /**
+   * Support edges crossed by the walk (PROVENANCE_SUPPORT_GRAPH_READ) —
+   * one batched fetchEdges call per depth over the frontier, deduped by
+   * (kind, from, to), capped by maxFacts (no separate cap knob — the
+   * fact budget bounds the edge surface too; overflow marks
+   * truncated.fanout). Always `[]` when fetchEdges is absent.
+   */
+  edges: ProvenanceClosureEdge[];
 }
 
 /** Mutable walk bookkeeping shared by the per-depth helpers. */
@@ -105,6 +133,9 @@ interface WalkState {
   truncated: { depth: boolean; fanout: boolean; episodes: boolean };
   /** Fact budget consumed — children admitted across the whole walk. */
   admitted: number;
+  edges: ProvenanceClosureEdge[];
+  /** Dedupe keys of `edges` — (kind, from, to). */
+  edgeKeys: Set<string>;
 }
 
 /**
@@ -159,11 +190,72 @@ function collectChildren(
 }
 
 /**
+ * Record this depth's crossed support edges into the walk state —
+ * kind-filtered to the three emitted kinds, String()-normalized,
+ * deduped by (kind, from, to), capped by the fact budget (overflow
+ * marks truncated.fanout) — and return the derived_from targets that
+ * classify as facts (EvidenceRef/table-prefix vocabulary — a non-fact
+ * target is reported as an edge but never walked as a child).
+ */
+function collectEdges(
+  edgeRows: readonly ClosureEdgeRow[],
+  caps: ProvenanceClosureCaps,
+  s: WalkState,
+): string[] {
+  const factTargets: string[] = [];
+  for (const row of edgeRows) {
+    const kind = String(row.kind);
+    if (!isEmittedEdgeKind(kind)) continue;
+    const from = String(row.in);
+    const to = String(row.out);
+    const key = `${kind} ${from} ${to}`;
+    if (s.edgeKeys.has(key)) continue;
+    if (s.edges.length >= caps.maxFacts) {
+      s.truncated.fanout = true;
+      continue;
+    }
+    s.edgeKeys.add(key);
+    s.edges.push({ kind, from, to });
+    if (kind === 'derived_from' && classifySupportTarget(to) === 'fact') factTargets.push(to);
+  }
+  return factTargets;
+}
+
+/** Admit edge-derived children through the SAME visited set + fact
+ *  budget as collectChildren — one budget, one dedupe, one cycle
+ *  terminator for both child sources. */
+function admitEdgeChildren(
+  targets: readonly string[],
+  caps: ProvenanceClosureCaps,
+  s: WalkState,
+): string[] {
+  const children: string[] = [];
+  for (const id of targets) {
+    if (s.visited.has(id)) continue;
+    if (s.admitted >= caps.maxFacts) {
+      s.truncated.fanout = true;
+      continue;
+    }
+    s.visited.add(id);
+    s.admitted += 1;
+    children.push(id);
+  }
+  return children;
+}
+
+/**
  * BFS over `derivedFrom` from an already-fenced root. One batched fetch
  * per depth (`WHERE id INSIDE $ids` — the caller's query carries NO
  * status filter); record-id shapes are String()-normalized throughout,
  * so RecordId objects and plain strings key the visited set identically
  * (which is also what terminates cycles — each id is admitted once).
+ *
+ * Optional `fetchEdges` (PROVENANCE_SUPPORT_GRAPH_READ): one batched
+ * memory_support read per depth over the frontier's ids. derived_from
+ * edge targets join the next generation through the SAME visited set
+ * and fact budget; every crossed edge lands in the `edges` result.
+ * ABSENT ⇒ the walk is byte-identical to the pre-edge behavior
+ * (`edges` stays `[]`, no other field changes).
  */
 export async function walkProvenanceClosure<Row extends ClosureFactRow>(opts: {
   root: Row;
@@ -172,6 +264,8 @@ export async function walkProvenanceClosure<Row extends ClosureFactRow>(opts: {
   visible: (fact: Row) => boolean;
   /** ONE batched SELECT of loadVisibleFact's column set — no status filter. */
   fetchByIds: (ids: string[]) => Promise<Row[]>;
+  /** ONE batched memory_support SELECT per depth (`WHERE in INSIDE $ids`). */
+  fetchEdges?: (ids: string[]) => Promise<ClosureEdgeRow[]>;
 }): Promise<ProvenanceClosureResult<Row>> {
   const { caps } = opts;
   const state: WalkState = {
@@ -180,6 +274,8 @@ export async function walkProvenanceClosure<Row extends ClosureFactRow>(opts: {
     spans: new Map<string, ProvenanceSpan>(),
     truncated: { depth: false, fanout: false, episodes: false },
     admitted: 0,
+    edges: [],
+    edgeKeys: new Set<string>(),
   };
   const closureFacts: Array<{ fact: Row; depth: number }> = [];
   let filtered = false;
@@ -191,8 +287,23 @@ export async function walkProvenanceClosure<Row extends ClosureFactRow>(opts: {
     //    episodeIds still contributes its children below.
     for (const fact of frontier) harvestGrounding(fact, caps, state);
 
-    // 2. Next generation, minus visited, fact-budget capped.
-    const children = collectChildren(frontier, caps, state);
+    // 1b. Crossed support edges (only when the caller supplied the
+    //     fetch — absent ⇒ nothing here runs and the walk is
+    //     byte-identical). The final frontier's edges are collected
+    //     too: this step precedes every break below.
+    let edgeTargets: string[] = [];
+    if (opts.fetchEdges) {
+      const edgeRows = await opts.fetchEdges(frontier.map((f) => String(f.id)));
+      edgeTargets = collectEdges(edgeRows, caps, state);
+    }
+
+    // 2. Next generation, minus visited, fact-budget capped — the
+    //    derivedFrom arrays first (existing admission order), then the
+    //    typed derived_from targets through the same budget.
+    const children = [
+      ...collectChildren(frontier, caps, state),
+      ...admitEdgeChildren(edgeTargets, caps, state),
+    ];
     if (children.length === 0) break;
     if (depth >= caps.maxDepth) {
       // Unvisited children remain past the depth cap.
@@ -215,5 +326,6 @@ export async function walkProvenanceClosure<Row extends ClosureFactRow>(opts: {
     spans: state.spans,
     truncated: state.truncated,
     filtered,
+    edges: state.edges,
   };
 }

@@ -538,6 +538,151 @@ describe('PromotionRunnerService — summary episode stamping', () => {
   });
 });
 
+/**
+ * Typed support graph (Drift-5, PROVENANCE_SUPPORT_EDGES): both summary
+ * runners mirror the EXACT derivedFrom array they write as
+ * summary-derived_from->member memory_support edges. Off (default) the
+ * query log carries NO memory_support statement — byte-identical.
+ */
+describe('summary runners — derived_from edge mirror (PROVENANCE_SUPPORT_EDGES)', () => {
+  const saved = process.env.PROVENANCE_SUPPORT_EDGES;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.PROVENANCE_SUPPORT_EDGES;
+    else process.env.PROVENANCE_SUPPORT_EDGES = saved;
+  });
+
+  /** Like makeFakeSurreal, but CREATE returns a knowledge_fact-shaped
+   *  id — the mirror's `in` endpoint must pass assertEdgeShape. */
+  function makeMirrorSurreal(candidates: CandidateRow[]) {
+    const calls: QueryCall[] = [];
+    const fakeDb = {
+      async query<R>(sql: string, params?: Record<string, unknown>): Promise<R> {
+        calls.push({ sql, params });
+        if (sql.includes('GROUP BY entityId, predicate, userId')) {
+          return [
+            [{ entityId: 'knowledge_entity:e1', predicate: 'said', n: candidates.length }],
+          ] as unknown as R;
+        }
+        if (
+          sql.includes('SELECT id, entityId, predicate') ||
+          sql.includes('WHERE entityId = $entity AND predicate = $predicate')
+        ) {
+          return [candidates] as unknown as R;
+        }
+        if (sql.startsWith('CREATE type::table($t)')) {
+          return [[{ ...(params!.d as object), id: 'knowledge_fact:sum1' }]] as unknown as R;
+        }
+        return [[]] as unknown as R;
+      },
+    };
+    const surreal = {
+      withCompany: async <T>(_c: string, fn: (db: unknown) => Promise<T>) => fn(fakeDb),
+    } as unknown as SurrealService;
+    return { surreal, calls };
+  }
+
+  const supportCalls = (calls: QueryCall[]) =>
+    calls.filter((c) => c.sql.includes('memory_support'));
+  const edgeRows = (call: QueryCall) =>
+    (call.params!.rows as Array<Record<string, unknown>>).map((r) => ({
+      ...r,
+      in: String(r.in),
+      out: String(r.out),
+    }));
+
+  const COMPACTION_SEEDS = rows([
+    { id: 'knowledge_fact:m1', predicate: 'tier', object: 'gold' },
+    { id: 'knowledge_fact:m2', predicate: 'tier', object: 'platinum' },
+  ]);
+
+  it('compaction, flag OFF (default): no memory_support statement in the log', async () => {
+    delete process.env.PROVENANCE_SUPPORT_EDGES;
+    const { surreal, calls } = makeMirrorSurreal(COMPACTION_SEEDS);
+    const runner = new CompactionRunnerService(
+      surreal,
+      new StubConfig({ COMPACTION_SUMMARIES: 'true' }) as unknown as ConfigService,
+      { generate: async () => 'S' },
+    );
+    await runner.compactAll(['co_a']);
+    expect(supportCalls(calls)).toEqual([]);
+  });
+
+  it('compaction, flag ON: the mirror equals the derivedFrom array, element for element', async () => {
+    process.env.PROVENANCE_SUPPORT_EDGES = '1';
+    const { surreal, calls } = makeMirrorSurreal(COMPACTION_SEEDS);
+    const runner = new CompactionRunnerService(
+      surreal,
+      new StubConfig({ COMPACTION_SUMMARIES: 'true' }) as unknown as ConfigService,
+      { generate: async () => 'S' },
+    );
+    await runner.compactAll(['co_a']);
+    const inserts = supportCalls(calls);
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0]!.sql).toContain('INSERT RELATION IGNORE INTO memory_support');
+    expect(edgeRows(inserts[0]!)).toEqual([
+      {
+        in: 'knowledge_fact:sum1',
+        out: 'knowledge_fact:m1',
+        kind: 'derived_from',
+        writer: 'compaction_runner',
+      },
+      {
+        in: 'knowledge_fact:sum1',
+        out: 'knowledge_fact:m2',
+        kind: 'derived_from',
+        writer: 'compaction_runner',
+      },
+    ]);
+  });
+
+  const promotionRunner = (surreal: SurrealService) =>
+    new PromotionRunnerService(
+      surreal,
+      new StubConfig({
+        COMPACTION_PROMOTION_ENABLED: '1',
+        COMPACTION_PROMOTION_MIN_GROUP: '2',
+      }) as unknown as ConfigService,
+      { embed: async () => [1, 0] } as unknown as EmbedderService,
+      { generate: async () => 'promoted summary' },
+    );
+
+  const PROMOTION_SEEDS = rows([
+    { id: 'knowledge_fact:s1', predicate: 'said', object: 'old remark 1' },
+    { id: 'knowledge_fact:s2', predicate: 'said', object: 'old remark 2' },
+  ]);
+
+  it('promotion, flag OFF (default): no memory_support statement in the log', async () => {
+    delete process.env.PROVENANCE_SUPPORT_EDGES;
+    const { surreal, calls } = makeMirrorSurreal(PROMOTION_SEEDS);
+    await promotionRunner(surreal).promoteCompany('co_a');
+    expect(supportCalls(calls)).toEqual([]);
+  });
+
+  it('promotion, flag ON: mirror lands after the CREATE, writer promotion_runner', async () => {
+    process.env.PROVENANCE_SUPPORT_EDGES = '1';
+    const { surreal, calls } = makeMirrorSurreal(PROMOTION_SEEDS);
+    await promotionRunner(surreal).promoteCompany('co_a');
+    const createIdx = calls.findIndex((c) => c.sql.startsWith('CREATE type::table($t)'));
+    const insertIdx = calls.findIndex((c) => c.sql.includes('memory_support'));
+    expect(createIdx).toBeGreaterThanOrEqual(0);
+    expect(insertIdx).toBeGreaterThan(createIdx);
+    expect(edgeRows(calls[insertIdx]!)).toEqual([
+      {
+        in: 'knowledge_fact:sum1',
+        out: 'knowledge_fact:s1',
+        kind: 'derived_from',
+        writer: 'promotion_runner',
+      },
+      {
+        in: 'knowledge_fact:sum1',
+        out: 'knowledge_fact:s2',
+        kind: 'derived_from',
+        writer: 'promotion_runner',
+      },
+    ]);
+  });
+});
+
 describe('ConcatSummaryGenerator', () => {
   it('produces a chronological concat with date prefix and predicate', async () => {
     const { ConcatSummaryGenerator } = await import('../src/compaction/summary-generator');

@@ -7,8 +7,9 @@ import { ReadPinService } from '../episodes/read-pin.service';
 import { ConcatSummaryGenerator, FactToSummarize, SummaryGenerator } from './summary-generator';
 import { CandidateFactRow, CompactionStats, SUMMARY_GENERATOR } from './compaction.types';
 import { envFlagEnabled } from '../common/env-validation';
-import { summaryEpisodeStampEnabled } from '../common/provenance-flags';
+import { summaryEpisodeStampEnabled, supportEdgesEnabled } from '../common/provenance-flags';
 import { unionEpisodeIds } from '../common/episode-ids';
+import { insertDerivedFromEdges } from './support-edge-mirror';
 import { compactionOverridesFor } from './compaction-overrides';
 
 /**
@@ -217,7 +218,7 @@ export class CompactionRunnerService {
         ? unionEpisodeIds(sorted.map((g) => g.eps))
         : [];
 
-      await dbCreate(db, 'knowledge_fact', {
+      const summary = await dbCreate(db, 'knowledge_fact', {
         entityId: first.entityId,
         predicate: `summary_${first.predicate}`,
         object: summaryText,
@@ -236,6 +237,24 @@ export class CompactionRunnerService {
         ...(first.userId ? { userId: first.userId } : {}),
       });
       created++;
+
+      // Typed support graph (PROVENANCE_SUPPORT_EDGES, default off):
+      // mirror the EXACT derivedFrom array just written. Best-effort —
+      // a mirror failure warns, never aborts the rollup pass. Off ⇒
+      // block skipped, the write sequence is byte-identical.
+      if (supportEdgesEnabled()) {
+        try {
+          await insertDerivedFromEdges(db, {
+            summaryId: String(summary.id),
+            memberIds: sorted.map((g) => String(g.id)),
+            writer: 'compaction_runner',
+          });
+        } catch (e) {
+          this.logger.warn(
+            `compaction derived_from edge mirror failed (non-fatal): ${(e as Error).message}`,
+          );
+        }
+      }
     }
     return created;
   }

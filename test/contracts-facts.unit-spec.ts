@@ -63,6 +63,13 @@ const fullProvenance: Required<FactProvenanceResult> = {
     },
   ],
   closure: { depth: 1, factCount: 1, truncated: false, filtered: false },
+  // PROVENANCE_SUPPORT_GRAPH_READ optional (0116) — absent when the
+  // read flag is off; the on-shape pins all three emitted kinds.
+  supportEdges: [
+    { kind: 'derived_from', from: 'knowledge_fact:abc', to: 'knowledge_fact:member1' },
+    { kind: 'supported_by', from: 'knowledge_fact:member1', to: 'memory_episode:scene1' },
+    { kind: 'contradicted_by', from: 'knowledge_fact:member1', to: 'knowledge_fact:winner1' },
+  ],
 };
 
 describe('facts wire contracts', () => {

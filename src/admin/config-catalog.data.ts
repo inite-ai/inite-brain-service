@@ -2069,6 +2069,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Episode budget of the PROVENANCE_RECURSIVE_CLOSURE walk — distinct grounding episodes harvested across the closure. Clamped to 1..500; unset/invalid → 200. Ids past the cap mark the closure truncated.',
   },
   {
+    key: 'PROVENANCE_SUPPORT_EDGES',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Typed support graph, write side (Drift-5, migration 0116): writers emit canonical memory_support edges — scene-backlink adds fact-supported_by->scene edges alongside the legacy source.memoryEpisodeIds stamps, the conflict resolver records loser-contradicted_by->winner on SUPERSEDED and mutual pairs on COMPETING (capped 20), and promotion/compaction/recompose mirror derivedFrom as summary-derived_from->member edges (recompose deletes-then-reinserts its summary's edges to track rewrites). Idempotent via UNIQUE(in,out,kind) + INSERT RELATION IGNORE. GDPR cascades erase edges regardless of this flag. Off (default) → no edge is ever written, every writer's queries byte-identical.",
+  },
+  {
+    key: 'PROVENANCE_SUPPORT_GRAPH_READ',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Typed support graph, read side (Drift-5): the provenance closure walk (PROVENANCE_RECURSIVE_CLOSURE) additionally follows derived_from edges as children (same visited set, same depth/fact/episode caps) and returns the supported_by/contradicted_by/derived_from edges it crossed in a new optional supportEdges response field; a root with typed edges but an empty derivedFrom array now walks too. Members pass the same per-row fences; edge targets are classified via EvidenceRef prefixes. Off (default) → the walk and the provenance response are byte-identical (field absent, not empty).',
+  },
+  {
     key: 'PROJECTIONS_API_ENABLED',
     category: 'pipeline',
     defaultValue: '0',

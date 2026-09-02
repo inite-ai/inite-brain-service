@@ -30,8 +30,15 @@ import {
   closureMaxEpisodes,
   closureMaxFacts,
   recursiveClosureEnabled,
+  supportGraphReadEnabled,
 } from '../common/provenance-flags';
-import { indexCharSpans, walkProvenanceClosure, type ProvenanceSpan } from './provenance-closure';
+import {
+  indexCharSpans,
+  walkProvenanceClosure,
+  type ClosureEdgeRow,
+  type ProvenanceClosureEdge,
+  type ProvenanceSpan,
+} from './provenance-closure';
 
 /**
  * Predicate-class allowlist that requires `brain:admin` for retract,
@@ -189,6 +196,12 @@ export interface FactProvenanceResult {
    */
   derivedFacts?: FactProvenanceDerivedFact[];
   closure?: FactProvenanceClosure;
+  /**
+   * Typed support edges crossed by the walk
+   * (PROVENANCE_SUPPORT_GRAPH_READ, 0116) — absent (not empty) when the
+   * read flag is off, so the default response stays byte-identical.
+   */
+  supportEdges?: ProvenanceClosureEdge[];
 }
 
 interface FactReadOptions {
@@ -380,11 +393,11 @@ export class FactsService {
       // Recursive closure (PROVENANCE_RECURSIVE_CLOSURE) only for a root
       // that HAS derivedFrom — flag off, or a leaf fact, takes the
       // one-hop path below byte-identically (no optional fields).
-      if (
-        recursiveClosureEnabled() &&
-        Array.isArray(fact.derivedFrom) &&
-        fact.derivedFrom.length > 0
-      ) {
+      // PROVENANCE_SUPPORT_GRAPH_READ widens the entry: a root with
+      // typed edges but an EMPTY derivedFrom array walks too (the edge
+      // fetch is what discovers its children).
+      const hasDerivedFrom = Array.isArray(fact.derivedFrom) && fact.derivedFrom.length > 0;
+      if (recursiveClosureEnabled() && (hasDerivedFrom || supportGraphReadEnabled())) {
         return this.provenanceWithClosure(db, opts, fact);
       }
       const source = (fact.source ?? {}) as {
@@ -435,6 +448,12 @@ export class FactsService {
       policyLookup: await this.predicateRegistry?.rowPolicyLookup(opts.companyId),
     });
     const gates: FactVisibilityGates = { scopeUserId, principalTags, rowPolicy };
+    // Typed support graph read (PROVENANCE_SUPPORT_GRAPH_READ): supply
+    // the per-depth edge fetch — ONE batched SELECT over the frontier.
+    // Plain WHERE on `in` (the compound support_edge_uq leading field)
+    // is safe for a SELECT; only DELETE hits the 3.2.4 planner no-op.
+    // Flag off ⇒ no fetchEdges ⇒ the walk is byte-identical.
+    const readEdges = supportGraphReadEnabled();
     const closure = await walkProvenanceClosure<FactReadRow>({
       root,
       caps: {
@@ -455,6 +474,17 @@ export class FactsService {
         );
         return rows ?? [];
       },
+      ...(readEdges
+        ? {
+            fetchEdges: async (ids: string[]) => {
+              const [rows] = await db.query<[ClosureEdgeRow[]]>(
+                `SELECT id, in, out, kind FROM memory_support WHERE in INSIDE $ids`,
+                { ids: ids.map((id) => new StringRecordId(id)) },
+              );
+              return rows ?? [];
+            },
+          }
+        : {}),
     });
     rowPolicy.finish();
 
@@ -502,6 +532,10 @@ export class FactsService {
         truncated,
         filtered: closure.filtered,
       },
+      // Additive and flag-keyed: PRESENT (possibly empty) whenever the
+      // read flag drove the walk, ABSENT otherwise — never an empty
+      // array on the default path.
+      ...(readEdges ? { supportEdges: closure.edges } : {}),
     };
   }
 
