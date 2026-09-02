@@ -19,3 +19,18 @@ export const DERIVED_REPRESENTATION_KINDS = [
   'text',
 ] as const;
 export type DerivedRepresentationKind = (typeof DERIVED_REPRESENTATION_KINDS)[number];
+
+/** Lifecycle states of a platform-executed processing run (0121). */
+export const PROCESSING_RUN_STATUSES = [
+  'pending',
+  'running',
+  'succeeded',
+  'failed',
+  'superseded',
+] as const;
+export type ProcessingRunStatus = (typeof PROCESSING_RUN_STATUSES)[number];
+
+/** External-ingest quarantine states on evidence_asset (0121). Absent =
+ *  legacy/off-era row, read as clean (all pre-seam writes were internal). */
+export const QUARANTINE_STATUSES = ['quarantined', 'scanning', 'clean', 'rejected'] as const;
+export type QuarantineStatus = (typeof QUARANTINE_STATUSES)[number];

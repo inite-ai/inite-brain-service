@@ -63,6 +63,64 @@ export function evidenceMaxBytes(): number {
 }
 
 /**
+ * Trusted processor broker (Brain v2.1 MM-1, migration 0121) —
+ * EVIDENCE_PROCESSOR_BROKER.
+ *
+ * When on, EvidenceProcessorBrokerService dispatches platform-owned
+ * processor adapters over registered evidence assets and records each
+ * execution as an idempotent processing_run row. Default off ⇒ dispatch
+ * throws 503 BEFORE any query is issued and NO row is ever written —
+ * byte-identical prod. The env read lives here in the common layer, NOT
+ * inside the engine dirs (engine-gates S5.2); read at call time so a
+ * flip is runtime-mutable. Requires EVIDENCE_SUBSTRATE_ENABLED to do
+ * anything useful (validateEvidenceProcessingEnv warns on the
+ * inconsistent pair). EVIDENCE_ family sits off the ENGINE flag budget
+ * by design (a substrate builder, not an engine fork).
+ */
+export function processorBrokerEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_PROCESSOR_BROKER);
+}
+
+/**
+ * External-ingest quarantine seam (Brain v2.1 MM-6, migration 0121) —
+ * EVIDENCE_QUARANTINE.
+ *
+ * When on, registerAsset stamps evidence_asset.quarantineStatus ('clean'
+ * for internal writes, 'quarantined' for origin:'external_ingest') and
+ * EvidenceQuarantineService may run scan transitions. Default off ⇒ the
+ * field is NEVER written (byte-identical rows), quarantine transitions
+ * throw 503, and origin:'external_ingest' is REJECTED 503 — fail closed:
+ * no external bytes may enter without the seam. Read at call time
+ * (runtime-mutable); common layer per engine-gates S5.2.
+ */
+export function evidenceQuarantineEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_QUARANTINE);
+}
+
+/** Default derived-output cap: 1 MiB. (Named WITHOUT the full env-key
+ *  substring so the W6 boot-capture truth gate doesn't mistake this
+ *  module-scope default for a boot-captured read.) */
+const DEFAULT_DERIVED_CAP = 1048576;
+
+/**
+ * Derived-output size cap — EVIDENCE_DERIVED_MAX_BYTES (non-boolean).
+ *
+ * Bounds BOTH what a processor adapter may read from a blob and the
+ * byte length of any single derived-representation content it returns —
+ * an over-cap output FAILS the run (reject, never truncate: silent
+ * truncation would alter derived content). Resolved here in the common
+ * layer (engine-gates S5.2); read at call time so a change is
+ * runtime-mutable. Must be a positive integer; unset, blank, or invalid
+ * → the 1 MiB default.
+ */
+export function evidenceDerivedMaxBytes(): number {
+  const raw = process.env.EVIDENCE_DERIVED_MAX_BYTES;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_DERIVED_CAP;
+  const v = Number(raw);
+  return Number.isInteger(v) && v > 0 ? v : DEFAULT_DERIVED_CAP;
+}
+
+/**
  * Claim-state write side (Drift-1, migration 0115) —
  * EVIDENCE_GROUNDING_STAMP.
  *

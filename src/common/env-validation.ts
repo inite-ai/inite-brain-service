@@ -250,12 +250,17 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // The write seam clamps bad values to the default at read time; boot
   // validation catches the typo before it silently reads as a default.
   positiveInt(env, 'EVIDENCE_MAX_BYTES', errors);
+  // Processing lifecycle (0121): derived-output cap, same clamp contract.
+  positiveInt(env, 'EVIDENCE_DERIVED_MAX_BYTES', errors);
 
   // ── Retrieval profile (per-tenant genre configuration) ─────────────
   validateRetrievalProfileEnv(env, errors);
 
   // ── Evidence plane: claim grounding (Drift-1, migration 0115) ──────
   validateEvidenceGroundingEnv(env, warnings);
+
+  // ── Evidence plane: processing lifecycle (migration 0121) ──────────
+  validateEvidenceProcessingEnv(env, warnings);
 
   // ── All remaining boolean feature flags ────────────────────────────
   validateBooleanFlags(env, warnings);
@@ -414,6 +419,27 @@ function validateEvidenceGroundingEnv(env: NodeJS.ProcessEnv, warnings: string[]
       'EVIDENCE_FAIL_CLOSED_CAPTURE is set while EPISODE_SUBSTRATE_ENABLED is not — ' +
         'fail-closed capture requires the episode substrate; every mention will be ' +
         'rejected (503) until EPISODE_SUBSTRATE_ENABLED is turned on.',
+    );
+  }
+}
+
+/**
+ * Cross-flag consistency for the processing lifecycle (0121): a WARNING,
+ * not an error — EVIDENCE_PROCESSOR_BROKER without
+ * EVIDENCE_SUBSTRATE_ENABLED means every dispatch is rejected 503 (the
+ * broker requires the substrate writers for its representation output).
+ * The operator should know before the first dispatch bounces — the
+ * validateEvidenceGroundingEnv pair-warn mold.
+ */
+function validateEvidenceProcessingEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
+  if (
+    envFlagEnabled(env.EVIDENCE_PROCESSOR_BROKER) &&
+    !envFlagEnabled(env.EVIDENCE_SUBSTRATE_ENABLED)
+  ) {
+    warnings.push(
+      'EVIDENCE_PROCESSOR_BROKER is set while EVIDENCE_SUBSTRATE_ENABLED is not — ' +
+        'the broker writes derived representations through the substrate seam; every ' +
+        'dispatch will be rejected (503) until EVIDENCE_SUBSTRATE_ENABLED is turned on.',
     );
   }
 }
@@ -901,6 +927,16 @@ const KNOWN_BOOLEAN_FLAGS = [
   'EVIDENCE_FAIL_CLOSED_CAPTURE',
   'EVIDENCE_UNGROUNDED_EXCLUDE',
   'EVIDENCE_UNGROUNDED_SERVING_GATE',
+  // Processing lifecycle (0121): the trusted processor broker (idempotent
+  // processing_run dispatch over registered assets) and the external-
+  // ingest quarantine seam (quarantineStatus stamping + scan
+  // transitions). Both default off = byte-identical (broker 503s before
+  // any query; quarantineStatus is never written and external_ingest is
+  // rejected 503 — fail closed). The derived-output cap
+  // (EVIDENCE_DERIVED_MAX_BYTES) is an int, not a boolean. EVIDENCE_
+  // family sits off the ENGINE flag budget by design (see above).
+  'EVIDENCE_PROCESSOR_BROKER',
+  'EVIDENCE_QUARANTINE',
   // Outcome telemetry master (0107): writers append memory_outcome rows
   // + fold memory_outcome_stat counters; the nightly raw-log prune runs.
   // Default off = byte-identical (every writer is a guarded no-op).

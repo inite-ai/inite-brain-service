@@ -377,13 +377,17 @@ export class UserForgetService {
         rows: storageRefs.map((storageRef) => ({ storageRef, reason: 'user_forget' })),
       });
     }
-    const [, , , reprsGone, fragsGone, assetsGone] = await db.query<
-      [unknown, unknown, unknown, unknown[], unknown[], unknown[]]
+    // Processing runs (0121) key off assetId only — no ordering hazard
+    // with the repr/frag legs; reprs-before-frags stays exactly as is.
+    const [, , , , , reprsGone, fragsGone, assetsGone] = await db.query<
+      [unknown, unknown, unknown, unknown, unknown[], unknown[], unknown[], unknown[]]
     >(
       `LET $assetIds = (SELECT VALUE id FROM evidence_asset WHERE userId = $u);
        LET $fragIds = (SELECT VALUE id FROM evidence_fragment WHERE assetId INSIDE $assetIds);
        LET $reprIds = (SELECT VALUE id FROM derived_representation
          WHERE subjectId INSIDE $assetIds OR subjectId INSIDE $fragIds);
+       LET $runIds = (SELECT VALUE id FROM processing_run WHERE assetId INSIDE $assetIds);
+       DELETE $runIds RETURN BEFORE;
        DELETE $reprIds RETURN BEFORE;
        DELETE $fragIds RETURN BEFORE;
        DELETE $assetIds RETURN BEFORE;`,

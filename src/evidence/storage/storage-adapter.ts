@@ -38,6 +38,21 @@ export interface EvidenceStorageAdapter {
   exists(storageRef: string): Promise<boolean>;
   /** Remove the blob; true when something was deleted. */
   delete(storageRef: string): Promise<boolean>;
+  /**
+   * OPTIONAL (0121 MM-6 extension point — existing third-party
+   * implementations keep compiling): KMS/at-rest-encryption context for
+   * this blob; null = adapter-native or none. An s3-class adapter
+   * returns its key reference here so audits can prove at-rest coverage
+   * without reading bytes.
+   */
+  encryptionContext?(storageRef: string): Promise<{ kmsKeyRef: string } | null>;
+  /**
+   * OPTIONAL (0121 MM-6 extension point): short-lived signed GET URL for
+   * out-of-process readers; null = unsupported. Serving through this is
+   * separately gated per call (raw-evidence-gate.ts) — the adapter only
+   * answers CAN it mint one.
+   */
+  signedGetUrl?(storageRef: string, ttlSeconds: number): Promise<string | null>;
 }
 
 /**

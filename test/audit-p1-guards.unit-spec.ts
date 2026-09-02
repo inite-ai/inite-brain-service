@@ -13,7 +13,12 @@
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import { JobRunService } from '../src/jobs/job-run.service';
-import { DERIVED_REPRESENTATION_KINDS, EVIDENCE_MODALITIES } from '../src/common/evidence-taxonomy';
+import {
+  DERIVED_REPRESENTATION_KINDS,
+  EVIDENCE_MODALITIES,
+  PROCESSING_RUN_STATUSES,
+  QUARANTINE_STATUSES,
+} from '../src/common/evidence-taxonomy';
 
 const MIGRATIONS = join(__dirname, '..', 'src', 'db', 'migrations');
 
@@ -334,6 +339,78 @@ describe('evidence substrate DELETE-shape guards (0109)', () => {
     );
     expect(fragmentReprs).toBeGreaterThan(0);
     expect(fragmentReprs).toBeLessThan(fragmentDelete);
+  });
+});
+
+describe('0121_evidence_processing_lifecycle', () => {
+  const sql = readFileSync(join(MIGRATIONS, '0121_evidence_processing_lifecycle.surql'), 'utf8');
+
+  // Single-field only: processing_run sits on the GDPR delete path, and a
+  // compound index would put it under the 3.2.4 compound-planner DELETE
+  // no-op class (the 0109 rationale carries over verbatim).
+  it.each([
+    ['processing_run_asset_idx', 'processing_run', 'assetId'],
+    ['processing_run_status_idx', 'processing_run', 'status'],
+    ['processing_run_started_idx', 'processing_run', 'startedAt'],
+    ['derived_repr_run_idx', 'derived_representation', 'producedByRun'],
+    ['derived_repr_superseded_idx', 'derived_representation', 'supersededBy'],
+    ['evidence_asset_quarantine_idx', 'evidence_asset', 'quarantineStatus'],
+  ])('defines %s on %s(%s)', (name, table, fields) => {
+    expect(sql).toContain(`DEFINE INDEX IF NOT EXISTS ${name} ON ${table} FIELDS ${fields};`);
+  });
+
+  it('every index is SINGLE-FIELD (no comma after FIELDS)', () => {
+    const defs = sql.match(/DEFINE INDEX[^;]+;/g) ?? [];
+    expect(defs.length).toBeGreaterThan(0);
+    for (const def of defs) {
+      const fields = /FIELDS ([^;]+);/.exec(def)?.[1] ?? '';
+      expect(fields).not.toContain(',');
+    }
+  });
+
+  it('deliberately defines NO changefeed and NO event', () => {
+    // Same GDPR reasoning as 0109: run errors + lineage must not keep
+    // erased content discoverable in a feed. The header EXPLAINS the
+    // absence in prose, so judge only non-comment lines.
+    const code = sql
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('--'))
+      .join('\n');
+    expect(code).not.toMatch(/CHANGEFEED/);
+    expect(code).not.toMatch(/DEFINE EVENT/);
+  });
+
+  it('pins the 0121 enums to the canonical TS taxonomy', () => {
+    const capabilityAssert = /capability ON processing_run[^;]*ASSERT[^;]*;/s.exec(sql)?.[0] ?? '';
+    const statusAssert = /status ON processing_run[^;]*ASSERT[^;]*;/s.exec(sql)?.[0] ?? '';
+    const quarantineAssert =
+      /quarantineStatus ON evidence_asset[^;]*ASSERT[^;]*;/s.exec(sql)?.[0] ?? '';
+    const values = (statement: string) =>
+      [...statement.matchAll(/'([a-z_]+)'/g)].map((match) => match[1]);
+    expect(values(capabilityAssert)).toEqual([...DERIVED_REPRESENTATION_KINDS]);
+    expect(values(statusAssert)).toEqual([...PROCESSING_RUN_STATUSES]);
+    expect(values(quarantineAssert)).toEqual([...QUARANTINE_STATUSES]);
+  });
+
+  it('user-forget pre-collects run ids and deletes by ids (LET → DELETE)', () => {
+    const src = readFileSync(
+      join(__dirname, '..', 'src', 'entities', 'user-forget.service.ts'),
+      'utf8',
+    );
+    expect(src).toContain('LET $runIds =');
+    expect(src).toContain('DELETE $runIds');
+  });
+
+  it('no writer uses a one-step DELETE-WHERE on processing_run', () => {
+    const writerFiles = [
+      join(__dirname, '..', 'src', 'entities', 'user-forget.service.ts'),
+      join(__dirname, '..', 'src', 'evidence', 'evidence-store.service.ts'),
+      join(__dirname, '..', 'src', 'evidence', 'processor-broker.service.ts'),
+      join(__dirname, '..', 'src', 'evidence', 'processing', 'processing-run.service.ts'),
+    ];
+    for (const file of writerFiles) {
+      expect(readFileSync(file, 'utf8')).not.toMatch(/DELETE processing_run WHERE/);
+    }
   });
 });
 
