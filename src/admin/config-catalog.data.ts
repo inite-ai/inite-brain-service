@@ -2129,6 +2129,17 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Fact read + provenance API ("show me why I remember this"): GET /v1/facts/:id serves the fact as stored (aspect/statement/confidence/validFrom, source attribution, retracted flag, derivedVersion) and GET /v1/facts/:id/provenance serves its verbatim grounding turns (source.episodeIds via the shared episode read port, text capped at 600 chars). Every miss is a 404 — tenant fence, fail-closed user scope (another user\'s fact is indistinguishable from absent), registry-backed row policy on scope-fenced predicates; episode text respects brain:read_pii. POST /v1/facts/:id/retract is deliberately NOT gated by this flag (write/GDPR path). Off (default) → read routes answer 404.',
   },
   {
+    key: 'BELIEFS_API_ENABLED',
+    category: 'pipeline',
+    // Read at call time (BeliefsController.assertEnabled) — never
+    // captured in a constructor — so a flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Belief read API (Belief-B): GET /v1/beliefs/:id serves one semantic_belief revision as stored (free-text subject/field key, value/priorValue, statement, confidence, revision/status/supersededBy supersede chain, validFrom/validUntil, inline sourceSceneIds provenance, corroboration counters, promoterVersion) and GET /v1/beliefs lists by subject/field/status/userId with a capped page (default 25, max 100). Read-only — the Belief-A promotion pass (SCENES_BELIEF_PROMOTION) stays the only writer. Every miss is a 404 — tenant fence + fail-closed single-user scope (#387: a belief is always one user's; a user-bound token sees only its own, an unstamped row serves to no one); beliefs carry no piiClass and no registry predicate, so no PII/row-policy fence applies. Off (default) → routes answer 404.",
+  },
+  {
     key: 'PROVENANCE_SUMMARY_EPISODE_STAMP',
     category: 'pipeline',
     defaultValue: '0',

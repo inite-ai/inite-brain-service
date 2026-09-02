@@ -123,6 +123,115 @@
         ],
         "type": "object"
       },
+      "BeliefReadResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "beliefId": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "conversationCount": {
+            "type": "number"
+          },
+          "conversationIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "corroborationCount": {
+            "type": "number"
+          },
+          "field": {
+            "type": "string"
+          },
+          "priorValue": {
+            "type": "string"
+          },
+          "promoterVersion": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "number"
+          },
+          "sourceSceneIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "statementSource": {
+            "enum": [
+              "template",
+              "llm"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "supersededBy": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "validFrom": {
+            "type": "string"
+          },
+          "validUntil": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "beliefId",
+          "userId",
+          "subject",
+          "field",
+          "value",
+          "statement",
+          "statementSource",
+          "confidence",
+          "revision",
+          "status",
+          "validFrom",
+          "sourceSceneIds",
+          "conversationIds",
+          "corroborationCount",
+          "conversationCount"
+        ],
+        "type": "object"
+      },
+      "BeliefsListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "beliefs": {
+            "items": {
+              "$ref": "#/components/schemas/BeliefReadResponse"
+            },
+            "type": "array"
+          },
+          "found": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "beliefs",
+          "found"
+        ],
+        "type": "object"
+      },
       "Candidate": {
         "additionalProperties": false,
         "properties": {
@@ -3719,6 +3828,129 @@
         ]
       }
     },
+    "/v1/beliefs": {
+      "get": {
+        "description": "Beliefs the brain currently holds (semantic_belief, promoted from enriched scenes), filtered by exact subject/field key, lifecycle status (default active) and user scope. A user-bound token is pinned to its own user (userId mismatch is 403); M2M keys may scope to any user or list tenant-wide. Page capped at 100 (default 25). 404 until BELIEFS_API_ENABLED=1. Source: src/beliefs/beliefs.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "listBeliefs",
+        "parameters": [
+          {
+            "description": "Free-text subject key (exact match).",
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Free-text field key (exact match).",
+            "in": "query",
+            "name": "field",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "End-user scope key. M2M keys may assert any user; user-bound tokens are pinned to their own.",
+            "in": "query",
+            "name": "userId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Lifecycle filter: `active` (default), `superseded`, `all`.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size (default 25, max 100).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BeliefsListResponse"
+                }
+              }
+            },
+            "description": "The visible beliefs."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "List beliefs by their free-text (subject, field) key",
+        "tags": [
+          "Beliefs"
+        ]
+      }
+    },
+    "/v1/beliefs/{id}": {
+      "get": {
+        "description": "One semantic_belief revision as stored: the held value, its rendered statement, confidence, the supersede chain (revision/status/supersededBy/validFrom/validUntil), inline scene provenance (sourceSceneIds) and corroboration counters. Superseded revisions still resolve. Every visibility fence (tenant, fail-closed single-user scope) answers 404 — existence never leaks. 404 until BELIEFS_API_ENABLED=1. Source: src/beliefs/beliefs.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "getBelief",
+        "parameters": [
+          {
+            "description": "Belief record id (`semantic_belief:…`).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BeliefReadResponse"
+                }
+              }
+            },
+            "description": "The belief."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read one belief revision by id",
+        "tags": [
+          "Beliefs"
+        ]
+      }
+    },
     "/v1/documents/{id}": {
       "get": {
         "description": "Part of the document pipeline — answers `503 feature_disabled` until `DOCUMENT_INGEST_ENABLED=1`. Source: src/documents/documents.controller.ts.\n\nRequired scope: `brain:read`.",
@@ -5101,6 +5333,10 @@
     {
       "description": "Fact-level reads: one fact by id and its grounding episodes — provenance-first memory (\"show me why I remember this\"). Flag: FACTS_API_ENABLED (off → 404); fact retraction stays flag-independent.",
       "name": "Facts"
+    },
+    {
+      "description": "Belief-level reads over the semantic_belief substrate: what the brain currently holds about a free-text (subject, field) key, with its supersede chain and inline scene provenance. Read-only — the scene promotion pass is the only writer. Flag: BELIEFS_API_ENABLED (off → 404).",
+      "name": "Beliefs"
     },
     {
       "description": "Per-user surfaces: the rolling user profile assembled from user-scoped memory. Flag: USER_PROFILE_API_ENABLED (off → 404).",

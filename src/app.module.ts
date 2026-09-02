@@ -19,6 +19,7 @@ import { EpisodesModule } from './episodes/episodes.module';
 import { MultiHopModule } from './multi-hop/multi-hop.module';
 import { AgentQaModule } from './agent-qa/agent-qa.module';
 import { FactsModule } from './facts/facts.module';
+import { BeliefsModule } from './beliefs/beliefs.module';
 import { EntitiesModule } from './entities/entities.module';
 import { ArtifactsModule } from './artifacts/artifacts.module';
 import { McpModule } from './mcp/mcp.module';
@@ -88,6 +89,7 @@ import { MriModule } from './mri/mri.module';
     MultiHopModule,
     AgentQaModule,
     FactsModule,
+    BeliefsModule,
     EntitiesModule,
     ArtifactsModule,
     FeedbackModule,

@@ -46,6 +46,11 @@ export const ACTIONS: Record<string, ActionSpec> = {
     family: 'mcp_read',
     title: 'Fact provenance (grounding episodes)',
   },
+  // Belief read API (Belief-B, semantic_belief substrate). Tool-shaped
+  // names for the same reason as get_fact: the future MCP twins reuse
+  // these actions (surface parity follow-up).
+  get_belief: { kind: 'read', family: 'mcp_read', title: 'Get belief' },
+  list_beliefs: { kind: 'read', family: 'mcp_read', title: 'List beliefs' },
   summarize_entity: { kind: 'read', family: 'mcp_read', title: 'Summarize entity' },
   detect_contradiction: { kind: 'read', family: 'mcp_read', title: 'Detect contradiction' },
   why: { kind: 'read', family: 'mcp_read', title: 'Code-memory why' },
