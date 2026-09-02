@@ -582,6 +582,18 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       "Fovea serving-integrity: evidence-capability verdict gate (0113). A `supported` answer citing a fact whose predicate declares requiredEvidenceCapability != 'text' (knowledge_predicate column; absent = text = unconstrained) is DOWNGRADED to an abstain with reason 'evidence_capability_unmet' unless cited evidence of that capability exists. v1 is fail-closed abstain-or-pass plumbing: every citation today is text, so claims requiring visual/audio/document_region evidence can no longer verify on text alone — confirmation arrives with the media verifiers (M-track). Off = no registry lookup, byte-identical serving.",
   },
+  {
+    key: 'FOVEA_ATTENTION_HINTS',
+    category: 'calibration',
+    // Read at call time (fovea-flags.attentionHintsEnabled) on the L3
+    // escalation anchor seam — never captured in a constructor — so a flip
+    // takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Fovea optics: pack attention hints as an ordering-only L3 anchor boost. On a fired escalation with fact anchors, the installed packs' memoryModel.attentionHints are resolved against the query (case-folded LITERAL cue match, never a regex) and anchors whose originating fact carries a preferred predicate get their normalized score multiplied by 1+weight, clamped to [1,2]. Ordering-only — session density stays the primary rank key, no anchor is added or dropped, garbage hints resolve to a structural no-op. The memory-model reader is consulted lazily, never when off. Off = reader unconsulted, anchor ranking byte-identical.",
+  },
   // ── Scenes (Brain v2) ──
   {
     key: 'SCENES_SEGMENTATION_ENABLED',

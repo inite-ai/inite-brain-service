@@ -24,6 +24,7 @@ import {
 import { hasUsableCalibration } from '../src/synthesize/focus-signal';
 import type { PerClassCalibration } from '../src/synthesize/focus-signal';
 import { L3EscalationService } from '../src/synthesize/l3-escalation.service';
+import type { MemoryModelReaderService } from '../src/ai/memory-model-reader.service';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { EpisodeReadStoreService } from '../src/episodes/episode-read-store.service';
 import type { SegmentLaneService } from '../src/synthesize/segment-lane.service';
@@ -330,6 +331,65 @@ describe('mergeAnchorSources — per-source max normalization', () => {
   });
 });
 
+// ── pure: attention-hint boost (FOVEA_ATTENTION_HINTS) ──────────────
+describe('mergeAnchorSources — attention-hint boost', () => {
+  const factSources = () => [
+    {
+      source: 'fact' as const,
+      anchors: [
+        { conversationId: 'a1', score: 0.4, predicate: 'other' },
+        { conversationId: 'z9', score: 0.4, predicate: 'billing__state' },
+      ],
+    },
+  ];
+
+  it('OFF-STATE PIN: without a hintBoost the output byte-equals the boost-free merge', () => {
+    const expected = [
+      { conversationId: 'a1', score: 1, atMs: undefined, predicate: 'other' },
+      { conversationId: 'z9', score: 1, atMs: undefined, predicate: 'billing__state' },
+    ];
+    expect(mergeAnchorSources(factSources())).toEqual(expected);
+    // Explicit null and undefined are the same structural no-op.
+    expect(mergeAnchorSources(factSources(), null)).toEqual(expected);
+    expect(mergeAnchorSources(factSources(), undefined)).toEqual(expected);
+  });
+
+  it('applies the boost POST-normalization to predicate-matching anchors only', () => {
+    const merged = mergeAnchorSources(factSources(), new Map([['billing__state', 1.5]]));
+    // Both normalized to 1 first (source max 0.4), then only the match scales.
+    expect(merged.find((a) => a.conversationId === 'a1')?.score).toBe(1);
+    expect(merged.find((a) => a.conversationId === 'z9')?.score).toBe(1.5);
+  });
+
+  it('same anchor set out — a boost never adds, drops, or filters', () => {
+    const merged = mergeAnchorSources(factSources(), new Map([['billing__state', 2]]));
+    expect(merged.map((a) => a.conversationId)).toEqual(['a1', 'z9']);
+  });
+
+  it('re-clamps caller-supplied boosts into [1,2] (never shrinks, never dominates)', () => {
+    const boosted = mergeAnchorSources(factSources(), new Map([['billing__state', 7]]));
+    expect(boosted.find((a) => a.conversationId === 'z9')?.score).toBe(2);
+    const shrunk = mergeAnchorSources(factSources(), new Map([['other', 0.2]]));
+    expect(shrunk.find((a) => a.conversationId === 'a1')?.score).toBe(1);
+  });
+
+  it('never touches predicate-less anchors (the aux sources)', () => {
+    const merged = mergeAnchorSources(
+      [{ source: 'direct', anchors: [{ conversationId: 'd1', score: 5 }] }],
+      new Map([['billing__state', 2]]),
+    );
+    expect(merged).toEqual([{ conversationId: 'd1', score: 1, atMs: undefined }]);
+  });
+
+  it('is ordering-only through rankL3Sessions: flips the equal-density tie-break', () => {
+    // Unboosted: equal density + equal normalized score → id tie-break.
+    expect(rankL3Sessions(mergeAnchorSources(factSources()), { max: 2 })).toEqual(['a1', 'z9']);
+    // Boosted: z9's preferred-predicate anchor wins the score tie-break.
+    const boosted = mergeAnchorSources(factSources(), new Map([['billing__state', 2]]));
+    expect(rankL3Sessions(boosted, { max: 2 })).toEqual(['z9', 'a1']);
+  });
+});
+
 describe('verifierPasses + estimateTokens', () => {
   it('passes only on supported (and answering under topic coverage)', () => {
     expect(verifierPasses({ verdict: 'supported' }, false)).toBe(true);
@@ -352,9 +412,13 @@ interface Mocks {
   episodeCitationOutcomes: string[];
   windowAroundCalls: number;
   conversationTurnsCalls: number;
+  /** conversationIds fetched, in order — the observable session ranking. */
+  conversationTurnsIds: string[];
   searchTextCalls: number;
   conversationsInRangeCalls: number;
   segmentAnchorCalls: number;
+  /** installedMemoryModels consultations (the FOVEA_ATTENTION_HINTS laziness pin). */
+  memoryModelCalls: number;
 }
 
 function fakeOpenAi(responses: string[], captured?: unknown[]): OpenAI {
@@ -422,6 +486,9 @@ function makeService(opts: {
   rangeConversations?: Array<{ conversationId: string; atMs: number | undefined; turns: number }>;
   /** When set, a SegmentLaneService stub returning these anchors. */
   segmentAnchors?: Array<{ conversationId: string; occurredAt: string; score: number }>;
+  /** When set, a MemoryModelReaderService stub returning these bindings
+   *  (FOVEA_ATTENTION_HINTS). */
+  memoryModels?: Array<{ packId: string; packVersion: string; memoryModel: unknown }>;
 }): { service: L3EscalationService; mocks: Mocks } {
   const mocks: Mocks = {
     outcomes: [],
@@ -430,9 +497,11 @@ function makeService(opts: {
     episodeCitationOutcomes: [],
     windowAroundCalls: 0,
     conversationTurnsCalls: 0,
+    conversationTurnsIds: [],
     searchTextCalls: 0,
     conversationsInRangeCalls: 0,
     segmentAnchorCalls: 0,
+    memoryModelCalls: 0,
   };
   const surreal = {
     withCompany: async <T>(_c: string, fn: (db: unknown) => Promise<T>) =>
@@ -442,6 +511,7 @@ function makeService(opts: {
     byIds: async () => opts.episodesByIds,
     conversationTurns: async (a: { conversationId: string }) => {
       mocks.conversationTurnsCalls += 1;
+      mocks.conversationTurnsIds.push(a.conversationId);
       return opts.sessionTurns[a.conversationId] ?? [];
     },
     windowAround: async () => {
@@ -474,7 +544,18 @@ function makeService(opts: {
         },
       } as unknown as SegmentLaneService)
     : undefined;
-  return { service: new L3EscalationService(surreal, episodes, metrics, segments), mocks };
+  const memoryModels = opts.memoryModels
+    ? ({
+        installedMemoryModels: async () => {
+          mocks.memoryModelCalls += 1;
+          return opts.memoryModels;
+        },
+      } as unknown as MemoryModelReaderService)
+    : undefined;
+  return {
+    service: new L3EscalationService(surreal, episodes, metrics, segments, memoryModels),
+    mocks,
+  };
 }
 
 const FACT_ID = 'knowledge_fact:f1';
@@ -1125,5 +1206,131 @@ describe('L3EscalationService — evidence citations', () => {
         span: { start: 8, end: 16, exact: 'sapphire' },
       },
     ]);
+  });
+});
+
+// ── service: attention hints (FOVEA_ATTENTION_HINTS) ────────────────
+describe('L3EscalationService — attention hints', () => {
+  afterEach(() => {
+    delete process.env.FOVEA_ATTENTION_HINTS;
+  });
+
+  /** Two facts, equal (below-floor) scores, grounded in different
+   *  sessions: 'a1' wins the deterministic id tie-break unless the hint
+   *  boost re-orders. The pack hint prefers f2's predicate on cue
+   *  'invoice'. */
+  const twoSessionSetup = () => ({
+    factEps: [
+      { id: 'knowledge_fact:f1', eps: ['episode:e1'] },
+      { id: 'knowledge_fact:f2', eps: ['episode:e2'] },
+    ],
+    episodesByIds: [
+      { id: 'episode:e1', conversationId: 'a1', occurredAt: '2026-04-01T00:00:00Z' },
+      { id: 'episode:e2', conversationId: 'z9', occurredAt: '2026-04-02T00:00:00Z' },
+    ],
+    sessionTurns: {
+      a1: [
+        {
+          id: 'episode:e1',
+          speaker: 'user',
+          text: 'about the order',
+          occurredAt: '2026-04-01T00:00:00Z',
+        },
+      ],
+      z9: [
+        {
+          id: 'episode:e2',
+          speaker: 'user',
+          text: 'the invoice is overdue',
+          occurredAt: '2026-04-02T00:00:00Z',
+        },
+      ],
+    },
+    memoryModels: [
+      {
+        packId: 'billing',
+        packVersion: '1.0.0',
+        memoryModel: {
+          attentionHints: [{ cue: 'invoice', prefer: ['state'], weight: 1 }],
+        },
+      },
+    ],
+  });
+
+  function twoFactInput(openai: OpenAI) {
+    const facts = [
+      { factId: 'knowledge_fact:f1', predicate: 'other', object: 'x', conversation: 'a1' },
+      { factId: 'knowledge_fact:f2', predicate: 'billing__state', object: 'y', conversation: 'z9' },
+    ];
+    const results: SearchHit[] = facts.map((f) => ({
+      entityId: 'knowledge_entity:e1',
+      entityType: 'topic',
+      canonicalName: 'billing',
+      externalRefs: {},
+      facts: [
+        {
+          factId: f.factId,
+          predicate: f.predicate,
+          object: f.object,
+          confidence: 0.9,
+          validFrom: '2026-04-01T00:00:00Z',
+          status: 'active',
+          score: 0.1,
+        },
+      ],
+      score: 0.1,
+    }));
+    return {
+      ...baseInput(openai, makeProfile({ l3MaxSessions: 1 })),
+      dto: { query: 'what is the invoice state?' } as SynthesizeDto,
+      results,
+    };
+  }
+
+  const flipResponses = () => [
+    JSON.stringify({ answer: 'Overdue.', citedFactIds: [] }),
+    JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+  ];
+
+  it('flag OFF (default) → reader NEVER consulted, ranking byte-identical (id tie-break)', async () => {
+    const { service, mocks } = makeService(twoSessionSetup());
+    const out = await service.escalate(twoFactInput(fakeOpenAi(flipResponses())));
+    expect(out).not.toBeNull();
+    expect(mocks.memoryModelCalls).toBe(0);
+    expect(mocks.conversationTurnsIds).toEqual(['a1']);
+  });
+
+  it('flag ON + cue match → boost flips the equal-density tie-break to the preferred session', async () => {
+    process.env.FOVEA_ATTENTION_HINTS = '1';
+    const { service, mocks } = makeService(twoSessionSetup());
+    const out = await service.escalate(twoFactInput(fakeOpenAi(flipResponses())));
+    expect(out).not.toBeNull();
+    expect(mocks.memoryModelCalls).toBe(1);
+    expect(mocks.conversationTurnsIds).toEqual(['z9']);
+  });
+
+  it('flag ON + no cue match → null boost → structural no-op ranking', async () => {
+    process.env.FOVEA_ATTENTION_HINTS = '1';
+    const { service, mocks } = makeService(twoSessionSetup());
+    const openai = fakeOpenAi(flipResponses());
+    const input = { ...twoFactInput(openai), dto: { query: 'what tier?' } as SynthesizeDto };
+    const out = await service.escalate(input);
+    expect(out).not.toBeNull();
+    expect(mocks.memoryModelCalls).toBe(1);
+    expect(mocks.conversationTurnsIds).toEqual(['a1']);
+  });
+
+  it('flag ON without a reader in DI → no boost, no crash', async () => {
+    process.env.FOVEA_ATTENTION_HINTS = '1';
+    const setup = twoSessionSetup();
+    const { service, mocks } = makeService({
+      factEps: setup.factEps,
+      episodesByIds: setup.episodesByIds,
+      sessionTurns: setup.sessionTurns,
+    });
+    const out = await service.escalate(twoFactInput(fakeOpenAi(flipResponses())));
+    expect(out).not.toBeNull();
+    expect(mocks.memoryModelCalls).toBe(0);
+    expect(mocks.conversationTurnsIds).toEqual(['a1']);
   });
 });

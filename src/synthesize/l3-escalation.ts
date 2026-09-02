@@ -1,4 +1,5 @@
 import { assessMemoryCoverage } from './abstention';
+import { clampAttentionBoost, type AttentionHintBoost } from './attention-hints';
 import type { SearchHit } from '../search/search.service';
 import type { VerifierOutput } from './verifier';
 
@@ -155,6 +156,10 @@ export interface L3SessionAnchor {
   conversationId: string;
   score: number;
   atMs?: number | undefined;
+  /** The originating fact's stored predicate id, stamped on FACT anchors
+   *  only — the key the FOVEA_ATTENTION_HINTS boost matches on. Aux
+   *  anchors (direct/segment/temporal) carry none and are never boosted. */
+  predicate?: string | undefined;
 }
 
 /** [from, to) window the query named, for temporal-overlap preference. */
@@ -238,8 +243,22 @@ export interface L3AnchorSource {
  * rather than dividing by zero), then concatenated. Density (hit count)
  * stays the primary ranking key in rankL3Sessions — normalization only
  * levels the tie-break. Pure; no IO.
+ *
+ * `hintBoost` (FOVEA_ATTENTION_HINTS) is an optional POST-normalization
+ * per-predicate multiplier from resolveAttentionHintBoost: an anchor
+ * whose `predicate` is in the map has its normalized score multiplied by
+ * the boost, re-clamped to [1,2] here so no caller input can shrink a
+ * score or more than double it. Ordering-only by construction — the
+ * exact same anchors come out (never added, dropped, or filtered), only
+ * their scores move, and scores are just the tie-break under the
+ * density-primary rankL3Sessions key. Absent/null boost (the default,
+ * and the flag-off path) multiplies nothing: the output is byte-equal to
+ * the boost-free merge.
  */
-export function mergeAnchorSources(sources: ReadonlyArray<L3AnchorSource>): L3SessionAnchor[] {
+export function mergeAnchorSources(
+  sources: ReadonlyArray<L3AnchorSource>,
+  hintBoost?: AttentionHintBoost | null,
+): L3SessionAnchor[] {
   const out: L3SessionAnchor[] = [];
   for (const s of sources) {
     let max = 0;
@@ -249,7 +268,12 @@ export function mergeAnchorSources(sources: ReadonlyArray<L3AnchorSource>): L3Se
     }
     const denom = max > 0 ? max : 1;
     for (const a of s.anchors) {
-      out.push({ ...a, score: (Number.isFinite(a.score) ? a.score : 0) / denom });
+      const normalized = (Number.isFinite(a.score) ? a.score : 0) / denom;
+      const boost =
+        hintBoost && a.predicate !== undefined
+          ? clampAttentionBoost(hintBoost.get(a.predicate) ?? 1)
+          : 1;
+      out.push({ ...a, score: normalized * boost });
     }
   }
   return out;

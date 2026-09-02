@@ -12,7 +12,13 @@ import type { SearchHit } from '../search/search.service';
 import type { RetrievalProfile, LaneId } from '../search/retrieval-profile';
 import { parseQueryTimeRange } from '../search/internals/time-range';
 import type { SynthesizeDto } from './dto/synthesize.dto';
-import { l3EpisodeCitationsEnabled } from '../common/fovea-flags';
+import { attentionHintsEnabled, l3EpisodeCitationsEnabled } from '../common/fovea-flags';
+import { MemoryModelReaderService } from '../ai/memory-model-reader.service';
+import {
+  resolveAttentionHintBoost,
+  type AttentionHintBoost,
+  type AttentionHintSource,
+} from './attention-hints';
 import { runVerifier, type VerifierOutput } from './verifier';
 import { resolveCitations } from './synthesize.helpers';
 import type { Citation } from './fact-index';
@@ -186,6 +192,7 @@ export class L3EscalationService {
     private readonly episodes: EpisodeReadStoreService,
     @Optional() private readonly metrics?: MetricsService,
     @Optional() private readonly segments?: SegmentLaneService,
+    @Optional() private readonly memoryModels?: MemoryModelReaderService,
   ) {}
 
   /**
@@ -275,9 +282,22 @@ export class L3EscalationService {
       // L3 anchor independence: the aux sources run ONLY on the empty-
       // fact-anchor residual, so a fact-anchored escalation is byte-
       // identical to before, and skipped_no_anchor below now means
-      // "every ENABLED anchor source came up empty".
+      // "every ENABLED anchor source came up empty". No hint boost here:
+      // aux anchors carry no predicate, so there is nothing to match.
       sources = await this.resolveAuxiliaryAnchors(input, fences, episodeById);
       anchors = mergeAnchorSources(sources);
+    } else {
+      // Attention hints (FOVEA_ATTENTION_HINTS): resolved lazily — the
+      // memory-model reader is consulted ONLY here, flag on, on a fired
+      // escalation with fact anchors. A null boost (flag off, no packs,
+      // no cue match, garbage hints) keeps `anchors = factAnchors`
+      // untouched — the exact pre-hint code path. A non-null boost routes
+      // the fact anchors through the SAME merge the aux path uses (per-
+      // source max normalization is order-preserving within one source)
+      // with the boost applied post-normalization: same anchor set out,
+      // ordering-only by construction.
+      const hintBoost = await this.resolveAttentionBoost(input);
+      if (hintBoost) anchors = mergeAnchorSources(sources, hintBoost);
     }
     if (anchors.length === 0) {
       this.metrics?.countL3Escalation('skipped_no_anchor');
@@ -337,6 +357,41 @@ export class L3EscalationService {
     return { verdict, answer: generated.answer, citations, evidenceCitations };
   }
 
+  /**
+   * FOVEA_ATTENTION_HINTS: resolve the installed packs' attention hints
+   * against this query into a predicate→boost map, or null for the
+   * structural no-op. The flag gate comes FIRST — with it off (the
+   * default) the memory-model reader is never consulted and this method
+   * costs one env read. Reader errors and absent DI both collapse to
+   * null: a hint can only ever reorder a tie-break, so every failure
+   * mode falls back to today's ranking, never breaks the escalation.
+   */
+  private async resolveAttentionBoost(input: L3EscalateInput): Promise<AttentionHintBoost | null> {
+    if (!attentionHintsEnabled()) return null;
+    if (!this.memoryModels) return null;
+    try {
+      const bindings = await this.memoryModels.installedMemoryModels(input.companyId);
+      const sources: AttentionHintSource[] = [];
+      for (const b of bindings) {
+        const hints = b.memoryModel.attentionHints;
+        if (Array.isArray(hints) && hints.length > 0) {
+          sources.push({ packId: b.packId, hints });
+        }
+      }
+      if (sources.length === 0) return null;
+      const boost = resolveAttentionHintBoost(input.dto.query, sources);
+      if (boost) {
+        traceArtifact('synthesize.l3_attention_hints', { predicates: [...boost.keys()] });
+      }
+      return boost;
+    } catch (e) {
+      this.logger.warn(
+        `attention-hint resolution failed (companyId=${input.companyId}): ${(e as Error).message} — no boost`,
+      );
+      return null;
+    }
+  }
+
   /** Resolve raw citedEpisodes via the pure fence (l3-citations.ts) and
    *  emit the per-outcome telemetry. */
   private resolveEvidence(
@@ -367,9 +422,16 @@ export class L3EscalationService {
     episodeById: Map<string, { conversationId: string; atMs?: number | undefined }>;
   }> {
     const factScore = new Map<string, number>();
+    // factId → stored predicate id, stamped onto the anchors so the
+    // attention-hint boost (FOVEA_ATTENTION_HINTS) can match; inert
+    // otherwise (nothing else reads L3SessionAnchor.predicate).
+    const factPredicate = new Map<string, string>();
     for (const hit of input.results) {
       for (const f of hit.facts) {
-        if (!factScore.has(f.factId)) factScore.set(f.factId, f.score ?? 0);
+        if (!factScore.has(f.factId)) {
+          factScore.set(f.factId, f.score ?? 0);
+          factPredicate.set(f.factId, f.predicate);
+        }
       }
     }
     const factIds = [...factScore.keys()];
@@ -426,6 +488,7 @@ export class L3EscalationService {
           conversationId: ep.conversationId,
           score: factScore.get(factId) ?? 0,
           atMs: ep.atMs,
+          predicate: factPredicate.get(factId),
         });
       }
     }

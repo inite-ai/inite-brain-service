@@ -990,6 +990,16 @@ const KNOWN_BOOLEAN_FLAGS = [
   // lookup, byte-identical serving. Outside ENGINE_PREFIX by design (the
   // FOVEA_ family sits off the flag budget).
   'FOVEA_EVIDENCE_CAPABILITY',
+  // Fovea optics: attention-hints anchor boost — on a fired L3 escalation
+  // with fact anchors, the installed packs' memoryModel.attentionHints are
+  // resolved against the query (case-folded literal cue match) and anchors
+  // whose originating fact carries a preferred predicate get their
+  // normalized score multiplied by a boost clamped to [1,2]. Ordering-only
+  // (density stays the primary rank key; no anchor added/dropped); the
+  // memory-model reader is consulted lazily, never when off. Default off =
+  // reader unconsulted, anchor ranking byte-identical. Outside
+  // ENGINE_PREFIX by design (the FOVEA_ family sits off the flag budget).
+  'FOVEA_ATTENTION_HINTS',
   // Evidence plane (Brain v2 gap #5): summary-producing writers
   // (promotion, compaction rollups, recompose rewrites, arc/aggregate
   // composers) stamp the union of member source.episodeIds onto the

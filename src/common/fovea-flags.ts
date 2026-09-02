@@ -218,6 +218,27 @@ export function evidenceCapabilityEnabled(): boolean {
 }
 
 /**
+ * Fovea optics — attention-hints anchor boost master flag —
+ * FOVEA_ATTENTION_HINTS.
+ *
+ * When on, the L3 escalation anchor ranking consults the installed domain
+ * packs' memoryModel.attentionHints: when the query contains a hint's
+ * literal cue (case-folded), anchors whose originating fact carries one of
+ * the hint's preferred predicates get their normalized score multiplied by
+ * a boost clamped to [1,2] (resolveAttentionHintBoost → mergeAnchorSources).
+ * Ordering-only by construction — density stays the primary rank key, no
+ * anchor is ever added or dropped — and the memory-model reader is
+ * consulted lazily, only on a fired escalation with fact anchors. The env
+ * read lives here in the common layer, NOT inside the engine dirs
+ * (engine-gates S5.2). Read at call time so a flip is runtime-mutable.
+ * Default off ⇒ the reader is never consulted and anchor ranking is
+ * byte-identical to the hint-free path.
+ */
+export function attentionHintsEnabled(): boolean {
+  return envFlagEnabled(process.env.FOVEA_ATTENTION_HINTS);
+}
+
+/**
  * Multilingual Tier 5 master flag — MULTILINGUAL_CALIBRATION.
  *
  * When on, the §4.2 per-class focus calibrator (focus-signal.ts) gains a

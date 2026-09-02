@@ -20,6 +20,7 @@ import { UpdateStoryService } from './update-story.service';
 import { DigestLaneService } from './digest-lane.service';
 import { EvidenceCollectorService } from './evidence-collector.service';
 import { L3EscalationService } from './l3-escalation.service';
+import { MemoryModelReaderService } from '../ai/memory-model-reader.service';
 
 @Module({
   imports: [SearchModule, EpisodesModule, AnswerCacheModule, StrategyModule, OutcomesModule],
@@ -38,6 +39,12 @@ import { L3EscalationService } from './l3-escalation.service';
     UpdateStoryService,
     DigestLaneService,
     L3EscalationService,
+    // FOVEA_ATTENTION_HINTS: the L3 escalation lane's lazy read of pack
+    // memory models. A second DI instance beside admin.module's — its
+    // LRU+TTL cache (30s) is per-instance, so an install/uninstall
+    // invalidation lands on admin's copy and this one refreshes within
+    // the TTL; acceptable staleness for an ordering-only hint.
+    MemoryModelReaderService,
   ],
   exports: [SynthesizeService],
 })
