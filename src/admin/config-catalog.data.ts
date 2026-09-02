@@ -1179,6 +1179,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       "Evidence plane, strict serving: on a supported verdict, batch-check the cited facts' groundingStatus; when every citation is ungrounded the answer abstains under reason 'ungrounded_evidence' (the evidence_capability_unmet fourth-branch idiom, 0113). Mixed or legacy support serves. Resolution failure fails open with a warn. Off (default) → no fetch, byte-identical.",
   },
+  {
+    key: 'EVIDENCE_FRAGMENT_CITATIONS',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Evidence plane, fragment citations (MM-zoom PR2): with the fragment lane rendering media evidence (RETRIEVAL_FRAGMENT_LANE), each rendered line carries its [evidence_fragment:...] header and the generator schema gains citedFragmentIds; emitted ids resolve through the rendered-set fence (the FOVEA_L3_EPISODE_CITATIONS idiom: an id not rendered into the prompt is dropped and counted, never surfaced; the citation's excerpt is the RENDERED excerpt, never generator text; dedupe; cap 16) into fragment-arm evidenceCitations carrying assetId + capability. Those citations let the FOVEA_EVIDENCE_CAPABILITY gate PASS for non-text requirements when a matching-modality fragment is cited. Off (default) → no header, no schema field, no resolver — byte-identical even with the lane on.",
+  },
   // ── Document pipeline (migrations 0048–0050) ─────────────
   {
     key: 'DOCUMENT_INGEST_ENABLED',
@@ -1728,6 +1737,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
     description:
       'Top evidence facts that carry a grounding quote under RETRIEVAL_FACTS_AS_KEYS. Only read on that path.',
+  },
+  {
+    key: 'RETRIEVAL_FRAGMENT_LANE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "MM-zoom PR2 fragment retrieval lane (profile field fragmentLane): dense+BM25 (0124 lowercase FULLTEXT) over derived_representation.content — captions/OCR/ASR/text renders of registered media observations (0109) — rendered as a media-evidence prompt section that BOTH the generator and the verifier read (parity; the verifier takes the same lines as capabilityEvidenceLines). Full media fence stack inside the lane: tenant scope, asset-join user fence (fragment→asset ownership), fail-closed media PII gate on the fragment's piiClasses, 0112 modality consent (absent or stale checksum ⇒ lane EMPTY), availability != 'gone'; any error degrades to an empty section. Off = byte-identical prompts.",
   },
   {
     key: 'RETRIEVAL_TIME_FILTER',

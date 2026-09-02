@@ -79,6 +79,43 @@ export function modalitiesChecksum(section: ModalityConsentSection | null): stri
   return createHash('sha256').update(canonicalJson(section)).digest('hex');
 }
 
+/** The 0112 consent columns as a serving-side reader sees them (raw
+ *  domain_pack row fields — deliberately `unknown`, DB shapes are never
+ *  trusted). */
+export interface ModalityConsentRow {
+  manifest?: unknown;
+  acceptedModalities?: unknown;
+  acceptedModalitiesChecksum?: unknown;
+}
+
+/**
+ * Serving-side consent gate (MM-zoom PR2): does the tenant hold CURRENT
+ * modality consent — i.e. does at least one installed pack declare a
+ * non-text media section AND carry acceptedModalities=true with a
+ * stored checksum equal to the checksum of the manifest's CURRENT media
+ * section? Absent (no declaring pack, or never accepted) and STALE
+ * (declaration changed since consent — the single re-consent trigger)
+ * both answer false — the fragment lane then serves NOTHING (fail
+ * closed). Mirrors clause (b) of gateRawEvidence
+ * (src/mcp/raw-evidence-gate.ts) folded over the tenant's rows; a
+ * malformed manifest row counts as no consent, never a throw.
+ */
+export function hasCurrentModalityConsent(rows: ReadonlyArray<ModalityConsentRow>): boolean {
+  for (const row of rows) {
+    try {
+      if (typeof row.manifest !== 'object' || row.manifest === null) continue;
+      const section = declaredModalitySection(row.manifest as DomainPackManifest);
+      if (!section) continue;
+      if (row.acceptedModalities !== true) continue;
+      const checksum = modalitiesChecksum(section);
+      if (checksum !== null && row.acceptedModalitiesChecksum === checksum) return true;
+    } catch {
+      // Malformed manifest — not consent.
+    }
+  }
+  return false;
+}
+
 /**
  * Decide whether this install/upgrade needs the `acceptModalities` flag —
  * mirrors mcpConsentRequired: re-consent on checksum change, carry-over

@@ -43,14 +43,20 @@ export const MEDIA_PII_CLASSES: readonly MediaPiiClass[] = [
 /**
  * Row-fence SQL fragment for media evidence tables. Returns `''` when the
  * caller holds `brain:read_media` (no fence — the scope sees every state,
- * including unclassified), else ` AND piiClasses = []` — which in
+ * including unclassified), else ` AND <field> = []` — which in
  * SurrealQL is true ONLY for the affirmatively-clean empty array:
  * NONE/absent (unclassified) and non-empty (classified) rows both fail
  * the equality, so absence stays closed. Interpolate after a WHERE that
  * already pins tenant/user scope, mirroring the text `piiGate` call sites.
+ *
+ * `field` (default `piiClasses`, the direct-table read) lets a caller
+ * fence through a record-link path — e.g. the fragment lane reads
+ * derived_representation rows and fences on the parent fragment's
+ * column via `subjectId.piiClasses`. Static call-site strings only,
+ * never caller input.
  */
-export function mediaPiiGate(callerScopes: readonly string[]): string {
-  return callerScopes.includes('brain:read_media') ? '' : ' AND piiClasses = []';
+export function mediaPiiGate(callerScopes: readonly string[], field = 'piiClasses'): string {
+  return callerScopes.includes('brain:read_media') ? '' : ` AND ${field} = []`;
 }
 
 /**

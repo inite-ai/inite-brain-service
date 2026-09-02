@@ -711,6 +711,11 @@ const KNOWN_BOOLEAN_FLAGS = [
   // verbatim grounding quote (fact = key, raw turn = content).
   // Default off.
   'RETRIEVAL_FACTS_AS_KEYS',
+  // MM-zoom PR2: fragment retrieval lane — dense+BM25 over
+  // derived_representation.content (0109/0124), rendered as a media-
+  // evidence prompt section behind the full media fence stack (user
+  // fence → media PII → 0112 consent → availability). Default off.
+  'RETRIEVAL_FRAGMENT_LANE',
   // V13 TSM-shape time-constrained retrieval: code-parsed query period
   // boosts in-range facts (rank-only, nothing dropped). Default off.
   'RETRIEVAL_TIME_FILTER',
@@ -914,9 +919,14 @@ const KNOWN_BOOLEAN_FLAGS = [
   // the ENGINE flag budget by design (a substrate builder, not an engine
   // fork). The fs root (EVIDENCE_FS_ROOT) is a string and the size cap
   // (EVIDENCE_MAX_BYTES) an int — not booleans. Reserved for sibling PRs
-  // (not defined yet): EVIDENCE_INGEST_ENABLED / EVIDENCE_SCENE_LINKS /
-  // EVIDENCE_FRAGMENT_CITATIONS.
+  // (not defined yet): EVIDENCE_INGEST_ENABLED / EVIDENCE_SCENE_LINKS.
   'EVIDENCE_SUBSTRATE_ENABLED',
+  // Fragment citations (MM-zoom PR2): generator schema gains
+  // citedFragmentIds over the rendered fragment lane; resolved through
+  // the rendered-set fence into fragment-arm EvidenceCitations that can
+  // satisfy the 0113 capability gate for non-text. Default off =
+  // byte-identical even with the lane on.
+  'EVIDENCE_FRAGMENT_CITATIONS',
   // Claim grounding (Drift-1, migration 0115): write-side post-resolve
   // stamp of knowledge_fact.groundingStatus; fail-closed mention capture
   // (requires EPISODE_SUBSTRATE_ENABLED — validateEvidenceGroundingEnv

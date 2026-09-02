@@ -270,6 +270,22 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Fragment citations (EVIDENCE_FRAGMENT_CITATIONS, MM-zoom PR2) — the
+  // l3-episode-citation sibling for the fragment lane's rendered-set
+  // resolver:
+  //   cited           — the generator named a RENDERED fragment → a
+  //                     fragment-arm citation shipped
+  //   dropped_unknown — the generator named a fragmentId NOT rendered
+  //                     into the media section (hallucination / probe)
+  //                     → dropped, never surfaced
+  // Emitted only when the flag is on (nothing on the path when off).
+  readonly fragmentCitationCount = new Counter({
+    name: 'brain_fragment_citation_total',
+    help: 'Fragment evidence citation resolution outcomes (EVIDENCE_FRAGMENT_CITATIONS)',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
   // Optics §4.2 (docs/roadmap/fovea-optics-2026-08.md §4.2): which sub-
   // condition fired the pre-generation memory-coverage ABSTAIN decision —
   //   adaptive — the calibrated-pre-answer-confidence floor
@@ -751,6 +767,12 @@ export class MetricsService implements OnModuleInit {
   ): void {
     if (n > 0) {
       this.l3EpisodeCitationCount.inc({ outcome } as LabelValues<'outcome'>, n);
+    }
+  }
+
+  countFragmentCitation(outcome: 'cited' | 'dropped_unknown', n = 1): void {
+    if (n > 0) {
+      this.fragmentCitationCount.inc({ outcome } as LabelValues<'outcome'>, n);
     }
   }
 

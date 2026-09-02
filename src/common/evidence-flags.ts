@@ -17,8 +17,8 @@ import { envFlagEnabled } from './env-validation';
  *
  * Reserved for sibling PRs (NOT defined yet — do not read them):
  * EVIDENCE_INGEST_ENABLED (PR-C ingest surface), EVIDENCE_SCENE_LINKS
- * (scene↔asset membership), EVIDENCE_FRAGMENT_CITATIONS (answer-path
- * fragment citations).
+ * (scene↔asset membership). EVIDENCE_FRAGMENT_CITATIONS landed below
+ * (MM-zoom PR2).
  */
 export function evidenceSubstrateEnabled(): boolean {
   return envFlagEnabled(process.env.EVIDENCE_SUBSTRATE_ENABLED);
@@ -172,6 +172,26 @@ export function failClosedCaptureEnabled(): boolean {
  */
 export function ungroundedExcludeEnabled(): boolean {
   return envFlagEnabled(process.env.EVIDENCE_UNGROUNDED_EXCLUDE);
+}
+
+/**
+ * Fragment citations — EVIDENCE_FRAGMENT_CITATIONS (MM-zoom PR2).
+ *
+ * When on AND the fragment lane rendered media evidence into the prompt
+ * (profile.fragmentLane), the generator's strict schema gains
+ * `citedFragmentIds` and each rendered line carries its
+ * `[evidence_fragment:...]` header; emitted ids resolve through
+ * resolveFragmentCitations against EXACTLY the rendered set (the
+ * l3-citations fence — an unrendered/hallucinated id is dropped and
+ * counted, never surfaced) into fragment-arm EvidenceCitations carrying
+ * assetId / capability / the RENDERED excerpt. Those citations ride the
+ * supported serve in `evidenceCitations` (the L3 idiom) and let the 0113
+ * capability gate pass for non-text (citedCapabilities union). Off
+ * (default) ⇒ no header, no schema field, no resolver — byte-identical
+ * even with the lane on. Read at call time (runtime-mutable).
+ */
+export function fragmentCitationsEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_FRAGMENT_CITATIONS);
 }
 
 /**
