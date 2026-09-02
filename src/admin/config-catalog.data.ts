@@ -2230,6 +2230,28 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       "Belief read API (Belief-B): GET /v1/beliefs/:id serves one semantic_belief revision as stored (free-text subject/field key, value/priorValue, statement, confidence, revision/status/supersededBy supersede chain, validFrom/validUntil, inline sourceSceneIds provenance, corroboration counters, promoterVersion) and GET /v1/beliefs lists by subject/field/status/userId with a capped page (default 25, max 100). Read-only — the Belief-A promotion pass (SCENES_BELIEF_PROMOTION) stays the only writer. Every miss is a 404 — tenant fence + fail-closed single-user scope (#387: a belief is always one user's; a user-bound token sees only its own, an unstamped row serves to no one); beliefs carry no piiClass and no registry predicate, so no PII/row-policy fence applies. Off (default) → routes answer 404.",
   },
   {
+    key: 'BELIEFS_SERVING_LANE',
+    category: 'pipeline',
+    // Read at call time (common/beliefs-flags.ts) — never captured in a
+    // constructor — so a flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Belief serving lane (repeals the 0120 shadow doctrine behind this default-off flag): synthesize retrieves the caller's ACTIVE semantic_belief rows matching the query (BM25 over the 0126 statement index + a dense leg that stays empty while embedding is write-dead) and renders them as a current-state prompt section for BOTH generator and verifier; the generator schema gains citedBeliefIds and cited ids resolve through the rendered-set fence into belief-arm evidenceCitations (so a belief-grounded answer passes FOVEA_REQUIRE_CITATIONS and carries unrollable provenance); 0107 outcome rows land under subjectKind 'belief'. SCOPED-USER-ONLY: the lane fires only when synthesize is called with a userId — an unscoped/M2M request serves NO belief lines (stricter than GET /v1/beliefs by design: blending one user's state into an unscoped answer is a cross-user leak). Off (default) → no query, no section, no schema field — prompts and serving byte-identical.",
+  },
+  {
+    key: 'BELIEFS_FACT_DAMPING',
+    category: 'pipeline',
+    // Read at call time (common/beliefs-flags.ts) — never captured in a
+    // constructor — so a flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Belief-aware fact damping (PR-B; the resolver ships with the lane, the damping pass lands in the follow-up PR — until then NOTHING reads this flag): prompt-side suffix + stable demotion of fact lines that a matched current belief contradicts, applied to the SAME lines generator and verifier read. Requires BELIEFS_SERVING_LANE (a no-op without the lane’s matched beliefs — boot validation warns on the inconsistent pair). Off (default) → byte-identical.',
+  },
+  {
     key: 'PROVENANCE_SUMMARY_EPISODE_STAMP',
     category: 'pipeline',
     defaultValue: '0',

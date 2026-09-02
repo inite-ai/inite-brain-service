@@ -21,7 +21,9 @@ import { QueryArcService } from './query-arc.service';
 import { UpdateStoryService } from './update-story.service';
 import { DigestLaneService } from './digest-lane.service';
 import { FragmentLaneService } from './fragment-lane.service';
+import { BeliefLaneService } from './belief-lane.service';
 import type { CitableFragment } from './fragment-citations';
+import type { CitableBelief } from './belief-citations';
 import type { ZoomCandidate } from './fragment-zoom';
 import type { CoverageScanTuning } from './scan-leg';
 
@@ -123,6 +125,26 @@ export interface CollectedEvidence {
    */
   fragmentZoom: ZoomCandidate[];
   /**
+   * BELIEFS_SERVING_LANE belief lane: rendered current-state lines —
+   * `[semantic_belief:...]`-headed statement excerpts of the caller's
+   * ACTIVE beliefs matching the query — the prompt's OWN current-state
+   * section. Evidence parity by construction: the generator renders
+   * them as a section and the verifier reads the SAME lines
+   * (VerifyRequest.beliefLines). Deliberately NOT noise-filtered
+   * (bounded at 3 lines by the lane; a relevance cut on so small a
+   * section risks more than it saves — the fragment-lane rationale).
+   * Empty when the flag is off / the lane is unwired / the request is
+   * unscoped (D4) / the lane failed.
+   */
+  beliefLines: string[];
+  /**
+   * The rendered-set citation fence for resolveBeliefCitations
+   * (BELIEFS_SERVING_LANE — citations ride the master flag): beliefId →
+   * rendered-belief info for EXACTLY the beliefs in beliefLines.
+   * undefined when the lane rendered nothing.
+   */
+  beliefsById?: ReadonlyMap<string, CitableBelief> | undefined;
+  /**
    * G4 strategy lane: rendered advisory notes (k≤2, default 1) from
    * the separate strategy_memory store; undefined when the lane is off
    * the profile or read-side serving is disabled.
@@ -163,6 +185,8 @@ export function emptyCollectedEvidence(
     fragmentLines: [],
     fragmentsById: undefined,
     fragmentZoom: [],
+    beliefLines: [],
+    beliefsById: undefined,
   };
 }
 
@@ -186,6 +210,7 @@ export class EvidenceCollectorService {
     @Optional() private readonly crossEncoder?: CrossEncoderService,
     @Optional() private readonly strategyMemory?: StrategyMemoryService,
     @Optional() private readonly fragmentLane?: FragmentLaneService,
+    @Optional() private readonly beliefLane?: BeliefLaneService,
   ) {}
 
   /**
@@ -208,6 +233,9 @@ export class EvidenceCollectorService {
     /** EVIDENCE_FRAGMENT_CITATIONS, resolved ONCE by the caller (the L3
      *  single-resolution idiom) — this service reads no env. */
     fragmentCitations?: boolean | undefined;
+    /** BELIEFS_SERVING_LANE, resolved ONCE by the caller (the
+     *  fragmentCitations precedent) — this service reads no env. */
+    beliefLane?: boolean | undefined;
   }): Promise<CollectedEvidence> {
     const { profile, query } = opts;
     const timelineEvidence = wantsTimelineEvidence(profile, query);
@@ -220,6 +248,7 @@ export class EvidenceCollectorService {
       groundingQuotes,
       strategyNotes,
       fragmentEvidence,
+      beliefEvidence,
     ] = await Promise.all([
       this.collectStandingInstructions(opts),
       this.collectTranscriptLines(opts, timelineEvidence),
@@ -229,6 +258,7 @@ export class EvidenceCollectorService {
       this.collectGroundingQuotes(opts),
       this.collectStrategyNotes(opts),
       this.collectFragmentEvidence(opts),
+      this.collectBeliefEvidence(opts),
     ]);
     // V12 §2: digests merge AHEAD of retrieved insight lines under
     // the same slot — generator, verifier and NLI judge all see them
@@ -256,7 +286,33 @@ export class EvidenceCollectorService {
       fragmentLines: fragmentEvidence.lines,
       fragmentsById: fragmentEvidence.byId.size > 0 ? fragmentEvidence.byId : undefined,
       fragmentZoom: fragmentEvidence.zoom,
+      beliefLines: beliefEvidence.lines,
+      beliefsById: beliefEvidence.byId.size > 0 ? beliefEvidence.byId : undefined,
     };
+  }
+
+  /**
+   * BELIEFS_SERVING_LANE belief lane — gated on the caller-resolved
+   * flag (no env read here — the fragmentCitations precedent); degrades
+   * to an empty section on absence/abort (the lane owns its own error
+   * degrade AND the D4 scoped-user fence: an unscoped request yields
+   * empty inside the lane).
+   */
+  private async collectBeliefEvidence({
+    beliefLane,
+    companyId,
+    query,
+    userId,
+  }: {
+    beliefLane?: boolean | undefined;
+    companyId: string;
+    query: string;
+    userId?: string | undefined;
+  }): Promise<{ lines: string[]; byId: ReadonlyMap<string, CitableBelief> }> {
+    const empty = { lines: [], byId: new Map<string, CitableBelief>() };
+    if (beliefLane !== true || !this.beliefLane) return empty;
+    if (getAbortSignal()?.aborted) return empty;
+    return this.beliefLane.beliefLines({ companyId, query, userId });
   }
 
   /**

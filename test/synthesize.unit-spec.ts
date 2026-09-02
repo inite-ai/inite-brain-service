@@ -1,7 +1,16 @@
 import { ConfigService } from '@nestjs/config';
+import type OpenAI from 'openai';
 import { SynthesizeService, SynthesizeResult } from '../src/synthesize/synthesize.service';
 import type { SearchService, SearchHit } from '../src/search/search.service';
 import type { SynthesizeDto } from '../src/synthesize/dto/synthesize.dto';
+import { buildGeneratorUserMessage } from '../src/synthesize/generator-prompt';
+import { runGenerator } from '../src/synthesize/generator-client';
+import { runVerifier, type VerifierOutput } from '../src/synthesize/verifier';
+import { finalizeVerdict } from '../src/synthesize/verdict';
+import {
+  resolveEvidenceCapability,
+  type FinalizeContext,
+} from '../src/synthesize/answer-integrity';
 
 /**
  * Unit coverage for SynthesizeService — exercises the orchestrator
@@ -527,5 +536,255 @@ describe('SynthesizeService', () => {
     });
     // makeHit pins validFrom = 2026-01-01, no validUntil → "(as of …)".
     expect(prompts[0]).toContain('attended: support group (as of 2026-01-01)');
+  });
+});
+
+// ── BELIEFS_SERVING_LANE seams: byte-identity + gate pins ───────────
+describe('buildGeneratorUserMessage — belief section (BELIEFS_SERVING_LANE seam)', () => {
+  const BASE = {
+    query: 'which database are we using?',
+    factLines: ['[knowledge_fact:f1] PostgreSQL — code_memory__decided: we will use Postgres'],
+    insightLines: ['insight line'],
+    fragmentLines: ['[capability:visual] (image caption) a whiteboard'],
+    answerLang: null,
+  };
+
+  it('beliefLines absent / undefined / [] ⇒ BYTE-IDENTICAL output', () => {
+    const absent = buildGeneratorUserMessage(BASE);
+    const explicit = buildGeneratorUserMessage({ ...BASE, beliefLines: undefined });
+    const empty = buildGeneratorUserMessage({ ...BASE, beliefLines: [], beliefCitations: true });
+    expect(explicit).toBe(absent);
+    expect(empty).toBe(absent);
+    expect(absent).not.toContain('Current-state record');
+  });
+
+  it('non-empty ⇒ own section BETWEEN the insight and fragment sections', () => {
+    const line = '[semantic_belief:b1] (inventory service — database, rev 2) statement';
+    const out = buildGeneratorUserMessage({
+      ...BASE,
+      beliefLines: [line],
+      beliefCitations: true,
+    });
+    expect(out).toContain('Current-state record');
+    expect(out).toContain(line);
+    // The citations variant instructs mirroring ids into citedBeliefIds.
+    expect(out).toContain('citedBeliefIds');
+    const insightAt = out.indexOf('insight line');
+    const beliefAt = out.indexOf('Current-state record');
+    const fragmentAt = out.indexOf('Media evidence');
+    expect(insightAt).toBeGreaterThan(-1);
+    expect(fragmentAt).toBeGreaterThan(-1);
+    expect(beliefAt).toBeGreaterThan(insightAt);
+    expect(beliefAt).toBeLessThan(fragmentAt);
+  });
+
+  it('base (citations-off) variant keeps the cite-factIds-only header', () => {
+    const out = buildGeneratorUserMessage({
+      ...BASE,
+      beliefLines: ['[semantic_belief:b1] (s — f, rev 1) s'],
+    });
+    expect(out).toContain('Current-state record');
+    expect(out).toContain('cite factIds only');
+    expect(out).not.toContain('citedBeliefIds');
+  });
+});
+
+describe('buildVerifierUserMessage — beliefLines (BELIEFS_SERVING_LANE seam)', () => {
+  function capturingOpenAi(users: string[]): OpenAI {
+    return {
+      chat: {
+        completions: {
+          create: async (req: { messages: Array<{ role: string; content: string }> }) => {
+            users.push(req.messages.find((m) => m.role === 'user')?.content ?? '');
+            return {
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+                  },
+                },
+              ],
+            };
+          },
+        },
+      },
+    } as unknown as OpenAI;
+  }
+
+  const BASE = {
+    query: 'which database are we using?',
+    answer: 'SurrealDB.',
+    factLines: ['[knowledge_fact:f1] PostgreSQL — decided'],
+    model: 'gpt-test',
+  };
+
+  it('absent / empty ⇒ the audit prompt is BYTE-IDENTICAL (no section)', async () => {
+    const users: string[] = [];
+    await runVerifier({ ...BASE, openai: capturingOpenAi(users) });
+    await runVerifier({ ...BASE, beliefLines: [], openai: capturingOpenAi(users) });
+    await runVerifier({ ...BASE, beliefLines: undefined, openai: capturingOpenAi(users) });
+    expect(users[1]).toBe(users[0]);
+    expect(users[2]).toBe(users[0]);
+    expect(users[0]).not.toContain('Current-state record');
+  });
+
+  it('non-empty ⇒ its own equally-valid-support section', async () => {
+    const users: string[] = [];
+    const lines = ['[semantic_belief:b1] (inventory service — database, rev 2) statement'];
+    await runVerifier({ ...BASE, beliefLines: lines, openai: capturingOpenAi(users) });
+    expect(users[0]).toContain('Current-state record (distilled belief lines');
+    expect(users[0]).toContain(lines[0]!);
+    // The base sections are untouched by the addition.
+    expect(users[0]).toContain('Source facts:');
+  });
+});
+
+describe('runGenerator — belief-citation affordance (BELIEFS_SERVING_LANE)', () => {
+  function capturingOpenAi(reqs: unknown[], content: string): OpenAI {
+    return {
+      chat: {
+        completions: {
+          create: async (req: unknown) => {
+            reqs.push(req);
+            return { choices: [{ message: { content } }] };
+          },
+        },
+      },
+    } as unknown as OpenAI;
+  }
+
+  const CONTENT = JSON.stringify({ answer: 'SurrealDB.', citedFactIds: [] });
+  const BASE = {
+    query: 'which database?',
+    factLines: ['[knowledge_fact:f1] fact'],
+    model: 'gpt-test',
+    answerLang: null,
+  };
+
+  it('flag ON but empty lane ⇒ prompt AND schema BYTE-IDENTICAL to the base call', async () => {
+    const base: unknown[] = [];
+    await runGenerator({ ...BASE, openai: capturingOpenAi(base, CONTENT) });
+    const emptyLane: unknown[] = [];
+    await runGenerator({
+      ...BASE,
+      beliefCitations: true,
+      beliefLines: [],
+      openai: capturingOpenAi(emptyLane, CONTENT),
+    });
+    expect(JSON.stringify(emptyLane[0])).toBe(JSON.stringify(base[0]));
+    expect(JSON.stringify(base[0])).not.toContain('citedBeliefIds');
+    expect(JSON.stringify(base[0])).not.toContain('BELIEF CITATIONS');
+  });
+
+  it('live affordance ⇒ schema gains citedBeliefIds (properties + required) and the addendum', async () => {
+    const reqs: unknown[] = [];
+    await runGenerator({
+      ...BASE,
+      beliefCitations: true,
+      beliefLines: ['[semantic_belief:b1] (s — f, rev 1) s'],
+      openai: capturingOpenAi(
+        reqs,
+        JSON.stringify({ answer: 'x', citedFactIds: [], citedBeliefIds: [] }),
+      ),
+    });
+    const raw = JSON.stringify(reqs[0]);
+    expect(raw).toContain('citedBeliefIds');
+    expect(raw).toContain('BELIEF CITATIONS');
+    const req = reqs[0] as {
+      response_format: {
+        json_schema: { schema: { properties: Record<string, unknown>; required: string[] } };
+      };
+    };
+    expect(req.response_format.json_schema.schema.properties.citedBeliefIds).toBeDefined();
+    expect(req.response_format.json_schema.schema.required).toContain('citedBeliefIds');
+  });
+
+  it('defensively deletes a non-array citedBeliefIds from the parsed output', async () => {
+    const reqs: unknown[] = [];
+    const out = await runGenerator({
+      ...BASE,
+      beliefCitations: true,
+      beliefLines: ['[semantic_belief:b1] (s — f, rev 1) s'],
+      openai: capturingOpenAi(
+        reqs,
+        JSON.stringify({ answer: 'x', citedFactIds: [], citedBeliefIds: 'not-an-array' }),
+      ),
+    });
+    expect(out.citedBeliefIds).toBeUndefined();
+  });
+});
+
+describe('belief-arm citations and the serving gates (BELIEFS_SERVING_LANE)', () => {
+  const SUPPORTED: VerifierOutput = { verdict: 'supported', unsupportedClaims: [] };
+
+  it('FOVEA_REQUIRE_CITATIONS Part C: a belief-cited answer is NOT whollyUncited — it serves', () => {
+    const beliefCitation = { beliefId: 'semantic_belief:b1', excerpt: 's — f: v' };
+    const served = finalizeVerdict(
+      {},
+      {
+        verdict: 'supported',
+        answer: 'SurrealDB.',
+        citations: [],
+        results: [],
+        guardrails: 'strict',
+        requireCitations: true,
+        evidenceCitations: [beliefCitation],
+      },
+    );
+    expect(served.answer).toBe('SurrealDB.');
+    expect(served.reason).toBeUndefined();
+    expect(served.evidenceCitations).toEqual([beliefCitation]);
+    // Contrast: zero fact citations AND zero evidence citations abstains.
+    const abstained = finalizeVerdict(
+      {},
+      {
+        verdict: 'supported',
+        answer: 'SurrealDB.',
+        citations: [],
+        results: [],
+        guardrails: 'strict',
+        requireCitations: true,
+        evidenceCitations: [],
+      },
+    );
+    expect(abstained.reason).toBe('low_coverage');
+  });
+
+  it('resolveEvidenceCapability: a belief-arm citation carries NO capability — it neither satisfies nor triggers the 0113 gate', async () => {
+    const saved = process.env.FOVEA_EVIDENCE_CAPABILITY;
+    process.env.FOVEA_EVIDENCE_CAPABILITY = '1';
+    try {
+      const deps = {
+        registry: {
+          rowPolicyLookup: async () => () => ({ requiredEvidenceCapability: 'visual' }),
+        } as never,
+        logger: { warn: () => undefined },
+      };
+      const ctx = { cache: undefined, companyId: 'co_x' } as FinalizeContext;
+      const citations = [{ factId: 'knowledge_fact:f1', predicate: 'p', entityId: 'e' } as never];
+      // A visual requirement is NOT satisfied by a belief citation…
+      const unmet = await resolveEvidenceCapability(deps, {
+        ctx,
+        verdict: SUPPORTED,
+        citations,
+        evidenceCitations: [{ beliefId: 'semantic_belief:b1', excerpt: 's' }],
+      });
+      expect(unmet).toEqual({ evidenceCapabilityUnmet: true });
+      // …and a text requirement is not TRIGGERED by one either.
+      const textDeps = {
+        registry: { rowPolicyLookup: async () => () => ({}) } as never,
+        logger: { warn: () => undefined },
+      };
+      const ok = await resolveEvidenceCapability(textDeps, {
+        ctx,
+        verdict: SUPPORTED,
+        citations,
+        evidenceCitations: [{ beliefId: 'semantic_belief:b1', excerpt: 's' }],
+      });
+      expect(ok).toEqual({});
+    } finally {
+      if (saved === undefined) delete process.env.FOVEA_EVIDENCE_CAPABILITY;
+      else process.env.FOVEA_EVIDENCE_CAPABILITY = saved;
+    }
   });
 });

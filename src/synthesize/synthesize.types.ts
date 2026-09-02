@@ -65,9 +65,10 @@ export interface TokenUsage {
 
 /**
  * Non-fact evidence citation — a claim's reference to the stored
- * observation it came from. TWO arms behind a ONE-OF invariant
- * (exactly one of `episodeId` / `fragmentId` is present; resolvers
- * construct only well-formed arms, never both, never neither):
+ * observation it came from. THREE arms behind a ONE-OF invariant
+ * (exactly one of `episodeId` / `fragmentId` / `beliefId` is present;
+ * resolvers construct only well-formed arms, never several, never
+ * none):
  *
  *  - EPISODE arm (FOVEA_L3_EPISODE_CITATIONS): a transcript-grounded
  *    claim's reference to the stored episode turn. `span`, when present,
@@ -86,9 +87,17 @@ export interface TokenUsage {
  *    the generator actually saw (the rendered-set fence of
  *    resolveFragmentCitations — never generator-authored text).
  *
- * Widened ADDITIVELY from the episode-only shape: every pre-existing
- * consumer reads `episodeId?`/`span?` and is untouched by absent
- * fragment fields.
+ *  - BELIEF arm (BELIEFS_SERVING_LANE): a current-state claim's
+ *    reference to the semantic_belief revision it rests on (0120/0126).
+ *    `excerpt` is the RENDERED statement excerpt the generator actually
+ *    saw (resolveBeliefCitations — same rendered-set fence) and
+ *    `occurredAt` its validFrom. NO `capability` stamp (the episode-arm
+ *    precedent): a belief line is distilled text, so it neither
+ *    satisfies nor triggers the 0113 non-text capability gate.
+ *
+ * Widened ADDITIVELY from the episode-only shape (and again for the
+ * belief arm): every pre-existing consumer reads its own arm's fields
+ * and is untouched by absent fields of the other arms.
  */
 export interface EvidenceCitation {
   episodeId?: string;
@@ -99,6 +108,7 @@ export interface EvidenceCitation {
   assetId?: string;
   capability?: EvidenceCapability;
   excerpt?: string;
+  beliefId?: string;
 }
 
 export interface SynthesizeResult {
@@ -158,6 +168,14 @@ export interface GeneratorOutput {
    * resolved defensively via resolveFragmentCitations — never trusted.
    */
   citedFragmentIds?: string[];
+  /**
+   * Belief citations (BELIEFS_SERVING_LANE): the belief ids the
+   * generator grounds current-state claims on, echoed from the rendered
+   * `[semantic_belief:...]` headers. Only present when the call was made
+   * with the belief-citation affordance; resolved defensively via
+   * resolveBeliefCitations — never trusted (the citedFragmentIds idiom).
+   */
+  citedBeliefIds?: string[];
   /** Generator-call usage, when the provider reported it. */
   usage?: TokenUsage;
 }
