@@ -138,4 +138,18 @@ export class FsEvidenceStorageAdapter implements EvidenceStorageAdapter {
       throw e;
     }
   }
+
+  /** Explicit no-op (0121): fs blobs rely on filesystem permissions (and
+   *  any OS-level disk encryption) — there is no KMS context to report. */
+  encryptionContext(_storageRef: string): Promise<{ kmsKeyRef: string } | null> {
+    return Promise.resolve(null);
+  }
+
+  /** Explicit no-op (0121): the fs adapter cannot mint URLs — raw
+   *  serving stays in-process and separately gated by
+   *  raw-evidence-gate.ts; null = unsupported, callers must not fall
+   *  back to a raw path. */
+  signedGetUrl(_storageRef: string, _ttlSeconds: number): Promise<string | null> {
+    return Promise.resolve(null);
+  }
 }

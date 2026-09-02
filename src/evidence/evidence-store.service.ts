@@ -7,7 +7,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import type { Surreal } from 'surrealdb';
+import { StringRecordId, type Surreal } from 'surrealdb';
 import {
   SurrealService,
   dbCreate,
@@ -15,7 +15,11 @@ import {
   queryFirst,
   queryRows,
 } from '../db/surreal.service';
-import { evidenceMaxBytes, evidenceSubstrateEnabled } from '../common/evidence-flags';
+import {
+  evidenceMaxBytes,
+  evidenceQuarantineEnabled,
+  evidenceSubstrateEnabled,
+} from '../common/evidence-flags';
 import {
   DERIVED_REPRESENTATION_KINDS,
   EVIDENCE_MODALITIES,
@@ -59,6 +63,10 @@ export interface RegisterAssetInput {
   height?: number | undefined;
   durationMs?: number | undefined;
   pageCount?: number | undefined;
+  /** Where the bytes came from (0121 MM-6). Default 'internal'.
+   *  'external_ingest' REQUIRES EVIDENCE_QUARANTINE (503 otherwise —
+   *  fail closed: no external bytes may enter without the seam). */
+  origin?: 'internal' | 'external_ingest' | undefined;
 }
 
 export interface AddFragmentInput {
@@ -79,6 +87,8 @@ export interface AddRepresentationInput {
   confidence?: number | undefined;
   lang?: string | undefined;
   producerVersion: string;
+  /** Lineage back to the processing_run that produced this row (0121). */
+  producedByRun?: string | undefined;
 }
 
 /**
@@ -123,6 +133,7 @@ export class EvidenceStoreService {
   ): Promise<{ assetId: string; availability: string; deduped: boolean }> {
     this.gate();
     this.validateAssetShape(input);
+    const quarantineStatus = this.quarantineStampFor(input.origin);
     const availability = await this.deriveAvailability(companyId, input);
     return this.surreal.withCompany(companyId, async (db) => {
       try {
@@ -146,6 +157,9 @@ export class EvidenceStoreService {
           recorder: input.recorder,
           retainUntil: input.retainUntil,
           meta: input.meta,
+          // Key OMITTED (not undefined-valued) when the seam is off —
+          // the off-state row must be byte-identical (0121).
+          ...(quarantineStatus !== undefined ? { quarantineStatus } : {}),
         });
         return { assetId: String(row.id), availability, deduped: false };
       } catch (err) {
@@ -166,6 +180,26 @@ export class EvidenceStoreService {
         };
       }
     });
+  }
+
+  /**
+   * Quarantine stamp (0121 MM-6). Seam ON: internal writes are
+   * affirmatively 'clean', external ingest starts 'quarantined'. Seam
+   * OFF: the field is NEVER written (byte-identical row) and
+   * external_ingest is REJECTED — fail closed, no external bytes may
+   * enter without the seam. 503 (not 400): retryable operator state,
+   * the same class as the master-flag gate.
+   */
+  private quarantineStampFor(
+    origin: 'internal' | 'external_ingest' | undefined,
+  ): 'clean' | 'quarantined' | undefined {
+    if (!evidenceQuarantineEnabled()) {
+      if (origin === 'external_ingest') {
+        throw new ServiceUnavailableException('external ingest requires EVIDENCE_QUARANTINE');
+      }
+      return undefined;
+    }
+    return origin === 'external_ingest' ? 'quarantined' : 'clean';
   }
 
   /** Shape checks that need no I/O — extracted for max-lines discipline. */
@@ -267,6 +301,9 @@ export class EvidenceStoreService {
     if (!input.producerVersion || input.producerVersion.trim() === '') {
       throw new BadRequestException('producerVersion is required');
     }
+    if (input.producedByRun !== undefined && !input.producedByRun.startsWith('processing_run:')) {
+      throw new BadRequestException('producedByRun must be a processing_run record id');
+    }
     return this.surreal.withCompany(companyId, async (db) => {
       const subject = await queryFirst<{ id: unknown; availability: string }>(
         db,
@@ -292,6 +329,10 @@ export class EvidenceStoreService {
         confidence: input.confidence,
         lang: input.lang,
         producerVersion: input.producerVersion,
+        // Key OMITTED when absent — non-broker writes stay byte-identical.
+        ...(input.producedByRun !== undefined
+          ? { producedByRun: new StringRecordId(input.producedByRun) }
+          : {}),
       });
       return { representationId: String(row.id) };
     });
@@ -359,20 +400,72 @@ export class EvidenceStoreService {
         // Failed blob delete keeps storageRef for the reconciliation leg.
         if (cleared) await db.query(`UPDATE $id SET storageRef = NONE`, { id: asset.id });
       }
+      const supersededPurged = await this.purgeSupersededRepresentations(db);
       const reconciled = await this.reconcileGoneBlobs(db);
       const gc = await this.reconcileQueuedBlobs(db);
-      if (expired.length > 0 || reconciled > 0 || gc.reconciled > 0) {
+      if (expired.length > 0 || supersededPurged > 0 || reconciled > 0 || gc.reconciled > 0) {
         this.logger.log(
-          `evidence sweep ${companyId}: expired=${expired.length} blobs=${blobsDeleted} reconciled=${reconciled} gc=${gc.reconciled}/${gc.scanned}`,
+          `evidence sweep ${companyId}: expired=${expired.length} blobs=${blobsDeleted} superseded=${supersededPurged} reconciled=${reconciled} gc=${gc.reconciled}/${gc.scanned}`,
         );
       }
       return {
         evidenceExpired: expired.length,
         evidenceBlobsDeleted: blobsDeleted,
+        evidenceSupersededPurged: supersededPurged,
         evidenceBlobsReconciled: reconciled,
         evidenceBlobGcReconciled: gc.reconciled,
         evidenceBlobGcPending: gc.pending,
       };
+    });
+  }
+
+  /**
+   * Superseded-orphan leg (0121): representations that a re-processing
+   * run replaced (supersededBy set — the old generation) are collected
+   * here, NOT at supersede time, so an in-flight reader never loses its
+   * citation target mid-answer. Unconditional (no flag): such rows exist
+   * only if the broker ever ran, so no-flag prod is byte-identical.
+   * Row-only — representations carry no blobs and no outbox rows. The
+   * single-field derived_repr_superseded_idx covers the WHERE; the
+   * two-step SELECT-ids → DELETE $ids shape is the 3.2.4 discipline.
+   */
+  private async purgeSupersededRepresentations(db: Surreal): Promise<number> {
+    let purged = 0;
+    for (;;) {
+      const ids = await queryRows<unknown>(
+        db,
+        `SELECT VALUE id FROM derived_representation WHERE supersededBy != NONE LIMIT 5000`,
+      );
+      if (ids.length === 0) break;
+      await db.query(`DELETE $ids RETURN BEFORE`, { ids });
+      purged += ids.length;
+      if (ids.length < 5000) break;
+    }
+    return purged;
+  }
+
+  /**
+   * Quarantine-rejection tombstone (0121 MM-6) — the RETENTION path
+   * reused verbatim: availability='gone' closes the write gate,
+   * dependents (representations, fragments, processing runs) die, the
+   * blob goes best-effort. A FAILED blob delete keeps storageRef so
+   * reconcileGoneBlobs retries next sweep (0114 doctrine — no new outbox
+   * reason). Runs REGARDLESS of flags: delete side, erasability doctrine.
+   * The caller (EvidenceQuarantineService) stamps quarantineStatus.
+   */
+  async tombstoneAssetBytes(companyId: string, assetId: string): Promise<{ blobDeleted: boolean }> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      const row = await queryFirst<{ id: unknown; storageRef?: string }>(
+        db,
+        `SELECT id, storageRef FROM type::record('evidence_asset', $tail) LIMIT 1`,
+        { tail: idTailOf(assetId) },
+      );
+      if (!row) return { blobDeleted: false };
+      await db.query(`UPDATE $id SET availability = 'gone'`, { id: row.id });
+      await this.purgeAssetDependents(db, row.id);
+      const cleared = row.storageRef ? await this.deleteBlobBestEffort(row.storageRef) : false;
+      if (cleared) await db.query(`UPDATE $id SET storageRef = NONE`, { id: row.id });
+      return { blobDeleted: cleared };
     });
   }
 
@@ -398,6 +491,20 @@ export class EvidenceStoreService {
       });
       await db.query(`DELETE $ids RETURN BEFORE`, { ids: fragIds });
       if (fragIds.length < 5000) break;
+    }
+    // Processing runs (0121) go LAST: run rows are discoverable via
+    // assetId, which survives as the tombstone header, so batch
+    // exhaustion is safe in any order — but after the repr+frag legs the
+    // asset's content-bearing rows are already gone if we crash here.
+    for (;;) {
+      const runIds = await queryRows<unknown>(
+        db,
+        `SELECT VALUE id FROM processing_run WHERE assetId = $asset LIMIT 5000`,
+        { asset: assetId },
+      );
+      if (runIds.length === 0) break;
+      await db.query(`DELETE $ids RETURN BEFORE`, { ids: runIds });
+      if (runIds.length < 5000) break;
     }
   }
 

@@ -1117,6 +1117,33 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Sanity cap on the DECLARED byteLength of a registered evidence asset (default 1 GiB). A claim bound, not a transfer limit — this release ships no upload endpoint.',
   },
   {
+    key: 'EVIDENCE_PROCESSOR_BROKER',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Trusted processor broker (migration 0121): dispatch platform-owned processor adapters over registered evidence assets, each execution recorded as an idempotent processing_run row (deterministic id + INSERT IGNORE — replay collides and no-ops). Requires EVIDENCE_SUBSTRATE_ENABLED. Off (default) = dispatch 503s before any query is issued and no row is ever written — byte-identical.',
+  },
+  {
+    key: 'EVIDENCE_QUARANTINE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "External-ingest quarantine seam (migration 0121): registerAsset stamps evidence_asset.quarantineStatus ('clean' internal / 'quarantined' external_ingest) and scan transitions may run; the broker refuses non-clean assets. Off (default) = the field is NEVER written (rows byte-identical), quarantine transitions 503, and origin:'external_ingest' is rejected 503 — fail closed.",
+  },
+  {
+    key: 'EVIDENCE_DERIVED_MAX_BYTES',
+    category: 'pipeline',
+    defaultValue: '1048576',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Derived-output size cap for the processor broker (default 1 MiB): bounds what an adapter may read from a blob AND the byte length of any single derived-representation content — an over-cap output fails the run (reject, never truncate).',
+  },
+  {
     key: 'EVIDENCE_GROUNDING_STAMP',
     category: 'pipeline',
     defaultValue: '0',
