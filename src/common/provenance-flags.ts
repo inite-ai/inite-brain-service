@@ -42,6 +42,32 @@ export function recursiveClosureEnabled(): boolean {
 }
 
 /**
+ * Evidence plane — episode-neighbour widening —
+ * PROVENANCE_EPISODE_NEIGHBOURS.
+ *
+ * When on, the one-hop GET /v1/facts/:id/provenance read additionally
+ * serves the ±radius sibling turns of the SAME conversation around each
+ * primary grounding turn (radius = PROVENANCE_EPISODE_NEIGHBOUR_RADIUS,
+ * clamped 1..3). A mention-extracted fact stamps exactly the ONE turn it
+ * was extracted from; when the verbatim constraint lives in the
+ * neighbouring paraphrased turn, the walk could never reach it — this
+ * widening exposes the surrounding turns WITHOUT changing the grounding
+ * stamp. Neighbours go through the identical episode read fences as the
+ * primary fetch (PII gate + fail-closed user pin, same userId key) and
+ * carry `relation: 'neighbour'` on the wire; primary episodes keep
+ * their exact shape. The union is capped by closureMaxEpisodes() —
+ * primaries always serve, neighbours only fill the remaining budget.
+ * The env read lives here in the common layer, NOT inside the engine
+ * dirs (engine-gates S5.2). Read at call time so a flip is
+ * runtime-mutable. Default off ⇒ the provenance response is
+ * byte-identical (no relation key ever appears, no window query is
+ * ever issued).
+ */
+export function episodeNeighboursEnabled(): boolean {
+  return envFlagEnabled(process.env.PROVENANCE_EPISODE_NEIGHBOURS);
+}
+
+/**
  * Typed support graph — write side — PROVENANCE_SUPPORT_EDGES.
  *
  * When on, the three writer families emit canonical memory_support
@@ -129,4 +155,20 @@ export function closureMaxEpisodes(): number {
     DEFAULT_CLOSURE_MAX_EPISODES,
     [1, 500],
   );
+}
+
+/** Neighbour-widening radius default (see the knob below). */
+const DEFAULT_NEIGHBOUR_RADIUS = 1;
+
+/**
+ * Episode-neighbour radius (PROVENANCE_EPISODE_NEIGHBOUR_RADIUS): how
+ * many sibling turns BEFORE and AFTER each primary grounding turn the
+ * PROVENANCE_EPISODE_NEIGHBOURS widening fetches from the same
+ * conversation. A non-boolean knob resolved here in the common layer so
+ * the read path takes a resolved number. Default 1, clamped to 1..3;
+ * unset, blank, or non-numeric → the default. Total served episodes
+ * stay bounded by closureMaxEpisodes() regardless of the radius.
+ */
+export function episodeNeighbourRadius(): number {
+  return intKnob(process.env.PROVENANCE_EPISODE_NEIGHBOUR_RADIUS, DEFAULT_NEIGHBOUR_RADIUS, [1, 3]);
 }

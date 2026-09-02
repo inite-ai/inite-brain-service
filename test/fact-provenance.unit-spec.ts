@@ -51,6 +51,40 @@ function makeStack(opts: {
           (opts.factsByCompany[companyId] ?? []).filter((f) => wanted.includes(String(f.id))),
         ];
       }
+      // windowAround (PROVENANCE_EPISODE_NEIGHBOURS): the two bounded
+      // conversation-window reads. Like the byIds branch below, the
+      // PII/user gates are applied from the SQL the REAL
+      // EpisodeReadStoreService composed — these tests pin the actual
+      // fence strings, not a re-implementation.
+      if (sql.includes('FROM episode') && sql.includes('conversationId = $conv')) {
+        const centerMs = new Date(params?.c as Date).getTime();
+        const before = sql.includes('occurredAt <= $c');
+        const limit = Number(/LIMIT (\d+)/.exec(sql)?.[1] ?? 1000);
+        let rows = (opts.episodesByCompany?.[companyId] ?? []).filter(
+          (e) => e.conversationId === params?.conv,
+        );
+        rows = rows.filter((e) => {
+          const t = new Date(String(e.occurredAt)).getTime();
+          return before ? t <= centerMs : t > centerMs;
+        });
+        if (sql.includes('piiClass IS NONE')) {
+          rows = rows.filter((e) => e.piiClass === undefined);
+        }
+        if (sql.includes('userId = $scopeUserId')) {
+          rows = rows.filter((e) => e.userId === undefined || e.userId === params?.scopeUserId);
+        } else {
+          rows = rows.filter((e) => e.userId === undefined);
+        }
+        rows = rows
+          .slice()
+          .sort((a, b) => {
+            const d =
+              new Date(String(a.occurredAt)).getTime() - new Date(String(b.occurredAt)).getTime();
+            return before ? -d : d;
+          })
+          .slice(0, limit);
+        return [rows];
+      }
       if (sql.includes('FROM episode')) {
         const wanted = ((params?.ids as unknown[]) ?? []).map(ridOf);
         let rows = (opts.episodesByCompany?.[companyId] ?? []).filter((e) =>
@@ -574,6 +608,236 @@ describe('PROVENANCE_RECURSIVE_CLOSURE — recursive support closure', () => {
     const episodeQueries = queries.filter((q) => q.sql.includes('FROM episode'));
     const scoped = episodeQueries.find((q) => q.sql.includes('userId = $scopeUserId'));
     expect(scoped?.params?.scopeUserId).toBe('u2');
+  });
+});
+
+/**
+ * PROVENANCE_EPISODE_NEIGHBOURS: the one-hop provenance read widens to
+ * the ±radius sibling turns of the SAME conversation around each
+ * primary grounding turn. Off (default) the response is byte-identical
+ * — the golden below pins today's exact full shape. On, neighbours are
+ * fetched through the REAL EpisodeReadStoreService.windowAround (the
+ * stub applies the gate strings that service composed), carry
+ * relation:'neighbour', and the union is capped by
+ * PROVENANCE_CLOSURE_MAX_EPISODES.
+ */
+describe('PROVENANCE_EPISODE_NEIGHBOURS — sibling-turn widening', () => {
+  const SAVED_KEYS = [
+    'PROVENANCE_EPISODE_NEIGHBOURS',
+    'PROVENANCE_EPISODE_NEIGHBOUR_RADIUS',
+    'PROVENANCE_CLOSURE_MAX_EPISODES',
+  ] as const;
+  const saved: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    for (const k of SAVED_KEYS) saved[k] = process.env[k];
+  });
+  afterEach(() => {
+    for (const k of SAVED_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  // conv-1 timeline: n0 (the verbatim constraint) … e1 (primary,
+  // paraphrase) … n1 … e2 (primary) … n2. The fact stamps ONLY e1+e2 —
+  // exactly the d3-ratelimit failure: the seeded fragment lives in n0.
+  const N0: Row = {
+    id: 'episode:n0',
+    conversationId: 'conv-1',
+    speaker: 'Ops',
+    text: 'Heads up: the gateway hard limit is 50 requests per minute.',
+    occurredAt: '2026-07-01T09:00:00.000Z',
+  };
+  const N1: Row = {
+    id: 'episode:n1',
+    conversationId: 'conv-1',
+    speaker: 'Caroline',
+    text: 'Noted, I will keep our poller under that.',
+    occurredAt: '2026-07-01T11:00:00.000Z',
+  };
+  const N2: Row = {
+    id: 'episode:n2',
+    conversationId: 'conv-1',
+    speaker: 'Melanie',
+    text: 'Trip planning continues tomorrow.',
+    occurredAt: '2026-07-02T11:00:00.000Z',
+  };
+  const NEIGHBOUR_CORPUS: Row[] = [N0, EPISODES[0]!, N1, EPISODES[1]!, N2];
+
+  it('flag OFF (default): GOLDEN — the full response is byte-identical, no window query issued', async () => {
+    delete process.env.PROVENANCE_EPISODE_NEIGHBOURS;
+    const { svc, queries } = makeStack({
+      factsByCompany: { co_a: [FACT_GLOBAL] },
+      episodesByCompany: { co_a: NEIGHBOUR_CORPUS },
+    });
+    const res = await svc.getProvenance({
+      companyId: 'co_a',
+      factId: 'f1',
+      scopes: READ,
+    });
+    // GOLDEN: the exact pre-flag response — primaries only, no
+    // relation key anywhere, e2 text capped at 600 chars.
+    expect(res).toEqual({
+      factId: 'knowledge_fact:f1',
+      episodes: [
+        {
+          episodeId: 'episode:e1',
+          conversationId: 'conv-1',
+          speaker: 'Caroline',
+          occurredAt: '2026-07-01T10:00:00.000Z',
+          text: 'I love hiking, we should plan a trip!',
+        },
+        {
+          episodeId: 'episode:e2',
+          conversationId: 'conv-1',
+          speaker: 'Melanie',
+          occurredAt: '2026-07-02T10:00:00.000Z',
+          text: `${LONG_TEXT.slice(0, 599)}…`,
+        },
+      ],
+    });
+    expect(queries.some((q) => q.sql.includes('conversationId = $conv'))).toBe(false);
+  });
+
+  it('flag ON: ±1 siblings are served chronologically, labelled relation:neighbour; primaries keep their shape', async () => {
+    process.env.PROVENANCE_EPISODE_NEIGHBOURS = '1';
+    const { svc } = makeStack({
+      factsByCompany: { co_a: [FACT_GLOBAL] },
+      episodesByCompany: { co_a: NEIGHBOUR_CORPUS },
+    });
+    const res = await svc.getProvenance({
+      companyId: 'co_a',
+      factId: 'f1',
+      scopes: READ,
+    });
+    expect(res.episodes.map((e) => e.episodeId)).toEqual([
+      'episode:n0',
+      'episode:e1',
+      'episode:n1',
+      'episode:e2',
+      'episode:n2',
+    ]);
+    // The turn holding the verbatim constraint is now reachable…
+    expect(res.episodes[0]).toEqual({
+      episodeId: 'episode:n0',
+      conversationId: 'conv-1',
+      speaker: 'Ops',
+      occurredAt: '2026-07-01T09:00:00.000Z',
+      text: 'Heads up: the gateway hard limit is 50 requests per minute.',
+      relation: 'neighbour',
+    });
+    // …every sibling carries the marker, and primaries keep their
+    // exact primary shape (no relation key).
+    for (const ep of res.episodes) {
+      if (ep.episodeId.startsWith('episode:n')) expect(ep.relation).toBe('neighbour');
+      else expect(ep).not.toHaveProperty('relation');
+    }
+  });
+
+  it('flag ON: the union is capped by PROVENANCE_CLOSURE_MAX_EPISODES — primaries always serve, neighbours fill the rest chronologically', async () => {
+    process.env.PROVENANCE_EPISODE_NEIGHBOURS = '1';
+    process.env.PROVENANCE_CLOSURE_MAX_EPISODES = '3';
+    const { svc } = makeStack({
+      factsByCompany: { co_a: [FACT_GLOBAL] },
+      episodesByCompany: { co_a: NEIGHBOUR_CORPUS },
+    });
+    const res = await svc.getProvenance({
+      companyId: 'co_a',
+      factId: 'f1',
+      scopes: READ,
+    });
+    // 2 primaries + budget for exactly 1 neighbour (the earliest, n0).
+    expect(res.episodes.map((e) => e.episodeId)).toEqual([
+      'episode:n0',
+      'episode:e1',
+      'episode:e2',
+    ]);
+  });
+
+  it('flag ON: the radius knob is clamped to 3 (window LIMITs pin the clamp)', async () => {
+    process.env.PROVENANCE_EPISODE_NEIGHBOURS = '1';
+    process.env.PROVENANCE_EPISODE_NEIGHBOUR_RADIUS = '99';
+    const { svc, queries } = makeStack({
+      factsByCompany: { co_a: [FACT_GLOBAL] },
+      episodesByCompany: { co_a: NEIGHBOUR_CORPUS },
+    });
+    await svc.getProvenance({ companyId: 'co_a', factId: 'f1', scopes: READ });
+    const windows = queries.filter((q) => q.sql.includes('conversationId = $conv'));
+    expect(windows.length).toBeGreaterThan(0);
+    // windowAround issues LIMIT span+1 before / LIMIT span after — a
+    // clamped radius of 3 means LIMIT 4 / LIMIT 3, never 100.
+    for (const w of windows) {
+      const limit = Number(/LIMIT (\d+)/.exec(w.sql)?.[1]);
+      expect(limit).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it("flag ON, SECURITY: another user's sibling and a PII sibling are dropped by the fences the primary fetch uses", async () => {
+    process.env.PROVENANCE_EPISODE_NEIGHBOURS = '1';
+    const { svc, queries } = makeStack({
+      factsByCompany: { co_a: [FACT_GLOBAL] },
+      episodesByCompany: {
+        co_a: [
+          { ...N0, userId: 'u9' }, // foreign user's turn — must NOT leak
+          EPISODES[0]!,
+          { ...N1, piiClass: ['contact'] }, // PII turn, caller lacks read_pii
+          EPISODES[1]!,
+          N2,
+        ],
+      },
+    });
+    // M2M caller, tenant-global fact → the fetch is unscoped
+    // (fail-closed: tenant-global turns only), same as the primary read.
+    const res = await svc.getProvenance({
+      companyId: 'co_a',
+      factId: 'f1',
+      scopes: READ,
+    });
+    expect(res.episodes.map((e) => e.episodeId)).toEqual([
+      'episode:e1',
+      'episode:e2',
+      'episode:n2',
+    ]);
+    // The fence strings of the shared episode read port are ON the
+    // window SQL — identical composition to the byIds primary fetch.
+    const windows = queries.filter((q) => q.sql.includes('conversationId = $conv'));
+    for (const w of windows) {
+      expect(w.sql).toContain('piiClass IS NONE');
+      expect(w.sql).toContain('userId IS NONE');
+    }
+  });
+
+  it("flag ON: a user-scoped fact's sibling fetch is keyed to the FACT's user — that user's turns serve, a third user's never do", async () => {
+    process.env.PROVENANCE_EPISODE_NEIGHBOURS = '1';
+    const { svc, queries } = makeStack({
+      factsByCompany: { co_a: [{ ...FACT_GLOBAL, userId: 'u2' }] },
+      episodesByCompany: {
+        co_a: [
+          { ...N0, userId: 'u9' }, // third user — must NOT leak
+          { ...EPISODES[0]!, userId: 'u2' },
+          { ...N1, userId: 'u2' }, // the fact owner's own sibling turn
+          { ...EPISODES[1]!, userId: 'u2' },
+          N2, // tenant-global sibling
+        ],
+      },
+    });
+    const res = await svc.getProvenance({
+      companyId: 'co_a',
+      factId: 'f1',
+      scopes: READ,
+    });
+    expect(res.episodes.map((e) => e.episodeId)).toEqual([
+      'episode:e1',
+      'episode:n1',
+      'episode:e2',
+      'episode:n2',
+    ]);
+    const windows = queries.filter((q) => q.sql.includes('conversationId = $conv'));
+    expect(windows.length).toBeGreaterThan(0);
+    for (const w of windows) {
+      expect(w.sql).toContain('(userId IS NONE OR userId = $scopeUserId)');
+      expect(w.params?.scopeUserId).toBe('u2');
+    }
   });
 });
 

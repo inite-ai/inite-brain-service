@@ -29,6 +29,8 @@ import {
   closureMaxDepth,
   closureMaxEpisodes,
   closureMaxFacts,
+  episodeNeighbourRadius,
+  episodeNeighboursEnabled,
   recursiveClosureEnabled,
   supportGraphReadEnabled,
 } from '../common/provenance-flags';
@@ -159,6 +161,13 @@ export interface FactProvenanceEpisode {
   /** Present with `span`: true when `text` was truncated by the cap —
    *  span offsets reference the FULL stored text, not the capped view. */
   textTruncated?: boolean;
+  /**
+   * PROVENANCE_EPISODE_NEIGHBOURS (default off): 'neighbour' marks a
+   * ±radius sibling turn of the same conversation served around a
+   * primary grounding turn. Absent = a primary grounding turn
+   * (source.episodeIds) — primaries keep their exact pre-flag shape.
+   */
+  relation?: 'neighbour';
 }
 
 /**
@@ -414,19 +423,104 @@ export class FactsService {
         ? [...new Set(source.episodeIds.map(String).filter((e) => e.startsWith('episode:')))]
         : [];
       if (ids.length === 0) return { factId: String(fact.id), episodes: [] };
+      const includePii = opts.scopes.includes('brain:read_pii');
+      const episodeUserId =
+        typeof fact.userId === 'string' && fact.userId.length > 0
+          ? fact.userId
+          : pinUserScope(undefined);
       const rows = await this.episodes.byIds({
         companyId: opts.companyId,
         ids,
-        includePii: opts.scopes.includes('brain:read_pii'),
-        userId:
-          typeof fact.userId === 'string' && fact.userId.length > 0
-            ? fact.userId
-            : pinUserScope(undefined),
+        includePii,
+        userId: episodeUserId,
         db,
       });
-      const episodes = this.mapProvenanceEpisodes(rows, spanByEpisode);
+      // PROVENANCE_EPISODE_NEIGHBOURS (default off): widen to the
+      // ±radius sibling turns of the SAME conversation around each
+      // primary grounding turn — a mention-extracted fact stamps exactly
+      // ONE turn, so a verbatim constraint in the neighbouring
+      // paraphrased turn is otherwise unreachable. Neighbours ride the
+      // identical fences as the primary fetch (see
+      // fetchEpisodeNeighbours) and carry relation:'neighbour'. Flag off
+      // ⇒ no window query, no relation key — byte-identical.
+      let neighbourIds: Set<string> | undefined;
+      let allRows = rows;
+      if (episodeNeighboursEnabled()) {
+        const neighbours = await this.fetchEpisodeNeighbours({
+          db,
+          companyId: opts.companyId,
+          primaries: rows,
+          includePii,
+          userId: episodeUserId,
+        });
+        if (neighbours.length > 0) {
+          neighbourIds = new Set(neighbours.map((n) => String(n.id)));
+          allRows = [...rows, ...neighbours];
+        }
+      }
+      const episodes = this.mapProvenanceEpisodes(allRows, spanByEpisode, neighbourIds);
       return { factId: String(fact.id), episodes };
     });
+  }
+
+  /**
+   * PROVENANCE_EPISODE_NEIGHBOURS widening: the ±radius sibling turns
+   * of the same conversation around each primary grounding turn.
+   *
+   * SECURITY — this is a read widening on the evidence surface, so every
+   * neighbour fetch goes through the SHARED episode read port
+   * (windowAround), which composes the identical fences the primary
+   * byIds fetch uses: the one PII-fence implementation, the fail-closed
+   * user pin keyed to the SAME userId as the primary fetch (the fact's
+   * owner, else the caller's pinned scope), and the G6 scope-tag fence.
+   * A neighbour turn recorded by another user is dropped by that SQL
+   * fence and never surfaces.
+   *
+   * Caps: radius clamped 1..3 (episodeNeighbourRadius); the served
+   * union stays ≤ closureMaxEpisodes() — primaries always serve,
+   * neighbours only fill the remaining budget, admitted chronologically
+   * (then by id) so the cut is deterministic.
+   */
+  private async fetchEpisodeNeighbours(args: {
+    db: Surreal;
+    companyId: string;
+    primaries: EpisodeQuoteRow[];
+    includePii: boolean;
+    userId: string | undefined;
+  }): Promise<EpisodeQuoteRow[]> {
+    const primaryIds = new Set(args.primaries.map((r) => String(r.id)));
+    const budget = closureMaxEpisodes() - primaryIds.size;
+    if (budget <= 0) return [];
+    const radius = episodeNeighbourRadius();
+    const seen = new Set<string>();
+    const neighbours: EpisodeQuoteRow[] = [];
+    for (const primary of args.primaries) {
+      // The conversation fence comes from the FENCED primary row itself;
+      // a turn without one has no siblings to widen to.
+      if (primary.conversationId === undefined || primary.conversationId === '') continue;
+      const win = await this.episodes.windowAround({
+        companyId: args.companyId,
+        conversationId: primary.conversationId,
+        centerIso: toIso(primary.occurredAt),
+        span: radius,
+        includePii: args.includePii,
+        ...(args.userId !== undefined ? { userId: args.userId } : {}),
+        db: args.db,
+      });
+      for (const row of win) {
+        const id = String(row.id);
+        if (primaryIds.has(id) || seen.has(id)) continue;
+        seen.add(id);
+        neighbours.push(row);
+      }
+    }
+    return neighbours
+      .sort((a, b) => {
+        const dt =
+          new Date(toIso(a.occurredAt)).getTime() - new Date(toIso(b.occurredAt)).getTime();
+        return dt !== 0 ? dt : String(a.id).localeCompare(String(b.id));
+      })
+      .slice(0, budget);
   }
 
   /**
@@ -572,11 +666,14 @@ export class FactsService {
    * Chronological sort + wire mapping of provenance episode rows —
    * shared by the one-hop path and the closure path so the per-episode
    * shape (PROVENANCE_TEXT_CHAR_CAP, G3 span attachment) has ONE
-   * implementation.
+   * implementation. `neighbourIds` (PROVENANCE_EPISODE_NEIGHBOURS)
+   * marks the sibling turns with relation:'neighbour'; omitted (every
+   * other caller) the shape is byte-identical.
    */
   private mapProvenanceEpisodes(
     rows: EpisodeQuoteRow[],
     spanByEpisode: Map<string, ProvenanceSpan>,
+    neighbourIds?: Set<string>,
   ): FactProvenanceEpisode[] {
     return rows
       .slice()
@@ -604,6 +701,9 @@ export class FactsService {
                 textTruncated: r.text.length > PROVENANCE_TEXT_CHAR_CAP,
               }
             : {}),
+          // PROVENANCE_EPISODE_NEIGHBOURS: sibling turns carry the
+          // marker; primary grounding turns keep their exact shape.
+          ...(neighbourIds?.has(String(r.id)) ? { relation: 'neighbour' as const } : {}),
         };
       });
   }
