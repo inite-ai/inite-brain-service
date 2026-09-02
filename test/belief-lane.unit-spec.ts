@@ -207,6 +207,65 @@ describe('BeliefLaneService — render + degrade', () => {
   });
 });
 
+describe('BeliefLaneService — date-token disambiguation (BELIEFS_LANE_DATE_DISAMBIGUATION)', () => {
+  it('flag off (absent or explicit false) ⇒ the historical `, as of <day>` token, byte-identical', async () => {
+    const { surreal } = surrealOf({ bm25Rows: [row({})] });
+    const svc = new BeliefLaneService(surreal, embedderOk);
+    const absent = await svc.beliefLines(baseOpts);
+    const explicit = await svc.beliefLines({ ...baseOpts, dateDisambiguation: false });
+    expect(absent.lines).toEqual([
+      '[semantic_belief:b1] (inventory service — database, rev 2, as of 2026-08-01) ' +
+        'inventory service — database: SurrealDB (was: PostgreSQL)',
+    ]);
+    expect(explicit.lines).toEqual(absent.lines);
+  });
+
+  it('flag on ⇒ `, belief current since <day>` replaces the `as of` token (D4: the day is the REVISION’s validFrom, not an event date)', async () => {
+    const { surreal } = surrealOf({ bm25Rows: [row({})] });
+    const out = await new BeliefLaneService(surreal, embedderOk).beliefLines({
+      ...baseOpts,
+      dateDisambiguation: true,
+    });
+    expect(out.lines).toEqual([
+      '[semantic_belief:b1] (inventory service — database, rev 2, belief current since 2026-08-01) ' +
+        'inventory service — database: SurrealDB (was: PostgreSQL)',
+    ]);
+    expect(out.lines[0]).not.toContain(', as of ');
+  });
+
+  it('no-day branch is unchanged in BOTH modes (no date token at all)', async () => {
+    const noDay = row({ validFrom: undefined as unknown as string });
+    const expected =
+      '[semantic_belief:b1] (inventory service — database, rev 2) ' +
+      'inventory service — database: SurrealDB (was: PostgreSQL)';
+    const { surreal: sOff } = surrealOf({ bm25Rows: [noDay] });
+    const off = await new BeliefLaneService(sOff, embedderOk).beliefLines(baseOpts);
+    const { surreal: sOn } = surrealOf({ bm25Rows: [noDay] });
+    const on = await new BeliefLaneService(sOn, embedderOk).beliefLines({
+      ...baseOpts,
+      dateDisambiguation: true,
+    });
+    expect(off.lines).toEqual([expected]);
+    expect(on.lines).toEqual([expected]);
+  });
+
+  it('byId citation fence is untouched by the flag (keys on beliefId, not the rendered string)', async () => {
+    const { surreal } = surrealOf({ bm25Rows: [row({})] });
+    const out = await new BeliefLaneService(surreal, embedderOk).beliefLines({
+      ...baseOpts,
+      dateDisambiguation: true,
+    });
+    expect(out.byId.get('semantic_belief:b1')).toEqual({
+      beliefId: 'semantic_belief:b1',
+      subject: 'inventory service',
+      field: 'database',
+      value: 'SurrealDB',
+      excerpt: 'inventory service — database: SurrealDB (was: PostgreSQL)',
+      occurredAt: '2026-08-01T00:00:00.000Z',
+    });
+  });
+});
+
 describe('EvidenceCollectorService — belief lane gating', () => {
   const noSearch = { search: async () => ({ results: [] }) } as unknown as SearchService;
 
@@ -288,5 +347,24 @@ describe('EvidenceCollectorService — belief lane gating', () => {
     const out = await collectorWith(undefined).collect(collectArgs(true));
     expect(out.beliefLines).toEqual([]);
     expect(out.beliefsById).toBeUndefined();
+  });
+
+  it('beliefDateDisambiguation (caller-resolved) reaches the lane and is echoed on CollectedEvidence', async () => {
+    const seen: Array<boolean | undefined> = [];
+    const lane = {
+      beliefLines: async (o: { dateDisambiguation?: boolean | undefined }) => {
+        seen.push(o.dateDisambiguation);
+        return { lines: [], byId: new Map() };
+      },
+    } as unknown as BeliefLaneService;
+    const on = await collectorWith(lane).collect({
+      ...collectArgs(true),
+      beliefDateDisambiguation: true,
+    });
+    expect(seen).toEqual([true]);
+    expect(on.beliefDateDisambiguation).toBe(true);
+    const off = await collectorWith(lane).collect(collectArgs(true));
+    expect(seen).toEqual([true, undefined]);
+    expect(off.beliefDateDisambiguation).toBeUndefined();
   });
 });

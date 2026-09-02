@@ -110,6 +110,15 @@ export interface GenerateRequest {
    */
   beliefCitations?: boolean | undefined;
   /**
+   * BELIEFS_LANE_DATE_DISAMBIGUATION (memory-fitness D4): the belief
+   * section header gains the date-scoping clause (a belief-line date is
+   * when the belief last changed, never the asked-about event's date) —
+   * resolved once per request beside the lane flag and matching the
+   * lane's `belief current since` token. Effective only when
+   * beliefLines are non-empty (no section ⇒ byte-identical prompt).
+   */
+  beliefDateDisambiguation?: boolean | undefined;
+  /**
    * MM-zoom PR2 (profile.fragmentLane): rendered media-evidence lines,
    * their own section — the verifier reads the same lines
    * (capabilityEvidenceLines, evidence parity).

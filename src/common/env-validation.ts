@@ -707,6 +707,12 @@ const KNOWN_BOOLEAN_FLAGS = [
   // lane; nothing reads it until the damping pass lands). Requires
   // BELIEFS_SERVING_LANE (inconsistent-pair WARN below).
   'BELIEFS_FACT_DAMPING',
+  // Belief-lane date disambiguation (memory-fitness D4): the lane
+  // renders ", belief current since <day>" instead of ", as of <day>"
+  // (which the generator's date block teaches as an EVENT-date stamp —
+  // a belief's day is the REVISION's validFrom) and the generator's
+  // belief header scopes the date. No-op without BELIEFS_SERVING_LANE.
+  'BELIEFS_LANE_DATE_DISAMBIGUATION',
   // Raw-substrate driver v1 surface 3: projections registry API + rebuild verb.
   'PROJECTIONS_API_ENABLED',
   // Raw-substrate driver v1 surface 4: new-episode webhook push (watermark

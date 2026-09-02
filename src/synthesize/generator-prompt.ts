@@ -39,6 +39,7 @@ export function buildGeneratorUserMessage({
   strategyNotes,
   beliefLines,
   beliefCitations,
+  beliefDateDisambiguation,
   fragmentLines,
   fragmentCitations,
 }: {
@@ -138,6 +139,17 @@ export function buildGeneratorUserMessage({
    */
   beliefCitations?: boolean | undefined;
   /**
+   * BELIEFS_LANE_DATE_DISAMBIGUATION (memory-fitness D4): both belief
+   * section header variants gain the date-scoping clause — the date on
+   * a belief line is the belief REVISION's validFrom (when the belief
+   * last changed), never the date of the asked-about event, so "when
+   * did X happen" questions must take the date from the facts. Matches
+   * the lane's `belief current since` line token (one per-request
+   * resolution, echoed through CollectedEvidence). Off/undefined = the
+   * historical headers, byte-identical.
+   */
+  beliefDateDisambiguation?: boolean | undefined;
+  /**
    * MM-zoom PR2 (profile.fragmentLane): rendered media-evidence lines —
    * `[capability:<kind>]`-tagged derived-representation excerpts of
    * registered media observations — their own section. The verifier
@@ -200,7 +212,7 @@ export function buildGeneratorUserMessage({
     insightLines && insightLines.length > 0
       ? `\n\n${insightHeader}\n${insightLines.join('\n')}`
       : '';
-  const beliefSection = renderBeliefSection(beliefLines, beliefCitations);
+  const beliefSection = renderBeliefSection(beliefLines, beliefCitations, beliefDateDisambiguation);
   const fragmentSection = renderFragmentSection(fragmentLines, fragmentCitations);
   const dateMathSection =
     dateMathLines && dateMathLines.length > 0
@@ -225,11 +237,24 @@ export function buildGeneratorUserMessage({
  *  generator-client.ts BELIEF_ABSTENTION_ADDENDUM). */
 const BELIEF_EVIDENCE_ONLY_CLAUSE =
   ' These lines ADD evidence — they never relax the base evidence rules: when NEITHER a belief line NOR the facts/transcript cover the question, follow the base instructions for an unanswerable question unchanged';
-function renderBeliefSection(beliefLines?: string[], beliefCitations?: boolean): string {
+/** BELIEFS_LANE_DATE_DISAMBIGUATION (memory-fitness D4) header clause —
+ *  appended to BOTH variants when the flag is on (the
+ *  BELIEF_EVIDENCE_ONLY_CLAUSE split-constant idiom; flag off ⇒
+ *  byte-identical). The date block above teaches "(as of YYYY-MM-DD)"
+ *  as an answer-bearing EVENT-date stamp; a belief line's day is the
+ *  belief REVISION's validFrom, so the header must scope it. */
+const BELIEF_DATE_DISAMBIGUATION_CLAUSE =
+  ". The date on a belief line is when the belief last changed — never the date of the event being asked about; for 'when did X happen' questions take the date from the facts";
+function renderBeliefSection(
+  beliefLines?: string[],
+  beliefCitations?: boolean,
+  beliefDateDisambiguation?: boolean,
+): string {
   if (!beliefLines || beliefLines.length === 0) return '';
+  const dateClause = beliefDateDisambiguation ? BELIEF_DATE_DISAMBIGUATION_CLAUSE : '';
   const header = beliefCitations
-    ? `Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any older or conflicting fact above; each line is headed by its [semantic_belief:...] id. For questions asking the CURRENT state, prefer these lines ONLY when one covers the asked subject/field; when a claim rests on one, copy its id EXACTLY into citedBeliefIds. For questions about history, sequence, or why something changed, use the facts and transcript instead; cite factIds for fact-grounded claims as before.${BELIEF_EVIDENCE_ONLY_CLAUSE}):`
-    : `Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any older or conflicting fact above. For questions asking the CURRENT state, prefer these lines ONLY when one covers the asked subject/field; for questions about history, sequence, or why something changed, use the facts and transcript instead; cite factIds only.${BELIEF_EVIDENCE_ONLY_CLAUSE}):`;
+    ? `Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any older or conflicting fact above; each line is headed by its [semantic_belief:...] id. For questions asking the CURRENT state, prefer these lines ONLY when one covers the asked subject/field; when a claim rests on one, copy its id EXACTLY into citedBeliefIds. For questions about history, sequence, or why something changed, use the facts and transcript instead; cite factIds for fact-grounded claims as before.${BELIEF_EVIDENCE_ONLY_CLAUSE}${dateClause}):`
+    : `Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any older or conflicting fact above. For questions asking the CURRENT state, prefer these lines ONLY when one covers the asked subject/field; for questions about history, sequence, or why something changed, use the facts and transcript instead; cite factIds only.${BELIEF_EVIDENCE_ONLY_CLAUSE}${dateClause}):`;
   return `\n\n${header}\n${beliefLines.join('\n')}`;
 }
 

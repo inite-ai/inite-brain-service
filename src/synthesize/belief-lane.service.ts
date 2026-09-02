@@ -104,6 +104,13 @@ export class BeliefLaneService {
     /** Scope key of the asking end-user; omitted → the lane is EMPTY
      *  (fence 2 — scoped-user-only, see the class doc). */
     userId?: string | undefined;
+    /** BELIEFS_LANE_DATE_DISAMBIGUATION, resolved ONCE by the caller
+     *  (the beliefServingLaneEnabled idiom — this service reads no
+     *  env): render `, belief current since <day>` instead of
+     *  `, as of <day>` so the belief REVISION's validFrom cannot be
+     *  misread as the asked-about event's date (memory-fitness D4).
+     *  Off/absent ⇒ byte-identical lines. */
+    dateDisambiguation?: boolean | undefined;
   }): Promise<BeliefLaneResult> {
     // Fence 2 (D4): an unscoped request serves NO beliefs — checked
     // before any IO so the off-path issues zero queries.
@@ -153,7 +160,7 @@ export class BeliefLaneService {
         return rrfFuse([dense ?? [], bm25 ?? []]);
       });
       if (fused.length === 0) return EMPTY_RESULT;
-      return this.render(fused, userId);
+      return this.render(fused, userId, opts.dateDisambiguation === true);
     } catch (e) {
       // Fence 6: degrade to an empty section, never fail the answer.
       this.logger.warn(`belief lane failed (companyId=${opts.companyId}): ${(e as Error).message}`);
@@ -167,12 +174,25 @@ export class BeliefLaneService {
    * so this is defense in depth), validFrom-ascending, capped at
    * BELIEF_LANE_TOP_K. Line shape:
    *   `[semantic_belief:...] (<subject> — <field>, rev <revision>, as of <day>) <statement>`
+   * — or, under BELIEFS_LANE_DATE_DISAMBIGUATION (memory-fitness D4:
+   * the `as of` token is the shape the generator's date block teaches
+   * as an EVENT-date stamp, while a belief's day is the REVISION's
+   * validFrom):
+   *   `[semantic_belief:...] (<subject> — <field>, rev <revision>, belief current since <day>) <statement>`
+   * The no-day branch is identical in both modes. This is the ONE
+   * render site — the generator, the verifier and the fragment-zoom
+   * re-verify all read these same lines (three-consumer parity by
+   * construction).
    * The id header renders UNCONDITIONALLY — belief citations ride the
    * master flag (no separate switch; see belief-citations.ts). Fence 4
    * (beliefVisible) re-applies here fail-closed: an out-of-contract row
    * the SQL fence let through never renders.
    */
-  private render(fused: BeliefLaneRow[], userId: string): BeliefLaneResult {
+  private render(
+    fused: BeliefLaneRow[],
+    userId: string,
+    dateDisambiguation: boolean,
+  ): BeliefLaneResult {
     const byKey = new Map<string, BeliefLaneRow>();
     for (const row of fused) {
       // Fence 4: JS re-check of the user fence (the read-API doctrine).
@@ -191,9 +211,15 @@ export class BeliefLaneService {
       const beliefId = String(row.id);
       const excerpt = String(row.statement).slice(0, BELIEF_EXCERPT_MAX_CHARS);
       const day = isoDay(row.validFrom);
+      // D4 date-token disambiguation: `as of` reads as an event-date
+      // stamp downstream; the flagged variant names what the day IS —
+      // the revision's validFrom (flag off ⇒ byte-identical).
+      const dayToken = day
+        ? `, ${dateDisambiguation ? 'belief current since' : 'as of'} ${day}`
+        : '';
       lines.push(
         `[${beliefId}] (${String(row.subject ?? '')} — ${String(row.field ?? '')}, ` +
-          `rev ${String(row.revision ?? 1)}${day ? `, as of ${day}` : ''}) ${excerpt}`,
+          `rev ${String(row.revision ?? 1)}${dayToken}) ${excerpt}`,
       );
       byId.set(beliefId, {
         beliefId,

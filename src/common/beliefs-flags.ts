@@ -42,3 +42,28 @@ export function beliefServingLaneEnabled(): boolean {
 export function beliefFactDampingEnabled(): boolean {
   return envFlagEnabled(process.env.BELIEFS_FACT_DAMPING);
 }
+
+/**
+ * Belief-lane date disambiguation — BELIEFS_LANE_DATE_DISAMBIGUATION
+ * (memory-fitness D4: the lane's `as of <day>` token is the same shape
+ * the generator's date block teaches as an answer-bearing EVENT-date
+ * stamp, but a belief's day is the belief REVISION's validFrom — so
+ * "when did X happen" questions served the revision date instead of the
+ * event fact's date).
+ *
+ * When on (AND the serving lane is on — a no-op without rendered belief
+ * lines), BeliefLaneService renders `, belief current since <day>` in
+ * place of `, as of <day>` (ONE render site feeds the generator, the
+ * verifier and the fragment-zoom re-verify — three-consumer parity by
+ * construction) and the generator's belief-section header states that a
+ * belief-line date is when the belief last changed, never the date of
+ * the asked-about event. Resolved ONCE per request by the orchestrator
+ * beside beliefServingLaneEnabled() (the single-resolution idiom); the
+ * env read lives here in the common layer, NOT inside the engine dirs
+ * (engine-gates S5.2). Read at call time so a flip is runtime-mutable
+ * (no restart). Default off ⇒ byte-identical lines and prompts.
+ * BELIEFS_ family sits off the ENGINE flag budget by design.
+ */
+export function beliefLaneDateDisambiguationEnabled(): boolean {
+  return envFlagEnabled(process.env.BELIEFS_LANE_DATE_DISAMBIGUATION);
+}
