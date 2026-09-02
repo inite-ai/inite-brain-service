@@ -22,6 +22,7 @@ import { UpdateStoryService } from './update-story.service';
 import { DigestLaneService } from './digest-lane.service';
 import { FragmentLaneService } from './fragment-lane.service';
 import type { CitableFragment } from './fragment-citations';
+import type { ZoomCandidate } from './fragment-zoom';
 import type { CoverageScanTuning } from './scan-leg';
 
 /** Grounding anchors the raw-window lane expands (top evidence order). */
@@ -115,6 +116,13 @@ export interface CollectedEvidence {
    */
   fragmentsById?: ReadonlyMap<string, CitableFragment> | undefined;
   /**
+   * Zoom affordances for EXACTLY the fragments in fragmentLines
+   * (FOVEA_FRAGMENT_ZOOM, MM-zoom PR3) — recorded by the lane at render
+   * time, no IO. Consumed only by the flag-gated zoom step in the
+   * orchestrator; empty when the lane rendered nothing.
+   */
+  fragmentZoom: ZoomCandidate[];
+  /**
    * G4 strategy lane: rendered advisory notes (k≤2, default 1) from
    * the separate strategy_memory store; undefined when the lane is off
    * the profile or read-side serving is disabled.
@@ -154,6 +162,7 @@ export function emptyCollectedEvidence(
     strategyNotes: undefined,
     fragmentLines: [],
     fragmentsById: undefined,
+    fragmentZoom: [],
   };
 }
 
@@ -246,6 +255,7 @@ export class EvidenceCollectorService {
       strategyNotes,
       fragmentLines: fragmentEvidence.lines,
       fragmentsById: fragmentEvidence.byId.size > 0 ? fragmentEvidence.byId : undefined,
+      fragmentZoom: fragmentEvidence.zoom,
     };
   }
 
@@ -269,8 +279,12 @@ export class EvidenceCollectorService {
     callerScopes: string[];
     userId?: string | undefined;
     fragmentCitations?: boolean | undefined;
-  }): Promise<{ lines: string[]; byId: ReadonlyMap<string, CitableFragment> }> {
-    const empty = { lines: [], byId: new Map<string, CitableFragment>() };
+  }): Promise<{
+    lines: string[];
+    byId: ReadonlyMap<string, CitableFragment>;
+    zoom: ZoomCandidate[];
+  }> {
+    const empty = { lines: [], byId: new Map<string, CitableFragment>(), zoom: [] };
     if (!profile.fragmentLane || !this.fragmentLane) return empty;
     if (getAbortSignal()?.aborted) return empty;
     return this.fragmentLane.fragmentLines({
