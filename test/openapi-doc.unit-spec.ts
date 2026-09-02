@@ -60,6 +60,13 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   ['/v1/episodes/subscriptions/{id}', 'delete'],
   ['/v1/projections', 'get'],
   ['/v1/projections/{name}/rebuild', 'post'],
+  // Raw-evidence read gateway (MM-3, EVIDENCE_RAW_READ_ENABLED — 404
+  // until on; redeem is unauthenticated by design, token-gated).
+  ['/v1/evidence/{assetId}/raw', 'get'],
+  ['/v1/evidence/{assetId}/raw-url', 'get'],
+  ['/v1/evidence/fragments/{fragmentId}/raw', 'get'],
+  ['/v1/evidence/fragments/{fragmentId}/raw-url', 'get'],
+  ['/v1/evidence/redeem/{token}', 'get'],
 ];
 
 describe('docs/openapi.json', () => {
@@ -119,7 +126,12 @@ describe('docs/openapi.json', () => {
 
   it('every operation states its required scope and is bearer-secured', () => {
     expect(built.security).toEqual([{ bearerAuth: [] }]);
+    // The ONE deliberately unauthenticated operation: signed-URL redeem
+    // (the token IS the capability — see evidence-read.controller.ts).
+    // Everything else must state its bearer scope.
+    const unauthenticated = new Set(['get /v1/evidence/redeem/{token}']);
     for (const [path, method] of PLATFORM_OPERATIONS) {
+      if (unauthenticated.has(`${method} ${path}`)) continue;
       const op = ((built.paths as Json)[path] as Json)[method] as Json;
       expect(op.description).toMatch(/Required scope: `[a-z_]+:[a-z_]+`/);
     }

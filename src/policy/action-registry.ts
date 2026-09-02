@@ -143,6 +143,12 @@ export const ACTIONS: Record<string, ActionSpec> = {
     family: 'rest',
     title: 'Create pack checkout session',
   },
+  // Raw-evidence read gateway (MM-3, EVIDENCE_RAW_READ_ENABLED). ONE
+  // action for all four authenticated verbs (asset/fragment × stream/
+  // mint) — a policy that may see the bytes may also mint a short-lived
+  // URL to them; redeem is unauthenticated by design and gated by the
+  // token itself, so it carries no action.
+  'rest.evidence.raw': { kind: 'read', family: 'rest', title: 'Read raw evidence bytes' },
   // Rolling user profile v1 (USER_PROFILE_API_ENABLED). MCP-tool-style
   // name (the get_entity_profile precedent) so a future MCP surface
   // shares the action; REST-only today.

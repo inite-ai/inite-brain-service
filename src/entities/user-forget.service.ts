@@ -541,6 +541,19 @@ export class UserForgetService {
         frags: ((fragsGone as unknown[]) ?? []).length,
         assets: ((assetsGone as unknown[]) ?? []).length,
       };
+      // Access audit (0125): the raw-read trail dies with its asset —
+      // this cascade is one of the two places assets die (the other,
+      // retention/quarantine whole-asset death, carries its own leg in
+      // purgeAssetDependents). evidence_access keys the asset as a plain
+      // STRING (audit rows must not dangle), so match the stringified
+      // ids; SURVIVING shared assets keep their trail — it names the
+      // ACCESSOR's hashed key, not the erased owner. LET-select-ids →
+      // DELETE, the 3.2.4 planner discipline like every leg above.
+      await db.query(
+        `LET $accessIds = (SELECT VALUE id FROM evidence_access WHERE assetId INSIDE $strs);
+         DELETE $accessIds RETURN BEFORE;`,
+        { strs: dyingIds.map(String) },
+      );
     }
     let blobFailures = 0;
     for (const ref of storageRefs) {

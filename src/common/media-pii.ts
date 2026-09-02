@@ -72,3 +72,19 @@ export function mediaPiiAllowed(
   if (callerScopes.includes('brain:read_media')) return true;
   return Array.isArray(piiClasses) && piiClasses.length === 0;
 }
+
+/**
+ * STRICTEST union of two media piiClasses states — the raw-read
+ * gateway's fragment twins serve whole parent-asset bytes, so BOTH the
+ * fragment's and the asset's classification constrain the serve. Same
+ * polarity table as above: an unclassified (NONE/absent) side wins
+ * (undefined out — blocked); otherwise the set union — `[]` only when
+ * BOTH sides are affirmatively clean.
+ */
+export function strictestPiiUnion(
+  a: readonly string[] | null | undefined,
+  b: readonly string[] | null | undefined,
+): readonly string[] | undefined {
+  if (!Array.isArray(a) || !Array.isArray(b)) return undefined;
+  return [...new Set([...a, ...b])];
+}
