@@ -81,6 +81,13 @@ export interface VerifyRequest {
   /** Derived insights (V8 §1) the generator was allowed to answer from. */
   insightLines?: string[] | undefined;
   /**
+   * BELIEFS_SERVING_LANE: the rendered current-state belief lines the
+   * generator saw — evidence parity (W5 #22: belief lines are EVIDENCE,
+   * unlike the advisory strategy notes). Composed as its own section
+   * ONLY when non-empty — absent/empty ⇒ the prompt is byte-identical.
+   */
+  beliefLines?: string[] | undefined;
+  /**
    * V8 §2 / V9 §2: the transcript excerpts were collected as the
    * MENTION RECORD for an ordering question — label them so the auditor
    * treats excerpt sequence as valid support for order claims (the
@@ -118,6 +125,7 @@ function buildVerifierUserMessage({
   factLines,
   transcriptLines,
   insightLines,
+  beliefLines,
   timelineEvidence,
   dateMathLines,
   capabilityEvidenceLines,
@@ -127,6 +135,7 @@ function buildVerifierUserMessage({
   factLines: string[];
   transcriptLines?: string[] | undefined;
   insightLines?: string[] | undefined;
+  beliefLines?: string[] | undefined;
   timelineEvidence?: boolean | undefined;
   dateMathLines?: string[] | undefined;
   capabilityEvidenceLines?: string[] | undefined;
@@ -140,6 +149,14 @@ function buildVerifierUserMessage({
   }
   if (insightLines && insightLines.length > 0) {
     sections.push(`Derived insights (equally valid support):\n` + insightLines.join('\n'));
+  }
+  // Belief section (BELIEFS_SERVING_LANE seam) — only when non-empty,
+  // so every no-lane audit prompt stays byte-identical.
+  if (beliefLines && beliefLines.length > 0) {
+    sections.push(
+      `Current-state record (distilled belief lines — each states the CURRENT value of its subject/field and supersedes older values in the other sections for present-tense claims; equally valid support):\n` +
+        beliefLines.join('\n'),
+    );
   }
   if (dateMathLines && dateMathLines.length > 0) {
     sections.push(

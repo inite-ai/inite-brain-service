@@ -2,7 +2,7 @@ import { MemoryOutcomeService, type OutcomeEventInput } from '../outcomes/memory
 import type { Citation } from './fact-index';
 import type { VerifierOutput } from './verifier';
 import { unverifiedReturn, type VerdictDeps } from './verdict';
-import type { SynthesizeResult } from './synthesize.types';
+import type { EvidenceCitation, SynthesizeResult } from './synthesize.types';
 
 /**
  * Outcome telemetry (0107) emit seams for the synthesize orchestrator,
@@ -90,6 +90,72 @@ export function emitAnswerUse(
       ...citations.map((c): OutcomeEventInput => ({
         subjectKind: 'fact',
         subjectId: c.factId,
+        event: 'verifier_supported',
+        meta: { verdict: verdict.verdict },
+        ...(decisionId !== undefined ? { decisionId } : {}),
+      })),
+    );
+  }
+  if (events.length === 0) return;
+  outcomes.recordOutcomes({ companyId, events });
+}
+
+/**
+ * BELIEFS_SERVING_LANE (D7): the belief lines rendered into the prompt
+ * were selected for context — emitted once per request, right after the
+ * collector returns (the rendered set is final there: the search-loop
+ * refine never re-runs the belief lane). subjectKind 'belief' rides the
+ * existing 0107 vocabulary — no schema work.
+ */
+export function emitBeliefContext(
+  outcomes: MemoryOutcomeService | undefined,
+  companyId: string,
+  beliefIds: Iterable<string>,
+): void {
+  if (!outcomes || !MemoryOutcomeService.enabled()) return;
+  const events: OutcomeEventInput[] = [...beliefIds].map((id) => ({
+    subjectKind: 'belief',
+    subjectId: id,
+    event: 'selected_for_context',
+  }));
+  if (events.length === 0) return;
+  outcomes.recordOutcomes({ companyId, events });
+}
+
+/**
+ * BELIEFS_SERVING_LANE (D7): the belief-arm evidence citations of a
+ * served answer count as use — `used_in_answer`, plus `verifier_supported`
+ * on a supported verdict, the 0119 decisionId threaded exactly like the
+ * fact arm (emitAnswerUse above). Called from finalizeAndAdmit — BOTH
+ * serving paths land there; the L3 flip carries episode-arm citations
+ * only, so the belief filter yields zero events on that path today.
+ * Non-belief arms (episodeId / fragmentId) are skipped by the filter.
+ */
+export function emitBeliefAnswerUse(
+  outcomes: MemoryOutcomeService | undefined,
+  opts: {
+    companyId: string | undefined;
+    evidenceCitations: EvidenceCitation[] | undefined;
+    verdict?: VerifierOutput;
+    decisionId?: string | undefined;
+  },
+): void {
+  const { companyId, evidenceCitations, verdict, decisionId } = opts;
+  if (!outcomes || !MemoryOutcomeService.enabled() || companyId === undefined) return;
+  const beliefIds = (evidenceCitations ?? [])
+    .map((c) => c.beliefId)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+  const events: OutcomeEventInput[] = beliefIds.map((id) => ({
+    subjectKind: 'belief',
+    subjectId: id,
+    event: 'used_in_answer',
+    ...(decisionId !== undefined ? { decisionId } : {}),
+  }));
+  if (verdict?.verdict === 'supported') {
+    events.push(
+      ...beliefIds.map((id): OutcomeEventInput => ({
+        subjectKind: 'belief',
+        subjectId: id,
         event: 'verifier_supported',
         meta: { verdict: verdict.verdict },
         ...(decisionId !== undefined ? { decisionId } : {}),

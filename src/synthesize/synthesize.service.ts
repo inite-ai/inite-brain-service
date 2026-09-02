@@ -29,7 +29,9 @@ import { runLaneProbe } from './lane-probe';
 import { getActiveRetrievalProfile, type RetrievalProfile } from '../search/retrieval-profile';
 import { buildFactIndex } from './fact-index';
 import { fragmentCitationsEnabled } from '../common/evidence-flags';
+import { beliefServingLaneEnabled } from '../common/beliefs-flags';
 import { resolveAndCountFragmentCitations } from './fragment-citations';
+import { resolveAndCountBeliefCitations } from './belief-citations';
 import { verifyAndZoom } from './fragment-zoom-seam';
 import { FragmentLaneService } from './fragment-lane.service';
 import { resolveAnswerIntegrity, type FinalizeContext } from './answer-integrity';
@@ -64,7 +66,13 @@ import {
 } from '../answer-cache/answer-cache.service';
 import { MemoryOutcomeService } from '../outcomes/memory-outcome.service';
 import { MemoryDecisionService } from '../outcomes/memory-decision.service';
-import { emitAnswerUse, emitSelectedForContext, unverifiedServe } from './outcome-emit';
+import {
+  emitAnswerUse,
+  emitBeliefAnswerUse,
+  emitBeliefContext,
+  emitSelectedForContext,
+  unverifiedServe,
+} from './outcome-emit';
 import { NOOP_REPORTER, type ProgressReporter } from '../mcp/progress-reporter';
 
 export interface SynthesizeOptions {
@@ -334,7 +342,10 @@ export class SynthesizeService {
     });
     // The other rendered sections stay on `collected` — the verify stage
     // (verifyAndZoom) and produceAnswer read them from there directly.
-    const { fragmentsById, updateStories, groundingQuotes } = collected;
+    const { fragmentsById, beliefsById, updateStories, groundingQuotes } = collected;
+    // 0107 belief arm (D7): the rendered belief lines were selected for
+    // context — final here (the refine round never re-runs the lane).
+    emitBeliefContext(this.outcomes, companyId, beliefsById?.keys() ?? []);
 
     // V10 §2 update stories + multiworld §10 grounding quotes: both
     // suffix maps land on the SAME lines the generator and the
@@ -381,6 +392,9 @@ export class SynthesizeService {
         // MM-zoom PR2: citation affordance (populated fence map ⟺
         // switch on AND rendered); round 2 carries both.
         fragmentCitations: fragmentsById !== undefined,
+        // BELIEFS_SERVING_LANE: same construction — citations ride the
+        // master flag, so affordance ⟺ the lane rendered anything.
+        beliefCitations: beliefsById !== undefined,
       },
     });
     if ('failed' in produced) return produced.failed;
@@ -478,15 +492,24 @@ export class SynthesizeService {
       guardrails,
       decisionLog,
       abstention: profile.abstentionCalibration,
-      // MM-zoom PR2: fragment-arm evidence citations through the
-      // rendered-set fence — spread onto the served result only when
-      // non-empty (finalizeVerdict) and fed to the 0113 capability
-      // gate (citedCapabilities). [] with the flag off ⇒ byte-identical.
-      evidenceCitations: resolveAndCountFragmentCitations({
-        citedFragmentIds: generated.citedFragmentIds,
-        fragmentsById,
-        metrics: this.metrics,
-      }),
+      // MM-zoom PR2 + BELIEFS_SERVING_LANE: fragment-arm and belief-arm
+      // evidence citations through their rendered-set fences, merged —
+      // spread onto the served result only when non-empty
+      // (finalizeVerdict) and fed to the 0113 capability gate
+      // (citedCapabilities; the belief arm carries no capability stamp).
+      // [] with both flags off ⇒ byte-identical.
+      evidenceCitations: [
+        ...resolveAndCountFragmentCitations({
+          citedFragmentIds: generated.citedFragmentIds,
+          fragmentsById,
+          metrics: this.metrics,
+        }),
+        ...resolveAndCountBeliefCitations({
+          citedBeliefIds: generated.citedBeliefIds,
+          beliefsById,
+          metrics: this.metrics,
+        }),
+      ],
     });
   }
 
@@ -522,6 +545,11 @@ export class SynthesizeService {
       factIds: opts.factIds,
       evidence: opts.evidence,
       fragmentCitations: fragmentCitationsEnabled(),
+      // BELIEFS_SERVING_LANE, resolved ONCE per request (the same
+      // single-resolution idiom): the lane, the rendered headers, the
+      // generator affordance and the resolver all key off the resulting
+      // fence map (populated ⟺ flag on AND beliefs rendered).
+      beliefLane: beliefServingLaneEnabled(),
     });
   }
 
@@ -690,6 +718,14 @@ export class SynthesizeService {
       verdict,
       decisionId: ctx.decisionId,
     });
+    // 0107 belief arm (D7): cited beliefs count as use — and as VERIFIED
+    // use on a supported verdict — with the same decisionId threading.
+    emitBeliefAnswerUse(this.outcomes, {
+      companyId: ctx.companyId,
+      evidenceCitations: args.evidenceCitations,
+      verdict,
+      decisionId: ctx.decisionId,
+    });
     // The gate-resolution also folds in the evidence-capability flag
     // (FOVEA_EVIDENCE_CAPABILITY, 0113 — resolveEvidenceCapability, the
     // resolveAnswerIntegrity sibling in answer-integrity.ts): does the
@@ -849,6 +885,10 @@ export class SynthesizeService {
        *  carries them identically (buildGeneratorArgs reads both). */
       fragmentLines?: string[] | undefined;
       fragmentCitations?: boolean | undefined;
+      /** BELIEFS_SERVING_LANE: belief lines + affordance — round 2
+       *  carries them identically too. */
+      beliefLines?: string[] | undefined;
+      beliefCitations?: boolean | undefined;
     };
   }): Promise<{
     results: SearchHit[];

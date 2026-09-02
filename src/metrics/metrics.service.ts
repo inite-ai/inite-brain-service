@@ -286,6 +286,22 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // BELIEFS_SERVING_LANE: what happened to each generator-emitted
+  // citedBeliefIds entry in the rendered-set resolver
+  // (belief-citations.ts — the fragmentCitationCount sibling):
+  //   cited           — the generator named a RENDERED belief → a
+  //                     belief-arm citation shipped
+  //   dropped_unknown — the generator named a beliefId NOT rendered
+  //                     into the current-state section (hallucination /
+  //                     probe) → dropped, never surfaced
+  // Emitted only when the flag is on (nothing on the path when off).
+  readonly beliefCitationCount = new Counter({
+    name: 'brain_belief_citation_total',
+    help: 'Belief evidence citation resolution outcomes (BELIEFS_SERVING_LANE)',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
   // MM-zoom PR3 (FOVEA_FRAGMENT_ZOOM): what the ONE bounded zoom step did
   // per evaluation —
   //   flipped   — the re-verify over the fuller derived text passed →
@@ -790,6 +806,12 @@ export class MetricsService implements OnModuleInit {
   countFragmentCitation(outcome: 'cited' | 'dropped_unknown', n = 1): void {
     if (n > 0) {
       this.fragmentCitationCount.inc({ outcome } as LabelValues<'outcome'>, n);
+    }
+  }
+
+  countBeliefCitation(outcome: 'cited' | 'dropped_unknown', n = 1): void {
+    if (n > 0) {
+      this.beliefCitationCount.inc({ outcome } as LabelValues<'outcome'>, n);
     }
   }
 

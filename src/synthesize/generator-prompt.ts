@@ -37,6 +37,8 @@ export function buildGeneratorUserMessage({
   dateMathLines,
   shapeInstruction,
   strategyNotes,
+  beliefLines,
+  beliefCitations,
   fragmentLines,
   fragmentCitations,
 }: {
@@ -119,6 +121,23 @@ export function buildGeneratorUserMessage({
    */
   strategyNotes?: string[] | undefined;
   /**
+   * BELIEFS_SERVING_LANE: rendered current-state belief lines —
+   * `[semantic_belief:...]`-headed statement excerpts of the caller's
+   * ACTIVE beliefs — their own section, between insights and media
+   * (state before media). The verifier reads the SAME lines
+   * (VerifyRequest.beliefLines — evidence parity). Empty/undefined = no
+   * section, byte-identical.
+   */
+  beliefLines?: string[] | undefined;
+  /**
+   * BELIEFS_SERVING_LANE citations variant: the lines carry
+   * [semantic_belief:...] headers and the section header instructs
+   * mirroring cited ids into citedBeliefIds. Off = the cite-factIds-only
+   * header (kept so the header split survives a future flag split — the
+   * fragment-lane precedent; in PR-A the master flag implies citations).
+   */
+  beliefCitations?: boolean | undefined;
+  /**
    * MM-zoom PR2 (profile.fragmentLane): rendered media-evidence lines —
    * `[capability:<kind>]`-tagged derived-representation excerpts of
    * registered media observations — their own section. The verifier
@@ -181,12 +200,25 @@ export function buildGeneratorUserMessage({
     insightLines && insightLines.length > 0
       ? `\n\n${insightHeader}\n${insightLines.join('\n')}`
       : '';
+  const beliefSection = renderBeliefSection(beliefLines, beliefCitations);
   const fragmentSection = renderFragmentSection(fragmentLines, fragmentCitations);
   const dateMathSection =
     dateMathLines && dateMathLines.length > 0
       ? `\n\nDate table (computed from the fact date stamps — trust it over your own arithmetic; gaps are between EVIDENCE dates, not from today):\n${dateMathLines.join('\n')}`
       : '';
-  return `Query: ${query}\n${dateInstruction}${shapeInstruction ?? ''}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${fragmentSection}${dateMathSection}${renderStrategySection(strategyNotes)}${langInstruction}`;
+  return `Query: ${query}\n${dateInstruction}${shapeInstruction ?? ''}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${beliefSection}${fragmentSection}${dateMathSection}${renderStrategySection(strategyNotes)}${langInstruction}`;
+}
+
+/** Belief lane (BELIEFS_SERVING_LANE): distilled current-state lines in
+ *  their own section. Empty input = empty string (byte-identical prompt
+ *  without the lane). The citations variant instructs mirroring cited
+ *  [semantic_belief:...] ids into citedBeliefIds. */
+function renderBeliefSection(beliefLines?: string[], beliefCitations?: boolean): string {
+  if (!beliefLines || beliefLines.length === 0) return '';
+  const header = beliefCitations
+    ? 'Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any older or conflicting fact above; each line is headed by its [semantic_belief:...] id. For questions asking the CURRENT state, prefer these lines; when a claim rests on one, copy its id EXACTLY into citedBeliefIds. For questions about history, sequence, or why something changed, use the facts and transcript instead; cite factIds for fact-grounded claims as before):'
+    : 'Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any older or conflicting fact above. For questions asking the CURRENT state, prefer these lines; for questions about history, sequence, or why something changed, use the facts and transcript instead; cite factIds only):';
+  return `\n\n${header}\n${beliefLines.join('\n')}`;
 }
 
 /**

@@ -96,6 +96,20 @@ export interface GenerateRequest {
    */
   allowRefine?: boolean | undefined;
   /**
+   * BELIEFS_SERVING_LANE: rendered current-state belief lines, their
+   * own section — the verifier reads the same lines
+   * (VerifyRequest.beliefLines, evidence parity).
+   */
+  beliefLines?: string[] | undefined;
+  /**
+   * BELIEFS_SERVING_LANE: expose the belief-citation affordance — the
+   * schema gains `citedBeliefIds` and the system prompt the matching
+   * rule. Effective only when beliefLines are non-empty (no rendered
+   * beliefs ⇒ nothing citable ⇒ prompt and schema byte-identical — the
+   * fragmentAffordance guard).
+   */
+  beliefCitations?: boolean | undefined;
+  /**
    * MM-zoom PR2 (profile.fragmentLane): rendered media-evidence lines,
    * their own section — the verifier reads the same lines
    * (capabilityEvidenceLines, evidence parity).
@@ -122,15 +136,59 @@ const FRAGMENT_CITE_ADDENDUM = `
 
 FRAGMENT CITATIONS: some evidence lines are media-derived and headed by an [evidence_fragment:...] id. When a claim in your answer rests on such a line, copy that id EXACTLY as it appears into the citedFragmentIds array (in addition to any factIds you cite). Cite only ids present in the evidence — never invent one. citedFragmentIds is [] when no media line supports a claim.`;
 
+/** BELIEFS_SERVING_LANE belief-citation affordance — appended when the
+ *  current-state section rendered (citations ride the master flag). */
+const BELIEF_CITE_ADDENDUM = `
+
+BELIEF CITATIONS: some evidence lines are distilled current-state beliefs headed by a [semantic_belief:...] id. When a claim in your answer rests on such a line, copy that id EXACTLY as it appears into the citedBeliefIds array (in addition to any factIds you cite). Cite only ids present in the evidence — never invent one. citedBeliefIds is [] when no belief line supports a claim.`;
+
+/** The strict-JSON answer schema, affordance-conditional fields included
+ *  (extracted from runGenerator for the complexity budget — pure). */
+function buildAnswerSchema(opts: {
+  allowRefine: boolean;
+  fragmentAffordance: boolean;
+  beliefAffordance: boolean;
+}): { schema: Record<string, unknown>; required: string[] } {
+  return {
+    schema: {
+      answer: { type: 'string' },
+      citedFactIds: { type: 'array', items: { type: 'string' } },
+      ...(opts.allowRefine ? { refineQuery: { type: ['string', 'null'] } } : {}),
+      ...(opts.fragmentAffordance
+        ? { citedFragmentIds: { type: 'array', items: { type: 'string' } } }
+        : {}),
+      ...(opts.beliefAffordance
+        ? { citedBeliefIds: { type: 'array', items: { type: 'string' } } }
+        : {}),
+    },
+    required: [
+      'answer',
+      'citedFactIds',
+      ...(opts.allowRefine ? ['refineQuery'] : []),
+      ...(opts.fragmentAffordance ? ['citedFragmentIds'] : []),
+      ...(opts.beliefAffordance ? ['citedBeliefIds'] : []),
+    ],
+  };
+}
+
 export async function runGenerator(req: GenerateRequest): Promise<GeneratorOutput> {
   const { openai, metrics, logger, model, answerLang, neverAbstain } = req;
   // The affordance is real only when fragments actually rendered —
   // flag-on with an empty lane keeps prompt and schema byte-identical.
   const fragmentAffordance = req.fragmentCitations === true && (req.fragmentLines?.length ?? 0) > 0;
+  // Same guard for beliefs: flag-on with an empty lane keeps prompt and
+  // schema byte-identical (BELIEFS_SERVING_LANE).
+  const beliefAffordance = req.beliefCitations === true && (req.beliefLines?.length ?? 0) > 0;
+  const answerSchema = buildAnswerSchema({
+    allowRefine: req.allowRefine === true,
+    fragmentAffordance,
+    beliefAffordance,
+  });
   const systemPrompt =
     (neverAbstain ? GENERATOR_SYSTEM_ANSWER : GENERATOR_SYSTEM) +
     (req.allowRefine ? REFINE_ADDENDUM : '') +
-    (fragmentAffordance ? FRAGMENT_CITE_ADDENDUM : '');
+    (fragmentAffordance ? FRAGMENT_CITE_ADDENDUM : '') +
+    (beliefAffordance ? BELIEF_CITE_ADDENDUM : '');
   const user = buildGeneratorUserMessage(req);
   traceArtifact('synthesize.generator_prompt', {
     system: systemPrompt,
@@ -163,20 +221,8 @@ export async function runGenerator(req: GenerateRequest): Promise<GeneratorOutpu
               schema: {
                 type: 'object',
                 additionalProperties: false,
-                properties: {
-                  answer: { type: 'string' },
-                  citedFactIds: { type: 'array', items: { type: 'string' } },
-                  ...(req.allowRefine ? { refineQuery: { type: ['string', 'null'] } } : {}),
-                  ...(fragmentAffordance
-                    ? { citedFragmentIds: { type: 'array', items: { type: 'string' } } }
-                    : {}),
-                },
-                required: [
-                  'answer',
-                  'citedFactIds',
-                  ...(req.allowRefine ? ['refineQuery'] : []),
-                  ...(fragmentAffordance ? ['citedFragmentIds'] : []),
-                ],
+                properties: answerSchema.schema,
+                required: answerSchema.required,
               },
             },
           },
@@ -187,13 +233,37 @@ export async function runGenerator(req: GenerateRequest): Promise<GeneratorOutpu
   );
   const content = res.choices[0]?.message?.content;
   if (!content) throw new Error('empty generator response');
-  // Audit W5 #24: the exhaustive-list lanes ("a partial list is a wrong
-  // answer") run against a 512-token cap. A truncated strict-JSON body
-  // used to throw here and degrade to `generator_error` — i.e. the
-  // lanes that must enumerate silently ABSTAINED instead of returning
-  // what they had. Say so explicitly in the trace, and salvage the
-  // answer text when the JSON envelope is the only casualty.
-  const finishReason = res.choices[0]?.finish_reason;
+  const parsed = parseGeneratorContent(content, res.choices[0]?.finish_reason, {
+    logger,
+    metrics,
+  });
+  if (res.usage) {
+    parsed.usage = {
+      promptTokens: res.usage.prompt_tokens ?? 0,
+      completionTokens: res.usage.completion_tokens ?? 0,
+    };
+  }
+  traceArtifact('synthesize.generator_output', parsed);
+  return parsed;
+}
+
+/**
+ * Parse + defensively normalize the generator's strict-JSON body
+ * (extracted from runGenerator for the complexity budget).
+ *
+ * Audit W5 #24: the exhaustive-list lanes ("a partial list is a wrong
+ * answer") run against a 512-token cap. A truncated strict-JSON body
+ * used to throw here and degrade to `generator_error` — i.e. the lanes
+ * that must enumerate silently ABSTAINED instead of returning what they
+ * had. Say so explicitly in the trace, and salvage the answer text when
+ * the JSON envelope is the only casualty.
+ */
+function parseGeneratorContent(
+  content: string,
+  finishReason: string | undefined,
+  deps: { logger: GenerateRequest['logger']; metrics: GenerateRequest['metrics'] },
+): GeneratorOutput {
+  const { logger, metrics } = deps;
   let parsed: GeneratorOutput;
   try {
     parsed = JSON.parse(content) as GeneratorOutput;
@@ -220,12 +290,9 @@ export async function runGenerator(req: GenerateRequest): Promise<GeneratorOutpu
   if (parsed.citedFragmentIds !== undefined && !Array.isArray(parsed.citedFragmentIds)) {
     delete parsed.citedFragmentIds;
   }
-  if (res.usage) {
-    parsed.usage = {
-      promptTokens: res.usage.prompt_tokens ?? 0,
-      completionTokens: res.usage.completion_tokens ?? 0,
-    };
+  // Same defensive parse for the belief arm (BELIEFS_SERVING_LANE).
+  if (parsed.citedBeliefIds !== undefined && !Array.isArray(parsed.citedBeliefIds)) {
+    delete parsed.citedBeliefIds;
   }
-  traceArtifact('synthesize.generator_output', parsed);
   return parsed;
 }

@@ -152,6 +152,10 @@ export function buildGeneratorArgs(
       fragmentLines?: string[] | undefined;
       /** EVIDENCE_FRAGMENT_CITATIONS, resolved once per request. */
       fragmentCitations?: boolean | undefined;
+      /** BELIEFS_SERVING_LANE: rendered current-state lines (own section). */
+      beliefLines?: string[] | undefined;
+      /** Belief-citation affordance (rides the master flag), resolved once. */
+      beliefCitations?: boolean | undefined;
     };
   },
   o: {
@@ -189,6 +193,10 @@ export function buildGeneratorArgs(
     // both rounds of the search loop carry them identically.
     fragmentLines: collected.fragmentLines,
     fragmentCitations: collected.fragmentCitations,
+    // BELIEFS_SERVING_LANE: current-state lines + the belief-citation
+    // affordance — carried identically by both rounds too.
+    beliefLines: collected.beliefLines,
+    beliefCitations: collected.beliefCitations,
     ...(o.allowRefine !== undefined ? { allowRefine: o.allowRefine } : {}),
     ...(o.answerLangStrict ? { answerLangStrict: true } : {}),
   };

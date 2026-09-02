@@ -95,6 +95,9 @@ export interface VerifyStageArgs {
     fragmentZoom: ZoomCandidate[];
     transcriptLines: string[];
     insightLines: string[];
+    /** BELIEFS_SERVING_LANE: same parity — both audits read the SAME
+     *  belief lines the generator saw. */
+    beliefLines: string[];
     timelineEvidence: boolean;
   };
   promptFactLines: string[];
@@ -164,6 +167,9 @@ export async function verifyAndZoom(
                 // evidence the generator was given.
                 transcriptLines: collected.transcriptLines,
                 insightLines: collected.insightLines,
+                // BELIEFS_SERVING_LANE parity (W5 #22): the same belief
+                // lines the generator's current-state section rendered.
+                beliefLines: collected.beliefLines,
                 // W5 #22 parity for the mention record (V9 §2 closes the
                 // V8 gap): the auditor sees the same MENTION RECORD
                 // framing the generator saw — the collector computed it
@@ -234,6 +240,8 @@ interface FragmentZoomSeamArgs {
     fragmentZoom: ZoomCandidate[];
     transcriptLines: string[];
     insightLines: string[];
+    /** BELIEFS_SERVING_LANE: carried verbatim into the re-verify. */
+    beliefLines: string[];
     timelineEvidence: boolean;
   };
   promptFactLines: string[];
@@ -276,6 +284,10 @@ async function tryFragmentZoom(
               factLines: args.promptFactLines,
               transcriptLines: collected.transcriptLines,
               insightLines: collected.insightLines,
+              // BELIEFS_SERVING_LANE parity by construction (W5 #22):
+              // the zoom re-verify audits the SAME belief lines as the
+              // primary audit — only the fragment lines are enriched.
+              beliefLines: collected.beliefLines,
               timelineEvidence: collected.timelineEvidence,
               topicCoverage: profile.verifierTopicCoverage,
               dateMathLines: args.dateMathLines,

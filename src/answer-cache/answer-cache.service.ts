@@ -317,6 +317,11 @@ export class AnswerCacheService {
    * rejected by the gate below. Check-on-read revalidates cited FACT
    * rows against the live substrate and cannot (yet) invalidate episode
    * citations, so caching such an answer would make it uninvalidatable.
+   * The BELIEF arm (BELIEFS_SERVING_LANE) rides the same doctrine: a
+   * belief-only-cited current-state answer has citations.length 0 and
+   * is rejected here too — check-on-read cannot invalidate a belief
+   * citation against the supersede chain, so caching it would serve a
+   * stale current-state answer past the next revision.
    */
   async admit(
     ctx: AnswerCacheStoreContext,

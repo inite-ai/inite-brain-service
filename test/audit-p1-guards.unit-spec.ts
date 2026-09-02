@@ -1094,6 +1094,62 @@ describe('0117_window_user_scope (mixed-user privacy fence substrate)', () => {
   });
 });
 
+describe('0126_belief_serving_search (belief lane BM25 leg)', () => {
+  const SRC = join(__dirname, '..', 'src');
+  const sql = readFileSync(join(MIGRATIONS, '0126_belief_serving_search.surql'), 'utf8');
+
+  it('defines the BM25 statement index with the lowercase-only analyzer', () => {
+    // The 0073/0075/0106/0124 analyzer contract: lowercase only —
+    // snowball stemming would mangle non-Latin scripts, and belief
+    // statements quote free-text subject/field/value keys.
+    expect(sql).toContain(
+      'DEFINE ANALYZER IF NOT EXISTS belief_statement TOKENIZERS class FILTERS lowercase;',
+    );
+    expect(sql).toMatch(
+      /DEFINE INDEX IF NOT EXISTS belief_statement_search ON semantic_belief\s+FIELDS statement FULLTEXT ANALYZER belief_statement BM25;/,
+    );
+  });
+
+  it('defines the write-dead embedding column as option<array<float>> (the 0124 precedent)', () => {
+    expect(sql).toContain(
+      'DEFINE FIELD IF NOT EXISTS embedding ON semantic_belief TYPE option<array<float>>;',
+    );
+  });
+
+  it.each([['belief_statement_search', 'semantic_belief', 'statement']])(
+    'defines %s on %s(%s) single-field (3.2.4 compound-planner DELETE risk)',
+    (name, table) => {
+      const indexLines = sql
+        .split('\n')
+        .filter((l) => l.trimStart().startsWith('DEFINE INDEX'))
+        .filter((l) => l.includes(name) && l.includes(table));
+      expect(indexLines.length).toBeGreaterThan(0);
+      for (const line of indexLines) {
+        expect(line).not.toMatch(/FIELDS [A-Za-z]+,/);
+      }
+    },
+  );
+
+  it('the belief lane service is covered by the repo-wide DELETE-shape sweep and is itself clean', () => {
+    // The 0120 sweep above walks ALL of src/, so the new serving-path
+    // reader is covered by construction — this pin makes the coverage
+    // EXPLICIT (a moved/renamed file must not silently escape it) and
+    // re-asserts the file adds no delete path at all.
+    const lanePath = join(SRC, 'synthesize', 'belief-lane.service.ts');
+    // Comment lines EXPLAIN the trap (0058-guard idiom) — judge only
+    // code lines.
+    const code = readFileSync(lanePath, 'utf8')
+      .split('\n')
+      .filter((l) => {
+        const t = l.trimStart();
+        return !t.startsWith('--') && !t.startsWith('//') && !t.startsWith('*');
+      })
+      .join('\n');
+    expect(code).not.toMatch(/DELETE semantic_belief\s+WHERE/);
+    expect(code).not.toMatch(/\bDELETE\b/);
+  });
+});
+
 describe('0124_fragment_content_search (fragment lane BM25 leg)', () => {
   const sql = readFileSync(join(MIGRATIONS, '0124_fragment_content_search.surql'), 'utf8');
 

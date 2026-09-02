@@ -264,6 +264,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Evidence plane: processing lifecycle (migration 0121) ──────────
   validateEvidenceProcessingEnv(env, warnings);
 
+  // ── Belief serving: damping requires the lane ──────────────────────
+  validateBeliefServingEnv(env, warnings);
+
   // ── Evidence plane: raw-read gateway (MM-3, migration 0125) ────────
   validateEvidenceRawReadEnv(env, errors, warnings);
 
@@ -445,6 +448,23 @@ function validateEvidenceProcessingEnv(env: NodeJS.ProcessEnv, warnings: string[
       'EVIDENCE_PROCESSOR_BROKER is set while EVIDENCE_SUBSTRATE_ENABLED is not — ' +
         'the broker writes derived representations through the substrate seam; every ' +
         'dispatch will be rejected (503) until EVIDENCE_SUBSTRATE_ENABLED is turned on.',
+    );
+  }
+}
+
+/**
+ * Belief serving (BELIEFS_SERVING_LANE / BELIEFS_FACT_DAMPING): damping
+ * suffixes fact lines that a matched current belief contradicts — with
+ * the lane off there ARE no matched beliefs, so damping-on-while-lane-off
+ * is a silent no-op (the validateEvidenceProcessingEnv inconsistent-pair
+ * idiom: warn, don't refuse).
+ */
+function validateBeliefServingEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
+  if (envFlagEnabled(env.BELIEFS_FACT_DAMPING) && !envFlagEnabled(env.BELIEFS_SERVING_LANE)) {
+    warnings.push(
+      'BELIEFS_FACT_DAMPING is set while BELIEFS_SERVING_LANE is not — damping keys off ' +
+        'the serving lane’s matched beliefs, so it is a no-op until BELIEFS_SERVING_LANE ' +
+        'is turned on.',
     );
   }
 }
@@ -656,6 +676,14 @@ const KNOWN_BOOLEAN_FLAGS = [
   // the semantic_belief substrate (0120). Read-only — the promotion pass
   // stays the only writer. Default off → routes 404.
   'BELIEFS_API_ENABLED',
+  // Belief serving lane: synthesize renders the caller's ACTIVE beliefs
+  // as a current-state prompt section + belief-arm citations (0126;
+  // repeals the 0120 shadow doctrine behind this default-off flag).
+  'BELIEFS_SERVING_LANE',
+  // Belief-aware fact damping (PR-B — the resolver stub ships with the
+  // lane; nothing reads it until the damping pass lands). Requires
+  // BELIEFS_SERVING_LANE (inconsistent-pair WARN below).
+  'BELIEFS_FACT_DAMPING',
   // Raw-substrate driver v1 surface 3: projections registry API + rebuild verb.
   'PROJECTIONS_API_ENABLED',
   // Raw-substrate driver v1 surface 4: new-episode webhook push (watermark
