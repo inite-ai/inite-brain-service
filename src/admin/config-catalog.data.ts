@@ -1263,6 +1263,33 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       "Evidence plane, fragment citations (MM-zoom PR2): with the fragment lane rendering media evidence (RETRIEVAL_FRAGMENT_LANE), each rendered line carries its [evidence_fragment:...] header and the generator schema gains citedFragmentIds; emitted ids resolve through the rendered-set fence (the FOVEA_L3_EPISODE_CITATIONS idiom: an id not rendered into the prompt is dropped and counted, never surfaced; the citation's excerpt is the RENDERED excerpt, never generator text; dedupe; cap 16) into fragment-arm evidenceCitations carrying assetId + capability. Those citations let the FOVEA_EVIDENCE_CAPABILITY gate PASS for non-text requirements when a matching-modality fragment is cited. Off (default) → no header, no schema field, no resolver — byte-identical even with the lane on.",
   },
+  {
+    key: 'EVIDENCE_RAW_READ_ENABLED',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Raw-read gateway (MM-3, migration 0125): the ONE surface serving original evidence bytes — GET /v1/evidence/{assetId}/raw(-url), the fragment twins (whole parent-asset bytes under the STRICTEST fragment+asset piiClasses union), and the unauthenticated signed-URL redeem. Full deny-overrides gate ladder (scope → tenant/availability/quarantine → live grants → ABAC rest.evidence.raw → modality consent via a direct fail-closed domain_pack read → media-PII polarity → blob head), every attempt recorded content-free in evidence_access. Off (default) = every route answers a bare 404, indistinguishable from absent routes — byte-identical.',
+  },
+  {
+    key: 'EVIDENCE_SIGNED_URL_SECRET',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'HMAC-SHA256 secret for minted raw-evidence URL tokens. NO default on purpose — a default would make every deployment mutually forgeable. Boot hard-errors when set shorter than 32 chars while EVIDENCE_RAW_READ_ENABLED is on, and warns when the flag is on without it (streaming works; mint answers 503, redeem 404 until the secret lands).',
+  },
+  {
+    key: 'EVIDENCE_SIGNED_URL_TTL_SECONDS',
+    category: 'pipeline',
+    defaultValue: '300',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Lifetime of a minted raw-evidence URL (default 300 s). Deliberately short: the token is a bearer capability — expiry plus the live-grant re-check at redeem are its only revocation levers.',
+  },
   // ── Document pipeline (migrations 0048–0050) ─────────────
   {
     key: 'DOCUMENT_INGEST_ENABLED',

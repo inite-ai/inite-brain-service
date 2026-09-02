@@ -124,6 +124,7 @@ import {
   ProfileSectionSchema,
   UserProfileResponseSchema,
 } from '../src/contracts/users/user-profile.schema';
+import { EvidenceRawUrlResponseSchema } from '../src/contracts/evidence/raw.schema';
 
 type Json = Record<string, unknown>;
 
@@ -223,6 +224,8 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   ProfileFact: ProfileFactSchema,
   ProfileSection: ProfileSectionSchema,
   UserProfileResponse: UserProfileResponseSchema,
+  // --- raw-evidence read gateway (src/contracts/evidence/raw.schema.ts)
+  EvidenceRawUrlResponse: EvidenceRawUrlResponseSchema,
 };
 
 function generateComponentSchemas(): Json {
@@ -1207,6 +1210,120 @@ function memoryReadPaths(): Json {
   };
 }
 
+/**
+ * Raw-evidence read gateway (Brain v2.1 MM-3). The '/v1/episodes
+ * 404-until-flag' precedent: every route (the unauthenticated redeem
+ * included) answers a bare 404 while EVIDENCE_RAW_READ_ENABLED is off,
+ * and every controller-side denial — cross-tenant, no grant, no
+ * consent, PII-blocked, quarantined, bad/expired/revoked token — is the
+ * SAME bare 404 (no existence oracle; outcomes differ only in the
+ * content-free evidence_access audit table, migration 0125).
+ */
+function evidencePaths(): Json {
+  const blobResponse: Json = {
+    description:
+      'The original bytes (Content-Type = the registered mediaType), ' +
+      'with X-Content-Type-Options: nosniff, Cache-Control: no-store ' +
+      'and Content-Disposition: attachment.',
+    content: {
+      'application/octet-stream': { schema: { type: 'string', format: 'binary' } },
+    },
+  };
+  const rawDescription =
+    'Streams the asset’s original bytes after the full gate ladder: ' +
+    'brain:read scope, ABAC action `rest.evidence.raw`, tenant fence ' +
+    "(availability='hot', quarantine clean-or-absent), at least one " +
+    'live ownership grant (a user-bound key needs the end user’s own), ' +
+    'current pack modality consent declaring the raw-evidence ' +
+    'capability, and the media-PII polarity (unclassified blocked, `[]` ' +
+    'open, non-empty needs `brain:read_media`). Any denial is a bare ' +
+    '404. 404 until EVIDENCE_RAW_READ_ENABLED=1. Source: ' +
+    'src/evidence/evidence-read.controller.ts.';
+  const mintDescription =
+    'Same gate ladder as the raw stream; on pass answers a short-lived ' +
+    'signed URL token (HMAC-SHA256, EVIDENCE_SIGNED_URL_SECRET, TTL ' +
+    'EVIDENCE_SIGNED_URL_TTL_SECONDS, default 300 s) redeemable WITHOUT ' +
+    'auth at /v1/evidence/redeem/{token}. 503 while the secret is not ' +
+    'configured. 404 until EVIDENCE_RAW_READ_ENABLED=1.';
+  return {
+    '/v1/evidence/{assetId}/raw': {
+      get: operation({
+        operationId: 'streamEvidenceAsset',
+        tag: 'Evidence',
+        summary: 'Stream an evidence asset’s original bytes',
+        description: rawDescription,
+        scope: 'brain:read',
+        parameters: [pathParam('assetId', 'evidence_asset record id.')],
+        responses: { '200': blobResponse, ...DRIVER_404 },
+      }),
+    },
+    '/v1/evidence/{assetId}/raw-url': {
+      get: operation({
+        operationId: 'mintEvidenceAssetUrl',
+        tag: 'Evidence',
+        summary: 'Mint a signed short-lived URL for an asset’s bytes',
+        description: mintDescription,
+        scope: 'brain:read',
+        parameters: [pathParam('assetId', 'evidence_asset record id.')],
+        responses: {
+          '200': jsonResponse('The signed URL.', ref('EvidenceRawUrlResponse')),
+          '503': errorRef('FeatureDisabled'),
+          ...DRIVER_404,
+        },
+      }),
+    },
+    '/v1/evidence/fragments/{fragmentId}/raw': {
+      get: operation({
+        operationId: 'streamEvidenceFragment',
+        tag: 'Evidence',
+        summary: 'Stream a fragment’s evidence bytes (parent asset, v1)',
+        description:
+          'Fragment twin of the asset stream: v1 serves the WHOLE parent ' +
+          'asset’s bytes (no locator cropping yet) under the STRICTEST ' +
+          'union of the fragment’s and the asset’s piiClasses. ' +
+          rawDescription,
+        scope: 'brain:read',
+        parameters: [pathParam('fragmentId', 'evidence_fragment record id.')],
+        responses: { '200': blobResponse, ...DRIVER_404 },
+      }),
+    },
+    '/v1/evidence/fragments/{fragmentId}/raw-url': {
+      get: operation({
+        operationId: 'mintEvidenceFragmentUrl',
+        tag: 'Evidence',
+        summary: 'Mint a signed short-lived URL for a fragment’s bytes',
+        description:
+          'Fragment twin of the asset mint (whole parent-asset bytes, ' +
+          'strictest piiClasses union). ' +
+          mintDescription,
+        scope: 'brain:read',
+        parameters: [pathParam('fragmentId', 'evidence_fragment record id.')],
+        responses: {
+          '200': jsonResponse('The signed URL.', ref('EvidenceRawUrlResponse')),
+          '503': errorRef('FeatureDisabled'),
+          ...DRIVER_404,
+        },
+      }),
+    },
+    '/v1/evidence/redeem/{token}': {
+      get: {
+        operationId: 'redeemEvidenceUrl',
+        tags: ['Evidence'],
+        summary: 'Redeem a signed raw-evidence URL (no auth)',
+        description:
+          'Unauthenticated by design — the token IS the capability. No ' +
+          'ABAC/consent/PII re-run; fail-closed re-checks only: ' +
+          'signature, expiry, the token’s own tenant, availability ' +
+          "still 'hot', and at least one live grant (revocation " +
+          'backstop). Bad, expired and revoked tokens all answer the ' +
+          'same bare 404. 404 until EVIDENCE_RAW_READ_ENABLED=1.',
+        parameters: [pathParam('token', 'The signed token from a raw-url mint.')],
+        responses: { '200': blobResponse, '404': errorRef('NotFound') },
+      },
+    },
+  };
+}
+
 function indexerWorkPaths(): Json {
   return {
     '/v1/indexer/work': {
@@ -1463,6 +1580,16 @@ export function buildOpenApiDocument(): Json {
           'Flag: BELIEFS_API_ENABLED (off → 404).',
       },
       {
+        name: 'Evidence',
+        description:
+          'The raw-evidence read gateway: original observation bytes ' +
+          'back out — direct stream, signed short-lived URLs, fragment ' +
+          'twins — behind the full deny-overrides gate ladder (scope, ' +
+          'ABAC, tenant/availability/quarantine, ownership grants, pack ' +
+          'modality consent, media-PII polarity), every attempt audited ' +
+          'content-free. Flag: EVIDENCE_RAW_READ_ENABLED (off → 404).',
+      },
+      {
         name: 'Users',
         description:
           'Per-user surfaces: the rolling user profile assembled from ' +
@@ -1479,6 +1606,7 @@ export function buildOpenApiDocument(): Json {
       ...sourcesPaths(),
       ...driverPaths(),
       ...memoryReadPaths(),
+      ...evidencePaths(),
     },
     webhooks: {
       episodesAvailable: {

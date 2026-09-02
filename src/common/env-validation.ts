@@ -264,6 +264,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Evidence plane: processing lifecycle (migration 0121) ──────────
   validateEvidenceProcessingEnv(env, warnings);
 
+  // ── Evidence plane: raw-read gateway (MM-3, migration 0125) ────────
+  validateEvidenceRawReadEnv(env, errors, warnings);
+
   // ── All remaining boolean feature flags ────────────────────────────
   validateBooleanFlags(env, warnings);
 
@@ -442,6 +445,41 @@ function validateEvidenceProcessingEnv(env: NodeJS.ProcessEnv, warnings: string[
       'EVIDENCE_PROCESSOR_BROKER is set while EVIDENCE_SUBSTRATE_ENABLED is not — ' +
         'the broker writes derived representations through the substrate seam; every ' +
         'dispatch will be rejected (503) until EVIDENCE_SUBSTRATE_ENABLED is turned on.',
+    );
+  }
+}
+
+/**
+ * Raw-read gateway (MM-3): the signed-URL secret is a forgery boundary,
+ * so a weak configured value is a hard boot ERROR while the gateway flag
+ * is on (the RETRIEVAL_PROFILE_OVERRIDES boot-rule idiom: reject the
+ * misconfiguration shape outright, don't run degraded). Flag on with NO
+ * secret at all is a WARNING, not an error — streaming works without
+ * one; only the mint/redeem routes refuse (503 mint, 404 redeem) until
+ * the secret lands. The TTL is a positive int like the other numeric
+ * knobs (validated unconditionally at the call site above).
+ */
+function validateEvidenceRawReadEnv(
+  env: NodeJS.ProcessEnv,
+  errors: string[],
+  warnings: string[],
+): void {
+  positiveInt(env, 'EVIDENCE_SIGNED_URL_TTL_SECONDS', errors);
+  if (!envFlagEnabled(env.EVIDENCE_RAW_READ_ENABLED)) return;
+  const secret = env.EVIDENCE_SIGNED_URL_SECRET;
+  if (secret === undefined || secret.trim() === '') {
+    warnings.push(
+      'EVIDENCE_RAW_READ_ENABLED is set without EVIDENCE_SIGNED_URL_SECRET — ' +
+        'raw streaming will serve, but signed-URL mint refuses (503) and ' +
+        'redeem answers 404 until a secret (>= 32 chars) is configured.',
+    );
+    return;
+  }
+  if (secret.length < 32) {
+    errors.push(
+      'EVIDENCE_SIGNED_URL_SECRET must be at least 32 characters while ' +
+        'EVIDENCE_RAW_READ_ENABLED is on — a short secret makes minted ' +
+        'raw-evidence URLs forgeable.',
     );
   }
 }
@@ -980,6 +1018,13 @@ const KNOWN_BOOLEAN_FLAGS = [
   // family sits off the ENGINE flag budget by design (see above).
   'EVIDENCE_PROCESSOR_BROKER',
   'EVIDENCE_QUARANTINE',
+  // Raw-read gateway (MM-3, migration 0125): the single REST surface that
+  // serves original evidence bytes (stream + signed-URL mint/redeem)
+  // behind the full gate ladder. Default off = every route 404s,
+  // byte-identical. The secret/TTL knobs are strings/ints, not booleans
+  // (validateEvidenceRawReadEnv). EVIDENCE_ family sits off the ENGINE
+  // flag budget by design (see above).
+  'EVIDENCE_RAW_READ_ENABLED',
   // Outcome telemetry master (0107): writers append memory_outcome rows
   // + fold memory_outcome_stat counters; the nightly raw-log prune runs.
   // Default off = byte-identical (every writer is a guarded no-op).

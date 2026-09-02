@@ -674,6 +674,23 @@ export class EvidenceStoreService {
       await db.query(`DELETE $ids RETURN BEFORE`, { ids: runIds });
       if (runIds.length < 5000) break;
     }
+    // Access audit (0125): the trail dies with its asset — whole-asset
+    // death here (retention / quarantine rejection / reconciliation) is
+    // one of the two places assets die; the other is the user-forget
+    // cascade, which carries its own leg. evidence_access keys the asset
+    // as a plain STRING (audit rows must not dangle), so match on the
+    // stringified id. Two-step SELECT-ids → DELETE-ids like every leg
+    // above (3.2.4 planner discipline).
+    for (;;) {
+      const accessIds = await queryRows<unknown>(
+        db,
+        `SELECT VALUE id FROM evidence_access WHERE assetId = $assetStr LIMIT 5000`,
+        { assetStr: String(assetId) },
+      );
+      if (accessIds.length === 0) break;
+      await db.query(`DELETE $ids RETURN BEFORE`, { ids: accessIds });
+      if (accessIds.length < 5000) break;
+    }
   }
 
   private async purgeRepresentationBatches(

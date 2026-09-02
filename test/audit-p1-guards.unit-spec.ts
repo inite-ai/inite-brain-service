@@ -518,6 +518,73 @@ describe('0122_evidence_grant indexes', () => {
   });
 });
 
+describe('0125_evidence_access (raw-read gateway audit)', () => {
+  const sql = readFileSync(join(MIGRATIONS, '0125_evidence_access.surql'), 'utf8');
+
+  // ALL single-field, deliberately: the table sits on the GDPR delete
+  // path (rows die with their asset in user-forget AND in the retention/
+  // quarantine tombstone path) — compound coverage would put assetId
+  // under the 3.2.4 compound-planner DELETE no-op (0122 reasoning).
+  it.each([
+    ['evidence_access_asset_idx', 'evidence_access', 'assetId'],
+    ['evidence_access_key_idx', 'evidence_access', 'keyHash'],
+    ['evidence_access_created_idx', 'evidence_access', 'createdAt'],
+  ])('defines %s on %s(%s)', (name, table, fields) => {
+    expect(sql).toContain(`DEFINE INDEX IF NOT EXISTS ${name} ON ${table} FIELDS ${fields};`);
+  });
+
+  it('every index is SINGLE-FIELD (the 3.2.4 planner rule)', () => {
+    const defs = sql.match(/DEFINE INDEX[^;]+;/g) ?? [];
+    expect(defs.length).toBeGreaterThan(0);
+    for (const def of defs) {
+      const fields = /FIELDS ([^;]+);/.exec(def)?.[1] ?? '';
+      expect(fields).not.toContain(',');
+      expect(fields).not.toContain('UNIQUE');
+    }
+  });
+
+  it('subject handles are STRINGS, not record links (rows must not dangle)', () => {
+    expect(sql).toContain('DEFINE FIELD IF NOT EXISTS assetId ON evidence_access TYPE string;');
+    expect(sql).toContain(
+      'DEFINE FIELD IF NOT EXISTS fragmentId ON evidence_access TYPE option<string>;',
+    );
+    expect(sql).not.toMatch(/ON evidence_access TYPE record</);
+  });
+
+  it('deliberately defines NO changefeed and NO event', () => {
+    // The row names a hashed principal + a subject handle; a 30-day feed
+    // would keep a GDPR-erased access trail readable after the rows die
+    // (0122 reasoning). The header EXPLAINS the absence in prose, so
+    // judge only non-comment lines.
+    const code = sql
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('--'))
+      .join('\n');
+    expect(code).not.toMatch(/CHANGEFEED/);
+    expect(code).not.toMatch(/DEFINE EVENT/);
+  });
+
+  it('both asset-death sites carry the evidence_access erase leg', () => {
+    // The trail dies with its asset in BOTH places assets die: the GDPR
+    // user-forget cascade and the retention/quarantine tombstone path
+    // (purgeAssetDependents). Both legs must be the two-step
+    // SELECT-ids → DELETE-ids idiom over the STRING assetId column.
+    const forget = readFileSync(
+      join(__dirname, '..', 'src', 'entities', 'user-forget.service.ts'),
+      'utf8',
+    );
+    expect(forget).toContain(
+      'LET $accessIds = (SELECT VALUE id FROM evidence_access WHERE assetId INSIDE $strs)',
+    );
+    expect(forget).toContain('DELETE $accessIds RETURN BEFORE');
+    const store = readFileSync(
+      join(__dirname, '..', 'src', 'evidence', 'evidence-store.service.ts'),
+      'utf8',
+    );
+    expect(store).toContain('SELECT VALUE id FROM evidence_access WHERE assetId = $assetStr');
+  });
+});
+
 describe('evidence substrate DELETE-shape guards (0109)', () => {
   // The three tables sit on TWO delete paths; every delete must be the
   // two-step SELECT-ids → DELETE $ids idiom (the 3.2.4 planner no-op
@@ -536,6 +603,7 @@ describe('evidence substrate DELETE-shape guards (0109)', () => {
       expect(text).not.toMatch(/DELETE derived_representation WHERE/);
       expect(text).not.toMatch(/DELETE evidence_asset WHERE/);
       expect(text).not.toMatch(/DELETE evidence_grant WHERE/);
+      expect(text).not.toMatch(/DELETE evidence_access WHERE/);
     }
   });
 

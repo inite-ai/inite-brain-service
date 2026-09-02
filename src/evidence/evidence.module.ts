@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { EvidenceReadController } from './evidence-read.controller';
+import { EvidenceReadService } from './evidence-read.service';
 import { EvidenceStoreService } from './evidence-store.service';
 import { EvidenceProcessorBrokerService } from './processor-broker.service';
 import { EvidenceQuarantineService } from './quarantine.service';
@@ -36,8 +38,16 @@ import {
  * All of it default-off behind EVIDENCE_PROCESSOR_BROKER /
  * EVIDENCE_QUARANTINE; exports exist for tests and future PR-C
  * consumers.
+ *
+ * Raw-read gateway (MM-3, migration 0125): EvidenceReadController is
+ * the ONE surface that serves original bytes back out — stream, signed-
+ * URL mint, and the unauthenticated redeem — behind the full gate
+ * ladder, default-off (EVIDENCE_RAW_READ_ENABLED → every route 404s).
+ * Guard dependencies (ApiKeyGuard / policy gate) resolve from the
+ * @Global auth/policy modules.
  */
 @Module({
+  controllers: [EvidenceReadController],
   providers: [
     FsEvidenceStorageAdapter,
     {
@@ -47,6 +57,7 @@ import {
       inject: [FsEvidenceStorageAdapter],
     },
     EvidenceStoreService,
+    EvidenceReadService,
     TextExtractionPassthroughAdapter,
     ImageMetadataStubAdapter,
     {

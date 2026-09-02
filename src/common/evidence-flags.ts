@@ -195,6 +195,60 @@ export function fragmentCitationsEnabled(): boolean {
 }
 
 /**
+ * Raw-read gateway (Brain v2.1 MM-3) — EVIDENCE_RAW_READ_ENABLED.
+ *
+ * When on, EvidenceReadController serves the five raw-evidence routes
+ * (asset/fragment stream + signed-URL mint, and the unauthenticated
+ * redeem) behind the full gate ladder. Default off ⇒ every route answers
+ * a bare 404, indistinguishable from an absent route (the
+ * EPISODES_API_ENABLED idiom) — byte-identical prod. The env read lives
+ * here in the common layer, NOT inside the controller (engine-gates
+ * S5.2); read at call time so a flip is runtime-mutable. EVIDENCE_
+ * family sits off the ENGINE flag budget by design.
+ */
+export function evidenceRawReadEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_RAW_READ_ENABLED);
+}
+
+/**
+ * Signed-URL HMAC secret — EVIDENCE_SIGNED_URL_SECRET (non-boolean).
+ *
+ * Keys the HMAC-SHA256 over minted raw-evidence URL tokens. NO default,
+ * deliberately: a default secret would make every deployment's tokens
+ * mutually forgeable. Boot validation (env-validation.ts) hard-errors on
+ * a configured-but-short (<32 chars) secret while EVIDENCE_RAW_READ_ENABLED
+ * is on, and warns when the flag is on with no secret at all (the mint
+ * routes then refuse 503; streaming still works). Read at call time
+ * (runtime-mutable); common layer per engine-gates S5.2.
+ */
+export function evidenceSignedUrlSecret(): string | null {
+  const raw = process.env.EVIDENCE_SIGNED_URL_SECRET;
+  if (raw === undefined || raw.trim() === '') return null;
+  return raw;
+}
+
+/** Default mint TTL: 300 s. (Named WITHOUT the full env-key substring so
+ *  the W6 boot-capture truth gate doesn't mistake this module-scope
+ *  default for a boot-captured read.) */
+const DEFAULT_SIGNED_TTL = 300;
+
+/**
+ * Signed-URL lifetime — EVIDENCE_SIGNED_URL_TTL_SECONDS (non-boolean).
+ *
+ * Seconds a minted raw-evidence URL stays redeemable. Short by default
+ * (300 s): the token is a bearer capability — expiry and the live-grant
+ * re-check at redeem are its only revocation levers. Must be a positive
+ * integer; unset, blank, or invalid → the 300 s default. Read at call
+ * time (runtime-mutable); common layer per engine-gates S5.2.
+ */
+export function evidenceSignedUrlTtlSeconds(): number {
+  const raw = process.env.EVIDENCE_SIGNED_URL_TTL_SECONDS;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_SIGNED_TTL;
+  const v = Number(raw);
+  return Number.isInteger(v) && v > 0 ? v : DEFAULT_SIGNED_TTL;
+}
+
+/**
  * Strict serving — EVIDENCE_UNGROUNDED_SERVING_GATE.
  *
  * When on, a supported verdict batch-checks its cited facts' stored
