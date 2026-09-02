@@ -23,7 +23,10 @@ import { SceneEnricherService, SceneEnrichResult } from './scene-enricher.servic
 import { SceneBacklinkService, SceneBacklinkResult } from './scene-backlink.service';
 
 /** Purge param belt: DB stamps are short version slugs, not free text. */
-const SEGMENTER_VERSION_MAX_CHARS = 64;
+// 128 (was 64): pack scene worlds (0110) are versioned
+// `pack:<packId≤64>+<8-hex fp>` — up to 78 chars — and purge through this
+// same verb. Still just an input bound on a path parameter.
+const SEGMENTER_VERSION_MAX_CHARS = 128;
 
 /**
  * Explicit triggers for the Brain v2 scene surface (shadow memory_episode

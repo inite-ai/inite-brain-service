@@ -222,6 +222,36 @@ Caps: 200 items per kind per submission; entity names ≤ 256 chars, fact
 objects ≤ 2000 chars. Submissions are throttled at 10/min per
 credential.
 
+**Episodic candidates (`scenes` / `stateDeltas`, migration 0110).** When
+the operator enables `PACK_MEMORY_PROJECTIONS_ENABLED` (default off — the
+arrays are rejected 400 otherwise), a pack that declares a manifest
+`memoryModel` may additionally stage scene hypotheses and lifecycle
+transitions:
+
+```json
+{
+  "scenes": [
+    { "schemaId": "viewing", "label": "Viewing at 12 Elm St",
+      "gist": "Client toured the property and weighed an offer.",
+      "occurredFrom": "2026-09-01T10:00:00Z", "occurredTo": "2026-09-01T11:00:00Z" }
+  ],
+  "stateDeltas": [
+    { "sceneIndex": 0, "stateModelId": "deal",
+      "subject": "the Elm St purchase", "from": "open", "to": "under_offer" }
+  ]
+}
+```
+
+`schemaId` must be one of the pack's own `memoryModel.sceneSchemas` ids
+and `stateModelId`/`from`/`to` must match its declared `stateModels`
+(declared transitions stay advisory). Each `stateDeltas[i].sceneIndex`
+references a scene of the SAME submission. Accepted rows stage as
+candidate kinds `scene`/`state_delta` and are projected at commit time
+into shadow `memory_episode` rows under `segmenterVersion`
+`pack:<packId>+<fp>`; `staged` then carries `scenes`/`stateDeltas`
+counts. Scene payloads are default-deny in the candidates audit view —
+content opens only under `brain:read_pii`.
+
 ### 5. Can't process it? Give it back
 
 ```

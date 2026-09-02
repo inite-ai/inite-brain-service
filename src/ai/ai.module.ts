@@ -24,6 +24,7 @@ import { ReindexEmbeddingsService } from './embedder/reindex-embeddings.service'
 import { ReindexEngineService } from './embedder/reindex-engine.service';
 import { EmbeddingSpaceService } from './embedder/embedding-space.service';
 import { EntityJudgeService } from './entity-judge.service';
+import { MemoryModelReaderService } from './memory-model-reader.service';
 
 @Global()
 @Module({
@@ -75,6 +76,14 @@ import { EntityJudgeService } from './entity-judge.service';
     ReindexEmbeddingsService,
     EmbeddingSpaceService,
     EntityJudgeService,
+    // Read side of pack-declared memoryModel sections. Provided HERE (its
+    // home dir, @Global module) rather than in AdminModule so there is
+    // exactly ONE instance (one cache): DomainPackInstallService
+    // invalidates it on install/upgrade/uninstall and the documents
+    // pipeline (0110 external scenes/stateDeltas validation) reads it —
+    // a second per-module instance would serve a stale cache the install
+    // path cannot invalidate.
+    MemoryModelReaderService,
   ],
   exports: [
     EmbedderService,
@@ -95,6 +104,7 @@ import { EntityJudgeService } from './entity-judge.service';
     ReindexEmbeddingsService,
     EmbeddingSpaceService,
     EntityJudgeService,
+    MemoryModelReaderService,
   ],
 })
 export class AiModule {}

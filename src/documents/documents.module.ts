@@ -3,6 +3,7 @@ import { AiModule } from '../ai/ai.module';
 import { IngestCoreModule } from '../ingest/ingest-core.module';
 import { IndexersModule } from '../indexers/indexers.module';
 import { EvidenceModule } from '../evidence/evidence.module';
+import { EpisodesModule } from '../episodes/episodes.module';
 import { DocumentsController } from './documents.controller';
 import { DocumentsIngestController } from './documents-ingest.controller';
 import { ExternalCandidatesController } from './external-candidates.controller';
@@ -22,6 +23,7 @@ import { DocumentReindexService } from './document-reindex.service';
 import { PackSeedIngestService } from './pack-seed-ingest.service';
 import { CandidateSweeperService } from './candidate-sweeper.service';
 import { MentionViaDocumentService } from './mention-via-document.service';
+import { SceneCandidateWriterService } from './scene-candidate-writer.service';
 import { OutcomesModule } from '../outcomes/outcomes.module';
 
 /**
@@ -33,7 +35,16 @@ import { OutcomesModule } from '../outcomes/outcomes.module';
  */
 @Module({
   // EvidenceModule: the sweeper's evidence retention/reconciliation leg (0109).
-  imports: [AiModule, IngestCoreModule, IndexersModule, EvidenceModule, OutcomesModule],
+  // EpisodesModule: the projection ledger the 0110 scene-candidate writer
+  // registers its pack worlds in (ProjectionRegistryService export).
+  imports: [
+    AiModule,
+    IngestCoreModule,
+    IndexersModule,
+    EvidenceModule,
+    OutcomesModule,
+    EpisodesModule,
+  ],
   controllers: [
     DocumentsController,
     DocumentsIngestController,
@@ -56,6 +67,7 @@ import { OutcomesModule } from '../outcomes/outcomes.module';
     ExternalCandidatesService,
     IndexerWorkService,
     IndexerWebhookService,
+    SceneCandidateWriterService,
   ],
   exports: [
     DocumentIngestService,

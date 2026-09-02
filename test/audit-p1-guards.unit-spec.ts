@@ -116,11 +116,74 @@ describe('entity-forget scenes cascade (0106)', () => {
       join(__dirname, '..', 'src', 'entities', 'entity-forget.service.ts'),
       join(__dirname, '..', 'src', 'entities', 'user-forget.service.ts'),
       join(__dirname, '..', 'src', 'admin', 'scene-composer.service.ts'),
+      join(__dirname, '..', 'src', 'documents', 'scene-candidate-writer.service.ts'),
     ];
     for (const file of files) {
       const text = readFileSync(file, 'utf8');
       expect(text).not.toMatch(/DELETE memory_episode_member WHERE in[\s.]/);
     }
+  });
+});
+
+describe('0110_candidate_scene_kinds (pack memory projections)', () => {
+  const sql = readFileSync(join(MIGRATIONS, '0110_candidate_scene_kinds.surql'), 'utf8');
+
+  it('widens the candidate kind enum via OVERWRITE (IF NOT EXISTS is a no-op on 3.x)', () => {
+    expect(sql).toContain('DEFINE FIELD OVERWRITE kind ON candidate TYPE string');
+    expect(sql).toContain(
+      "ASSERT $value INSIDE ['entity','fact','relation','scene','state_delta']",
+    );
+  });
+
+  it('defines the doc-scene tombstone counter for the forget doc-cascade', () => {
+    expect(sql).toContain(
+      'DEFINE FIELD IF NOT EXISTS purgedDocScenes ON forgotten_entity TYPE option<int>;',
+    );
+  });
+
+  it('deliberately defines NO index, NO changefeed and NO event', () => {
+    const code = sql
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('--'))
+      .join('\n');
+    expect(code).not.toMatch(/DEFINE INDEX/);
+    expect(code).not.toMatch(/CHANGEFEED/);
+    expect(code).not.toMatch(/DEFINE EVENT/);
+  });
+
+  it('the forget doc-cascade erases doc-derived scene projections by pre-collected ids', () => {
+    // Source-regex guard (the entity-forget scenes cascade mold): a
+    // memory_episode row projected from a document is keyed by
+    // source.docId, NOT by memory_episode_member — the membership leg
+    // cannot reach it. LET-select-ids → DELETE, never DELETE…WHERE on
+    // the compound-index-covered shapes (3.2.4 planner no-op), and never
+    // behind PACK_MEMORY_PROJECTIONS_ENABLED (unconditional erasure).
+    const src = readFileSync(
+      join(__dirname, '..', 'src', 'entities', 'entity-forget.service.ts'),
+      'utf8',
+    );
+    expect(src).toContain(
+      'LET $docSceneIds = (SELECT VALUE id FROM memory_episode WHERE source.docId INSIDE $purgeDocs)',
+    );
+    expect(src).toContain(
+      'LET $docSceneMemberIds = (SELECT VALUE id FROM memory_episode_member WHERE in INSIDE $docSceneIds)',
+    );
+    expect(src).toContain('DELETE $docSceneMemberIds');
+    expect(src).toContain('LET $docScenesDel = (DELETE $docSceneIds RETURN BEFORE)');
+    expect(src).toContain('purgedDocScenes: array::len($docScenesDel)');
+    expect(src).not.toMatch(/packMemoryProjectionsEnabled/);
+  });
+
+  it('the scene-candidate writer swaps by pre-collected ids (3.2.4 planner shape)', () => {
+    const src = readFileSync(
+      join(__dirname, '..', 'src', 'documents', 'scene-candidate-writer.service.ts'),
+      'utf8',
+    );
+    expect(src).toContain(
+      'LET $oldMemberIds = (SELECT VALUE id FROM memory_episode_member WHERE in INSIDE $oldIds)',
+    );
+    expect(src).toContain('DELETE $oldMemberIds');
+    expect(src).toContain('DELETE memory_episode WHERE id INSIDE $oldIds');
   });
 });
 

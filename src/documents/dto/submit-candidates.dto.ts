@@ -32,6 +32,50 @@ export interface SubmittedRelation {
 }
 
 /**
+ * A pack-schema-conforming scene hypothesis (candidate kind 'scene',
+ * migration 0110). `schemaId` must be one of the submitting pack's own
+ * declared memoryModel.sceneSchemas ids. Accepted only when
+ * PACK_MEMORY_PROJECTIONS_ENABLED is on (default off — submissions
+ * carrying scenes are rejected, so the flag-off surface is byte-identical
+ * for every existing client).
+ */
+export interface SubmittedScene {
+  /** ∈ the pack's memoryModel.sceneSchemas[].id. */
+  schemaId: string;
+  /** Short human label (≤200 chars — the 0106 sceneLabel cap). */
+  label: string;
+  /** Scene gist text (≤2000 chars). */
+  gist: string;
+  /** ISO datetime bounds; both or neither, from ≤ to. */
+  occurredFrom?: string;
+  occurredTo?: string;
+  confidence?: number;
+}
+
+/**
+ * A lifecycle-transition claim (candidate kind 'state_delta', 0110)
+ * validated against the submitting pack's memoryModel.stateModels:
+ * `stateModelId` must be declared and `to`/`from` must be declared states
+ * (declared transitions are advisory vocabulary, never a gate — the
+ * manifest contract). `sceneIndex` references a scene of THIS batch
+ * (extractor index-linking, the entityIndex precedent): deltas ride their
+ * scene's projected memory_episode row.
+ */
+export interface SubmittedStateDelta {
+  /** Index into this submission's `scenes` array. */
+  sceneIndex: number;
+  /** ∈ the pack's memoryModel.stateModels[].id. */
+  stateModelId: string;
+  /** The subject whose lifecycle moved (free text, ≤256 chars). */
+  subject: string;
+  /** Declared state of the model, when the prior state is known. */
+  from?: string;
+  /** Declared state of the model. */
+  to: string;
+  confidence?: number;
+}
+
+/**
  * OpenAPI mirror: src/contracts/documents/documents.schema.ts
  * (SubmitCandidatesRequestSchema) — keep field names/optionality/caps in
  * lockstep and regenerate docs/openapi.json on change.
@@ -72,4 +116,16 @@ export class SubmitCandidatesDto {
   @IsOptional()
   @IsArray()
   relations?: SubmittedRelation[];
+
+  /** 0110 episodic-plane arrays — rejected while
+   *  PACK_MEMORY_PROJECTIONS_ENABLED is off (default), so the flag-off
+   *  surface is byte-identical. Item shapes are service-validated against
+   *  the submitting pack's own memoryModel declarations. */
+  @IsOptional()
+  @IsArray()
+  scenes?: SubmittedScene[];
+
+  @IsOptional()
+  @IsArray()
+  stateDeltas?: SubmittedStateDelta[];
 }

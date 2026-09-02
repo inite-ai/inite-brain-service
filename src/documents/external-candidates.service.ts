@@ -11,25 +11,38 @@ import { PACK_NAMESPACE_SEP } from '../ai/domain-packs/manifest';
 import { policyFor } from '../ingest/conflict-resolver';
 import { RETRACT_ADMIN_PREDICATES } from '../facts/facts.service';
 import { envFlagEnabled } from '../common/env-validation';
+import { packMemoryProjectionsEnabled } from '../common/pack-projection-flags';
 import { sanitizeIngestText } from '../common/text-sanitizer';
 import { MetricsService } from '../metrics/metrics.service';
+import { MemoryModelReaderService } from '../ai/memory-model-reader.service';
+import type { PackMemoryModel } from '../ai/domain-packs/manifest';
 import type {
   CandidateBatch,
   CandidateEntity,
   CandidateFact,
   CandidateRelation,
+  CandidateScene,
+  CandidateStateDelta,
 } from '../indexers/candidate.types';
 import { DocumentStoreService, StoredDocument } from './document-store.service';
-import { CandidateStoreService } from './candidate-store.service';
+import { CandidateStoreService, InsertBatchCounts } from './candidate-store.service';
 import { assertKeyBoundToPack, IndexerWorkService } from './indexer-work.service';
 import { groundExternalBatch, GroundingDrop } from './candidate-grounding';
-import { SubmitCandidatesDto, SubmittedFact, SubmittedRelation } from './dto/submit-candidates.dto';
+import {
+  SubmitCandidatesDto,
+  SubmittedFact,
+  SubmittedRelation,
+  SubmittedScene,
+  SubmittedStateDelta,
+} from './dto/submit-candidates.dto';
 
 export interface ExternalSubmissionResult {
   runId: string;
   packId: string;
   packVersion: string;
-  staged: { entities: number; facts: number; relations: number };
+  /** scenes/stateDeltas keys appear ONLY when the submission carried the
+   *  0110 arrays — the flag-off response stays byte-identical. */
+  staged: InsertBatchCounts;
   dropped: GroundingDrop[];
   /** true when the document has no stored content — spans unverifiable. */
   ungrounded: boolean;
@@ -40,6 +53,8 @@ export interface ExternalSubmissionResult {
 const MAX_ITEMS_PER_KIND = 200;
 const MAX_NAME = 256;
 const MAX_OBJECT = 2_000;
+/** 0106 sceneLabel cap (enforced in code, the composer precedent). */
+const MAX_SCENE_LABEL = 200;
 
 /**
  * The external-indexer seam: a remote service that read a stored
@@ -62,13 +77,15 @@ const MAX_OBJECT = 2_000;
 @Injectable()
 export class ExternalCandidatesService {
   // The submission seam spans the document store, the run ledger, the
-  // pack fence (router), and claim verification (work service).
+  // pack fence (router), claim verification (work service), and — for the
+  // 0110 episodic arrays — the pack's declared memoryModel (reader).
   // eslint-disable-next-line max-params
   constructor(
     private readonly store: DocumentStoreService,
     private readonly candidates: CandidateStoreService,
     private readonly router: IndexerRouterService,
     private readonly work: IndexerWorkService,
+    private readonly memoryModels: MemoryModelReaderService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
@@ -89,6 +106,7 @@ export class ExternalCandidatesService {
     assertKeyBoundToPack(p.keyPackIds, dto.indexerId);
     const binding = await this.resolveExternalBinding(companyId, dto);
     validateShapes(dto, binding.indexerId);
+    await this.validateProjectionShapes(companyId, dto, binding.indexerId);
     const claim = resolveClaimFields(dto);
 
     // Claimed flow: the run row already exists (claimed via the work
@@ -162,6 +180,49 @@ export class ExternalCandidatesService {
     };
   }
 
+  /**
+   * 0110 episodic arrays: fence + pack-declaration validation.
+   *
+   * Flag fence FIRST (fail-closed): with PACK_MEMORY_PROJECTIONS_ENABLED
+   * off (default), a submission carrying a non-empty scenes/stateDeltas
+   * array is rejected 400 — no 'scene'/'state_delta' row is ever staged,
+   * so the flag-off write surface is byte-identical. (Before 0110 the
+   * whitelist pipe silently STRIPPED these unknown properties; an
+   * explicit reject is the honest upgrade — silent stripping is how a
+   * caller ships scenes for a month without noticing they vanish.)
+   *
+   * Declaration fence: the arrays validate against the submitting pack's
+   * OWN manifest memoryModel — schemaId ∈ its sceneSchemas, stateModelId
+   * ∈ its stateModels, from/to ∈ that model's declared states (declared
+   * transitions stay ADVISORY, never a gate — the manifest contract). A
+   * pack that declared no memoryModel cannot stage episodic candidates at
+   * all: the same cannot-squat posture as the predicate namespace fence.
+   */
+  private async validateProjectionShapes(
+    companyId: string,
+    dto: SubmitCandidatesDto,
+    indexerId: string,
+  ): Promise<void> {
+    const scenes = dto.scenes ?? [];
+    const stateDeltas = dto.stateDeltas ?? [];
+    if (scenes.length === 0 && stateDeltas.length === 0) return;
+    if (!packMemoryProjectionsEnabled()) {
+      throw new BadRequestException(
+        'scenes/stateDeltas submissions are disabled ' +
+          '(set PACK_MEMORY_PROJECTIONS_ENABLED=1 to stage episodic candidates)',
+      );
+    }
+    if (scenes.length > MAX_ITEMS_PER_KIND || stateDeltas.length > MAX_ITEMS_PER_KIND) {
+      throw new BadRequestException(
+        `a submission is capped at ${MAX_ITEMS_PER_KIND} items per kind`,
+      );
+    }
+    const bindings = await this.memoryModels.installedMemoryModels(companyId);
+    const model = bindings.find((b) => b.packId === indexerId)?.memoryModel;
+    validateScenes(scenes, model, indexerId);
+    validateStateDeltas(stateDeltas, { sceneCount: scenes.length, model, indexerId });
+  }
+
   private async resolveExternalBinding(
     companyId: string,
     dto: SubmitCandidatesDto,
@@ -214,6 +275,18 @@ export class ExternalCandidatesService {
       return clean ? { ...fact, object: sanitizeIngestText(fact.object) } : fact;
     });
     const relations: CandidateRelation[] = (dto.relations ?? []).map(toRelation);
+    // 0110 episodic arrays (validateProjectionShapes already fenced them
+    // behind PACK_MEMORY_PROJECTIONS_ENABLED and the pack's memoryModel).
+    // Deliberately NOT span-grounded below: a gist/label SUMMARIZES the
+    // document rather than quoting it, so there is no verbatim span to
+    // re-validate — the PII exposure is handled read-side instead (the
+    // default-deny candidate redaction + brain:read_pii gate).
+    const scenes: CandidateScene[] | undefined = dto.scenes?.length
+      ? dto.scenes.map((s, i) => toScene(s, i, clean))
+      : undefined;
+    const stateDeltas: CandidateStateDelta[] | undefined = dto.stateDeltas?.length
+      ? dto.stateDeltas.map((d) => toStateDelta(d, clean))
+      : undefined;
 
     const provenance = {
       indexerId: dto.indexerId,
@@ -242,6 +315,10 @@ export class ExternalCandidatesService {
           entities: entities.map((e) => ({ ...e, ungrounded: true })),
           facts: facts.map((f) => ({ ...f, ungrounded: true })),
           relations: relations.map((r) => ({ ...r, ungrounded: true })),
+          ...(scenes ? { scenes: scenes.map((s) => ({ ...s, ungrounded: true })) } : {}),
+          ...(stateDeltas
+            ? { stateDeltas: stateDeltas.map((d) => ({ ...d, ungrounded: true })) }
+            : {}),
         },
         dropped: [],
         ungrounded: true,
@@ -257,6 +334,8 @@ export class ExternalCandidatesService {
         entities: grounded.entities,
         facts: grounded.facts,
         relations: grounded.relations,
+        ...(scenes ? { scenes } : {}),
+        ...(stateDeltas ? { stateDeltas } : {}),
       },
       dropped: grounded.dropped,
       ungrounded: false,
@@ -351,6 +430,129 @@ function validateFact(f: SubmittedFact, i: number, indexerId: string): void {
       `facts[${i}].object must be a non-empty string of at most ${MAX_OBJECT} chars`,
     );
   }
+}
+
+/** Per-item scene checks (0110): bounded strings, declared schemaId,
+ *  optional datetime bounds (both or neither, from ≤ to). Exported for
+ *  the unit spec (the redactGatedCandidates precedent). */
+export function validateScenes(
+  scenes: SubmittedScene[],
+  model: PackMemoryModel | undefined,
+  indexerId: string,
+): void {
+  if (scenes.length === 0) return;
+  const declared = new Set((model?.sceneSchemas ?? []).map((s) => s.id));
+  if (declared.size === 0) {
+    throw new BadRequestException(
+      `pack "${indexerId}" declares no memoryModel.sceneSchemas — it cannot stage scene candidates`,
+    );
+  }
+  for (const [i, s] of scenes.entries()) {
+    if (typeof s?.schemaId !== 'string' || !declared.has(s.schemaId)) {
+      throw new BadRequestException(
+        `scenes[${i}].schemaId "${String(s?.schemaId)}" is not a declared sceneSchema of pack "${indexerId}"`,
+      );
+    }
+    if (!isBoundedString(s.label, MAX_SCENE_LABEL)) {
+      throw new BadRequestException(
+        `scenes[${i}].label must be a non-empty string of at most ${MAX_SCENE_LABEL} chars`,
+      );
+    }
+    if (!isBoundedString(s.gist, MAX_OBJECT)) {
+      throw new BadRequestException(
+        `scenes[${i}].gist must be a non-empty string of at most ${MAX_OBJECT} chars`,
+      );
+    }
+    validateSceneWindow(s, i);
+  }
+}
+
+function validateSceneWindow(s: SubmittedScene, i: number): void {
+  const hasFrom = s.occurredFrom !== undefined;
+  const hasTo = s.occurredTo !== undefined;
+  if (hasFrom !== hasTo) {
+    throw new BadRequestException(
+      `scenes[${i}].occurredFrom and occurredTo must be provided together`,
+    );
+  }
+  if (!hasFrom) return;
+  const from = Date.parse(s.occurredFrom as string);
+  const to = Date.parse(s.occurredTo as string);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) {
+    throw new BadRequestException(
+      `scenes[${i}] occurredFrom/occurredTo must be ISO datetimes with occurredFrom <= occurredTo`,
+    );
+  }
+}
+
+/** Per-item state-delta checks (0110): scene reference in-bounds, declared
+ *  stateModelId, from/to among the model's declared states. Exported for
+ *  the unit spec. */
+export function validateStateDeltas(
+  deltas: SubmittedStateDelta[],
+  p: { sceneCount: number; model: PackMemoryModel | undefined; indexerId: string },
+): void {
+  const { sceneCount, model, indexerId } = p;
+  if (deltas.length === 0) return;
+  const models = new Map((model?.stateModels ?? []).map((m) => [m.id, m]));
+  if (models.size === 0) {
+    throw new BadRequestException(
+      `pack "${indexerId}" declares no memoryModel.stateModels — it cannot stage state_delta candidates`,
+    );
+  }
+  for (const [i, d] of deltas.entries()) {
+    if (!Number.isInteger(d?.sceneIndex) || d.sceneIndex < 0 || d.sceneIndex >= sceneCount) {
+      throw new BadRequestException(
+        `stateDeltas[${i}].sceneIndex must reference a scene of this submission`,
+      );
+    }
+    const m = typeof d.stateModelId === 'string' ? models.get(d.stateModelId) : undefined;
+    if (!m) {
+      throw new BadRequestException(
+        `stateDeltas[${i}].stateModelId "${String(d.stateModelId)}" is not a declared stateModel of pack "${indexerId}"`,
+      );
+    }
+    if (!isBoundedString(d.subject, MAX_NAME)) {
+      throw new BadRequestException(
+        `stateDeltas[${i}].subject must be a non-empty string of at most ${MAX_NAME} chars`,
+      );
+    }
+    // Declared STATES are the vocabulary fence; declared TRANSITIONS stay
+    // advisory (the manifest's "never a gate" contract).
+    if (typeof d.to !== 'string' || !m.states.includes(d.to)) {
+      throw new BadRequestException(
+        `stateDeltas[${i}].to "${String(d.to)}" is not a declared state of "${m.id}"`,
+      );
+    }
+    if (d.from !== undefined && !m.states.includes(d.from)) {
+      throw new BadRequestException(
+        `stateDeltas[${i}].from "${String(d.from)}" is not a declared state of "${m.id}"`,
+      );
+    }
+  }
+}
+
+function toScene(s: SubmittedScene, sceneIndex: number, clean: boolean): CandidateScene {
+  return {
+    sceneIndex,
+    schemaId: s.schemaId,
+    label: clean ? sanitizeIngestText(s.label) : s.label,
+    gist: clean ? sanitizeIngestText(s.gist) : s.gist,
+    occurredFrom: s.occurredFrom === undefined ? undefined : new Date(s.occurredFrom),
+    occurredTo: s.occurredTo === undefined ? undefined : new Date(s.occurredTo),
+    confidence: clamp01(s.confidence ?? 0.7),
+  };
+}
+
+function toStateDelta(d: SubmittedStateDelta, clean: boolean): CandidateStateDelta {
+  return {
+    sceneIndex: d.sceneIndex,
+    stateModelId: d.stateModelId,
+    subject: clean ? sanitizeIngestText(d.subject) : d.subject,
+    from: d.from,
+    to: d.to,
+    confidence: clamp01(d.confidence ?? 0.7),
+  };
 }
 
 function isBoundedString(v: unknown, max: number): v is string {

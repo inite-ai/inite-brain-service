@@ -879,6 +879,19 @@ const KNOWN_BOOLEAN_FLAGS = [
   // literal constant version — byte-identical ids, stamps and registry
   // keys.
   'SCENES_VERSION_FINGERPRINT',
+  // Pack memory projections (migration 0110): external candidate
+  // submissions may carry scenes/stateDeltas validated against the
+  // submitting pack's manifest memoryModel (sceneSchemas / stateModels),
+  // staged as candidate kinds 'scene'/'state_delta' and projected at
+  // commit time into shadow memory_episode rows under the namespaced
+  // segmenterVersion 'pack:<packId>+<fp>' (SceneCandidateWriterService).
+  // Default off ⇒ submissions carrying either array are rejected 400, no
+  // such candidate row is ever written and no projection runs —
+  // byte-identical prod. The GDPR forget doc-cascade leg for projected
+  // rows runs regardless — rows written while on must stay erasable.
+  // PACK_ sits off the ENGINE flag budget (shadow-substrate writer, the
+  // SCENES_/EVIDENCE_ precedent).
+  'PACK_MEMORY_PROJECTIONS_ENABLED',
   // Evidence substrate master (Brain v2.1 M1, migration 0109): the
   // EvidenceStoreService writers for evidence_asset / evidence_fragment /
   // derived_representation. Default off ⇒ every writer 503s and no row is

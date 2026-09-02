@@ -144,13 +144,15 @@
             "enum": [
               "entity",
               "fact",
-              "relation"
+              "relation",
+              "scene",
+              "state_delta"
             ],
             "type": "string"
           },
           "payload": {
             "additionalProperties": {},
-            "description": "Extraction payload. `object`/`clause` of scope-gated fact candidates are redacted for callers without the required predicate scope.",
+            "description": "Extraction payload. `object`/`clause` of scope-gated fact candidates are redacted for callers without the required predicate scope. scene/state_delta payloads (0110) are default-deny: content fields open only under brain:read_pii; other callers see structural fields plus `redacted: true`.",
             "propertyNames": {
               "type": "string"
             },
@@ -2545,6 +2547,84 @@
             "description": "A claimed work item this submission fulfils. Provided together with claimToken or not at all (claimless flow opens its own run).",
             "maxLength": 128,
             "type": "string"
+          },
+          "scenes": {
+            "description": "Pack-schema-conforming scene hypotheses (0110). Rejected 400 unless PACK_MEMORY_PROJECTIONS_ENABLED; schemaId must be one of the submitting pack's declared memoryModel.sceneSchemas ids.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "confidence": {
+                  "type": "number"
+                },
+                "gist": {
+                  "description": "Scene gist text (≤2000 chars).",
+                  "type": "string"
+                },
+                "label": {
+                  "description": "Short human label (≤200 chars).",
+                  "type": "string"
+                },
+                "occurredFrom": {
+                  "description": "ISO datetime; provided together with occurredTo, from ≤ to.",
+                  "type": "string"
+                },
+                "occurredTo": {
+                  "type": "string"
+                },
+                "schemaId": {
+                  "description": "∈ the pack's memoryModel.sceneSchemas[].id.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "schemaId",
+                "label",
+                "gist"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "stateDeltas": {
+            "description": "Lifecycle-transition claims (0110) riding scenes of this submission (sceneIndex). Validated against the pack's memoryModel.stateModels; declared transitions stay advisory (never a gate).",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "confidence": {
+                  "type": "number"
+                },
+                "from": {
+                  "description": "Declared state of the model, when known.",
+                  "type": "string"
+                },
+                "sceneIndex": {
+                  "description": "Index into this submission's `scenes` array.",
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "stateModelId": {
+                  "description": "∈ the pack's memoryModel.stateModels[].id.",
+                  "type": "string"
+                },
+                "subject": {
+                  "description": "The subject whose lifecycle moved (≤256 chars).",
+                  "type": "string"
+                },
+                "to": {
+                  "description": "Declared state of the model.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "sceneIndex",
+                "stateModelId",
+                "subject",
+                "to"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           }
         },
         "required": [
@@ -2614,6 +2694,16 @@
                 "type": "integer"
               },
               "relations": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "scenes": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "stateDeltas": {
                 "maximum": 9007199254740991,
                 "minimum": 0,
                 "type": "integer"
