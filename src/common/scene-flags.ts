@@ -92,6 +92,28 @@ export function sceneFactBacklinkEnabled(): boolean {
 }
 
 /**
+ * Scene evidence-links flag — SCENES_EVIDENCE_LINKS (MM-zoom PR1).
+ *
+ * When on, a batch pass (end of the composer run + standalone POST
+ * /v1/admin/maintenance/scenes/evidence-links) writes typed
+ * scene-reconstructed_from->evidence_fragment|evidence_asset edges into
+ * memory_support (0116; the reserved kind activated by 0123) from the
+ * union of member episodes' source.evidenceRefs — scenes become zoomable
+ * into the multimodal evidence substrate (0109). Replay-idempotent
+ * (INSERT RELATION IGNORE over UNIQUE(in, out, kind)); episodes without
+ * evidence refs are a graceful no-op (the metadata-ingest path is the
+ * producer). The env read lives here in the common layer, NOT inside the
+ * engine dirs (engine-gates S5.2). Read at call time so a flip is
+ * runtime-mutable. Default off ⇒ no edge is ever written, the admin
+ * route 404s and the composer's post-swap hook is skipped —
+ * byte-identical prod. The GDPR cascades erase the edges REGARDLESS of
+ * this flag (the EVIDENCE_SUBSTRATE_ENABLED precedent).
+ */
+export function sceneEvidenceLinksEnabled(): boolean {
+  return envFlagEnabled(process.env.SCENES_EVIDENCE_LINKS);
+}
+
+/**
  * Scenes version-fingerprint flag — SCENES_VERSION_FINGERPRINT (Drift-3).
  *
  * When on, SceneVersionService resolves the EFFECTIVE segmenter version as

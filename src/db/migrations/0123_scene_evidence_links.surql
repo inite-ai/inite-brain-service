@@ -1,0 +1,34 @@
+-- 0123: scene evidence links (MM-zoom PR1) — activate the RESERVED
+-- reconstructed_from kind on memory_support (0116):
+--   * reconstructed_from (memory_episode scene -> evidence_fragment |
+--     evidence_asset): the scene is RECONSTRUCTED FROM that piece of
+--     recorded evidence — the typed zoom path from an episodic scene
+--     down into the multimodal evidence substrate (0109). Written by the
+--     scene-evidence linker pass (scene-evidence-linker.service.ts,
+--     SCENES_EVIDENCE_LINKS, default off) from the union of member
+--     episodes' source.evidenceRefs (unionEvidenceRefs, filtered to the
+--     fragment/asset prefixes). Endpoint pairing is enforced by the TS
+--     writer (assertEdgeShape, src/common/support-edges.ts) — in/out
+--     stay DELIBERATELY untyped records (the 0116 header rationale).
+--   * Scene -> turn membership STAYS in memory_episode_member (0106),
+--     the canonical representation — this kind names evidence-plane
+--     reconstruction sources, NOT membership.
+--
+-- No table or index change: UNIQUE(in, out, kind) (support_edge_uq)
+-- already dedupes the new kind, so INSERT RELATION IGNORE keeps the
+-- linker replay-idempotent; support_out_idx / support_kind_idx already
+-- serve the new read paths. The 0106 doctrine applies unchanged: plain
+-- WHERE in/out only, no graph-arrow syntax, and every deleter uses the
+-- LET-select-ids -> DELETE idiom (the reproduced 3.2.4 planner no-op on
+-- the compound-indexed `in`).
+--
+-- GDPR: BOTH forget cascades erase these edges UNCONDITIONALLY — the
+-- dying-scene (in) legs and the dying-evidence (out) leg land with this
+-- PR (user-forget.service.ts / entity-forget.service.ts).
+--
+-- Widen the 0116 memory_support writer enum with the linker pass
+-- (DEFINE FIELD OVERWRITE — the 0120 precedent; ASSERT is not additive,
+-- the full list must be restated. Existing rows all carry values inside
+-- the widened list, so this is purely additive).
+DEFINE FIELD OVERWRITE writer ON memory_support TYPE string
+  ASSERT $value INSIDE ['scene_backlink', 'fact_resolver', 'promotion_runner', 'compaction_runner', 'recompose', 'belief_promotion', 'scene_evidence_linker'];

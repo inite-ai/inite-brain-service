@@ -1053,7 +1053,8 @@
                   "enum": [
                     "supported_by",
                     "contradicted_by",
-                    "derived_from"
+                    "derived_from",
+                    "reconstructed_from"
                   ],
                   "type": "string"
                 },

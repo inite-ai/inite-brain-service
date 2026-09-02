@@ -301,9 +301,11 @@ export class EntityForgetService {
         );
         tx.add(`LET $scenesDel = (DELETE memory_episode WHERE id INSIDE $sceneIds RETURN BEFORE)`);
         // Typed support graph (0116): every memory_support edge touching
-        // this entity's facts (either endpoint) or a dying scene (edge
-        // target) goes with them. The fact ids MUST be pre-collected
-        // here, BEFORE the `DELETE knowledge_fact WHERE entityId = $ent`
+        // this entity's facts (either endpoint) or a dying scene (EITHER
+        // endpoint — supported_by names a scene as `out`; the 0123
+        // scene-evidence zoom edges name it as `in`) goes with them. The
+        // fact ids MUST be pre-collected here, BEFORE the
+        // `DELETE knowledge_fact WHERE entityId = $ent`
         // below erases the rows the SELECT traverses. Runs
         // UNCONDITIONALLY — rows written while PROVENANCE_SUPPORT_EDGES
         // was on must stay erasable after it is off (the
@@ -316,7 +318,8 @@ export class EntityForgetService {
         tx.add(`LET $entFactIds = (SELECT VALUE id FROM knowledge_fact WHERE entityId = $ent)`);
         tx.add(
           `LET $supIds = (SELECT VALUE id FROM memory_support
-             WHERE in INSIDE $entFactIds OR out INSIDE $entFactIds OR out INSIDE $sceneIds
+             WHERE in INSIDE $entFactIds OR out INSIDE $entFactIds
+                OR in INSIDE $sceneIds OR out INSIDE $sceneIds
                 OR in INSIDE $beliefIds OR out INSIDE $beliefIds)`,
         );
         tx.add(`DELETE $supIds`);

@@ -8,6 +8,7 @@ import { ProjectionRegistryService } from '../episodes/projection-registry.servi
 import { scopeForUser } from '../auth/scope-tags';
 import { segmentSessions } from '../episodes/session-window';
 import {
+  sceneEvidenceLinksEnabled,
   sceneFactBacklinkEnabled,
   sceneLlmEnrichmentEnabled,
   sceneSegmentationEnabled,
@@ -26,6 +27,7 @@ import {
 import { SceneVersionService } from './scene-version';
 import { SceneEnricherService } from './scene-enricher.service';
 import { SceneBacklinkService } from './scene-backlink.service';
+import { SceneEvidenceLinkerService } from './scene-evidence-linker.service';
 
 /**
  * Scene composer (Brain v2 PR1): batch-derives the SHADOW memory_episode
@@ -75,6 +77,7 @@ export class SceneComposerService {
     private readonly registry: ProjectionRegistryService,
     private readonly enricher: SceneEnricherService,
     private readonly backlinker: SceneBacklinkService,
+    private readonly evidenceLinker: SceneEvidenceLinkerService,
     private readonly versions: SceneVersionService,
   ) {}
 
@@ -158,6 +161,13 @@ export class SceneComposerService {
         await this.backlinker.run(companyId, opts);
       } catch (e) {
         this.logger.warn(`scene backlink pass failed: ${(e as Error).message}`);
+      }
+    }
+    if (sceneEvidenceLinksEnabled()) {
+      try {
+        await this.evidenceLinker.run(companyId, opts);
+      } catch (e) {
+        this.logger.warn(`scene evidence links pass failed: ${(e as Error).message}`);
       }
     }
     return result;
