@@ -2279,6 +2279,17 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Belief-aware fact damping (PR-B; the resolver ships with the lane, the damping pass lands in the follow-up PR — until then NOTHING reads this flag): prompt-side suffix + stable demotion of fact lines that a matched current belief contradicts, applied to the SAME lines generator and verifier read. Requires BELIEFS_SERVING_LANE (a no-op without the lane’s matched beliefs — boot validation warns on the inconsistent pair). Off (default) → byte-identical.',
   },
   {
+    key: 'BELIEFS_LANE_DATE_DISAMBIGUATION',
+    category: 'pipeline',
+    // Read at call time (common/beliefs-flags.ts) — never captured in a
+    // constructor — so a flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Belief-lane date disambiguation (memory-fitness D4: the generator’s date block teaches "(as of YYYY-MM-DD)" as an answer-bearing EVENT-date stamp, but a belief line’s day is the belief REVISION’s validFrom — so "when did X happen" questions served the revision date instead of the event fact’s date). When on, BeliefLaneService renders ", belief current since <day>" in place of ", as of <day>" — ONE render site, so the generator, the verifier and the fragment-zoom re-verify all read the same disambiguated lines (three-consumer parity by construction) — and both generator belief-section header variants state that a belief-line date is when the belief last changed, never the asked-about event’s date (take event dates from the facts). A no-op without BELIEFS_SERVING_LANE (no lane → no belief lines). Off (default) → byte-identical lines and prompts.',
+  },
+  {
     key: 'PROVENANCE_SUMMARY_EPISODE_STAMP',
     category: 'pipeline',
     defaultValue: '0',

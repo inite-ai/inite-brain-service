@@ -29,7 +29,10 @@ import { runLaneProbe } from './lane-probe';
 import { getActiveRetrievalProfile, type RetrievalProfile } from '../search/retrieval-profile';
 import { buildFactIndex } from './fact-index';
 import { fragmentCitationsEnabled } from '../common/evidence-flags';
-import { beliefServingLaneEnabled } from '../common/beliefs-flags';
+import {
+  beliefServingLaneEnabled,
+  beliefLaneDateDisambiguationEnabled,
+} from '../common/beliefs-flags';
 import { resolveAndCountFragmentCitations } from './fragment-citations';
 import { resolveAndCountBeliefCitations } from './belief-citations';
 import { verifyAndZoom } from './fragment-zoom-seam';
@@ -550,6 +553,10 @@ export class SynthesizeService {
       // generator affordance and the resolver all key off the resulting
       // fence map (populated ⟺ flag on AND beliefs rendered).
       beliefLane: beliefServingLaneEnabled(),
+      // BELIEFS_LANE_DATE_DISAMBIGUATION, resolved ONCE beside the lane
+      // flag: the lane's rendered date token and the generator's belief
+      // header key off the same resolution (echoed on CollectedEvidence).
+      beliefDateDisambiguation: beliefLaneDateDisambiguationEnabled(),
     });
   }
 
@@ -889,6 +896,9 @@ export class SynthesizeService {
        *  carries them identically too. */
       beliefLines?: string[] | undefined;
       beliefCitations?: boolean | undefined;
+      /** BELIEFS_LANE_DATE_DISAMBIGUATION echo — the belief-section
+       *  header rides the same per-request resolution in both rounds. */
+      beliefDateDisambiguation?: boolean | undefined;
     };
   }): Promise<{
     results: SearchHit[];

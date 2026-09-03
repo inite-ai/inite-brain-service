@@ -145,6 +145,14 @@ export interface CollectedEvidence {
    */
   beliefsById?: ReadonlyMap<string, CitableBelief> | undefined;
   /**
+   * BELIEFS_LANE_DATE_DISAMBIGUATION echo (memory-fitness D4): the
+   * caller-resolved flag, carried back so the generator's belief-section
+   * header keys off the SAME per-request resolution that shaped the
+   * rendered lines' date token (the single-resolution idiom — no second
+   * env read downstream). false/undefined ⇒ byte-identical header.
+   */
+  beliefDateDisambiguation?: boolean | undefined;
+  /**
    * G4 strategy lane: rendered advisory notes (k≤2, default 1) from
    * the separate strategy_memory store; undefined when the lane is off
    * the profile or read-side serving is disabled.
@@ -187,6 +195,7 @@ export function emptyCollectedEvidence(
     fragmentZoom: [],
     beliefLines: [],
     beliefsById: undefined,
+    beliefDateDisambiguation: undefined,
   };
 }
 
@@ -236,6 +245,10 @@ export class EvidenceCollectorService {
     /** BELIEFS_SERVING_LANE, resolved ONCE by the caller (the
      *  fragmentCitations precedent) — this service reads no env. */
     beliefLane?: boolean | undefined;
+    /** BELIEFS_LANE_DATE_DISAMBIGUATION, resolved ONCE by the caller
+     *  beside beliefLane — shapes the lane's rendered date token and is
+     *  echoed on CollectedEvidence for the generator header. */
+    beliefDateDisambiguation?: boolean | undefined;
   }): Promise<CollectedEvidence> {
     const { profile, query } = opts;
     const timelineEvidence = wantsTimelineEvidence(profile, query);
@@ -288,6 +301,7 @@ export class EvidenceCollectorService {
       fragmentZoom: fragmentEvidence.zoom,
       beliefLines: beliefEvidence.lines,
       beliefsById: beliefEvidence.byId.size > 0 ? beliefEvidence.byId : undefined,
+      beliefDateDisambiguation: opts.beliefDateDisambiguation,
     };
   }
 
@@ -300,11 +314,13 @@ export class EvidenceCollectorService {
    */
   private async collectBeliefEvidence({
     beliefLane,
+    beliefDateDisambiguation,
     companyId,
     query,
     userId,
   }: {
     beliefLane?: boolean | undefined;
+    beliefDateDisambiguation?: boolean | undefined;
     companyId: string;
     query: string;
     userId?: string | undefined;
@@ -312,7 +328,13 @@ export class EvidenceCollectorService {
     const empty = { lines: [], byId: new Map<string, CitableBelief>() };
     if (beliefLane !== true || !this.beliefLane) return empty;
     if (getAbortSignal()?.aborted) return empty;
-    return this.beliefLane.beliefLines({ companyId, query, userId });
+    return this.beliefLane.beliefLines({
+      companyId,
+      query,
+      userId,
+      // D4 date-token disambiguation — caller-resolved with the lane flag.
+      dateDisambiguation: beliefDateDisambiguation,
+    });
   }
 
   /**

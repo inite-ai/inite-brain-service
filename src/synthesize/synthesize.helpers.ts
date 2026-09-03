@@ -156,6 +156,8 @@ export function buildGeneratorArgs(
       beliefLines?: string[] | undefined;
       /** Belief-citation affordance (rides the master flag), resolved once. */
       beliefCitations?: boolean | undefined;
+      /** BELIEFS_LANE_DATE_DISAMBIGUATION echo (D4), resolved once. */
+      beliefDateDisambiguation?: boolean | undefined;
     };
   },
   o: {
@@ -197,6 +199,10 @@ export function buildGeneratorArgs(
     // affordance — carried identically by both rounds too.
     beliefLines: collected.beliefLines,
     beliefCitations: collected.beliefCitations,
+    // BELIEFS_LANE_DATE_DISAMBIGUATION (D4): the belief-header date
+    // scoping clause rides the same per-request resolution as the
+    // lane's rendered token.
+    beliefDateDisambiguation: collected.beliefDateDisambiguation,
     ...(o.allowRefine !== undefined ? { allowRefine: o.allowRefine } : {}),
     ...(o.answerLangStrict ? { answerLangStrict: true } : {}),
   };

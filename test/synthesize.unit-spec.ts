@@ -607,6 +607,60 @@ describe('buildGeneratorUserMessage — belief section (BELIEFS_SERVING_LANE sea
       expect(out).not.toContain('prefer these lines;');
     }
   });
+
+  // BELIEFS_LANE_DATE_DISAMBIGUATION (memory-fitness D4): a belief
+  // line's date is the REVISION's validFrom, which the date block's
+  // "(as of YYYY-MM-DD)" teaching otherwise reads as an event date.
+  const DATE_SCOPING_CLAUSE =
+    "The date on a belief line is when the belief last changed — never the date of the event being asked about; for 'when did X happen' questions take the date from the facts";
+
+  it('date disambiguation OFF (absent / false / undefined) ⇒ BYTE-IDENTICAL headers, no date-scoping clause', () => {
+    const line = '[semantic_belief:b1] (s — f, rev 1, as of 2026-04-15) s';
+    const base = buildGeneratorUserMessage({ ...BASE, beliefLines: [line], beliefCitations: true });
+    expect(
+      buildGeneratorUserMessage({
+        ...BASE,
+        beliefLines: [line],
+        beliefCitations: true,
+        beliefDateDisambiguation: false,
+      }),
+    ).toBe(base);
+    expect(
+      buildGeneratorUserMessage({
+        ...BASE,
+        beliefLines: [line],
+        beliefCitations: true,
+        beliefDateDisambiguation: undefined,
+      }),
+    ).toBe(base);
+    expect(base).not.toContain(DATE_SCOPING_CLAUSE);
+  });
+
+  it('date disambiguation ON ⇒ BOTH header variants carry the date-scoping clause', () => {
+    const line = '[semantic_belief:b1] (s — f, rev 1, belief current since 2026-04-15) s';
+    const cited = buildGeneratorUserMessage({
+      ...BASE,
+      beliefLines: [line],
+      beliefCitations: true,
+      beliefDateDisambiguation: true,
+    });
+    const plain = buildGeneratorUserMessage({
+      ...BASE,
+      beliefLines: [line],
+      beliefDateDisambiguation: true,
+    });
+    for (const out of [cited, plain]) {
+      expect(out).toContain(DATE_SCOPING_CLAUSE);
+      // The clause composes with (never replaces) the D5 abstention
+      // discipline — both survive in the same header.
+      expect(out).toContain('prefer these lines ONLY when one covers the asked subject/field');
+      expect(out).toContain('These lines ADD evidence');
+    }
+    // The variant split is untouched: only the cited header instructs
+    // citedBeliefIds mirroring.
+    expect(cited).toContain('citedBeliefIds');
+    expect(plain).not.toContain('citedBeliefIds');
+  });
 });
 
 describe('buildVerifierUserMessage — beliefLines (BELIEFS_SERVING_LANE seam)', () => {
