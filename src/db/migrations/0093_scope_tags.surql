@@ -37,42 +37,80 @@
 -- here. Guarding on `(scope IS NONE OR scope = [])` makes it idempotent
 -- and never clobbers a scope a rolling-deploy write may have already
 -- stamped.
+--
+-- ⚡3.2.4 PLANNER QUIRK (2026-09-03 rewrite; same family as the
+-- DELETE-WHERE-on-indexed-field silent no-op in the guard spec): a bulk
+-- `UPDATE ... SET x = 'str' + userId WHERE userId IS NOT NONE` on a
+-- table whose userId is INDEX-COVERED (fact_user_idx / entity_user_idx,
+-- 0055) leaks userId=NONE rows into SET evaluation and the whole
+-- migration dies with "Cannot perform addition with 'string' and
+-- 'none'". Live-reproduced on 3.2.4 (three rows: 'u1' / NONE / absent —
+-- the plain UPDATE errors; the LET-then-FOR form below updates exactly
+-- the one scoped row). Original shipping form worked on 3.1.5-era
+-- tenants and on empty (fresh) DBs, which is why CI and the dogfood
+-- stand never saw it: it only fires on an AGED tenant whose pending
+-- migrations replay on 3.2.4 — first observed on prod co_admin the
+-- night the admin data plane came back (issuer fix). The migrator
+-- tracks applied migrations BY ID with no content checksum, so this
+-- in-place rewrite is safe: applied tenants skip it, stuck tenants get
+-- the fixed body. The IF guard inside the FOR is belt-and-suspenders
+-- against a SELECT-side leak of the same class.
 
 -- ── knowledge_fact ──────────────────────────────────────────────
 DEFINE FIELD IF NOT EXISTS scope ON knowledge_fact TYPE array<string> DEFAULT [];
 DEFINE INDEX IF NOT EXISTS fact_scope_idx ON knowledge_fact FIELDS scope;
-UPDATE knowledge_fact SET scope = ['user:' + userId]
+LET $kf_scoped = SELECT id, userId FROM knowledge_fact
   WHERE userId IS NOT NONE AND (scope IS NONE OR scope = []);
-UPDATE knowledge_fact SET scope = []
+FOR $r IN $kf_scoped {
+  IF $r.userId IS NOT NONE { UPDATE $r.id SET scope = ['user:' + $r.userId]; };
+};
+LET $kf_global = SELECT VALUE id FROM knowledge_fact
   WHERE userId IS NONE AND scope IS NONE;
+FOR $r IN $kf_global { UPDATE $r SET scope = []; };
 
 -- ── knowledge_entity ────────────────────────────────────────────
 DEFINE FIELD IF NOT EXISTS scope ON knowledge_entity TYPE array<string> DEFAULT [];
 DEFINE INDEX IF NOT EXISTS entity_scope_idx ON knowledge_entity FIELDS scope;
-UPDATE knowledge_entity SET scope = ['user:' + userId]
+LET $ke_scoped = SELECT id, userId FROM knowledge_entity
   WHERE userId IS NOT NONE AND (scope IS NONE OR scope = []);
-UPDATE knowledge_entity SET scope = []
+FOR $r IN $ke_scoped {
+  IF $r.userId IS NOT NONE { UPDATE $r.id SET scope = ['user:' + $r.userId]; };
+};
+LET $ke_global = SELECT VALUE id FROM knowledge_entity
   WHERE userId IS NONE AND scope IS NONE;
+FOR $r IN $ke_global { UPDATE $r SET scope = []; };
 
 -- ── knowledge_edge ──────────────────────────────────────────────
 -- Edges carry the userId column (0055) but no write path stamps it —
 -- every edge is tenant-global — so the backfill only ever sets [].
 DEFINE FIELD IF NOT EXISTS scope ON knowledge_edge TYPE array<string> DEFAULT [];
-UPDATE knowledge_edge SET scope = ['user:' + userId]
+LET $kg_scoped = SELECT id, userId FROM knowledge_edge
   WHERE userId IS NOT NONE AND (scope IS NONE OR scope = []);
-UPDATE knowledge_edge SET scope = []
+FOR $r IN $kg_scoped {
+  IF $r.userId IS NOT NONE { UPDATE $r.id SET scope = ['user:' + $r.userId]; };
+};
+LET $kg_global = SELECT VALUE id FROM knowledge_edge
   WHERE userId IS NONE AND scope IS NONE;
+FOR $r IN $kg_global { UPDATE $r SET scope = []; };
 
 -- ── episode (L0 substrate, 0073) ────────────────────────────────
 DEFINE FIELD IF NOT EXISTS scope ON episode TYPE array<string> DEFAULT [];
-UPDATE episode SET scope = ['user:' + userId]
+LET $ep_scoped = SELECT id, userId FROM episode
   WHERE userId IS NOT NONE AND (scope IS NONE OR scope = []);
-UPDATE episode SET scope = []
+FOR $r IN $ep_scoped {
+  IF $r.userId IS NOT NONE { UPDATE $r.id SET scope = ['user:' + $r.userId]; };
+};
+LET $ep_global = SELECT VALUE id FROM episode
   WHERE userId IS NONE AND scope IS NONE;
+FOR $r IN $ep_global { UPDATE $r SET scope = []; };
 
 -- ── episode_segment (0075) ──────────────────────────────────────
 DEFINE FIELD IF NOT EXISTS scope ON episode_segment TYPE array<string> DEFAULT [];
-UPDATE episode_segment SET scope = ['user:' + userId]
+LET $es_scoped = SELECT id, userId FROM episode_segment
   WHERE userId IS NOT NONE AND (scope IS NONE OR scope = []);
-UPDATE episode_segment SET scope = []
+FOR $r IN $es_scoped {
+  IF $r.userId IS NOT NONE { UPDATE $r.id SET scope = ['user:' + $r.userId]; };
+};
+LET $es_global = SELECT VALUE id FROM episode_segment
   WHERE userId IS NONE AND scope IS NONE;
+FOR $r IN $es_global { UPDATE $r SET scope = []; };
