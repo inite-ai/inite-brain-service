@@ -18,6 +18,7 @@ import {
 } from './extractor-internals/grounding';
 import { validateEdges } from './extractor-internals/edge-validator';
 import { denoiseFacts } from './extractor-internals/denoise';
+import { harvestLiterals, resolveSpeakerEntityIndex } from './extractor-internals/literal-harvest';
 import { resolveExtractionProfile } from './extraction-profile';
 import {
   buildConversationContext,
@@ -391,11 +392,38 @@ export class ExtractorRunnerService {
       });
     }
 
-    const result: ExtractionResult = { entities, facts: denoised, edges };
+    // Literal harvest (EXTRACTOR_LITERAL_HARVEST, default off): the
+    // deterministic regex lane for technical literals the closed-vocab
+    // prompt drops (ports, rate limits, HTTP statuses, identifiers,
+    // naming prefixes). Runs AFTER denoise so the denoiser cannot eat
+    // harvested rows; every harvested valueSpan is an exact substring
+    // of the input by construction, so the grounding invariant the gate
+    // above enforces holds for these rows too. Dedup against the
+    // denoised LLM set keeps the union additive-only.
+    const harvested = resolveExtractionProfile().literalHarvest
+      ? harvestLiterals({
+          trimmed,
+          entities,
+          speakerEntityIndex: resolveSpeakerEntityIndex(entities, context?.speakerName),
+          existingFacts: denoised,
+        })
+      : [];
+    if (harvested.length > 0) {
+      traceArtifact('extractor.literal_harvest', {
+        count: harvested.length,
+        facts: harvested.map((f) => ({ predicate: f.predicate, object: f.object })),
+      });
+    }
+    const finalFacts = harvested.length > 0 ? [...denoised, ...harvested] : denoised;
+
+    const result: ExtractionResult = { entities, facts: finalFacts, edges };
     this.local.persistPatterns({
       companyId,
       clauses,
       rawFacts,
+      // Deliberately the LLM facts only: harvested rows are re-derived
+      // deterministically on every ingest, so caching them as replay
+      // patterns would leak flag-on behavior into flag-off replays.
       facts: denoised,
       edges,
     });

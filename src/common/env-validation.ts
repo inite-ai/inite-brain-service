@@ -898,6 +898,12 @@ const KNOWN_BOOLEAN_FLAGS = [
   // thing, unioned with the general pass. Strictly additive recall; costs one
   // extra LLM call per detected facet. Off (default) → single pass.
   'EXTRACTOR_ROUTING_ENABLED',
+  // Memory-fitness lever #1 (Design A): deterministic literal-harvest
+  // lane — regex rules for ports / rate limits / HTTP statuses /
+  // identifiers / naming prefixes, span-grounded by construction and
+  // unioned into the closed-vocab extraction after denoise. No second
+  // LLM path. Default off = byte-identical extraction.
+  'EXTRACTOR_LITERAL_HARVEST',
   'INGEST_CONTEXTUAL_FACT_EMBEDDING',
   'INGEST_EVENT_TIME_EXTRACTION',
   'INGEST_BATCH_EDGES',
