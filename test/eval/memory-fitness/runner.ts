@@ -411,7 +411,10 @@ async function askOne(ctx: AskContext, q: Question): Promise<Verdict> {
     case 'evolution': {
       const entityId = await resolveEntityId(ctx, q.entityQuery, q.predicate);
       if (entityId === null) return { status: 'fail', detail: 'entity not found via search' };
-      const timeline = await callTool<TimelineOut>(ctx.mcp, 'get_entity_timeline', { entityId });
+      const timeline = await callTool<TimelineOut>(ctx.mcp, 'get_entity_timeline', {
+        entityId,
+        userId: ctx.cfg.userId,
+      });
       const events: EvolutionEvent[] = (timeline.events ?? [])
         .filter((e) => e.type === 'fact.recorded')
         .map((e) => ({ predicate: e.predicate ?? '', object: e.object ?? '', at: e.at }));
@@ -505,6 +508,7 @@ async function askOne(ctx: AskContext, q: Question): Promise<Verdict> {
       const out = await callTool<CompetingOut>(ctx.mcp, 'get_competing_facts', {
         entityId,
         predicate: q.predicate,
+        userId: ctx.cfg.userId,
       });
       const group = (out.groups ?? []).find((g) => g.predicate === q.predicate);
       const objects = (group?.facts ?? []).map((f) => f.object).join(' | ');
