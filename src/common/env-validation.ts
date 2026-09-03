@@ -1339,6 +1339,23 @@ const KNOWN_BOOLEAN_FLAGS = [
   // Per-tenant active-space selection + atomic cutover. Off ⇒ reads use the
   // current provider space and the cutover admin surface refuses.
   'EMBEDDING_SPACE_ACTIVE',
+  // Per-user read scope on the two pre-0055 read surfaces (entity
+  // timeline + competing facts): on + userId, the hardcoded
+  // `userId IS NONE` fence widens to `(userId IS NONE OR userId =
+  // $scopeUserId)` with the caller-asserted id pinned to a user-bound
+  // token's end-user (pinUserScope). Off (default) ⇒ the historical
+  // clause, byte-identical. READ_ sits off the ENGINE flag budget by
+  // design (an authz read fence, not an engine fork).
+  'READ_SURFACE_USER_SCOPE',
+  // Direct-fact conflict semantics: the typed ingest path promotes an
+  // unknown-predicate (registry '__default__' fallback) fact from
+  // append_only to 'bitemporal' in FactResolverService so same-slot
+  // direct writes can SUPERSEDE/COMPETE instead of always INSERTED.
+  // Mention-path bulk and DEFAULT_FALLBACK itself untouched. Off
+  // (default) ⇒ append_only passthrough, byte-identical. CONFLICT_
+  // sits off the ENGINE flag budget by design (resolver-policy knob
+  // family, not an engine fork).
+  'CONFLICT_DIRECT_FACT_SLOT',
 ];
 
 /**

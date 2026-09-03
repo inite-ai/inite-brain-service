@@ -60,6 +60,7 @@ export class EntitiesController {
     @Query('since') since?: string,
     @Query('until') until?: string,
     @Query('recordedAt') recordedAt?: string,
+    @Query('userId') userId?: string,
   ) {
     return this.entities.getTimeline({
       companyId: req.brainAuth.companyId,
@@ -67,6 +68,9 @@ export class EntitiesController {
       sinceRaw: since,
       untilRaw: until,
       recordedAtRaw: recordedAt,
+      // Per-user scope (READ_SURFACE_USER_SCOPE gated; pinned to a
+      // user-bound token's end-user inside the service).
+      userId,
       scopes: req.brainAuth.scopes,
     });
   }
