@@ -291,6 +291,12 @@ jobs:
           # ── Packs / MCP / QA ──
           MCP_PACK_EXTERNAL_TOOLS_ENABLED=1
           AGENT_QA_TOOLS_V2=1
+          # ── Memory-fitness fix wave (#415-#417, measured on the stand:
+          # same-memory re-ask 16/30 -> 20/29; D2 timeline 3/3, D6 2/2) ──
+          READ_SURFACE_USER_SCOPE=1
+          CONFLICT_DIRECT_FACT_SLOT=1
+          BELIEFS_LANE_DATE_DISAMBIGUATION=1
+          PROVENANCE_EPISODE_NEIGHBOURS=1
           EOF
           # The heredoc carries the YAML block's 10-space indent into the
           # file; strip it so every line is a clean KEY=value / #comment
