@@ -1251,6 +1251,16 @@ const KNOWN_BOOLEAN_FLAGS = [
   // response byte-identical (field absent). Outside ENGINE_PREFIX by
   // design — off the flag budget.
   'PROVENANCE_SUPPORT_GRAPH_READ',
+  // Evidence plane: the one-hop GET /v1/facts/:id/provenance read
+  // widens to the ±radius sibling turns of the same conversation around
+  // each primary grounding turn (radius =
+  // PROVENANCE_EPISODE_NEIGHBOUR_RADIUS, an integer knob clamped 1..3;
+  // union capped by PROVENANCE_CLOSURE_MAX_EPISODES). Neighbours pass
+  // the identical episode read fences as the primary fetch and carry
+  // relation:'neighbour'. Default off ⇒ response byte-identical.
+  // Outside ENGINE_PREFIX by design — the PROVENANCE_ family sits off
+  // the flag budget.
+  'PROVENANCE_EPISODE_NEIGHBOURS',
   // Multilingual Tier 1 (migration 0100). Confidence-aware attribution:
   // the detector returns `und` (not `en`) for short/stopword-less objects
   // and the resolver stamps langConfidence/langSource/detectorVersion/

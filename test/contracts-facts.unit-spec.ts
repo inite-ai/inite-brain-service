@@ -47,6 +47,10 @@ const fullEpisode: Required<FactProvenanceEpisode> = {
   // G3: code-point offsets over the NFC-normalized FULL stored text.
   span: { start: 2, end: 22, exact: 'moved to Lisbon last' },
   textTruncated: false,
+  // PROVENANCE_EPISODE_NEIGHBOURS: sibling-turn marker — absent on
+  // primary grounding turns (and on the whole response with the flag
+  // off).
+  relation: 'neighbour',
 };
 
 const fullProvenance: Required<FactProvenanceResult> = {

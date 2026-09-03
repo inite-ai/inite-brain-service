@@ -31,6 +31,7 @@ import {
   MERIDIAN_REF,
   SPEAKER,
 } from './corpus';
+import { interleaveRoundRobin } from './interleave';
 import { QUESTIONS } from './questions';
 import {
   checkEvolution,
@@ -44,6 +45,13 @@ import {
   type EvolutionEvent,
 } from './scorers';
 import type { DimensionTally, Dimension, Question, QuestionResult, Scorecard } from './types';
+
+/**
+ * Provenance-walk budget (d3): how many candidate facts get their
+ * provenance unrolled per question. Candidates are interleaved
+ * round-robin across search hits (interleave.ts) before this cap.
+ */
+const PROVENANCE_CANDIDATE_CAP = 12;
 
 // ── configuration ───────────────────────────────────────────────────
 
@@ -444,16 +452,19 @@ async function askOne(ctx: AskContext, q: Question): Promise<Verdict> {
         return { status: 'skipped', detail: 'get_fact_provenance absent (FACTS_API_ENABLED off)' };
       }
       const hits = await searchHits(ctx, q.searchQuery, 8);
-      const factIds: string[] = [];
-      for (const hit of hits) {
+      const factIdsPerHit: string[][] = hits.map((hit) => {
+        const ids: string[] = [];
         for (const fact of hit.facts ?? []) {
           if (q.predicateHint !== undefined && q.predicateHint !== '') {
             if (!fact.predicate.includes(q.predicateHint)) continue;
           }
-          factIds.push(fact.factId);
+          ids.push(fact.factId);
         }
-      }
-      const candidates = factIds.slice(0, 6);
+        return ids;
+      });
+      // Round-robin across hits (hit1.fact1, hit2.fact1, …) so one fat
+      // entity cannot monopolise the walk budget — see interleave.ts.
+      const candidates = interleaveRoundRobin(factIdsPerHit, PROVENANCE_CANDIDATE_CAP);
       if (candidates.length === 0) {
         return { status: 'fail', detail: 'search returned no candidate facts' };
       }

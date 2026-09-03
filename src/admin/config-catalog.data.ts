@@ -2342,6 +2342,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Typed support graph, read side (Drift-5): the provenance closure walk (PROVENANCE_RECURSIVE_CLOSURE) additionally follows derived_from edges as children (same visited set, same depth/fact/episode caps) and returns the supported_by/contradicted_by/derived_from edges it crossed in a new optional supportEdges response field; a root with typed edges but an empty derivedFrom array now walks too. Members pass the same per-row fences; edge targets are classified via EvidenceRef prefixes. Off (default) → the walk and the provenance response are byte-identical (field absent, not empty).',
   },
   {
+    key: 'PROVENANCE_EPISODE_NEIGHBOURS',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Evidence plane, read side: the one-hop GET /v1/facts/:id/provenance read widens to the ±radius sibling turns of the SAME conversation around each primary grounding turn (radius = PROVENANCE_EPISODE_NEIGHBOUR_RADIUS, clamped 1..3) — a mention-extracted fact stamps exactly ONE turn, so a verbatim constraint in the neighbouring paraphrased turn is otherwise unreachable from the fact. Neighbours are fetched through the shared episode read port with the IDENTICAL fences as the primary fetch (PII gate + fail-closed user pin keyed to the same userId + scope-tag fence) and carry relation:'neighbour' on the wire; primary episodes keep their exact shape and always serve — neighbours only fill the remaining PROVENANCE_CLOSURE_MAX_EPISODES budget, admitted chronologically. Off (default) → no window query is issued and the response is byte-identical (no relation key).",
+  },
+  {
+    key: 'PROVENANCE_EPISODE_NEIGHBOUR_RADIUS',
+    category: 'pipeline',
+    defaultValue: '1',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Sibling-turn radius of the PROVENANCE_EPISODE_NEIGHBOURS widening — turns fetched BEFORE and AFTER each primary grounding turn within the same conversation. Clamped to 1..3; unset/invalid → 1. The served union stays bounded by PROVENANCE_CLOSURE_MAX_EPISODES regardless of the radius.',
+  },
+  {
     key: 'PROJECTIONS_API_ENABLED',
     category: 'pipeline',
     defaultValue: '0',

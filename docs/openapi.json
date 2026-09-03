@@ -1103,6 +1103,10 @@
           "occurredAt": {
             "type": "string"
           },
+          "relation": {
+            "const": "neighbour",
+            "type": "string"
+          },
           "span": {
             "additionalProperties": false,
             "properties": {
