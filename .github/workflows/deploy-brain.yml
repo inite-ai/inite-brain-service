@@ -378,8 +378,13 @@ jobs:
                 - AUTH_SERVICE_AUDIENCE=brain
                 # Required: JwksService refuses to boot in production when JWKS
                 # is enabled without an issuer (else the `iss` claim is not
-                # validated). Must match the `iss` auth-service signs with.
-                - AUTH_SERVICE_ISSUER=https://auth.inite.ai
+                # validated). Must match the `iss` auth-service signs with —
+                # which is the API host (auth-api), NOT the login UI host:
+                # https://auth.inite.ai/.well-known/openid-configuration
+                # reports issuer=https://auth-api.inite.ai. The old value
+                # made brain reject EVERY JWKS-verified token with
+                # 'unexpected "iss" claim value' (admin BFF data plane 401).
+                - AUTH_SERVICE_ISSUER=https://auth-api.inite.ai
                 # GDPR forget HMAC — opaque tombstone marker.
                 - FORGET_HMAC_KEY=${{ secrets.BRAIN_FORGET_HMAC_KEY }}
                 # Search retrieval features — eval-validated ON config.
