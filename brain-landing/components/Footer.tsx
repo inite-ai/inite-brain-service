@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { getMessages, type Lang } from '../lib/i18n'
-import { REPO } from '../lib/seo'
+import { PARENT, REPO } from '../lib/seo'
 
 interface Props {
   lang: Lang
@@ -76,6 +76,19 @@ export function Footer({ lang }: Props) {
           </div>
           <p className="mt-3 text-[12px] leading-relaxed text-[var(--text-faint)] max-w-[14rem]">
             {f.tagline}
+          </p>
+          {/* The only crawlable edge from Brain to the company that makes it.
+              See lib/seo.ts PARENT: the relationship was asserted in JSON-LD
+              and never linked, so every catalogue listing landed here and
+              stopped. */}
+          <p className="mt-3 text-[12px] text-[var(--text-faint)]">
+            {f.maker}{' '}
+            <a
+              href={PARENT.url}
+              className="text-[var(--text-muted)] underline underline-offset-2 hover:text-[var(--text)]"
+            >
+              {PARENT.name}
+            </a>
           </p>
         </div>
 

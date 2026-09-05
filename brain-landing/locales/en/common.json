@@ -240,6 +240,7 @@
   },
   "footer": {
     "tagline": "Open-source bitemporal knowledge graph for AI agents. A system of insight, not a system of record.",
+    "maker": "A project by",
     "columns": {
       "product": {
         "title": "Product",
