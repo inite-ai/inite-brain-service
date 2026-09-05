@@ -297,6 +297,12 @@ jobs:
           CONFLICT_DIRECT_FACT_SLOT=1
           BELIEFS_LANE_DATE_DISAMBIGUATION=1
           PROVENANCE_EPISODE_NEIGHBOURS=1
+          # ── Literal harvest + belief transitions (#423/#426, measured:
+          # memory-fitness 70% -> 90% with the harvest lane; Compass
+          # acceptance green — negation revision + field fold) ──
+          EXTRACTOR_LITERAL_HARVEST=1
+          SCENES_BELIEF_NEGATION_DELTAS=1
+          SCENES_BELIEF_FIELD_FOLD=1
           EOF
           # The heredoc carries the YAML block's 10-space indent into the
           # file; strip it so every line is a clean KEY=value / #comment
