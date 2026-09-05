@@ -6,8 +6,10 @@ import { RecordId, StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { chatCallParams, createOpenAiClient } from '../ai/openai-client';
 import {
+  sceneBeliefFieldFoldEnabled,
   sceneBeliefLlmSynthesisEnabled,
   sceneBeliefMinScenes,
+  sceneBeliefNegationDeltasEnabled,
   sceneBeliefPromotionEnabled,
 } from '../common/scene-flags';
 import { supportEdgesEnabled } from '../common/provenance-flags';
@@ -31,6 +33,29 @@ import { SceneVersionService } from './scene-version';
  * sequential state transitions. gist/memoryValue fold in as provenance
  * and confidence signal (enrichedMemoryValue.explicitness), never as
  * keys.
+ *
+ * NEGATION DELTAS (#135 seam 1, SCENES_BELIEF_NEGATION_DELTAS — default
+ * off): an empty-`to` delta with a NON-empty `from` is a state REMOVAL
+ * (sold/quit/ended — the owns:true→false transition), historically
+ * dropped by the no-landing-value guard, so the belief plane kept
+ * asserting the removed state forever. With the flag on, such a delta
+ * contributes the canonical sentinel value BELIEF_NEGATION_VALUE
+ * ('none') with priorValue = the delta's `from`; the ordinary supersede
+ * chain below then revises the belief naturally ('none' differs from
+ * the current value). Both-ends-empty deltas stay dropped, flag on or
+ * off — nothing to negate.
+ *
+ * FIELD FOLD (#135 seam 2, SCENES_BELIEF_FIELD_FOLD — default off): the
+ * enricher re-coins free-text field names per scene ('car' vs 'car
+ * ownership'), so exact-string grouping created PARALLEL beliefs
+ * instead of revisions. With the flag on, an incoming field name folds
+ * onto an existing one — existing ACTIVE beliefs of the same (userId,
+ * subject) plus fields already admitted earlier in the same batch —
+ * under the deterministic lexical fieldsFold rule (token-set subset
+ * whose extra tokens are all generic modifiers; NO embeddings, NO LLM)
+ * BEFORE the group key is built, so negation + fold compose. The
+ * EXISTING name wins (stability); more than one match folds NOTHING and
+ * warns loudly (the skip-loudly, never-flip-flop doctrine).
  *
  * CONFLICT GUARD (built-in, no flag): a group whose latest timestamp is
  * shared by two DIFFERENT values has no deterministic winner — the whole
@@ -101,6 +126,23 @@ const CONFIDENCE_FLOOR = 0.05;
 
 export const BELIEF_SYNTHESIS_SYSTEM = `You phrase ONE remembered belief — a (subject, attribute, value) state a user's conversations established — as a single natural sentence. Output strictly the JSON schema: "statement": one concise declarative sentence stating the belief content itself (never meta-language like "the user said"). Include the previous value only when one is given.`;
 
+/**
+ * Canonical negation sentinel (#135 seam 1): the folded value of an
+ * admitted state-REMOVAL delta (empty `to`, non-empty `from`). A plain
+ * string on purpose — it flows through the existing supersede chain,
+ * template and lane render unchanged ('subject — field: none (was:
+ * prior)').
+ */
+export const BELIEF_NEGATION_VALUE = 'none';
+
+/**
+ * SCENES_BELIEF_NEGATION_DELTAS synthesis-prompt clause — appended to
+ * BELIEF_SYNTHESIS_SYSTEM only when the flag is on AND the write
+ * involves the sentinel (the generator-prompt split-constant idiom,
+ * #412/#413/#415: flag off ⇒ byte-identical prompt).
+ */
+export const BELIEF_SYNTHESIS_NEGATION_CLAUSE = ` A value of "${BELIEF_NEGATION_VALUE}" means the subject NO LONGER has the attribute — phrase it as a natural negation (e.g. "no longer has a car"), never as possessing something called "${BELIEF_NEGATION_VALUE}".`;
+
 /** Scene head as selected by the promotion query (validated in JS). */
 export interface PromotableSceneHead {
   id: unknown;
@@ -159,101 +201,300 @@ export interface BeliefFold {
   folded: FoldedBelief[];
   /** Groups the conflict guard refused (ambiguous latest value). */
   conflicts: Array<{ userId: string; subject: string; field: string; values: string[] }>;
+  /** SCENES_BELIEF_FIELD_FOLD: incoming names folded onto existing ones. */
+  fieldFolds: Array<{ userId: string; subject: string; from: string; to: string }>;
+  /** Field-fold ambiguity guard: >1 existing candidates — NOT folded. */
+  fieldFoldAmbiguities: Array<{
+    userId: string;
+    subject: string;
+    field: string;
+    candidates: string[];
+  }>;
+}
+
+/** Fold behavior knobs, resolved ONCE per run (the Drift-3 contract). */
+export interface BeliefFoldOptions {
+  /** SCENES_BELIEF_NEGATION_DELTAS: admit empty-`to` removal deltas. */
+  negationDeltas?: boolean;
+  /**
+   * SCENES_BELIEF_FIELD_FOLD: existing ACTIVE belief field names per
+   * (userId, subject) — key `${userId}\x00${subject}`. Undefined (flag
+   * off) ⇒ exact-string grouping, byte-identical to the historical fold.
+   */
+  existingFields?: ReadonlyMap<string, readonly string[]>;
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 
 /**
- * Pure: group eligible scenes' stateDeltas by (userId, subject, field)
- * and fold each group to one verdict (latest value wins; scenes ordered
- * by occurredTo then scene id, so the fold is deterministic). Groups
- * whose latest timestamp carries two different values are returned as
- * conflicts (the built-in guard) — never half-promoted.
+ * Generic-modifier stoplist for the field-fold rule (#135 seam 2): the
+ * ONLY extra tokens a longer field name may carry and still fold onto a
+ * shorter one. Deliberately tiny and conservative — 'car ownership'
+ * folds onto 'car' (ownership is generic), 'car registration' does NOT
+ * (registration names a DIFFERENT attribute), and 'queue backend' does
+ * NOT fold onto 'queue' (backend is specific) — a known limitation we
+ * accept over the false-fold risk.
  */
-export function foldBeliefGroups(
-  scenes: ReadonlyArray<{ scene: PromotableSceneHead; userId: string }>,
-): BeliefFold {
-  const groups = new Map<
-    string,
-    { userId: string; subject: string; field: string; contributions: BeliefContribution[] }
-  >();
-  for (const { scene, userId } of scenes) {
-    const sceneId = String(scene.id);
-    const conversationId = Array.isArray(scene.conversationIds)
-      ? str(scene.conversationIds[0])
-      : '';
-    // WS-driver datetimes arrive as Date instances; e2e/unit fixtures may
-    // hand ISO strings — accept both, never String(Date) (query_arc lesson).
-    const occurredAt =
-      scene.occurredTo instanceof Date
-        ? scene.occurredTo.getTime()
-        : new Date(String(scene.occurredTo ?? '')).getTime();
-    if (!Number.isFinite(occurredAt)) continue; // unordered scene: unusable
-    const explicitnessRaw = scene.explicitness;
-    const explicitness =
-      typeof explicitnessRaw === 'number' && Number.isFinite(explicitnessRaw)
-        ? Math.min(1, Math.max(0, explicitnessRaw))
-        : DEFAULT_EXPLICITNESS;
-    for (const delta of Array.isArray(scene.stateDeltas) ? scene.stateDeltas : []) {
-      if (typeof delta !== 'object' || delta === null) continue;
-      const d = delta as Record<string, unknown>;
-      const subject = str(d.subject);
-      const field = str(d.field);
-      const value = str(d.to);
-      // A delta without a landing value holds nothing promotable.
-      if (subject === '' || field === '' || value === '') continue;
-      const key = `${userId}\x00${subject}\x00${field}`;
-      let group = groups.get(key);
-      if (!group) {
-        group = { userId, subject, field, contributions: [] };
-        groups.set(key, group);
-      }
-      group.contributions.push({
-        sceneId,
-        conversationId,
-        occurredAt,
-        value,
-        priorValue: str(d.from),
-        explicitness,
-      });
-    }
-  }
+export const FIELD_FOLD_GENERIC_TOKENS: ReadonlySet<string> = new Set([
+  'ownership',
+  'status',
+  'state',
+  'current',
+  'of',
+  'the',
+]);
 
-  const fold: BeliefFold = { folded: [], conflicts: [] };
-  for (const group of groups.values()) {
-    const ordered = [...group.contributions].sort(
-      (a, b) => a.occurredAt - b.occurredAt || a.sceneId.localeCompare(b.sceneId),
-    );
-    const winner = ordered[ordered.length - 1]!;
-    // Conflict guard: a DIFFERENT value at the winning timestamp means
-    // the batch has no deterministic latest state.
-    const ambiguous = ordered.some(
-      (c) => c.occurredAt === winner.occurredAt && c.value !== winner.value,
-    );
-    if (ambiguous) {
-      fold.conflicts.push({
+/** Normalize a free-text field name: lowercase, strip punctuation, tokenize. */
+function fieldTokens(field: string): Set<string> {
+  return new Set(
+    field
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+      .split(/\s+/)
+      .filter((t) => t !== ''),
+  );
+}
+
+/**
+ * Pure (#135 seam 2): may these two free-text field names denote the
+ * same attribute? True ONLY when one token SET is a subset of the other
+ * AND every extra token of the longer name is a generic modifier from
+ * FIELD_FOLD_GENERIC_TOKENS. Deterministic and lexical — NO embeddings,
+ * NO LLM, no stemming ('deploy' ≠ 'deployment' — accepted limitation).
+ */
+export function fieldsFold(a: string, b: string): boolean {
+  const ta = fieldTokens(a);
+  const tb = fieldTokens(b);
+  if (ta.size === 0 || tb.size === 0) return false;
+  const [small, large] = ta.size <= tb.size ? [ta, tb] : [tb, ta];
+  for (const t of small) if (!large.has(t)) return false;
+  for (const t of large) if (!small.has(t) && !FIELD_FOLD_GENERIC_TOKENS.has(t)) return false;
+  return true;
+}
+
+/**
+ * Pure (#135 seam 2): resolve an incoming field name against the known
+ * fields of the same (userId, subject). An exact string match short-
+ * circuits (already the canonical name); exactly ONE foldable candidate
+ * folds — the EXISTING name wins (stability); MORE than one is
+ * ambiguous — fold NOTHING, keep the incoming name (the caller warns
+ * loudly: skip loudly, never flip-flop).
+ */
+export function resolveFieldFold(
+  incoming: string,
+  knownFields: readonly string[],
+): { field: string; folded: boolean; ambiguous: boolean; candidates: string[] } {
+  const distinct = [...new Set(knownFields)];
+  if (distinct.includes(incoming)) {
+    return { field: incoming, folded: false, ambiguous: false, candidates: [] };
+  }
+  const candidates = distinct.filter((existing) => fieldsFold(incoming, existing));
+  if (candidates.length === 1) {
+    return { field: candidates[0]!, folded: true, ambiguous: false, candidates };
+  }
+  if (candidates.length > 1) {
+    return { field: incoming, folded: false, ambiguous: true, candidates };
+  }
+  return { field: incoming, folded: false, ambiguous: false, candidates: [] };
+}
+
+/**
+ * Pure: a delta's landing value, or null when it holds nothing
+ * promotable. The historical rule drops every empty-`to` delta; with
+ * negationDeltas on (#135 seam 1) an empty-`to` / non-empty-`from`
+ * delta — a state REMOVAL — lands as the canonical sentinel instead.
+ * Both ends empty stays dropped, flag on or off — nothing to negate.
+ */
+function admitDeltaValue(
+  d: Record<string, unknown>,
+  negationDeltas: boolean,
+): { value: string; priorValue: string } | null {
+  const priorValue = str(d.from);
+  const value = str(d.to);
+  if (value !== '') return { value, priorValue };
+  if (negationDeltas && priorValue !== '') return { value: BELIEF_NEGATION_VALUE, priorValue };
+  return null;
+}
+
+/** Mutable fold-state threaded through the per-delta field resolution. */
+interface FieldFoldState {
+  /** Fields already admitted this batch, per (userId, subject) — the
+   *  intra-batch fold candidates (first-seen order, deterministic for a
+   *  given scene order). */
+  batchFields: Map<string, string[]>;
+  fieldFolds: Map<string, BeliefFold['fieldFolds'][number]>;
+  fieldFoldAmbiguities: Map<string, BeliefFold['fieldFoldAmbiguities'][number]>;
+}
+
+/**
+ * #135 seam 2: fold one delta's field BEFORE the group key is built, so
+ * negation + fold compose. Candidates: existing ACTIVE belief fields of
+ * this (userId, subject) ∪ fields already admitted earlier in this
+ * batch (so a two-scene create+negate batch converges to ONE group).
+ * Returns the group field name and records folds/ambiguities in state.
+ */
+function foldDeltaField(
+  { userId, subject, field }: { userId: string; subject: string; field: string },
+  existingFields: ReadonlyMap<string, readonly string[]>,
+  state: FieldFoldState,
+): string {
+  const subjectKey = `${userId}\x00${subject}`;
+  const known = [
+    ...(existingFields.get(subjectKey) ?? []),
+    ...(state.batchFields.get(subjectKey) ?? []),
+  ];
+  const resolved = resolveFieldFold(field, known);
+  let groupField = field;
+  if (resolved.ambiguous) {
+    state.fieldFoldAmbiguities.set(`${subjectKey}\x00${field}`, {
+      userId,
+      subject,
+      field,
+      candidates: resolved.candidates,
+    });
+  } else if (resolved.folded) {
+    state.fieldFolds.set(`${subjectKey}\x00${field}`, {
+      userId,
+      subject,
+      from: field,
+      to: resolved.field,
+    });
+    groupField = resolved.field;
+  }
+  const seen = state.batchFields.get(subjectKey);
+  if (seen === undefined) state.batchFields.set(subjectKey, [groupField]);
+  else if (!seen.includes(groupField)) seen.push(groupField);
+  return groupField;
+}
+
+type BeliefGroups = Map<
+  string,
+  { userId: string; subject: string; field: string; contributions: BeliefContribution[] }
+>;
+
+/** Scene-head fields the fold consumes, parsed defensively. */
+interface SceneFoldContext {
+  sceneId: string;
+  conversationId: string;
+  occurredAt: number;
+  explicitness: number;
+}
+
+/** Pure: parse one scene's head for the fold; null = unusable (unordered). */
+function sceneFoldContext(scene: PromotableSceneHead): SceneFoldContext | null {
+  const sceneId = String(scene.id);
+  const conversationId = Array.isArray(scene.conversationIds) ? str(scene.conversationIds[0]) : '';
+  // WS-driver datetimes arrive as Date instances; e2e/unit fixtures may
+  // hand ISO strings — accept both, never String(Date) (query_arc lesson).
+  const occurredAt =
+    scene.occurredTo instanceof Date
+      ? scene.occurredTo.getTime()
+      : new Date(String(scene.occurredTo ?? '')).getTime();
+  if (!Number.isFinite(occurredAt)) return null;
+  const explicitnessRaw = scene.explicitness;
+  const explicitness =
+    typeof explicitnessRaw === 'number' && Number.isFinite(explicitnessRaw)
+      ? Math.min(1, Math.max(0, explicitnessRaw))
+      : DEFAULT_EXPLICITNESS;
+  return { sceneId, conversationId, occurredAt, explicitness };
+}
+
+/**
+ * Pure (mutates groups/foldState): admit one scene's stateDeltas into
+ * their (userId, subject, field) groups — subject/field presence guard,
+ * value admission (admitDeltaValue, #135 seam 1), field folding
+ * (foldDeltaField, #135 seam 2) BEFORE the group key is built.
+ */
+function collectSceneDeltas({
+  scene,
+  userId,
+  head,
+  opts,
+  foldState,
+  groups,
+}: {
+  scene: PromotableSceneHead;
+  userId: string;
+  head: SceneFoldContext;
+  opts: BeliefFoldOptions;
+  foldState: FieldFoldState;
+  groups: BeliefGroups;
+}): void {
+  for (const delta of Array.isArray(scene.stateDeltas) ? scene.stateDeltas : []) {
+    if (typeof delta !== 'object' || delta === null) continue;
+    const d = delta as Record<string, unknown>;
+    const subject = str(d.subject);
+    const rawField = str(d.field);
+    if (subject === '' || rawField === '') continue;
+    const admitted = admitDeltaValue(d, opts.negationDeltas === true);
+    if (admitted === null) continue;
+    const field =
+      opts.existingFields !== undefined
+        ? foldDeltaField({ userId, subject, field: rawField }, opts.existingFields, foldState)
+        : rawField;
+    const key = `${userId}\x00${subject}\x00${field}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { userId, subject, field, contributions: [] };
+      groups.set(key, group);
+    }
+    group.contributions.push({
+      sceneId: head.sceneId,
+      conversationId: head.conversationId,
+      occurredAt: head.occurredAt,
+      value: admitted.value,
+      priorValue: admitted.priorValue,
+      explicitness: head.explicitness,
+    });
+  }
+}
+
+/**
+ * Pure: one (userId, subject, field) group's verdict — the latest value
+ * wins (contributions ordered by occurredAt then scene id, so the fold
+ * is deterministic); a DIFFERENT value at the winning timestamp means
+ * the batch has no deterministic latest state and the whole group is a
+ * conflict (the built-in guard) — never half-promoted.
+ */
+function foldGroupVerdict(group: {
+  userId: string;
+  subject: string;
+  field: string;
+  contributions: BeliefContribution[];
+}): { conflict: BeliefFold['conflicts'][number] } | { folded: FoldedBelief } {
+  const ordered = [...group.contributions].sort(
+    (a, b) => a.occurredAt - b.occurredAt || a.sceneId.localeCompare(b.sceneId),
+  );
+  const winner = ordered[ordered.length - 1]!;
+  const ambiguous = ordered.some(
+    (c) => c.occurredAt === winner.occurredAt && c.value !== winner.value,
+  );
+  if (ambiguous) {
+    return {
+      conflict: {
         userId: group.userId,
         subject: group.subject,
         field: group.field,
         values: [...new Set(ordered.map((c) => c.value))].sort(),
-      });
-      continue;
-    }
-    const corroborating = ordered.filter((c) => c.value === winner.value);
-    const sceneIds = [...new Set(corroborating.map((c) => c.sceneId))];
-    const conversationIds = [
-      ...new Set(corroborating.map((c) => c.conversationId).filter((c) => c !== '')),
-    ];
-    const meanExplicitness =
-      corroborating.reduce((sum, c) => sum + c.explicitness, 0) / corroborating.length;
-    const confidence = Math.min(
-      CONFIDENCE_CAP,
-      Math.max(
-        CONFIDENCE_FLOOR,
-        meanExplicitness + CORROBORATION_BONUS * Math.max(0, conversationIds.length - 1),
-      ),
-    );
-    fold.folded.push({
+      },
+    };
+  }
+  const corroborating = ordered.filter((c) => c.value === winner.value);
+  const sceneIds = [...new Set(corroborating.map((c) => c.sceneId))];
+  const conversationIds = [
+    ...new Set(corroborating.map((c) => c.conversationId).filter((c) => c !== '')),
+  ];
+  const meanExplicitness =
+    corroborating.reduce((sum, c) => sum + c.explicitness, 0) / corroborating.length;
+  const confidence = Math.min(
+    CONFIDENCE_CAP,
+    Math.max(
+      CONFIDENCE_FLOOR,
+      meanExplicitness + CORROBORATION_BONUS * Math.max(0, conversationIds.length - 1),
+    ),
+  );
+  return {
+    folded: {
       userId: group.userId,
       subject: group.subject,
       field: group.field,
@@ -263,7 +504,49 @@ export function foldBeliefGroups(
       sceneIds,
       conversationIds,
       confidence: Math.round(confidence * 10000) / 10000,
-    });
+    },
+  };
+}
+
+/**
+ * Pure: group eligible scenes' stateDeltas by (userId, subject, field)
+ * and fold each group to one verdict via foldGroupVerdict (latest value
+ * wins; deterministic ordering). Groups whose latest timestamp carries
+ * two different values are returned as conflicts (the built-in guard) —
+ * never half-promoted.
+ *
+ * With opts.negationDeltas (#135 seam 1) an empty-`to` / non-empty-
+ * `from` delta contributes BELIEF_NEGATION_VALUE instead of being
+ * dropped (admitDeltaValue); with opts.existingFields (#135 seam 2)
+ * each admitted delta's field runs through foldDeltaField BEFORE the
+ * group key is built. No opts ⇒ byte-identical to the historical fold.
+ */
+export function foldBeliefGroups(
+  scenes: ReadonlyArray<{ scene: PromotableSceneHead; userId: string }>,
+  opts: BeliefFoldOptions = {},
+): BeliefFold {
+  const groups: BeliefGroups = new Map();
+  const foldState: FieldFoldState = {
+    batchFields: new Map(),
+    fieldFolds: new Map(),
+    fieldFoldAmbiguities: new Map(),
+  };
+  for (const { scene, userId } of scenes) {
+    const head = sceneFoldContext(scene);
+    if (head === null) continue; // unordered scene: unusable
+    collectSceneDeltas({ scene, userId, head, opts, foldState, groups });
+  }
+
+  const fold: BeliefFold = {
+    folded: [],
+    conflicts: [],
+    fieldFolds: [...foldState.fieldFolds.values()],
+    fieldFoldAmbiguities: [...foldState.fieldFoldAmbiguities.values()],
+  };
+  for (const group of groups.values()) {
+    const verdict = foldGroupVerdict(group);
+    if ('conflict' in verdict) fold.conflicts.push(verdict.conflict);
+    else fold.folded.push(verdict.folded);
   }
   // Deterministic emission order (stable logs, stable tests).
   fold.folded.sort(
@@ -313,6 +596,10 @@ export interface BeliefPromotionResult {
   skippedMixedUser: number;
   /** (subject, field) groups the conflict guard refused. */
   skippedConflict: number;
+  /** Field names folded onto an existing one (SCENES_BELIEF_FIELD_FOLD). */
+  fieldFolds: number;
+  /** Field names left UNfolded because >1 existing field matched. */
+  fieldFoldAmbiguous: number;
   /** Groups below the SCENES_BELIEF_MIN_SCENES conversation floor. */
   skippedFloor: number;
   /** Groups whose winner was not newer than the active belief (stale). */
@@ -379,6 +666,8 @@ export class BeliefPromotionService {
       eligibleScenes: 0,
       skippedMixedUser: 0,
       skippedConflict: 0,
+      fieldFolds: 0,
+      fieldFoldAmbiguous: 0,
       skippedFloor: 0,
       skippedStale: 0,
       beliefsCreated: 0,
@@ -397,6 +686,8 @@ export class BeliefPromotionService {
     const promoterVersion = beliefPromoterVersion(version);
     const floor = sceneBeliefMinScenes();
     const edgesOn = supportEdgesEnabled();
+    const negationDeltas = sceneBeliefNegationDeltasEnabled();
+    const fieldFoldOn = sceneBeliefFieldFoldEnabled();
     await this.surreal.withCompany(companyId, async (db) => {
       const [scenes] = await db.query<[PromotableSceneHead[]]>(
         `SELECT id, userId, userIds, conversationIds, occurredTo, stateDeltas,
@@ -427,12 +718,57 @@ export class BeliefPromotionService {
         eligible.push({ scene, userId });
       }
 
-      const { folded, conflicts } = foldBeliefGroups(eligible);
+      // #135 seam 2: fold candidates are the existing ACTIVE belief
+      // field names per (userId, subject) — one plain SELECT (safe on
+      // the 3.2.4 planner; the DELETE-WHERE trap does not apply to
+      // reads). Flag off ⇒ zero extra queries.
+      let existingFields: Map<string, string[]> | undefined;
+      if (fieldFoldOn && eligible.length > 0) {
+        const userIds = [...new Set(eligible.map((e) => e.userId))];
+        const [rows] = await db.query<
+          [Array<{ userId: unknown; subject: unknown; field: unknown }>]
+        >(
+          `SELECT userId, subject, field FROM semantic_belief
+            WHERE status = 'active' AND userId INSIDE $userIds`,
+          { userIds },
+        );
+        existingFields = new Map();
+        for (const row of rows ?? []) {
+          const u = str(row.userId);
+          const s = str(row.subject);
+          const fieldName = str(row.field);
+          if (u === '' || s === '' || fieldName === '') continue;
+          const key = `${u}\x00${s}`;
+          const list = existingFields.get(key);
+          if (list === undefined) existingFields.set(key, [fieldName]);
+          else if (!list.includes(fieldName)) list.push(fieldName);
+        }
+      }
+
+      const { folded, conflicts, fieldFolds, fieldFoldAmbiguities } = foldBeliefGroups(eligible, {
+        negationDeltas,
+        ...(existingFields !== undefined ? { existingFields } : {}),
+      });
       result.skippedConflict = conflicts.length;
+      result.fieldFolds = fieldFolds.length;
+      result.fieldFoldAmbiguous = fieldFoldAmbiguities.length;
       for (const c of conflicts) {
         this.logger.warn(
           `belief promotion conflict guard: (${c.subject}, ${c.field}) for user ${c.userId} ` +
             `has irreconcilable in-batch values [${c.values.join(' | ')}] — group skipped`,
+        );
+      }
+      for (const ff of fieldFolds) {
+        this.logger.log(
+          `belief promotion field fold: '${ff.from}' folded onto existing field '${ff.to}' ` +
+            `for subject ${ff.subject} (user ${ff.userId}) — SCENES_BELIEF_FIELD_FOLD`,
+        );
+      }
+      for (const amb of fieldFoldAmbiguities) {
+        this.logger.warn(
+          `belief promotion field-fold ambiguity: '${amb.field}' for subject ${amb.subject} ` +
+            `(user ${amb.userId}) matches ${amb.candidates.length} existing fields ` +
+            `[${amb.candidates.join(' | ')}] — NOT folded (skip loudly, never flip-flop)`,
         );
       }
 
@@ -453,6 +789,7 @@ export class BeliefPromotionService {
         `${result.beliefsCorroborated} corroborated, ${result.beliefsRevised} revised ` +
         `over ${result.eligibleScenes}/${result.scenes} scene(s) ` +
         `(mixedUser=${result.skippedMixedUser} conflict=${result.skippedConflict} ` +
+        `fieldFolds=${result.fieldFolds} foldAmbiguous=${result.fieldFoldAmbiguous} ` +
         `floor=${result.skippedFloor} stale=${result.skippedStale} edges=${result.supportEdges})`,
     );
     return result;
@@ -723,12 +1060,20 @@ export class BeliefPromotionService {
       this.logger.warn('belief statement synthesis skipped: no OPENAI_API_KEY configured');
       return { text: template, source: 'template' };
     }
+    // #135 seam 1: the negation clause joins the system prompt only when
+    // the flag is on AND the write involves the sentinel (split-constant
+    // idiom — flag off, or a non-negation belief, is byte-identical).
+    const system =
+      sceneBeliefNegationDeltasEnabled() &&
+      (belief.value === BELIEF_NEGATION_VALUE || belief.priorValue === BELIEF_NEGATION_VALUE)
+        ? BELIEF_SYNTHESIS_SYSTEM + BELIEF_SYNTHESIS_NEGATION_CLAUSE
+        : BELIEF_SYNTHESIS_SYSTEM;
     try {
       const res = await this.openai.chat.completions.create({
         model: this.model,
         ...chatCallParams(this.model, { temperature: 0, visibleCap: SYNTHESIS_VISIBLE_CAP }),
         messages: [
-          { role: 'system', content: BELIEF_SYNTHESIS_SYSTEM },
+          { role: 'system', content: system },
           {
             role: 'user',
             content:

@@ -1044,6 +1044,20 @@ const KNOWN_BOOLEAN_FLAGS = [
   // to the deterministic template. Default off ⇒ no LLM call ever runs —
   // every statement is the deterministic template.
   'SCENES_BELIEF_LLM_SYNTHESIS',
+  // Belief negation deltas (#135 seam 1): the promotion fold admits an
+  // empty-`to` / non-empty-`from` stateDelta — a state removal — as the
+  // canonical sentinel value 'none' with priorValue = the delta's
+  // `from`, so the supersede chain revises the belief instead of
+  // silently keeping the stale assertion. Default off ⇒ empty-`to`
+  // deltas are dropped exactly as before — byte-identical fold output.
+  'SCENES_BELIEF_NEGATION_DELTAS',
+  // Belief field fold (#135 seam 2): deterministic lexical folding of
+  // enricher-re-coined field names ('car ownership' → existing 'car')
+  // at promotion time — token-set subset whose extra tokens are all
+  // generic modifiers; the existing name wins, ambiguity (>1 match)
+  // folds nothing and warns loudly. NO embeddings, NO LLM. Default off
+  // ⇒ exact-string grouping, zero extra queries — byte-identical.
+  'SCENES_BELIEF_FIELD_FOLD',
   // Scene evidence links (MM-zoom PR1, migration 0123): typed
   // scene-reconstructed_from->evidence_fragment|evidence_asset edges in
   // memory_support from the union of member episodes' source.evidenceRefs

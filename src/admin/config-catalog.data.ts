@@ -756,6 +756,31 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Belief promotion statement synthesis: ONE structured LLM call per belief create/revise phrasing the statement text (statementSource llm); any failure degrades to the deterministic template — the fold never depends on the model. Off = no LLM call ever runs, every statement is the deterministic template (statementSource template).',
   },
   {
+    key: 'SCENES_BELIEF_NEGATION_DELTAS',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneBeliefNegationDeltasEnabled)
+    // once per promotion run for the fold + per belief write for the
+    // synthesis-prompt clause — never captured in a constructor — so a
+    // flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Belief promotion negation deltas (#135 seam 1): admit a stateDelta with empty `to` and NON-empty `from` — a state REMOVAL (sold/quit/ended, the owns:true→false transition) — as a fold contribution with the canonical sentinel value none and priorValue = the delta’s from; the ordinary supersede chain then revises the belief (none vs the current value). Deltas with both ends empty stay dropped. Off = empty-to deltas are dropped exactly as before — byte-identical fold output and synthesis prompt.',
+  },
+  {
+    key: 'SCENES_BELIEF_FIELD_FOLD',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneBeliefFieldFoldEnabled) once
+    // per promotion run — never captured in a constructor — so a flip
+    // takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Belief promotion field fold (#135 seam 2): deterministically fold an enricher-re-coined field name onto an existing one for the same (userId, subject) — token-set subset whose extra tokens are all generic modifiers (ownership/status/state/current/of/the); the EXISTING name wins, and more than one match folds nothing and warns loudly (skip loudly, never flip-flop). NO embeddings, NO LLM. Off = exact-string (subject, field) grouping and zero extra queries — byte-identical fold output.',
+  },
+  {
     key: 'SCENES_EVIDENCE_LINKS',
     category: 'scenes',
     // Read at call time (scene-flags.sceneEvidenceLinksEnabled) by the

@@ -172,6 +172,45 @@ export function sceneBeliefLlmSynthesisEnabled(): boolean {
 }
 
 /**
+ * Scenes belief negation-deltas flag — SCENES_BELIEF_NEGATION_DELTAS
+ * (#135 seam 1). When on, the promotion fold ADMITS a stateDelta whose
+ * `to` is empty but whose `from` is NON-empty — a state REMOVAL
+ * (sold/quit/ended, the owns:true→false transition) — as a contribution
+ * carrying the canonical negation sentinel value 'none'
+ * (BELIEF_NEGATION_VALUE) with priorValue = the delta's `from`; the
+ * ordinary supersede chain then revises the belief naturally ('none' vs
+ * the current value). A delta with BOTH ends empty stays dropped —
+ * nothing to negate. The env read lives here in the common layer, NOT
+ * inside the engine dirs (engine-gates S5.2). Read at call time so a
+ * flip is runtime-mutable. Default off ⇒ empty-`to` deltas are dropped
+ * exactly as before — byte-identical fold output and prompts.
+ */
+export function sceneBeliefNegationDeltasEnabled(): boolean {
+  return envFlagEnabled(process.env.SCENES_BELIEF_NEGATION_DELTAS);
+}
+
+/**
+ * Scenes belief field-fold flag — SCENES_BELIEF_FIELD_FOLD (#135 seam
+ * 2). The LLM enricher re-coins free-text field names per scene ('car'
+ * vs 'car ownership'), so exact-string (subject, field) grouping lands
+ * follow-up deltas in a fresh group and creates a PARALLEL belief
+ * instead of revising the existing one. When on, the promotion pass
+ * folds an incoming field name onto an existing one (existing ACTIVE
+ * beliefs of the same (userId, subject) + fields already admitted in
+ * the same batch) under a deterministic lexical rule — token-set subset
+ * whose extra tokens are all generic modifiers (fieldsFold — NO
+ * embeddings, NO LLM); the EXISTING name wins (stability), and more
+ * than one match folds NOTHING and warns loudly (the skip-loudly,
+ * never-flip-flop doctrine). The env read lives here in the common
+ * layer, NOT inside the engine dirs (engine-gates S5.2). Read at call
+ * time so a flip is runtime-mutable. Default off ⇒ exact-string
+ * grouping and zero extra queries — byte-identical fold output.
+ */
+export function sceneBeliefFieldFoldEnabled(): boolean {
+  return envFlagEnabled(process.env.SCENES_BELIEF_FIELD_FOLD);
+}
+
+/**
  * Belief corroboration floor (SCENES_BELIEF_MIN_SCENES): promote a
  * (subject, field) group only when its winning value is corroborated by
  * scenes from at least this many DISTINCT CONVERSATIONS (the #377
