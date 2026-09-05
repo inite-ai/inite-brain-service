@@ -9,6 +9,25 @@ export const SITE_URL = 'https://brain.inite.ai'
 export const REPO = 'inite-ai/inite-brain-service'
 export const GITHUB_URL = `https://github.com/${REPO}`
 
+/**
+ * The company Brain belongs to.
+ *
+ * It was declared twice and linked zero times: `organizationSchema` asserts
+ * `parentOrganization` and lists inite.ai under `sameAs`, and neither is a
+ * hyperlink. JSON-LD states a relationship; it does not carry one. Every MCP
+ * catalogue that lists this server (pulsemcp, mcphq, mcp-marketplace,
+ * roninforge) points at brain.inite.ai, and from here nothing pointed on — the
+ * whole family's earned links dead-ended on a subdomain.
+ *
+ * The footer link below is the only crawlable edge from Brain to the parent,
+ * and this constant is the one place its address lives.
+ */
+export const PARENT = {
+  name: 'INITE',
+  legalName: 'inite LLC',
+  url: 'https://inite.ai',
+} as const
+
 export const ORG = {
   name: 'INITE Brain',
   url: SITE_URL,
@@ -49,17 +68,17 @@ export function organizationSchema(): Json {
     description: ORG.description,
     sameAs: [
       ...ORG.sameAs,
-      'https://inite.ai',
+      PARENT.url,
       'https://www.linkedin.com/company/inite-ai/',
       'https://t.me/initeai',
       'https://github.com/inite-ai',
     ],
     parentOrganization: {
       '@type': 'Organization',
-      '@id': 'https://inite.ai/#organization',
-      name: 'INITE',
-      legalName: 'inite LLC',
-      url: 'https://inite.ai',
+      '@id': `${PARENT.url}/#organization`,
+      name: PARENT.name,
+      legalName: PARENT.legalName,
+      url: PARENT.url,
     },
   }
 }

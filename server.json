@@ -3,7 +3,7 @@
   "name": "io.github.inite-ai/inite-brain-service",
   "title": "Inite Brain",
   "description": "Open-source bitemporal memory layer for LLM agents — knowledge graph with conflict resolution.",
-  "version": "0.1.0",
+  "version": "2.1.0",
   "websiteUrl": "https://brain.inite.ai",
   "repository": {
     "url": "https://github.com/inite-ai/inite-brain-service",

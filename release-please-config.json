@@ -10,6 +10,11 @@
           "type": "json",
           "path": "docs/openapi.json",
           "jsonpath": "$.info.version"
+        },
+        {
+          "type": "json",
+          "path": "server.json",
+          "jsonpath": "$.version"
         }
       ]
     }

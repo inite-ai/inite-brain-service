@@ -240,6 +240,7 @@
   },
   "footer": {
     "tagline": "Open-source битемпоральный граф знаний для AI-агентов. System of insight, не system of record.",
+    "maker": "Проект компании",
     "columns": {
       "product": {
         "title": "Продукт",
