@@ -2599,6 +2599,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Facet routing (dialogue profile only): a turn containing a list (3+ items) or a proper name also gets a SPECIALIST extraction pass whose only contract is that one thing, unioned with the general pass. Strictly additive recall — the general pass still runs and the union deduplicates. The router is a local heuristic, not an LLM call. Costs one extra extraction call per detected facet. Requires re-ingest.',
   },
   {
+    key: 'EXTRACTOR_LITERAL_HARVEST',
+    category: 'extractor',
+    defaultValue: '0',
+    runtimeMutable: false,
+    isBooleanFlag: true,
+    description:
+      'Deterministic literal-harvest lane (memory-fitness lever #1, Design A): a fixed set of regex rules over the input harvests technical literals the closed-vocab LLM extraction drops — service ports, rate limits ("50 requests per minute"), HTTP status codes, ALL_CAPS / dotted / camelCase identifiers, naming-convention prefixes ("LSYNC_") — as span-grounded facts (valueSpan is an exact input substring by construction), attributed by clause overlap with speaker fallback, deduped against the LLM facts, capped at 6 per turn, and unioned into the result AFTER denoise. Pure code: no second LLM path, no prompt change. Pairs with the six technical-literal core predicates (rate_limit, service_port, naming_prefix, identifier, http_status, duration_limit). Off (default) → byte-identical extraction. Requires re-ingest.',
+  },
+  {
     key: 'STATS_VIEWS_ENABLED',
     category: 'misc',
     defaultValue: '0',

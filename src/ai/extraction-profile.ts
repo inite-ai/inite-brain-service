@@ -28,6 +28,18 @@ export interface ExtractionPipelineProfile {
   facetRouting: boolean;
   /** Drop bare `said` residuals at ingest instead of storing chatter. */
   dropSaid: boolean;
+  /**
+   * EXTRACTOR_LITERAL_HARVEST (memory-fitness lever #1, Design A of the
+   * diagnosed literal-drop): a deterministic regex lane over the
+   * trimmed input harvesting technical literals the closed-vocab LLM
+   * extraction measurably drops — ports, rate limits, HTTP statuses,
+   * ALL_CAPS / dotted / camelCase identifiers, naming-convention
+   * prefixes — as span-grounded facts (valueSpan verbatim by
+   * construction) unioned into the result AFTER denoise, deduped
+   * against the LLM set, capped per turn. Pure code: no second LLM
+   * path, no prompt change. Off (default) → byte-identical extraction.
+   */
+  literalHarvest: boolean;
   /** Let the local pre-pass skip the extractor LLM call when it hits. */
   skipLlmPrePass: boolean;
   /** Refinement collapse threshold for the local predicate selector. */
@@ -193,6 +205,7 @@ export function resolveExtractionProfile(
     normalizeObjects: envFlagEnabled(env.EXTRACTION_OBJECT_NORMALIZE),
     facetRouting: open && envFlagEnabled(env.EXTRACTOR_ROUTING_ENABLED),
     dropSaid: envFlagEnabled(env.EXTRACTOR_DROP_SAID),
+    literalHarvest: envFlagEnabled(env.EXTRACTOR_LITERAL_HARVEST),
     skipLlmPrePass: envFlagEnabled(env.EXTRACTOR_SKIP_LLM_ENABLED),
     refinePredicateThreshold: Number.isFinite(threshold) ? threshold : 0.45,
     deriveAssistantContent: envFlagEnabled(env.DERIVER_ASSISTANT_CONTENT),

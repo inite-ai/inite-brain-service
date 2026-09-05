@@ -350,6 +350,104 @@ VALUE  one anti-pattern per fact (multi-valued)`,
     status: 'active',
     createdBy: 'system',
   },
+  // ── TECHNICAL literals (append-only — a project legitimately has
+  //    three ports; single_active would supersede them) ────────────────
+  // These six cards give the LLM legitimate slots for technical
+  // literals the CRM vocabulary had no home for (the measured
+  // literal-drop: limit/port/identifier/convention turns produced ZERO
+  // facts, or mis-slotted a port under `address` — sensitive PII).
+  // The deterministic harvest lane (EXTRACTOR_LITERAL_HARVEST) emits
+  // the same predicates; the cards work even with the harvester off.
+  {
+    predicateId: 'rate_limit',
+    displayLabel: 'rate limit',
+    description: `TYPE   subject is a service/API/system; value is a request-rate constraint
+ADMIT  text states a rate limit or quota for the subject — a number of
+       requests/calls per second/minute/hour
+NOT FOR a timeout, delay, retention, or time-window constraint → duration_limit
+VALUE  the full rate phrase VERBATIM with units (e.g. "50 requests per minute")`,
+    datatype: 'string',
+    semantics: 'append_only',
+    decayHalfLifeDays: 365,
+    piiClass: 'none',
+    status: 'active',
+    createdBy: 'system',
+  },
+  {
+    predicateId: 'service_port',
+    displayLabel: 'service port',
+    description: `TYPE   subject is a service/system; value is a network port number
+ADMIT  text assigns or states a port the subject listens on or uses
+NOT FOR a physical location or address → address (a network port is NOT an address)
+VALUE  the port number span only (e.g. "8443") — one fact per port`,
+    datatype: 'string',
+    semantics: 'append_only',
+    decayHalfLifeDays: null,
+    piiClass: 'none',
+    status: 'active',
+    createdBy: 'system',
+  },
+  {
+    predicateId: 'naming_prefix',
+    displayLabel: 'naming prefix',
+    description: `TYPE   subject is a project/system/team; value is a naming-convention prefix
+ADMIT  text states a naming convention built on a literal prefix
+       (env vars, feature flags, queue subjects, table names)
+NOT FOR a full identifier that merely starts with the prefix → identifier
+VALUE  the literal prefix span including its separator (e.g. "LSYNC_")`,
+    datatype: 'string',
+    semantics: 'append_only',
+    decayHalfLifeDays: null,
+    piiClass: 'none',
+    status: 'active',
+    createdBy: 'system',
+  },
+  {
+    predicateId: 'identifier',
+    displayLabel: 'identifier',
+    description: `TYPE   subject is any entity; value is a technical identifier literal
+ADMIT  text names a code-level identifier tied to the subject — an env
+       var or constant (ALL_CAPS_UNDERSCORE), a dotted subject/topic or
+       glob, or a code symbol (camelCase key)
+NOT FOR a person's name → name; an email/phone → those predicates
+VALUE  the identifier span VERBATIM (e.g. "LSYNC_REPLAY_ENABLED", "LSYNC.payouts.*")`,
+    datatype: 'string',
+    semantics: 'append_only',
+    decayHalfLifeDays: null,
+    piiClass: 'none',
+    status: 'active',
+    createdBy: 'system',
+  },
+  {
+    predicateId: 'http_status',
+    displayLabel: 'HTTP status',
+    description: `TYPE   subject is a service/API; value is an HTTP status code
+ADMIT  text states the subject returns, expects, or handles a specific
+       HTTP status code
+VALUE  the 3-digit status code span (e.g. "429")`,
+    datatype: 'string',
+    semantics: 'append_only',
+    decayHalfLifeDays: 365,
+    piiClass: 'none',
+    status: 'active',
+    createdBy: 'system',
+  },
+  {
+    predicateId: 'duration_limit',
+    displayLabel: 'duration limit',
+    description: `TYPE   subject is a service/system/process; value is a duration constraint
+ADMIT  text states a timeout, delay, retention period, or time-window
+       constraint with explicit units
+NOT FOR a request-rate constraint → rate_limit
+VALUE  the full duration phrase VERBATIM with units (e.g. "30 days")`,
+    datatype: 'string',
+    semantics: 'append_only',
+    decayHalfLifeDays: 365,
+    piiClass: 'none',
+    status: 'active',
+    createdBy: 'system',
+  },
+
   // NB: code-memory predicates (decided/because/invariant/gotcha) used to live
   // here (Phase 0 PoC). They are now the `code_memory` Domain Pack
   // (src/ai/domain-packs/code-memory.pack.ts), namespaced code_memory__*, and
