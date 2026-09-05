@@ -55,6 +55,8 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
     'SCENES_BELIEF_PROMOTION',
     'SCENES_BELIEF_MIN_SCENES',
     'SCENES_BELIEF_LLM_SYNTHESIS',
+    'SCENES_BELIEF_NEGATION_DELTAS',
+    'SCENES_BELIEF_FIELD_FOLD',
     'PROVENANCE_SUPPORT_EDGES',
   ];
 
@@ -396,16 +398,83 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
     expect((await beliefs()).filter((r) => r.field === 'home.city')).toHaveLength(2);
   });
 
+  it('negation + field fold (#135): an empty-`to` delta under a re-coined field name revises to the sentinel', async () => {
+    process.env.SCENES_BELIEF_NEGATION_DELTAS = '1';
+    process.env.SCENES_BELIEF_FIELD_FOLD = '1';
+
+    // The live Compass shape, scene 1: acquisition — belief created.
+    await seedScene({
+      tail: 'scar1',
+      conv: 'proj:c4',
+      user: USER,
+      users: [USER],
+      occurredTo: '2026-03-06T10:00:00.000Z',
+      deltas: [{ subject: 'Mikhail', field: 'car', from: '', to: 'Jeep Compass' }],
+    });
+    const first = await promote();
+    expect(first.status).toBe(201);
+    expect(first.body).toMatchObject({ beliefsCreated: 1, beliefsRevised: 0, fieldFolds: 0 });
+
+    // Scene 2: state REMOVAL under a RE-COINED field name — historically
+    // this delta vanished at the no-landing-value guard AND would have
+    // keyed a fresh parallel group ('car ownership' ≠ 'car').
+    await seedScene({
+      tail: 'scar2',
+      conv: 'proj:c5',
+      user: USER,
+      users: [USER],
+      occurredTo: '2026-03-07T10:00:00.000Z',
+      deltas: [{ subject: 'Mikhail', field: 'car ownership', from: 'Compass', to: '' }],
+    });
+    const second = await promote();
+    expect(second.status).toBe(201);
+    expect(second.body).toMatchObject({
+      beliefsCreated: 0,
+      beliefsRevised: 1,
+      fieldFolds: 1,
+      fieldFoldAmbiguous: 0,
+    });
+
+    const chain = (await beliefs()).filter((r) => r.subject === 'Mikhail' && r.field === 'car');
+    expect(chain).toHaveLength(2);
+    const [rev1, rev2] = chain;
+    expect(rev1).toMatchObject({ revision: 1, value: 'Jeep Compass', status: 'superseded' });
+    expect(String(rev1!.supersededBy)).toBe(String(rev2!.id));
+    expect(rev2).toMatchObject({
+      revision: 2,
+      value: 'none',
+      priorValue: 'Jeep Compass', // the ACTUAL displaced value beats the delta's 'Compass'
+      statement: 'Mikhail — car: none (was: Jeep Compass)',
+      statementSource: 'template',
+      status: 'active',
+    });
+    // NO parallel 'car ownership' belief exists — the fold won.
+    expect((await beliefs()).filter((r) => r.field === 'car ownership')).toEqual([]);
+
+    // The full revision contract fires for the negation delta too.
+    const scar2 = await sceneRow('scar2');
+    expect((scar2.consolidatedInto ?? []).map(String)).toEqual([String(rev2!.id)]);
+    expect(scar2.baselineRef).toMatchObject({
+      belief: String(rev1!.id),
+      revision: 1,
+      value: 'Jeep Compass',
+    });
+
+    delete process.env.SCENES_BELIEF_NEGATION_DELTAS;
+    delete process.env.SCENES_BELIEF_FIELD_FOLD;
+  });
+
   it('user-forget erases beliefs + their support edges unconditionally, with the beliefsDeleted counter', async () => {
     // Flag-independence: rows written while on must die while OFF.
     delete process.env.SCENES_BELIEF_PROMOTION;
     delete process.env.PROVENANCE_SUPPORT_EDGES;
 
     const before = await beliefs();
-    expect(before.length).toBe(3); // home.city rev1+rev2 + coffee.pref
+    // home.city rev1+rev2 + coffee.pref + car rev1+rev2 (#135 fixture)
+    expect(before.length).toBe(5);
     const res = await f.http.post(`/v1/users/${USER}/forget`).set(auth()).send({});
     expect(res.status).toBe(201);
-    expect(res.body.beliefsDeleted).toBe(3);
+    expect(res.body.beliefsDeleted).toBe(5);
 
     expect(await beliefs()).toEqual([]);
     expect(await supportRows()).toEqual([]);
