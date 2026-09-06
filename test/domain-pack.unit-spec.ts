@@ -426,6 +426,27 @@ describe('code-memory pack', () => {
     expect(profile?.guidance).toContain('the VALUE of code_memory__owns');
   });
 
+  // 0.4.2 (k10 battery finding): a module referenced by file path and by
+  // the symbol it defines must be ONE entity with the path as canonical
+  // subject — the guidance spells it out and a dedicated few-shot covers
+  // the symbol phrasing, so open-vocab extraction stops minting a
+  // per-phrasing twin.
+  it('0.4.2: file path and defined symbol are ONE entity, path canonical', () => {
+    const profile = CODE_MEMORY_PACK.extractionProfile;
+    expect(profile?.guidance).toContain('ONE entity');
+    expect(profile?.guidance).toContain('canonical subject for BOTH phrasings');
+    const identityExamples = (profile?.fewShot ?? []).filter((ex) =>
+      ex.note.includes('ONE entity'),
+    );
+    expect(identityExamples.length).toBeGreaterThanOrEqual(1);
+    // The example pairs a PascalCase symbol with the path that defines it.
+    expect(
+      identityExamples.some(
+        (ex) => /[A-Z][a-z]+[A-Z][a-z]+/.test(ex.text) && /src\/\S+\.\w+/.test(ex.text),
+      ),
+    ).toBe(true);
+  });
+
   it('declares the perception contract: three lifecycles, hints, one recency rule', () => {
     const mm = CODE_MEMORY_PACK.memoryModel;
     expect(mm?.stateModels?.map((m) => m.id).sort()).toEqual([
