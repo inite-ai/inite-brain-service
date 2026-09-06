@@ -86,12 +86,28 @@ describe('harvestStateVerbs — positive table (verbatim battery turns)', () => 
     expect(facts.map((f) => f.object)).toEqual(['quit the chess club today']);
   });
 
-  it('s09 third-party turn binds to Boris by clause overlap, not the speaker', () => {
-    const entities = [ent('Boris', 'other'), ent('Sasha')];
+  it('s09 third-party turn binds to Boris — a PERSON named in the sentence wins', () => {
+    const entities = [ent('Boris', 'customer'), ent('Sasha')];
     const facts = harvest(S09_RETURN_TURN, entities, resolveSpeakerEntityIndex(entities, 'Sasha'));
     expect(facts).toHaveLength(1);
     expect(facts[0]!.object).toBe('returned the company car');
     expect(facts[0]!.entityIndex).toBe(0);
+  });
+
+  it('object entities never steal the binding — state holder is the speaker', () => {
+    // Live-run regression (stmtp52jfw): "returned the standing desk" bound
+    // to the "standing desk" asset entity, scattering the two stages of a
+    // transition across different timelines. A transition is a fact about
+    // the state HOLDER: non-person entities named in the sentence are
+    // skipped and the fact lands on the speaker.
+    const entities = [ent('standing desk', 'asset'), ent('Sasha')];
+    const facts = harvest(
+      'Returned the standing desk by evening.',
+      entities,
+      resolveSpeakerEntityIndex(entities, 'Sasha'),
+    );
+    expect(facts).toHaveLength(1);
+    expect(facts[0]!.entityIndex).toBe(1);
   });
 });
 

@@ -1,6 +1,6 @@
 import type { ExtractedEntity, ExtractedFact } from './types';
 import { normalizeForGrounding } from './grounding';
-import { bindEntity, sentenceAt, sentenceSpans } from './literal-harvest';
+import { sentenceAt, sentenceSpans } from './literal-harvest';
 
 /**
  * Deterministic state-verb harvest lane (EXTRACTOR_STATE_VERB_HARVEST)
@@ -233,6 +233,35 @@ export interface HarvestStateVerbsArgs {
  * output is capped at STATE_VERB_HARVEST_CAP. Returns ONLY the new
  * facts for the caller to union.
  */
+/**
+ * Bind a transition to its STATE HOLDER, not to the transitioned object.
+ *
+ * A state_change is a fact about whoever's world-state changed — the
+ * person who sold/joined/returned — never about the asset or club named
+ * in the clause. The literal lane's `bindEntity` (first name-overlap
+ * win) is wrong here: it scatters a multi-stage transition across
+ * object entities ("chess club" vs "the chess club", "standing desk"
+ * vs "standing desk trial" — live run stmtp52jfw), so no single
+ * timeline retains the sequence. Policy: a PERSON entity (customer |
+ * staff) named in the sentence wins (third-party transitions — "Boris
+ * returned the company car" binds to Boris), else the speaker. Object
+ * entities are deliberately never bound; the object is already inside
+ * the harvested span.
+ */
+function bindStateHolder(
+  entities: ExtractedEntity[],
+  sentenceText: string,
+  speakerEntityIndex: number | null,
+): number | null {
+  const sentenceLower = sentenceText.toLowerCase();
+  for (const [i, e] of entities.entries()) {
+    if (e.type !== 'customer' && e.type !== 'staff') continue;
+    const name = e.name.trim().toLowerCase();
+    if (name && sentenceLower.includes(name)) return i;
+  }
+  return speakerEntityIndex;
+}
+
 export function harvestStateVerbs(args: HarvestStateVerbsArgs): ExtractedFact[] {
   const { trimmed, entities, speakerEntityIndex, existingFacts = [] } = args;
   if (!trimmed || entities.length === 0) return [];
@@ -255,7 +284,7 @@ export function harvestStateVerbs(args: HarvestStateVerbsArgs): ExtractedFact[] 
     // input, so valueSpan === object and the grounding gate passes by
     // construction.
     const span = trimmed.slice(m.index, object.end);
-    const entityIndex = bindEntity(entities, sentence.text, speakerEntityIndex);
+    const entityIndex = bindStateHolder(entities, sentence.text, speakerEntityIndex);
     if (entityIndex === null) continue;
     const key = `${entityIndex}\u0000${STATE_CHANGE_PREDICATE}\u0000${normalizeForGrounding(span)}`;
     if (seen.has(key)) continue;
