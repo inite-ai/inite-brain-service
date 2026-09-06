@@ -7,6 +7,7 @@
  */
 import { generateKeyPairSync } from 'node:crypto';
 import {
+  BUILTIN_PACKS,
   diffPackUpgrade,
   packChecksum,
   signPack,
@@ -442,7 +443,14 @@ describe('memoryModel — checksum, signature, upgrade diff', () => {
 
 type Row = { packId: string; version: string; manifest: DomainPackManifest };
 
-function readerWith(rows: () => Promise<Row[]>): {
+/** Reader over a fake DB. `builtins` overrides the builtin manifest source
+ *  (default: none) so these tests stay insulated from what the REAL
+ *  BUILTIN_PACKS declare — code_memory growing a memoryModel must not
+ *  ripple through unrelated expectations here. */
+function readerWith(
+  rows: () => Promise<Row[]>,
+  builtins: DomainPackManifest[] = [],
+): {
   reader: MemoryModelReaderService;
   calls: () => number;
 } {
@@ -456,7 +464,12 @@ function readerWith(rows: () => Promise<Row[]>): {
   const surreal = {
     withCompany: (_companyId: string, fn: (db: unknown) => unknown) => fn(fakeDb),
   } as unknown as SurrealService;
-  return { reader: new MemoryModelReaderService(surreal), calls: () => calls };
+  class TestReader extends MemoryModelReaderService {
+    protected override builtinSource(): DomainPackManifest[] {
+      return builtins;
+    }
+  }
+  return { reader: new TestReader(surreal), calls: () => calls };
 }
 
 describe('MemoryModelReaderService', () => {
@@ -500,5 +513,100 @@ describe('MemoryModelReaderService', () => {
       throw new Error('db down');
     });
     await expect(reader.installedMemoryModels('co3')).resolves.toEqual([]);
+  });
+});
+
+// ── builtin union (PackEvalService.resolveManifest mold) ────────────
+
+describe('MemoryModelReaderService — builtin memoryModel union', () => {
+  const builtinWithMm = (): DomainPackManifest =>
+    manifest({ id: 'fake_builtin', version: '3.0.0', memoryModel: memoryModel() });
+  const builtinWithoutMm = (): DomainPackManifest =>
+    manifest({ id: 'fake_builtin', version: '3.0.0' });
+  const installedRow = (): Row => ({
+    packId: 'realty',
+    version: '1.0.0',
+    manifest: withMm(memoryModel()),
+  });
+
+  it('unions a builtin declaration ahead of installed rows', async () => {
+    const { reader } = readerWith(async () => [installedRow()], [builtinWithMm()]);
+    const bindings = await reader.installedMemoryModels('co1');
+    expect(bindings.map((b) => b.packId)).toEqual(['fake_builtin', 'realty']);
+    expect(bindings[0]).toMatchObject({ packId: 'fake_builtin', packVersion: '3.0.0' });
+    expect(bindings[0]?.memoryModel.attentionHints?.[0]?.cue).toBe('asking price');
+  });
+
+  it('a builtin declaring NO memoryModel contributes nothing — stored result unchanged', async () => {
+    // The live no-op proof: same rows, with and without the memoryModel-less
+    // builtin in the source, produce identical bindings.
+    const { reader: withBuiltin } = readerWith(async () => [installedRow()], [builtinWithoutMm()]);
+    const { reader: without } = readerWith(async () => [installedRow()]);
+    const a = await withBuiltin.installedMemoryModels('co1');
+    const b = await without.installedMemoryModels('co1');
+    expect(a).toEqual(b);
+    expect(a.map((x) => x.packId)).toEqual(['realty']);
+    // And with no installed packs either: empty stays empty.
+    const { reader: empty } = readerWith(async () => [], [builtinWithoutMm()]);
+    await expect(empty.installedMemoryModels('co2')).resolves.toEqual([]);
+  });
+
+  it('degrades to builtins-only when the domain_pack read fails', async () => {
+    const { reader } = readerWith(async () => {
+      throw new Error('db down');
+    }, [builtinWithMm()]);
+    const bindings = await reader.installedMemoryModels('co3');
+    expect(bindings.map((b) => b.packId)).toEqual(['fake_builtin']);
+  });
+
+  it('skips a stored row that shadows a builtin pack id — the in-process manifest wins', async () => {
+    // Impossible by construction (install rejects builtin ids), so a shadow
+    // row is corruption; assert the builtin's version is the one served.
+    const shadow: Row = {
+      packId: 'fake_builtin',
+      version: '9.9.9',
+      manifest: manifest({ id: 'fake_builtin', version: '9.9.9', memoryModel: memoryModel() }),
+    };
+    const { reader } = readerWith(async () => [shadow, installedRow()], [builtinWithMm()]);
+    const bindings = await reader.installedMemoryModels('co4');
+    expect(bindings.map((b) => b.packId)).toEqual(['fake_builtin', 'realty']);
+    expect(bindings[0]?.packVersion).toBe('3.0.0');
+  });
+
+  it('merges builtins OUTSIDE the per-tenant cache: one DB read, invalidate untouched', async () => {
+    const { reader, calls } = readerWith(async () => [installedRow()], [builtinWithMm()]);
+    await reader.installedMemoryModels('co5');
+    const second = await reader.installedMemoryModels('co5');
+    expect(calls()).toBe(1); // stored leg served from cache; builtins static
+    expect(second.map((b) => b.packId)).toEqual(['fake_builtin', 'realty']);
+    reader.invalidate('co5');
+    await reader.installedMemoryModels('co5');
+    expect(calls()).toBe(2);
+  });
+
+  it('defensively skips a builtin whose memoryModel fails validation', async () => {
+    const corrupted = manifest({
+      id: 'fake_builtin',
+      memoryModel: { attentionHints: [{ cue: 'x{{evil}}' }] } as PackMemoryModel,
+    });
+    const { reader } = readerWith(async () => [installedRow()], [corrupted]);
+    const bindings = await reader.installedMemoryModels('co6');
+    expect(bindings.map((b) => b.packId)).toEqual(['realty']);
+  });
+
+  it('with the REAL builtin source, serves exactly the builtins that declare a memoryModel', async () => {
+    // Dynamic expectation so this stays true as builtins evolve (e.g.
+    // code_memory shipping a memoryModel makes it appear here).
+    const surreal = {
+      withCompany: (_companyId: string, fn: (db: unknown) => unknown) =>
+        fn({ query: async () => [[]] }),
+    } as unknown as SurrealService;
+    const reader = new MemoryModelReaderService(surreal);
+    const bindings = await reader.installedMemoryModels('co7');
+    const declared = BUILTIN_PACKS.filter((p) => p.memoryModel !== undefined);
+    expect(bindings.map((b) => b.packId)).toEqual(declared.map((p) => p.id));
+    for (const [i, p] of declared.entries()) {
+      expect(bindings[i]).toMatchObject({ packId: p.id, packVersion: p.version });
+    }
   });
 });
