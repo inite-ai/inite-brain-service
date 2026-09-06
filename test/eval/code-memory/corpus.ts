@@ -6,7 +6,10 @@
  * version, a PR merged then reverted, and voiced plans that must NOT
  * become transitions. One module ("webhook-dispatcher") is referenced
  * BOTH by file path and by symbol name, so entity identity is
- * measured, not assumed.
+ * measured, not assumed. That module's name is RUN-SCOPED
+ * (moduleIdentity): entities are tenant-global, so a static name would
+ * make every rerun re-measure the twins the FIRST run minted instead
+ * of its own resolution — buildTurns/buildChecks take the run id.
  *
  * Current predicate ids are DERIVED from the real builtin manifest
  * (src/ai/domain-packs/code-memory.pack.ts) through a guard that
@@ -29,6 +32,7 @@
 import { CODE_MEMORY_PACK } from '../../../src/ai/domain-packs/code-memory.pack';
 import { composePredicateId } from '../../../src/ai/domain-packs/manifest';
 import { STATE_CHANGE_PREDICATE } from '../../../src/ai/extractor-internals/state-verb-harvest';
+import { symbolAliasForPath } from '../../../src/ingest/code-alias';
 import type { Check, CorpusTurn } from './types';
 
 export { CODE_MEMORY_PACK };
@@ -118,6 +122,71 @@ export const CM_040 = {
   supersededBy: plannedPredicate('superseded_by'),
 } as const;
 
+// ── run-scoped module identity (k10 hermeticity) ────────────────────
+
+/**
+ * The dual-phrasing module (path + symbol), RUN-SCOPED.
+ *
+ * Why: knowledge entities are tenant-GLOBAL while corpus facts are
+ * per-run user-scoped. With a static module name, run N's path/symbol
+ * turns resolve onto whatever entities run 1 minted — so a twin pair
+ * created before INGEST_CODE_ALIAS_RESOLUTION existed poisons every
+ * later run's k10 measurement (measured live: runs cm-dogfood-1..3 on
+ * pre-#453 code minted the `src/gateway/webhook-dispatcher.ts` /
+ * `WebhookDispatcher` twins; run cm-dogfood-4, flags ON, reused BOTH via
+ * the step-2 exact-name match and re-measured the stale split). The
+ * battery already namespaces conversations per run; the module identity
+ * follows the same principle, so each run measures ITS OWN resolution.
+ *
+ * The symbol is derived through the REAL product helper
+ * (symbolAliasForPath), so the corpus can never drift from the
+ * convention the resolver implements — a slug the helper cannot derive
+ * makes the corpus refuse to build.
+ */
+export interface ModuleIdentity {
+  /** File-path phrasing, e.g. "src/gateway/webhook-dispatcher-r7kq.ts". */
+  path: string;
+  /** Symbol phrasing, e.g. "WebhookDispatcherR7kq". */
+  symbol: string;
+  /** Kebab basename without extension. */
+  basename: string;
+  /** canonicalName needles for the k10 check (lowercased match). */
+  nameTokens: string[];
+}
+
+/**
+ * Sanitize a run id into a slug usable as a kebab-case basename part
+ * AND a PascalCase hump: lowercase alphanumerics, letter-first
+ * (digit-leading ids get an `r` prefix). Empty in → empty out.
+ */
+export function moduleRunSlug(runId: string): string {
+  const slug = runId.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (slug === '') return '';
+  return /^[a-z]/.test(slug) ? slug : `r${slug}`;
+}
+
+export function moduleIdentity(runId = ''): ModuleIdentity {
+  const slug = moduleRunSlug(runId);
+  const basename = slug === '' ? 'webhook-dispatcher' : `webhook-dispatcher-${slug}`;
+  const path = `src/gateway/${basename}.ts`;
+  const symbol = symbolAliasForPath(path);
+  if (symbol === null) {
+    throw new Error(`corpus module path "${path}" derives no symbol — bad run slug "${slug}"`);
+  }
+  return {
+    path,
+    symbol,
+    basename,
+    // Run-scoped tokens name THIS run's module only. The unscoped
+    // fallback keeps the historical natural-language token so the
+    // static exports stay byte-identical.
+    nameTokens:
+      slug === ''
+        ? [basename, symbol.toLowerCase(), 'webhook dispatcher']
+        : [basename, symbol.toLowerCase()],
+  };
+}
+
 /** Timestamp of turn N (1-based) — 5 minutes apart within a session. */
 const t = (startIso: string, turn: number): string =>
   new Date(Date.parse(startIso) + (turn - 1) * 5 * 60_000).toISOString();
@@ -128,31 +197,35 @@ const conv = (conversation: string, startIso: string, texts: string[]): CorpusTu
 // ── the four conversations ──────────────────────────────────────────
 
 /** Decision conversation — decision + rationale + invariant + gotcha,
- *  then a superseding decision on the same subject. */
-const DECISION_TURNS = conv('decision', '2026-09-01T09:00:00Z', [
-  'We decided to route every outbound webhook in acme-api through ' +
-    'src/gateway/webhook-dispatcher.ts — one dispatch path instead of six ad-hoc fetch calls.',
-  'The reason: retry and signing logic had drifted between the six webhook call-sites, ' +
-    'and two of them never signed payloads at all.',
-  'Invariant for acme-api: every route handler must validate its body with the shared ' +
-    'zod schema from src/gateway/schemas.ts, or the contract tests fail.',
-  'Gotcha in acme-api: pnpm run migrate --dry-run still acquires the schema lock, ' +
-    'so a dry run can deadlock a live deploy.',
-  'Update: we walked the single-dispatcher decision back — outbound webhooks in acme-api ' +
-    'now go through the managed queue relay in src/gateway/queue-relay.ts.',
-]);
+ *  then a superseding decision on the same subject. The dual-phrasing
+ *  module appears here by PATH (run-scoped — see moduleIdentity). */
+const decisionTurns = (m: ModuleIdentity): CorpusTurn[] =>
+  conv('decision', '2026-09-01T09:00:00Z', [
+    'We decided to route every outbound webhook in acme-api through ' +
+      `${m.path} — one dispatch path instead of six ad-hoc fetch calls.`,
+    'The reason: retry and signing logic had drifted between the six webhook call-sites, ' +
+      'and two of them never signed payloads at all.',
+    'Invariant for acme-api: every route handler must validate its body with the shared ' +
+      'zod schema from src/gateway/schemas.ts, or the contract tests fail.',
+    'Gotcha in acme-api: pnpm run migrate --dry-run still acquires the schema lock, ' +
+      'so a dry run can deadlock a live deploy.',
+    'Update: we walked the single-dispatcher decision back — outbound webhooks in acme-api ' +
+      'now go through the managed queue relay in src/gateway/queue-relay.ts.',
+  ]);
 
 /** Flags conversation — a flag introduced dark (default 0), the
  *  literal lane's identifier / port / rate-limit prose, the SYMBOL
- *  phrasing of the shared module, then the flag enablement (0→1). */
-const FLAGS_TURNS = conv('flags', '2026-09-01T15:00:00Z', [
-  'We introduced the ACME_RETRY_QUEUE flag in acme-api; it ships disabled and its ' +
-    'default stays 0 until the queue is proven.',
-  'The gateway metrics endpoint in acme-api listens on port 9187.',
-  'acme-api throttles /v1/webhooks at 120 requests per minute.',
-  'WebhookDispatcher in acme-api emits every line-item amount in cents, never floats.',
-  'We enabled ACME_RETRY_QUEUE in prod today; its default is now 1 for every acme-api tenant.',
-]);
+ *  phrasing of the shared module (run-scoped), then the flag
+ *  enablement (0→1). */
+const flagsTurns = (m: ModuleIdentity): CorpusTurn[] =>
+  conv('flags', '2026-09-01T15:00:00Z', [
+    'We introduced the ACME_RETRY_QUEUE flag in acme-api; it ships disabled and its ' +
+      'default stays 0 until the queue is proven.',
+    'The gateway metrics endpoint in acme-api listens on port 9187.',
+    'acme-api throttles /v1/webhooks at 120 requests per minute.',
+    `${m.symbol} in acme-api emits every line-item amount in cents, never floats.`,
+    'We enabled ACME_RETRY_QUEUE in prod today; its default is now 1 for every acme-api tenant.',
+  ]);
 
 /** Deps conversation — a pin, the bump (1.2.0 → 2.0.0), ownership,
  *  a gotcha bound to the new version, and a second pinned dep. */
@@ -178,240 +251,255 @@ const MIXED_TURNS = conv('mixed', '2026-09-03T11:00:00Z', [
     'orphan webhook sockets piled up unclosed.',
 ]);
 
-export const ALL_TURNS: CorpusTurn[] = [
-  ...DECISION_TURNS,
-  ...FLAGS_TURNS,
-  ...DEPS_TURNS,
-  ...MIXED_TURNS,
-];
+/**
+ * The corpus turns, run-scoped: the dual-phrasing module carries the
+ * run's slug so k10 measures THIS run's entity resolution instead of
+ * re-measuring whatever twins an earlier (possibly pre-flag) run left
+ * in the tenant-global entity space. No runId → the historical static
+ * texts, byte-identical (unit-test surface).
+ */
+export function buildTurns(runId = ''): CorpusTurn[] {
+  const m = moduleIdentity(runId);
+  return [...decisionTurns(m), ...flagsTurns(m), ...DEPS_TURNS, ...MIXED_TURNS];
+}
+
+/** Back-compat static corpus (unscoped module names). */
+export const ALL_TURNS: CorpusTurn[] = buildTurns();
 
 // ── the checks ──────────────────────────────────────────────────────
 
-export const CHECKS: Check[] = [
-  // ── setup: the builtin seeding path itself ────────────────────────
-  {
-    kind: 'builtin-vocab',
-    id: 'k01-builtin-seeded',
-    cls: 'setup',
-    intent:
-      'The builtin code_memory predicates are active in the tenant WITHOUT any ' +
-      'install (bootstrap seeding; the install path rejects the builtin id by design).',
-    requiredPredicates: [CM.decided, CM.because, CM.invariant, CM.gotcha],
-  },
+/** The check battery, run-scoped in lockstep with buildTurns. */
+export function buildChecks(runId = ''): Check[] {
+  const m = moduleIdentity(runId);
+  return [
+    // ── setup: the builtin seeding path itself ────────────────────────
+    {
+      kind: 'builtin-vocab',
+      id: 'k01-builtin-seeded',
+      cls: 'setup',
+      intent:
+        'The builtin code_memory predicates are active in the tenant WITHOUT any ' +
+        'install (bootstrap seeding; the install path rejects the builtin id by design).',
+      requiredPredicates: [CM.decided, CM.because, CM.invariant, CM.gotcha],
+    },
 
-  // ── pack-vocab, today's ontology (honest baseline: no profile) ────
-  {
-    kind: 'pack-vocab',
-    id: 'k02-vocab-decided',
-    cls: 'vocab',
-    intent: `The dispatch decision canonicalizes into ${CM.decided}, not a coined predicate.`,
-    searchQuery: 'acme-api outbound webhook dispatch decision',
-    predicate: CM.decided,
-    valueMarkers: ['dispatch'],
-    expectedUnknown: PROFILE_GAP,
-  },
-  {
-    kind: 'pack-vocab',
-    id: 'k03-vocab-invariant',
-    cls: 'vocab',
-    intent: `The zod-schema rule lands on ${CM.invariant} with the verbatim constraint.`,
-    searchQuery: 'acme-api route handler body validation invariant',
-    predicate: CM.invariant,
-    valueMarkers: ['zod'],
-    expectedUnknown: PROFILE_GAP,
-  },
-  {
-    kind: 'pack-vocab',
-    id: 'k04-vocab-gotcha',
-    cls: 'vocab',
-    intent: `The dry-run deadlock trap lands on ${CM.gotcha}.`,
-    searchQuery: 'acme-api migrate dry run schema lock',
-    predicate: CM.gotcha,
-    valueMarkers: ['schema lock'],
-    expectedUnknown: PROFILE_GAP,
-  },
+    // ── pack-vocab, today's ontology (honest baseline: no profile) ────
+    {
+      kind: 'pack-vocab',
+      id: 'k02-vocab-decided',
+      cls: 'vocab',
+      intent: `The dispatch decision canonicalizes into ${CM.decided}, not a coined predicate.`,
+      searchQuery: 'acme-api outbound webhook dispatch decision',
+      predicate: CM.decided,
+      valueMarkers: ['dispatch'],
+      expectedUnknown: PROFILE_GAP,
+    },
+    {
+      kind: 'pack-vocab',
+      id: 'k03-vocab-invariant',
+      cls: 'vocab',
+      intent: `The zod-schema rule lands on ${CM.invariant} with the verbatim constraint.`,
+      searchQuery: 'acme-api route handler body validation invariant',
+      predicate: CM.invariant,
+      valueMarkers: ['zod'],
+      expectedUnknown: PROFILE_GAP,
+    },
+    {
+      kind: 'pack-vocab',
+      id: 'k04-vocab-gotcha',
+      cls: 'vocab',
+      intent: `The dry-run deadlock trap lands on ${CM.gotcha}.`,
+      searchQuery: 'acme-api migrate dry run schema lock',
+      predicate: CM.gotcha,
+      valueMarkers: ['schema lock'],
+      expectedUnknown: PROFILE_GAP,
+    },
 
-  // ── pack-vocab, the 0.4.0 ontology increment (gap-gated) ──────────
-  {
-    kind: 'pack-vocab',
-    id: 'k05-vocab-default-value',
-    cls: 'vocab',
-    intent: `The flag default lands on ${CM_040.defaultValue} as a typed single_active value.`,
-    searchQuery: 'ACME_RETRY_QUEUE default value',
-    predicate: CM_040.defaultValue,
-    valueMarkers: ['0', '1'],
-    expectedUnknown: gap040(
-      'default_value',
-      'whether extraction routes flag-default phrasing into the typed predicate.',
-    ),
-  },
-  {
-    kind: 'pack-vocab',
-    id: 'k06-vocab-depends-on-version',
-    cls: 'vocab',
-    intent: `The redis-client bump lands on ${CM_040.dependsOnVersion} with the new version.`,
-    searchQuery: 'acme-api redis-client version',
-    predicate: CM_040.dependsOnVersion,
-    valueMarkers: ['2.0.0'],
-    expectedUnknown: gap040(
-      'depends_on_version',
-      'whether extraction routes dependency-version phrasing into the typed predicate.',
-    ),
-  },
+    // ── pack-vocab, the 0.4.0 ontology increment (gap-gated) ──────────
+    {
+      kind: 'pack-vocab',
+      id: 'k05-vocab-default-value',
+      cls: 'vocab',
+      intent: `The flag default lands on ${CM_040.defaultValue} as a typed single_active value.`,
+      searchQuery: 'ACME_RETRY_QUEUE default value',
+      predicate: CM_040.defaultValue,
+      valueMarkers: ['0', '1'],
+      expectedUnknown: gap040(
+        'default_value',
+        'whether extraction routes flag-default phrasing into the typed predicate.',
+      ),
+    },
+    {
+      kind: 'pack-vocab',
+      id: 'k06-vocab-depends-on-version',
+      cls: 'vocab',
+      intent: `The redis-client bump lands on ${CM_040.dependsOnVersion} with the new version.`,
+      searchQuery: 'acme-api redis-client version',
+      predicate: CM_040.dependsOnVersion,
+      valueMarkers: ['2.0.0'],
+      expectedUnknown: gap040(
+        'depends_on_version',
+        'whether extraction routes dependency-version phrasing into the typed predicate.',
+      ),
+    },
 
-  // ── literal lane fit inside coding prose ──────────────────────────
-  {
-    kind: 'literal-harvest',
-    id: 'k07-literal-harvest',
-    cls: 'harvest',
-    intent:
-      'The deterministic literal lane (EXTRACTOR_LITERAL_HARVEST, ON at the stand) ' +
-      'produces its core facts from identifier-heavy coding prose: the ALL_CAPS flag, ' +
-      'the metrics port and the route rate limit each land as a typed literal fact.',
-    wants: [
-      {
-        searchQuery: 'ACME_RETRY_QUEUE flag',
-        predicate: 'identifier',
-        valueMarkers: ['ACME_RETRY_QUEUE'],
-      },
-      {
-        searchQuery: 'acme-api gateway metrics port',
-        predicate: 'service_port',
-        valueMarkers: ['9187'],
-      },
-      {
-        searchQuery: 'acme-api webhooks rate limit',
-        predicate: 'rate_limit',
-        valueMarkers: ['120'],
-      },
-    ],
-  },
+    // ── literal lane fit inside coding prose ──────────────────────────
+    {
+      kind: 'literal-harvest',
+      id: 'k07-literal-harvest',
+      cls: 'harvest',
+      intent:
+        'The deterministic literal lane (EXTRACTOR_LITERAL_HARVEST, ON at the stand) ' +
+        'produces its core facts from identifier-heavy coding prose: the ALL_CAPS flag, ' +
+        'the metrics port and the route rate limit each land as a typed literal fact.',
+      wants: [
+        {
+          searchQuery: 'ACME_RETRY_QUEUE flag',
+          predicate: 'identifier',
+          valueMarkers: ['ACME_RETRY_QUEUE'],
+        },
+        {
+          searchQuery: 'acme-api gateway metrics port',
+          predicate: 'service_port',
+          valueMarkers: ['9187'],
+        },
+        {
+          searchQuery: 'acme-api webhooks rate limit',
+          predicate: 'rate_limit',
+          valueMarkers: ['120'],
+        },
+      ],
+    },
 
-  // ── the flag 0→1 transition as ordered history ────────────────────
-  {
-    kind: 'flag-transition',
-    id: 'k08-flag-transition',
-    cls: 'transition',
-    intent:
-      'ONE entity timeline retains the flag story in order: introduced dark ' +
-      '(ships disabled, default 0) then enabled (default 1).',
-    searchQuery: 'ACME_RETRY_QUEUE flag default',
-    stages: [
-      ['ships disabled', 'default stays 0'],
-      ['enabled ACME_RETRY_QUEUE', 'default is now 1'],
-    ],
-    expectedUnknown: LEXICON_GAP,
-  },
+    // ── the flag 0→1 transition as ordered history ────────────────────
+    {
+      kind: 'flag-transition',
+      id: 'k08-flag-transition',
+      cls: 'transition',
+      intent:
+        'ONE entity timeline retains the flag story in order: introduced dark ' +
+        '(ships disabled, default 0) then enabled (default 1).',
+      searchQuery: 'ACME_RETRY_QUEUE flag default',
+      stages: [
+        ['ships disabled', 'default stays 0'],
+        ['enabled ACME_RETRY_QUEUE', 'default is now 1'],
+      ],
+      expectedUnknown: LEXICON_GAP,
+    },
 
-  // ── supersession, mechanically (MCP write path) ───────────────────
-  {
-    kind: 'supersession-asof',
-    id: 'k09-supersession-asof',
-    cls: 'mcp',
-    intent:
-      'Re-recording a `decided` on one anchor SUPERSEDES: `why` now serves exactly ' +
-      'ONE active decision (the new one), and `why` at an asOf between the writes ' +
-      'still recalls the old one — and not yet the new one (bitemporal).',
-    anchor: 'acme-api/src/gateway/queue-relay.ts',
-    oldText: 'Route webhook retries through the in-process queue.',
-    newText: 'Route webhook retries through the managed queue relay.',
-    oldMarkers: ['in-process'],
-    newMarkers: ['managed queue relay'],
-  },
+    // ── supersession, mechanically (MCP write path) ───────────────────
+    {
+      kind: 'supersession-asof',
+      id: 'k09-supersession-asof',
+      cls: 'mcp',
+      intent:
+        'Re-recording a `decided` on one anchor SUPERSEDES: `why` now serves exactly ' +
+        'ONE active decision (the new one), and `why` at an asOf between the writes ' +
+        'still recalls the old one — and not yet the new one (bitemporal).',
+      anchor: 'acme-api/src/gateway/queue-relay.ts',
+      oldText: 'Route webhook retries through the in-process queue.',
+      newText: 'Route webhook retries through the managed queue relay.',
+      oldMarkers: ['in-process'],
+      newMarkers: ['managed queue relay'],
+    },
 
-  // ── entity identity across phrasings ──────────────────────────────
-  {
-    kind: 'cross-entity',
-    id: 'k10-cross-entity',
-    cls: 'identity',
-    intent:
-      'The module referenced by PATH (src/gateway/webhook-dispatcher.ts) and by ' +
-      'SYMBOL (WebhookDispatcher) resolves to ONE entity carrying facts seeded by ' +
-      'both phrasings — no per-phrasing duplication.',
-    searchQuery: 'acme-api webhook dispatcher',
-    nameTokens: ['webhook-dispatcher', 'webhookdispatcher', 'webhook dispatcher'],
-    mustCarryGroups: [
-      ['dispatch path', 'outbound webhook'],
-      ['cents', 'line-item'],
-    ],
-  },
+    // ── entity identity across phrasings ──────────────────────────────
+    {
+      kind: 'cross-entity',
+      id: 'k10-cross-entity',
+      cls: 'identity',
+      intent:
+        `The module referenced by PATH (${m.path}) and by ` +
+        `SYMBOL (${m.symbol}) resolves to ONE entity carrying facts seeded by ` +
+        'both phrasings — no per-phrasing duplication.',
+      searchQuery: 'acme-api webhook dispatcher',
+      nameTokens: m.nameTokens,
+      mustCarryGroups: [
+        ['dispatch path', 'outbound webhook'],
+        ['cents', 'line-item'],
+      ],
+    },
 
-  // ── provenance ────────────────────────────────────────────────────
-  {
-    kind: 'trace-provenance',
-    id: 'k11-trace-provenance',
-    cls: 'trace',
-    intent: "A dispatch-decision fact unrolls to the seeded decision turn's episode verbatim.",
-    searchQuery: 'acme-api outbound webhook dispatch decision',
-    objectHint: ['dispatch', 'webhook'],
-    episodeFragments: ['one dispatch path instead of six'],
-  },
+    // ── provenance ────────────────────────────────────────────────────
+    {
+      kind: 'trace-provenance',
+      id: 'k11-trace-provenance',
+      cls: 'trace',
+      intent: "A dispatch-decision fact unrolls to the seeded decision turn's episode verbatim.",
+      searchQuery: 'acme-api outbound webhook dispatch decision',
+      objectHint: ['dispatch', 'webhook'],
+      episodeFragments: ['one dispatch path instead of six'],
+    },
 
-  // ── serving ───────────────────────────────────────────────────────
-  {
-    kind: 'serve',
-    id: 'k12-serve-current-default',
-    cls: 'serving',
-    intent:
-      'The dogfood north-star question — "what is the current default of X" — serves ' +
-      'the NEW value and never the stale one.',
-    query: 'What is the current default of ACME_RETRY_QUEUE in acme-api?',
-    expectAnyOf: ['now 1', 'is 1', 'to 1', 'default of 1', 'enabled'],
-    forbidAnyOf: ['default is 0', 'defaults to 0', 'stays 0', 'still 0', 'disabled'],
-    expectedUnknown: gap040(
-      'default_value',
-      'whether "current default" serves correctly without a typed single_active home.',
-    ),
-  },
-  {
-    kind: 'serve',
-    id: 'k13-serve-owner',
-    cls: 'serving',
-    intent: 'Module-ownership serving: "who owns src/gateway" names the owner.',
-    query: 'Who owns src/gateway in acme-api?',
-    expectAnyOf: ['Priya'],
-    forbidAnyOf: [],
-    expectedUnknown: gap040(
-      'owns',
-      'whether ownership phrasing survives open-vocab extraction well enough to serve.',
-    ),
-  },
+    // ── serving ───────────────────────────────────────────────────────
+    {
+      kind: 'serve',
+      id: 'k12-serve-current-default',
+      cls: 'serving',
+      intent:
+        'The dogfood north-star question — "what is the current default of X" — serves ' +
+        'the NEW value and never the stale one.',
+      query: 'What is the current default of ACME_RETRY_QUEUE in acme-api?',
+      expectAnyOf: ['now 1', 'is 1', 'to 1', 'default of 1', 'enabled'],
+      forbidAnyOf: ['default is 0', 'defaults to 0', 'stays 0', 'still 0', 'disabled'],
+      expectedUnknown: gap040(
+        'default_value',
+        'whether "current default" serves correctly without a typed single_active home.',
+      ),
+    },
+    {
+      kind: 'serve',
+      id: 'k13-serve-owner',
+      cls: 'serving',
+      intent: 'Module-ownership serving: "who owns src/gateway" names the owner.',
+      query: 'Who owns src/gateway in acme-api?',
+      expectAnyOf: ['Priya'],
+      forbidAnyOf: [],
+      expectedUnknown: gap040(
+        'owns',
+        'whether ownership phrasing survives open-vocab extraction well enough to serve.',
+      ),
+    },
 
-  // ── the intention guard must hold ─────────────────────────────────
-  {
-    kind: 'intention-guard',
-    id: 'k14-intention-guard',
-    cls: 'guard',
-    intent:
-      'The voiced-plan turns ("should probably enable", "have not enabled") must NOT ' +
-      'produce a completed state transition for ACME_STRICT_MODE — this must stay ' +
-      'green BOTH before and after the coding-verb lexicon lands (the 6-token guards ' +
-      'are what keep it green after).',
-    searchQuery: 'ACME_STRICT_MODE',
-    forbidPredicate: STATE_CHANGE_PREDICATE,
-    forbidObjectMarkers: ['ACME_STRICT_MODE'],
-  },
+    // ── the intention guard must hold ─────────────────────────────────
+    {
+      kind: 'intention-guard',
+      id: 'k14-intention-guard',
+      cls: 'guard',
+      intent:
+        'The voiced-plan turns ("should probably enable", "have not enabled") must NOT ' +
+        'produce a completed state transition for ACME_STRICT_MODE — this must stay ' +
+        'green BOTH before and after the coding-verb lexicon lands (the 6-token guards ' +
+        'are what keep it green after).',
+      searchQuery: 'ACME_STRICT_MODE',
+      forbidPredicate: STATE_CHANGE_PREDICATE,
+      forbidObjectMarkers: ['ACME_STRICT_MODE'],
+    },
 
-  // ── MCP round-trip ────────────────────────────────────────────────
-  {
-    kind: 'mcp-roundtrip',
-    id: 'k15-mcp-roundtrip',
-    cls: 'mcp',
-    intent: 'record_decision → why on a fresh anchor round-trips (found>0, right kind, text).',
-    anchor: 'acme-api/src/ingest/replay-window.ts',
-    recordKind: 'decided',
-    text: 'Cap the replay window at 48 hours; longer windows re-deliver acknowledged webhooks.',
-    textMarkers: ['48 hours', 'replay window'],
-  },
+    // ── MCP round-trip ────────────────────────────────────────────────
+    {
+      kind: 'mcp-roundtrip',
+      id: 'k15-mcp-roundtrip',
+      cls: 'mcp',
+      intent: 'record_decision → why on a fresh anchor round-trips (found>0, right kind, text).',
+      anchor: 'acme-api/src/ingest/replay-window.ts',
+      recordKind: 'decided',
+      text: 'Cap the replay window at 48 hours; longer windows re-deliver acknowledged webhooks.',
+      textMarkers: ['48 hours', 'replay window'],
+    },
 
-  // ── surfaces ──────────────────────────────────────────────────────
-  {
-    kind: 'no-rogue-tools',
-    id: 'k16-no-rogue-tools',
-    cls: 'surfaces',
-    intent:
-      'The code-memory tools (why / recall_decisions / record_decision) are core ' +
-      'single-underscore names and no pack declares mcpTools, so tools/list must ' +
-      'carry ZERO __-namespaced pack tools — asserted, not assumed.',
-  },
-];
+    // ── surfaces ──────────────────────────────────────────────────────
+    {
+      kind: 'no-rogue-tools',
+      id: 'k16-no-rogue-tools',
+      cls: 'surfaces',
+      intent:
+        'The code-memory tools (why / recall_decisions / record_decision) are core ' +
+        'single-underscore names and no pack declares mcpTools, so tools/list must ' +
+        'carry ZERO __-namespaced pack tools — asserted, not assumed.',
+    },
+  ];
+}
+
+/** Back-compat static battery (unscoped module names). */
+export const CHECKS: Check[] = buildChecks();
