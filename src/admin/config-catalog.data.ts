@@ -1146,6 +1146,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       "Mention-path conflict semantics. When on, a mention/extraction-path fact whose registry policy is 'single_active' — the branch that supersedes unconditionally and can never surface a COMPETING pair — is promoted to 'bitemporal', so two conversations asserting contradictory values of one (userId, entity, predicate) slot form a conflict (close-scored → COMPETING, both sides linked and served; clear winner → SUPERSEDED; equal value from a different origin → CORROBORATED) instead of the second silently replacing the first. Candidates stay per-user scope-local (0055). The append_only open-vocabulary bulk, DEFAULT_FALLBACK, and the direct typed path are untouched. Off (default) = registry passthrough, byte-identical.",
   },
+  {
+    key: 'CONFLICT_SLOT_CANONICALIZATION',
+    category: 'conflict',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Write-side slot canonicalization. The conflict machinery pairs only identical (userId, entity, predicate) slots, but the extractor legitimately splits one contradicted attribute across two predicates — 'lease runs until December 2026' is a duration phrase (duration_limit, append_only) while 'lease ends in September 2026' is a lifecycle claim (status, single_active) — so no collision structurally exists and CONFLICT_MENTION_FACT_SLOT is starved (state-transitions s07). When on, a mention-path fact whose predicate sits in a small declared alias table (duration_limit → status) AND whose object carries an explicit calendar anchor (full month name + 4-digit year, or an ISO date) resolves in the canonical single-value slot instead, re-embedded with the canonical slot text, so both arms of the contradiction meet in one slot and the normal single_active/bitemporal machinery adjudicates (with CONFLICT_MENTION_FACT_SLOT also on: close-scored → COMPETING, both sides served). Purely deterministic (static table + regex, no DB read, no fuzzy matching, no LLM), order-free and idempotent. Bare unit durations ('30 days' — the technical-literal harvest bulk), facts with an EDC predicateAlias, the direct typed path, and every other predicate are untouched. Off (default) = extracted-predicate passthrough, byte-identical. Requires re-ingest to affect existing rows.",
+  },
   // ── ABAC (migrations 0056/0057) ──────────────────────────
   {
     key: 'ABAC_ENABLED',

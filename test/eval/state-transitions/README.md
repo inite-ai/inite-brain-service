@@ -70,11 +70,16 @@ prints `(expected today)` next to them):
 - **s08-belief** — `SCENES_BELIEF_FIELD_FOLD`: "home city" and "place of
   residence" fold into different free-text field keys, so no single
   belief carries `value` + `priorValue` across the drifted wording.
-- **s07-serve** — `CONFLICT_MENTION_FACT_SLOT`: the mention-path slot
-  resolves to `single_active` semantics, which supersedes
-  unconditionally and never forms the COMPETING pair, so serving picks
-  one side of a live contradiction. The flag (default off) promotes the
-  slot to `bitemporal` margin doctrine so the pair competes.
+- **s07-serve** — `CONFLICT_SLOT_CANONICALIZATION`: the two arms extract
+  into DIFFERENT slots on one entity — `(office lease, status)` = "ends
+  in September 2026" vs `(office lease, duration_limit)` = "until
+  December 2026" (measured live) — and the conflict machinery pairs only
+  identical `(userId, entity, predicate)`, so even with
+  `CONFLICT_MENTION_FACT_SLOT` on no collision structurally exists. The
+  flag (default off) routes the calendar-anchored `duration_limit` arm
+  into the canonical `status` slot at write time so the pair meets in
+  one slot and the `bitemporal` margin doctrine (which
+  `CONFLICT_MENTION_FACT_SLOT` applies there) can compete it.
 
 The battery still RUNS these checks and records their fails — that is
 the baseline those flags, once merged and enabled, are measured against.
