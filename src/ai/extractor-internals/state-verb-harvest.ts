@@ -88,8 +88,56 @@ const DISPOSE_VERBS = [
  */
 const CHANGE_VERBS = ['moved to', 'switched to', 'renamed to', 'migrated to', 'replaced'];
 
+/**
+ * Coding-domain transition verbs (code-memory dogfood program,
+ * 2026-09): the consumer-life lexicon above harvests nothing from a
+ * coding agent's narration — "we enabled ACME_RETRY_QUEUE in prod",
+ * "merged PR #431", "bumped jest to 30" all died in the closed-vocab
+ * extractor exactly like the consumer transitions did. Additions only;
+ * the existing lexicon, guards and holder binding are untouched.
+ *
+ * Matcher constraints these forms respect BY CONSTRUCTION:
+ *  - completed forms only, so "enabling" / "to deprecate" never match;
+ *  - multi-word entries must be ADJACENT in the input ("rolled back
+ *    the migration" matches; "rolled the migration back" does not —
+ *    split phrasal particles are outside the matcher's model);
+ *  - a verb with an empty object noun phrase harvests nothing, so
+ *    passive / verb-final phrasings ("PR #431 was merged.", "the flag
+ *    was enabled.") produce NO fact rather than a mis-bound one;
+ *  - the object capture stops at any clause-boundary character and
+ *    "." is one, so a dotted value in the object ("upgraded SurrealDB
+ *    to 3.2.4") clips at its first dot ("upgraded SurrealDB to 3") —
+ *    still harvested, still verbatim, just truncated;
+ *  - bare "renamed" / "migrated" coexist with the consumer "renamed
+ *    to" / "migrated to": ALL_VERBS sorts longest-first, so the
+ *    phrasal form still wins whenever it is present.
+ *
+ * Holder binding is inherited unchanged: bindStateHolder routes the
+ * fact to a PERSON entity named in the sentence, else the speaker — so
+ * an active-voice artifact transition ("we enabled FLAG_X") lands on
+ * the AGENT, not on the flag entity. Known limitation, deliberate for
+ * this small PR; the code-memory battery measures it.
+ */
+const CODING_VERBS = [
+  'merged',
+  'reverted',
+  'enabled',
+  'disabled',
+  'deployed',
+  'released',
+  'bumped',
+  'upgraded',
+  'downgraded',
+  'deprecated',
+  'removed',
+  'deleted',
+  'renamed',
+  'migrated',
+  'rolled back',
+];
+
 /** All verbs, longest-first so phrasal forms win over any prefix form. */
-const ALL_VERBS = [...ACQUIRE_VERBS, ...DISPOSE_VERBS, ...CHANGE_VERBS].sort(
+const ALL_VERBS = [...ACQUIRE_VERBS, ...DISPOSE_VERBS, ...CHANGE_VERBS, ...CODING_VERBS].sort(
   (a, b) => b.length - a.length,
 );
 
