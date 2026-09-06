@@ -11,7 +11,7 @@ import { composePredicateId, type DomainPackManifest } from './manifest';
  */
 export const CODE_MEMORY_PACK: DomainPackManifest = {
   id: 'code_memory',
-  version: '0.4.1',
+  version: '0.4.2',
   description:
     'Non-derivable engineering "why" of a codebase — decisions, rationale, invariants, gotchas, ownership, flag/config defaults, dependency pins, and decision supersession anchored to code, with a domain extraction profile and memory model.',
   // Retro-declaration, documentation-true: code-memory has ALWAYS been an
@@ -149,7 +149,11 @@ contributes NOTHING. When it applies: identifier-shaped subjects become their
 OWN entities — an ALL_CAPS flag or env var ("EXTRACTOR_LITERAL_HARVEST"), a
 file or module path ("src/ingest/fact-resolver.service.ts"), a dotted symbol
 or package name is the SUBJECT of its facts, NEVER the speaker who mentions
-it. Prefer the code_memory__* predicates for the engineering "why":
+it. A module's FILE PATH and the SYMBOL it defines are ONE entity, not two:
+"src/gateway/webhook-dispatcher.ts" and "WebhookDispatcher" name the same
+module — use the file path as the canonical subject for BOTH phrasings and
+never mint a separate entity for the symbol spelling.
+Prefer the code_memory__* predicates for the engineering "why":
 decisions (code_memory__decided), their rationale (code_memory__because),
 constraints (code_memory__invariant), pitfalls (code_memory__gotcha),
 module/service ownership (code_memory__owns), the current default of a
@@ -183,6 +187,13 @@ anchor) and the person or team is the VALUE of code_memory__owns.`,
       {
         text: 'Dmitri owns src/billing in ledger-core, including the invoice worker and the dunning cron.',
         note: "ownership inverts the sentence: the owned module 'src/billing' is the SUBJECT (a code anchor), the person is the value → code_memory__owns='Dmitri'. The 'including …' tail stays inside that one fact — no extra owns fact per sub-component.",
+      },
+      // 0.4.2: path↔symbol identity (k10 battery finding) — the symbol
+      // phrasing must land on the path-canonical module entity, not on a
+      // per-phrasing twin.
+      {
+        text: 'RateLimiter rejects a burst with 429 before the handler runs; it lives in src/gateway/rate-limiter.ts.',
+        note: "the symbol 'RateLimiter' and the path 'src/gateway/rate-limiter.ts' are ONE entity — subject is the canonical path 'src/gateway/rate-limiter.ts' (the symbol is the same module, not a second entity) → code_memory__invariant='rejects a burst with 429 before the handler runs'.",
       },
     ],
   },
