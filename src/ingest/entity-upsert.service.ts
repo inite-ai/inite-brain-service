@@ -1,5 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { Surreal } from 'surrealdb';
+import { StringRecordId, Surreal } from 'surrealdb';
 import {
   dbCreate,
   queryFirst,
@@ -9,7 +9,8 @@ import {
 } from '../db/surreal.service';
 import { EntityResolverService } from './entity-resolver.service';
 import { EntityRef, IngestFactDto } from './dto/ingest-fact.dto';
-import { externalRefKey } from './ingest-utils';
+import { externalRefKey, idTailOf } from './ingest-utils';
+import { isCodeSymbolShaped, pathNeedlesForSymbol, symbolAliasForPath } from './code-alias';
 import { scopeForUser } from '../auth/scope-tags';
 import { envFlagEnabled } from '../common/env-validation';
 import { analyzeConfusables } from '../common/text-sanitizer';
@@ -174,6 +175,17 @@ export class EntityUpsertService {
       return String(nRow.id);
     }
 
+    // 2b. Code-identifier alias resolution (INGEST_CODE_ALIAS_RESOLUTION,
+    // default off). A module mentioned by file path and by the symbol it
+    // defines is ONE entity; the path↔symbol mapping is a deterministic
+    // naming convention, so it resolves here — BEFORE the probabilistic
+    // inline resolver — with no embeddings and no LLM. On a unique match
+    // the existing entity is reused (and the new surface stamped into its
+    // aliases); anything ambiguous or not clearly code-shaped falls
+    // through to create-new. Same tenant-global fence as step 2.
+    const viaCodeAlias = await this.resolveByCodeAlias(db, e);
+    if (viaCodeAlias) return viaCodeAlias;
+
     // 3. Inline entity resolution (graphiti-style, opt-in). Before minting
     // a new entity, look for a near-duplicate that already exists and let
     // an LLM judge confirm same-as using the incoming facts. A confirmed
@@ -192,7 +204,7 @@ export class EntityUpsertService {
     const created = await dbCreate<{ id: unknown }>(db, 'knowledge_entity', {
       type: this.normalizeEntityType(e.type),
       canonicalName: e.canonical ?? e.name,
-      aliases: [e.name],
+      aliases: this.seedAliases(e),
       externalRefs: {},
     });
     return String(created?.id);
@@ -214,6 +226,160 @@ export class EntityUpsertService {
   private normalizeEntityType(t: string): string {
     const allowed = ['customer', 'staff', 'asset', 'project', 'topic', 'location', 'other'];
     return allowed.includes(t) ? t : 'other';
+  }
+
+  /**
+   * INGEST_CODE_ALIAS_RESOLUTION (default off): deterministic alias-aware
+   * resolution for code identifiers, both directions:
+   *   - incoming PATH ("src/gateway/webhook-dispatcher.ts") → derive the
+   *     conventional symbol ("WebhookDispatcher") and match it against
+   *     existing canonical names / aliases;
+   *   - incoming SYMBOL → scan for an existing path-named entity whose
+   *     derived symbol equals it exactly.
+   * Exact-normalized matches only, and only a UNIQUE match is reused — two
+   * distinct candidates mean the identity is ambiguous and a fresh entity
+   * is minted instead. CREATION-TIME reuse only: two twins that already
+   * exist are never merged retroactively (that stays with the dreams
+   * dedup). Scope-local by construction: every query runs on the tenant's
+   * own DB (withCompany) and pins `userId IS NONE`, mirroring step 2 — a
+   * same-named personal entity never matches. NEVER throws: any failure
+   * falls through to create-new, resolution must not block ingest. The
+   * flag is read per-call so a live flip lands without restart; off ⇒
+   * byte-identical (nothing computed, no extra query).
+   */
+  private async resolveByCodeAlias(
+    db: Surreal,
+    e: { name: string; type: string; canonical?: string | undefined },
+  ): Promise<string | null> {
+    if (!envFlagEnabled(process.env.INGEST_CODE_ALIAS_RESOLUTION)) return null;
+    try {
+      const target = e.canonical ?? e.name;
+      const symbol = symbolAliasForPath(target);
+      if (symbol !== null) {
+        return await this.reuseSymbolEntityForPath(db, { pathName: target, symbol, e });
+      }
+      if (isCodeSymbolShaped(target)) return await this.reusePathEntityForSymbol(db, target, e);
+      return null;
+    } catch (err) {
+      this.logger.warn(
+        `[ingest.code_alias] resolution failed for "${e.name}": ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  /** Forward direction: an incoming code PATH reuses the entity already
+   *  known by the derived symbol (canonical name or alias, exact
+   *  normalized match, unique). */
+  private async reuseSymbolEntityForPath(
+    db: Surreal,
+    p: { pathName: string; symbol: string; e: { name: string; type: string } },
+  ): Promise<string | null> {
+    const { pathName, symbol, e } = p;
+    const rows = await queryRows<{ id: unknown }>(
+      db,
+      `SELECT id FROM knowledge_entity
+        WHERE (canonicalNameLc = $sym OR aliases CONTAINS $symRaw)
+          AND userId IS NONE
+          AND mergedInto IS NONE
+        LIMIT 2`,
+      { sym: symbol.toLowerCase(), symRaw: symbol },
+    );
+    const ids = [...new Set(rows.map((r) => String(r.id)))];
+    if (ids.length !== 1) {
+      if (ids.length > 1) {
+        this.logger.warn(
+          `[ingest.code_alias] "${pathName}" derives "${symbol}" but ` +
+            `${ids.length} entities carry that name — ambiguous, creating new`,
+        );
+      }
+      return null;
+    }
+    const entityId = ids[0]!;
+    await this.stampAlias(db, entityId, pathName);
+    await this.auditKeyedReuse(db, entityId, {
+      mention: e.name,
+      type: this.normalizeEntityType(e.type),
+      matchKind: 'exact', // deterministic exact match on the derived alias
+    });
+    this.logger.log(
+      `[ingest.code_alias] reused ${entityId} for path "${pathName}" (symbol "${symbol}")`,
+    );
+    return entityId;
+  }
+
+  /** Reverse direction: an incoming PascalCase SYMBOL reuses the entity
+   *  already known by a code path whose derived symbol equals it. Needle
+   *  candidates are verified exactly by re-deriving, and only a unique
+   *  verified entity is reused. */
+  private async reusePathEntityForSymbol(
+    db: Surreal,
+    symbol: string,
+    e: { name: string; type: string },
+  ): Promise<string | null> {
+    const matched = new Set<string>();
+    for (const needle of pathNeedlesForSymbol(symbol)) {
+      const rows = await queryRows<{ id: unknown; canonicalName: string }>(
+        db,
+        `SELECT id, canonicalName FROM knowledge_entity
+          WHERE string::contains(canonicalNameLc, $needle)
+            AND userId IS NONE
+            AND mergedInto IS NONE
+          LIMIT $k`,
+        { needle, k: 16 },
+      );
+      for (const r of rows) {
+        if (symbolAliasForPath(String(r.canonicalName)) === symbol) matched.add(String(r.id));
+      }
+      if (matched.size > 1) break; // already ambiguous — stop scanning
+    }
+    if (matched.size !== 1) {
+      if (matched.size > 1) {
+        this.logger.warn(
+          `[ingest.code_alias] symbol "${symbol}" derives from ${matched.size} ` +
+            `existing path entities — ambiguous, creating new`,
+        );
+      }
+      return null;
+    }
+    const entityId = [...matched][0]!;
+    await this.stampAlias(db, entityId, symbol);
+    await this.auditKeyedReuse(db, entityId, {
+      mention: e.name,
+      type: this.normalizeEntityType(e.type),
+      matchKind: 'exact', // deterministic exact match via derived symbol
+    });
+    this.logger.log(`[ingest.code_alias] reused ${entityId} for symbol "${symbol}"`);
+    return entityId;
+  }
+
+  /** Append the newly-seen surface to the reused entity's aliases so the
+   *  NEXT mention of it hits the step-2 exact match directly. Best-effort:
+   *  a stamp failure never blocks resolution (the reuse already stands). */
+  private async stampAlias(db: Surreal, entityId: string, alias: string): Promise<void> {
+    try {
+      await db.query(`UPDATE $id SET aliases = array::union(aliases ?? [], $add)`, {
+        id: new StringRecordId(`knowledge_entity:${idTailOf(entityId)}`),
+        add: [alias],
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[ingest.code_alias] alias stamp failed on ${entityId}: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /** Aliases for a freshly-minted entity. Under INGEST_CODE_ALIAS_RESOLUTION
+   *  a path-named entity is born carrying its derived symbol alias, so the
+   *  later symbol phrasing resolves via the step-2 exact alias match. Flag
+   *  off ⇒ exactly the pre-flag `[e.name]`. */
+  private seedAliases(e: { name: string; canonical?: string | undefined }): string[] {
+    const aliases = [e.name];
+    if (envFlagEnabled(process.env.INGEST_CODE_ALIAS_RESOLUTION)) {
+      const symbol = symbolAliasForPath(e.canonical ?? e.name);
+      if (symbol !== null && !aliases.includes(symbol)) aliases.push(symbol);
+    }
+    return aliases;
   }
 
   /** INGEST_CONFUSABLES_CHECK: log a homoglyph/mixed-script name for review.

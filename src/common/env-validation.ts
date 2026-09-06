@@ -934,6 +934,12 @@ const KNOWN_BOOLEAN_FLAGS = [
   // off = byte-identical (no skeleton computed). ENGINE (INGEST_) prefix, so
   // this one IS on the flag budget golden (a deliberate owner decision).
   'INGEST_CONFUSABLES_CHECK',
+  // Code-identifier alias resolution (k10 battery finding): a module
+  // mentioned by file path and by the symbol it defines resolves to ONE
+  // entity — the path↔symbol mapping is derived deterministically (no
+  // embeddings, no LLM) and only a unique exact-normalized match is
+  // reused, at creation time only. Default off = byte-identical.
+  'INGEST_CODE_ALIAS_RESOLUTION',
   // Realtime fact subscriptions (SSE at /v1/live/facts). On → a dedicated
   // per-tenant connection outside both pools holds a LIVE SELECT, with the
   // 30-day changefeed as the gap-replay bridge and the per-row ABAC gate
