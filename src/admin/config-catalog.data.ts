@@ -2531,6 +2531,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Contextual fact embedding: embed mention-extracted facts with a speaker+date context stamp so the vector matches context-referencing queries (Anthropic Contextual Retrieval, fact-level). Changes the embedding basis — requires re-ingest.',
   },
   {
+    key: 'INGEST_PREDICATE_INDEX_TEXT',
+    category: 'embedder',
+    defaultValue: '0',
+    runtimeMutable: false,
+    isBooleanFlag: true,
+    description:
+      'Humanized predicate in the fact embedding basis (code-memory battery k07): append the predicate as natural words (`rate_limit` → "rate limit"; pack `<packId>__` prefix stripped; skipped when the words are already tokens of the text) to the embedded `predicate: object`, so the vector matches queries that phrase the predicate in natural language. Worst-hit were harvested literal facts (rate_limit / service_port / http_status / …) whose objects are bare values. Parity with the lexical leg: migration 0007 searchHaystack already carries the underscore→space form for BM25. Write-time only — changes the embedding basis for NEW facts; existing rows are not re-embedded (re-ingest to benefit).',
+  },
+  {
     key: 'INGEST_EVENT_TIME_EXTRACTION',
     category: 'extractor',
     defaultValue: '0',

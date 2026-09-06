@@ -4,6 +4,7 @@ import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { traceArtifact, traceSpan } from '../common/debug-trace';
 import { redactPii } from './ingest-utils';
 import { FactEmbeddingService } from './fact-embedding.service';
+import { factIndexText } from './fact-index-text';
 import { envFlagEnabled } from '../common/env-validation';
 
 export interface MentionSource {
@@ -106,9 +107,15 @@ export class MentionExtractionService {
       (speaker?.name || dto.emittedAt)
         ? [speaker?.name, dto.emittedAt?.slice(0, 10)].filter(Boolean).join(', ')
         : '';
-    const factTexts = extraction.facts.map((f: { predicate: string; object: string }) =>
-      ctxStamp ? `${ctxStamp} — ${f.predicate}: ${f.object}` : `${f.predicate}: ${f.object}`,
-    );
+    // Base per-fact index text via the shared builder: under
+    // INGEST_PREDICATE_INDEX_TEXT (default off) it appends the humanized
+    // predicate words ("rate_limit" → "rate limit") so the stored vector
+    // matches natural-language queries that phrase the predicate; off →
+    // the bare `predicate: object`, byte-identical.
+    const factTexts = extraction.facts.map((f: { predicate: string; object: string }) => {
+      const base = factIndexText(f.predicate, f.object);
+      return ctxStamp ? `${ctxStamp} — ${base}` : base;
+    });
     let factEmbeddings: number[][];
     try {
       factEmbeddings = await this.factEmbedding.embedMany(factTexts);

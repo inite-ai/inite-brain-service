@@ -920,6 +920,12 @@ const KNOWN_BOOLEAN_FLAGS = [
   // (deliberate follow-up PR). Default off = byte-identical everything.
   'EXTRACTOR_TRANSITION_CLASSIFIER',
   'INGEST_CONTEXTUAL_FACT_EMBEDDING',
+  // Humanized predicate in the fact's embedding basis (code-memory k07):
+  // append "rate limit" for predicate `rate_limit` (pack `__` prefix
+  // stripped, token-dedup guarded) so the vector matches natural-language
+  // predicate phrasing — parity with the 0007 searchHaystack lexical
+  // surface. Write-time only; default off = byte-identical.
+  'INGEST_PREDICATE_INDEX_TEXT',
   'INGEST_EVENT_TIME_EXTRACTION',
   'INGEST_BATCH_EDGES',
   'INGEST_BATCH_FACTS',
