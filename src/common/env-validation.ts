@@ -911,6 +911,12 @@ const KNOWN_BOOLEAN_FLAGS = [
   // pre-verb intention/negation guards. No second LLM path. Default
   // off = byte-identical extraction.
   'EXTRACTOR_STATE_VERB_HARVEST',
+  // State-transition classifier (semantic stage): compromise morphology
+  // finds candidate verb clauses, embedding-prototype matching (BGE-M3,
+  // EN+RU bank) classifies completed-transition vs intention vs
+  // unrelated. Availability gate only — NOT wired into extraction yet
+  // (deliberate follow-up PR). Default off = byte-identical everything.
+  'EXTRACTOR_TRANSITION_CLASSIFIER',
   'INGEST_CONTEXTUAL_FACT_EMBEDDING',
   'INGEST_EVENT_TIME_EXTRACTION',
   'INGEST_BATCH_EDGES',
