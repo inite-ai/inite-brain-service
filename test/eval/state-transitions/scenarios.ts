@@ -92,7 +92,12 @@ export const SCENARIOS: Scenario[] = [
         fieldTokens: ['bike', 'motorcycle', 'motorbike', 'vehicle'],
         valueMarkers: ['none', 'sold', 'no'],
         priorMarkers: ['Kawasaki', 'Ninja'],
-        minRevision: 2,
+        // minRevision is 1, not 2: when both scenes land in ONE promotion
+        // batch, buildBeliefFold folds them to the final state directly —
+        // rev=1 carrying value + priorValue. The value/prior pair is the
+        // mechanical signal of a completed transition; the revision
+        // counter only increments across separate promotion runs.
+        minRevision: 1,
         // Baseline policy: this check RUNS and its fail is RECORDED —
         // that is the baseline the flags below are measured against.
         knownFailToday:
@@ -139,7 +144,8 @@ export const SCENARIOS: Scenario[] = [
         fieldTokens: ['laptop'],
         valueMarkers: ['MacBook'],
         priorMarkers: ['ThinkPad'],
-        minRevision: 2,
+        // rev=1 is legitimate for a one-batch promotion (see s01 note).
+        minRevision: 1,
       },
       {
         kind: 'fact-history',
@@ -375,7 +381,8 @@ export const SCENARIOS: Scenario[] = [
         fieldTokens: ['city', 'residence', 'home', 'location', 'lives'],
         valueMarkers: ['Porto'],
         priorMarkers: ['Lisbon'],
-        minRevision: 2,
+        // rev=1 is legitimate for a one-batch promotion (see s01 note).
+        minRevision: 1,
         knownFailToday:
           '#135 SCENES_BELIEF_FIELD_FOLD — "home city" and "place of residence" fold into ' +
           'different free-text field keys, so no single belief carries value + priorValue',
