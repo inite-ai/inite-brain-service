@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
-import { exportJWK, generateKeyPair, SignJWT, type JWK, type KeyLike } from 'jose';
+import { exportJWK, generateKeyPair, SignJWT, type JWK } from 'jose';
 import { ApiKeyGuard } from '../src/auth/api-key.guard';
 import { ApiKeyService } from '../src/auth/api-key.service';
 import { CredentialResolverService } from '../src/auth/credential-resolver.service';
@@ -56,7 +56,7 @@ describe('ApiKeyGuard — JWKS verification', () => {
   let jwksServer: http.Server;
   let jwksUrl: string;
   let publicJwk: JWK;
-  let privateKey: KeyLike;
+  let privateKey: CryptoKey;
   let guard: ApiKeyGuard;
   let jwks: JwksService;
   let apiKeys: ApiKeyService;
@@ -69,7 +69,7 @@ describe('ApiKeyGuard — JWKS verification', () => {
     issuer?: string;
     audience?: string;
     expiresIn?: string | number;
-    signWith?: KeyLike;
+    signWith?: CryptoKey;
     extraClaims?: Record<string, unknown>;
   }): Promise<string> {
     return new SignJWT({
