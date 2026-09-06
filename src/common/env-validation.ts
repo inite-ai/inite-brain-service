@@ -946,6 +946,12 @@ const KNOWN_BOOLEAN_FLAGS = [
   // embeddings, no LLM) and only a unique exact-normalized match is
   // reused, at creation time only. Default off = byte-identical.
   'INGEST_CODE_ALIAS_RESOLUTION',
+  // Article-insensitive entity reuse: the canonical-name lookup is widened
+  // to the leading-article variants of the name ("the office lease" ↔
+  // "office lease"), so one referent coined with and without an article
+  // stops splitting into two entities. Unique match only; stored names
+  // never rewritten. Default off = byte-identical.
+  'INGEST_ARTICLE_NORMALIZATION',
   // Realtime fact subscriptions (SSE at /v1/live/facts). On → a dedicated
   // per-tenant connection outside both pools holds a LIVE SELECT, with the
   // 30-day changefeed as the gap-replay bridge and the per-row ABAC gate

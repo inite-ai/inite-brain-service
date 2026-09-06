@@ -16,6 +16,39 @@ import { envFlagEnabled } from '../common/env-validation';
 import { analyzeConfusables } from '../common/text-sanitizer';
 
 /**
+ * Leading English articles the extractor inconsistently keeps on coined
+ * entity names. Only these three: any longer list drifts into semantic
+ * guessing ("some", "that") the reuse fence must not do.
+ */
+const LEADING_ARTICLE_RE = /^(?:the|a|an)\s+/;
+
+/**
+ * Article-variant expansion for the INGEST_ARTICLE_NORMALIZATION lookup
+ * (pure, exported for tests): all leading-article forms of a lowercased
+ * name OTHER than the name itself (the exact form was already tried by
+ * step 2). "the office lease" → ["office lease", "a office lease",
+ * "an office lease"]; "office lease" → ["the office lease", …]. A name
+ * that IS just an article ("the") expands to nothing. Grammatical
+ * a-vs-an misuse is deliberately included — the goal is recall on
+ * variants of the SAME words, and the IN-lookup can only hit names that
+ * actually exist.
+ */
+export function articleNameVariants(nameLc: string): string[] {
+  const stripped = nameLc.replace(LEADING_ARTICLE_RE, '').trim();
+  if (stripped === '' || stripped === nameLc.trim()) {
+    const base = stripped === '' ? null : stripped;
+    if (base === null) return [];
+    return ['the', 'a', 'an'].map((art) => `${art} ${base}`);
+  }
+  const out = [stripped];
+  for (const art of ['the', 'a', 'an']) {
+    const variant = `${art} ${stripped}`;
+    if (variant !== nameLc.trim()) out.push(variant);
+  }
+  return out;
+}
+
+/**
  * Entity-resolution slice of the ingest pipeline: turn a caller-supplied
  * reference (externalRef / canonical name / bare entityId) into a concrete
  * knowledge_entity id, minting one when absent. Every method takes the live
@@ -173,6 +206,38 @@ export class EntityUpsertService {
         matchKind: 'exact',
       });
       return String(nRow.id);
+    }
+
+    // 2a. Article-insensitive reuse (INGEST_ARTICLE_NORMALIZATION, default
+    // off). The extractor coins entity names with and without a leading
+    // English article across turns ("the office lease" vs "office lease"),
+    // splitting ONE referent into two entities — and every slot-keyed
+    // consumer downstream (conflict formation, timelines, competing pairs)
+    // goes blind to the collision. The lookup is widened to the leading-
+    // article VARIANTS of the name (stripped + the/a/an re-prefixed); the
+    // stored canonicalName is never rewritten, and a UNIQUE match only —
+    // two same-named-modulo-article entities existing already is exactly
+    // the ambiguity we refuse to guess about. Same tenant-global fence.
+    if (envFlagEnabled(process.env.INGEST_ARTICLE_NORMALIZATION)) {
+      const variants = articleNameVariants(target);
+      if (variants.length > 0) {
+        const vRows = await queryRows<{ id: unknown }>(
+          db,
+          `SELECT id FROM knowledge_entity
+           WHERE canonicalNameLc IN $variants
+             AND userId IS NONE
+           LIMIT 2`,
+          { variants },
+        );
+        if (vRows.length === 1 && vRows[0]) {
+          await this.auditKeyedReuse(db, String(vRows[0].id), {
+            mention: e.name,
+            type: this.normalizeEntityType(e.type),
+            matchKind: 'article-variant',
+          });
+          return String(vRows[0].id);
+        }
+      }
     }
 
     // 2b. Code-identifier alias resolution (INGEST_CODE_ALIAS_RESOLUTION,
@@ -402,7 +467,7 @@ export class EntityUpsertService {
   private async auditKeyedReuse(
     db: Surreal,
     targetEntity: string,
-    meta: { mention: string; type: string; matchKind: 'exact' | 'externalRef' },
+    meta: { mention: string; type: string; matchKind: 'exact' | 'externalRef' | 'article-variant' },
   ): Promise<void> {
     if (!this.entityResolver?.isReversible()) return;
     await this.entityResolver.recordMerge(db, {
