@@ -373,4 +373,72 @@ describe('code-memory pack', () => {
     // core predicates still present
     expect(ids).toContain('name');
   });
+
+  // ── 0.4.0: extractionProfile + ontology increment + memoryModel ────
+  it('seeds the 0.4.0 ontology increment alongside the original four kinds', () => {
+    const ids = SEED_PREDICATES.map((p) => p.predicateId);
+    for (const local of ['owns', 'default_value', 'depends_on_version', 'superseded_by']) {
+      expect(ids).toContain(`code_memory__${local}`);
+    }
+    // The original decision-journal kinds are untouched.
+    for (const local of ['decided', 'because', 'invariant', 'gotcha']) {
+      expect(ids).toContain(`code_memory__${local}`);
+    }
+  });
+
+  it('revisioned vs trail semantics: defaults/pins/ownership supersede, supersession appends', () => {
+    const byLocal = new Map(CODE_MEMORY_PACK.predicates.map((p) => [p.localId, p]));
+    expect(byLocal.get('default_value')?.semantics).toBe('single_active');
+    expect(byLocal.get('depends_on_version')?.semantics).toBe('single_active');
+    expect(byLocal.get('owns')?.semantics).toBe('single_active');
+    expect(byLocal.get('superseded_by')?.semantics).toBe('append_only');
+    // The originals keep the semantics they shipped with.
+    expect(byLocal.get('decided')?.semantics).toBe('single_active');
+    expect(byLocal.get('because')?.semantics).toBe('append_only');
+    expect(byLocal.get('invariant')?.semantics).toBe('single_active');
+    expect(byLocal.get('gotcha')?.semantics).toBe('append_only');
+  });
+
+  it('ships a SELF-SCOPING extractionProfile (builtin = injected into every tenant)', () => {
+    const profile = CODE_MEMORY_PACK.extractionProfile;
+    expect(profile?.guidance).toContain('ONLY when the input discusses software work');
+    expect(profile?.guidance).toContain('contributes NOTHING');
+    // Identifier-shaped subjects become their own entities, never the speaker.
+    expect(profile?.guidance).toContain('NEVER the speaker');
+    expect(profile?.fewShot?.length ?? 0).toBeGreaterThanOrEqual(3);
+  });
+
+  it('declares the perception contract: three lifecycles, hints, one recency rule', () => {
+    const mm = CODE_MEMORY_PACK.memoryModel;
+    expect(mm?.stateModels?.map((m) => m.id).sort()).toEqual([
+      'change_lifecycle',
+      'dependency_lifecycle',
+      'flag_lifecycle',
+    ]);
+    const flag = mm?.stateModels?.find((m) => m.id === 'flag_lifecycle');
+    expect(flag?.states).toEqual(['declared', 'enabled', 'deprecated', 'removed']);
+    expect(mm?.attentionHints?.length ?? 0).toBeGreaterThanOrEqual(5);
+    expect(mm?.verificationRules).toEqual([{ claimPattern: 'default', requires: 'recency_check' }]);
+    expect(mm?.retentionHints?.some((h) => h.predicateOrScene === 'gotcha')).toBe(true);
+    // Text-only: no consent-tier declarations.
+    expect(mm?.modalities).toBeUndefined();
+    expect(mm?.processors).toBeUndefined();
+    expect(mm?.rawEvidence).toBeUndefined();
+  });
+
+  it('eval fixtures cover every 0.4.0 predicate and resolve against declared localIds', () => {
+    const locals = new Set(CODE_MEMORY_PACK.predicates.map((p) => p.localId));
+    const fixtures = CODE_MEMORY_PACK.evalFixtures ?? [];
+    expect(fixtures.length).toBeGreaterThanOrEqual(4);
+    const asserted = new Set<string>();
+    for (const f of fixtures) {
+      for (const want of f.expect.facts ?? []) {
+        expect(locals.has(want.predicate)).toBe(true);
+        asserted.add(want.predicate);
+      }
+    }
+    for (const local of ['owns', 'default_value', 'depends_on_version', 'superseded_by']) {
+      expect(asserted.has(local)).toBe(true);
+    }
+  });
 });
