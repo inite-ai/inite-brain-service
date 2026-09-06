@@ -104,6 +104,70 @@ describe('harvestLiterals — positive table (verbatim corpus turns)', () => {
   });
 });
 
+describe('harvestLiterals — k07 rate-limit phrasing table (code-memory battery)', () => {
+  // VERBATIM corpus turn from test/eval/code-memory/corpus.ts (the k07
+  // rate_limit want) — pins that the deterministic lane produces the
+  // fact for this exact phrasing whenever it runs with a grounded
+  // entity, so a battery miss localizes upstream of the regex lane.
+  const THROTTLE_TURN = 'acme-api throttles /v1/webhooks at 120 requests per minute.';
+
+  it('corpus phrasing: "throttles … at 120 requests per minute" → rate_limit', () => {
+    const facts = harvest(THROTTLE_TURN, [ent('acme-api')], null);
+    const rate = byPredicate(facts, 'rate_limit');
+    expect(rate).toHaveLength(1);
+    expect(rate[0]!.object).toBe('120 requests per minute');
+    expect(rate[0]!.entityIndex).toBe(0);
+    // The cue-gated addition must not double-fire next to the main rule.
+    expect(facts).toHaveLength(1);
+  });
+
+  it('held-out: cue-gated bare form "rate-limits … at 60 per minute"', () => {
+    const facts = harvest(
+      'acme-api rate-limits /v1/events at 60 per minute.',
+      [ent('acme-api')],
+      null,
+    );
+    expect(byPredicate(facts, 'rate_limit').map((f) => f.object)).toEqual(['60 per minute']);
+  });
+
+  it('held-out: cue-gated slash form "throttled to 300/min"', () => {
+    const facts = harvest(
+      'The acme-api webhook route is throttled to 300/min in staging.',
+      [ent('acme-api')],
+      null,
+    );
+    expect(byPredicate(facts, 'rate_limit').map((f) => f.object)).toEqual(['300/min']);
+  });
+
+  it('held-out: cue-gated compact unit "quota … is 850 rps"', () => {
+    const facts = harvest('The ingest quota for acme-api is 850 rps.', [ent('acme-api')], null);
+    expect(byPredicate(facts, 'rate_limit').map((f) => f.object)).toEqual(['850 rps']);
+  });
+
+  it('negative: "120 users" never becomes a rate limit, even beside a throttle cue', () => {
+    const facts = harvest(
+      'acme-api throttles onboarding; 120 users hit the waitlist.',
+      [ent('acme-api')],
+      null,
+    );
+    expect(facts).toEqual([]);
+  });
+
+  it('negative: cue-less "120 per minute" prose stays out', () => {
+    const facts = harvest(
+      'The acme-api conveyor demo moved 120 per minute all day.',
+      [ent('acme-api')],
+      null,
+    );
+    expect(facts).toEqual([]);
+  });
+
+  it('negative: rpm stays out even with a cue (revolutions ambiguity)', () => {
+    const facts = harvest('We throttle the acme-api fans at 1200 rpm.', [ent('acme-api')], null);
+    expect(facts).toEqual([]);
+  });
+});
+
 describe('harvestLiterals — negative table', () => {
   const NOTHING: Array<[string, string]> = [
     ['casual duration', 'we met three minutes apart'],

@@ -44,6 +44,22 @@ const PORT_LIST_ITEM =
 const RATE_LIMIT =
   /\b(\d[\d.,]*)\s*(?:requests?|calls?|req|rps)\s*(?:per|\/)\s*(?:second|minute|hour|sec|min|hr)\b/gi;
 
+/**
+ * The cue-gated rate forms the main rule cannot see (k07 code-memory
+ * battery finding — additions only, the main rule is untouched): a
+ * number joined straight to a TIME unit with no request noun between
+ * (`at 120 per minute`, `to 300/min`) or a compact rate token
+ * (`850 rps`, `120 qps`). These fire ONLY when the sentence carries
+ * explicit rate-limit vocabulary (RATE_LIMIT_CUE) — "the line moved at
+ * 120 per minute" is casual prose, not a limit. `rpm` is deliberately
+ * absent: outside software prose it reads as revolutions per minute.
+ */
+const RATE_LIMIT_CUED =
+  /\b(\d[\d.,]*)\s*(?:(?:per|\/)\s*(?:second|minute|hour|sec|min|hr)|rps|qps)\b/gi;
+
+/** Explicit rate-limit vocabulary that admits a RATE_LIMIT_CUED match. */
+const RATE_LIMIT_CUE = /\b(?:rate[\s-]?limit(?:s|ed|ing)?|throttl(?:e|es|ed|ing)|quota)\b/i;
+
 /** `HTTP 429` — an explicit protocol status code. */
 const HTTP_STATUS = /\bHTTP\s+([1-5]\d{2})\b/g;
 
@@ -173,6 +189,12 @@ function collectMatches(input: string, sentences: SentenceSpan[]): HarvestMatch[
 
   for (const m of input.matchAll(RATE_LIMIT)) {
     // The full phrase verbatim WITH units — "50" alone is not a limit.
+    out.push({ predicate: 'rate_limit', object: m[0], valueSpan: m[0], index: m.index });
+  }
+  for (const m of input.matchAll(RATE_LIMIT_CUED)) {
+    // Unit-noun-less / compact rate forms only count inside a sentence
+    // that says it IS a limit (throttle / rate-limit / quota).
+    if (!RATE_LIMIT_CUE.test(sentenceAt(sentences, m.index).text)) continue;
     out.push({ predicate: 'rate_limit', object: m[0], valueSpan: m[0], index: m.index });
   }
   for (const m of input.matchAll(PORT_STATEMENT)) {
