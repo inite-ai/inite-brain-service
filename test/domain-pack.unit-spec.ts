@@ -408,6 +408,24 @@ describe('code-memory pack', () => {
     expect(profile?.fewShot?.length ?? 0).toBeGreaterThanOrEqual(3);
   });
 
+  // 0.4.1 (k13 battery finding): ownership phrasing must be covered by a
+  // DEDICATED few-shot — person-first "NAME owns PATH" with an
+  // enumeration tail — and the guidance must spell out the
+  // subject/value inversion, so open-vocab extraction canonicalizes
+  // ownership turns into code_memory__owns instead of coining.
+  it('covers ownership phrasing: dedicated fewShot + inversion guidance', () => {
+    const profile = CODE_MEMORY_PACK.extractionProfile;
+    const ownershipExamples = (profile?.fewShot ?? []).filter((ex) =>
+      ex.note.includes('code_memory__owns'),
+    );
+    // The dedicated example plus the original compound one.
+    expect(ownershipExamples.length).toBeGreaterThanOrEqual(2);
+    expect(
+      ownershipExamples.some((ex) => /\bowns src\/\S+ in \S+, including\b/.test(ex.text)),
+    ).toBe(true);
+    expect(profile?.guidance).toContain('the VALUE of code_memory__owns');
+  });
+
   it('declares the perception contract: three lifecycles, hints, one recency rule', () => {
     const mm = CODE_MEMORY_PACK.memoryModel;
     expect(mm?.stateModels?.map((m) => m.id).sort()).toEqual([

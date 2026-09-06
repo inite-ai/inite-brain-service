@@ -11,7 +11,7 @@ import { composePredicateId, type DomainPackManifest } from './manifest';
  */
 export const CODE_MEMORY_PACK: DomainPackManifest = {
   id: 'code_memory',
-  version: '0.4.0',
+  version: '0.4.1',
   description:
     'Non-derivable engineering "why" of a codebase — decisions, rationale, invariants, gotchas, ownership, flag/config defaults, dependency pins, and decision supersession anchored to code, with a domain extraction profile and memory model.',
   // Retro-declaration, documentation-true: code-memory has ALWAYS been an
@@ -157,7 +157,9 @@ flag/config (code_memory__default_value), pinned dependency versions
 (code_memory__depends_on_version), and decision supersession
 (code_memory__superseded_by). Copy identifiers, paths, versions, and values
 VERBATIM — "3.2.4" not "the current version", "EXTRACTOR_LITERAL_HARVEST"
-not "the harvest flag".`,
+not "the harvest flag". Ownership INVERTS the surface grammar: in
+"NAME owns PATH", the owned module/path is the fact's SUBJECT (a code
+anchor) and the person or team is the VALUE of code_memory__owns.`,
     fewShot: [
       {
         text: 'We decided to resolve all facts through one gateway in src/ingest/fact-resolver.service.ts because 21 positional args drifted between call-sites.',
@@ -174,6 +176,13 @@ not "the harvest flag".`,
       {
         text: 'Our decision to cache answers per request in src/answers/cache.ts was superseded by caching per tenant.',
         note: "code anchor 'src/answers/cache.ts' → code_memory__superseded_by='caching per tenant' (the old decided fact stays in history).",
+      },
+      // 0.4.1: dedicated ownership example (k13 battery finding) — the
+      // person-first phrasing with a repo qualifier and an "including …"
+      // enumeration tail, which the compound example above did not cover.
+      {
+        text: 'Dmitri owns src/billing in ledger-core, including the invoice worker and the dunning cron.',
+        note: "ownership inverts the sentence: the owned module 'src/billing' is the SUBJECT (a code anchor), the person is the value → code_memory__owns='Dmitri'. The 'including …' tail stays inside that one fact — no extra owns fact per sub-component.",
       },
     ],
   },
