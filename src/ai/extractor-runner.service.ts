@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { traceArtifact } from '../common/debug-trace';
 import { PredicateDefinition } from './predicate-registry.service';
 import type { PackExtractionProfile } from './predicate-registry-internals/types';
@@ -7,7 +7,7 @@ import { ExtractorLocalService } from './extractor-local.service';
 import { ExtractorRefineService } from './extractor-refine.service';
 import { mergeExtractions } from './extractor-internals/merge';
 import { detectFacets, type Facet } from './extractor-internals/facet-router';
-import type { ExtractedEntity, ExtractionResult } from './extractor-internals/types';
+import type { ExtractedEntity, ExtractedFact, ExtractionResult } from './extractor-internals/types';
 import {
   applyGroundingGate,
   groundEntities,
@@ -20,6 +20,12 @@ import { validateEdges } from './extractor-internals/edge-validator';
 import { denoiseFacts } from './extractor-internals/denoise';
 import { harvestLiterals, resolveSpeakerEntityIndex } from './extractor-internals/literal-harvest';
 import { harvestStateVerbs } from './extractor-internals/state-verb-harvest';
+import { harvestTransitions } from './extractor-internals/transition-harvest';
+import {
+  createTransitionClassifier,
+  type TransitionClassifier,
+} from './extractor-internals/transition-classifier';
+import { EmbedderService } from './embedder.service';
 import { resolveExtractionProfile } from './extraction-profile';
 import {
   buildConversationContext,
@@ -52,20 +58,47 @@ export interface RunOverrides {
  * emission. Delegates each concern to ExtractorLlmService /
  * ExtractorLocalService / ExtractorRefineService. The predicate snapshot
  * is supplied by the caller (ExtractorService, which owns the cache);
- * this class holds no cache/registry dep, keeping it at ≤3.
+ * this class holds no cache/registry dep — its 3 required deps stay the
+ * pipeline stages, plus an OPTIONAL EmbedderService used only by the
+ * flag-gated transition-classifier lane (absent embedder → lane skipped,
+ * never a boot failure).
  */
 @Injectable()
 export class ExtractorRunnerService {
   private readonly logger = new Logger(ExtractorRunnerService.name);
 
+  /**
+   * Lazily-built prototype classifier for the transition lane
+   * (EXTRACTOR_TRANSITION_CLASSIFIER). Cached on the service so the
+   * EN+RU prototype bank is embedded ONCE per process (the classifier
+   * closure caches the bank vectors; EmbedderService's LRU additionally
+   * caches per-text). Never constructed while the flag is off.
+   */
+  private transitionClf: TransitionClassifier | null = null;
+
+  // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token and cannot be folded into an options object without breaking DI
   constructor(
     private readonly llm: ExtractorLlmService,
     private readonly local: ExtractorLocalService,
     private readonly refine: ExtractorRefineService,
+    @Optional() private readonly embedder?: EmbedderService,
   ) {}
 
   modelId(): string {
     return this.llm.modelId();
+  }
+
+  /**
+   * The transition-lane classifier, built on first use. Null when no
+   * embedder was injected (direct-construction unit tests, stripped-down
+   * module contexts) — the lane then no-ops even with the flag on.
+   */
+  private transitionClassifier(): TransitionClassifier | null {
+    if (!this.embedder) return null;
+    this.transitionClf ??= createTransitionClassifier((texts) =>
+      (this.embedder as EmbedderService).embedMany(texts),
+    );
+    return this.transitionClf;
   }
 
   get scPasses(): number {
@@ -439,9 +472,47 @@ export class ExtractorRunnerService {
       });
     }
 
+    // Transition-classifier harvest (EXTRACTOR_TRANSITION_CLASSIFIER,
+    // default off): the semantic generalization of the state-verb
+    // lexicon lane — compromise morphology (EN) + a bounded RU matcher
+    // propose candidate clauses, the BGE-M3 prototype classifier
+    // accepts completed transitions above the calibrated floor/margin,
+    // and each acceptance lands as the SAME span-grounded state_change
+    // shape with the SAME holder binding. Runs LAST and receives every
+    // prior fact, so a sentence the lexicon lane already harvested is
+    // deferred whole (no double emission) and triples dedup across all
+    // lanes. A lane failure (embedder down mid-request) costs only its
+    // extra recall — the LLM facts and sibling lanes still carry the
+    // turn.
+    let transitionHarvested: ExtractedFact[] = [];
+    if (resolveExtractionProfile().transitionClassifier) {
+      const classifier = this.transitionClassifier();
+      if (classifier) {
+        try {
+          transitionHarvested = await harvestTransitions({
+            trimmed,
+            entities,
+            speakerEntityIndex: resolveSpeakerEntityIndex(entities, context?.speakerName),
+            existingFacts: [...denoised, ...harvested, ...stateHarvested],
+            classifier,
+          });
+        } catch (e) {
+          this.logger.warn(
+            `transition-classifier lane failed (facts from other lanes kept): ${(e as Error).message}`,
+          );
+        }
+      }
+    }
+    if (transitionHarvested.length > 0) {
+      traceArtifact('extractor.transition_classifier', {
+        count: transitionHarvested.length,
+        facts: transitionHarvested.map((f) => ({ predicate: f.predicate, object: f.object })),
+      });
+    }
+
     const finalFacts =
-      harvested.length > 0 || stateHarvested.length > 0
-        ? [...denoised, ...harvested, ...stateHarvested]
+      harvested.length > 0 || stateHarvested.length > 0 || transitionHarvested.length > 0
+        ? [...denoised, ...harvested, ...stateHarvested, ...transitionHarvested]
         : denoised;
 
     const result: ExtractionResult = { entities, facts: finalFacts, edges };
