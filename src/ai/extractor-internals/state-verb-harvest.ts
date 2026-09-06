@@ -295,8 +295,13 @@ export interface HarvestStateVerbsArgs {
  * returned the company car" binds to Boris), else the speaker. Object
  * entities are deliberately never bound; the object is already inside
  * the harvested span.
+ *
+ * Exported for the transition-classifier lane (transition-harvest.ts):
+ * both transition lanes MUST bind identically or a multi-stage
+ * transition harvested half by each lane scatters across timelines —
+ * the exact stmtp52jfw failure this binder exists to prevent.
  */
-function bindStateHolder(
+export function bindStateHolder(
   entities: ExtractedEntity[],
   sentenceText: string,
   speakerEntityIndex: number | null,

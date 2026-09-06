@@ -107,19 +107,35 @@ export const TRANSITION_PROTOTYPES: Readonly<Record<TransitionClass, readonly st
 };
 
 /**
- * Suggested default margin gate: below this gap to the runner-up the
- * verdict is ambiguous and the caller should abstain. PLACEHOLDER
- * pending stand calibration against the state-transition battery with
- * the real BGE-M3 embedder — do not treat as measured.
+ * Default margin gate: below this gap to the runner-up the verdict is
+ * ambiguous and the caller abstains. CALIBRATED 2026-09-06 with the
+ * real BGE-M3 embedder (Xenova/bge-m3 quantized ONNX, cls-pooled,
+ * normalized — the production provider's own inference path) over the
+ * wired candidate pipeline and a 76-item labeled set drawn from the
+ * state-transition battery, the code-memory corpus, the state-verb
+ * guard fixtures, and held-out out-of-lexicon EN + RU sentences —
+ * see test/eval/transition-calibration/runner.ts (deterministic,
+ * local-only; rerun with `pnpm eval:transition-calibration`).
+ * Selection rule: maximize precision subject to recall >= 0.8; the
+ * chosen point measured P=0.906 / R=0.879. BGE-M3 packs all five
+ * classes' prototypes tightly, so real margins are tiny — gates above
+ * ~0.01 collapse recall (0.01 already drops it below the 0.8 bound);
+ * this near-zero gate only prunes coin-flip verdicts.
  */
-export const TRANSITION_MARGIN_DEFAULT = 0.02;
+export const TRANSITION_MARGIN_DEFAULT = 0.002;
 
 /**
- * Suggested default score floor: below this max-cosine the clause is
- * too far from every prototype to trust ANY class. PLACEHOLDER pending
- * the same stand calibration as TRANSITION_MARGIN_DEFAULT.
+ * Default score floor: below this max-cosine the clause is too far
+ * from every prototype to trust ANY class. Same calibration run as
+ * TRANSITION_MARGIN_DEFAULT (P=0.906 / R=0.879 at floor 0.52,
+ * margin 0.002). Positives cluster at ~0.55-0.85; the residual false
+ * accepts (reported-speech "signed contract copy", result-state "have
+ * had no music subscription") sit at 0.64-0.72 and are prototype-bank
+ * gaps, not threshold errors — raising the floor past them costs more
+ * recall than it buys precision (0.65/0.05 measures P=0.944 at
+ * R=0.515).
  */
-export const TRANSITION_SCORE_FLOOR = 0.45;
+export const TRANSITION_SCORE_FLOOR = 0.52;
 
 /** Cosine similarity; 0 for zero-norm vectors (never NaN). */
 function cosine(a: readonly number[], b: readonly number[]): number {

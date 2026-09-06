@@ -55,13 +55,17 @@ export interface ExtractionPipelineProfile {
   stateVerbHarvest: boolean;
   /**
    * EXTRACTOR_TRANSITION_CLASSIFIER (state-transition battery follow-up):
-   * availability gate for the two-stage transition module — compromise
-   * morphology finds candidate verb clauses, embedding-prototype
-   * matching (BGE-M3, EN+RU prototype bank) classifies them as
-   * completed-transition vs intention vs unrelated. NOT WIRED into the
-   * extraction pipeline yet — this flag gates module availability only;
-   * the wiring (composed with the deterministic state-verb lexicon
-   * lane) is a deliberate follow-up PR. Default off.
+   * the semantic transition lane — compromise morphology (EN) plus a
+   * bounded RU past-tense matcher propose candidate verb clauses
+   * (past-tense, non-negated, non-hypothetical, with a complement);
+   * embedding-prototype matching (BGE-M3, EN+RU prototype bank)
+   * accepts completed transitions above the calibrated score-floor/
+   * margin gates. Accepted clauses land as the SAME span-grounded
+   * `state_change` shape as the state-verb lexicon lane, bound via the
+   * shared bindStateHolder; a sentence the lexicon lane already
+   * harvested is deferred whole, so the two lanes compose without
+   * double emission. Runs LAST in assembleResult. Off (default) →
+   * byte-identical extraction, embedder never called.
    */
   transitionClassifier: boolean;
   /** Let the local pre-pass skip the extractor LLM call when it hits. */
