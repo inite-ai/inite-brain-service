@@ -326,6 +326,24 @@ jobs:
           # exists to pair; slot canonicalization is the follow-up). ──
           CONFLICT_MENTION_FACT_SLOT=1
           EXTRACTOR_TRANSITION_CLASSIFIER=1
+          # ── s07/k07/k10 root-cause wave (#450 #454 #455 #456, all
+          # live-verified on the stand 2026-09-06):
+          # - slot canonicalization: calendar-anchored duration claims
+          #   meet lifecycle claims in one status slot;
+          # - article-insensitive entity reuse: "the office lease" ==
+          #   "office lease" (unique-match-only);
+          # - cosine floor open for promoted single_active mention slots
+          #   rides CONFLICT_MENTION_FACT_SLOT (no separate flag) — the
+          #   (office lease, status) COMPETING pair forms end-to-end;
+          # - lang-filter confidence gate: a lone foreign stopword
+          #   ("120 requests per MINUTE" → lang=it@0.33) no longer hides
+          #   facts from the hard en-filter; the filter still applies
+          #   when detection clears the 0.5 confidence floor.
+          # Measured: code-memory battery k07 flipped green (14/16);
+          # transitions/domain-packs/memory-fitness no regression. ──
+          CONFLICT_SLOT_CANONICALIZATION=1
+          INGEST_ARTICLE_NORMALIZATION=1
+          MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE=1
           EOF
           # The heredoc carries the YAML block's 10-space indent into the
           # file; strip it so every line is a clean KEY=value / #comment
