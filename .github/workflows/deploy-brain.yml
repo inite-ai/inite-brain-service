@@ -307,6 +307,14 @@ jobs:
           # battery 4/12 -> 8/12 scenarios, checks 84%; held-out
           # adversarial set 18/18; unit 29/29 incl. holder binding) ──
           EXTRACTOR_STATE_VERB_HARVEST=1
+          # ── Answer conditioning (V13 G2 shape instructions; existing
+          # flag, was never enabled — the aggregation shape's coverage
+          # instruction fixes broad-question domain dropout. Measured on
+          # the stand 2026-09-06, flag-off vs flag-on: domain-packs
+          # battery 14/15 -> 15/15, state-transitions 8/12 -> 10/12
+          # scenarios (checks 84% -> 92%), memory-fitness 27/30 ->
+          # 28/30; pointed-question isolation checks unaffected) ──
+          RETRIEVAL_ANSWER_CONDITIONING=1
           EOF
           # The heredoc carries the YAML block's 10-space indent into the
           # file; strip it so every line is a clean KEY=value / #comment
