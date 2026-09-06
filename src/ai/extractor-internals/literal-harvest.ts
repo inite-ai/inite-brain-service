@@ -88,7 +88,7 @@ const CAMEL_CUE_BEFORE = /\b(?:carries|uses|set|key)\s*[:=]?\s*$/i;
 export const DURATION_LIMIT_PATTERN =
   /\b(\d[\d.,]*)\s*(?:seconds?|minutes?|hours?|days?|weeks?|ms|secs?|mins?|hrs?)\b/gi;
 
-interface SentenceSpan {
+export interface SentenceSpan {
   start: number;
   end: number;
   text: string;
@@ -98,8 +98,10 @@ interface SentenceSpan {
  * Sentence spans with offsets. The boundary is [.!?] + whitespace +
  * an upper-case letter or digit, so dots INSIDE identifiers
  * (`LSYNC.payouts.*`, `Fly.io`, `v2.3`) never split a sentence.
+ * Exported for the sibling deterministic lane (state-verb-harvest) so
+ * the two lanes attribute matches identically.
  */
-function sentenceSpans(input: string): SentenceSpan[] {
+export function sentenceSpans(input: string): SentenceSpan[] {
   const starts = [0];
   for (const m of input.matchAll(/[.!?]+\s+(?=[A-Z0-9])/g)) {
     starts.push(m.index + m[0].length);
@@ -110,7 +112,7 @@ function sentenceSpans(input: string): SentenceSpan[] {
   });
 }
 
-function sentenceAt(sentences: SentenceSpan[], index: number): SentenceSpan {
+export function sentenceAt(sentences: SentenceSpan[], index: number): SentenceSpan {
   for (const s of sentences) {
     if (index >= s.start && index < s.end) return s;
   }
@@ -141,8 +143,9 @@ export function resolveSpeakerEntityIndex(
  * entity whose name occurs in the sentence containing the match;
  * fall back to the speaker entity, else the match is dropped —
  * a fact with no grounded actor has nowhere legal to attach.
+ * Exported for the sibling state-verb lane (same binding semantics).
  */
-function bindEntity(
+export function bindEntity(
   entities: ExtractedEntity[],
   sentenceText: string,
   speakerEntityIndex: number | null,

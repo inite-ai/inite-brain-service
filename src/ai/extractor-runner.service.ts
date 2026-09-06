@@ -19,6 +19,7 @@ import {
 import { validateEdges } from './extractor-internals/edge-validator';
 import { denoiseFacts } from './extractor-internals/denoise';
 import { harvestLiterals, resolveSpeakerEntityIndex } from './extractor-internals/literal-harvest';
+import { harvestStateVerbs } from './extractor-internals/state-verb-harvest';
 import { resolveExtractionProfile } from './extraction-profile';
 import {
   buildConversationContext,
@@ -414,7 +415,34 @@ export class ExtractorRunnerService {
         facts: harvested.map((f) => ({ predicate: f.predicate, object: f.object })),
       });
     }
-    const finalFacts = harvested.length > 0 ? [...denoised, ...harvested] : denoised;
+
+    // State-verb harvest (EXTRACTOR_STATE_VERB_HARVEST, default off):
+    // the deterministic transition lane — a past-tense lexicon
+    // (bought/joined/quit/returned/…) harvests completed acquire/
+    // dispose/change events as span-grounded `state_change` facts, with
+    // pre-verb guards so intentions ("thinking about selling") never
+    // flip state. Same seam and invariants as the literal lane; it
+    // dedups against BOTH the denoised LLM set and the literal harvest,
+    // so the two lanes compose additively when enabled together.
+    const stateHarvested = resolveExtractionProfile().stateVerbHarvest
+      ? harvestStateVerbs({
+          trimmed,
+          entities,
+          speakerEntityIndex: resolveSpeakerEntityIndex(entities, context?.speakerName),
+          existingFacts: harvested.length > 0 ? [...denoised, ...harvested] : denoised,
+        })
+      : [];
+    if (stateHarvested.length > 0) {
+      traceArtifact('extractor.state_verb_harvest', {
+        count: stateHarvested.length,
+        facts: stateHarvested.map((f) => ({ predicate: f.predicate, object: f.object })),
+      });
+    }
+
+    const finalFacts =
+      harvested.length > 0 || stateHarvested.length > 0
+        ? [...denoised, ...harvested, ...stateHarvested]
+        : denoised;
 
     const result: ExtractionResult = { entities, facts: finalFacts, edges };
     this.local.persistPatterns({
