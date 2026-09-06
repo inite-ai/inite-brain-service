@@ -305,10 +305,9 @@ contract**: how this domain perceives and episodizes memory. It turns a
 pack from a vocabulary into a domain *projection*: the pack declares HOW
 to look, never WHAT is true. The contract is validated, stored, cached,
 exposed read-only on the admin surface, and read by five live core
-consumers (listed below). No first-party pack in `packs/` declares a
-`memoryModel` section yet — the contract and its consumers are ahead of
-the catalogue; the builtin `code_memory` pack declares one as of 0.4.0
-(the reference declaration).
+consumers (listed below). The builtin `code_memory` pack declares one as
+of 0.4.0 (the reference declaration), and every first-party industry
+pack in `packs/` declares one as of 0.2.0 (see the library table below).
 
 The semantic plane has five optional arrays. The Evidence Plane adds
 three declarative capabilities. A present section must declare at least
@@ -607,16 +606,17 @@ ABAC deny rule.
 Beyond the builtin `code_memory`, brain ships a library of DISTRIBUTABLE
 industry packs (installed per-tenant, published to the registry via
 `pnpm registry:seed`) — each a complete ontology with predicates +
-`extractionProfile` + `evalFixtures`, not a stub:
+`extractionProfile` + `evalFixtures` + `memoryModel` (as of 0.2.0), not
+a stub:
 
-| pack | domain | predicates (namespaced `<id>__*`) |
-|---|---|---|
-| `real_estate` | property | zoned_as, valued_at, listed_at, encumbered_by, tenure_type, built_in |
-| `fintech` | financial-services regulation | regulated_by, licensed_as, complies_with, capital_requirement, settlement_period |
-| `medical` | clinical pharmacology (drugs, not patients) | treats, dosed_at, administered_via, interacts_with, contraindicated_with |
-| `legal` | contracts | governed_by, party_to, obligation, effective_from, terminates_on |
-| `insurance` | insurance policies | covers, coverage_limit, premium, deductible, excludes |
-| `hr` | HR / recruiting (roles, not PII) | requires_skill, seniority, compensation, employment_type, work_location |
+| pack | domain | predicates (namespaced `<id>__*`) | memoryModel lifecycles |
+|---|---|---|---|
+| `real_estate` | property | zoned_as, valued_at, listed_at, encumbered_by, tenure_type, built_in | listing, tenancy, permit |
+| `fintech` | financial-services regulation | regulated_by, licensed_as, complies_with, capital_requirement, settlement_period | license, certification, enforcement |
+| `medical` | clinical pharmacology (drugs, not patients) | treats, dosed_at, administered_via, interacts_with, contraindicated_with | prescription, approval |
+| `legal` | contracts | governed_by, party_to, obligation, effective_from, terminates_on | matter, agreement, obligation |
+| `insurance` | insurance policies | covers, coverage_limit, premium, deductible, excludes | policy, claim |
+| `hr` | HR / recruiting (roles, not PII) | requires_skill, seniority, compensation, employment_type, work_location | position, employee |
 
 Sources: `src/ai/domain-packs/*.pack.ts` (the `FIRST_PARTY_PACKS` list) →
 committed JSON in `packs/*.pack.json` (drift-guarded by

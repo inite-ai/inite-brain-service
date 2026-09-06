@@ -345,7 +345,11 @@ async function ensurePackSetup(cfg: Config): Promise<Record<string, string>> {
   const installed = list.json?.installed ?? [];
   for (const pack of [FINTECH_PACK, MEDICAL_PACK]) {
     const already = installed.find((p) => p.packId === pack.id);
-    if (already !== undefined) {
+    // Skip only on an exact version match: the install check (corpus
+    // wantsPacksInstalled) pins the LOCAL manifest version, so a stand
+    // holding an older install must be upgraded (install upsert = upgrade),
+    // not skipped — otherwise every manifest bump strands the battery.
+    if (already !== undefined && already.version === pack.version) {
       setup[pack.id] = `already installed v${already.version}`;
       console.error(`[setup] ${pack.id}: ${setup[pack.id]}`);
       continue;
