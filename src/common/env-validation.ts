@@ -904,6 +904,13 @@ const KNOWN_BOOLEAN_FLAGS = [
   // unioned into the closed-vocab extraction after denoise. No second
   // LLM path. Default off = byte-identical extraction.
   'EXTRACTOR_LITERAL_HARVEST',
+  // Deterministic state-verb harvest lane — sibling of the literal
+  // lane: a fixed past-tense transition lexicon (bought / joined /
+  // quit / returned / switched to / …) harvests completed acquire/
+  // dispose/change events as span-grounded `state_change` facts, with
+  // pre-verb intention/negation guards. No second LLM path. Default
+  // off = byte-identical extraction.
+  'EXTRACTOR_STATE_VERB_HARVEST',
   'INGEST_CONTEXTUAL_FACT_EMBEDDING',
   'INGEST_EVENT_TIME_EXTRACTION',
   'INGEST_BATCH_EDGES',

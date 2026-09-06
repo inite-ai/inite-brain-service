@@ -40,6 +40,19 @@ export interface ExtractionPipelineProfile {
    * path, no prompt change. Off (default) → byte-identical extraction.
    */
   literalHarvest: boolean;
+  /**
+   * EXTRACTOR_STATE_VERB_HARVEST (state-transition battery follow-up):
+   * the deterministic sibling of the literal lane for COMPLETED state
+   * transitions. A fixed past-tense transition lexicon (bought/joined/
+   * quit/returned/cancelled/switched to/…) harvests the verbatim verb
+   * phrase ("quit the chess club") as a span-grounded `state_change`
+   * fact, with pre-verb intention/negation guards ("thinking about",
+   * "haven't", "will") so voiced plans never flip state. Unioned after
+   * the literal lane, deduped against LLM + literal facts, capped per
+   * turn. Pure code: no second LLM path, no prompt change. Off
+   * (default) → byte-identical extraction.
+   */
+  stateVerbHarvest: boolean;
   /** Let the local pre-pass skip the extractor LLM call when it hits. */
   skipLlmPrePass: boolean;
   /** Refinement collapse threshold for the local predicate selector. */
@@ -206,6 +219,7 @@ export function resolveExtractionProfile(
     facetRouting: open && envFlagEnabled(env.EXTRACTOR_ROUTING_ENABLED),
     dropSaid: envFlagEnabled(env.EXTRACTOR_DROP_SAID),
     literalHarvest: envFlagEnabled(env.EXTRACTOR_LITERAL_HARVEST),
+    stateVerbHarvest: envFlagEnabled(env.EXTRACTOR_STATE_VERB_HARVEST),
     skipLlmPrePass: envFlagEnabled(env.EXTRACTOR_SKIP_LLM_ENABLED),
     refinePredicateThreshold: Number.isFinite(threshold) ? threshold : 0.45,
     deriveAssistantContent: envFlagEnabled(env.DERIVER_ASSISTANT_CONTENT),

@@ -2633,6 +2633,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Deterministic literal-harvest lane (memory-fitness lever #1, Design A): a fixed set of regex rules over the input harvests technical literals the closed-vocab LLM extraction drops — service ports, rate limits ("50 requests per minute"), HTTP status codes, ALL_CAPS / dotted / camelCase identifiers, naming-convention prefixes ("LSYNC_") — as span-grounded facts (valueSpan is an exact input substring by construction), attributed by clause overlap with speaker fallback, deduped against the LLM facts, capped at 6 per turn, and unioned into the result AFTER denoise. Pure code: no second LLM path, no prompt change. Pairs with the six technical-literal core predicates (rate_limit, service_port, naming_prefix, identifier, http_status, duration_limit). Off (default) → byte-identical extraction. Requires re-ingest.',
   },
   {
+    key: 'EXTRACTOR_STATE_VERB_HARVEST',
+    category: 'extractor',
+    defaultValue: '0',
+    runtimeMutable: false,
+    isBooleanFlag: true,
+    description:
+      'Deterministic state-verb harvest lane (state-transition battery follow-up) — sibling of EXTRACTOR_LITERAL_HARVEST: a fixed past-tense transition lexicon (acquire: bought/joined/signed up for/…; dispose: sold/quit/returned/cancelled/…; change: moved to/switched to/replaced/…) harvests COMPLETED state transitions the closed-vocab LLM extraction drops ("quit the chess club", "returned the standing desk") as span-grounded `state_change` facts (the object is the verbatim verb phrase, so valueSpan is an exact input substring by construction), attributed by clause overlap with speaker fallback, guarded against intentions and negations ("thinking about selling", "haven\'t sold", "will quit" harvest nothing), deduped against LLM + literal-harvest facts, capped at 6 per turn, and unioned into the result AFTER the literal lane. Pure code: no second LLM path, no prompt change. Pairs with the `state_change` core predicate (append_only — the timeline of transitions is the point). Off (default) → byte-identical extraction. Requires re-ingest.',
+  },
+  {
     key: 'STATS_VIEWS_ENABLED',
     category: 'misc',
     defaultValue: '0',

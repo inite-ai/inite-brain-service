@@ -448,6 +448,34 @@ VALUE  the full duration phrase VERBATIM with units (e.g. "30 days")`,
     createdBy: 'system',
   },
 
+  // ── STATE transitions (append-only — every join/quit/purchase/return
+  //    stays as history; the entity timeline IS the point, and
+  //    single_active would erase the stages a re-acquire or same-day
+  //    scenario needs) ─────────────────────────────────────────────────
+  // This card gives the LLM a legitimate slot for completed
+  // state-transition EVENTS the CRM vocabulary had no home for (the
+  // measured state-transition drop: "quit the chess club" turns
+  // produced ZERO facts carrying the transition). The deterministic
+  // harvest lane (EXTRACTOR_STATE_VERB_HARVEST) emits the same
+  // predicate; the card works even with the harvester off.
+  {
+    predicateId: 'state_change',
+    displayLabel: 'state change',
+    description: `TYPE   subject is a person/org; value is one COMPLETED state-transition event
+ADMIT  text reports a completed acquire / dispose / change event —
+       bought, sold, joined, quit, returned, cancelled, signed up for,
+       subscribed, switched, moved
+NOT FOR an intention or plan ("thinking about selling", "will quit") — no fact;
+       a standing state ("I own a drone", "my laptop is X") → the state's own predicate
+VALUE  the verb phrase with its object VERBATIM (e.g. "quit the chess club")`,
+    datatype: 'string',
+    semantics: 'append_only',
+    decayHalfLifeDays: null,
+    piiClass: 'none',
+    status: 'active',
+    createdBy: 'system',
+  },
+
   // NB: code-memory predicates (decided/because/invariant/gotcha) used to live
   // here (Phase 0 PoC). They are now the `code_memory` Domain Pack
   // (src/ai/domain-packs/code-memory.pack.ts), namespaced code_memory__*, and
