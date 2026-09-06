@@ -66,7 +66,7 @@
     "skills:pack": "pnpm skills:build && ts-node -T scripts/package-skills.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.116.0",
+    "@anthropic-ai/sdk": "^0.123.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@nestjs/common": "^11.1.29",
     "@nestjs/config": "^4.0.2",
@@ -75,10 +75,10 @@
     "@nestjs/schedule": "^6.1.1",
     "@nestjs/throttler": "^6.5.0",
     "@opentelemetry/api": "^1.9.1",
-    "@opentelemetry/auto-instrumentations-node": "^0.79.0",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.221.0",
-    "@opentelemetry/resources": "^2.10.0",
-    "@opentelemetry/sdk-node": "^0.221.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.80.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.222.0",
+    "@opentelemetry/resources": "^2.11.0",
+    "@opentelemetry/sdk-node": "^0.222.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
     "@xenova/transformers": "^2.17.2",
     "chrono-node": "^2.10.0",
@@ -92,9 +92,9 @@
     "prom-client": "^15.1.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "sharp": "^0.35.0",
+    "sharp": "^0.35.4",
     "surrealdb": "^2.0.8",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.24",
@@ -104,15 +104,15 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^22.10.5",
     "@types/supertest": "^6.0.2",
-    "@typescript-eslint/eslint-plugin": "^8.67.0",
-    "@typescript-eslint/parser": "^8.67.0",
+    "@typescript-eslint/eslint-plugin": "^8.69.0",
+    "@typescript-eslint/parser": "^8.69.0",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-prettier": "^5.5.6",
     "eslint-plugin-sonarjs": "^4.2.0",
-    "globals": "^17.11.0",
-    "jest": "^30.4.2",
+    "globals": "^17.12.0",
+    "jest": "^30.5.1",
     "prettier": "^3.9.6",
     "source-map-support": "^0.5.21",
     "supertest": "^7.0.0",
@@ -122,7 +122,7 @@
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.67.0"
+    "typescript-eslint": "^8.69.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -132,7 +132,7 @@
       "onnxruntime-node"
     ],
     "overrides": {
-      "sharp": "^0.35.0",
+      "sharp": "^0.35.4",
       "ws": "^8.21.0",
       "multer": "^2.2.0",
       "qs": "^6.15.2",
