@@ -173,6 +173,12 @@ describe('S5.5 — dead exports in the engine dirs', () => {
     // truncated-only / cap selection; the substitution prefix fence).
     'selectZoomFragments',
     'buildZoomedLines',
+    // MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE (code-memory k07) pure
+    // decision seam. Consumed inside search.service (resolveLangMode) but
+    // pinned DIRECTLY by the lang-filter-confidence-gate unit spec for its
+    // precision cases (gate off byte-identical; floor inclusive; the
+    // measured zero-evidence-query regression shape).
+    'hardLangFilterFor',
   ]);
   const TESTS = walk(join(ROOT, 'test'))
     .map((f) => readFileSync(f, 'utf8'))

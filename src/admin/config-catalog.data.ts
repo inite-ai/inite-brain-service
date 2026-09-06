@@ -818,6 +818,17 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Soft same-language filter: replaces the hard `lang = q OR lang IS NONE` exclusion at both read sites (search where-builder + user-profile) with a same-language RANKING boost — a cross-lingual fact is demoted, never hidden. In search it is gated on a high-confidence detected query language (an explicit dto.queryLang / caller-supplied profile lang counts as confident); below the confidence floor no boost AND no exclusion. Off (default) → the hard filter is byte-identical.',
   },
+  {
+    key: 'MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE',
+    category: 'pipeline',
+    // Read at call time (resolveSearchTuning per request) — never
+    // constructor-captured — so a flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Confidence gate on the HARD same-language search exclusion: the `lang = q OR lang IS NONE` WHERE filter (and its cross-lingual backoff pass) fires only when the detected query language cleared the same high-confidence floor the Tier-1 soft boost trusts. Below the floor — including the detector\'s zero-evidence `en` fallback on stopword-less identifier queries like "acme-api webhooks rate limit" — the pass is single and unfiltered, so a fact mislabeled with another language is never hidden from a query that expressed no language at all (the code-memory k07 miss). An explicit dto.queryLang carries confidence 1 and always filters. Off (default) → any non-`und` detection filters, byte-identical.',
+  },
   // ── Multilingual (Tier 3, migration 0102) ───────────
   {
     key: 'MULTILINGUAL_ENTITY_REVERSIBLE',
