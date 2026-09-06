@@ -441,6 +441,384 @@ describe('foldBeliefGroups: field fold (#135 seam 2)', () => {
   });
 });
 
+describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', () => {
+  /** One semantic_belief row as the fake store holds it. */
+  interface FakeBeliefRow {
+    id: string;
+    userId: string;
+    subject: string;
+    field: string;
+    value: string;
+    priorValue?: string;
+    revision: number;
+    status: string;
+    supersededBy?: string;
+    validFrom: unknown;
+    validUntil?: unknown;
+    sourceSceneIds: string[];
+    conversationIds: string[];
+  }
+
+  /**
+   * Minimal stateful SurrealDB double for the promotion pass: routes the
+   * service's exact SQL shapes onto an in-memory semantic_belief store
+   * (scene stamps are no-ops — pinned by their own e2e). Stateful on
+   * purpose: the idempotency test re-runs the SAME world.
+   */
+  class FakeBeliefDb {
+    rows: FakeBeliefRow[] = [];
+    sceneHeads: PromotableSceneHead[] = [];
+    sql: string[] = [];
+
+    async query(sqlText: string, params: Record<string, unknown> = {}): Promise<unknown> {
+      this.sql.push(sqlText);
+      const p = params;
+      if (sqlText.includes('FROM memory_episode') && sqlText.includes('stateDeltas')) {
+        return [this.sceneHeads];
+      }
+      if (sqlText.includes('SELECT userId, subject, field FROM semantic_belief')) {
+        return [
+          this.rows
+            .filter((r) => r.status === 'active' && (p.userIds as string[]).includes(r.userId))
+            .map(({ userId, subject, field }) => ({ userId, subject, field })),
+        ];
+      }
+      if (sqlText.includes('field = $f')) {
+        return [
+          this.rows
+            .filter(
+              (r) =>
+                r.status === 'active' && r.userId === p.u && r.subject === p.s && r.field === p.f,
+            )
+            .sort((a, b) => b.revision - a.revision)
+            .map((r) => ({ ...r })),
+        ];
+      }
+      if (sqlText.includes('SELECT id, field, value, priorValue, revision, validFrom')) {
+        return [
+          this.rows
+            .filter((r) => r.status === 'active' && r.userId === p.u && r.subject === p.s)
+            .map((r) => ({ ...r })),
+        ];
+      }
+      if (sqlText.startsWith('INSERT IGNORE INTO semantic_belief')) {
+        for (const raw of p.rows as Array<Record<string, unknown>>) {
+          const id = String(raw.id);
+          if (this.rows.some((r) => r.id === id)) continue;
+          this.rows.push({
+            id,
+            userId: String(raw.userId),
+            subject: String(raw.subject),
+            field: String(raw.field),
+            value: String(raw.value),
+            ...(raw.priorValue !== undefined ? { priorValue: String(raw.priorValue) } : {}),
+            revision: raw.revision as number,
+            status: String(raw.status),
+            validFrom: raw.validFrom,
+            sourceSceneIds: (raw.sourceSceneIds as unknown[]).map(String),
+            conversationIds: [...(raw.conversationIds as string[])],
+          });
+        }
+        return [];
+      }
+      if (sqlText.includes(`SET status = 'superseded'`)) {
+        const row = this.byId(String(p.id));
+        row.status = 'superseded';
+        row.supersededBy = String(p.winner ?? p.new);
+        row.validUntil = p.until;
+        return [];
+      }
+      if (sqlText.includes('SET priorValue = $prior')) {
+        this.byId(String(p.id)).priorValue = String(p.prior);
+        return [];
+      }
+      if (sqlText.includes('SET sourceSceneIds')) {
+        const row = this.byId(String(p.id));
+        row.sourceSceneIds = (p.scenes as unknown[]).map(String);
+        row.conversationIds = [...(p.convs as string[])];
+        return [];
+      }
+      if (sqlText.includes('UPDATE memory_episode')) return [];
+      throw new Error(`FakeBeliefDb: unhandled SQL: ${sqlText}`);
+    }
+
+    private byId(id: string): FakeBeliefRow {
+      const row = this.rows.find((r) => r.id === id);
+      if (row === undefined) throw new Error(`FakeBeliefDb: no row ${id}`);
+      return row;
+    }
+
+    active(field: string, subject = 'Sasha', userId = 'u1'): FakeBeliefRow | undefined {
+      return this.rows.find(
+        (r) =>
+          r.status === 'active' &&
+          r.userId === userId &&
+          r.subject === subject &&
+          r.field === field,
+      );
+    }
+  }
+
+  function makeRunService(db: FakeBeliefDb): BeliefPromotionService {
+    const surreal = {
+      withCompany: async <T>(_c: string, fn: (d: unknown) => Promise<T>) => fn(db),
+    } as unknown as SurrealService;
+    const versions = {
+      resolve: () => ({ version: 'scene-segmenter-v1' }),
+    } as unknown as SceneVersionService;
+    const config = { get: (_key: string, def?: string) => def } as unknown as ConfigService;
+    return new BeliefPromotionService(surreal, config, versions);
+  }
+
+  /** The s08 measured end-state: canonical + foldable-variant orphan. */
+  const belief = (over: Partial<FakeBeliefRow> & { id: string; field: string }): FakeBeliefRow => ({
+    userId: 'u1',
+    subject: 'Sasha',
+    value: 'Lisbon',
+    revision: 1,
+    status: 'active',
+    validFrom: '2026-08-03T19:00:00.000Z',
+    sourceSceneIds: ['memory_episode:sa'],
+    conversationIds: ['conv:a'],
+    ...over,
+  });
+
+  const canonicalRow = (over: Partial<FakeBeliefRow> = {}): FakeBeliefRow =>
+    belief({
+      id: 'semantic_belief:canon1',
+      field: 'location',
+      value: 'Porto',
+      priorValue: 'Lisbon',
+      validFrom: '2026-08-18T19:00:00.000Z',
+      sourceSceneIds: ['memory_episode:sb'],
+      conversationIds: ['conv:b'],
+      ...over,
+    });
+
+  const orphanRow = (over: Partial<FakeBeliefRow> = {}): FakeBeliefRow =>
+    belief({ id: 'semantic_belief:orphan1', field: 'current location', ...over });
+
+  /** Re-promotion of the canonical scene (the repair-on-next-run shape). */
+  const canonicalScene = (): PromotableSceneHead =>
+    scene({
+      id: 'memory_episode:sb',
+      conversationIds: ['conv:b'],
+      occurredTo: '2026-08-18T19:00:00.000Z',
+      stateDeltas: [{ subject: 'Sasha', field: 'location', from: 'Lisbon', to: 'Porto' }],
+    });
+
+  const saved: Record<string, string | undefined> = {};
+  const KEYS = [
+    'SCENES_BELIEF_PROMOTION',
+    'SCENES_BELIEF_FIELD_FOLD',
+    'SCENES_BELIEF_NEGATION_DELTAS',
+    'SCENES_BELIEF_LLM_SYNTHESIS',
+    'SCENES_BELIEF_MIN_SCENES',
+    'PROVENANCE_SUPPORT_EDGES',
+  ];
+  beforeEach(() => {
+    for (const k of KEYS) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+    process.env.SCENES_BELIEF_PROMOTION = '1';
+    process.env.SCENES_BELIEF_FIELD_FOLD = '1';
+  });
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it('absorbs a foldable-variant orphan: superseded into the canonical belief, which keeps its own value', async () => {
+    const db = new FakeBeliefDb();
+    db.rows = [canonicalRow(), orphanRow()];
+    db.sceneHeads = [canonicalScene()];
+
+    const res = await makeRunService(db).run('co_test');
+    expect(res.fieldOrphansAbsorbed).toBe(1);
+    expect(res.fieldOrphanAmbiguous).toBe(0);
+
+    const orphan = db.rows.find((r) => r.id === 'semantic_belief:orphan1')!;
+    expect(orphan.status).toBe('superseded');
+    expect(orphan.supersededBy).toBe('semantic_belief:canon1');
+    expect(orphan.validUntil).toBe('2026-08-18T19:00:00.000Z'); // canonical validFrom
+    expect(orphan.value).toBe('Lisbon'); // value untouched — mark, never rewrite
+
+    const canonical = db.rows.find((r) => r.id === 'semantic_belief:canon1')!;
+    expect(canonical).toMatchObject({
+      status: 'active',
+      field: 'location',
+      value: 'Porto', // the canonical belief wins with its OWN value
+      priorValue: 'Lisbon',
+      revision: 1,
+    });
+    // The orphan can no longer serve: no active row under the variant name.
+    expect(db.active('current location')).toBeUndefined();
+    // priorValue already present — the backfill UPDATE never fires.
+    expect(db.sql.some((s) => s.includes('SET priorValue'))).toBe(false);
+  });
+
+  it('backfills priorValue from the absorbed orphan ONLY when the canonical belief has none', async () => {
+    const db = new FakeBeliefDb();
+    const canonical = canonicalRow();
+    delete canonical.priorValue;
+    db.rows = [canonical, orphanRow()];
+    db.sceneHeads = [
+      scene({
+        id: 'memory_episode:sb',
+        conversationIds: ['conv:b'],
+        occurredTo: '2026-08-18T19:00:00.000Z',
+        // No `from` on the delta — the canonical belief lands prior-less.
+        stateDeltas: [{ subject: 'Sasha', field: 'location', from: '', to: 'Porto' }],
+      }),
+    ];
+
+    const res = await makeRunService(db).run('co_test');
+    expect(res.fieldOrphansAbsorbed).toBe(1);
+    expect(db.rows.find((r) => r.id === 'semantic_belief:canon1')).toMatchObject({
+      value: 'Porto', // own value always wins…
+      priorValue: 'Lisbon', // …the orphan contributes ONLY the prior
+      status: 'active',
+    });
+  });
+
+  it('no backfill when the orphan value equals the canonical value (a self-prior is meaningless)', async () => {
+    const db = new FakeBeliefDb();
+    const canonical = canonicalRow();
+    delete canonical.priorValue;
+    db.rows = [canonical, orphanRow({ value: 'Porto' })];
+    db.sceneHeads = [canonicalScene()];
+
+    const res = await makeRunService(db).run('co_test');
+    expect(res.fieldOrphansAbsorbed).toBe(1);
+    const head = db.rows.find((r) => r.id === 'semantic_belief:canon1')!;
+    expect(head.priorValue).toBeUndefined();
+    expect(db.sql.some((s) => s.includes('SET priorValue'))).toBe(false);
+  });
+
+  it('re-run is idempotent: the absorbed orphan stays superseded and nothing flip-flops', async () => {
+    const db = new FakeBeliefDb();
+    db.rows = [canonicalRow(), orphanRow()];
+    db.sceneHeads = [canonicalScene()];
+    const svc = makeRunService(db);
+
+    const first = await svc.run('co_test');
+    expect(first.fieldOrphansAbsorbed).toBe(1);
+    const after = JSON.parse(JSON.stringify(db.rows)) as FakeBeliefRow[];
+
+    const second = await svc.run('co_test');
+    expect(second.fieldOrphansAbsorbed).toBe(0);
+    expect(second.fieldOrphanAmbiguous).toBe(0);
+    expect(second).toMatchObject({ beliefsCreated: 0, beliefsRevised: 0 });
+    expect(db.rows).toEqual(after); // byte-identical world — converged
+  });
+
+  it('never absorbs across a different subject or a different user', async () => {
+    const db = new FakeBeliefDb();
+    db.rows = [
+      canonicalRow(),
+      orphanRow(),
+      belief({ id: 'semantic_belief:boris1', field: 'current location', subject: 'Boris' }),
+      belief({ id: 'semantic_belief:u2row1', field: 'current location', userId: 'u2' }),
+    ];
+    db.sceneHeads = [canonicalScene()];
+
+    const res = await makeRunService(db).run('co_test');
+    expect(res.fieldOrphansAbsorbed).toBe(1); // ONLY (u1, Sasha)'s variant
+    expect(db.active('current location', 'Boris')).toBeDefined();
+    expect(db.active('current location', 'Sasha', 'u2')).toBeDefined();
+  });
+
+  it('flag off: no sweep query, the orphan keeps serving, counters stay zero (byte-identical)', async () => {
+    delete process.env.SCENES_BELIEF_FIELD_FOLD;
+    const db = new FakeBeliefDb();
+    db.rows = [canonicalRow(), orphanRow()];
+    db.sceneHeads = [canonicalScene()];
+
+    const res = await makeRunService(db).run('co_test');
+    expect(res.fieldOrphansAbsorbed).toBe(0);
+    expect(res.fieldOrphanAmbiguous).toBe(0);
+    expect(db.active('current location')).toBeDefined(); // untouched
+    // Zero fold/sweep queries — the historical query set exactly.
+    expect(db.sql.some((s) => s.includes('SELECT userId, subject, field'))).toBe(false);
+    expect(db.sql.some((s) => s.includes('priorValue, revision, validFrom'))).toBe(false);
+  });
+
+  it('ambiguity guard: two distinct foldable variant fields absorb NOTHING, loudly', async () => {
+    const db = new FakeBeliefDb();
+    db.rows = [
+      belief({
+        id: 'semantic_belief:own1',
+        subject: 'Mikhail',
+        field: 'car ownership',
+        value: 'Jeep',
+      }),
+      belief({
+        id: 'semantic_belief:stat1',
+        subject: 'Mikhail',
+        field: 'car status',
+        value: 'broken',
+      }),
+    ];
+    db.sceneHeads = [
+      scene({
+        id: 'memory_episode:sc',
+        conversationIds: ['conv:c'],
+        occurredTo: '2026-08-20T10:00:00.000Z',
+        stateDeltas: [{ subject: 'Mikhail', field: 'car', from: '', to: 'BMW' }],
+      }),
+    ];
+
+    const res = await makeRunService(db).run('co_test');
+    // Fold-time ambiguity kept the incoming name as a parallel group…
+    expect(res.fieldFoldAmbiguous).toBe(1);
+    expect(res.beliefsCreated).toBe(1);
+    // …and the sweep refuses to merge fields the rule holds distinct.
+    expect(res.fieldOrphanAmbiguous).toBe(1);
+    expect(res.fieldOrphansAbsorbed).toBe(0);
+    expect(db.active('car ownership', 'Mikhail')).toBeDefined();
+    expect(db.active('car status', 'Mikhail')).toBeDefined();
+    expect(db.active('car', 'Mikhail')).toMatchObject({ value: 'BMW' });
+  });
+
+  it('same-run parallel groups never eat each other (the run-group fence)', async () => {
+    const db = new FakeBeliefDb();
+    db.rows = [
+      belief({ id: 'semantic_belief:car1', subject: 'Mikhail', field: 'car', value: 'BMW' }),
+      belief({
+        id: 'semantic_belief:own1',
+        subject: 'Mikhail',
+        field: 'car ownership',
+        value: 'Jeep',
+      }),
+    ];
+    db.sceneHeads = [
+      scene({
+        id: 'memory_episode:sc1',
+        conversationIds: ['conv:c'],
+        occurredTo: '2026-08-20T10:00:00.000Z',
+        stateDeltas: [{ subject: 'Mikhail', field: 'car', from: '', to: 'BMW' }],
+      }),
+      scene({
+        id: 'memory_episode:sc2',
+        conversationIds: ['conv:d'],
+        occurredTo: '2026-08-20T11:00:00.000Z',
+        stateDeltas: [{ subject: 'Mikhail', field: 'car ownership', from: '', to: 'Jeep' }],
+      }),
+    ];
+
+    const res = await makeRunService(db).run('co_test');
+    // Both incoming names exact-match their existing chains: two live
+    // groups this run — each is fenced from the other's sweep.
+    expect(res.fieldOrphansAbsorbed).toBe(0);
+    expect(res.fieldOrphanAmbiguous).toBe(0);
+    expect(db.active('car', 'Mikhail')).toBeDefined();
+    expect(db.active('car ownership', 'Mikhail')).toBeDefined();
+  });
+});
+
 describe('deterministic helpers', () => {
   it('renderBeliefStatement: template with and without a prior value', () => {
     expect(
@@ -611,6 +989,8 @@ describe('OFF-state hard guarantee (byte-identical prod)', () => {
       skippedConflict: 0,
       fieldFolds: 0,
       fieldFoldAmbiguous: 0,
+      fieldOrphansAbsorbed: 0,
+      fieldOrphanAmbiguous: 0,
       skippedFloor: 0,
       skippedStale: 0,
       beliefsCreated: 0,

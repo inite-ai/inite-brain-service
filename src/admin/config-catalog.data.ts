@@ -778,7 +778,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Belief promotion field fold (#135 seam 2): deterministically fold an enricher-re-coined field name onto an existing one for the same (userId, subject) — token-set subset whose extra tokens are all generic modifiers (ownership/status/state/current/of/the); the EXISTING name wins, and more than one match folds nothing and warns loudly (skip loudly, never flip-flop). NO embeddings, NO LLM. Off = exact-string (subject, field) grouping and zero extra queries — byte-identical fold output.',
+      'Belief promotion field fold (#135 seam 2): deterministically fold an enricher-re-coined field name onto an existing one for the same (userId, subject) — token-set subset whose extra tokens are all generic modifiers (ownership/status/state/current/of/the); the EXISTING name wins, and more than one match folds nothing and warns loudly (skip loudly, never flip-flop). NO embeddings, NO LLM. Also absorbs orphans: after each canonical upsert, ACTIVE beliefs of the same (userId, subject) stored under a foldable VARIANT of the canonical field (earlier-batch leftovers the incoming-name fold can never retire) are stamped superseded so they stop serving stale values; the canonical belief keeps its own value, the orphan value backfills priorValue only when the canonical has none, and more than one distinct variant field skips loudly. Off = exact-string (subject, field) grouping and zero extra queries — byte-identical fold output.',
   },
   {
     key: 'SCENES_EVIDENCE_LINKS',
