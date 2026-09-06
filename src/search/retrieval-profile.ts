@@ -1047,9 +1047,18 @@ export interface SearchTuning {
    * `langAttribution` (MULTILINGUAL_LANG_ATTRIBUTION) mirrors the detector
    * flag so the search path can emit query-surface attribution telemetry
    * only when attribution is on. Both default off ⇒ byte-identical.
+   *
+   * `langFilterConfidenceGate` (MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE)
+   * gates the HARD same-language exclusion on the same high-confidence
+   * floor the soft boost already uses: a query whose language was only
+   * the detector's zero-evidence `en` fallback (or any below-floor
+   * detection) runs a single unfiltered pass instead of excluding
+   * other-language facts. Default off ⇒ the hard filter fires on any
+   * non-`und` detection, byte-identical.
    */
   softLangFilter: boolean;
   langAttribution: boolean;
+  langFilterConfidenceGate: boolean;
 }
 
 function tuningInt(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
@@ -1109,5 +1118,6 @@ export function resolveSearchTuning(env: NodeJS.ProcessEnv = process.env): Searc
     edgeExpansion: resolveExpansionConfig(env),
     softLangFilter: envFlagEnabled(env.MULTILINGUAL_SOFT_LANG_FILTER),
     langAttribution: envFlagEnabled(env.MULTILINGUAL_LANG_ATTRIBUTION),
+    langFilterConfidenceGate: envFlagEnabled(env.MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE),
   };
 }

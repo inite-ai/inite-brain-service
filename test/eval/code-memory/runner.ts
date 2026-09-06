@@ -27,7 +27,7 @@ import { interleaveRoundRobin } from '../memory-fitness/interleave';
 import { walkProvenance } from '../memory-fitness/scorers';
 import { checkHistorySequence, scoreServe, type HistoryEvent } from '../state-transitions/scorers';
 import { findExactPredicateFact, findNamespacedTools, type HitLike } from '../domain-packs/scorers';
-import { ALL_TURNS, CHECKS, CM, CORPUS_VERTICAL } from './corpus';
+import { buildChecks, buildTurns, CM, CORPUS_VERTICAL } from './corpus';
 import {
   checkBuiltinPredicates,
   checkEntityDedup,
@@ -292,8 +292,13 @@ async function readTenantPredicates(cfg: Config): Promise<PredicateLike[]> {
 // ── phase 1: write the corpus ───────────────────────────────────────
 
 async function ingestTurns(cfg: Config, brain: HttpBrainClient): Promise<void> {
-  console.error(`[ingest] ${ALL_TURNS.length} mention turns (run ${cfg.runId})…`);
-  for (const [i, turn] of ALL_TURNS.entries()) {
+  // Run-scoped corpus: the dual-phrasing module's name carries the run
+  // id, so k10 measures THIS run's path/symbol resolution instead of
+  // re-attaching facts to twins an earlier run minted (entities are
+  // tenant-global; only facts are per-user).
+  const turns = buildTurns(cfg.runId);
+  console.error(`[ingest] ${turns.length} mention turns (run ${cfg.runId})…`);
+  for (const [i, turn] of turns.entries()) {
     // Deliberately NO knownEntities hints: the cross-entity check (k10)
     // measures whether the path and the symbol phrasing resolve to one
     // entity WITHOUT being told — hints would rig the measurement.
@@ -311,7 +316,7 @@ async function ingestTurns(cfg: Config, brain: HttpBrainClient): Promise<void> {
         emittedAt: turn.emittedAt,
       }),
     );
-    if ((i + 1) % 10 === 0) console.error(`[ingest] ${i + 1}/${ALL_TURNS.length}`);
+    if ((i + 1) % 10 === 0) console.error(`[ingest] ${i + 1}/${turns.length}`);
   }
 }
 
@@ -568,7 +573,7 @@ async function runCheck(ctx: CheckContext, check: Check): Promise<Verdict2> {
 
 async function runChecks(ctx: CheckContext): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
-  for (const check of CHECKS) {
+  for (const check of buildChecks(ctx.cfg.runId)) {
     const started = Date.now();
     let verdict: Verdict2;
     try {
@@ -644,11 +649,13 @@ function buildScorecard(
     startedAt,
     finishedAt: new Date().toISOString(),
     setup,
-    ingest: { mentionTurns: cfg.skipIngest ? 0 : ALL_TURNS.length },
+    ingest: { mentionTurns: cfg.skipIngest ? 0 : buildTurns(cfg.runId).length },
     classes,
     checkKinds,
     checks,
-    gapGatedChecks: CHECKS.filter((c) => c.expectedUnknown !== undefined).map((c) => c.id),
+    gapGatedChecks: buildChecks(cfg.runId)
+      .filter((c) => c.expectedUnknown !== undefined)
+      .map((c) => c.id),
     results,
   };
 }

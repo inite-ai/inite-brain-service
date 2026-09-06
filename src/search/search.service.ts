@@ -86,8 +86,42 @@ interface StagedPipeline {
  * the boost is withheld (no exclusion either — soft mode never filters).
  * An explicit dto.queryLang is treated as confidence 1, so it always
  * clears the floor. Module-private (not a tunable knob in Tier 1).
+ * MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE reuses the SAME floor for the
+ * hard exclusion (hardLangFilterFor below), so "confident query language"
+ * means one thing across both read-side language behaviours.
  */
 const LANG_QUERY_HIGH_CONFIDENCE = 0.5;
+
+/**
+ * The hard same-language WHERE exclusion's language, confidence-gated
+ * (MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE, default off). Pure and
+ * exported for tests.
+ *
+ * The measured miss (code-memory battery k07): the identifier-soup query
+ * "acme-api webhooks rate limit" carries ZERO stopword evidence, so the
+ * detector's Phase-4 fallback labels it `en` with confidence 0 — and the
+ * hard `lang = 'en' OR lang IS NONE` exclusion then hid a fact whose
+ * object "120 requests per minute" had been stamped `it` at write time
+ * (the lone Italian stopword "per", confidence 0.33). The fact ranked
+ * #1 by cosine and was EXCLUDED by language — on a query that expressed
+ * no language at all.
+ *
+ * Gate ON: the hard exclusion (and its cross-lingual backoff pass) fires
+ * only when the query language cleared LANG_QUERY_HIGH_CONFIDENCE — the
+ * same floor the Tier-1 soft boost already trusts. Below it the pass is
+ * single and unfiltered: with no real evidence of the query's language,
+ * excluding facts by language is a recall bug, not a locale feature. An
+ * explicit dto.queryLang carries confidence 1 and always filters.
+ * Off (default) → any non-`und` detection filters, byte-identical.
+ */
+export function hardLangFilterFor(
+  langSignal: { lang: string; confidence: number } | undefined,
+  gateEnabled: boolean,
+): string | undefined {
+  if (!langSignal) return undefined;
+  if (gateEnabled && langSignal.confidence < LANG_QUERY_HIGH_CONFIDENCE) return undefined;
+  return langSignal.lang;
+}
 
 @Injectable()
 export class SearchService {
@@ -194,7 +228,14 @@ export class SearchService {
         detectorVersion: DETECTOR_VERSION,
       });
     }
-    return { langFilter: langSignal?.lang, softBoost };
+    // Hard-exclusion gate (MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE): a
+    // below-floor query-language signal never hard-filters — see
+    // hardLangFilterFor. softBoost is unaffected (it already requires the
+    // same floor).
+    return {
+      langFilter: hardLangFilterFor(langSignal, ctx.tuning.langFilterConfidenceGate),
+      softBoost,
+    };
   }
 
   /**

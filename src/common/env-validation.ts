@@ -1332,6 +1332,13 @@ const KNOWN_BOOLEAN_FLAGS = [
   // confidence-gated ranking boost (cross-lingual facts demoted, never
   // hidden). Default off ⇒ the hard filter is byte-identical.
   'MULTILINGUAL_SOFT_LANG_FILTER',
+  // Multilingual Tier 1. Confidence gate on the HARD same-language search
+  // exclusion: a query language below the high-confidence floor (incl. the
+  // zero-evidence `en` fallback on stopword-less identifier queries) runs a
+  // single unfiltered pass instead of excluding other-language facts (the
+  // code-memory k07 miss). Default off ⇒ any non-`und` detection filters,
+  // byte-identical. MULTILINGUAL_ family, off the ENGINE flag budget.
+  'MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE',
   // Multilingual Tier 3 (migration 0102). Reversible entity resolution: a
   // weak embedding-only inline-resolution match is NOT auto-merged — it
   // becomes a reviewable entity_merge_log candidate — and every strong
