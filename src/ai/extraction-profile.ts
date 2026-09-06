@@ -53,6 +53,17 @@ export interface ExtractionPipelineProfile {
    * (default) → byte-identical extraction.
    */
   stateVerbHarvest: boolean;
+  /**
+   * EXTRACTOR_TRANSITION_CLASSIFIER (state-transition battery follow-up):
+   * availability gate for the two-stage transition module — compromise
+   * morphology finds candidate verb clauses, embedding-prototype
+   * matching (BGE-M3, EN+RU prototype bank) classifies them as
+   * completed-transition vs intention vs unrelated. NOT WIRED into the
+   * extraction pipeline yet — this flag gates module availability only;
+   * the wiring (composed with the deterministic state-verb lexicon
+   * lane) is a deliberate follow-up PR. Default off.
+   */
+  transitionClassifier: boolean;
   /** Let the local pre-pass skip the extractor LLM call when it hits. */
   skipLlmPrePass: boolean;
   /** Refinement collapse threshold for the local predicate selector. */
@@ -220,6 +231,7 @@ export function resolveExtractionProfile(
     dropSaid: envFlagEnabled(env.EXTRACTOR_DROP_SAID),
     literalHarvest: envFlagEnabled(env.EXTRACTOR_LITERAL_HARVEST),
     stateVerbHarvest: envFlagEnabled(env.EXTRACTOR_STATE_VERB_HARVEST),
+    transitionClassifier: envFlagEnabled(env.EXTRACTOR_TRANSITION_CLASSIFIER),
     skipLlmPrePass: envFlagEnabled(env.EXTRACTOR_SKIP_LLM_ENABLED),
     refinePredicateThreshold: Number.isFinite(threshold) ? threshold : 0.45,
     deriveAssistantContent: envFlagEnabled(env.DERIVER_ASSISTANT_CONTENT),

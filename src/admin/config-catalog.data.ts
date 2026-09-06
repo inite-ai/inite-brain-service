@@ -2642,6 +2642,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Deterministic state-verb harvest lane (state-transition battery follow-up) — sibling of EXTRACTOR_LITERAL_HARVEST: a fixed past-tense transition lexicon (acquire: bought/joined/signed up for/…; dispose: sold/quit/returned/cancelled/…; change: moved to/switched to/replaced/…) harvests COMPLETED state transitions the closed-vocab LLM extraction drops ("quit the chess club", "returned the standing desk") as span-grounded `state_change` facts (the object is the verbatim verb phrase, so valueSpan is an exact input substring by construction), attributed by clause overlap with speaker fallback, guarded against intentions and negations ("thinking about selling", "haven\'t sold", "will quit" harvest nothing), deduped against LLM + literal-harvest facts, capped at 6 per turn, and unioned into the result AFTER the literal lane. Pure code: no second LLM path, no prompt change. Pairs with the `state_change` core predicate (append_only — the timeline of transitions is the point). Off (default) → byte-identical extraction. Requires re-ingest.',
   },
   {
+    key: 'EXTRACTOR_TRANSITION_CLASSIFIER',
+    category: 'extractor',
+    defaultValue: '0',
+    runtimeMutable: false,
+    isBooleanFlag: true,
+    description:
+      'Language-agnostic state-transition classifier (semantic stage of the state-transition battery follow-up): compromise-based English morphology finds candidate verb clauses (past-tense, non-negated, non-hypothetical, with a complement), then embedding-prototype matching classifies each clause as completed_acquire / completed_dispose / completed_change / intention / unrelated by max-cosine against a fixed EN+RU prototype bank (BGE-M3 is multilingual, so the classifier generalizes across input languages by construction). AVAILABILITY GATE ONLY in this release — the module is not wired into the extraction pipeline yet; wiring composes with the deterministic state-verb lexicon lane in a follow-up PR. Thresholds (margin / score floor) are exported defaults pending stand calibration. Off (default) → byte-identical extraction.',
+  },
+  {
     key: 'STATS_VIEWS_ENABLED',
     category: 'misc',
     defaultValue: '0',
