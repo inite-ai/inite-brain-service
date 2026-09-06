@@ -1427,6 +1427,18 @@ const KNOWN_BOOLEAN_FLAGS = [
   // first. append_only bulk / DEFAULT_FALLBACK / direct path untouched.
   // Off (default) ⇒ registry passthrough, byte-identical.
   'CONFLICT_MENTION_FACT_SLOT',
+  // Write-side slot canonicalization: a mention-path fact whose
+  // predicate has a declared canonical alias (duration_limit → status)
+  // AND whose object carries an explicit calendar anchor (full month
+  // name + year, or ISO date) resolves in the canonical single-value
+  // slot, so cross-predicate contradictions about one attribute meet in
+  // one (userId, entity, predicate) slot and the normal
+  // single_active/bitemporal machinery sees the collision. Static
+  // table + regex — no DB read, no fuzzy matching. Bare unit durations
+  // ("30 days"), the direct typed path, and every other predicate are
+  // untouched. Off (default) ⇒ extracted-predicate passthrough,
+  // byte-identical.
+  'CONFLICT_SLOT_CANONICALIZATION',
 ];
 
 /**

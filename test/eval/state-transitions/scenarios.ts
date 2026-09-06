@@ -356,10 +356,12 @@ export const SCENARIOS: Scenario[] = [
         // unambiguous and phrasing-proof.
         conflictSides: { sideA: ['December'], sideB: ['September'] },
         knownFailToday:
-          'CONFLICT_MENTION_FACT_SLOT — mention-path extraction resolves the slot to ' +
-          'single_active semantics, whose resolver branch supersedes unconditionally and ' +
-          'never forms the COMPETING pair, so serving picks one side; the flag (default ' +
-          'off) promotes the slot to bitemporal margin doctrine',
+          'CONFLICT_SLOT_CANONICALIZATION — the arms extract into DIFFERENT slots on one ' +
+          'entity ((office lease, status) vs (office lease, duration_limit)), and the ' +
+          'conflict machinery pairs only identical (userId, entity, predicate), so even ' +
+          'with CONFLICT_MENTION_FACT_SLOT on no collision structurally exists; the flag ' +
+          '(default off) routes the calendar-anchored duration_limit arm into the status ' +
+          'slot at write time so the bitemporal margin doctrine sees the collision',
       },
       {
         kind: 'provenance',

@@ -10,6 +10,7 @@ import { envFlagEnabled } from '../common/env-validation';
 import {
   conflictDirectFactSlotEnabled,
   conflictMentionFactSlotEnabled,
+  conflictSlotCanonicalizationEnabled,
 } from '../common/conflict-flags';
 import { supportEdgesEnabled } from '../common/provenance-flags';
 import { buildConflictEdgeRows } from '../common/support-edges';
@@ -83,6 +84,65 @@ export function conflictSlotSemantics(
   return conflictMentionFactSlotEnabled() && policy.semantics === 'single_active'
     ? 'bitemporal'
     : policy.semantics;
+}
+
+/**
+ * Slot-canonicalization alias table (CONFLICT_SLOT_CANONICALIZATION):
+ * predicate pairs the extractor legitimately splits ONE attribute
+ * across. Value = the CANONICAL slot — deliberately the single-value
+ * (single_active) member of the pair, because that is the slot whose
+ * collisions the conflict machinery adjudicates (and which
+ * CONFLICT_MENTION_FACT_SLOT promotes to the bitemporal margin
+ * doctrine). Keep this table SMALL and declared: every entry is a
+ * deliberate ontology statement, not a similarity guess.
+ */
+export const SLOT_CANONICAL_ALIASES: ReadonlyMap<string, string> = new Map([
+  // "runs until December 2026" (a duration phrase → duration_limit,
+  // append_only) vs "ends in September 2026" (a lifecycle claim →
+  // status, single_active): same attribute, two slots (s07).
+  ['duration_limit', 'status'],
+]);
+
+/**
+ * Deterministic same-attribute gate for slot canonicalization: the
+ * object must carry an EXPLICIT calendar anchor — a full month name
+ * followed (optionally via a day) by a 4-digit year, or an ISO date.
+ * A calendar-anchored "duration" ("until December 2026") is a
+ * deadline/lifecycle claim about the entity; a bare unit duration
+ * ("30 days", "5 minutes" — the technical-literal harvest bulk) is not
+ * and must stay in its append_only slot. Full month names only —
+ * abbreviations miss conservatively (no reroute), never false-hit.
+ */
+const CALENDAR_ANCHOR_RE =
+  /\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b(?:\s+\d{1,2}(?:st|nd|rd|th)?,?)?\s+\d{4}\b|\b\d{4}-\d{2}-\d{2}\b/i;
+
+/**
+ * Write-side slot canonicalization (CONFLICT_SLOT_CANONICALIZATION,
+ * default off) — the canonical slot a fact should resolve in, or
+ * undefined for the extracted-predicate passthrough. Applies ONLY when
+ * ALL of:
+ *  - mention path (the direct typed path stated its slot on purpose);
+ *  - the flag is on;
+ *  - no predicateAlias is set (an EDC coinage already has a canon —
+ *    0082 owns that mapping, never clobber it);
+ *  - the predicate has a declared canonical alias (table above);
+ *  - the object passes the calendar-anchor gate.
+ * Static table + regex — no DB read, no fuzzy matching, no LLM — so the
+ * mapping is order-free and idempotent: BOTH arms of a cross-predicate
+ * contradiction land in the canonical slot regardless of arrival order,
+ * and the normal single_active/bitemporal machinery
+ * (conflictSlotSemantics above) sees the collision. Pure decision (env
+ * read lives in src/common/conflict-flags.ts); exported for tests.
+ */
+export function canonicalSlotFor(
+  p: { predicate: string; predicateAlias?: string | undefined; object: string },
+  path: 'direct' | 'mention',
+): string | undefined {
+  if (path !== 'mention' || !conflictSlotCanonicalizationEnabled()) return undefined;
+  if (p.predicateAlias !== undefined) return undefined;
+  const canonical = SLOT_CANONICAL_ALIASES.get(p.predicate);
+  if (canonical === undefined) return undefined;
+  return CALENDAR_ANCHOR_RE.test(p.object) ? canonical : undefined;
 }
 
 /**
@@ -289,19 +349,27 @@ export class FactResolverService {
   private async buildResolveCall(
     p: Parameters<FactResolverService['resolve']>[1],
   ): Promise<Parameters<FactResolverService['resolveFactCall']>[1]> {
-    const policy = this.predicateRegistry.policyFor(p.companyId, p.predicate);
+    // The direct path is exactly recordOutcomeMetric === true (set ONLY
+    // by FactIngestService.ingestFact); everything else — mention
+    // extraction — is the mention path.
+    const path = p.recordOutcomeMetric === true ? 'direct' : 'mention';
+    // Slot canonicalization (CONFLICT_SLOT_CANONICALIZATION, default
+    // off): a mention-path fact whose predicate has a declared canonical
+    // alias AND whose object carries an explicit calendar anchor
+    // resolves in the canonical slot — see canonicalSlotFor above.
+    // Undefined (flag off, or any guard) ⇒ extracted-predicate
+    // passthrough, byte-identical.
+    const canonicalSlot = canonicalSlotFor(p, path);
+    const predicate = canonicalSlot ?? p.predicate;
+    const policy = this.predicateRegistry.policyFor(p.companyId, predicate);
     // Conflict-slot promotion (CONFLICT_DIRECT_FACT_SLOT /
     // CONFLICT_MENTION_FACT_SLOT, both default off): the shared helper
     // routes each path's blind spot into fn::resolve_fact's 'bitemporal'
-    // margin doctrine — see conflictSlotSemantics above. The direct path
-    // is exactly recordOutcomeMetric === true (set ONLY by
-    // FactIngestService.ingestFact); everything else — mention
-    // extraction — is the mention path. Flags off ⇒ registry
-    // passthrough, byte-identical.
-    const semantics = conflictSlotSemantics(
-      policy,
-      p.recordOutcomeMetric === true ? 'direct' : 'mention',
-    );
+    // margin doctrine — see conflictSlotSemantics above. Flags off ⇒
+    // registry passthrough, byte-identical. Composes with
+    // canonicalization: the canonical slot's registry policy (status →
+    // single_active) is what the mention promotion sees.
+    const semantics = conflictSlotSemantics(policy, path);
     const sourceTrust = sourceTrustFor(p.source as Parameters<typeof sourceTrustFor>[0]);
     // Confidence-aware attribution (MULTILINGUAL_LANG_ATTRIBUTION, default
     // off). Off → detectLanguage keeps its Phase-4 `en` fallback and no new
@@ -354,13 +422,23 @@ export class FactResolverService {
         detectorVersion: detLang.detectorVersion,
       });
     }
+    // Canonicalized facts are re-embedded with the CANONICAL slot text
+    // (ignoring the caller's precomputed vector, which was built from
+    // the extracted predicate): the stored embedding must match the
+    // stored slot so the bitemporal cosine gate compares like-with-like
+    // — the exact vector the fact would carry had the extractor chosen
+    // the canonical slot. Deterministic (same embedder space, LRU-cached).
     const embedding =
-      p.precomputedEmbedding ??
-      (await this.factEmbedding.embed(p.embeddingText ?? factIndexText(p.predicate, p.object)));
+      canonicalSlot !== undefined
+        ? await this.factEmbedding.embed(factIndexText(predicate, p.object))
+        : (p.precomputedEmbedding ??
+          (await this.factEmbedding.embed(
+            p.embeddingText ?? factIndexText(p.predicate, p.object),
+          )));
     return {
       companyId: p.companyId,
       entityId: p.entityId,
-      predicate: p.predicate,
+      predicate,
       predicateAlias: p.predicateAlias,
       object: p.object,
       objectMeta: p.objectMeta,
