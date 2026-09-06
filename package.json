@@ -38,6 +38,7 @@
     "eval:memory-fitness": "ts-node -T test/eval/memory-fitness/runner.ts",
     "eval:state-transitions": "ts-node -T test/eval/state-transitions/runner.ts",
     "eval:domain-packs": "ts-node -T test/eval/domain-packs/runner.ts",
+    "eval:code-memory": "ts-node -T test/eval/code-memory/runner.ts",
     "openapi:build": "ts-node -T scripts/build-openapi.ts",
     "mri:report": "ts-node -T scripts/mri-report.ts",
     "mri:record-suite": "ts-node -T scripts/mri-record-suite.ts",
