@@ -40,6 +40,8 @@ the operator's reference for running Brain.
 | `CONFLICT_*` | per spec | Override the resolution weights at runtime; defaults match `core/capabilities/knowledge.yaml`. |
 | `MULTI_HOP_PLANNER_MODEL` | `OPENAI_CHAT_MODEL` | Override the chat model for the multi-hop planner LLM call. |
 | `MULTI_HOP_PLANNER_CONCURRENCY` | `4` | Max in-flight planner calls. |
+| `AUTH_SERVICE_JWKS_URL` | unset | Enables JWKS-based verification of user JWTs (unset = static keys only, dev). In prod the JWKS document lives at `https://auth.inite.ai/.well-known/jwks.json`. |
+| `AUTH_SERVICE_ISSUER` | unset | Expected `iss` claim for JWKS-verified JWTs; production refuses to boot with JWKS on and this unset. MUST equal the auth-service's REAL issuer — `https://auth-api.inite.ai` in prod, NOT the `auth.inite.ai` host the JWKS document is fetched from. A mismatch rejects EVERY JWT as "Invalid credentials"; grep the boot log for `[JwksService]` `issuer=` to confirm the running value. |
 | `AUTH_SERVICE_INTROSPECTION_CLIENT_ID` / `_SECRET` | unset | Enables RFC 7662 resolution of auth-service `ik_…` API keys (brain-service M2M client credentials). |
 | `AUTH_SERVICE_INTROSPECTION_URL` | `AUTH_SERVICE_URL`+`/v1/oauth/introspect` | Endpoint override. |
 | `AUTH_SSF_POLL_URL` | unset | CAEP revocation stream poll endpoint (RFC 8936); enables the deny-list that rejects IdP-revoked tokens before `exp`. `AUTH_SSF_CLIENT_ID/SECRET` default to the introspection client; `AUTH_SSF_POLL_SCOPE` default `admin`; `AUTH_SSF_POLL_INTERVAL_MS` default `30000`. |
@@ -154,8 +156,11 @@ off, external-origin registration is refused entirely.
 
 ### `SCENES_*` — scene substrate + belief promotion (Brain v2)
 
-All shadow: no serving path reads `memory_episode` / `semantic_belief`
-(the beliefs READ API is its own flag, `BELIEFS_API_ENABLED`).
+Construction is shadow: these flags build the episodic/belief substrate
+without touching serving. Serving FROM `semantic_belief` is its own
+opt-in lane — see [`BELIEFS_*`](#beliefs_--belief-serving-lane-0126)
+below (the beliefs READ API is also its own flag,
+`BELIEFS_API_ENABLED`).
 
 | Flag | Default | Purpose |
 |---|---|---|
@@ -169,10 +174,23 @@ All shadow: no serving path reads `memory_episode` / `semantic_belief`
 | `SCENES_BELIEF_PROMOTION` | `0` | Belief promotion (Belief-A, 0120): fold ENRICHED scenes into `semantic_belief` supersede-chain revisions via `…/scenes/beliefs`. |
 | `SCENES_BELIEF_MIN_SCENES` | `0` | Corroboration floor: promote a (subject, field) only when the winning value spans at least this many DISTINCT conversations (0 = off). |
 | `SCENES_BELIEF_LLM_SYNTHESIS` | `0` | ONE LLM call per belief create/revise to phrase the statement; any failure degrades to the deterministic template. |
+| `SCENES_BELIEF_NEGATION_DELTAS` | `0` | Fold state REMOVALS (sold / quit / ended): a stateDelta with empty `to` + non-empty `from` becomes a belief contribution with the sentinel value `none` (`priorValue` = the removed state). Both-ends-empty deltas stay dropped. |
+| `SCENES_BELIEF_FIELD_FOLD` | `0` | Deterministic field-name folding: an enricher-re-coined field name folds onto an existing `(userId, subject)` field when its extra tokens are all generic modifiers; the EXISTING name wins; more than one match folds nothing and warns loudly. No embeddings, no LLM. |
 
 Order: master flag → compose → (`SCENES_LLM_ENRICHMENT` → enrich) →
 (`SCENES_BELIEF_PROMOTION` → beliefs). Enrichment is a prerequisite for
 promotion — the belief fold reads enriched fields only.
+
+### `BELIEFS_*` — belief serving lane (0126)
+
+The first serving path over `semantic_belief`: an extra evidence lane in
+`/v1/synthesize` alongside the fact lanes.
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `BELIEFS_SERVING_LANE` | `0` | Serve beliefs in synthesize: BM25 over `semantic_belief.statement` (0126), top-3, rendered into the evidence set; the generator may cite them via `citedBeliefIds`, which resolve through the rendered-set fence into belief-arm `evidenceCitations` (`beliefId` + rendered excerpt). Fail-closed single-user scope: no `userId` → no query, `active` + visibility re-check per belief. |
+| `BELIEFS_LANE_DATE_DISAMBIGUATION` | `0` | Render belief lines as `belief current since <day>` instead of `as of <day>` — a belief line's date is the belief REVISION's `validFrom`, not the event date. ONE render site, so generator, verifier, and fragment-zoom re-verify read identical lines. No-op without the serving lane. |
+| `BELIEFS_FACT_DAMPING` | `0` | Declared in the catalog but not read by any code path yet; boot validation warns when it is set without the serving lane. |
 
 ### `FOVEA_*` — focus calibration + serving integrity
 
@@ -217,6 +235,19 @@ segment-serving mode is on, cross-user verbatim disclosure is possible.
 | `OUTCOME_TX_WRITES` | `0` | Transactional idempotent outcome writes (one BEGIN/COMMIT, deterministic ids, replay folds nothing twice). |
 | `OUTCOME_DECISION_CAPTURE` | `0` | Content-free `memory_decision` rows at the abstain gate + L3 trigger (0119); independent master, not coupled to `OUTCOME_TELEMETRY_ENABLED`. |
 | `OUTCOME_DECISION_RETENTION_DAYS` | `30` | Decision-row retention (03:41 UTC prune, gated on the capture flag). |
+
+### `EXTRACTOR_*` — deterministic harvest lanes
+
+Regex/lexicon lanes that run after the LLM extractor's denoise pass and
+UNION extra mention candidates into the same pipeline — deterministic,
+zero additional LLM calls. Prose reference:
+[extraction-harvest-lanes.md](extraction-harvest-lanes.md).
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `EXTRACTOR_LITERAL_HARVEST` | `0` | Literal-fact harvest (`src/ai/extractor-internals/literal-harvest.ts`): regex rules emit `rate_limit`, `service_port`, `http_status`, `naming_prefix`, `identifier` mention candidates (cap 6/turn; attribution by clause overlap with speaker fallback). The sixth technical-literal core predicate, `duration_limit`, is seeded as an LLM slot only — its harvest rule ships disabled (the over-firing rule of the family). |
+| `EXTRACTOR_STATE_VERB_HARVEST` | `0` | State-verb harvest (`src/ai/extractor-internals/state-verb-harvest.ts`): a past-tense/completed state-verb lexicon emits `state_change` facts (confidence 0.95, cap 6/turn). The fact binds to the state HOLDER — a person entity named in the sentence, else the speaker — never to the transitioned object. |
+| `EXTRACTOR_TRANSITION_CLASSIFIER` | `0` | Availability gate ONLY in this release: the language-agnostic transition classifier (compromise morphology stage + BGE-M3 EN/RU prototype bank — `transition-morphology.ts` + `transition-classifier.ts`) exists as a standalone module but is NOT wired into the extraction pipeline yet; thresholds are exported defaults pending stand calibration. |
 
 Related read-surface flags documented in [api.md](api.md):
 `FACTS_API_ENABLED` (fact read + provenance, also registers the MCP
@@ -335,7 +366,12 @@ The genre-dependent retrieval dimensions are NOT feature flags — they
 are per-tenant configuration, resolved once per request into a
 `RetrievalProfile` object (the platform directive 2026-08-03 replaced
 the old per-lane flag forks with this surface). Env sets the boot
-default; `RETRIEVAL_PROFILE_OVERRIDES` overlays per tenant.
+default; `RETRIEVAL_PROFILE_OVERRIDES` overlays per tenant. Resolution
+order per key: explicit env var → the `RETRIEVAL_GENRE` preset
+(`src/search/genre-presets.ts`; the genre defaults to `assistant_chat`)
+→ the code fallback — so for an unset var the EFFECTIVE default is the
+`assistant_chat` preset value, not necessarily the code fallback listed
+below.
 
 | Key | Default | What it does |
 |---|---|---|
@@ -343,7 +379,7 @@ default; `RETRIEVAL_PROFILE_OVERRIDES` overlays per tenant.
 | `RETRIEVAL_VERBATIM_EVIDENCE` | `shape_conditioned` | How verbatim L0 evidence reaches answers: `off` (facts only), `shape_conditioned` (episode quotes + provenance excerpts only when the question asks for conversational content — the engine default), `always` (all verbatim lanes unconditionally as a prompt appendix; the diary-genre profile), `fused` (segments become scored, reranked, citable SearchHits inside the search pipeline instead of an appendix), `routed` (per-query dispatch: verbatim-shaped questions take the fused path, everything else stays shape_conditioned). |
 | `RETRIEVAL_INSIGHT_EVIDENCE` | `off` | How derived insight rows (aspect aggregates + `summary_*` promotion/compaction summaries) reach answers: `off` (they ride the fact legs as ordinary rows), `routed` (fact legs exclude them; summarization/enumeration-routed questions retrieve them as their own dense+BM25 fused pool under a separate prompt slot — `INSIGHT_TOP_K`, not the fact budget). |
 | `RETRIEVAL_TIMELINE_EVIDENCE` | `off` | `routed`: ordering/sequence-shaped questions (the order-lexicon) also get the chronological segment appendix — the occurredAt-ordered mention record. Event-time extraction collapses a session's mentions onto one `validFrom` date, so mention order is unrecoverable from facts alone. Skipped when the query's resolved verbatim mode is `fused`. `scan`: the mention record is built by the topic-scan lane instead of the top-K appendix — topic phrase extracted from the question, the segment record scanned per session (BM25+embedding against the TOPIC), one dated line per session-mention in occurredAt order; coverage bounded by session count, not top-K. |
-| `RETRIEVAL_ABSTENTION_CALIBRATION` | `off` | `coverage`: in strict/lenient guardrails, evidence must clear the coverage floor (best fact score ≥ `RETRIEVAL_ABSTENTION_MIN_SCORE`, default 0.35; fact count ≥ `RETRIEVAL_ABSTENTION_MIN_EVIDENCE`, default 2) before generation — below it synthesize returns an explicit not-in-my-memory answer (reason `low_coverage`). Note: retrieval-level floors cannot detect answer-absence on topically-adjacent questions (measured non-discriminative) — use for genuinely off-topic traffic. `verifier`: answer-level coverage — in lenient guardrails an unsupported/partial verifier verdict returns the explicit decline instead of ungrounded text (no extra LLM cost). `answer` guardrails are always exempt (caller-level never-abstain contract). |
+| `RETRIEVAL_ABSTENTION_CALIBRATION` | `verifier` (effective — set by the default `assistant_chat` genre preset in `src/search/genre-presets.ts`; the bare-code fallback is `off`) | `coverage`: in strict/lenient guardrails, evidence must clear the coverage floor (best fact score ≥ `RETRIEVAL_ABSTENTION_MIN_SCORE`, default 0.35; fact count ≥ `RETRIEVAL_ABSTENTION_MIN_EVIDENCE`, default 2) before generation — below it synthesize returns an explicit not-in-my-memory answer (reason `low_coverage`). Note: retrieval-level floors cannot detect answer-absence on topically-adjacent questions (measured non-discriminative) — use for genuinely off-topic traffic. `verifier`: answer-level coverage — in lenient guardrails an unsupported/partial verifier verdict returns the explicit decline instead of ungrounded text (no extra LLM cost). `answer` guardrails are always exempt (caller-level never-abstain contract). |
 | `RETRIEVAL_SALIENCE_SCORING` | off | Fold the deriver-stamped `source.salience` (0-3, written under `DERIVER_SALIENCE_STAMP`) into ranking — weights [0.8, 1.0, 1.1, 1.25] per grade. Unstamped rows sit on the neutral grade and are unaffected. Enable only against a salience-stamped derived world. |
 | `RETRIEVAL_DATE_ANCHORING` | `absolute` | How the generator's "today" anchors: `none` (session-date-convention golds, e.g. the LoCoMo eval profile), `session_date` (only when the caller sends `asOf`), `absolute` (asOf, else wall clock). |
 | `RETRIEVAL_TEMPORAL_MODE` | `filter` | How an explicit `asOf` shapes retrieval: `filter` (strict bitemporal point-in-time closure), `overlap_boost` (the validity gate is relaxed; facts outside the interval survive with an exponential distance decay on their score — a slightly-wrong asOf degrades results instead of emptying them). |

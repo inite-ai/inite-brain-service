@@ -142,7 +142,7 @@ the row exists.
 ## Example
 
 ```bash
-export BRAIN_KEY=sk_...
+export BRAIN_KEY=brain_...
 curl -s -H "Authorization: Bearer $BRAIN_KEY" \
   https://brain.example.com/v1/facts/f1 | jq .
 

@@ -159,7 +159,10 @@ strict binary judge, own full-context baseline, paired stats, held-out split
 ([docs/eval-protocol.md](docs/eval-protocol.md)). Do not quote numbers from
 other systems' self-reported benchmarks as comparable — most published
 memory scores use lenient judges and are inflated; ours are deliberately
-hard to inflate.
+hard to inflate. The in-repo memory-fitness numbers come from the
+mechanical, judge-free battery (`pnpm eval:memory-fitness`,
+`pnpm eval:state-transitions` — see
+[docs/eval-methodology.md](docs/eval-methodology.md)).
 
 ## More
 

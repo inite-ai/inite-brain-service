@@ -259,9 +259,10 @@ SurrealDB:
 - **CPU-bound dispatch** — handlers can opt in via `register(jobType,
   handler, { cpuBound: true, workerModule: '…' })` to be routed
   through `JobWorkerPool` — a fixed-size `node:worker_threads` pool.
-  Default `JOB_WORKER_POOL_SIZE=0` (disabled — no current handler is
-  cpuBound; BGE-M3 already owns its own worker, every other handler
-  is IO-bound). Scaffolding ships for future heavy work. Phase K1.
+  Code default `JOB_WORKER_POOL_SIZE=2`; the prod compose and
+  `PROCESS_ROLE=api` pin it to `0` (no current handler is cpuBound;
+  BGE-M3 already owns its own worker, every other handler is
+  IO-bound). Scaffolding ships for future heavy work. Phase K1.
 - **Tracing** — Enqueue → OTel PRODUCER span (`jobs.enqueue`,
   `messaging.system=surrealdb`, traceparent injected into the row).
   Dispatch → CONSUMER span (`jobs.process <jobType>`) linked as a

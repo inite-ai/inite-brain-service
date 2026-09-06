@@ -149,6 +149,38 @@ methodology. We are happy to run partner systems through this harness
 and/or re-run ours through theirs; under matched protocols, deltas are
 meaningful — absolute numbers alone are not.
 
+## 6. The mechanical eval battery (judge-free)
+
+Alongside the judged benchmark axes, an in-repo battery family measures
+memory fitness **mechanically**: ground truth is authored WITH the
+corpus, so there is no LLM judge and no paid eval — the only model
+spend is the stand's own normal serving cost.
+
+- **`pnpm eval:memory-fitness`** (`test/eval/memory-fitness/`) — 30
+  questions over an authored 66-turn corpus (5 conversations, one
+  primary user, 4 revision chains + 1 contradiction pair), scored on
+  8 dimensions: D1 state currency, D2 evolution history, D3 provenance
+  unrollability, D4 temporal anchors, D5 absence honesty, D6 conflict
+  surfacing, D7 cross-session integration, D8 self-utility replay.
+- **`pnpm eval:state-transitions`** (`test/eval/state-transitions/`) —
+  12 isolated mutable-world-state scenarios (dispose, replace,
+  re-acquire, retro-dated, intention-vs-action, listed-not-sold,
+  contradiction, field drift, third-party, same-day, multi-object,
+  provenance-of-transition), each with 2–4 typed checks
+  (`serve` / `belief` / `history` / `prov`). Serve scoring is
+  marker-first: an honest decline never fails a serve check by itself.
+- **`eval:domain-packs`** — a pack-conformance battery in the same
+  family, landing in a separate in-flight PR.
+
+Methodology: each battery runs against a **fresh tenant per run**
+(`BRAIN_COMPANY_ID` is operator-supplied; every scenario seeds its own
+entities, so scenarios cannot cross-contaminate within a run). The
+**same-memory re-ask** (`MEMFIT_SKIP_INGEST=1` / `STEV_SKIP_INGEST=1`
+with the original run id) re-asks an already-ingested run without
+re-writing — separating the *extraction lottery* (what a fresh ingest
+happens to capture) from *read-side* regressions over the same stored
+memory. Both runners' READMEs carry the full env contract.
+
 ## See also
 
 - [eval-protocol.md](eval-protocol.md) — the full three-axis protocol
