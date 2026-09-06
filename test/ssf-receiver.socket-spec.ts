@@ -6,7 +6,7 @@
  */
 import * as http from 'node:http';
 import { ConfigService } from '@nestjs/config';
-import { SignJWT, exportJWK, generateKeyPair, type JWK, type KeyLike } from 'jose';
+import { SignJWT, exportJWK, generateKeyPair, type JWK } from 'jose';
 import { RevocationCacheService } from '../src/auth/revocation-cache.service';
 import { SsfReceiverService } from '../src/auth/ssf-receiver.service';
 
@@ -23,11 +23,11 @@ class StubConfig {
 
 describe('SsfReceiverService.applySet', () => {
   let server: http.Server;
-  let privateKey: KeyLike;
+  let privateKey: CryptoKey;
   let receiver: SsfReceiverService;
   let revocations: RevocationCacheService;
 
-  function mintSet(events: Record<string, unknown>, sub: string, key?: KeyLike) {
+  function mintSet(events: Record<string, unknown>, sub: string, key?: CryptoKey) {
     return new SignJWT({ events, sub_id: { format: 'iss_sub', iss: ISSUER, sub } })
       .setProtectedHeader({ alg: 'RS256', kid: 'set-key' })
       .setIssuer(ISSUER)
