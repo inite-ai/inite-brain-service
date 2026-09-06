@@ -1,7 +1,7 @@
 import { CORE_PREDICATES } from '../predicate-registry-internals/core-seed';
 import type { PredicateDefinition } from '../predicate-registry-internals/types';
 import type { DomainPackManifest } from './manifest';
-import { assembleSeed } from './validate';
+import { assembleSeed, validatePack } from './validate';
 import { CODE_MEMORY_PACK } from './code-memory.pack';
 
 /**
@@ -60,3 +60,9 @@ export const FIRST_PARTY_PACKS: DomainPackManifest[] = [
   INSURANCE_PACK,
   HR_PACK,
 ];
+
+// Every distributable manifest is validated at module load too (builtins get
+// this via assembleSeed above): a malformed industry pack — including its
+// memoryModel section — fails the boot/test run here, not a tenant install
+// later.
+for (const pack of FIRST_PARTY_PACKS) validatePack(pack);

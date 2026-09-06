@@ -4,13 +4,15 @@ import type { DomainPackManifest } from './manifest';
  * Industry Domain Pack: HR / recruiting. DISTRIBUTABLE (installed per-tenant from
  * `packs/hr.pack.json`, NOT in BUILTIN_PACKS). Captures role/candidate ontology —
  * required skills, seniority, compensation, employment type, location policy.
- * Scoped to ROLES/REQUISITIONS, not individual PII. Bump `version` to update.
+ * Scoped to ROLES/REQUISITIONS, not individual PII — the memoryModel's
+ * position / employee lifecycles are generic vocabulary about subjects of
+ * those types, never person records. Bump `version` to update.
  */
 export const HR_PACK: DomainPackManifest = {
   id: 'hr',
-  version: '0.1.0',
+  version: '0.2.0',
   description:
-    'HR / recruiting ontology — required skills, seniority, compensation, employment type, and work location of roles, with a domain extraction profile.',
+    'HR / recruiting ontology — required skills, seniority, compensation, employment type, and work location of roles, with a domain extraction profile and memory model.',
   predicates: [
     {
       localId: 'requires_skill',
@@ -95,6 +97,81 @@ the SUBJECT entity. Prefer the hr__* predicates for required skills
       },
     ],
   },
+  // The domain perception contract (docs/domain-packs.md). Declarative data
+  // only — consumed by MemoryModelReaderService for installed tenants.
+  // Text-only: no modalities/processors/rawEvidence, so no consent surface.
+  memoryModel: {
+    sceneSchemas: [
+      {
+        id: 'interview_debrief',
+        description:
+          'An interview or debrief for a role: interviewers discuss how a candidate met the role requirements.',
+        cues: ['interview', 'debrief', 'panel', 'scorecard'],
+      },
+      {
+        id: 'offer_stage',
+        description:
+          'An offer-stage conversation: compensation, start date, and terms for a role are negotiated.',
+        cues: ['offer', 'counteroffer', 'start date', 'signed the offer'],
+      },
+    ],
+    stateModels: [
+      {
+        id: 'position_lifecycle',
+        subjectType: 'position',
+        states: ['opened', 'sourcing', 'interviewing', 'offer_extended', 'filled', 'vacated'],
+        transitions: [
+          { from: 'opened', to: 'sourcing' },
+          { from: 'sourcing', to: 'interviewing' },
+          { from: 'interviewing', to: 'offer_extended' },
+          { from: 'offer_extended', to: 'filled' },
+          { from: 'offer_extended', to: 'interviewing' },
+          { from: 'filled', to: 'vacated' },
+          { from: 'vacated', to: 'sourcing' },
+        ],
+      },
+      {
+        id: 'employee_lifecycle',
+        subjectType: 'employee',
+        states: ['hired', 'onboarded', 'promoted', 'on_leave', 'offboarded'],
+        transitions: [
+          { from: 'hired', to: 'onboarded' },
+          { from: 'onboarded', to: 'promoted' },
+          { from: 'promoted', to: 'promoted' },
+          { from: 'onboarded', to: 'on_leave' },
+          { from: 'on_leave', to: 'onboarded' },
+          { from: 'onboarded', to: 'offboarded' },
+          { from: 'promoted', to: 'offboarded' },
+          { from: 'on_leave', to: 'offboarded' },
+        ],
+      },
+    ],
+    attentionHints: [
+      { cue: 'requires', prefer: ['requires_skill'], zoom: ['facts'], weight: 0.5 },
+      { cue: 'must know', prefer: ['requires_skill'], zoom: ['facts'], weight: 0.6 },
+      { cue: 'senior', prefer: ['seniority'], zoom: ['facts'], weight: 0.5 },
+      { cue: 'salary', prefer: ['compensation'], zoom: ['facts'], weight: 0.7 },
+      { cue: 'comp band', prefer: ['compensation'], zoom: ['facts'], weight: 0.6 },
+      { cue: 'remote', prefer: ['work_location'], zoom: ['facts'], weight: 0.6 },
+      { cue: 'hybrid', prefer: ['work_location'], zoom: ['facts'], weight: 0.5 },
+      { cue: 'full-time', prefer: ['employment_type'], zoom: ['facts'], weight: 0.5 },
+    ],
+    // Comp bands are rebenchmarked and location policies flip — serve
+    // compensation and remote-policy claims recency-checked.
+    verificationRules: [
+      { claimPattern: 'comp', requires: 'recency_check' },
+      { claimPattern: 'remote', requires: 'recency_check' },
+    ],
+    retentionHints: [
+      { predicateOrScene: 'employment_type', hint: 'durable' },
+      { predicateOrScene: 'seniority', hint: 'durable' },
+      { predicateOrScene: 'requires_skill', hint: 'standard' },
+      { predicateOrScene: 'compensation', hint: 'standard' },
+      { predicateOrScene: 'work_location', hint: 'standard' },
+      { predicateOrScene: 'offer_stage', hint: 'standard' },
+      { predicateOrScene: 'interview_debrief', hint: 'ephemeral' },
+    ],
+  },
   evalFixtures: [
     {
       id: 'skill',
@@ -113,6 +190,18 @@ the SUBJECT entity. Prefer the hr__* predicates for required skills
       description: 'the work-location policy is captured',
       text: 'This position is fully remote.',
       expect: { facts: [{ predicate: 'work_location', objectIncludes: 'remote' }] },
+    },
+    {
+      id: 'seniority',
+      description: 'the seniority level is captured',
+      text: 'This is a Senior-level role.',
+      expect: { facts: [{ predicate: 'seniority', objectIncludes: 'Senior' }] },
+    },
+    {
+      id: 'employment-type',
+      description: 'the employment type is captured',
+      text: 'The role is full-time.',
+      expect: { facts: [{ predicate: 'employment_type', objectIncludes: 'full-time' }] },
     },
   ],
 };

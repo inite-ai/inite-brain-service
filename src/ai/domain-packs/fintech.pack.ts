@@ -5,14 +5,16 @@ import type { DomainPackManifest } from './manifest';
  * real-estate (and unlike the builtin code-memory), a DISTRIBUTABLE pack —
  * installed per-tenant from `packs/fintech.pack.json` via `pnpm pack:install`,
  * NOT in BUILTIN_PACKS, so its domain predicates don't seed into unrelated
- * tenants. Ships an extractionProfile + eval fixtures so it's a complete,
- * self-verifying ontology, not a stub. Bump `version` to ship an update.
+ * tenants. Ships an extractionProfile + eval fixtures + memoryModel (license /
+ * certification / enforcement lifecycles, attention + retention hints, recency
+ * rules for license and settlement claims) so it's a complete, self-verifying
+ * ontology, not a stub. Bump `version` to ship an update.
  */
 export const FINTECH_PACK: DomainPackManifest = {
   id: 'fintech',
-  version: '0.1.0',
+  version: '0.2.0',
   description:
-    'Financial-services regulation ontology — regulators, licenses, compliance standards, capital, and settlement of institutions/products, with a domain extraction profile.',
+    'Financial-services regulation ontology — regulators, licenses, compliance standards, capital, and settlement of institutions/products, with a domain extraction profile and memory model.',
   predicates: [
     {
       localId: 'regulated_by',
@@ -106,6 +108,92 @@ named entity, ALSO emit an edge (Institution —regulated_by→ Authority).`,
       },
     ],
   },
+  // The domain perception contract (docs/domain-packs.md). Declarative data
+  // only — consumed by MemoryModelReaderService for installed tenants.
+  // Text-only: no modalities/processors/rawEvidence, so no consent surface.
+  memoryModel: {
+    sceneSchemas: [
+      {
+        id: 'audit_review',
+        description:
+          'A compliance audit or regulatory examination: an auditor or regulator reviews the institution and findings are discussed.',
+        cues: ['audit', 'examination', 'regulator visit', 'findings'],
+      },
+      {
+        id: 'regulatory_filing',
+        description:
+          'A regulatory filing or reporting event: the institution submits returns, disclosures, or capital reports to its regulator.',
+        cues: ['filing', 'submitted', 'annual return', 'disclosure'],
+      },
+    ],
+    stateModels: [
+      {
+        id: 'license_lifecycle',
+        subjectType: 'license',
+        states: ['applied', 'granted', 'suspended', 'revoked', 'surrendered'],
+        transitions: [
+          { from: 'applied', to: 'granted' },
+          { from: 'granted', to: 'suspended' },
+          { from: 'suspended', to: 'granted' },
+          { from: 'granted', to: 'revoked' },
+          { from: 'suspended', to: 'revoked' },
+          { from: 'granted', to: 'surrendered' },
+        ],
+      },
+      {
+        id: 'certification_lifecycle',
+        subjectType: 'compliance_certification',
+        states: ['in_assessment', 'certified', 'lapsed', 'withdrawn'],
+        transitions: [
+          { from: 'in_assessment', to: 'certified' },
+          { from: 'certified', to: 'lapsed' },
+          { from: 'lapsed', to: 'in_assessment' },
+          { from: 'certified', to: 'withdrawn' },
+        ],
+      },
+      {
+        id: 'enforcement_lifecycle',
+        subjectType: 'enforcement_action',
+        states: ['opened', 'remediation_ordered', 'settled', 'closed'],
+        transitions: [
+          { from: 'opened', to: 'remediation_ordered' },
+          { from: 'remediation_ordered', to: 'settled' },
+          { from: 'opened', to: 'settled' },
+          { from: 'settled', to: 'closed' },
+          { from: 'opened', to: 'closed' },
+        ],
+      },
+    ],
+    attentionHints: [
+      { cue: 'regulated by', prefer: ['regulated_by'], zoom: ['facts'], weight: 0.6 },
+      { cue: 'license', prefer: ['licensed_as'], zoom: ['facts', 'episodes'], weight: 0.7 },
+      { cue: 'compliant', prefer: ['complies_with'], zoom: ['facts'], weight: 0.6 },
+      { cue: 'capital', prefer: ['capital_requirement'], zoom: ['facts'], weight: 0.6 },
+      { cue: 'settlement', prefer: ['settlement_period'], zoom: ['facts'], weight: 0.6 },
+      {
+        cue: 'revoked',
+        prefer: ['licensed_as', 'regulated_by'],
+        zoom: ['episodes', 'facts'],
+        weight: 0.7,
+      },
+      { cue: 'audit', prefer: ['complies_with'], zoom: ['audit_review', 'episodes'], weight: 0.6 },
+    ],
+    // License status and settlement conventions go stale (EMI licenses get
+    // revoked; markets migrate T+2 to T+1) — serve them recency-checked.
+    verificationRules: [
+      { claimPattern: 'licensed', requires: 'recency_check' },
+      { claimPattern: 'settlement', requires: 'recency_check' },
+    ],
+    retentionHints: [
+      { predicateOrScene: 'regulated_by', hint: 'durable' },
+      { predicateOrScene: 'licensed_as', hint: 'durable' },
+      { predicateOrScene: 'complies_with', hint: 'durable' },
+      { predicateOrScene: 'capital_requirement', hint: 'durable' },
+      { predicateOrScene: 'settlement_period', hint: 'standard' },
+      { predicateOrScene: 'audit_review', hint: 'durable' },
+      { predicateOrScene: 'regulatory_filing', hint: 'standard' },
+    ],
+  },
   evalFixtures: [
     {
       id: 'regulator',
@@ -124,6 +212,29 @@ named entity, ALSO emit an edge (Institution —regulated_by→ Authority).`,
       description: 'the settlement window is captured verbatim',
       text: 'Equity trades settle T+2.',
       expect: { facts: [{ predicate: 'settlement_period', objectIncludes: 'T+2' }] },
+    },
+    {
+      id: 'license',
+      description: 'the license type is captured verbatim',
+      text: 'Acme Pay is licensed as an EMI.',
+      expect: { facts: [{ predicate: 'licensed_as', objectIncludes: 'EMI' }] },
+    },
+    {
+      id: 'capital',
+      description: 'a capital requirement is captured with its currency',
+      text: 'The fund must hold €5M in own funds.',
+      expect: { facts: [{ predicate: 'capital_requirement', objectIncludes: '€5M' }] },
+    },
+    {
+      id: 'license-and-regulator',
+      description: 'a compound registration sentence yields both facts',
+      text: 'Nova Securities is a registered broker-dealer under SEC oversight.',
+      expect: {
+        facts: [
+          { predicate: 'licensed_as', objectIncludes: 'broker-dealer' },
+          { predicate: 'regulated_by', objectIncludes: 'SEC' },
+        ],
+      },
     },
   ],
 };

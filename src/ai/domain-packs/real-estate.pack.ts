@@ -14,13 +14,18 @@ import type { DomainPackManifest } from './manifest';
  * end-to-end: a community pack contributes both ontology AND extraction tuning
  * without a core change or redeploy.
  *
+ * As of 0.2.0 it also ships a `memoryModel` (listing / tenancy / permit
+ * lifecycles, attention + retention hints, recency rules for asking-price and
+ * appraisal claims) — the domain perception contract consumed by
+ * MemoryModelReaderService for installed tenants.
+ *
  * Bump `version` to ship an updated real-estate ontology / profile.
  */
 export const REAL_ESTATE_PACK: DomainPackManifest = {
   id: 'real_estate',
-  version: '0.1.0',
+  version: '0.2.0',
   description:
-    'Real-estate ontology — zoning, valuation, encumbrances, tenure, and construction of properties/parcels, with a domain extraction profile.',
+    'Real-estate ontology — zoning, valuation, encumbrances, tenure, and construction of properties/parcels, with a domain extraction profile and memory model.',
   predicates: [
     {
       localId: 'zoned_as',
@@ -127,6 +132,85 @@ encumbrance, ALSO emit an edge to that party (e.g. Property —held_by→ Bank).
       },
     ],
   },
+  // The domain perception contract (docs/domain-packs.md). Declarative data
+  // only — consumed by MemoryModelReaderService for installed tenants.
+  // Text-only: no modalities/processors/rawEvidence, so no consent surface.
+  memoryModel: {
+    sceneSchemas: [
+      {
+        id: 'viewing',
+        description:
+          'A property viewing or open house: prospective buyers or tenants inspect the property and reactions are recorded.',
+        cues: ['viewing', 'open house', 'walkthrough', 'showed the property'],
+      },
+      {
+        id: 'closing',
+        description:
+          'A transaction closing: contracts are exchanged, funds settle, and title transfers on a property deal.',
+        cues: ['closing', 'completion', 'exchanged contracts', 'title transfer', 'escrow'],
+      },
+    ],
+    stateModels: [
+      {
+        id: 'listing_lifecycle',
+        subjectType: 'listing',
+        states: ['listed', 'under_offer', 'sold', 'withdrawn'],
+        transitions: [
+          { from: 'listed', to: 'under_offer' },
+          { from: 'under_offer', to: 'listed' },
+          { from: 'under_offer', to: 'sold' },
+          { from: 'listed', to: 'withdrawn' },
+          { from: 'withdrawn', to: 'listed' },
+        ],
+      },
+      {
+        id: 'tenancy_lifecycle',
+        subjectType: 'tenancy',
+        states: ['advertised', 'let', 'notice_given', 'vacated'],
+        transitions: [
+          { from: 'advertised', to: 'let' },
+          { from: 'let', to: 'notice_given' },
+          { from: 'notice_given', to: 'vacated' },
+          { from: 'vacated', to: 'advertised' },
+        ],
+      },
+      {
+        id: 'permit_lifecycle',
+        subjectType: 'planning_permit',
+        states: ['applied', 'granted', 'refused', 'expired'],
+        transitions: [
+          { from: 'applied', to: 'granted' },
+          { from: 'applied', to: 'refused' },
+          { from: 'granted', to: 'expired' },
+        ],
+      },
+    ],
+    attentionHints: [
+      { cue: 'zoned', prefer: ['zoned_as'], zoom: ['facts'], weight: 0.6 },
+      { cue: 'appraised', prefer: ['valued_at'], zoom: ['facts'], weight: 0.6 },
+      { cue: 'asking price', prefer: ['listed_at', 'valued_at'], zoom: ['facts'], weight: 0.6 },
+      { cue: 'lien', prefer: ['encumbered_by'], zoom: ['facts', 'episodes'], weight: 0.7 },
+      { cue: 'easement', prefer: ['encumbered_by'], zoom: ['facts'], weight: 0.6 },
+      { cue: 'leasehold', prefer: ['tenure_type'], zoom: ['facts'], weight: 0.5 },
+      { cue: 'under offer', prefer: ['listed_at'], zoom: ['episodes', 'facts'], weight: 0.6 },
+      { cue: 'built in', prefer: ['built_in'], zoom: ['facts'], weight: 0.4 },
+    ],
+    // Asking prices move and appraisals expire — serve both recency-checked.
+    verificationRules: [
+      { claimPattern: 'listed at', requires: 'recency_check' },
+      { claimPattern: 'appraised', requires: 'recency_check' },
+    ],
+    retentionHints: [
+      { predicateOrScene: 'tenure_type', hint: 'durable' },
+      { predicateOrScene: 'built_in', hint: 'durable' },
+      { predicateOrScene: 'encumbered_by', hint: 'durable' },
+      { predicateOrScene: 'zoned_as', hint: 'durable' },
+      { predicateOrScene: 'valued_at', hint: 'standard' },
+      { predicateOrScene: 'listed_at', hint: 'standard' },
+      { predicateOrScene: 'closing', hint: 'durable' },
+      { predicateOrScene: 'viewing', hint: 'ephemeral' },
+    ],
+  },
   evalFixtures: [
     {
       id: 'zoning',
@@ -145,6 +229,24 @@ encumbrance, ALSO emit an edge to that party (e.g. Property —held_by→ Bank).
       description: 'ownership tenure is captured',
       text: 'Unit 4B is held on a leasehold basis.',
       expect: { facts: [{ predicate: 'tenure_type', objectIncludes: 'leasehold' }] },
+    },
+    {
+      id: 'listing-price',
+      description: 'the asking price is captured verbatim',
+      text: 'The warehouse is listed at $1.5M.',
+      expect: { facts: [{ predicate: 'listed_at', objectIncludes: '$1.5M' }] },
+    },
+    {
+      id: 'encumbrance',
+      description: 'an encumbrance on the property is captured',
+      text: 'The property at 12 Elm St carries a mortgage held by First National.',
+      expect: { facts: [{ predicate: 'encumbered_by', objectIncludes: 'mortgage' }] },
+    },
+    {
+      id: 'construction-year',
+      description: 'the construction year is captured verbatim',
+      text: 'The house at 8 Oak Ave was built in 1998.',
+      expect: { facts: [{ predicate: 'built_in', objectIncludes: '1998' }] },
     },
   ],
 };

@@ -1,7 +1,7 @@
 {
   "id": "legal",
-  "version": "0.1.0",
-  "description": "Legal / contracts ontology — governing law, parties, obligations, and term of agreements, with a domain extraction profile.",
+  "version": "0.2.0",
+  "description": "Legal / contracts ontology — governing law, parties, obligations, and term of agreements, with a domain extraction profile and memory model.",
   "predicates": [
     {
       "localId": "governed_by",
@@ -71,6 +71,245 @@
       }
     ]
   },
+  "memoryModel": {
+    "sceneSchemas": [
+      {
+        "id": "negotiation_session",
+        "description": "A contract negotiation session: terms, redlines, and concessions on an agreement are discussed between the parties.",
+        "cues": [
+          "redline",
+          "negotiation",
+          "counterparty",
+          "term sheet"
+        ]
+      },
+      {
+        "id": "execution",
+        "description": "An execution event: an agreement is signed, countersigned, or comes into force.",
+        "cues": [
+          "signed",
+          "executed",
+          "countersigned",
+          "came into force"
+        ]
+      }
+    ],
+    "stateModels": [
+      {
+        "id": "matter_lifecycle",
+        "subjectType": "matter",
+        "states": [
+          "opened",
+          "discovery",
+          "settled",
+          "judged",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "opened",
+            "to": "discovery"
+          },
+          {
+            "from": "discovery",
+            "to": "settled"
+          },
+          {
+            "from": "discovery",
+            "to": "judged"
+          },
+          {
+            "from": "opened",
+            "to": "settled"
+          },
+          {
+            "from": "settled",
+            "to": "closed"
+          },
+          {
+            "from": "judged",
+            "to": "closed"
+          }
+        ]
+      },
+      {
+        "id": "agreement_lifecycle",
+        "subjectType": "agreement",
+        "states": [
+          "drafted",
+          "negotiated",
+          "executed",
+          "effective",
+          "terminated",
+          "expired"
+        ],
+        "transitions": [
+          {
+            "from": "drafted",
+            "to": "negotiated"
+          },
+          {
+            "from": "negotiated",
+            "to": "executed"
+          },
+          {
+            "from": "drafted",
+            "to": "executed"
+          },
+          {
+            "from": "executed",
+            "to": "effective"
+          },
+          {
+            "from": "effective",
+            "to": "terminated"
+          },
+          {
+            "from": "effective",
+            "to": "expired"
+          }
+        ]
+      },
+      {
+        "id": "obligation_lifecycle",
+        "subjectType": "obligation",
+        "states": [
+          "owed",
+          "performed",
+          "waived",
+          "breached"
+        ],
+        "transitions": [
+          {
+            "from": "owed",
+            "to": "performed"
+          },
+          {
+            "from": "owed",
+            "to": "waived"
+          },
+          {
+            "from": "owed",
+            "to": "breached"
+          }
+        ]
+      }
+    ],
+    "attentionHints": [
+      {
+        "cue": "governed by",
+        "prefer": [
+          "governed_by"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.6
+      },
+      {
+        "cue": "party",
+        "prefer": [
+          "party_to"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.5
+      },
+      {
+        "cue": "shall",
+        "prefer": [
+          "obligation"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.6
+      },
+      {
+        "cue": "effective",
+        "prefer": [
+          "effective_from"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.6
+      },
+      {
+        "cue": "terminates",
+        "prefer": [
+          "terminates_on"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.7
+      },
+      {
+        "cue": "notice period",
+        "prefer": [
+          "terminates_on"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.6
+      },
+      {
+        "cue": "breach",
+        "prefer": [
+          "obligation",
+          "terminates_on"
+        ],
+        "zoom": [
+          "episodes",
+          "facts"
+        ],
+        "weight": 0.7
+      }
+    ],
+    "verificationRules": [
+      {
+        "claimPattern": "terminat",
+        "requires": "recency_check"
+      },
+      {
+        "claimPattern": "effective",
+        "requires": "recency_check"
+      }
+    ],
+    "retentionHints": [
+      {
+        "predicateOrScene": "governed_by",
+        "hint": "durable"
+      },
+      {
+        "predicateOrScene": "party_to",
+        "hint": "durable"
+      },
+      {
+        "predicateOrScene": "effective_from",
+        "hint": "durable"
+      },
+      {
+        "predicateOrScene": "terminates_on",
+        "hint": "durable"
+      },
+      {
+        "predicateOrScene": "obligation",
+        "hint": "standard"
+      },
+      {
+        "predicateOrScene": "execution",
+        "hint": "durable"
+      },
+      {
+        "predicateOrScene": "negotiation_session",
+        "hint": "ephemeral"
+      }
+    ]
+  },
   "evalFixtures": [
     {
       "id": "governing-law",
@@ -107,6 +346,32 @@
           {
             "predicate": "effective_from",
             "objectIncludes": "1 January 2026"
+          }
+        ]
+      }
+    },
+    {
+      "id": "party",
+      "description": "a named party to the agreement is captured",
+      "text": "This Agreement is between Acme Corp and Beta LLC.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "party_to",
+            "objectIncludes": "Acme Corp"
+          }
+        ]
+      }
+    },
+    {
+      "id": "termination",
+      "description": "the termination condition is captured verbatim",
+      "text": "The contract terminates on 90 days written notice.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "terminates_on",
+            "objectIncludes": "90 days"
           }
         ]
       }

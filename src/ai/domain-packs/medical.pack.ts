@@ -5,13 +5,16 @@ import type { DomainPackManifest } from './manifest';
  * (installed per-tenant from `packs/medical.pack.json`, NOT in BUILTIN_PACKS).
  * Scoped to DRUG / TREATMENT ontology (indications, dosing, interactions,
  * contraindications) — not patient records — so its predicates are piiClass
- * 'none'. Ships an extractionProfile + eval fixtures. Bump `version` to update.
+ * 'none'. Ships an extractionProfile + eval fixtures + memoryModel
+ * (prescription / approval lifecycles, attention + retention hints, a recency
+ * rule for dosage claims and a corroboration rule for contraindications).
+ * Bump `version` to update.
  */
 export const MEDICAL_PACK: DomainPackManifest = {
   id: 'medical',
-  version: '0.1.0',
+  version: '0.2.0',
   description:
-    'Clinical pharmacology ontology — indications, dosing, routes, interactions, and contraindications of drugs/treatments, with a domain extraction profile.',
+    'Clinical pharmacology ontology — indications, dosing, routes, interactions, and contraindications of drugs/treatments, with a domain extraction profile and memory model.',
   predicates: [
     {
       localId: 'treats',
@@ -103,6 +106,82 @@ pack captures drug ontology, not clinical records.`,
       },
     ],
   },
+  // The domain perception contract (docs/domain-packs.md). Declarative data
+  // only — consumed by MemoryModelReaderService for installed tenants.
+  // Text-only: no modalities/processors/rawEvidence, so no consent surface.
+  memoryModel: {
+    sceneSchemas: [
+      {
+        id: 'medication_review',
+        description:
+          'A medication review or reconciliation: current drugs, doses, and interactions of a treatment plan are checked and adjusted.',
+        cues: ['medication review', 'reconciliation', 'dose adjusted', 'titration'],
+      },
+      {
+        id: 'adverse_event',
+        description:
+          'An adverse event or safety report: a suspected reaction, interaction, or harm involving a drug is described.',
+        cues: ['adverse event', 'side effect', 'reaction', 'pharmacovigilance'],
+      },
+    ],
+    stateModels: [
+      {
+        id: 'prescription_lifecycle',
+        subjectType: 'prescription',
+        states: ['started', 'dose_changed', 'paused', 'discontinued'],
+        transitions: [
+          { from: 'started', to: 'dose_changed' },
+          { from: 'dose_changed', to: 'dose_changed' },
+          { from: 'started', to: 'paused' },
+          { from: 'dose_changed', to: 'paused' },
+          { from: 'paused', to: 'started' },
+          { from: 'started', to: 'discontinued' },
+          { from: 'dose_changed', to: 'discontinued' },
+          { from: 'paused', to: 'discontinued' },
+        ],
+      },
+      {
+        id: 'approval_lifecycle',
+        subjectType: 'drug',
+        states: ['investigational', 'approved', 'restricted', 'withdrawn'],
+        transitions: [
+          { from: 'investigational', to: 'approved' },
+          { from: 'approved', to: 'restricted' },
+          { from: 'approved', to: 'withdrawn' },
+          { from: 'restricted', to: 'withdrawn' },
+        ],
+      },
+    ],
+    attentionHints: [
+      { cue: 'indicated for', prefer: ['treats'], zoom: ['facts'], weight: 0.6 },
+      { cue: 'dose', prefer: ['dosed_at'], zoom: ['facts', 'episodes'], weight: 0.7 },
+      { cue: 'mg', prefer: ['dosed_at'], zoom: ['facts'], weight: 0.6 },
+      { cue: 'interacts', prefer: ['interacts_with'], zoom: ['facts'], weight: 0.7 },
+      { cue: 'contraindicated', prefer: ['contraindicated_with'], zoom: ['facts'], weight: 0.7 },
+      { cue: 'route', prefer: ['administered_via'], zoom: ['facts'], weight: 0.5 },
+      {
+        cue: 'titrated',
+        prefer: ['dosed_at'],
+        zoom: ['medication_review', 'facts'],
+        weight: 0.6,
+      },
+    ],
+    // Dosage claims must not serve stale (doses get titrated and superseded);
+    // contraindication claims are safety-critical — want a second source.
+    verificationRules: [
+      { claimPattern: 'dose', requires: 'recency_check' },
+      { claimPattern: 'contraindicated', requires: 'corroboration' },
+    ],
+    retentionHints: [
+      { predicateOrScene: 'treats', hint: 'durable' },
+      { predicateOrScene: 'interacts_with', hint: 'durable' },
+      { predicateOrScene: 'contraindicated_with', hint: 'durable' },
+      { predicateOrScene: 'dosed_at', hint: 'standard' },
+      { predicateOrScene: 'administered_via', hint: 'standard' },
+      { predicateOrScene: 'adverse_event', hint: 'durable' },
+      { predicateOrScene: 'medication_review', hint: 'standard' },
+    ],
+  },
   evalFixtures: [
     {
       id: 'indication',
@@ -122,6 +201,29 @@ pack captures drug ontology, not clinical records.`,
       text: 'Isotretinoin is contraindicated in pregnancy.',
       expect: {
         facts: [{ predicate: 'contraindicated_with', objectIncludes: 'pregnancy' }],
+      },
+    },
+    {
+      id: 'route',
+      description: 'the route of administration is captured',
+      text: 'Ceftriaxone is administered via intravenous infusion.',
+      expect: { facts: [{ predicate: 'administered_via', objectIncludes: 'intravenous' }] },
+    },
+    {
+      id: 'interaction',
+      description: 'an interacting agent is captured',
+      text: 'Warfarin interacts with aspirin.',
+      expect: { facts: [{ predicate: 'interacts_with', objectIncludes: 'aspirin' }] },
+    },
+    {
+      id: 'dose-and-route',
+      description: 'a compound dosing sentence yields both facts',
+      text: 'Metformin is dosed at 500 mg twice daily, taken orally.',
+      expect: {
+        facts: [
+          { predicate: 'dosed_at', objectIncludes: '500 mg' },
+          { predicate: 'administered_via', objectIncludes: 'oral' },
+        ],
       },
     },
   ],
