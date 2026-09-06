@@ -87,6 +87,24 @@ const DOTTED_IDENTIFIER = /\b([A-Z][A-Za-z0-9]*(?:\.[A-Za-z0-9*]+)+)(?![\w*])/g;
 /** `idempotencyKey` — camelCase; only admitted with an assignment/idiom cue. */
 const CAMEL_TOKEN = /\b[a-z]+(?:[A-Z][a-z0-9]+)+\b/g;
 
+/**
+ * Identifier-shaped SUBJECT tokens for the fallback minting path
+ * (no-entity turns only — see HarvestLiteralsArgs.mintSubjects). The
+ * shapes mirror the code-memory extractionProfile's subject doctrine
+ * ("identifier-shaped subjects become their OWN entities — an ALL_CAPS
+ * flag or env var, a file or module path, a dotted symbol or package
+ * name"): ALL_CAPS and dotted reuse the harvest rules above; the two
+ * additions are the slash path (leading slash allowed, first segment
+ * must carry a letter so `300/min` and `2026/03/08` never read as
+ * paths) and the hyphenated package/service slug (`acme-api`,
+ * `ledger-sync`). The FIRST shape by sentence position wins — English
+ * subjects lead their sentence, so position is the deterministic
+ * stand-in for a parse.
+ */
+const SUBJECT_PATH = /(?<![\w.])\/?[\w.-]*[A-Za-z][\w.-]*(?:\/[\w.*-]+)+/g;
+const SUBJECT_SLUG = /\b[a-z][a-z0-9]*(?:-[a-z0-9]+)+\b/g;
+const SUBJECT_SHAPES = [ALL_CAPS_IDENTIFIER, DOTTED_IDENTIFIER, SUBJECT_PATH, SUBJECT_SLUG];
+
 /** camelCase cue A: the token is immediately followed by `=`. */
 const CAMEL_ASSIGN_AFTER = /^\s*=/;
 
@@ -184,6 +202,51 @@ interface HarvestMatch {
   index: number;
 }
 
+/** The predicates whose match token IS the subject (identifier-class). */
+const IDENTIFIER_CLASS = new Set(['identifier', 'naming_prefix']);
+
+/**
+ * The first identifier-shaped subject token of a sentence (by position;
+ * longest match on a tie), or null when the sentence carries none. Only
+ * consulted on the fallback minting path.
+ */
+export function firstSubjectToken(sentenceText: string): string | null {
+  let best: { index: number; token: string } | null = null;
+  for (const shape of SUBJECT_SHAPES) {
+    shape.lastIndex = 0;
+    for (const m of sentenceText.matchAll(shape)) {
+      const token = m[1] ?? m[0];
+      if (
+        !best ||
+        m.index < best.index ||
+        (m.index === best.index && token.length > best.token.length)
+      ) {
+        best = { index: m.index, token };
+      }
+    }
+  }
+  return best?.token ?? null;
+}
+
+/**
+ * Resolve a subject token against the working entity list by normalized
+ * name (the extractor's existing resolution idiom — the same match
+ * resolveSpeakerEntityIndex uses), minting a new `other`-typed entity
+ * when absent. APPENDS to the passed array; returns the bound index.
+ * Deliberately `other`, never a person type — bindStateHolder must not
+ * pick a minted identifier as a state holder. Cross-turn dedup stays
+ * where it lives today: the ingest entity-resolution upsert
+ * (resolveOrCreateNamedEntity) resolves the minted name exactly like an
+ * LLM-emitted one.
+ */
+function resolveOrMintSubject(entities: ExtractedEntity[], token: string): number {
+  const normalized = normalizeForGrounding(token);
+  const existing = entities.findIndex((e) => normalizeForGrounding(e.name) === normalized);
+  if (existing !== -1) return existing;
+  entities.push({ name: token, type: 'other' });
+  return entities.length - 1;
+}
+
 function collectMatches(input: string, sentences: SentenceSpan[]): HarvestMatch[] {
   const out: HarvestMatch[] = [];
 
@@ -266,12 +329,33 @@ function collectMatches(input: string, sentences: SentenceSpan[]): HarvestMatch[
 export interface HarvestLiteralsArgs {
   /** The clamped input text the extraction ran on. */
   trimmed: string;
-  /** The FINAL compacted grounded entity list of the extraction. */
+  /**
+   * The FINAL compacted grounded entity list of the extraction. With
+   * `mintSubjects` on, minted subject entities are APPENDED to this
+   * array (pass a copy if the original must stay untouched).
+   */
   entities: ExtractedEntity[];
   /** Speaker's index in `entities` (resolveSpeakerEntityIndex), or null. */
   speakerEntityIndex: number | null;
   /** The denoised LLM facts — drives dedup against the harvest. */
   existingFacts?: readonly ExtractedFact[];
+  /**
+   * Fallback grounding for the no-entity starvation case (the k07
+   * code-memory battery finding: an LLM extraction that yields zero
+   * entities used to starve this lane entirely, so a turn like
+   * "acme-api throttles /v1/webhooks at 120 requests per minute."
+   * produced NO rate_limit fact). When set, a match that normal
+   * binding cannot ground is bound by minting: an identifier-class
+   * match (identifier / naming_prefix) becomes its OWN subject entity
+   * — the code-memory extractionProfile's doctrine — and any other
+   * match binds to the first identifier-shaped subject token of its
+   * sentence, with the speaker kept as the LAST resort (mirroring
+   * bindEntity's name-in-sentence-over-speaker priority). A sentence
+   * with no subject shape and no speaker still harvests nothing —
+   * minting never invents a subject. Default off: absent, the function
+   * is byte-identical to the pre-mint behavior.
+   */
+  mintSubjects?: boolean;
 }
 
 /**
@@ -283,8 +367,8 @@ export interface HarvestLiteralsArgs {
  * for the caller to union.
  */
 export function harvestLiterals(args: HarvestLiteralsArgs): ExtractedFact[] {
-  const { trimmed, entities, speakerEntityIndex, existingFacts = [] } = args;
-  if (!trimmed || entities.length === 0) return [];
+  const { trimmed, entities, speakerEntityIndex, existingFacts = [], mintSubjects = false } = args;
+  if (!trimmed || (entities.length === 0 && !mintSubjects)) return [];
   const sentences = sentenceSpans(trimmed);
   const seen = new Set(
     existingFacts.map(
@@ -295,7 +379,15 @@ export function harvestLiterals(args: HarvestLiteralsArgs): ExtractedFact[] {
   for (const m of collectMatches(trimmed, sentences)) {
     if (harvested.length >= LITERAL_HARVEST_CAP) break;
     const sentence = sentenceAt(sentences, m.index);
-    const entityIndex = bindEntity(entities, sentence.text, speakerEntityIndex);
+    // Minting runs the same priority bindEntity encodes — a sentence-
+    // grounded subject beats the speaker — so the speaker fallback is
+    // withheld from the first pass and re-applied only after minting
+    // found no subject shape in the sentence.
+    let entityIndex = bindEntity(entities, sentence.text, mintSubjects ? null : speakerEntityIndex);
+    if (entityIndex === null && mintSubjects) {
+      const token = IDENTIFIER_CLASS.has(m.predicate) ? m.object : firstSubjectToken(sentence.text);
+      entityIndex = token !== null ? resolveOrMintSubject(entities, token) : speakerEntityIndex;
+    }
     if (entityIndex === null) continue;
     const key = `${entityIndex}\u0000${m.predicate}\u0000${normalizeForGrounding(m.object)}`;
     if (seen.has(key)) continue;
