@@ -303,6 +303,10 @@ jobs:
           EXTRACTOR_LITERAL_HARVEST=1
           SCENES_BELIEF_NEGATION_DELTAS=1
           SCENES_BELIEF_FIELD_FOLD=1
+          # ── State-verb harvest (#429/#431, measured: state-transition
+          # battery 4/12 -> 8/12 scenarios, checks 84%; held-out
+          # adversarial set 18/18; unit 29/29 incl. holder binding) ──
+          EXTRACTOR_STATE_VERB_HARVEST=1
           EOF
           # The heredoc carries the YAML block's 10-space indent into the
           # file; strip it so every line is a clean KEY=value / #comment

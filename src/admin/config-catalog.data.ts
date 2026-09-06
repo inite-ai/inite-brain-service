@@ -1845,7 +1845,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'V13 read side of DERIVER_SCENE_TRACE (profile field sceneTraces): fact lines carry a "(context: …)" suffix from the stamped source.scene, so the generator and verifier see the situational anchor next to the proposition. Unstamped rows render as before; against worlds derived without the stamp the flag is byte-identical off.',
+      'V13 read side of DERIVER_SCENE_TRACE (profile field sceneTraces): fact lines carry a "(context: …)" suffix from the stamped source.scene, so the generator and verifier see the situational anchor next to the proposition. Unstamped rows render as before; against worlds derived without the stamp the flag is byte-identical off. NOTE: defaultValue is the env fallback only — the assistant_chat genre preset (the default RETRIEVAL_GENRE) presets sceneTraces ON, so tenants on that genre render scene traces unless the env pins =0.',
   },
   {
     key: 'DERIVER_TYPED_ATOMS',
