@@ -47,6 +47,15 @@ export function derivedSemanticsFor(aspect: string, slotSemantics: boolean): Der
 }
 
 /**
+ * Slot-exact pool floor: cosine's true lower bound, so the resolver's
+ * `cosine(embedding, $embedding) >= $similarity_threshold` gate admits
+ * EVERY embedded row of the slot. Bound as $similarity_threshold only
+ * for promoted mention-path single_active writes (see
+ * conflictSlotResolution below) — never a global threshold change.
+ */
+export const SLOT_EXACT_SIMILARITY_FLOOR = -1;
+
+/**
  * Shared conflict-slot promotion — the ONE decision point both live
  * ingest paths flow through (buildResolveCall), so the doctrine cannot
  * fork per path. Promotion target is always 'bitemporal': the only
@@ -66,24 +75,54 @@ export function derivedSemanticsFor(aspect: string, slotSemantics: boolean): Der
  *    (state-transitions s07). The append_only open-vocabulary bulk and
  *    DEFAULT_FALLBACK stay untouched (load-bearing for extraction).
  *
- * Both flags default off ⇒ registry passthrough, byte-identical.
- * Deliberately NOT 'single_active' as a target in either direction, and
- * per-user isolation needs nothing here: fn::resolve_fact's candidate
- * pool is already scope-local (0055 $user_id filter). Pure decision
- * (env read lives in src/common/conflict-flags.ts); exported for tests.
+ * similarityFloor — the mention-path promotion ALSO opens the
+ * 'bitemporal' pool's cosine gate for exactly those writes
+ * (SLOT_EXACT_SIMILARITY_FLOOR rides into the fn as
+ * $similarity_threshold). The gate exists to establish claim identity
+ * in OPEN slots, but a promoted single_active slot is already
+ * structurally exact — fn::resolve_fact's $candidates SELECT matches
+ * entity, canonical predicate, userId and world — and its registry
+ * semantics declare AT MOST ONE active value, so any two values there
+ * are in collision BY DEFINITION. Left at the shared
+ * CONFLICT_SIMILARITY_THRESHOLD (0.85), contradicting paraphrases of
+ * one attribute ("until December 2026" vs "ends in September 2026",
+ * cosine 0.805 measured live) sit below the gate, the pool empties,
+ * and both land plainly 'active' — the exact silent fork the flag
+ * exists to prevent (state-transitions s07). Note this is strictly
+ * GENTLER than the slot's own registry policy: plain single_active
+ * would take the whole slot as its pool and supersede unconditionally.
+ * The direct-path promotion keeps the gate: its '__default__' slots
+ * are open-vocabulary, where cosine IS the claim-identity signal. The
+ * 0009 interval-overlap gate stays for both (non-overlapping validity
+ * = clean succession, not conflict).
+ *
+ * Both flags default off ⇒ registry passthrough, no floor,
+ * byte-identical. Deliberately NOT 'single_active' as a target in
+ * either direction, and per-user isolation needs nothing here:
+ * fn::resolve_fact's candidate pool is already scope-local (0055
+ * $user_id filter). Pure decision (env read lives in
+ * src/common/conflict-flags.ts); exported for tests.
  */
+export function conflictSlotResolution(
+  policy: { predicateId: string; semantics: string },
+  path: 'direct' | 'mention',
+): { semantics: string; similarityFloor?: number | undefined } {
+  if (path === 'direct') {
+    return conflictDirectFactSlotEnabled() && policy.predicateId === DEFAULT_FALLBACK.predicateId
+      ? { semantics: 'bitemporal' }
+      : { semantics: policy.semantics };
+  }
+  return conflictMentionFactSlotEnabled() && policy.semantics === 'single_active'
+    ? { semantics: 'bitemporal', similarityFloor: SLOT_EXACT_SIMILARITY_FLOOR }
+    : { semantics: policy.semantics };
+}
+
+/** Semantics-only view of conflictSlotResolution (kept for tests/callers). */
 export function conflictSlotSemantics(
   policy: { predicateId: string; semantics: string },
   path: 'direct' | 'mention',
 ): string {
-  if (path === 'direct') {
-    return conflictDirectFactSlotEnabled() && policy.predicateId === DEFAULT_FALLBACK.predicateId
-      ? 'bitemporal'
-      : policy.semantics;
-  }
-  return conflictMentionFactSlotEnabled() && policy.semantics === 'single_active'
-    ? 'bitemporal'
-    : policy.semantics;
+  return conflictSlotResolution(policy, path).semantics;
 }
 
 /**
@@ -365,11 +404,14 @@ export class FactResolverService {
     // Conflict-slot promotion (CONFLICT_DIRECT_FACT_SLOT /
     // CONFLICT_MENTION_FACT_SLOT, both default off): the shared helper
     // routes each path's blind spot into fn::resolve_fact's 'bitemporal'
-    // margin doctrine — see conflictSlotSemantics above. Flags off ⇒
-    // registry passthrough, byte-identical. Composes with
+    // margin doctrine — see conflictSlotResolution above. A mention-path
+    // single_active promotion also carries the slot-exact pool floor
+    // (the cosine gate is redundant for a structurally-exact
+    // single-value slot and starves the collision otherwise). Flags off
+    // ⇒ registry passthrough, no floor, byte-identical. Composes with
     // canonicalization: the canonical slot's registry policy (status →
     // single_active) is what the mention promotion sees.
-    const semantics = conflictSlotSemantics(policy, path);
+    const { semantics, similarityFloor } = conflictSlotResolution(policy, path);
     const sourceTrust = sourceTrustFor(p.source as Parameters<typeof sourceTrustFor>[0]);
     // Confidence-aware attribution (MULTILINGUAL_LANG_ATTRIBUTION, default
     // off). Off → detectLanguage keeps its Phase-4 `en` fallback and no new
@@ -449,6 +491,7 @@ export class FactResolverService {
       source: p.source,
       sourceTrust,
       semantics,
+      similarityFloor,
       lang,
       script,
       langMeta,
@@ -834,6 +877,10 @@ export class FactResolverService {
       source: unknown;
       sourceTrust: number;
       semantics: string;
+      /** Per-call conflict-pool cosine floor (slot-exact promotion — see
+       *  conflictSlotResolution). Undefined ⇒ the shared configured
+       *  CONFLICT_SIMILARITY_THRESHOLD, byte-identical. */
+      similarityFloor?: number | undefined;
       lang?: string | undefined;
       script?: string | undefined;
       /** Attribution metadata (0100), stamped by a follow-up UPDATE; not
@@ -881,7 +928,7 @@ export class FactResolverService {
             source: p.source,
             source_trust: p.sourceTrust,
             semantics: p.semantics,
-            similarity_threshold: this.conflict.similarityThreshold,
+            similarity_threshold: p.similarityFloor ?? this.conflict.similarityThreshold,
             slot_similarity: this.conflict.slotSimilarityThreshold,
             w_confidence: this.conflict.weights.confidence,
             w_source_trust: this.conflict.weights.sourceTrust,
