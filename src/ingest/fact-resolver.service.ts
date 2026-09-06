@@ -18,6 +18,7 @@ import { ConflictConfig, type DerivedSemantics, type ResolveOutcome } from './co
 import { idTailOf, sourceTrustFor } from './ingest-utils';
 import { stampGroundingStatus } from './grounding-stamp';
 import { FactEmbeddingService } from './fact-embedding.service';
+import { factIndexText } from './fact-index-text';
 import { MemoryOutcomeService, type OutcomeEventInput } from '../outcomes/memory-outcome.service';
 
 /**
@@ -176,7 +177,9 @@ export class FactResolverService {
        */
       sourceLang?: string | undefined;
       objectMeta?: object | undefined;
-      /** Exact text to embed; defaults to `${predicate}: ${object}`. */
+      /** Exact text to embed; defaults to factIndexText(predicate, object)
+       *  (the historical `${predicate}: ${object}` unless
+       *  INGEST_PREDICATE_INDEX_TEXT appends the humanized predicate). */
       embeddingText?: string | undefined;
       /** When supplied, skips the embed round-trip (batched mention path). */
       precomputedEmbedding?: number[] | undefined;
@@ -353,7 +356,7 @@ export class FactResolverService {
     }
     const embedding =
       p.precomputedEmbedding ??
-      (await this.factEmbedding.embed(p.embeddingText ?? `${p.predicate}: ${p.object}`));
+      (await this.factEmbedding.embed(p.embeddingText ?? factIndexText(p.predicate, p.object)));
     return {
       companyId: p.companyId,
       entityId: p.entityId,

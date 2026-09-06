@@ -1,6 +1,7 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { KeyedMutex } from '../common/keyed-mutex';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
+import { factIndexText } from '../ingest/fact-index-text';
 import { MetricsService } from '../metrics/metrics.service';
 import { traceArtifact, traceSpan } from '../common/debug-trace';
 import { CandidateStoreService } from './candidate-store.service';
@@ -163,7 +164,12 @@ export class CandidateCommitService {
   private async embedBatch(facts: MergedFact[]): Promise<number[][]> {
     if (!facts.length) return [];
     try {
-      return await this.factEmbedding.embedMany(facts.map((f) => `${f.predicate}: ${f.object}`));
+      // Shared index-text builder: same basis as the mention / direct paths
+      // (INGEST_PREDICATE_INDEX_TEXT appends humanized predicate words; off
+      // → bare `predicate: object`, byte-identical).
+      return await this.factEmbedding.embedMany(
+        facts.map((f) => factIndexText(f.predicate, f.object)),
+      );
     } catch {
       // Same trade as the mention path: pay per-fact embed round-trips in
       // the resolver rather than fail the whole commit on an embedder

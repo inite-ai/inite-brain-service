@@ -9,6 +9,7 @@ import { IngestOutcome, IngestResult } from './ingest-result';
 import { buildConflictExplanation, type ResolverConflictPayload } from './conflict-explainer';
 import { EntityUpsertService } from './entity-upsert.service';
 import { FactResolverService } from './fact-resolver.service';
+import { factIndexText } from './fact-index-text';
 import { episodeIdsValidationError, evidenceValidationError } from './ingest-utils';
 import { groundingStampEnabled } from '../common/evidence-flags';
 import { pinUserScope } from '../auth/user-scope';
@@ -148,14 +149,16 @@ export class FactIngestService {
       // 3. One-RTT server-side resolve (embed + policy + fn::resolve_fact +
       //    HyPE alt-embedding) behind FactResolverService. Direct ingest
       //    carries no extraction entropy. The embedding text preserves the
-      //    historical `${predicate}: ${dto.object}` form (not objectStr).
+      //    historical `${predicate}: ${dto.object}` form (not objectStr);
+      //    under INGEST_PREDICATE_INDEX_TEXT (default off) the shared
+      //    builder appends the humanized predicate words.
       const { result } = await this.factResolver.resolve(db, {
         companyId,
         entityId,
         predicate: dto.predicate,
         object: objectStr,
         objectMeta,
-        embeddingText: `${dto.predicate}: ${dto.object}`,
+        embeddingText: factIndexText(dto.predicate, `${dto.object}`),
         confidence: dto.confidence ?? 0.7,
         validFrom: new Date(dto.validFrom),
         validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
