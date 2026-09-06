@@ -1,4 +1,9 @@
-import { FactResolverService, conflictSlotSemantics } from '../src/ingest/fact-resolver.service';
+import {
+  FactResolverService,
+  SLOT_EXACT_SIMILARITY_FLOOR,
+  conflictSlotResolution,
+  conflictSlotSemantics,
+} from '../src/ingest/fact-resolver.service';
 
 /**
  * CONFLICT_MENTION_FACT_SLOT — semantics promotion at the shared
@@ -110,6 +115,47 @@ describe('FactResolverService — CONFLICT_MENTION_FACT_SLOT promotion', () => {
     expect(out.result.competingFactIds).toEqual(['knowledge_fact:prior']);
   });
 
+  it('flag on + mention + single_active: binds the slot-exact pool floor as $similarity_threshold', async () => {
+    // The measured s07 failure: contradicting paraphrases of one
+    // single-value attribute ("until December 2026" vs "ends in
+    // September 2026") sit at cosine 0.805 < 0.85, so the promoted
+    // 'bitemporal' pool emptied on the cosine gate and both landed
+    // plainly active. A promoted single_active slot is structurally
+    // exact (entity + canonical predicate + userId + world), so the
+    // promotion opens the gate for exactly these writes.
+    process.env.CONFLICT_MENTION_FACT_SLOT = '1';
+    const { svc, db, queries } = make();
+    await svc.resolve(db as never, input('address'));
+    expect(resolveCalls(queries)[0]!.params.similarity_threshold).toBe(SLOT_EXACT_SIMILARITY_FLOOR);
+  });
+
+  it('flag on + mention + unknown predicate: shared threshold untouched (no floor leak)', async () => {
+    process.env.CONFLICT_MENTION_FACT_SLOT = '1';
+    const { svc, db, queries } = make();
+    await svc.resolve(db as never, input('lease_end_date'));
+    expect(resolveCalls(queries)[0]!.params.similarity_threshold).toBe(0.85);
+  });
+
+  it('direct flag on + direct + __default__: promoted but cosine-gated (open-vocabulary slot)', async () => {
+    // Direct-path promotion targets '__default__' open-vocabulary slots,
+    // where cosine IS the claim-identity signal — the floor must NOT
+    // apply there.
+    process.env.CONFLICT_DIRECT_FACT_SLOT = '1';
+    const { svc, db, queries } = make();
+    const out = await svc.resolve(
+      db as never,
+      input('lease_end_date', { recordOutcomeMetric: true }),
+    );
+    expect(out.semantics).toBe('bitemporal');
+    expect(resolveCalls(queries)[0]!.params.similarity_threshold).toBe(0.85);
+  });
+
+  it('flag off: mention single_active binds the shared configured threshold', async () => {
+    const { svc, db, queries } = make();
+    await svc.resolve(db as never, input('address'));
+    expect(resolveCalls(queries)[0]!.params.similarity_threshold).toBe(0.85);
+  });
+
   it("flag on: value-sameness is the fn's exact object binding — CORROBORATED passes through", async () => {
     process.env.CONFLICT_MENTION_FACT_SLOT = '1';
     const { svc, db, queries } = make({
@@ -189,6 +235,31 @@ describe('FactResolverService — CONFLICT_MENTION_FACT_SLOT promotion', () => {
       expect(conflictSlotSemantics(slot, 'mention')).toBe('bitemporal');
       expect(conflictSlotSemantics(slot, 'direct')).toBe('single_active');
       expect(conflictSlotSemantics(fallback, 'mention')).toBe('append_only');
+    });
+
+    it('similarityFloor: carried ONLY by the mention-path single_active promotion', () => {
+      process.env.CONFLICT_DIRECT_FACT_SLOT = '1';
+      process.env.CONFLICT_MENTION_FACT_SLOT = '1';
+      expect(conflictSlotResolution(slot, 'mention')).toEqual({
+        semantics: 'bitemporal',
+        similarityFloor: SLOT_EXACT_SIMILARITY_FLOOR,
+      });
+      // Direct promotion: open-vocabulary slot, cosine gate stays.
+      expect(conflictSlotResolution(fallback, 'direct')).toEqual({ semantics: 'bitemporal' });
+      // Non-promoted combinations: passthrough, no floor.
+      expect(conflictSlotResolution(fallback, 'mention')).toEqual({ semantics: 'append_only' });
+      expect(conflictSlotResolution(slot, 'direct')).toEqual({ semantics: 'single_active' });
+    });
+
+    it('similarityFloor: flags off ⇒ never set', () => {
+      expect(conflictSlotResolution(slot, 'mention').similarityFloor).toBeUndefined();
+      expect(conflictSlotResolution(fallback, 'direct').similarityFloor).toBeUndefined();
+    });
+
+    it('SLOT_EXACT_SIMILARITY_FLOOR admits the whole cosine range', () => {
+      // cosine ∈ [-1, 1]; the floor must sit at the true lower bound so
+      // `>= floor` can never exclude an embedded slot row.
+      expect(SLOT_EXACT_SIMILARITY_FLOOR).toBe(-1);
     });
   });
 });
