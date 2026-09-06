@@ -315,6 +315,17 @@ jobs:
           # scenarios (checks 84% -> 92%), memory-fitness 27/30 ->
           # 28/30; pointed-question isolation checks unaffected) ──
           RETRIEVAL_ANSWER_CONDITIONING=1
+          # ── Mention-path conflict formation (#444) + transition
+          # classifier (#446, BGE-M3 prototypes calibrated offline:
+          # P=0.906 R=0.879 on 76 labeled items). Measured together on
+          # the stand: state-transition battery 9/12 (checks 88%),
+          # code-memory battery 13/16 — no regression vs the flags-off
+          # runs. Note: s07 stays red for a deeper reason (the two
+          # contradicting arms extract into DIFFERENT slots —
+          # status vs duration_limit — so no single_active collision
+          # exists to pair; slot canonicalization is the follow-up). ──
+          CONFLICT_MENTION_FACT_SLOT=1
+          EXTRACTOR_TRANSITION_CLASSIFIER=1
           EOF
           # The heredoc carries the YAML block's 10-space indent into the
           # file; strip it so every line is a clean KEY=value / #comment
