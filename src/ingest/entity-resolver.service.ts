@@ -13,7 +13,7 @@ export interface MergeLogEntry {
   targetEntity: string;
   verdict: EntityVerdict;
   cosine: number;
-  matchKind: 'exact' | 'externalRef' | 'translit' | 'embedding';
+  matchKind: 'exact' | 'externalRef' | 'translit' | 'embedding' | 'article-variant';
   decision: 'reused' | 'candidate';
 }
 

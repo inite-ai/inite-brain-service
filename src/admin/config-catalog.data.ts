@@ -923,6 +923,17 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Alias-aware entity resolution for code identifiers (the code-memory battery k10 identity class): a module mentioned by FILE PATH ("src/gateway/webhook-dispatcher.ts") and by the SYMBOL it defines ("WebhookDispatcher") resolves to ONE entity. The path↔symbol mapping is derived DETERMINISTICALLY from filesystem naming conventions (basename minus extension, kebab/snake/dot parts PascalCased) — no embeddings, no LLM. Conservative by construction: only source-code extensions, only >= 2-hump PascalCase symbols (README.md and single capitalized words never alias), only a UNIQUE exact-normalized match is reused, and only at creation time — existing twins are never merged retroactively. Tenant-global scope only (userId IS NONE fence, same as the canonical-name match). Off (default) → byte-identical, per-phrasing twins form as before.',
   },
+  {
+    key: 'INGEST_ARTICLE_NORMALIZATION',
+    category: 'pipeline',
+    // Read per-call in EntityUpsertService (process.env), never
+    // constructor-captured — a flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Article-insensitive entity reuse (the state-transitions s07 entity-split class): the extractor coins one referent with and without a leading English article across turns ("the office lease" vs "office lease"), splitting it into two entities — every slot-keyed consumer (conflict formation, timelines, competing pairs) then goes blind to the collision. On, the canonical-name lookup is widened to the leading-article VARIANTS of the name (stripped + the/a/an re-prefixed) after the exact match misses; only a UNIQUE variant match is reused, stored canonicalName is never rewritten, and the same tenant-global userId IS NONE fence applies. Off (default) → byte-identical, per-article twins form as before.',
+  },
   // ── Embedding space (Tier 2, migration 0101) ────────
   {
     key: 'EMBEDDING_SPACE_TRACKING',
