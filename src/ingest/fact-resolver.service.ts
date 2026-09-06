@@ -7,7 +7,10 @@ import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { DEFAULT_FALLBACK } from '../ai/predicate-registry-internals/types';
 import { detectLanguage } from '../ai/locale/language-detector';
 import { envFlagEnabled } from '../common/env-validation';
-import { conflictDirectFactSlotEnabled } from '../common/conflict-flags';
+import {
+  conflictDirectFactSlotEnabled,
+  conflictMentionFactSlotEnabled,
+} from '../common/conflict-flags';
 import { supportEdgesEnabled } from '../common/provenance-flags';
 import { buildConflictEdgeRows } from '../common/support-edges';
 import { KeyedMutex } from '../common/keyed-mutex';
@@ -39,6 +42,46 @@ export const VALUE_BEARING_ASPECTS: ReadonlySet<string> = new Set([
 /** Derive-internal semantics choice (V9 §1); pure, exported for tests. */
 export function derivedSemanticsFor(aspect: string, slotSemantics: boolean): DerivedSemantics {
   return slotSemantics && VALUE_BEARING_ASPECTS.has(aspect) ? 'bitemporal_event' : 'append_only';
+}
+
+/**
+ * Shared conflict-slot promotion — the ONE decision point both live
+ * ingest paths flow through (buildResolveCall), so the doctrine cannot
+ * fork per path. Promotion target is always 'bitemporal': the only
+ * semantics whose resolver branch runs the margin doctrine
+ * (close-scored contradictions → COMPETING pair, both linked; clear
+ * winner → SUPERSEDED; equal value from a different origin →
+ * CORROBORATED via the fn's exact `object = $object` check).
+ *
+ *  - direct path (CONFLICT_DIRECT_FACT_SLOT): an UNKNOWN predicate
+ *    (registry '__default__' fallback, append_only) would short-circuit
+ *    the conflict pool to [] — promote it so same-slot direct writes
+ *    can form conflicts. Known predicates keep their registry policy.
+ *  - mention path (CONFLICT_MENTION_FACT_SLOT): a 'single_active'
+ *    policy supersedes UNCONDITIONALLY (0085 $supersede) and can never
+ *    surface a COMPETING pair — promote it so two conversations
+ *    asserting contradictory slot values meet in the conflict pool
+ *    (state-transitions s07). The append_only open-vocabulary bulk and
+ *    DEFAULT_FALLBACK stay untouched (load-bearing for extraction).
+ *
+ * Both flags default off ⇒ registry passthrough, byte-identical.
+ * Deliberately NOT 'single_active' as a target in either direction, and
+ * per-user isolation needs nothing here: fn::resolve_fact's candidate
+ * pool is already scope-local (0055 $user_id filter). Pure decision
+ * (env read lives in src/common/conflict-flags.ts); exported for tests.
+ */
+export function conflictSlotSemantics(
+  policy: { predicateId: string; semantics: string },
+  path: 'direct' | 'mention',
+): string {
+  if (path === 'direct') {
+    return conflictDirectFactSlotEnabled() && policy.predicateId === DEFAULT_FALLBACK.predicateId
+      ? 'bitemporal'
+      : policy.semantics;
+  }
+  return conflictMentionFactSlotEnabled() && policy.semantics === 'single_active'
+    ? 'bitemporal'
+    : policy.semantics;
 }
 
 /**
@@ -244,25 +287,18 @@ export class FactResolverService {
     p: Parameters<FactResolverService['resolve']>[1],
   ): Promise<Parameters<FactResolverService['resolveFactCall']>[1]> {
     const policy = this.predicateRegistry.policyFor(p.companyId, p.predicate);
-    // CONFLICT_DIRECT_FACT_SLOT (default off): on the typed direct path
-    // (recordOutcomeMetric — set ONLY by FactIngestService.ingestFact),
-    // an unknown predicate falls to the registry DEFAULT_FALLBACK
-    // ('__default__', append_only), which short-circuits
-    // fn::resolve_fact's conflict pool to [] — two direct writes on one
-    // (entity, predicate) slot with contradicting objects both landed
-    // INSERTED and no conflict ever formed. Promote JUST that
-    // combination to 'bitemporal' (margin doctrine: close-scored →
-    // COMPETING, clear winner → SUPERSEDED). NOT 'single_active' — its
-    // resolver branch supersedes unconditionally (0085 $supersede) and
-    // can never surface a COMPETING pair. Known predicates keep their
-    // registry policy; the mention path (no recordOutcomeMetric) and
-    // DEFAULT_FALLBACK itself are untouched. Off ⇒ byte-identical.
-    const semantics =
-      conflictDirectFactSlotEnabled() &&
-      p.recordOutcomeMetric === true &&
-      policy.predicateId === DEFAULT_FALLBACK.predicateId
-        ? 'bitemporal'
-        : policy.semantics;
+    // Conflict-slot promotion (CONFLICT_DIRECT_FACT_SLOT /
+    // CONFLICT_MENTION_FACT_SLOT, both default off): the shared helper
+    // routes each path's blind spot into fn::resolve_fact's 'bitemporal'
+    // margin doctrine — see conflictSlotSemantics above. The direct path
+    // is exactly recordOutcomeMetric === true (set ONLY by
+    // FactIngestService.ingestFact); everything else — mention
+    // extraction — is the mention path. Flags off ⇒ registry
+    // passthrough, byte-identical.
+    const semantics = conflictSlotSemantics(
+      policy,
+      p.recordOutcomeMetric === true ? 'direct' : 'mention',
+    );
     const sourceTrust = sourceTrustFor(p.source as Parameters<typeof sourceTrustFor>[0]);
     // Confidence-aware attribution (MULTILINGUAL_LANG_ATTRIBUTION, default
     // off). Off → detectLanguage keeps its Phase-4 `en` fallback and no new

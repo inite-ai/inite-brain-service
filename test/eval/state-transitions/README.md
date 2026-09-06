@@ -58,10 +58,10 @@ tally; the scorecard groups scenarios by class.
 
 ## Expected fails on today's code (the baseline IS the point)
 
-Two belief checks are **expected to fail** on current `main` and are
-annotated `knownFailToday` in `scenarios.ts` (tracked as #135; the
-scorecard counts them separately, and the runner prints
-`(expected today)` next to them):
+Three checks are **expected to fail** on current `main` (default flags)
+and are annotated `knownFailToday` in `scenarios.ts` (the belief pair is
+tracked as #135; the scorecard counts them separately, and the runner
+prints `(expected today)` next to them):
 
 - **s01-belief** — `SCENES_BELIEF_NEGATION_DELTAS`: a disposal ("no bike
   anymore") does not reliably emit a stateDelta, so the belief stays at
@@ -70,10 +70,15 @@ scorecard counts them separately, and the runner prints
 - **s08-belief** — `SCENES_BELIEF_FIELD_FOLD`: "home city" and "place of
   residence" fold into different free-text field keys, so no single
   belief carries `value` + `priorValue` across the drifted wording.
+- **s07-serve** — `CONFLICT_MENTION_FACT_SLOT`: the mention-path slot
+  resolves to `single_active` semantics, which supersedes
+  unconditionally and never forms the COMPETING pair, so serving picks
+  one side of a live contradiction. The flag (default off) promotes the
+  slot to `bitemporal` margin doctrine so the pair competes.
 
-The battery still RUNS both checks and records their fails — that is the
-baseline those flags, once merged and enabled, are measured against. A
-run where they pass is the signal the bugs are fixed.
+The battery still RUNS these checks and records their fails — that is
+the baseline those flags, once merged and enabled, are measured against.
+A run where they pass is the signal the bugs are fixed.
 
 ## Running against a local stand
 
@@ -95,6 +100,13 @@ Stand flags that shape coverage:
 - Once #135 lands: `SCENES_BELIEF_NEGATION_DELTAS=1` and
   `SCENES_BELIEF_FIELD_FOLD=1` are the flags this battery's expected
   fails exist to validate.
+- `CONFLICT_MENTION_FACT_SLOT=1` — the flag the **s07-serve** expected
+  fail exists to validate: mention-path extraction resolves the lease
+  slot to `single_active` semantics, whose resolver branch supersedes
+  unconditionally and never forms the COMPETING pair, so serving picks
+  one side of the contradiction. With the flag on, the slot is promoted
+  to `bitemporal` margin doctrine and the close-scored pair COMPETES
+  (both sides served or an honest abstain).
 
 Then:
 
