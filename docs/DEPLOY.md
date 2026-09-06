@@ -50,19 +50,25 @@ deploy:
 |---|---|---|
 | `DOCKERHUB_USERNAME` | docker login | shared with other inite services |
 | `DOCKERHUB_TOKEN` | docker login | — |
-| `INITE_SHARED_PAT` | second checkout | optional — falls back to `github.token` if same-org |
+| `INITE_SHARED_PAT` | `ci.yml` second checkout | optional — CI workflow only, not read by `deploy-brain.yml`; falls back to `github.token` if same-org |
 | `BRAIN_SURREAL_USER` | brain SURREALDB_USERNAME | root user for the shared inite-surrealdb |
 | `BRAIN_SURREAL_PASS` | brain SURREALDB_PASSWORD | — |
 | `BRAIN_SURREAL_SCOPED_PASS` | brain SURREALDB_SCOPED_PASS | password for `brain_caller` user. Brain auto-overwrites the placeholder password from migration 0005 with this secret on each ensureSchema cycle. |
 | `BRAIN_OPENAI_API_KEY` | OPENAI_API_KEY | embeddings + extraction + faithfulness verifier |
 | `BRAIN_FORGET_HMAC_KEY` | FORGET_HMAC_KEY | ≥32 chars; used to mint opaque tombstone markers on GDPR forget |
+| `BRAIN_EVIDENCE_URL_SECRET` | EVIDENCE_SIGNED_URL_SECRET (via the enablement env file) | ≥32 chars; signs evidence raw-serving URLs |
+| `BRAIN_BILLING_API_KEY` | BILLING_SERVICE_API_KEY | marketplace billing client credential |
 
-Optional (off by default in workflow, opt in per-feature):
-- `BRAIN_COHERE_API_KEY` — cross-encoder reranker
+Optional feature env vars **not currently wired in `deploy-brain.yml`** —
+setting these as repo secrets alone is inert; to enable one, add the
+secret AND the corresponding env line to the workflow's compose /
+enablement blocks (env-var semantics in [operations.md](operations.md)):
+
+- `AUTH_SERVICE_INTROSPECTION_CLIENT_ID/SECRET` — auth-service `ik_…` API-key resolution (RFC 7662). Provision the `brain-service` client with `register-brain-clients` in the auth repo first.
+- `AUTH_SSF_POLL_URL` — CAEP revocation stream (create a poll stream in the auth admin → Shared Signals); revoked IdP sessions then die within the poll interval instead of at token expiry.
+- `THROTTLE_TIER_MULTIPLIERS` — per-plan rate-limit multipliers, e.g. `{"plan:pro":2}`.
+- `COHERE_API_KEY` — cross-encoder reranker.
 - `BRAIN_API_KEYS` — static `[{keyHash, companyId, scopes}]` JSON; only if you need a non-JWT fallback path. NODE_ENV=production + a remote verifier (JWKS/introspection) rejects static keys, so leaving this empty is correct.
-- `BRAIN_AUTH_INTROSPECTION_CLIENT_ID/SECRET` → `AUTH_SERVICE_INTROSPECTION_CLIENT_ID/SECRET` — enables auth-service `ik_…` API-key resolution (RFC 7662). Provision the `brain-service` client with `register-brain-clients` in the auth repo first.
-- `BRAIN_AUTH_SSF_POLL_URL` → `AUTH_SSF_POLL_URL` — CAEP revocation stream (create a poll stream in the auth admin → Shared Signals); revoked IdP sessions then die here within the poll interval instead of at token expiry.
-- `BRAIN_THROTTLE_TIER_MULTIPLIERS` → `THROTTLE_TIER_MULTIPLIERS` — per-plan rate-limit multipliers, e.g. `{"plan:pro":2}`.
 
 ## DNS
 
@@ -104,15 +110,39 @@ restart is **not zero-downtime** — single replica today; brain in-flight
 requests get aborted on swap. Acceptable for current traffic; revisit
 when caller volume warrants.
 
+## Where the container's env comes from
+
+The running container reads its environment from TWO places, both
+written by the deploy workflow on every deploy:
+
+- the `environment:` block of the generated
+  `/opt/projects/inite-brain-service/docker-compose.yml` — secrets,
+  infrastructure settings, and a few pinned overrides;
+- `/opt/projects/inite-brain-service/enablement.env`, written by the
+  workflow's **"Write enablement env file"** step and referenced from
+  the compose file via `env_file:` — the full feature-flag enablement
+  block.
+
+Compose precedence: on a key collision `environment:` **wins** over
+`env_file`, so a pinned value in the compose block overrides the
+enablement file. The flag block lives in a separate file because
+embedding ~190 flag lines in the compose heredoc pushed the workflow's
+run script past GitHub's **21k max-expression-length limit** — a
+failure mode worth knowing: the run then fails with **zero jobs** and
+only a "workflow file issue" annotation, no logs at all. If a deploy
+run shows no jobs, suspect run-script size before anything else.
+
 ## Operational dispatch actions
 
 The workflow accepts three actions via `workflow_dispatch.inputs.action`:
 
 - `deploy` (default) — full build + push + deploy.
 - `restart` — skip build, restart the running container against the same
-  image. Use for env-var rotations after editing `docker-compose.yml` on
-  the droplet (rare — normal env changes go through workflow re-run).
-- `logs` — print last 200 lines of the container log. Faster than SSH.
+  image. Use for env-var rotations after editing `docker-compose.yml` or
+  `enablement.env` on the droplet (rare — normal env changes go through
+  the workflow, which rewrites both files).
+- `logs` — print last 200 lines of the container log
+  (`gh workflow run deploy-brain.yml -f action=logs`). Faster than SSH.
 
 ## Health check
 
@@ -174,6 +204,22 @@ see [`monitoring/README.md`](../monitoring/README.md) and
 - `auth.inite.ai` JWKS endpoint is reachable from the droplet. The
   ApiKeyGuard refuses to start in NODE_ENV=production without a valid
   JWKS load (defense-in-depth).
+- `AUTH_SERVICE_ISSUER` equals the auth-service's REAL `iss` claim —
+  **`https://auth-api.inite.ai`**, NOT `https://auth.inite.ai` (the
+  host the JWKS document is fetched from). A mismatch rejects EVERY
+  JWKS-verified token as "Invalid credentials" while everything else
+  looks healthy. Diagnose with
+  `gh workflow run deploy-brain.yml -f action=logs`, then grep the
+  output for `[JwksService]`: the boot line prints `issuer=…` and each
+  rejection logs `JWT verification failed: …`.
+- Flipping `PRIVACY_SEGMENT_USER_FENCE` on a deployment with existing
+  data follows the order **migrate → backfill → flip**: deploy (0117
+  applies lazily per tenant), then run
+  `POST /v1/admin/maintenance/segments/backfill-user-ids` per tenant
+  (`brain:admin`; body `{ tenant, maxRows? }`), then enable the flag.
+  Scenes are not covered by the backfill — re-run
+  `POST /v1/admin/maintenance/scenes` instead. Details:
+  [operations.md](operations.md) § `PRIVACY_*`.
 - Migration `0005_pii_permissions.surql` defines `brain_caller` with a
   static placeholder password (DDL doesn't bind to runtime variables).
   Right after the migration lands, brain runs

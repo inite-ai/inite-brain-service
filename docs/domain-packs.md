@@ -298,9 +298,11 @@ signature verification, security model: [mcp-pack-tools.md](mcp-pack-tools.md).
 A pack MAY ship a `memoryModel` section — the **domain perception
 contract**: how this domain perceives and episodizes memory. It turns a
 pack from a vocabulary into a domain *projection*: the pack declares HOW
-to look, never WHAT is true. The section is contract-only today
-(validated, stored, cached, exposed read-only on the admin surface);
-the perception/episodization consumers arrive in sibling increments.
+to look, never WHAT is true. The contract is validated, stored, cached,
+exposed read-only on the admin surface, and read by five live core
+consumers (listed below). No first-party pack in `packs/` declares a
+`memoryModel` section yet — the contract and its consumers are ahead of
+the catalogue.
 
 The semantic plane has five optional arrays. The Evidence Plane adds
 three declarative capabilities. A present section must declare at least
@@ -346,6 +348,35 @@ The whole section rides the signed/checksummed manifest; an upgrade that
 changes it flips `memoryModelChanged` and invalidates the
 `MemoryModelReaderService` cache.
 
+### Live consumers
+
+Consumers read installed models through `MemoryModelReaderService`
+(`src/ai/memory-model-reader.service.ts` — per-tenant LRU + 30s TTL,
+fail-open to "no models"), except where a fail-open cache would be a
+security hole:
+
+- **Episodic candidate projections**
+  (`src/documents/external-candidates.service.ts`) — an indexer pack may
+  stage `scene` / `state_delta` candidates only against its OWN declared
+  `sceneSchemas` / `stateModels` ids; a pack with no memoryModel cannot
+  stage episodic candidates at all.
+- **L3 attention boost** (`src/synthesize/l3-escalation.service.ts`) —
+  under `FOVEA_ATTENTION_HINTS`, installed packs' `attentionHints` bias
+  which memories the L3 escalation pass prefers and how deep it zooms.
+- **Processor capability matching**
+  (`src/evidence/processor-broker.service.ts`) — a pack's declared
+  `processors` (input `modality` + derived `produces`) select which
+  derived representations the trusted core broker computes.
+- **Processor dispatch gate**
+  (`src/evidence/processing/dispatch-gate.ts`) — dispatch is refused
+  unless the pack declared a processor whose modality matches the asset
+  and whose `produces` includes the requested capability.
+- **Raw-evidence serving** (`src/evidence/evidence-read.service.ts`) —
+  raw bytes serve only when the manifest declares
+  `rawEvidence: { serve: true }`. This gate reads the stored manifest
+  directly, NOT the fail-open cache: after a consent withdrawal a stale
+  cache entry must not keep serving, so a read failure denies.
+
 ## The registry (global catalogue)
 
 Packs are published to and installed from a **global registry** — a shared,
@@ -377,8 +408,13 @@ Surface:
 - **Install from registry** (`brain:admin`): `POST /v1/admin/packs/from-registry
   {packId, version?}` — resolves latest-non-yanked (or a pin) and installs via
   the normal path, pinning the registry checksum.
-- **Browse** (public, no auth): `GET /registry/ui` — a server-rendered HTML
-  catalogue of published packs (ids, versions, keywords, install hint).
+- **Browse** (public, no auth): `GET /registry/ui` (+
+  `GET /registry/ui/publisher/:publisher`) — a server-rendered HTML
+  catalogue of published packs (ids, versions, keywords, install hint),
+  served by `src/registry/registry-ui.controller.ts`. Deliberately
+  unguarded: the catalogue is public metadata and a browser can't send a
+  Bearer token. Prod edge routing for `/registry` is wired in PR #433
+  (before it, the public catalogue 404'd at the proxy).
 
 CLI:
 
