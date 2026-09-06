@@ -101,12 +101,22 @@ function loadConfig(): Config {
     console.error('state-transitions: STEV_GUARDRAILS must be strict|lenient|off.');
     process.exit(1);
   }
+  // Run-scoped default user (the #456 hermeticity doctrine): a FIXED
+  // default userId accumulates state across runs on one tenant, and the
+  // leftovers poison later measurements two ways — stale ACTIVE twins
+  // out-shout freshly formed competing pairs at serve time, and
+  // entity-upsert's exact match re-attaches new facts to pre-fix twins
+  // forever. Salting the default with the runId makes every run
+  // hermetic by construction; a same-memory re-ask still works because
+  // STEV_SKIP_INGEST already requires pinning STEV_RUN_ID (same salt ⇒
+  // same user). An explicit STEV_USER_ID keeps full control.
+  const runId = process.env.STEV_RUN_ID ?? `st${Date.now().toString(36)}`;
   return {
     baseUrl: baseUrl.replace(/\/$/, ''),
     apiKey,
     companyId,
-    userId: process.env.STEV_USER_ID ?? 'stev-agent',
-    runId: process.env.STEV_RUN_ID ?? `st${Date.now().toString(36)}`,
+    userId: process.env.STEV_USER_ID ?? `stev-agent-${runId}`,
+    runId,
     guardrails: guardrailsRaw,
     skipIngest: process.env.STEV_SKIP_INGEST === '1',
     reportDir: process.env.STEV_REPORT_DIR ?? join('var', 'state-transitions'),
