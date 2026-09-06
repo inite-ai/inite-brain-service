@@ -703,9 +703,11 @@ const KNOWN_BOOLEAN_FLAGS = [
   // as a current-state prompt section + belief-arm citations (0126;
   // repeals the 0120 shadow doctrine behind this default-off flag).
   'BELIEFS_SERVING_LANE',
-  // Belief-aware fact damping (PR-B — the resolver stub ships with the
-  // lane; nothing reads it until the damping pass lands). Requires
-  // BELIEFS_SERVING_LANE (inconsistent-pair WARN below).
+  // Belief-aware fact damping (PR-B, belief-damping.ts): suffix +
+  // stable demotion of fact lines a lane-matched current belief
+  // contradicts, applied at the one canonical promptFactLines
+  // computation. Requires BELIEFS_SERVING_LANE (inconsistent-pair WARN
+  // below).
   'BELIEFS_FACT_DAMPING',
   // Belief-lane date disambiguation (memory-fitness D4): the lane
   // renders ", belief current since <day>" instead of ", as of <day>"

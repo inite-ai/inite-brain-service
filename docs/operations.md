@@ -190,7 +190,7 @@ The first serving path over `semantic_belief`: an extra evidence lane in
 |---|---|---|
 | `BELIEFS_SERVING_LANE` | `0` | Serve beliefs in synthesize: BM25 over `semantic_belief.statement` (0126), top-3, rendered into the evidence set; the generator may cite them via `citedBeliefIds`, which resolve through the rendered-set fence into belief-arm `evidenceCitations` (`beliefId` + rendered excerpt). Fail-closed single-user scope: no `userId` → no query, `active` + visibility re-check per belief. |
 | `BELIEFS_LANE_DATE_DISAMBIGUATION` | `0` | Render belief lines as `belief current since <day>` instead of `as of <day>` — a belief line's date is the belief REVISION's `validFrom`, not the event date. ONE render site, so generator, verifier, and fragment-zoom re-verify read identical lines. No-op without the serving lane. |
-| `BELIEFS_FACT_DAMPING` | `0` | Declared in the catalog but not read by any code path yet; boot validation warns when it is set without the serving lane. |
+| `BELIEFS_FACT_DAMPING` | `0` | Suffix (`(superseded by current belief: <field> = <value>)`) and stably demote fact lines that a lane-matched CURRENT belief contradicts — same (subject, field) key as the fact's (canonicalName, predicate) after trim/case normalization, different value; equal values and belief lines untouched. ONE computation feeds generator, verifier, and fragment-zoom re-verify; outcomes on `brain_belief_damping_total`. No-op without the serving lane's matched beliefs (boot validation warns on the inconsistent pair). |
 
 ### `FOVEA_*` — focus calibration + serving integrity
 

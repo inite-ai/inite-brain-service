@@ -32,9 +32,11 @@ import { fragmentCitationsEnabled } from '../common/evidence-flags';
 import {
   beliefServingLaneEnabled,
   beliefLaneDateDisambiguationEnabled,
+  beliefFactDampingEnabled,
 } from '../common/beliefs-flags';
 import { resolveAndCountFragmentCitations } from './fragment-citations';
-import { resolveAndCountBeliefCitations } from './belief-citations';
+import { resolveAndCountBeliefCitations, type CitableBelief } from './belief-citations';
+import { applyBeliefFactDamping } from './belief-damping';
 import { verifyAndZoom } from './fragment-zoom-seam';
 import { FragmentLaneService } from './fragment-lane.service';
 import { resolveAnswerIntegrity, type FinalizeContext } from './answer-integrity';
@@ -354,7 +356,25 @@ export class SynthesizeService {
     // suffix maps land on the SAME lines the generator and the
     // verifier read (prompt-side only; citations and ranking
     // untouched).
-    let promptFactLines = applyFactSuffixes(prepared.factLines, [updateStories, groundingQuotes]);
+    //
+    // BELIEFS_FACT_DAMPING (PR-B), resolved ONCE per request (the
+    // beliefServingLaneEnabled single-resolution idiom — the refine
+    // round reuses this resolution): after the suffix maps, the damping
+    // pass suffixes + stably demotes fact lines a lane-matched CURRENT
+    // belief contradicts. It keys off beliefsById — the lane's
+    // rendered-set fence — so lane-off / unscoped / nothing-matched is
+    // a structural no-op, and the ONE promptFactLines computation feeds
+    // the generator, the verifier, the fragment-zoom re-verify and L3
+    // alike (three-consumer parity by construction). Off ⇒
+    // byte-identical lines.
+    const factDamping = beliefFactDampingEnabled();
+    let promptFactLines = applyBeliefFactDamping({
+      enabled: factDamping,
+      factLines: applyFactSuffixes(prepared.factLines, [updateStories, groundingQuotes]),
+      factIndex,
+      beliefsById,
+      metrics: this.metrics,
+    });
 
     // V13 answer-side frames, both profile-gated and both pure:
     // the computed date table (generator and verifier read the same
@@ -385,6 +405,12 @@ export class SynthesizeService {
       prepareOpts,
       updateStories,
       groundingQuotes,
+      // BELIEFS_FACT_DAMPING: the per-request resolution + the lane's
+      // rendered-set fence map, so the refine round damps its refined
+      // fact lines against the SAME matched beliefs (the lane never
+      // re-runs on round 2).
+      factDamping,
+      beliefsById,
       results,
       factIndex,
       promptFactLines,
@@ -880,6 +906,14 @@ export class SynthesizeService {
     /** Multiworld §10 facts-as-keys: quotes for the ROUND-1 top facts —
      *  refined-in facts stand without quotes (unmatched lines pass). */
     groundingQuotes?: Map<string, string> | undefined;
+    /** BELIEFS_FACT_DAMPING, resolved ONCE per request by the
+     *  orchestrator (the single-resolution idiom — no second env read
+     *  here): round 2 damps its refined fact lines identically. */
+    factDamping?: boolean | undefined;
+    /** The lane's rendered-set belief fence map (ROUND-1 matched
+     *  beliefs — the lane never re-runs): refined-in facts face the
+     *  same current-state record the round-1 lines were damped by. */
+    beliefsById?: ReadonlyMap<string, CitableBelief> | undefined;
     shapeInstruction?: string | undefined;
     collected: {
       transcriptLines: string[];
@@ -924,10 +958,20 @@ export class SynthesizeService {
       const union = applyEvidenceUnion(args.evidence, probe.results, profile.extraEvidenceCap);
       const prepared = this.prepareEvidence(union, args.prepareOpts);
       if ('empty' in prepared) return null;
-      const promptFactLines = applyFactSuffixes(prepared.factLines, [
-        args.updateStories,
-        args.groundingQuotes,
-      ]);
+      // The refine-round instance of the ONE canonical promptFactLines
+      // computation (see the round-1 site): suffix maps first, then the
+      // BELIEFS_FACT_DAMPING pass over the refined evidence set —
+      // damping off / no matched beliefs ⇒ byte-identical lines.
+      const promptFactLines = applyBeliefFactDamping({
+        enabled: args.factDamping === true,
+        factLines: applyFactSuffixes(prepared.factLines, [
+          args.updateStories,
+          args.groundingQuotes,
+        ]),
+        factIndex: prepared.factIndex,
+        beliefsById: args.beliefsById,
+        metrics: this.metrics,
+      });
       const dateMathLines = profile.dateMath ? buildDateMathLines(prepared.results) : undefined;
       const generated = await withSpan('synthesize.generate_refined', () =>
         this.limiter.run(() =>

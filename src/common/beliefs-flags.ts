@@ -27,17 +27,25 @@ export function beliefServingLaneEnabled(): boolean {
 }
 
 /**
- * Belief-aware fact damping — BELIEFS_FACT_DAMPING (PR-B; resolver stub
- * shipped with the lane so the config catalog, boot validation and the
- * inconsistent-pair WARN cover the family from day one).
+ * Belief-aware fact damping — BELIEFS_FACT_DAMPING (PR-B; the serving
+ * lane's companion pass, belief-damping.ts).
  *
  * When on (AND the serving lane is on — a no-op without the lane's
  * matched beliefs; env-validation warns on the inconsistent pair), the
- * prompt-side damping pass suffixes and demotes fact lines that a
- * matched current belief contradicts. NOTHING reads this resolver yet:
- * the damping module lands in the follow-up PR. Read at call time
- * (runtime-mutable); common layer per engine-gates S5.2. Default off ⇒
- * byte-identical.
+ * prompt-side damping pass suffixes (` (superseded by current belief:
+ * <field> = <value>)`) and stably demotes fact lines that a matched
+ * current belief contradicts: same free-text (subject, field) key as
+ * the fact's (canonicalName, predicate) after trim/case normalization,
+ * DIFFERENT normalized value (equal value ⇒ untouched; never fuzzy).
+ * Applied at the ONE canonical promptFactLines computation — round 1
+ * and the V13 refine round — so the generator, the verifier and the
+ * fragment-zoom re-verify read the SAME damped lines (three-consumer
+ * parity by construction; the BELIEFS_LANE_DATE_DISAMBIGUATION
+ * pattern). Belief lines themselves are untouched. Resolved ONCE per
+ * request by the orchestrator beside beliefServingLaneEnabled() (the
+ * single-resolution idiom); outcomes land on
+ * brain_belief_damping_total. Read at call time (runtime-mutable);
+ * common layer per engine-gates S5.2. Default off ⇒ byte-identical.
  */
 export function beliefFactDampingEnabled(): boolean {
   return envFlagEnabled(process.env.BELIEFS_FACT_DAMPING);
