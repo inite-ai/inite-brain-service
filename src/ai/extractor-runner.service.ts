@@ -128,7 +128,31 @@ export class ExtractorRunnerService {
     const contextPrefix = buildConversationContext(context ?? {});
 
     const skip = await this.local.trySkip(companyId, trimmed);
-    if (skip) return skip;
+    if (skip) {
+      // Replay-starvation fix: the local-replay path used to return
+      // BEFORE the harvest seam, yet replay patterns deliberately carry
+      // the LLM facts only (persistPatterns excludes harvested rows on
+      // the promise that the deterministic lanes re-derive them "on
+      // every ingest") — so a replayed turn silently lost every
+      // harvested fact. Run the same seam over the replayed result.
+      // All lanes off → the exact trySkip object, byte-identical.
+      const { facts: replayHarvested, entities: replayEntities } = await this.runHarvestLanes({
+        trimmed,
+        entities: skip.entities,
+        existingFacts: skip.facts,
+        context,
+      });
+      if (replayHarvested.length === 0) return skip;
+      traceArtifact('extractor.replay_skip_harvest', {
+        count: replayHarvested.length,
+        facts: replayHarvested.map((f) => ({ predicate: f.predicate, object: f.object })),
+      });
+      return {
+        entities: replayEntities,
+        facts: [...skip.facts, ...replayHarvested],
+        edges: skip.edges,
+      };
+    }
 
     traceArtifact('extractor.vocab', {
       versionHash: snapshot.versionHash,
@@ -426,20 +450,114 @@ export class ExtractorRunnerService {
       });
     }
 
-    // Literal harvest (EXTRACTOR_LITERAL_HARVEST, default off): the
-    // deterministic regex lane for technical literals the closed-vocab
-    // prompt drops (ports, rate limits, HTTP statuses, identifiers,
-    // naming prefixes). Runs AFTER denoise so the denoiser cannot eat
-    // harvested rows; every harvested valueSpan is an exact substring
-    // of the input by construction, so the grounding invariant the gate
-    // above enforces holds for these rows too. Dedup against the
-    // denoised LLM set keeps the union additive-only.
-    const harvested = resolveExtractionProfile().literalHarvest
+    // Deterministic harvest lanes (all default off) — see runHarvestLanes.
+    // Runs AFTER denoise so the denoiser cannot eat harvested rows; every
+    // harvested valueSpan is an exact substring of the input by
+    // construction, so the grounding invariant the gate above enforces
+    // holds for these rows too.
+    const { facts: harvestedFacts, entities: finalEntities } = await this.runHarvestLanes({
+      trimmed,
+      entities,
+      existingFacts: denoised,
+      context,
+    });
+
+    const finalFacts = harvestedFacts.length > 0 ? [...denoised, ...harvestedFacts] : denoised;
+
+    const result: ExtractionResult = { entities: finalEntities, facts: finalFacts, edges };
+    this.local.persistPatterns({
+      companyId,
+      clauses,
+      rawFacts,
+      // Deliberately the LLM facts only: harvested rows are re-derived
+      // deterministically on every ingest, so caching them as replay
+      // patterns would leak flag-on behavior into flag-off replays.
+      facts: denoised,
+      edges,
+    });
+    return result;
+  }
+
+  /**
+   * The deterministic harvest seam, shared by BOTH producers of an
+   * extraction result — assembleResult (the LLM path) and the trySkip
+   * local-replay path in run(). Sequences the three flag-gated lanes:
+   *
+   *  - Literal harvest (EXTRACTOR_LITERAL_HARVEST): the regex lane for
+   *    technical literals the closed-vocab prompt drops (ports, rate
+   *    limits, HTTP statuses, identifiers, naming prefixes). Dedup
+   *    against the existing set keeps the union additive-only.
+   *  - State-verb harvest (EXTRACTOR_STATE_VERB_HARVEST): the past-
+   *    tense transition lexicon (bought/joined/quit/returned/…)
+   *    harvesting completed acquire/dispose/change events as span-
+   *    grounded `state_change` facts, with pre-verb guards so
+   *    intentions ("thinking about selling") never flip state. Dedups
+   *    against BOTH the existing set and the literal harvest.
+   *  - Transition classifier (EXTRACTOR_TRANSITION_CLASSIFIER): the
+   *    semantic generalization — morphology candidates + the BGE-M3
+   *    prototype classifier — landing the SAME state_change shape with
+   *    the SAME holder binding. Runs LAST and receives every prior
+   *    fact, so a sentence the lexicon lane already harvested is
+   *    deferred whole (no double emission). A lane failure (embedder
+   *    down mid-request) costs only its extra recall.
+   *
+   * No-entity starvation fix: when the extraction produced ZERO grounded
+   * entities (the `no_entities` skip shape at the ingest boundary), the
+   * lanes used to be starved — nothing to bind a fact to. Here the seam
+   * mints instead: the speaker entity is minted from the caller-supplied
+   * context (the caller asserted that identity; typed `staff`, the same
+   * type the local NER path assigns a PERSON), and the literal lane may
+   * mint identifier-shaped subject entities per its extractionProfile
+   * doctrine (mintSubjects). The state lanes keep bindStateHolder
+   * semantics untouched: no person entity and no speaker → their
+   * matches skip honestly (debug log below), never mis-bind to a minted
+   * identifier. Minted entities that end up referenced by no harvested
+   * fact are pruned, so a turn that harvests nothing yields the input
+   * entity list unchanged — the `no_entities` skip fires exactly as
+   * before. Minting NEVER runs when the extraction has entities, so
+   * previously-working lanes-on paths are untouched.
+   *
+   * Returns the harvested facts ONLY (for the caller to union) and the
+   * final entity list — the input array itself unless minting added a
+   * referenced entity.
+   */
+  private async runHarvestLanes(args: {
+    trimmed: string;
+    entities: ExtractedEntity[];
+    existingFacts: ExtractedFact[];
+    context?: ConversationContext | undefined;
+  }): Promise<{ facts: ExtractedFact[]; entities: ExtractedEntity[] }> {
+    const { trimmed, entities, existingFacts, context } = args;
+    const profile = resolveExtractionProfile();
+    const anyLane =
+      profile.literalHarvest || profile.stateVerbHarvest || profile.transitionClassifier;
+    if (!anyLane) return { facts: [], entities };
+
+    // Working list the lanes bind against. Minting (no-entity turns
+    // only) appends to it; the referenced tail is folded back below.
+    const working = [...entities];
+    const mint = entities.length === 0;
+    if (mint && context?.speakerName) {
+      working.push({ name: context.speakerName, type: 'staff' });
+    }
+    if (
+      mint &&
+      !context?.speakerName &&
+      (profile.stateVerbHarvest || profile.transitionClassifier)
+    ) {
+      this.logger.debug(
+        'harvest lanes: no entities and no speaker — state-verb/transition matches have no bindable holder and are skipped',
+      );
+    }
+    const speakerEntityIndex = resolveSpeakerEntityIndex(working, context?.speakerName);
+
+    const harvested = profile.literalHarvest
       ? harvestLiterals({
           trimmed,
-          entities,
-          speakerEntityIndex: resolveSpeakerEntityIndex(entities, context?.speakerName),
-          existingFacts: denoised,
+          entities: working,
+          speakerEntityIndex,
+          existingFacts,
+          mintSubjects: mint,
         })
       : [];
     if (harvested.length > 0) {
@@ -449,20 +567,12 @@ export class ExtractorRunnerService {
       });
     }
 
-    // State-verb harvest (EXTRACTOR_STATE_VERB_HARVEST, default off):
-    // the deterministic transition lane — a past-tense lexicon
-    // (bought/joined/quit/returned/…) harvests completed acquire/
-    // dispose/change events as span-grounded `state_change` facts, with
-    // pre-verb guards so intentions ("thinking about selling") never
-    // flip state. Same seam and invariants as the literal lane; it
-    // dedups against BOTH the denoised LLM set and the literal harvest,
-    // so the two lanes compose additively when enabled together.
-    const stateHarvested = resolveExtractionProfile().stateVerbHarvest
+    const stateHarvested = profile.stateVerbHarvest
       ? harvestStateVerbs({
           trimmed,
-          entities,
-          speakerEntityIndex: resolveSpeakerEntityIndex(entities, context?.speakerName),
-          existingFacts: harvested.length > 0 ? [...denoised, ...harvested] : denoised,
+          entities: working,
+          speakerEntityIndex,
+          existingFacts: harvested.length > 0 ? [...existingFacts, ...harvested] : existingFacts,
         })
       : [];
     if (stateHarvested.length > 0) {
@@ -472,28 +582,16 @@ export class ExtractorRunnerService {
       });
     }
 
-    // Transition-classifier harvest (EXTRACTOR_TRANSITION_CLASSIFIER,
-    // default off): the semantic generalization of the state-verb
-    // lexicon lane — compromise morphology (EN) + a bounded RU matcher
-    // propose candidate clauses, the BGE-M3 prototype classifier
-    // accepts completed transitions above the calibrated floor/margin,
-    // and each acceptance lands as the SAME span-grounded state_change
-    // shape with the SAME holder binding. Runs LAST and receives every
-    // prior fact, so a sentence the lexicon lane already harvested is
-    // deferred whole (no double emission) and triples dedup across all
-    // lanes. A lane failure (embedder down mid-request) costs only its
-    // extra recall — the LLM facts and sibling lanes still carry the
-    // turn.
     let transitionHarvested: ExtractedFact[] = [];
-    if (resolveExtractionProfile().transitionClassifier) {
+    if (profile.transitionClassifier) {
       const classifier = this.transitionClassifier();
       if (classifier) {
         try {
           transitionHarvested = await harvestTransitions({
             trimmed,
-            entities,
-            speakerEntityIndex: resolveSpeakerEntityIndex(entities, context?.speakerName),
-            existingFacts: [...denoised, ...harvested, ...stateHarvested],
+            entities: working,
+            speakerEntityIndex,
+            existingFacts: [...existingFacts, ...harvested, ...stateHarvested],
             classifier,
           });
         } catch (e) {
@@ -510,22 +608,33 @@ export class ExtractorRunnerService {
       });
     }
 
-    const finalFacts =
-      harvested.length > 0 || stateHarvested.length > 0 || transitionHarvested.length > 0
-        ? [...denoised, ...harvested, ...stateHarvested, ...transitionHarvested]
-        : denoised;
+    const facts = [...harvested, ...stateHarvested, ...transitionHarvested];
+    if (working.length === entities.length) return { facts, entities };
 
-    const result: ExtractionResult = { entities, facts: finalFacts, edges };
-    this.local.persistPatterns({
-      companyId,
-      clauses,
-      rawFacts,
-      // Deliberately the LLM facts only: harvested rows are re-derived
-      // deterministically on every ingest, so caching them as replay
-      // patterns would leak flag-on behavior into flag-off replays.
-      facts: denoised,
-      edges,
+    // Fold the minted tail back in: keep only minted entities some
+    // harvested fact references (an unreferenced minted speaker must
+    // not turn a no_entities skip into a facts-less persisted mention)
+    // and remap the harvested facts onto the compacted list. Existing
+    // facts only reference the pre-mint range, which never moves.
+    const referenced = new Set(facts.map((f) => f.entityIndex));
+    const finalEntities = [...entities];
+    const remap = new Map<number, number>();
+    working.forEach((e, i) => {
+      if (i < entities.length || !referenced.has(i)) return;
+      remap.set(i, finalEntities.length);
+      finalEntities.push(e);
     });
-    return result;
+    if (finalEntities.length > entities.length) {
+      traceArtifact('extractor.harvest_minted_entities', {
+        count: finalEntities.length - entities.length,
+        names: finalEntities.slice(entities.length).map((e) => e.name),
+      });
+    }
+    return {
+      facts: facts.map((f) =>
+        remap.has(f.entityIndex) ? { ...f, entityIndex: remap.get(f.entityIndex) as number } : f,
+      ),
+      entities: finalEntities.length === entities.length ? entities : finalEntities,
+    };
   }
 }
