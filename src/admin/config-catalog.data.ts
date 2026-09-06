@@ -2301,7 +2301,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Belief-aware fact damping (PR-B; the resolver ships with the lane, the damping pass lands in the follow-up PR — until then NOTHING reads this flag): prompt-side suffix + stable demotion of fact lines that a matched current belief contradicts, applied to the SAME lines generator and verifier read. Requires BELIEFS_SERVING_LANE (a no-op without the lane’s matched beliefs — boot validation warns on the inconsistent pair). Off (default) → byte-identical.',
+      'Belief-aware fact damping (PR-B, the serving-lane companion pass): after the update-story/grounding-quote suffix maps, the prompt-side pass suffixes " (superseded by current belief: <field> = <value>)" onto — and STABLY demotes below the non-contradicted lines (a stable partition, never a re-sort) — every fact line that a lane-matched CURRENT belief contradicts: same free-text (subject, field) key as the fact’s (canonicalName, predicate) after trim/case normalization with a DIFFERENT normalized value (equal value ⇒ untouched; conservative exact matching, never fuzzy; belief lines themselves untouched). ONE canonical computation feeds the generator, the verifier and the fragment-zoom re-verify (three-consumer parity by construction); the V13 refine round re-applies the pass to its refined evidence against the same matched beliefs. Outcomes land on brain_belief_damping_total{outcome}. Requires BELIEFS_SERVING_LANE (a no-op without the lane’s matched beliefs — boot validation warns on the inconsistent pair). Off (default) → byte-identical.',
   },
   {
     key: 'BELIEFS_LANE_DATE_DISAMBIGUATION',

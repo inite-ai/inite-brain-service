@@ -302,6 +302,24 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // BELIEFS_FACT_DAMPING: what the prompt-side damping pass did per
+  // evaluation (belief-damping.ts — the beliefCitationCount sibling):
+  //   damped — one increment PER fact line suffixed + demoted because a
+  //            lane-matched CURRENT belief covers its (subject, field)
+  //            with a different value (per-entry counting, the
+  //            countBeliefCitation idiom)
+  //   clean  — the pass evaluated (flag on AND matched beliefs present)
+  //            but no fact line contradicted a matched belief
+  // Emitted only when the pass actually evaluates — flag off, lane off,
+  // or no matched beliefs put nothing on the path. A V13-refined
+  // request evaluates the pass once per generation round.
+  readonly beliefDampingCount = new Counter({
+    name: 'brain_belief_damping_total',
+    help: 'Belief-aware fact-damping outcomes (BELIEFS_FACT_DAMPING)',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
   // MM-zoom PR3 (FOVEA_FRAGMENT_ZOOM): what the ONE bounded zoom step did
   // per evaluation —
   //   flipped   — the re-verify over the fuller derived text passed →
@@ -812,6 +830,12 @@ export class MetricsService implements OnModuleInit {
   countBeliefCitation(outcome: 'cited' | 'dropped_unknown', n = 1): void {
     if (n > 0) {
       this.beliefCitationCount.inc({ outcome } as LabelValues<'outcome'>, n);
+    }
+  }
+
+  countBeliefDamping(outcome: 'damped' | 'clean', n = 1): void {
+    if (n > 0) {
+      this.beliefDampingCount.inc({ outcome } as LabelValues<'outcome'>, n);
     }
   }
 
