@@ -193,6 +193,204 @@ describe('harvestStateVerbs — invariants', () => {
   });
 });
 
+// ── Coding-domain verbs (code-memory dogfood, additions-only) ────────
+// The consumer-life lexicon harvested nothing from a coding agent's
+// narration; these pin the added CODING_VERBS entries — completed
+// forms, adjacent phrasal "rolled back", guards intact, and the
+// holder-binding / passive-subject behaviour DOCUMENTED as-is.
+describe('harvestStateVerbs — coding-domain verbs', () => {
+  const CODING_TABLE: Array<[string, string, string]> = [
+    // [label, turn, expected verbatim span]
+    [
+      'merged',
+      'We merged PR #431 this morning; CI went green after the rerun.',
+      'merged PR #431 this morning',
+    ],
+    [
+      'reverted',
+      'I reverted the queue-relay cutover today.',
+      'reverted the queue-relay cutover today',
+    ],
+    [
+      'enabled',
+      'We enabled EXTRACTOR_STATE_VERB_HARVEST in prod.',
+      'enabled EXTRACTOR_STATE_VERB_HARVEST in prod',
+    ],
+    [
+      'disabled',
+      'We disabled the flaky retry sweep on staging.',
+      'disabled the flaky retry sweep on staging',
+    ],
+    [
+      'deployed',
+      'Deployed the billing service to eu-west yesterday.',
+      'Deployed the billing service to eu-west yesterday',
+    ],
+    [
+      'released',
+      'We released version 24 of the ingest worker.',
+      'released version 24 of the ingest worker',
+    ],
+    ['bumped', 'Bumped jest to 30 across the monorepo.', 'Bumped jest to 30 across the monorepo'],
+    [
+      'upgraded',
+      'We upgraded SurrealDB on staging this morning.',
+      'upgraded SurrealDB on staging this morning',
+    ],
+    [
+      'downgraded',
+      'I downgraded the kernel after the panic.',
+      'downgraded the kernel after the panic',
+    ],
+    [
+      'deprecated',
+      'We deprecated the v1 export endpoint today.',
+      'deprecated the v1 export endpoint today',
+    ],
+    [
+      'removed',
+      'Removed the legacy retry shim from the gateway.',
+      'Removed the legacy retry shim from the gateway',
+    ],
+    [
+      'deleted',
+      'I deleted the stale feature branch this afternoon.',
+      'deleted the stale feature branch this afternoon',
+    ],
+    [
+      'renamed',
+      'We renamed the ingestion module last sprint.',
+      'renamed the ingestion module last sprint',
+    ],
+    [
+      'migrated',
+      'We migrated the changefeed consumers off the polling loop.',
+      'migrated the changefeed consumers off the polling loop',
+    ],
+    [
+      'rolled back',
+      'We rolled back the schema migration overnight.',
+      'rolled back the schema migration overnight',
+    ],
+  ];
+
+  it.each(CODING_TABLE)('%s → exactly one state_change, span pinned', (_label, turn, span) => {
+    const facts = harvest(turn, SASHA, 0);
+    expect(facts).toHaveLength(1);
+    expect(facts[0]!.predicate).toBe(STATE_CHANGE_PREDICATE);
+    expect(facts[0]!.object).toBe(span);
+    expect(facts[0]!.valueSpan).toBe(span);
+    expect(facts[0]!.entityIndex).toBe(0);
+    expect(facts[0]!.confidence).toBe(STATE_VERB_HARVEST_CONFIDENCE);
+  });
+
+  // Held-out phrasing per verb group — a second wording the primary
+  // table does not cover, so a lexicon regression cannot hide behind
+  // one memorised sentence shape.
+  const HELD_OUT: Array<[string, string, string]> = [
+    [
+      'vcs (merge/revert)',
+      'Finally merged the long-running auth refactor.',
+      'merged the long-running auth refactor',
+    ],
+    [
+      'flags (enable/disable)',
+      'Disabled ANSWER_CACHE for the eu tenants last night.',
+      'Disabled ANSWER_CACHE for the eu tenants last night',
+    ],
+    [
+      'shipping (deploy/release)',
+      'Released the hotfix to all tenants within the hour.',
+      'Released the hotfix to all tenants within the hour',
+    ],
+    [
+      'versions (bump/up/downgrade)',
+      'Upgraded node to 22 on the runners.',
+      'Upgraded node to 22 on the runners',
+    ],
+    [
+      'retirement (deprecate/remove/delete)',
+      'Deprecated the positional-args constructor in favour of options.',
+      'Deprecated the positional-args constructor in favour of options',
+    ],
+    [
+      'movement (rename/migrate/rollback)',
+      'Rolled back the compaction change after the alert fired.',
+      'Rolled back the compaction change after the alert fired',
+    ],
+  ];
+
+  it.each(HELD_OUT)('held-out %s → harvested with the verbatim span', (_label, turn, span) => {
+    const facts = harvest(turn, SASHA, 0);
+    expect(facts).toHaveLength(1);
+    expect(facts[0]!.predicate).toBe(STATE_CHANGE_PREDICATE);
+    expect(facts[0]!.object).toBe(span);
+    expect(facts[0]!.valueSpan).toBe(span);
+  });
+
+  // Guards and completed-form construction hold for the new verbs too.
+  const CODING_NOTHING: Array<[string, string]> = [
+    ['bare-infinitive negation', "We didn't merge the release branch."],
+    ['intention idiom + bare infinitive', 'We are planning to deprecate the v1 endpoint.'],
+    ['negated completion', "We haven't merged PR #431 yet."],
+    ['hypothetical', 'We might revert the cutover if latency regresses.'],
+    ['future phrasal', 'We will roll back the migration tomorrow.'],
+    ['gerund under consideration', 'We are considering disabling the retry sweep.'],
+    ['about-to + bare infinitive', 'We are about to release v2.4.'],
+    ['modal suggestion', 'We should probably enable EXTRACTOR_STATE_VERB_HARVEST.'],
+    // Passive / verb-final: the object noun phrase is empty, so the
+    // matcher harvests NOTHING (no fact at all — never a mis-bound
+    // one). The artifact-subject transition is a known lexicon-lane
+    // limitation; the code-memory battery measures it.
+    ['passive verb-final (PR)', 'PR #431 was merged.'],
+    ['passive verb-final (flag)', 'The flag was enabled.'],
+  ];
+
+  it.each(CODING_NOTHING)('%s → no facts', (_label, text) => {
+    expect(harvest(text, [ent('Sasha'), ent('Priya')], 0)).toEqual([]);
+  });
+
+  it('active-voice artifact transition binds to the SPEAKER, not the artifact', () => {
+    // Pinned limitation: bindStateHolder only binds person entities
+    // (customer | staff); an artifact named in the clause never steals
+    // the binding, so "enabled ACME_RETRY_QUEUE" lands on the agent.
+    const entities = [ent('ACME_RETRY_QUEUE', 'asset'), ent('Sasha')];
+    const facts = harvest(
+      'Enabled ACME_RETRY_QUEUE in prod today.',
+      entities,
+      resolveSpeakerEntityIndex(entities, 'Sasha'),
+    );
+    expect(facts).toHaveLength(1);
+    expect(facts[0]!.entityIndex).toBe(1);
+    expect(facts[0]!.object).toBe('Enabled ACME_RETRY_QUEUE in prod today');
+  });
+
+  it('dotted values clip at the first dot — the clause boundary includes "."', () => {
+    // Known matcher constraint, pinned rather than papered over: the
+    // object capture stops at ANY clause-boundary character, and "."
+    // is one, so a dotted version ("3.2.4") or dotted path inside the
+    // object clips at its first dot. The transition still harvests —
+    // the span is verbatim, just truncated. Loosening the boundary is
+    // out of scope for an additions-only lexicon change.
+    const facts = harvest('We upgraded SurrealDB to 3.2.4 on staging.', SASHA, 0);
+    expect(facts).toHaveLength(1);
+    expect(facts[0]!.object).toBe('upgraded SurrealDB to 3');
+    expect(facts[0]!.valueSpan).toBe('upgraded SurrealDB to 3');
+  });
+
+  it('phrasal "rolled back" wins as one entry — the span carries the full phrase', () => {
+    const facts = harvest('We rolled back the schema migration overnight.', SASHA, 0);
+    expect(facts).toHaveLength(1);
+    expect(facts[0]!.object.startsWith('rolled back ')).toBe(true);
+  });
+
+  it('consumer "renamed to" still wins over bare "renamed" when adjacent', () => {
+    const facts = harvest('I renamed to my maiden name after the divorce.', SASHA, 0);
+    expect(facts).toHaveLength(1);
+    expect(facts[0]!.object).toBe('renamed to my maiden name after the divorce');
+  });
+});
+
 // ── The assembleResult seam ──────────────────────────────────────────
 // The union point sits inside ExtractorRunnerService.assembleResult:
 // off-state must be byte-identical; on-state unions state-verb facts
