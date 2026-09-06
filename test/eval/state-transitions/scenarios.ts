@@ -267,7 +267,18 @@ export const SCENARIOS: Scenario[] = [
         // forbid list stays minimal: 'sold'/'sold it' would false-fail
         // the honest "you haven't sold it yet"; a wrong flipped answer
         // ("you sold the drone") already fails on the expect side.
-        expectAnyOf: ['yes', 'you own', 'still', 'have a drone', 'have the drone', 'own the drone'],
+        // 'owns' covers the third-person phrasing a strict-guardrails answer
+        // legitimately uses ("Sasha owns a DJI Mavic 3 drone") — live run
+        // stmtp6jzxd answered honestly and the old list missed it.
+        expectAnyOf: [
+          'yes',
+          'you own',
+          'owns',
+          'still',
+          'have a drone',
+          'have the drone',
+          'own the drone',
+        ],
         forbidAnyOf: ['no longer own'],
       },
       {
