@@ -7,6 +7,7 @@
  * run-ledger 409 on duplicate submission, and the settled commit.
  */
 import { AppFixture, createApp } from './app-fixture';
+import { CODE_MEMORY_PACK } from '../src/ai/domain-packs';
 
 describe('external candidates (e2e)', () => {
   let f: AppFixture;
@@ -130,8 +131,9 @@ describe('external candidates (e2e)', () => {
       .set(auth())
       .send(submission()); // no packVersion in the body
     expect(r.status).toBe(201);
-    // The response echoes the resolved installed version…
-    expect(r.body.packVersion).toBe('0.2.0');
+    // The response echoes the resolved installed version (the builtin
+    // manifest's — referenced, not hardcoded, so version bumps don't drift).
+    expect(r.body.packVersion).toBe(CODE_MEMORY_PACK.version);
 
     // …and the PERSISTED candidate provenance must match it, not the '0'
     // fallback the omitted-packVersion path used to stamp.
@@ -146,7 +148,7 @@ describe('external candidates (e2e)', () => {
       return ((rows as Array<{ v: unknown }>) ?? []).map((x) => String(x.v));
     });
     expect(versions.length).toBeGreaterThan(0);
-    for (const v of versions) expect(v).toBe('0.2.0');
+    for (const v of versions) expect(v).toBe(CODE_MEMORY_PACK.version);
   });
 
   it('rejects predicates outside the indexer namespace', async () => {

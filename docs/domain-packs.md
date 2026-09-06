@@ -151,7 +151,12 @@ pack (seeded into every tenant, like `code_memory`) is a code change:
 
 `code_memory` (`src/ai/domain-packs/code-memory.pack.ts`) — the non-derivable
 engineering "why" of a codebase: `decided`, `because`, `invariant`, `gotcha`,
-anchored to code anchors. See `docs/roadmap/code-memory-domain.md`.
+plus (0.4.0) `owns`, `default_value`, `depends_on_version`, `superseded_by`,
+anchored to code anchors. Ships a self-scoping `extractionProfile` (a builtin
+profile reaches every tenant's prompt, so it fences itself to software-work
+inputs), eval fixtures, and a `memoryModel` (flag/dependency/change
+lifecycles, attention + retention hints, a recency rule for default-value
+claims). See `docs/roadmap/code-memory-domain.md`.
 
 ## Distribution + integrity
 
@@ -302,7 +307,8 @@ to look, never WHAT is true. The contract is validated, stored, cached,
 exposed read-only on the admin surface, and read by five live core
 consumers (listed below). No first-party pack in `packs/` declares a
 `memoryModel` section yet — the contract and its consumers are ahead of
-the catalogue.
+the catalogue; the builtin `code_memory` pack declares one as of 0.4.0
+(the reference declaration).
 
 The semantic plane has five optional arrays. The Evidence Plane adds
 three declarative capabilities. A present section must declare at least
