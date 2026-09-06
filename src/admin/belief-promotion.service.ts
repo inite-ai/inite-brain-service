@@ -14,7 +14,12 @@ import {
 } from '../common/scene-flags';
 import { supportEdgesEnabled } from '../common/provenance-flags';
 import { buildSupportEdgeBatches } from '../common/support-edges';
+import { absorbFoldableOrphans, resolveFieldFold } from './belief-field-fold';
 import { SceneVersionService } from './scene-version';
+
+// The lexical fold rule lives in belief-field-fold.ts (god-file split);
+// re-exported here so the historical import surface is unchanged.
+export { FIELD_FOLD_GENERIC_TOKENS, fieldsFold, resolveFieldFold } from './belief-field-fold';
 
 /**
  * Belief promotion (Belief-A, SCENES_BELIEF_PROMOTION — default off):
@@ -56,6 +61,16 @@ import { SceneVersionService } from './scene-version';
  * BEFORE the group key is built, so negation + fold compose. The
  * EXISTING name wins (stability); more than one match folds NOTHING and
  * warns loudly (the skip-loudly, never-flip-flop doctrine).
+ *
+ * ORPHAN ABSORB (#135 seam 2 follow-up, same flag): the fold only
+ * routes INCOMING names — it cannot retire a belief already stored
+ * under a foldable VARIANT of the group's canonical field (an earlier
+ * batch's leftover), which keeps serving its stale value next to the
+ * canonical belief (the s08 field-drift eval: "Lisbon" kept answering
+ * after "Porto" won). After every canonical upsert such orphans are
+ * stamped superseded — the full doctrine (mark-never-DELETE rationale,
+ * priorValue backfill, same-run fence, ambiguity skip, idempotence)
+ * lives on absorbFoldableOrphans in belief-field-fold.ts.
  *
  * CONFLICT GUARD (built-in, no flag): a group whose latest timestamp is
  * shared by two DIFFERENT values has no deterministic winner — the whole
@@ -225,78 +240,6 @@ export interface BeliefFoldOptions {
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
-
-/**
- * Generic-modifier stoplist for the field-fold rule (#135 seam 2): the
- * ONLY extra tokens a longer field name may carry and still fold onto a
- * shorter one. Deliberately tiny and conservative — 'car ownership'
- * folds onto 'car' (ownership is generic), 'car registration' does NOT
- * (registration names a DIFFERENT attribute), and 'queue backend' does
- * NOT fold onto 'queue' (backend is specific) — a known limitation we
- * accept over the false-fold risk.
- */
-export const FIELD_FOLD_GENERIC_TOKENS: ReadonlySet<string> = new Set([
-  'ownership',
-  'status',
-  'state',
-  'current',
-  'of',
-  'the',
-]);
-
-/** Normalize a free-text field name: lowercase, strip punctuation, tokenize. */
-function fieldTokens(field: string): Set<string> {
-  return new Set(
-    field
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
-      .split(/\s+/)
-      .filter((t) => t !== ''),
-  );
-}
-
-/**
- * Pure (#135 seam 2): may these two free-text field names denote the
- * same attribute? True ONLY when one token SET is a subset of the other
- * AND every extra token of the longer name is a generic modifier from
- * FIELD_FOLD_GENERIC_TOKENS. Deterministic and lexical — NO embeddings,
- * NO LLM, no stemming ('deploy' ≠ 'deployment' — accepted limitation).
- */
-export function fieldsFold(a: string, b: string): boolean {
-  const ta = fieldTokens(a);
-  const tb = fieldTokens(b);
-  if (ta.size === 0 || tb.size === 0) return false;
-  const [small, large] = ta.size <= tb.size ? [ta, tb] : [tb, ta];
-  for (const t of small) if (!large.has(t)) return false;
-  for (const t of large) if (!small.has(t) && !FIELD_FOLD_GENERIC_TOKENS.has(t)) return false;
-  return true;
-}
-
-/**
- * Pure (#135 seam 2): resolve an incoming field name against the known
- * fields of the same (userId, subject). An exact string match short-
- * circuits (already the canonical name); exactly ONE foldable candidate
- * folds — the EXISTING name wins (stability); MORE than one is
- * ambiguous — fold NOTHING, keep the incoming name (the caller warns
- * loudly: skip loudly, never flip-flop).
- */
-export function resolveFieldFold(
-  incoming: string,
-  knownFields: readonly string[],
-): { field: string; folded: boolean; ambiguous: boolean; candidates: string[] } {
-  const distinct = [...new Set(knownFields)];
-  if (distinct.includes(incoming)) {
-    return { field: incoming, folded: false, ambiguous: false, candidates: [] };
-  }
-  const candidates = distinct.filter((existing) => fieldsFold(incoming, existing));
-  if (candidates.length === 1) {
-    return { field: candidates[0]!, folded: true, ambiguous: false, candidates };
-  }
-  if (candidates.length > 1) {
-    return { field: incoming, folded: false, ambiguous: true, candidates };
-  }
-  return { field: incoming, folded: false, ambiguous: false, candidates: [] };
-}
 
 /**
  * Pure: a delta's landing value, or null when it holds nothing
@@ -600,6 +543,10 @@ export interface BeliefPromotionResult {
   fieldFolds: number;
   /** Field names left UNfolded because >1 existing field matched. */
   fieldFoldAmbiguous: number;
+  /** Foldable-variant orphan beliefs superseded into the canonical one. */
+  fieldOrphansAbsorbed: number;
+  /** Orphan sweeps skipped: >1 distinct foldable field (never merged). */
+  fieldOrphanAmbiguous: number;
   /** Groups below the SCENES_BELIEF_MIN_SCENES conversation floor. */
   skippedFloor: number;
   /** Groups whose winner was not newer than the active belief (stale). */
@@ -621,7 +568,7 @@ interface ActiveBeliefRow {
   conversationIds?: unknown;
 }
 
-interface BeliefDb {
+export interface BeliefDb {
   query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T>;
 }
 
@@ -668,6 +615,8 @@ export class BeliefPromotionService {
       skippedConflict: 0,
       fieldFolds: 0,
       fieldFoldAmbiguous: 0,
+      fieldOrphansAbsorbed: 0,
+      fieldOrphanAmbiguous: 0,
       skippedFloor: 0,
       skippedStale: 0,
       beliefsCreated: 0,
@@ -772,6 +721,15 @@ export class BeliefPromotionService {
         );
       }
 
+      // ORPHAN ABSORB fence: every (userId, subject, field) the CURRENT
+      // run still folds to — including conflict-skipped groups — is a
+      // live attribute name; the sweep must never eat a parallel group
+      // the fold deliberately kept (upsert order would otherwise decide
+      // which sibling survives).
+      const runGroupKeys = new Set<string>(
+        [...folded, ...conflicts].map((g) => `${g.userId}\x00${g.subject}\x00${g.field}`),
+      );
+
       for (const belief of folded) {
         if (floor > 0 && belief.conversationIds.length < floor) {
           result.skippedFloor += 1;
@@ -782,6 +740,9 @@ export class BeliefPromotionService {
           continue;
         }
         await this.upsertBelief({ db, belief, promoterVersion, edgesOn, result });
+        if (fieldFoldOn) {
+          await absorbFoldableOrphans({ db, belief, runGroupKeys, result, logger: this.logger });
+        }
       }
     });
     this.logger.log(
@@ -790,6 +751,8 @@ export class BeliefPromotionService {
         `over ${result.eligibleScenes}/${result.scenes} scene(s) ` +
         `(mixedUser=${result.skippedMixedUser} conflict=${result.skippedConflict} ` +
         `fieldFolds=${result.fieldFolds} foldAmbiguous=${result.fieldFoldAmbiguous} ` +
+        `orphansAbsorbed=${result.fieldOrphansAbsorbed} ` +
+        `orphanAmbiguous=${result.fieldOrphanAmbiguous} ` +
         `floor=${result.skippedFloor} stale=${result.skippedStale} edges=${result.supportEdges})`,
     );
     return result;
