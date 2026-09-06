@@ -355,6 +355,11 @@ export const SCENARIOS: Scenario[] = [
         // abstained pass, one-sided fails. Month names are the sides —
         // unambiguous and phrasing-proof.
         conflictSides: { sideA: ['December'], sideB: ['September'] },
+        knownFailToday:
+          'CONFLICT_MENTION_FACT_SLOT — mention-path extraction resolves the slot to ' +
+          'single_active semantics, whose resolver branch supersedes unconditionally and ' +
+          'never forms the COMPETING pair, so serving picks one side; the flag (default ' +
+          'off) promotes the slot to bitemporal margin doctrine',
       },
       {
         kind: 'provenance',

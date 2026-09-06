@@ -1137,6 +1137,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       "Direct-fact conflict semantics. When on, the typed direct ingest path (record_fact / POST /v1/ingest/fact) promotes an unknown-predicate fact — one that resolves to the registry '__default__' append_only fallback — to 'bitemporal', so two direct writes on the same (entity, predicate) slot with contradicting objects form a conflict (close-scored → COMPETING for get_competing_facts, clear winner → SUPERSEDED) instead of both landing INSERTED forever. Mention-extracted bulk and the DEFAULT_FALLBACK policy itself are untouched; known predicates keep their registry semantics. Off (default) = append_only passthrough, byte-identical.",
   },
+  {
+    key: 'CONFLICT_MENTION_FACT_SLOT',
+    category: 'conflict',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Mention-path conflict semantics. When on, a mention/extraction-path fact whose registry policy is 'single_active' — the branch that supersedes unconditionally and can never surface a COMPETING pair — is promoted to 'bitemporal', so two conversations asserting contradictory values of one (userId, entity, predicate) slot form a conflict (close-scored → COMPETING, both sides linked and served; clear winner → SUPERSEDED; equal value from a different origin → CORROBORATED) instead of the second silently replacing the first. Candidates stay per-user scope-local (0055). The append_only open-vocabulary bulk, DEFAULT_FALLBACK, and the direct typed path are untouched. Off (default) = registry passthrough, byte-identical.",
+  },
   // ── ABAC (migrations 0056/0057) ──────────────────────────
   {
     key: 'ABAC_ENABLED',

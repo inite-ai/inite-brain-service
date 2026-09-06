@@ -1407,6 +1407,14 @@ const KNOWN_BOOLEAN_FLAGS = [
   // sits off the ENGINE flag budget by design (resolver-policy knob
   // family, not an engine fork).
   'CONFLICT_DIRECT_FACT_SLOT',
+  // Mention-path sibling: the extraction path promotes a 'single_active'
+  // registry policy (whose resolver branch supersedes unconditionally
+  // and can never form a COMPETING pair) to 'bitemporal' in
+  // FactResolverService, so contradictory slot values from two
+  // conversations COMPETE instead of the second silently replacing the
+  // first. append_only bulk / DEFAULT_FALLBACK / direct path untouched.
+  // Off (default) ⇒ registry passthrough, byte-identical.
+  'CONFLICT_MENTION_FACT_SLOT',
 ];
 
 /**
