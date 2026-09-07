@@ -65,6 +65,23 @@ export class IngestDocumentDto {
   @IsISO8601()
   occurredAt!: string;
 
+  /**
+   * Per-user memory scope (0055 model, document column 0128). Stamps the
+   * stored document row, every committed fact (fn::resolve_fact's
+   * user_id — the SAME machinery the direct mention path uses) and any
+   * projected scene rows with this end-user; dedupe is scope-local (the
+   * contentHash is salted with the user scope, so a user's document can
+   * never dedupe onto a tenant-global one or another user's). Entities
+   * minted by extraction stay tenant-global — name/type nodes only, the
+   * mention-path model. Caller-asserted for M2M credentials; a
+   * user-bound token pins it to the token's own user (mismatch = 403)
+   * at the service entry.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  userId?: string | undefined;
+
   @IsObject()
   contextRef!: DocumentContextRef;
 

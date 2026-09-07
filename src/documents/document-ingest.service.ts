@@ -6,6 +6,7 @@ import type { IndexerRunResult } from './indexer-run.service';
 import { CandidateCommitService, CommitResult } from './candidate-commit.service';
 import { IngestDocumentDto } from './dto/ingest-document.dto';
 import { ToolObservationService } from '../outcomes/tool-observation.service';
+import { pinUserScope } from '../auth/user-scope';
 
 export interface DocumentIngestResponse {
   documentId: string;
@@ -43,6 +44,12 @@ export class DocumentIngestService {
   ) {}
 
   async ingestDocument(companyId: string, dto: IngestDocumentDto): Promise<DocumentIngestResponse> {
+    // Per-user scope pin at the service entry (0128; the audit 2026-08-21
+    // P0 seam, same as fact-ingest / mention-ingest): a user-bound token
+    // writes ONLY its own user's slice (mismatch 403, omitted → the
+    // token's user); M2M assertions pass through. The pinned value rides
+    // the stored document row into fact commit + scene projection.
+    dto = { ...dto, userId: pinUserScope(dto.userId) };
     return traceSpan('ingest.document', async () => {
       const threaded = await this.threadToolObservation(companyId, dto);
       const { doc, chunks, deduplicated } = await this.store.createOrGet(companyId, threaded);

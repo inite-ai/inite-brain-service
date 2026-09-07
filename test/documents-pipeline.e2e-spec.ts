@@ -251,6 +251,44 @@ describe('documents pipeline (e2e)', () => {
     expect(wrapped.body.extractedFactIds.length).toBeGreaterThan(0);
     expect(Array.isArray(wrapped.body.extractedEdgeIds)).toBe(true);
 
+    // A user-scoped mention flows through with its userId intact
+    // (task #134 / 0128 — the wrapper used to 400 on any userId): the
+    // stored document AND every committed fact carry userId + the 0093
+    // scope tag, exactly as the legacy path stamps its facts.
+    f.extractor.setScript(TIER_GOLD);
+    process.env.INGEST_MENTION_VIA_DOCUMENT = '1';
+    const scoped = await f.http
+      .post('/v1/ingest/mention')
+      .set(auth())
+      .send({ ...mention, text: 'Acme keeps gold for user U.', userId: 'user-scope-e2e' });
+    process.env.INGEST_MENTION_VIA_DOCUMENT = '0';
+    expect(scoped.status).toBe(201);
+    expect(scoped.body.skipped).toBe(false);
+    expect(scoped.body.extractedFactIds.length).toBeGreaterThan(0);
+    // Legacy-path fact for the SAME user — the parity reference.
+    const legacyScoped = await f.http
+      .post('/v1/ingest/mention')
+      .set(auth())
+      .send({ ...mention, text: 'Acme keeps gold for user U again.', userId: 'user-scope-e2e' });
+    expect(legacyScoped.status).toBe(201);
+    const surreal2 = f.app.get(SurrealService);
+    await surreal2.withCompany(f.companyId, async (db) => {
+      const readScope = async (factId: string) => {
+        const [rows] = await db.query<[Array<{ userId?: string; scope?: string[] }>]>(
+          `SELECT userId, scope FROM $fact`,
+          { fact: new StringRecordId(factId) },
+        );
+        return (rows as Array<{ userId?: string; scope?: string[] }>)[0]!;
+      };
+      const viaDoc = await readScope(scoped.body.extractedFactIds[0] as string);
+      const viaLegacy = await readScope(legacyScoped.body.extractedFactIds[0] as string);
+      // Parity: both paths stamp the identical userId + scope tag.
+      expect(viaDoc.userId).toBe('user-scope-e2e');
+      expect(viaDoc.scope).toEqual(['user:user-scope-e2e']);
+      expect(viaLegacy.userId).toBe(viaDoc.userId);
+      expect(viaLegacy.scope).toEqual(viaDoc.scope);
+    });
+
     // Empty text keeps the skip contract.
     process.env.INGEST_MENTION_VIA_DOCUMENT = '1';
     const empty = await f.http

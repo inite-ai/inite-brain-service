@@ -78,7 +78,7 @@ the operator's reference for running Brain.
 | `DOCUMENT_INGEST_ENABLED` | `0` | Master switch for the [document pipeline](document-pipeline.md) (`POST /v1/ingest/document` + `/v1/documents/*`). Off = every route answers 503 and the legacy mention/fact paths behave byte-identically. |
 | `DOCUMENT_MULTI_INDEXER_ENABLED` | `0` | Dedicated per-pack indexer runs + relevance router + async (queue-driven) document ingest. Off = only the `'_general'` union pass runs. |
 | `REINDEX_ON_PACK_INSTALL` | `0` | Enqueue a pack-scoped backfill over stored documents at the end of every pack install/upgrade. |
-| `INGEST_MENTION_VIA_DOCUMENT` | `0` | Route `POST /v1/ingest/mention` through the document pipeline (response contract preserved). Off = legacy mention path, untouched. |
+| `INGEST_MENTION_VIA_DOCUMENT` | `0` | Route `POST /v1/ingest/mention` through the document pipeline (response contract preserved; user-scoped mentions keep their `userId` on the document, committed facts and projected scenes — 0127). Off = legacy mention path, untouched. |
 | `DOCUMENT_ALLOW_UNGROUNDED_EXTERNAL` | `0` | Allow external indexers to stage candidates against `storeContent:false` documents. Off = rejected — with no stored text there is nothing to re-ground against, so spans are unverifiable (arbitrary fact fabrication). Opt-in only. |
 | `DOC_MAX_CHARS` / `DOC_CHUNK_TARGET_CHARS` | `512000` / `12000` | Document size cap (413 above; enforced on both the REST and MCP `ingest_document` paths) and chunker target (hard max 16K = the extractor clamp). |
 | `CANDIDATE_MIN_CONFIDENCE` | `0` | Brain-side prefilter: merged facts below this never reach the resolver. |
