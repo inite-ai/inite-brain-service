@@ -13,7 +13,15 @@ import { FactResolverService, canonicalSlotFor } from '../src/ingest/fact-resolv
  * calendar-anchored duration_limit arm into the canonical status slot
  * at write time (static declared alias table + calendar-anchor regex —
  * no DB read, no fuzzy matching, no LLM), so both arms meet in ONE slot
- * and the normal single_active/bitemporal machinery adjudicates. Pins:
+ * and the normal single_active/bitemporal machinery adjudicates.
+ *
+ * The state_change entry closes the remaining EXTRACTION LANDING
+ * LOTTERY (run stmtq22rtp): the same two turns can land both arms as
+ * (office lease, state_change) — append_only, no pair by design. A
+ * calendar-anchored lifecycle claim on a KNOWN NON-PERSON subject
+ * reroutes to status too; a person's own state_change history (the
+ * transition lanes' timeline substrate) and unknown-typed subjects
+ * never do. Pins:
  *  - flag off (unset AND '0') → extracted-predicate passthrough, the
  *    resolver call byte-identical;
  *  - flag on: the EXACT s07 shapes meet in one slot — both arms bind
@@ -58,6 +66,8 @@ describe('FactResolverService — CONFLICT_SLOT_CANONICALIZATION', () => {
         if (predicate === 'status') return { predicateId: 'status', semantics: 'single_active' };
         if (predicate === 'duration_limit')
           return { predicateId: 'duration_limit', semantics: 'append_only' };
+        if (predicate === 'state_change')
+          return { predicateId: 'state_change', semantics: 'append_only' };
         return { predicateId: '__default__', semantics: 'append_only' };
       }),
     };
@@ -69,8 +79,25 @@ describe('FactResolverService — CONFLICT_SLOT_CANONICALIZATION', () => {
   const DECEMBER_ARM = { predicate: 'duration_limit', object: 'until December 2026' };
   const SEPTEMBER_ARM = { predicate: 'status', object: 'ends in September 2026' };
 
+  /**
+   * The third observed landing (hermetic battery run stmtq22rtp): the
+   * extraction lottery put BOTH lease arms into state_change on the
+   * office-lease ARTIFACT entity — an append_only predicate where no
+   * conflict pair can form by design.
+   */
+  const DECEMBER_STATE_ARM = {
+    predicate: 'state_change',
+    object: 'runs until December 2026',
+    entityType: 'asset',
+  };
+  const SEPTEMBER_STATE_ARM = {
+    predicate: 'state_change',
+    object: 'ends in September 2026',
+    entityType: 'asset',
+  };
+
   function input(
-    f: { predicate: string; object: string },
+    f: { predicate: string; object: string; entityType?: string },
     opts: {
       recordOutcomeMetric?: boolean;
       userId?: string;
@@ -87,6 +114,7 @@ describe('FactResolverService — CONFLICT_SLOT_CANONICALIZATION', () => {
       validFrom: new Date('2026-08-08T10:00:00Z'),
       source: {},
       precomputedEmbedding: [0.1, 0.2],
+      ...(f.entityType !== undefined ? { entityType: f.entityType } : {}),
       ...(opts.recordOutcomeMetric !== undefined
         ? { recordOutcomeMetric: opts.recordOutcomeMetric }
         : {}),
@@ -216,6 +244,65 @@ describe('FactResolverService — CONFLICT_SLOT_CANONICALIZATION', () => {
     expect(params.predicate_alias).toBe('contract_term');
   });
 
+  it('flag on: a state_change LOTTERY landing on the artifact reroutes into the same canonical slot', async () => {
+    // Battery run stmtq22rtp: the SAME two corpus turns landed both
+    // arms as (office lease, state_change) — append_only, no pair can
+    // form. The fix: calendar-anchored ARTIFACT lifecycle claims land
+    // in status regardless of which predicate the extraction chose.
+    process.env.CONFLICT_SLOT_CANONICALIZATION = '1';
+    const { svc, db, queries, factEmbedding } = make();
+    await svc.resolve(db as never, input(DECEMBER_STATE_ARM));
+    await svc.resolve(db as never, input(SEPTEMBER_STATE_ARM));
+    const calls = resolveCalls(queries);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.params.predicate).toBe('status');
+    expect(calls[1]!.params.predicate).toBe('status');
+    // Both rerouted arms are re-embedded with the CANONICAL slot text.
+    expect(factEmbedding.embed).toHaveBeenCalledTimes(2);
+    expect(factEmbedding.embed).toHaveBeenNthCalledWith(1, 'status: runs until December 2026');
+    expect(factEmbedding.embed).toHaveBeenNthCalledWith(2, 'status: ends in September 2026');
+    // Objects ride into the fn VERBATIM — no value rewriting.
+    expect(calls[0]!.params.object).toBe('runs until December 2026');
+    expect(calls[1]!.params.object).toBe('ends in September 2026');
+    // Canonical slot's registry policy applies (single_active).
+    expect(calls[0]!.params.semantics).toBe('single_active');
+  });
+
+  it('flag on: a person-subject state_change with a calendar anchor stays in its slot (service seam)', async () => {
+    process.env.CONFLICT_SLOT_CANONICALIZATION = '1';
+    const { svc, db, queries, factEmbedding } = make();
+    const out = await svc.resolve(
+      db as never,
+      input({
+        predicate: 'state_change',
+        object: 'cancelled the lease effective December 2026',
+        entityType: 'customer',
+      }),
+    );
+    const params = resolveCalls(queries)[0]!.params;
+    expect(params.predicate).toBe('state_change');
+    expect(params.semantics).toBe('append_only');
+    expect(params.embedding).toEqual([0.1, 0.2]);
+    expect(factEmbedding.embed).not.toHaveBeenCalled();
+    expect(out.semantics).toBe('append_only');
+  });
+
+  it('flag off: a state_change landing is passthrough byte-identical, entityType inert', async () => {
+    const unset = make();
+    await unset.svc.resolve(unset.db as never, input(DECEMBER_STATE_ARM));
+    process.env.CONFLICT_SLOT_CANONICALIZATION = '0';
+    const off = make();
+    await off.svc.resolve(off.db as never, input(DECEMBER_STATE_ARM));
+    for (const run of [unset, off]) {
+      const params = resolveCalls(run.queries)[0]!.params;
+      expect(params.predicate).toBe('state_change');
+      expect(params.semantics).toBe('append_only');
+      expect(params.embedding).toEqual([0.1, 0.2]);
+      expect(run.factEmbedding.embed).not.toHaveBeenCalled();
+    }
+    expect(resolveCalls(off.queries)[0]!.params).toEqual(resolveCalls(unset.queries)[0]!.params);
+  });
+
   it('flag on + different entities: each binds its own $eid — no cross-entity collision', async () => {
     process.env.CONFLICT_SLOT_CANONICALIZATION = '1';
     const { svc, db, queries } = make();
@@ -260,6 +347,81 @@ describe('FactResolverService — CONFLICT_SLOT_CANONICALIZATION', () => {
       expect(canonicalSlotFor(DECEMBER_ARM, 'direct')).toBeUndefined();
       expect(
         canonicalSlotFor({ ...DECEMBER_ARM, predicateAlias: 'contract_term' }, 'mention'),
+      ).toBeUndefined();
+    });
+
+    it('state_change entry: reroutes ONLY a calendar-anchored claim on a known non-person subject', () => {
+      process.env.CONFLICT_SLOT_CANONICALIZATION = '1';
+      // The stmtq22rtp lottery landings — artifact subject, anchored.
+      expect(canonicalSlotFor(DECEMBER_STATE_ARM, 'mention')).toBe('status');
+      expect(canonicalSlotFor(SEPTEMBER_STATE_ARM, 'mention')).toBe('status');
+      // Every non-person extraction type qualifies; person types never do.
+      for (const entityType of ['asset', 'project', 'topic', 'location', 'other']) {
+        expect(canonicalSlotFor({ ...DECEMBER_STATE_ARM, entityType }, 'mention')).toBe('status');
+      }
+      for (const entityType of ['customer', 'staff']) {
+        expect(canonicalSlotFor({ ...DECEMBER_STATE_ARM, entityType }, 'mention')).toBeUndefined();
+      }
+      // UNKNOWN subject type misses conservatively (a caller that does
+      // not thread it — e.g. the document commit path — never reroutes).
+      expect(
+        canonicalSlotFor(
+          { predicate: 'state_change', object: 'runs until December 2026' },
+          'mention',
+        ),
+      ).toBeUndefined();
+      // Direct path stays untouched even for a qualifying shape.
+      expect(canonicalSlotFor(DECEMBER_STATE_ARM, 'direct')).toBeUndefined();
+      // duration_limit keeps its live-proven anchor-only gate: the
+      // non-person guard is per-entry and does NOT spread to it.
+      expect(canonicalSlotFor({ ...DECEMBER_ARM, entityType: 'customer' }, 'mention')).toBe(
+        'status',
+      );
+    });
+
+    it('state_change entry: the battery corpus transition spans never reroute (pinned verbatim)', () => {
+      process.env.CONFLICT_SLOT_CANONICALIZATION = '1';
+      // The EXACT state_change objects the harvest lanes produce from
+      // the s02/s03/s10/s11 corpus turns (verb-phrase spans, verbatim
+      // substrings of scenarios.ts). All bind to the PERSON holder
+      // (bindStateHolder: person in sentence, else speaker), so the
+      // non-person guard alone already excludes them; none carries a
+      // full-month-plus-year or ISO anchor either — the corpus's ISO
+      // dates live only in verb-less log-header sentences the lanes'
+      // clause capture cannot cross into. Belt AND suspenders: assert
+      // no reroute under the person type, and ALSO no anchor match even
+      // if a lottery landing put the same span on a non-person entity.
+      const corpusSpans = [
+        'replaced my laptop today', // s02
+        'joined the chess club today', // s03
+        'quit the chess club today', // s03
+        'rejoined the chess club today', // s03
+        'Signed up for the standing desk trial this morning', // s10
+        'Returned the standing desk by evening', // s10
+        'Sold the Canon R6', // s11
+      ];
+      for (const object of corpusSpans) {
+        expect(
+          canonicalSlotFor(
+            { predicate: 'state_change', object, entityType: 'customer' },
+            'mention',
+          ),
+        ).toBeUndefined();
+        expect(
+          canonicalSlotFor({ predicate: 'state_change', object, entityType: 'asset' }, 'mention'),
+        ).toBeUndefined();
+      }
+      // A person-subject claim WITH an anchor still never reroutes: a
+      // person's own lifecycle history is timeline substrate.
+      expect(
+        canonicalSlotFor(
+          {
+            predicate: 'state_change',
+            object: 'cancelled the gym membership until December 2026',
+            entityType: 'customer',
+          },
+          'mention',
+        ),
       ).toBeUndefined();
     });
   });

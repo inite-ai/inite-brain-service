@@ -197,6 +197,9 @@ export class MentionPersistService {
             validFrom,
             precomputedEmbedding: factEmbeddings[i],
             userId: dto.userId,
+            // Subject entity's extraction type — read only by the
+            // slot-canonicalization non-person guard (canonicalSlotFor).
+            entityType: extraction.entities[f.entityIndex]?.type,
           }),
         { predicate: f.predicate, entityId: eid },
       );
@@ -288,6 +291,9 @@ export class MentionPersistService {
           // Audit 2026-08-21 P0: the per-user scope stamps every
           // extracted fact on the batched path too.
           userId: dto.userId,
+          // Subject entity's extraction type — read only by the
+          // slot-canonicalization non-person guard (canonicalSlotFor).
+          entityType: extraction.entities[f.entityIndex]?.type,
         },
       });
     }
@@ -336,6 +342,8 @@ export class MentionPersistService {
       precomputedEmbedding: number[] | undefined;
       /** Per-user scope (audit 2026-08-21 P0) — stamps the fact row. */
       userId?: string | undefined;
+      /** Subject entity's extraction type (slot-canonicalization guard). */
+      entityType?: string | undefined;
     },
   ): Promise<string | null> {
     const { f } = p;
@@ -352,6 +360,7 @@ export class MentionPersistService {
       entropy,
       precomputedEmbedding: p.precomputedEmbedding,
       userId: p.userId,
+      entityType: p.entityType,
     });
     return this.emitFactOutcome(f, result, semantics);
   }

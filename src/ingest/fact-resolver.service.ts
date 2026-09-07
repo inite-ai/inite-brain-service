@@ -144,7 +144,41 @@ export const SLOT_CANONICAL_ALIASES: ReadonlyMap<string, string> = new Map([
   // append_only) vs "ends in September 2026" (a lifecycle claim →
   // status, single_active): same attribute, two slots (s07).
   ['duration_limit', 'status'],
+  // The third observed landing of the SAME attribute (battery run
+  // stmtq22rtp): the extraction lottery can put a lease-end claim into
+  // state_change — an append_only transition-event predicate where no
+  // conflict pair can form BY DESIGN. A calendar-anchored lifecycle
+  // claim about an ARTIFACT is not a transition event; it is the
+  // entity's lifecycle state and belongs in the status slot. Guarded
+  // TWICE on top of the mention-path/alias conditions: the
+  // calendar-anchor gate below, AND the non-person subject gate
+  // (NON_PERSON_GUARDED_ALIASES) — a person's own state_change history
+  // ("quit the chess club", "returned the standing desk") is the
+  // timeline substrate the state-transition lanes exist to build and
+  // must NEVER reroute, whatever dates it mentions.
+  ['state_change', 'status'],
 ]);
+
+/**
+ * Person-typed extraction subjects — exactly the state-holder types the
+ * transition lanes bind state_change facts to (bindStateHolder in
+ * state-verb-harvest.ts: customer | staff, else the speaker, who is
+ * also one of these). Kept in lockstep with that binder on purpose: it
+ * defines what "a person's own lifecycle history" means here.
+ */
+const PERSON_ENTITY_TYPES: ReadonlySet<string> = new Set(['customer', 'staff']);
+
+/**
+ * Alias entries that additionally require a KNOWN non-person subject
+ * (guard (b) of the state_change entry above). Membership is per-entry:
+ * duration_limit is a service/system predicate by its own seed card and
+ * predates this guard — its behaviour is pinned by the live-proven s07
+ * chain and stays calendar-anchor-only. An UNKNOWN subject type (a
+ * caller that does not thread it, e.g. the document commit path) misses
+ * conservatively: no reroute, never a false hit — the same doctrine as
+ * the calendar-anchor regex.
+ */
+const NON_PERSON_GUARDED_ALIASES: ReadonlySet<string> = new Set(['state_change']);
 
 /**
  * Deterministic same-attribute gate for slot canonicalization: the
@@ -169,6 +203,9 @@ const CALENDAR_ANCHOR_RE =
  *  - no predicateAlias is set (an EDC coinage already has a canon —
  *    0082 owns that mapping, never clobber it);
  *  - the predicate has a declared canonical alias (table above);
+ *  - for NON_PERSON_GUARDED_ALIASES entries (state_change): the subject
+ *    entity's extraction type is known and NOT person-typed
+ *    (PERSON_ENTITY_TYPES) — unknown misses conservatively;
  *  - the object passes the calendar-anchor gate.
  * Static table + regex — no DB read, no fuzzy matching, no LLM — so the
  * mapping is order-free and idempotent: BOTH arms of a cross-predicate
@@ -178,13 +215,24 @@ const CALENDAR_ANCHOR_RE =
  * read lives in src/common/conflict-flags.ts); exported for tests.
  */
 export function canonicalSlotFor(
-  p: { predicate: string; predicateAlias?: string | undefined; object: string },
+  p: {
+    predicate: string;
+    predicateAlias?: string | undefined;
+    object: string;
+    entityType?: string | undefined;
+  },
   path: 'direct' | 'mention',
 ): string | undefined {
   if (path !== 'mention' || !conflictSlotCanonicalizationEnabled()) return undefined;
   if (p.predicateAlias !== undefined) return undefined;
   const canonical = SLOT_CANONICAL_ALIASES.get(p.predicate);
   if (canonical === undefined) return undefined;
+  if (
+    NON_PERSON_GUARDED_ALIASES.has(p.predicate) &&
+    (p.entityType === undefined || PERSON_ENTITY_TYPES.has(p.entityType))
+  ) {
+    return undefined;
+  }
   return CALENDAR_ANCHOR_RE.test(p.object) ? canonical : undefined;
 }
 
@@ -287,6 +335,17 @@ export class FactResolverService {
        * no sourceLang stamp — byte-identical.
        */
       sourceLang?: string | undefined;
+      /**
+       * Extraction type of the subject entity (the closed extractor
+       * vocabulary: customer | staff | asset | project | topic |
+       * location | other), when the caller has it — the mention path
+       * resolves entities before facts and threads it through. Read
+       * ONLY by the slot-canonicalization non-person guard
+       * (canonicalSlotFor); absent ⇒ the guarded aliases miss
+       * conservatively (no reroute) and everything else is
+       * byte-identical.
+       */
+      entityType?: string | undefined;
       objectMeta?: object | undefined;
       /** Exact text to embed; defaults to factIndexText(predicate, object)
        *  (the historical `${predicate}: ${object}` unless

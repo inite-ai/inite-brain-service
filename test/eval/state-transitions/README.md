@@ -150,6 +150,19 @@ Stand flags that shape coverage:
   one side of the contradiction. With the flag on, the slot is promoted
   to `bitemporal` margin doctrine and the close-scored pair COMPETES
   (both sides served or an honest abstain).
+- `SYNTHESIZE_ANSWER_ROUTER_ENABLED=1` — required for the **s07-serve**
+  PASS half: a formed COMPETING pair renders as the T3 conflict note
+  (the both-sides instruction) only when the contradiction lane is
+  live, and the whole lane set is empty without the router. On a stand
+  without it, serving names one side even when the write side formed
+  the pair perfectly (measured live, runs stmtqi40g4/stmtqijarx vs
+  stmtqiundv).
+- Run-independence gotcha: extraction memoises in an in-process LRU
+  (`EXTRACTOR_CACHE_ENABLED`, default on) keyed on turn text — two
+  battery runs against ONE app boot share every extraction draw, so a
+  landing-lottery outcome from run 1 is FROZEN into run 2. Restart the
+  app (or disable the cache) between runs that must sample the
+  extraction independently.
 
 Then:
 
