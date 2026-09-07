@@ -356,6 +356,21 @@ export function codeMemoryPredicateId(kind: CodeMemoryKind): string {
 /** The set of namespaced code-memory predicate ids (for filtering reads). */
 export const CODE_MEMORY_PREDICATE_IDS: string[] = CODE_MEMORY_KINDS.map(codeMemoryPredicateId);
 
+/**
+ * Namespaced id of the flag/config default slot
+ * (`code_memory__default_value`), exported for the literal-harvest
+ * flag-default rule. The deterministic producer MUST emit the SAME
+ * predicate id the extraction profile teaches the LLM: two different
+ * ids for one slot would defeat the (entity, predicate, object) dedup
+ * between the lanes and split the single_active revision history
+ * across two predicates. Guarded by a unit test against manifest
+ * drift (the localId leaving the pack).
+ */
+export const CODE_MEMORY_DEFAULT_VALUE_PREDICATE = composePredicateId(
+  CODE_MEMORY_PACK.id,
+  'default_value',
+);
+
 /** Strip the pack prefix from a namespaced id → the local kind (for display). */
 export function codeMemoryKindOf(predicateId: string): string {
   const prefix = `${CODE_MEMORY_PACK.id}__`;

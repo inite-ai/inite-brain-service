@@ -1,6 +1,6 @@
 import type { ExtractedEntity, ExtractedFact } from './types';
 import { normalizeForGrounding } from './grounding';
-import { sentenceAt, sentenceSpans } from './literal-harvest';
+import { CLAUSE_BOUNDARY_SOURCE, sentenceAt, sentenceSpans } from './literal-harvest';
 
 /**
  * Deterministic state-verb harvest lane (EXTRACTOR_STATE_VERB_HARVEST)
@@ -161,9 +161,10 @@ const TRANSITION_VERB = new RegExp(`\\b(?:${ALL_VERBS.join('|')})\\b`, 'gi');
  * "ledger-sync" must not split), and the subordinators. The colon is a
  * deliberate addition to the design's boundary list — the corpus's own
  * replace turn pivots on one ("I replaced my laptop today: …") and an
- * unbounded capture would drag the next clause into the span.
+ * unbounded capture would drag the next clause into the span. The
+ * source string lives in literal-harvest (shared with its flag-default
+ * guard) so the two lanes clip clauses identically.
  */
-const CLAUSE_BOUNDARY_SOURCE = String.raw`[,;:.!?—–]|\s--?\s|\s(?:because|when|so|but)\s`;
 /** Global form — backward scan for the LAST boundary before the verb. */
 const CLAUSE_BOUNDARY_ALL = new RegExp(CLAUSE_BOUNDARY_SOURCE, 'gi');
 /** Non-global form — forward search for the FIRST boundary after it. */

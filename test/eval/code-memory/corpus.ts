@@ -98,13 +98,16 @@ export const PROFILE_GAP =
   'lands and extraction consults it.';
 
 /** Gap annotation for the flag-transition history check. */
-export const LEXICON_GAP =
-  'The state-verb lexicon gains coding transition verbs ("enabled", "merged", ' +
-  '"reverted", …) in a parallel PR, and EXTRACTOR_STATE_VERB_HARVEST must be ' +
-  'ON at the stand; even then, holder binding routes "we enabled FLAG" to the ' +
-  'AGENT entity rather than the flag entity (known lexicon-lane limitation), ' +
-  'so both stages landing on ONE timeline is unmeasured. A fail is the ' +
-  'recorded gap; a pass is the signal the transition story closed.';
+export const FLAG_TRANSITION_GAP =
+  'Diagnosed 2026-09 (k08 lottery): the state-verb lane binds "we enabled ' +
+  'FLAG" to a person-or-speaker holder — absent on agent-recorded turns, so ' +
+  'the match DROPS — and the LLM redraw sometimes lands a stage as a decided ' +
+  'paraphrase carrying the prose markers and sometimes as the typed ' +
+  'code_memory__default_value only. The stages therefore accept BOTH surface ' +
+  'forms; the deterministic producer of the typed form is the literal-harvest ' +
+  'flag-default rule, so EXTRACTOR_LITERAL_HARVEST must be ON at the stand ' +
+  'for the check to hold every run. A fail with the lane off is the recorded ' +
+  'gap; a fail with it on is a regression.';
 
 /** Real (today) namespaced ids — drift-guarded. */
 export const CM = {
@@ -378,13 +381,19 @@ export function buildChecks(runId = ''): Check[] {
       cls: 'transition',
       intent:
         'ONE entity timeline retains the flag story in order: introduced dark ' +
-        '(ships disabled, default 0) then enabled (default 1).',
+        '(ships disabled, default 0) then enabled (default 1). Each stage ' +
+        'accepts the verbatim prose form (an LLM decided/state paraphrase) OR ' +
+        'the typed form — the predicate+object surface of the single_active ' +
+        'code_memory__default_value slot the pack doctrine routes flag ' +
+        "defaults into (matched against the timeline event's " +
+        '"predicate object" string, so "default_value 0" hits the typed ' +
+        'fact and never a corpus turn).',
       searchQuery: 'ACME_RETRY_QUEUE flag default',
       stages: [
-        ['ships disabled', 'default stays 0'],
-        ['enabled ACME_RETRY_QUEUE', 'default is now 1'],
+        ['ships disabled', 'default stays 0', 'default_value 0'],
+        ['enabled ACME_RETRY_QUEUE', 'default is now 1', 'default_value 1'],
       ],
-      expectedUnknown: LEXICON_GAP,
+      expectedUnknown: FLAG_TRANSITION_GAP,
     },
 
     // ── supersession, mechanically (MCP write path) ───────────────────
