@@ -67,3 +67,73 @@ export function segmentUserGate(userId: string | undefined): {
     params: { scopeUserId: userId },
   };
 }
+
+/**
+ * The 0117 per-member gate for SCENES (memory_episode) — the scene
+ * serving lane's user fence (RETRIEVAL_SCENE_LANE).
+ *
+ * Same per-member semantics as `segmentUserGate`'s fence-ON branch,
+ * with two DELIBERATE differences, both tightenings:
+ *
+ *  1. NOT keyed to PRIVACY_SEGMENT_USER_FENCE. That flag exists to keep
+ *     the FOUR pre-existing segment seams byte-identical until an
+ *     operator has migrated + backfilled `userIds`; the scene lane has
+ *     no legacy behavior to preserve (it is the episodic plane's FIRST
+ *     serving reader), so it ships at the strict contract from birth.
+ *     Scene rows get `userIds` from the composer at write time
+ *     (foldSceneScope), never a backfill — so there is no pre-backfill
+ *     window to be lenient about. Fail-closed on `userIds IS NONE` is
+ *     therefore the ONLY branch, exactly as scene-segmentation.ts's
+ *     read contract binds future readers.
+ *  2. SCOPED-USER-ONLY: an unscoped caller (M2M / tenant-wide
+ *     authority) gets NO scenes at all rather than the tenant-global
+ *     surface segmentUserGate hands it. Callers must enforce this
+ *     BEFORE issuing any query — this function throws no opinion on an
+ *     absent userId, it simply has no clause to build (see the
+ *     lane's fence 2, which returns EMPTY without a single query).
+ *
+ * A scene is a multi-turn window of verbatim-derived text, so the
+ * consent unit is the same as a segment's: a scene holding A's turn was
+ * rendered to A when it happened, and serving it back to A is
+ * RE-disclosure; serving it to non-member C is the leak.
+ */
+export function sceneUserGate(userId: string): {
+  clause: string;
+  params: Record<string, unknown>;
+} {
+  return {
+    clause:
+      'AND (userId = $scopeUserId OR (userId IS NONE AND userIds IS NOT NONE AND (array::len(userIds) = 0 OR userIds CONTAINS $scopeUserId)))',
+    params: { scopeUserId: userId },
+  };
+}
+
+/** One scene row's user-scope stamp, as the JS re-check reads it. */
+export interface SceneScopeStamp {
+  userId?: unknown;
+  userIds?: unknown;
+}
+
+/**
+ * JS re-check of `sceneUserGate`, fail-closed — the read-API doctrine
+ * (beliefVisible's sibling): defense in depth over the SQL fence, so an
+ * out-of-contract row the WHERE let through never renders.
+ *
+ * Visible to `userId` when EITHER
+ *   - the row is single-user and that user IS the caller, OR
+ *   - the row is tenant-global (`userId` absent/NONE) AND carries a
+ *     persisted `userIds` ARRAY that is empty or contains the caller.
+ * Everything else is hidden: a blank/missing `userId` stamp with a
+ * missing `userIds` (the 0117 legacy row), a non-array `userIds`, a
+ * non-string `userId`, or a member set that excludes the caller.
+ */
+export function sceneVisibleToUser(row: SceneScopeStamp, userId: string): boolean {
+  const owner = row.userId;
+  if (typeof owner === 'string' && owner !== '') return owner === userId;
+  // Tenant-global (or an unstamped owner): admit ONLY on a persisted
+  // member set — `userIds IS NONE` is hidden, never treated as global.
+  if (owner !== undefined && owner !== null) return false;
+  const members = row.userIds;
+  if (!Array.isArray(members)) return false;
+  return members.length === 0 || members.includes(userId);
+}

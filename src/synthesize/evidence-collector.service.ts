@@ -22,8 +22,10 @@ import { UpdateStoryService } from './update-story.service';
 import { DigestLaneService } from './digest-lane.service';
 import { FragmentLaneService } from './fragment-lane.service';
 import { BeliefLaneService } from './belief-lane.service';
+import { SceneLaneService } from './scene-lane.service';
 import type { CitableFragment } from './fragment-citations';
 import type { CitableBelief } from './belief-citations';
+import type { CitableScene } from './scene-citations';
 import type { ZoomCandidate } from './fragment-zoom';
 import type { CoverageScanTuning } from './scan-leg';
 
@@ -153,6 +155,27 @@ export interface CollectedEvidence {
    */
   beliefDateDisambiguation?: boolean | undefined;
   /**
+   * RETRIEVAL_SCENE_LANE scene lane: rendered episodic lines —
+   * `[memory_episode:...]`-headed scene gists with their UTC time span
+   * and (when enriched) a notable-details clause — the prompt's OWN
+   * episodic section, the FIRST serving read of the 0106 scene
+   * substrate. Evidence parity by construction: the generator renders
+   * them as a section and the verifier reads the SAME lines
+   * (VerifyRequest.sceneLines). Deliberately NOT noise-filtered
+   * (bounded at 2 lines by the lane — the fragment-lane rationale, and
+   * a scene is the largest unit there is). Empty when the profile field
+   * is off / the lane is unwired / the request is unscoped / no scene
+   * world is 'live' / the lane failed.
+   */
+  sceneLines: string[];
+  /**
+   * The rendered-set citation fence for resolveSceneCitations
+   * (RETRIEVAL_SCENE_LANE — citations ride the lane flag): sceneId →
+   * rendered-scene info for EXACTLY the scenes in sceneLines.
+   * undefined when the lane rendered nothing.
+   */
+  scenesById?: ReadonlyMap<string, CitableScene> | undefined;
+  /**
    * G4 strategy lane: rendered advisory notes (k≤2, default 1) from
    * the separate strategy_memory store; undefined when the lane is off
    * the profile or read-side serving is disabled.
@@ -196,6 +219,8 @@ export function emptyCollectedEvidence(
     beliefLines: [],
     beliefsById: undefined,
     beliefDateDisambiguation: undefined,
+    sceneLines: [],
+    scenesById: undefined,
   };
 }
 
@@ -220,6 +245,7 @@ export class EvidenceCollectorService {
     @Optional() private readonly strategyMemory?: StrategyMemoryService,
     @Optional() private readonly fragmentLane?: FragmentLaneService,
     @Optional() private readonly beliefLane?: BeliefLaneService,
+    @Optional() private readonly sceneLane?: SceneLaneService,
   ) {}
 
   /**
@@ -262,6 +288,7 @@ export class EvidenceCollectorService {
       strategyNotes,
       fragmentEvidence,
       beliefEvidence,
+      sceneEvidence,
     ] = await Promise.all([
       this.collectStandingInstructions(opts),
       this.collectTranscriptLines(opts, timelineEvidence),
@@ -272,6 +299,7 @@ export class EvidenceCollectorService {
       this.collectStrategyNotes(opts),
       this.collectFragmentEvidence(opts),
       this.collectBeliefEvidence(opts),
+      this.collectSceneEvidence(opts),
     ]);
     // V12 §2: digests merge AHEAD of retrieved insight lines under
     // the same slot — generator, verifier and NLI judge all see them
@@ -302,7 +330,36 @@ export class EvidenceCollectorService {
       beliefLines: beliefEvidence.lines,
       beliefsById: beliefEvidence.byId.size > 0 ? beliefEvidence.byId : undefined,
       beliefDateDisambiguation: opts.beliefDateDisambiguation,
+      sceneLines: sceneEvidence.lines,
+      scenesById: sceneEvidence.byId.size > 0 ? sceneEvidence.byId : undefined,
     };
+  }
+
+  /**
+   * RETRIEVAL_SCENE_LANE scene lane — gated on profile.sceneLane (the
+   * fragment-lane idiom: a typed profile field, so a tenant override
+   * can enable it per tenant); degrades to an empty section on
+   * absence/abort. The lane owns its own error degrade AND its
+   * scoped-user fence (an unscoped request yields empty inside the lane
+   * with no query issued), so nothing here needs to know the fences.
+   */
+  private async collectSceneEvidence({
+    profile,
+    companyId,
+    query,
+    callerScopes,
+    userId,
+  }: {
+    profile: RetrievalProfile;
+    companyId: string;
+    query: string;
+    callerScopes: string[];
+    userId?: string | undefined;
+  }): Promise<{ lines: string[]; byId: ReadonlyMap<string, CitableScene> }> {
+    const empty = { lines: [], byId: new Map<string, CitableScene>() };
+    if (!profile.sceneLane || !this.sceneLane) return empty;
+    if (getAbortSignal()?.aborted) return empty;
+    return this.sceneLane.sceneLines({ companyId, query, callerScopes, userId });
   }
 
   /**

@@ -36,6 +36,7 @@ import {
 } from '../common/beliefs-flags';
 import { resolveAndCountFragmentCitations } from './fragment-citations';
 import { resolveAndCountBeliefCitations, type CitableBelief } from './belief-citations';
+import { resolveAndCountSceneCitations } from './scene-citations';
 import { applyBeliefFactDamping } from './belief-damping';
 import { verifyAndZoom } from './fragment-zoom-seam';
 import { FragmentLaneService } from './fragment-lane.service';
@@ -347,7 +348,7 @@ export class SynthesizeService {
     });
     // The other rendered sections stay on `collected` — the verify stage
     // (verifyAndZoom) and produceAnswer read them from there directly.
-    const { fragmentsById, beliefsById, updateStories, groundingQuotes } = collected;
+    const { fragmentsById, beliefsById, scenesById, updateStories, groundingQuotes } = collected;
     // 0107 belief arm (D7): the rendered belief lines were selected for
     // context — final here (the refine round never re-runs the lane).
     emitBeliefContext(this.outcomes, companyId, beliefsById?.keys() ?? []);
@@ -424,6 +425,9 @@ export class SynthesizeService {
         // BELIEFS_SERVING_LANE: same construction — citations ride the
         // master flag, so affordance ⟺ the lane rendered anything.
         beliefCitations: beliefsById !== undefined,
+        // RETRIEVAL_SCENE_LANE: same construction — scene citations
+        // ride the lane flag, so affordance ⟺ the lane rendered.
+        sceneCitations: scenesById !== undefined,
       },
     });
     if ('failed' in produced) return produced.failed;
@@ -536,6 +540,11 @@ export class SynthesizeService {
         ...resolveAndCountBeliefCitations({
           citedBeliefIds: generated.citedBeliefIds,
           beliefsById,
+          metrics: this.metrics,
+        }),
+        ...resolveAndCountSceneCitations({
+          citedSceneIds: generated.citedSceneIds,
+          scenesById,
           metrics: this.metrics,
         }),
       ],
@@ -933,6 +942,10 @@ export class SynthesizeService {
       /** BELIEFS_LANE_DATE_DISAMBIGUATION echo — the belief-section
        *  header rides the same per-request resolution in both rounds. */
       beliefDateDisambiguation?: boolean | undefined;
+      /** RETRIEVAL_SCENE_LANE: episodic lines + affordance — round 2
+       *  carries them identically too (the lane never re-runs). */
+      sceneLines?: string[] | undefined;
+      sceneCitations?: boolean | undefined;
     };
   }): Promise<{
     results: SearchHit[];

@@ -71,7 +71,9 @@ export interface AbstainAdaptiveGate {
  *    serving the grounded-but-false answer.
  *  - Part C `requireCitations` (FOVEA_REQUIRE_CITATIONS): a supported answer
  *    carrying ZERO citations (audit F2(b)) is abstained rather than served as
- *    an uncited "supported" answer.
+ *    an uncited "supported" answer. SCENE-arm evidence citations
+ *    (RETRIEVAL_SCENE_LANE) deliberately do NOT count as citations here — a
+ *    scene gist is a summary, not the record; see whollyUncited.
  *  - `evidenceCapabilityUnmet` (FOVEA_EVIDENCE_CAPABILITY, 0113): a cited
  *    fact's predicate REQUIRES non-text evidence and none is cited — the
  *    supported verdict rests on the wrong KIND of evidence; abstain under
@@ -249,7 +251,9 @@ function serveSupported(
     // citations breaks the citation-bearing promise (audit F2(b)) — abstain
     // rather than serve an uncited "supported" answer. An L3 answer whose
     // transcript-grounded claims carry evidence citations
-    // (FOVEA_L3_EPISODE_CITATIONS) IS cited — it serves. Off ⇒
+    // (FOVEA_L3_EPISODE_CITATIONS) IS cited — it serves. An answer cited
+    // ONLY by scenes is NOT (whollyUncited — a gist is a summary, not the
+    // record); its scene citations still ship for attribution. Off ⇒
     // byte-identical.
     if (requireCitations && whollyUncited(citations, evidenceCitations)) {
       deps.metrics?.countSynthesize('low_coverage');
@@ -319,15 +323,43 @@ function serveSupported(
   }
 }
 
-/** Part C predicate: zero fact citations AND zero evidence citations —
- *  the wholly-uncited state the require-citations guard abstains. */
+/**
+ * Part C predicate: zero fact citations AND zero QUALIFYING evidence
+ * citations — the wholly-uncited state the require-citations guard
+ * abstains.
+ *
+ * THE SCENE-ARM ASYMMETRY (RETRIEVAL_SCENE_LANE, deliberate and
+ * conservative). Every other evidence arm points at THE RECORD: the
+ * episode arm is a mechanically span-verified quote of a stored turn
+ * (anchorQuote), the fragment arm is text derived from a registered
+ * media observation, the belief arm is a supersede-chained proposition
+ * whose statement the resolver copies verbatim from the rendered line.
+ * The SCENE arm points at a scene GIST — a SUMMARY of a conversation
+ * stretch, and an LLM-authored abstractive one wherever
+ * SCENES_LLM_ENRICHMENT has run. An operator who turns on
+ * FOVEA_REQUIRE_CITATIONS is buying "no uncited answers", and reading a
+ * model's summary of a conversation as the citation that satisfies that
+ * promise would quietly weaken it — an answer could pass the gate while
+ * resting on nothing but a paraphrase.
+ *
+ * So a scene-arm citation is ATTRIBUTION, not grounding: it still ships
+ * on the served answer (a scene id is unrollable — scene → member
+ * turns → episodes — which is exactly what makes a scene-grounded claim
+ * auditable), but it does NOT count here. An answer whose only support
+ * is scenes abstains under require-citations, same as an uncited one.
+ * The route to serving such an answer is a fact, a belief, a fragment
+ * or an L3 episode span alongside it — i.e. evidence that names the
+ * record.
+ *
+ * Byte-identical by construction when the lane is off: with no
+ * scene-arm citations in the array the filter is the identity.
+ */
 function whollyUncited(
   citations: Citation[],
   evidenceCitations: EvidenceCitation[] | undefined,
 ): boolean {
-  return (
-    citations.length === 0 && (evidenceCitations === undefined || evidenceCitations.length === 0)
-  );
+  if (citations.length > 0) return false;
+  return !(evidenceCitations ?? []).some((c) => c.sceneId === undefined);
 }
 
 /** The served-shape fragment: evidence citations spread only when

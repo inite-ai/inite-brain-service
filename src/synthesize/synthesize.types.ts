@@ -109,6 +109,14 @@ export interface EvidenceCitation {
   capability?: EvidenceCapability;
   excerpt?: string;
   beliefId?: string;
+  /**
+   * Scene arm (RETRIEVAL_SCENE_LANE): the memory_episode a claim rests
+   * on, resolved through the lane's rendered-set fence. Carries no
+   * `capability` stamp (a gist is distilled text) and — unlike every
+   * other arm — does NOT satisfy the FOVEA_REQUIRE_CITATIONS guard; see
+   * verdict.ts and scene-citations.ts for that deliberate asymmetry.
+   */
+  sceneId?: string;
 }
 
 export interface SynthesizeResult {
@@ -176,6 +184,14 @@ export interface GeneratorOutput {
    * resolveBeliefCitations — never trusted (the citedFragmentIds idiom).
    */
   citedBeliefIds?: string[];
+  /**
+   * Scene citations (RETRIEVAL_SCENE_LANE): the scene ids the generator
+   * grounds episodic claims on, echoed from the rendered
+   * `[memory_episode:...]` headers. Only present when the call was made
+   * with the scene-citation affordance; resolved defensively via
+   * resolveSceneCitations — never trusted (the citedBeliefIds idiom).
+   */
+  citedSceneIds?: string[];
   /** Generator-call usage, when the provider reported it. */
   usage?: TokenUsage;
 }

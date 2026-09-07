@@ -819,6 +819,12 @@ const KNOWN_BOOLEAN_FLAGS = [
   // evidence prompt section behind the full media fence stack (user
   // fence → media PII → 0112 consent → availability). Default off.
   'RETRIEVAL_FRAGMENT_LANE',
+  // Scene lane — the episodic plane's first serving reader: BM25 over
+  // memory_episode.gist (0106) scoped to the projection registry's LIVE
+  // scene world, rendered as an episodic prompt section behind a
+  // scoped-user-only fence stack (0117 per-member gate, fail-closed on
+  // userIds IS NONE → text PII → scope tags). Default off.
+  'RETRIEVAL_SCENE_LANE',
   // V13 TSM-shape time-constrained retrieval: code-parsed query period
   // boosts in-range facts (rank-only, nothing dropped). Default off.
   'RETRIEVAL_TIME_FILTER',

@@ -478,6 +478,27 @@ export interface RetrievalProfile {
    */
   fragmentLane: boolean;
   /**
+   * Scene retrieval lane — the FIRST serving reader of the episodic
+   * plane (memory_episode, migration 0106; until this field the whole
+   * scene substrate was write-only, reaching answers only one hop down
+   * as promoted beliefs). BM25 over the 0106 `scene_gist_search`
+   * FULLTEXT index on the scene gist, scoped to the version world the
+   * projection registry marks 'live', rendered as an episodic
+   * "what happened, together, when" prompt section that BOTH the
+   * generator and the verifier read (parity by construction). Each line
+   * is headed by its [memory_episode:...] id, carries the scene's UTC
+   * time span, and — first consumer of the 0106 surprise payload —
+   * appends `unexpectedDetails` as a notable-details clause. Fence
+   * stack inside the lane: tenant → SCOPED-USER-ONLY (an unscoped
+   * caller gets nothing) with the 0117 per-member gate failing closed
+   * on `userIds IS NONE` → text PII → scope tags → live world → a
+   * fail-closed JS re-check; any failure degrades to []. Scene-arm
+   * citations ride this field and do NOT satisfy FOVEA_REQUIRE_CITATIONS
+   * (verdict.ts — a gist is a summary, not the record). Off =
+   * byte-identical.
+   */
+  sceneLane: boolean;
+  /**
    * V13 time-constrained retrieval (TSM shape): when the query names an
    * absolute period (a day, month, year or range — code-parsed, no
    * LLM), facts overlapping the period rank above out-of-period facts
@@ -784,6 +805,7 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
     factsAsKeys: presetFlag(env, 'RETRIEVAL_FACTS_AS_KEYS', preset.factsAsKeys),
     factsAsKeysCap: positiveIntEnv(env, 'RETRIEVAL_FACTS_AS_KEYS_CAP', 8),
     fragmentLane: presetFlag(env, 'RETRIEVAL_FRAGMENT_LANE', preset.fragmentLane),
+    sceneLane: presetFlag(env, 'RETRIEVAL_SCENE_LANE', preset.sceneLane),
     timeFilter: presetFlag(env, 'RETRIEVAL_TIME_FILTER', preset.timeFilter),
     dateMath: presetFlag(env, 'RETRIEVAL_DATE_MATH', preset.dateMath),
     answerConditioning: presetFlag(env, 'RETRIEVAL_ANSWER_CONDITIONING', preset.answerConditioning),
@@ -940,6 +962,7 @@ export function resolveRetrievalProfileFor(
     'assistantLane',
     'factsAsKeys',
     'fragmentLane',
+    'sceneLane',
     'cjkSegmentation',
     'multilingualLaneRouting',
     'multilingualConflict',

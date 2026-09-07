@@ -66,6 +66,13 @@ export type GenrePreset = Partial<
     // every genre benchmark, so no preset sets it (inclusion rule 2):
     // it resolves false everywhere until a measured positive exists.
     | 'fragmentLane'
+    // Scene lane (the episodic plane's first serving reader) —
+    // preset-eligible but UNMEASURED on every genre benchmark, so no
+    // preset sets it (inclusion rule 2): it resolves false everywhere
+    // until a measured positive exists. Its substrate is also
+    // default-off upstream (SCENES_SEGMENTATION_ENABLED), so no genre
+    // could have been measured with it yet.
+    | 'sceneLane'
     | 'timeFilter'
     | 'dateMath'
     | 'answerConditioning'

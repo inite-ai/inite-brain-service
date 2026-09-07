@@ -88,6 +88,13 @@ export interface VerifyRequest {
    */
   beliefLines?: string[] | undefined;
   /**
+   * RETRIEVAL_SCENE_LANE: the rendered episodic scene lines the
+   * generator saw — evidence parity (W5 #22: scene lines are EVIDENCE,
+   * unlike the advisory strategy notes). Composed as its own section
+   * ONLY when non-empty — absent/empty ⇒ the prompt is byte-identical.
+   */
+  sceneLines?: string[] | undefined;
+  /**
    * V8 §2 / V9 §2: the transcript excerpts were collected as the
    * MENTION RECORD for an ordering question — label them so the auditor
    * treats excerpt sequence as valid support for order claims (the
@@ -126,6 +133,7 @@ function buildVerifierUserMessage({
   transcriptLines,
   insightLines,
   beliefLines,
+  sceneLines,
   timelineEvidence,
   dateMathLines,
   capabilityEvidenceLines,
@@ -136,6 +144,7 @@ function buildVerifierUserMessage({
   transcriptLines?: string[] | undefined;
   insightLines?: string[] | undefined;
   beliefLines?: string[] | undefined;
+  sceneLines?: string[] | undefined;
   timelineEvidence?: boolean | undefined;
   dateMathLines?: string[] | undefined;
   capabilityEvidenceLines?: string[] | undefined;
@@ -156,6 +165,18 @@ function buildVerifierUserMessage({
     sections.push(
       `Current-state record (distilled belief lines — each states the CURRENT value of its subject/field and supersedes older values in the other sections for present-tense claims; equally valid support):\n` +
         beliefLines.join('\n'),
+    );
+  }
+  // Episodic section (RETRIEVAL_SCENE_LANE seam) — only when non-empty,
+  // so every no-lane audit prompt stays byte-identical. The header is
+  // deliberately NARROWER than the other sections' "equally valid
+  // support": a scene gist is a SUMMARY (abstractive once the LLM
+  // enricher has run), so it supports what/when/context claims but must
+  // NOT be read as support for a specific value the answer states.
+  if (sceneLines && sceneLines.length > 0) {
+    sections.push(
+      `Episodic record (scene summaries — each covers one stretch of conversation over the UTC time span in its parentheses; valid support for what-happened / when / context claims, but NOT for a specific value, name, number or date, which must come from the facts or the verbatim turns):\n` +
+        sceneLines.join('\n'),
     );
   }
   if (dateMathLines && dateMathLines.length > 0) {

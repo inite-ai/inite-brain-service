@@ -205,6 +205,9 @@ describe('genre presets — full effective profile per genre (snapshot)', () => 
     factsAsKeysCap: 8,
     // MM-zoom PR2: unmeasured on every genre — no preset sets it.
     fragmentLane: false,
+    // Scene lane (episodic plane's first serving reader): unmeasured on
+    // every genre — no preset sets it.
+    sceneLane: false,
     timeFilter: false,
     dateMath: false,
     answerConditioning: false,

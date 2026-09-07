@@ -40,6 +40,8 @@ export function buildGeneratorUserMessage({
   beliefLines,
   beliefCitations,
   beliefDateDisambiguation,
+  sceneLines,
+  sceneCitations,
   fragmentLines,
   fragmentCitations,
 }: {
@@ -150,6 +152,24 @@ export function buildGeneratorUserMessage({
    */
   beliefDateDisambiguation?: boolean | undefined;
   /**
+   * RETRIEVAL_SCENE_LANE (profile.sceneLane): rendered episodic lines —
+   * `[memory_episode:...]`-headed scene gists with their UTC time span
+   * and notable details — their own section, AFTER the current-state
+   * beliefs and before media (state → episodes → media). The verifier
+   * reads the SAME lines (VerifyRequest.sceneLines — evidence parity).
+   * Empty/undefined = no section, byte-identical.
+   */
+  sceneLines?: string[] | undefined;
+  /**
+   * RETRIEVAL_SCENE_LANE citations variant: the lines carry
+   * [memory_episode:...] headers and the section header instructs
+   * mirroring cited ids into citedSceneIds. Off = the cite-factIds-only
+   * header (kept so the header split survives a future flag split — the
+   * fragment/belief-lane precedent; today the lane flag implies
+   * citations).
+   */
+  sceneCitations?: boolean | undefined;
+  /**
    * MM-zoom PR2 (profile.fragmentLane): rendered media-evidence lines —
    * `[capability:<kind>]`-tagged derived-representation excerpts of
    * registered media observations — their own section. The verifier
@@ -213,12 +233,13 @@ export function buildGeneratorUserMessage({
       ? `\n\n${insightHeader}\n${insightLines.join('\n')}`
       : '';
   const beliefSection = renderBeliefSection(beliefLines, beliefCitations, beliefDateDisambiguation);
+  const sceneSection = renderSceneSection(sceneLines, sceneCitations);
   const fragmentSection = renderFragmentSection(fragmentLines, fragmentCitations);
   const dateMathSection =
     dateMathLines && dateMathLines.length > 0
       ? `\n\nDate table (computed from the fact date stamps — trust it over your own arithmetic; gaps are between EVIDENCE dates, not from today):\n${dateMathLines.join('\n')}`
       : '';
-  return `Query: ${query}\n${dateInstruction}${shapeInstruction ?? ''}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${beliefSection}${fragmentSection}${dateMathSection}${renderStrategySection(strategyNotes)}${langInstruction}`;
+  return `Query: ${query}\n${dateInstruction}${shapeInstruction ?? ''}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${beliefSection}${sceneSection}${fragmentSection}${dateMathSection}${renderStrategySection(strategyNotes)}${langInstruction}`;
 }
 
 /** Belief lane (BELIEFS_SERVING_LANE): distilled current-state lines in
@@ -256,6 +277,33 @@ function renderBeliefSection(
     ? `Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any older or conflicting fact above; each line is headed by its [semantic_belief:...] id. For questions asking the CURRENT state, prefer these lines ONLY when one covers the asked subject/field; when a claim rests on one, copy its id EXACTLY into citedBeliefIds. For questions about history, sequence, or why something changed, use the facts and transcript instead; cite factIds for fact-grounded claims as before.${BELIEF_EVIDENCE_ONLY_CLAUSE}${dateClause}):`
     : `Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any older or conflicting fact above. For questions asking the CURRENT state, prefer these lines ONLY when one covers the asked subject/field; for questions about history, sequence, or why something changed, use the facts and transcript instead; cite factIds only.${BELIEF_EVIDENCE_ONLY_CLAUSE}${dateClause}):`;
   return `\n\n${header}\n${beliefLines.join('\n')}`;
+}
+
+/**
+ * Scene lane (RETRIEVAL_SCENE_LANE): the episodic record — coherent
+ * multi-turn stretches with their time span — in its own section.
+ * Empty input = empty string (byte-identical prompt without the lane).
+ * The citations variant instructs mirroring cited [memory_episode:...]
+ * ids into citedSceneIds.
+ *
+ * THE FRAMING IS DELIBERATELY NARROW (the belief lane's D5 lesson: a
+ * new section header must never read as license to answer). A scene
+ * gist is a SUMMARY of what happened — abstractive once the LLM
+ * enricher has run — so the header (a) scopes it to what/when
+ * questions, (b) sends specifics back to the facts and the verbatim
+ * transcript, and (c) re-asserts the base unanswerable-question rule.
+ * The generator-side abstention guard rides the RENDERED section in
+ * generator-client.ts (SCENE_ABSTENTION_ADDENDUM), not the citation
+ * affordance, so it holds under a future header/flag split.
+ */
+const SCENE_EVIDENCE_ONLY_CLAUSE =
+  ' These lines ADD evidence — they never relax the base evidence rules: a scene line is a SUMMARY of a conversation stretch, so prefer the facts and the verbatim transcript for any specific value, name, number or date, and when NEITHER a scene line NOR the facts/transcript cover the question, follow the base instructions for an unanswerable question unchanged';
+function renderSceneSection(sceneLines?: string[], sceneCitations?: boolean): string {
+  if (!sceneLines || sceneLines.length === 0) return '';
+  const header = sceneCitations
+    ? `Episodic record (scenes — each line summarizes ONE coherent stretch of conversation over the UTC time span in its parentheses, and is headed by its [memory_episode:...] id. Use them for what-happened / when / context questions, and for grounding a claim in the situation it arose in; when a claim rests on one, copy its id EXACTLY into citedSceneIds; cite factIds for fact-grounded claims as before.${SCENE_EVIDENCE_ONLY_CLAUSE}):`
+    : `Episodic record (scenes — each line summarizes ONE coherent stretch of conversation over the UTC time span in its parentheses. Use them for what-happened / when / context questions, and for grounding a claim in the situation it arose in; cite factIds only.${SCENE_EVIDENCE_ONLY_CLAUSE}):`;
+  return `\n\n${header}\n${sceneLines.join('\n')}`;
 }
 
 /**

@@ -5,6 +5,7 @@ import { SurrealService, runTransaction } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
 import { ProjectionRegistryService } from '../episodes/projection-registry.service';
+import { getActiveRetrievalProfile } from '../search/retrieval-profile';
 import { scopeForUser } from '../auth/scope-tags';
 import { segmentSessions } from '../episodes/session-window';
 import {
@@ -41,11 +42,18 @@ import { SceneEvidenceLinkerService } from './scene-evidence-linker.service';
  * swapped for the new one in a single transaction. Other segmenter
  * versions' scenes are untouched, so competing segmenters coexist.
  *
- * SHADOW GUARANTEE: this service writes ONLY memory_episode /
- * memory_episode_member / projection rows. Nothing on the serving path
- * reads them — prod behavior is byte-identical whether it runs or not.
- * Lifecycle is recorded in the projection registry ('scenes'); a scene
- * world is only ever 'built', NEVER 'live' — there is no reader to flip.
+ * WRITE SURFACE: this service writes ONLY memory_episode /
+ * memory_episode_member / projection rows. Lifecycle is recorded in the
+ * projection registry ('scenes').
+ *
+ * ACTIVATION (was: the SHADOW GUARANTEE). Until RETRIEVAL_SCENE_LANE
+ * there was no serving reader, so a scene world registered 'built' and
+ * NEVER 'live' — nothing to flip. SceneLaneService is that reader now,
+ * and it serves exactly the version the registry marks 'live', so the
+ * completion below promotes when the asking tenant's profile enables
+ * the lane. With the lane off (the default) the world still registers
+ * 'built', nothing on the serving path reads these tables, and prod
+ * behavior is byte-identical whether this service runs or not.
  */
 export const SCENE_RECORDER = 'scene-composer-v1';
 // PR2: the version stamp moved to the pure segmentation module so the
@@ -128,13 +136,28 @@ export class SceneComposerService {
       await this.registry.fail({ companyId, name: 'scenes', version });
       throw e;
     }
-    // 'built', never 'live': the scene world has no serving reader to
-    // promote to — activation semantics arrive with the first read lane.
+    // ACTIVATION (RETRIEVAL_SCENE_LANE). The read lane the old contract
+    // waited for now exists (SceneLaneService — the episodic plane's
+    // first serving reader), so the world registers 'live' exactly when
+    // the asking tenant actually serves scenes, and 'built' otherwise —
+    // the pre-lane behavior, byte-identical with the field off.
+    //
+    // The registry needed NO new verb: `complete({live})` IS the
+    // promotion (it stamps 'live' AND demotes the previous live version
+    // of this name to 'residual'), and the lane reads whatever version
+    // carries 'live'. Consequence, documented on the config-catalog
+    // entry: enabling the field on a tenant whose scenes were built
+    // while it was off needs one composer re-run to promote the world.
+    //
+    // getActiveRetrievalProfile() is the ONE resolution path for the
+    // field — the admin request's stamped per-tenant profile, falling
+    // back to the boot default outside a request — so a tenant override
+    // that enables the lane also promotes its world.
     await this.registry.complete({
       companyId,
       name: 'scenes',
       version,
-      live: false,
+      live: getActiveRetrievalProfile().sceneLane,
       stats: {
         conversations: result.conversations,
         scenes: result.scenes,

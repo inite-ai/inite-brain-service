@@ -44,6 +44,9 @@ export async function miniCheckVerdict(
     factLines: string[];
     transcriptLines: string[];
     insightLines: string[];
+    /** RETRIEVAL_SCENE_LANE parity: the episodic scene lines the
+     *  generator saw. */
+    sceneLines?: string[] | undefined;
     /** MM-zoom PR2 parity: the media lines the generator saw. */
     fragmentLines?: string[] | undefined;
   },
@@ -103,6 +106,8 @@ function buildMiniCheckDocument(args: {
   factLines: string[];
   transcriptLines: string[];
   insightLines: string[];
+  /** RETRIEVAL_SCENE_LANE: the episodic scene lines the generator saw. */
+  sceneLines?: string[] | undefined;
   fragmentLines?: string[] | undefined;
 }): string {
   return [
@@ -111,6 +116,7 @@ function buildMiniCheckDocument(args: {
       ? [`Conversation excerpts:\n${args.transcriptLines.join('\n')}`]
       : []),
     ...(args.insightLines.length ? [`Derived insights:\n${args.insightLines.join('\n')}`] : []),
+    ...(args.sceneLines?.length ? [`Episodic record:\n${args.sceneLines.join('\n')}`] : []),
     ...(args.fragmentLines?.length ? [`Media evidence:\n${args.fragmentLines.join('\n')}`] : []),
   ].join('\n\n');
 }

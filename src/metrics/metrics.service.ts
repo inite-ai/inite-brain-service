@@ -302,6 +302,22 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // RETRIEVAL_SCENE_LANE: what happened to each generator-emitted
+  // citedSceneIds entry in the rendered-set resolver
+  // (scene-citations.ts — the beliefCitationCount sibling):
+  //   cited           — the generator named a RENDERED scene → a
+  //                     scene-arm citation shipped
+  //   dropped_unknown — the generator named a sceneId NOT rendered into
+  //                     the episodic section (hallucination / probe) →
+  //                     dropped, never surfaced
+  // Emitted only when the lane is on (nothing on the path when off).
+  readonly sceneCitationCount = new Counter({
+    name: 'brain_scene_citation_total',
+    help: 'Scene evidence citation resolution outcomes (RETRIEVAL_SCENE_LANE)',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
   // BELIEFS_FACT_DAMPING: what the prompt-side damping pass did per
   // evaluation (belief-damping.ts — the beliefCitationCount sibling):
   //   damped — one increment PER fact line suffixed + demoted because a
@@ -830,6 +846,12 @@ export class MetricsService implements OnModuleInit {
   countBeliefCitation(outcome: 'cited' | 'dropped_unknown', n = 1): void {
     if (n > 0) {
       this.beliefCitationCount.inc({ outcome } as LabelValues<'outcome'>, n);
+    }
+  }
+
+  countSceneCitation(outcome: 'cited' | 'dropped_unknown', n = 1): void {
+    if (n > 0) {
+      this.sceneCitationCount.inc({ outcome } as LabelValues<'outcome'>, n);
     }
   }
 

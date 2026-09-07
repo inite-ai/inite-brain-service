@@ -2020,6 +2020,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       "MM-zoom PR2 fragment retrieval lane (profile field fragmentLane): dense+BM25 (0124 lowercase FULLTEXT) over derived_representation.content — captions/OCR/ASR/text renders of registered media observations (0109) — rendered as a media-evidence prompt section that BOTH the generator and the verifier read (parity; the verifier takes the same lines as capabilityEvidenceLines). Full media fence stack inside the lane: tenant scope, asset-join user fence (fragment→asset ownership), fail-closed media PII gate on the fragment's piiClasses, 0112 modality consent (absent or stale checksum ⇒ lane EMPTY), availability != 'gone'; any error degrades to an empty section. Off = byte-identical prompts.",
   },
   {
+    key: 'RETRIEVAL_SCENE_LANE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Scene retrieval lane (profile field sceneLane) — the FIRST serving reader of the episodic plane. BM25 (the 0106 scene_gist_search lowercase FULLTEXT index, V11 A2 or_terms disjunction) over memory_episode.gist, rendered as an episodic 'what happened, together, when' prompt section that BOTH the generator and the verifier read (parity), each line headed by its [memory_episode:...] id and carrying the scene's UTC time span plus — the payload's first consumer — unexpectedDetails as a notable-details clause (cap 2 scenes; a scene is the largest retrieval unit). Fence stack inside the lane: tenant scope, SCOPED-USER-ONLY (an unscoped/M2M caller gets NOTHING — a scene gist quotes verbatim member text), the 0117 per-member gate (own rows, plus userId-NONE rows whose userIds is [] or CONTAINS the caller, FAILING CLOSED on userIds IS NONE — not keyed to PRIVACY_SEGMENT_USER_FENCE, this lane has no legacy behavior to preserve), text PII gate (piiClass IS NONE without brain:read_pii), 0093 scope tags, and the version world the projection registry marks 'live'; any error degrades to an empty section. Scene-arm evidenceCitations ride this flag and are deliberately NOT accepted by FOVEA_REQUIRE_CITATIONS (a gist is a summary, not the record). OPERATOR NOTE: the lane serves only a 'live' scene world, and the composer promotes to 'live' only when this flag is on at build time — enabling it on a tenant whose scenes were built while it was off requires one composer re-run. Off (default) = no query, no section, byte-identical prompts.",
+  },
+  {
     key: 'RETRIEVAL_TIME_FILTER',
     category: 'pipeline',
     defaultValue: '0',
