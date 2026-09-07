@@ -478,6 +478,37 @@ export interface HarvestLiteralsArgs {
  * skipped. Returns ONLY the new facts, capped at LITERAL_HARVEST_CAP,
  * for the caller to union.
  */
+/**
+ * Entity binding for one harvest match — pulled out of harvestLiterals
+ * verbatim (cognitive-complexity gate). Subject-directed matches
+ * (flag-default rule) bind to the match's own identifier token: resolve
+ * it against the working list, mint it on the no-entity path, and
+ * otherwise drop the match honestly (see HarvestMatch.subjectToken).
+ * Undirected matches run bindEntity's priority — a sentence-grounded
+ * subject beats the speaker — so the speaker fallback is withheld from
+ * the first pass and re-applied only after minting found no subject
+ * shape in the sentence.
+ */
+function bindHarvestSubject(args: {
+  m: HarvestMatch;
+  sentenceText: string;
+  entities: HarvestLiteralsArgs['entities'];
+  speakerEntityIndex: number | null;
+  mintSubjects: boolean;
+}): number | null {
+  const { m, sentenceText, entities, speakerEntityIndex, mintSubjects } = args;
+  if (m.subjectToken !== undefined) {
+    const normalizedSubject = normalizeForGrounding(m.subjectToken);
+    const existing = entities.findIndex((e) => normalizeForGrounding(e.name) === normalizedSubject);
+    if (existing !== -1) return existing;
+    return mintSubjects ? resolveOrMintSubject(entities, m.subjectToken) : null;
+  }
+  const bound = bindEntity(entities, sentenceText, mintSubjects ? null : speakerEntityIndex);
+  if (bound !== null || !mintSubjects) return bound;
+  const token = IDENTIFIER_CLASS.has(m.predicate) ? m.object : firstSubjectToken(sentenceText);
+  return token !== null ? resolveOrMintSubject(entities, token) : speakerEntityIndex;
+}
+
 export function harvestLiterals(args: HarvestLiteralsArgs): ExtractedFact[] {
   const { trimmed, entities, speakerEntityIndex, existingFacts = [], mintSubjects = false } = args;
   if (!trimmed || (entities.length === 0 && !mintSubjects)) return [];
@@ -491,35 +522,13 @@ export function harvestLiterals(args: HarvestLiteralsArgs): ExtractedFact[] {
   for (const m of collectMatches(trimmed, sentences)) {
     if (harvested.length >= LITERAL_HARVEST_CAP) break;
     const sentence = sentenceAt(sentences, m.index);
-    // Subject-directed matches (flag-default rule) bind to the match's
-    // own identifier token: resolve it against the working list, mint
-    // it on the no-entity path, and otherwise drop the match honestly
-    // (see HarvestMatch.subjectToken).
-    let entityIndex: number | null;
-    if (m.subjectToken !== undefined) {
-      const normalizedSubject = normalizeForGrounding(m.subjectToken);
-      const existing = entities.findIndex(
-        (e) => normalizeForGrounding(e.name) === normalizedSubject,
-      );
-      entityIndex =
-        existing !== -1
-          ? existing
-          : mintSubjects
-            ? resolveOrMintSubject(entities, m.subjectToken)
-            : null;
-    } else {
-      // Minting runs the same priority bindEntity encodes — a sentence-
-      // grounded subject beats the speaker — so the speaker fallback is
-      // withheld from the first pass and re-applied only after minting
-      // found no subject shape in the sentence.
-      entityIndex = bindEntity(entities, sentence.text, mintSubjects ? null : speakerEntityIndex);
-      if (entityIndex === null && mintSubjects) {
-        const token = IDENTIFIER_CLASS.has(m.predicate)
-          ? m.object
-          : firstSubjectToken(sentence.text);
-        entityIndex = token !== null ? resolveOrMintSubject(entities, token) : speakerEntityIndex;
-      }
-    }
+    const entityIndex = bindHarvestSubject({
+      m,
+      sentenceText: sentence.text,
+      entities,
+      speakerEntityIndex,
+      mintSubjects,
+    });
     if (entityIndex === null) continue;
     const key = `${entityIndex}\u0000${m.predicate}\u0000${normalizeForGrounding(m.object)}`;
     if (seen.has(key)) continue;
