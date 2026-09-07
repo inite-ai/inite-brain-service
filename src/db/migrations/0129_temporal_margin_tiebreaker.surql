@@ -34,8 +34,15 @@
 -- THE DOCTRINE (0129): for 'bitemporal' semantics only, when the
 -- close-margin path would flip the slot to COMPETING but the caller
 -- attests the incoming claim carries an explicit succession cue
--- ($update_cue = true, computed TS-side by a deterministic marker
--- regex, mention path only) AND an incumbent's event time is STRICTLY
+-- ($update_cue = true, computed TS-side: mention path = deterministic
+-- marker regex over the object; direct path = a typed re-write of a
+-- single-value slot is a self-update BY THE ACT, unless the claim
+-- cites an external artifact — document/url evidence — an independent
+-- voice attests no succession; measured: the T3 conflict note over the
+-- direct pilot_launch_date self-revision pair is what made honest
+-- serving refuse a settled current value, while the SAME rule keeps
+-- the document-backed D6 payout-cutoff pair competing) AND an
+-- incumbent's event time is STRICTLY
 -- EARLIER than the incoming validFrom by MORE than the ambiguity
 -- window ($tiebreak_window_ms, bound from ConflictConfig), that
 -- incumbent closes as SUPERSEDED history (the natural-supersede
@@ -88,9 +95,16 @@
 --     28/30); no competing marker → serving serves the current value.
 --   * s07 lease arms: "ends in September 2026" carries NO succession
 --     cue → the close-margin → COMPETING doctrine stands untouched.
---   * D6 payout-cutoff and the direct-path pairs: the direct path
---     never computes a cue ($update_cue NONE) → byte-identical
---     (measured constant across the passing and failing runs).
+--   * direct pilot_launch_date pair (2026-04-15 → 2026-05-06, the
+--     agent's own conversation-grounded slot re-record, 16 days):
+--     self-update by the act → the later value closes the earlier —
+--     the T3 conflict note over that pair was measured refusing a
+--     settled current value (d1-launch, and it bled into d4).
+--   * D6 payout-cutoff pair (Priya 17:00 vs docs v2.3 16:30): the
+--     docs side cites document evidence — an external standing voice
+--     attests no succession AND is never closed by recency (the
+--     tb_losers artifact guard below) → COMPETING stands either way
+--     the two claims arrive.
 --
 -- Flag off (CONFLICT_TEMPORAL_TIEBREAKER=0, default): the TS wrapper
 -- passes NEITHER new arg; both land NONE, $tb_fire is false on every
@@ -502,7 +516,15 @@ DEFINE FUNCTION OVERWRITE fn::resolve_fact(
     THEN
         (SELECT * FROM $competing
             WHERE validFrom != NONE
-              AND validFrom + duration::from_millis(<int> $tiebreak_window_ms) < $valid_from)
+              AND validFrom + duration::from_millis(<int> $tiebreak_window_ms) < $valid_from
+              -- 0129: an incumbent citing an EXTERNAL ARTIFACT
+              -- (document/url evidence) is a standing independent
+              -- voice — mere recency never closes it (the D6
+              -- payout-cutoff doctrine); it stays a peer and flips
+              -- COMPETING. Rows without evidence arrays (the mention
+              -- bulk) reduce to [] and pass untouched.
+              AND 'document' NOT IN (source.evidence.kind ?? [])
+              AND 'url' NOT IN (source.evidence.kind ?? []))
     ELSE
         []
     END;

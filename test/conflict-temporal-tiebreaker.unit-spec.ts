@@ -1,6 +1,10 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { FactResolverService, hasUpdateCue } from '../src/ingest/fact-resolver.service';
+import {
+  FactResolverService,
+  directSelfUpdateCue,
+  hasUpdateCue,
+} from '../src/ingest/fact-resolver.service';
 import {
   TEMPORAL_TIEBREAK_WINDOW_MAX_MS,
   clampTemporalTiebreakWindowMs,
@@ -205,21 +209,56 @@ describe('CONFLICT_TEMPORAL_TIEBREAKER', () => {
     expect(resolveCalls(negative.queries)[0]!.params.tiebreak_window_ms).toBe(0);
   });
 
-  it('direct typed path: never computes a cue, even promoted to bitemporal with every flag on', async () => {
-    // The measured constant across passing/failing runs: the direct
-    // pairs (payout_cutoff D6 contradiction included) keep their shape.
+  it('direct typed path: self-update by the act — cue=true for a conversation-grounded slot re-write', async () => {
+    // The measured d1-launch abstention: the T3 conflict note over the
+    // direct pilot_launch_date self-revision pair refused a settled
+    // current value. A typed re-write of one's own slot attests
+    // succession by the act itself.
     process.env.CONFLICT_DIRECT_FACT_SLOT = '1';
-    process.env.CONFLICT_MENTION_FACT_SLOT = '1';
     process.env.CONFLICT_TEMPORAL_TIEBREAKER = '1';
     const { svc, db, queries } = make();
-    const out = await svc.resolve(
-      db as never,
-      input('payout_cutoff', { recordOutcomeMetric: true, object: '16:30 UTC' }),
-    );
+    const out = await svc.resolve(db as never, {
+      ...input('pilot_launch_date', { recordOutcomeMetric: true, object: '2026-05-06' }),
+      source: { evidence: [{ kind: 'conversation', ref: 'c3', note: 'launch slip' }] },
+    });
     expect(out.semantics).toBe('bitemporal'); // direct __default__ promotion
     const params = resolveCalls(queries)[0]!.params;
-    expect(params.tiebreak_window_ms).toBeUndefined();
-    expect(params.update_cue).toBeUndefined();
+    expect(params.tiebreak_window_ms).toBe(0);
+    expect(params.update_cue).toBe(true);
+  });
+
+  it('direct typed path: an external-artifact-backed claim attests NO succession (D6 shape protected)', async () => {
+    // The docs-v2.3 side of the payout-cutoff pair: an independent
+    // standing voice — the close-margin → COMPETING doctrine stands.
+    process.env.CONFLICT_DIRECT_FACT_SLOT = '1';
+    process.env.CONFLICT_TEMPORAL_TIEBREAKER = '1';
+    const { svc, db, queries } = make();
+    await svc.resolve(db as never, {
+      ...input('payout_cutoff', { recordOutcomeMetric: true, object: '16:30 UTC' }),
+      source: { evidence: [{ kind: 'document', ref: 'meridian-api-docs-v2.3' }] },
+    });
+    const params = resolveCalls(queries)[0]!.params;
+    expect(params.tiebreak_window_ms).toBe(0);
+    expect(params.update_cue).toBe(false);
+  });
+
+  describe('directSelfUpdateCue', () => {
+    it('true for conversation/message evidence and for ungrounded records', () => {
+      expect(directSelfUpdateCue({ evidence: [{ kind: 'conversation', ref: 'c1' }] })).toBe(true);
+      expect(directSelfUpdateCue({ evidence: [{ kind: 'message', ref: 'c2:t05' }] })).toBe(true);
+      expect(directSelfUpdateCue({ recorder: 'mcp_agent' })).toBe(true);
+      expect(directSelfUpdateCue(undefined)).toBe(true);
+    });
+    it('false when ANY evidence entry cites an external artifact (document/url)', () => {
+      expect(directSelfUpdateCue({ evidence: [{ kind: 'document', ref: 'docs-v2.3' }] })).toBe(
+        false,
+      );
+      expect(
+        directSelfUpdateCue({
+          evidence: [{ kind: 'message' }, { kind: 'url', ref: 'https://x' }],
+        }),
+      ).toBe(false);
+    });
   });
 
   it('mention path + append_only bulk: not armed', async () => {
@@ -272,7 +311,7 @@ describe('CONFLICT_TEMPORAL_TIEBREAKER', () => {
       expect(tb).toContain('$update_cue = true');
     });
 
-    it('losers are strictly-earlier-beyond-window with the missing-validFrom guard', () => {
+    it('losers are strictly-earlier-beyond-window with the missing-validFrom and artifact guards', () => {
       const body = stripComments(head.body);
       const tb = body.slice(body.indexOf('LET $tb_losers'), body.indexOf('LET $tb_fire'));
       // missing validFrom → not a loser → stays on the COMPETING path
@@ -282,6 +321,11 @@ describe('CONFLICT_TEMPORAL_TIEBREAKER', () => {
       expect(tb).toContain(
         'validFrom + duration::from_millis(<int> $tiebreak_window_ms) < $valid_from',
       );
+      // an incumbent citing an external artifact (document/url
+      // evidence) is a standing independent voice — recency never
+      // closes it (the D6 payout-cutoff shape, order-robust).
+      expect(tb).toContain("'document' NOT IN (source.evidence.kind ?? [])");
+      expect(tb).toContain("'url' NOT IN (source.evidence.kind ?? [])");
     });
 
     it('partitions 0085-style (losers close, the rest flip to competing) and joins $supersede by OR', () => {

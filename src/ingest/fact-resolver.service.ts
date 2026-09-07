@@ -285,6 +285,38 @@ export function hasUpdateCue(object: string): boolean {
 }
 
 /**
+ * External-artifact evidence kinds — a claim citing one is backed by a
+ * STANDING EXTERNAL SOURCE (a document, a URL), not by the recorder's
+ * own narration. Such claims sit outside the self-update lane on both
+ * sides of the tiebreaker: they never attest succession (a later
+ * doc-backed record is a new voice, not a revision of the old one) and
+ * are never closed by mere recency (the agent re-recording its own
+ * slot does not invalidate what an external document says — that
+ * disagreement is exactly what the COMPETING lane and D6 adjudication
+ * exist for; measured live: the Meridian payout-cutoff pair, Priya
+ * 17:00 vs docs v2.3 16:30, must keep competing while the same-shaped
+ * pilot-launch-date self-revision must supersede).
+ */
+export const EXTERNAL_ARTIFACT_EVIDENCE_KINDS: ReadonlySet<string> = new Set(['document', 'url']);
+
+/**
+ * Direct-path succession attestation: a typed record_fact re-write of
+ * a single-value slot is a SELF-UPDATE by the act itself — the caller
+ * re-stated its own slot value later — UNLESS the claim cites an
+ * external artifact (see EXTERNAL_ARTIFACT_EVIDENCE_KINDS), in which
+ * case it is an independent voice and the close-margin → COMPETING
+ * doctrine must stand. Pure; exported for tests.
+ */
+export function directSelfUpdateCue(source: unknown): boolean {
+  const evidence = (source as { evidence?: Array<{ kind?: unknown }> } | null | undefined)
+    ?.evidence;
+  if (!Array.isArray(evidence)) return true;
+  return !evidence.some(
+    (e) => typeof e?.kind === 'string' && EXTERNAL_ARTIFACT_EVIDENCE_KINDS.has(e.kind),
+  );
+}
+
+/**
  * Confidence-aware language-attribution metadata (multilingual Tier 1,
  * migration 0100). Built ONLY when MULTILINGUAL_LANG_ATTRIBUTION is on and
  * stamped onto the created fact by a follow-up UPDATE (the stampFactScope
@@ -540,18 +572,29 @@ export class FactResolverService {
     // single_active) is what the mention promotion sees.
     const { semantics, similarityFloor } = conflictSlotResolution(policy, path);
     // Succession tiebreaker (CONFLICT_TEMPORAL_TIEBREAKER, default
-    // off, migration 0129): armed for MENTION-path 'bitemporal'
-    // resolves only — the direct typed path never computes a cue, so
-    // its measured shapes (the D6 payout-cutoff competing pair, the
-    // promoted-slot pairs) stay byte-identical whatever the flag says.
-    // The window rides from ConflictConfig; the cue is the
-    // deterministic marker regex over the stored object. Flag off ⇒
-    // both fields undefined ⇒ the fn's new option args land NONE ⇒
-    // resolver behavior byte-identical.
-    const tiebreakArmed =
-      path === 'mention' && semantics === 'bitemporal' && conflictTemporalTiebreakerEnabled();
+    // off, migration 0129): armed for 'bitemporal' resolves on BOTH
+    // paths, with a per-path succession attestation:
+    //  - mention path: the deterministic marker regex over the stored
+    //    object (hasUpdateCue) — extraction narrates succession or it
+    //    does not;
+    //  - direct path: the typed re-write of a single-value slot is a
+    //    self-update BY THE ACT (directSelfUpdateCue), unless the
+    //    claim cites an external artifact (document/url evidence) —
+    //    an independent standing voice keeps the COMPETING doctrine,
+    //    which is what preserves the D6 payout-cutoff pair while the
+    //    same-shaped pilot-launch-date self-revision supersedes
+    //    (measured: the T3 conflict note over that pair is what made
+    //    honest serving refuse a settled current value).
+    // The window rides from ConflictConfig. Flag off ⇒ both fields
+    // undefined ⇒ the fn's new option args land NONE ⇒ resolver
+    // behavior byte-identical.
+    const tiebreakArmed = semantics === 'bitemporal' && conflictTemporalTiebreakerEnabled();
     const tiebreakWindowMs = tiebreakArmed ? this.conflict.temporalTiebreakWindowMs : undefined;
-    const updateCue = tiebreakArmed ? hasUpdateCue(p.object) : undefined;
+    const updateCue = !tiebreakArmed
+      ? undefined
+      : path === 'mention'
+        ? hasUpdateCue(p.object)
+        : directSelfUpdateCue(p.source);
     const sourceTrust = sourceTrustFor(p.source as Parameters<typeof sourceTrustFor>[0]);
     // Confidence-aware attribution (MULTILINGUAL_LANG_ATTRIBUTION, default
     // off). Off → detectLanguage keeps its Phase-4 `en` fallback and no new

@@ -1462,15 +1462,20 @@ const KNOWN_BOOLEAN_FLAGS = [
   // byte-identical.
   'CONFLICT_SLOT_CANONICALIZATION',
   // Succession tiebreaker for the bitemporal close-margin doctrine
-  // (migration 0129): a mention-path close-margin write whose object
-  // carries a deterministic succession cue ("is now X", "moves from A
-  // to B", "instead of", "no longer") CLOSES pool members with a
-  // strictly-earlier-beyond-window validFrom as superseded history
-  // instead of flipping them to COMPETING — score margin alone cannot
-  // tell a temporal UPDATE from a CONTRADICTION, and the measured
-  // batteries show validFrom separation and origin identity cannot
-  // either. Cue-less writes (contradiction arms), same-stamp pairs and
-  // the direct typed path keep the existing doctrine. Window:
+  // (migration 0129): a close-margin write attesting succession —
+  // mention path: a deterministic cue regex over the object ("is now
+  // X", "moves from A to B", "instead of", "no longer"); direct path:
+  // a typed slot re-write is a self-update by the act unless the claim
+  // cites an external artifact (document/url evidence) — CLOSES pool
+  // members with a strictly-earlier-beyond-window validFrom as
+  // superseded history instead of flipping them to COMPETING; stuck
+  // COMPETING rows are re-admitted for exactly these calls (0085-F3
+  // doctrine) and an exact same-origin restatement corroborates
+  // instead of dueling. Score margin alone cannot tell a temporal
+  // UPDATE from a CONTRADICTION, and the measured batteries show
+  // validFrom separation and origin identity cannot either. Cue-less
+  // writes (contradiction arms), same-stamp pairs and artifact-backed
+  // incumbents keep the existing doctrine. Window:
   // CONFLICT_TEMPORAL_TIEBREAK_WINDOW_MS (default 0 = strict event
   // order, clamped to [0, 365d]). Off (default) ⇒ the fn's new option
   // args are never bound, byte-identical.

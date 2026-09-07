@@ -115,15 +115,21 @@ export function conflictSlotCanonicalizationEnabled(): boolean {
  * ("is now X", "moves from A to B", "instead of", "no longer"),
  * contradictions assert states without succession markers.
  *
- * When on, the mention path computes a deterministic succession-cue
- * regex over the object (hasUpdateCue in fact-resolver.service.ts) and
- * binds it, with the ambiguity window
- * (CONFLICT_TEMPORAL_TIEBREAK_WINDOW_MS, default 0, clamped), into
- * fn::resolve_fact (migration 0129): a close-margin write whose object
- * carries the cue CLOSES pool members with a strictly-earlier-beyond-
- * window validFrom as superseded history instead of flipping them to
- * COMPETING; cue-less writes, same-stamp pairs and the direct typed
- * path (which never computes the cue) keep the existing doctrine.
+ * When on, the resolver computes a per-path succession attestation —
+ * mention path: a deterministic succession-cue regex over the object
+ * (hasUpdateCue in fact-resolver.service.ts); direct path: a typed
+ * re-write of a single-value slot is a self-update BY THE ACT unless
+ * the claim cites an external artifact (document/url evidence — an
+ * independent standing voice, directSelfUpdateCue) — and binds it,
+ * with the ambiguity window (CONFLICT_TEMPORAL_TIEBREAK_WINDOW_MS,
+ * default 0, clamped), into fn::resolve_fact (migration 0129): a
+ * close-margin write attesting succession CLOSES pool members with a
+ * strictly-earlier-beyond-window validFrom as superseded history
+ * instead of flipping them to COMPETING (stuck COMPETING rows are
+ * re-admitted for exactly these calls — the 0085-F3 doctrine — and an
+ * exact same-origin restatement corroborates instead of dueling);
+ * cue-less writes, same-stamp pairs and artifact-backed incumbents
+ * (the D6 payout-cutoff shape) keep the existing doctrine.
  * The env read lives here in the common layer (engine-gates S5.2),
  * read at call time so a flip is runtime-mutable. Default off ⇒ the
  * new fn args are never bound, byte-identical. CONFLICT_ sits off the
