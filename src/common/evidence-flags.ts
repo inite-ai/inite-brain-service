@@ -269,6 +269,29 @@ export function evidenceSignedUrlTtlSeconds(): number {
 }
 
 /**
+ * Representation embeddings — EVIDENCE_FRAGMENT_EMBEDDINGS.
+ *
+ * When on, the ONE write seam (EvidenceStoreService.addRepresentation)
+ * embeds the TEXT content of a representation whose writer asked for it
+ * (`embedContent`) and stores the vector in
+ * `derived_representation.embedding` together with its
+ * `embeddingSpaceId` — the producer the 0109 column has been waiting
+ * for ("WRITE-DEAD in v1"), and therefore the fragment lane's dense leg,
+ * which degrades to empty by construction while the column is null.
+ *
+ * Off (default) ⇒ the embedder is NEVER called and NEITHER key is
+ * written — the row is byte-identical to today's. An embedding failure
+ * is soft: the row is written without the vector and the caller's
+ * processing run still succeeds (a model hiccup must not lose derived
+ * text). Read at call time (runtime-mutable); common layer per
+ * engine-gates S5.2. EVIDENCE_ family sits off the ENGINE flag budget by
+ * design (a substrate builder, not an engine fork).
+ */
+export function fragmentEmbeddingsEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_FRAGMENT_EMBEDDINGS);
+}
+
+/**
  * Strict serving — EVIDENCE_UNGROUNDED_SERVING_GATE.
  *
  * When on, a supported verdict batch-checks its cited facts' stored

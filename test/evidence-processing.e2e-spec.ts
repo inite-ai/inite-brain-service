@@ -21,6 +21,8 @@ import { EvidenceQuarantineService } from '../src/evidence/quarantine.service';
 import { TextExtractionPassthroughAdapter } from '../src/evidence/processing/adapters/text-extraction-passthrough.adapter';
 import type { EvidenceScanHook } from '../src/evidence/processing/scan-hook';
 import { FsEvidenceStorageAdapter } from '../src/evidence/storage/fs-storage.adapter';
+import { FragmentLaneService } from '../src/synthesize/fragment-lane.service';
+import type { ProcessorInput, ProcessorOutput } from '../src/evidence/processing/processor-adapter';
 
 const COMPANY = 'co_evidence_processing_e2e';
 const USER = 'processing_user';
@@ -65,6 +67,7 @@ describe('evidence processing lifecycle (e2e)', () => {
       'EVIDENCE_PROCESSOR_BROKER',
       'EVIDENCE_QUARANTINE',
       'EVIDENCE_DERIVED_MAX_BYTES',
+      'EVIDENCE_FRAGMENT_EMBEDDINGS',
       'EVIDENCE_FS_ROOT',
     ]) {
       saved[k] = process.env[k];
@@ -311,6 +314,133 @@ describe('evidence processing lifecycle (e2e)', () => {
     });
     expect(stale.runs).toHaveLength(0);
     expect(stale.denied[0]!.reason).toContain('modality consent');
+  });
+
+  /**
+   * THE POINT OF THE FRAGMENT-BEARING PASS: a processed asset's output
+   * must be RETURNABLE. The serving lane filters
+   * `subjectKind = 'fragment'`, so an asset-level row — everything the
+   * broker used to write — is invisible to retrieval no matter how good
+   * the adapter is. Here a locator-bearing output is dispatched for
+   * real and then read back through FragmentLaneService itself (the
+   * lane's own fence stack: consent, user, media PII, availability),
+   * with the asset-level generation pinned as still unreachable.
+   */
+  it('a locator-bearing output becomes a fragment the serving lane returns', async () => {
+    const textAdapter = f.app.get(TextExtractionPassthroughAdapter) as {
+      version: string;
+      process: (input: ProcessorInput) => Promise<ProcessorOutput[]>;
+    };
+    const originalVersion = textAdapter.version;
+    const originalProcess = textAdapter.process;
+    const FRAGMENT_TEXT = 'the boiler room key hangs under the third stair';
+    try {
+      textAdapter.version = 'text-locator-v1-test';
+      textAdapter.process = () =>
+        Promise.resolve([
+          {
+            kind: 'text',
+            content: FRAGMENT_TEXT,
+            locator: { kind: 'charRange', start: 0, end: FRAGMENT_TEXT.length },
+            label: 'page 1, line 3',
+          },
+        ]);
+      // Affirmatively-clean asset: the fragment inherits [] and the
+      // lane's fail-closed media fence opens for an unscoped caller.
+      const asset = await registerTextAsset(FRAGMENT_TEXT, { piiClasses: [] });
+      expect(await countRows('evidence_fragment')).toBe(0);
+
+      const run = await broker.dispatchForPack(COMPANY, {
+        packId: 'proc_lifecycle',
+        assetId: asset.assetId,
+      });
+      expect(run.runs[0]).toMatchObject({ status: 'succeeded' });
+      const reprId = run.runs[0]!.representationIds[0]!;
+      const repr = await rawRow(reprId);
+      expect(repr.subjectKind).toBe('fragment');
+      const fragmentId = String(repr.subjectId);
+      expect(fragmentId.startsWith('evidence_fragment:')).toBe(true);
+      const fragment = await rawRow(fragmentId);
+      expect(fragment.piiClasses).toEqual([]);
+      expect(fragment.locator).toMatchObject({ kind: 'charRange', start: 0 });
+      expect(await countRows('evidence_fragment')).toBe(1);
+
+      // Idempotency: a replayed dispatch multiplies nothing.
+      const replay = await broker.dispatchForPack(COMPANY, {
+        packId: 'proc_lifecycle',
+        assetId: asset.assetId,
+      });
+      expect(replay.runs[0]).toMatchObject({ status: 'replayed' });
+      expect(await countRows('evidence_fragment')).toBe(1);
+
+      // THE READ. Dense leg stubbed to fail (no model call in e2e) — the
+      // lane degrades to its BM25 leg over the 0124 index, which is
+      // exactly the shape that could never see a processor output before.
+      const lane = f.app.get(FragmentLaneService);
+      (lane as unknown as { embedder: { embed: () => Promise<number[]> } }).embedder = {
+        embed: () => Promise.reject(new Error('dense leg stubbed off in e2e')),
+      };
+      const served = await lane.fragmentLines({
+        companyId: COMPANY,
+        query: 'boiler room key third stair',
+        callerScopes: ['brain:read'],
+        userId: USER,
+        withIds: true,
+      });
+      expect(served.lines).toHaveLength(1);
+      expect(served.lines[0]).toContain(FRAGMENT_TEXT);
+      expect(served.lines[0]).toContain(`[${fragmentId}]`);
+      expect(served.byId.get(fragmentId)).toMatchObject({ assetId: asset.assetId });
+
+      // CONTROL: the asset-level generation stays unreachable — the
+      // break this pass fixes, pinned from the serving side.
+      const assetLevel = await lane.fragmentLines({
+        companyId: COMPANY,
+        query: 'hello evidence',
+        callerScopes: ['brain:read'],
+        userId: USER,
+        withIds: false,
+      });
+      expect(assetLevel.lines).toEqual([]);
+    } finally {
+      textAdapter.version = originalVersion;
+      textAdapter.process = originalProcess;
+    }
+  });
+
+  /**
+   * The dense leg's missing producer (EVIDENCE_FRAGMENT_EMBEDDINGS):
+   * with the flag on, the vector and its space id land in the columns
+   * 0109 defined WRITE-DEAD. Stubbed embedder — no paid call.
+   */
+  it('stores a representation embedding when the flag is on', async () => {
+    const textAdapter = f.app.get(TextExtractionPassthroughAdapter) as { version: string };
+    const originalVersion = textAdapter.version;
+    const storeWithEmbedder = store as unknown as { embedder?: unknown };
+    const originalEmbedder = storeWithEmbedder.embedder;
+    try {
+      process.env.EVIDENCE_FRAGMENT_EMBEDDINGS = '1';
+      textAdapter.version = 'text-embedding-v1-test';
+      storeWithEmbedder.embedder = {
+        embed: () => Promise.resolve([0.25, -0.5, 0.75]),
+        activeSpaceId: () => 'stub:e2e-embedder:3:l2',
+      };
+      const asset = await registerTextAsset('the fuse box lives behind the pantry door', {
+        piiClasses: [],
+      });
+      const run = await broker.dispatchForPack(COMPANY, {
+        packId: 'proc_lifecycle',
+        assetId: asset.assetId,
+      });
+      expect(run.runs[0]).toMatchObject({ status: 'succeeded' });
+      const repr = await rawRow(run.runs[0]!.representationIds[0]!);
+      expect(repr.embedding).toEqual([0.25, -0.5, 0.75]);
+      expect(repr.embeddingSpaceId).toBe('stub:e2e-embedder:3:l2');
+    } finally {
+      delete process.env.EVIDENCE_FRAGMENT_EMBEDDINGS;
+      textAdapter.version = originalVersion;
+      storeWithEmbedder.embedder = originalEmbedder;
+    }
   });
 
   it('user forget cascades processing runs with the evidence rows and drains the blob outbox', async () => {

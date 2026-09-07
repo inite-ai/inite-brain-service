@@ -1149,6 +1149,13 @@ const KNOWN_BOOLEAN_FLAGS = [
   // family sits off the ENGINE flag budget by design (see above).
   'EVIDENCE_PROCESSOR_BROKER',
   'EVIDENCE_QUARANTINE',
+  // Representation embeddings: the write-side producer for
+  // derived_representation.embedding (WRITE-DEAD since 0109), which is
+  // what the fragment lane's dense leg reads. Off (default) = the
+  // embedder is never called and neither embedding nor embeddingSpaceId
+  // is written — byte-identical rows. EVIDENCE_ family sits off the
+  // ENGINE flag budget by design (see above).
+  'EVIDENCE_FRAGMENT_EMBEDDINGS',
   // Raw-read gateway (MM-3, migration 0125): the single REST surface that
   // serves original evidence bytes (stream + signed-URL mint/redeem)
   // behind the full gate ladder. Default off = every route 404s,
