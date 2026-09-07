@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { RecordId, StringRecordId, type Surreal } from 'surrealdb';
 import { SurrealService, runTransaction } from '../db/surreal.service';
+import { scopeForUser } from '../auth/scope-tags';
 import { ProjectionRegistryService } from '../episodes/projection-registry.service';
 import { packMemoryProjectionsEnabled } from '../common/pack-projection-flags';
 import { idTailOf } from '../ingest/ingest-utils';
@@ -29,6 +30,21 @@ export function packSceneVersion(packId: string, packVersion: string): string {
     .digest('hex')
     .slice(0, 8);
   return `pack:${packId}+${fp}`;
+}
+
+/**
+ * Per-user scope stamp for a projected scene row (0127): a user-scoped
+ * document's scenes carry the document's user — userId + the 0093 scope
+ * tag + the 0117 userIds membership fold (single-user by construction),
+ * the composer's exact stamp shape, so the PRIVACY_SEGMENT_USER_FENCE
+ * read contract fences them without backfill. A tenant-global document
+ * keeps the pre-0127 row byte-identical — the 0055 fold with an empty
+ * member set. Exported pure for unit tests.
+ */
+export function sceneScopeStamp(doc: Pick<StoredDocument, 'userId'>): Record<string, unknown> {
+  return doc.userId
+    ? { userId: doc.userId, scope: scopeForUser(doc.userId), userIds: [doc.userId] }
+    : { scope: [] };
 }
 
 /** One run's projection outcome (observability + tests). */
@@ -155,10 +171,8 @@ export class SceneCandidateWriterService {
       idBySceneIndex.set(sceneIndex, episodeId);
       episodeRows.push({
         id: new RecordId('memory_episode', idTail),
-        // No userId key: documents are tenant-scoped (StoredDocument
-        // carries none), so the projected scene stays tenant-global —
-        // the 0055 fold with an empty member set.
-        scope: [],
+        // Per-user scope (0127) — see sceneScopeStamp.
+        ...sceneScopeStamp(doc),
         sceneLabel: label,
         // No conversation backs a document scene; erasure and rebuild are
         // keyed by source.docId instead.

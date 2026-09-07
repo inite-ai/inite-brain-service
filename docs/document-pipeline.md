@@ -236,7 +236,7 @@ only — polling remains the source of truth
 | `DOCUMENT_INGEST_ENABLED` | `0` | Master switch for the whole surface. |
 | `DOCUMENT_MULTI_INDEXER_ENABLED` | `0` | Dedicated runs + router + async mode. |
 | `REINDEX_ON_PACK_INSTALL` | `0` | Backfill hook on pack install/upgrade. |
-| `INGEST_MENTION_VIA_DOCUMENT` | `0` | Route mentions through the pipeline (response shape preserved). |
+| `INGEST_MENTION_VIA_DOCUMENT` | `0` | Route mentions through the pipeline (response shape preserved; a user-scoped mention's `userId` rides the stored document into fact commit and scene projection — 0127). |
 | `DOC_MAX_CHARS` | `512000` | Document size cap (413 above). |
 | `DOC_CHUNK_TARGET_CHARS` | `12000` | Chunker target (hard max 16K). |
 | `CANDIDATE_MIN_CONFIDENCE` | `0` | Brain-side prefilter before the resolver. |

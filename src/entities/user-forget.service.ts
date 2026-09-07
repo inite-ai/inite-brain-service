@@ -6,6 +6,7 @@ import {
   deleteDocumentIdentityRows,
   planDocumentCascade,
   purgeExclusiveDocContent,
+  type QueryHandle,
 } from '../documents/document-purge.util';
 
 /**
@@ -31,17 +32,19 @@ import {
  *     stamp at reject time (fn::resolve_fact et al.) would close this —
  *     tracked, not done here.
  *
- * Document cascade (fact-mediated) — HONEST LIMITS. source_document has
- * no userId/entityId (0048); the only subject→document linkage is
- * knowledge_fact.source.documentId on the user's committed facts, so the
- * cascade purges exactly the documents those facts tie to the user (see
- * planDocumentCascade). What it can NOT do:
+ * Document cascade — HONEST LIMITS. Two linkages reach a document:
+ * knowledge_fact.source.documentId on the user's committed facts (the
+ * fact-mediated contract, 0108) and, since 0127, the source_document
+ * userId column itself (stamped on user-scoped ingests — the
+ * mention-via-document route and user-scoped document ingests), which
+ * reaches even documents that committed ZERO facts for the user. What
+ * the cascade can NOT do:
  *   - SHARED documents (another subject still grounds facts in them)
  *     survive WITH their content — no per-chunk attribution to erase
  *     selectively. Mitigations: the retainUntil retention sweeper, and
  *     an operator DELETE /v1/documents/:id/content for targeted purges.
- *   - Documents that produced ZERO committed facts for the user are
- *     unreachable from here (nothing links them to the user).
+ *   - TENANT-GLOBAL documents that produced zero committed facts for
+ *     the user stay unreachable (no column, no fact linkage).
  *   - candidate payloads mentioning the user in free text only are not
  *     attributable (no userId column on candidate).
  */
@@ -198,20 +201,11 @@ export class UserForgetService {
         }
       }
 
-      // ── Document cascade (fact-mediated — see the file docblock's
-      // HONEST LIMITS). MUST run BEFORE the fact delete below: the facts'
-      // source.documentId is the only user→document linkage. Sequence per
-      // exclusive doc: provenance flag FIRST, then the batched chunk
-      // drain + header purge (a mid-failure rests in the defined
-      // purgeContent state), then the bounded identity rows — candidates,
-      // indexer_runs, headers — by pre-selected ids (3.2.4 planner
-      // contract, see document-purge.util).
-      const docPlan = await planDocumentCascade(db, {
-        predicate: 'userId = $u',
-        params: { u: userId },
-      });
-      const purgedSourceChunks = await purgeExclusiveDocContent(db, docPlan);
-      const docRows = await deleteDocumentIdentityRows(db, docPlan.exclusiveDocRefs);
+      // ── Document cascade — see the file docblock's HONEST LIMITS and
+      // cascadeDocuments below. MUST run BEFORE the fact delete: the
+      // facts' source.documentId is one of the two user→document
+      // linkages, dead once the facts die.
+      const { purgedSourceChunks, docRows } = await this.cascadeDocuments(db, userId);
 
       await db.query(`DELETE knowledge_fact WHERE userId = $u`, { u: userId });
       await db.query(`DELETE knowledge_entity WHERE userId = $u`, {
@@ -375,6 +369,42 @@ export class UserForgetService {
       );
       return result;
     });
+  }
+
+  /**
+   * The document cascade. Sequence per exclusive doc: provenance flag
+   * FIRST, then the batched chunk drain + header purge (a mid-failure
+   * rests in the defined purgeContent state), then the bounded identity
+   * rows — candidates, indexer_runs, headers — by pre-selected ids
+   * (3.2.4 planner contract, see document-purge.util).
+   *
+   * Two seeds (see the file docblock's HONEST LIMITS): the fact-mediated
+   * predicate (0108) plus the user's COLUMN-scoped documents (0127) — a
+   * user-scoped mention that committed zero facts still left its text in
+   * source_document/source_chunk, unreachable fact-mediatedly.
+   */
+  private async cascadeDocuments(
+    db: QueryHandle,
+    userId: string,
+  ): Promise<{
+    purgedSourceChunks: number;
+    docRows: { candidates: number; indexerRuns: number; docs: number };
+  }> {
+    const [userDocIdRows] = await db.query<[unknown[]]>(
+      `SELECT VALUE id FROM source_document WHERE userId = $u`,
+      { u: userId },
+    );
+    const docPlan = await planDocumentCascade(
+      db,
+      {
+        predicate: 'userId = $u',
+        params: { u: userId },
+      },
+      { seedDocIds: ((userDocIdRows as unknown[]) ?? []).map(String) },
+    );
+    const purgedSourceChunks = await purgeExclusiveDocContent(db, docPlan);
+    const docRows = await deleteDocumentIdentityRows(db, docPlan.exclusiveDocRefs);
+    return { purgedSourceChunks, docRows };
   }
 
   /**

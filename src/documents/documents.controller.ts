@@ -16,9 +16,10 @@ import { policyFor } from '../ingest/conflict-resolver';
 import { getPolicyContext } from '../common/request-context';
 import { evaluateRow, toRowView } from '../policy/policy-engine';
 import type { PolicyContext } from '../policy/policy.types';
-import { DocumentStoreService } from './document-store.service';
+import { DocumentStoreService, type StoredDocument } from './document-store.service';
 import { CandidateStoreService, type CandidateRow } from './candidate-store.service';
 import { assertDocumentIngestEnabled } from './documents-gate';
+import { pinUserScope } from '../auth/user-scope';
 
 /**
  * Read + erasure surface of the document pipeline: the document header,
@@ -45,6 +46,7 @@ export class DocumentsController {
     assertDocumentIngestEnabled();
     const doc = await this.store.getById(req.brainAuth.companyId, id);
     if (!doc) throw new NotFoundException('document not found');
+    assertDocVisibleToCaller(doc);
     const runs = await this.candidates.listRuns(req.brainAuth.companyId, id);
     let chunks;
     if (includeText === '1') {
@@ -67,6 +69,7 @@ export class DocumentsController {
     assertDocumentIngestEnabled();
     const doc = await this.store.getById(req.brainAuth.companyId, id);
     if (!doc) throw new NotFoundException('document not found');
+    assertDocVisibleToCaller(doc);
     const candidates = await this.candidates.listByDoc(req.brainAuth.companyId, id);
     return {
       documentId: doc.id,
@@ -86,6 +89,21 @@ export class DocumentsController {
     const purged = await this.store.purgeContent(req.brainAuth.companyId, id);
     if (!purged) throw new NotFoundException('document not found');
     return { purged: true };
+  }
+}
+
+/**
+ * Per-user scope fence on the document read surface (0127): a user-bound
+ * token sees tenant-global documents and its OWN user's — another user's
+ * document (header, chunks, candidates: all quote the user's raw text) is
+ * a 404, indistinguishable from absent, the fail-closed read idiom. M2M
+ * credentials keep tenant-wide visibility (pinUserScope passthrough) —
+ * the same authority model as every other scoped surface.
+ */
+export function assertDocVisibleToCaller(doc: StoredDocument): void {
+  const scopeUser = pinUserScope(undefined);
+  if (scopeUser !== undefined && doc.userId !== undefined && doc.userId !== scopeUser) {
+    throw new NotFoundException('document not found');
   }
 }
 

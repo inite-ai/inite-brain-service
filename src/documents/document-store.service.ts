@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto';
-import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  Optional,
+} from '@nestjs/common';
 import { StringRecordId, Surreal } from 'surrealdb';
 import {
   SurrealService,
@@ -13,6 +19,7 @@ import { sanitizeIngestText } from '../common/text-sanitizer';
 import { sanitizeSourceMeta } from '../policy/source-meta';
 import { idTailOf, redactPii } from '../ingest/ingest-utils';
 import { MetricsService } from '../metrics/metrics.service';
+import { scopeForUser } from '../auth/scope-tags';
 import { chunkDocument, DocumentChunk } from './chunker';
 import { markFactsProvenancePurged, purgeDocumentChunks } from './document-purge.util';
 import { IngestDocumentDto } from './dto/ingest-document.dto';
@@ -29,6 +36,14 @@ export interface StoredDocument {
   recorder?: string | undefined;
   occurredAt: Date;
   status: string;
+  /**
+   * Per-user memory scope (0127). Set = the document (and everything the
+   * pipeline derives from it — committed facts, projected scenes) belongs
+   * to one end-user's slice of the tenant; absent = tenant-global. Rides
+   * the stored row so async fan-out, re-commits and the sweeper all see
+   * the same scope the ingest request asserted.
+   */
+  userId?: string | undefined;
   /**
    * Operator-supplied document metadata (IngestDocumentDto.meta).
    * Projected onto derived facts' `source.meta` by the commit writer
@@ -98,7 +113,16 @@ export class DocumentStoreService {
       ? sanitizeIngestText(dto.text)
       : dto.text;
     const text = redactPii(rawText).trim();
-    const contentHash = sha256Hex(text);
+    // 0127: the dedupe/origin hash is scope-local. A tenant-global
+    // document hashes the text exactly as before (byte-identical); a
+    // user-scoped one salts the preimage with its user, so the UNIQUE
+    // contentHash index can never dedupe a user's document onto a
+    // tenant-global row or another user's (which would have committed
+    // this caller's memory under THAT row's scope). Same-user re-posts
+    // still dedupe; two users asserting the same text stay independent
+    // origins for corroboration (0050) — scope-local facts anyway.
+    const contentHash =
+      dto.userId === undefined ? sha256Hex(text) : userScopedContentHash(dto.userId, text);
     // G9 write-anomaly signal (one increment per document body stored).
     this.metrics?.countIngestWrite('document');
     const chunks = chunkDocument(text, {
@@ -121,6 +145,11 @@ export class DocumentStoreService {
           occurredAt: new Date(dto.occurredAt),
           meta: dto.meta,
           status: 'received',
+          // Per-user scope (0127): userId + the 0093 scope-tag mirror.
+          // Tenant-global writes keep the field absent / scope [] — the
+          // column DEFAULT — so pre-0127 rows and new global rows match.
+          userId: dto.userId,
+          scope: scopeForUser(dto.userId),
         });
         const docId = String(row.id);
         if (storeContent && chunks.length > 0) {
@@ -143,6 +172,17 @@ export class DocumentStoreService {
         if (!isUniqueViolation(err)) throw err;
         const existing = await this.byContentHash(db, contentHash);
         if (!existing) throw err;
+        // Scope fence on the dedupe hit (0127): the salted preimages make
+        // a cross-scope hash equality unreachable for honest input, but a
+        // writer could still CRAFT a text that byte-equals another scope's
+        // preimage. Refusing beats adopting the other scope's row — which
+        // would leak its document id and commit this request's extraction
+        // under the WRONG scope.
+        if ((existing.userId ?? undefined) !== (dto.userId ?? undefined)) {
+          throw new ConflictException(
+            'document content collides with an existing document in a different user scope',
+          );
+        }
         this.logger.log(
           `document dedupe hit contentHash=${contentHash.slice(0, 12)}… doc=${existing.id}`,
         );
@@ -254,6 +294,20 @@ export function sha256Hex(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
+/**
+ * Scope-salted content hash for a USER-SCOPED document (0127): the
+ * user's id frames the text, so identical text under different scopes
+ * yields different contentHash values — the UNIQUE dedupe index and the
+ * 'doc:'-prefixed originKey (0050) both become scope-local. NUL framing
+ * keeps honest inputs collision-free across scopes; the residual crafted
+ * -preimage case is refused at the dedupe seam (see createOrGet).
+ * Tenant-global documents keep the plain sha256Hex(text) — byte-identical
+ * hashes, dedupe and corroboration keys.
+ */
+export function userScopedContentHash(userId: string, text: string): string {
+  return sha256Hex(`\u0000user-scope\u0000${userId}\u0000${text}`);
+}
+
 /** 'doc:' + contentHash — the origin identity migration 0050 keys on. */
 export function originKeyOf(contentHash: string): string {
   return `doc:${contentHash}`;
@@ -275,6 +329,7 @@ function mapDoc(row: Record<string, unknown>): StoredDocument {
     recorder: row.recorder ? String(row.recorder) : undefined,
     occurredAt: new Date(row.occurredAt as string | Date),
     status: String(row.status),
+    ...(row.userId ? { userId: String(row.userId) } : {}),
     ...(row.meta && typeof row.meta === 'object'
       ? { meta: row.meta as Record<string, unknown> }
       : {}),

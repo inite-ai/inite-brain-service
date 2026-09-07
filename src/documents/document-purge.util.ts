@@ -142,13 +142,21 @@ export function exclusivityCountQuery(subjectPredicate: string): string {
 
 /**
  * Build the cascade plan. MUST run BEFORE the subject's facts are deleted:
- * source.documentId on those facts is the only document linkage, so once
- * the facts die the documents become unreachable (ordering constraint of
- * both forget services). Reads only — safe before any cap guard.
+ * source.documentId on those facts is the only fact-mediated document
+ * linkage, so once the facts die the documents become unreachable
+ * (ordering constraint of both forget services). Reads only — safe before
+ * any cap guard.
+ *
+ * `seedDocIds` (0127) adds documents the caller reached by COLUMN —
+ * user-forget passes the subject's `source_document.userId = $u` rows so
+ * a user-scoped document that committed ZERO facts (a skipped mention)
+ * still joins the cascade. Seeded docs go through the SAME exclusivity
+ * test: another subject still grounding facts in one keeps it SHARED.
  */
 export async function planDocumentCascade(
   db: QueryHandle,
   subject: ForgetSubjectKey,
+  opts?: { seedDocIds?: string[] },
 ): Promise<DocumentCascadePlan> {
   // Snapshot every doc the subject's facts ground in, deduped.
   const [docIdRows] = await db.query<[unknown[]]>(
@@ -156,9 +164,12 @@ export async function planDocumentCascade(
       WHERE (${subject.predicate}) AND source.documentId != NONE`,
     subject.params,
   );
-  const docIds = [...new Set(((docIdRows as unknown[]) ?? []).map(String))].filter((s) =>
-    s.startsWith('source_document:'),
-  );
+  const docIds = [
+    ...new Set([
+      ...((docIdRows as unknown[]) ?? []).map(String),
+      ...(opts?.seedDocIds ?? []).map(String),
+    ]),
+  ].filter((s) => s.startsWith('source_document:'));
 
   const exclusiveDocIds: string[] = [];
   const sharedDocIds: string[] = [];

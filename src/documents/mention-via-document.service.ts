@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Optional } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { MetricsService } from '../metrics/metrics.service';
 import { IngestMentionDto } from '../ingest/dto/ingest-mention.dto';
 import { DocumentIngestService } from './document-ingest.service';
@@ -20,10 +20,18 @@ export interface MentionCompatResult {
  * gains a stored document, staged candidates, and origin-keyed
  * corroboration (0050) for free.
  *
+ * Per-user scope (0127): a user-scoped mention flows through with its
+ * userId intact — the stored document, every committed fact and any
+ * projected scenes carry userId + the 0093 scope tag exactly as the
+ * direct path stamps them (facts go through the SAME
+ * fn::resolve_fact/userId machinery). Entities minted by extraction stay
+ * tenant-global on both paths (name/type nodes only).
+ *
  * Known (flag-gated) differences vs the legacy path: `knownEntities`
- * hints are not threaded into entity resolution, and skip detection for
+ * hints are not threaded into entity resolution, skip detection for
  * 'no_entities' happens AFTER the document + candidates are staged (the
- * document is the audit trail of the empty read).
+ * document is the audit trail of the empty read), and no L0 episode turn
+ * is captured — the stored document is the raw observation instead.
  */
 @Injectable()
 export class MentionViaDocumentService {
@@ -33,16 +41,12 @@ export class MentionViaDocumentService {
   ) {}
 
   async ingest(companyId: string, dto: IngestMentionDto): Promise<MentionCompatResult> {
-    // Audit 2026-08-21 P0, FAIL-CLOSED: the document pipeline does not
-    // carry per-user scope yet — refusing a user-scoped mention beats
-    // silently landing a user's memory tenant-global. M2M tenant-global
-    // traffic (no userId) is unaffected.
-    if (pinUserScope(dto.userId)) {
-      throw new BadRequestException(
-        'INGEST_MENTION_VIA_DOCUMENT does not support user-scoped ' +
-          'mentions yet — retry without the flag or without userId',
-      );
-    }
+    // Per-user scope pin at the entry (audit 2026-08-21 P0 seam, same as
+    // the legacy path): a user-bound token writes ONLY its own user's
+    // slice (mismatch 403, BEFORE any write; omitted → the token's
+    // user); M2M assertions pass through. The pipeline carries the scope
+    // end-to-end now (0127) — the pre-0127 fail-closed 400 is gone.
+    const userId = pinUserScope(dto.userId);
     if (!dto.text?.trim()) {
       this.metrics?.countIngestMention('skipped');
       return {
@@ -57,6 +61,10 @@ export class MentionViaDocumentService {
         kind: 'chat',
         text: dto.text,
         occurredAt: dto.emittedAt,
+        // The pinned per-user scope (0127) — stamps the stored document,
+        // every committed fact and any projected scenes. Absent key for
+        // tenant-global traffic keeps that path byte-identical.
+        ...(userId !== undefined ? { userId } : {}),
         contextRef: {
           vertical: dto.contextRef.vertical,
           recorder: dto.contextRef.recorder,
