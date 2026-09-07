@@ -104,14 +104,21 @@ export interface SupersessionCheck extends BaseCheck {
 }
 
 /** `cross-entity` — the module referenced by file path AND by symbol
- *  name resolves to ONE entity carrying facts from both phrasings. */
+ *  name resolves to ONE entity carrying facts from both phrasings.
+ *  Measures IDENTITY only: entity uniqueness is strict, but the marker
+ *  scan is predicate-agnostic over ALL facts of the resolved entity
+ *  (search top-facts ∪ timeline), so a split or mis-slotted fact still
+ *  proves identity as long as it is ATTACHED to the one module — slot
+ *  quality is the vocab checks' (k02–k06) scope, never double-punished
+ *  here. */
 export interface CrossEntityCheck extends BaseCheck {
   kind: 'cross-entity';
   searchQuery: string;
   /** A hit belongs to the module when its canonicalName contains ≥1. */
   nameTokens: string[];
   /** Each group is an anyOf set seeded by a DIFFERENT phrasing's turn;
-   *  the single entity must carry ≥1 fact per group. */
+   *  the single entity must carry ≥1 fact per group, under ANY
+   *  predicate (matched against the fact's predicate+object text). */
   mustCarryGroups: string[][];
 }
 

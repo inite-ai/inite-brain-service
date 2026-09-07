@@ -30,10 +30,12 @@ import { findExactPredicateFact, findNamespacedTools, type HitLike } from '../do
 import { buildChecks, buildTurns, CM, CORPUS_VERTICAL } from './corpus';
 import {
   checkBuiltinPredicates,
-  checkEntityDedup,
+  checkEntityFactGroups,
   checkNoForbiddenFact,
   checkSupersession,
   checkWhyRoundtrip,
+  resolveModuleEntity,
+  type FactText,
   type PredicateLike,
   type WhyLike,
 } from './scorers';
@@ -440,7 +442,41 @@ async function runSupersessionCheck(
 
 async function runCrossEntityCheck(ctx: CheckContext, check: CrossEntityCheck): Promise<Verdict2> {
   const hits = await searchHits(ctx, check.searchQuery, 10);
-  const verdict = checkEntityDedup(hits as HitLike[], check.nameTokens, check.mustCarryGroups);
+  const resolution = resolveModuleEntity(hits as HitLike[], check.nameTokens);
+  if (!resolution.ok) {
+    return { status: 'fail', detail: resolution.fail.detail };
+  }
+  const entity = resolution.entity;
+  // k10 measures IDENTITY — both phrasings' facts attached to the ONE
+  // resolved entity. A search hit carries only query-ranked TOP facts,
+  // which under-samples: a fact extraction split off the invariant
+  // sentence (e.g. slotted as default_value) is attached to the module
+  // yet can rank below the hit's fact cap for the module-name query
+  // (measured: run cmmtq1z412 reported [cents|line-item]=0 while the
+  // fact sat on the entity). So the marker scan runs over ALL facts
+  // ever recorded onto the entity (get_entity_timeline — the full
+  // chronological audit), unioned with the hit's facts. Slot quality
+  // is k02–k06's scope, never re-punished here.
+  const timeline = await callTool<TimelineOut>(ctx.mcp, 'get_entity_timeline', {
+    entityId: entity.entityId,
+    userId: ctx.cfg.userId,
+  });
+  const recorded: FactText[] = (timeline.events ?? [])
+    .filter((e) => e.type === 'fact.recorded')
+    .map((e) => ({ predicate: e.predicate ?? '', object: e.object ?? '' }));
+  const seen = new Set<string>();
+  const allFacts: FactText[] = [];
+  for (const fact of [...recorded, ...(entity.facts ?? [])]) {
+    const key = `${fact.predicate} ${fact.object}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    allFacts.push({ predicate: fact.predicate, object: fact.object });
+  }
+  const verdict = checkEntityFactGroups(
+    entity.canonicalName ?? entity.entityId,
+    allFacts,
+    check.mustCarryGroups,
+  );
   return { status: verdict.pass ? 'pass' : 'fail', detail: verdict.detail };
 }
 

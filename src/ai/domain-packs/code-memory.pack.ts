@@ -11,7 +11,7 @@ import { composePredicateId, type DomainPackManifest } from './manifest';
  */
 export const CODE_MEMORY_PACK: DomainPackManifest = {
   id: 'code_memory',
-  version: '0.4.2',
+  version: '0.4.3',
   description:
     'Non-derivable engineering "why" of a codebase — decisions, rationale, invariants, gotchas, ownership, flag/config defaults, dependency pins, and decision supersession anchored to code, with a domain extraction profile and memory model.',
   // Retro-declaration, documentation-true: code-memory has ALWAYS been an
@@ -97,6 +97,10 @@ ADMIT  text states the current default of a feature flag, env var, or
        "the timeout default is 10000"). Revisioned: a new default
        supersedes the old one; history is retained
 NOT FOR the value a caller passes at one call-site — only the DEFAULT
+NOT FOR prose fragments: the value must be value-shaped — a number,
+       boolean, or enum token of a NAMED flag/config. A sentence
+       fragment describing behaviour ("every duration in milliseconds")
+       is never a default; a unit/behaviour rule belongs in invariant
 VALUE  the default value, verbatim ("0", "1", "10000")`,
       datatype: 'string',
       semantics: 'single_active',
@@ -163,7 +167,14 @@ flag/config (code_memory__default_value), pinned dependency versions
 VERBATIM — "3.2.4" not "the current version", "EXTRACTOR_LITERAL_HARVEST"
 not "the harvest flag". Ownership INVERTS the surface grammar: in
 "NAME owns PATH", the owned module/path is the fact's SUBJECT (a code
-anchor) and the person or team is the VALUE of code_memory__owns.`,
+anchor) and the person or team is the VALUE of code_memory__owns.
+code_memory__default_value takes ONLY value-shaped defaults of a NAMED
+flag/config — a number, boolean, or enum token ("0", "true", "strict");
+NEVER a prose fragment: a sentence fragment describing behaviour ("every
+duration in milliseconds") must never become a default_value. A compound
+invariant — one sentence stating a rule and its negation ("X, never Y")
+— is ONE code_memory__invariant fact carrying BOTH clauses verbatim;
+never split its clauses across facts or predicates.`,
     fewShot: [
       {
         text: 'We decided to resolve all facts through one gateway in src/ingest/fact-resolver.service.ts because 21 positional args drifted between call-sites.',
@@ -194,6 +205,14 @@ anchor) and the person or team is the VALUE of code_memory__owns.`,
       {
         text: 'RateLimiter rejects a burst with 429 before the handler runs; it lives in src/gateway/rate-limiter.ts.',
         note: "the symbol 'RateLimiter' and the path 'src/gateway/rate-limiter.ts' are ONE entity — subject is the canonical path 'src/gateway/rate-limiter.ts' (the symbol is the same module, not a second entity) → code_memory__invariant='rejects a burst with 429 before the handler runs'.",
+      },
+      // 0.4.3: compound-invariant slotting (k10 battery finding, run
+      // cmmtq1z412) — a two-clause "X, never Y" invariant was split and
+      // its value-shaped-looking fragment mis-slotted as a config
+      // default. The rule and its negation are ONE invariant fact.
+      {
+        text: 'PaymentNormalizer in ledger-core stores every duration in milliseconds, never seconds.',
+        note: "a compound invariant stays ONE fact, verbatim with BOTH clauses — subject 'PaymentNormalizer' → code_memory__invariant='stores every duration in milliseconds, never seconds'. Do NOT split the clauses into separate facts, and do NOT slot the fragment 'every duration in milliseconds' as code_memory__default_value — a default is the value token ('0', 'true', 'strict') of a named flag/config, never a prose fragment.",
       },
     ],
   },

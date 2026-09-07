@@ -59,7 +59,7 @@ are unique to one turn; every `ACME_STRICT_MODE` turn is a voiced plan.
 | k07 | literal-harvest   |           | the ALL_CAPS flag / port / rate limit in coding prose produce no `identifier` / `service_port` / `rate_limit`                                     |
 | k08 | flag-transition   | yes       | no single entity timeline retains introduced-dark → enabled in order (needs the coding-verb lexicon; holder binding routes the flip to the agent) |
 | k09 | supersession-asof |           | re-`decided` leaves TWO active decisions, or the old one is unrecoverable at `asOf`, or `asOf` leaks the future                                   |
-| k10 | cross-entity      |           | the module referenced by path vs symbol splits into two entities                                                                                  |
+| k10 | cross-entity      |           | the module referenced by path vs symbol splits into two entities, or a phrasing's facts never attach to the one module (identity only: the marker scan is predicate-agnostic over ALL the entity's facts — slotting is k02-k06 scope) |
 | k11 | trace-provenance  |           | the decision fact does not unroll to the seeded turn's episode verbatim                                                                           |
 | k12 | serve             | yes       | "current default of ACME_RETRY_QUEUE" serves the stale 0/disabled or abstains — the dogfood north-star                                            |
 | k13 | serve             | yes       | "who owns src/gateway" cannot name Priya (ownership has no typed home until 0.4.0 `owns`)                                                         |
@@ -108,7 +108,13 @@ k14 is the deliberate NEGATIVE twin of k08: it must hold today (no
 coding verbs in the lexicon → nothing to guard) and keep holding after
 the lexicon lands (the 6-token pre-verb guards are then what keeps it
 green). k10 (cross-entity) is un-gated on purpose: a fail there is a
-genuine platform finding, not a known gap.
+genuine platform finding, not a known gap. It measures IDENTITY alone —
+the runner resolves the ONE named entity strictly, then scans ALL facts
+ever recorded onto it (`get_entity_timeline` ∪ the hit's top facts)
+predicate-agnostically, so a clause extraction split or mis-slotted
+still counts as long as it is ATTACHED to the module; which predicate a
+clause lands in is scored by the vocab checks (k02-k06), never
+re-punished here.
 
 ## Running against a local stand
 

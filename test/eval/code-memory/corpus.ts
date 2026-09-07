@@ -411,7 +411,10 @@ export function buildChecks(runId = ''): Check[] {
       intent:
         `The module referenced by PATH (${m.path}) and by ` +
         `SYMBOL (${m.symbol}) resolves to ONE entity carrying facts seeded by ` +
-        'both phrasings — no per-phrasing duplication.',
+        'both phrasings — no per-phrasing duplication. Identity ONLY: the marker ' +
+        'scan is predicate-agnostic over ALL facts of the resolved entity, so a ' +
+        'clause extraction split or mis-slotted still counts when it is attached ' +
+        'to the one module (slot quality is k02–k06 scope).',
       searchQuery: 'acme-api webhook dispatcher',
       nameTokens: m.nameTokens,
       mustCarryGroups: [

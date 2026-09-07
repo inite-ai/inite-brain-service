@@ -12,7 +12,8 @@
  * findNamespacedTools from test/eval/domain-packs/scorers.ts. This
  * file adds only what the code-memory claims need: the builtin-seed
  * matcher, the forbidden-transition scan (intention guard), the
- * path-vs-symbol entity dedup, and the `why` roundtrip/supersession
+ * path-vs-symbol entity identity pair (resolveModuleEntity +
+ * checkEntityFactGroups), and the `why` roundtrip/supersession
  * verdicts.
  */
 import { containsAnyOf } from '../memory-fitness/scorers';
@@ -97,40 +98,67 @@ export function checkNoForbiddenFact(
   };
 }
 
-// ── path-vs-symbol entity dedup ─────────────────────────────────────
+// ── path-vs-symbol entity identity (two-stage) ──────────────────────
+
+/** The predicate+object text of one fact, however it was slotted. */
+export interface FactText {
+  predicate: string;
+  object: string;
+}
+
+/** Stage-1 outcome: the unique module entity, or the fail verdict. */
+export type ModuleResolution = { ok: true; entity: HitLike } | { ok: false; fail: Verdict };
 
 /**
- * Cross-phrasing entity check:
- *  1. exactly ONE hit's canonicalName matches a module name token
- *     (2+ = the path phrasing and the symbol phrasing split into
- *     separate entities — the failure being measured);
- *  2. that one hit carries ≥1 fact per marker group, each group
- *     seeded by a DIFFERENT phrasing's turn.
- * The detail always carries per-group counts, so a fail is
- * diagnosable from the report alone.
+ * Stage 1 of the cross-phrasing identity check — STRICT entity
+ * uniqueness: exactly ONE hit's canonicalName matches a module name
+ * token. Zero = the module never resolved; 2+ = the path phrasing and
+ * the symbol phrasing split into separate entities — the failure being
+ * measured. The caller then gathers the resolved entity's FULL fact
+ * set (a search hit carries only query-ranked top facts) and scores it
+ * with checkEntityFactGroups.
  */
-export function checkEntityDedup(
+export function resolveModuleEntity(
   hits: readonly HitLike[],
   nameTokens: readonly string[],
-  mustCarryGroups: ReadonlyArray<readonly string[]>,
-): Verdict {
+): ModuleResolution {
   const named = hits.filter((h) => containsAnyOf(h.canonicalName ?? '', nameTokens));
-  if (named.length === 0) {
+  const first = named[0];
+  if (first === undefined) {
     return {
-      pass: false,
-      detail: `no hit named ~[${nameTokens.join('|')}] among ${hits.length} results`,
+      ok: false,
+      fail: {
+        pass: false,
+        detail: `no hit named ~[${nameTokens.join('|')}] among ${hits.length} results`,
+      },
     };
   }
   if (named.length > 1) {
     const names = named.map((h) => `"${h.canonicalName ?? h.entityId}"`).join(', ');
     return {
-      pass: false,
-      detail: `module split across ${named.length} entities: ${names}`,
+      ok: false,
+      fail: { pass: false, detail: `module split across ${named.length} entities: ${names}` },
     };
   }
-  const top = named[0];
-  if (top === undefined) return { pass: false, detail: 'unreachable: no named hit' };
-  const facts = top.facts ?? [];
+  return { ok: true, entity: first };
+}
+
+/**
+ * Stage 2 — the PREDICATE-AGNOSTIC marker scan: the resolved entity
+ * carries ≥1 fact per marker group, each group seeded by a DIFFERENT
+ * phrasing's turn. A fact counts for a group whenever the group's
+ * markers appear in its predicate+object text, WHATEVER predicate
+ * extraction slotted the clause into — a split or mis-slotted fact
+ * that is still attached to the ONE resolved entity proves identity
+ * just as well (slot quality is scored by the vocab checks k02–k06,
+ * never here). The detail always carries per-group counts, so a fail
+ * is diagnosable from the report alone.
+ */
+export function checkEntityFactGroups(
+  entityLabel: string,
+  facts: readonly FactText[],
+  mustCarryGroups: ReadonlyArray<readonly string[]>,
+): Verdict {
   const counts: number[] = mustCarryGroups.map(
     (group) => facts.filter((f) => containsAnyOf(`${f.predicate} ${f.object}`, group)).length,
   );
@@ -138,16 +166,12 @@ export function checkEntityDedup(
   if (counts.every((n) => n > 0)) {
     return {
       pass: true,
-      detail:
-        `one entity "${top.canonicalName ?? top.entityId}" carries both phrasings: ` +
-        `${summary} of ${facts.length} facts`,
+      detail: `one entity "${entityLabel}" carries both phrasings: ${summary} of ${facts.length} facts`,
     };
   }
   return {
     pass: false,
-    detail:
-      `entity "${top.canonicalName ?? top.entityId}" misses a phrasing's facts: ` +
-      `${summary} of ${facts.length} facts`,
+    detail: `entity "${entityLabel}" misses a phrasing's facts: ${summary} of ${facts.length} facts`,
   };
 }
 
