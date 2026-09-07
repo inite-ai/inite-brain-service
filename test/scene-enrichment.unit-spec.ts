@@ -13,11 +13,15 @@ import type { ConfigService } from '@nestjs/config';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { EpisodeReadStoreService } from '../src/episodes/episode-read-store.service';
 import {
+  mergePredictionError,
   parseSceneEnrichment,
   sceneEnrichmentVersion,
   SceneEnricherService,
+  SCENE_ENRICHMENT_SYSTEM,
+  SCENE_ENRICHMENT_SYSTEM_V2,
   SCENE_SCORER_LLM_VERSION,
 } from '../src/admin/scene-enricher.service';
+import { SCENE_BASELINE_VERSION } from '../src/admin/scene-prediction-baseline';
 import { matchFactsToScene } from '../src/admin/scene-backlink.service';
 import { SEGMENTER_VERSION } from '../src/admin/scene-segmentation';
 import type { SceneVersionService } from '../src/admin/scene-version';
@@ -95,6 +99,37 @@ describe('sceneEnrichmentVersion', () => {
       'scene-gist-v1|scene-scorer-llm-v1|gpt-4o-mini',
     );
   });
+
+  it('names the prediction prompt AND both scorers with the baseline on', () => {
+    expect(sceneEnrichmentVersion('gpt-4o-mini', true)).toBe(
+      'scene-gist-v2|scene-scorer-llm-v1+scene-scorer-v1|gpt-4o-mini',
+    );
+    // Flipping the flag either way changes the idempotency key, so a
+    // mixed world can never hide behind one stamp.
+    expect(sceneEnrichmentVersion('m', true)).not.toBe(sceneEnrichmentVersion('m', false));
+  });
+});
+
+describe('mergePredictionError', () => {
+  const guessed = { ...WELL_FORMED.memoryValue };
+
+  it('overwrites only the dimensions actually measured', () => {
+    const merged = mergePredictionError(guessed, { contradiction: 1, identity: 0.5 });
+    expect(merged.contradiction).toBe(1);
+    expect(merged.identity).toBe(0.5);
+    // Untouched: the model still owns these.
+    expect(merged.stateChange).toBe(guessed.stateChange);
+    expect(merged.novelty).toBe(guessed.novelty);
+    expect(merged.estimatedUtility).toBe(guessed.estimatedUtility);
+  });
+
+  it('never turns an UNMEASURED dimension into a confident zero', () => {
+    expect(mergePredictionError({ ...guessed, contradiction: 0.42 }, {}).contradiction).toBe(0.42);
+  });
+
+  it('clamps a measured dimension into [0,1]', () => {
+    expect(mergePredictionError(guessed, { stateChange: 4 }).stateChange).toBe(1);
+  });
 });
 
 describe('matchFactsToScene', () => {
@@ -126,19 +161,33 @@ describe('SceneEnricherService degrade contract (scripted provider)', () => {
 
   interface Captured {
     updates: Array<{ sql: string; params: Record<string, unknown> }>;
+    queries: string[];
+    prompts: Array<{ system: string; user: string }>;
     modelCalls: number;
+  }
+
+  interface BuildOpts {
+    sceneEnrichmentVersion?: string;
+    /** Scope stamps on the single fake scene (default: single-user u1). */
+    scope?: Record<string, unknown>;
+    /** Rows the semantic_belief read returns (default: none). */
+    beliefs?: Array<Record<string, unknown>>;
   }
 
   function build(
     reply: string,
-    opts: { sceneEnrichmentVersion?: string } = {},
+    opts: BuildOpts = {},
   ): { svc: SceneEnricherService; captured: Captured } {
-    const captured: Captured = { updates: [], modelCalls: 0 };
+    const captured: Captured = { updates: [], queries: [], prompts: [], modelCalls: 0 };
     const fakeDb = {
       query: async (sql: string, params?: Record<string, unknown>) => {
+        captured.queries.push(sql);
         if (sql.includes('UPDATE $scene')) {
           captured.updates.push({ sql, params: params ?? {} });
           return [[]];
+        }
+        if (sql.includes('FROM semantic_belief')) {
+          return [opts.beliefs ?? []];
         }
         if (sql.includes('FROM memory_episode_member')) {
           return [[{ out: 'episode:e1', ord: 0 }]];
@@ -149,6 +198,7 @@ describe('SceneEnricherService degrade contract (scripted provider)', () => {
               {
                 id: 'memory_episode:s1',
                 conversationIds: ['conv'],
+                ...(opts.scope ?? { userId: 'u1', userIds: ['u1'] }),
                 ...(opts.sceneEnrichmentVersion !== undefined
                   ? { enrichmentVersion: opts.sceneEnrichmentVersion }
                   : {}),
@@ -183,8 +233,12 @@ describe('SceneEnricherService degrade contract (scripted provider)', () => {
     (svc as unknown as { openai: unknown }).openai = {
       chat: {
         completions: {
-          create: async () => {
+          create: async (req: { messages: Array<{ role: string; content: string }> }) => {
             captured.modelCalls += 1;
+            captured.prompts.push({
+              system: req.messages.find((m) => m.role === 'system')?.content ?? '',
+              user: req.messages.find((m) => m.role === 'user')?.content ?? '',
+            });
             return { choices: [{ message: { content: reply } }] };
           },
         },
@@ -260,5 +314,249 @@ describe('SceneEnricherService degrade contract (scripted provider)', () => {
     } finally {
       process.env.SCENES_LLM_ENRICHMENT = '1';
     }
+  });
+
+  // ── SCENES_PREDICTION_BASELINE OFF: byte-identical pins ──────────────
+  it('with the prediction baseline OFF: no belief query, v1 prompt, no baselineRef', async () => {
+    const { svc, captured } = build(JSON.stringify(WELL_FORMED));
+    await svc.enrich('co_test');
+    // Zero extra queries — the belief substrate is never touched.
+    expect(captured.queries.some((q) => q.includes('semantic_belief'))).toBe(false);
+    // The scene SELECT projection is byte-identical (no scope columns).
+    const select = captured.queries.find((q) => q.includes('FROM memory_episode\n'))!;
+    expect(select).toBe(
+      `SELECT id, conversationIds, enrichmentVersion FROM memory_episode\n` +
+        `          WHERE segmenterVersion = $v`,
+    );
+    // The prompt is byte-identical: v1 system, bare transcript user turn.
+    expect(captured.prompts[0]!.system).toBe(SCENE_ENRICHMENT_SYSTEM);
+    expect(captured.prompts[0]!.user).toBe(
+      'Scene transcript:\n(2026-02-01 10:00) mika: I booked the morning flight to Lisbon.',
+    );
+    // The UPDATE is byte-identical and the row shape unchanged.
+    const { sql, params } = captured.updates[0]!;
+    expect(sql).not.toContain('baselineRef');
+    expect(sql.endsWith('enrichedAt = time::now()')).toBe(true);
+    expect(params.baselineRef).toBeUndefined();
+    expect((params.memoryValue as Record<string, unknown>).scorerVersion).toBe(
+      SCENE_SCORER_LLM_VERSION,
+    );
+    expect(params.enrichmentVersion).toBe('scene-gist-v1|scene-scorer-llm-v1|gpt-4o-mini');
+  });
+});
+
+/**
+ * SCENES_PREDICTION_BASELINE on: the expectation snapshot reaches the
+ * prompt, the deterministic scorer overrides the model's guessed
+ * dimensions, the snapshot is stamped as baselineRef, and no scene is
+ * ever scored against another user's beliefs.
+ */
+describe('SceneEnricherService prediction baseline (scripted provider)', () => {
+  const savedEnrich = process.env.SCENES_LLM_ENRICHMENT;
+  const savedBaseline = process.env.SCENES_PREDICTION_BASELINE;
+  beforeAll(() => {
+    process.env.SCENES_LLM_ENRICHMENT = '1';
+    process.env.SCENES_PREDICTION_BASELINE = '1';
+  });
+  afterAll(() => {
+    for (const [k, v] of [
+      ['SCENES_LLM_ENRICHMENT', savedEnrich],
+      ['SCENES_PREDICTION_BASELINE', savedBaseline],
+    ] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+
+  interface Captured {
+    updates: Array<{ sql: string; params: Record<string, unknown> }>;
+    queries: string[];
+    prompts: Array<{ system: string; user: string }>;
+  }
+
+  const BELIEF_ROW = {
+    id: 'semantic_belief:b1',
+    userId: 'u1',
+    subject: 'mika',
+    field: 'trip.flight',
+    value: 'cancelled',
+    revision: 2,
+  };
+
+  function build(opts: {
+    reply?: string;
+    scope?: Record<string, unknown>;
+    beliefs?: Array<Record<string, unknown>>;
+  }): { svc: SceneEnricherService; captured: Captured } {
+    const captured: Captured = { updates: [], queries: [], prompts: [] };
+    const fakeDb = {
+      query: async (sql: string, params?: Record<string, unknown>) => {
+        captured.queries.push(sql);
+        if (sql.includes('UPDATE $scene')) {
+          captured.updates.push({ sql, params: params ?? {} });
+          return [[]];
+        }
+        if (sql.includes('FROM semantic_belief')) return [opts.beliefs ?? []];
+        if (sql.includes('FROM memory_episode_member')) return [[{ out: 'episode:e1', ord: 0 }]];
+        if (sql.includes('FROM memory_episode')) {
+          return [
+            [
+              {
+                id: 'memory_episode:s1',
+                conversationIds: ['conv'],
+                ...(opts.scope ?? { userId: 'u1', userIds: ['u1'] }),
+              },
+            ],
+          ];
+        }
+        throw new Error(`unexpected query: ${sql}`);
+      },
+    };
+    const svc = new SceneEnricherService(
+      {
+        withCompany: (_c: string, fn: (db: unknown) => Promise<unknown>) => fn(fakeDb),
+      } as unknown as SurrealService,
+      { get: (_k: string, d?: unknown) => d } as unknown as ConfigService,
+      {
+        conversationTurnsRaw: async () => [
+          {
+            id: 'episode:e1',
+            speaker: 'mika',
+            text: 'I booked the morning flight to Lisbon.',
+            occurredAt: '2026-02-01T10:00:00.000Z',
+          },
+        ],
+      } as unknown as EpisodeReadStoreService,
+      {
+        resolve: () => ({
+          version: SEGMENTER_VERSION,
+          cfg: { topicBoundary: false, minCosine: 0.55, maxTurns: 40, embeddingSpaceId: null },
+        }),
+      } as unknown as SceneVersionService,
+    );
+    (svc as unknown as { openai: unknown }).openai = {
+      chat: {
+        completions: {
+          create: async (req: { messages: Array<{ role: string; content: string }> }) => {
+            captured.prompts.push({
+              system: req.messages.find((m) => m.role === 'system')?.content ?? '',
+              user: req.messages.find((m) => m.role === 'user')?.content ?? '',
+            });
+            return {
+              choices: [{ message: { content: opts.reply ?? JSON.stringify(WELL_FORMED) } }],
+            };
+          },
+        },
+      },
+    };
+    return { svc, captured };
+  }
+
+  const memoryValue = (c: Captured): Record<string, unknown> =>
+    c.updates[0]!.params.memoryValue as Record<string, unknown>;
+
+  it('projects the scope columns and renders the baseline into the v2 prompt', async () => {
+    const { svc, captured } = build({ beliefs: [BELIEF_ROW] });
+    await svc.enrich('co_test');
+    const select = captured.queries.find((q) => q.includes('FROM memory_episode\n'))!;
+    expect(select).toContain('userId, userIds');
+    expect(captured.prompts[0]!.system).toBe(SCENE_ENRICHMENT_SYSTEM_V2);
+    expect(captured.prompts[0]!.user).toContain('Current model of the world');
+    expect(captured.prompts[0]!.user).toContain('- mika | trip.flight = cancelled (revision 2)');
+    expect(captured.prompts[0]!.user).toContain('Scene transcript:');
+  });
+
+  it('MEASURES contradiction against the baseline, overriding the model’s guess', async () => {
+    // The model guessed contradiction 0; the belief says the flight was
+    // cancelled and the delta says booked — a measured full deviation.
+    const { svc, captured } = build({ beliefs: [BELIEF_ROW] });
+    await svc.enrich('co_test');
+    const mv = memoryValue(captured);
+    expect(WELL_FORMED.memoryValue.contradiction).toBe(0); // the guess
+    expect(mv.contradiction).toBe(1); // the measurement
+    expect(mv.scorerVersion).toBe('scene-scorer-llm-v1+scene-scorer-v1');
+    // Baseline-free dimensions are measured too; the rest stay the model's.
+    expect(mv.stateChange).toBe(1); // 1 delta / 1 turn, saturated
+    expect(mv.identity).toBe(1); // the delta is about the speaker
+    expect(mv.novelty).toBeCloseTo(WELL_FORMED.memoryValue.novelty);
+    expect(mv.estimatedUtility).toBeCloseTo(WELL_FORMED.memoryValue.estimatedUtility);
+  });
+
+  it('measures NO contradiction when the delta agrees with the belief', async () => {
+    const { svc, captured } = build({ beliefs: [{ ...BELIEF_ROW, value: 'Booked ' }] });
+    await svc.enrich('co_test');
+    expect(memoryValue(captured).contradiction).toBe(0);
+  });
+
+  it('keeps the model’s guess when there is nothing to measure against', async () => {
+    const reply = JSON.stringify({
+      ...WELL_FORMED,
+      memoryValue: { ...WELL_FORMED.memoryValue, contradiction: 0.42 },
+    });
+    const { svc, captured } = build({ reply, beliefs: [] });
+    await svc.enrich('co_test');
+    // An unknown baseline is NOT a confident zero — the guess survives.
+    expect(memoryValue(captured).contradiction).toBeCloseTo(0.42);
+    expect(captured.prompts[0]!.user).toContain('nothing is known');
+  });
+
+  it('stamps the expectation snapshot as baselineRef without touching the originals', async () => {
+    const { svc, captured } = build({ beliefs: [BELIEF_ROW] });
+    await svc.enrich('co_test');
+    const { sql, params } = captured.updates[0]!;
+    // The revision-column contract is unchanged in shape: still only the
+    // enriched* siblings + stamps, plus the appended baselineRef.
+    expect(sql).toContain('enrichedGist = $gist');
+    expect(sql).toContain('enrichedMemoryValue = $memoryValue');
+    expect(sql).toContain('baselineRef = $baselineRef');
+    expect(sql).not.toMatch(/\bgist\s*=/);
+    expect(sql).not.toMatch(/\bmemoryValue\s*=/);
+    expect(sql).not.toContain('gistPromptVersion');
+    expect(params.baselineRef).toMatchObject({
+      baselineVersion: SCENE_BASELINE_VERSION,
+      beliefs: [
+        {
+          id: 'semantic_belief:b1',
+          subject: 'mika',
+          field: 'trip.flight',
+          value: 'cancelled',
+          revision: 2,
+        },
+      ],
+    });
+    expect(typeof (params.baselineRef as Record<string, unknown>).stampedAt).toBe('string');
+    expect(params.enrichmentVersion).toBe(
+      'scene-gist-v2|scene-scorer-llm-v1+scene-scorer-v1|gpt-4o-mini',
+    );
+  });
+
+  it.each([
+    ['mixed-user', { userId: 'u1', userIds: ['u1', 'u2'] }],
+    ['tenant-global', { userIds: [] }],
+    ['legacy (no userIds)', { userId: 'u1' }],
+  ])('never scores a %s scene against anyone’s beliefs (#387 fence)', async (_label, scope) => {
+    const { svc, captured } = build({ scope, beliefs: [BELIEF_ROW] });
+    await svc.enrich('co_test');
+    // The fenced-out scene contributes no userId, so the belief read is
+    // never even issued — zero chance of a foreign baseline.
+    expect(captured.queries.some((q) => q.includes('semantic_belief'))).toBe(false);
+    expect(captured.prompts[0]!.user).toContain('nothing is known');
+    expect(captured.prompts[0]!.user).not.toContain('cancelled');
+    // Nothing measurable ⇒ the model's contradiction guess is untouched.
+    expect(memoryValue(captured).contradiction).toBe(0);
+    expect((captured.updates[0]!.params.baselineRef as { beliefs: unknown[] }).beliefs).toEqual([]);
+  });
+
+  it('does not read beliefs of a DIFFERENT user even when the tenant has them', async () => {
+    // The read is fenced to the scene's own user; a row for another user
+    // that slipped into the result set must not land in the baseline.
+    const { svc, captured } = build({
+      beliefs: [{ ...BELIEF_ROW, userId: 'u2', value: 'other-user-secret' }],
+    });
+    await svc.enrich('co_test');
+    const beliefQuery = captured.queries.find((q) => q.includes('semantic_belief'))!;
+    expect(beliefQuery).toContain('userId INSIDE $userIds');
+    expect(captured.prompts[0]!.user).not.toContain('other-user-secret');
+    expect((captured.updates[0]!.params.baselineRef as { beliefs: unknown[] }).beliefs).toEqual([]);
   });
 });

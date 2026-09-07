@@ -188,7 +188,19 @@ const FIRST_PERSON_PATTERNS: readonly RegExp[] = [
  *    no priors the scene is maximally novel (1).
  *  - explicitness: fraction of member turns carrying a first-person
  *    declarative marker (FIRST_PERSON_PATTERNS).
- *  - every other dimension stays undefined until a paid scorer exists.
+ *  - every other dimension stays undefined here.
+ *
+ * THE OTHER DIMENSIONS NOW HAVE A PRODUCER, just not at compose time.
+ * contradiction / stateChange / identity are measured from the scene's
+ * stateDeltas against an expectation snapshot of the user's ACTIVE
+ * beliefs — neither of which exists yet when this runs (stateDeltas are
+ * enrichment-owned, migration 0118, and a scene has not been read here).
+ * That scorer is `scorePredictionError` (scene-prediction-baseline.ts,
+ * SCENE_PREDICTION_SCORER_VERSION 'scene-scorer-v1'); the enricher runs
+ * it and lands the result in `enrichedMemoryValue`, because 0118 makes
+ * this deterministic vector immutable post-compose. It costs nothing —
+ * no model call — it simply cannot run this early.
+ *
  * Stamps scorerVersion + scoredAt so mixed-scorer worlds stay auditable.
  */
 export function scoreSceneDeterministic(
