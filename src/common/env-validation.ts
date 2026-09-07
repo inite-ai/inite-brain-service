@@ -247,6 +247,11 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   floatInRange(env, 'SCENES_TOPIC_MIN_COSINE', -1, 1, errors);
   // Belief promotion floor (Belief-A, migration 0120): 0 = off.
   nonNegativeInt(env, 'SCENES_BELIEF_MIN_SCENES', errors);
+  // Scheduled maintenance budgets (migration 0130): the nightly pass
+  // clamps bad values to defaults at read time; boot validation catches
+  // the typo before an unbounded-looking knob silently reads as 200/30min.
+  positiveInt(env, 'SCENES_MAINTENANCE_MAX_CONVERSATIONS', errors);
+  positiveInt(env, 'SCENES_MAINTENANCE_TIME_BUDGET_MS', errors);
 
   // ── Evidence substrate (Brain v2.1 M1, migration 0109) ─────────────
   // The write seam clamps bad values to the default at read time; boot
@@ -1065,6 +1070,16 @@ const KNOWN_BOOLEAN_FLAGS = [
   // segmenter is session-gap + max-turns only (embedder-free). The
   // cosine floor (SCENES_TOPIC_MIN_COSINE) is a float, not a boolean.
   'SCENES_TOPIC_BOUNDARY',
+  // Scheduled scene maintenance (migration 0130): the nightly 04:20 UTC
+  // cron that runs the scene chain (compose → enrich → backlink →
+  // evidence links → beliefs) over the DIRTY conversations of every
+  // tenant, plus the ingest-side dirty mark that feeds it. Default off ⇒
+  // the cron returns before a single query and NO scene_dirty_conversation
+  // row is ever written — byte-identical prod; the admin routes are the
+  // only trigger, exactly as before. The budgets
+  // (SCENES_MAINTENANCE_MAX_CONVERSATIONS, _TIME_BUDGET_MS) are ints, not
+  // booleans.
+  'SCENES_SCHEDULED_MAINTENANCE',
   // Scenes LLM enrichment (Brain v2 PR2): the optional post-swap pass —
   // ONE structured LLM call per scene replacing the deterministic gist
   // with an abstractive one and filling the full memoryValue vector +

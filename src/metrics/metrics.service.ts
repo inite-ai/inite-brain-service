@@ -46,6 +46,9 @@ export interface MemoryQualitySnapshot {
  *   - multi_hop_total{outcome}                — ok|single_hop|chain_empty|no_results|planner_error|hop_error
  *   - dreams_total{outcome}                   — ok|failed
  *   - dreams_emitted_total{kind}              — identity_link|resolution|summary
+ *   - scene_maintenance_total{outcome}        — ok|failed|skipped_no_dirty|skipped_budget
+ *   - scene_maintenance_emitted_total{kind}   — conversation|scene|enriched|belief|dirty_cleared
+ *   - scene_maintenance_duration_seconds      — histogram, per-tenant pass
  *   - retract_total / forget_total            — counters
  *   - compaction_facts_total                  — counter, summed across tenants
  *   - openai_tokens_total{kind, type}         — embed|chat × prompt|completion
@@ -154,6 +157,57 @@ export class MetricsService implements OnModuleInit {
     name: 'brain_multi_hop_total',
     help: 'Multi-hop search invocations by outcome',
     labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
+  // Scheduled scene maintenance (SCENES_SCHEDULED_MAINTENANCE, migration
+  // 0130). Until this pass existed the whole episodic/semantic plane was
+  // unobservable: scenes only appeared when an operator curled the admin
+  // route, so there was nothing periodic to alert on. Per-TENANT outcomes:
+  //   ok               — the tenant pass composed its dirty page
+  //   skipped_no_dirty — no conversation had moved since the last pass
+  //                      (the steady state on a quiet tenant, and the
+  //                      series that proves the dirty trigger works: if
+  //                      this never fires, the marks are not being cleared)
+  //   skipped_budget   — the run's wall-clock budget expired before this
+  //                      tenant started; its marks wait for tomorrow
+  //   failed           — the tenant threw; the roster continued
+  // No companyId label (unbounded cardinality — the same rule as every
+  // other domain counter here); per-tenant detail is cut from log lines.
+  readonly sceneMaintenanceCount = new Counter({
+    name: 'brain_scene_maintenance_total',
+    help: 'Scheduled scene-maintenance tenant passes by outcome',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
+  // What the pass actually produced, by kind:
+  //   conversation — dirty conversations composed
+  //   scene        — scenes written by the swap
+  //   enriched     — scenes the LLM enrichment pass re-wrote (the paid leg;
+  //                  watch this against `scene` to see the idempotent skip
+  //                  working — a steady enriched≈scene ratio on unchanged
+  //                  input means the enrichmentVersion composite moved)
+  //   belief       — semantic_belief upserts (created + revised +
+  //                  corroborated) the promotion leg landed
+  //   dirty_cleared— marks retired after a successful swap. dirty_cleared
+  //                  lagging `conversation` means turns kept landing during
+  //                  the pass (the race fence), not that marks are leaking.
+  readonly sceneMaintenanceEmitted = new Counter({
+    name: 'brain_scene_maintenance_emitted_total',
+    help: 'Scheduled scene-maintenance artefacts by kind',
+    labelNames: ['kind'] as const,
+    registers: [this.registry],
+  });
+
+  // Per-TENANT pass latency. Buckets run to 30 min because the pass is
+  // budgeted in that unit (SCENES_MAINTENANCE_TIME_BUDGET_MS defaults to
+  // 30 min for the whole roster) — a single tenant approaching the top
+  // bucket is the signal that its per-run conversation cap is too high.
+  readonly sceneMaintenanceDuration = new Histogram({
+    name: 'brain_scene_maintenance_duration_seconds',
+    help: 'Scheduled scene-maintenance per-tenant pass latency in seconds',
+    buckets: [0.5, 2, 10, 30, 120, 300, 900, 1800],
     registers: [this.registry],
   });
 
@@ -959,6 +1013,23 @@ export class MetricsService implements OnModuleInit {
 
   countCommitMemory(outcome: 'ok' | 'noop' | 'failed'): void {
     this.commitMemoryCount.inc({ outcome } as LabelValues<'outcome'>);
+  }
+
+  countSceneMaintenance(outcome: 'ok' | 'failed' | 'skipped_no_dirty' | 'skipped_budget'): void {
+    this.sceneMaintenanceCount.inc({ outcome } as LabelValues<'outcome'>);
+  }
+
+  countSceneMaintenanceEmitted(
+    kind: 'conversation' | 'scene' | 'enriched' | 'belief' | 'dirty_cleared',
+    n = 1,
+  ): void {
+    if (n > 0) {
+      this.sceneMaintenanceEmitted.inc({ kind } as LabelValues<'kind'>, n);
+    }
+  }
+
+  observeSceneMaintenanceDuration(seconds: number): void {
+    this.sceneMaintenanceDuration.observe(seconds);
   }
 
   /**

@@ -6,6 +6,8 @@ import { detectLanguage } from '../ai/locale/language-detector';
 import { redactPiiWithReport } from './ingest-utils';
 import { scopeForUser } from '../auth/scope-tags';
 import { sanitizeIngestText } from '../common/text-sanitizer';
+import { markConversationDirty, type SceneDirtyDb } from '../common/scene-dirty';
+import { sceneScheduledMaintenanceEnabled, sceneSegmentationEnabled } from '../common/scene-flags';
 import type { IngestMentionDto, KnownEntity } from './dto/ingest-mention.dto';
 
 /**
@@ -20,6 +22,11 @@ import type { IngestMentionDto, KnownEntity } from './dto/ingest-mention.dto';
  *    messageId) index — retries and replays are safe);
  *  - non-fatal (any failure is a warn; the fact pipeline must not depend on
  *    the substrate while it is flag-gated).
+ *
+ * Also the scene staleness seam (migration 0130, SCENES_SCHEDULED_MAINTENANCE,
+ * default off): the same call marks the turn's conversation dirty so the
+ * nightly scene pass recomposes what MOVED instead of enumerating every
+ * conversation that exists. Own try/catch, own flag pair — see markSceneDirty.
  */
 @Injectable()
 export class EpisodeStoreService {
@@ -98,6 +105,20 @@ export class EpisodeStoreService {
             row,
           },
         );
+        // Scene staleness trigger (migration 0130): this is the one place
+        // that already knows "conversation X just received a turn", which
+        // is exactly the predicate the nightly scene pass needs so it can
+        // recompose what moved instead of the whole corpus. One UPSERT on a
+        // primary key, and only when BOTH the scenes master flag and
+        // SCENES_SCHEDULED_MAINTENANCE are on — marks must never accumulate
+        // for a composer that is switched off, and with either flag off no
+        // scene_dirty_conversation row is ever written.
+        //
+        // Marked on the duplicate path too, deliberately: an INSERT IGNORE
+        // that matched an existing turn tells us nothing about whether the
+        // SCENE world already covers it (a replay after a failed compose is
+        // the normal case), and a redundant recompose is idempotent.
+        await this.markSceneDirty(db, row.conversationId);
         const created = rows?.[0]?.id;
         if (created !== undefined && created !== null) return String(created);
         // Duplicate (INSERT IGNORE returned no row): recover the existing
@@ -122,6 +143,29 @@ export class EpisodeStoreService {
     } catch (e) {
       this.logger.warn(`episode capture failed (companyId=${companyId}): ${(e as Error).message}`);
       return null;
+    }
+  }
+
+  /**
+   * Mark the conversation for the nightly scene pass. Its own try/catch,
+   * NOT the caller's: capture already succeeded at this point, and a mark
+   * failure must not turn a stored turn into a `null` return — that return
+   * is what the EVIDENCE_FAIL_CLOSED_CAPTURE path reads to reject the whole
+   * mention. Worst case of a swallowed failure is a conversation whose
+   * scenes are one pass stale; the operator's full rebuild still fixes it.
+   *
+   * A turn with no conversationId (the field is optional) has nothing to
+   * mark — scenes are keyed by conversation.
+   */
+  private async markSceneDirty(db: SceneDirtyDb, conversationId?: string): Promise<void> {
+    if (conversationId === undefined) return;
+    if (!sceneSegmentationEnabled() || !sceneScheduledMaintenanceEnabled()) return;
+    try {
+      await markConversationDirty(db, conversationId);
+    } catch (e) {
+      this.logger.warn(
+        `scene dirty mark failed (conversationId=${conversationId}): ${(e as Error).message}`,
+      );
     }
   }
 

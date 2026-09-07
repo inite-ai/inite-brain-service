@@ -55,7 +55,42 @@ export function meanVector(vectors: number[][]): number[] {
 }
 
 /**
- * Pure: split ONE session's time-ordered turns into scenes.
+ * How ONE scene edge came to be. Two families, and the distinction is the
+ * whole point of the confidence derivation below:
+ *
+ *  - 'session'   — the session gap (or the conversation's own start/end).
+ *                  Sessions are pre-split upstream by segmentSessions, so
+ *                  every scene at a session edge inherits that exact rule.
+ *  - 'max-turns' — the SCENES_MAX_TURNS cap fired. Also an exact rule: the
+ *                  scene reached N turns, which is not a judgement call.
+ *  - 'topic-cosine' — the embedding-based within-session split fired, i.e.
+ *                  cosine(mean of the trailing turns, next turn) fell below
+ *                  the floor. The ONLY inexact edge the segmenter can make,
+ *                  and it carries the cosine that fired it.
+ */
+export type SceneBoundaryKind = 'session' | 'max-turns' | 'topic-cosine';
+
+export interface SceneBoundary {
+  kind: SceneBoundaryKind;
+  /** The cosine that fired a 'topic-cosine' split; absent for exact rules. */
+  cosine?: number;
+}
+
+/** One scene plus the two edges that delimit it. */
+export interface SceneSegment<T extends SceneTurnRow> {
+  turns: T[];
+  startBoundary: SceneBoundary;
+  endBoundary: SceneBoundary;
+}
+
+const SESSION_BOUNDARY: SceneBoundary = { kind: 'session' };
+
+/**
+ * Pure: split ONE session's time-ordered turns into scenes, KEEPING the
+ * rule that made each edge (the confidence input — see
+ * `deriveSceneConfidence`). `detectSceneBoundaries` is the turns-only
+ * projection of this function and stays the shape every existing caller
+ * uses; the segmentation itself is byte-identical between the two.
  *
  *  - Without embeddings: a single scene, force-split at maxTurns — the
  *    session gap (handled upstream by segmentSessions) is the only
@@ -66,20 +101,22 @@ export function meanVector(vectors: number[][]): number[] {
  *    never leaving a scene shorter than MIN_SCENE_TURNS.
  *  - Always force-split at maxTurns, embeddings or not.
  */
-export function detectSceneBoundaries<T extends SceneTurnRow>(
+export function detectSceneSegments<T extends SceneTurnRow>(
   sessionTurns: T[],
   embeddings: Array<number[] | undefined> | undefined,
   opts: SceneBoundaryOpts,
-): T[][] {
+): Array<SceneSegment<T>> {
   if (sessionTurns.length === 0) return [];
   const maxTurns = Math.max(1, Math.floor(opts.maxTurns));
-  const scenes: T[][] = [];
+  const segments: Array<SceneSegment<T>> = [];
   let current: T[] = [sessionTurns[0]!];
   let currentStart = 0;
+  // The first scene of a session begins at the session edge by construction.
+  let startBoundary: SceneBoundary = SESSION_BOUNDARY;
   for (let i = 1; i < sessionTurns.length; i++) {
-    let boundary = false;
+    let boundary: SceneBoundary | undefined;
     if (current.length >= maxTurns) {
-      boundary = true;
+      boundary = { kind: 'max-turns' };
     } else if (embeddings && current.length >= MIN_SCENE_TURNS) {
       const tailFrom = Math.max(currentStart, i - TOPIC_TAIL_TURNS);
       const tail: number[][] = [];
@@ -89,18 +126,85 @@ export function detectSceneBoundaries<T extends SceneTurnRow>(
       }
       const next = embeddings[i];
       if (tail.length > 0 && next) {
-        boundary = cosineSimilarity(meanVector(tail), next) < opts.minCosine;
+        const cosine = cosineSimilarity(meanVector(tail), next);
+        if (cosine < opts.minCosine) boundary = { kind: 'topic-cosine', cosine };
       }
     }
     if (boundary) {
-      scenes.push(current);
+      // One edge, two scenes: it ends the current scene and starts the next.
+      segments.push({ turns: current, startBoundary, endBoundary: boundary });
+      startBoundary = boundary;
       current = [];
       currentStart = i;
     }
     current.push(sessionTurns[i]!);
   }
-  scenes.push(current);
-  return scenes;
+  segments.push({ turns: current, startBoundary, endBoundary: SESSION_BOUNDARY });
+  return segments;
+}
+
+/** Pure: `detectSceneSegments` without the edge provenance. */
+export function detectSceneBoundaries<T extends SceneTurnRow>(
+  sessionTurns: T[],
+  embeddings: Array<number[] | undefined> | undefined,
+  opts: SceneBoundaryOpts,
+): T[][] {
+  return detectSceneSegments(sessionTurns, embeddings, opts).map((s) => s.turns);
+}
+
+/**
+ * Pure: how sure the segmenter is about ONE edge, in [0.5, 1].
+ *
+ * CASE 1 — an EXACT rule made it ('session', 'max-turns'): confidence 1.
+ * This is not optimism, it is arithmetic. "The gap between these turns
+ * exceeded 60 minutes" and "this scene reached SCENES_MAX_TURNS turns" are
+ * propositions the segmenter evaluates with certainty; there is no model in
+ * the loop to be unsure about. A number below 1 there would be a made-up
+ * discount on a decision that cannot be wrong on its own terms.
+ *
+ * CASE 2 — the topic-cosine split made it: the edge exists because the
+ * cosine fell BELOW the floor, so how far below is exactly how strong the
+ * evidence was. The margin is `minCosine - cosine`, and the widest margin
+ * the test can ever produce is `minCosine - (-1)`; the ratio is mapped onto
+ * [0.5, 1]:
+ *
+ *     confidence = 0.5 + 0.5 · (minCosine − cosine) / (minCosine + 1)
+ *
+ * A split that barely cleared the floor lands at ~0.5 — the boundary is a
+ * coin-flip and the row now says so. A split between genuinely opposed
+ * turns approaches 1. The floor of 0.5 is deliberate: the rule DID fire, so
+ * the edge is never evidence AGAINST itself.
+ */
+export function boundaryConfidence(boundary: SceneBoundary, minCosine: number): number {
+  if (boundary.kind !== 'topic-cosine' || boundary.cosine === undefined) return 1;
+  const span = minCosine + 1;
+  // Unreachable in practice (cosine ≥ -1 can never fall below a -1 floor),
+  // but a zero-width span must not produce a division by zero.
+  if (span <= 0) return 1;
+  const derived = 0.5 + (0.5 * (minCosine - boundary.cosine)) / span;
+  return Math.min(1, Math.max(0.5, derived));
+}
+
+/**
+ * Pure: the scene's own confidence — the WEAKER of its two edges, because a
+ * scene is only as well-delimited as its shakiest boundary.
+ *
+ * With SCENES_TOPIC_BOUNDARY off no cosine edge can exist (no embedding is
+ * ever taken), so every scene is delimited by session gaps and the turn cap
+ * alone and this returns exactly 1 for all of them — byte-identical to the
+ * hardcoded `confidence: 1` the composer wrote before the derivation
+ * existed. With the boundary on, only scenes that an actual cosine split
+ * touched move off 1.
+ */
+export function deriveSceneConfidence<T extends SceneTurnRow>(
+  segment: SceneSegment<T>,
+  opts: { minCosine: number; topicBoundary: boolean },
+): number {
+  if (!opts.topicBoundary) return 1;
+  return Math.min(
+    boundaryConfidence(segment.startBoundary, opts.minCosine),
+    boundaryConfidence(segment.endBoundary, opts.minCosine),
+  );
 }
 
 /**

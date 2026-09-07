@@ -46,6 +46,7 @@ import { SegmentComposerService } from './segment-composer.service';
 import { SegmentBackfillService } from './segment-backfill.service';
 import { AdminScenesController } from './admin-scenes.controller';
 import { SceneComposerService } from './scene-composer.service';
+import { SceneMaintenanceService } from './scene-maintenance.service';
 import { SceneEnricherService } from './scene-enricher.service';
 import { SceneBacklinkService } from './scene-backlink.service';
 import { BeliefPromotionService } from './belief-promotion.service';
@@ -129,6 +130,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     SegmentComposerService,
     SegmentBackfillService,
     SceneComposerService,
+    SceneMaintenanceService,
     SceneEnricherService,
     SceneBacklinkService,
     BeliefPromotionService,

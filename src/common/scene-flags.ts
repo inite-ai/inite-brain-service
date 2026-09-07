@@ -308,6 +308,74 @@ export function sceneBeliefMinScenes(): number {
   return Number.isInteger(v) && v >= 0 ? v : 0;
 }
 
+/**
+ * Scheduled scene-maintenance flag — SCENES_SCHEDULED_MAINTENANCE.
+ *
+ * The scene chain (compose → enrich → backlink → evidence links →
+ * beliefs) had NO scheduled runner: every SCENES_* flag could be on in
+ * prod and the whole episodic/semantic plane would still only exist for
+ * conversations an operator had curled by hand. When this flag is on,
+ * SceneMaintenanceService's nightly cron (04:20 UTC) walks the tenant
+ * roster and runs that chain over the DIRTY conversations only, and the
+ * ingest seam (EpisodeStoreService.captureTurn) starts marking
+ * conversations dirty (migration 0130) as turns land.
+ *
+ * The env read lives here in the common layer, NOT inside the engine dirs
+ * (engine-gates S5.2). Read at call time so a flip is runtime-mutable.
+ * Default off ⇒ the cron returns before a single query, NO dirty mark is
+ * ever written and the admin routes behave exactly as before —
+ * byte-identical prod. Requires SCENES_SEGMENTATION_ENABLED to do
+ * anything: both the cron and the mark seam check the master flag too, so
+ * marks cannot pile up for a composer that is switched off.
+ */
+export function sceneScheduledMaintenanceEnabled(): boolean {
+  return envFlagEnabled(process.env.SCENES_SCHEDULED_MAINTENANCE);
+}
+
+/** Default per-tenant, per-run conversation budget for the nightly pass. */
+const DEFAULT_MAINTENANCE_MAX_CONVERSATIONS = 200;
+
+/**
+ * Per-tenant conversation budget (SCENES_MAINTENANCE_MAX_CONVERSATIONS):
+ * the nightly pass composes at most this many DIRTY conversations for one
+ * tenant per run, oldest mark first. NOT optional — the post-swap chain
+ * spends one LLM call per new scene and one embedding batch per composed
+ * conversation, so an unbounded run lets one large tenant's backlog
+ * monopolize both the night and the token budget. Unconsumed marks survive
+ * to the next run, so a backlog drains over successive nights instead of
+ * being dropped. A non-boolean knob resolved here in the common layer
+ * (engine-gates S5.2); read at call time so a change is runtime-mutable.
+ * Must be a positive integer; unset, blank, or invalid → 200.
+ */
+export function sceneMaintenanceMaxConversations(): number {
+  const raw = process.env.SCENES_MAINTENANCE_MAX_CONVERSATIONS;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_MAINTENANCE_MAX_CONVERSATIONS;
+  const v = Number(raw);
+  return Number.isInteger(v) && v > 0 ? v : DEFAULT_MAINTENANCE_MAX_CONVERSATIONS;
+}
+
+/** Default wall-clock budget for ONE nightly maintenance run (30 min). */
+const DEFAULT_MAINTENANCE_TIME_BUDGET_MS = 30 * 60 * 1000;
+
+/**
+ * Whole-run wall-clock budget (SCENES_MAINTENANCE_TIME_BUDGET_MS): the
+ * nightly pass stops starting new tenants once this much time has elapsed
+ * since the run began (the tenant already in flight always finishes — the
+ * budget bounds the roster walk, it does not abort a compose mid-swap).
+ * The roster resumes from the top next night and the unconsumed dirty
+ * marks are still there, so nothing is lost; the cap only guarantees the
+ * pass cannot still be running when the next night's crons fire. A
+ * non-boolean knob resolved here in the common layer (engine-gates S5.2);
+ * read at call time so a change is runtime-mutable. Must be a positive
+ * integer number of milliseconds; unset, blank, or invalid → 1_800_000.
+ */
+export function sceneMaintenanceTimeBudgetMs(): number {
+  const raw = process.env.SCENES_MAINTENANCE_TIME_BUDGET_MS;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_MAINTENANCE_TIME_BUDGET_MS;
+  const v = Number(raw);
+  return Number.isInteger(v) && v > 0 ? v : DEFAULT_MAINTENANCE_TIME_BUDGET_MS;
+}
+
 /** Default hard cap on turns per scene (Brain v2 PR1). */
 const DEFAULT_MAX_TURNS = 40;
 
