@@ -61,6 +61,12 @@ export class EpisodeStoreService {
         dto.knownEntities?.find((k) => k.role === role);
       const nameOf = (k?: KnownEntity): string | undefined =>
         k ? (k.name ?? `${k.vertical}:${k.id}`) : undefined;
+      // Deliberately NOT behind MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE:
+      // episode.lang is descriptive metadata only — no read surface hard-
+      // filters on it (the gate exists for knowledge_fact.lang, the input
+      // of the search WHERE exclusion), and a full dialogue turn is the
+      // detector's best-case input, not the short-object failure mode.
+      // Revisit if an episode read path ever grows a lang filter.
       const lang = detectLanguage(rawText).language;
       const row = {
         kind: 'turn',

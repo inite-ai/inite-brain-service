@@ -1,5 +1,9 @@
 import { resolveExtractionProfile } from '../ai/extraction-profile';
-import { detectLanguage } from '../ai/locale/language-detector';
+import {
+  detectLanguage,
+  LANG_HIGH_CONFIDENCE,
+  langStampConfidenceGateEnabled,
+} from '../ai/locale/language-detector';
 import { sourceTrustFor } from '../ingest/ingest-utils';
 import { accumulateLanded, type RollupMember } from './aspect-rollups';
 import { typedAtomKind, type DerivedProposition } from './deriver-client';
@@ -29,6 +33,31 @@ function derivedScopeFields(
     ...(lang !== undefined ? { lang } : {}),
     ...(script !== undefined ? { script } : {}),
     ...(userId !== undefined ? { userId } : {}),
+  };
+}
+
+/**
+ * The derived row's language stamp, write-side-gated
+ * (MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE, default off): derived rows
+ * land in knowledge_fact and feed the same hard same-language search
+ * filter as live facts, so a below-floor detection (the k07 shape: one
+ * stray stopword flips a technical proposition to it@0.33) withholds the
+ * authoritative `lang` here too. Only `lang` is withheld — `script`
+ * comes from character classes (certain even when the language guess is
+ * weak) and stays. Unlike the fact-resolver path, no attribution
+ * metadata is recorded: the derived-batch path builds none by design
+ * (resolveDerivedBatch), and the deriver's own detection is reproducible
+ * from the stored proposition text. Off (default) ⇒ byte-identical.
+ */
+function derivedRowLang(proposition: string): { lang?: string; script?: string } {
+  const det = detectLanguage(proposition);
+  const langGated =
+    det.language !== 'und' &&
+    det.confidence < LANG_HIGH_CONFIDENCE &&
+    langStampConfidenceGateEnabled();
+  return {
+    ...(det.language !== 'und' && !langGated ? { lang: det.language } : {}),
+    ...(det.language !== 'und' ? { script: det.script } : {}),
   };
 }
 
@@ -73,9 +102,9 @@ export function buildDerivedRows({
             // "undated"); sessionDate would re-stamp the removed value.
             new Date(0)
           : sessionDate;
-    const det = detectLanguage(p.proposition);
-    const lang = det.language !== 'und' ? det.language : undefined;
-    const script = det.language !== 'und' ? det.script : undefined;
+    // Detected language/script, write-side stamp gate applied — see
+    // derivedRowLang above.
+    const { lang, script } = derivedRowLang(p.proposition);
     // V8 §4: salience rides in `source` (object FLEXIBLE, passed
     // verbatim through fn::resolve_fact's CREATE) — no schema
     // migration, no resolver-arity change; every read leg already

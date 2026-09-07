@@ -1339,6 +1339,15 @@ const KNOWN_BOOLEAN_FLAGS = [
   // code-memory k07 miss). Default off ⇒ any non-`und` detection filters,
   // byte-identical. MULTILINGUAL_ family, off the ENGINE flag budget.
   'MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE',
+  // Multilingual Tier 1. Write-side mirror of the hard-filter gate
+  // (migration 0127): a detection below the same shared high-confidence
+  // floor is not stamped as the row's authoritative `lang` (fact-resolver +
+  // derive-row-builder); the detected script and — on the resolver path —
+  // the attribution metadata (detectedLang/langConfidence/detectorVersion)
+  // are still recorded, and inherited/explicit language paths are
+  // untouched. Default off ⇒ any non-`und` detection stamps,
+  // byte-identical. MULTILINGUAL_ family, off the ENGINE flag budget.
+  'MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE',
   // Multilingual Tier 3 (migration 0102). Reversible entity resolution: a
   // weak embedding-only inline-resolution match is NOT auto-merged — it
   // becomes a reviewable entity_merge_log candidate — and every strong

@@ -2,7 +2,11 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
-import { detectLanguage, DETECTOR_VERSION } from '../ai/locale/language-detector';
+import {
+  detectLanguage,
+  DETECTOR_VERSION,
+  LANG_HIGH_CONFIDENCE,
+} from '../ai/locale/language-detector';
 import { MetricsService } from '../metrics/metrics.service';
 import { SearchDto, SearchMode } from './dto/search.dto';
 import { withSpan } from '../common/tracing';
@@ -85,12 +89,15 @@ interface StagedPipeline {
  * is trusted enough to tilt ranking toward same-language facts; below it
  * the boost is withheld (no exclusion either — soft mode never filters).
  * An explicit dto.queryLang is treated as confidence 1, so it always
- * clears the floor. Module-private (not a tunable knob in Tier 1).
+ * clears the floor. Not a tunable knob in Tier 1.
  * MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE reuses the SAME floor for the
- * hard exclusion (hardLangFilterFor below), so "confident query language"
- * means one thing across both read-side language behaviours.
+ * hard exclusion (hardLangFilterFor below), and the write-side stamp gate
+ * (MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE, fact-resolver) reuses it too,
+ * so "confident detection" means one thing across every language
+ * behaviour — hence the shared LANG_HIGH_CONFIDENCE constant, which lives
+ * with the detector.
  */
-const LANG_QUERY_HIGH_CONFIDENCE = 0.5;
+const LANG_QUERY_HIGH_CONFIDENCE = LANG_HIGH_CONFIDENCE;
 
 /**
  * The hard same-language WHERE exclusion's language, confidence-gated
