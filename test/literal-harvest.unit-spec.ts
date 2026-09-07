@@ -14,6 +14,12 @@ import {
 import { isGroundedSpan, normalizeForGrounding } from '../src/ai/extractor-internals/grounding';
 import type { ExtractedEntity, ExtractedFact } from '../src/ai/extractor-internals/types';
 import { ExtractorRunnerService } from '../src/ai/extractor-runner.service';
+import {
+  CODE_MEMORY_DEFAULT_VALUE_PREDICATE,
+  CODE_MEMORY_PACK,
+} from '../src/ai/domain-packs/code-memory.pack';
+import { buildChecks } from './eval/code-memory/corpus';
+import { checkHistorySequence } from './eval/state-transitions/scorers';
 
 const ent = (name: string, type: ExtractedEntity['type'] = 'project'): ExtractedEntity => ({
   name,
@@ -165,6 +171,172 @@ describe('harvestLiterals — k07 rate-limit phrasing table (code-memory battery
   it('negative: rpm stays out even with a cue (revolutions ambiguity)', () => {
     const facts = harvest('We throttle the acme-api fans at 1200 rpm.', [ent('acme-api')], null);
     expect(facts).toEqual([]);
+  });
+});
+
+describe('harvestLiterals — k08 flag-default rule (code-memory battery)', () => {
+  // VERBATIM corpus turns from test/eval/code-memory/corpus.ts (the k08
+  // flag-transition stages). Diagnosed lottery (2026-09, 6-attempt
+  // controlled repro on the dogfood stand): the two stages had NO
+  // deterministic producer — the state-verb lane drops "we enabled
+  // FLAG" when no person/speaker holder exists (agent-recorded turns),
+  // and the LLM redraw only sometimes parrots the prose markers into a
+  // decided fact. This rule pins the TYPED emission.
+  const FLAG_T1 =
+    'We introduced the ACME_RETRY_QUEUE flag in acme-api; it ships disabled and its ' +
+    'default stays 0 until the queue is proven.';
+  const FLAG_T2 =
+    'We enabled ACME_RETRY_QUEUE in prod today; its default is now 1 for every acme-api tenant.';
+  const flagEntities = (): ExtractedEntity[] => [ent('ACME_RETRY_QUEUE', 'other'), ent('acme-api')];
+
+  it('derives the namespaced predicate from the live builtin manifest', () => {
+    expect(CODE_MEMORY_DEFAULT_VALUE_PREDICATE).toBe('code_memory__default_value');
+    expect(CODE_MEMORY_PACK.predicates.some((p) => p.localId === 'default_value')).toBe(true);
+  });
+
+  it('corpus stage 1: "default stays 0" → default_value "0" ON the flag entity', () => {
+    const facts = harvest(FLAG_T1, flagEntities(), null);
+    const dv = byPredicate(facts, CODE_MEMORY_DEFAULT_VALUE_PREDICATE);
+    expect(dv).toHaveLength(1);
+    expect(dv[0]!.object).toBe('0');
+    expect(dv[0]!.valueSpan).toBe('default stays 0');
+    // Subject-directed binding: the flag, never the leading project.
+    expect(dv[0]!.entityIndex).toBe(0);
+    // The identifier rule still fires; nothing else does.
+    expect(byPredicate(facts, 'identifier').map((f) => f.object)).toEqual(['ACME_RETRY_QUEUE']);
+    expect(facts).toHaveLength(2);
+  });
+
+  it('corpus stage 2: "default is now 1" → default_value "1" ON the flag entity', () => {
+    const facts = harvest(FLAG_T2, flagEntities(), null);
+    const dv = byPredicate(facts, CODE_MEMORY_DEFAULT_VALUE_PREDICATE);
+    expect(dv).toHaveLength(1);
+    expect(dv[0]!.object).toBe('1');
+    expect(dv[0]!.valueSpan).toBe('default is now 1');
+    expect(dv[0]!.entityIndex).toBe(0);
+  });
+
+  it('LOCKSTEP: the harvested pair satisfies the k08 stage sequence on one timeline', () => {
+    const k08 = buildChecks().find((c) => c.id === 'k08-flag-transition');
+    if (k08?.kind !== 'flag-transition') throw new Error('k08 shape changed');
+    const events = [
+      ...harvest(FLAG_T1, flagEntities(), null).map((f) => ({
+        predicate: f.predicate,
+        object: f.object,
+        at: '2026-09-01T15:00:00Z',
+      })),
+      ...harvest(FLAG_T2, flagEntities(), null).map((f) => ({
+        predicate: f.predicate,
+        object: f.object,
+        at: '2026-09-01T15:20:00Z',
+      })),
+    ];
+    const verdict = checkHistorySequence(events, k08.stages);
+    expect(verdict.pass).toBe(true);
+  });
+
+  it('held-out: the pack few-shot phrasing "defaults to 0" harvests the typed slot', () => {
+    const facts = harvest(
+      'EXTRACTOR_LITERAL_HARVEST defaults to 0 in production.',
+      [ent('EXTRACTOR_LITERAL_HARVEST', 'other')],
+      null,
+    );
+    const dv = byPredicate(facts, CODE_MEMORY_DEFAULT_VALUE_PREDICATE);
+    expect(dv.map((f) => f.object)).toEqual(['0']);
+  });
+
+  it('held-out: state-word value "remains off"', () => {
+    const facts = harvest(
+      'The FOO_BAR_MODE default remains off for now.',
+      [ent('FOO_BAR_MODE', 'other')],
+      null,
+    );
+    expect(byPredicate(facts, CODE_MEMORY_DEFAULT_VALUE_PREDICATE).map((f) => f.object)).toEqual([
+      'off',
+    ]);
+  });
+
+  it('negative: no ALL_CAPS identifier in the sentence → the prose default stays out', () => {
+    const facts = harvest('The timeout default is 10000 in acme-api.', [ent('acme-api')], null);
+    expect(byPredicate(facts, CODE_MEMORY_DEFAULT_VALUE_PREDICATE)).toEqual([]);
+  });
+
+  it('negative: hypothetical is guarded ("should … default at 1")', () => {
+    const facts = harvest(
+      'We should probably keep the ACME_STRICT_MODE default at 1 next quarter.',
+      [ent('ACME_STRICT_MODE', 'other')],
+      null,
+    );
+    expect(byPredicate(facts, CODE_MEMORY_DEFAULT_VALUE_PREDICATE)).toEqual([]);
+  });
+
+  it('negative: conditional is guarded ("If the … default stays 0")', () => {
+    const facts = harvest(
+      'If the ACME_RETRY_QUEUE default stays 0, we bail out of the rollout.',
+      [ent('ACME_RETRY_QUEUE', 'other')],
+      null,
+    );
+    expect(byPredicate(facts, CODE_MEMORY_DEFAULT_VALUE_PREDICATE)).toEqual([]);
+  });
+
+  it('negative: historical "defaulted to 0" never matches by construction', () => {
+    const facts = harvest(
+      'The ACME_RETRY_QUEUE flag defaulted to 0 last year.',
+      [ent('ACME_RETRY_QUEUE', 'other')],
+      null,
+    );
+    expect(byPredicate(facts, CODE_MEMORY_DEFAULT_VALUE_PREDICATE)).toEqual([]);
+  });
+
+  it('negative: a non-value object stays out ("default is the same as prod")', () => {
+    const facts = harvest(
+      'The ACME_RETRY_QUEUE default is the same as prod.',
+      [ent('ACME_RETRY_QUEUE', 'other')],
+      null,
+    );
+    expect(byPredicate(facts, CODE_MEMORY_DEFAULT_VALUE_PREDICATE)).toEqual([]);
+  });
+
+  it('dedup: an LLM-emitted default_value on the flag suppresses the harvest twin', () => {
+    const existing: ExtractedFact[] = [
+      {
+        entityIndex: 0,
+        predicate: CODE_MEMORY_DEFAULT_VALUE_PREDICATE,
+        object: '0',
+        confidence: 0.9,
+        valueSpan: '0',
+      },
+    ];
+    const facts = harvest(FLAG_T1, flagEntities(), null, existing);
+    expect(byPredicate(facts, CODE_MEMORY_DEFAULT_VALUE_PREDICATE)).toEqual([]);
+  });
+
+  it('honest drop: identifier absent from the entity list and minting off → no default fact', () => {
+    const facts = harvest(FLAG_T1, [ent('acme-api')], null);
+    expect(byPredicate(facts, CODE_MEMORY_DEFAULT_VALUE_PREDICATE)).toEqual([]);
+  });
+
+  it('mint path: a no-entity turn mints the flag and binds the default to it', () => {
+    const entities: ExtractedEntity[] = [];
+    const facts = harvestLiterals({
+      trimmed: FLAG_T1,
+      entities,
+      speakerEntityIndex: null,
+      mintSubjects: true,
+    });
+    const dv = byPredicate(facts, CODE_MEMORY_DEFAULT_VALUE_PREDICATE);
+    expect(dv).toHaveLength(1);
+    expect(entities[dv[0]!.entityIndex]).toEqual({ name: 'ACME_RETRY_QUEUE', type: 'other' });
+  });
+
+  it('every flag-default valueSpan passes the grounding gate by construction', () => {
+    for (const text of [FLAG_T1, FLAG_T2]) {
+      for (const f of harvest(text, flagEntities(), null)) {
+        expect(
+          isGroundedSpan(normalizeForGrounding(text), normalizeForGrounding(f.valueSpan!)),
+        ).toBe(true);
+      }
+    }
   });
 });
 

@@ -1,5 +1,6 @@
 import type { ExtractedEntity, ExtractedFact } from './types';
 import { normalizeForGrounding } from './grounding';
+import { CODE_MEMORY_DEFAULT_VALUE_PREDICATE } from '../domain-packs/code-memory.pack';
 
 /**
  * Deterministic literal-harvest lane (EXTRACTOR_LITERAL_HARVEST,
@@ -73,8 +74,14 @@ const NAMING_PREFIX_TOKEN = /\b([A-Z][A-Z0-9]{1,15}_)\b/g;
  */
 const NAMING_PREFIX_CUE = /\b(?:prefix(?:ed)?|convention|naming|named)\b/i;
 
-/** `LSYNC_REPLAY_ENABLED` — an ALL_CAPS underscore identifier. */
-const ALL_CAPS_IDENTIFIER = /\b([A-Z][A-Z0-9]{2,}_[A-Z0-9_]{2,})\b/g;
+/** `LSYNC_REPLAY_ENABLED` — an ALL_CAPS underscore identifier. One
+ *  source, two compilations: the global rule scan below and the
+ *  per-sentence subject probe of the flag-default rule (a fresh
+ *  non-global instance so the probe can never perturb the global
+ *  regex's lastIndex mid-scan). */
+const ALL_CAPS_IDENTIFIER_SOURCE = String.raw`\b([A-Z][A-Z0-9]{2,}_[A-Z0-9_]{2,})\b`;
+const ALL_CAPS_IDENTIFIER = new RegExp(ALL_CAPS_IDENTIFIER_SOURCE, 'g');
+const ALL_CAPS_SUBJECT_PROBE = new RegExp(ALL_CAPS_IDENTIFIER_SOURCE);
 
 /**
  * `LSYNC.payouts.*` — a dotted subject / glob. The terminator is a
@@ -110,6 +117,78 @@ const CAMEL_ASSIGN_AFTER = /^\s*=/;
 
 /** camelCase cue B: the immediately preceding word is an idiom verb/noun. */
 const CAMEL_CUE_BEFORE = /\b(?:carries|uses|set|key)\s*[:=]?\s*$/i;
+
+/**
+ * Clause boundary shared by the deterministic lanes: comma, semicolon,
+ * colon, sentence punctuation, em/en dash, a SPACED ascii dash (an
+ * intra-word hyphen as in "ledger-sync" must not split), and the
+ * subordinators. Moved here from state-verb-harvest (which imports it
+ * back) so the dependency direction stays state-verb → literal; the
+ * flag-default guard below clips its pre-window with the SAME boundary
+ * the sibling lane's guards use.
+ */
+export const CLAUSE_BOUNDARY_SOURCE = String.raw`[,;:.!?—–]|\s--?\s|\s(?:because|when|so|but)\s`;
+const FLAG_DEFAULT_CLAUSE_BOUNDARY = new RegExp(CLAUSE_BOUNDARY_SOURCE, 'gi');
+
+/**
+ * `default stays 0` / `default is now 1` / `defaults to 0` — an
+ * explicit flag/config DEFAULT assertion (k08 code-memory battery
+ * finding — additions only, every existing rule untouched). The
+ * measured lottery: the flag story's two stages had NO deterministic
+ * producer — the state-verb lane binds "we enabled FLAG" to a person
+ * or the speaker (absent on agent-recorded turns, so the match drops),
+ * and the LLM redraw sometimes lands the stage as a `decided`
+ * paraphrase and sometimes as the typed default only. This rule makes
+ * the TYPED emission deterministic: verb forms are present-state only
+ * ("defaulted to" — a historical default — never matches by
+ * construction) and the captured value must be value-shaped (a number
+ * or an on/off/true/false/enabled/disabled state word), so "the
+ * default is the same as prod" harvests nothing.
+ */
+const FLAG_DEFAULT =
+  /\bdefaults?\s+(?:is\s+(?:now\s+)?|stays?\s+(?:at\s+)?|remains?\s+(?:at\s+)?|becomes?\s+|to\s+|at\s+)(\d[\w.-]*|true|false|on|off|enabled|disabled|null|none)\b/gi;
+
+/**
+ * Pre-cue guard for the flag-default rule: negation, hypotheticals,
+ * futures, intentions and conditionals within the 6 tokens before the
+ * match (clipped to the match's own clause) mean the asserted default
+ * is NOT the current one — "we should probably default to 1" and
+ * "if the default stays 0" must not write the typed slot. Same failure
+ * direction as the state lane's guards: over-guarding costs a missing
+ * fact, never a wrong one.
+ */
+const FLAG_DEFAULT_GUARD =
+  /\b(?:not|never|no longer|won't|wouldn't|shouldn't|should|will|would|might|may|could|plan to|planning to|considering|thinking about|thinking of|want to|wants to|hoping to|going to|about to|used to|previously|formerly|intend|intends|propose[ds]?|if|unless|whether|assuming|suppose)\b/i;
+
+/** Guard window: tokens inspected before the match (same clause). */
+const FLAG_DEFAULT_GUARD_WINDOW_TOKENS = 6;
+
+/**
+ * True when the guard window before the flag-default match carries a
+ * guard term — the state lane's guardedBefore idiom (clause-clipped
+ * window, typographic apostrophes folded) applied to this rule's own
+ * term list.
+ */
+function flagDefaultGuardedBefore(
+  input: string,
+  sentenceStart: number,
+  matchStart: number,
+): boolean {
+  const pre = input.slice(sentenceStart, matchStart);
+  let clauseFrom = 0;
+  for (const b of pre.matchAll(FLAG_DEFAULT_CLAUSE_BOUNDARY)) {
+    clauseFrom = b.index + b[0].length;
+  }
+  const window = pre
+    .slice(clauseFrom)
+    .replace(/’/g, "'")
+    .trim()
+    .split(/\s+/)
+    .filter((t) => t.length > 0)
+    .slice(-FLAG_DEFAULT_GUARD_WINDOW_TOKENS)
+    .join(' ');
+  return window.length > 0 && FLAG_DEFAULT_GUARD.test(window);
+}
 
 /**
  * Duration-limit pattern (`30s delay`, `15 minutes`, `30 days`) —
@@ -200,6 +279,15 @@ interface HarvestMatch {
   valueSpan: string;
   /** Match start offset — drives sentence/clause attribution. */
   index: number;
+  /**
+   * Subject-directed binding (flag-default rule only): the fact is
+   * ABOUT this identifier token, never about whichever entity happens
+   * to lead the sentence. Binding resolves the token against the
+   * entity list (minting it on the no-entity path) and DROPS the match
+   * when it cannot — a flag default bound to the project or the
+   * speaker would be a wrong fact, not a weaker one.
+   */
+  subjectToken?: string;
 }
 
 /** The predicates whose match token IS the subject (identifier-class). */
@@ -320,6 +408,30 @@ function collectMatches(input: string, sentences: SentenceSpan[]): HarvestMatch[
     if (!followedByAssign && !precededByCue) continue;
     out.push({ predicate: 'identifier', object: m[0], valueSpan: m[0], index: m.index });
   }
+  for (const m of input.matchAll(FLAG_DEFAULT)) {
+    const sentence = sentenceAt(sentences, m.index);
+    // Cue: an ALL_CAPS identifier must co-occur in the SAME sentence —
+    // a flag default is a fact about the FLAG; a prose default with no
+    // identifier subject ("the timeout default is 10000") stays with
+    // the LLM path. A fresh non-global probe, so the global identifier
+    // rule's iteration state is never perturbed.
+    const subject = ALL_CAPS_SUBJECT_PROBE.exec(sentence.text)?.[1];
+    if (subject === undefined) continue;
+    if (flagDefaultGuardedBefore(input, sentence.start, m.index)) continue;
+    // The namespaced pack predicate ON PURPOSE (not a coined bare
+    // `default_value`): the builtin code_memory extraction profile
+    // already teaches the LLM this exact id, so only the SAME id lets
+    // the (entity, predicate, object) dedup collapse the two producers
+    // into one fact and keeps the slot's single_active revision
+    // history on one predicate.
+    out.push({
+      predicate: CODE_MEMORY_DEFAULT_VALUE_PREDICATE,
+      object: m[1] as string,
+      valueSpan: m[0],
+      index: m.index,
+      subjectToken: subject,
+    });
+  }
   // NOTE: DURATION_LIMIT_PATTERN is deliberately NOT collected — see
   // its doc comment. The rule ships dark until measured.
 
@@ -366,6 +478,37 @@ export interface HarvestLiteralsArgs {
  * skipped. Returns ONLY the new facts, capped at LITERAL_HARVEST_CAP,
  * for the caller to union.
  */
+/**
+ * Entity binding for one harvest match — pulled out of harvestLiterals
+ * verbatim (cognitive-complexity gate). Subject-directed matches
+ * (flag-default rule) bind to the match's own identifier token: resolve
+ * it against the working list, mint it on the no-entity path, and
+ * otherwise drop the match honestly (see HarvestMatch.subjectToken).
+ * Undirected matches run bindEntity's priority — a sentence-grounded
+ * subject beats the speaker — so the speaker fallback is withheld from
+ * the first pass and re-applied only after minting found no subject
+ * shape in the sentence.
+ */
+function bindHarvestSubject(args: {
+  m: HarvestMatch;
+  sentenceText: string;
+  entities: HarvestLiteralsArgs['entities'];
+  speakerEntityIndex: number | null;
+  mintSubjects: boolean;
+}): number | null {
+  const { m, sentenceText, entities, speakerEntityIndex, mintSubjects } = args;
+  if (m.subjectToken !== undefined) {
+    const normalizedSubject = normalizeForGrounding(m.subjectToken);
+    const existing = entities.findIndex((e) => normalizeForGrounding(e.name) === normalizedSubject);
+    if (existing !== -1) return existing;
+    return mintSubjects ? resolveOrMintSubject(entities, m.subjectToken) : null;
+  }
+  const bound = bindEntity(entities, sentenceText, mintSubjects ? null : speakerEntityIndex);
+  if (bound !== null || !mintSubjects) return bound;
+  const token = IDENTIFIER_CLASS.has(m.predicate) ? m.object : firstSubjectToken(sentenceText);
+  return token !== null ? resolveOrMintSubject(entities, token) : speakerEntityIndex;
+}
+
 export function harvestLiterals(args: HarvestLiteralsArgs): ExtractedFact[] {
   const { trimmed, entities, speakerEntityIndex, existingFacts = [], mintSubjects = false } = args;
   if (!trimmed || (entities.length === 0 && !mintSubjects)) return [];
@@ -379,15 +522,13 @@ export function harvestLiterals(args: HarvestLiteralsArgs): ExtractedFact[] {
   for (const m of collectMatches(trimmed, sentences)) {
     if (harvested.length >= LITERAL_HARVEST_CAP) break;
     const sentence = sentenceAt(sentences, m.index);
-    // Minting runs the same priority bindEntity encodes — a sentence-
-    // grounded subject beats the speaker — so the speaker fallback is
-    // withheld from the first pass and re-applied only after minting
-    // found no subject shape in the sentence.
-    let entityIndex = bindEntity(entities, sentence.text, mintSubjects ? null : speakerEntityIndex);
-    if (entityIndex === null && mintSubjects) {
-      const token = IDENTIFIER_CLASS.has(m.predicate) ? m.object : firstSubjectToken(sentence.text);
-      entityIndex = token !== null ? resolveOrMintSubject(entities, token) : speakerEntityIndex;
-    }
+    const entityIndex = bindHarvestSubject({
+      m,
+      sentenceText: sentence.text,
+      entities,
+      speakerEntityIndex,
+      mintSubjects,
+    });
     if (entityIndex === null) continue;
     const key = `${entityIndex}\u0000${m.predicate}\u0000${normalizeForGrounding(m.object)}`;
     if (seen.has(key)) continue;
