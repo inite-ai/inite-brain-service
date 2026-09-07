@@ -131,7 +131,14 @@ import {
   IngestEvidenceAssetResponseSchema,
   IngestEvidenceFragmentResultSchema,
   IngestEvidenceFragmentSchema,
+  UploadEvidenceBlobResponseSchema,
 } from '../src/contracts/evidence/evidence-ingest.schema';
+import {
+  EVIDENCE_UPLOAD_MEDIA_TYPES,
+  EVIDENCE_UPLOAD_MEDIA_TYPES_FLAT,
+} from '../src/evidence/upload-media-types';
+import { EVIDENCE_MODALITIES } from '../src/common/evidence-taxonomy';
+import { MEDIA_PII_CLASSES } from '../src/common/media-pii';
 
 type Json = Record<string, unknown>;
 
@@ -239,6 +246,7 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   IngestEvidenceAssetRequest: IngestEvidenceAssetRequestSchema,
   IngestEvidenceFragmentResult: IngestEvidenceFragmentResultSchema,
   IngestEvidenceAssetResponse: IngestEvidenceAssetResponseSchema,
+  UploadEvidenceBlobResponse: UploadEvidenceBlobResponseSchema,
 };
 
 function generateComponentSchemas(): Json {
@@ -1497,6 +1505,125 @@ function evidenceIngestPaths(): Json {
         },
       }),
     },
+    '/v1/ingest/evidence-blob': {
+      post: operation({
+        operationId: 'uploadEvidenceBlob',
+        tag: 'Evidence',
+        summary: 'Upload an evidence blob (bytes)',
+        description:
+          'Takes BYTES into custody: `multipart/form-data` with the ' +
+          'content in the `file` part and the asset metadata as text ' +
+          'parts. The server owns identity here — `byteHash` (sha256 of ' +
+          'what it received), `byteLength` and `storageRef` are computed, ' +
+          'never asserted — so the registered asset is blob-backed with ' +
+          'availability derived as `hot`. Media types are an explicit ' +
+          'conservative allowlist checked AGAINST the declared modality ' +
+          `(${EVIDENCE_UPLOAD_MEDIA_TYPES_FLAT.join(', ')}); anything ` +
+          'else, including SVG, HTML, archives and ' +
+          '`application/octet-stream`, is a 400. Transfer is capped at ' +
+          '`min(EVIDENCE_MAX_BYTES, 64 MiB)` — an over-cap part is ' +
+          'refused mid-upload with 413. Uploaded bytes are EXTERNAL ' +
+          'INGEST by definition, so the asset registers with origin ' +
+          '`external_ingest` and is SCANNED before it becomes ' +
+          'dispatchable: a clean verdict answers 201, a rejection answers ' +
+          '422 with the row tombstoned and the bytes deleted, and a scan ' +
+          'hook that cannot decide answers 201 with `quarantineStatus: ' +
+          '"scanning"` (still dispatch-denied — the surface never fails ' +
+          'open). An optional `packId` starts a FIRE-AND-FORGET processor ' +
+          'dispatch that can never fail the upload. Same-user re-upload ' +
+          'of identical bytes dedupes; a different principal gets a bare ' +
+          '409. Answers a bare 404 until `EVIDENCE_BLOB_UPLOAD_ENABLED=1` ' +
+          '(raised before the body is parsed); answers 503 while ' +
+          '`EVIDENCE_SUBSTRATE_ENABLED` or `EVIDENCE_QUARANTINE` is off, ' +
+          'or when no storage adapter is configured. ' +
+          'Source: src/evidence/evidence-ingest.controller.ts.',
+        scope: 'brain:write',
+        requestBody: uploadEvidenceBlobBody(),
+        responses: {
+          '201': jsonResponse(
+            'Stored, registered and scanned asset.',
+            ref('UploadEvidenceBlobResponse'),
+          ),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+          '409': errorRef('Conflict'),
+          '413': errorRef('PayloadTooLarge'),
+          '422': errorRef('EvidenceRejected'),
+          '503': errorRef('SubstrateDisabled'),
+        },
+      }),
+    },
+  };
+}
+
+/**
+ * The multipart request body of the blob upload — written by hand rather
+ * than generated from a zod object because every metadata part arrives as
+ * a STRING on the wire (multipart has no numbers, no arrays and no null),
+ * and a generated schema would promise types the transport cannot carry.
+ */
+function uploadEvidenceBlobBody(): Json {
+  const text = (description: string): Json => ({ type: 'string', description });
+  const intText = (description: string): Json => ({
+    type: 'string',
+    pattern: '^[0-9]+$',
+    description,
+  });
+  return {
+    required: true,
+    content: {
+      'multipart/form-data': {
+        schema: {
+          type: 'object',
+          required: ['file', 'modality', 'occurredAt', 'vertical'],
+          properties: {
+            file: {
+              type: 'string',
+              format: 'binary',
+              description:
+                'The evidence bytes. Its Content-Type is the media type ' +
+                'unless `mediaType` overrides it.',
+            },
+            modality: {
+              type: 'string',
+              enum: [...EVIDENCE_MODALITIES],
+              description:
+                'Drives pack consent, the dispatch gate and the ' +
+                'fragment-locator matrix — the media type must be ' +
+                'allowlisted FOR this modality: ' +
+                EVIDENCE_MODALITIES.map(
+                  (m) => `${m} → ${EVIDENCE_UPLOAD_MEDIA_TYPES[m].join(' | ')}`,
+                ).join('; ') +
+                '.',
+            },
+            mediaType: text('Overrides the file part’s own Content-Type.'),
+            occurredAt: text('When the observation happened (ISO-8601).'),
+            vertical: text('Tenant vertical the asset belongs to.'),
+            userId: text('Per-user scope owner (0055): fail-closed reads for others.'),
+            scope: text('Comma-separated scope tags (0093).'),
+            piiClasses: {
+              type: 'string',
+              description:
+                'Comma-separated media PII classes ' +
+                `(${MEDIA_PII_CLASSES.join(', ')}). Fail-closed polarity: ` +
+                'omit the field for “unclassified” (blocked); send it EMPTY ' +
+                'for “a classifier looked and found nothing” (open).',
+            },
+            recorder: text('Free-text recorder identity.'),
+            retainUntil: text('Retention horizon (ISO-8601).'),
+            width: intText('Pixel width, when known.'),
+            height: intText('Pixel height, when known.'),
+            durationMs: intText('Duration in milliseconds, when known.'),
+            pageCount: intText('Page count, when known.'),
+            packId: text(
+              'Installed pack to dispatch processors for, fire-and-forget, ' +
+                'once the asset scans clean. Requires EVIDENCE_PROCESSOR_BROKER.',
+            ),
+          },
+        },
+      },
+    },
   };
 }
 
@@ -1512,6 +1639,16 @@ function errorResponses(): Json {
         'claimed work item, or an immutable-version republish.',
     ),
     TooManyRequests: err('Per-credential throttle exceeded.'),
+    PayloadTooLarge: err(
+      'The uploaded part exceeds the effective transfer cap — ' +
+        'min(EVIDENCE_MAX_BYTES, the 64 MiB memory-storage ceiling).',
+    ),
+    EvidenceRejected: err(
+      'The uploaded evidence was rejected by the scan hook. The asset ' +
+        'row survives as a tombstone (availability `gone`, ' +
+        'quarantineStatus `rejected`) and the bytes are deleted; the ' +
+        'message is deliberately content-free.',
+    ),
     FeatureDisabled: jsonResponse(
       'The document pipeline is dark (DOCUMENT_INGEST_ENABLED off).',
       ref('FeatureDisabledResponse'),

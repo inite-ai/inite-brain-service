@@ -45,6 +45,34 @@ export function evidenceIngestEnabled(): boolean {
 }
 
 /**
+ * Blob upload surface (Brain v2.1 MM-7) — EVIDENCE_BLOB_UPLOAD_ENABLED.
+ *
+ * When on, POST /v1/ingest/evidence-blob exists: the ONE surface that
+ * takes BYTES into custody (multipart/form-data), stores them through the
+ * content-addressed storage adapter, and registers the resulting asset
+ * blob-backed (availability 'hot'). Off (default) ⇒ the route answers a
+ * bare 404 BEFORE the multipart body is parsed (the interceptor gate — an
+ * off surface must not buffer a caller's bytes) and prod stays
+ * byte-identical.
+ *
+ * Sits ON TOP of the sibling flags rather than replacing them: the write
+ * seam still needs EVIDENCE_SUBSTRATE_ENABLED (503 off), and — because
+ * bytes arriving over HTTP ARE external ingest — the upload registers with
+ * origin 'external_ingest', which the store REFUSES (503) unless
+ * EVIDENCE_QUARANTINE is on. That is the MM-6 doctrine held verbatim, not
+ * a new rule: no external bytes may enter without the scan seam.
+ * EVIDENCE_INGEST_ENABLED governs only the metadata-only sibling route
+ * and is deliberately NOT consulted here — a deployment may take bytes
+ * without opening caller-asserted metadata registration, or the reverse.
+ *
+ * Read at call time (runtime-mutable). Env read lives here in the common
+ * layer, NOT inside the controller (engine-gates S5.2).
+ */
+export function evidenceBlobUploadEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_BLOB_UPLOAD_ENABLED);
+}
+
+/**
  * Filesystem storage-adapter root — EVIDENCE_FS_ROOT (non-boolean).
  *
  * The directory the fs:// adapter stores content-addressed blobs under
@@ -69,11 +97,14 @@ const DEFAULT_MAX_BYTES = 1073741824;
  * Declared-size sanity cap — EVIDENCE_MAX_BYTES (non-boolean).
  *
  * registerAsset rejects a declared byteLength above this cap — a bound on
- * what a caller may claim an observation weighs, NOT a transfer limit
- * (this PR ships no upload endpoint). A non-boolean knob resolved here in
- * the common layer so the write seam takes a resolved number (engine-
- * gates S5.2); read at call time so a change is runtime-mutable. Must be
- * a positive integer; unset, blank, or invalid → the 1 GiB default.
+ * what a caller may claim an observation weighs. It is ALSO the transfer
+ * bound of the blob upload surface (EVIDENCE_BLOB_UPLOAD_ENABLED), where
+ * it is applied as `min(cap, the upload interceptor's memory-storage
+ * ceiling)` — deny-overrides, so raising this knob past that ceiling
+ * raises nothing. A non-boolean knob resolved here in the common layer so
+ * the write seam takes a resolved number (engine-gates S5.2); read at
+ * call time so a change is runtime-mutable. Must be a positive integer;
+ * unset, blank, or invalid → the 1 GiB default.
  */
 export function evidenceMaxBytes(): number {
   const raw = process.env.EVIDENCE_MAX_BYTES;

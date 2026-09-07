@@ -261,6 +261,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Evidence plane: claim grounding (Drift-1, migration 0115) ──────
   validateEvidenceGroundingEnv(env, warnings);
   validateEvidenceIngestEnv(env, warnings);
+  validateEvidenceUploadEnv(env, warnings);
 
   // ── Evidence plane: processing lifecycle (migration 0121) ──────────
   validateEvidenceProcessingEnv(env, warnings);
@@ -523,6 +524,39 @@ function validateEvidenceIngestEnv(env: NodeJS.ProcessEnv, warnings: string[]): 
         'the ingest surface is exposed but the evidence write seam refuses every ' +
         'call; every POST /v1/ingest/evidence-asset will be rejected (503) until ' +
         'EVIDENCE_SUBSTRATE_ENABLED is turned on.',
+    );
+  }
+}
+
+/**
+ * Cross-flag consistency for the blob upload surface (Brain v2.1 MM-7).
+ * Two WARNINGS, not errors — nothing here is a fail-open; both pairs
+ * simply mean every upload bounces:
+ *
+ *  - without EVIDENCE_SUBSTRATE_ENABLED the write seam refuses;
+ *  - without EVIDENCE_QUARANTINE the store refuses origin
+ *    'external_ingest', which is the ONLY origin an upload can honestly
+ *    claim (bytes crossing an HTTP boundary are external ingest). That
+ *    refusal is the MM-6 fail-closed rule working as designed, so the
+ *    fix is to turn the scan seam on, never to relabel the bytes.
+ */
+function validateEvidenceUploadEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
+  if (!envFlagEnabled(env.EVIDENCE_BLOB_UPLOAD_ENABLED)) return;
+  if (!envFlagEnabled(env.EVIDENCE_SUBSTRATE_ENABLED)) {
+    warnings.push(
+      'EVIDENCE_BLOB_UPLOAD_ENABLED is set while EVIDENCE_SUBSTRATE_ENABLED is not — ' +
+        'the upload surface is exposed but the evidence write seam refuses every ' +
+        'call; every POST /v1/ingest/evidence-blob will be rejected (503) until ' +
+        'EVIDENCE_SUBSTRATE_ENABLED is turned on.',
+    );
+  }
+  if (!envFlagEnabled(env.EVIDENCE_QUARANTINE)) {
+    warnings.push(
+      'EVIDENCE_BLOB_UPLOAD_ENABLED is set while EVIDENCE_QUARANTINE is not — ' +
+        'uploaded bytes register as external ingest, which the store refuses ' +
+        'without the quarantine seam (fail closed); every POST ' +
+        '/v1/ingest/evidence-blob will be rejected (503) until ' +
+        'EVIDENCE_QUARANTINE is turned on.',
     );
   }
 }
@@ -1129,6 +1163,15 @@ const KNOWN_BOOLEAN_FLAGS = [
   // actually accept writes — validateEvidenceIngestEnv warns on the
   // inconsistent pair (ingest-on/substrate-off ⇒ every call 503s).
   'EVIDENCE_INGEST_ENABLED',
+  // Evidence blob upload surface (Brain v2.1 MM-7): POST
+  // /v1/ingest/evidence-blob — multipart bytes → content-addressed
+  // storage adapter → registerAsset(storageRef) → scan → fire-and-forget
+  // broker dispatch. Default off ⇒ a bare 404 raised BEFORE the body is
+  // parsed (no caller bytes buffered), byte-identical prod. Needs
+  // EVIDENCE_SUBSTRATE_ENABLED and — because bytes over HTTP are
+  // external ingest — EVIDENCE_QUARANTINE; validateEvidenceUploadEnv
+  // warns on either inconsistent pair.
+  'EVIDENCE_BLOB_UPLOAD_ENABLED',
   // Claim grounding (Drift-1, migration 0115): write-side post-resolve
   // stamp of knowledge_fact.groundingStatus; fail-closed mention capture
   // (requires EPISODE_SUBSTRATE_ENABLED — validateEvidenceGroundingEnv

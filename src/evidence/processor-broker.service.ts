@@ -1,8 +1,14 @@
-import { Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import type { DomainPackManifest } from '../ai/domain-packs';
 import { evidenceSubstrateEnabled, processorBrokerEnabled } from '../common/evidence-flags';
 import type { DerivedRepresentationKind, EvidenceModality } from '../common/evidence-taxonomy';
-import { SurrealService, queryFirst } from '../db/surreal.service';
+import { SurrealService, queryFirst, queryRows } from '../db/surreal.service';
 import { idTailOf } from '../ingest/ingest-utils';
 import { gateProcessorDispatch } from './processing/dispatch-gate';
 import {
@@ -42,13 +48,37 @@ export interface DispatchResult {
   denied: Array<{ capability: string; reason: string }>;
 }
 
+export interface DispatchSweepResult {
+  /** Assets considered (1 for a targeted sweep). */
+  assets: number;
+  /** Assets whose dispatch completed without throwing. */
+  dispatched: number;
+  /** Total processing runs produced (created OR replayed). */
+  runs: number;
+  /** Total per-capability denials across the swept assets. */
+  denied: number;
+  /** Assets whose dispatch threw — logged, never fatal to the sweep. */
+  failed: number;
+}
+
+/** Default per-call sweep bound; a maintenance verb, not a migration. */
+const SWEEP_DEFAULT_LIMIT = 100;
+/** Hard bound: one operator call must stay a bounded unit of work. */
+const SWEEP_MAX_LIMIT = 1000;
+
 /**
  * EvidenceProcessorBrokerService (0121 MM-1) — the trusted processor
  * broker: matches a pack's DECLARED `memoryModel.processors` needs
  * against the platform's installed adapters and executes them as
- * idempotent processing runs. Service-level only — no HTTP controller,
- * no scheduler, no ingest surface (sibling PR-C doctrine from 0109:
- * tests and future PRs call the service directly).
+ * idempotent processing runs.
+ *
+ * Two production callers reach it (MM-7 — before that it was
+ * service-level only, exercised solely by tests): the blob upload path
+ * fires dispatchForPack FIRE-AND-FORGET after an asset registers and
+ * scans clean, and the admin maintenance verb calls dispatchSweep to
+ * apply a pack over the EXISTING corpus. There is still NO scheduler:
+ * both entry points are explicit (see processing-run.service.ts claimRun
+ * on why v1 has none).
  *
  * ANTI-DSL: the pack contributes ONLY (modality, produces[]) needs; no
  * pack-supplied endpoint, model, prompt, or code is ever consulted
@@ -59,6 +89,8 @@ export interface DispatchResult {
  */
 @Injectable()
 export class EvidenceProcessorBrokerService {
+  private readonly logger = new Logger(EvidenceProcessorBrokerService.name);
+
   constructor(
     private readonly surreal: SurrealService,
     @Inject(EVIDENCE_PROCESSOR_ADAPTERS)
@@ -113,6 +145,71 @@ export class EvidenceProcessorBrokerService {
       result.runs.push(run);
     }
     return result;
+  }
+
+  /**
+   * Operator sweep over already-registered assets (the admin maintenance
+   * verb). v1 has no scheduler (processing-run.service.ts claimRun), so
+   * this is how a pack installed AFTER an asset landed — or a newly
+   * installed processor adapter — gets applied to the existing corpus.
+   *
+   * Bounded and idempotent by construction: each asset goes through the
+   * SAME dispatchForPack path, whose runs are keyed deterministically and
+   * INSERT IGNORE'd, so re-running the sweep replays instead of
+   * duplicating. Per-asset failures are counted, never fatal — one bad
+   * blob must not abort an operator's sweep.
+   *
+   * Candidate selection is a bounded READ (`SELECT VALUE id … LIMIT`) —
+   * no DELETE/UPDATE-over-WHERE anywhere near the 3.2.4 planner rule. The
+   * per-asset gate ladder (consent, quarantine, tombstone) stays exactly
+   * where it is, in gateProcessorDispatch: this method filters nothing
+   * itself, it only chooses which ids to hand over.
+   */
+  async dispatchSweep(
+    companyId: string,
+    req: { packId: string; assetId?: string | undefined; limit?: number | undefined },
+  ): Promise<DispatchSweepResult> {
+    if (!processorBrokerEnabled() || !evidenceSubstrateEnabled()) {
+      throw new ServiceUnavailableException(
+        'EVIDENCE_PROCESSOR_BROKER (with EVIDENCE_SUBSTRATE_ENABLED) is off',
+      );
+    }
+    const assetIds = req.assetId
+      ? [req.assetId]
+      : await this.sweepCandidates(companyId, req.limit ?? SWEEP_DEFAULT_LIMIT);
+    const out: DispatchSweepResult = {
+      assets: assetIds.length,
+      dispatched: 0,
+      runs: 0,
+      denied: 0,
+      failed: 0,
+    };
+    for (const assetId of assetIds) {
+      try {
+        const res = await this.dispatchForPack(companyId, { packId: req.packId, assetId });
+        out.dispatched++;
+        out.runs += res.runs.length;
+        out.denied += res.denied.length;
+      } catch (e) {
+        out.failed++;
+        this.logger.warn(`sweep dispatch failed for ${assetId}: ${(e as Error).message}`);
+      }
+    }
+    return out;
+  }
+
+  /** Bounded id read of live (non-tombstoned) assets, oldest ids first. */
+  private async sweepCandidates(companyId: string, requested: number): Promise<string[]> {
+    const limit = Math.min(Math.max(1, Math.trunc(requested)), SWEEP_MAX_LIMIT);
+    const ids = await this.surreal.withCompany(companyId, (db) =>
+      queryRows<unknown>(
+        db,
+        `SELECT VALUE id FROM evidence_asset WHERE availability != 'gone'
+          ORDER BY id ASC LIMIT $limit`,
+        { limit },
+      ),
+    );
+    return ids.map((id) => String(id));
   }
 
   private async loadRows(

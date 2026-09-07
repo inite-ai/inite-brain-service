@@ -5,15 +5,24 @@ import {
   NotFoundException,
   Post,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { PolicyAction } from '../policy/action-registry';
-import { evidenceIngestEnabled } from '../common/evidence-flags';
+import { evidenceBlobUploadEnabled, evidenceIngestEnabled } from '../common/evidence-flags';
+import {
+  EVIDENCE_BLOB_FIELD,
+  EvidenceBlobUploadInterceptor,
+  type UploadedEvidenceBlob,
+} from './blob-upload.interceptor';
 import { EvidenceStoreService } from './evidence-store.service';
+import { EvidenceUploadService, type UploadEvidenceBlobResult } from './evidence-upload.service';
 import { validateLocator } from './locator';
 import { IngestEvidenceAssetDto, IngestEvidenceFragmentDto } from './dto/ingest-evidence-asset.dto';
+import { UploadEvidenceBlobDto } from './dto/upload-evidence-blob.dto';
 
 /**
  * Producer stamp for caller-asserted fragment excerpts: the "producer"
@@ -36,21 +45,33 @@ export interface IngestEvidenceAssetResult {
 }
 
 /**
- * POST /v1/ingest/evidence-asset — the HTTP surface of the evidence
- * substrate (Brain v2.1 M3), METADATA-ONLY by design (the MM-6
- * quarantine boundary): the caller registers what an observation IS
- * (modality, mediaType, byteHash identity, dimensions) and WHERE it
- * lives (`originUri`, never fetched) — no bytes cross this surface and
- * `storageRef` is rejected by the forbidNonWhitelisted pipe, so a fresh
- * registration is always availability='external'. Blob-backed
- * registration stays service-level until the upload/quarantine design
- * lands.
+ * The evidence substrate's two write-side HTTP surfaces, each behind its
+ * own flag and each honest about whether bytes change hands.
  *
- * Dark behind EVIDENCE_INGEST_ENABLED (default off → bare 404, the
- * scenes-surface precedent; byte-identical prod). The write seam
- * additionally requires EVIDENCE_SUBSTRATE_ENABLED (off → 503;
- * env-validation warns at boot on the inconsistent pair). All flags read
- * at call time (runtime-mutable).
+ * POST /v1/ingest/evidence-asset (Brain v2.1 M3) is METADATA-ONLY by
+ * design (the MM-6 quarantine boundary): the caller registers what an
+ * observation IS (modality, mediaType, byteHash identity, dimensions) and
+ * WHERE it lives (`originUri`, never fetched) — no bytes cross it and
+ * `storageRef` is rejected by the forbidNonWhitelisted pipe, so a fresh
+ * registration is always availability='external'.
+ *
+ * POST /v1/ingest/evidence-blob (Brain v2.1 MM-7) is the byte surface:
+ * `multipart/form-data`, the bytes stored content-addressed through the
+ * storage adapter, availability DERIVED as 'hot', and the asset scanned
+ * before it is dispatchable. Because bytes arriving over HTTP are
+ * external ingest by definition, it registers with origin
+ * 'external_ingest' and therefore inherits the MM-6 fence: without
+ * EVIDENCE_QUARANTINE the store refuses (503) and nothing is written.
+ * The server owns byteHash / byteLength / storageRef there — a caller
+ * that hands over the bytes cannot also assert what they are.
+ *
+ * Both routes are dark by default (EVIDENCE_INGEST_ENABLED and
+ * EVIDENCE_BLOB_UPLOAD_ENABLED, independently — a deployment may take
+ * bytes without opening caller-asserted registration, or the reverse) and
+ * answer a bare 404 when off, the scenes-surface precedent; prod stays
+ * byte-identical. Both additionally need EVIDENCE_SUBSTRATE_ENABLED at
+ * the write seam (off → 503; env-validation warns at boot on the
+ * inconsistent pair). All flags read at call time (runtime-mutable).
  *
  * Semantics inherited from the ONE write seam (EvidenceStoreService):
  * same-user re-registration of a known byteHash dedupes
@@ -64,7 +85,10 @@ export interface IngestEvidenceAssetResult {
 @Controller('v1/ingest')
 @UseGuards(ApiKeyGuard)
 export class EvidenceIngestController {
-  constructor(private readonly store: EvidenceStoreService) {}
+  constructor(
+    private readonly store: EvidenceStoreService,
+    private readonly uploads: EvidenceUploadService,
+  ) {}
 
   @Post('evidence-asset')
   @RequireScopes('brain:write')
@@ -115,6 +139,48 @@ export class EvidenceIngestController {
       deduped: asset.deduped,
       fragments,
     };
+  }
+
+  /**
+   * The byte surface. Same guard, same `brain:write` scope and same
+   * tenant fence as its metadata sibling — `companyId` comes from the
+   * authenticated key, never from the multipart body, so a caller cannot
+   * name a tenant. Its own ABAC action (`rest.ingest.evidence_blob`) so a
+   * policy can open metadata registration without also opening byte
+   * custody.
+   *
+   * The flag is checked TWICE on purpose: the interceptor throws first
+   * (before multer buffers anything, and before parameter pipes could
+   * turn an unparsed body into a route-revealing 400), and this line is
+   * the seam a unit test can pin without a multipart fixture.
+   */
+  @Post('evidence-blob')
+  @RequireScopes('brain:write')
+  @PolicyAction('rest.ingest.evidence_blob')
+  @UseInterceptors(EvidenceBlobUploadInterceptor)
+  async uploadEvidenceBlob(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: UploadEvidenceBlobDto,
+    @UploadedFile() file?: UploadedEvidenceBlob,
+  ): Promise<UploadEvidenceBlobResult> {
+    if (!evidenceBlobUploadEnabled()) throw new NotFoundException();
+    if (!file) throw new BadRequestException(`a '${EVIDENCE_BLOB_FIELD}' file part is required`);
+    return this.uploads.upload(req.brainAuth.companyId, file, {
+      modality: body.modality,
+      mediaType: body.mediaType,
+      occurredAt: new Date(body.occurredAt),
+      vertical: body.vertical,
+      userId: body.userId,
+      scope: body.scope,
+      piiClasses: body.piiClasses,
+      recorder: body.recorder,
+      retainUntil: body.retainUntil !== undefined ? new Date(body.retainUntil) : undefined,
+      width: body.width,
+      height: body.height,
+      durationMs: body.durationMs,
+      pageCount: body.pageCount,
+      packId: body.packId,
+    });
   }
 
   /**

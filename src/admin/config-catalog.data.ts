@@ -1321,6 +1321,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Evidence ingest surface (Brain v2.1 M3): POST /v1/ingest/evidence-asset. Off (default) = the route answers a bare 404 (scenes-surface precedent), byte-identical prod. Metadata-only by design (MM-6 boundary): originUri required, storageRef rejected, no bytes accepted. Requires EVIDENCE_SUBSTRATE_ENABLED — ingest-on/substrate-off answers 503 from the write seam and env-validation warns at boot.',
   },
   {
+    key: 'EVIDENCE_BLOB_UPLOAD_ENABLED',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Evidence blob upload surface (Brain v2.1 MM-7): POST /v1/ingest/evidence-blob (multipart/form-data) — the ONE route that takes bytes into custody. Bytes land in the content-addressed storage adapter (needs EVIDENCE_FS_ROOT), the server computes byteHash/byteLength itself, and the asset registers blob-backed with availability derived as 'hot'. Registers with origin 'external_ingest', so it ALSO requires EVIDENCE_QUARANTINE (503 otherwise — bytes over HTTP are external ingest; no external bytes without the scan seam) plus EVIDENCE_SUBSTRATE_ENABLED. The upload is scanned before it becomes dispatchable (clean → 201, rejected → 422 with the row tombstoned and the blob deleted, hook failure → 201 with the asset left quarantined and dispatch-denied). An optional packId fires a FIRE-AND-FORGET broker dispatch when EVIDENCE_PROCESSOR_BROKER is on. Media types are an explicit conservative allowlist checked against the declared modality (no SVG, no HTML, no archives, no octet-stream); transfer is capped at min(EVIDENCE_MAX_BYTES, a 64 MiB memory-storage ceiling). Off (default) = the route answers a bare 404 BEFORE the multipart body is parsed — byte-identical prod, and no caller bytes are ever buffered.",
+  },
+  {
     key: 'EVIDENCE_FS_ROOT',
     category: 'pipeline',
     defaultValue: '',
@@ -1336,7 +1345,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      'Sanity cap on the DECLARED byteLength of a registered evidence asset (default 1 GiB). A claim bound, not a transfer limit — this release ships no upload endpoint.',
+      'Sanity cap on the DECLARED byteLength of a registered evidence asset (default 1 GiB). It is also the transfer bound of the blob upload surface (EVIDENCE_BLOB_UPLOAD_ENABLED), applied there as min(this, a 64 MiB memory-storage ceiling) — raising it past that ceiling raises nothing.',
   },
   {
     key: 'EVIDENCE_PROCESSOR_BROKER',
