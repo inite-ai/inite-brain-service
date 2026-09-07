@@ -24,7 +24,8 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { HttpBrainClient } from '../http-brain-client';
 import { interleaveRoundRobin } from '../memory-fitness/interleave';
 import { walkProvenance } from '../memory-fitness/scorers';
-import { ALL_TURNS, BORIS_REF, CORPUS_VERTICAL, SCENARIOS, SPEAKER } from './scenarios';
+import { BORIS_REF, CORPUS_VERTICAL, SPEAKER } from './scenarios';
+import { allTurnsOf, buildScenarios, parseVariant, type StevVariant } from './variants';
 import { checkBelief, checkHistorySequence, scoreServe, type HistoryEvent } from './scorers';
 import type {
   BeliefCheck,
@@ -36,6 +37,7 @@ import type {
   ProvenanceCheck,
   Scenario,
   ScenarioResult,
+  ScenarioTurn,
   Scorecard,
   ServeCheck,
   Tally,
@@ -59,6 +61,7 @@ interface Config {
   companyId: string;
   userId: string;
   runId: string;
+  variant: StevVariant;
   guardrails: 'strict' | 'lenient' | 'off';
   skipIngest: boolean;
   reportDir: string;
@@ -81,9 +84,11 @@ function loadConfig(): Config {
         '                   (+ brain:admin for the optional scene/belief builds)',
         '  BRAIN_COMPANY_ID tenant id — use a FRESH tenant per run (see README.md)',
         '',
-        'Optional env: STEV_USER_ID, STEV_RUN_ID, STEV_GUARDRAILS',
+        'Optional env: STEV_VARIANT (default|paraphrase|ru — corpus variation',
+        'axis, see variants.ts), STEV_USER_ID, STEV_RUN_ID, STEV_GUARDRAILS',
         '(strict|lenient|off, default strict), STEV_SKIP_INGEST=1 (re-ask an',
-        'already-ingested run — requires the same STEV_RUN_ID), STEV_REPORT_DIR.',
+        'already-ingested run — requires the same STEV_RUN_ID and STEV_VARIANT),',
+        'STEV_REPORT_DIR.',
       ].join('\n'),
     );
     process.exit(1);
@@ -99,6 +104,11 @@ function loadConfig(): Config {
   const guardrailsRaw = process.env.STEV_GUARDRAILS ?? 'strict';
   if (guardrailsRaw !== 'strict' && guardrailsRaw !== 'lenient' && guardrailsRaw !== 'off') {
     console.error('state-transitions: STEV_GUARDRAILS must be strict|lenient|off.');
+    process.exit(1);
+  }
+  const variant = parseVariant(process.env.STEV_VARIANT);
+  if (variant === null) {
+    console.error('state-transitions: STEV_VARIANT must be default|paraphrase|ru.');
     process.exit(1);
   }
   // Run-scoped default user (the #456 hermeticity doctrine): a FIXED
@@ -117,6 +127,7 @@ function loadConfig(): Config {
     companyId,
     userId: process.env.STEV_USER_ID ?? `stev-agent-${runId}`,
     runId,
+    variant,
     guardrails: guardrailsRaw,
     skipIngest: process.env.STEV_SKIP_INGEST === '1',
     reportDir: process.env.STEV_REPORT_DIR ?? join('var', 'state-transitions'),
@@ -264,11 +275,18 @@ interface BeliefsOut {
 
 // ── phase 1: write the world-state ──────────────────────────────────
 
-async function ingestTurns(cfg: Config, brain: HttpBrainClient): Promise<void> {
-  console.error(`[ingest] ${ALL_TURNS.length} mention turns (run ${cfg.runId})…`);
-  for (const [i, turn] of ALL_TURNS.entries()) {
+async function ingestTurns(
+  cfg: Config,
+  brain: HttpBrainClient,
+  turns: readonly ScenarioTurn[],
+): Promise<void> {
+  console.error(
+    `[ingest] ${turns.length} mention turns (run ${cfg.runId}, variant ${cfg.variant})…`,
+  );
+  for (const [i, turn] of turns.entries()) {
     const knownEntities: Array<Record<string, string>> = [{ ...SPEAKER }];
-    if (turn.text.includes('Boris')) {
+    // Both spellings — the RU corpus writes the brother's name «Борис».
+    if (turn.text.includes('Boris') || turn.text.includes('Борис')) {
       knownEntities.push({ ...BORIS_REF, name: 'Boris' });
     }
     await withRetry(`mention ${turn.conversation}#${turn.turn}`, () =>
@@ -285,7 +303,7 @@ async function ingestTurns(cfg: Config, brain: HttpBrainClient): Promise<void> {
         emittedAt: turn.emittedAt,
       }),
     );
-    if ((i + 1) % 10 === 0) console.error(`[ingest] ${i + 1}/${ALL_TURNS.length}`);
+    if ((i + 1) % 10 === 0) console.error(`[ingest] ${i + 1}/${turns.length}`);
   }
 }
 
@@ -495,6 +513,7 @@ function buildScorecard(
   startedAt: string,
   builds: Record<string, string>,
   results: ScenarioResult[],
+  mentionTurns: number,
 ): Scorecard {
   const classes: Record<string, Tally> = {};
   const checkKinds: Record<CheckKind, Tally> = {
@@ -520,13 +539,14 @@ function buildScorecard(
   }
   return {
     runId: cfg.runId,
+    variant: cfg.variant,
     baseUrl: cfg.baseUrl,
     companyId: cfg.companyId,
     userId: cfg.userId,
     guardrails: cfg.guardrails,
     startedAt,
     finishedAt: new Date().toISOString(),
-    ingest: { mentionTurns: cfg.skipIngest ? 0 : ALL_TURNS.length, builds },
+    ingest: { mentionTurns: cfg.skipIngest ? 0 : mentionTurns, builds },
     classes,
     checkKinds,
     scenarios,
@@ -537,7 +557,10 @@ function buildScorecard(
 
 function printScorecard(card: Scorecard): void {
   console.log('');
-  console.log(`state-transitions scorecard — run ${card.runId} (guardrails=${card.guardrails})`);
+  console.log(
+    `state-transitions scorecard — run ${card.runId} ` +
+      `(variant=${card.variant}, guardrails=${card.guardrails})`,
+  );
   console.log('─'.repeat(72));
   for (const [cls, tally] of Object.entries(card.classes)) {
     console.log(
@@ -578,9 +601,12 @@ async function main(): Promise<void> {
   const cfg = loadConfig();
   const startedAt = new Date().toISOString();
   console.error(
-    `state-transitions: run ${cfg.runId} against ${cfg.baseUrl} (tenant ${cfg.companyId})`,
+    `state-transitions: run ${cfg.runId} (variant ${cfg.variant}) ` +
+      `against ${cfg.baseUrl} (tenant ${cfg.companyId})`,
   );
 
+  const scenarios = buildScenarios(cfg.variant);
+  const turns = allTurnsOf(scenarios);
   const brain = new HttpBrainClient({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey });
   const mcp = await connectMcp(cfg);
   try {
@@ -590,19 +616,19 @@ async function main(): Promise<void> {
 
     let builds: Record<string, string> = { scenes: 'skipped: STEV_SKIP_INGEST' };
     if (!cfg.skipIngest) {
-      await ingestTurns(cfg, brain);
+      await ingestTurns(cfg, brain, turns);
       builds = await runBuilds(cfg);
     }
 
     const ctx: CheckContext = { cfg, mcp, tools, builds };
     const results: ScenarioResult[] = [];
-    for (const scenario of SCENARIOS) {
+    for (const scenario of scenarios) {
       console.error(
         `[scenario] ${scenario.key} ${scenario.name} (${scenario.checks.length} checks)`,
       );
       results.push(await runScenario(ctx, scenario));
     }
-    const card = buildScorecard(cfg, startedAt, builds, results);
+    const card = buildScorecard(cfg, startedAt, builds, results, turns.length);
 
     mkdirSync(cfg.reportDir, { recursive: true });
     const reportPath = join(cfg.reportDir, `state-transitions-${cfg.runId}.json`);

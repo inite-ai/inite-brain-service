@@ -56,6 +56,44 @@ serving cost.
 Score = per-scenario pass (ALL of its checks pass) plus a per-check-kind
 tally; the scorecard groups scenarios by class.
 
+## Variation axis (`STEV_VARIANT`)
+
+The corpus has three phrasings of the SAME 12 scenarios — same
+conversations, same turn counts, same timestamps, same checks
+(`variants.ts`, unit-pinned in `test/state-transition-corpus.unit-spec.ts`):
+
+- **`default`** — the original corpus, byte-identical (the builder
+  returns the `SCENARIOS` array itself).
+- **`paraphrase`** — same facts phrased WITHOUT any verb of the
+  deterministic state-verb lexicon (`EXTRACTOR_STATE_VERB_HARVEST`;
+  pinned against the exported `STATE_VERB_LEXICON`): "parted with the
+  Kawasaki" for sold, "walked away from the chess club" for quit,
+  "sent the standing desk back" for returned. Only the transition
+  classifier lane (`EXTRACTOR_TRANSITION_CLASSIFIER`: morphology +
+  BGE-M3 prototypes) and the LLM extractor can catch these transitions.
+- **`ru`** — faithful Russian phrasings («продал», «вернул»,
+  «вступил», «записался», …; person names go Cyrillic, brand names
+  stay Latin the way Russian text writes them), exercising the RU
+  prototype path of the classifier and the RU candidate matcher's
+  sentence-scoped guards — including the documented deliberate-miss
+  class («Я продал Kawasaki сегодня; байка больше нет.» is ONE guarded
+  span, because the RU guard is sentence-scoped and `sentenceSpans`
+  splits only before Latin uppercase).
+
+Check expectations stay the same across variants: nothing is removed,
+marker lists only gain language/phrasing alternates a correct answer
+would legitimately echo (a served «вернул» is as correct as
+'returned'), and provenance fragments are re-authored to quote the
+variant's own turns verbatim. The honest framing: **variants measure
+extraction ROBUSTNESS across phrasings and languages, not pass/fail
+parity** — a paraphrase or RU run scoring below default is a
+measurement of where the classifier/LLM lanes go blind, not a battery
+regression, and the deltas between the three scorecards are the
+deliverable.
+
+Use a fresh run (fresh salted user) per variant; comparing variants on
+one tenant is fine because runs are user-scoped and hermetic.
+
 ## Expected fails on today's code (the baseline IS the point)
 
 Three checks are **expected to fail** on current `main` (default flags)
@@ -122,10 +160,12 @@ BRAIN_COMPANY_ID=<fresh tenant id> \
 pnpm eval:state-transitions
 ```
 
-Optional env: `STEV_USER_ID` (default `stev-agent`), `STEV_RUN_ID`
-(defaults to a fresh id), `STEV_GUARDRAILS` (`strict` | `lenient` |
-`off`, default `strict`), `STEV_SKIP_INGEST=1` (re-ask an
-already-ingested run; pass the same `STEV_RUN_ID`), `STEV_REPORT_DIR`
+Optional env: `STEV_VARIANT` (`default` | `paraphrase` | `ru`, default
+`default` — see the variation axis above), `STEV_USER_ID` (default
+`stev-agent-<runId>`, run-salted per #457), `STEV_RUN_ID` (defaults to
+a fresh id), `STEV_GUARDRAILS` (`strict` | `lenient` | `off`, default
+`strict`), `STEV_SKIP_INGEST=1` (re-ask an already-ingested run; pass
+the same `STEV_RUN_ID` AND the same `STEV_VARIANT`), `STEV_REPORT_DIR`
 (default `var/state-transitions/`).
 
 Conversation ids are run-scoped (`<runId>-s01a`), so re-runs never
