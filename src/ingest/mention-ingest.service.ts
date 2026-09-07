@@ -1,13 +1,15 @@
-import { Injectable, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { MetricsService } from '../metrics/metrics.service';
 import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { traceSpan } from '../common/debug-trace';
 import { MentionExtractionService } from './mention-extraction.service';
 import { MentionPersistService } from './mention-persist.service';
 import { EpisodeStoreService } from './episode-store.service';
+import { MentionProjectionService } from './mention-projection.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { failClosedCaptureEnabled } from '../common/evidence-flags';
 import { pinUserScope } from '../auth/user-scope';
+import type { ExtractionResult } from '../ai/extractor.service';
 
 /**
  * The mention ingest path (`ingestMention`): free-text → LLM extraction → fact
@@ -17,14 +19,18 @@ import { pinUserScope } from '../auth/user-scope';
  */
 @Injectable()
 export class MentionIngestService {
-  // Fourth dep is the flag-gated L0 episode capture; both trailing deps are
-  // optional so positionally-constructed unit tests stay two-argument.
+  private readonly logger = new Logger(MentionIngestService.name);
+
+  // Fourth dep is the flag-gated L0 episode capture, fifth the flag-gated
+  // pack scene projection; the trailing deps are optional so
+  // positionally-constructed unit tests stay two-argument.
   // eslint-disable-next-line max-params
   constructor(
     private readonly extraction: MentionExtractionService,
     private readonly persist: MentionPersistService,
     @Optional() private readonly metrics?: MetricsService,
     @Optional() private readonly episodes?: EpisodeStoreService,
+    @Optional() private readonly projections?: MentionProjectionService,
   ) {}
 
   async ingestMention(companyId: string, dto: IngestMentionDto) {
@@ -112,8 +118,51 @@ export class MentionIngestService {
         factEmbeddings: prep.factEmbeddings,
       });
 
+      // Capture-path pack memory projections (0110,
+      // PACK_MEMORY_PROJECTIONS_ENABLED): the mention-origin producer for
+      // packs that declare a memoryModel. Runs AFTER persistence — the
+      // semantic write has already landed and must not be retracted by an
+      // optional shadow pass — and only for a CAPTURED turn (the episode
+      // id is the projection's GDPR erasure anchor).
+      if (episodeId) {
+        await this.projectPackScenes({
+          companyId,
+          dto,
+          episodeId,
+          extraction: prep.extraction,
+        });
+      }
+
       this.metrics?.countIngestMention('extracted');
       return { skipped: false, ...out };
     });
+  }
+
+  /**
+   * Soft-fail by contract (the episode-capture idiom): a shadow
+   * projection can never fail — or slow the failure of — a mention whose
+   * facts are already written. Flag off ⇒ projectTurn returns before any
+   * IO, so this is a bare call and a no-op.
+   */
+  private async projectPackScenes(p: {
+    companyId: string;
+    dto: IngestMentionDto;
+    episodeId: string;
+    extraction: ExtractionResult;
+  }): Promise<void> {
+    try {
+      await this.projections?.projectTurn({
+        companyId: p.companyId,
+        dto: p.dto,
+        episodeId: p.episodeId,
+        // Advisory subject for derived state deltas — the turn's first
+        // extracted entity, else the stateModel's own subjectType.
+        subject: p.extraction.entities[0]?.name,
+      });
+    } catch (e) {
+      this.logger.warn(
+        `pack scene projection failed for episode ${p.episodeId}: ${(e as Error).message}`,
+      );
+    }
   }
 }

@@ -179,9 +179,11 @@ describe('0110_candidate_scene_kinds (pack memory projections)', () => {
     expect(src).not.toMatch(/packMemoryProjectionsEnabled/);
   });
 
-  it('the scene-candidate writer swaps by pre-collected ids (3.2.4 planner shape)', () => {
+  it('the pack scene slice swap uses pre-collected ids (3.2.4 planner shape)', () => {
+    // The swap is SHARED by both projection origins (document commit and
+    // capture-path turn), so the guard follows it into the shared module.
     const src = readFileSync(
-      join(__dirname, '..', 'src', 'documents', 'scene-candidate-writer.service.ts'),
+      join(__dirname, '..', 'src', 'episodes', 'pack-scene-projection.ts'),
       'utf8',
     );
     expect(src).toContain(
@@ -189,6 +191,15 @@ describe('0110_candidate_scene_kinds (pack memory projections)', () => {
     );
     expect(src).toContain('DELETE $oldMemberIds');
     expect(src).toContain('DELETE memory_episode WHERE id INSIDE $oldIds');
+    // Neither producer may hand-roll its own swap.
+    for (const producer of [
+      join('documents', 'scene-candidate-writer.service.ts'),
+      join('ingest', 'mention-projection.service.ts'),
+    ]) {
+      const impl = readFileSync(join(__dirname, '..', 'src', producer), 'utf8');
+      expect(impl).toContain('swapPackSceneSlice');
+      expect(impl).not.toMatch(/DELETE memory_episode/);
+    }
   });
 });
 

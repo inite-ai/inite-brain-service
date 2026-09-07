@@ -1,50 +1,36 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { createHash } from 'node:crypto';
-import { RecordId, StringRecordId, type Surreal } from 'surrealdb';
-import { SurrealService, runTransaction } from '../db/surreal.service';
-import { scopeForUser } from '../auth/scope-tags';
+import { StringRecordId, type Surreal } from 'surrealdb';
+import { SurrealService } from '../db/surreal.service';
 import { ProjectionRegistryService } from '../episodes/projection-registry.service';
+import {
+  PACK_SCENE_PROJECTOR,
+  buildPackSceneRow,
+  packSceneIdTail,
+  packSceneProjectionName,
+  packSceneScopeStamp,
+  packSceneVersion,
+  packStateDeltaEntry,
+  swapPackSceneSlice,
+} from '../episodes/pack-scene-projection';
 import { packMemoryProjectionsEnabled } from '../common/pack-projection-flags';
 import { idTailOf } from '../ingest/ingest-utils';
 import { CandidateStoreService, type CandidateRow } from './candidate-store.service';
 import type { StoredDocument } from './document-store.service';
 
-/** Builder stamp (registry + source.recorder) for pack scene projections. */
-export const PACK_SCENE_PROJECTOR = 'pack-scene-projector-v1';
-
-/**
- * Effective segmenterVersion for one pack's scene world:
- * `pack:<packId>+<8-hex fp>` — the effectiveSegmenterVersion mold with a
- * `pack:` namespace, so it can NEVER collide with the composer's
- * `scene-segmenter-v1*` id-spaces. The fingerprint hashes the projector
- * impl + pack identity + pack version (canonical `|`-joined string, the
- * sceneConfigFingerprint idiom): a pack UPGRADE forks a fresh coexisting
- * world instead of overwriting the old one in place, and abandoned worlds
- * are purged through the existing
- * DELETE /v1/admin/maintenance/scenes/versions/:segmenterVersion verb —
- * `:` and `+` are literal characters in a URL path segment.
- */
-export function packSceneVersion(packId: string, packVersion: string): string {
-  const fp = createHash('sha256')
-    .update(`impl=${PACK_SCENE_PROJECTOR}|pack=${packId}|packVersion=${packVersion}`)
-    .digest('hex')
-    .slice(0, 8);
-  return `pack:${packId}+${fp}`;
-}
+// The projector stamp, its version mold and the row builder are SHARED
+// with the capture-path producer (MentionProjectionService) — one shape,
+// two origins. Re-exported here for API continuity (the 0110 specs and
+// the e2e import them from this module).
+export { PACK_SCENE_PROJECTOR, packSceneVersion };
 
 /**
  * Per-user scope stamp for a projected scene row (0128): a user-scoped
- * document's scenes carry the document's user — userId + the 0093 scope
- * tag + the 0117 userIds membership fold (single-user by construction),
- * the composer's exact stamp shape, so the PRIVACY_SEGMENT_USER_FENCE
- * read contract fences them without backfill. A tenant-global document
- * keeps the pre-0128 row byte-identical — the 0055 fold with an empty
- * member set. Exported pure for unit tests.
+ * document's scenes carry the document's user — the shared
+ * packSceneScopeStamp fold (userId + the 0093 scope tag + the 0117
+ * userIds membership set). Exported pure for unit tests.
  */
 export function sceneScopeStamp(doc: Pick<StoredDocument, 'userId'>): Record<string, unknown> {
-  return doc.userId
-    ? { userId: doc.userId, scope: scopeForUser(doc.userId), userIds: [doc.userId] }
-    : { scope: [] };
+  return packSceneScopeStamp(doc.userId);
 }
 
 /** One run's projection outcome (observability + tests). */
@@ -123,7 +109,7 @@ export class SceneCandidateWriterService {
     const outcomes: SceneProjectionOutcome[] = [];
     for (const group of groupByRun(rows).values()) {
       const version = packSceneVersion(group.packId, group.packVersion);
-      const name = `scenes:${group.packId}`;
+      const name = packSceneProjectionName(group.packId);
       await this.registry.begin({ companyId, name, version, builder: PACK_SCENE_PROJECTOR });
       try {
         const outcome = await this.projectGroup({ companyId, doc, group, version });
@@ -166,33 +152,36 @@ export class SceneCandidateWriterService {
         updates.push({ id: row.id, status: 'rejected', statusReason: 'malformed_scene' });
         continue;
       }
-      const idTail = sceneRowIdTail(doc.id, version, sceneIndex);
+      const idTail = packSceneIdTail(doc.id, version, sceneIndex);
       const episodeId = `memory_episode:${idTail}`;
       idBySceneIndex.set(sceneIndex, episodeId);
-      episodeRows.push({
-        id: new RecordId('memory_episode', idTail),
-        // Per-user scope (0128) — see sceneScopeStamp.
-        ...sceneScopeStamp(doc),
-        sceneLabel: label,
-        // No conversation backs a document scene; erasure and rebuild are
-        // keyed by source.docId instead.
-        conversationIds: [],
-        occurredFrom: toDate(row.payload.occurredFrom) ?? doc.occurredAt,
-        occurredTo: toDate(row.payload.occurredTo) ?? doc.occurredAt,
-        gist,
-        confidence: clamp01(row.confidence),
-        segmenterVersion: version,
-        generation,
-        source: {
-          recorder: PACK_SCENE_PROJECTOR,
-          docId: new StringRecordId(`source_document:${idTailOf(doc.id)}`),
-          packId: group.packId,
-          packVersion: group.packVersion,
-          schemaId: row.payload.schemaId,
-          candidateId: row.id,
-        },
-        stateDeltas: deltasForScene(group.deltas, sceneIndex),
-      });
+      episodeRows.push(
+        // The SHARED row shape (buildPackSceneRow) — identical to what the
+        // capture-path producer writes, modulo the origin provenance.
+        buildPackSceneRow({
+          idTail,
+          // Per-user scope (0128) — see sceneScopeStamp.
+          userId: doc.userId,
+          sceneLabel: label,
+          // No conversation backs a document scene; erasure and rebuild are
+          // keyed by source.docId instead.
+          conversationIds: [],
+          occurredFrom: toDate(row.payload.occurredFrom) ?? doc.occurredAt,
+          occurredTo: toDate(row.payload.occurredTo) ?? doc.occurredAt,
+          gist,
+          confidence: row.confidence,
+          version,
+          generation,
+          origin: {
+            docId: new StringRecordId(`source_document:${idTailOf(doc.id)}`),
+            packId: group.packId,
+            packVersion: group.packVersion,
+            schemaId: row.payload.schemaId,
+            candidateId: row.id,
+          },
+          stateDeltas: deltasForScene(group.deltas, sceneIndex),
+        }),
+      );
       updates.push({ id: row.id, status: 'committed', commitRef: episodeId });
     }
 
@@ -217,13 +206,9 @@ export class SceneCandidateWriterService {
   }
 
   /**
-   * Atomic swap of THIS (document × version) slice — the composer's
-   * conversation-swap mold keyed by source.docId. Member delete is
-   * LET-select-ids → DELETE DELIBERATELY (defensive: this writer creates
-   * no member rows, but a DELETE whose WHERE filters on `in` — covered
-   * only by the COMPOUND scene_member_uq index — is the SurrealDB 3.2.4
-   * silent-no-op planner shape); the scene delete filters on plain
-   * pre-collected ids for the same reason.
+   * Atomic swap of THIS (document × version) slice — the SHARED
+   * swapPackSceneSlice keyed by source.docId (the slice's size is the
+   * last submission's, so the ids are SELECT-collected, not derived).
    */
   private async swapDocumentScenes(p: {
     companyId: string;
@@ -233,22 +218,14 @@ export class SceneCandidateWriterService {
   }): Promise<void> {
     const { docId, version, episodeRows } = p;
     await this.surreal.withCompany(p.companyId, (db) =>
-      runTransaction(db as unknown as Surreal, (tx) => {
-        tx.add(
-          `LET $oldIds = (SELECT VALUE id FROM memory_episode
-             WHERE segmenterVersion = $v AND source.docId = $doc)`,
-        )
-          .add(
-            `LET $oldMemberIds = (SELECT VALUE id FROM memory_episode_member WHERE in INSIDE $oldIds)`,
-          )
-          .add(`DELETE $oldMemberIds`)
-          .add(`DELETE memory_episode WHERE id INSIDE $oldIds`)
-          .bind('v', version)
-          .bind('doc', new StringRecordId(`source_document:${idTailOf(docId)}`));
-        if (episodeRows.length > 0) {
-          tx.add(`INSERT INTO memory_episode $rows`).bind('rows', episodeRows);
-        }
-        tx.add(`RETURN { swapped: array::len($oldIds) }`);
+      swapPackSceneSlice(db as unknown as Surreal, {
+        version,
+        key: {
+          by: 'source',
+          field: 'docId',
+          value: new StringRecordId(`source_document:${idTailOf(docId)}`),
+        },
+        sceneRows: episodeRows,
       }),
     );
   }
@@ -275,22 +252,16 @@ function groupByRun(rows: CandidateRow[]): Map<string, SceneGroup> {
 function deltasForScene(deltas: CandidateRow[], sceneIndex: number): Record<string, unknown>[] {
   return deltas
     .filter((d) => Number(d.payload.sceneIndex) === sceneIndex)
-    .map((d) => ({
-      stateModelId: d.payload.stateModelId,
-      subject: d.payload.subject,
-      from: d.payload.from,
-      to: d.payload.to,
-      confidence: clamp01(d.confidence),
-      candidateId: d.id,
-    }));
-}
-
-/** sceneIdTail mold: deterministic per (document × version × index). */
-function sceneRowIdTail(docId: string, version: string, sceneIndex: number): string {
-  return createHash('sha256')
-    .update(`${docId}|${version}|${sceneIndex}`)
-    .digest('hex')
-    .slice(0, 24);
+    .map((d) =>
+      packStateDeltaEntry({
+        stateModelId: d.payload.stateModelId,
+        subject: d.payload.subject,
+        from: d.payload.from,
+        to: d.payload.to,
+        confidence: d.confidence,
+        candidateId: d.id,
+      }),
+    );
 }
 
 function toDate(v: unknown): Date | null {
@@ -300,9 +271,4 @@ function toDate(v: unknown): Date | null {
     if (Number.isFinite(ms)) return new Date(ms);
   }
   return null;
-}
-
-function clamp01(n: number): number {
-  if (!Number.isFinite(n)) return 0.7;
-  return Math.min(1, Math.max(0, n));
 }
