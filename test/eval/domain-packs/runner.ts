@@ -287,10 +287,15 @@ const seedInstruction = (cfg: Config): string =>
   ].join('\n');
 
 async function installOnePack(cfg: Config, pack: DomainPackManifest): Promise<string> {
+  // Every first-party pack declares a media section (modalities /
+  // processors / rawEvidence) as of the 0.3.0 line, so install is refused
+  // with a 400 unless the operator consents. The battery IS the operator
+  // here: it installs manifests it ships itself, having read them.
   const fromRegistry = (): Promise<RestResult<InstallOut>> =>
     restRaw<InstallOut>(cfg, 'POST', '/v1/admin/packs/from-registry', {
       packId: pack.id,
       version: pack.version,
+      acceptModalities: true,
     });
   let res = await fromRegistry();
   let republished = false;

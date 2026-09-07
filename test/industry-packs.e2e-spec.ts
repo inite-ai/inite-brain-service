@@ -18,7 +18,12 @@ describe('industry domain packs (e2e)', () => {
       scopes: ['brain:read', 'brain:write', 'brain:admin'],
     });
     for (const pack of [FINTECH_PACK, MEDICAL_PACK, LEGAL_PACK]) {
-      await f.http.post('/v1/admin/packs').set(auth()).send({ manifest: pack });
+      // Every first-party pack declares a media section as of the 0.3.0
+      // line, so install without acceptModalities is a 400 by design.
+      await f.http
+        .post('/v1/admin/packs')
+        .set(auth())
+        .send({ manifest: pack, acceptModalities: true });
     }
   });
   afterAll(async () => {

@@ -6,11 +6,18 @@ import type { DomainPackManifest } from './manifest';
  * required skills, seniority, compensation, employment type, location policy.
  * Scoped to ROLES/REQUISITIONS, not individual PII — the memoryModel's
  * position / employee lifecycles are generic vocabulary about subjects of
- * those types, never person records. Bump `version` to update.
+ * those types, never person records.
+ *
+ * As of 0.3.0 the memoryModel also carries a MEDIA CONTRACT: CVs and offer
+ * letters as documents; document text extraction as the single core
+ * capability requested; NO image modality (candidate photography is not
+ * this ontology's business) and NO raw-evidence declaration.
+ *
+ * Bump `version` to update.
  */
 export const HR_PACK: DomainPackManifest = {
   id: 'hr',
-  version: '0.2.0',
+  version: '0.3.0',
   description:
     'HR / recruiting ontology — required skills, seniority, compensation, employment type, and work location of roles, with a domain extraction profile and memory model.',
   predicates: [
@@ -99,7 +106,8 @@ the SUBJECT entity. Prefer the hr__* predicates for required skills
   },
   // The domain perception contract (docs/domain-packs.md). Declarative data
   // only — consumed by MemoryModelReaderService for installed tenants.
-  // Text-only: no modalities/processors/rawEvidence, so no consent surface.
+  // The media section (modalities/processors/rawEvidence) is the consent
+  // surface: installing this pack requires `acceptModalities: true`.
   memoryModel: {
     sceneSchemas: [
       {
@@ -171,6 +179,18 @@ the SUBJECT entity. Prefer the hr__* predicates for required skills
       { predicateOrScene: 'offer_stage', hint: 'standard' },
       { predicateOrScene: 'interview_debrief', hint: 'ephemeral' },
     ],
+    // ── Media contract (Evidence Plane) ─────────────────────────────────
+    // Recruiting evidence is DOCUMENTARY: CVs, offer letters, job
+    // descriptions, requisition paperwork. Document text extraction
+    // (document → text) is the only core capability requested, and it is
+    // the only one an installed adapter can run. `image` is deliberately
+    // NOT declared — candidate photography is not this ontology's business
+    // and would widen the tenant's media consent for nothing.
+    modalities: ['text', 'document'],
+    processors: [{ id: 'document_text', modality: 'document', produces: ['text'] }],
+    // rawEvidence is DELIBERATELY ABSENT (omission = deny). A CV is a
+    // person's personal data; the pack reasons over ROLES, so derived text
+    // is sufficient and gateRawEvidence refuses raw bytes and signed URLs.
   },
   evalFixtures: [
     {

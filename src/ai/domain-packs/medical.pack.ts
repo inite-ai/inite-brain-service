@@ -8,11 +8,17 @@ import type { DomainPackManifest } from './manifest';
  * 'none'. Ships an extractionProfile + eval fixtures + memoryModel
  * (prescription / approval lifecycles, attention + retention hints, a recency
  * rule for dosage claims and a corroboration rule for contraindications).
+ *
+ * As of 0.3.0 the memoryModel also carries a MEDIA CONTRACT: imaging and
+ * document scans as input modalities, the two core capabilities the
+ * Evidence Plane can actually run (image metadata, document text), and NO
+ * raw-evidence declaration — clinical images never serve raw.
+ *
  * Bump `version` to update.
  */
 export const MEDICAL_PACK: DomainPackManifest = {
   id: 'medical',
-  version: '0.2.0',
+  version: '0.3.0',
   description:
     'Clinical pharmacology ontology — indications, dosing, routes, interactions, and contraindications of drugs/treatments, with a domain extraction profile and memory model.',
   predicates: [
@@ -108,7 +114,8 @@ pack captures drug ontology, not clinical records.`,
   },
   // The domain perception contract (docs/domain-packs.md). Declarative data
   // only — consumed by MemoryModelReaderService for installed tenants.
-  // Text-only: no modalities/processors/rawEvidence, so no consent surface.
+  // The media section (modalities/processors/rawEvidence) is the consent
+  // surface: installing this pack requires `acceptModalities: true`.
   memoryModel: {
     sceneSchemas: [
       {
@@ -181,6 +188,25 @@ pack captures drug ontology, not clinical records.`,
       { predicateOrScene: 'adverse_event', hint: 'durable' },
       { predicateOrScene: 'medication_review', hint: 'standard' },
     ],
+    // ── Media contract (Evidence Plane) ─────────────────────────────────
+    // Clinical evidence arrives as IMAGING (scan / X-ray photographs) and
+    // as DOCUMENT scans of reports, alongside plain text. Only the two
+    // capabilities the trusted core can actually run today are requested:
+    // image metadata (image → caption) and document text extraction
+    // (document → text). OCR / ASR / vision-caption are deliberately NOT
+    // declared — no adapter is installed for them, so declaring one would
+    // arm a capability that always denies at dispatch.
+    modalities: ['text', 'image', 'document'],
+    processors: [
+      { id: 'image_metadata', modality: 'image', produces: ['caption'] },
+      { id: 'document_text', modality: 'document', produces: ['text'] },
+    ],
+    // rawEvidence is DELIBERATELY ABSENT — the most conservative setting
+    // the schema offers (the only other legal value is `{ serve: true }`;
+    // omission is what denies). Clinical images are sensitive, so
+    // gateRawEvidence (src/mcp/raw-evidence-gate.ts) refuses raw bytes and
+    // signed URLs for this pack unconditionally: only recomputable derived
+    // representations, never the original pixels, leave the plane.
   },
   evalFixtures: [
     {

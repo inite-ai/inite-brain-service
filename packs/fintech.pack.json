@@ -1,6 +1,6 @@
 {
   "id": "fintech",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Financial-services regulation ontology — regulators, licenses, compliance standards, capital, and settlement of institutions/products, with a domain extraction profile and memory model.",
   "predicates": [
     {
@@ -307,6 +307,19 @@
       {
         "predicateOrScene": "regulatory_filing",
         "hint": "standard"
+      }
+    ],
+    "modalities": [
+      "text",
+      "document"
+    ],
+    "processors": [
+      {
+        "id": "document_text",
+        "modality": "document",
+        "produces": [
+          "text"
+        ]
       }
     ]
   },

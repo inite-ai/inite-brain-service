@@ -6,11 +6,19 @@ import type { DomainPackManifest } from './manifest';
  * ontology of agreements — governing law, parties, obligations, and term — with
  * an extractionProfile + eval fixtures + memoryModel (matter / agreement /
  * obligation lifecycles, attention + retention hints, recency rules for
- * termination and effective-date claims). Bump `version` to ship an update.
+ * termination and effective-date claims).
+ *
+ * As of 0.3.0 the memoryModel also carries a MEDIA CONTRACT: contracts and
+ * filings as documents, scanned exhibits as images, the two core
+ * capabilities the Evidence Plane can actually run (document text, image
+ * metadata), and NO raw-evidence declaration — an exhibit's bytes carry
+ * privilege.
+ *
+ * Bump `version` to ship an update.
  */
 export const LEGAL_PACK: DomainPackManifest = {
   id: 'legal',
-  version: '0.2.0',
+  version: '0.3.0',
   description:
     'Legal / contracts ontology — governing law, parties, obligations, and term of agreements, with a domain extraction profile and memory model.',
   predicates: [
@@ -106,7 +114,8 @@ an agreement, emit an edge between them in addition to the party facts.`,
   },
   // The domain perception contract (docs/domain-packs.md). Declarative data
   // only — consumed by MemoryModelReaderService for installed tenants.
-  // Text-only: no modalities/processors/rawEvidence, so no consent surface.
+  // The media section (modalities/processors/rawEvidence) is the consent
+  // surface: installing this pack requires `acceptModalities: true`.
   memoryModel: {
     sceneSchemas: [
       {
@@ -189,6 +198,24 @@ an agreement, emit an edge between them in addition to the party facts.`,
       { predicateOrScene: 'execution', hint: 'durable' },
       { predicateOrScene: 'negotiation_session', hint: 'ephemeral' },
     ],
+    // ── Media contract (Evidence Plane) ─────────────────────────────────
+    // The domain's evidence is DOCUMENTARY first — contracts, filings,
+    // schedules — with SCANNED EXHIBITS arriving as images. Only the two
+    // capabilities the trusted core can actually run today are requested:
+    // document text extraction (document → text) and image metadata
+    // (image → caption). OCR is deliberately NOT declared even though a
+    // scanned exhibit is exactly what would want it: no OCR adapter is
+    // installed, so the declaration would arm a capability that always
+    // denies. Add it in the same PR that ships the adapter.
+    modalities: ['text', 'image', 'document'],
+    processors: [
+      { id: 'document_text', modality: 'document', produces: ['text'] },
+      { id: 'image_metadata', modality: 'image', produces: ['caption'] },
+    ],
+    // rawEvidence is DELIBERATELY ABSENT (omission = deny). Exhibits and
+    // executed agreements carry privilege and counterparty personal data;
+    // handing their bytes back is a document-management decision, not a
+    // memory-recall one, so gateRawEvidence refuses for this pack.
   },
   evalFixtures: [
     {

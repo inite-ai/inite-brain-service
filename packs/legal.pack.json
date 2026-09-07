@@ -1,6 +1,6 @@
 {
   "id": "legal",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Legal / contracts ontology — governing law, parties, obligations, and term of agreements, with a domain extraction profile and memory model.",
   "predicates": [
     {
@@ -307,6 +307,27 @@
       {
         "predicateOrScene": "negotiation_session",
         "hint": "ephemeral"
+      }
+    ],
+    "modalities": [
+      "text",
+      "image",
+      "document"
+    ],
+    "processors": [
+      {
+        "id": "document_text",
+        "modality": "document",
+        "produces": [
+          "text"
+        ]
+      },
+      {
+        "id": "image_metadata",
+        "modality": "image",
+        "produces": [
+          "caption"
+        ]
       }
     ]
   },
