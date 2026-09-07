@@ -44,6 +44,21 @@
 -- is absent, keep the existing close-margin → COMPETING doctrine —
 -- partitioned exactly like 0085's F1 (losers close, peers flip).
 --
+-- F3 EXTENSION (measured on the first acceptance run): 0085's F3
+-- re-admitted COMPETING rows to the bitemporal_event pool because a
+-- stuck pair was otherwise permanent — the 'active'-only pool made it
+-- invisible and every later update INSERTED past it. The promoted
+-- 'bitemporal' slots inherit the exact same disease: on memfit-tb-1
+-- the pre-existing pair {"package manager is pnpm" ↔ "…queue backend
+-- is Redis Streams"} stayed competing forever, no later cue-bearing
+-- decided update could close it, and serving kept abstaining on the
+-- queue value even though the status chain had healed. An ARMED,
+-- cue-bearing 'bitemporal' resolve therefore re-admits the slot's
+-- COMPETING rows to its candidate pool (gated on window+cue — every
+-- other call sees the byte-identical active-only pool): stuck rows
+-- strictly older beyond the window close as history with the rest of
+-- the losers, same-stamp/within-window ones stay flipped competing.
+--
 -- WINDOW DEFAULT = 0 ms (strict inequality), argued from measurement:
 -- the ambiguity the window exists to protect is SAME-REPORT claims,
 -- and those share the exact event-time stamp (one turn → one
@@ -168,8 +183,18 @@ DEFINE FUNCTION OVERWRITE fn::resolve_fact(
       -- same-day pair must be closable by the next strictly-later-day
       -- update; 0084's 'active'-only pool left the slot broken forever
       -- (both contested rows invisible, the update inserted plainly).
+      -- 0129: the SAME F3 doctrine for an ARMED, cue-bearing
+      -- 'bitemporal' resolve — measured live (memfit-tb-1): a competing
+      -- pair in a promoted slot was PERMANENT ("package manager is
+      -- pnpm" ↔ "…queue backend is Redis Streams" stayed competing
+      -- forever, every later update INSERTED past it on an empty pool,
+      -- and serving kept abstaining on the queue value). Re-admission
+      -- is gated on window+cue, so a flag-off / no-cue / direct-path
+      -- call sees the byte-identical active-only pool.
       AND (status = 'active'
-           OR (status = 'competing' AND $semantics = 'bitemporal_event'))
+           OR (status = 'competing' AND $semantics = 'bitemporal_event')
+           OR (status = 'competing' AND $semantics = 'bitemporal'
+               AND $tiebreak_window_ms != NONE AND $update_cue = true))
       AND retractedAt IS NONE
       -- 0055: conflict resolution is scope-local. A personal fact only
       -- ever meets facts of the SAME user; a tenant-global fact only

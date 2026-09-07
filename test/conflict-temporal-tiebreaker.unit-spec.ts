@@ -300,6 +300,22 @@ describe('CONFLICT_TEMPORAL_TIEBREAKER', () => {
       expect(guard).toBeGreaterThan(-1);
     });
 
+    it('re-admits stuck COMPETING rows to the pool ONLY for an armed, cue-bearing bitemporal call (F3 extension)', () => {
+      // Measured on the first acceptance run: without this, a competing
+      // pair in a promoted slot is PERMANENT — the active-only pool
+      // makes it invisible and every later update INSERTs past it, so
+      // serving abstains forever. The widening must be gated on
+      // window+cue so every other call sees the byte-identical pool.
+      const body = stripComments(head.body);
+      const candidates = body.slice(
+        body.indexOf('LET $candidates'),
+        body.indexOf('LET $competing'),
+      );
+      expect(candidates).toContain(
+        "OR (status = 'competing' AND $semantics = 'bitemporal'\n               AND $tiebreak_window_ms != NONE AND $update_cue = true)",
+      );
+    });
+
     it('keeps fn::resolve_facts in lockstep (27-arg mapper binds the two new args)', () => {
       const body = stripComments(head.body);
       const mapper = body.slice(body.indexOf('fn::resolve_facts'));
