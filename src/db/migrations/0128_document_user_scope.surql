@@ -1,4 +1,4 @@
--- 0127_document_user_scope — per-user scope for the Source layer.
+-- 0128_document_user_scope — per-user scope for the Source layer.
 --
 -- INGEST_MENTION_VIA_DOCUMENT fail-closed (HTTP 400) on ANY user-scoped
 -- mention because source_document could not carry per-user scope (0048):

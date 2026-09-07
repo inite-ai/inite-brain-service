@@ -72,7 +72,7 @@ export class DocumentAsyncService implements OnModuleInit {
     if (!this.claim) {
       throw new Error('async ingest unavailable: job queue not wired');
     }
-    // Per-user scope pin (0127) — the sync path's seam, mirrored: the
+    // Per-user scope pin (0128) — the sync path's seam, mirrored: the
     // pinned value persists on the document row, which is all the queued
     // jobs (and the eventual commit) ever read.
     dto = { ...dto, userId: pinUserScope(dto.userId) };

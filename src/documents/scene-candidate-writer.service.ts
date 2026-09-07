@@ -33,12 +33,12 @@ export function packSceneVersion(packId: string, packVersion: string): string {
 }
 
 /**
- * Per-user scope stamp for a projected scene row (0127): a user-scoped
+ * Per-user scope stamp for a projected scene row (0128): a user-scoped
  * document's scenes carry the document's user — userId + the 0093 scope
  * tag + the 0117 userIds membership fold (single-user by construction),
  * the composer's exact stamp shape, so the PRIVACY_SEGMENT_USER_FENCE
  * read contract fences them without backfill. A tenant-global document
- * keeps the pre-0127 row byte-identical — the 0055 fold with an empty
+ * keeps the pre-0128 row byte-identical — the 0055 fold with an empty
  * member set. Exported pure for unit tests.
  */
 export function sceneScopeStamp(doc: Pick<StoredDocument, 'userId'>): Record<string, unknown> {
@@ -171,7 +171,7 @@ export class SceneCandidateWriterService {
       idBySceneIndex.set(sceneIndex, episodeId);
       episodeRows.push({
         id: new RecordId('memory_episode', idTail),
-        // Per-user scope (0127) — see sceneScopeStamp.
+        // Per-user scope (0128) — see sceneScopeStamp.
         ...sceneScopeStamp(doc),
         sceneLabel: label,
         // No conversation backs a document scene; erasure and rebuild are

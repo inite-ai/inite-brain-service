@@ -20,7 +20,7 @@ export interface MentionCompatResult {
  * gains a stored document, staged candidates, and origin-keyed
  * corroboration (0050) for free.
  *
- * Per-user scope (0127): a user-scoped mention flows through with its
+ * Per-user scope (0128): a user-scoped mention flows through with its
  * userId intact — the stored document, every committed fact and any
  * projected scenes carry userId + the 0093 scope tag exactly as the
  * direct path stamps them (facts go through the SAME
@@ -45,7 +45,7 @@ export class MentionViaDocumentService {
     // the legacy path): a user-bound token writes ONLY its own user's
     // slice (mismatch 403, BEFORE any write; omitted → the token's
     // user); M2M assertions pass through. The pipeline carries the scope
-    // end-to-end now (0127) — the pre-0127 fail-closed 400 is gone.
+    // end-to-end now (0128) — the pre-0128 fail-closed 400 is gone.
     const userId = pinUserScope(dto.userId);
     if (!dto.text?.trim()) {
       this.metrics?.countIngestMention('skipped');
@@ -61,7 +61,7 @@ export class MentionViaDocumentService {
         kind: 'chat',
         text: dto.text,
         occurredAt: dto.emittedAt,
-        // The pinned per-user scope (0127) — stamps the stored document,
+        // The pinned per-user scope (0128) — stamps the stored document,
         // every committed fact and any projected scenes. Absent key for
         // tenant-global traffic keeps that path byte-identical.
         ...(userId !== undefined ? { userId } : {}),

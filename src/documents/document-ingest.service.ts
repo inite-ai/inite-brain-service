@@ -44,7 +44,7 @@ export class DocumentIngestService {
   ) {}
 
   async ingestDocument(companyId: string, dto: IngestDocumentDto): Promise<DocumentIngestResponse> {
-    // Per-user scope pin at the service entry (0127; the audit 2026-08-21
+    // Per-user scope pin at the service entry (0128; the audit 2026-08-21
     // P0 seam, same as fact-ingest / mention-ingest): a user-bound token
     // writes ONLY its own user's slice (mismatch 403, omitted → the
     // token's user); M2M assertions pass through. The pinned value rides

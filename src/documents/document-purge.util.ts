@@ -147,7 +147,7 @@ export function exclusivityCountQuery(subjectPredicate: string): string {
  * (ordering constraint of both forget services). Reads only — safe before
  * any cap guard.
  *
- * `seedDocIds` (0127) adds documents the caller reached by COLUMN —
+ * `seedDocIds` (0128) adds documents the caller reached by COLUMN —
  * user-forget passes the subject's `source_document.userId = $u` rows so
  * a user-scoped document that committed ZERO facts (a skipped mention)
  * still joins the cascade. Seeded docs go through the SAME exclusivity

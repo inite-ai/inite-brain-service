@@ -598,7 +598,7 @@
             "type": "string"
           },
           "userId": {
-            "description": "Per-user memory scope (0127); absent = tenant-global.",
+            "description": "Per-user memory scope (0128); absent = tenant-global.",
             "type": "string"
           },
           "vertical": {
@@ -1620,7 +1620,7 @@
             "type": "string"
           },
           "userId": {
-            "description": "Per-user memory scope (0127): stamps the stored document, every committed fact and any projected scenes with this end-user; dedupe is scope-local. M2M-asserted; a user-bound token pins it to its own user (mismatch = 403).",
+            "description": "Per-user memory scope (0128): stamps the stored document, every committed fact and any projected scenes with this end-user; dedupe is scope-local. M2M-asserted; a user-bound token pins it to its own user (mismatch = 403).",
             "maxLength": 200,
             "type": "string"
           }

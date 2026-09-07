@@ -127,7 +127,7 @@ export class CommitWriterService {
               source: this.factSource(p.doc, mf),
               entropy: mf.entropy,
               precomputedEmbedding: p.embeddings[i],
-              // Per-user scope (0127): a user-scoped document's facts carry
+              // Per-user scope (0128): a user-scoped document's facts carry
               // its user — fn::resolve_fact stamps userId and the resolver
               // mirrors the 0093 scope tag, EXACTLY the direct mention
               // path's machinery (mention-persist passes dto.userId here).

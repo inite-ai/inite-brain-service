@@ -54,7 +54,7 @@ export const IngestDocumentRequestSchema = z.object({
     .max(200)
     .optional()
     .describe(
-      'Per-user memory scope (0127): stamps the stored document, every ' +
+      'Per-user memory scope (0128): stamps the stored document, every ' +
         'committed fact and any projected scenes with this end-user; ' +
         'dedupe is scope-local. M2M-asserted; a user-bound token pins it ' +
         'to its own user (mismatch = 403).',
@@ -148,7 +148,7 @@ export const DocumentResponseSchema = z.object({
   recorder: z.string().optional(),
   occurredAt: z.string().meta({ format: 'date-time' }),
   status: z.string(),
-  userId: z.string().optional().describe('Per-user memory scope (0127); absent = tenant-global.'),
+  userId: z.string().optional().describe('Per-user memory scope (0128); absent = tenant-global.'),
   meta: z.record(z.string(), z.unknown()).optional(),
   runs: z.array(
     z.object({

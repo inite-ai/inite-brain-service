@@ -252,7 +252,7 @@ describe('documents pipeline (e2e)', () => {
     expect(Array.isArray(wrapped.body.extractedEdgeIds)).toBe(true);
 
     // A user-scoped mention flows through with its userId intact
-    // (task #134 / 0127 — the wrapper used to 400 on any userId): the
+    // (task #134 / 0128 — the wrapper used to 400 on any userId): the
     // stored document AND every committed fact carry userId + the 0093
     // scope tag, exactly as the legacy path stamps its facts.
     f.extractor.setScript(TIER_GOLD);

@@ -34,7 +34,7 @@ import {
  *
  * Document cascade — HONEST LIMITS. Two linkages reach a document:
  * knowledge_fact.source.documentId on the user's committed facts (the
- * fact-mediated contract, 0108) and, since 0127, the source_document
+ * fact-mediated contract, 0108) and, since 0128, the source_document
  * userId column itself (stamped on user-scoped ingests — the
  * mention-via-document route and user-scoped document ingests), which
  * reaches even documents that committed ZERO facts for the user. What
@@ -379,7 +379,7 @@ export class UserForgetService {
    * (3.2.4 planner contract, see document-purge.util).
    *
    * Two seeds (see the file docblock's HONEST LIMITS): the fact-mediated
-   * predicate (0108) plus the user's COLUMN-scoped documents (0127) — a
+   * predicate (0108) plus the user's COLUMN-scoped documents (0128) — a
    * user-scoped mention that committed zero facts still left its text in
    * source_document/source_chunk, unreachable fact-mediatedly.
    */

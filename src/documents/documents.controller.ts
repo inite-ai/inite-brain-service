@@ -93,7 +93,7 @@ export class DocumentsController {
 }
 
 /**
- * Per-user scope fence on the document read surface (0127): a user-bound
+ * Per-user scope fence on the document read surface (0128): a user-bound
  * token sees tenant-global documents and its OWN user's — another user's
  * document (header, chunks, candidates: all quote the user's raw text) is
  * a 404, indistinguishable from absent, the fail-closed read idiom. M2M

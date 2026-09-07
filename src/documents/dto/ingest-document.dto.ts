@@ -66,7 +66,7 @@ export class IngestDocumentDto {
   occurredAt!: string;
 
   /**
-   * Per-user memory scope (0055 model, document column 0127). Stamps the
+   * Per-user memory scope (0055 model, document column 0128). Stamps the
    * stored document row, every committed fact (fn::resolve_fact's
    * user_id — the SAME machinery the direct mention path uses) and any
    * projected scene rows with this end-user; dedupe is scope-local (the

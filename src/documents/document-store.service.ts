@@ -37,7 +37,7 @@ export interface StoredDocument {
   occurredAt: Date;
   status: string;
   /**
-   * Per-user memory scope (0127). Set = the document (and everything the
+   * Per-user memory scope (0128). Set = the document (and everything the
    * pipeline derives from it — committed facts, projected scenes) belongs
    * to one end-user's slice of the tenant; absent = tenant-global. Rides
    * the stored row so async fan-out, re-commits and the sweeper all see
@@ -113,7 +113,7 @@ export class DocumentStoreService {
       ? sanitizeIngestText(dto.text)
       : dto.text;
     const text = redactPii(rawText).trim();
-    // 0127: the dedupe/origin hash is scope-local. A tenant-global
+    // 0128: the dedupe/origin hash is scope-local. A tenant-global
     // document hashes the text exactly as before (byte-identical); a
     // user-scoped one salts the preimage with its user, so the UNIQUE
     // contentHash index can never dedupe a user's document onto a
@@ -145,9 +145,9 @@ export class DocumentStoreService {
           occurredAt: new Date(dto.occurredAt),
           meta: dto.meta,
           status: 'received',
-          // Per-user scope (0127): userId + the 0093 scope-tag mirror.
+          // Per-user scope (0128): userId + the 0093 scope-tag mirror.
           // Tenant-global writes keep the field absent / scope [] — the
-          // column DEFAULT — so pre-0127 rows and new global rows match.
+          // column DEFAULT — so pre-0128 rows and new global rows match.
           userId: dto.userId,
           scope: scopeForUser(dto.userId),
         });
@@ -172,7 +172,7 @@ export class DocumentStoreService {
         if (!isUniqueViolation(err)) throw err;
         const existing = await this.byContentHash(db, contentHash);
         if (!existing) throw err;
-        // Scope fence on the dedupe hit (0127): the salted preimages make
+        // Scope fence on the dedupe hit (0128): the salted preimages make
         // a cross-scope hash equality unreachable for honest input, but a
         // writer could still CRAFT a text that byte-equals another scope's
         // preimage. Refusing beats adopting the other scope's row — which
@@ -295,7 +295,7 @@ export function sha256Hex(text: string): string {
 }
 
 /**
- * Scope-salted content hash for a USER-SCOPED document (0127): the
+ * Scope-salted content hash for a USER-SCOPED document (0128): the
  * user's id frames the text, so identical text under different scopes
  * yields different contentHash values — the UNIQUE dedupe index and the
  * 'doc:'-prefixed originKey (0050) both become scope-local. NUL framing
