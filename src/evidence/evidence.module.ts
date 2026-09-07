@@ -8,7 +8,8 @@ import { EvidenceStoreService } from './evidence-store.service';
 import { EvidenceUploadService } from './evidence-upload.service';
 import { EvidenceProcessorBrokerService } from './processor-broker.service';
 import { EvidenceQuarantineService } from './quarantine.service';
-import { ImageMetadataStubAdapter } from './processing/adapters/image-metadata-stub.adapter';
+import { DocumentTextAdapter } from './processing/adapters/document-text.adapter';
+import { ImageMetadataAdapter } from './processing/adapters/image-metadata.adapter';
 import { TextExtractionPassthroughAdapter } from './processing/adapters/text-extraction-passthrough.adapter';
 import {
   EVIDENCE_PROCESSOR_ADAPTERS,
@@ -51,6 +52,14 @@ import {
  * the broker is dark, sweeping already-registered assets that no upload
  * dispatch covered.
  *
+ * Real adapters: ImageMetadataAdapter (sharp/libvips — intrinsic image
+ * facts + allowlisted EXIF, no GPS) REPLACES the 0121
+ * ImageMetadataStubAdapter for the 'caption' capability, subsuming its
+ * byte-less path; DocumentTextAdapter (pdf2json) joins
+ * TextExtractionPassthroughAdapter under 'text' with a disjoint media
+ * type (PDF vs text/*), so first-match dispatch stays unambiguous. Both
+ * are no-network, no-key, deterministic local decodes.
+ *
  * Raw-read gateway (MM-3, migration 0125): EvidenceReadController is
  * the ONE surface that serves original bytes back out — stream, signed-
  * URL mint, and the unauthenticated redeem — behind the full gate
@@ -71,14 +80,16 @@ import {
     EvidenceStoreService,
     EvidenceReadService,
     TextExtractionPassthroughAdapter,
-    ImageMetadataStubAdapter,
+    DocumentTextAdapter,
+    ImageMetadataAdapter,
     {
       provide: EVIDENCE_PROCESSOR_ADAPTERS,
-      useFactory: (text: ProcessorAdapter, image: ProcessorAdapter): ProcessorAdapterRegistry => [
-        text,
-        image,
-      ],
-      inject: [TextExtractionPassthroughAdapter, ImageMetadataStubAdapter],
+      useFactory: (
+        text: ProcessorAdapter,
+        pdf: ProcessorAdapter,
+        image: ProcessorAdapter,
+      ): ProcessorAdapterRegistry => [text, pdf, image],
+      inject: [TextExtractionPassthroughAdapter, DocumentTextAdapter, ImageMetadataAdapter],
     },
     ProcessingRunService,
     EvidenceProcessorBrokerService,
