@@ -263,8 +263,11 @@ export async function resolveEvidenceCapability(
  * the rendered-set resolver), so the union can now contain
  * visual / audio / document_region — and the gate above can PASS a
  * non-text requirement when a matching-modality fragment is cited.
- * Citations without a capability stamp (every episode-arm citation)
- * contribute nothing beyond the text baseline.
+ * Citations without a capability stamp (every episode-arm, belief-arm
+ * and scene-arm citation) contribute nothing beyond the text baseline —
+ * for the scene arm deliberately so: a gist is distilled text, and a
+ * summary of a conversation can never be the non-text evidence a
+ * predicate policy demands.
  */
 function citedCapabilities(
   evidenceCitations: EvidenceCitation[] | undefined,

@@ -158,6 +158,10 @@ export function buildGeneratorArgs(
       beliefCitations?: boolean | undefined;
       /** BELIEFS_LANE_DATE_DISAMBIGUATION echo (D4), resolved once. */
       beliefDateDisambiguation?: boolean | undefined;
+      /** RETRIEVAL_SCENE_LANE: rendered episodic lines (own section). */
+      sceneLines?: string[] | undefined;
+      /** Scene-citation affordance (rides the lane flag), resolved once. */
+      sceneCitations?: boolean | undefined;
     };
   },
   o: {
@@ -203,6 +207,10 @@ export function buildGeneratorArgs(
     // scoping clause rides the same per-request resolution as the
     // lane's rendered token.
     beliefDateDisambiguation: collected.beliefDateDisambiguation,
+    // RETRIEVAL_SCENE_LANE: episodic lines + the scene-citation
+    // affordance — carried identically by both rounds too.
+    sceneLines: collected.sceneLines,
+    sceneCitations: collected.sceneCitations,
     ...(o.allowRefine !== undefined ? { allowRefine: o.allowRefine } : {}),
     ...(o.answerLangStrict ? { answerLangStrict: true } : {}),
   };

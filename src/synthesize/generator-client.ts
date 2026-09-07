@@ -119,6 +119,20 @@ export interface GenerateRequest {
    */
   beliefDateDisambiguation?: boolean | undefined;
   /**
+   * RETRIEVAL_SCENE_LANE (profile.sceneLane): rendered episodic scene
+   * lines, their own section — the verifier reads the same lines
+   * (VerifyRequest.sceneLines, evidence parity).
+   */
+  sceneLines?: string[] | undefined;
+  /**
+   * RETRIEVAL_SCENE_LANE: expose the scene-citation affordance — the
+   * schema gains `citedSceneIds` and the system prompt the matching
+   * rule. Effective only when sceneLines are non-empty (no rendered
+   * scenes ⇒ nothing citable ⇒ prompt and schema byte-identical — the
+   * fragmentAffordance guard).
+   */
+  sceneCitations?: boolean | undefined;
+  /**
    * MM-zoom PR2 (profile.fragmentLane): rendered media-evidence lines,
    * their own section — the verifier reads the same lines
    * (capabilityEvidenceLines, evidence parity).
@@ -166,12 +180,36 @@ const BELIEF_ABSTENTION_ADDENDUM = `
 
 BELIEF LINES PRESERVE ABSTENTION: the current-state record is ADDITIONAL evidence, not permission to answer beyond the evidence. Prefer a belief line only when one covers the asked subject/field. If neither a belief line nor the facts answer the question, output the exact answer string "I don't have grounded evidence for that." with citedFactIds set to [].`;
 
+/** RETRIEVAL_SCENE_LANE scene-citation affordance — appended when the
+ *  episodic section rendered (citations ride the lane flag). */
+const SCENE_CITE_ADDENDUM = `
+
+SCENE CITATIONS: some evidence lines are episodic scenes — summaries of one stretch of conversation — headed by a [memory_episode:...] id. When a claim in your answer rests on such a line, copy that id EXACTLY as it appears into the citedSceneIds array (in addition to any factIds you cite). Cite only ids present in the evidence — never invent one. citedSceneIds is [] when no scene line supports a claim.`;
+
+/**
+ * RETRIEVAL_SCENE_LANE abstention guard — the BELIEF_ABSTENTION_ADDENDUM
+ * sibling, and for a sharper reason. A scene gist is a SUMMARY of a
+ * conversation stretch (abstractive once SCENES_LLM_ENRICHMENT is on),
+ * so it is the section most likely to look like it answers a question
+ * it only gestures at: it names the topic, the people and the day
+ * without stating the value asked for. The closing sentence mirrors the
+ * base GENERATOR_SYSTEM rule 3 abstention sentence VERBATIM. Appended
+ * only when the scene section actually rendered (lane off / empty ⇒
+ * byte-identical system prompt) and only in the default abstaining mode
+ * — never with GENERATOR_SYSTEM_ANSWER, whose always-commit contract
+ * (neverAbstain) is deliberately unchanged.
+ */
+const SCENE_ABSTENTION_ADDENDUM = `
+
+SCENE LINES PRESERVE ABSTENTION: the episodic record is ADDITIONAL evidence, not permission to answer beyond the evidence. A scene line summarizes what a conversation was ABOUT; it is not a source for a specific value, name, number or date that only the facts or the verbatim transcript can state. If neither a scene line nor the facts answer the question, output the exact answer string "I don't have grounded evidence for that." with citedFactIds set to [].`;
+
 /** The strict-JSON answer schema, affordance-conditional fields included
  *  (extracted from runGenerator for the complexity budget — pure). */
 function buildAnswerSchema(opts: {
   allowRefine: boolean;
   fragmentAffordance: boolean;
   beliefAffordance: boolean;
+  sceneAffordance: boolean;
 }): { schema: Record<string, unknown>; required: string[] } {
   return {
     schema: {
@@ -184,6 +222,9 @@ function buildAnswerSchema(opts: {
       ...(opts.beliefAffordance
         ? { citedBeliefIds: { type: 'array', items: { type: 'string' } } }
         : {}),
+      ...(opts.sceneAffordance
+        ? { citedSceneIds: { type: 'array', items: { type: 'string' } } }
+        : {}),
     },
     required: [
       'answer',
@@ -191,32 +232,66 @@ function buildAnswerSchema(opts: {
       ...(opts.allowRefine ? ['refineQuery'] : []),
       ...(opts.fragmentAffordance ? ['citedFragmentIds'] : []),
       ...(opts.beliefAffordance ? ['citedBeliefIds'] : []),
+      ...(opts.sceneAffordance ? ['citedSceneIds'] : []),
     ],
   };
 }
 
+/**
+ * The per-lane citation affordances, resolved from the request in ONE
+ * place (extracted from runGenerator for the complexity budget — pure,
+ * the buildAnswerSchema precedent).
+ *
+ * An affordance is real only when the lane's switch is on AND the lane
+ * actually RENDERED lines: flag-on with an empty lane keeps prompt and
+ * schema byte-identical. The two `*Rendered` flags are deliberately
+ * separate from the affordances — the abstention guards ride the
+ * RENDERED section, not the citation switch, so they hold even under a
+ * future header/flag split.
+ */
+function resolveAffordances(req: GenerateRequest): {
+  allowRefine: boolean;
+  fragmentAffordance: boolean;
+  beliefAffordance: boolean;
+  beliefRendered: boolean;
+  sceneAffordance: boolean;
+  sceneRendered: boolean;
+} {
+  const beliefRendered = (req.beliefLines?.length ?? 0) > 0;
+  const sceneRendered = (req.sceneLines?.length ?? 0) > 0;
+  return {
+    allowRefine: req.allowRefine === true,
+    fragmentAffordance: req.fragmentCitations === true && (req.fragmentLines?.length ?? 0) > 0,
+    beliefAffordance: req.beliefCitations === true && beliefRendered,
+    beliefRendered,
+    sceneAffordance: req.sceneCitations === true && sceneRendered,
+    sceneRendered,
+  };
+}
+
+/** The system prompt for one generator call: the base contract plus the
+ *  affordance/guard addenda, in a fixed order (pure — extracted for the
+ *  complexity budget alongside resolveAffordances). */
+function buildSystemPrompt(
+  neverAbstain: boolean,
+  a: ReturnType<typeof resolveAffordances>,
+): string {
+  return (
+    (neverAbstain ? GENERATOR_SYSTEM_ANSWER : GENERATOR_SYSTEM) +
+    (a.allowRefine ? REFINE_ADDENDUM : '') +
+    (a.fragmentAffordance ? FRAGMENT_CITE_ADDENDUM : '') +
+    (a.beliefAffordance ? BELIEF_CITE_ADDENDUM : '') +
+    (a.beliefRendered && !neverAbstain ? BELIEF_ABSTENTION_ADDENDUM : '') +
+    (a.sceneAffordance ? SCENE_CITE_ADDENDUM : '') +
+    (a.sceneRendered && !neverAbstain ? SCENE_ABSTENTION_ADDENDUM : '')
+  );
+}
+
 export async function runGenerator(req: GenerateRequest): Promise<GeneratorOutput> {
   const { openai, metrics, logger, model, answerLang, neverAbstain } = req;
-  // The affordance is real only when fragments actually rendered —
-  // flag-on with an empty lane keeps prompt and schema byte-identical.
-  const fragmentAffordance = req.fragmentCitations === true && (req.fragmentLines?.length ?? 0) > 0;
-  // Same guard for beliefs: flag-on with an empty lane keeps prompt and
-  // schema byte-identical (BELIEFS_SERVING_LANE).
-  const beliefAffordance = req.beliefCitations === true && (req.beliefLines?.length ?? 0) > 0;
-  // The abstention guard rides the RENDERED section, not the citation
-  // affordance — it must hold even under a future header/flag split.
-  const beliefRendered = (req.beliefLines?.length ?? 0) > 0;
-  const answerSchema = buildAnswerSchema({
-    allowRefine: req.allowRefine === true,
-    fragmentAffordance,
-    beliefAffordance,
-  });
-  const systemPrompt =
-    (neverAbstain ? GENERATOR_SYSTEM_ANSWER : GENERATOR_SYSTEM) +
-    (req.allowRefine ? REFINE_ADDENDUM : '') +
-    (fragmentAffordance ? FRAGMENT_CITE_ADDENDUM : '') +
-    (beliefAffordance ? BELIEF_CITE_ADDENDUM : '') +
-    (beliefRendered && !neverAbstain ? BELIEF_ABSTENTION_ADDENDUM : '');
+  const affordances = resolveAffordances(req);
+  const answerSchema = buildAnswerSchema(affordances);
+  const systemPrompt = buildSystemPrompt(neverAbstain === true, affordances);
   const user = buildGeneratorUserMessage(req);
   traceArtifact('synthesize.generator_prompt', {
     system: systemPrompt,
@@ -321,6 +396,10 @@ function parseGeneratorContent(
   // Same defensive parse for the belief arm (BELIEFS_SERVING_LANE).
   if (parsed.citedBeliefIds !== undefined && !Array.isArray(parsed.citedBeliefIds)) {
     delete parsed.citedBeliefIds;
+  }
+  // ...and for the scene arm (RETRIEVAL_SCENE_LANE).
+  if (parsed.citedSceneIds !== undefined && !Array.isArray(parsed.citedSceneIds)) {
+    delete parsed.citedSceneIds;
   }
   return parsed;
 }

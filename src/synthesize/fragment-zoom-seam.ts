@@ -98,6 +98,9 @@ export interface VerifyStageArgs {
     /** BELIEFS_SERVING_LANE: same parity — both audits read the SAME
      *  belief lines the generator saw. */
     beliefLines: string[];
+    /** RETRIEVAL_SCENE_LANE: same parity — both audits read the SAME
+     *  episodic scene lines the generator saw. */
+    sceneLines: string[];
     timelineEvidence: boolean;
   };
   promptFactLines: string[];
@@ -144,6 +147,8 @@ export async function verifyAndZoom(
             factLines: args.promptFactLines,
             transcriptLines: collected.transcriptLines,
             insightLines: collected.insightLines,
+            // RETRIEVAL_SCENE_LANE parity: the episodic lines too.
+            sceneLines: collected.sceneLines,
             // MM-zoom PR2 parity: the media lines the generator saw.
             fragmentLines: collected.fragmentLines,
           },
@@ -170,6 +175,9 @@ export async function verifyAndZoom(
                 // BELIEFS_SERVING_LANE parity (W5 #22): the same belief
                 // lines the generator's current-state section rendered.
                 beliefLines: collected.beliefLines,
+                // RETRIEVAL_SCENE_LANE parity (W5 #22): the same
+                // episodic scene lines the generator's section rendered.
+                sceneLines: collected.sceneLines,
                 // W5 #22 parity for the mention record (V9 §2 closes the
                 // V8 gap): the auditor sees the same MENTION RECORD
                 // framing the generator saw — the collector computed it
@@ -242,6 +250,8 @@ interface FragmentZoomSeamArgs {
     insightLines: string[];
     /** BELIEFS_SERVING_LANE: carried verbatim into the re-verify. */
     beliefLines: string[];
+    /** RETRIEVAL_SCENE_LANE: carried verbatim into the re-verify. */
+    sceneLines: string[];
     timelineEvidence: boolean;
   };
   promptFactLines: string[];
@@ -288,6 +298,8 @@ async function tryFragmentZoom(
               // the zoom re-verify audits the SAME belief lines as the
               // primary audit — only the fragment lines are enriched.
               beliefLines: collected.beliefLines,
+              // Same construction for the episodic section.
+              sceneLines: collected.sceneLines,
               timelineEvidence: collected.timelineEvidence,
               topicCoverage: profile.verifierTopicCoverage,
               dateMathLines: args.dateMathLines,
