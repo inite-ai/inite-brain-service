@@ -183,10 +183,20 @@ below (the beliefs READ API is also its own flag,
 | `SCENES_BELIEF_LLM_SYNTHESIS` | `0` | ONE LLM call per belief create/revise to phrase the statement; any failure degrades to the deterministic template. |
 | `SCENES_BELIEF_NEGATION_DELTAS` | `0` | Fold state REMOVALS (sold / quit / ended): a stateDelta with empty `to` + non-empty `from` becomes a belief contribution with the sentinel value `none` (`priorValue` = the removed state). Both-ends-empty deltas stay dropped. |
 | `SCENES_BELIEF_FIELD_FOLD` | `0` | Deterministic field-name folding: an enricher-re-coined field name folds onto an existing `(userId, subject)` field when its extra tokens are all generic modifiers; the EXISTING name wins; more than one match folds nothing and warns loudly. No embeddings, no LLM. |
+| `SCENES_PACK_DELTA_PROMOTION` | `0` | Also promote the PACK-PROJECTION scene worlds (`pack:<packId>+<fp>`, written by BOTH 0110 projectors — the document scene-candidate writer and the capture-path mention producer — under `PACK_MEMORY_PROJECTIONS_ENABLED`). Their deltas carry `field` = `<packId>__<stateModel.field ?? stateModelId>`, so a document ingested — or a turn captured — for a tenant with an installed pack finally reaches the belief plane; the pack namespace keeps two packs that share a local attribute name in SEPARATE belief groups. Pack scenes have no `enrichmentVersion` (their deltas come from the pack's own reading, not the enricher), so that requirement is dropped for `pack:` worlds only. The `#387` single-user fence is unchanged — a TENANT-GLOBAL document's scenes carry no `userIds` and promote for no one. |
 
 Order: master flag → compose → (`SCENES_LLM_ENRICHMENT` → enrich) →
 (`SCENES_BELIEF_PROMOTION` → beliefs). Enrichment is a prerequisite for
 promotion — the belief fold reads enriched fields only.
+
+Exception: `SCENES_PACK_DELTA_PROMOTION` admits pack-projected scenes
+WITHOUT enrichment (the pack indexer already read them). Two operator
+notes for that lane: the pack world must exist first
+(`PACK_MEMORY_PROJECTIONS_ENABLED` + an installed pack whose manifest
+declares `memoryModel.stateModels`), and `SCENES_BELIEF_MIN_SCENES` is a
+distinct-CONVERSATION floor — DOCUMENT scenes carry no conversation, so
+any non-zero floor excludes document-projected beliefs entirely (a
+capture-origin scene carries its turn's conversation and is unaffected).
 
 ### `BELIEFS_*` — belief serving lane (0126)
 

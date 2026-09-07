@@ -5,23 +5,28 @@ import { ProjectionRegistryService } from '../episodes/projection-registry.servi
 import {
   PACK_SCENE_PROJECTOR,
   buildPackSceneRow,
+  packDeltaField,
   packSceneIdTail,
   packSceneProjectionName,
   packSceneScopeStamp,
   packSceneVersion,
   packStateDeltaEntry,
+  packStateModelIndex,
   swapPackSceneSlice,
+  type PackStateModelIndex,
 } from '../episodes/pack-scene-projection';
 import { packMemoryProjectionsEnabled } from '../common/pack-projection-flags';
 import { idTailOf } from '../ingest/ingest-utils';
+import { MemoryModelReaderService } from '../ai/memory-model-reader.service';
 import { CandidateStoreService, type CandidateRow } from './candidate-store.service';
 import type { StoredDocument } from './document-store.service';
 
-// The projector stamp, its version mold and the row builder are SHARED
-// with the capture-path producer (MentionProjectionService) — one shape,
-// two origins. Re-exported here for API continuity (the 0110 specs and
-// the e2e import them from this module).
-export { PACK_SCENE_PROJECTOR, packSceneVersion };
+// The projector stamp, its version mold, the row builder and the
+// stateModelId -> belief-field mapping are SHARED with the capture-path
+// producer (MentionProjectionService) — one shape, two origins.
+// Re-exported here for API continuity (the 0110 specs and the e2e import
+// them from this module).
+export { PACK_SCENE_PROJECTOR, packDeltaField, packSceneVersion };
 
 /**
  * Per-user scope stamp for a projected scene row (0128): a user-scoped
@@ -79,6 +84,14 @@ type StatusUpdate = {
  * converges instead of duplicating. Other packs' worlds and the
  * composer's conversation scenes are untouched by construction.
  *
+ * STATE DELTAS carry BOTH `stateModelId` (the pack provenance) and
+ * `field` = `<packId>__<stateModel.field ?? stateModelId>`
+ * (packDeltaField) — the belief plane keys on (userId, subject, field)
+ * and drops fieldless deltas, so without the mapping these projections
+ * were a write with no reader. The pack-namespaced field is also the
+ * cross-pack collision rule: two packs whose lifecycles share a local
+ * attribute name stay in separate belief groups by construction.
+ *
  * Document scenes quote no L0 episode turn, so NO memory_episode_member
  * rows are written; erasure is keyed by source.docId — the entity-forget
  * document cascade owns it (unconditionally — see 0110's header).
@@ -93,10 +106,18 @@ type StatusUpdate = {
 export class SceneCandidateWriterService {
   private readonly logger = new Logger(SceneCandidateWriterService.name);
 
+  // The four collaborators are the four planes this one projection
+  // touches — episode rows (surreal), candidate statuses (candidates),
+  // the projection ledger (registry) and the pack's own declarations
+  // (memoryModels, the stateModelId -> field mapping input). Splitting
+  // would only add a pass-through class (the CandidateCommitService
+  // precedent one file over).
+  // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     private readonly candidates: CandidateStoreService,
     private readonly registry: ProjectionRegistryService,
+    private readonly memoryModels: MemoryModelReaderService,
   ) {}
 
   /** rows = the commit's pending candidates of kind scene/state_delta. */
@@ -106,13 +127,23 @@ export class SceneCandidateWriterService {
     rows: CandidateRow[],
   ): Promise<SceneProjectionOutcome[]> {
     if (!packMemoryProjectionsEnabled() || rows.length === 0) return [];
+    // stateModelId -> field mapping input, resolved ONCE per commit (the
+    // reader is LRU+TTL cached and fail-open, so this is at most one
+    // domain_pack read per tenant per 30s).
+    const stateModels = await this.stateModelsByPack(companyId);
     const outcomes: SceneProjectionOutcome[] = [];
     for (const group of groupByRun(rows).values()) {
       const version = packSceneVersion(group.packId, group.packVersion);
       const name = packSceneProjectionName(group.packId);
       await this.registry.begin({ companyId, name, version, builder: PACK_SCENE_PROJECTOR });
       try {
-        const outcome = await this.projectGroup({ companyId, doc, group, version });
+        const outcome = await this.projectGroup({
+          companyId,
+          doc,
+          group,
+          version,
+          models: stateModels.get(group.packId),
+        });
         await this.registry.complete({
           companyId,
           name,
@@ -131,11 +162,27 @@ export class SceneCandidateWriterService {
     return outcomes;
   }
 
+  /**
+   * packId -> (stateModelId -> declaration) for the tenant's installed
+   * packs. Fail-open by contract (MemoryModelReaderService degrades to
+   * builtins-only on a read error): an unresolvable pack falls back to the
+   * stateModelId as the local field name — the projection never fails for
+   * a manifest hiccup.
+   */
+  private async stateModelsByPack(companyId: string): Promise<Map<string, PackStateModelIndex>> {
+    const byPack = new Map<string, PackStateModelIndex>();
+    for (const binding of await this.memoryModels.installedMemoryModels(companyId)) {
+      byPack.set(binding.packId, packStateModelIndex(binding.memoryModel.stateModels));
+    }
+    return byPack;
+  }
+
   private async projectGroup(p: {
     companyId: string;
     doc: StoredDocument;
     group: SceneGroup;
     version: string;
+    models: PackStateModelIndex | undefined;
   }): Promise<SceneProjectionOutcome> {
     const { doc, group, version } = p;
     const generation = new Date().toISOString();
@@ -179,7 +226,12 @@ export class SceneCandidateWriterService {
             schemaId: row.payload.schemaId,
             candidateId: row.id,
           },
-          stateDeltas: deltasForScene(group.deltas, sceneIndex),
+          stateDeltas: projectSceneDeltas({
+            deltas: group.deltas,
+            sceneIndex,
+            packId: group.packId,
+            models: p.models,
+          }),
         }),
       );
       updates.push({ id: row.id, status: 'committed', commitRef: episodeId });
@@ -249,12 +301,33 @@ function groupByRun(rows: CandidateRow[]): Map<string, SceneGroup> {
   return groups;
 }
 
-function deltasForScene(deltas: CandidateRow[], sceneIndex: number): Record<string, unknown>[] {
-  return deltas
-    .filter((d) => Number(d.payload.sceneIndex) === sceneIndex)
+/**
+ * One scene's projected stateDeltas — the SHARED packStateDeltaEntry
+ * shape (the capture path writes the identical entry, modulo the
+ * document-only `candidateId`), narrowed to this scene index.
+ *
+ * `field` (packDeltaField) rides ALONGSIDE `stateModelId`, never instead
+ * of it: `stateModelId` stays the pack provenance (which lifecycle
+ * declaration produced the claim), `field` is the belief plane's key.
+ * Both are additive on a FLEXIBLE column (0106) — existing rows without
+ * `field` stay valid and simply keep being invisible to the promoter.
+ *
+ * Exported pure for the round-trip unit test (projected shape → the
+ * belief fold's collectSceneDeltas).
+ */
+export function projectSceneDeltas(p: {
+  deltas: CandidateRow[];
+  sceneIndex: number;
+  packId: string;
+  models: PackStateModelIndex | undefined;
+}): Record<string, unknown>[] {
+  return p.deltas
+    .filter((d) => Number(d.payload.sceneIndex) === p.sceneIndex)
     .map((d) =>
       packStateDeltaEntry({
+        packId: p.packId,
         stateModelId: d.payload.stateModelId,
+        models: p.models,
         subject: d.payload.subject,
         from: d.payload.from,
         to: d.payload.to,

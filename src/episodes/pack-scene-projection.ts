@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { RecordId, type Surreal } from 'surrealdb';
 import { runTransaction } from '../db/surreal.service';
 import { scopeForUser } from '../auth/scope-tags';
+import { packStateFieldName, stateModelFieldLocal } from '../ai/domain-packs/manifest';
 
 /**
  * Pack scene projections — the SHARED write shape (migration 0110,
@@ -19,8 +20,10 @@ import { scopeForUser } from '../auth/scope-tags';
  * Both MUST write the same row: same table, same id mold, same
  * scope/PII/userId stamping (the 0055 per-user fence, the 0093 scope tag,
  * the 0117 userIds membership fold), the same `pack:<packId>+<fp>`
- * segmenterVersion id-space, and the same slice-swap semantics. That is
- * what lives here — one shape, two origins, no drift.
+ * segmenterVersion id-space, the same `stateDeltas` entry shape —
+ * including the pack-namespaced belief `field` the promotion pass keys on
+ * (packDeltaField) — and the same slice-swap semantics. That is what
+ * lives here — one shape, two origins, no drift.
  *
  * Pure module by design (engine-gates S5.2): no env reads, no Nest
  * injection. The flag fence stays with each producer.
@@ -137,9 +140,58 @@ export function buildPackSceneRow(p: PackSceneRowInput): Record<string, unknown>
   };
 }
 
+/**
+ * One pack's declared `stateModels` keyed by id — the field-mapping input
+ * both origins resolve from their own copy of the manifest's memoryModel
+ * (the document path through MemoryModelReaderService at commit time, the
+ * capture path through the binding it already derives the turn against).
+ */
+export type PackStateModelIndex = ReadonlyMap<string, { id: string; field?: string | undefined }>;
+
+/** Pure: index a memoryModel's declared stateModels by id. */
+export function packStateModelIndex(
+  models: readonly { id: string; field?: string | undefined }[] | undefined,
+): PackStateModelIndex {
+  return new Map((models ?? []).map((m) => [m.id, m]));
+}
+
+/**
+ * Pure: the belief-plane attribute name one pack stateModel projects onto.
+ *
+ * `<packId>__<declared field ?? stateModelId>` (packStateFieldName). This
+ * is the ONE mapping the belief layer needs: `collectSceneDeltas` keys
+ * beliefs by (userId, subject, field) and DROPS any delta without a
+ * `field`, so before this the pack-projected deltas — which carried only a
+ * `stateModelId` — were a write with no reader.
+ *
+ * It lives HERE, with the shared row shape, so BOTH origins emit the same
+ * delta: a belief must not depend on whether the domain arrived as a
+ * document or as a conversation turn.
+ *
+ * `models` is the submitting pack's declared stateModels keyed by id (its
+ * manifest memoryModel, resolved per run). A missing pack or an unknown
+ * stateModelId degrades to the id itself: the submit-time declaration
+ * fence already rejected undeclared ids, and a manifest that changed
+ * underneath a staged candidate must still project SOMETHING stable
+ * rather than silently losing the delta again.
+ */
+export function packDeltaField(
+  packId: string,
+  stateModelId: string,
+  models?: PackStateModelIndex,
+): string {
+  const declared = models?.get(stateModelId);
+  const local = declared ? stateModelFieldLocal(declared) : stateModelId;
+  return packStateFieldName(packId, local);
+}
+
 /** One entry of the scene row's `stateDeltas` array (0106 FLEXIBLE). */
 export interface PackStateDeltaInput {
+  /** The projecting pack — `field` is namespaced under it. */
+  packId: string;
   stateModelId: unknown;
+  /** The pack's declared stateModels; absent ⇒ the id is the local name. */
+  models?: PackStateModelIndex | undefined;
   subject: unknown;
   from?: unknown;
   to: unknown;
@@ -148,9 +200,17 @@ export interface PackStateDeltaInput {
   candidateId?: string | undefined;
 }
 
+/**
+ * `field` (packDeltaField) rides ALONGSIDE `stateModelId`, never instead
+ * of it: `stateModelId` stays the pack provenance (which lifecycle
+ * declaration produced the claim), `field` is the belief plane's key.
+ * Both are additive on a FLEXIBLE column (0106) — existing rows without
+ * `field` stay valid and simply keep being invisible to the promoter.
+ */
 export function packStateDeltaEntry(p: PackStateDeltaInput): Record<string, unknown> {
   return {
     stateModelId: p.stateModelId,
+    field: packDeltaField(p.packId, String(p.stateModelId ?? ''), p.models),
     subject: p.subject,
     from: p.from,
     to: p.to,

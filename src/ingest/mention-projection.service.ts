@@ -10,6 +10,7 @@ import {
   packSceneProjectionName,
   packSceneVersion,
   packStateDeltaEntry,
+  packStateModelIndex,
   swapPackSceneSlice,
 } from '../episodes/pack-scene-projection';
 import { packMemoryProjectionsEnabled } from '../common/pack-projection-flags';
@@ -43,8 +44,12 @@ export interface TurnProjectionOutcome {
  * SHAPE. Rows are the SHARED buildPackSceneRow shape, in the SHARED
  * `pack:<packId>+<fp>` world, registered in the SAME projection ledger
  * (`scenes:<packId>`) — one shape, two origins (pack-scene-projection.ts).
- * Shadow, exactly like the document origin: nothing on the serving path
- * reads memory_episode.
+ * That includes the stateDeltas: a derived delta carries the same
+ * pack-namespaced `field` (`<packId>__<stateModel.field ?? id>`) the
+ * document origin stamps, so under SCENES_PACK_DELTA_PROMOTION a
+ * conversation turn reaches the belief plane on exactly the same terms as
+ * a document. Shadow, exactly like the document origin: nothing on the
+ * serving path reads memory_episode.
  *
  * COST. Per turn, with the flag on, a tenant WITHOUT packs declaring a
  * memoryModel pays one cached reader call (LRU + 30s TTL) and returns.
@@ -179,12 +184,21 @@ export class MentionProjectionService {
 
     const sceneRows: Record<string, unknown>[] = [];
     const memberRows: Record<string, unknown>[] = [];
+    // The stateModelId -> belief-field mapping input, straight off the
+    // binding this turn was derived against — the capture path's copy of
+    // what the document path resolves through MemoryModelReaderService.
+    // Both origins therefore stamp the same pack-namespaced `field`, so a
+    // belief never depends on whether its domain arrived as a document or
+    // as a conversation turn.
+    const models = packStateModelIndex(binding.memoryModel.stateModels);
     let stateDeltas = 0;
     for (const scene of p.scenes) {
       const idTail = packSceneIdTail(episodeId, version, scene.schemaId);
       const deltas = scene.stateDeltas.map((d) =>
         packStateDeltaEntry({
+          packId: binding.packId,
           stateModelId: d.stateModelId,
+          models,
           subject: d.subject,
           from: d.from,
           to: d.to,

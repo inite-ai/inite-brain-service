@@ -324,7 +324,7 @@ one non-empty field; present-but-empty is rejected:
 | Field | What it declares | Caps |
 | --- | --- | --- |
 | `sceneSchemas` | Recurring scene shapes (`id`, `description`, literal `cues`) | ≤ 8 schemas, ≤ 12 cues of 2..64 chars |
-| `stateModels` | Subject-typed lifecycles (`states`, optional `transitions`) | ≤ 8 models, 2..16 states, ≤ 64 transitions |
+| `stateModels` | Subject-typed lifecycles (`states`, optional `transitions`, optional belief-attribute `field`) | ≤ 8 models, 2..16 states, ≤ 64 transitions |
 | `attentionHints` | Literal `cue` → `prefer` (own predicates), `zoom` (own scenes ∪ `episodes`/`facts`/`scenes`), `weight` (0,1] | ≤ 16 hints, ≤ 8 prefer, ≤ 4 zoom |
 | `verificationRules` | Claim classes needing `human_confirmation` \| `corroboration` \| `recency_check` | ≤ 16 rules, `claimPattern` 2..128 chars |
 | `retentionHints` | ADVISORY `ephemeral`/`standard`/`durable` per own predicate/scene | ≤ 32 hints |
@@ -418,6 +418,20 @@ security hole:
   writer (`src/episodes/pack-scene-projection.ts`). A schema that
   declares no `cues` can never fire here — there is nothing literal to
   match — so cues are what makes a pack visible to conversational memory.
+- **Belief promotion of pack deltas**
+  (`src/episodes/pack-scene-projection.ts` →
+  `src/admin/belief-promotion.service.ts`) — a projected `state_delta`,
+  from EITHER producer, carries `field` =
+  `<packId>__<stateModel.field ?? stateModel.id>` alongside its
+  `stateModelId`, and under `SCENES_PACK_DELTA_PROMOTION` the belief pass
+  folds those deltas into `semantic_belief`. The mapping lives in the
+  shared writer precisely so a belief never depends on whether the domain
+  arrived as a document or as a conversation turn. The `field` is
+  pack-NAMESPACED for the same reason predicates and MCP tools are: two
+  packs whose lifecycles resolve to the same local attribute (`status`,
+  `stage`) must stay in SEPARATE belief groups, not silently overwrite
+  each other. `field` is optional — omit it and the stateModel's own `id`
+  is the attribute name.
 - **L3 attention boost** (`src/synthesize/l3-escalation.service.ts`) —
   under `FOVEA_ATTENTION_HINTS`, installed packs' `attentionHints` bias
   which memories the L3 escalation pass prefers and how deep it zooms.

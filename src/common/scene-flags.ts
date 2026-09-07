@@ -211,6 +211,40 @@ export function sceneBeliefFieldFoldEnabled(): boolean {
 }
 
 /**
+ * Pack-projected state-delta promotion — SCENES_PACK_DELTA_PROMOTION.
+ *
+ * When on, the belief promotion pass ALSO admits scenes of the
+ * pack-projection worlds (`segmenterVersion` LIKE `pack:<packId>+<fp>`,
+ * written by BOTH pack projection producers — SceneCandidateWriterService
+ * on the document path and MentionProjectionService on the capture path —
+ * under PACK_MEMORY_PROJECTIONS_ENABLED), not only the composer's current
+ * effective segmenter version. Pack scenes carry no `enrichmentVersion`
+ * (their stateDeltas come from the pack's own reading, not the LLM
+ * enricher), so the widened leg drops that requirement for `pack:` worlds
+ * ONLY.
+ *
+ * Everything downstream is unchanged: the #387 single-user fence still
+ * applies (a tenant-global document's scenes carry no userIds and are
+ * skipped fail-closed), the field is the pack-namespaced
+ * `<packId>__<local>` (packDeltaField) so packs can never merge, and the
+ * belief's promoterVersion carries the pack world as provenance.
+ *
+ * NOTE: document scenes carry NO conversationIds, so a non-zero
+ * SCENES_BELIEF_MIN_SCENES (a DISTINCT-CONVERSATION floor) excludes
+ * document-projected beliefs by construction; a capture-origin scene does
+ * carry its turn's conversation.
+ *
+ * The env read lives here in the common layer, NOT inside the engine dirs
+ * (engine-gates S5.2). Read ONCE per promotion run so a mid-run flip can
+ * never mix worlds (the Drift-3 contract). Default off ⇒ the promoter's
+ * selection query, parameters and per-belief stamps are byte-identical to
+ * the pre-flag pass — no pack scene is ever seen.
+ */
+export function scenePackDeltaPromotionEnabled(): boolean {
+  return envFlagEnabled(process.env.SCENES_PACK_DELTA_PROMOTION);
+}
+
+/**
  * Scenes prediction-baseline flag — SCENES_PREDICTION_BASELINE.
  *
  * The scene plane had NO prediction machinery: `memoryValue.contradiction`

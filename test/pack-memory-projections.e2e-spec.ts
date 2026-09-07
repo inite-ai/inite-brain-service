@@ -11,10 +11,18 @@
  * view, the CAPTURE-path (mention) origin writing into the same pack
  * world with an L0 membership edge, and the version purge through the
  * existing admin scenes verb.
+ *
+ * Plus the FULL LOOP (SCENES_PACK_DELTA_PROMOTION): document → scenes →
+ * pack-namespaced state deltas → semantic_belief. Before it, prod ran
+ * PACK_MEMORY_PROJECTIONS_ENABLED=1 writing deltas nothing could ever
+ * read — the deltas carried no `field` and the promoter's version fence
+ * excluded the `pack:` worlds. No paid calls: the extractor is stubbed
+ * and belief statements stay on the deterministic template.
  */
 import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
 import { packSceneVersion } from '../src/documents/scene-candidate-writer.service';
+import { BELIEF_PROMOTER_VERSION } from '../src/admin/belief-promotion.service';
 
 describe('pack memory projections (e2e)', () => {
   let f: AppFixture;
@@ -89,7 +97,7 @@ describe('pack memory projections (e2e)', () => {
     if (f) await f.close();
   });
 
-  async function createDoc(text: string) {
+  async function createDoc(text: string, userId?: string) {
     // Empty extraction: the document exists purely as a Source for the
     // external indexer to read.
     f.extractor.setScript({ entities: [], facts: [], edges: [] });
@@ -101,6 +109,7 @@ describe('pack memory projections (e2e)', () => {
         text,
         occurredAt: '2026-09-01T10:00:00.000Z',
         contextRef: { vertical: 'proj_e2e' },
+        ...(userId !== undefined ? { userId } : {}),
       });
     expect(r.status).toBe(201);
     return r.body.documentId as string;
@@ -276,6 +285,157 @@ describe('pack memory projections (e2e)', () => {
     expect(piiScene.payload.redacted).toBeUndefined();
   });
 
+  // ORDER MATTERS: this block asserts an EXACT belief set, and BOTH pack
+  // projection origins now stamp the promotable `field` — so it runs
+  // before the capture-path test below, whose user-scoped turn scene would
+  // otherwise promote into a third belief. Keep it above that test.
+  describe('pack deltas reach belief promotion (SCENES_PACK_DELTA_PROMOTION)', () => {
+    const USER_A = 'pack_belief_u1';
+    const USER_B = 'pack_belief_u2';
+    const BELIEF_FLAGS = ['SCENES_SEGMENTATION_ENABLED', 'SCENES_BELIEF_PROMOTION'];
+    const savedFlags: Record<string, string | undefined> = {};
+
+    interface BeliefRow {
+      userId: string;
+      subject: string;
+      field: string;
+      value: string;
+      priorValue?: string;
+      statement: string;
+      statementSource: string;
+      revision: number;
+      status: string;
+      conversationIds?: string[];
+      promoterVersion?: string;
+      sourceSceneIds?: unknown[];
+    }
+
+    const beliefs = (): Promise<BeliefRow[]> =>
+      surreal().withCompany(f.companyId, async (db) => {
+        const [rows] = await db.query<[BeliefRow[]]>(
+          `SELECT * FROM semantic_belief ORDER BY userId ASC, field ASC, revision ASC`,
+        );
+        return rows ?? [];
+      });
+
+    const promote = () => f.http.post('/v1/admin/maintenance/scenes/beliefs').set(auth()).send({});
+
+    beforeAll(async () => {
+      for (const k of BELIEF_FLAGS) {
+        savedFlags[k] = process.env[k];
+        process.env[k] = '1';
+      }
+      delete process.env.SCENES_PACK_DELTA_PROMOTION;
+
+      // Two USER-SCOPED documents (0128) — each projects scenes stamped
+      // with its own user (userId + 0093 scope + 0117 userIds), which is
+      // what makes them promotable at all under the #387 fence.
+      const docA = await createDoc(`${DOC_TEXT} Belief loop, user A.`, USER_A);
+      expect((await submit(docA, submission())).status).toBe(201);
+
+      const docB = await createDoc(`${DOC_TEXT} Belief loop, user B.`, USER_B);
+      expect(
+        (
+          await submit(
+            docB,
+            submission({
+              stateDeltas: [
+                {
+                  sceneIndex: 0,
+                  stateModelId: 'deal',
+                  subject: 'the Elm St purchase',
+                  from: 'open',
+                  to: 'closed',
+                },
+              ],
+            }),
+          )
+        ).status,
+      ).toBe(201);
+    });
+
+    afterAll(() => {
+      for (const k of BELIEF_FLAGS) {
+        if (savedFlags[k] === undefined) delete process.env[k];
+        else process.env[k] = savedFlags[k];
+      }
+      delete process.env.SCENES_PACK_DELTA_PROMOTION;
+    });
+
+    it('projects the pack-namespaced field alongside the stateModelId', async () => {
+      const deltas = await surreal().withCompany(f.companyId, async (db) => {
+        const [rows] = await db.query<[Array<{ stateDeltas: Array<Record<string, unknown>> }>]>(
+          `SELECT stateDeltas FROM memory_episode
+            WHERE segmenterVersion = $v AND userId = $u`,
+          { v: packSceneVersion(PACK_ID, PACK_VERSION), u: USER_A },
+        );
+        return (rows ?? []).flatMap((r) => r.stateDeltas ?? []);
+      });
+      expect(deltas).toHaveLength(1);
+      expect(deltas[0]).toMatchObject({
+        // BOTH: stateModelId is the pack provenance, field is the key the
+        // belief fold reads (and drops the delta without).
+        stateModelId: 'deal',
+        field: `${PACK_ID}__deal`,
+        subject: 'the Elm St purchase',
+        to: 'under_offer',
+      });
+    });
+
+    it('flag off ⇒ the promotion pass never sees a pack scene (byte-identical)', async () => {
+      delete process.env.SCENES_PACK_DELTA_PROMOTION;
+      const r = await promote();
+      expect(r.status).toBe(201);
+      // No composer world exists in this tenant, so the historical
+      // selection matches nothing at all.
+      expect(r.body.scenes).toBe(0);
+      expect(r.body.beliefsCreated).toBe(0);
+      expect(await beliefs()).toEqual([]);
+    });
+
+    it('flag on ⇒ each user-scoped pack scene promotes into that user’s own belief', async () => {
+      process.env.SCENES_PACK_DELTA_PROMOTION = '1';
+      const r = await promote();
+      expect(r.status).toBe(201);
+      expect(r.body.beliefsCreated).toBe(2);
+      // The tenant-global documents projected by the earlier tests are
+      // seen and REFUSED fail-closed — a scene with no userIds belongs to
+      // no one, so it can never feed a belief.
+      expect(r.body.skippedMixedUser).toBeGreaterThanOrEqual(1);
+
+      const rows = await beliefs();
+      expect(rows.map((b) => [b.userId, b.field, b.value])).toEqual([
+        [USER_A, `${PACK_ID}__deal`, 'under_offer'],
+        [USER_B, `${PACK_ID}__deal`, 'closed'],
+      ]);
+      const a = rows[0]!;
+      expect(a.subject).toBe('the Elm St purchase');
+      expect(a.priorValue).toBe('open');
+      expect(a.revision).toBe(1);
+      expect(a.status).toBe('active');
+      // No paid call: the statement is the deterministic template.
+      expect(a.statementSource).toBe('template');
+      expect(a.statement).toBe(`the Elm St purchase — ${PACK_ID}__deal: under_offer (was: open)`);
+      // Pack provenance on the belief row itself — no new column.
+      expect(a.promoterVersion).toBe(
+        `${BELIEF_PROMOTER_VERSION}|${packSceneVersion(PACK_ID, PACK_VERSION)}`,
+      );
+      expect(a.sourceSceneIds).toHaveLength(1);
+      // Document scenes carry no conversation — the distinct-conversation
+      // floor would exclude them, which is why it stays at 0 here.
+      expect(a.conversationIds).toEqual([]);
+    });
+
+    it('is replay-idempotent (a second pass corroborates, never duplicates)', async () => {
+      process.env.SCENES_PACK_DELTA_PROMOTION = '1';
+      const r = await promote();
+      expect(r.status).toBe(201);
+      expect(r.body.beliefsCreated).toBe(0);
+      expect(r.body.beliefsRevised).toBe(0);
+      expect(await beliefs()).toHaveLength(2);
+    });
+  });
+
   it('projects a CAPTURE-path turn into the same pack world, bound to its L0 episode', async () => {
     const version = packSceneVersion(PACK_ID, PACK_VERSION);
     // The subject of a derived state delta = the turn's first extracted
@@ -329,9 +489,12 @@ describe('pack memory projections (e2e)', () => {
     expect(source.docId).toBeUndefined();
     // Only 'under offer' is named in the turn, so the delta carries a
     // destination and no origin state (an absent `from` is not stored).
+    // `field` is the SHARED belief key — a capture-origin delta is the
+    // same entry the document origin writes, minus the candidateId.
     expect(scene.stateDeltas).toEqual([
       {
         stateModelId: 'deal',
+        field: `${PACK_ID}__deal`,
         subject: '12 Elm St',
         to: 'under_offer',
         confidence: 0.5,
