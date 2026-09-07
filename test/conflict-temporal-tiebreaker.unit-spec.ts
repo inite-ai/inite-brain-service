@@ -316,6 +316,26 @@ describe('CONFLICT_TEMPORAL_TIEBREAKER', () => {
       );
     });
 
+    it('closes a same-origin exact restatement as corroborating, armed calls only, no count inflation', () => {
+      // Measured live: corroboration requires a DIFFERENT origin, so a
+      // same-origin repeat of the SAME object fell to the ~0 margin and
+      // produced a COMPETING pair of two identical values — phantom
+      // conflict noise. The dedup must be gated on the armed-call
+      // marker, keep exact `object = $object` equality, same-origin
+      // (`= $origin_key`, the mirror of corroboration's `!=`), and must
+      // NOT touch the incumbent's corroboration counters.
+      const body = stripComments(head.body);
+      const at = body.indexOf('LET $restated');
+      expect(at).toBeGreaterThan(-1);
+      const branch = body.slice(body.lastIndexOf('IF $semantics', at), body.indexOf('};', at));
+      expect(branch).toContain('$tiebreak_window_ms != NONE');
+      expect(branch).toContain('object = $object');
+      expect(branch).toContain('fn::origin_key_of(source) = $origin_key');
+      expect(branch).not.toContain('corroboration =');
+      // The true (different-origin) corroboration branch still runs FIRST.
+      expect(body.indexOf('fn::origin_key_of(source) != $origin_key')).toBeLessThan(at);
+    });
+
     it('keeps fn::resolve_facts in lockstep (27-arg mapper binds the two new args)', () => {
       const body = stripComments(head.body);
       const mapper = body.slice(body.indexOf('fn::resolve_facts'));

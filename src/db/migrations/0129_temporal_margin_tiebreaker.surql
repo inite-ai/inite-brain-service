@@ -59,6 +59,17 @@
 -- strictly older beyond the window close as history with the rest of
 -- the losers, same-stamp/within-window ones stay flipped competing.
 --
+-- RESTATEMENT DEDUP (same acceptance run): corroboration requires a
+-- DIFFERENT origin (0050), so a same-origin repeat of the SAME object
+-- fell through to the ~0 margin and produced a COMPETING pair of two
+-- IDENTICAL values ((ledger-sync, name) = "ledger-sync" twice,
+-- measured live) — phantom conflict noise that feeds serving
+-- abstention. An armed 'bitemporal' resolve (window bound; cue not
+-- required) now closes an exact same-origin restatement as
+-- 'corroborating' the incumbent, with NO corroboration count/keys
+-- update (0051's distinct-origin inflation guard stands). A
+-- restatement is neither an update nor a contradiction.
+--
 -- WINDOW DEFAULT = 0 ms (strict inequality), argued from measurement:
 -- the ambiguity the window exists to protect is SAME-REPORT claims,
 -- and those share the exact event-time stamp (one turn → one
@@ -308,6 +319,37 @@ DEFINE FUNCTION OVERWRITE fn::resolve_fact(
             factId: $new.id,
             corroboratedFactId: $corroborated.id,
             reason: NONE
+        };
+    };
+
+    -- 0129: restatement dedup for ARMED 'bitemporal' resolves. The
+    -- corroboration branch above deliberately requires a DIFFERENT
+    -- origin (0050), so a same-origin repeat of the SAME object falls
+    -- through to the margin doctrine and — at the batch-shaped ~0
+    -- margin — lands a COMPETING pair of two IDENTICAL values
+    -- (measured live: (ledger-sync, name) = "ledger-sync" twice, both
+    -- competing), and that phantom conflict noise feeds serving
+    -- abstention. A restatement is neither an update nor a
+    -- contradiction: keep the incumbent untouched (NO corroboration
+    -- count/keys update — 0051's distinct-origin inflation guard
+    -- stands) and close the new row as corroborating it. Gated on the
+    -- armed-call marker ($tiebreak_window_ms bound ⇒ flag on + mention
+    -- path), cue NOT required — a restatement rarely carries one.
+    IF $semantics = 'bitemporal' AND $tiebreak_window_ms != NONE {
+        LET $restated = (SELECT id, recordedAt FROM $competing
+            WHERE object = $object
+              AND fn::origin_key_of(source) = $origin_key
+            ORDER BY recordedAt DESC LIMIT 1)[0];
+        IF $restated != NONE {
+            UPDATE $new.id SET
+                status = 'corroborating',
+                corroborates = $restated.id;
+            RETURN {
+                outcome: 'CORROBORATED',
+                factId: $new.id,
+                corroboratedFactId: $restated.id,
+                reason: 'restated'
+            };
         };
     };
 
