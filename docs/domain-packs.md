@@ -365,6 +365,17 @@ security hole:
   stage `scene` / `state_delta` candidates only against its OWN declared
   `sceneSchemas` / `stateModels` ids; a pack with no memoryModel cannot
   stage episodic candidates at all.
+- **Capture-path projections**
+  (`src/ingest/mention-projection.service.ts`, behind the same
+  `PACK_MEMORY_PROJECTIONS_ENABLED`) — the conversational sibling of the
+  above: every mention turn is matched against the installed packs'
+  literal `sceneSchemas.cues` and declared `stateModels.states`
+  (`src/ingest/pack-scene-derivation.ts` — model-free by construction,
+  the ingest path must never buy an extra LLM call), and what fires is
+  projected into the SAME `pack:<packId>+<fp>` world through the shared
+  writer (`src/episodes/pack-scene-projection.ts`). A schema that
+  declares no `cues` can never fire here — there is nothing literal to
+  match — so cues are what makes a pack visible to conversational memory.
 - **L3 attention boost** (`src/synthesize/l3-escalation.service.ts`) —
   under `FOVEA_ATTENTION_HINTS`, installed packs' `attentionHints` bias
   which memories the L3 escalation pass prefers and how deep it zooms.

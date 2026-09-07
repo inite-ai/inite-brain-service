@@ -8,7 +8,9 @@
  * ledger. Covers: the flag fence (400 when off), the declaration fence
  * (undeclared schemaId/state 400), the happy-path projection (rows,
  * statuses, commitRefs, registry), default-deny redaction of the audit
- * view, and the version purge through the existing admin scenes verb.
+ * view, the CAPTURE-path (mention) origin writing into the same pack
+ * world with an L0 membership edge, and the version purge through the
+ * existing admin scenes verb.
  */
 import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
@@ -44,7 +46,12 @@ describe('pack memory projections (e2e)', () => {
       },
     ],
     memoryModel: {
-      sceneSchemas: [{ id: 'viewing', description: 'A property viewing.' }],
+      // `cues` are the literal substrings the CAPTURE-path producer reads;
+      // the document path ignores them (an external indexer submits its
+      // own scene hypotheses).
+      sceneSchemas: [
+        { id: 'viewing', description: 'A property viewing.', cues: ['viewing', 'open house'] },
+      ],
       stateModels: [
         {
           id: 'deal',
@@ -56,6 +63,8 @@ describe('pack memory projections (e2e)', () => {
     },
   };
 
+  const savedEpisodes = process.env.EPISODE_SUBSTRATE_ENABLED;
+
   beforeAll(async () => {
     f = await createApp({
       companyId: 'co_pack_proj_e2e',
@@ -65,6 +74,9 @@ describe('pack memory projections (e2e)', () => {
     });
     process.env.DOCUMENT_INGEST_ENABLED = '1';
     process.env.PACK_MEMORY_PROJECTIONS_ENABLED = '1';
+    // The capture-path producer projects only a CAPTURED turn — the L0
+    // episode row is its GDPR erasure anchor.
+    process.env.EPISODE_SUBSTRATE_ENABLED = '1';
     const install = await f.http.post('/v1/admin/packs').set(auth()).send({ manifest: MANIFEST });
     expect([200, 201]).toContain(install.status);
   });
@@ -72,6 +84,8 @@ describe('pack memory projections (e2e)', () => {
   afterAll(async () => {
     delete process.env.DOCUMENT_INGEST_ENABLED;
     delete process.env.PACK_MEMORY_PROJECTIONS_ENABLED;
+    if (savedEpisodes === undefined) delete process.env.EPISODE_SUBSTRATE_ENABLED;
+    else process.env.EPISODE_SUBSTRATE_ENABLED = savedEpisodes;
     if (f) await f.close();
   });
 
@@ -260,6 +274,98 @@ describe('pack memory projections (e2e)', () => {
     const piiScene = pii.body.candidates.find((c: { kind: string }) => c.kind === 'scene');
     expect(piiScene.payload.gist).toBe('Client toured 12 Elm St and weighed an offer.');
     expect(piiScene.payload.redacted).toBeUndefined();
+  });
+
+  it('projects a CAPTURE-path turn into the same pack world, bound to its L0 episode', async () => {
+    const version = packSceneVersion(PACK_ID, PACK_VERSION);
+    // The subject of a derived state delta = the turn's first extracted
+    // entity (advisory); the scene itself is derived from literal cues.
+    f.extractor.setScript({
+      entities: [{ name: '12 Elm St', type: 'asset' }],
+      facts: [],
+      edges: [],
+    });
+    const mention = () =>
+      f.http
+        .post('/v1/ingest/mention')
+        .set(auth())
+        .send({
+          text: 'The viewing at 12 Elm St went well — the deal is under offer now.',
+          contextRef: { vertical: 'proj_e2e', conversationId: 'conv:cap', messageId: 'turn-1' },
+          userId: 'u_capture',
+          emittedAt: '2026-09-02T09:00:00.000Z',
+        });
+    expect((await mention()).status).toBe(201);
+
+    const readTurnScenes = () =>
+      surreal().withCompany(f.companyId, async (db) => {
+        const [eps] = await db.query<[Array<Record<string, unknown>>]>(
+          `SELECT id, sceneLabel, gist, segmenterVersion, confidence, stateDeltas,
+                  source, conversationIds, userId, scope, userIds
+             FROM memory_episode
+            WHERE segmenterVersion = $v AND source.episodeId != NONE`,
+          { v: version },
+        );
+        return (eps as Array<Record<string, unknown>>) ?? [];
+      });
+
+    const rows = await readTurnScenes();
+    expect(rows).toHaveLength(1);
+    const scene = rows[0]!;
+    // Label + gist: pack vocabulary for the label, the REDACTED turn for
+    // the gist — the same shape the document origin writes.
+    expect(scene.sceneLabel).toBe('viewing · viewing');
+    expect(scene.gist).toBe('The viewing at 12 Elm St went well — the deal is under offer now.');
+    expect(scene.conversationIds).toEqual(['conv:cap']);
+    // 0055/0093/0117 per-user stamping rides the turn's pinned user.
+    expect(scene.userId).toBe('u_capture');
+    expect(scene.scope).toEqual(['user:u_capture']);
+    expect(scene.userIds).toEqual(['u_capture']);
+    const source = scene.source as Record<string, unknown>;
+    expect(source.recorder).toBe('pack-scene-projector-v1');
+    expect(source.packId).toBe(PACK_ID);
+    expect(source.schemaId).toBe('viewing');
+    expect(String(source.episodeId)).toContain('episode:');
+    expect(source.docId).toBeUndefined();
+    // Only 'under offer' is named in the turn, so the delta carries a
+    // destination and no origin state (an absent `from` is not stored).
+    expect(scene.stateDeltas).toEqual([
+      {
+        stateModelId: 'deal',
+        subject: '12 Elm St',
+        to: 'under_offer',
+        confidence: 0.5,
+      },
+    ]);
+
+    // The membership edge the GDPR forget cascades ride (scene → L0 turn).
+    const members = await surreal().withCompany(f.companyId, async (db) => {
+      const [ms] = await db.query<[Array<Record<string, unknown>>]>(
+        `SELECT in, out, role, segmenterVersion FROM memory_episode_member WHERE in = $scene`,
+        { scene: scene.id },
+      );
+      return (ms as Array<Record<string, unknown>>) ?? [];
+    });
+    expect(members).toHaveLength(1);
+    expect(String(members[0]!.out)).toBe(String(source.episodeId));
+    expect(members[0]!.segmenterVersion).toBe(version);
+
+    // Idempotent per (turn, pack, schema): re-ingesting the same turn
+    // converges on the same row instead of appending a second one.
+    expect((await mention()).status).toBe(201);
+    const again = await readTurnScenes();
+    expect(again).toHaveLength(1);
+    expect(String(again[0]!.id)).toBe(String(scene.id));
+
+    // The world is the SAME one the document origin registered.
+    const ledger = await surreal().withCompany(f.companyId, async (db) => {
+      const [ps] = await db.query<[Array<Record<string, unknown>>]>(
+        `SELECT version, status FROM projection WHERE name = $n`,
+        { n: `scenes:${PACK_ID}` },
+      );
+      return (ps as Array<Record<string, unknown>>) ?? [];
+    });
+    expect(ledger).toEqual([{ version, status: 'built' }]);
   });
 
   it('purges a pack world through the existing admin scenes version verb', async () => {

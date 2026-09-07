@@ -711,14 +711,14 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     key: 'PACK_MEMORY_PROJECTIONS_ENABLED',
     category: 'scenes',
     // Read at call time (pack-projection-flags.packMemoryProjectionsEnabled)
-    // by the external-submission validator and the commit-side projection
-    // hook — never captured in a constructor — so a flip takes effect
-    // without restart.
+    // by the external-submission validator, the commit-side projection
+    // hook and the capture-path producer — never captured in a
+    // constructor — so a flip takes effect without restart.
     defaultValue: '0',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Pack memory projections (migration 0110): external candidate submissions may carry scenes/stateDeltas validated against the submitting pack’s manifest memoryModel (sceneSchemas / stateModels), staged as candidate kinds scene/state_delta and projected at commit time into shadow memory_episode rows under segmenterVersion pack:<packId>+<fp> (registry scenes:<packId>; purge via DELETE /scenes/versions/:v). Off = submissions carrying either array are rejected 400, no such candidate row is written, no projection runs — byte-identical. The GDPR forget doc-cascade leg for projected rows runs regardless.',
+      'Pack memory projections (migration 0110), TWO producers. DOCUMENT origin: external candidate submissions may carry scenes/stateDeltas validated against the submitting pack’s manifest memoryModel (sceneSchemas / stateModels), staged as candidate kinds scene/state_delta and projected at commit time. CAPTURE origin: a mention turn is matched against the installed packs’ declared sceneSchemas.cues (literal substrings, model-free — no LLM, no embedding) and declared stateModels.states, projected inline at ingest. Both write shadow memory_episode rows under segmenterVersion pack:<packId>+<fp> (registry scenes:<packId>; purge via DELETE /scenes/versions/:v); capture-origin rows also carry a memory_episode_member edge to their L0 turn (the GDPR erasure anchor — the capture producer requires EPISODE_SUBSTRATE_ENABLED and skips a turn it could not capture). Off = submissions carrying either array are rejected 400, no such candidate row is written, no projection runs on either path — byte-identical. The GDPR forget cascades for projected rows run regardless.',
   },
   {
     key: 'SCENES_BELIEF_PROMOTION',
