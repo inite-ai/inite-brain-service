@@ -41,6 +41,16 @@
         },
         "description": "State conflict — e.g. a lost/mismatched claim token, an already claimed work item, or an immutable-version republish."
       },
+      "EvidenceRejected": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "description": "The uploaded evidence was rejected by the scan hook. The asset row survives as a tombstone (availability `gone`, quarantineStatus `rejected`) and the bytes are deleted; the message is deliberately content-free."
+      },
       "FeatureDisabled": {
         "content": {
           "application/json": {
@@ -70,6 +80,16 @@
           }
         },
         "description": "No such resource in this tenant."
+      },
+      "PayloadTooLarge": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "description": "The uploaded part exceeds the effective transfer cap — min(EVIDENCE_MAX_BYTES, the 64 MiB memory-storage ceiling)."
       },
       "SubstrateDisabled": {
         "content": {
@@ -3331,6 +3351,63 @@
         ],
         "type": "object"
       },
+      "UploadEvidenceBlobResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "availability": {
+            "enum": [
+              "hot",
+              "cold",
+              "external",
+              "gone"
+            ],
+            "type": "string"
+          },
+          "byteHash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "byteLength": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "deduped": {
+            "type": "boolean"
+          },
+          "dispatched": {
+            "type": "boolean"
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "quarantineStatus": {
+            "enum": [
+              "clean",
+              "scanning"
+            ],
+            "type": "string"
+          },
+          "storageRef": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "assetId",
+          "availability",
+          "deduped",
+          "byteHash",
+          "byteLength",
+          "storageRef",
+          "mediaType",
+          "quarantineStatus",
+          "dispatched"
+        ],
+        "type": "object"
+      },
       "UpsertPublisherProfileRequest": {
         "additionalProperties": false,
         "properties": {
@@ -5400,6 +5477,142 @@
           }
         },
         "summary": "Register a multimodal evidence asset (metadata-only)",
+        "tags": [
+          "Evidence"
+        ]
+      }
+    },
+    "/v1/ingest/evidence-blob": {
+      "post": {
+        "description": "Takes BYTES into custody: `multipart/form-data` with the content in the `file` part and the asset metadata as text parts. The server owns identity here — `byteHash` (sha256 of what it received), `byteLength` and `storageRef` are computed, never asserted — so the registered asset is blob-backed with availability derived as `hot`. Media types are an explicit conservative allowlist checked AGAINST the declared modality (application/json, application/pdf, audio/aac, audio/flac, audio/mp4, audio/mpeg, audio/ogg, audio/wav, image/avif, image/gif, image/jpeg, image/png, image/webp, text/csv, text/markdown, text/plain, video/mp4, video/quicktime, video/webm); anything else, including SVG, HTML, archives and `application/octet-stream`, is a 400. Transfer is capped at `min(EVIDENCE_MAX_BYTES, 64 MiB)` — an over-cap part is refused mid-upload with 413. Uploaded bytes are EXTERNAL INGEST by definition, so the asset registers with origin `external_ingest` and is SCANNED before it becomes dispatchable: a clean verdict answers 201, a rejection answers 422 with the row tombstoned and the bytes deleted, and a scan hook that cannot decide answers 201 with `quarantineStatus: \"scanning\"` (still dispatch-denied — the surface never fails open). An optional `packId` starts a FIRE-AND-FORGET processor dispatch that can never fail the upload. Same-user re-upload of identical bytes dedupes; a different principal gets a bare 409. Answers a bare 404 until `EVIDENCE_BLOB_UPLOAD_ENABLED=1` (raised before the body is parsed); answers 503 while `EVIDENCE_SUBSTRATE_ENABLED` or `EVIDENCE_QUARANTINE` is off, or when no storage adapter is configured. Source: src/evidence/evidence-ingest.controller.ts.\n\nRequired scope: `brain:write`.",
+        "operationId": "uploadEvidenceBlob",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "durationMs": {
+                    "description": "Duration in milliseconds, when known.",
+                    "pattern": "^[0-9]+$",
+                    "type": "string"
+                  },
+                  "file": {
+                    "description": "The evidence bytes. Its Content-Type is the media type unless `mediaType` overrides it.",
+                    "format": "binary",
+                    "type": "string"
+                  },
+                  "height": {
+                    "description": "Pixel height, when known.",
+                    "pattern": "^[0-9]+$",
+                    "type": "string"
+                  },
+                  "mediaType": {
+                    "description": "Overrides the file part’s own Content-Type.",
+                    "type": "string"
+                  },
+                  "modality": {
+                    "description": "Drives pack consent, the dispatch gate and the fragment-locator matrix — the media type must be allowlisted FOR this modality: image → image/jpeg | image/png | image/gif | image/webp | image/avif; audio → audio/mpeg | audio/mp4 | audio/aac | audio/ogg | audio/wav | audio/flac; video → video/mp4 | video/webm | video/quicktime; document → application/pdf | text/plain | text/markdown | text/csv; sensor → application/json | text/csv.",
+                    "enum": [
+                      "image",
+                      "audio",
+                      "video",
+                      "document",
+                      "sensor"
+                    ],
+                    "type": "string"
+                  },
+                  "occurredAt": {
+                    "description": "When the observation happened (ISO-8601).",
+                    "type": "string"
+                  },
+                  "packId": {
+                    "description": "Installed pack to dispatch processors for, fire-and-forget, once the asset scans clean. Requires EVIDENCE_PROCESSOR_BROKER.",
+                    "type": "string"
+                  },
+                  "pageCount": {
+                    "description": "Page count, when known.",
+                    "pattern": "^[0-9]+$",
+                    "type": "string"
+                  },
+                  "piiClasses": {
+                    "description": "Comma-separated media PII classes (face, voice, biometric, id_document, sensitive). Fail-closed polarity: omit the field for “unclassified” (blocked); send it EMPTY for “a classifier looked and found nothing” (open).",
+                    "type": "string"
+                  },
+                  "recorder": {
+                    "description": "Free-text recorder identity.",
+                    "type": "string"
+                  },
+                  "retainUntil": {
+                    "description": "Retention horizon (ISO-8601).",
+                    "type": "string"
+                  },
+                  "scope": {
+                    "description": "Comma-separated scope tags (0093).",
+                    "type": "string"
+                  },
+                  "userId": {
+                    "description": "Per-user scope owner (0055): fail-closed reads for others.",
+                    "type": "string"
+                  },
+                  "vertical": {
+                    "description": "Tenant vertical the asset belongs to.",
+                    "type": "string"
+                  },
+                  "width": {
+                    "description": "Pixel width, when known.",
+                    "pattern": "^[0-9]+$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "file",
+                  "modality",
+                  "occurredAt",
+                  "vertical"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadEvidenceBlobResponse"
+                }
+              }
+            },
+            "description": "Stored, registered and scanned asset."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "422": {
+            "$ref": "#/components/responses/EvidenceRejected"
+          },
+          "503": {
+            "$ref": "#/components/responses/SubstrateDisabled"
+          }
+        },
+        "summary": "Upload an evidence blob (bytes)",
         "tags": [
           "Evidence"
         ]

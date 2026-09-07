@@ -1,8 +1,11 @@
 import { Module } from '@nestjs/common';
+import { EvidenceBlobUploadInterceptor } from './blob-upload.interceptor';
+import { EvidenceAdminController } from './evidence-admin.controller';
 import { EvidenceIngestController } from './evidence-ingest.controller';
 import { EvidenceReadController } from './evidence-read.controller';
 import { EvidenceReadService } from './evidence-read.service';
 import { EvidenceStoreService } from './evidence-store.service';
+import { EvidenceUploadService } from './evidence-upload.service';
 import { EvidenceProcessorBrokerService } from './processor-broker.service';
 import { EvidenceQuarantineService } from './quarantine.service';
 import { ImageMetadataStubAdapter } from './processing/adapters/image-metadata-stub.adapter';
@@ -26,10 +29,13 @@ import {
  * write seam (EvidenceStoreService) + the blob storage-adapter registry.
  * v1 registers ONE adapter (fs://); an s3-class adapter is a new
  * provider + one more Map entry — consumers resolve by storageRef
- * scheme, never by concrete class. The metadata-only ingest controller
- * (POST /v1/ingest/evidence-asset, dark behind EVIDENCE_INGEST_ENABLED
- * → bare 404) is the ONE write-side HTTP surface; the read gateway
- * below is its bytes-out counterpart. Injections into the GDPR /
+ * scheme, never by concrete class. EvidenceIngestController owns both
+ * write-side HTTP surfaces — the metadata-only registration (POST
+ * /v1/ingest/evidence-asset, EVIDENCE_INGEST_ENABLED) and the MM-7 byte
+ * upload (POST /v1/ingest/evidence-blob, EVIDENCE_BLOB_UPLOAD_ENABLED:
+ * multipart → storage adapter → registerAsset → scan → fire-and-forget
+ * dispatch), both dark by default → bare 404; the read gateway
+ * below is their bytes-out counterpart. Injections into the GDPR /
  * sweeper paths are @Optional so positionally-constructed unit
  * fixtures stay valid. SurrealService comes from the @Global db module.
  *
@@ -39,8 +45,11 @@ import {
  * scan-hook STUB. Adapters are PLATFORM code registered HERE — a pack
  * can only declare needs, never supply processors (anti-DSL doctrine).
  * All of it default-off behind EVIDENCE_PROCESSOR_BROKER /
- * EVIDENCE_QUARANTINE; exports exist for tests and future PR-C
- * consumers.
+ * EVIDENCE_QUARANTINE; exports exist for tests and cross-module
+ * consumers. EvidenceAdminController (MM-7) is the operator's entry into
+ * the broker — POST /v1/admin/maintenance/evidence/dispatch, 404 while
+ * the broker is dark, sweeping already-registered assets that no upload
+ * dispatch covered.
  *
  * Raw-read gateway (MM-3, migration 0125): EvidenceReadController is
  * the ONE surface that serves original bytes back out — stream, signed-
@@ -50,7 +59,7 @@ import {
  * @Global auth/policy modules.
  */
 @Module({
-  controllers: [EvidenceIngestController, EvidenceReadController],
+  controllers: [EvidenceIngestController, EvidenceReadController, EvidenceAdminController],
   providers: [
     FsEvidenceStorageAdapter,
     {
@@ -75,12 +84,15 @@ import {
     EvidenceProcessorBrokerService,
     { provide: EVIDENCE_SCAN_HOOK, useClass: AllowAllScanHook },
     EvidenceQuarantineService,
+    EvidenceBlobUploadInterceptor,
+    EvidenceUploadService,
   ],
   exports: [
     EvidenceStoreService,
     ProcessingRunService,
     EvidenceProcessorBrokerService,
     EvidenceQuarantineService,
+    EvidenceUploadService,
   ],
 })
 export class EvidenceModule {}

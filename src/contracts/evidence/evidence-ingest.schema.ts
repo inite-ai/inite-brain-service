@@ -113,6 +113,47 @@ export const IngestEvidenceFragmentResultSchema = z.object({
   representationId: z.string().optional(),
 });
 
+/**
+ * Response of the BYTE surface (POST /v1/ingest/evidence-blob —
+ * EVIDENCE_BLOB_UPLOAD_ENABLED, default off → 404). The request is
+ * `multipart/form-data`, so its shape is documented inline on the path
+ * rather than as a zod object: the bytes ride the `file` part and every
+ * metadata field arrives as a text part.
+ *
+ * Identity fields are echoed because the SERVER produced them — byteHash
+ * is sha256 over the bytes actually received (not a caller assertion, as
+ * on the metadata surface), byteLength is measured, storageRef is minted
+ * by the storage adapter, and mediaType is the canonical (parameter-free,
+ * lowercased) form that the row stores.
+ */
+export const UploadEvidenceBlobResponseSchema = z.object({
+  assetId: z.string(),
+  /** 'hot' for a fresh upload; a same-user dedup echoes the stored state. */
+  availability: z.enum(['hot', 'cold', 'external', 'gone']),
+  /** True when these exact bytes were already this user's asset. */
+  deduped: z.boolean(),
+  byteHash: z.string().regex(/^[0-9a-f]{64}$/),
+  byteLength: z.number().int().positive(),
+  storageRef: z.string(),
+  mediaType: z.string(),
+  /**
+   * Post-scan state. 'clean' = scanned and dispatchable. 'scanning' =
+   * the scan hook could not render a verdict, so the asset stays
+   * quarantined and dispatch-denied (fail closed) and is re-scannable —
+   * the upload is NOT silently treated as clean. A 'rejected' verdict
+   * never appears here: it answers 422 with the row tombstoned and the
+   * bytes deleted.
+   */
+  quarantineStatus: z.enum(['clean', 'scanning']),
+  /**
+   * Whether a processor dispatch was STARTED for the requested packId —
+   * never whether it succeeded. Dispatch is fire-and-forget by design: a
+   * failing adapter must not fail an ingestion whose bytes are already
+   * stored, registered and scanned.
+   */
+  dispatched: z.boolean(),
+});
+
 export const IngestEvidenceAssetResponseSchema = z.object({
   assetId: z.string(),
   /**

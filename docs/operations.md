@@ -125,7 +125,8 @@ overview — one line per flag, plus the orderings that matter.
 |---|---|---|
 | `EVIDENCE_SUBSTRATE_ENABLED` | `0` | Master switch for the multimodal evidence substrate writers (evidence_asset / evidence_fragment / derived_representation, 0109); off = every write 503s. GDPR cascade + retention run regardless. |
 | `EVIDENCE_FS_ROOT` | unset | Directory root for the `fs://` storage adapter; unset = the adapter throws a clear unconfigured error. |
-| `EVIDENCE_MAX_BYTES` | 1 GiB | Sanity cap on a registered asset's DECLARED byteLength (a claim bound — no upload endpoint ships). |
+| `EVIDENCE_MAX_BYTES` | 1 GiB | Sanity cap on a registered asset's DECLARED byteLength, and the transfer bound of the blob upload surface — applied there as `min(this, 64 MiB)`, so raising it past that memory-storage ceiling raises nothing. |
+| `EVIDENCE_BLOB_UPLOAD_ENABLED` | `0` | The byte surface: `POST /v1/ingest/evidence-blob` (multipart) — bytes into the content-addressed storage adapter, server-computed `byteHash`/`byteLength`/`storageRef`, asset registered `hot` and SCANNED before it is dispatchable. Media types are a conservative allowlist checked against the declared modality (no SVG/HTML/archives/octet-stream). Off = a bare 404 raised BEFORE the body is parsed. Requires `EVIDENCE_FS_ROOT`, the substrate flag, and `EVIDENCE_QUARANTINE` (uploaded bytes are external ingest — see the quarantine order below). |
 | `EVIDENCE_PROCESSOR_BROKER` | `0` | Trusted platform-owned processor adapters over registered assets, each run an idempotent `processing_run` row (0121). Requires the substrate flag. |
 | `EVIDENCE_QUARANTINE` | `0` | External-ingest quarantine seam (0121): assets get `quarantineStatus` (`clean` internal / `quarantined` external_ingest); the broker refuses non-clean assets. **Off = `origin:'external_ingest'` is rejected 503 outright (fail closed)** — enable BEFORE accepting any externally-sourced media. |
 | `EVIDENCE_DERIVED_MAX_BYTES` | 1 MiB | Cap on what an adapter may read from a blob and on any single derived output (reject, never truncate). |
@@ -144,7 +145,13 @@ then consider `EVIDENCE_UNGROUNDED_EXCLUDE` / `_SERVING_GATE` (both
 treat legacy unstamped rows leniently, but a gate enabled on a corpus
 with zero stamps protects nothing). **Quarantine order:** enable
 `EVIDENCE_QUARANTINE` before any external media ingest — while it is
-off, external-origin registration is refused entirely.
+off, external-origin registration is refused entirely. That is also why
+`EVIDENCE_BLOB_UPLOAD_ENABLED` needs it: bytes arriving over HTTP are
+external ingest by definition, so with the seam off every upload answers
+503 (boot warns on the pair). Note the scan hook shipped today is the
+ALLOW-ALL stub — it exercises the quarantined → scanning → clean
+lifecycle but passes everything; install a real scanner before trusting
+uploads from untrusted callers.
 
 ### `TOOL_OBSERVATION*` — MCP tool-call observations (0111)
 

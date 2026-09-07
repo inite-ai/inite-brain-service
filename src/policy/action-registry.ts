@@ -88,6 +88,16 @@ export const ACTIONS: Record<string, ActionSpec> = {
     family: 'rest',
     title: 'Ingest evidence asset (metadata-only)',
   },
+  // Byte custody is a STRICTER capability than metadata registration
+  // (MM-7): the uploaded blob is what the raw-read gateway later serves
+  // and what processor adapters read, so it gets its own action rather
+  // than riding the metadata one — a policy may open registration
+  // without opening upload.
+  'rest.ingest.evidence_blob': {
+    kind: 'write',
+    family: 'rest',
+    title: 'Upload evidence blob (bytes)',
+  },
   'rest.documents.get': { kind: 'read', family: 'rest', title: 'Get document' },
   'rest.documents.candidates': { kind: 'read', family: 'rest', title: 'List candidates' },
   'rest.documents.commit': { kind: 'write', family: 'rest', title: 'Commit candidates' },
