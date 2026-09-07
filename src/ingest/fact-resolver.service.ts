@@ -5,7 +5,11 @@ import { scopeForUser } from '../auth/scope-tags';
 import { MetricsService } from '../metrics/metrics.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { DEFAULT_FALLBACK } from '../ai/predicate-registry-internals/types';
-import { detectLanguage } from '../ai/locale/language-detector';
+import {
+  detectLanguage,
+  LANG_HIGH_CONFIDENCE,
+  langStampConfidenceGateEnabled,
+} from '../ai/locale/language-detector';
 import { envFlagEnabled } from '../common/env-validation';
 import {
   conflictDirectFactSlotEnabled,
@@ -197,6 +201,14 @@ interface LangAttributionMeta {
   detectorVersion: string;
   /** Language of the SOURCE turn (distinct from the object's `lang`). */
   sourceLang?: string | undefined;
+  /**
+   * The label the detector produced when the write-side stamp gate
+   * (MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE) withheld it from the
+   * authoritative `lang` column (migration 0127). Set ONLY on gated rows
+   * — an ungated detection lives in `lang` itself, so duplicating it
+   * here would change the gate-off stamp (the byte-identical pin).
+   */
+  detectedLang?: string | undefined;
 }
 
 /**
@@ -421,18 +433,48 @@ export class FactResolverService {
     // inherit the source-turn language onto an undetectable object.
     const attribution = envFlagEnabled(process.env.MULTILINGUAL_LANG_ATTRIBUTION);
     const detLang = detectLanguage(p.object, attribution);
-    let lang: string | undefined = detLang.language !== 'und' ? detLang.language : undefined;
+    const detectedLang: string | undefined =
+      detLang.language !== 'und' ? detLang.language : undefined;
+    // Write-side stamp gate (MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE,
+    // default off) — the mirror of the read-side k07 fix: a detection
+    // below the SAME shared floor the query-side gate trusts is not
+    // stamped as the row's authoritative `lang` (the hard same-language
+    // search filter's input), so "120 requests per minute" → it@0.33 no
+    // longer poisons the row for every future lang-aware consumer. ONLY
+    // the low-confidence 'detected' branch changes: the detected script
+    // and the attribution metadata (incl. detectedLang, 0127) are still
+    // recorded, and a weak detection is NOT license to inherit — the
+    // inherited path stays strictly for detector-`und` objects (which
+    // carry no language signal of their own; a weak detection carries a
+    // weak one, and re-stamping sourceLang over it would trade one guess
+    // for another). Off (default) ⇒ stampGated is always false and every
+    // branch below is byte-identical.
+    const stampGated =
+      detectedLang !== undefined &&
+      detLang.confidence < LANG_HIGH_CONFIDENCE &&
+      langStampConfidenceGateEnabled();
+    let lang: string | undefined = stampGated ? undefined : detectedLang;
     // Script is only ever the detected script — an inherited lang leaves it
-    // NONE (the source turn's script isn't carried on the fact input).
-    const script: string | undefined = detLang.language !== 'und' ? detLang.script : undefined;
+    // NONE (the source turn's script isn't carried on the fact input). The
+    // stamp gate keeps it: script comes from character classes, which are
+    // certain even when the language guess is weak.
+    const script: string | undefined = detectedLang !== undefined ? detLang.script : undefined;
     let langMeta: LangAttributionMeta | undefined;
-    if (attribution) {
-      if (lang) {
+    // The gate never withholds silently: a gated row records what the
+    // detector said (detectedLang + confidence + detectorVersion) even
+    // when attribution is off — withholding an authoritative column while
+    // also dropping the evidence for the decision would be dishonest
+    // telemetry.
+    if (attribution || stampGated) {
+      if (lang !== undefined || stampGated) {
         langMeta = {
           langConfidence: detLang.confidence,
           langSource: 'detected',
           detectorVersion: detLang.detectorVersion,
           sourceLang: p.sourceLang,
+          // Below-floor detection: the withheld label rides in the
+          // attribution metadata (migration 0127) instead of `lang`.
+          ...(stampGated ? { detectedLang } : {}),
         };
       } else if (p.sourceLang) {
         // Undetectable object (short / stopword-less / numeric): inherit
@@ -456,9 +498,13 @@ export class FactResolverService {
           sourceLang: undefined,
         };
       }
+    }
+    if (attribution) {
       // Behaviour-neutral distribution telemetry (surface = 'fact').
+      // A gated row reports the DETECTED language — what the detector
+      // said, not the withheld column — so the distribution stays honest.
       this.metrics?.recordLangAttribution({
-        lang: lang ?? 'und',
+        lang: lang ?? detectedLang ?? 'und',
         source: 'fact',
         confidence: detLang.confidence,
         detectorVersion: detLang.detectorVersion,
@@ -631,12 +677,14 @@ export class FactResolverService {
    * Multilingual Tier 1 (0100): stamp confidence-aware attribution metadata
    * onto the created fact rows via a follow-up UPDATE — the stampFactScope
    * idiom, kept OUT of fn::resolve_fact so the resolver's pinned invariants
-   * are untouched. Only rows whose langMeta is set (attribution on) are
-   * touched, so with the flag off this is a no-op and ingest is
-   * byte-identical. Best-effort: a stamp failure WARNs and never fails the
-   * ingest (the `lang` column proper is already set by the resolver; these
-   * are supplementary provenance fields). `sourceLang` is written only when
-   * known — omitted, not NULLed, matching the omit-when-undefined idiom.
+   * are untouched. Only rows whose langMeta is set (attribution on, or a
+   * write-side stamp-gate withhold — see buildResolveCall) are touched, so
+   * with both flags off this is a no-op and ingest is byte-identical.
+   * Best-effort: a stamp failure WARNs and never fails the ingest (the
+   * `lang` column proper is already set by the resolver; these are
+   * supplementary provenance fields). `sourceLang` / `detectedLang` are
+   * written only when known — omitted, not NULLed, matching the
+   * omit-when-undefined idiom.
    */
   private async stampLangAttribution(
     db: {
@@ -666,6 +714,12 @@ export class FactResolverService {
         if (meta.sourceLang !== undefined) {
           sets.push('sourceLang = $sourceLang');
           params.sourceLang = meta.sourceLang;
+        }
+        // Stamp-gated rows only (MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE,
+        // 0127): the below-floor label the gate kept out of `lang`.
+        if (meta.detectedLang !== undefined) {
+          sets.push('detectedLang = $detectedLang');
+          params.detectedLang = meta.detectedLang;
         }
         await db.query(`UPDATE $id SET ${sets.join(', ')}`, params);
       }

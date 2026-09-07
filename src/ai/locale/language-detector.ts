@@ -69,6 +69,40 @@ function attributionEnabled(): boolean {
   return envFlagEnabled(process.env.MULTILINGUAL_LANG_ATTRIBUTION);
 }
 
+/**
+ * The ONE high-confidence floor for trusting a detected language, shared
+ * by every confidence-gated language behaviour so "confident detection"
+ * means one thing across the system:
+ *  - read side: the Tier-1 soft same-language boost and the
+ *    MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE hard-exclusion gate
+ *    (search.service) only trust a query language at/above it;
+ *  - write side: MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE withholds the
+ *    authoritative `lang` stamp for a detection below it (fact-resolver +
+ *    derive-row-builder).
+ * Not a tunable knob — the floor is the contract, and the k07 incident
+ * (a fact stamped `it`@0.33 off the lone stopword "per", then hidden
+ * from an `en`@0 zero-evidence query by the hard filter) is exactly what
+ * splitting it per-site would reintroduce.
+ */
+export const LANG_HIGH_CONFIDENCE = 0.5;
+
+/**
+ * Write-side stamp gate (MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE, default
+ * off) — the mirror of the read-side k07 fix. When ON, a language
+ * DETECTION below LANG_HIGH_CONFIDENCE is not stamped as a row's
+ * authoritative `lang` column (the hard same-language search filter's
+ * input), so a one-stopword mislabel ("120 requests per minute" → it@0.33)
+ * stops polluting rows for every future lang-aware consumer. Only the
+ * `lang` column is withheld — the detected script and the attribution
+ * metadata (what the detector said, at what confidence, by which
+ * detector version) are still recorded, and inherited/explicit language
+ * paths are untouched. Read per-call (the MULTILINGUAL_ ingest-side
+ * idiom — never constructor-captured) so a flip lands without restart.
+ */
+export function langStampConfidenceGateEnabled(): boolean {
+  return envFlagEnabled(process.env.MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE);
+}
+
 // Top-30 stopwords per Latin-script language. Ordered by frequency so
 // short inputs still have a fighting chance. Lowercase only — the
 // tokeniser canonicalises before lookup.
