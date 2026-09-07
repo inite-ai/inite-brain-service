@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -5,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { StringRecordId, type Surreal } from 'surrealdb';
@@ -15,10 +17,12 @@ import {
   queryFirst,
   queryRows,
 } from '../db/surreal.service';
+import { EmbedderService } from '../ai/embedder.service';
 import {
   evidenceMaxBytes,
   evidenceQuarantineEnabled,
   evidenceSubstrateEnabled,
+  fragmentEmbeddingsEnabled,
 } from '../common/evidence-flags';
 import {
   DERIVED_REPRESENTATION_KINDS,
@@ -47,6 +51,12 @@ const REPR_KINDS = new Set<string>(DERIVED_REPRESENTATION_KINDS);
 export const EVIDENCE_GRANT_OWNER_KINDS = ['user', 'pack', 'system'] as const;
 export type EvidenceGrantOwnerKind = (typeof EVIDENCE_GRANT_OWNER_KINDS)[number];
 const GRANT_OWNER_KINDS = new Set<string>(EVIDENCE_GRANT_OWNER_KINDS);
+/** Leading window of representation content handed to the embedder. A
+ *  derived representation may legitimately be a megabyte of extracted
+ *  document text (EVIDENCE_DERIVED_MAX_BYTES), which no embedding model
+ *  accepts — and the leading window is what one retrieval vector can
+ *  represent anyway. */
+const EMBED_TEXT_MAX_CHARS = 8000;
 
 export type { DerivedRepresentationKind, EvidenceModality } from '../common/evidence-taxonomy';
 
@@ -80,6 +90,23 @@ export interface AddFragmentInput {
   locator: Record<string, unknown>;
   label?: string | undefined;
   piiClasses?: string[] | undefined;
+  /** Canonical identity of the located span (locatorDedupKey). Present ⇒
+   *  the fragment takes a DETERMINISTIC record id and the write is
+   *  INSERT IGNORE, so a re-run over the same span reuses the row
+   *  instead of multiplying citation targets. See addFragment. */
+  dedupKey?: string | undefined;
+  /**
+   * Take the parent ASSET's media classification when `piiClasses` is
+   * not given — for fragments that no classifier ever looked at on their
+   * own (processor outputs). CONSERVATIVE in every state: an
+   * unclassified asset yields an unclassified (fail-closed, unservable)
+   * fragment, a classified one propagates its classes, and only an
+   * affirmatively-clean `[]` asset yields a fragment the media-PII fence
+   * opens. A derived span is never cleaner than the asset it came from.
+   * Absent/false ⇒ today's behaviour (no classification unless the
+   * caller asserts one).
+   */
+  inheritAssetPii?: boolean | undefined;
 }
 
 export interface AddGrantInput {
@@ -110,6 +137,12 @@ export interface AddRepresentationInput {
   producerVersion: string;
   /** Lineage back to the processing_run that produced this row (0121). */
   producedByRun?: string | undefined;
+  /** Ask the seam to embed this row's TEXT content and store the vector
+   *  (EVIDENCE_FRAGMENT_EMBEDDINGS). The WRITER decides which rows are
+   *  worth a model call — it owns the per-run budget; the flag decides
+   *  whether any call happens at all. Off/absent ⇒ neither `embedding`
+   *  nor `embeddingSpaceId` is written. */
+  embedContent?: boolean | undefined;
 }
 
 /**
@@ -132,6 +165,11 @@ export class EvidenceStoreService {
     private readonly surreal: SurrealService,
     @Inject(EVIDENCE_STORAGE_ADAPTERS)
     private readonly adapters: EvidenceStorageRegistry,
+    /** Dense-leg producer for derived_representation.embedding.
+     *  @Optional (the module-doc idiom): positionally-constructed unit
+     *  fixtures stay valid and the write path degrades to today's
+     *  vector-less rows when no embedder is wired. */
+    @Optional() private readonly embedder?: EmbedderService,
   ) {}
 
   private gate(): void {
@@ -406,13 +444,39 @@ export class EvidenceStoreService {
     throw new BadRequestException('an asset needs storageRef or originUri');
   }
 
-  /** Add a citation-target fragment to an existing asset. */
-  async addFragment(companyId: string, input: AddFragmentInput): Promise<{ fragmentId: string }> {
+  /**
+   * Add a citation-target fragment to an existing asset.
+   *
+   * DEDUP (`dedupKey` — the processor-output path): when present the row
+   * takes a DETERMINISTIC record id, sha256(assetTail | dedupKey), and
+   * the write is INSERT IGNORE — the #92 processing_run idiom:
+   * primary-key-addressed, so re-running a processor over the same span
+   * REUSES the fragment instead of multiplying citation targets, with no
+   * SELECT-then-CREATE race and no compound index (0109 header: locator
+   * is FLEXIBLE and this table sits on two delete paths, so dedup
+   * belongs to the write seam, not the planner's key comparison).
+   *
+   * The key is the LOCATOR's identity, NOT the processor's: the same
+   * region found by OCR v1 and v2 is the same region of the world, so
+   * both generations' representations hang off the ONE fragment and the
+   * supersede pass pairs them. Without a dedupKey the row keeps its
+   * random id and today's CREATE — the caller-driven ingest path is
+   * untouched.
+   */
+  async addFragment(
+    companyId: string,
+    input: AddFragmentInput,
+  ): Promise<{ fragmentId: string; created: boolean }> {
     this.gate();
     return this.surreal.withCompany(companyId, async (db) => {
-      const asset = await queryFirst<{ id: unknown; modality: string; availability: string }>(
+      const asset = await queryFirst<{
+        id: unknown;
+        modality: string;
+        availability: string;
+        piiClasses?: string[];
+      }>(
         db,
-        `SELECT id, modality, availability
+        `SELECT id, modality, availability, piiClasses
            FROM type::record('evidence_asset', $tail) LIMIT 1`,
         { tail: idTailOf(input.assetId) },
       );
@@ -427,14 +491,50 @@ export class EvidenceStoreService {
         input.label !== undefined
           ? redactPiiWithReport(input.label).text.slice(0, LABEL_MAX)
           : undefined;
+      const piiClasses =
+        input.piiClasses ?? (input.inheritAssetPii === true ? asset.piiClasses : undefined);
+      if (input.dedupKey !== undefined) {
+        return this.insertDedupedFragment(db, asset.id, { ...input, label, piiClasses });
+      }
       const row = await dbCreate<Record<string, unknown>>(db, 'evidence_fragment', {
         assetId: asset.id,
         locator: input.locator,
         label,
-        piiClasses: input.piiClasses,
+        piiClasses,
       });
-      return { fragmentId: String(row.id) };
+      return { fragmentId: String(row.id), created: true };
     });
+  }
+
+  /**
+   * Deterministic-id INSERT IGNORE leg of addFragment (see its doc).
+   * Keys are OMITTED rather than undefined-valued: an INSERT row is
+   * serialized verbatim, unlike the CONTENT path's dbCreate.
+   */
+  private async insertDedupedFragment(
+    db: Surreal,
+    assetId: unknown,
+    frag: AddFragmentInput & { label?: string | undefined },
+  ): Promise<{ fragmentId: string; created: boolean }> {
+    const tail = createHash('sha256')
+      .update(`asset=${idTailOf(String(assetId))}|loc=${String(frag.dedupKey)}`)
+      .digest('hex')
+      .slice(0, 32);
+    const fragmentId = `evidence_fragment:${tail}`;
+    const inserted = await queryRows<{ id: unknown }>(
+      db,
+      `INSERT IGNORE INTO evidence_fragment $row`,
+      {
+        row: {
+          id: new StringRecordId(fragmentId),
+          assetId,
+          locator: frag.locator,
+          ...(frag.label !== undefined ? { label: frag.label } : {}),
+          ...(frag.piiClasses !== undefined ? { piiClasses: frag.piiClasses } : {}),
+        },
+      },
+    );
+    return { fragmentId, created: inserted.length > 0 };
   }
 
   /** Add one derived representation to an asset or fragment. */
@@ -472,6 +572,7 @@ export class EvidenceStoreService {
       if (subject.availability === 'gone') {
         throw new ConflictException(`subject ${input.subjectId} belongs to unavailable evidence`);
       }
+      const dense = await this.embeddingFor(input);
       const row = await dbCreate<Record<string, unknown>>(db, 'derived_representation', {
         subjectId: subject.id,
         subjectKind: input.subjectKind,
@@ -487,9 +588,39 @@ export class EvidenceStoreService {
         ...(input.producedByRun !== undefined
           ? { producedByRun: new StringRecordId(input.producedByRun) }
           : {}),
+        ...dense,
       });
       return { representationId: String(row.id) };
     });
+  }
+
+  /**
+   * The dense-leg producer for derived_representation.embedding
+   * (EVIDENCE_FRAGMENT_EMBEDDINGS) — the column 0109 defined WRITE-DEAD
+   * and the fragment lane's dense leg reads. Returns the EXTRA ROW KEYS:
+   * `{}` when the flag is off, the writer did not ask, the row carries
+   * no non-blank text, no embedder is wired, or the model call failed —
+   * so the off-state row is byte-identical. Vector and space id are
+   * written TOGETHER or not at all (the 0101 idiom: a vector whose space
+   * is unknown cannot be compared to anything).
+   *
+   * SOFT-FAIL by design: derived text is the durable artefact and the
+   * vector is a recomputable index over it, so an embedder hiccup costs
+   * the vector — never the row, and never the processing run that wrote
+   * it. The flag is checked FIRST: off means the embedder is not so much
+   * as touched.
+   */
+  private async embeddingFor(input: AddRepresentationInput): Promise<Record<string, unknown>> {
+    if (input.embedContent !== true || !fragmentEmbeddingsEnabled()) return {};
+    const content = input.content ?? '';
+    if (content.trim() === '' || !this.embedder) return {};
+    try {
+      const embedding = await this.embedder.embed(content.slice(0, EMBED_TEXT_MAX_CHARS));
+      return { embedding, embeddingSpaceId: this.embedder.activeSpaceId() };
+    } catch (e) {
+      this.logger.warn(`representation embedding skipped: ${(e as Error).message}`);
+      return {};
+    }
   }
 
   /** Read one asset row (tests + future PRs). */

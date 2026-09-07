@@ -114,6 +114,30 @@ const LOCATOR_FIELDS = new Map<string, ReadonlySet<string>>([
 ]);
 
 /**
+ * Canonical identity string of a locator — the fragment write seam's
+ * dedup key (0109: "dedup belongs to the write seam, not the planner's
+ * key comparison" — locator is a FLEXIBLE object, and a UNIQUE
+ * (assetId, locator) index would put assetId under the 3.2.4 compound-
+ * planner DELETE no-op on a table that sits on two delete paths).
+ *
+ * Shape follows the #386 fingerprint idiom already used for processing
+ * runs: a `|`-joined `key=value` string, NOT JSON — key order is fixed
+ * by SORTING so two objects describing the same span produce the same
+ * key whatever order their fields were built in. Numbers ride through
+ * String() (the same span always yields the same literal because
+ * locators are validated ints, plus pageRegion's [0,1] floats which the
+ * caller reproduces bit-for-bit on a re-run of the same processor).
+ *
+ * Pure: no validation, no I/O. Callers validate first (validateLocator).
+ */
+export function locatorDedupKey(locator: Record<string, unknown>): string {
+  return Object.keys(locator)
+    .sort()
+    .map((k) => `${k}=${String(locator[k])}`)
+    .join('|');
+}
+
+/**
  * Validate a locator against the parent asset's modality. Returns a
  * human-readable error string, or null when valid (the
  * evidenceValidationError idiom — no exceptions from a pure checker).

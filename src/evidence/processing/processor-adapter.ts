@@ -1,5 +1,6 @@
 import type { Readable } from 'node:stream';
 import type { DerivedRepresentationKind, EvidenceModality } from '../../common/evidence-taxonomy';
+import type { FragmentLocator } from '../locator';
 
 /**
  * ProcessorAdapter — the platform-side contract of the trusted processor
@@ -42,6 +43,26 @@ export interface ProcessorOutput {
   content?: string | undefined;
   confidence?: number | undefined;
   lang?: string | undefined;
+  /**
+   * WHERE IN THE ASSET this output describes — a page region, a time
+   * range, a char span (the 0109 FragmentLocator union, validated
+   * against the asset's modality at the write seam).
+   *
+   * Present ⇒ writeOutputs creates (or REUSES, by locator identity) the
+   * evidence_fragment for that span FIRST and attaches the
+   * representation to it (`subjectKind: 'fragment'`). That is the ONLY
+   * shape the serving fragment lane can return — the lane filters
+   * `subjectKind = 'fragment'`, so an asset-level row is invisible to
+   * retrieval however good the adapter is.
+   *
+   * Absent ⇒ today's asset-level row, byte-identical: an adapter that
+   * genuinely describes the WHOLE asset (the text passthrough) states
+   * that by emitting no locator, and its rows are unchanged.
+   */
+  locator?: FragmentLocator | undefined;
+  /** Human label for the fragment a `locator` creates (redacted +
+   *  capped at the write seam). Ignored without a locator. */
+  label?: string | undefined;
 }
 
 export interface ProcessorAdapter {

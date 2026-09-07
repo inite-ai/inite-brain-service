@@ -1357,6 +1357,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       "External-ingest quarantine seam (migration 0121): registerAsset stamps evidence_asset.quarantineStatus ('clean' internal / 'quarantined' external_ingest) and scan transitions may run; the broker refuses non-clean assets. Off (default) = the field is NEVER written (rows byte-identical), quarantine transitions 503, and origin:'external_ingest' is rejected 503 — fail closed.",
   },
   {
+    key: 'EVIDENCE_FRAGMENT_EMBEDDINGS',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Representation embeddings: the ONE write seam (addRepresentation) embeds a representation\'s TEXT content when its writer asks for it and stores the vector plus its embeddingSpaceId in derived_representation — the producer the 0109 "WRITE-DEAD" embedding column has been waiting for, and therefore the fragment lane\'s dense leg (empty by construction while the column is null). The processing run caps how many outputs it asks to embed per run, so a many-output run cannot fan out unbounded model calls. Off (default) = the embedder is never called and neither key is written — byte-identical rows. An embedding failure is soft: the row lands without a vector and the run still succeeds.',
+  },
+  {
     key: 'EVIDENCE_DERIVED_MAX_BYTES',
     category: 'pipeline',
     defaultValue: '1048576',

@@ -2,8 +2,10 @@
  * validateLocator (0109): the kind × modality cross-check matrix, the
  * per-kind shape checks, the image ⇒ page-0 rule, and the unknown-kind
  * hard error (a FLEXIBLE column must never store an unvalidated shape).
+ * Plus locatorDedupKey — the canonical span identity the fragment write
+ * seam hashes into a deterministic record id.
  */
-import { validateLocator } from '../src/evidence/locator';
+import { locatorDedupKey, validateLocator } from '../src/evidence/locator';
 
 const charRange = { kind: 'charRange', start: 0, end: 10 };
 const pageRegion = { kind: 'pageRegion', page: 0, x: 0.1, y: 0.1, w: 0.5, h: 0.5 };
@@ -92,5 +94,26 @@ describe('validateLocator — shapes and edges', () => {
     expect(validateLocator('image', { ...pageRegion, executable: 'nope' })).toMatch(
       /unknown field 'executable'/,
     );
+  });
+});
+
+describe("locatorDedupKey — the fragment write seam's dedup identity", () => {
+  it('is field-order independent (two builders, one span, one key)', () => {
+    const a = { kind: 'pageRegion', page: 2, x: 0.1, y: 0.2, w: 0.3, h: 0.4 };
+    const b = { h: 0.4, w: 0.3, y: 0.2, x: 0.1, page: 2, kind: 'pageRegion' };
+    expect(locatorDedupKey(a)).toBe(locatorDedupKey(b));
+  });
+
+  it('separates different spans, kinds, and pages', () => {
+    const key = locatorDedupKey;
+    expect(key(charRange)).not.toBe(key({ ...charRange, end: 11 }));
+    expect(key(pageRegion)).not.toBe(key({ ...pageRegion, page: 1 }));
+    expect(key(timeRange)).not.toBe(key(frameRange));
+    expect(key(track)).not.toBe(key({ ...track, startMs: 0 }));
+  });
+
+  it('is stable across calls — the key IS the fragment id input', () => {
+    expect(locatorDedupKey(timeRange)).toBe(locatorDedupKey({ ...timeRange }));
+    expect(locatorDedupKey(charRange)).toBe('end=10|kind=charRange|start=0');
   });
 });

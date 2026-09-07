@@ -5,6 +5,7 @@ import { evidenceDerivedMaxBytes } from '../../common/evidence-flags';
 import type { DerivedRepresentationKind } from '../../common/evidence-taxonomy';
 import { idTailOf, redactPiiWithReport } from '../../ingest/ingest-utils';
 import { EvidenceStoreService } from '../evidence-store.service';
+import { locatorDedupKey } from '../locator';
 import {
   EVIDENCE_STORAGE_ADAPTERS,
   type EvidenceStorageRegistry,
@@ -13,6 +14,24 @@ import type { ProcessorAdapter, ProcessorInput, ProcessorOutput } from './proces
 import { processingRunIdTail, processorConfigFingerprint } from './processor-fingerprint';
 
 const ERROR_MAX = 500;
+/**
+ * How many text-bearing outputs of ONE run may ask the write seam for an
+ * embedding. A region-wise OCR pass over a 400-page PDF legitimately
+ * emits thousands of outputs; without a cap a single dispatch would fan
+ * out thousands of model calls. The first 32 are the ones a retrieval
+ * vector buys anything for (the lane renders 4 lines), the rest land as
+ * text-only rows that the BM25 leg still serves — and a later run under
+ * a bumped version re-offers them. Deliberately NOT an env knob until
+ * the dense leg is measured (the FRAGMENT_LANE_TOP_K precedent).
+ */
+const EMBED_OUTPUTS_PER_RUN_MAX = 32;
+
+/** Subjects a run's outputs were attached to, plus the written rows. */
+interface WriteOutcome {
+  representationIds: string[];
+  /** Distinct record ids (asset + any fragments) — the supersede scope. */
+  subjectIds: unknown[];
+}
 
 export interface ExecuteRunOpts {
   /** The loaded evidence_asset row's record id (RecordId, not string). */
@@ -85,9 +104,14 @@ export class ProcessingRunService {
       return { runId, capability: adapter.capability, status: 'failed', representationIds: [] };
     }
     try {
-      const representationIds = await this.writeOutputs(companyId, { runId, opts, outputs });
-      await this.completeRun(companyId, { runId, opts, representationIds });
-      return { runId, capability: adapter.capability, status: 'succeeded', representationIds };
+      const written = await this.writeOutputs(companyId, { runId, opts, outputs });
+      await this.completeRun(companyId, { runId, opts, written });
+      return {
+        runId,
+        capability: adapter.capability,
+        status: 'succeeded',
+        representationIds: written.representationIds,
+      };
     } catch (e) {
       await this.failRun(companyId, runId, e);
       return { runId, capability: adapter.capability, status: 'failed', representationIds: [] };
@@ -169,38 +193,102 @@ export class ProcessingRunService {
     }
   }
 
-  /** Write outputs through the ONE write seam, with lineage. */
+  /**
+   * Write outputs through the ONE write seam, with lineage.
+   *
+   * FRAGMENT-BEARING (the point of this pass): a locator-bearing output
+   * is anchored to the evidence_fragment for its span and stored with
+   * `subjectKind: 'fragment'` — the ONLY shape the serving fragment lane
+   * can return, since that lane filters `subjectKind = 'fragment'`. A
+   * locator-less output keeps today's asset-level row, byte-identical:
+   * an adapter that describes the whole asset says so by emitting no
+   * locator, and nothing about its rows changes.
+   *
+   * EMBEDDINGS: text-bearing outputs ask the seam for a vector, capped
+   * at EMBED_OUTPUTS_PER_RUN_MAX per run (the seam decides whether any
+   * model call actually happens — EVIDENCE_FRAGMENT_EMBEDDINGS). The
+   * budget lives HERE because a run is the unit that can fan out.
+   */
   private async writeOutputs(
     companyId: string,
     write: { runId: string; opts: ExecuteRunOpts; outputs: ProcessorOutput[] },
-  ): Promise<string[]> {
+  ): Promise<WriteOutcome> {
     const representationIds: string[] = [];
+    // The asset is ALWAYS a supersede subject (see completeRun) — a run
+    // that moves from asset-level to fragment-level outputs must still
+    // retire the generation it replaces.
+    const subjects = new Map<string, unknown>([
+      [String(write.opts.assetRecordId), write.opts.assetRecordId],
+    ]);
+    let embedBudget = EMBED_OUTPUTS_PER_RUN_MAX;
     for (const output of write.outputs) {
+      const subject = await this.subjectFor(companyId, write.opts, output);
+      if (subject.kind === 'fragment') subjects.set(subject.id, new StringRecordId(subject.id));
+      const embedContent = (output.content ?? '').trim() !== '' && embedBudget > 0;
+      if (embedContent) embedBudget--;
       const { representationId } = await this.store.addRepresentation(companyId, {
-        subjectId: String(write.opts.assetRecordId),
-        subjectKind: 'asset',
+        subjectId: subject.id,
+        subjectKind: subject.kind,
         kind: output.kind,
         content: output.content,
         confidence: output.confidence,
         lang: output.lang,
         producerVersion: write.opts.adapter.version,
         producedByRun: write.runId,
+        embedContent,
       });
       representationIds.push(representationId);
     }
-    return representationIds;
+    return { representationIds, subjectIds: [...subjects.values()] };
+  }
+
+  /**
+   * The subject one output hangs off. A locator names a sub-asset span,
+   * so the fragment for it is created ONCE and reused on every re-run:
+   * the dedup key is the LOCATOR's identity (not the processor's), so a
+   * bumped adapter version re-detecting the same region attaches its new
+   * representation to the SAME citation target instead of forking a
+   * second one. The fragment inherits the asset's media classification
+   * — a processor is not a PII classifier, and a derived span is never
+   * cleaner than the asset it came from.
+   */
+  private async subjectFor(
+    companyId: string,
+    opts: ExecuteRunOpts,
+    output: ProcessorOutput,
+  ): Promise<{ id: string; kind: 'asset' | 'fragment' }> {
+    const assetId = String(opts.assetRecordId);
+    if (output.locator === undefined) return { id: assetId, kind: 'asset' };
+    const locator = { ...output.locator } as Record<string, unknown>;
+    const { fragmentId } = await this.store.addFragment(companyId, {
+      assetId,
+      locator,
+      label: output.label,
+      dedupKey: locatorDedupKey(locator),
+      inheritAssetPii: true,
+    });
+    return { id: fragmentId, kind: 'fragment' };
   }
 
   /**
    * Mark the run succeeded, then the supersede pass — two-step
    * SELECT-ids → UPDATE $ids (the LET→DELETE id-resolution discipline;
    * 3.2.4 planner class):
-   *   * old representations of this (asset, kind) generation point at the
-   *     new run's FIRST output of that kind (0059 supersededBy precedent;
-   *     one-to-many pairing documented here: ALL old rows point at that
-   *     one replacement). Skipped when the run produced no outputs —
-   *     there is nothing to point at, and the old generation stays
-   *     current.
+   *   * old representations of this (subject, kind) generation point at
+   *     the new run's FIRST output of that kind (0059 supersededBy
+   *     precedent; one-to-many pairing documented here: ALL old rows
+   *     point at that one replacement). Skipped when the run produced no
+   *     outputs — there is nothing to point at, and the old generation
+   *     stays current. The SUBJECT SET is the asset plus every fragment
+   *     this run attached to (`subjectId INSIDE`, the
+   *     purgeRepresentationBatches shape): a locator-less run has the
+   *     asset alone and behaves exactly as before, while a fragment-
+   *     bearing one retires both the asset-level generation it replaces
+   *     and the previous generation on each span it re-detected. A
+   *     fragment whose span the new generation NO LONGER finds keeps its
+   *     old representation — there is no replacement to point it at, and
+   *     inventing one would attach another span's text to it; it dies
+   *     with its asset, or is retired when a later run re-detects it.
    *   * old succeeded runs of the same (asset, capability) flip to
    *     'superseded'.
    * Reprocessing NEVER deletes representations — GC owns removal
@@ -210,11 +298,11 @@ export class ProcessingRunService {
    */
   private async completeRun(
     companyId: string,
-    done: { runId: string; opts: ExecuteRunOpts; representationIds: string[] },
+    done: { runId: string; opts: ExecuteRunOpts; written: WriteOutcome },
   ): Promise<void> {
     const capability = done.opts.adapter.capability;
     const runRef = new StringRecordId(done.runId);
-    const outputRefs = done.representationIds.map((rid) => new StringRecordId(rid));
+    const outputRefs = done.written.representationIds.map((rid) => new StringRecordId(rid));
     await this.surreal.withCompany(companyId, async (db) => {
       await db.query(
         `UPDATE $id SET status = 'succeeded', finishedAt = time::now(), outputs = $outputs`,
@@ -226,9 +314,9 @@ export class ProcessingRunService {
         const oldReprIds = await queryRows<unknown>(
           db,
           `SELECT VALUE id FROM derived_representation
-            WHERE subjectId = $asset AND kind = $cap
+            WHERE subjectId INSIDE $subjects AND kind = $cap
               AND supersededBy IS NONE AND id NOT IN $newIds`,
-          { asset: done.opts.assetRecordId, cap: capability, newIds: outputRefs },
+          { subjects: done.written.subjectIds, cap: capability, newIds: outputRefs },
         );
         if (oldReprIds.length > 0) {
           await db.query(`UPDATE $ids SET supersededBy = $winner`, {
