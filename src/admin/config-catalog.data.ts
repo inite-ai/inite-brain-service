@@ -669,6 +669,42 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Scenes: force a scene boundary once a scene reaches this many turns, regardless of topic continuity. Positive integer; default 40.',
   },
   {
+    key: 'SCENES_SCHEDULED_MAINTENANCE',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneScheduledMaintenanceEnabled) by
+    // the cron entry point and by the ingest dirty-mark seam — never
+    // captured in a constructor — so a flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Scheduled scene maintenance (migration 0130): a nightly 04:20 UTC pass runs the scene chain (compose → enrich → backlink → evidence links → beliefs) per tenant over DIRTY conversations only — the ingest seam marks a conversation when turns land, the pass clears the mark after a successful swap, so the run is proportional to what moved instead of the O(all conversations) full rebuild. Bounded by SCENES_MAINTENANCE_MAX_CONVERSATIONS per tenant per run and SCENES_MAINTENANCE_TIME_BUDGET_MS overall, distributed-lease guarded (one pod, never overlapping itself), per-tenant error isolated. Off = the cron returns before a single query, no dirty mark is ever written, the admin routes stay the only trigger — byte-identical prod.',
+  },
+  {
+    key: 'SCENES_MAINTENANCE_MAX_CONVERSATIONS',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneMaintenanceMaxConversations)
+    // once per nightly run — never captured in a constructor —
+    // runtime-mutable.
+    defaultValue: '200',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Scheduled scene maintenance: max DIRTY conversations composed per tenant per nightly run, oldest mark first. The cost fence — the post-swap chain spends ~1 LLM call per NEW scene (SCENES_LLM_ENRICHMENT) and 1 embedding batch per composed conversation (SCENES_TOPIC_BOUNDARY). Unconsumed marks survive to the next run, so a backlog drains across nights. Positive integer; default 200.',
+  },
+  {
+    key: 'SCENES_MAINTENANCE_TIME_BUDGET_MS',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneMaintenanceTimeBudgetMs) once
+    // per nightly run — never captured in a constructor —
+    // runtime-mutable.
+    defaultValue: '1800000',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Scheduled scene maintenance: whole-run wall-clock budget in ms. Once elapsed the pass stops starting NEW tenants (the tenant in flight always finishes — no compose is aborted mid-swap) and the roster resumes next night with the marks intact. Guarantees the pass cannot still be running when the next night’s crons fire. Positive integer; default 1800000 (30 min).',
+  },
+  {
     key: 'SCENES_LLM_ENRICHMENT',
     category: 'scenes',
     // Read at call time (scene-flags.sceneLlmEnrichmentEnabled) by the

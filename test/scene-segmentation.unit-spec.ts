@@ -7,7 +7,10 @@
  * (segment-composer :147-160 rule).
  */
 import {
+  boundaryConfidence,
+  deriveSceneConfidence,
   detectSceneBoundaries,
+  detectSceneSegments,
   effectiveSegmenterVersion,
   foldSceneScope,
   meanVector,
@@ -16,6 +19,8 @@ import {
   sceneConfigFingerprint,
   scoreSceneDeterministic,
   SCENE_SCORER_VERSION,
+  type SceneBoundary,
+  type SceneSegment,
   type SceneSegmenterConfig,
   type SceneTurnRow,
 } from '../src/admin/scene-segmentation';
@@ -107,6 +112,113 @@ describe('detectSceneBoundaries', () => {
     const a = detectSceneBoundaries(session, embeddings, OPTS);
     const b = detectSceneBoundaries(session, embeddings, OPTS);
     expect(a).toEqual(b);
+  });
+});
+
+describe('detectSceneSegments — edge provenance', () => {
+  it('is the same segmentation as detectSceneBoundaries, plus the edges', () => {
+    const session = Array.from({ length: 7 }, (_, i) => at(`2026-01-01T10:0${i}:00.000Z`, `t${i}`));
+    const embeddings = session.map((_, i) => (i < 4 ? [1, 0] : [0, 1]));
+    const segments = detectSceneSegments(session, embeddings, OPTS);
+    expect(segments.map((s) => s.turns)).toEqual(detectSceneBoundaries(session, embeddings, OPTS));
+  });
+
+  it('names the rule that made each edge; outer edges are the session', () => {
+    const session = Array.from({ length: 6 }, (_, i) => at(`2026-01-01T10:0${i}:00.000Z`, `t${i}`));
+    const embeddings = session.map((_, i) => (i < 3 ? [1, 0] : [0, 1]));
+    const segments = detectSceneSegments(session, embeddings, OPTS);
+    expect(segments).toHaveLength(2);
+    expect(segments[0]!.startBoundary).toEqual({ kind: 'session' });
+    // The SAME edge ends the first scene and starts the second.
+    expect(segments[0]!.endBoundary.kind).toBe('topic-cosine');
+    expect(segments[0]!.endBoundary.cosine).toBeCloseTo(0, 10);
+    expect(segments[1]!.startBoundary).toEqual(segments[0]!.endBoundary);
+    expect(segments[1]!.endBoundary).toEqual({ kind: 'session' });
+  });
+
+  it('the max-turns cap is named as its own (exact) rule', () => {
+    const session = Array.from({ length: 5 }, (_, i) => at(`2026-01-01T10:0${i}:00.000Z`, `t${i}`));
+    const segments = detectSceneSegments(session, undefined, { minCosine: 0.55, maxTurns: 2 });
+    expect(segments.map((s) => s.endBoundary.kind)).toEqual(['max-turns', 'max-turns', 'session']);
+    expect(segments.every((s) => s.endBoundary.cosine === undefined)).toBe(true);
+  });
+});
+
+describe('scene confidence derivation', () => {
+  const segment = (start: SceneBoundary, end: SceneBoundary): SceneSegment<SceneTurnRow> => ({
+    turns: [],
+    startBoundary: start,
+    endBoundary: end,
+  });
+  const SESSION: SceneBoundary = { kind: 'session' };
+  const CAP: SceneBoundary = { kind: 'max-turns' };
+  const ON = { minCosine: 0.55, topicBoundary: true };
+
+  it('an EXACT rule is certain: session gap and turn cap both score 1', () => {
+    expect(boundaryConfidence(SESSION, 0.55)).toBe(1);
+    expect(boundaryConfidence(CAP, 0.55)).toBe(1);
+    expect(deriveSceneConfidence(segment(SESSION, SESSION), ON)).toBe(1);
+    expect(deriveSceneConfidence(segment(SESSION, CAP), ON)).toBe(1);
+  });
+
+  it('a cosine edge scores by its margin below the floor', () => {
+    // 0.5 + 0.5·(0.55 − 0)/1.55
+    expect(boundaryConfidence({ kind: 'topic-cosine', cosine: 0 }, 0.55)).toBeCloseTo(0.677419, 6);
+    // Maximally opposed turns: the full span, hence 1.
+    expect(boundaryConfidence({ kind: 'topic-cosine', cosine: -1 }, 0.55)).toBeCloseTo(1, 10);
+    // Barely below the floor: a coin-flip boundary, and the row says so.
+    expect(boundaryConfidence({ kind: 'topic-cosine', cosine: 0.5499 }, 0.55)).toBeCloseTo(0.5, 4);
+  });
+
+  it('stays inside [0.5, 1] for every reachable input', () => {
+    for (const cosine of [-1, -0.9, -0.5, 0, 0.2, 0.4, 0.5499]) {
+      const c = boundaryConfidence({ kind: 'topic-cosine', cosine }, 0.55);
+      expect(c).toBeGreaterThanOrEqual(0.5);
+      expect(c).toBeLessThanOrEqual(1);
+    }
+    // Degenerate floor: no cosine can fall below -1, so the edge cannot
+    // exist — the guard must not divide by a zero-width span.
+    expect(boundaryConfidence({ kind: 'topic-cosine', cosine: -1 }, -1)).toBe(1);
+  });
+
+  it('a scene is only as sure as its WEAKER edge', () => {
+    const strong: SceneBoundary = { kind: 'topic-cosine', cosine: -1 };
+    const weak: SceneBoundary = { kind: 'topic-cosine', cosine: 0.5 };
+    const both = deriveSceneConfidence(segment(strong, weak), ON);
+    expect(both).toBeCloseTo(boundaryConfidence(weak, 0.55), 10);
+    expect(both).toBeLessThan(boundaryConfidence(strong, 0.55));
+    // A single soft edge is enough to pull a session-delimited scene down.
+    expect(deriveSceneConfidence(segment(SESSION, weak), ON)).toBeCloseTo(both, 10);
+  });
+
+  it('PIN: with the topic boundary OFF every scene is exactly 1', () => {
+    const off = { minCosine: 0.55, topicBoundary: false };
+    const edges: SceneBoundary[] = [
+      SESSION,
+      CAP,
+      { kind: 'topic-cosine', cosine: 0 },
+      { kind: 'topic-cosine', cosine: 0.5499 },
+    ];
+    for (const start of edges) {
+      for (const end of edges) {
+        expect(deriveSceneConfidence(segment(start, end), off)).toBe(1);
+      }
+    }
+  });
+
+  it('end to end: a real cosine split lands a sub-1 confidence on both halves', () => {
+    const session = Array.from({ length: 6 }, (_, i) => at(`2026-01-01T10:0${i}:00.000Z`, `t${i}`));
+    const embeddings = session.map((_, i) => (i < 3 ? [1, 0] : [0, 1]));
+    const segments = detectSceneSegments(session, embeddings, OPTS);
+    const derived = segments.map((s) => deriveSceneConfidence(s, ON));
+    expect(derived).toHaveLength(2);
+    for (const c of derived) expect(c).toBeCloseTo(0.677419, 6);
+    // The same segments under an embedder-free run are certain.
+    expect(
+      detectSceneSegments(session, undefined, OPTS).map((s) =>
+        deriveSceneConfidence(s, { minCosine: 0.55, topicBoundary: false }),
+      ),
+    ).toEqual([1]);
   });
 });
 

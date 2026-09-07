@@ -15,12 +15,14 @@ import {
 } from '../common/scene-flags';
 import {
   SEGMENTER_VERSION,
-  detectSceneBoundaries,
+  deriveSceneConfidence,
+  detectSceneSegments,
   foldSceneScope,
   meanVector,
   renderSceneGist,
   renderSceneLabel,
   scoreSceneDeterministic,
+  type SceneSegment,
   type SceneSegmenterConfig,
   type SceneTurnRow,
 } from './scene-segmentation';
@@ -59,6 +61,39 @@ export interface SceneRunResult {
   conversations: number;
   scenes: number;
   skipped: Array<{ conversationId: string; reason: string }>;
+  /**
+   * Scenes the post-swap enrichment pass actually re-wrote (the paid leg).
+   * ABSENT unless SCENES_LLM_ENRICHMENT is on and the pass ran to
+   * completion — an additive field, so a flag-off response is unchanged.
+   * Surfaced because the enrichment call count IS the run's model bill and
+   * the scheduled pass has to be able to meter it without reaching past
+   * the composer into the enricher.
+   */
+  enriched?: number;
+}
+
+/**
+ * Which conversations a run covers.
+ *
+ *  - neither key  — the admin full rebuild: enumerate every conversation
+ *    that has episodes (the O(all turns) GROUP BY) and recompose all of
+ *    them. Unchanged since PR1; this is what the operator button does.
+ *  - `conversationId` — the admin targeted rebuild. Also unchanged: the
+ *    same enumeration, filtered down to one id (so a conversation with no
+ *    episodes is genuinely absent from the result rather than counted).
+ *  - `conversationIds` — the SCHEDULED path (SCENES_SCHEDULED_MAINTENANCE):
+ *    the caller has already resolved the exact working set from the dirty
+ *    marks (migration 0130), so the enumeration is SKIPPED entirely and
+ *    these ids are composed directly. This is the whole point of the dirty
+ *    trigger — a nightly pass must be proportional to what moved, not to
+ *    what exists. An EMPTY array composes nothing: the key is present, so
+ *    the working set is known, and it is empty. It deliberately does not
+ *    fall back to the full enumeration — a caller that lost its working set
+ *    must do nothing, not spend a corpus-wide paid rebuild.
+ */
+export interface SceneRunOptions {
+  conversationId?: string;
+  conversationIds?: string[];
 }
 
 @Injectable()
@@ -81,7 +116,7 @@ export class SceneComposerService {
     private readonly versions: SceneVersionService,
   ) {}
 
-  async run(companyId: string, opts: { conversationId?: string } = {}): Promise<SceneRunResult> {
+  async run(companyId: string, opts: SceneRunOptions = {}): Promise<SceneRunResult> {
     const result: SceneRunResult = { conversations: 0, scenes: 0, skipped: [] };
     // Defense in depth: the controller already 404s with the flag off; a
     // programmatic caller must not write shadow rows past a disabled flag.
@@ -102,7 +137,13 @@ export class SceneComposerService {
     });
     try {
       await this.surreal.withCompany(companyId, async (db) => {
-        const convs = await this.episodes.conversationCounts(db);
+        // Scheduled path: the working set arrived already resolved from the
+        // dirty marks, so the O(all turns) enumeration is skipped whole.
+        // Admin paths keep it (and keep filtering it) byte-identically.
+        const convs: Array<{ conversationId: string }> =
+          opts.conversationIds !== undefined
+            ? opts.conversationIds.map((conversationId) => ({ conversationId }))
+            : await this.episodes.conversationCounts(db);
         for (const conv of convs) {
           const conversationId = conv.conversationId;
           // Targeted rebuild: one conversation should not force a full
@@ -145,9 +186,20 @@ export class SceneComposerService {
     // degrade-never-fail: the swap has landed and its result must not be
     // retracted by an optional pass. The enricher/backlinker re-check
     // their own flags too — these outer guards just skip the no-op calls.
+    //
+    // The three passes take a SINGLE optional conversationId, so the
+    // scheduled multi-conversation working set narrows to nothing here and
+    // they run over the whole current scene world. That is correct AND
+    // cheap: all three are idempotent (the enricher skips scenes already at
+    // the current enrichmentVersion composite, the backlinker unions, the
+    // linker INSERT-RELATION-IGNOREs), so the paid work is bounded by the
+    // scenes this run actually changed, not by the size of the world.
+    const passOpts =
+      opts.conversationId !== undefined ? { conversationId: opts.conversationId } : {};
     if (sceneLlmEnrichmentEnabled()) {
       try {
-        const enrich = await this.enricher.enrich(companyId, opts);
+        const enrich = await this.enricher.enrich(companyId, passOpts);
+        result.enriched = enrich.enriched;
         this.logger.log(
           `scene enrichment pass: ${enrich.enriched}/${enrich.scenes} enriched, ` +
             `${enrich.failed} degraded, ${enrich.skipped} already current`,
@@ -158,14 +210,14 @@ export class SceneComposerService {
     }
     if (sceneFactBacklinkEnabled()) {
       try {
-        await this.backlinker.run(companyId, opts);
+        await this.backlinker.run(companyId, passOpts);
       } catch (e) {
         this.logger.warn(`scene backlink pass failed: ${(e as Error).message}`);
       }
     }
     if (sceneEvidenceLinksEnabled()) {
       try {
-        await this.evidenceLinker.run(companyId, opts);
+        await this.evidenceLinker.run(companyId, passOpts);
       } catch (e) {
         this.logger.warn(`scene evidence links pass failed: ${(e as Error).message}`);
       }
@@ -245,14 +297,16 @@ export class SceneComposerService {
     // within-session detector. Sessions partition `turns` in order, so a
     // running offset maps each session onto its embedding slice.
     const boundaryOpts = { minCosine: cfg.minCosine, maxTurns: cfg.maxTurns };
-    const scenes: SceneTurnRow[][] = [];
+    // Segments, not bare turn arrays: each one remembers which rule made
+    // its two edges, which is the input to the confidence derivation below.
+    const segments: Array<SceneSegment<SceneTurnRow>> = [];
     let offset = 0;
     for (const session of segmentSessions(turns) as SceneTurnRow[][]) {
       const sessionVecs = vectors?.slice(offset, offset + session.length);
       offset += session.length;
-      scenes.push(...detectSceneBoundaries(session, sessionVecs, boundaryOpts));
+      segments.push(...detectSceneSegments(session, sessionVecs, boundaryOpts));
     }
-    if (scenes.length === 0) return;
+    if (segments.length === 0) return;
 
     // Build scene + member rows. Scene record ids are deterministic over
     // (conversation, segmenterVersion, index) so a rebuild replaces the
@@ -263,7 +317,8 @@ export class SceneComposerService {
     const sceneRows: Array<Record<string, unknown>> = [];
     const memberRows: Array<Record<string, unknown>> = [];
     let sceneOffset = 0;
-    for (const [index, scene] of scenes.entries()) {
+    for (const [index, segment] of segments.entries()) {
+      const scene = segment.turns;
       const sceneVecs = (vectors?.slice(sceneOffset, sceneOffset + scene.length) ?? []).filter(
         (v): v is number[] => Array.isArray(v),
       );
@@ -295,10 +350,17 @@ export class SceneComposerService {
         occurredTo: new Date(last.occurredAt as string),
         gist: renderSceneGist(scene),
         memoryValue,
-        // The deterministic segmenter is exact about its own rule — the
-        // knob for "how sure was the boundary model" arrives with a
-        // learned segmenter.
-        confidence: 1,
+        // Derived from the two edges that delimit this scene (see
+        // deriveSceneConfidence): an EXACT rule — the 60-minute session
+        // gap or the SCENES_MAX_TURNS cap — is certain and stays 1;
+        // a topic-cosine edge scores by how far the cosine fell below
+        // the floor, so a barely-cleared split stops claiming certainty.
+        // With SCENES_TOPIC_BOUNDARY off no cosine edge can exist, so
+        // every scene is 1 — byte-identical to the constant it replaces.
+        confidence: deriveSceneConfidence(segment, {
+          minCosine: cfg.minCosine,
+          topicBoundary: cfg.topicBoundary,
+        }),
         segmenterVersion: version,
         generation,
         source: { recorder: SCENE_RECORDER },
