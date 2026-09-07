@@ -267,3 +267,11 @@ body {
   .landing-refresh .landing-nav > a[href$="/app"] { display: none; }
   .landing-refresh .landing-nav [role="group"] a { min-height: 40px; }
 }
+
+@media (max-width: 639px) {
+  .landing-refresh .landing-nav { flex-wrap: wrap; justify-content: flex-start; gap: 4px 12px; }
+}
+.landing-refresh section[id], .landing-refresh main[id] { scroll-margin-top: 6rem; }
+@media (max-width: 639px) {
+  .landing-refresh section[id], .landing-refresh main[id] { scroll-margin-top: 12rem; }
+}

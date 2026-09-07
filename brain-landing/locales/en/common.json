@@ -7,7 +7,9 @@
     "star": "Star",
     "blog": "Blog",
     "openApp": "Open app",
-    "skip": "Skip to content"
+    "skip": "Skip to content",
+    "architecture": "Architecture",
+    "packs": "Domain Packs"
   },
   "blog": {
     "title": "Notes on agent memory",
@@ -161,7 +163,7 @@
       {
         "tag": "Domain packs",
         "title": "Memory for your domain",
-        "desc": "Packs define vocabulary and memory models: scene schemas, state transitions and promotion rules. Six industry packs ship in the repository."
+        "desc": "Packs define vocabulary and memory models: scene schemas, state transitions, verification and retention hints. Six industry packs ship in the repository."
       },
       {
         "tag": "Ingestion",
@@ -743,5 +745,106 @@
       }
     ],
     "note": "Scene, belief and evidence capabilities depend on the enabled server configuration and domain packs. Media registration stores references and metadata; processing requires a configured processor."
+  },
+  "architecture": {
+    "title": "Architecture: from source to answer.",
+    "subtitle": "Brain separates source material, derived memory and retrieval. The graph gives memory structure; source links keep that structure inspectable.",
+    "stages": [
+      {
+        "title": "Capture & resolve",
+        "path": "Sources → Indexers → Candidates",
+        "desc": "Conversations and documents enter through REST or MCP. Indexers propose candidates; identity and conflict resolution decide what becomes a fact.",
+        "detail": "Original episodes and source references"
+      },
+      {
+        "title": "Build connected memory",
+        "path": "Facts · Episodes · Scenes · Beliefs",
+        "desc": "SurrealDB holds entities, relationships and temporal facts alongside source episodes and derived scenes and beliefs. Evidence links connect memory to its supporting material.",
+        "detail": "Temporal history + provenance"
+      },
+      {
+        "title": "Retrieve & verify",
+        "path": "Hybrid search → Graph → Synthesis",
+        "desc": "Semantic and lexical search find candidates. Graph walks and multi-hop add context. Synthesis cites evidence; strict verification can abstain when support is missing.",
+        "detail": "Evidence-backed answers over REST + MCP"
+      }
+    ],
+    "packBridge": "Domain Packs shape vocabulary, extraction and memory models throughout this path.",
+    "details": [
+      {
+        "title": "Rebuildable memory",
+        "desc": "Derived worlds can be rebuilt from retained episodes in a staged version, then promoted while reads stay pinned to the previous world until the switch."
+      },
+      {
+        "title": "One engine, different profiles",
+        "desc": "Retrieval profiles configure the trade-offs for different kinds of conversations. The NestJS service can run API and background workers together or as separate roles."
+      }
+    ],
+    "link": "Read the architecture"
+  },
+  "domainPacks": {
+    "title": "Domain Packs. Your domain, your memory model.",
+    "subtitle": "Give Brain the vocabulary and lifecycles of your product. A versioned pack extends the shared engine without a fork: from what to extract to how events, states and evidence are represented.",
+    "capabilities": [
+      {
+        "title": "Typed vocabulary",
+        "desc": "Predicates, value types, conflict semantics and PII classes."
+      },
+      {
+        "title": "Domain-specific extraction",
+        "desc": "Instructions, examples, indexers and evaluation fixtures for your source material."
+      },
+      {
+        "title": "A model of what changes",
+        "desc": "Scene schemas, state transitions, attention hints, verification rules and retention hints."
+      },
+      {
+        "title": "Tools for the agent",
+        "desc": "Optional pack MCP tools, activated with operator consent."
+      }
+    ],
+    "exampleTitle": "A listing has a lifecycle.",
+    "exampleLabel": "real_estate · excerpt from the shipped pack",
+    "exampleNote": "One supported path in listing_lifecycle. The full model also describes withdrawal and returning to the market.",
+    "exampleScenes": "Scenes: a viewing and a closing.",
+    "exampleRetention": "Retention hints distinguish an ephemeral viewing from a durable closing record.",
+    "libraryTitle": "Six industry packs, plus built-in code memory.",
+    "library": [
+      {
+        "id": "real_estate",
+        "name": "Real estate",
+        "desc": "Listings, tenancies, permits"
+      },
+      {
+        "id": "fintech",
+        "name": "Fintech",
+        "desc": "Licenses and certifications"
+      },
+      {
+        "id": "medical",
+        "name": "Medical",
+        "desc": "Drug ontology and treatment lifecycles"
+      },
+      {
+        "id": "legal",
+        "name": "Legal",
+        "desc": "Agreements, obligations, matters"
+      },
+      {
+        "id": "insurance",
+        "name": "Insurance",
+        "desc": "Policies and claims"
+      },
+      {
+        "id": "hr",
+        "name": "HR",
+        "desc": "Positions and employee lifecycles"
+      }
+    ],
+    "codeMemory": "The built-in code_memory pack covers decisions, rationale, invariants and change lifecycles.",
+    "distribution": "Author a JSON manifest, validate it, optionally sign it, then publish and install per tenant. Registry versions are immutable; checksums pin the content. Signatures and consent are enforced according to server policy.",
+    "note": "Industry packs ship in the repository and are installed per tenant. Memory-model and tool capabilities depend on the enabled server features.",
+    "docsLink": "Build or install a pack",
+    "libraryLink": "Explore the pack library"
   }
 }

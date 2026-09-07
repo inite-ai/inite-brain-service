@@ -38,7 +38,7 @@ processing requires a configured processor.
 - Surfaces: REST API + MCP (Streamable HTTP), per tenant
 - Stdio connector: npx -y @inite/brain-mcp
 - Memory scope: pass userId for personal memory; omit for tenant-global only
-- Domain packs: vocabulary, scene schemas, state transitions and promotion rules
+- Domain packs: vocabulary, scene schemas, state transitions, verification and retention hints
 - Code memory: record_decision, why, recall_decisions
 - Evaluation: LoCoMo, LongMemEval and BEAM measure different axes.
   Read ${GITHUB_URL}/blob/main/docs/eval-protocol.md for the strict binary

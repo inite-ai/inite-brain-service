@@ -79,16 +79,16 @@ export function Header({ lang, context, landing = false }: Props) {
             {t.nav.docs}
           </Link>
           <Link
-            href={`/${lang}/docs/skills`}
+            href={landing ? '#architecture' : `/${lang}/docs/skills`}
             className="u-mono text-[12px] h-8 px-2.5 hidden sm:inline-flex items-center text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-overlay)] rounded-md"
           >
-            {t.nav.skills}
+            {landing ? t.nav.architecture : t.nav.skills}
           </Link>
           <Link
-            href={`/${lang}/blog`}
+            href={landing ? '#domain-packs' : `/${lang}/blog`}
             className="u-mono text-[12px] h-8 px-2.5 hidden sm:inline-flex items-center text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-overlay)] rounded-md"
           >
-            {t.nav.blog}
+            {landing ? t.nav.packs : t.nav.blog}
           </Link>
           <a
             href={`https://github.com/${REPO}`}

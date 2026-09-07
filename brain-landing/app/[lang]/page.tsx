@@ -1,7 +1,8 @@
 import { Header } from '../../components/Header'
 import { Hero } from '../../components/Hero'
 import { BitemporalDemo } from '../../components/BitemporalDemo'
-import { RetrievalPipeline } from '../../components/RetrievalPipeline'
+import { Architecture } from '../../components/Architecture'
+import { DomainPacks } from '../../components/DomainPacks'
 import { MemoryLayers } from '../../components/MemoryLayers'
 import { Features } from '../../components/Features'
 import { DualPath } from '../../components/DualPath'
@@ -61,8 +62,9 @@ export default async function LandingPage({ params }: Props) {
       <main id="main-content" className="max-w-6xl mx-auto px-5 sm:px-6">
         <Hero lang={lang} />
         <MemoryLayers lang={lang} />
+        <Architecture lang={lang} />
+        <DomainPacks lang={lang} />
         <BitemporalDemo lang={lang} />
-        <RetrievalPipeline lang={lang} />
         <Features lang={lang} />
         <DualPath lang={lang} />
         <Stats lang={lang} />
