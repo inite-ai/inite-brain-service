@@ -344,6 +344,20 @@ jobs:
           CONFLICT_SLOT_CANONICALIZATION=1
           INGEST_ARTICLE_NORMALIZATION=1
           MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE=1
+          # ── Temporal tiebreaker (#465, migration 0129): the promoted
+          # conflict machinery was pairing legitimate UPDATES (queue
+          # Redis -> NATS) into permanent COMPETING mush — score margin
+          # alone cannot tell an update from a contradiction, and
+          # validFrom windows measurably do not separate them either
+          # (s07's contradiction arms are 6 diary-days apart). The
+          # working discriminators: succession language ("is now",
+          # "no longer", "instead of") + artifact-backed incumbents
+          # are never closed by recency. Measured: memory-fitness
+          # 23/30 -> 26/30-equivalent (d1-queue/d1-launch serve current
+          # values again); transitions baseline-identical with the s07
+          # contradiction pair intact. Includes stuck-COMPETING
+          # re-admission and same-origin restatement dedup. ──
+          CONFLICT_TEMPORAL_TIEBREAKER=1
           EOF
           # The heredoc carries the YAML block's 10-space indent into the
           # file; strip it so every line is a clean KEY=value / #comment
