@@ -363,7 +363,11 @@ export const SCENARIOS: Scenario[] = [
           'predicate), so even with CONFLICT_MENTION_FACT_SLOT on no collision ' +
           'structurally exists; the flag (default off) routes every calendar-anchored ' +
           'artifact lifecycle landing (duration_limit, non-person state_change) into the ' +
-          'status slot at write time so the bitemporal margin doctrine sees the collision',
+          'status slot at write time so the bitemporal margin doctrine sees the collision. ' +
+          'SERVE SIDE: even with the pair formed, both-sides naming needs the T3 conflict ' +
+          'note, which renders only when the contradiction lane is live — the stand must ' +
+          'run SYNTHESIZE_ANSWER_ROUTER_ENABLED=1 or the lane set is empty and ' +
+          'detectEvidenceConflicts returns [] before looking at the evidence',
       },
       {
         kind: 'provenance',
