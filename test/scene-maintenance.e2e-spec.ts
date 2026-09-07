@@ -126,14 +126,18 @@ describe('scheduled scene maintenance (e2e)', () => {
   it('the nightly pass composes the dirty conversation and clears its mark', async () => {
     const run = await maintenance().runNightly();
     expect(run.budgetExhausted).toBe(false);
-    expect(run.tenants).toHaveLength(1);
-    expect(run.tenants[0]).toMatchObject({
+    // The roster is every tenant the shared in-process database holds — the
+    // sibling e2e suites' fixtures included — so this asserts OUR tenant's
+    // row, never the roster's length. Every other tenant contributes a
+    // zero-work row, which the "no dirty work" case below pins.
+    const mine = run.tenants.find((t) => t.companyId === f.companyId);
+    expect(mine).toMatchObject({
       companyId: f.companyId,
       dirty: 1,
       conversations: 1,
       cleared: 1,
     });
-    expect(run.tenants[0]!.error).toBeUndefined();
+    expect(mine!.error).toBeUndefined();
 
     const scenes = await scenesOf(CONV);
     expect(scenes).toHaveLength(2);
@@ -144,7 +148,12 @@ describe('scheduled scene maintenance (e2e)', () => {
 
   it('a second pass finds nothing dirty and composes nothing', async () => {
     const run = await maintenance().runNightly();
-    expect(run.tenants[0]).toMatchObject({ dirty: 0, conversations: 0, scenes: 0, cleared: 0 });
+    expect(run.tenants.find((t) => t.companyId === f.companyId)).toMatchObject({
+      dirty: 0,
+      conversations: 0,
+      scenes: 0,
+      cleared: 0,
+    });
     // The scene world is untouched — no rebuild happened.
     expect(await scenesOf(CONV)).toHaveLength(2);
   });
@@ -154,7 +163,11 @@ describe('scheduled scene maintenance (e2e)', () => {
     expect((await dirtyRows()).map((r) => r.conversationId)).toEqual([CONV]);
 
     const run = await maintenance().runNightly();
-    expect(run.tenants[0]).toMatchObject({ dirty: 1, conversations: 1, cleared: 1 });
+    expect(run.tenants.find((t) => t.companyId === f.companyId)).toMatchObject({
+      dirty: 1,
+      conversations: 1,
+      cleared: 1,
+    });
     expect(await dirtyRows()).toHaveLength(0);
     // Still two sessions, now 2 + 2 turns.
     expect(await scenesOf(CONV)).toHaveLength(2);
