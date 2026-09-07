@@ -151,6 +151,8 @@ export interface Tally {
 
 export interface Scorecard {
   runId: string;
+  /** Corpus variant of the run: default | paraphrase | ru (variants.ts). */
+  variant: string;
   baseUrl: string;
   companyId: string;
   userId: string;

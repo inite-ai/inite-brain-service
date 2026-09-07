@@ -141,6 +141,16 @@ const ALL_VERBS = [...ACQUIRE_VERBS, ...DISPOSE_VERBS, ...CHANGE_VERBS, ...CODIN
   (a, b) => b.length - a.length,
 );
 
+/**
+ * The full lexicon, exported READ-ONLY for the state-transition
+ * battery's paraphrase-variant honesty pin (test/state-transition-
+ * corpus.unit-spec.ts): the paraphrase corpus exists to measure what
+ * the transition CLASSIFIER catches when this lexicon sees nothing, so
+ * the unit test asserts no paraphrase turn contains any of these verbs
+ * — against the real list, not a drifting copy.
+ */
+export const STATE_VERB_LEXICON: readonly string[] = ALL_VERBS;
+
 /** Word-boundary-matched, case-insensitive alternation over the lexicon. */
 const TRANSITION_VERB = new RegExp(`\\b(?:${ALL_VERBS.join('|')})\\b`, 'gi');
 
