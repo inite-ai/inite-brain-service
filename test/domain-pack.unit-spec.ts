@@ -447,6 +447,36 @@ describe('code-memory pack', () => {
     ).toBe(true);
   });
 
+  // 0.4.3 (k10 battery finding, run cmmtq1z412): a compound "X, never Y"
+  // invariant was split in two and its value-shaped-looking fragment
+  // mis-slotted as code_memory__default_value. The profile must carry a
+  // dedicated few-shot keeping a two-clause invariant ONE fact, and the
+  // guidance + predicate description must confine default_value to
+  // value-shaped defaults (number/boolean/enum token of a NAMED
+  // flag/config) — never prose fragments.
+  it('0.4.3: compound invariant stays ONE fact; default_value is value-shaped only', () => {
+    const profile = CODE_MEMORY_PACK.extractionProfile;
+    // Guidance: default_value confined to value tokens, compound invariants unsplit.
+    expect(profile?.guidance).toContain('ONLY value-shaped defaults');
+    expect(profile?.guidance).toContain('NEVER a prose fragment');
+    expect(profile?.guidance).toContain('never split its clauses');
+    // A dedicated few-shot shows a two-clause invariant landing as ONE
+    // invariant fact with BOTH clauses verbatim, and forbids routing the
+    // value-shaped-looking fragment into default_value.
+    const compound = (profile?.fewShot ?? []).filter(
+      (ex) =>
+        /, never /.test(ex.text) &&
+        ex.note.includes('code_memory__invariant') &&
+        ex.note.includes('NOT') &&
+        ex.note.includes('code_memory__default_value'),
+    );
+    expect(compound.length).toBeGreaterThanOrEqual(1);
+    // The predicate description itself fences out prose fragments.
+    const defaultValue = CODE_MEMORY_PACK.predicates.find((p) => p.localId === 'default_value');
+    expect(defaultValue?.description).toContain('NOT FOR prose fragments');
+    expect(defaultValue?.description).toContain('value-shaped');
+  });
+
   it('declares the perception contract: three lifecycles, hints, one recency rule', () => {
     const mm = CODE_MEMORY_PACK.memoryModel;
     expect(mm?.stateModels?.map((m) => m.id).sort()).toEqual([

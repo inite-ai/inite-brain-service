@@ -29,10 +29,11 @@ import {
 } from './eval/code-memory/corpus';
 import {
   checkBuiltinPredicates,
-  checkEntityDedup,
+  checkEntityFactGroups,
   checkNoForbiddenFact,
   checkSupersession,
   checkWhyRoundtrip,
+  resolveModuleEntity,
   type PredicateLike,
   type WhyLike,
 } from './eval/code-memory/scorers';
@@ -119,7 +120,7 @@ describe('code-memory scorers', () => {
     });
   });
 
-  describe('path-vs-symbol entity dedup', () => {
+  describe('path-vs-symbol entity identity (resolve + predicate-agnostic scan)', () => {
     const tokens = ['webhook-dispatcher', 'webhookdispatcher', 'webhook dispatcher'];
     const groups = [
       ['dispatch path', 'outbound webhook'],
@@ -134,38 +135,72 @@ describe('code-memory scorers', () => {
       ],
     };
 
-    it('passes on one entity carrying facts from both phrasings', () => {
-      const v = checkEntityDedup([merged], tokens, groups);
+    it('resolves exactly one named entity', () => {
+      const r = resolveModuleEntity([merged], tokens);
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.entity.entityId).toBe('e1');
+    });
+
+    it('STRICT uniqueness: per-phrasing duplication fails resolution and names both entities', () => {
+      const dup: HitLike = { entityId: 'e2', canonicalName: 'WebhookDispatcher', facts: [] };
+      const r = resolveModuleEntity([merged, dup], tokens);
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.fail.detail).toContain('split across 2 entities');
+        expect(r.fail.detail).toContain('WebhookDispatcher');
+      }
+    });
+
+    it('fails resolution when no hit carries a module name token', () => {
+      const r = resolveModuleEntity(
+        [{ entityId: 'e9', canonicalName: 'acme-api', facts: [] }],
+        tokens,
+      );
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.fail.detail).toContain('no hit named');
+    });
+
+    it('passes when the entity carries facts from both phrasings', () => {
+      const v = checkEntityFactGroups(
+        'src/gateway/webhook-dispatcher.ts',
+        merged.facts ?? [],
+        groups,
+      );
       expect(v.pass).toBe(true);
       expect(v.detail).toContain('both phrasings');
     });
 
-    it('fails on per-phrasing duplication and names both entities', () => {
-      const dup: HitLike = { entityId: 'e2', canonicalName: 'WebhookDispatcher', facts: [] };
-      const v = checkEntityDedup([merged, dup], tokens, groups);
-      expect(v.pass).toBe(false);
-      expect(v.detail).toContain('split across 2 entities');
-      expect(v.detail).toContain('WebhookDispatcher');
+    it('PREDICATE-AGNOSTIC: a split, mis-slotted fact still proves identity when attached', () => {
+      // The measured k10 failure (run cmmtq1z412): extraction split the
+      // invariant sentence and slotted its fragment as default_value.
+      // Identity is about ATTACHMENT to the one entity — the scan must
+      // count it under ANY predicate; slot quality is k02–k06 scope.
+      const misSlotted = [
+        { predicate: 'code_memory__decided', object: 'one dispatch path instead of six' },
+        { predicate: 'code_memory__default_value', object: 'every line-item amount in cents' },
+        { predicate: 'code_memory__invariant', object: 'never floats' },
+      ];
+      const v = checkEntityFactGroups('src/gateway/webhook-dispatcher.ts', misSlotted, groups);
+      expect(v.pass).toBe(true);
+      expect(v.detail).toContain('[cents|line-item]=1');
     });
 
-    it("fails when one phrasing's facts are missing from the single entity", () => {
-      const onlyPath: HitLike = {
-        ...merged,
-        facts: [{ factId: 'f1', predicate: 'decided', object: 'one dispatch path instead of six' }],
-      };
-      const v = checkEntityDedup([onlyPath], tokens, groups);
+    it('matches a marker landing in the predicate text, not only the object', () => {
+      // A coined predicate can swallow the marker itself ("cents_convention")
+      // while the object carries none — attachment still proves identity.
+      const inPredicate = [
+        { predicate: 'decided', object: 'one dispatch path instead of six' },
+        { predicate: 'cents_convention', object: 'minor units only' },
+      ];
+      const v = checkEntityFactGroups('m', inPredicate, groups);
+      expect(v.pass).toBe(true);
+    });
+
+    it("fails when one phrasing's facts are missing from the full fact set", () => {
+      const onlyPath = [{ predicate: 'decided', object: 'one dispatch path instead of six' }];
+      const v = checkEntityFactGroups('src/gateway/webhook-dispatcher.ts', onlyPath, groups);
       expect(v.pass).toBe(false);
       expect(v.detail).toContain('[cents|line-item]=0');
-    });
-
-    it('fails when no hit carries a module name token', () => {
-      const v = checkEntityDedup(
-        [{ entityId: 'e9', canonicalName: 'acme-api', facts: [] }],
-        tokens,
-        groups,
-      );
-      expect(v.pass).toBe(false);
-      expect(v.detail).toContain('no hit named');
     });
   });
 
