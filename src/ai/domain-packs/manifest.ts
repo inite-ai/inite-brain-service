@@ -293,6 +293,50 @@ export interface PackStateModel {
   states: string[];
   /** ≤ MM_MAX_TRANSITIONS; both ends must be declared states. */
   transitions?: PackStateTransition[];
+  /**
+   * OPTIONAL pack-local ATTRIBUTE name this lifecycle projects onto in the
+   * belief plane (`stateModelFieldLocal`). snake_case, no `__`, ≤64 chars.
+   * Omitted (the state of every shipped pack) ⇒ the stateModel's own `id`
+   * is the attribute name, so a pack that never heard of beliefs still
+   * projects a stable, self-describing one. Declare it only when the
+   * lifecycle id and the attribute read differently ("policy_lifecycle"
+   * the machine vs "policy_status" the attribute).
+   *
+   * NEVER the stored name: the belief field is always NAMESPACED
+   * `<packId>__<local>` (packStateFieldName) — see composePredicateId's
+   * rationale, which this deliberately mirrors.
+   */
+  field?: string;
+}
+
+/**
+ * Pure: the pack-LOCAL belief attribute name a stateModel projects onto —
+ * its declared `field`, else its `id`. The default is what keeps the
+ * manifest addition purely optional: every shipped pack (and every
+ * already-installed third-party manifest) resolves to its stateModel id
+ * without declaring anything.
+ */
+export function stateModelFieldLocal(m: { id: string; field?: string | undefined }): string {
+  const declared = typeof m.field === 'string' ? m.field.trim() : '';
+  return declared === '' ? m.id : declared;
+}
+
+/**
+ * Pure: the STORED belief field name for one pack's stateModel —
+ * `<packId>__<local>`, the predicate/tool namespace discipline applied to
+ * the belief plane.
+ *
+ * WHY NAMESPACED. Two packs may legitimately declare the same local
+ * lifecycle attribute ('status', 'stage'); an unnamespaced field would
+ * silently MERGE their beliefs into one (userId, subject, field) group,
+ * where the fold's latest-value-wins rule would let one domain overwrite
+ * the other's state. Namespacing keeps them distinct by construction —
+ * the same reason `<packId>__<localId>` exists for predicates and MCP
+ * tools — and makes the belief row self-describing about which pack's
+ * perception produced it.
+ */
+export function packStateFieldName(packId: string, local: string): string {
+  return `${packId}${PACK_NAMESPACE_SEP}${local}`;
 }
 
 /** "When you see this, look closer": a literal cue that biases retrieval /

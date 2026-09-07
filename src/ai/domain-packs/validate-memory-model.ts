@@ -375,6 +375,13 @@ function validateStateModels(packId: string, models: unknown, sceneIds: Set<stri
       min: 1,
       max: 64,
     });
+    // OPTIONAL belief-attribute name (defaults to the id — see
+    // stateModelFieldLocal). Same snake_case/no-`__` charset as the id:
+    // the STORED name is `<packId>__<field>`, so a `__` inside would make
+    // the namespace boundary ambiguous.
+    if (m.field !== undefined) {
+      assertSnakeId(packId, `stateModel "${m.id}" field`, m.field);
+    }
     validateStates(packId, m);
   }
 }

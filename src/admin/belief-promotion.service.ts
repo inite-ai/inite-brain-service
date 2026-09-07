@@ -11,15 +11,31 @@ import {
   sceneBeliefMinScenes,
   sceneBeliefNegationDeltasEnabled,
   sceneBeliefPromotionEnabled,
+  scenePackDeltaPromotionEnabled,
 } from '../common/scene-flags';
 import { supportEdgesEnabled } from '../common/provenance-flags';
 import { buildSupportEdgeBatches } from '../common/support-edges';
 import { absorbFoldableOrphans, resolveFieldFold } from './belief-field-fold';
+import {
+  beliefPromoterVersion,
+  buildPromotableScenesQuery,
+  promoterVersionFor,
+} from './belief-scene-selection';
 import { SceneVersionService } from './scene-version';
 
-// The lexical fold rule lives in belief-field-fold.ts (god-file split);
-// re-exported here so the historical import surface is unchanged.
+// The lexical fold rule lives in belief-field-fold.ts and the scene
+// selection / world stamping in belief-scene-selection.ts (god-file
+// split); both are re-exported here so the historical import surface is
+// unchanged.
 export { FIELD_FOLD_GENERIC_TOKENS, fieldsFold, resolveFieldFold } from './belief-field-fold';
+export {
+  BELIEF_PROMOTER_VERSION,
+  PACK_SCENE_WORLD_PREFIX,
+  beliefPromoterVersion,
+  buildPromotableScenesQuery,
+  isPackSceneWorld,
+  promoterVersionFor,
+} from './belief-scene-selection';
 
 /**
  * Belief promotion (Belief-A, SCENES_BELIEF_PROMOTION — default off):
@@ -72,6 +88,38 @@ export { FIELD_FOLD_GENERIC_TOKENS, fieldsFold, resolveFieldFold } from './belie
  * priorValue backfill, same-run fence, ambiguity skip, idempotence)
  * lives on absorbFoldableOrphans in belief-field-fold.ts.
  *
+ * PACK DELTAS (SCENES_PACK_DELTA_PROMOTION — default off): the pass
+ * additionally admits scenes of the PACK-PROJECTION worlds
+ * (`segmenterVersion` = `pack:<packId>+<fp>`, written by
+ * SceneCandidateWriterService when a document's external indexer stages
+ * 0110 scene/state_delta candidates). Two fences kept those scenes out
+ * of the belief plane entirely, so `PACK_MEMORY_PROJECTIONS_ENABLED`
+ * (ON in prod) was a write with no reader:
+ *   1. their deltas carried `stateModelId`, never the `field` the fold
+ *      keys on — fixed at PROJECTION time (packDeltaField writes BOTH,
+ *      `<packId>__<stateModel.field ?? stateModelId>`);
+ *   2. the version fence pinned the composer's effective world — widened
+ *      here (buildPromotableScenesQuery), behind this flag.
+ * The pack leg also drops the `enrichmentVersion IS NOT NONE`
+ * requirement, which a pack scene will never satisfy: its deltas come
+ * from the pack indexer's reading, not from the LLM enricher (its
+ * explicitness therefore falls back to DEFAULT_EXPLICITNESS).
+ *
+ * The FENCES that must survive the widening, and do:
+ *  - PER-USER SCOPE: unchanged. A projected scene inherits the
+ *    document's 0128 stamp (userId + 0093 scope + 0117 userIds), so
+ *    sceneSingleUser admits it only for that one user — and a
+ *    TENANT-GLOBAL document's scenes (no userIds) are skipped
+ *    fail-closed like any other, never promoted into someone's beliefs.
+ *  - CROSS-PACK COLLISION: the field is pack-NAMESPACED, so two packs
+ *    whose stateModels resolve to the same local attribute stay in
+ *    separate (userId, subject, field) groups. They are kept distinct,
+ *    deliberately, rather than merged — the predicate/tool namespace
+ *    rule (`<packId>__<name>`) applied to the belief plane.
+ *  - PACK PROVENANCE: a belief folded wholly out of one pack world is
+ *    stamped promoterVersion `belief-promotion-v1|pack:<packId>+<fp>`
+ *    (promoterVersionFor) — an existing column, no migration.
+ *
  * CONFLICT GUARD (built-in, no flag): a group whose latest timestamp is
  * shared by two DIFFERENT values has no deterministic winner — the whole
  * (subject, field) group is SKIPPED LOUDLY with a warn. Same for a
@@ -118,17 +166,6 @@ export { FIELD_FOLD_GENERIC_TOKENS, fieldsFold, resolveFieldFold } from './belie
  * The deterministic template fold works with no client at all.
  */
 
-/** Promoter identity — composed with the effective scene world below. */
-export const BELIEF_PROMOTER_VERSION = 'belief-promotion-v1';
-
-/**
- * Pure: the readable promoter|world composite stamped on belief rows and
- * support edges (the enricher's readable-composite idiom — NOT hashed).
- */
-export function beliefPromoterVersion(sceneVersion: string): string {
-  return `${BELIEF_PROMOTER_VERSION}|${sceneVersion}`;
-}
-
 /** Belts against runaway payloads (the enricher's cap discipline). */
 const STATEMENT_MAX_CHARS = 500;
 const SYNTHESIS_VISIBLE_CAP = 400;
@@ -168,6 +205,12 @@ export interface PromotableSceneHead {
   stateDeltas?: unknown;
   /** enrichedMemoryValue.explicitness projection (confidence signal). */
   explicitness?: unknown;
+  /**
+   * The scene world this row belongs to. Selected ONLY under
+   * SCENES_PACK_DELTA_PROMOTION (the flag-off query is byte-identical),
+   * where it becomes the belief's pack provenance.
+   */
+  segmenterVersion?: unknown;
 }
 
 /**
@@ -194,6 +237,12 @@ export interface BeliefContribution {
   value: string;
   priorValue: string;
   explicitness: number;
+  /**
+   * The contributing scene's world (segmenterVersion). '' unless
+   * SCENES_PACK_DELTA_PROMOTION selected the column — which is exactly
+   * why the flag-off stamps are unchanged.
+   */
+  world: string;
 }
 
 /** One promotable (userId, subject, field) verdict out of the fold. */
@@ -210,6 +259,14 @@ export interface FoldedBelief {
   /** Distinct conversations behind those scenes — the floor unit. */
   conversationIds: string[];
   confidence: number;
+  /**
+   * Distinct scene worlds behind the WINNING value (sorted). Empty
+   * unless SCENES_PACK_DELTA_PROMOTION selected segmenterVersion; a
+   * single `pack:` world becomes the belief's promoterVersion stamp
+   * (promoterVersionFor) — the pack provenance carried onto the row
+   * without a new column.
+   */
+  worlds: string[];
 }
 
 export interface BeliefFold {
@@ -321,6 +378,8 @@ interface SceneFoldContext {
   conversationId: string;
   occurredAt: number;
   explicitness: number;
+  /** segmenterVersion, '' when the column was not selected (flag off). */
+  world: string;
 }
 
 /** Pure: parse one scene's head for the fold; null = unusable (unordered). */
@@ -339,7 +398,7 @@ function sceneFoldContext(scene: PromotableSceneHead): SceneFoldContext | null {
     typeof explicitnessRaw === 'number' && Number.isFinite(explicitnessRaw)
       ? Math.min(1, Math.max(0, explicitnessRaw))
       : DEFAULT_EXPLICITNESS;
-  return { sceneId, conversationId, occurredAt, explicitness };
+  return { sceneId, conversationId, occurredAt, explicitness, world: str(scene.segmenterVersion) };
 }
 
 /**
@@ -388,6 +447,7 @@ function collectSceneDeltas({
       value: admitted.value,
       priorValue: admitted.priorValue,
       explicitness: head.explicitness,
+      world: head.world,
     });
   }
 }
@@ -447,6 +507,9 @@ function foldGroupVerdict(group: {
       sceneIds,
       conversationIds,
       confidence: Math.round(confidence * 10000) / 10000,
+      // Distinct worlds behind the winning value (sorted = deterministic).
+      // Empty with the flag off — the column is not even selected.
+      worlds: [...new Set(corroborating.map((c) => c.world).filter((w) => w !== ''))].sort(),
     },
   };
 }
@@ -637,18 +700,14 @@ export class BeliefPromotionService {
     const edgesOn = supportEdgesEnabled();
     const negationDeltas = sceneBeliefNegationDeltasEnabled();
     const fieldFoldOn = sceneBeliefFieldFoldEnabled();
+    const packDeltas = scenePackDeltaPromotionEnabled();
     await this.surreal.withCompany(companyId, async (db) => {
-      const [scenes] = await db.query<[PromotableSceneHead[]]>(
-        `SELECT id, userId, userIds, conversationIds, occurredTo, stateDeltas,
-                enrichedMemoryValue.explicitness AS explicitness
-           FROM memory_episode
-          WHERE segmenterVersion = $v AND enrichmentVersion IS NOT NONE` +
-          (opts.conversationId !== undefined ? ` AND conversationIds CONTAINS $conv` : ''),
-        {
-          v: version,
-          ...(opts.conversationId !== undefined ? { conv: opts.conversationId } : {}),
-        },
-      );
+      const selection = buildPromotableScenesQuery({
+        version,
+        ...(opts.conversationId !== undefined ? { conversationId: opts.conversationId } : {}),
+        packDeltas,
+      });
+      const [scenes] = await db.query<[PromotableSceneHead[]]>(selection.sql, selection.params);
       const eligible: Array<{ scene: PromotableSceneHead; userId: string }> = [];
       for (const scene of scenes ?? []) {
         result.scenes += 1;
@@ -762,7 +821,7 @@ export class BeliefPromotionService {
   private async upsertBelief({
     db,
     belief,
-    promoterVersion,
+    promoterVersion: runPromoterVersion,
     edgesOn,
     result,
   }: {
@@ -772,6 +831,9 @@ export class BeliefPromotionService {
     edgesOn: boolean;
     result: BeliefPromotionResult;
   }): Promise<void> {
+    // Per-belief stamp: identical to the run stamp unless this belief
+    // came wholly out of ONE pack world (promoterVersionFor).
+    const promoterVersion = promoterVersionFor(belief, runPromoterVersion);
     const [actives] = await db.query<[ActiveBeliefRow[]]>(
       `SELECT id, revision, value, validFrom, sourceSceneIds, conversationIds
          FROM semantic_belief

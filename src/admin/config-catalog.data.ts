@@ -781,6 +781,18 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Belief promotion field fold (#135 seam 2): deterministically fold an enricher-re-coined field name onto an existing one for the same (userId, subject) — token-set subset whose extra tokens are all generic modifiers (ownership/status/state/current/of/the); the EXISTING name wins, and more than one match folds nothing and warns loudly (skip loudly, never flip-flop). NO embeddings, NO LLM. Also absorbs orphans: after each canonical upsert, ACTIVE beliefs of the same (userId, subject) stored under a foldable VARIANT of the canonical field (earlier-batch leftovers the incoming-name fold can never retire) are stamped superseded so they stop serving stale values; the canonical belief keeps its own value, the orphan value backfills priorValue only when the canonical has none, and more than one distinct variant field skips loudly. Off = exact-string (subject, field) grouping and zero extra queries — byte-identical fold output.',
   },
   {
+    key: 'SCENES_PACK_DELTA_PROMOTION',
+    category: 'scenes',
+    // Read at call time (scene-flags.scenePackDeltaPromotionEnabled) ONCE
+    // per promotion run — never captured in a constructor — so a flip
+    // takes effect without restart and can never mix worlds mid-run.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Pack-projected state-delta promotion: the belief pass (SCENES_BELIEF_PROMOTION) additionally admits scenes of the pack-projection worlds (segmenterVersion pack:<packId>+<fp>, written by the 0110 projectors — the document scene-candidate writer and the capture-path mention producer — under PACK_MEMORY_PROJECTIONS_ENABLED). Their stateDeltas carry field = <packId>__<stateModel.field or stateModelId>, so a document ingested — or a turn captured — for a tenant with an installed pack finally reaches the belief plane; the pack namespace keeps two packs sharing a local attribute name in SEPARATE belief groups. Pack scenes carry no enrichmentVersion (their deltas come from the pack’s own reading, not the LLM enricher), so the widened leg drops that requirement for pack: worlds only. Unchanged: the #387 single-user fence (a tenant-global document has no userIds and is skipped fail-closed), the conflict guard, the supersede chain. The belief promoterVersion carries the pack world as provenance. NOTE: document scenes carry no conversationIds, so a non-zero SCENES_BELIEF_MIN_SCENES (a distinct-CONVERSATION floor) excludes document-projected beliefs by construction. Off = the selection query, its parameters and every stamp are byte-identical to the pre-flag pass — no pack scene is ever seen.',
+  },
+  {
     key: 'SCENES_PREDICTION_BASELINE',
     category: 'scenes',
     // Read at call time (scene-flags.scenePredictionBaselineEnabled) once

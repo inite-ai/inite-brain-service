@@ -1137,6 +1137,15 @@ const KNOWN_BOOLEAN_FLAGS = [
   // folds nothing and warns loudly. NO embeddings, NO LLM. Default off
   // ⇒ exact-string grouping, zero extra queries — byte-identical.
   'SCENES_BELIEF_FIELD_FOLD',
+  // Pack-projected state-delta promotion: the belief pass also admits
+  // the `pack:<packId>+<fp>` projection worlds (0110 scene candidates,
+  // both the document and the capture producer), whose deltas carry the
+  // namespaced field `<packId>__<local>` and no enrichmentVersion.
+  // Per-user (#387) scope, cross-pack separation and the conflict guard
+  // are unchanged. Default off ⇒ the selection query, its parameters and
+  // every stamp are byte-identical to the pre-flag pass — no pack scene
+  // is ever seen.
+  'SCENES_PACK_DELTA_PROMOTION',
   // Scene prediction baseline: the expectation snapshot the scene plane
   // never had. On, the enrichment pass loads the scene user's ACTIVE
   // semantic_belief rows (0120) BEFORE scoring, stamps them as

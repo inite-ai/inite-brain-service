@@ -22,6 +22,8 @@ import {
   packSceneScopeStamp,
   packSceneVersion,
   packStateDeltaEntry,
+  packDeltaField,
+  packStateModelIndex,
 } from '../src/episodes/pack-scene-projection';
 import { sceneScopeStamp } from '../src/documents/scene-candidate-writer.service';
 import { derivePackScenes } from '../src/ingest/pack-scene-derivation';
@@ -139,13 +141,59 @@ describe('pack scene projection — one shape, two origins', () => {
       buildPackSceneRow({ ...common, idTail: 'x', confidence: Number.NaN, origin: {} }).confidence,
     ).toBe(0.7);
     expect(
-      packStateDeltaEntry({ stateModelId: 'm', subject: 's', to: 'x', confidence: -2 }),
-    ).toEqual({ stateModelId: 'm', subject: 's', from: undefined, to: 'x', confidence: 0 });
+      packStateDeltaEntry({
+        packId: PACK_ID,
+        stateModelId: 'm',
+        subject: 's',
+        to: 'x',
+        confidence: -2,
+      }),
+    ).toEqual({
+      stateModelId: 'm',
+      field: `${PACK_ID}__m`,
+      subject: 's',
+      from: undefined,
+      to: 'x',
+      confidence: 0,
+    });
     // candidateId is document-origin only — never invented for a turn.
     expect(
       'candidateId' in
-        packStateDeltaEntry({ stateModelId: 'm', subject: 's', to: 'x', confidence: 1 }),
+        packStateDeltaEntry({
+          packId: PACK_ID,
+          stateModelId: 'm',
+          subject: 's',
+          to: 'x',
+          confidence: 1,
+        }),
     ).toBe(false);
+  });
+
+  it('stamps the SAME pack-namespaced belief field on both origins', () => {
+    // The `field` the promotion pass keys on is derived in the shared
+    // module, so an origin cannot drift: declared `field` wins, the
+    // stateModel id is the default, and the packId always namespaces.
+    const entry = (stateModelId: string, models?: Parameters<typeof packDeltaField>[2]) =>
+      packStateDeltaEntry({
+        packId: PACK_ID,
+        stateModelId,
+        models,
+        subject: 's',
+        to: 'x',
+        confidence: 1,
+      }).field;
+    expect(entry('listing_lifecycle', packStateModelIndex(MODEL.stateModels))).toBe(
+      `${PACK_ID}__listing_lifecycle`,
+    );
+    expect(
+      entry(
+        'listing_lifecycle',
+        packStateModelIndex([{ id: 'listing_lifecycle', field: 'listing_status' }]),
+      ),
+    ).toBe(`${PACK_ID}__listing_status`);
+    // Unresolvable declarations degrade to the id — never to no field.
+    expect(entry('listing_lifecycle')).toBe(`${PACK_ID}__listing_lifecycle`);
+    expect(packDeltaField(PACK_ID, 'listing_lifecycle')).toBe(entry('listing_lifecycle'));
   });
 
   it('derives a deterministic id per (owner, version, discriminator)', () => {
@@ -414,6 +462,9 @@ describe('MentionProjectionService', () => {
     expect(row.stateDeltas).toEqual([
       {
         stateModelId: 'listing_lifecycle',
+        // The belief key, resolved from the binding's own memoryModel —
+        // the same entry the document origin projects.
+        field: `${PACK_ID}__listing_lifecycle`,
         subject: '12 Elm St',
         from: undefined,
         to: 'under_offer',
