@@ -104,6 +104,9 @@ importers:
       openai:
         specifier: ^7.9.0
         version: 7.9.0(undici@7.29.0)(zod@4.5.4)
+      pdf2json:
+        specifier: 4.0.3
+        version: 4.0.3
       prom-client:
         specifier: ^15.1.3
         version: 15.1.3
@@ -4099,6 +4102,11 @@ packages:
   path-type@4.0.0:
     resolution: {integrity: sha512-gDKb8aZMDeD/tZWs9P6+q0J9Mwkdl6xMV8TjnGP3qJVJ06bdMgkbBlLU8IdfOsIsFz2BW1rNVT3XuNEl8zPAvw==}
     engines: {node: '>=8'}
+
+  pdf2json@4.0.3:
+    resolution: {integrity: sha512-QErPemxRHDI2RUli3+9/mv4V6Ib9VWI+UoP2S82yXEQtoXzWvu9NSjjo3vyiUiVJv+CJFuzNiKUI+UFFUdv8Lg==}
+    engines: {node: '>=20.18.0'}
+    hasBin: true
 
   pg-int8@1.0.1:
     resolution: {integrity: sha512-WCtabS6t3c8SkpDBUlb1kjOs7l66xsGdKpIPZsg4wR+B3+u9UAum2odSsF9tnvxg80h4ZxLWMy4pRjOsFIqQpw==}
@@ -9613,6 +9621,8 @@ snapshots:
   path-to-regexp@8.4.2: {}
 
   path-type@4.0.0: {}
+
+  pdf2json@4.0.3: {}
 
   pg-int8@1.0.1: {}
 
