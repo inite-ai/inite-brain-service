@@ -94,3 +94,42 @@ export function conflictMentionFactSlotEnabled(): boolean {
 export function conflictSlotCanonicalizationEnabled(): boolean {
   return envFlagEnabled(process.env.CONFLICT_SLOT_CANONICALIZATION);
 }
+
+/**
+ * Succession tiebreaker for the bitemporal close-margin doctrine —
+ * CONFLICT_TEMPORAL_TIEBREAKER.
+ *
+ * The #444/#455 promotion (CONFLICT_MENTION_FACT_SLOT + slot-exact
+ * cosine floor) routes mention-path single-value slots into
+ * fn::resolve_fact's margin doctrine, where batch-shaped corpora score
+ * every write identically (margin ~0) and EVERY same-slot pairing
+ * lands COMPETING — genuine temporal updates included ("now NATS
+ * JetStream" ended competing; honest serving then abstains on a
+ * settled current value — memory-fitness run mfmtqn2jiq, 28/30 →
+ * 23/30). Score margin alone cannot tell a temporal UPDATE from a
+ * CONTRADICTION, and neither can validFrom separation (measured: the
+ * s07 contradiction arms are 6 days apart, the launch update 16, the
+ * payout-cutoff contradiction 15, the killing pairing 25 minutes) or
+ * origin identity (one recorder per battery). What DOES distinguish
+ * them in the data is the update-language cue: successions say so
+ * ("is now X", "moves from A to B", "instead of", "no longer"),
+ * contradictions assert states without succession markers.
+ *
+ * When on, the mention path computes a deterministic succession-cue
+ * regex over the object (hasUpdateCue in fact-resolver.service.ts) and
+ * binds it, with the ambiguity window
+ * (CONFLICT_TEMPORAL_TIEBREAK_WINDOW_MS, default 0, clamped), into
+ * fn::resolve_fact (migration 0129): a close-margin write whose object
+ * carries the cue CLOSES pool members with a strictly-earlier-beyond-
+ * window validFrom as superseded history instead of flipping them to
+ * COMPETING; cue-less writes, same-stamp pairs and the direct typed
+ * path (which never computes the cue) keep the existing doctrine.
+ * The env read lives here in the common layer (engine-gates S5.2),
+ * read at call time so a flip is runtime-mutable. Default off ⇒ the
+ * new fn args are never bound, byte-identical. CONFLICT_ sits off the
+ * ENGINE flag budget by design (a resolver-policy knob family — cfg
+ * weights/thresholds — not an engine fork).
+ */
+export function conflictTemporalTiebreakerEnabled(): boolean {
+  return envFlagEnabled(process.env.CONFLICT_TEMPORAL_TIEBREAKER);
+}
