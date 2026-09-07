@@ -357,11 +357,13 @@ export const SCENARIOS: Scenario[] = [
         conflictSides: { sideA: ['December'], sideB: ['September'] },
         knownFailToday:
           'CONFLICT_SLOT_CANONICALIZATION — the arms extract into DIFFERENT slots on one ' +
-          'entity ((office lease, status) vs (office lease, duration_limit)), and the ' +
-          'conflict machinery pairs only identical (userId, entity, predicate), so even ' +
-          'with CONFLICT_MENTION_FACT_SLOT on no collision structurally exists; the flag ' +
-          '(default off) routes the calendar-anchored duration_limit arm into the status ' +
-          'slot at write time so the bitemporal margin doctrine sees the collision',
+          'entity ((office lease, status) vs (office lease, duration_limit), and the ' +
+          'landing lottery can also put either arm in (office lease, state_change) — run ' +
+          'stmtq22rtp), and the conflict machinery pairs only identical (userId, entity, ' +
+          'predicate), so even with CONFLICT_MENTION_FACT_SLOT on no collision ' +
+          'structurally exists; the flag (default off) routes every calendar-anchored ' +
+          'artifact lifecycle landing (duration_limit, non-person state_change) into the ' +
+          'status slot at write time so the bitemporal margin doctrine sees the collision',
       },
       {
         kind: 'provenance',
