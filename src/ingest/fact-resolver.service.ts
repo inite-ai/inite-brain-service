@@ -15,11 +15,17 @@ import {
   conflictDirectFactSlotEnabled,
   conflictMentionFactSlotEnabled,
   conflictSlotCanonicalizationEnabled,
+  conflictTemporalTiebreakerEnabled,
 } from '../common/conflict-flags';
 import { supportEdgesEnabled } from '../common/provenance-flags';
 import { buildConflictEdgeRows } from '../common/support-edges';
 import { KeyedMutex } from '../common/keyed-mutex';
-import { ConflictConfig, type DerivedSemantics, type ResolveOutcome } from './conflict-resolver';
+import {
+  ConflictConfig,
+  clampTemporalTiebreakWindowMs,
+  type DerivedSemantics,
+  type ResolveOutcome,
+} from './conflict-resolver';
 import { idTailOf, sourceTrustFor } from './ingest-utils';
 import { stampGroundingStatus } from './grounding-stamp';
 import { FactEmbeddingService } from './fact-embedding.service';
@@ -237,6 +243,80 @@ export function canonicalSlotFor(
 }
 
 /**
+ * Succession-cue detector for the temporal tiebreaker
+ * (CONFLICT_TEMPORAL_TIEBREAKER, migration 0129). Deterministic,
+ * word-bounded English update markers — an object that NARRATES
+ * SUCCESSION ("is now NATS JetStream", "moves from 2026-04-15 to
+ * 2026-05-06", "instead of Fly.io", "no longer the queue", "switched
+ * to PostgreSQL") is a knowledge update of a strictly-earlier state;
+ * an object that merely asserts a state ("ends in September 2026",
+ * "until December 2026", bare values) is not, even when a dispute
+ * marker like "actually" is present — disputing the record is a
+ * CONTRADICTION and must keep the close-margin → COMPETING doctrine
+ * (state-transitions s07, measured live). Chosen over the naive
+ * discriminators the regression sweep measured and rejected: validFrom
+ * separation (contradiction arms sit 6-15 days apart, the killing
+ * update pairing 25 minutes — no window separates them) and origin
+ * identity (one recorder per corpus). Conservative by construction:
+ * a missed cue keeps today's behavior; no LLM, no DB read.
+ */
+export const UPDATE_CUE_RE = new RegExp(
+  [
+    String.raw`\bnow\b`,
+    String.raw`\bno longer\b`,
+    String.raw`\banymore\b`,
+    String.raw`\bmov(?:e|es|ed|ing)\s+(?:from|to)\b`,
+    String.raw`\bswitch(?:es|ed|ing)?\s+(?:from|to)\b`,
+    String.raw`\bchang(?:es|ed|ing)\s+(?:from|to)\b`,
+    String.raw`\bmigrat(?:es|ed|ing)\s+(?:from|to)\b`,
+    String.raw`\bupdat(?:es|ed|ing)\s+to\b`,
+    String.raw`\brenam(?:e|es|ed|ing)\b`,
+    String.raw`\breplac(?:es|ed|ing)\b`,
+    String.raw`\bsupersed(?:es|ed|ing)\b`,
+    String.raw`\binstead of\b`,
+    String.raw`\bformerly\b`,
+  ].join('|'),
+  'i',
+);
+
+/** Pure cue check (exported for tests). */
+export function hasUpdateCue(object: string): boolean {
+  return UPDATE_CUE_RE.test(object);
+}
+
+/**
+ * External-artifact evidence kinds — a claim citing one is backed by a
+ * STANDING EXTERNAL SOURCE (a document, a URL), not by the recorder's
+ * own narration. Such claims sit outside the self-update lane on both
+ * sides of the tiebreaker: they never attest succession (a later
+ * doc-backed record is a new voice, not a revision of the old one) and
+ * are never closed by mere recency (the agent re-recording its own
+ * slot does not invalidate what an external document says — that
+ * disagreement is exactly what the COMPETING lane and D6 adjudication
+ * exist for; measured live: the Meridian payout-cutoff pair, Priya
+ * 17:00 vs docs v2.3 16:30, must keep competing while the same-shaped
+ * pilot-launch-date self-revision must supersede).
+ */
+export const EXTERNAL_ARTIFACT_EVIDENCE_KINDS: ReadonlySet<string> = new Set(['document', 'url']);
+
+/**
+ * Direct-path succession attestation: a typed record_fact re-write of
+ * a single-value slot is a SELF-UPDATE by the act itself — the caller
+ * re-stated its own slot value later — UNLESS the claim cites an
+ * external artifact (see EXTERNAL_ARTIFACT_EVIDENCE_KINDS), in which
+ * case it is an independent voice and the close-margin → COMPETING
+ * doctrine must stand. Pure; exported for tests.
+ */
+export function directSelfUpdateCue(source: unknown): boolean {
+  const evidence = (source as { evidence?: Array<{ kind?: unknown }> } | null | undefined)
+    ?.evidence;
+  if (!Array.isArray(evidence)) return true;
+  return !evidence.some(
+    (e) => typeof e?.kind === 'string' && EXTERNAL_ARTIFACT_EVIDENCE_KINDS.has(e.kind),
+  );
+}
+
+/**
  * Confidence-aware language-attribution metadata (multilingual Tier 1,
  * migration 0100). Built ONLY when MULTILINGUAL_LANG_ATTRIBUTION is on and
  * stamped onto the created fact by a follow-up UPDATE (the stampFactScope
@@ -262,8 +342,8 @@ interface LangAttributionMeta {
 /**
  * Per-fact write primitive: the single entry point for `fn::resolve_fact`
  * (migration 0039). Both ingest paths — typed ingestFact and mention-extracted
- * facts — route through `resolve()` so the 25-positional-arg invocation
- * (as of 0084: …, $predicate_alias, $slot_similarity) lives
+ * facts — route through `resolve()` so the 27-positional-arg invocation
+ * (as of 0129: …, $slot_similarity, $tiebreak_window_ms, $update_cue) lives
  * in ONE place: a future signature change can't drift the call sites out of
  * sync (which would silently bind a value to the wrong slot, e.g. entropy into
  * script). Owns the conflict weights/thresholds (read from env), the
@@ -300,6 +380,14 @@ export class FactResolverService {
       },
       marginForSupersede: this.cfgNum('CONFLICT_MARGIN_SUPERSEDE', 0.15),
       rejectThreshold: this.cfgNum('CONFLICT_REJECT_THRESHOLD', 0.3),
+      // 0129: succession-tiebreaker ambiguity window. Default 0 =
+      // strict event order (identical stamps still compete) — argued
+      // from measurement in conflict-resolver.ts; clamped to
+      // [0, 365d] so nonsense env values cannot disable strictness or
+      // swallow whole corpora.
+      temporalTiebreakWindowMs: clampTemporalTiebreakWindowMs(
+        this.cfgNum('CONFLICT_TEMPORAL_TIEBREAK_WINDOW_MS', 0),
+      ),
     };
   }
 
@@ -483,6 +571,30 @@ export class FactResolverService {
     // canonicalization: the canonical slot's registry policy (status →
     // single_active) is what the mention promotion sees.
     const { semantics, similarityFloor } = conflictSlotResolution(policy, path);
+    // Succession tiebreaker (CONFLICT_TEMPORAL_TIEBREAKER, default
+    // off, migration 0129): armed for 'bitemporal' resolves on BOTH
+    // paths, with a per-path succession attestation:
+    //  - mention path: the deterministic marker regex over the stored
+    //    object (hasUpdateCue) — extraction narrates succession or it
+    //    does not;
+    //  - direct path: the typed re-write of a single-value slot is a
+    //    self-update BY THE ACT (directSelfUpdateCue), unless the
+    //    claim cites an external artifact (document/url evidence) —
+    //    an independent standing voice keeps the COMPETING doctrine,
+    //    which is what preserves the D6 payout-cutoff pair while the
+    //    same-shaped pilot-launch-date self-revision supersedes
+    //    (measured: the T3 conflict note over that pair is what made
+    //    honest serving refuse a settled current value).
+    // The window rides from ConflictConfig. Flag off ⇒ both fields
+    // undefined ⇒ the fn's new option args land NONE ⇒ resolver
+    // behavior byte-identical.
+    const tiebreakArmed = semantics === 'bitemporal' && conflictTemporalTiebreakerEnabled();
+    const tiebreakWindowMs = tiebreakArmed ? this.conflict.temporalTiebreakWindowMs : undefined;
+    const updateCue = !tiebreakArmed
+      ? undefined
+      : path === 'mention'
+        ? hasUpdateCue(p.object)
+        : directSelfUpdateCue(p.source);
     const sourceTrust = sourceTrustFor(p.source as Parameters<typeof sourceTrustFor>[0]);
     // Confidence-aware attribution (MULTILINGUAL_LANG_ATTRIBUTION, default
     // off). Off → detectLanguage keeps its Phase-4 `en` fallback and no new
@@ -597,6 +709,8 @@ export class FactResolverService {
       sourceTrust,
       semantics,
       similarityFloor,
+      tiebreakWindowMs,
+      updateCue,
       lang,
       script,
       langMeta,
@@ -794,7 +908,7 @@ export class FactResolverService {
    * lock: append_only never supersedes and never asserts a unique active row, so
    * batched inserts are all correct.
    *
-   * The 25-arg positional binding (0084) lives in the migration, NOT here — the TS side
+   * The 27-arg positional binding (0129) lives in the migration, NOT here — the TS side
    * passes a TYPED object array + one shared config, so a fn::resolve_fact
    * signature change can't silently drift a hand-built parameter string.
    * Optional fields are omitted when undefined so `$f.x` resolves to NONE
@@ -994,6 +1108,13 @@ export class FactResolverService {
        *  conflictSlotResolution). Undefined ⇒ the shared configured
        *  CONFLICT_SIMILARITY_THRESHOLD, byte-identical. */
       similarityFloor?: number | undefined;
+      /** 0129: succession-tiebreaker ambiguity window (ms). Undefined ⇒
+       *  the fn's $tiebreak_window_ms lands NONE and the tiebreaker is
+       *  off for this call, byte-identical. */
+      tiebreakWindowMs?: number | undefined;
+      /** 0129: caller-attested succession cue on the object (mention
+       *  path, deterministic regex). Undefined ⇒ NONE ⇒ off. */
+      updateCue?: boolean | undefined;
       lang?: string | undefined;
       script?: string | undefined;
       /** Attribution metadata (0100), stamped by a follow-up UPDATE; not
@@ -1026,7 +1147,8 @@ export class FactResolverService {
             $w_confidence, $w_source_trust, $w_recency, $w_authority,
             $reject_threshold, $margin_for_supersede,
             $lang, $script, $entropy, $user_id, $derived_version,
-            $predicate_alias, $slot_similarity
+            $predicate_alias, $slot_similarity,
+            $tiebreak_window_ms, $update_cue
          )`,
           {
             eid: idTailOf(p.entityId),
@@ -1043,6 +1165,10 @@ export class FactResolverService {
             semantics: p.semantics,
             similarity_threshold: p.similarityFloor ?? this.conflict.similarityThreshold,
             slot_similarity: this.conflict.slotSimilarityThreshold,
+            // 0129: undefined ⇒ NONE server-side ⇒ tiebreaker off for
+            // this call (flag off / direct path / non-bitemporal).
+            tiebreak_window_ms: p.tiebreakWindowMs,
+            update_cue: p.updateCue,
             w_confidence: this.conflict.weights.confidence,
             w_source_trust: this.conflict.weights.sourceTrust,
             w_recency: this.conflict.weights.recency,

@@ -1201,6 +1201,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       "Write-side slot canonicalization. The conflict machinery pairs only identical (userId, entity, predicate) slots, but the extractor legitimately splits one contradicted attribute across two predicates — 'lease runs until December 2026' is a duration phrase (duration_limit, append_only) while 'lease ends in September 2026' is a lifecycle claim (status, single_active) — so no collision structurally exists and CONFLICT_MENTION_FACT_SLOT is starved (state-transitions s07). When on, a mention-path fact whose predicate sits in a small declared alias table (duration_limit → status) AND whose object carries an explicit calendar anchor (full month name + 4-digit year, or an ISO date) resolves in the canonical single-value slot instead, re-embedded with the canonical slot text, so both arms of the contradiction meet in one slot and the normal single_active/bitemporal machinery adjudicates (with CONFLICT_MENTION_FACT_SLOT also on: close-scored → COMPETING, both sides served). Purely deterministic (static table + regex, no DB read, no fuzzy matching, no LLM), order-free and idempotent. Bare unit durations ('30 days' — the technical-literal harvest bulk), facts with an EDC predicateAlias, the direct typed path, and every other predicate are untouched. Off (default) = extracted-predicate passthrough, byte-identical. Requires re-ingest to affect existing rows.",
   },
+  {
+    key: 'CONFLICT_TEMPORAL_TIEBREAKER',
+    category: 'conflict',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Succession tiebreaker for the bitemporal close-margin doctrine (migration 0129). The conflict-slot promotions plus the slot-exact cosine floor route single-value slots into the margin doctrine, where batch-shaped corpora score every write identically (margin ~0) and every same-slot pairing lands COMPETING — genuine temporal updates included, so honest serving abstains on settled current values (memory-fitness regression, run mfmtqn2jiq). Score margin cannot tell an UPDATE from a CONTRADICTION, and measured live neither can validFrom separation (contradiction arms sit 6-15 days apart, the killing update pairing 25 minutes) or origin identity (one recorder per corpus). When on, a close-margin 'bitemporal' write attesting succession — mention path: a deterministic word-bounded cue regex over the object ('is now X', 'moves from A to B', 'instead of', 'no longer', 'switched to' — no LLM); direct path: a typed re-write of a single-value slot is a self-update by the act, unless the claim cites an external artifact (document/url evidence) — closes pool members whose validFrom is strictly earlier by more than CONFLICT_TEMPORAL_TIEBREAK_WINDOW_MS as superseded history (natural-supersede sentinel; audit trail in conflictTrace.temporalTiebreak) instead of flipping them to COMPETING. Exactly these calls also re-admit stuck COMPETING rows to the pool (the 0085-F3 doctrine — a stuck pair was measured permanent otherwise) and close an exact same-origin restatement as corroborating (no count inflation). Everyone else — cue-less contradiction arms ('actually ends in September 2026'), same-stamp pairs, within-window members, missing validFrom, artifact-backed incumbents (the D6 payout-cutoff shape, protected on both sides) — keeps the close-margin → COMPETING doctrine, 0085-partition style. Off (default) = the fn's new option args are never bound, byte-identical.",
+  },
+  {
+    key: 'CONFLICT_TEMPORAL_TIEBREAK_WINDOW_MS',
+    category: 'conflict',
+    defaultValue: '0',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Ambiguity window (ms) for CONFLICT_TEMPORAL_TIEBREAKER: a cue-bearing close-margin write only closes pool members whose validFrom is strictly earlier by MORE than this window. Default 0 = strict event order — the ambiguity the window protects is same-report claims, and those share the exact event-time stamp, which strict comparison already keeps COMPETING; measured on the regression corpus, the real update chain steps in 25-minute increments, so any window ≥ 25 min re-breaks the fix (the 24h first guess failed both acceptance cases). Clamped to [0, 365d]; negative or non-numeric input clamps to 0.',
+  },
   // ── ABAC (migrations 0056/0057) ──────────────────────────
   {
     key: 'ABAC_ENABLED',

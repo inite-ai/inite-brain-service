@@ -1,7 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EmbedderService } from '../ai/embedder.service';
-import { ConflictConfig, SOURCE_TRUST, scoreFact } from './conflict-resolver';
+import {
+  ConflictConfig,
+  SOURCE_TRUST,
+  clampTemporalTiebreakWindowMs,
+  scoreFact,
+} from './conflict-resolver';
 import { sourceTrustFor } from './ingest-utils';
 import {
   OpposingFact,
@@ -41,6 +46,11 @@ export class PredictScoringService {
       },
       marginForSupersede: this.cfgNum('CONFLICT_MARGIN_SUPERSEDE', 0.15),
       rejectThreshold: this.cfgNum('CONFLICT_REJECT_THRESHOLD', 0.3),
+      // 0129: not read by predict scoring (no resolver call here) —
+      // present because ConflictConfig is one shared shape.
+      temporalTiebreakWindowMs: clampTemporalTiebreakWindowMs(
+        this.cfgNum('CONFLICT_TEMPORAL_TIEBREAK_WINDOW_MS', 0),
+      ),
     };
   }
 

@@ -177,6 +177,34 @@ export interface ConflictConfig {
   };
   marginForSupersede: number;
   rejectThreshold: number;
+  /**
+   * 0129: ambiguity window (ms) for the succession tiebreaker
+   * (CONFLICT_TEMPORAL_TIEBREAK_WINDOW_MS, default 0, clamped in
+   * FactResolverService). Bound into fn::resolve_fact only when
+   * CONFLICT_TEMPORAL_TIEBREAKER is on and the write is a mention-path
+   * 'bitemporal' resolve; a close-margin write carrying a succession
+   * cue closes pool members whose validFrom is strictly earlier by
+   * MORE than this window. Default 0 = strict event order (identical
+   * stamps — one report — still COMPETE); measured against both
+   * acceptance corpora: the real update chain steps in 25-minute
+   * increments, so any window ≥ 25 min re-breaks the regression case,
+   * while the contradiction hold comes from the cue, not the window.
+   */
+  temporalTiebreakWindowMs: number;
+}
+
+/**
+ * 0129: bounds for temporalTiebreakWindowMs. The window is an
+ * ambiguity guard, not a discriminator — the ceiling (365d) only fences
+ * off nonsense values; negative input clamps to 0 (strict event order).
+ * Pure and exported so both ConflictConfig constructors clamp
+ * identically and tests pin the bounds.
+ */
+export const TEMPORAL_TIEBREAK_WINDOW_MAX_MS = 365 * 24 * 60 * 60 * 1000;
+
+export function clampTemporalTiebreakWindowMs(raw: number): number {
+  if (!Number.isFinite(raw) || raw < 0) return 0;
+  return Math.min(raw, TEMPORAL_TIEBREAK_WINDOW_MAX_MS);
 }
 
 // `satisfies` (not a `Record<string, number>` annotation) so each key keeps
