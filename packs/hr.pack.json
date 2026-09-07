@@ -1,6 +1,6 @@
 {
   "id": "hr",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "HR / recruiting ontology — required skills, seniority, compensation, employment type, and work location of roles, with a domain extraction profile and memory model.",
   "predicates": [
     {
@@ -299,6 +299,19 @@
       {
         "predicateOrScene": "interview_debrief",
         "hint": "ephemeral"
+      }
+    ],
+    "modalities": [
+      "text",
+      "document"
+    ],
+    "processors": [
+      {
+        "id": "document_text",
+        "modality": "document",
+        "produces": [
+          "text"
+        ]
       }
     ]
   },

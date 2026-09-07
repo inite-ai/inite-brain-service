@@ -18,6 +18,10 @@ import { createApp } from './app-fixture';
 
 // A distinct pack id per run guards against catalogue rows lingering in the
 // shared system DB across spec files in one jest process.
+// It inherits real_estate's media section (modalities / processors /
+// rawEvidence, 0.3.0), so every install here passes acceptModalities: true —
+// the operator consent gate. pack-modality-consent.e2e-spec.ts owns the
+// refusal path; this file is about registry mechanics.
 const PACK = {
   ...REAL_ESTATE_PACK,
   id: 'realty_reg_e2e',
@@ -123,7 +127,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
     const r = await pub.http
       .post('/v1/admin/packs/from-registry')
       .set(auth(pub))
-      .send({ packId: PACK.id });
+      .send({ packId: PACK.id, acceptModalities: true });
     expect([200, 201]).toContain(r.status);
     expect(r.body.packId).toBe(PACK.id);
     expect(r.body.predicatesSeeded).toBe(PACK.predicates.length);
@@ -156,7 +160,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
     const pinned = await pub.http
       .post('/v1/admin/packs/from-registry')
       .set(auth(pub))
-      .send({ packId: PACK.id, version: '0.2.0' });
+      .send({ packId: PACK.id, version: '0.2.0', acceptModalities: true });
     expect(pinned.status).toBe(400);
 
     // Unyank restores it as latest.
@@ -172,7 +176,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
     const r = await pub.http
       .post('/v1/admin/packs/from-registry')
       .set(auth(pub))
-      .send({ packId: 'no_such_pack_xyz' });
+      .send({ packId: 'no_such_pack_xyz', acceptModalities: true });
     expect(r.status).toBe(404);
   });
 
@@ -220,7 +224,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
       const r = await pub.http
         .post('/v1/admin/packs/from-registry')
         .set(auth(pub))
-        .send({ packId: id });
+        .send({ packId: id, acceptModalities: true });
       expect([200, 201]).toContain(r.status);
     }
     versions = await reader.http.get(`/v1/registry/packs/${id}`).set(auth(reader));
@@ -236,7 +240,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
     const r = await pub.http
       .post('/v1/admin/packs/from-registry')
       .set(auth(pub))
-      .send({ packId: id, version: '0.2.0' });
+      .send({ packId: id, version: '0.2.0', acceptModalities: true });
     expect([200, 201]).toContain(r.status);
 
     const list = await reader.http.get('/v1/registry/packs?q=dl_count').set(auth(reader));
@@ -267,7 +271,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
     const refused = await pub.http
       .post('/v1/admin/packs/from-registry')
       .set(auth(pub))
-      .send({ packId: id, version: '0.3.0' });
+      .send({ packId: id, version: '0.3.0', acceptModalities: true });
     expect(refused.status).toBe(400);
 
     const versions = await reader.http.get(`/v1/registry/packs/${id}`).set(auth(reader));

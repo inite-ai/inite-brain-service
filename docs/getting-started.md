@@ -88,7 +88,9 @@ idempotent.
   `/v1/ingest/document` — [Document pipeline](document-pipeline.md).
 - Install a Domain Pack (needs a `brain:admin`-scoped key):
   `BRAIN_API_KEY=... pnpm pack:install -- --brain-url http://localhost:3000
-  --file packs/fintech.pack.json` extends the ontology at runtime —
+  --file packs/fintech.pack.json --accept-modalities` extends the ontology
+  at runtime. `--accept-modalities` is the operator consent to the pack's
+  declared media section; without it the install is refused —
   [Domain Packs](domain-packs.md).
 - Wire your vertical: [Migration guide](migration-guide.md)
 - Understand the read path: [Architecture](architecture.md)

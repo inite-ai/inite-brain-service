@@ -32,8 +32,13 @@ describe('GET /registry/ui — public catalogue (e2e)', () => {
       privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
     );
     await f.http.post('/v1/admin/registry/packs').set(auth).send({ manifest });
-    // One install-from-registry → download counter at 1.
-    await f.http.post('/v1/admin/packs/from-registry').set(auth).send({ packId: 'realty_ui_e2e' });
+    // One install-from-registry → download counter at 1. The fixture
+    // inherits real_estate's media section (0.3.0), so the install needs
+    // the operator consent flag.
+    await f.http
+      .post('/v1/admin/packs/from-registry')
+      .set(auth)
+      .send({ packId: 'realty_ui_e2e', acceptModalities: true });
   });
   afterAll(async () => {
     delete process.env.DOMAIN_PACK_TRUSTED_KEYS;

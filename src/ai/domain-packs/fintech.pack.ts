@@ -8,11 +8,18 @@ import type { DomainPackManifest } from './manifest';
  * tenants. Ships an extractionProfile + eval fixtures + memoryModel (license /
  * certification / enforcement lifecycles, attention + retention hints, recency
  * rules for license and settlement claims) so it's a complete, self-verifying
- * ontology, not a stub. Bump `version` to ship an update.
+ * ontology, not a stub.
+ *
+ * As of 0.3.0 the memoryModel also carries a MEDIA CONTRACT: statements,
+ * filings, and KYC paperwork as documents; document text extraction as the
+ * single core capability requested; NO image modality (KYC identity
+ * photography is biometric-adjacent) and NO raw-evidence declaration.
+ *
+ * Bump `version` to ship an update.
  */
 export const FINTECH_PACK: DomainPackManifest = {
   id: 'fintech',
-  version: '0.2.0',
+  version: '0.3.0',
   description:
     'Financial-services regulation ontology — regulators, licenses, compliance standards, capital, and settlement of institutions/products, with a domain extraction profile and memory model.',
   predicates: [
@@ -110,7 +117,8 @@ named entity, ALSO emit an edge (Institution —regulated_by→ Authority).`,
   },
   // The domain perception contract (docs/domain-packs.md). Declarative data
   // only — consumed by MemoryModelReaderService for installed tenants.
-  // Text-only: no modalities/processors/rawEvidence, so no consent surface.
+  // The media section (modalities/processors/rawEvidence) is the consent
+  // surface: installing this pack requires `acceptModalities: true`.
   memoryModel: {
     sceneSchemas: [
       {
@@ -193,6 +201,20 @@ named entity, ALSO emit an edge (Institution —regulated_by→ Authority).`,
       { predicateOrScene: 'audit_review', hint: 'durable' },
       { predicateOrScene: 'regulatory_filing', hint: 'standard' },
     ],
+    // ── Media contract (Evidence Plane) ─────────────────────────────────
+    // Financial evidence is DOCUMENTARY: statements, regulatory filings,
+    // licence certificates, KYC paperwork. Document text extraction
+    // (document → text) is the only core capability requested, and it is
+    // the only one an installed adapter can run. `image` is deliberately
+    // NOT declared: KYC identity photography is biometric-adjacent, and a
+    // pack should not widen a tenant's media consent for evidence this
+    // ontology (institutions and products, not people) never reasons over.
+    modalities: ['text', 'document'],
+    processors: [{ id: 'document_text', modality: 'document', produces: ['text'] }],
+    // rawEvidence is DELIBERATELY ABSENT (omission = deny). Statements and
+    // KYC files are the most re-identifiable artifacts in the library;
+    // derived text is enough to answer a compliance question, so
+    // gateRawEvidence refuses raw bytes and signed URLs for this pack.
   },
   evalFixtures: [
     {

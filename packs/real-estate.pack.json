@@ -1,6 +1,6 @@
 {
   "id": "real_estate",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Real-estate ontology — zoning, valuation, encumbrances, tenure, and construction of properties/parcels, with a domain extraction profile and memory model.",
   "predicates": [
     {
@@ -319,7 +319,31 @@
         "predicateOrScene": "viewing",
         "hint": "ephemeral"
       }
-    ]
+    ],
+    "modalities": [
+      "text",
+      "image",
+      "document"
+    ],
+    "processors": [
+      {
+        "id": "image_metadata",
+        "modality": "image",
+        "produces": [
+          "caption"
+        ]
+      },
+      {
+        "id": "document_text",
+        "modality": "document",
+        "produces": [
+          "text"
+        ]
+      }
+    ],
+    "rawEvidence": {
+      "serve": true
+    }
   },
   "evalFixtures": [
     {

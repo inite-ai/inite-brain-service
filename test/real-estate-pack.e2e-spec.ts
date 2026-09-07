@@ -56,7 +56,11 @@ describe('real_estate pack — extractionProfile consumption (e2e)', () => {
   });
 
   it('installs the real_estate pack and surfaces its profile on the snapshot', async () => {
-    const r = await f.http.post('/v1/admin/packs').set(auth()).send({ manifest: REAL_ESTATE_PACK });
+    // real_estate declares a media section (0.3.0) — install needs consent.
+    const r = await f.http
+      .post('/v1/admin/packs')
+      .set(auth())
+      .send({ manifest: REAL_ESTATE_PACK, acceptModalities: true });
     expect([200, 201]).toContain(r.status);
     expect(r.body.packId).toBe('real_estate');
     expect(r.body.predicatesSeeded).toBe(REAL_ESTATE_PACK.predicates.length);

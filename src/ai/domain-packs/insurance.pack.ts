@@ -5,12 +5,19 @@ import type { DomainPackManifest } from './manifest';
  * `packs/insurance.pack.json`, NOT in BUILTIN_PACKS). Captures policy ontology —
  * coverage, limits, premiums, deductibles, exclusions — with an extractionProfile
  * + eval fixtures + memoryModel (policy / claim lifecycles, attention +
- * retention hints, recency rules for premium and coverage claims). Bump
- * `version` to ship an update.
+ * retention hints, recency rules for premium and coverage claims).
+ *
+ * As of 0.3.0 the memoryModel also carries a MEDIA CONTRACT: claim
+ * photographs and policy documents as input modalities, the two core
+ * capabilities the Evidence Plane can actually run (image metadata,
+ * document text), and NO raw-evidence declaration — a claim photo
+ * routinely carries third-party personal data.
+ *
+ * Bump `version` to ship an update.
  */
 export const INSURANCE_PACK: DomainPackManifest = {
   id: 'insurance',
-  version: '0.2.0',
+  version: '0.3.0',
   description:
     'Insurance ontology — coverage, limits, premiums, deductibles, and exclusions of policies, with a domain extraction profile and memory model.',
   predicates: [
@@ -101,7 +108,8 @@ what it EXCLUDES.`,
   },
   // The domain perception contract (docs/domain-packs.md). Declarative data
   // only — consumed by MemoryModelReaderService for installed tenants.
-  // Text-only: no modalities/processors/rawEvidence, so no consent surface.
+  // The media section (modalities/processors/rawEvidence) is the consent
+  // surface: installing this pack requires `acceptModalities: true`.
   memoryModel: {
     sceneSchemas: [
       {
@@ -176,6 +184,22 @@ what it EXCLUDES.`,
       { predicateOrScene: 'claim_intake', hint: 'durable' },
       { predicateOrScene: 'renewal_review', hint: 'standard' },
     ],
+    // ── Media contract (Evidence Plane) ─────────────────────────────────
+    // A claim arrives as PHOTOGRAPHS of the loss and as POLICY DOCUMENTS
+    // (schedules, wordings, adjuster reports). Only the two capabilities
+    // the trusted core can actually run today are requested: image
+    // metadata (image → caption) and document text extraction
+    // (document → text). OCR / ASR / vision-caption are deliberately NOT
+    // declared — no adapter is installed for them.
+    modalities: ['text', 'image', 'document'],
+    processors: [
+      { id: 'image_metadata', modality: 'image', produces: ['caption'] },
+      { id: 'document_text', modality: 'document', produces: ['text'] },
+    ],
+    // rawEvidence is DELIBERATELY ABSENT (omission = deny). Claim
+    // photography routinely captures injuries, plates, and bystanders —
+    // third-party personal data the pack has no standing to hand back —
+    // so gateRawEvidence refuses raw bytes and signed URLs for this pack.
   },
   evalFixtures: [
     {

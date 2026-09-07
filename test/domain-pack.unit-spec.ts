@@ -5,17 +5,25 @@
 import {
   assembleSeed,
   composePredicateId,
+  declaredModalitySection,
   diffPackUpgrade,
+  modalitiesChecksum,
+  modalityConsentRequired,
   packChecksum,
   validatePack,
   DomainPackError,
+  FIRST_PARTY_PACKS,
   SEED_DOC_MAX_CHARS,
   SEED_MAX_DOCS,
   SEED_TOTAL_MAX_CHARS,
   type DomainPackManifest,
+  type PackMemoryModality,
   type PackPredicate,
   type PackSeedDocument,
 } from '../src/ai/domain-packs';
+import type { EvidenceModality } from '../src/common/evidence-taxonomy';
+import { gateProcessorDispatch } from '../src/evidence/processing/dispatch-gate';
+import { gateRawEvidence } from '../src/mcp/raw-evidence-gate';
 import { computeHash } from '../src/ai/predicate-registry-internals/db-mapping';
 import {
   CODE_MEMORY_PACK,
@@ -489,10 +497,6 @@ describe('code-memory pack', () => {
     expect(mm?.attentionHints?.length ?? 0).toBeGreaterThanOrEqual(5);
     expect(mm?.verificationRules).toEqual([{ claimPattern: 'default', requires: 'recency_check' }]);
     expect(mm?.retentionHints?.some((h) => h.predicateOrScene === 'gotcha')).toBe(true);
-    // Text-only: no consent-tier declarations.
-    expect(mm?.modalities).toBeUndefined();
-    expect(mm?.processors).toBeUndefined();
-    expect(mm?.rawEvidence).toBeUndefined();
   });
 
   it('eval fixtures cover every 0.4.0 predicate and resolve against declared localIds', () => {
@@ -509,5 +513,262 @@ describe('code-memory pack', () => {
     for (const local of ['owns', 'default_value', 'depends_on_version', 'superseded_by']) {
       expect(asserted.has(local)).toBe(true);
     }
+  });
+});
+
+// ── Media contract: modalities / processors / rawEvidence ────────────────
+//
+// Before these declarations every first-party pack was text-only, which
+// meant FOUR consumers denied unconditionally: gateProcessorDispatch, the
+// processor broker behind it, gateRawEvidence, and the raw-read gateway +
+// signed-URL mint that call it. The pins below are the contract each pack
+// now offers; the gate block after them proves the consumers came alive.
+
+/** The two capabilities an installed adapter can actually run today. */
+const IMAGE_METADATA = { id: 'image_metadata', modality: 'image', produces: ['caption'] };
+const DOCUMENT_TEXT = { id: 'document_text', modality: 'document', produces: ['text'] };
+
+interface MediaExpectation {
+  pack: DomainPackManifest;
+  version: string;
+  modalities: PackMemoryModality[];
+  processors: Array<{ id: string; modality: string; produces: string[] }>;
+  /** undefined = raw serving DENIED (the schema's conservative setting). */
+  rawEvidence: { serve: true } | undefined;
+}
+
+const MEDIA_CONTRACT: MediaExpectation[] = [
+  {
+    pack: packById('real_estate'),
+    version: '0.3.0',
+    modalities: ['text', 'image', 'document'],
+    processors: [IMAGE_METADATA, DOCUMENT_TEXT],
+    // Listing media is published marketing material — the one pack that serves raw.
+    rawEvidence: { serve: true },
+  },
+  {
+    pack: packById('medical'),
+    version: '0.3.0',
+    modalities: ['text', 'image', 'document'],
+    processors: [IMAGE_METADATA, DOCUMENT_TEXT],
+    rawEvidence: undefined, // clinical imaging never serves raw
+  },
+  {
+    pack: packById('insurance'),
+    version: '0.3.0',
+    modalities: ['text', 'image', 'document'],
+    processors: [IMAGE_METADATA, DOCUMENT_TEXT],
+    rawEvidence: undefined, // claim photos carry third-party personal data
+  },
+  {
+    pack: packById('legal'),
+    version: '0.3.0',
+    modalities: ['text', 'image', 'document'],
+    processors: [DOCUMENT_TEXT, IMAGE_METADATA],
+    rawEvidence: undefined, // exhibits carry privilege
+  },
+  {
+    pack: packById('fintech'),
+    version: '0.3.0',
+    modalities: ['text', 'document'],
+    processors: [DOCUMENT_TEXT],
+    rawEvidence: undefined, // statements / KYC files
+  },
+  {
+    pack: packById('hr'),
+    version: '0.3.0',
+    modalities: ['text', 'document'],
+    processors: [DOCUMENT_TEXT],
+    rawEvidence: undefined, // CVs are personal data
+  },
+  {
+    pack: CODE_MEMORY_PACK,
+    version: '0.5.0',
+    modalities: ['text', 'image', 'document'],
+    processors: [IMAGE_METADATA, DOCUMENT_TEXT],
+    rawEvidence: undefined, // a builtin seeds into every tenant unasked
+  },
+];
+
+function packById(id: string): DomainPackManifest {
+  const found = FIRST_PARTY_PACKS.find((p) => p.id === id);
+  if (!found) throw new Error(`no first-party pack "${id}"`);
+  return found;
+}
+
+describe.each(MEDIA_CONTRACT.map((e) => [e.pack.id, e] as const))(
+  'media contract: %s',
+  (_id, expected) => {
+    const mm = expected.pack.memoryModel;
+
+    it('is at the media-contract minor version', () => {
+      expect(expected.pack.version).toBe(expected.version);
+    });
+
+    it('declares the pinned modalities / processors / rawEvidence', () => {
+      expect(mm?.modalities).toEqual(expected.modalities);
+      expect(mm?.processors).toEqual(expected.processors);
+      expect(mm?.rawEvidence).toEqual(expected.rawEvidence);
+    });
+
+    it('requests ONLY capabilities an installed adapter can run', () => {
+      // ImageMetadataStubAdapter (image→caption) and
+      // TextExtractionPassthroughAdapter (document→text) are the whole
+      // installed set. Declaring ocr/asr/vision-caption would arm a
+      // capability that always denies at dispatch.
+      for (const processor of mm?.processors ?? []) {
+        expect(['image', 'document']).toContain(processor.modality);
+        for (const kind of processor.produces) {
+          expect(['caption', 'text']).toContain(kind);
+        }
+      }
+      const kinds = (mm?.processors ?? []).flatMap((p) => p.produces);
+      for (const unbuilt of ['ocr', 'asr', 'object_track', 'scene_graph', 'embedding']) {
+        expect(kinds).not.toContain(unbuilt);
+      }
+    });
+
+    it('never requests a processor for an undeclared input modality', () => {
+      for (const processor of mm?.processors ?? []) {
+        expect(mm?.modalities).toContain(processor.modality);
+      }
+    });
+
+    it('is a CONSENT SURFACE — install requires acceptModalities: true', () => {
+      // Non-text declarations make declaredModalitySection non-null, which
+      // is exactly what modalityConsentRequired keys off.
+      const section = declaredModalitySection(expected.pack);
+      expect(section).not.toBeNull();
+      expect(section?.modalities).not.toContain('text');
+      expect(
+        modalityConsentRequired({
+          packId: expected.pack.id,
+          version: expected.pack.version,
+          declared: section,
+          accepted: undefined,
+          priorAccepted: false,
+          priorChecksum: null,
+        }),
+      ).toContain('acceptModalities: true');
+      expect(modalitiesChecksum(section)).toEqual(expect.any(String));
+    });
+  },
+);
+
+describe('the media gates came alive (they denied every pack before)', () => {
+  const REAL_ESTATE = packById('real_estate');
+  const MEDICAL = packById('medical');
+  const FINTECH = packById('fintech');
+
+  /** A tenant that installed the pack with acceptModalities: true. */
+  const consent = (manifest: DomainPackManifest) => ({
+    manifest,
+    acceptedModalities: true,
+    acceptedModalitiesChecksum: modalitiesChecksum(declaredModalitySection(manifest)),
+  });
+  const asset = (modality: EvidenceModality) => ({ modality, availability: 'hot' });
+
+  describe('gateProcessorDispatch', () => {
+    it('ADMITS image→caption for a pack that declares the image processor', () => {
+      expect(
+        gateProcessorDispatch({
+          ...consent(REAL_ESTATE),
+          capability: 'caption',
+          asset: asset('image'),
+        }),
+      ).toEqual({ allowed: true });
+    });
+
+    it('ADMITS document→text for a document-only pack', () => {
+      expect(
+        gateProcessorDispatch({
+          ...consent(FINTECH),
+          capability: 'text',
+          asset: asset('document'),
+        }),
+      ).toEqual({ allowed: true });
+    });
+
+    it('DENIES image→caption for a pack that declares no image modality', () => {
+      const d = gateProcessorDispatch({
+        ...consent(FINTECH),
+        capability: 'caption',
+        asset: asset('image'),
+      });
+      expect(d.allowed).toBe(false);
+      if (!d.allowed) expect(d.reason).toContain('does not declare');
+    });
+
+    it('DENIES an unbuilt capability (ocr) on a declared modality', () => {
+      const d = gateProcessorDispatch({
+        ...consent(MEDICAL),
+        capability: 'ocr',
+        asset: asset('document'),
+      });
+      expect(d.allowed).toBe(false);
+      if (!d.allowed) expect(d.reason).toContain('does not declare');
+    });
+
+    it('DENIES without the operator consent flag, however good the declaration', () => {
+      const d = gateProcessorDispatch({
+        manifest: REAL_ESTATE,
+        acceptedModalities: false,
+        acceptedModalitiesChecksum: null,
+        capability: 'caption',
+        asset: asset('image'),
+      });
+      expect(d.allowed).toBe(false);
+      if (!d.allowed) expect(d.reason).toContain('acceptModalities: true');
+    });
+  });
+
+  describe('gateRawEvidence', () => {
+    it('ADMITS an affirmatively-clean fragment for the one pack that serves raw', () => {
+      expect(
+        gateRawEvidence({
+          ...consent(REAL_ESTATE),
+          callerScopes: ['brain:read'],
+          fragmentPiiClasses: [],
+        }),
+      ).toEqual({ allowed: true });
+    });
+
+    it('DENIES every pack that omits rawEvidence (omission = deny)', () => {
+      for (const expected of MEDIA_CONTRACT.filter((e) => e.rawEvidence === undefined)) {
+        const d = gateRawEvidence({
+          ...consent(expected.pack),
+          callerScopes: ['brain:read', 'brain:read_media'],
+          fragmentPiiClasses: [],
+        });
+        expect(d.allowed).toBe(false);
+        if (!d.allowed) expect(d.reason).toContain('does not declare the raw-evidence capability');
+      }
+    });
+
+    it('still fails closed on an unclassified fragment for the serving pack', () => {
+      const d = gateRawEvidence({
+        ...consent(REAL_ESTATE),
+        callerScopes: ['brain:read'],
+        fragmentPiiClasses: null,
+      });
+      expect(d.allowed).toBe(false);
+      if (!d.allowed) expect(d.reason).toContain('unclassified');
+    });
+
+    it('still needs brain:read_media for a classified fragment', () => {
+      const d = gateRawEvidence({
+        ...consent(REAL_ESTATE),
+        callerScopes: ['brain:read'],
+        fragmentPiiClasses: ['face'],
+      });
+      expect(d.allowed).toBe(false);
+      expect(
+        gateRawEvidence({
+          ...consent(REAL_ESTATE),
+          callerScopes: ['brain:read', 'brain:read_media'],
+          fragmentPiiClasses: ['face'],
+        }),
+      ).toEqual({ allowed: true });
+    });
   });
 });

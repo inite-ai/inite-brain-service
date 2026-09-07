@@ -7,11 +7,21 @@ import { composePredicateId, type DomainPackManifest } from './manifest';
  * were hardcoded in CORE_PREDICATES (Phase 0 PoC shortcut); they now live here
  * as a versioned, namespaced pack, proving the pack standard end-to-end.
  *
+ * As of 0.5.0 the memoryModel carries a MEDIA CONTRACT: failure/dashboard
+ * screenshots and text-ish artifacts (logs, traces) as input modalities,
+ * the two core capabilities the Evidence Plane can actually run (image
+ * metadata, document text), and NO raw-evidence declaration. NOTE the
+ * builtin caveat: builtins never pass through DomainPackInstallService, so
+ * no `domain_pack` consent row exists for this pack — MemoryModelReader-
+ * Service surfaces the declaration through its builtin union, but both
+ * media gates still deny at their consent clause until a consent path for
+ * builtins lands. The declaration is the contract, not an activation.
+ *
  * Bump `version` to ship an updated code-memory ontology.
  */
 export const CODE_MEMORY_PACK: DomainPackManifest = {
   id: 'code_memory',
-  version: '0.4.3',
+  version: '0.5.0',
   description:
     'Non-derivable engineering "why" of a codebase — decisions, rationale, invariants, gotchas, ownership, flag/config defaults, dependency pins, and decision supersession anchored to code, with a domain extraction profile and memory model.',
   // Retro-declaration, documentation-true: code-memory has ALWAYS been an
@@ -218,7 +228,9 @@ never split its clauses across facts or predicates.`,
   },
   // The domain perception contract (docs/domain-packs.md). Declarative data
   // only; consumable once the memory-model reader unions builtin manifests.
-  // Text-only — no modalities/processors/rawEvidence, so no consent surface.
+  // The media section (modalities/processors/rawEvidence) is the consent
+  // surface everywhere else in the library; for a BUILTIN there is no
+  // install to consent at, so it is a declaration only (see the header).
   memoryModel: {
     sceneSchemas: [
       {
@@ -290,6 +302,25 @@ never split its clauses across facts or predicates.`,
       { predicateOrScene: 'depends_on_version', hint: 'standard' },
       { predicateOrScene: 'change_session', hint: 'standard' },
     ],
+    // ── Media contract (Evidence Plane) ─────────────────────────────────
+    // Modest and honest. Engineering evidence that is not prose is a
+    // SCREENSHOT of a failing run or a dashboard, and text-ish ARTIFACTS
+    // (logs, stack traces, diffs) that arrive as document assets. Only the
+    // two capabilities the trusted core can actually run today are
+    // requested: image metadata (image → caption, which for a screenshot
+    // is dimensions and media type, nothing more) and document text
+    // extraction (document → text). No OCR of screenshots, no vision
+    // captioner, no ASR — no adapter exists, so declaring one would arm a
+    // capability that always denies.
+    modalities: ['text', 'image', 'document'],
+    processors: [
+      { id: 'image_metadata', modality: 'image', produces: ['caption'] },
+      { id: 'document_text', modality: 'document', produces: ['text'] },
+    ],
+    // rawEvidence is DELIBERATELY ABSENT (omission = deny). A builtin is
+    // seeded into EVERY tenant without an install decision, so it is the
+    // last pack that should hold a raw-serving capability; derived
+    // representations answer the engineering question either way.
   },
   // Scored by POST /v1/admin/packs/code_memory/eval (resolves the builtin
   // manifest in-process) — one fixture per new predicate + the classic

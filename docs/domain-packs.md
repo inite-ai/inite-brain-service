@@ -54,11 +54,15 @@ BRAIN_API_KEY=... pnpm pack:publish -- --brain-url https://brain.inite.ai \
   --file my_pack.pack.json --keywords my,keywords --verify
 
 # 6. Install into a tenant (key needs brain:admin) — from the registry…
+#    Add --accept-modalities when the manifest declares a media section
+#    (non-text modalities / processors / rawEvidence); without it the
+#    server refuses with a 400 naming what you would be accepting. EVERY
+#    first-party pack declares one as of the 0.3.0 line.
 BRAIN_API_KEY=... pnpm pack:install -- --brain-url https://brain.inite.ai \
-  --registry my_pack
+  --registry my_pack [--accept-modalities]
 #    …or straight from the reviewed local file, checksum-pinned
 BRAIN_API_KEY=... pnpm pack:install -- --brain-url https://brain.inite.ai \
-  --file my_pack.pack.json --verify
+  --file my_pack.pack.json --verify [--accept-modalities]
 
 # 7. Score the LIVE extractor against the pack's own evalFixtures
 curl -X POST -H "Authorization: Bearer $BRAIN_API_KEY" \
@@ -307,7 +311,11 @@ to look, never WHAT is true. The contract is validated, stored, cached,
 exposed read-only on the admin surface, and read by five live core
 consumers (listed below). The builtin `code_memory` pack declares one as
 of 0.4.0 (the reference declaration), and every first-party industry
-pack in `packs/` declares one as of 0.2.0 (see the library table below).
+pack in `packs/` declares one as of 0.2.0. As of the 0.3.0 line (builtin
+`code_memory` 0.5.0) **every** first-party pack also declares the
+Evidence-Plane half of the contract — `modalities`, `processors` and a
+raw-evidence policy — so the media consumers stop denying by default
+(see the library table below).
 
 The semantic plane has five optional arrays. The Evidence Plane adds
 three declarative capabilities. A present section must declare at least
@@ -352,6 +360,40 @@ output remains a recomputable `derived_representation` with provenance.
 The whole section rides the signed/checksummed manifest; an upgrade that
 changes it flips `memoryModelChanged` and invalidates the
 `MemoryModelReaderService` cache.
+
+#### Operator requirement: `acceptModalities`
+
+**Installing any first-party pack now requires explicit media consent.**
+Every pack in the library declares a media section as of the 0.3.0 line,
+so an install without the flag is refused with a `400` that names exactly
+what would be accepted:
+
+```bash
+# REST — both install routes take the flag
+POST /v1/admin/packs                { "manifest": …, "acceptModalities": true }
+POST /v1/admin/packs/from-registry  { "packId": "medical", "acceptModalities": true }
+
+# CLI (scripts/install-pack.ts)
+BRAIN_API_KEY=... pnpm pack:install -- --brain-url $URL \
+  --file packs/medical.pack.json --verify --accept-modalities
+```
+
+What the operator is consenting to, precisely: the tenant's substrate may
+CLASSIFY and PROCESS the declared non-text modalities through core-owned
+processors, and — only for a pack that declares `rawEvidence` — may serve
+raw bytes back after every per-call gate. Consent is checksummed over the
+media section alone: a byte-identical section carries prior consent
+across an upgrade; any change to it (a new modality, a new processor, a
+newly declared or withdrawn `rawEvidence`) re-requires the flag. Until
+consent is current, `gateProcessorDispatch` and `gateRawEvidence` deny —
+the declaration alone activates nothing.
+
+One caveat for the BUILTIN `code_memory` pack: builtins never pass through
+`DomainPackInstallService` (it rejects their ids), so no `domain_pack`
+consent row exists for them. `MemoryModelReaderService` surfaces the
+builtin declaration through its builtin-union path, but both media gates
+still deny at their consent clause. `code_memory`'s media section is a
+published contract, not an activation.
 
 ### Live consumers
 
@@ -428,7 +470,8 @@ pnpm pack:publish  -- --brain-url $URL --file packs/real-estate.pack.json \
                       --keywords real-estate,property   # needs registry:publish
 pnpm pack:search   -- --brain-url $URL --q real          # browse (brain:read)
 pnpm pack:search   -- --brain-url $URL --versions real_estate
-pnpm pack:install  -- --brain-url $URL --registry real_estate[@0.2.0]  # brain:admin
+pnpm pack:install  -- --brain-url $URL --registry real_estate[@0.3.0] \
+                      --accept-modalities                      # brain:admin
 pnpm registry:seed -- --brain-url $URL                   # publish all packs/*.json
 ```
 
@@ -606,8 +649,8 @@ ABAC deny rule.
 Beyond the builtin `code_memory`, brain ships a library of DISTRIBUTABLE
 industry packs (installed per-tenant, published to the registry via
 `pnpm registry:seed`) — each a complete ontology with predicates +
-`extractionProfile` + `evalFixtures` + `memoryModel` (as of 0.2.0), not
-a stub:
+`extractionProfile` + `evalFixtures` + `memoryModel` (as of 0.2.0) + a
+media contract (as of 0.3.0), not a stub:
 
 | pack | domain | predicates (namespaced `<id>__*`) | memoryModel lifecycles |
 |---|---|---|---|
@@ -618,11 +661,46 @@ a stub:
 | `insurance` | insurance policies | covers, coverage_limit, premium, deductible, excludes | policy, claim |
 | `hr` | HR / recruiting (roles, not PII) | requires_skill, seniority, compensation, employment_type, work_location | position, employee |
 
+### Media contracts (`modalities` / `processors` / `rawEvidence`)
+
+What each pack declares its domain can PERCEIVE, which core-owned
+capabilities it asks for, and whether raw bytes may ever serve. Only two
+processor capabilities are declared anywhere in the library, because only
+two adapters exist: `image → caption` (image metadata) and
+`document → text` (text extraction). OCR, ASR and vision captioning are
+deliberately undeclared — declaring a capability with no adapter arms a
+dispatch that always denies.
+
+| pack | version | modalities | processors | rawEvidence | why |
+|---|---|---|---|---|---|
+| `real_estate` | 0.3.0 | text, image, document | image metadata, document text | **serve** | listing photos and floor plans are published marketing material |
+| `medical` | 0.3.0 | text, image, document | image metadata, document text | deny | scans and X-ray photographs are clinical data — never served raw |
+| `insurance` | 0.3.0 | text, image, document | image metadata, document text | deny | claim photos carry injuries, plates, bystanders |
+| `legal` | 0.3.0 | text, image, document | document text, image metadata | deny | contracts, filings and scanned exhibits carry privilege |
+| `fintech` | 0.3.0 | text, document | document text | deny | statements and KYC files; `image` withheld (biometric-adjacent) |
+| `hr` | 0.3.0 | text, document | document text | deny | CVs and offer letters are personal data; `image` withheld |
+| `code_memory` (builtin) | 0.5.0 | text, image, document | image metadata, document text | deny | failure/dashboard screenshots + log artifacts |
+
+`rawEvidence: deny` is the *absence* of the field — the schema's only
+other value is `{ "serve": true }`, so omission is how a pack refuses.
+`gateRawEvidence` then denies raw bytes and signed URLs for that pack
+unconditionally. A `serve` declaration only OPENS the gate: current
+modality consent and the per-call media-PII gate (unclassified fails
+closed; classified needs `brain:read_media`) still apply to every
+fragment.
+
+Predicates deliberately do NOT yet seed `requiredEvidenceCapability`:
+with zero evidence fragments in a tenant's store, requiring a non-text
+capability makes every answer over those predicates abstain
+(`evidence_capability_unmet`). That seeding follows once fragments
+actually exist.
+
 Sources: `src/ai/domain-packs/*.pack.ts` (the `FIRST_PARTY_PACKS` list) →
 committed JSON in `packs/*.pack.json` (drift-guarded by
 `test/industry-packs.unit-spec.ts`). Install one with
-`pnpm pack:install -- --registry fintech` (after `registry:seed`) or
-`--file packs/fintech.pack.json`.
+`pnpm pack:install -- --registry fintech --accept-modalities` (after
+`registry:seed`) or `--file packs/fintech.pack.json --accept-modalities`
+— the media consent flag is now required for every pack in the library.
 
 ## See also
 

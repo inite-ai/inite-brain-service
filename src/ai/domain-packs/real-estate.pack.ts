@@ -19,11 +19,17 @@ import type { DomainPackManifest } from './manifest';
  * appraisal claims) — the domain perception contract consumed by
  * MemoryModelReaderService for installed tenants.
  *
+ * As of 0.3.0 the memoryModel also carries a MEDIA CONTRACT: listing
+ * photography and floor-plan documents as input modalities, the two core
+ * capabilities the Evidence Plane can actually run (image metadata,
+ * document text), and `rawEvidence: { serve: true }` — listing media is
+ * published marketing material whose whole purpose is to be looked at.
+ *
  * Bump `version` to ship an updated real-estate ontology / profile.
  */
 export const REAL_ESTATE_PACK: DomainPackManifest = {
   id: 'real_estate',
-  version: '0.2.0',
+  version: '0.3.0',
   description:
     'Real-estate ontology — zoning, valuation, encumbrances, tenure, and construction of properties/parcels, with a domain extraction profile and memory model.',
   predicates: [
@@ -134,7 +140,8 @@ encumbrance, ALSO emit an edge to that party (e.g. Property —held_by→ Bank).
   },
   // The domain perception contract (docs/domain-packs.md). Declarative data
   // only — consumed by MemoryModelReaderService for installed tenants.
-  // Text-only: no modalities/processors/rawEvidence, so no consent surface.
+  // The media section (modalities/processors/rawEvidence) is the consent
+  // surface: installing this pack requires `acceptModalities: true`.
   memoryModel: {
     sceneSchemas: [
       {
@@ -210,6 +217,26 @@ encumbrance, ALSO emit an edge to that party (e.g. Property —held_by→ Bank).
       { predicateOrScene: 'closing', hint: 'durable' },
       { predicateOrScene: 'viewing', hint: 'ephemeral' },
     ],
+    // ── Media contract (Evidence Plane) ─────────────────────────────────
+    // Property evidence is photographic (listing photos, viewing snaps)
+    // and documentary (floor plans, EPCs, permit paperwork). Only the two
+    // capabilities the trusted core can actually run today are requested:
+    // image metadata (image → caption) and document text extraction
+    // (document → text). OCR / ASR / vision-caption are deliberately NOT
+    // declared — no adapter is installed for them.
+    modalities: ['text', 'image', 'document'],
+    processors: [
+      { id: 'image_metadata', modality: 'image', produces: ['caption'] },
+      { id: 'document_text', modality: 'document', produces: ['text'] },
+    ],
+    // The one first-party pack that declares raw serving: a listing photo
+    // or floor plan is published marketing material, and an agent asking
+    // "show me the kitchen" needs the artifact itself, not a caption of
+    // it. Declaring it only OPENS the gate — gateRawEvidence still
+    // requires current modality consent AND passes every fragment through
+    // the media-PII gate (unclassified fails closed; classified needs
+    // brain:read_media).
+    rawEvidence: { serve: true },
   },
   evalFixtures: [
     {

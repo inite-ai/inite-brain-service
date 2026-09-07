@@ -228,7 +228,7 @@ describe('registry marketplace (e2e)', () => {
       const r = await owner.http
         .post('/v1/admin/packs/from-registry')
         .set(auth(owner))
-        .send({ packId: PAID_ID });
+        .send({ packId: PAID_ID, acceptModalities: true });
       expect(r.status).toBe(402);
       expect(r.body).toMatchObject({
         statusCode: 402,
@@ -280,7 +280,7 @@ describe('registry marketplace (e2e)', () => {
       const r = await owner.http
         .post('/v1/admin/packs/from-registry')
         .set(auth(owner))
-        .send({ packId: PAID_ID });
+        .send({ packId: PAID_ID, acceptModalities: true });
       expect([200, 201]).toContain(r.status);
       expect(r.body.packId).toBe(PAID_ID);
       // Exactly the ONE successful install counted — not the earlier 402.
@@ -291,7 +291,7 @@ describe('registry marketplace (e2e)', () => {
       const r = await rival.http
         .post('/v1/admin/packs/from-registry')
         .set(auth(rival))
-        .send({ packId: PAID_ID });
+        .send({ packId: PAID_ID, acceptModalities: true });
       expect(r.status).toBe(402);
     });
   });
@@ -306,13 +306,13 @@ describe('registry marketplace (e2e)', () => {
       const paid = await rival.http
         .post('/v1/admin/packs/from-registry')
         .set(auth(rival))
-        .send({ packId: PAID_ID });
+        .send({ packId: PAID_ID, acceptModalities: true });
       expect(paid.status).toBe(503);
 
       const free = await owner.http
         .post('/v1/admin/packs/from-registry')
         .set(auth(owner))
-        .send({ packId: FREE_ID });
+        .send({ packId: FREE_ID, acceptModalities: true });
       expect([200, 201]).toContain(free.status);
     });
   });
@@ -334,7 +334,7 @@ describe('registry marketplace (e2e)', () => {
       const r = await rival.http
         .post('/v1/admin/packs/from-registry')
         .set(auth(rival))
-        .send({ packId: PAID_ID });
+        .send({ packId: PAID_ID, acceptModalities: true });
       expect([200, 201]).toContain(r.status);
     });
   });

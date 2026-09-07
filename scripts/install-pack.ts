@@ -9,11 +9,18 @@
  *
  *   # from the registry (latest non-yanked, or a pinned version)
  *   BRAIN_API_KEY=... pnpm pack:install -- \
- *     --brain-url https://brain.inite.ai --registry real_estate[@0.2.0]
+ *     --brain-url https://brain.inite.ai --registry real_estate[@0.3.0]
  *
  * --verify (file mode) recomputes the manifest checksum locally and pins it in
  * the request, so the server rejects if what it receives differs from what you
  * reviewed. Registry installs are always checksum-pinned server-side.
+ *
+ * --accept-modalities is the OPERATOR CONSENT flag for a manifest whose
+ * memoryModel declares non-text modalities, non-text processor needs, or the
+ * raw-evidence capability (every first-party pack does, as of the 0.3.0
+ * line). Without it the server refuses the install with a 400 naming what
+ * would be accepted. Read the manifest's media section first — that is the
+ * point of the flag.
  */
 import { readFileSync } from 'node:fs';
 import { packChecksum } from '../src/ai/domain-packs/checksum';
@@ -50,6 +57,11 @@ async function main(): Promise<void> {
     );
   }
 
+  // Operator consent to the manifest's media section (see the header).
+  const consent = process.argv.includes('--accept-modalities')
+    ? { acceptModalities: true }
+    : {};
+
   if (registry) {
     // <packId> or <packId>@<version>
     const [packId, version] = registry.split('@');
@@ -59,6 +71,7 @@ async function main(): Promise<void> {
     await post(brainUrl, key, '/v1/admin/packs/from-registry', {
       packId,
       ...(version ? { version } : {}),
+      ...consent,
     });
     return;
   }
@@ -69,6 +82,7 @@ async function main(): Promise<void> {
   await post(brainUrl, key, '/v1/admin/packs', {
     manifest,
     ...(process.argv.includes('--verify') ? { expectedChecksum: checksum } : {}),
+    ...consent,
   });
 }
 

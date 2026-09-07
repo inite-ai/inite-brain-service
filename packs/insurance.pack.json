@@ -1,6 +1,6 @@
 {
   "id": "insurance",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Insurance ontology — coverage, limits, premiums, deductibles, and exclusions of policies, with a domain extraction profile and memory model.",
   "predicates": [
     {
@@ -288,6 +288,27 @@
       {
         "predicateOrScene": "renewal_review",
         "hint": "standard"
+      }
+    ],
+    "modalities": [
+      "text",
+      "image",
+      "document"
+    ],
+    "processors": [
+      {
+        "id": "image_metadata",
+        "modality": "image",
+        "produces": [
+          "caption"
+        ]
+      },
+      {
+        "id": "document_text",
+        "modality": "document",
+        "produces": [
+          "text"
+        ]
       }
     ]
   },
