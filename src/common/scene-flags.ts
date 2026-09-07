@@ -211,6 +211,52 @@ export function sceneBeliefFieldFoldEnabled(): boolean {
 }
 
 /**
+ * Scenes prediction-baseline flag — SCENES_PREDICTION_BASELINE.
+ *
+ * The scene plane had NO prediction machinery: `memoryValue.contradiction`
+ * and `unexpectedDetails` were LLM saliency guesses made against nothing —
+ * the enricher was never shown any prior state to be surprised AGAINST —
+ * and `baselineRef` (0106) was written only by belief promotion, only on a
+ * revision, AFTER the fact. The roadmap names the hole: "the missing edge
+ * is PREDICTION as a read-side control signal (surprise currently exists
+ * only at write time)".
+ *
+ * When on, the enrichment pass gains ONE coherent behavior in three parts:
+ *  1. EXPECTATION SNAPSHOT — before scoring a scene it loads the scene
+ *     user's ACTIVE semantic_belief rows (0120) for the subjects the scene
+ *     is about (ONE bounded SELECT per run, capped) and stamps them onto
+ *     the scene as `baselineRef` = {beliefs, stampedAt, baselineVersion};
+ *  2. PREDICTION ERROR IN THE PROMPT — that snapshot is rendered as an
+ *     explicit "what the system believed BEFORE this scene" block and the
+ *     instruction changes so `contradiction` / `unexpectedDetails` are
+ *     reported as DEVIATION FROM THAT MODEL, not free-floating saliency
+ *     (fresh prompt version scene-gist-v2);
+ *  3. DETERMINISTIC SCORER — a no-model-call scorer (scene-scorer-v1)
+ *     measures contradiction / stateChange / identity from the SAME
+ *     baseline plus the scene's stateDeltas and OVERRIDES the model's
+ *     guesses for exactly those dimensions in `enrichedMemoryValue`
+ *     (scorerVersion composite scene-scorer-llm-v1+scene-scorer-v1).
+ *     A dimension it cannot measure stays the model's guess — an unknown
+ *     baseline is never turned into a confident zero.
+ *
+ * Scenes that fail the #387 single-user fence (mixed-user, tenant-global,
+ * legacy pre-0117 userIds) get NO baseline at all — a scene is never
+ * scored against another user's beliefs.
+ *
+ * The env read lives here in the common layer, NOT inside the engine dirs
+ * (engine-gates S5.2). Read ONCE per enrichment run (the Drift-3 contract)
+ * so a mid-run flip can never mix prompt versions inside one world.
+ * Default off ⇒ ZERO extra queries, the byte-identical scene-gist-v1
+ * prompt and enrichmentVersion composite, no baselineRef write, and the
+ * model's memoryValue verbatim. Requires SCENES_LLM_ENRICHMENT — the
+ * baseline is an input to the enrichment call. SCENES_ family sits off the
+ * ENGINE flag budget by design.
+ */
+export function scenePredictionBaselineEnabled(): boolean {
+  return envFlagEnabled(process.env.SCENES_PREDICTION_BASELINE);
+}
+
+/**
  * Belief corroboration floor (SCENES_BELIEF_MIN_SCENES): promote a
  * (subject, field) group only when its winning value is corroborated by
  * scenes from at least this many DISTINCT CONVERSATIONS (the #377

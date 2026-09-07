@@ -1091,6 +1091,18 @@ const KNOWN_BOOLEAN_FLAGS = [
   // folds nothing and warns loudly. NO embeddings, NO LLM. Default off
   // ⇒ exact-string grouping, zero extra queries — byte-identical.
   'SCENES_BELIEF_FIELD_FOLD',
+  // Scene prediction baseline: the expectation snapshot the scene plane
+  // never had. On, the enrichment pass loads the scene user's ACTIVE
+  // semantic_belief rows (0120) BEFORE scoring, stamps them as
+  // baselineRef (0106 FLEXIBLE), renders them into the prompt so
+  // contradiction/unexpectedDetails are reported as DEVIATION from that
+  // model (prompt scene-gist-v2), and overrides contradiction /
+  // stateChange / identity in enrichedMemoryValue with a deterministic
+  // no-model-call scorer (scene-scorer-v1). Mixed-user/legacy scenes get
+  // NO baseline (#387 fence). Default off ⇒ zero extra queries, the
+  // byte-identical scene-gist-v1 prompt and composite, no baselineRef
+  // write — byte-identical rows.
+  'SCENES_PREDICTION_BASELINE',
   // Scene evidence links (MM-zoom PR1, migration 0123): typed
   // scene-reconstructed_from->evidence_fragment|evidence_asset edges in
   // memory_support from the union of member episodes' source.evidenceRefs

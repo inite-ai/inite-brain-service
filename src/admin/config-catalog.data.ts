@@ -781,6 +781,18 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Belief promotion field fold (#135 seam 2): deterministically fold an enricher-re-coined field name onto an existing one for the same (userId, subject) — token-set subset whose extra tokens are all generic modifiers (ownership/status/state/current/of/the); the EXISTING name wins, and more than one match folds nothing and warns loudly (skip loudly, never flip-flop). NO embeddings, NO LLM. Also absorbs orphans: after each canonical upsert, ACTIVE beliefs of the same (userId, subject) stored under a foldable VARIANT of the canonical field (earlier-batch leftovers the incoming-name fold can never retire) are stamped superseded so they stop serving stale values; the canonical belief keeps its own value, the orphan value backfills priorValue only when the canonical has none, and more than one distinct variant field skips loudly. Off = exact-string (subject, field) grouping and zero extra queries — byte-identical fold output.',
   },
   {
+    key: 'SCENES_PREDICTION_BASELINE',
+    category: 'scenes',
+    // Read at call time (scene-flags.scenePredictionBaselineEnabled) once
+    // per enrichment run — never captured in a constructor — so a flip
+    // takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Scene prediction baseline: makes scene surprise MEASURED instead of guessed. On, the enrichment pass (1) loads the scene user’s ACTIVE semantic_belief rows (0120) for the subjects the scene is about — ONE bounded SELECT per run — and stamps them onto the scene as baselineRef {beliefs, stampedAt, baselineVersion} (0106 FLEXIBLE, no migration); (2) renders that snapshot as an explicit “what the system believed BEFORE this scene” block and changes the instruction so contradiction/unexpectedDetails are reported as DEVIATION from that model rather than free-floating saliency (prompt version scene-gist-v2); (3) runs a deterministic no-model-call scorer (scene-scorer-v1) over the same baseline plus the scene’s stateDeltas and OVERRIDES contradiction / stateChange / identity in enrichedMemoryValue (scorerVersion composite scene-scorer-llm-v1+scene-scorer-v1) — a dimension it cannot measure keeps the model’s guess, since an unknown baseline is not a confident zero. Scenes failing the #387 single-user fence get no baseline — never scored against another user’s beliefs. Requires SCENES_LLM_ENRICHMENT. Off = zero extra queries, the byte-identical scene-gist-v1 prompt and enrichmentVersion composite, no baselineRef write.',
+  },
+  {
     key: 'SCENES_EVIDENCE_LINKS',
     category: 'scenes',
     // Read at call time (scene-flags.sceneEvidenceLinksEnabled) by the
