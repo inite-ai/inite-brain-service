@@ -2,7 +2,7 @@ import { Header } from '../../components/Header'
 import { Hero } from '../../components/Hero'
 import { BitemporalDemo } from '../../components/BitemporalDemo'
 import { RetrievalPipeline } from '../../components/RetrievalPipeline'
-import { BeyondVector } from '../../components/BeyondVector'
+import { MemoryLayers } from '../../components/MemoryLayers'
 import { Features } from '../../components/Features'
 import { DualPath } from '../../components/DualPath'
 import { Stats } from '../../components/Stats'
@@ -38,26 +38,31 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       languages: Object.fromEntries(LANGS.map((l) => [l, `${SITE_URL}/${l}`])),
     },
     openGraph: {
+      title: `INITE Brain — ${t.hero.title}`,
+      description: t.hero.subtitle,
+      locale: lang === 'ru' ? 'ru_RU' : 'en_US',
       images: [{ url: ogImage({ title: t.hero.title }), width: 1200, height: 630 }],
     },
-    twitter: { images: [ogImage({ title: t.hero.title })] },
+    twitter: { title: `INITE Brain — ${t.hero.title}`, description: t.hero.subtitle, images: [ogImage({ title: t.hero.title })] },
   }
 }
 
 export default async function LandingPage({ params }: Props) {
   const { lang: raw } = await params
   const lang = normalizeLang(raw)
+  const t = getMessages(lang)
   return (
-    <div className="lab-root min-h-screen">
+    <div className="lab-root landing-refresh min-h-screen" lang={lang}>
       <JsonLd
         data={[organizationSchema(), websiteSchema(), softwareApplicationSchema()]}
       />
-      <Header lang={lang} />
-      <main className="max-w-6xl mx-auto px-5 sm:px-6">
+      <a href="#main-content" className="landing-skip">{t.nav.skip}</a>
+      <Header lang={lang} landing />
+      <main id="main-content" className="max-w-6xl mx-auto px-5 sm:px-6">
         <Hero lang={lang} />
+        <MemoryLayers lang={lang} />
         <BitemporalDemo lang={lang} />
         <RetrievalPipeline lang={lang} />
-        <BeyondVector lang={lang} />
         <Features lang={lang} />
         <DualPath lang={lang} />
         <Stats lang={lang} />

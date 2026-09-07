@@ -1,75 +1,26 @@
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
-import { SectionHeading } from './DualPath'
 import { getMessages, type Lang } from '../lib/i18n'
 
-interface Props {
-  lang: Lang
-}
+const TOOLS = ['search_knowledge', 'search_multi_hop', 'memory_diff', 'synthesize', 'ingest_document', 'record_decision']
 
-// Representative subset of the 28 built-in tools (19 read / 8 write /
-// 1 admin, per src/mcp/* registrations) — the label above the list says
-// "highlights"; installed Domain Packs can add consented tools on top.
-const TOOLS = [
-  'search_knowledge',
-  'synthesize',
-  'get_entity_profile',
-  'detect_contradiction',
-  'record_fact',
-  'retract_fact',
-]
-
-export function McpInstall({ lang }: Props) {
-  const t = getMessages(lang)
+export function McpInstall({ lang }: { lang: Lang }) {
+  const { mcpBlock: m } = getMessages(lang)
   return (
-    <section className="py-16 border-t border-[var(--border)]">
-      <SectionHeading
-        index="08"
-        eyebrow={t.mcpBlock.eyebrow}
-        title={t.mcpBlock.title}
-        subtitle={t.mcpBlock.subtitle}
-      />
-
-      <div className="mt-8 grid lg:grid-cols-2 gap-4">
-        <div className="lab-panel rounded-xl overflow-hidden">
-          <div className="px-3 py-2 border-b border-[var(--border)] u-mono text-[11px] text-[var(--text-faint)]">
-            claude_desktop_config.json
-          </div>
-          <pre className="px-4 py-4 text-[12px] leading-relaxed u-mono text-[var(--text)] overflow-x-auto">{`{
-  "mcpServers": {
-    "brain": {
-      "url": "https://brain.inite.ai/mcp/<companyId>",
-      "transport": "http",
-      "headers": { "Authorization": "Bearer <api-key>" }
-    }
-  }
-}`}</pre>
-        </div>
-
-        <div className="lab-panel rounded-xl p-5">
-          <div className="u-eyebrow">{t.mcpBlock.toolsLabel}</div>
-          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-            {TOOLS.map((tool) => (
-              <div
-                key={tool}
-                className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2.5 py-2 u-mono text-[11.5px] text-[var(--text-muted)]"
-              >
-                <span className="w-1 h-1 rounded-full bg-[var(--data)]" />
-                {tool}
-              </div>
-            ))}
-          </div>
-          <p className="mt-4 text-[12.5px] leading-relaxed text-[var(--text-faint)]">
-            {t.mcpBlock.clients}
-          </p>
-          <Link
-            href={`/${lang}/docs/mcp/setup`}
-            className="mt-4 inline-flex items-center gap-1 text-sm text-[var(--signal)] hover:underline u-mono"
-          >
-            {t.mcpBlock.linkLabel}
-            <ArrowRight className="w-3.5 h-3.5" />
-          </Link>
-        </div>
+    <section className="pb-16 grid lg:grid-cols-2 gap-8">
+      <div>
+        <h2 className="text-xl font-semibold">{m.title}</h2>
+        <p className="mt-3 text-sm leading-relaxed text-[var(--text-muted)]">{m.subtitle}</p>
+        <Link href={`/${lang}/docs/mcp/setup`} className="mt-3 min-h-11 inline-flex items-center gap-2 text-sm text-[var(--signal)] hover:underline">
+          {m.linkLabel}<ArrowRight className="size-4" aria-hidden="true" />
+        </Link>
+      </div>
+      <div>
+        <h3 className="text-sm text-[var(--text-muted)]">{m.toolsLabel}</h3>
+        <ul className="mt-3 grid sm:grid-cols-2 gap-x-4">
+          {TOOLS.map((tool) => <li key={tool} className="u-mono py-2 border-b border-[var(--border)] text-xs text-[var(--data)]">{tool}</li>)}
+        </ul>
+        <p className="mt-4 text-xs leading-relaxed text-[var(--text-faint)]">{m.clients}</p>
       </div>
     </section>
   )

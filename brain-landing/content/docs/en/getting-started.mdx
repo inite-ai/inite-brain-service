@@ -7,7 +7,7 @@ Five minutes from “I have an API key” to “I can search what I just ingeste
 Brain refuses anonymous traffic. Two paths to a key:
 
 - **Self-hosted dev** — set `BRAIN_API_KEYS` in `.env` per the local-dev recipe in [`inite-brain-service/README.md`](https://github.com/inite-ai/inite-brain-service).
-- **Hosted** — generate at `https://brain.inite.ai/admin/keys`. You'll get a string shaped `brain_<base64>` and a `companyId`. Keep them paired — the MCP path is per-tenant.
+- **Hosted** — generate at [Brain app → API keys](/en/app/keys). You'll get a string shaped `brain_<base64>` and a `companyId`. Keep them paired — the MCP path is per-tenant.
 
 The examples below assume:
 
@@ -15,6 +15,8 @@ The examples below assume:
 export BRAIN_KEY="brain_..."
 export BRAIN_URL="https://brain.inite.ai"
 ```
+
+These examples store personal memory for `user_42`. Use your own stable user ID on both writes and reads. Omit `userId` on both only for tenant-global memory.
 
 ## 1. Ingest one fact
 
@@ -26,6 +28,7 @@ curl -X POST "$BRAIN_URL/v1/ingest/fact" \
     "entityRef": { "vertical": "rent", "id": "cust_42" },
     "predicate": "complained_about",
     "object": "late maintenance response",
+    "userId": "user_42",
     "validFrom": "2026-05-05T10:00:00Z",
     "source": { "vertical": "rent", "messageId": "msg_1" }
   }'
@@ -39,7 +42,7 @@ Response carries the `factId` and the conflict-resolver outcome (`INSERTED` on f
 curl -X POST "$BRAIN_URL/v1/search" \
   -H "Authorization: Bearer $BRAIN_KEY" \
   -H "Content-Type: application/json" \
-  -d '{ "query": "maintenance issues", "limit": 5 }'
+  -d '{ "query": "maintenance issues", "userId": "user_42", "limit": 5 }'
 ```
 
 Returns ranked entity-hits with their matching facts and per-leg score breakdown.
@@ -48,15 +51,21 @@ Returns ranked entity-hits with their matching facts and per-leg score breakdown
 
 Once the REST side works, point an MCP client at the same key. See [MCP setup](/en/docs/mcp/setup) for the per-client config snippets.
 
-Three-line summary for Claude Desktop:
+Configuration for Claude Desktop (requires Node.js and npx):
 
 ```json
 {
   "mcpServers": {
     "brain": {
-      "url": "https://brain.inite.ai/mcp/<companyId>",
-      "transport": "http",
-      "headers": { "Authorization": "Bearer <api-key>" }
+      "command": "npx",
+      "args": [
+        "-y",
+        "@inite/brain-mcp"
+      ],
+      "env": {
+        "BRAIN_API_KEY": "brain_YOUR_API_KEY",
+        "BRAIN_COMPANY_ID": "YOUR_COMPANY_ID"
+      }
     }
   }
 }
@@ -68,4 +77,4 @@ Three-line summary for Claude Desktop:
 - [Predicate vocabulary](/en/docs/concepts/predicates) — the building blocks of facts
 - [Conflict resolution](/en/docs/concepts/conflict-resolution) — what happens when two ingests fight
 - [POST /v1/search](/en/docs/api/search) — full request / response shape
-- [MCP tools reference](/en/docs/mcp/tools) — the 28-tool MCP surface and its schemas
+- [MCP tools reference](/en/docs/mcp/tools) — available tools, scopes and schemas

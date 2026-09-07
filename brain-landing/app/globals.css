@@ -106,22 +106,6 @@ body {
   overflow-x: clip;
 }
 
-/* full-bleed blueprint grid, faded toward the edges */
-.blueprint-grid {
-  background-image:
-    linear-gradient(var(--grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-  background-size: 34px 34px;
-  background-position: center top;
-}
-
-/* atmospheric instrument glow behind the hero */
-.lab-aura {
-  background:
-    radial-gradient(60% 50% at 18% 0%, var(--signal-faint), transparent 70%),
-    radial-gradient(55% 45% at 92% 12%, var(--data-faint), transparent 72%);
-}
-
 /* hairline panel with blueprint corner ticks */
 .lab-panel {
   position: relative;
@@ -248,4 +232,38 @@ body {
   .reveal { animation: none; opacity: 1; }
   .live-dot { animation: none; }
   * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; }
+}
+
+/* Marketing refinement. Shared app/docs tokens remain owned by :root. */
+.landing-refresh {
+  --bg: #0b0e10;
+  --bg-elevated: #10161a;
+  --bg-overlay: #172027;
+  --border: #253038;
+  --border-strong: #39454e;
+  --text: #f0f1ed;
+  --text-muted: #adb8be;
+  --text-faint: #89969e;
+  --data: #88d5d5;
+}
+.landing-refresh :focus-visible { outline: 2px solid var(--signal); outline-offset: 4px; }
+.landing-refresh a { text-underline-offset: 4px; }
+.landing-refresh .lab-panel::before,
+.landing-refresh .lab-panel::after { display: none; }
+.landing-refresh .live-dot { animation: none; box-shadow: none; }
+.landing-refresh .u-eyebrow { letter-spacing: 0.12em; }
+.landing-refresh .landing-nav > a,
+.landing-refresh .landing-nav [role="group"] a { min-height: 36px; align-items: center; }
+.landing-refresh .landing-nav [role="group"] a { display: inline-flex; padding-inline: 8px; }
+.landing-refresh .bt-range { height: 24px; background: transparent; box-shadow: none; }
+.landing-refresh .bt-range::-webkit-slider-runnable-track { height: 4px; background: var(--border-strong); border-radius: 4px; }
+.landing-refresh .bt-range::-moz-range-track { height: 4px; background: var(--border-strong); border-radius: 4px; }
+.landing-refresh .bt-range::-webkit-slider-thumb { margin-top: -6px; box-shadow: none; }
+.landing-skip { position: fixed; top: -100px; left: 20px; z-index: 60; padding: 12px 16px; background: var(--signal); color: var(--signal-ink); border-radius: 6px; }
+.landing-skip:focus { top: 12px; }
+@media (max-width: 639px) {
+  .landing-refresh .landing-nav > a { display: inline-flex; min-height: 44px; padding-inline: 5px; }
+  .landing-refresh .landing-nav > a[href*="github.com"],
+  .landing-refresh .landing-nav > a[href$="/app"] { display: none; }
+  .landing-refresh .landing-nav [role="group"] a { min-height: 40px; }
 }

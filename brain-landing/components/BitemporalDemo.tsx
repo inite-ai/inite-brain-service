@@ -13,15 +13,15 @@ const DAY_MAX = 172
 const SWITCH_VALID = 68 // Mar 10 — Acme moves starter → growth
 const RECORDED_TXN = 70 // Mar 12 — Brain learns about the switch
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun']
+const MONTHS = { en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'], ru: ['янв', 'фев', 'мар', 'апр', 'май', 'июн'] }
 // cumulative day at the 1st of each month from Jan
 const MONTH_DAY = [0, 31, 59, 90, 120, 151]
 
-function fmt(day: number): string {
+function fmt(day: number, lang: Lang): string {
   let m = 0
   while (m < MONTH_DAY.length - 1 && day >= MONTH_DAY[m + 1]) m++
   const d = day - MONTH_DAY[m] + 1
-  return `${MONTHS[m]} ${d}`
+  return `${MONTHS[lang][m]} ${d}`
 }
 
 /**
@@ -51,40 +51,34 @@ export function BitemporalDemo({ lang }: Props) {
 
   return (
     <section className="py-16 border-t border-[var(--border)]">
-      <SectionHeading index="01" eyebrow={d.eyebrow} title={d.title} subtitle={d.subtitle} />
+      <SectionHeading title={d.title} subtitle={d.subtitle} />
 
       <div className="mt-8 lab-panel rounded-xl p-6 sm:p-8">
         <div className="grid lg:grid-cols-[1fr_280px] gap-8 items-start">
           {/* timelines */}
           <div className="space-y-7">
             <Axis
+              lang={lang}
               label={d.validLabel}
-              hint={fmt(valid)}
+              hint={fmt(valid, lang)}
               tone="signal"
               value={valid}
               onChange={setValid}
               marks={[{ at: SWITCH_VALID, label: d.markSwitch }]}
             />
             <Axis
+              lang={lang}
               label={d.txnLabel}
-              hint={fmt(txn)}
+              hint={fmt(txn, lang)}
               tone="data"
               value={txn}
               onChange={setTxn}
               marks={[{ at: RECORDED_TXN, label: d.markRecorded }]}
             />
-
-            <div className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 u-mono text-[11.5px] text-[var(--text-muted)] overflow-x-auto">
-              <span className="text-[var(--text-faint)]">GET </span>
-              /v1/entities/acme?asOf=
-              <span className="text-[var(--signal)]">{fmt(valid)}</span>
-              &amp;asOfTxn=
-              <span className="text-[var(--data)]">{fmt(txn)}</span>
-            </div>
           </div>
 
           {/* live answer */}
-          <div className="rounded-lg border border-[var(--border-strong)] bg-[var(--bg)] p-5">
+          <div className="rounded-lg border border-[var(--border-strong)] bg-[var(--bg)] p-5" aria-live="polite" aria-atomic="true">
             <div className="u-eyebrow">{d.answerLabel}</div>
             <div className="mt-3 u-mono text-[11px] text-[var(--text-faint)]">plan</div>
             <div
@@ -108,6 +102,7 @@ export function BitemporalDemo({ lang }: Props) {
 }
 
 function Axis({
+  lang,
   label,
   hint,
   tone,
@@ -115,6 +110,7 @@ function Axis({
   onChange,
   marks,
 }: {
+  lang: Lang
   label: string
   hint: string
   tone: 'signal' | 'data'
@@ -125,8 +121,8 @@ function Axis({
   const color = tone === 'signal' ? 'var(--signal)' : 'var(--data)'
   return (
     <div>
-      <div className="flex items-baseline justify-between">
-        <span className="u-mono text-[11px] uppercase tracking-[0.16em]" style={{ color }}>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="u-mono text-[11px]" style={{ color }}>
           {label}
         </span>
         <span className="u-mono text-[12px] text-[var(--text)] tabular-nums">{hint}</span>
@@ -140,7 +136,7 @@ function Axis({
             className="absolute -translate-x-1/2 u-mono text-[9px] text-[var(--text-faint)]"
             style={{ left: `${(day / DAY_MAX) * 100}%` }}
           >
-            {MONTHS[i]}
+            {MONTHS[lang][i]}
           </span>
         ))}
       </div>
@@ -167,6 +163,7 @@ function Axis({
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         aria-label={label}
+        aria-valuetext={hint}
         className="w-full mt-1 bt-range"
         style={{ color }}
       />

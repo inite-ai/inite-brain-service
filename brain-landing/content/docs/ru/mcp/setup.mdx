@@ -4,7 +4,7 @@ Brain отдаёт Streamable HTTP MCP-эндпоинт на `/mcp/:companyId`. 
 
 ## Что нужно
 
-1. **API-ключ** brain (формат `brain_<base64>`). Сгенерируй на `https://brain.inite.ai/admin/keys`.
+1. **API-ключ** brain (формат `brain_<base64>`). Сгенерируй на [Brain app → API keys](/ru/app/keys).
 2. **companyId**, на который выдан ключ (виден на том же экране).
 3. **MCP-URL**: `https://brain.inite.ai/mcp/<companyId>`.
 
@@ -18,17 +18,21 @@ Brain не принимает анонимный MCP-трафик. Режима 
 {
   "mcpServers": {
     "brain": {
-      "url": "https://brain.inite.ai/mcp/<companyId>",
-      "transport": "http",
-      "headers": {
-        "Authorization": "Bearer <api-key>"
+      "command": "npx",
+      "args": [
+        "-y",
+        "@inite/brain-mcp"
+      ],
+      "env": {
+        "BRAIN_API_KEY": "brain_YOUR_API_KEY",
+        "BRAIN_COMPANY_ID": "YOUR_COMPANY_ID"
       }
     }
   }
 }
 ```
 
-Полностью выйди из Claude Desktop (не просто закрой окно) и открой заново. Сервер brain появится в панели MCP — read-only ключ открывает 19 инструментов (21 при `FACTS_API_ENABLED=1` на сервере), ключ с полным набором scope — до 30 (см. матрицу scope ниже).
+Полностью выйдите из Claude Desktop и откройте его заново. Официальный коннектор передаёт инструменты и ресурсы сервера. Их доступность зависит от прав ключа, настроек сервера и установленных пакетов. Для коннектора нужны Node.js и npx.
 
 ## Cursor
 

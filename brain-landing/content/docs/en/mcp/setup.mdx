@@ -4,7 +4,7 @@ Brain ships a Streamable HTTP MCP endpoint at `/mcp/:companyId`. Each tenant has
 
 ## What you need
 
-1. A brain **API key** (format `brain_<base64>`). Generate at `https://brain.inite.ai/admin/keys`.
+1. A brain **API key** (format `brain_<base64>`). Generate at [Brain app → API keys](/en/app/keys).
 2. The **companyId** the key was issued for (visible in the same screen).
 3. The **MCP URL**: `https://brain.inite.ai/mcp/<companyId>`.
 
@@ -18,17 +18,21 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 {
   "mcpServers": {
     "brain": {
-      "url": "https://brain.inite.ai/mcp/<companyId>",
-      "transport": "http",
-      "headers": {
-        "Authorization": "Bearer <api-key>"
+      "command": "npx",
+      "args": [
+        "-y",
+        "@inite/brain-mcp"
+      ],
+      "env": {
+        "BRAIN_API_KEY": "brain_YOUR_API_KEY",
+        "BRAIN_COMPANY_ID": "YOUR_COMPANY_ID"
       }
     }
   }
 }
 ```
 
-Quit Claude Desktop fully (not just close the window) and reopen. The brain server appears in the MCP panel — a read-only key exposes 19 tools (21 when the server runs with `FACTS_API_ENABLED=1`), a full-scope key up to 30 (see the scope matrix below).
+Quit Claude Desktop fully and reopen. The first-party connector forwards tools and resources from the server. Available tools depend on the key scopes, server features and installed packs. The connector requires Node.js and npx.
 
 ## Cursor
 

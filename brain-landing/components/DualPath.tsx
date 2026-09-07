@@ -14,7 +14,7 @@ export function DualPath({ lang }: Props) {
   const t = getMessages(lang)
   return (
     <section id="deploy" className="py-16 scroll-mt-20">
-      <SectionHeading index="05" eyebrow={t.dualPath.eyebrow} title={t.dualPath.title} />
+      <SectionHeading title={t.dualPath.title} />
 
       <div className="mt-8 grid md:grid-cols-2 gap-4">
         {/* self-host */}
@@ -49,7 +49,7 @@ export function DualPath({ lang }: Props) {
           </div>
           <div className="mt-auto pt-5">
             <Link
-              href={`/${lang}/docs/getting-started`}
+              href="https://github.com/inite-ai/inite-brain-service/blob/main/docs/operations.md"
               className="inline-flex items-center gap-1 text-sm text-[var(--data)] hover:underline u-mono"
             >
               {t.dualPath.selfHost.cta}
@@ -89,10 +89,8 @@ export function DualPath({ lang }: Props) {
           </div>
           <div className="mt-auto pt-5">
             <a
-              href="https://brain.inite.ai"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-signal inline-flex items-center gap-1.5 h-9 px-3.5 rounded-md text-sm"
+              href={`/${lang}/app`}
+              className="btn-signal inline-flex items-center gap-1.5 min-h-11 px-3.5 rounded-md text-sm"
             >
               {t.dualPath.managed.cta}
               <ArrowRight className="w-3.5 h-3.5" />
@@ -104,31 +102,12 @@ export function DualPath({ lang }: Props) {
   )
 }
 
-/** Shared blueprint section heading — numbered eyebrow + display title. */
-export function SectionHeading({
-  index,
-  eyebrow,
-  title,
-  subtitle,
-}: {
-  index: string
-  eyebrow: string
-  title: string
-  subtitle?: string
-}) {
+/** Shared marketing heading. */
+export function SectionHeading({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <div>
-      <div className="flex items-center gap-3">
-        <span className="u-mono text-[11px] text-[var(--signal)]">[{index}]</span>
-        <span className="u-eyebrow">{eyebrow}</span>
-        <span className="flex-1 lab-rule" />
-      </div>
-      <h2 className="u-display mt-3 text-2xl sm:text-[28px] font-semibold tracking-[-0.01em] text-[var(--text)]">
-        {title}
-      </h2>
-      {subtitle && (
-        <p className="mt-2 text-sm text-[var(--text-muted)] max-w-2xl">{subtitle}</p>
-      )}
+      <h2 className="u-display text-2xl sm:text-[30px] font-semibold tracking-[-0.02em] text-balance text-[var(--text)]">{title}</h2>
+      {subtitle && <p className="mt-4 text-base leading-relaxed text-[var(--text-muted)] max-w-2xl">{subtitle}</p>}
     </div>
   )
 }

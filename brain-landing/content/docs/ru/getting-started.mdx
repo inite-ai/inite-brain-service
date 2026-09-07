@@ -7,7 +7,7 @@
 Brain не принимает анонимный трафик. Получить ключ можно двумя путями:
 
 - **Self-host (dev)** — пропиши `BRAIN_API_KEYS` в `.env` по рецепту локальной разработки из [`inite-brain-service/README.md`](https://github.com/inite-ai/inite-brain-service).
-- **Хостинг** — сгенерируй на `https://brain.inite.ai/admin/keys`. Получишь строку вида `brain_<base64>` и `companyId`. Держи их в паре — путь MCP свой на каждого тенанта.
+- **Хостинг** — сгенерируй на [Brain app → API keys](/ru/app/keys). Получишь строку вида `brain_<base64>` и `companyId`. Держи их в паре — путь MCP свой на каждого тенанта.
 
 Примеры ниже считают, что заданы:
 
@@ -15,6 +15,8 @@ Brain не принимает анонимный трафик. Получить 
 export BRAIN_KEY="brain_..."
 export BRAIN_URL="https://brain.inite.ai"
 ```
+
+Примеры используют личную память `user_42`. Передавайте свой постоянный ID пользователя при записи и чтении. Для общей памяти организации не передавайте `userId` в обоих запросах.
 
 ## 1. Заингестить один факт
 
@@ -26,6 +28,7 @@ curl -X POST "$BRAIN_URL/v1/ingest/fact" \
     "entityRef": { "vertical": "rent", "id": "cust_42" },
     "predicate": "complained_about",
     "object": "late maintenance response",
+    "userId": "user_42",
     "validFrom": "2026-05-05T10:00:00Z",
     "source": { "vertical": "rent", "messageId": "msg_1" }
   }'
@@ -39,7 +42,7 @@ curl -X POST "$BRAIN_URL/v1/ingest/fact" \
 curl -X POST "$BRAIN_URL/v1/search" \
   -H "Authorization: Bearer $BRAIN_KEY" \
   -H "Content-Type: application/json" \
-  -d '{ "query": "maintenance issues", "limit": 5 }'
+  -d '{ "query": "maintenance issues", "userId": "user_42", "limit": 5 }'
 ```
 
 Вернёт ранжированные попадания по сущностям с подходящими фактами и разбивкой score по этапам.
@@ -48,15 +51,21 @@ curl -X POST "$BRAIN_URL/v1/search" \
 
 Когда REST заработал, наведи MCP-клиент на тот же ключ. Конфиги под каждый клиент — в [настройке MCP](/ru/docs/mcp/setup).
 
-Трёхстрочная сводка для Claude Desktop:
+Конфигурация для Claude Desktop (нужны Node.js и npx):
 
 ```json
 {
   "mcpServers": {
     "brain": {
-      "url": "https://brain.inite.ai/mcp/<companyId>",
-      "transport": "http",
-      "headers": { "Authorization": "Bearer <api-key>" }
+      "command": "npx",
+      "args": [
+        "-y",
+        "@inite/brain-mcp"
+      ],
+      "env": {
+        "BRAIN_API_KEY": "brain_YOUR_API_KEY",
+        "BRAIN_COMPANY_ID": "YOUR_COMPANY_ID"
+      }
     }
   }
 }
@@ -68,4 +77,4 @@ curl -X POST "$BRAIN_URL/v1/search" \
 - [Словарь предикатов](/ru/docs/concepts/predicates) — строительные блоки фактов
 - [Разрешение конфликтов](/ru/docs/concepts/conflict-resolution) — что происходит, когда два ингеста спорят
 - [POST /v1/search](/ru/docs/api/search) — полная форма запроса и ответа
-- [Справочник MCP-инструментов](/ru/docs/mcp/tools) — MCP-поверхность из 28 инструментов и её схемы
+- [Справочник MCP-инструментов](/ru/docs/mcp/tools) — доступные инструменты, права и схемы

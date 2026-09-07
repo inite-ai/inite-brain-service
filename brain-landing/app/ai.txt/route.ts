@@ -11,13 +11,13 @@ export function GET() {
 # See also: /llms.txt (long-form), /robots.txt (access), /sitemap.xml
 
 name=INITE Brain
-tagline=Bitemporal knowledge graph for AI agents
+tagline=Memory with context for AI agents
 type=SoftwareApplication/DeveloperApplication
 description=${ORG.description}
 url=${SITE_URL}
 docs=${SITE_URL}/en/docs
 repository=${GITHUB_URL}
-license=AGPL-3.0
+license=AGPL-3.0-or-later
 pricing=open-source self-host; managed endpoint available
 surfaces=REST,MCP
 stack=NestJS,SurrealDB,BGE-M3,OpenAI,Cohere
