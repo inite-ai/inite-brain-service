@@ -1,5 +1,12 @@
 import type { Surreal } from 'surrealdb';
 import type { CoverageScanMode } from '../search/retrieval-profile';
+import { hnswIndexState, knnDroppedMessage, knnOperatorDropped } from '../db/knn-index';
+
+/** The HNSW index each coverage-scan table rides — for the diagnostic. */
+const SCAN_HNSW: Record<DenseScanLegRequest['table'], string> = {
+  episode_segment: 'segment_embedding_hnsw',
+  knowledge_fact: 'fact_embedding_hnsw',
+};
 
 /**
  * Shared dense leg of the two coverage-first scan lanes (mention-scan
@@ -14,6 +21,14 @@ import type { CoverageScanMode } from '../search/retrieval-profile';
  * post-filter pool — an empty pool under KNN is most likely gate
  * starvation (every approximate neighbor eaten by the pii/user/world
  * gates), which the exact scan recovers in exactly the rare thin case.
+ *
+ * The third way it misses is the one no error reports: with no (or a
+ * still-building) index SurrealDB drops the KNN operator from the plan and
+ * answers the statement successfully with the table's first k rows and a
+ * NULL distance on each. That is a NON-empty, unranked result — it passed
+ * the `rows.length > 0` check above and was returned as if it were ranked.
+ * Detected from the rows themselves (src/db/knn-index.ts) and routed to the
+ * same brute fallback.
  *
  * Pure query composition + execution — no DI, no env; the tuning
  * arrives from the resolved profile via the lane services.
@@ -51,7 +66,9 @@ export interface DenseScanLegRequest {
   params: Record<string, unknown>;
   k: number;
   tuning: CoverageScanTuning;
-  logger?: { warn(message: string): void };
+  /** `error` carries the dropped-KNN-operator shout (a live tenant
+   *  misconfiguration); `warn` keeps the empty-pool / throw messages. */
+  logger?: { warn(message: string): void; error?(message: string): void };
 }
 
 /**
@@ -89,6 +106,13 @@ export async function runDenseScanLeg<Row>(req: DenseScanLegRequest): Promise<Ro
   LIMIT $k`,
       params,
     );
+    if (knnOperatorDropped(rows, 'knnDist')) {
+      const spec = { table: req.table, index: SCAN_HNSW[req.table] };
+      const message = knnDroppedMessage(spec, await hnswIndexState(db, spec));
+      if (logger?.error) logger.error(message);
+      else logger?.warn(message);
+      return runBrute(req);
+    }
     if (rows && rows.length > 0) {
       return rows.map(({ knnDist, ...rest }) => {
         const row = {

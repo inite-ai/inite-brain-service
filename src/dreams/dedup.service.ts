@@ -5,6 +5,7 @@ import { EntityJudgeService } from '../ai/entity-judge.service';
 import { withSpan } from '../common/tracing';
 import { envFlagEnabled } from '../common/env-validation';
 import { derivedVersionFence } from '../episodes/read-pin.service';
+import { hnswIndexState, knnDroppedMessage, knnOperatorDropped } from '../db/knn-index';
 
 /**
  * DreamsDedupService — find near-duplicate ENTITIES inside a tenant
@@ -200,9 +201,15 @@ export class DreamsDedupService {
    * K nearest name facts to a seed name fact, seed vector resolved
    * DB-side by fact id. With SEARCH_HNSW_ENABLED the KNN operator rides
    * the HNSW index (same literal-K idiom + overfetch as the search
-   * vector leg; the operator throws when the tenant has no index, and
-   * we fall back to the scan). Without it, a scan ordered by cosine —
-   * still zero vectors shipped to JS in both directions.
+   * vector leg). Without it, a scan ordered by cosine — still zero
+   * vectors shipped to JS in both directions.
+   *
+   * The KNN statement does NOT throw when the tenant has no (or a
+   * still-building) index: SurrealDB drops the operator and answers with
+   * table-order rows carrying a NULL distance, which this pass then read
+   * as `sim = 0` — below every threshold, so the whole dedup sweep went
+   * silently inert on un-indexed tenants. Detected from the rows
+   * (src/db/knn-index.ts) and routed to the exact scan below.
    */
   private async nearestNames(
     db: Surreal,
@@ -237,12 +244,18 @@ export class DreamsDedupService {
             LIMIT 5;`,
           { fid: seedFactId, ...fence.params },
         );
-        return ((res[1] as Array<{ entityId: unknown; dist: number }>) ?? []).map(
-          ({ entityId, dist }) => ({
+        const knnRows = (res[1] as Array<{ entityId: unknown; dist: number }>) ?? [];
+        if (knnOperatorDropped(knnRows, 'dist')) {
+          const spec = { table: 'knowledge_fact', index: 'fact_embedding_hnsw' };
+          this.logger.error(
+            `[dreams.dedup] ${knnDroppedMessage(spec, await hnswIndexState(db, spec))}`,
+          );
+        } else {
+          return knnRows.map(({ entityId, dist }) => ({
             entityId,
             sim: typeof dist === 'number' ? 1 - dist : 0,
-          }),
-        );
+          }));
+        }
       } catch (e) {
         this.logger.warn(
           `[dreams.dedup] KNN leg failed (${(e as Error).message}); falling back to scan`,

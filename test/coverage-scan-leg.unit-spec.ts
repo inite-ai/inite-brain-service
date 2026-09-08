@@ -73,14 +73,19 @@ describe('runDenseScanLeg', () => {
     expect(db.calls[0]).not.toContain('vector::similarity::cosine');
   });
 
+  // knnDist is present on these fixtures on purpose: a row with NO
+  // distance is how SurrealDB reports "the KNN operator was dropped"
+  // (see knn-missing-index.unit-spec.ts), which now routes to the brute
+  // fallback — these two cases are about the ef/overfetch arithmetic and
+  // must exercise the ridden-index path.
   it('ef above the overfetched k survives the clamp', async () => {
-    const db = fakeDb([[[{ id: 's1' }]]]);
+    const db = fakeDb([[[{ id: 's1', knnDist: 0.3 }]]]);
     await runDenseScanLeg(legRequest(db, { mode: 'hnsw', ef: 5000, overfetch: 4 }));
     expect(db.calls[0]).toContain('<|1600,5000|>');
   });
 
   it('caps the KNN candidate walk at 4000', async () => {
-    const db = fakeDb([[[{ id: 's1' }]]]);
+    const db = fakeDb([[[{ id: 's1', knnDist: 0.3 }]]]);
     await runDenseScanLeg(legRequest(db, { mode: 'hnsw', ef: 400, overfetch: 100 }));
     expect(db.calls[0]).toContain('<|4000,4000|>');
   });

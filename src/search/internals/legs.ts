@@ -3,6 +3,10 @@ import type { EmbedderService } from '../../ai/embedder.service';
 import type { FactRow } from './types';
 import type { SearchTuning } from '../retrieval-profile';
 import { buildEdgeFence, type EdgeFence } from './edge-fence';
+import { hnswIndexState, knnDroppedMessage, knnOperatorDropped } from '../../db/knn-index';
+
+/** The index the fact vector leg rides; named here for the diagnostic. */
+const FACT_HNSW = { table: 'knowledge_fact', index: 'fact_embedding_hnsw' } as const;
 
 /** The slice of SearchTuning the legs consume (kept narrow for tests). */
 export type LegTuning = Pick<
@@ -46,8 +50,11 @@ export interface RunVectorLegOptions {
   query: string;
   k: number;
   baseWhere: { sql: string; params: Record<string, unknown> };
-  /** For the HNSW-fallback warning; the leg stays silent without it. */
-  logger?: { warn: (msg: string) => void };
+  /** For the HNSW-fallback warning; the leg stays silent without it.
+   *  `error` carries the dropped-KNN-operator shout (a live tenant
+   *  misconfiguration, not a transient); `warn` keeps the legacy
+   *  throw-path message. */
+  logger?: { warn: (msg: string) => void; error?: (msg: string) => void };
   /** Resolved by the retrieval-profile bootstrap (S5.2). */
   tuning?: LegTuning;
   /** Edge policy fence for the combined vector+graph projection; the
@@ -67,13 +74,29 @@ export async function runVectorLeg({
 }: RunVectorLegOptions): Promise<FactRow[]> {
   const queryEmbedding = await embedder.embed(query);
   // HNSW path (opt-in): approximate KNN over the per-tenant indexes
-  // created by POST /v1/admin/maintenance/hnsw. Any failure — most
-  // commonly "no index on this tenant yet" — falls back to the exact
-  // full scan below, so the flag can be flipped globally while tenants
-  // are indexed one by one.
+  // created by POST /v1/admin/maintenance/hnsw. Two ways it can miss, and
+  // only one of them is an exception:
+  //
+  //   - the statement throws → the legacy catch below;
+  //   - the statement SUCCEEDS with the KNN operator silently dropped from
+  //     the plan, because the tenant has no (or a still-building) index.
+  //     SurrealDB then answers with the table's first k rows and a NULL
+  //     distance on each — unranked rows that are indistinguishable from
+  //     ranked ones downstream. See src/db/knn-index.ts for the 3.2.4
+  //     measurement.
+  //
+  // The second case is the one production is in: SEARCH_HNSW_ENABLED=1 is
+  // set globally while index creation is a manual per-tenant admin call.
+  // Both now fall back to the exact scan below, which is byte-identical to
+  // what the tenant is served with the flag off.
   if (tuning.hnswEnabled) {
     try {
-      return await runVectorLegKnn({ db, queryEmbedding, k, baseWhere, tuning });
+      const knnRows = await runVectorLegKnn({ db, queryEmbedding, k, baseWhere, tuning });
+      if (knnRows !== null) return knnRows;
+      const state = await hnswIndexState(db, FACT_HNSW);
+      const message = knnDroppedMessage(FACT_HNSW, state);
+      if (logger?.error) logger.error(message);
+      else logger?.warn(message);
     } catch (e) {
       logger?.warn(`hnsw vector leg fell back to full scan: ${(e as Error).message}`);
     }
@@ -105,8 +128,13 @@ export async function runVectorLeg({
  * HNSW KNN variant of the vector leg. The KNN operator picks candidates
  * BEFORE the WHERE filters apply, so the query over-fetches
  * (`SEARCH_HNSW_OVERFETCH × k`, capped 1000) to keep filtered recall
- * up; `SEARCH_HNSW_EF` is the HNSW search width. Throws when the tenant
- * has no index — the caller falls back to the scan.
+ * up; `SEARCH_HNSW_EF` is the HNSW search width.
+ *
+ * Returns NULL — not rows, and not a throw — when the tenant has no usable
+ * index. SurrealDB answers such a statement successfully with the KNN
+ * operator dropped and a null distance on every row, so "no index" is
+ * detected from the result rather than from an exception that never
+ * arrives; the caller falls back to the exact scan.
  */
 async function runVectorLegKnn({
   db,
@@ -120,7 +148,7 @@ async function runVectorLegKnn({
   k: number;
   baseWhere: { sql: string; params: Record<string, unknown> };
   tuning: LegTuning;
-}): Promise<FactRow[]> {
+}): Promise<FactRow[] | null> {
   const ef = tuning.hnswEf;
   const kOver = Math.min(k * tuning.hnswOverfetch, 1000);
   const projection = `
@@ -147,6 +175,7 @@ async function runVectorLegKnn({
        LIMIT $k`,
     { ...baseWhere.params, q: queryEmbedding, k },
   );
+  if (knnOperatorDropped(rows, 'knnDist')) return null;
   return (rows ?? []).map(({ knnDist, ...rest }) => ({
     ...rest,
     simScore: typeof knnDist === 'number' ? 1 - knnDist : undefined,
