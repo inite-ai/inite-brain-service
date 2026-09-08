@@ -17,6 +17,7 @@ import {
   sceneBeliefPromotionEnabled,
   sceneEvidenceLinksEnabled,
   sceneFactBacklinkEnabled,
+  sceneGistEmbeddingEnabled,
   sceneLlmEnrichmentEnabled,
   sceneSegmentationEnabled,
 } from '../common/scene-flags';
@@ -28,6 +29,7 @@ import {
   SceneEvidenceLinkerService,
   SceneEvidenceLinkResult,
 } from './scene-evidence-linker.service';
+import { SceneGistEmbeddingService, SceneGistEmbedResult } from './scene-gist-embedding.service';
 
 /** Purge param belt: DB stamps are short version slugs, not free text. */
 // 128 (was 64): pack scene worlds (0110) are versioned
@@ -50,6 +52,17 @@ const SEGMENTER_VERSION_MAX_CHARS = 128;
  *    Idempotent (0118): scenes already at the current enrichmentVersion
  *    composite (prompt|scorer|model) are SKIPPED — a re-run with an
  *    unchanged configuration makes zero paid calls.
+ *  - POST /scenes/embed-gists — standalone gist encoder pass (PR3): ONE
+ *    bounded embedMany batch over the scenes of the current effective
+ *    world that carry NO `gistEmbedding` yet, writing the vector (plus
+ *    the `embeddingSpaceId` stamp under EMBEDDING_SPACE_TRACKING) by
+ *    primary-key UPDATE. 404 unless BOTH the master flag and
+ *    SCENES_GIST_EMBEDDING are on. Idempotent by construction (a scene
+ *    with a vector is never selected) and bounded per run, so a
+ *    first-time backfill of a large world drains across invocations —
+ *    this is also the BACKFILL verb for a world composed before the flag
+ *    was turned on. Re-embedding EXISTING vectors into a new embedding
+ *    space stays the reindex sweep's job, not this one's.
  *  - POST /scenes/backlink — standalone fact backlink (PR2): idempotent
  *    source.memoryEpisodeIds stamps. 404 unless BOTH the master flag and
  *    SCENES_FACT_BACKLINK are on.
@@ -85,6 +98,7 @@ export class AdminScenesController {
     private readonly backlinker: SceneBacklinkService,
     private readonly beliefs: BeliefPromotionService,
     private readonly evidenceLinker: SceneEvidenceLinkerService,
+    private readonly gistEncoder: SceneGistEmbeddingService,
     private readonly apiKeys: ApiKeyService,
   ) {}
 
@@ -113,6 +127,24 @@ export class AdminScenesController {
     }
     const tenant = this.resolveTenant(req, body.tenant);
     return this.enricher.enrich(
+      tenant,
+      body.conversationId !== undefined ? { conversationId: body.conversationId } : {},
+    );
+  }
+
+  @Post('maintenance/scenes/embed-gists')
+  @RequireScopes('brain:admin')
+  async embedGists(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { tenant?: string; conversationId?: string } = {},
+  ): Promise<SceneGistEmbedResult> {
+    // Double-gate idiom: controller 404 here + the service's defensive
+    // early return (off = zero queries, no embed call, byte-identical).
+    if (!sceneSegmentationEnabled() || !sceneGistEmbeddingEnabled()) {
+      throw new NotFoundException();
+    }
+    const tenant = this.resolveTenant(req, body.tenant);
+    return this.gistEncoder.run(
       tenant,
       body.conversationId !== undefined ? { conversationId: body.conversationId } : {},
     );

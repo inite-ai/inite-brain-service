@@ -80,6 +80,10 @@ describe('Scene serving lane e2e (the episodic plane’s first read)', () => {
       'INGEST_EPISODE_ONLY',
       'SCENES_SEGMENTATION_ENABLED',
       'SCENES_TOPIC_BOUNDARY',
+      // PR3: the dense leg's producer. Starts OFF, so every `it` above
+      // this one serves the BM25-ONLY world — which is exactly the
+      // degradation contract the dense leg must preserve.
+      'SCENES_GIST_EMBEDDING',
       'RETRIEVAL_ABSTENTION_CALIBRATION',
     ]) {
       saved[k] = process.env[k];
@@ -269,6 +273,59 @@ describe('Scene serving lane e2e (the episodic plane’s first read)', () => {
     expect(state.calls[0]!.user).not.toContain('Episodic record');
     expect(state.calls[0]!.user).not.toContain('[memory_episode:');
     delete process.env.RETRIEVAL_SCENE_LANE;
+  });
+
+  /**
+   * PR3 — the DENSE leg. Every `it` above served this world BM25-only,
+   * because `gistEmbedding` had no producer and the dense probe's
+   * `!= NONE` filter returned nothing: that IS the degradation contract.
+   * Here the producer fills the column and the fused lane must still
+   * return the scene, now on two legs.
+   */
+  it('dense leg: with gist vectors present the lane still serves the scene (RRF fusion)', async () => {
+    const vectorless = await db(async (d) => {
+      const [rows] = await d.query<[Array<{ gistEmbedding?: number[] }>]>(
+        `SELECT gistEmbedding FROM memory_episode`,
+      );
+      return rows ?? [];
+    });
+    // The world every earlier assertion in this suite ran against.
+    expect(vectorless.every((r) => r.gistEmbedding === undefined)).toBe(true);
+
+    process.env.SCENES_GIST_EMBEDDING = '1';
+    const embed = await f.http
+      .post('/v1/admin/maintenance/scenes/embed-gists')
+      .set(auth())
+      .send({});
+    expect(embed.status).toBe(201);
+    expect(embed.body).toMatchObject({ embedded: 1, failed: 0 });
+    const vectored = await db(async (d) => {
+      const [rows] = await d.query<[Array<{ gistEmbedding?: number[] }>]>(
+        `SELECT gistEmbedding FROM memory_episode`,
+      );
+      return rows ?? [];
+    });
+    expect(vectored[0]!.gistEmbedding!.length).toBeGreaterThan(0);
+
+    process.env.RETRIEVAL_SCENE_LANE = '1';
+    const state = mockSynthesizeOpenAi(f.app, [
+      JSON.stringify({
+        answer: `The signed lease scan arrived and was filed [${factId}] [${sceneId}].`,
+        citedFactIds: [factId],
+        citedSceneIds: [sceneId],
+      }),
+      VERIFY_SUPPORTED,
+    ]);
+    const res = await synth({ query: QUERY, userId: USER });
+    expect(res.status).toBe(201);
+    // Same line, same citation — the dense leg widened recall without
+    // changing the render contract, and every fence still holds.
+    expect(state.calls[0]!.user).toContain(`[${sceneId}]`);
+    expect(state.calls[0]!.user).toContain(sceneGist);
+    expect(res.body.evidenceCitations).toHaveLength(1);
+    expect(res.body.evidenceCitations[0]).toMatchObject({ sceneId, excerpt: sceneGist });
+    delete process.env.RETRIEVAL_SCENE_LANE;
+    delete process.env.SCENES_GIST_EMBEDDING;
   });
 
   it('an UNPROMOTED world does not serve — demote the registry row and the lane goes empty', async () => {

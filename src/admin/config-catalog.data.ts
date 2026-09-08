@@ -731,6 +731,31 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Scenes fact backlink (Brain v2 PR2): stamp knowledge_fact rows whose source.episodeIds intersect a scene’s membership with source.memoryEpisodeIds (idempotent array::union) + source.sceneLinkVersion — facts become pointers into the episodic plane. FLEXIBLE source ride, no migration; nothing on the serving path reads the keys (additively visible where `source` is already returned). Off = no fact row is ever touched, backlink route 404s.',
   },
   {
+    key: 'SCENES_GIST_EMBEDDING',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneGistEmbeddingEnabled) by the
+    // admin 404 guard, the encoder pass's defensive early return and the
+    // composer's post-swap hook — never captured in a constructor — so a
+    // flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Scene gist embeddings (Brain v2 PR3): the producer the 0106 `gistEmbedding` column never had. After the composer swap (and via POST /v1/admin/maintenance/scenes/embed-gists) an encoder pass embeds the CANONICAL `gist` text of scenes in the current effective world that carry no vector yet — ONE bounded embedMany batch per run, capped at 200 scenes — and writes the vector by primary-key-addressed UPDATE, plus the `embeddingSpaceId` stamp when EMBEDDING_SPACE_TRACKING is on (exactly the fact-side reindex convention, so space migration treats scenes like every other embedded surface). `gist` and NOT `enrichedGist`: it is the one canonical, post-compose-immutable gist column, the one the 0106 BM25 index covers, the one the scene lane renders and the one the reindex engine already declares as this table’s embed source — so the single seam covers deterministic AND LLM-enriched worlds. Unblocks the scene lane’s dense leg (RETRIEVAL_SCENE_LANE), which is BM25-only while no vector exists. Off = the embedder is never called, no scene row is touched, the route 404s and the composer hook is skipped — byte-identical prod. An embed failure is soft: the run reports it and never fails the compose that spawned it.',
+  },
+  {
+    key: 'SCENES_ENTITY_LINKS',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneEntityLinksEnabled) by the
+    // enricher, ONCE per run (the Drift-3 contract) — never captured in a
+    // constructor — so a flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Scene entity links (Brain v2 PR3): the enrichment pass RESOLVES the LLM’s free-text `entityMentions` (parsed since PR2 and deliberately discarded — the 0106 column promises knowledge_entity RECORD refs) into real records through the platform’s own deterministic resolution — exact canonicalName/alias match, plus the INGEST_ARTICLE_NORMALIZATION leading-article variants and the INGEST_CODE_ALIAS_RESOLUTION path↔symbol convention when those flags are on — and persists them in `entityIds`. RESOLVE-ONLY: a scene NEVER mints an entity, never stamps an alias, never writes a merge-log row, and an unresolved mention is dropped — a scene is a reconstruction, not a source of truth. Fenced by the #387 single-user rule: a single-user scene may link its own user’s entities plus tenant-global ones, and a mixed-user / tenant-global / legacy scene links tenant-global entities ONLY, so a foreign user’s entity can never land on a scene; merged-away entities are excluded. At most 12 mentions are attempted per scene (so at most 12 links), and the resolved set fully REPLACES the column, so re-enrichment is idempotent. `relationIds` stays unwritten — the pipeline has no knowledge_edge producer and inventing edges from a mention list would assert evidence the scene never gave. Requires SCENES_LLM_ENRICHMENT. Off = zero resolution queries, a byte-identical scene SELECT projection and UPDATE statement, and no entityIds write.',
+  },
+  {
     key: 'SCENES_VERSION_FINGERPRINT',
     category: 'scenes',
     // Read at call time (scene-flags.sceneVersionFingerprintEnabled) once

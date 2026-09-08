@@ -72,6 +72,84 @@ export function sceneLlmEnrichmentEnabled(): boolean {
 }
 
 /**
+ * Scene gist embeddings — SCENES_GIST_EMBEDDING (Brain v2 PR3).
+ *
+ * The 0106 `gistEmbedding` column had NO producer. The composer's own
+ * header said so ("deliberately NOT written in v1 … the PR2 encoder pass
+ * backfills it"), PR2 shipped without it, and both downstream consumers
+ * were built around the hole: the reindex sweep registers memory_episode
+ * but no-ops on it (`WHERE gistEmbedding != NONE` — the sweep MOVES
+ * vectors between spaces, it never creates them), and the scene serving
+ * lane (RETRIEVAL_SCENE_LANE) is BM25-only with no dense leg.
+ *
+ * When on, a post-swap encoder pass (SceneGistEmbeddingService, also
+ * triggerable standalone via POST /v1/admin/maintenance/scenes/embed-gists)
+ * embeds the CANONICAL gist TEXT of scenes in the current effective
+ * segmenter world that carry no vector yet, in ONE bounded batch per run,
+ * and writes `gistEmbedding` by primary-key-addressed UPDATE — plus, when
+ * EMBEDDING_SPACE_TRACKING is on, the `embeddingSpaceId` stamp, exactly
+ * the fact-side convention (the reindex engine's spaceStampId).
+ *
+ * WHY `gist` AND NOT `enrichedGist`: `gist` is the ONE canonical gist text
+ * column — immutable post-compose, the column the 0106 BM25 FULLTEXT index
+ * covers, the column the scene lane renders, and the column the reindex
+ * engine already declares as memory_episode's embed source. A vector of
+ * any other text would be silently replaced by the first space-migration
+ * sweep. So this single seam covers BOTH gist kinds: the enricher writes
+ * a REVISION sibling (`enrichedGist`) and never touches `gist`.
+ *
+ * The env read lives here in the common layer, NOT inside the engine dirs
+ * (engine-gates S5.2). Read at call time so a flip is runtime-mutable.
+ * Default off ⇒ the embedder is NEVER called, no scene row is touched, the
+ * admin route 404s and the composer's post-swap hook is skipped —
+ * byte-identical prod. An embed failure is SOFT: the run reports it and the
+ * scenes keep no vector, never failing the composer run that spawned it.
+ */
+export function sceneGistEmbeddingEnabled(): boolean {
+  return envFlagEnabled(process.env.SCENES_GIST_EMBEDDING);
+}
+
+/**
+ * Scene entity links — SCENES_ENTITY_LINKS (Brain v2 PR3).
+ *
+ * The LLM enricher has parsed `entityMentions` since PR2 and DELIBERATELY
+ * thrown them away: the 0106 column for entity links is `entityIds` —
+ * RECORD refs to knowledge_entity — and storing raw strings where records
+ * are promised would poison that column's contract.
+ *
+ * When on, the enrichment pass RESOLVES those free-text mentions against
+ * the platform's existing deterministic entity resolution
+ * (EntityUpsertService.resolveExistingByName — the same exact
+ * canonicalName/alias match, INGEST_ARTICLE_NORMALIZATION variants and
+ * INGEST_CODE_ALIAS_RESOLUTION path/symbol convention the ingest naming
+ * path uses) and persists the resolved record refs on the scene.
+ *
+ * RESOLVE-ONLY, NEVER MINT. A scene is a RECONSTRUCTION of turns already
+ * ingested, not a source of truth: a mention that resolves to nothing is
+ * DROPPED, no knowledge_entity row is ever created, no alias is stamped
+ * and no merge-log row is written. Scoped by the #387 single-user fence —
+ * a user-scoped scene may link its own user's entities plus tenant-global
+ * ones; a mixed-user / tenant-global / legacy scene links tenant-global
+ * entities ONLY, so a foreign user's entity can never appear on a scene.
+ * Capped per scene, and idempotent: the resolved set fully replaces the
+ * column, so a re-enrichment with the same corpus writes the same value.
+ *
+ * `relationIds` (the sibling 0106 column) stays UNWRITTEN: nothing in the
+ * scene pipeline produces knowledge_edge relations — the enricher's schema
+ * returns mentions, not typed relations — and cross-producting resolved
+ * entities into existing edges would assert evidence the scene never gave.
+ *
+ * The env read lives here in the common layer, NOT inside the engine dirs
+ * (engine-gates S5.2). Read ONCE per enrichment run (the Drift-3 contract).
+ * Default off ⇒ ZERO resolution queries, the byte-identical scene SELECT
+ * projection and UPDATE statement, and no entityIds write. Requires
+ * SCENES_LLM_ENRICHMENT — the mentions are an output of the enrichment call.
+ */
+export function sceneEntityLinksEnabled(): boolean {
+  return envFlagEnabled(process.env.SCENES_ENTITY_LINKS);
+}
+
+/**
  * Scenes fact-backlink flag — SCENES_FACT_BACKLINK (Brain v2 PR2).
  *
  * When on, a batch pass (end of the composer run + standalone POST

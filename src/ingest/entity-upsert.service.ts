@@ -12,6 +12,7 @@ import { EntityRef, IngestFactDto } from './dto/ingest-fact.dto';
 import { externalRefKey, idTailOf } from './ingest-utils';
 import { isCodeSymbolShaped, pathNeedlesForSymbol, symbolAliasForPath } from './code-alias';
 import { scopeForUser } from '../auth/scope-tags';
+import { scopeFenceSql } from '../auth/scope-visibility';
 import { envFlagEnabled } from '../common/env-validation';
 import { analyzeConfusables } from '../common/text-sanitizer';
 
@@ -57,6 +58,13 @@ export function articleNameVariants(nameLc: string): string[] {
  *
  * Shared by all three ingest paths: typed fact (resolveOrCreateEntity),
  * mention (resolveOrCreateNamedEntity), and link (resolveOrCreateBareRef).
+ *
+ * Plus ONE non-minting reader — `resolveExistingByName` — for DERIVED
+ * surfaces that must point at entities the graph already knows without
+ * ever creating one (the scene plane's 0106 `entityIds` backlinks). It
+ * shares this service precisely so there is one place where the corpus's
+ * naming conventions (exact canonical/alias, leading articles, code
+ * path↔symbol) are interpreted, instead of a second, drifting copy.
  */
 @Injectable()
 export class EntityUpsertService {
@@ -273,6 +281,177 @@ export class EntityUpsertService {
       externalRefs: {},
     });
     return String(created?.id);
+  }
+
+  /**
+   * RESOLVE-ONLY name lookup: the deterministic half of
+   * `resolveOrCreateNamedEntity` with the minting, the alias stamping, the
+   * merge-log audit and the probabilistic LLM judge all removed. Returns
+   * an existing knowledge_entity id or null — it NEVER creates a row and
+   * NEVER writes anything at all.
+   *
+   * WHO NEEDS THIS. A RECONSTRUCTION surface — the scene plane's
+   * `entityIds` backlinks (0106, SCENES_ENTITY_LINKS) is the first — wants
+   * to point at entities the graph already knows, and must not be able to
+   * mint them: a scene is derived from turns that were already ingested,
+   * so any entity it legitimately names was already created by the ingest
+   * path. Letting a derived pass mint would make a summary a source of
+   * truth and would let an LLM's paraphrase of a name ("the Lisbon trip")
+   * become a permanent node nothing else references.
+   *
+   * MATCH LADDER — the same three deterministic steps the naming path
+   * uses, in the same order, riding the SAME env flags so the corpus's
+   * naming conventions are read identically wherever they are read:
+   *   1. exact `canonicalNameLc` / `aliases` match;
+   *   2. leading-article variants (INGEST_ARTICLE_NORMALIZATION);
+   *   3. code path↔symbol convention (INGEST_CODE_ALIAS_RESOLUTION).
+   * The probabilistic step 3 of the naming path (the embedding + LLM judge
+   * resolver) is deliberately EXCLUDED: it exists to avoid minting a
+   * duplicate at ingest time, and a low-confidence fuse is the wrong
+   * trade-off for a backlink nobody asked for.
+   *
+   * UNIQUE MATCHES ONLY, at every step — including step 1, where the
+   * minting path takes `LIMIT 1` because it must produce SOME id. Here two
+   * same-named candidates mean the identity is ambiguous, and the honest
+   * answer for a backlink is no link at all. `mergedInto IS NONE` excludes
+   * entities already folded into another identity.
+   *
+   * SCOPE (0055 + 0093). `userId` is the scope key of the asking surface
+   * when it has exactly ONE; undefined means it has none (or more than
+   * one), and then ONLY tenant-global entities are visible — mirroring the
+   * `userId IS NONE` pin the naming path uses, so a personal entity can
+   * never be linked from a shared row. A scoped caller additionally sees
+   * its OWN entities and nobody else's; the 0093 scope-tag fence ANDs
+   * alongside (inert while SCOPE_TAGS_ENABLED is off, and it can only ever
+   * narrow).
+   *
+   * NEVER THROWS: any failure returns null. A backlink is an enrichment,
+   * never a reason to fail the pass that asked for it.
+   */
+  async resolveExistingByName(
+    db: Surreal,
+    e: { name: string },
+    opts: { userId?: string | undefined } = {},
+  ): Promise<string | null> {
+    const raw = e.name.trim();
+    if (raw === '') return null;
+    const target = raw.toLowerCase();
+    const fence = this.readFence(opts.userId);
+    try {
+      // 1. Exact canonical-name / alias match.
+      const exact = await this.uniqueEntity(
+        db,
+        `SELECT id FROM knowledge_entity
+          WHERE (canonicalNameLc = $name OR aliases CONTAINS $rawName)
+            AND mergedInto IS NONE
+            ${fence.clause}
+          LIMIT 2`,
+        { name: target, rawName: raw, ...fence.params },
+      );
+      if (exact) return exact;
+
+      // 2. Leading-article variants (INGEST_ARTICLE_NORMALIZATION).
+      if (envFlagEnabled(process.env.INGEST_ARTICLE_NORMALIZATION)) {
+        const variants = articleNameVariants(target);
+        if (variants.length > 0) {
+          const viaArticle = await this.uniqueEntity(
+            db,
+            `SELECT id FROM knowledge_entity
+              WHERE canonicalNameLc IN $variants
+                AND mergedInto IS NONE
+                ${fence.clause}
+              LIMIT 2`,
+            { variants, ...fence.params },
+          );
+          if (viaArticle) return viaArticle;
+        }
+      }
+
+      // 3. Code path↔symbol convention (INGEST_CODE_ALIAS_RESOLUTION).
+      return await this.resolveExistingByCodeAlias(db, raw, fence);
+    } catch (err) {
+      this.logger.warn(
+        `[entity.resolve_only] lookup failed for "${raw}": ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * The read fence for a resolve-only lookup: the 0055 userId rule plus
+   * the 0093 scope-tag fence. No scope key ⇒ tenant-global rows only (the
+   * naming path's `userId IS NONE` pin, verbatim); a scope key ⇒ its own
+   * rows too, and never a third party's.
+   */
+  private readFence(userId: string | undefined): {
+    clause: string;
+    params: Record<string, unknown>;
+  } {
+    const scope = scopeFenceSql(userId, 'entityScopeTag');
+    if (userId === undefined) {
+      return { clause: `AND userId IS NONE ${scope.clause}`, params: { ...scope.params } };
+    }
+    return {
+      clause: `AND (userId IS NONE OR userId = $scopeUserId) ${scope.clause}`,
+      params: { scopeUserId: userId, ...scope.params },
+    };
+  }
+
+  /** Run a 2-row probe and return the id only when it is UNAMBIGUOUS. */
+  private async uniqueEntity(
+    db: Surreal,
+    sql: string,
+    params: Record<string, unknown>,
+  ): Promise<string | null> {
+    const rows = await queryRows<{ id: unknown }>(db, sql, params);
+    const ids = [...new Set(rows.map((r) => String(r.id)))];
+    return ids.length === 1 ? ids[0]! : null;
+  }
+
+  /**
+   * Read-only twin of `resolveByCodeAlias`: the same deterministic
+   * path↔symbol convention, both directions, unique matches only — but it
+   * never stamps the new surface into the reused entity's aliases. A
+   * derived backlink must not mutate the entity it points at; the alias
+   * seeding is the ingest path's job, where the surface was actually
+   * observed as a name.
+   */
+  private async resolveExistingByCodeAlias(
+    db: Surreal,
+    name: string,
+    fence: { clause: string; params: Record<string, unknown> },
+  ): Promise<string | null> {
+    if (!envFlagEnabled(process.env.INGEST_CODE_ALIAS_RESOLUTION)) return null;
+    const symbol = symbolAliasForPath(name);
+    if (symbol !== null) {
+      return this.uniqueEntity(
+        db,
+        `SELECT id FROM knowledge_entity
+          WHERE (canonicalNameLc = $sym OR aliases CONTAINS $symRaw)
+            AND mergedInto IS NONE
+            ${fence.clause}
+          LIMIT 2`,
+        { sym: symbol.toLowerCase(), symRaw: symbol, ...fence.params },
+      );
+    }
+    if (!isCodeSymbolShaped(name)) return null;
+    const matched = new Set<string>();
+    for (const needle of pathNeedlesForSymbol(name)) {
+      const rows = await queryRows<{ id: unknown; canonicalName: string }>(
+        db,
+        `SELECT id, canonicalName FROM knowledge_entity
+          WHERE string::contains(canonicalNameLc, $needle)
+            AND mergedInto IS NONE
+            ${fence.clause}
+          LIMIT $k`,
+        { needle, k: 16, ...fence.params },
+      );
+      for (const r of rows) {
+        if (symbolAliasForPath(String(r.canonicalName)) === name) matched.add(String(r.id));
+      }
+      if (matched.size > 1) break; // already ambiguous — stop scanning
+    }
+    return matched.size === 1 ? [...matched][0]! : null;
   }
 
   async resolveOrCreateBareRef(db: Surreal, ref: EntityRef): Promise<string> {

@@ -1,12 +1,19 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { StringRecordId, type Surreal } from 'surrealdb';
 import type OpenAI from 'openai';
 import { SurrealService } from '../db/surreal.service';
 import { EpisodeReadStoreService, type EpisodeDb } from '../episodes/episode-read-store.service';
+import { EntityUpsertService } from '../ingest/entity-upsert.service';
 import { chatCallParams, createOpenAiClient } from '../ai/openai-client';
-import { sceneLlmEnrichmentEnabled, scenePredictionBaselineEnabled } from '../common/scene-flags';
+import {
+  sceneEntityLinksEnabled,
+  sceneLlmEnrichmentEnabled,
+  scenePredictionBaselineEnabled,
+} from '../common/scene-flags';
 import { type SceneTurnRow } from './scene-segmentation';
 import { sceneSingleUser } from './belief-promotion.service';
+import { selectSceneMentions, stableEntityIds } from './scene-entity-links';
 import {
   baselineRefPayload,
   loadActiveBeliefBaseline,
@@ -77,11 +84,52 @@ import { SceneVersionService } from './scene-version';
  * re-enrichment restores it. Namespacing the two writers under distinct
  * keys is the obvious follow-up and belongs in the promotion service.
  *
- * entityMentions is parsed and validated but deliberately NOT persisted:
- * the 0106 column for entity links is entityIds — RECORD refs to
- * knowledge_entity — and resolving free-text mentions into records is a
- * separate (PR3) pass; storing raw strings where records are promised
- * would poison that column's contract.
+ * ENTITY LINKS (SCENES_ENTITY_LINKS, default off) — PR3, the pass PR2
+ * deferred. Until now `entityMentions` was parsed, validated and THROWN
+ * AWAY: the 0106 column for entity links is `entityIds` — RECORD refs to
+ * knowledge_entity — and storing raw strings where records are promised
+ * would poison that column's contract. With the flag on, each scene's
+ * mentions are RESOLVED against the graph through the platform's own
+ * deterministic resolution (EntityUpsertService.resolveExistingByName:
+ * exact canonicalName/alias, then the INGEST_ARTICLE_NORMALIZATION
+ * variants and the INGEST_CODE_ALIAS_RESOLUTION path↔symbol convention
+ * when those are on) and the resolved refs land in `entityIds`.
+ *
+ *  - RESOLVE-ONLY, NEVER MINT. A scene is a RECONSTRUCTION of turns that
+ *    were already ingested, not a source of truth: every entity it can
+ *    legitimately name already exists, so a mention that resolves to
+ *    nothing is DROPPED. No knowledge_entity row is created, no alias is
+ *    stamped on the entity the link points at, no merge-log row is
+ *    written — and the probabilistic embedding+judge resolver is not in
+ *    the ladder at all (a low-confidence fuse is the wrong trade for an
+ *    unasked-for backlink). Ambiguity — two entities carrying the name —
+ *    also links NOTHING.
+ *  - SCOPE. The #387 single-user fence decides what the scene may see: a
+ *    single-user scene resolves against tenant-global entities PLUS its
+ *    own user's; a mixed-user, tenant-global or legacy (pre-0117) scene
+ *    resolves against tenant-global entities ONLY. A foreign user's
+ *    entity can therefore never appear on a scene. The 0093 scope-tag
+ *    fence ANDs alongside.
+ *  - BOUNDED. At most SCENE_ENTITY_LINKS_MAX mentions are attempted per
+ *    scene, so the resolution cost stays an order of magnitude under the
+ *    one LLM call that produced them.
+ *  - IDEMPOTENT. The resolved set (de-duplicated and SORTED) fully
+ *    REPLACES the column, so a re-enrichment over an unchanged corpus
+ *    writes a byte-identical value; an empty result writes `[]` — "we
+ *    looked and found nothing" is a fact worth recording, and it is
+ *    stable across re-runs in a way an absent column is not.
+ *  - DEGRADE. A resolution failure warns and drops that mention; the
+ *    enrichment write still lands.
+ *
+ * `relationIds` — the sibling 0106 column — stays UNWRITTEN, deliberately.
+ * Nothing in the scene pipeline produces knowledge_edge relations: the
+ * enrichment schema returns MENTIONS and stateDeltas, neither of which is
+ * a typed entity→entity edge, and taking the cross-product of the resolved
+ * entities to look up edges that already exist would assert "this scene is
+ * evidence for that relation" on evidence the scene never gave. A column
+ * left NONE says "no producer"; a column filled by inference says
+ * something false. The honest producer is a relation-extraction pass that
+ * does not exist yet.
  */
 
 /** Stamp on enrichedMemoryValue written by this enricher (scorerVersion). */
@@ -333,12 +381,17 @@ export class SceneEnricherService {
 
   // Fourth dep is the run-scoped version resolver (Drift-3): the enricher
   // must select scenes by the SAME effective version the composer stamps.
+  // Fifth is the platform's entity resolution, @Optional (the module-doc
+  // idiom): positionally-constructed unit fixtures stay valid and the
+  // SCENES_ENTITY_LINKS leg degrades to "resolve nothing" when it is not
+  // wired, exactly as it does when a mention matches nothing.
   // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     configService: ConfigService,
     private readonly episodes: EpisodeReadStoreService,
     private readonly versions: SceneVersionService,
+    @Optional() private readonly entities?: EntityUpsertService,
   ) {
     this.openai = createOpenAiClient(configService);
     this.model = configService.get<string>(
@@ -371,12 +424,18 @@ export class SceneEnricherService {
     // mix prompt versions inside one enriched world.
     const { version } = this.versions.resolve();
     const predictionOn = scenePredictionBaselineEnabled();
+    // Resolved ONCE per run for the same Drift-3 reason: a mid-run flip
+    // must not leave half the world linked and half not.
+    const entityLinksOn = sceneEntityLinksEnabled();
     const enrichmentVersion = sceneEnrichmentVersion(this.model, predictionOn);
     await this.surreal.withCompany(companyId, async (db) => {
-      // The scope columns are projected ONLY with the baseline on — flag
-      // off keeps the SELECT byte-identical (pinned by unit test).
+      // The scope columns are projected ONLY when a leg actually needs
+      // them — the prediction baseline's #387 fence, or the entity-link
+      // fence, which reads the same single-user stamp. With BOTH off the
+      // SELECT is byte-identical (pinned by unit test).
+      const needsScope = predictionOn || entityLinksOn;
       const [scenes] = await db.query<[SceneHead[]]>(
-        `SELECT id, conversationIds, enrichmentVersion${predictionOn ? ', userId, userIds' : ''} FROM memory_episode
+        `SELECT id, conversationIds, enrichmentVersion${needsScope ? ', userId, userIds' : ''} FROM memory_episode
           WHERE segmenterVersion = $v` +
           (opts.conversationId !== undefined ? ` AND conversationIds CONTAINS $conv` : ''),
         {
@@ -414,6 +473,7 @@ export class SceneEnricherService {
             turnCache,
             enrichmentVersion,
             predictionOn,
+            entityLinksOn,
             beliefsByUser,
           });
           if (ok) result.enriched += 1;
@@ -451,6 +511,7 @@ export class SceneEnricherService {
     turnCache,
     enrichmentVersion,
     predictionOn,
+    entityLinksOn,
     beliefsByUser,
   }: {
     db: EpisodeDb;
@@ -458,6 +519,7 @@ export class SceneEnricherService {
     turnCache: Map<string, Map<string, SceneTurnRow>>;
     enrichmentVersion: string;
     predictionOn: boolean;
+    entityLinksOn: boolean;
     beliefsByUser: ReadonlyMap<string, BaselineBelief[]>;
   }): Promise<boolean> {
     if (scene.conversationIds.length === 0) return false;
@@ -535,14 +597,22 @@ export class SceneEnricherService {
             selfSubjects: prediction.selfSubjects,
           });
 
+    // The 0106 semantic backlinks (SCENES_ENTITY_LINKS): free-text
+    // mentions → knowledge_entity RECORD refs, resolve-only. null with the
+    // flag off, and the SET clause below is then byte-identical.
+    const entityIds = entityLinksOn
+      ? await this.resolveEntityLinks(db, scene, enrichment.entityMentions)
+      : null;
+
     // Single-record UPDATE by bound id — primary-key addressed, immune to
     // the 3.2.4 secondary-index planner bug by construction. Writes ONLY
     // the enrichment-revision siblings + stamps (0118) — plus, with the
-    // baseline on, the 0106 FLEXIBLE `baselineRef` snapshot: the
-    // composer's deterministic gist / memoryValue stay immutable
-    // post-compose, and gistPromptVersion is legacy-dead (superseded by
-    // enrichmentVersion). The baselineRef clause is APPENDED so the
-    // flag-off statement stays byte-identical (pinned by unit test).
+    // baseline on, the 0106 FLEXIBLE `baselineRef` snapshot, and with
+    // entity links on the 0106 `entityIds` refs: the composer's
+    // deterministic gist / memoryValue stay immutable post-compose, and
+    // gistPromptVersion is legacy-dead (superseded by enrichmentVersion).
+    // Both optional clauses are APPENDED, in flag order, so each off-state
+    // statement stays byte-identical (pinned by unit test).
     await db.query(
       `UPDATE $scene SET
          enrichedGist = $gist,
@@ -552,7 +622,8 @@ export class SceneEnricherService {
          enrichmentModel = $model,
          enrichmentVersion = $enrichmentVersion,
          enrichedAt = time::now()` +
-        (prediction === null ? '' : `,\n         baselineRef = $baselineRef`),
+        (prediction === null ? '' : `,\n         baselineRef = $baselineRef`) +
+        (entityIds === null ? '' : `,\n         entityIds = $entityIds`),
       {
         scene: scene.id,
         gist: enrichment.gist,
@@ -568,9 +639,57 @@ export class SceneEnricherService {
         model: this.model,
         enrichmentVersion,
         ...(prediction === null ? {} : { baselineRef: baselineRefPayload(prediction.beliefs) }),
+        ...(entityIds === null ? {} : { entityIds }),
       },
     );
     return true;
+  }
+
+  /**
+   * Resolve one scene's free-text mentions into knowledge_entity RECORD
+   * refs (SCENES_ENTITY_LINKS). Returns the refs to write — possibly an
+   * EMPTY array, which is a real answer ("we looked, nothing resolved")
+   * and keeps the column stable across re-runs.
+   *
+   * RESOLVE-ONLY. Every lookup goes through
+   * EntityUpsertService.resolveExistingByName, which never mints, never
+   * stamps an alias and refuses ambiguous names — so an unresolvable
+   * mention simply drops out. No resolver wired ⇒ nothing resolves, which
+   * is the same graceful state.
+   *
+   * SCOPE — the #387 fence, reused verbatim. `sceneSingleUser` returns the
+   * user only for a scene that is unambiguously ONE user's; a mixed-user,
+   * tenant-global or legacy (pre-0117 userIds) scene yields null and then
+   * resolves against TENANT-GLOBAL entities only. So a user-scoped scene
+   * can reach its own user's entities and nobody else's, and a shared
+   * scene can never carry a personal one.
+   *
+   * DEGRADE. One mention's failure warns and drops that mention; the
+   * enrichment write it belongs to still lands.
+   */
+  private async resolveEntityLinks(
+    db: EpisodeDb,
+    scene: SceneHead,
+    mentions: readonly string[],
+  ): Promise<StringRecordId[]> {
+    if (!this.entities) return [];
+    const userId = sceneSingleUser(scene);
+    const resolved: string[] = [];
+    for (const name of selectSceneMentions(mentions)) {
+      try {
+        const entityId = await this.entities.resolveExistingByName(
+          db as unknown as Surreal,
+          { name },
+          { userId: userId ?? undefined },
+        );
+        if (entityId !== null) resolved.push(entityId);
+      } catch (e) {
+        this.logger.warn(
+          `scene entity link skipped for "${name}" on ${String(scene.id)}: ${(e as Error).message}`,
+        );
+      }
+    }
+    return stableEntityIds(resolved).map((id) => new StringRecordId(id));
   }
 
   /**

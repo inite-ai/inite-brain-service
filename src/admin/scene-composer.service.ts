@@ -11,6 +11,7 @@ import { segmentSessions } from '../episodes/session-window';
 import {
   sceneEvidenceLinksEnabled,
   sceneFactBacklinkEnabled,
+  sceneGistEmbeddingEnabled,
   sceneLlmEnrichmentEnabled,
   sceneSegmentationEnabled,
 } from '../common/scene-flags';
@@ -31,6 +32,7 @@ import { SceneVersionService } from './scene-version';
 import { SceneEnricherService } from './scene-enricher.service';
 import { SceneBacklinkService } from './scene-backlink.service';
 import { SceneEvidenceLinkerService } from './scene-evidence-linker.service';
+import { SceneGistEmbeddingService } from './scene-gist-embedding.service';
 
 /**
  * Scene composer (Brain v2 PR1): batch-derives the SHADOW memory_episode
@@ -78,6 +80,15 @@ export interface SceneRunResult {
    * the composer into the enricher.
    */
   enriched?: number;
+  /**
+   * Scenes the post-swap gist-encoder pass gave a vector (PR3, the
+   * SCENES_GIST_EMBEDDING leg). ABSENT unless the flag is on and the pass
+   * ran to completion — an additive field, so a flag-off response is
+   * unchanged. Surfaced for the same reason as `enriched`: the vector
+   * count IS the run's embedding bill, and the scheduled pass must be able
+   * to meter it without reaching past the composer into the encoder.
+   */
+  gistEmbedded?: number;
 }
 
 /**
@@ -122,6 +133,7 @@ export class SceneComposerService {
     private readonly backlinker: SceneBacklinkService,
     private readonly evidenceLinker: SceneEvidenceLinkerService,
     private readonly versions: SceneVersionService,
+    private readonly gistEncoder: SceneGistEmbeddingService,
   ) {}
 
   async run(companyId: string, opts: SceneRunOptions = {}): Promise<SceneRunResult> {
@@ -219,6 +231,27 @@ export class SceneComposerService {
     // scenes this run actually changed, not by the size of the world.
     const passOpts =
       opts.conversationId !== undefined ? { conversationId: opts.conversationId } : {};
+    // PR3 encoder pass: the producer of the 0106 `gistEmbedding` column
+    // (SceneGistEmbeddingService). It runs FIRST of the post-swap chain
+    // because it encodes the swap's own output — the canonical `gist` text
+    // — and because it is the cheapest leg: ONE embedMany batch over the
+    // vector-less scenes of this world, bounded per run and idempotent.
+    // Order against the enricher is immaterial by construction: the
+    // enricher writes the `enrichedGist` REVISION sibling and never
+    // touches `gist`, so the vector can never go stale relative to the
+    // text it encodes.
+    if (sceneGistEmbeddingEnabled()) {
+      try {
+        const encoded = await this.gistEncoder.run(companyId, passOpts);
+        result.gistEmbedded = encoded.embedded;
+        this.logger.log(
+          `scene gist encoder pass: ${encoded.embedded}/${encoded.scenes} embedded, ` +
+            `${encoded.skipped} unusable, ${encoded.failed} failed`,
+        );
+      } catch (e) {
+        this.logger.warn(`scene gist encoder pass failed: ${(e as Error).message}`);
+      }
+    }
     if (sceneLlmEnrichmentEnabled()) {
       try {
         const enrich = await this.enricher.enrich(companyId, passOpts);
@@ -333,9 +366,13 @@ export class SceneComposerService {
 
     // Build scene + member rows. Scene record ids are deterministic over
     // (conversation, segmenterVersion, index) so a rebuild replaces the
-    // same identities. gistEmbedding is deliberately NOT written in v1 —
-    // it is the gist TEXT's vector, not the member-turn centroid we
-    // compute for novelty; the PR2 encoder pass backfills it.
+    // same identities. gistEmbedding is NOT written HERE — it is the gist
+    // TEXT's vector, not the member-turn centroid we compute for novelty,
+    // and the two must not be conflated. Its producer is the post-swap
+    // encoder pass (SceneGistEmbeddingService, SCENES_GIST_EMBEDDING),
+    // which embeds the `gist` this loop renders once the swap has landed:
+    // the paid step stays OUT of the pre-delete critical section, and a
+    // vector-less world is a graceful state the lane degrades through.
     const priorCentroids: number[][] = [];
     const sceneRows: Array<Record<string, unknown>> = [];
     const memberRows: Array<Record<string, unknown>> = [];
