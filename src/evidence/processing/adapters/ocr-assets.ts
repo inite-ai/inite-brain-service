@@ -1,4 +1,12 @@
-import { accessSync, constants, copyFileSync, mkdirSync, symlinkSync } from 'node:fs';
+import {
+  accessSync,
+  constants,
+  copyFileSync,
+  mkdirSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 
@@ -104,10 +112,23 @@ export function ocrTrainedDataFile(lang: OcrLanguage): string {
  * while each `@tesseract.js-data/<lang>` package owns its own. The stage
  * is a directory of SYMLINKS (a copy only where symlinks are
  * unavailable), named deterministically after the model generation and
- * the language set, created lazily and idempotently — concurrent runs
- * race harmlessly on EEXIST, and a second run finds it already built. No
- * bytes are duplicated, nothing is downloaded, and every link points
- * inside node_modules.
+ * the language set, created lazily and idempotently. No bytes are
+ * duplicated, nothing is downloaded, and every link points inside
+ * node_modules.
+ *
+ * CONCURRENCY. The directory is SHARED — by parallel jest workers, and in
+ * production by anything that dispatches two multi-language runs at once
+ * — so every step is written to be safe under a race:
+ *   * `mkdirSync(recursive)` is already idempotent;
+ *   * a link that another party created first shows up as EEXIST, which
+ *     is a success, not a failure — we re-check readability and move on;
+ *   * the COPY fallback publishes through a pid-unique temp name plus
+ *     `renameSync`, which is atomic within a filesystem. A plain
+ *     `copyFileSync` straight onto the target would let a concurrent
+ *     reader open a HALF-WRITTEN model — the one failure mode here that
+ *     would not announce itself as a missing file but as a corrupt one.
+ * Rename also repairs a stale or broken link left by an earlier run,
+ * since it replaces the entry rather than failing on it.
  *
  * It lives under the OS temp directory rather than beside the packages
  * because node_modules is legitimately read-only in a hardened image, and
@@ -124,27 +145,48 @@ export function ocrLangPath(langs: readonly OcrLanguage[]): string {
     `inite-brain-tessdata-${OCR_TESSDATA_VARIANT}-${[...langs].sort().join('-')}`,
   );
   mkdirSync(dir, { recursive: true });
-  for (const lang of langs) {
-    const target = join(dir, `${lang}.traineddata.gz`);
-    try {
-      accessSync(target, constants.R_OK);
-      continue;
-    } catch {
-      // Not staged yet (or staged as a broken link) — (re)create it.
-    }
-    const source = ocrTrainedDataFile(lang);
-    try {
-      symlinkSync(source, target);
-    } catch {
-      // EEXIST from a concurrent run, or a platform without symlinks.
-      try {
-        accessSync(target, constants.R_OK);
-      } catch {
-        copyFileSync(source, target);
-      }
+  for (const lang of langs) stageModel(dir, lang);
+  return dir;
+}
+
+/** Put one readable `<lang>.traineddata.gz` in `dir`; a no-op when a
+ *  previous run (or a concurrent one) already did. */
+function stageModel(dir: string, lang: OcrLanguage): void {
+  const target = join(dir, `${lang}.traineddata.gz`);
+  if (isReadable(target)) return;
+  const source = ocrTrainedDataFile(lang);
+  try {
+    symlinkSync(source, target);
+    return;
+  } catch {
+    // EEXIST from a concurrent run (then it is readable and we are done),
+    // or a platform / filesystem without symlinks (then we copy).
+    if (isReadable(target)) return;
+  }
+  // Publish atomically: a reader must never see a partial model.
+  const staging = `${target}.${String(process.pid)}.tmp`;
+  try {
+    copyFileSync(source, staging);
+    renameSync(staging, target);
+  } catch (e) {
+    rmSync(staging, { force: true });
+    // A concurrent writer may have won the race in the meantime, which is
+    // a success for us; anything else is a genuine staging failure.
+    if (!isReadable(target)) {
+      throw new Error(
+        `failed to stage the '${lang}' OCR model into ${dir}: ${(e as Error).message}`,
+      );
     }
   }
-  return dir;
+}
+
+function isReadable(file: string): boolean {
+  try {
+    accessSync(file, constants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
