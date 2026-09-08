@@ -421,8 +421,10 @@ describe('evidence processing lifecycle (e2e)', () => {
     try {
       process.env.EVIDENCE_FRAGMENT_EMBEDDINGS = '1';
       textAdapter.version = 'text-embedding-v1-test';
+      // The store persists this vector, so it embeds through the
+      // WRITE-guarded entrypoint.
       storeWithEmbedder.embedder = {
-        embed: () => Promise.resolve([0.25, -0.5, 0.75]),
+        embedForWrite: () => Promise.resolve([0.25, -0.5, 0.75]),
         activeSpaceId: () => 'stub:e2e-embedder:3:l2',
       };
       const asset = await registerTextAsset('the fuse box lives behind the pantry door', {
