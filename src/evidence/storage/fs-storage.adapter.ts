@@ -170,13 +170,17 @@ export class FsEvidenceStorageAdapter implements EvidenceStorageAdapter {
         yield {
           storageRef: `fs://${companyId}/${name}`,
           byteLength: s.size,
-          // ctime moves on the atomic rename that PUBLISHES the blob;
-          // mtime carries over from the tmp write that preceded it. The
-          // later of the two is the honest "when did the store last
-          // touch this", and the conservative input to a grace window
-          // that exists to protect bytes whose row is still in flight
-          // (contract point 2).
-          modifiedAtMs: Math.max(s.mtimeMs, s.ctimeMs),
+          // mtime, and deliberately NOT max(mtime, ctime): rename
+          // preserves the tmp write's mtime, so mtime IS the moment
+          // these bytes were written, to within the microseconds
+          // between writeFile and rename. ctime would additionally move
+          // on any metadata touch — a chmod, a restore, a container
+          // layer copy — which only ever makes a blob look YOUNGER and
+          // defer collection; safe, but it also makes the age
+          // unobservable from a test and lets a whole store read as
+          // fresh after an unrelated operator action. The write time is
+          // the honest answer and the checkable one.
+          modifiedAtMs: s.mtimeMs,
         };
       }
     }
@@ -211,7 +215,7 @@ export class FsEvidenceStorageAdapter implements EvidenceStorageAdapter {
         if (!name.startsWith(TMP_PREFIX)) continue;
         const path = join(tenantDir, shard, name);
         const s = await this.statOrNull(path);
-        if (!s || Math.max(s.mtimeMs, s.ctimeMs) > cutoff) continue;
+        if (!s || s.mtimeMs > cutoff) continue;
         found++;
         if (opts.dryRun) continue;
         try {

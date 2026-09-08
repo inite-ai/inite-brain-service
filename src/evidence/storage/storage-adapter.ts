@@ -74,12 +74,15 @@ export interface EvidenceStorageAdapter {
    *      makes the sweep skip the scheme entirely, which is the safe
    *      outcome. The sweep re-checks belongsToTenant per entry anyway,
    *      but that is defence in depth, not the primary fence.
-   *   2. AGE MUST NOT UNDERSTATE. `modifiedAtMs` gates the grace window
-   *      that protects an upload whose bytes are already stored and whose
-   *      row does not exist yet, so an adapter that cannot date a blob
-   *      accurately must report the LATER (younger-looking) of whatever
-   *      timestamps it has. Reporting a blob as older than it is deletes
-   *      live uploads; reporting it younger only defers a sweep.
+   *   2. AGE IS WHEN THE BYTES WERE WRITTEN. `modifiedAtMs` gates the
+   *      grace window that protects an upload whose bytes are already
+   *      stored and whose row does not exist yet. An adapter that cannot
+   *      date a blob exactly must err YOUNGER: reporting a blob as older
+   *      than it is deletes live uploads, while reporting it younger only
+   *      defers a sweep. It must NOT, however, fold in timestamps that
+   *      move for unrelated reasons (a metadata touch, a restore) — that
+   *      is not conservatism, it is a store that can silently read as
+   *      entirely fresh forever.
    *
    * A missing tenant partition is an empty iteration, never a throw.
    */

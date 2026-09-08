@@ -14,12 +14,15 @@
  *  - the grace window protects a fresh orphan;
  *  - `brain:admin` is required.
  *
- * The sweep's clock is shifted (not the filesystem's) to step past the
- * grace window: ctime cannot be backdated from userland, and the age a
- * blob reports is deliberately max(mtime, ctime).
+ * Blobs are aged by BACK-DATING their mtime, never by mocking the clock.
+ * A mocked Date.now() reaches the SurrealDB driver too, which then reads
+ * its root session as expired and drops to anonymous — the tenant query
+ * fails, the sweep's own per-tenant isolation catches it, and every
+ * counter comes back zero with an `error`. Age is a property of the
+ * store, so the test moves the store.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AppFixture } from './app-fixture';
@@ -32,8 +35,8 @@ const COMPANY = 'co_evidence_orphan_gc_e2e';
 const USER = 'orphan_gc_user';
 const ROUTE = '/v1/admin/maintenance/evidence/orphan-blob-gc';
 const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
-/** Enough to clear the 1-hour grace window the suite configures. */
-const PAST_GRACE_MS = 2 * 3600_000;
+/** Comfortably past the 1-hour grace window the suite configures. */
+const PAST_GRACE_MS = 3 * 3600_000;
 
 interface SweepBody {
   scanned: number;
@@ -47,6 +50,8 @@ interface SweepBody {
   bytesReclaimable: number;
   bytesDeleted: number;
   sampleOrphans: string[];
+  /** Present only when the tenant pass threw — asserted absent below. */
+  error?: string;
 }
 
 describe('evidence orphan blob GC (e2e)', () => {
@@ -112,11 +117,21 @@ describe('evidence orphan blob GC (e2e)', () => {
     return { ...asset, storageRef, byteHash };
   };
 
-  /** Erase a row without touching its blob — the leak, reproduced. */
+  /**
+   * Erase a row without touching its blob — the leak, reproduced. Uses
+   * the codebase's LET-select-ids → DELETE-ids idiom: SurrealDB refuses
+   * `DELETE $id` when the bound value is a plain STRING record id
+   * ("Cannot execute DELETE statement using value"), and every delete
+   * leg in src/ therefore selects real record ids first.
+   */
   const dropAssetRow = async (assetId: string): Promise<void> => {
     const surreal = f.app.get(SurrealService);
     await surreal.withCompany(COMPANY, async (db) => {
-      await db.query(`DELETE $id`, { id: assetId });
+      const [ids] = await db.query<[unknown[]]>(
+        `SELECT VALUE id FROM type::record('evidence_asset', $tail)`,
+        { tail: assetId.slice(assetId.indexOf(':') + 1) },
+      );
+      await db.query(`DELETE $ids`, { ids });
     });
   };
 
@@ -131,19 +146,24 @@ describe('evidence orphan blob GC (e2e)', () => {
   };
 
   /**
-   * Run the maintenance verb as if `aheadMs` had passed, so blobs written
-   * moments ago sit past the grace window. Only the sweep's own clock
-   * moves — the rows and the bytes are exactly what the suite wrote.
+   * Back-date a stored blob so it sits outside the grace window. The fs
+   * adapter reports a blob's age as its mtime — the moment put() wrote
+   * the bytes — so this is the same number the sweep reads, moved.
    */
-  const sweep = async (aheadMs = PAST_GRACE_MS, body: Record<string, unknown> = {}) => {
-    const later = Date.now() + aheadMs;
-    const spy = jest.spyOn(Date, 'now').mockReturnValue(later);
-    try {
-      const res = await f.http.post(ROUTE).set(auth()).send(body).expect(201);
-      return res.body as SweepBody;
-    } finally {
-      spy.mockRestore();
-    }
+  const ageBlob = async (storageRef: string, ageMs = PAST_GRACE_MS): Promise<void> => {
+    const hash = storageRef.slice(storageRef.lastIndexOf('/') + 1);
+    const when = new Date(Date.now() - ageMs);
+    await utimes(join(fsRoot, COMPANY, hash.slice(0, 2), hash), when, when);
+  };
+
+  /** Run the maintenance verb; a tenant pass that threw fails loudly. */
+  const sweep = async (body: Record<string, unknown> = {}): Promise<SweepBody> => {
+    const res = await f.http.post(ROUTE).set(auth()).send(body).expect(201);
+    const swept = res.body as SweepBody;
+    // The sweep swallows per-tenant failures by design, so a green
+    // assertion on zeroed counters would otherwise prove nothing.
+    expect(swept.error).toBeUndefined();
+    return swept;
   };
 
   let livingRef = '';
@@ -163,6 +183,7 @@ describe('evidence orphan blob GC (e2e)', () => {
   it('never reports a blob a live row references', async () => {
     const asset = await registerBlobbedAsset(randomBytes(64));
     livingRef = asset.storageRef;
+    await ageBlob(livingRef);
 
     const body = await sweep();
 
@@ -179,6 +200,7 @@ describe('evidence orphan blob GC (e2e)', () => {
     // The leak: bytes are in custody, the row that pointed at them is
     // gone (a failed registration, a crashed request, an erased row).
     await dropAssetRow(asset.assetId);
+    await ageBlob(orphanRef);
 
     const body = await sweep();
 
@@ -195,12 +217,23 @@ describe('evidence orphan blob GC (e2e)', () => {
   });
 
   it('protects a fresh orphan with the grace window', async () => {
-    // Same store, same rows — only the clock shift is withdrawn.
-    const body = await sweep(0);
+    // The same unreferenced blob, put back inside the window: bytes that
+    // young may belong to an upload whose row has not landed yet.
+    const fresh = new Date();
+    await utimes(
+      join(fsRoot, COMPANY, orphanRef.slice(-64, -62), orphanRef.slice(-64)),
+      fresh,
+      fresh,
+    );
 
-    expect(body.young).toBeGreaterThanOrEqual(2);
+    const body = await sweep();
+
+    expect(body.young).toBe(1);
     expect(body.orphans).toBe(0);
     expect(await adapter.exists(orphanRef)).toBe(true);
+
+    // …and back out again, so the rest of the suite sees a real orphan.
+    await ageBlob(orphanRef);
   });
 
   it('reclaims the orphan once the second stage is on, and only the orphan', async () => {
@@ -235,6 +268,7 @@ describe('evidence orphan blob GC (e2e)', () => {
     // an explicit storageRef, so a second row can be registered onto an
     // existing blob under its own identity.
     const shared = await registerBlobbedAsset(randomBytes(96));
+    await ageBlob(shared.storageRef);
     // Its own identity (a distinct byteHash), the SAME bytes on disk —
     // the write seam only insists the declared length match what is
     // stored, which is why one blob can back more than one row.
