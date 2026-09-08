@@ -1704,6 +1704,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Switch the KNN vector leg on. Tenants without a built index fall back to the full scan; build via POST /v1/admin/maintenance/hnsw.',
   },
   {
+    key: 'SEARCH_HNSW_CONCURRENT',
+    category: 'search',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Build the per-tenant HNSW indexes with DEFINE INDEX … CONCURRENTLY (POST /v1/admin/maintenance/hnsw {action:"create"}), one statement per index instead of one four-index super-statement. Off = the historical synchronous DDL, which FAILS at real scale: measured on SurrealDB 3.2.4, a synchronous build over 20 000 × 1024-d aborts after ~133 s with a RocksDB transaction conflict, while CONCURRENTLY reaches ready in 4.2 s. Concurrent builds are asynchronous — the route waits up to SEARCH_HNSW_BUILD_WAIT_MS and then reports per-index build state; check `ready` (or POST {action:"status"}) before flipping SEARCH_HNSW_ENABLED, because an index that exists but is still indexing answers KNN with the same unranked rows a missing index does.',
+  },
+  {
+    key: 'SEARCH_HNSW_BUILD_WAIT_MS',
+    category: 'search',
+    defaultValue: '60000',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'How long POST /v1/admin/maintenance/hnsw {action:"create"} waits for a SEARCH_HNSW_CONCURRENT build before answering with whatever progress it reached. Not a failure ceiling — the build continues server-side and {action:"status"} reports it. Default 60000 covers ~280k rows at the measured ~4 700 rows/s; 0 answers immediately. Inert when SEARCH_HNSW_CONCURRENT is off.',
+  },
+  {
     key: 'SEARCH_USAGE_RECORDING_ENABLED',
     category: 'search',
     defaultValue: '0',

@@ -18,6 +18,7 @@ describe('HNSW vector leg (real SurrealDB)', () => {
 
   afterAll(async () => {
     delete process.env.SEARCH_HNSW_ENABLED;
+    delete process.env.SEARCH_HNSW_CONCURRENT;
     if (f) await f.close();
   });
 
@@ -108,6 +109,15 @@ describe('HNSW vector leg (real SurrealDB)', () => {
     expect(create.body.dimension).toBe(1536); // StubEmbedder
     expect(create.body.indexes).toContain('fact_embedding_hnsw');
     expect(create.body.indexes).toContain('segment_embedding_hnsw');
+    // Readiness is reported, not assumed — on the synchronous path too.
+    expect(create.body.concurrent).toBe(false);
+    expect(create.body.ready).toBe(true);
+    expect(create.body.builds.map((b: { state: string }) => b.state)).toEqual([
+      'ready',
+      'ready',
+      'ready',
+      'ready',
+    ]);
 
     const baseline = await search('HNSW Probe Tenant');
 
@@ -119,6 +129,56 @@ describe('HNSW vector leg (real SurrealDB)', () => {
     expect(viaKnn[0]!.canonicalName).toBe(baseline[0]!.canonicalName);
   });
 
+  /**
+   * SEARCH_HNSW_CONCURRENT against the real engine. The failure this
+   * replaces is a scale failure (a synchronous build over 20 000 × 1024-d
+   * aborts after ~133 s with a RocksDB transaction conflict) that a
+   * fixture-sized tenant cannot reproduce; what IS assertable here is that
+   * the CONCURRENTLY keyword parses on 3.2.4, that the four indexes really
+   * land, that `INFO FOR INDEX` yields a build state the route reports, and
+   * that a KNN search over the finished index still answers.
+   */
+  it('builds CONCURRENTLY, reports per-index readiness, and serves', async () => {
+    process.env.SEARCH_HNSW_CONCURRENT = '1';
+    try {
+      const create = await f.http.post('/v1/admin/maintenance/hnsw').set(auth()).send({});
+      expect(create.status).toBe(201);
+      expect(create.body.concurrent).toBe(true);
+      expect(create.body.ready).toBe(true);
+      expect(create.body.builds).toHaveLength(4);
+      for (const b of create.body.builds as Array<{ index: string; state: string }>) {
+        expect(b.state).toBe('ready');
+      }
+
+      // The indexes are genuinely defined, not merely reported over.
+      const surreal = f.app.get(SurrealService);
+      await surreal.withCompany(f.companyId, async (db) => {
+        const [info] = await db.query<[{ indexes?: Record<string, string> }]>(
+          `INFO FOR TABLE knowledge_fact;`,
+        );
+        expect(
+          (info as { indexes?: Record<string, string> })?.indexes?.fact_embedding_hnsw,
+        ).toContain('HNSW');
+      });
+
+      // status re-reads the same state without emitting DDL.
+      const status = await f.http
+        .post('/v1/admin/maintenance/hnsw')
+        .set(auth())
+        .send({ action: 'status' });
+      expect(status.status).toBe(201);
+      expect(status.body.action).toBe('status');
+      expect(status.body.ready).toBe(true);
+
+      process.env.SEARCH_HNSW_ENABLED = '1';
+      const results = await search('HNSW Probe Tenant');
+      delete process.env.SEARCH_HNSW_ENABLED;
+      expect(results.length).toBeGreaterThan(0);
+    } finally {
+      delete process.env.SEARCH_HNSW_CONCURRENT;
+    }
+  });
+
   it('drop removes the indexes and search still answers', async () => {
     const drop = await f.http
       .post('/v1/admin/maintenance/hnsw')
@@ -126,6 +186,9 @@ describe('HNSW vector leg (real SurrealDB)', () => {
       .send({ action: 'drop' });
     expect(drop.status).toBe(201);
     expect(drop.body.action).toBe('drop');
+    // A dropped tenant is absent, never "ready".
+    expect(drop.body.ready).toBe(false);
+    for (const b of drop.body.builds as Array<{ state: string }>) expect(b.state).toBe('absent');
 
     process.env.SEARCH_HNSW_ENABLED = '1';
     const results = await search('HNSW Probe Tenant');
