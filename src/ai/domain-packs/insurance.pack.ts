@@ -8,16 +8,17 @@ import type { DomainPackManifest } from './manifest';
  * retention hints, recency rules for premium and coverage claims).
  *
  * As of 0.3.0 the memoryModel also carries a MEDIA CONTRACT: claim
- * photographs and policy documents as input modalities, the two core
- * capabilities the Evidence Plane can actually run (image metadata,
- * document text), and NO raw-evidence declaration — a claim photo
- * routinely carries third-party personal data.
+ * photographs and policy documents as input modalities, the core
+ * capabilities the Evidence Plane can actually run, and NO raw-evidence
+ * declaration — a claim photo routinely carries third-party personal
+ * data. 0.4.0 adds `ocr` now that a local OCR processor exists: most of
+ * what a claim photo is worth is the text printed inside it.
  *
  * Bump `version` to ship an update.
  */
 export const INSURANCE_PACK: DomainPackManifest = {
   id: 'insurance',
-  version: '0.3.0',
+  version: '0.4.0',
   description:
     'Insurance ontology — coverage, limits, premiums, deductibles, and exclusions of policies, with a domain extraction profile and memory model.',
   predicates: [
@@ -195,6 +196,14 @@ what it EXCLUDES.`,
     processors: [
       { id: 'image_metadata', modality: 'image', produces: ['caption'] },
       { id: 'document_text', modality: 'document', produces: ['text'] },
+      // 0.4.0: claim evidence is photographic by nature, and much of what
+      // matters in it is TEXT inside the photo — a repair estimate on a
+      // clipboard, a policy number on a windscreen sticker, a serial
+      // plate, a receipt. Reading those is the difference between a claim
+      // photo the plane can only store and one it can reason about.
+      // (Raw serving stays denied — see the rawEvidence note below; OCR
+      // yields recomputable derived text, never the original pixels.)
+      { id: 'image_ocr', modality: 'image', produces: ['ocr'] },
     ],
     // rawEvidence is DELIBERATELY ABSENT (omission = deny). Claim
     // photography routinely captures injuries, plates, and bystanders —

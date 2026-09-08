@@ -539,3 +539,96 @@ export function fragmentEmbeddingsEnabled(): boolean {
 export function ungroundedServingGateEnabled(): boolean {
   return envFlagEnabled(process.env.EVIDENCE_UNGROUNDED_SERVING_GATE);
 }
+
+/**
+ * Local OCR processor — EVIDENCE_OCR_ENABLED.
+ *
+ * When on, OcrAdapter offers the 'ocr' capability for image assets: a
+ * fully local tesseract.js (WASM) recognition pass whose per-region text
+ * lands as fragment-anchored derived representations. Off (default) the
+ * adapter's `accepts()` returns false BEFORE any engine is touched, so
+ * the broker records the same `no installed processor` denial it records
+ * today and NOTHING about a dispatch changes — byte-identical prod.
+ *
+ * Why this capability carries a flag when its two sibling adapters (image
+ * metadata, document text) do not: those are header/parse-level decodes
+ * measured in milliseconds, while OCR spins a worker thread, faults in a
+ * ~3.5 MB WASM core plus a ~3 MB language model, and burns CPU
+ * proportional to pixel count. That is an operator's capacity decision,
+ * not a packaging one, so it gets an explicit switch on top of the
+ * existing ladder (pack declaration → modality consent → quarantine →
+ * EVIDENCE_PROCESSOR_BROKER), never instead of it.
+ *
+ * Read at call time (runtime-mutable) so the switch needs no restart;
+ * env read lives here in the common layer per engine-gates S5.2.
+ * EVIDENCE_ family sits off the ENGINE flag budget by design.
+ */
+export function evidenceOcrEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_OCR_ENABLED);
+}
+
+/** Default OCR language set. (Named WITHOUT the full env-key substring so
+ *  the W6 boot-capture truth gate doesn't mistake this module-scope
+ *  default for a boot-captured read.) */
+const DEFAULT_OCR_LANGS = 'eng';
+
+/**
+ * OCR language set — EVIDENCE_OCR_LANGS (non-boolean).
+ *
+ * A `+`- or `,`-separated list of tesseract language codes, in PRIORITY
+ * ORDER (tesseract treats the first as primary, so the order is
+ * meaningful and is deliberately NOT sorted). Only languages whose
+ * traineddata ships in the image are accepted — ocr-assets.ts refuses
+ * anything else rather than letting the engine reach a CDN for it. Unset
+ * or blank ⇒ 'eng'.
+ *
+ * This is an OUTPUT knob (a different language set recognises different
+ * characters), so it rides the adapter's configParts() fingerprint: an
+ * operator who adds Russian forks the idempotency key and every asset is
+ * re-read under the new key instead of silently keeping stale English-
+ * only text. Read at call time; common layer per engine-gates S5.2.
+ */
+export function evidenceOcrLanguages(): string[] {
+  const raw = process.env.EVIDENCE_OCR_LANGS;
+  const source = raw === undefined || raw.trim() === '' ? DEFAULT_OCR_LANGS : raw;
+  const seen: string[] = [];
+  for (const part of source.split(/[+,]/)) {
+    const code = part.trim().toLowerCase();
+    if (code !== '' && !seen.includes(code)) seen.push(code);
+  }
+  return seen;
+}
+
+/** Default OCR word-confidence floor, on tesseract's 0..100 scale.
+ *  (Named WITHOUT the full env-key substring — see above.) */
+const DEFAULT_OCR_CONFIDENCE_FLOOR = 60;
+
+/**
+ * OCR confidence floor — EVIDENCE_OCR_MIN_CONFIDENCE (non-boolean),
+ * an integer on tesseract's own 0..100 per-word scale.
+ *
+ * THE POINT OF THE KNOB. An OCR engine always returns SOMETHING: run it
+ * over a photo of a wall and it emits plausible-looking characters with
+ * confidences in the teens. Storing those would put invented text into a
+ * memory that later cites it as observed evidence — the exact failure a
+ * provenance-first plane exists to prevent. Words scoring below this
+ * floor are therefore DROPPED from the emitted text and the drop is
+ * STATED in the region's content (never silently swallowed), and a
+ * region left with nothing is not written at all.
+ *
+ * 60 by default: tesseract's own documentation treats ~60 as the boundary
+ * between a confident read and a guess, and on the synthesised fixtures
+ * clean rendered text scores 80-95 while noise scores well under 40.
+ *
+ * An output knob ⇒ it rides configParts(), so retuning it forks the
+ * idempotency key and re-reads instead of leaving differently-filtered
+ * text under an unchanged key. Must be an integer in 0..100; unset,
+ * blank, or invalid → 60. Read at call time; common layer per
+ * engine-gates S5.2.
+ */
+export function evidenceOcrMinConfidence(): number {
+  const raw = process.env.EVIDENCE_OCR_MIN_CONFIDENCE;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_OCR_CONFIDENCE_FLOOR;
+  const v = Number(raw);
+  return Number.isInteger(v) && v >= 0 && v <= 100 ? v : DEFAULT_OCR_CONFIDENCE_FLOOR;
+}

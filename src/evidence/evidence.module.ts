@@ -14,6 +14,7 @@ import { EvidenceProcessorBrokerService } from './processor-broker.service';
 import { EvidenceQuarantineService } from './quarantine.service';
 import { DocumentTextAdapter } from './processing/adapters/document-text.adapter';
 import { ImageMetadataAdapter } from './processing/adapters/image-metadata.adapter';
+import { OcrAdapter } from './processing/adapters/ocr.adapter';
 import { TextExtractionPassthroughAdapter } from './processing/adapters/text-extraction-passthrough.adapter';
 import {
   EVIDENCE_PROCESSOR_ADAPTERS,
@@ -69,7 +70,16 @@ import {
  * byte-less path; DocumentTextAdapter (pdf2json) joins
  * TextExtractionPassthroughAdapter under 'text' with a disjoint media
  * type (PDF vs text/*), so first-match dispatch stays unambiguous. Both
- * are no-network, no-key, deterministic local decodes.
+ * are no-network, no-key, deterministic local decodes. OcrAdapter
+ * (tesseract.js WASM) adds the 'ocr' capability for images — a capability
+ * no adapter offered before, which is why the pack media contracts left
+ * the slot undeclared — emitting one fragment-anchored output per text
+ * region. It is the one adapter with its OWN switch (EVIDENCE_OCR_ENABLED,
+ * checked inside accepts() so a flip stays runtime-mutable): OCR is
+ * CPU-heavy where its siblings are header reads, so an operator opts in.
+ * Off ⇒ it declines every dispatch and the broker behaves exactly as it
+ * does today. Its models and WASM core are ordinary lockfile-pinned
+ * dependencies read off local disk — no CDN, ever (ocr-assets.ts).
  *
  * Raw-read gateway (MM-3, migration 0125): EvidenceReadController is
  * the ONE surface that serves original bytes back out — stream, signed-
@@ -110,14 +120,20 @@ import {
     TextExtractionPassthroughAdapter,
     DocumentTextAdapter,
     ImageMetadataAdapter,
+    OcrAdapter,
     {
       provide: EVIDENCE_PROCESSOR_ADAPTERS,
-      useFactory: (
-        text: ProcessorAdapter,
-        pdf: ProcessorAdapter,
-        image: ProcessorAdapter,
-      ): ProcessorAdapterRegistry => [text, pdf, image],
-      inject: [TextExtractionPassthroughAdapter, DocumentTextAdapter, ImageMetadataAdapter],
+      // Rest parameter, not one named argument per adapter: the registry
+      // is an ORDERED LIST (first match wins at dispatch) whose order is
+      // the `inject` array below, and naming each slot only adds a
+      // max-params ceiling the next adapter would hit again.
+      useFactory: (...adapters: ProcessorAdapter[]): ProcessorAdapterRegistry => adapters,
+      inject: [
+        TextExtractionPassthroughAdapter,
+        DocumentTextAdapter,
+        ImageMetadataAdapter,
+        OcrAdapter,
+      ],
     },
     ProcessingRunService,
     EvidenceProcessorBrokerService,

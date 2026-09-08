@@ -271,6 +271,8 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'EVIDENCE_ORPHAN_BLOB_GC_GRACE_HOURS', errors);
   positiveInt(env, 'EVIDENCE_ORPHAN_BLOB_GC_MAX_DELETIONS', errors);
   positiveInt(env, 'EVIDENCE_ORPHAN_BLOB_GC_TIME_BUDGET_MS', errors);
+  // Local OCR processor knobs, same clamp contract.
+  validateEvidenceOcrEnv(env, errors);
 
   // ── Retrieval profile (per-tenant genre configuration) ─────────────
   validateRetrievalProfileEnv(env, errors);
@@ -528,6 +530,48 @@ function validateEvidenceRawReadEnv(
     );
   }
 }
+
+/**
+ * Local OCR processor knobs (EVIDENCE_OCR_*). ERRORS, not warnings: both
+ * values are read at call time with a clamp-to-default fallback, so a
+ * typo would otherwise run OCR under settings the operator did not
+ * choose — a silently different confidence floor stores different text,
+ * and an unshipped language code silently drops back to English. Boot is
+ * the only place that can say so out loud. The language allowlist is
+ * duplicated as a literal rather than imported from the adapter layer:
+ * env-validation must stay importable with no evidence/-side deps.
+ */
+function validateEvidenceOcrEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
+  const floor = env.EVIDENCE_OCR_MIN_CONFIDENCE;
+  if (floor !== undefined && floor.trim() !== '') {
+    const v = Number(floor);
+    if (!Number.isInteger(v) || v < 0 || v > 100) {
+      errors.push('EVIDENCE_OCR_MIN_CONFIDENCE must be an integer in 0..100');
+    }
+  }
+  const langs = env.EVIDENCE_OCR_LANGS;
+  if (langs === undefined || langs.trim() === '') return;
+  const codes = langs
+    .split(/[+,]/)
+    .map((part) => part.trim().toLowerCase())
+    .filter((part) => part !== '');
+  if (codes.length === 0) {
+    errors.push('EVIDENCE_OCR_LANGS must name at least one language');
+    return;
+  }
+  const unknown = codes.filter((code) => !SHIPPED_OCR_LANGUAGES.includes(code));
+  if (unknown.length > 0) {
+    errors.push(
+      `EVIDENCE_OCR_LANGS names languages this build does not ship ` +
+        `(${unknown.join(', ')}) — available: ${SHIPPED_OCR_LANGUAGES.join(', ')}. ` +
+        'OCR models are never downloaded at runtime.',
+    );
+  }
+}
+
+/** Kept in lockstep with OCR_SUPPORTED_LANGUAGES in
+ *  src/evidence/processing/adapters/ocr-assets.ts (a spec pins the pair). */
+const SHIPPED_OCR_LANGUAGES = ['eng', 'rus'];
 
 /**
  * Cross-flag consistency for the evidence ingest surface (Brain v2.1
@@ -1339,6 +1383,17 @@ const KNOWN_BOOLEAN_FLAGS = [
   'EVIDENCE_ORPHAN_BLOB_GC',
   'EVIDENCE_ORPHAN_BLOB_GC_DELETE',
   'EVIDENCE_ORPHAN_BLOB_GC_SCHEDULED',
+  // Local OCR processor: OcrAdapter offers the 'ocr' capability for image
+  // assets (tesseract.js WASM, models read off local disk — no network,
+  // ever). Default off ⇒ accepts() declines before any engine is touched
+  // and the broker records the same `no installed processor` denial it
+  // records today, byte-identical. It carries its own switch — unlike its
+  // sibling adapters — because recognition is CPU- and memory-heavy where
+  // theirs are header reads. The language set (EVIDENCE_OCR_LANGS) and
+  // confidence floor (EVIDENCE_OCR_MIN_CONFIDENCE) are a string and an
+  // int, not booleans (validateEvidenceOcrEnv). EVIDENCE_ family sits off
+  // the ENGINE flag budget by design (see above).
+  'EVIDENCE_OCR_ENABLED',
   // Representation embeddings: the write-side producer for
   // derived_representation.embedding (WRITE-DEAD since 0109), which is
   // what the fragment lane's dense leg reads. Off (default) = the

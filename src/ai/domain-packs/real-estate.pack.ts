@@ -20,16 +20,18 @@ import type { DomainPackManifest } from './manifest';
  * MemoryModelReaderService for installed tenants.
  *
  * As of 0.3.0 the memoryModel also carries a MEDIA CONTRACT: listing
- * photography and floor-plan documents as input modalities, the two core
- * capabilities the Evidence Plane can actually run (image metadata,
- * document text), and `rawEvidence: { serve: true }` — listing media is
- * published marketing material whose whole purpose is to be looked at.
+ * photography and floor-plan documents as input modalities, the core
+ * capabilities the Evidence Plane can actually run, and
+ * `rawEvidence: { serve: true }` — listing media is published marketing
+ * material whose whole purpose is to be looked at. 0.4.0 adds `ocr` now
+ * that a local OCR processor exists: a floor plan's entire content is
+ * lettering, and a caption of one says nothing a buyer asked.
  *
  * Bump `version` to ship an updated real-estate ontology / profile.
  */
 export const REAL_ESTATE_PACK: DomainPackManifest = {
   id: 'real_estate',
-  version: '0.3.0',
+  version: '0.4.0',
   description:
     'Real-estate ontology — zoning, valuation, encumbrances, tenure, and construction of properties/parcels, with a domain extraction profile and memory model.',
   predicates: [
@@ -228,6 +230,13 @@ encumbrance, ALSO emit an edge to that party (e.g. Property —held_by→ Bank).
     processors: [
       { id: 'image_metadata', modality: 'image', produces: ['caption'] },
       { id: 'document_text', modality: 'document', produces: ['text'] },
+      // 0.4.0: a floor plan is a picture whose entire information content
+      // is lettering — room labels, dimension strings, a scale bar, a
+      // unit number. So is a site-plan crop, a zoning map extract, or the
+      // price panel of a listing sheet exported as JPEG. The pack's own
+      // predicates (zoning class, valuation, tenure) read off exactly
+      // those strings, and nothing but OCR puts them in reach.
+      { id: 'image_ocr', modality: 'image', produces: ['ocr'] },
     ],
     // The one first-party pack that declares raw serving: a listing photo
     // or floor plan is published marketing material, and an agent asking
