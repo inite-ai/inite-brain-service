@@ -35,9 +35,12 @@ interface ReindexTableSpec {
  *                          yet backfilled; the != NONE guard makes this a
  *                          safe no-op until they are)
  *   - episode_segment    — segment-composer stores the exact embedded `text`
- *   - memory_episode     — scene gist (0106; gistEmbedding is unpopulated
- *                          derived state today — the != NONE guard makes
- *                          this a safe no-op until a scorer fills it)
+ *   - memory_episode     — scene gist (0106; the encoder pass
+ *                          SceneGistEmbeddingService, SCENES_GIST_EMBEDDING,
+ *                          embeds `gist` verbatim, so the projection here
+ *                          matches its write path exactly; the != NONE
+ *                          guard keeps a world built before that flag was
+ *                          on a safe no-op)
  *   - strategy_memory    — `<title>\n<situation>` (strategy-memory.service)
  *
  * community_node (summaryEmbedding) and procedural_memory (triggerEmbedding)
@@ -78,10 +81,12 @@ const ADDITIONAL_TABLE_SPECS: ReindexTableSpec[] = [
     text: (r) => asStr(r.text),
   },
   {
-    // Scenes (0106): the deterministic gist IS the embedded text (the
-    // composer embeds `gist` verbatim when it fills gistEmbedding). The
-    // `!= NONE` guard makes this a safe no-op while gist vectors remain
-    // unpopulated derived state.
+    // Scenes (0106): the canonical `gist` IS the embedded text — the
+    // post-swap encoder pass (SceneGistEmbeddingService) embeds it
+    // verbatim, so this re-embed reproduces the write path's vector. The
+    // `!= NONE` guard keeps the sweep a MOVE between spaces, never a
+    // create: a world composed before SCENES_GIST_EMBEDDING was on stays
+    // a safe no-op here and is filled by the encoder pass instead.
     table: 'memory_episode',
     vectorField: 'gistEmbedding',
     select: 'id, gist, gistEmbedding',

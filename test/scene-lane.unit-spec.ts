@@ -17,9 +17,13 @@
  *    notable-details clause from unexpectedDetails, occurredFrom
  *    ascending, 600-char gist cap, TOP_K = 2, byId = the rendered set;
  *  - degrade: a query failure degrades the lane to empty, never a throw;
+ *  - the DENSE leg (PR3): fuses with BM25 by RRF when the 0106 gist
+ *    vectors exist, and degrades to today's BM25-only ordering when they
+ *    do not — both pinned;
  *  - collector gating: profile.sceneLane off ⇒ the lane is NEVER called
  *    (pinned with a throwing stub) and the prompt is byte-identical.
  */
+import type { EmbedderService } from '../src/ai/embedder.service';
 import { SceneLaneService } from '../src/synthesize/scene-lane.service';
 import { EvidenceCollectorService } from '../src/synthesize/evidence-collector.service';
 import { buildGeneratorUserMessage } from '../src/synthesize/generator-prompt';
@@ -304,6 +308,117 @@ describe('SceneLaneService — render + degrade', () => {
     const out = await new SceneLaneService(surreal).sceneLines(baseOpts);
     expect(out.lines).toEqual([]);
     expect(out.byId.size).toBe(0);
+  });
+});
+
+/**
+ * The dense leg (Brain v2 PR3) — the read side of the 0106
+ * `gistEmbedding` column, whose producer (SCENES_GIST_EMBEDDING) landed
+ * with it. The leg needs NO switch of its own: it is an internal recall
+ * improvement inside a lane already gated by profile.sceneLane, and a
+ * world without vectors cannot tell the difference.
+ */
+describe('SceneLaneService — the dense leg (0106 gistEmbedding)', () => {
+  /**
+   * Surreal double that answers the dense probe and the BM25 probe
+   * SEPARATELY, so the fusion can actually be observed.
+   */
+  function twoLegSurreal(opts: { dense?: SceneRowFixture[]; bm25?: SceneRowFixture[] }) {
+    const calls: RecordedCall[] = [];
+    const db = {
+      query: async (sql: string, params?: Record<string, unknown>) => {
+        calls.push({ sql, params });
+        if (sql.includes('FROM projection')) return [[WORLD]];
+        if (sql.includes('gistEmbedding != NONE')) return [opts.dense ?? []];
+        if (sql.includes('FROM memory_episode')) return [opts.bm25 ?? []];
+        return [[]];
+      },
+    };
+    const surreal = {
+      withCompany: async (_companyId: string, fn: (d: typeof db) => Promise<unknown>) => fn(db),
+    } as unknown as SurrealService;
+    return { surreal, calls };
+  }
+
+  const embedder = (over: Partial<{ fail: boolean }> = {}) =>
+    ({
+      embed: async () => {
+        if (over.fail) throw new Error('embedder down');
+        return [0.1, 0.2, 0.3];
+      },
+    }) as unknown as EmbedderService;
+
+  const denseQueries = (calls: RecordedCall[]) =>
+    calls.filter((c) => c.sql.includes('gistEmbedding != NONE'));
+
+  it('fuses the dense leg with BM25 when vectors exist', async () => {
+    // BM25 only finds `b`; the dense leg surfaces `a`, which no query
+    // term matches lexically. Fusion must render BOTH.
+    const { surreal, calls } = twoLegSurreal({
+      dense: [row({ id: 'memory_episode:a', occurredFrom: '2026-07-01T10:00:00.000Z' })],
+      bm25: [row({ id: 'memory_episode:b', occurredFrom: '2026-07-02T10:00:00.000Z' })],
+    });
+    const out = await new SceneLaneService(surreal, embedder()).sceneLines(baseOpts);
+    expect(denseQueries(calls)).toHaveLength(1);
+    expect(out.lines).toHaveLength(2);
+    expect([...out.byId.keys()].sort()).toEqual(['memory_episode:a', 'memory_episode:b']);
+  });
+
+  it('the dense leg carries the SAME fence stack as the lexical one', async () => {
+    const { surreal, calls } = twoLegSurreal({ dense: [row({})] });
+    await new SceneLaneService(surreal, embedder()).sceneLines(baseOpts);
+    const dense = denseQueries(calls)[0]!;
+    // A dense leg must never be a way around a gate the BM25 leg applies.
+    expect(dense.sql).toContain('segmenterVersion = $world');
+    expect(dense.sql).toContain('AND piiClass IS NONE');
+    expect(dense.sql).toContain('userId = $scopeUserId');
+    expect(dense.sql).toContain('userIds IS NOT NONE');
+    expect(dense.sql).toContain('vector::similarity::cosine(gistEmbedding, $q)');
+    expect(dense.params).toMatchObject({ scopeUserId: 'u1', world: WORLD });
+  });
+
+  it('a VECTOR-LESS world degrades to exactly today’s BM25 ordering', async () => {
+    const bm25 = [
+      row({ id: 'memory_episode:c', occurredFrom: '2026-07-03T10:00:00.000Z', score: 3 }),
+      row({ id: 'memory_episode:a', occurredFrom: '2026-07-01T10:00:00.000Z', score: 2 }),
+      row({ id: 'memory_episode:b', occurredFrom: '2026-07-02T10:00:00.000Z', score: 1 }),
+    ];
+    // With vectors: none (the composer never wrote any — the default
+    // world). The dense probe returns [], so RRF is a no-op over BM25.
+    const withEmbedder = twoLegSurreal({ dense: [], bm25 });
+    const fused = await new SceneLaneService(withEmbedder.surreal, embedder()).sceneLines(baseOpts);
+    // No embedder wired at all — the pre-PR3 lane, byte for byte.
+    const noEmbedder = twoLegSurreal({ bm25 });
+    const lexOnly = await new SceneLaneService(noEmbedder.surreal).sceneLines(baseOpts);
+    expect(fused.lines).toEqual(lexOnly.lines);
+    // And it IS the BM25 top-2 (c, a), rendered oldest-first.
+    expect(fused.lines).toHaveLength(2);
+    expect(fused.lines[0]).toContain('[memory_episode:a]');
+    expect(fused.lines[1]).toContain('[memory_episode:c]');
+    // Unwired ⇒ the dense probe is never issued at all.
+    expect(denseQueries(noEmbedder.calls)).toEqual([]);
+  });
+
+  it('an embedder failure kills the dense leg, never the lane', async () => {
+    const { surreal, calls } = twoLegSurreal({ bm25: [row({})] });
+    const lane = new SceneLaneService(surreal, embedder({ fail: true }));
+    jest
+      .spyOn((lane as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn')
+      .mockImplementation(() => undefined);
+    const out = await lane.sceneLines(baseOpts);
+    expect(denseQueries(calls)).toEqual([]);
+    expect(out.lines).toHaveLength(1);
+  });
+
+  it('NO live world ⇒ not even the query embedding is computed', async () => {
+    const { surreal } = surrealOf({ rows: [row({})], live: [] });
+    const throwingEmbedder = {
+      embed: async () => {
+        throw new Error('the query must not be embedded without a live scene world');
+      },
+    } as unknown as EmbedderService;
+    const out = await new SceneLaneService(surreal, throwingEmbedder).sceneLines(baseOpts);
+    expect(out.lines).toEqual([]);
   });
 });
 

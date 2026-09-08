@@ -21,6 +21,10 @@ const USER = 'scene2_user';
 interface SceneRow {
   id: unknown;
   gist: string;
+  gistEmbedding?: number[];
+  embeddingSpaceId?: string;
+  entityIds?: unknown[];
+  relationIds?: unknown[];
   gistPromptVersion?: string;
   memoryValue?: Record<string, unknown>;
   stateDeltas?: Array<Record<string, unknown>>;
@@ -62,7 +66,14 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
     // proves its own 404 gate before flipping its flag on.
     saved.SCENES_SEGMENTATION_ENABLED = process.env.SCENES_SEGMENTATION_ENABLED;
     process.env.SCENES_SEGMENTATION_ENABLED = '1';
-    for (const k of ['SCENES_LLM_ENRICHMENT', 'SCENES_FACT_BACKLINK']) {
+    for (const k of [
+      'SCENES_LLM_ENRICHMENT',
+      'SCENES_FACT_BACKLINK',
+      // PR3 legs, both start OFF so each `it` proves its own gate first.
+      'SCENES_GIST_EMBEDDING',
+      'SCENES_ENTITY_LINKS',
+      'EMBEDDING_SPACE_TRACKING',
+    ]) {
       saved[k] = process.env[k];
       delete process.env[k];
     }
@@ -267,6 +278,112 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
         'Mika planned the Lisbon trip: compared flights and booked the morning one.',
       );
     }
+  });
+
+  /**
+   * PR3 leg 1 — the producer the 0106 `gistEmbedding` column never had.
+   * The stub embedder is deterministic (test-doubles.StubEmbedder), so no
+   * paid call is made anywhere in this suite.
+   */
+  it('embeds the CANONICAL gist of every vector-less scene, idempotently', async () => {
+    const gated = await f.http
+      .post('/v1/admin/maintenance/scenes/embed-gists')
+      .set(auth())
+      .send({});
+    expect(gated.status).toBe(404);
+
+    const before = await scenesInDb();
+    expect(before).toHaveLength(2);
+    for (const scene of before) expect(scene.gistEmbedding).toBeUndefined();
+
+    process.env.SCENES_GIST_EMBEDDING = '1';
+    const res = await f.http.post('/v1/admin/maintenance/scenes/embed-gists').set(auth()).send({});
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ scenes: 2, embedded: 2, skipped: 0, failed: 0 });
+
+    const after = await scenesInDb();
+    for (const scene of after) {
+      expect(Array.isArray(scene.gistEmbedding)).toBe(true);
+      expect(scene.gistEmbedding!.length).toBeGreaterThan(0);
+      // The vector is of the CANONICAL, post-compose-immutable gist —
+      // the same text the 0106 BM25 index covers and the reindex sweep
+      // re-embeds — not the enricher's `enrichedGist` revision sibling,
+      // which these rows also carry from the earlier `it`s.
+      expect(scene.enrichedGist).toBeDefined();
+      expect(scene.gist).toContain('opens:');
+      // EMBEDDING_SPACE_TRACKING is off: no stamp, exactly like a
+      // knowledge_fact row on the fact-side write path.
+      expect(scene.embeddingSpaceId).toBeUndefined();
+    }
+
+    // Idempotent: every scene now carries a vector, so the second run
+    // selects nothing and spends nothing.
+    const rerun = await f.http
+      .post('/v1/admin/maintenance/scenes/embed-gists')
+      .set(auth())
+      .send({});
+    expect(rerun.status).toBe(201);
+    expect(rerun.body).toMatchObject({ scenes: 0, embedded: 0 });
+  });
+
+  /**
+   * PR3 leg 2 — free-text `entityMentions` (parsed since PR2 and thrown
+   * away) become real knowledge_entity RECORD refs. RESOLVE-ONLY: the
+   * unresolvable mention is dropped and nothing is ever minted.
+   */
+  it('resolves entity mentions into record refs — never minting, never crossing users', async () => {
+    // A same-named entity owned by ANOTHER user: the #387 fence must keep
+    // it out of this (single-user) scene's links.
+    const surreal = f.app.get(SurrealService);
+    const entityCountBefore = await surreal.withCompany(f.companyId, async (db) => {
+      await db.query(
+        `CREATE knowledge_entity:se_foreign CONTENT {
+           type: 'other', canonicalName: 'Lisbon', userId: 'some_other_user', externalRefs: {}
+         }`,
+      );
+      const [rows] = await db.query<[Array<{ n: number }>]>(
+        `SELECT count() AS n FROM knowledge_entity GROUP ALL`,
+      );
+      return (rows ?? [])[0]?.n ?? 0;
+    });
+
+    // Re-enrich with the links flag on: a changed flag does NOT change the
+    // enrichmentVersion composite, so force a fresh world first.
+    process.env.SCENES_ENTITY_LINKS = '1';
+    delete process.env.SCENES_LLM_ENRICHMENT;
+    const recompose = await f.http.post('/v1/admin/maintenance/scenes').set(auth()).send({});
+    expect(recompose.status).toBe(201);
+
+    process.env.SCENES_LLM_ENRICHMENT = '1';
+    const mock = mockSceneEnricherOpenAi(f.app, [ENRICHMENT_REPLY]);
+    const res = await f.http.post('/v1/admin/maintenance/scenes/enrich').set(auth()).send({});
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ scenes: 2, enriched: 2 });
+    expect(mock.calls).toHaveLength(2);
+
+    for (const scene of await scenesInDb()) {
+      // 'Mika' resolves to the tenant-global seeded entity; 'Lisbon'
+      // resolves to NOTHING for this user — the foreign-owned row is
+      // invisible behind the fence — and is therefore dropped.
+      expect((scene.entityIds ?? []).map(String)).toEqual(['knowledge_entity:se_subj']);
+      // relationIds has no producer and must stay unwritten.
+      expect(scene.relationIds).toBeUndefined();
+    }
+
+    // NEVER MINT: not one knowledge_entity row was created by the scene.
+    const entityCountAfter = await surreal.withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<[Array<{ n: number }>]>(
+        `SELECT count() AS n FROM knowledge_entity GROUP ALL`,
+      );
+      return (rows ?? [])[0]?.n ?? 0;
+    });
+    expect(entityCountAfter).toBe(entityCountBefore);
+
+    // Restore the world the later `it`s expect (vector-less fresh rows
+    // were swapped in above; re-embed so the purge count stays honest).
+    process.env.SCENES_GIST_EMBEDDING = '1';
+    await f.http.post('/v1/admin/maintenance/scenes/embed-gists').set(auth()).send({});
+    delete process.env.SCENES_ENTITY_LINKS;
   });
 
   it('backlinks facts idempotently: pointer stamped once, control fact untouched', async () => {

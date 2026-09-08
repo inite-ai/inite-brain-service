@@ -13,6 +13,7 @@ import type { ProjectionRegistryService } from '../src/episodes/projection-regis
 import type { SceneEnricherService } from '../src/admin/scene-enricher.service';
 import type { SceneBacklinkService } from '../src/admin/scene-backlink.service';
 import type { SceneEvidenceLinkerService } from '../src/admin/scene-evidence-linker.service';
+import type { SceneGistEmbeddingService } from '../src/admin/scene-gist-embedding.service';
 import type { SceneVersionService } from '../src/admin/scene-version';
 
 /**
@@ -338,6 +339,13 @@ describe('scene composer persists fold.userIds (0117 write side)', () => {
           cfg: { topicBoundary: false, minCosine: 0.55, maxTurns: 40, embeddingSpaceId: null },
         }),
       } as unknown as SceneVersionService,
+      // SCENES_GIST_EMBEDDING is off in this spec, so the post-swap
+      // encoder pass must never be reached — pin it with a thrower.
+      {
+        run: async () => {
+          throw new Error('the gist encoder must not run with SCENES_GIST_EMBEDDING off');
+        },
+      } as unknown as SceneGistEmbeddingService,
     );
     await svc.run('co_x');
     const swap = queries.find((q) => q.sql.includes('INSERT INTO memory_episode'));

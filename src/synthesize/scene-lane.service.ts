@@ -1,8 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
+import { EmbedderService } from '../ai/embedder.service';
 import { sceneUserGate, sceneVisibleToUser } from '../auth/segment-scope';
 import { scopeFenceSql } from '../auth/scope-visibility';
 import { buildLexMatchLeg } from './lex-leg';
+import { rrfFuse } from './segment-lane.service';
 import type { CitableScene } from './scene-citations';
 
 /**
@@ -81,18 +83,34 @@ const EMPTY_RESULT: SceneLaneResult = { lines: [], byId: new Map() };
  * writing it (scene-enricher.service.ts:362); this lane is its first
  * consumer, rendered as the line's "notable details" clause.
  *
- * RETRIEVAL. BM25 only, over the 0106 `scene_gist_search` FULLTEXT
- * index on `gist` — no dense leg. Two reasons, both deliberate:
- * `gistEmbedding` is populated ONLY when SCENES_TOPIC_BOUNDARY is on
- * (the composer's single paid step), so a dense leg would be write-dead
- * for the default world and silently useless; and a lane that needs no
- * embedder cannot fail on one. The leg is the V11 A2 `or_terms`
- * disjunction (buildLexMatchLeg), NOT a phrase-shaped `@1@ $query`: the
- * matches operator is AND-semantics over analyzed tokens, so a phrase
- * leg would require the WHOLE question to appear in the gist and leave
- * the lane empty for every natural question. Summed BM25 over the
- * bounded per-term disjunction ranks a gist covering more query words
- * higher.
+ * RETRIEVAL — dense + BM25, fused by reciprocal rank (the segment /
+ * fragment lane shape).
+ *
+ * The LEXICAL leg is the V11 A2 `or_terms` disjunction (buildLexMatchLeg)
+ * over the 0106 `scene_gist_search` FULLTEXT index, NOT a phrase-shaped
+ * `@1@ $query`: the matches operator is AND-semantics over analyzed
+ * tokens, so a phrase leg would require the WHOLE question to appear in
+ * the gist and leave the lane empty for every natural question. Summed
+ * BM25 over the bounded per-term disjunction ranks a gist covering more
+ * query words higher.
+ *
+ * The DENSE leg is a brute cosine over `gistEmbedding`. It did not exist
+ * when this lane shipped, for a good reason that has since been fixed:
+ * the column had NO producer at all (0106 defined it; the composer's
+ * header deferred it to "the PR2 encoder pass" which never landed), so a
+ * dense leg would have been write-dead. SceneGistEmbeddingService
+ * (SCENES_GIST_EMBEDDING) is that producer, and this is the read side.
+ *
+ * DEGRADATION IS THE DEFAULT, not a fallback. The dense query filters
+ * `gistEmbedding != NONE`, so a world whose scenes were composed before
+ * that flag was on returns an EMPTY dense list, and RRF over
+ * [[], bm25] reproduces the BM25 ordering exactly — byte-identical lines
+ * to the pre-dense lane. The same holds when no embedder is wired
+ * (@Optional) or when embedding the query fails: the dense leg is
+ * skipped, never the lane. That is why the dense leg needs no switch of
+ * its own — it is strictly an internal recall improvement inside a lane
+ * that is ALREADY gated by profile.sceneLane (RETRIEVAL_SCENE_LANE), and
+ * a world with no vectors cannot tell the difference.
  *
  * WORLD SELECTION — the registry IS the activation record. Scenes are
  * VERSIONED (segmenterVersion; competing segmenters coexist by design,
@@ -144,7 +162,13 @@ const EMPTY_RESULT: SceneLaneResult = { lines: [], byId: new Map() };
 export class SceneLaneService {
   private readonly logger = new Logger(SceneLaneService.name);
 
-  constructor(private readonly surreal: SurrealService) {}
+  /** @Optional embedder (the fragment-lane / evidence-store idiom):
+   *  positionally-constructed unit fixtures stay valid and the lane
+   *  degrades to its pre-dense, BM25-only behavior when none is wired. */
+  constructor(
+    private readonly surreal: SurrealService,
+    @Optional() private readonly embedder?: EmbedderService,
+  ) {}
 
   async sceneLines(opts: {
     companyId: string;
@@ -176,6 +200,38 @@ export class SceneLaneService {
         );
         const world = (worlds ?? [])[0];
         if (typeof world !== 'string' || world === '') return [];
+        // Fences 2/3/4/5, identical for BOTH legs — the dense leg must
+        // never be a way around a gate the lexical leg applies.
+        const fences = `AND segmenterVersion = $world
+                ${piiGate} ${gate.clause} ${scope.clause}`;
+        const select = `id, userId, userIds, sceneLabel, gist, unexpectedDetails,
+                    occurredFrom, occurredTo`;
+        // The dense leg's query vector — resolved AFTER the world check so
+        // a fail-closed read still issues nothing at all, and with its own
+        // degrade: an embedder failure must not kill the lexical leg.
+        let queryVector: number[] | null = null;
+        if (this.embedder) {
+          try {
+            queryVector = await this.embedder.embed(opts.query);
+          } catch (e) {
+            this.logger.warn(`scene lane dense leg unavailable: ${(e as Error).message}`);
+          }
+        }
+        // Dense leg over the 0106 gist vectors. `gistEmbedding != NONE`
+        // makes a vector-less world return [] — the degrade path, not an
+        // error path.
+        const [dense] = queryVector
+          ? await db.query<[SceneLaneRow[]]>(
+              `SELECT ${select},
+                      vector::similarity::cosine(gistEmbedding, $q) AS score
+                 FROM memory_episode
+                WHERE gistEmbedding != NONE
+                  ${fences}
+                ORDER BY score DESC
+                LIMIT $k`,
+              { ...gate.params, ...scope.params, q: queryVector, world, k: fetchK },
+            )
+          : [[] as SceneLaneRow[]];
         // The or_terms disjunctive BM25 leg (see the class doc) —
         // composed per request over the caller's query text.
         const lex = buildLexMatchLeg({
@@ -184,17 +240,17 @@ export class SceneLaneService {
           mode: 'or_terms',
         });
         const [hits] = await db.query<[SceneLaneRow[]]>(
-          `SELECT id, userId, userIds, sceneLabel, gist, unexpectedDetails,
-                    occurredFrom, occurredTo, ${lex.score} AS score
+          `SELECT ${select}, ${lex.score} AS score
                FROM memory_episode
               WHERE ${lex.where}
-                AND segmenterVersion = $world
-                ${piiGate} ${gate.clause} ${scope.clause}
+                ${fences}
               ORDER BY score DESC
               LIMIT $k`,
           { ...lex.params, ...gate.params, ...scope.params, world, k: fetchK },
         );
-        return hits ?? [];
+        // RRF (the house fusion): with an empty dense list this is the
+        // BM25 ordering, unchanged.
+        return rrfFuse([dense ?? [], hits ?? []]);
       });
       if (rows.length === 0) return EMPTY_RESULT;
       return this.render(rows, userId);

@@ -52,6 +52,7 @@ import { SceneBacklinkService } from './scene-backlink.service';
 import { BeliefPromotionService } from './belief-promotion.service';
 import { SceneEvidenceLinkerService } from './scene-evidence-linker.service';
 import { SceneVersionService } from './scene-version';
+import { SceneGistEmbeddingService } from './scene-gist-embedding.service';
 import { HnswMaintenanceService } from './hnsw-maintenance.service';
 import { CodeMemoryModule } from '../code-memory/code-memory.module';
 import { RegistryModule } from '../registry/registry.module';
@@ -136,6 +137,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     BeliefPromotionService,
     SceneEvidenceLinkerService,
     SceneVersionService,
+    SceneGistEmbeddingService,
     AdminInfraService,
     HealthComponentsService,
     LiveSnapshotService,

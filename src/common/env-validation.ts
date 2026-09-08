@@ -1096,6 +1096,30 @@ const KNOWN_BOOLEAN_FLAGS = [
   // verbatim (facts read/provenance API) — additive. Default off ⇒ no
   // fact row is ever touched and the backlink admin route 404s.
   'SCENES_FACT_BACKLINK',
+  // Scene gist embeddings (Brain v2 PR3): the producer the 0106
+  // `gistEmbedding` column never had. A post-swap encoder pass (+ POST
+  // /v1/admin/maintenance/scenes/embed-gists) embeds the CANONICAL `gist`
+  // text of vector-less scenes in the current world, one bounded batch per
+  // run, writing the vector by primary-key UPDATE plus the fact-side
+  // `embeddingSpaceId` stamp under EMBEDDING_SPACE_TRACKING. Unblocks both
+  // waiting consumers: the reindex sweep (which only MOVES existing
+  // vectors between spaces) and the scene lane's dense leg. Default off ⇒
+  // the embedder is never called, no scene row is touched and the route
+  // 404s — byte-identical prod. An embed failure is soft.
+  'SCENES_GIST_EMBEDDING',
+  // Scene entity links (Brain v2 PR3): resolve the enricher's free-text
+  // `entityMentions` into knowledge_entity RECORD refs and persist them in
+  // the 0106 `entityIds` column, through the platform's own deterministic
+  // resolution (exact canonicalName/alias, INGEST_ARTICLE_NORMALIZATION
+  // variants, INGEST_CODE_ALIAS_RESOLUTION path↔symbol). RESOLVE-ONLY: a
+  // scene never MINTS an entity, never stamps an alias, and an unresolved
+  // mention is dropped — a scene is a reconstruction, not a source of
+  // truth. Fenced by #387 (a user-scoped scene links its own user's plus
+  // tenant-global entities; every other scene links tenant-global only),
+  // capped per scene and idempotent. `relationIds` stays unwritten — no
+  // producer exists. Requires SCENES_LLM_ENRICHMENT. Default off ⇒ zero
+  // resolution queries and a byte-identical SELECT/UPDATE.
+  'SCENES_ENTITY_LINKS',
   // Scenes version fingerprint (Drift-3): when on, the EFFECTIVE segmenter
   // version becomes 'scene-segmenter-v1+<8-hex sha256 over the resolved
   // segmenter config>' (impl, scorer, maxTurns, topicBoundary, and — only
