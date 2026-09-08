@@ -9,7 +9,7 @@ export const dynamic = 'force-static'
  * instead of scraping. The MCP endpoint is the richer, typed path.
  */
 
-interface AgentAction {
+export interface AgentAction {
   id: string
   description: string
   url: string
@@ -21,7 +21,7 @@ interface AgentAction {
 
 const API = SITE_URL
 
-const ACTIONS: AgentAction[] = [
+export const ACTIONS: AgentAction[] = [
   {
     id: 'search',
     description:
