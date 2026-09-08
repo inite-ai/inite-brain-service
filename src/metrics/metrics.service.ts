@@ -211,6 +211,49 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Orphan-blob GC tenant passes by outcome:
+  //   ok             — a DELETING pass finished (stage two)
+  //   dry_run        — a report-only pass finished (stage one, or the
+  //                    caller asked for a dry run). This is the series to
+  //                    watch before enabling deletion
+  //   failed         — the tenant threw; the roster continued
+  //   skipped_budget — the run's wall-clock budget expired before this
+  //                    tenant started
+  readonly evidenceOrphanGcCount = new Counter({
+    name: 'brain_evidence_orphan_gc_total',
+    help: 'Evidence orphan-blob GC tenant passes by outcome',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
+  // What the sweep saw, by kind:
+  //   scanned — blobs the store offered
+  //   orphan  — unreferenced past the grace window (what a real run
+  //             WOULD delete; in stage one this is the whole report)
+  //   deleted — actually unlinked (always 0 while the delete flag is off,
+  //             so orphan-without-deleted is the "look before you leap"
+  //             signal, and deleted ≪ orphan in a real run means a cap or
+  //             the budget is biting)
+  //   failed  — delete errors, logged and continued
+  // No companyId label (unbounded cardinality — the same rule as every
+  // other domain counter here); per-tenant detail is cut from log lines.
+  readonly evidenceOrphanBlobs = new Counter({
+    name: 'brain_evidence_orphan_blobs_total',
+    help: 'Evidence orphan-blob GC blobs by kind',
+    labelNames: ['kind'] as const,
+    registers: [this.registry],
+  });
+
+  // Per-TENANT sweep latency. Buckets run to 10 min because that is the
+  // default whole-run budget (EVIDENCE_ORPHAN_BLOB_GC_TIME_BUDGET_MS) — a
+  // single tenant near the top bucket means the roster cannot finish.
+  readonly evidenceOrphanGcDuration = new Histogram({
+    name: 'brain_evidence_orphan_gc_duration_seconds',
+    help: 'Evidence orphan-blob GC per-tenant pass latency in seconds',
+    buckets: [0.1, 0.5, 2, 10, 30, 120, 300, 600],
+    registers: [this.registry],
+  });
+
   // Synthesize outcomes:
   //   ok                   — answer returned, supported (or guardrails=off)
   //   no_results           — search returned zero hits
@@ -1026,6 +1069,20 @@ export class MetricsService implements OnModuleInit {
     if (n > 0) {
       this.sceneMaintenanceEmitted.inc({ kind } as LabelValues<'kind'>, n);
     }
+  }
+
+  countEvidenceOrphanGc(outcome: 'ok' | 'dry_run' | 'failed' | 'skipped_budget'): void {
+    this.evidenceOrphanGcCount.inc({ outcome } as LabelValues<'outcome'>);
+  }
+
+  countEvidenceOrphanBlobs(kind: 'scanned' | 'orphan' | 'deleted' | 'failed', n = 1): void {
+    if (n > 0) {
+      this.evidenceOrphanBlobs.inc({ kind } as LabelValues<'kind'>, n);
+    }
+  }
+
+  observeEvidenceOrphanGcDuration(seconds: number): void {
+    this.evidenceOrphanGcDuration.observe(seconds);
   }
 
   observeSceneMaintenanceDuration(seconds: number): void {

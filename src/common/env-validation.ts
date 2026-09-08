@@ -264,6 +264,12 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'EVIDENCE_MAX_BYTES', errors);
   // Processing lifecycle (0121): derived-output cap, same clamp contract.
   positiveInt(env, 'EVIDENCE_DERIVED_MAX_BYTES', errors);
+  // Orphan-blob GC bounds: the sweep clamps bad values to defaults at
+  // read time, but a typo'd grace window is the one that would matter —
+  // catch it at boot, before an unreadable value silently reads as 24 h.
+  positiveInt(env, 'EVIDENCE_ORPHAN_BLOB_GC_GRACE_HOURS', errors);
+  positiveInt(env, 'EVIDENCE_ORPHAN_BLOB_GC_MAX_DELETIONS', errors);
+  positiveInt(env, 'EVIDENCE_ORPHAN_BLOB_GC_TIME_BUDGET_MS', errors);
 
   // ── Retrieval profile (per-tenant genre configuration) ─────────────
   validateRetrievalProfileEnv(env, errors);
@@ -276,6 +282,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
 
   // ── Evidence plane: processing lifecycle (migration 0121) ──────────
   validateEvidenceProcessingEnv(env, warnings);
+
+  // ── Evidence plane: orphan-blob GC (delete-side hygiene) ───────────
+  validateEvidenceOrphanGcEnv(env, warnings);
 
   // ── Belief serving: damping requires the lane ──────────────────────
   validateBeliefServingEnv(env, warnings);
@@ -558,6 +567,33 @@ function validateEvidenceGrantsApiEnv(env: NodeJS.ProcessEnv, warnings: string[]
         'the sharing surface stays dark (its double gate answers a bare 404 for ' +
         'every grant/list/revoke) until EVIDENCE_SUBSTRATE_ENABLED is turned on.',
     );
+  }
+}
+
+/**
+ * Cross-flag consistency for the orphan-blob GC (MM-7 follow-up).
+ * WARNINGS, not errors — every inconsistent pair here fails SAFE (the
+ * sweep does less, never more), but each is an operator who thinks they
+ * enabled something and did not:
+ *
+ *  - _DELETE or _SCHEDULED without the master flag: the sweep does not
+ *    exist at all, so neither knob does anything. Worth saying out loud,
+ *    because "I turned deletion on" and "nothing was ever reclaimed" is
+ *    a silent pair otherwise;
+ *  - the master flag with _DELETE off is NOT flagged: that is stage one
+ *    working exactly as designed (report-only), and the intended state
+ *    to sit in until a dry run has been read.
+ */
+function validateEvidenceOrphanGcEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
+  if (envFlagEnabled(env.EVIDENCE_ORPHAN_BLOB_GC)) return;
+  for (const dependent of ['EVIDENCE_ORPHAN_BLOB_GC_DELETE', 'EVIDENCE_ORPHAN_BLOB_GC_SCHEDULED']) {
+    if (envFlagEnabled(env[dependent])) {
+      warnings.push(
+        `${dependent} is set while EVIDENCE_ORPHAN_BLOB_GC is not — the orphan-blob ` +
+          'sweep does not exist, so this knob has no effect; nothing is enumerated, ' +
+          'the admin route answers 404 and the nightly pass returns immediately.',
+      );
+    }
   }
 }
 
@@ -1305,6 +1341,28 @@ const KNOWN_BOOLEAN_FLAGS = [
   // family sits off the ENGINE flag budget by design (see above).
   'EVIDENCE_PROCESSOR_BROKER',
   'EVIDENCE_QUARANTINE',
+  // Orphan-blob GC (MM-7 follow-up): the delete-side sweep that reclaims
+  // blobs no evidence_asset row references — the leak the upload path
+  // creates by design (bytes are stored before their row exists, and a
+  // content-addressed blob must not be unlinked on a failed
+  // registration). THREE flags, deliberately staged:
+  //   EVIDENCE_ORPHAN_BLOB_GC           master — the sweep exists and
+  //                                     REPORTS; off = no walk, no query,
+  //                                     the admin route 404s;
+  //   EVIDENCE_ORPHAN_BLOB_GC_DELETE    stage two — actually unlink. Off
+  //                                     = every run is a dry run whatever
+  //                                     the caller asks for;
+  //   EVIDENCE_ORPHAN_BLOB_GC_SCHEDULED the 04:35 UTC cron, its own
+  //                                     decision (SCENES_SCHEDULED_
+  //                                     MAINTENANCE idiom).
+  // Deliberately NOT gated on EVIDENCE_SUBSTRATE_ENABLED: the delete side
+  // never depends on the write flag. The grace window / deletion cap /
+  // time budget (EVIDENCE_ORPHAN_BLOB_GC_GRACE_HOURS, _MAX_DELETIONS,
+  // _TIME_BUDGET_MS) are ints, not booleans. EVIDENCE_ family sits off
+  // the ENGINE flag budget by design (see above).
+  'EVIDENCE_ORPHAN_BLOB_GC',
+  'EVIDENCE_ORPHAN_BLOB_GC_DELETE',
+  'EVIDENCE_ORPHAN_BLOB_GC_SCHEDULED',
   // Representation embeddings: the write-side producer for
   // derived_representation.embedding (WRITE-DEAD since 0109), which is
   // what the fragment lane's dense leg reads. Off (default) = the

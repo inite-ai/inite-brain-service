@@ -139,6 +139,12 @@ overview — one line per flag, plus the orderings that matter.
 | `EVIDENCE_SIGNED_URL_SECRET` | unset | HMAC secret for signed raw URLs; boot hard-errors when shorter than 32 chars while the gateway is on. No default on purpose. |
 | `EVIDENCE_SIGNED_URL_TTL_SECONDS` | `300` | Signed-URL lifetime — deliberately short; expiry + the live-grant re-check at redeem are the only revocation levers. |
 | `EVIDENCE_GRANTS_API_ENABLED` | `0` | The sharing surface (`/v1/evidence/*/grants` — see [api.md](api.md#evidence-sharing-surface)): grant, list and revoke the ownership rows (0122) the read side spends. Requires the substrate flag (boot warns on the pair); off = bare 404s raised in a guard, so not even a malformed body reveals the route. |
+| `EVIDENCE_ORPHAN_BLOB_GC` | `0` | Orphan-blob GC, stage one: `POST /v1/admin/maintenance/evidence/orphan-blob-gc` exists and REPORTS blobs no `evidence_asset` row references (plus interrupted-write debris), deleting nothing. Off = a bare 404, no store walk, no query. Deliberately NOT gated on `EVIDENCE_SUBSTRATE_ENABLED` — a delete-side pass must stay usable after the writers are turned off. |
+| `EVIDENCE_ORPHAN_BLOB_GC_DELETE` | `0` | Stage two: actually unlink what stage one reports. Off = every run is a dry run, whatever the caller asks for. **Read a dry run before enabling this** — a wrong orphan sweep is unrecoverable. |
+| `EVIDENCE_ORPHAN_BLOB_GC_SCHEDULED` | `0` | Run the sweep nightly at 04:35 UTC over the tenant roster (lease-guarded). The admin route works without it; this is the separate decision to let the pass run itself. |
+| `EVIDENCE_ORPHAN_BLOB_GC_GRACE_HOURS` | `24` | A blob younger than this is never a candidate — the upload path stores bytes before their row exists, and a sweep that raced it would delete a live upload. Generous on purpose: waiting costs disk, being wrong costs evidence. |
+| `EVIDENCE_ORPHAN_BLOB_GC_MAX_DELETIONS` | `500` | Per-tenant deletions in ONE run — the blast radius of a wrong answer. A capped run still REPORTS the whole backlog. |
+| `EVIDENCE_ORPHAN_BLOB_GC_TIME_BUDGET_MS` | `600000` | Wall-clock budget for one run; the roster stops starting new tenants once spent. Nothing is lost — an orphan is rediscovered by enumeration next run. |
 
 **Grounding order:** stamp before you gate. Enable
 `EVIDENCE_GROUNDING_STAMP` first and let writes accrue stamps; only
@@ -158,6 +164,25 @@ hands out the very grants the raw-read gateway spends, so turn
 holds `brain:write` — a caller who can already read an asset can hand it
 to anyone, and revoking the LAST grant kills the asset for everyone
 (minted signed URLs included, by design).
+
+**Orphan-GC order: look, then delete.** The sweep is staged because its
+failure mode is destroyed evidence, not a bad answer. Turn on
+`EVIDENCE_ORPHAN_BLOB_GC` alone, run the route with the tenant you care
+about, and read `orphans` / `bytesReclaimable` / `sampleOrphans` in the
+response (the same numbers reach `brain_evidence_orphan_blobs_total`, so
+`orphan` with a flat `deleted` is the "still looking" state). Only when
+the sample is bytes you recognise as leaked should
+`EVIDENCE_ORPHAN_BLOB_GC_DELETE` go on. A run can always be forced back
+to report-only per call (`{"dryRun": true}`) or tightened
+(`{"maxDeletions": 10}`) — the body can only make a run MORE
+conservative; whether a byte may be destroyed at all is the flag's
+decision. Note what the sweep will NOT collect, by design: a blob any row
+still points at (any tenant, any row state — a quarantined row, a `gone`
+tombstone whose blob delete failed), a blob younger than the grace
+window, and a ref the 0114 hard-erasure outbox has already claimed (that
+drainer owns it). What it DOES collect beyond orphaned blobs is
+interrupted-write debris — the `.tmp-…` files a process killed between
+write and rename leaves behind, which no ref can address.
 
 ### `TOOL_OBSERVATION*` — MCP tool-call observations (0111)
 

@@ -9,6 +9,7 @@ import { EvidenceReadController } from './evidence-read.controller';
 import { EvidenceReadService } from './evidence-read.service';
 import { EvidenceStoreService } from './evidence-store.service';
 import { EvidenceUploadService } from './evidence-upload.service';
+import { EvidenceOrphanBlobGcService } from './orphan-blob-gc.service';
 import { EvidenceProcessorBrokerService } from './processor-broker.service';
 import { EvidenceQuarantineService } from './quarantine.service';
 import { DocumentTextAdapter } from './processing/adapters/document-text.adapter';
@@ -53,7 +54,14 @@ import {
  * consumers. EvidenceAdminController (MM-7) is the operator's entry into
  * the broker — POST /v1/admin/maintenance/evidence/dispatch, 404 while
  * the broker is dark, sweeping already-registered assets that no upload
- * dispatch covered.
+ * dispatch covered. The same controller carries the delete-side sibling,
+ * POST /v1/admin/maintenance/evidence/orphan-blob-gc
+ * (EvidenceOrphanBlobGcService, EVIDENCE_ORPHAN_BLOB_GC): the sweep that
+ * reclaims blobs no row references — bytes the upload path stores before
+ * their row exists and, by content-addressed design, refuses to unlink
+ * on a failed registration. Report-only until a second flag says
+ * otherwise, and gated on its own flag ALONE — a delete-side pass must
+ * stay usable after the write-side substrate is turned off.
  *
  * Real adapters: ImageMetadataAdapter (sharp/libvips — intrinsic image
  * facts + allowlisted EXIF, no GPS) REPLACES the 0121
@@ -117,6 +125,7 @@ import {
     EvidenceQuarantineService,
     EvidenceBlobUploadInterceptor,
     EvidenceUploadService,
+    EvidenceOrphanBlobGcService,
   ],
   exports: [
     EvidenceStoreService,
@@ -125,6 +134,7 @@ import {
     EvidenceProcessorBrokerService,
     EvidenceQuarantineService,
     EvidenceUploadService,
+    EvidenceOrphanBlobGcService,
   ],
 })
 export class EvidenceModule {}
