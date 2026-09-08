@@ -164,6 +164,17 @@ export const ACTIONS: Record<string, ActionSpec> = {
   // URL to them; redeem is unauthenticated by design and gated by the
   // token itself, so it carries no action.
   'rest.evidence.raw': { kind: 'read', family: 'rest', title: 'Read raw evidence bytes' },
+  // Sharing surface (MM-4, EVIDENCE_GRANTS_API_ENABLED). THREE actions,
+  // not one: handing an asset to another principal, seeing who already
+  // holds it, and taking access back are separable authorities — a
+  // policy may keep revoke open as a safety valve while sharing is
+  // closed, or open the owner list to an auditor who may not re-share.
+  // All three additionally require the caller to pass the raw-read
+  // gateway's own ownership + media-PII fences: ABAC opens the verb,
+  // never the asset.
+  'rest.evidence.grant': { kind: 'write', family: 'rest', title: 'Grant evidence access' },
+  'rest.evidence.revoke': { kind: 'write', family: 'rest', title: 'Revoke an evidence grant' },
+  'rest.evidence.grants': { kind: 'read', family: 'rest', title: 'List evidence grants' },
   // Rolling user profile v1 (USER_PROFILE_API_ENABLED). MCP-tool-style
   // name (the get_entity_profile precedent) so a future MCP surface
   // shares the action; REST-only today.

@@ -5,8 +5,11 @@
  * addGrant/revokeGrant/liveGrants seam behavior, the grant-aware GDPR
  * user-forget (shared assets survive minus the erased owner; sole-owned
  * die rows+blob), the pre-backfill legacy leg, and 0122 backfill
- * idempotence. Service-level like evidence-substrate.e2e-spec — this PR
- * ships no HTTP grant surface.
+ * idempotence. Service-level like evidence-substrate.e2e-spec: the seam
+ * itself, with no HTTP in the way. The sharing SURFACE built on top of
+ * it — its authorization ladder, its uniform 404 and the
+ * grant → read → revoke → denied_grant round trip — lives in the
+ * sibling test/evidence-grants-api.e2e-spec.ts (MM-4).
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';

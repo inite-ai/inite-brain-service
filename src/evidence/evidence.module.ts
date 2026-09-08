@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { EvidenceBlobUploadInterceptor } from './blob-upload.interceptor';
 import { EvidenceAdminController } from './evidence-admin.controller';
+import { EvidenceGrantService } from './evidence-grant.service';
+import { EvidenceGrantsController } from './evidence-grants.controller';
+import { EvidenceGrantsEnabledGuard } from './evidence-grants.guard';
 import { EvidenceIngestController } from './evidence-ingest.controller';
 import { EvidenceReadController } from './evidence-read.controller';
 import { EvidenceReadService } from './evidence-read.service';
@@ -66,10 +69,27 @@ import {
  * ladder, default-off (EVIDENCE_RAW_READ_ENABLED → every route 404s).
  * Guard dependencies (ApiKeyGuard / policy gate) resolve from the
  * @Global auth/policy modules.
+ *
+ * Sharing surface (MM-4, migration 0122): EvidenceGrantsController is
+ * the ownership counterpart of the read gateway — grant, list and revoke
+ * over an asset, default-off (EVIDENCE_GRANTS_API_ENABLED, double-gated
+ * on the substrate → every route 404s from EvidenceGrantsEnabledGuard,
+ * before the ValidationPipe can advertise the route with a 400).
+ * EvidenceGrantService owns its authorization ladder (the raw gateway's
+ * ownership + media-PII fences, minus the byte-delivery steps) and
+ * delegates every write to the ONE seam above. The guard is listed as a
+ * provider so Nest resolves it by class in @UseGuards.
  */
 @Module({
-  controllers: [EvidenceIngestController, EvidenceReadController, EvidenceAdminController],
+  controllers: [
+    EvidenceIngestController,
+    EvidenceReadController,
+    EvidenceGrantsController,
+    EvidenceAdminController,
+  ],
   providers: [
+    EvidenceGrantsEnabledGuard,
+    EvidenceGrantService,
     FsEvidenceStorageAdapter,
     {
       provide: EVIDENCE_STORAGE_ADAPTERS,
@@ -100,6 +120,7 @@ import {
   ],
   exports: [
     EvidenceStoreService,
+    EvidenceGrantService,
     ProcessingRunService,
     EvidenceProcessorBrokerService,
     EvidenceQuarantineService,

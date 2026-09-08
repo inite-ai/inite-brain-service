@@ -70,6 +70,11 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   ['/v1/evidence/fragments/{fragmentId}/raw', 'get'],
   ['/v1/evidence/fragments/{fragmentId}/raw-url', 'get'],
   ['/v1/evidence/redeem/{token}', 'get'],
+  // Sharing surface (MM-4, EVIDENCE_GRANTS_API_ENABLED — 404 until on,
+  // raised in a guard so a bad body cannot reveal the dark route).
+  ['/v1/evidence/{assetId}/grants', 'post'],
+  ['/v1/evidence/{assetId}/grants', 'get'],
+  ['/v1/evidence/grants/{grantId}', 'delete'],
 ];
 
 describe('docs/openapi.json', () => {

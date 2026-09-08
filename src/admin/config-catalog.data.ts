@@ -1521,6 +1521,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Raw-read gateway (MM-3, migration 0125): the ONE surface serving original evidence bytes — GET /v1/evidence/{assetId}/raw(-url), the fragment twins (whole parent-asset bytes under the STRICTEST fragment+asset piiClasses union), and the unauthenticated signed-URL redeem. Full deny-overrides gate ladder (scope → tenant/availability/quarantine → live grants → ABAC rest.evidence.raw → modality consent via a direct fail-closed domain_pack read → media-PII polarity → blob head), every attempt recorded content-free in evidence_access. Off (default) = every route answers a bare 404, indistinguishable from absent routes — byte-identical.',
   },
   {
+    key: 'EVIDENCE_GRANTS_API_ENABLED',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Sharing surface (MM-4, migration 0122): the three ownership verbs over an existing asset — POST /v1/evidence/{assetId}/grants (share with a user or a pack), GET /v1/evidence/{assetId}/grants (live owners) and DELETE /v1/evidence/grants/{grantId} (revoke, idempotent). Assets are addressed by RECORD ID only, never by byteHash — the surface is deliberately no existence oracle: unknown asset, foreign tenant, dead/quarantined asset, non-owner and media-PII-blocked all answer ONE bare 404 with the same body and the same two DB round-trips. Acting requires the caller to pass the raw-read gateway's own ownership fence (a user-bound key needs its OWN live user grant; an M2M key needs the asset to hold at least one live grant) plus the media-PII polarity (unclassified blocked, `[]` open, classified needs brain:read_media), so nobody can share what they cannot read. ownerKind 'system' is refused (400): system ownership would pin content past every user's GDPR erasure and belongs to the write seam, not to a client. Requires EVIDENCE_SUBSTRATE_ENABLED. Off (default) = every route answers a bare 404 raised in a guard, BEFORE the global ValidationPipe could turn a malformed body into a route-revealing 400 — byte-identical prod.",
+  },
+  {
     key: 'EVIDENCE_SIGNED_URL_SECRET',
     category: 'pipeline',
     defaultValue: '',
