@@ -3,9 +3,14 @@
 An index of every HTTP endpoint Brain serves, grouped by area, with
 auth scopes — for anyone calling Brain over REST or wiring an admin UI.
 A generated [OpenAPI 3.1 document](openapi.json) covers the platform
-surface (registry, packs, documents, indexer work) with full request /
-response schemas — regenerate with `pnpm openapi:build`; this page
-stays an index, not a second spec.
+surface — the memory core (fact ingest, search, multi-hop, synthesize,
+entity and fact reads), registry, packs, documents, indexer work,
+episodes and evidence — with full request / response schemas.
+Regenerate with `pnpm openapi:build`; this page stays an index, not a
+second spec. Deliberately outside that document: the operator/ops
+surface below, and the MCP transport, which is JSON-RPC over
+Streamable HTTP rather than REST (clients discover it through
+`tools/list`).
 
 All v1 endpoints are live; MCP transport is mounted per tenant. Every
 v1 call requires `Authorization: Bearer <credential>` — an

@@ -18,6 +18,18 @@ const committed = JSON.parse(
 
 /** Every platform path+method the spec promises to document. */
 const PLATFORM_OPERATIONS: Array<[string, string]> = [
+  // The memory core — the README quick start's two calls plus the two
+  // reasoning surfaces on the same retrieval stack. No feature flag.
+  ['/v1/ingest/fact', 'post'],
+  ['/v1/search', 'post'],
+  ['/v1/search/multi-hop', 'post'],
+  ['/v1/synthesize', 'post'],
+  // Entity READ surface (the GDPR cascade on the same controller is an
+  // operator action and stays on the docs/api.md admin index).
+  ['/v1/entities/autocomplete', 'get'],
+  ['/v1/entities/{id}', 'get'],
+  ['/v1/entities/{id}/timeline', 'get'],
+  ['/v1/entities/{id}/connections', 'get'],
   ['/v1/registry/packs', 'get'],
   ['/v1/registry/packs/{packId}', 'get'],
   ['/v1/registry/packs/{packId}/{version}', 'get'],
@@ -38,6 +50,9 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   ['/v1/admin/packs/{packId}/eval', 'post'],
   ['/v1/facts/{id}', 'get'],
   ['/v1/facts/{id}/provenance', 'get'],
+  // Retraction is deliberately NOT behind FACTS_API_ENABLED — a tenant
+  // must always be able to remove a fact (facts.controller.ts).
+  ['/v1/facts/{id}/retract', 'post'],
   ['/v1/beliefs', 'get'],
   ['/v1/beliefs/{id}', 'get'],
   ['/v1/users/{userId}/profile', 'get'],
