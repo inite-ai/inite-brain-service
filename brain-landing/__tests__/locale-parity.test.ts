@@ -42,7 +42,7 @@ describe('locale parity (en ↔ ru)', () => {
     const pairs: Array<[string, unknown[], unknown[]]> = [
       ['features.items', en.features.items, ru.features.items],
       ['retrieval.stages', en.retrieval.stages, ru.retrieval.stages],
-      ['beyondVector.rows', en.beyondVector.rows, ru.beyondVector.rows],
+      ['memoryLayers.items', en.memoryLayers.items, ru.memoryLayers.items],
       ['dualPath.selfHost.bullets', en.dualPath.selfHost.bullets, ru.dualPath.selfHost.bullets],
       ['dualPath.managed.bullets', en.dualPath.managed.bullets, ru.dualPath.managed.bullets],
       ['stats.items', en.stats.items, ru.stats.items],

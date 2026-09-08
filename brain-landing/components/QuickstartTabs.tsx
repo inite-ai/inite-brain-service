@@ -1,130 +1,78 @@
 'use client'
 
-import { useState } from 'react'
+import Link from 'next/link'
+import { useRef, useState, type KeyboardEvent } from 'react'
+import { Check, Copy } from 'lucide-react'
 import { SectionHeading } from './DualPath'
 import { getMessages, type Lang } from '../lib/i18n'
+import { QUICKSTART_EXAMPLES } from '../lib/quickstart'
 
-interface Props {
-  lang: Lang
-}
+export function QuickstartTabs({ lang }: { lang: Lang }) {
+  const t = getMessages(lang)
+  const [active, setActive] = useState(0)
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
+  const tabs = useRef<(HTMLButtonElement | null)[]>([])
+  const copyAttempt = useRef(0)
+  const current = QUICKSTART_EXAMPLES[active]
 
-const TABS = [
-  {
-    id: 'curl',
-    label: 'curl',
-    code: `# Ingest a fact
-curl -X POST https://brain.inite.ai/v1/ingest/fact \\
-  -H "Authorization: Bearer $BRAIN_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "entityRef": { "vertical": "rent", "id": "cust_42" },
-    "predicate": "complained_about",
-    "object": "late maintenance",
-    "validFrom": "2026-05-05T10:00:00Z",
-    "source": { "vertical": "rent", "messageId": "msg_1" }
-  }'
+  function select(index: number) {
+    copyAttempt.current++
+    setActive(index)
+    setCopyState('idle')
+  }
 
-# Search
-curl -X POST https://brain.inite.ai/v1/search \\
-  -H "Authorization: Bearer $BRAIN_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{ "query": "maintenance issues", "limit": 5 }'`,
-  },
-  {
-    id: 'sdk',
-    label: '@inite/knowledge',
-    code: `import { BrainClient } from '@inite/knowledge'
+  function onTabKey(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    let next = index
+    if (event.key === 'ArrowRight') next = (index + 1) % QUICKSTART_EXAMPLES.length
+    else if (event.key === 'ArrowLeft') next = (index + QUICKSTART_EXAMPLES.length - 1) % QUICKSTART_EXAMPLES.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = QUICKSTART_EXAMPLES.length - 1
+    else return
+    event.preventDefault()
+    select(next)
+    tabs.current[next]?.focus()
+  }
 
-const brain = new BrainClient({
-  baseUrl: 'https://brain.inite.ai',
-  apiKey: process.env.BRAIN_KEY,
-})
-
-await brain.ingestFact({
-  entityRef: { vertical: 'rent', id: 'cust_42' },
-  predicate: 'complained_about',
-  object: 'late maintenance',
-  validFrom: '2026-05-05T10:00:00Z',
-  source: { vertical: 'rent', messageId: 'msg_1' },
-})
-
-const hits = await brain.search({
-  query: 'maintenance issues',
-  limit: 5,
-})`,
-  },
-  {
-    id: 'mcp',
-    label: 'MCP',
-    code: `# Claude Desktop
-# ~/Library/Application Support/Claude/claude_desktop_config.json
-{
-  "mcpServers": {
-    "brain": {
-      "url": "https://brain.inite.ai/mcp/<companyId>",
-      "transport": "http",
-      "headers": {
-        "Authorization": "Bearer <api-key>"
-      }
+  async function copy() {
+    const attempt = ++copyAttempt.current
+    try {
+      await navigator.clipboard.writeText(current.code)
+      if (attempt === copyAttempt.current) setCopyState('copied')
+    } catch {
+      if (attempt === copyAttempt.current) setCopyState('error')
     }
   }
-}
 
-# Restart Claude. The key's scopes decide the surface —
-# 28 built-in tools (19 read, +8 write, +1 admin).
-# Highlights:
-#   search_knowledge, synthesize, get_entity_profile,
-#   detect_contradiction, record_fact, retract_fact`,
-  },
-]
-
-export function QuickstartTabs({ lang }: Props) {
-  const t = getMessages(lang)
-  const [active, setActive] = useState(TABS[0].id)
-  const current = TABS.find((tab) => tab.id === active) ?? TABS[0]
   return (
-    <section className="py-16 border-t border-[var(--border)]">
-      <SectionHeading
-        index="07"
-        eyebrow={t.quickstart.eyebrow}
-        title={t.quickstart.title}
-        subtitle={t.quickstart.subtitle}
-      />
-
-      <div className="mt-8 lab-panel rounded-xl overflow-hidden">
-        {/* terminal chrome */}
-        <div className="flex items-center gap-3 border-b border-[var(--border)] px-3 py-2 bg-[var(--bg-overlay)]/40">
-          <div className="flex gap-1.5" aria-hidden="true">
-            <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-strong)]" />
-            <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-strong)]" />
-            <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-strong)]" />
+    <section id="quickstart" className="py-16 border-t border-[var(--border)] scroll-mt-20">
+      <SectionHeading title={t.quickstart.title} subtitle={t.quickstart.subtitle} />
+      <Link href={`/${lang}/docs/getting-started`} className="mt-3 min-h-11 inline-flex items-center text-sm text-[var(--data)] hover:underline">{t.quickstart.prerequisite}</Link>
+      <div className="mt-5 lab-panel rounded-xl overflow-hidden">
+        <div className="border-b border-[var(--border)] px-3 flex flex-wrap items-center justify-between gap-2">
+          <div role="tablist" aria-label={t.quickstart.title} className="flex gap-1">
+            {QUICKSTART_EXAMPLES.map((tab, index) => (
+              <button key={tab.id} ref={(el) => { tabs.current[index] = el }} type="button" role="tab"
+                id={`quickstart-tab-${tab.id}`} aria-controls={`quickstart-panel-${tab.id}`}
+                aria-selected={index === active} tabIndex={index === active ? 0 : -1}
+                onClick={() => select(index)} onKeyDown={(e) => onTabKey(e, index)}
+                className={`min-h-11 px-3 text-sm border-b-2 transition-colors ${index === active ? 'border-[var(--signal)] text-[var(--signal)]' : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text)]'}`}>
+                {tab.label}
+              </button>
+            ))}
           </div>
-          <div role="tablist" aria-label="Quickstart" className="flex gap-1">
-            {TABS.map((tab) => {
-              const isActive = tab.id === active
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={isActive}
-                  onClick={() => setActive(tab.id)}
-                  className={`px-3 py-1 rounded u-mono text-[11.5px] tracking-wide transition-colors ${
-                    isActive
-                      ? 'bg-[var(--signal-faint)] text-[var(--signal)]'
-                      : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              )
-            })}
-          </div>
+          <button type="button" onClick={copy} className="min-h-11 px-2 inline-flex items-center gap-2 text-xs text-[var(--text-muted)] hover:text-[var(--text)]" aria-label={t.quickstart.copy}>
+            {copyState === 'copied' ? <Check className="size-4" aria-hidden="true" /> : <Copy className="size-4" aria-hidden="true" />}
+            <span aria-live="polite">{copyState === 'copied' ? t.quickstart.copied : t.quickstart.copy}</span>
+          </button>
         </div>
-        <pre className="px-4 py-4 text-[12px] leading-relaxed u-mono text-[var(--text)] overflow-x-auto">
-          {current.code}
-        </pre>
+        {QUICKSTART_EXAMPLES.map((tab, index) => (
+          <div key={tab.id} role="tabpanel" id={`quickstart-panel-${tab.id}`} aria-labelledby={`quickstart-tab-${tab.id}`} tabIndex={0} hidden={index !== active}>
+            <p className="px-5 pt-4 u-mono text-xs text-[var(--text-faint)]">{tab.filename}</p>
+            <pre className="p-5 text-xs sm:text-[13px] leading-relaxed u-mono text-[var(--text)] overflow-x-auto"><code>{tab.code}</code></pre>
+          </div>
+        ))}
       </div>
+      {copyState === 'error' && <p role="alert" className="mt-3 text-sm text-[var(--warning)]">{t.quickstart.copyError}</p>}
     </section>
   )
 }

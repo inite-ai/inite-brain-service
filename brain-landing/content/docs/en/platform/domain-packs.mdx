@@ -1,14 +1,15 @@
 # Domain Packs
 
-A **Domain Pack** is a versioned, pluggable bundle of ontology that extends Brain's predicate registry **without forking core**. A domain — real estate, fintech, compliance, your own — ships its typed predicates plus optional extraction tuning, eval fixtures, indexer execution, seed documents, and MCP tools. A community pack is plain JSON: no PR to the Brain repo, publish to a registry, install per tenant.
+A **Domain Pack** is a versioned, pluggable bundle of ontology that extends Brain's predicate registry **without forking core**. A domain — real estate, fintech, compliance, your own — ships its typed predicates plus an optional domain memory model, extraction tuning, eval fixtures, indexer execution, seed documents, and MCP tools. A community pack is plain JSON: no PR to the Brain repo, publish to a registry, install per tenant.
 
-## The manifest — six sections
+## The manifest
 
 A pack is one signed, checksummed JSON manifest. Every optional section is covered by the checksum — there is no out-of-band pack content:
 
 | Section | What it does |
 | --- | --- |
 | `predicates` | The ontology: `localId`, datatype, semantics (`single_active` / `append_only` / `bitemporal`), decay half-life, PII class, optional `requiresScope`. Stored namespaced as `<packId>__<localId>` — double underscore is the reserved separator, and the loader fails boot on any collision with core or another pack. |
+| `memoryModel` | Domain perception: scene schemas, state models and allowed transitions, attention hints, verification rules and retention hints. Available behavior depends on enabled server capabilities; the manifest does not execute arbitrary code. |
 | `extractionProfile` | Extractor tuning consumed at extract time: domain `guidance` appended to the system prompt + `fewShot` examples (rendered as illustrative text — they can't break the strict output schema). |
 | `evalFixtures` | Per-pack extraction tests. `POST /v1/admin/packs/:id/eval` runs each fixture through the LIVE extractor and reports pass / fail — measure before you trust. |
 | `indexer` | How the pack participates in the [document pipeline](/en/docs/platform/document-pipeline): `virtual` (rides the union extraction call, zero extra LLM cost), `dedicated` (its own extraction run, router-gated), or `external` (a remote indexer stages candidates). |
@@ -56,7 +57,9 @@ Fail-closed posture: entitlements are polled from the billing service behind a s
 
 ## First-party pack library
 
-Beyond the builtin `code_memory` (the engineering “why” of a codebase), Brain ships six distributable industry packs — `real_estate`, `fintech`, `medical`, `legal`, `insurance`, `hr` — each a complete ontology with predicates, an extraction profile, and eval fixtures.
+Beyond the builtin `code_memory` (the engineering “why” of a codebase), Brain ships six distributable industry packs — `real_estate`, `fintech`, `medical`, `legal`, `insurance`, `hr` — each with predicates, an extraction profile, a `memoryModel`, and eval fixtures. The models describe concrete lifecycles: listings and tenancies, licenses, prescriptions, legal matters, insurance claims, and employment.
+
+For example, `real_estate` defines a `listing_lifecycle` with `listed`, `under_offer`, `sold`, and `withdrawn` states and explicit transitions. Its scene schemas distinguish a viewing from a closing, while retention hints mark a viewing as ephemeral and a closing as durable. These are configuration hints for the engine, not guarantees that every feature is enabled in every deployment.
 
 ## Going deeper
 

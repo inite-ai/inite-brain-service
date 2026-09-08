@@ -12,6 +12,7 @@ interface Props {
   lang: Lang
   /** Optional page-context slot next to the brand. */
   context?: string
+  landing?: boolean
 }
 
 /** Live star count, best-effort. Falls back to a plain "Star" CTA. */
@@ -38,14 +39,14 @@ function useStars(): string | null {
  * Sticky blueprint header. Mono wordmark, a GitHub-star CTA (open-source
  * signal), and the admin link for sessions that pass `/api/auth/me`.
  */
-export function Header({ lang, context }: Props) {
+export function Header({ lang, context, landing = false }: Props) {
   const t = getMessages(lang)
   const auth = useAuth()
   const stars = useStars()
 
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--bg)]/75 backdrop-blur supports-[backdrop-filter]:bg-[var(--bg)]/55">
-      <div className="max-w-6xl mx-auto h-14 px-5 flex items-center justify-between gap-4">
+      <div className={`max-w-6xl mx-auto px-5 flex items-center justify-between gap-3 ${landing ? 'min-h-16 py-3 flex-wrap sm:flex-nowrap' : 'h-14'}`}>
         <div className="flex items-center gap-3 min-w-0">
           <Link href={`/${lang}`} className="flex items-center gap-2.5 group">
             <span
@@ -70,7 +71,7 @@ export function Header({ lang, context }: Props) {
           )}
         </div>
 
-        <nav className="flex items-center gap-1 text-sm">
+        <nav className={`flex items-center gap-1 text-sm ${landing ? 'landing-nav w-full sm:w-auto justify-between' : ''}`}>
           <Link
             href={`/${lang}/docs`}
             className="u-mono text-[12px] h-8 px-2.5 hidden sm:inline-flex items-center text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-overlay)] rounded-md"
@@ -78,16 +79,16 @@ export function Header({ lang, context }: Props) {
             {t.nav.docs}
           </Link>
           <Link
-            href={`/${lang}/docs/skills`}
+            href={landing ? '#architecture' : `/${lang}/docs/skills`}
             className="u-mono text-[12px] h-8 px-2.5 hidden sm:inline-flex items-center text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-overlay)] rounded-md"
           >
-            {t.nav.skills}
+            {landing ? t.nav.architecture : t.nav.skills}
           </Link>
           <Link
-            href={`/${lang}/blog`}
+            href={landing ? '#domain-packs' : `/${lang}/blog`}
             className="u-mono text-[12px] h-8 px-2.5 hidden sm:inline-flex items-center text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-overlay)] rounded-md"
           >
-            {t.nav.blog}
+            {landing ? t.nav.packs : t.nav.blog}
           </Link>
           <a
             href={`https://github.com/${REPO}`}
@@ -103,6 +104,7 @@ export function Header({ lang, context }: Props) {
               </span>
             )}
           </a>
+          {landing && <Link href={`/${lang}/app`} className="hidden sm:inline-flex min-h-11 items-center px-3 text-sm text-[var(--signal)] hover:underline">{t.nav.openApp}</Link>}
           {auth.isAdmin && (
             <Link
               href={`/${lang}/admin/graph`}

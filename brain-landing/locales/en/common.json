@@ -5,7 +5,11 @@
     "status": "Status",
     "skills": "Skills",
     "star": "Star",
-    "blog": "Blog"
+    "blog": "Blog",
+    "openApp": "Open app",
+    "skip": "Skip to content",
+    "architecture": "Architecture",
+    "packs": "Domain Packs"
   },
   "blog": {
     "title": "Notes on agent memory",
@@ -19,33 +23,37 @@
     "related": "Related"
   },
   "hero": {
-    "eyebrow": "Bitemporal knowledge graph",
-    "title": "Memory that keeps time.",
-    "subtitle": "Every fact gets two clocks: when it was true, and when Brain found out. Ask what's true now, or replay exactly what the graph knew last March. Conflicts get scored, not silently overwritten. Forget means deleted, not hidden. REST or MCP — self-hosted or managed.",
-    "ctaPrimary": "Get started",
-    "ctaSecondary": "Self-host",
+    "eyebrow": "Open-source memory for AI agents",
+    "title": "Memory with context.",
+    "subtitle": "Give your agent a memory across conversations. Brain connects facts, events and their sources, tracks what changes, and retrieves the evidence behind an answer. Connect over MCP or REST. Run it on your infrastructure or ours.",
+    "ctaPrimary": "Connect your agent",
+    "ctaSecondary": "Explore the docs",
     "trust": {
-      "license": "AGPL-3.0",
-      "stack": "NestJS · SurrealDB · BGE-M3",
-      "eval": "eval-gated in CI"
+      "license": "AGPL-3.0-or-later",
+      "stack": "REST + MCP",
+      "eval": "Self-host or managed"
     },
     "panel": {
-      "title": "Bitemporal readout",
-      "valid": "valid time",
-      "txn": "transaction time",
-      "note": "Default queries answer 'now'. Pass asOf and the same query returns what Brain knew at that moment — nothing reconstructed after the fact."
+      "title": "A change, with its source",
+      "label": "Illustrative memory trace",
+      "question": "Which database did we choose?",
+      "before": "Earlier decision",
+      "after": "Current decision",
+      "source": "Source · architecture review",
+      "quote": "“We moved to SurrealDB to keep graph relations and time-aware facts together.”",
+      "note": "Follow the decision back to the conversation that explains it."
     }
   },
   "bitemporal": {
-    "eyebrow": "Bitemporal · live demo",
-    "title": "Replay what Brain knew, not what's true now.",
-    "subtitle": "Acme moved from the starter plan to growth on Mar 10. Brain only recorded the switch on Mar 12. Drag both clocks — history gets replayed, never rewritten.",
+    "eyebrow": "Interactive model",
+    "title": "A change has two dates.",
+    "subtitle": "Acme changed plans on March 10. Brain learned about it on March 12. Move each clock to explore the difference between when something happened and when it was recorded.",
     "validLabel": "valid time — when it was true",
     "txnLabel": "transaction time — when Brain knew",
     "markSwitch": "plan switch",
     "markRecorded": "Brain records it",
     "answerLabel": "Brain answers",
-    "scenario": "scenario · acme plan change · starter → growth",
+    "scenario": "Illustrative local demo · Acme plan change · no API request",
     "notes": {
       "unknown": "The transaction clock sits before Mar 12. Brain hasn't recorded the switch yet, so it still answers starter — even for dates after Mar 10. That's the past, replayed exactly.",
       "past": "Valid time is before Mar 10. Back then, starter was the truth.",
@@ -54,34 +62,28 @@
   },
   "retrieval": {
     "eyebrow": "Retrieval engine",
-    "title": "Seven stages — and only the first two are about vectors.",
-    "subtitle": "The unit of retrieval is a typed fact on the knowledge graph, never a text chunk. Vector + BM25 are just the doors in — they map free text onto candidate facts. Everything after is graph-native: ontology router, per-entity buckets, edge walks, PPR, rerank. Each stage is a feature flag with its own per-tenant metrics.",
-    "queryIn": "query + tenant scope",
-    "answerOut": "ranked facts + per-leg score breakdown",
-    "note": "Each stage toggles and is measured independently; the CI eval reports recall per leg. Queries that already name their anchors skip the doors entirely — graph_retrieve and the multi-hop planner enter straight from entities.",
+    "title": "Find the evidence. Then answer.",
+    "subtitle": "Hybrid search finds relevant memory. Graph retrieval follows known entities and relationships. Synthesis brings the evidence together and checks support for the answer.",
+    "queryIn": "Question + tenant + optional user scope",
+    "answerOut": "Evidence-backed answer, or abstention",
+    "note": "Retrieval and reranking stages are configurable. For a known entity, start with graph_retrieve; for a question spanning relationships, use search_multi_hop.",
     "stages": [
-      { "name": "Entry legs: vector + BM25", "desc": "The doors into the graph — seed candidate FACTS (not chunks) from free text, convex-combined at w=0.5" },
-      { "name": "HyPE alt-embeddings", "desc": "A second door: hypothetical-prompt vectors; max(cos_main, cos_alt)" },
-      { "name": "Predicate + type router", "desc": "The ontology takes over — a joint LLM router boosts the right predicate class" },
-      { "name": "Edge expansion", "desc": "A literal graph walk: 1-hop neighbours of top entities join the candidates" },
-      { "name": "Tier-aware PPR", "desc": "HippoRAG-style personalized PageRank over the candidate subgraph" },
-      { "name": "Cross-encoder rerank", "desc": "Cohere reranks a wide window" },
-      { "name": "Listwise LLM rerank", "desc": "Permutation self-consistency, Borda-aggregated" }
-    ]
-  },
-  "beyondVector": {
-    "eyebrow": "Beyond embeddings",
-    "title": "What a vector store can't tell you.",
-    "subtitle": "Embeddings find text that looks similar. A memory layer has to do more than that.",
-    "colA": "Plain vector store",
-    "colB": "INITE Brain",
-    "rows": [
-      { "a": "Chunks of text, ranked by cosine similarity", "b": "Typed subject–predicate–object facts on a graph" },
-      { "a": "Only what looks true now", "b": "Two clocks — query now, or as of any past moment" },
-      { "a": "Re-embedding silently overwrites the old vector", "b": "Conflicts get scored; close calls land as COMPETING" },
-      { "a": "Delete a row and hope it's gone", "b": "Forget cascades facts, edges, embeddings — HMAC tombstone left" },
-      { "a": "No notion of relationships", "b": "Typed edges plus a multi-hop planner across them" },
-      { "a": "PII sits in the same index as everything else", "b": "DB-level PII fence, gated by caller scope" }
+      {
+        "name": "Find relevant memory",
+        "desc": "Semantic and lexical search find candidates across the enabled memory layers."
+      },
+      {
+        "name": "Follow relationships",
+        "desc": "Entity anchors and graph edges add related facts; multi-hop returns an auditable evidence chain."
+      },
+      {
+        "name": "Rank in context",
+        "desc": "Time, relevance and source signals help select the evidence to pass to the model."
+      },
+      {
+        "name": "Cite and verify",
+        "desc": "Synthesis cites its evidence. Strict guardrails can return no answer when support is insufficient."
+      }
     ]
   },
   "dualPath": {
@@ -90,20 +92,20 @@
     "selfHost": {
       "label": "Open source",
       "title": "Self-host",
-      "desc": "Clone the repo, bring up SurrealDB, point it at your keys. AGPL-3.0 — every line is yours to read, fork, and ship back.",
+      "desc": "Run Brain with Docker Compose, configure your model providers and keep control of deployment, storage and access.",
       "bullets": [
-        "Docker Compose — SurrealDB + service in minutes",
-        "Nothing leaves your network",
-        "BGE-M3 embeds locally — no calls out to OpenAI",
-        "Admin cockpit and the eval suite ship in the repo"
+        "SurrealDB and service deployment recipes",
+        "Local BGE-M3 embeddings available",
+        "LLM and reranking providers are configurable",
+        "Admin tools and evaluation harnesses included"
       ],
       "cmd": "docker compose up -d",
-      "cta": "Self-host guide"
+      "cta": "Deployment guide"
     },
     "managed": {
       "label": "Managed",
       "title": "brain.inite.ai",
-      "desc": "The same build, none of the babysitting. A hosted endpoint that redeploys on every push to main.",
+      "desc": "Connect to the hosted service with your organization account. Manage keys and explore memory through the web app.",
       "bullets": [
         "No servers, no database to keep alive",
         "Per-tenant isolation, scoped API keys",
@@ -111,108 +113,101 @@
         "Identical REST + MCP surface"
       ],
       "endpoint": "https://brain.inite.ai",
-      "cta": "Open dashboard"
+      "cta": "Open the app"
     }
   },
   "stats": {
-    "eyebrow": "Eval results",
-    "title": "How well it actually retrieves.",
-    "subtitle": "Brain ships with its own eval suite. These are the latest scores on the retrieval and memory-lifecycle benchmarks — measured, not asserted.",
-    "gateLabel": "gate",
-    "byVertical": "recall@1 by vertical",
-    "correctness": "correctness · all gated at 1.0",
-    "footnote": "From the eval report, n=262 (multi-vertical suite + wikidata). Temporal queries hit recall@1 1.000 (n=21), current 0.959 (n=241). Every push re-runs it; the build fails below the gate.",
+    "eyebrow": "Evaluation",
+    "title": "Quality needs a protocol.",
+    "subtitle": "Retrieval scores and answer accuracy measure different things. Read results alongside the dataset, model, baseline and run configuration.",
     "items": [
-      { "label": "recall@1", "value": "0.962", "floor": "≥ 0.6" },
-      { "label": "faithfulness", "value": "1.000", "floor": "≥ 0.8" },
-      { "label": "identity-F1", "value": "1.000", "floor": "≥ 0.8" },
-      { "label": "memory-lifecycle", "value": "1.000", "floor": "= 1.0" }
-    ]
+      {
+        "label": "Representation",
+        "value": "LoCoMo",
+        "floor": "Does memory help when the transcript fits in context?"
+      },
+      {
+        "label": "Capacity",
+        "value": "LongMemEval",
+        "floor": "Can the system find answers across long conversation histories?"
+      },
+      {
+        "label": "Scale",
+        "value": "BEAM",
+        "floor": "How does quality change as the history grows?"
+      }
+    ],
+    "footnote": "Strict binary judge · own full-context baseline · paired statistics · held-out split. Published results describe their recorded runs, not a guarantee for every deployment.",
+    "linkLabel": "Read the evaluation protocol"
   },
   "features": {
     "eyebrow": "The rest of the stack",
-    "title": "More than a retriever.",
-    "subtitle": "Everything between an ingest and an answer you can trust.",
+    "title": "Built for memory that evolves.",
+    "subtitle": "From architecture decisions to customer conversations: the controls to keep memory useful as new information arrives.",
     "items": [
       {
-        "tag": "Ingest",
-        "title": "Conflict resolution",
-        "desc": "Two ingests for one fact go through a scored ladder — confidence × source-trust × recency × authority. Close calls land as COMPETING, never a silent overwrite."
+        "tag": "Changes",
+        "title": "Conflicts stay visible",
+        "desc": "Updates can supersede earlier facts. Close calls stay COMPETING, with a dry-run tool to inspect the proposed resolution."
       },
       {
-        "tag": "Trust",
-        "title": "Source-aware trust",
-        "desc": "A fact is claimed, not true. Every source earns a learned, domain-scoped agreement rate; declared authority and cross-document corroboration feed ranking. Inspect it all via GET /v1/sources."
+        "tag": "Identity",
+        "title": "One entity, across mentions",
+        "desc": "Aliases and canonical names help resolve repeated mentions, including code identifiers, to the same entity."
       },
       {
-        "tag": "Graph",
-        "title": "Identity resolution",
-        "desc": "Cross-vertical merges collapse duplicates into one entity via identity_of edges; re-attribution follows mergedInto. The nightly Dreams pass proposes merges for near-duplicates on its own."
+        "tag": "Code memory",
+        "title": "Remember why it was built",
+        "desc": "Record architecture decisions and their rationale. Recall past choices with why and recall_decisions when the code changes."
       },
       {
-        "tag": "Retrieval",
-        "title": "Multi-hop",
-        "desc": "A planner LLM splits a question into up to four anchored sub-queries. Supporting facts carry through for HotpotQA-style joint-F1 scoring."
+        "tag": "Domain packs",
+        "title": "Memory for your domain",
+        "desc": "Packs define vocabulary and memory models: scene schemas, state transitions, verification and retention hints. Six industry packs ship in the repository."
       },
       {
-        "tag": "Synthesis",
-        "title": "Faithful answers",
-        "desc": "/v1/synthesize runs corrective-RAG with strict / lenient / off guardrails and a claim-level faithfulness scorer. Pass-rate gates at 1.0."
-      },
-      {
-        "tag": "Platform",
-        "title": "Domain Packs",
-        "desc": "Versioned ontology plugins: typed predicates, extraction tuning, seed documents, MCP tools. Ed25519-signed manifests, a global registry with verified publishers — and a marketplace with featured and paid packs."
-      },
-      {
-        "tag": "Documents",
-        "title": "Document pipeline",
-        "desc": "Source → Indexer → Candidates → Brain. Extraction proposes, one resolver disposes. Stored documents re-index when a new pack lands; external indexers join over a pull work API."
+        "tag": "Ingestion",
+        "title": "Documents become memory",
+        "desc": "Ingest a document through Source → Indexer → Candidates. Use one fact write for one claim, and the document pipeline for longer material."
       },
       {
         "tag": "MCP",
-        "title": "Pack MCP tools",
-        "desc": "Installed packs extend the MCP surface — declarative query tools over their own predicates, HMAC-signed proxies to publisher endpoints. Operator consent required; no third-party code in-process."
+        "title": "Tools that match your access",
+        "desc": "Read, write and admin scopes shape the available tools. Installed packs can extend the surface with operator consent."
       },
       {
-        "tag": "Access",
-        "title": "ABAC policies",
-        "desc": "Named policy sets per API key: allow / deny over REST + MCP actions, row-level read filters by PII class, trust thresholds, and provenance. Report-only mode makes the rollout safe."
-      },
-      {
-        "tag": "Safety",
-        "title": "PII fence",
-        "desc": "PII is gated at the database layer with PERMISSIONS and caller scopes. Every predicate declares its PII class up front."
+        "tag": "Scope",
+        "title": "Company and personal memory",
+        "desc": "Tenants have separate databases. Pass userId for personal memory; omitting it selects tenant-global memory."
       },
       {
         "tag": "Lifecycle",
-        "title": "GDPR forget",
-        "desc": "A forget is a synchronous hard delete — facts, edges, and embeddings gone. Only an HMAC tombstone stays, so you can prove it happened."
-      },
-      {
-        "tag": "Tenancy",
-        "title": "Per-tenant isolation",
-        "desc": "Each company gets its own database (co_<id>). One REMOVE DATABASE forgets a whole tenant. Nothing leaks across the wall."
+        "title": "Retract or forget",
+        "desc": "Retraction preserves an audit trail. Administrative forget hard-deletes an entity and its associated records, leaving tombstones."
       }
     ]
   },
   "quickstart": {
     "eyebrow": "Quickstart",
-    "title": "Three ways to talk to brain.",
-    "subtitle": "Pick the one that matches your runtime."
+    "title": "Connect once. Recall across sessions.",
+    "subtitle": "Start with an API key and company ID. Use the first-party MCP connector, REST, or TypeScript with native fetch.",
+    "copy": "Copy code",
+    "copied": "Copied",
+    "copyError": "Copy failed. Select and copy the code below.",
+    "prerequisite": "Get a key and configure access"
   },
   "mcpBlock": {
     "eyebrow": "Model Context Protocol",
-    "title": "One config block. The full tool surface. Any client.",
-    "subtitle": "A per-tenant MCP URL, scope-aware. Drop it into Claude Desktop, Cursor, Goose, or n8n — the agent gets 28 built-in tools, and installed Domain Packs can add more.",
-    "toolsLabel": "28 scope-aware tools · highlights",
-    "clients": "Same URL, same auth header, no glue code — whatever speaks MCP.",
+    "title": "Your agent gets the right tools.",
+    "subtitle": "Native Streamable HTTP for remote MCP clients; @inite/brain-mcp bridges clients that launch a stdio server. Available tools depend on key scopes, enabled features and installed packs.",
+    "toolsLabel": "MCP tool highlights",
+    "clients": "For personal memory, pass userId. For longer material, prefer ingest_document over recording a paragraph as one fact.",
     "linkLabel": "MCP setup guide"
   },
   "skillsBlock": {
     "eyebrow": "Agent skills",
     "title": "Skills that teach the agent to use Brain.",
-    "subtitle": "Six Anthropic-format skills — search, recall, bitemporal queries, writes, conflict adjudication, and the setup walkthrough. One curl installs them into ~/.claude/skills.",
+    "subtitle": "Install workflows for search, recall, temporal queries, writes and conflict resolution. They teach the agent when and how to use Brain.",
     "linkLabel": "All skills",
     "installCmd": "curl -fsSL https://brain.inite.ai/install.sh | sh"
   },
@@ -239,7 +234,7 @@
     }
   },
   "footer": {
-    "tagline": "Open-source bitemporal knowledge graph for AI agents. A system of insight, not a system of record.",
+    "tagline": "Open-source memory for AI agents. Facts, context and sources, connected.",
     "maker": "A project by",
     "columns": {
       "product": {
@@ -728,5 +723,128 @@
         "saved": "Declared."
       }
     }
+  },
+  "memoryLayers": {
+    "title": "The fact. The context. The source.",
+    "subtitle": "Useful memory preserves more than the latest answer. Brain separates what was recorded, what happened, and what the system derives from it.",
+    "items": [
+      {
+        "label": "Facts & beliefs",
+        "title": "Keep track of what changes",
+        "desc": "Typed facts keep their history and unresolved conflicts. Derived beliefs track revisions and the scenes supporting them."
+      },
+      {
+        "label": "Episodes & scenes",
+        "title": "Keep the surrounding context",
+        "desc": "Source episodes retain the original conversation. Scenes capture events and state changes, so a short memory can lead back to a fuller account."
+      },
+      {
+        "label": "Sources & evidence",
+        "title": "Make the answer inspectable",
+        "desc": "Provenance links memory to its sources. Evidence fragments can point to a text passage, page region or time range in an external asset."
+      }
+    ],
+    "note": "Scene, belief and evidence capabilities depend on the enabled server configuration and domain packs. Media registration stores references and metadata; processing requires a configured processor."
+  },
+  "architecture": {
+    "title": "Architecture: from source to answer.",
+    "subtitle": "Brain separates source material, derived memory and retrieval. The graph gives memory structure; source links keep that structure inspectable.",
+    "stages": [
+      {
+        "title": "Capture & resolve",
+        "path": "Sources → Indexers → Candidates",
+        "desc": "Conversations and documents enter through REST or MCP. Indexers propose candidates; identity and conflict resolution decide what becomes a fact.",
+        "detail": "Original episodes and source references"
+      },
+      {
+        "title": "Build connected memory",
+        "path": "Facts · Episodes · Scenes · Beliefs",
+        "desc": "SurrealDB holds entities, relationships and temporal facts alongside source episodes and derived scenes and beliefs. Evidence links connect memory to its supporting material.",
+        "detail": "Temporal history + provenance"
+      },
+      {
+        "title": "Retrieve & verify",
+        "path": "Hybrid search → Graph → Synthesis",
+        "desc": "Semantic and lexical search find candidates. Graph walks and multi-hop add context. Synthesis cites evidence; strict verification can abstain when support is missing.",
+        "detail": "Evidence-backed answers over REST + MCP"
+      }
+    ],
+    "packBridge": "Domain Packs shape vocabulary, extraction and memory models throughout this path.",
+    "details": [
+      {
+        "title": "Rebuildable memory",
+        "desc": "Derived worlds can be rebuilt from retained episodes in a staged version, then promoted while reads stay pinned to the previous world until the switch."
+      },
+      {
+        "title": "One engine, different profiles",
+        "desc": "Retrieval profiles configure the trade-offs for different kinds of conversations. The NestJS service can run API and background workers together or as separate roles."
+      }
+    ],
+    "link": "Read the architecture"
+  },
+  "domainPacks": {
+    "title": "Domain Packs. Your domain, your memory model.",
+    "subtitle": "Give Brain the vocabulary and lifecycles of your product. A versioned pack extends the shared engine without a fork: from what to extract to how events, states and evidence are represented.",
+    "capabilities": [
+      {
+        "title": "Typed vocabulary",
+        "desc": "Predicates, value types, conflict semantics and PII classes."
+      },
+      {
+        "title": "Domain-specific extraction",
+        "desc": "Instructions, examples, indexers and evaluation fixtures for your source material."
+      },
+      {
+        "title": "A model of what changes",
+        "desc": "Scene schemas, state transitions, attention hints, verification rules and retention hints."
+      },
+      {
+        "title": "Tools for the agent",
+        "desc": "Optional pack MCP tools, activated with operator consent."
+      }
+    ],
+    "exampleTitle": "A listing has a lifecycle.",
+    "exampleLabel": "real_estate · excerpt from the shipped pack",
+    "exampleNote": "One supported path in listing_lifecycle. The full model also describes withdrawal and returning to the market.",
+    "exampleScenes": "Scenes: a viewing and a closing.",
+    "exampleRetention": "Retention hints distinguish an ephemeral viewing from a durable closing record.",
+    "libraryTitle": "Six industry packs, plus built-in code memory.",
+    "library": [
+      {
+        "id": "real_estate",
+        "name": "Real estate",
+        "desc": "Listings, tenancies, permits"
+      },
+      {
+        "id": "fintech",
+        "name": "Fintech",
+        "desc": "Licenses and certifications"
+      },
+      {
+        "id": "medical",
+        "name": "Medical",
+        "desc": "Drug ontology and treatment lifecycles"
+      },
+      {
+        "id": "legal",
+        "name": "Legal",
+        "desc": "Agreements, obligations, matters"
+      },
+      {
+        "id": "insurance",
+        "name": "Insurance",
+        "desc": "Policies and claims"
+      },
+      {
+        "id": "hr",
+        "name": "HR",
+        "desc": "Positions and employee lifecycles"
+      }
+    ],
+    "codeMemory": "The built-in code_memory pack covers decisions, rationale, invariants and change lifecycles.",
+    "distribution": "Author a JSON manifest, validate it, optionally sign it, then publish and install per tenant. Registry versions are immutable; checksums pin the content. Signatures and consent are enforced according to server policy.",
+    "note": "Industry packs ship in the repository and are installed per tenant. Memory-model and tool capabilities depend on the enabled server features.",
+    "docsLink": "Build or install a pack",
+    "libraryLink": "Explore the pack library"
   }
 }

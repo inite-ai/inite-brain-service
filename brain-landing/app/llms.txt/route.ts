@@ -25,23 +25,26 @@ export function GET() {
 
 > ${ORG.description}
 
-INITE Brain is a per-tenant bitemporal knowledge graph for AI agents. Every
-fact carries two clocks — valid time (when it was true) and transaction time
-(when Brain learned it) — so you can query "now" or replay what the graph
-knew at any past moment. Retrieval is a graph-aware pipeline (hybrid fusion,
-HyPE, predicate router, edge expansion, PPR, cross-encoder, listwise rerank),
-not a single cosine match. Conflicts are scored, not silently overwritten.
-GDPR forget is a synchronous hard delete that leaves only an HMAC tombstone.
-Exposed over REST and a native MCP endpoint. Licensed AGPL-3.0; self-host
-with Docker or use the managed endpoint at ${SITE_URL}.
+Brain connects typed facts, source episodes, derived scenes and beliefs, and
+pointers to supporting evidence. Temporal history records when a fact held
+and when it was learned. Conflicts can supersede a prior fact or remain
+COMPETING. Synthesis cites evidence and can abstain in strict mode.
+Scene, belief and evidence features depend on server configuration and
+installed domain packs. Media registration stores references and metadata;
+processing requires a configured processor.
 
 ## Key facts
-- License: AGPL-3.0 (open source). Repository: ${GITHUB_URL}
-- Surfaces: REST API + native MCP (Streamable HTTP), per tenant
-- Stack: NestJS, SurrealDB, BGE-M3 embeddings, OpenAI, Cohere rerank
-- Eval (n=262): recall@1 0.962, recall@3 0.989, MRR 0.976, NDCG@10 0.973;
-  faithfulness / identity-F1 / memory-lifecycle / PII-gating all 1.000
-- Run it: self-host (docker compose) or managed at ${SITE_URL}
+- License: AGPL-3.0-or-later. Repository: ${GITHUB_URL}
+- Surfaces: REST API + MCP (Streamable HTTP), per tenant
+- Stdio connector: npx -y @inite/brain-mcp
+- Memory scope: pass userId for personal memory; omit for tenant-global only
+- Domain packs: vocabulary, scene schemas, state transitions, verification and retention hints
+- Code memory: record_decision, why, recall_decisions
+- Evaluation: LoCoMo, LongMemEval and BEAM measure different axes.
+  Read ${GITHUB_URL}/blob/main/docs/eval-protocol.md for the strict binary
+  judge, own full-context baseline, paired statistics and held-out split.
+  Published results describe specific runs, not every deployment.
+- Run it: self-host with configured providers or use the managed service
 
 ## Documentation
 ${docs}

@@ -1,7 +1,7 @@
 import './globals.css'
 import type { Metadata } from 'next'
 import { Unbounded, Manrope, JetBrains_Mono } from 'next/font/google'
-import { ogImage } from '../lib/seo'
+import { ogImage, ORG } from '../lib/seo'
 
 // Lab / blueprint type system — a distinctive display face, a clean
 // readable body, and a dominant mono that carries the "instrument
@@ -24,9 +24,8 @@ const mono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://brain.inite.ai'),
-  title: 'INITE Brain — bitemporal knowledge graph for AI agents',
-  description:
-    'Open-source (AGPL-3.0) per-tenant memory layer for AI agents. Bitemporal facts, hybrid retrieval, conflict-aware ingest, GDPR forget that actually works. Self-host with Docker or use the managed endpoint. REST + native MCP, eval-gated in CI.',
+  title: 'INITE Brain — memory with context',
+  description: ORG.description,
   keywords: [
     'knowledge graph',
     'bitemporal',
@@ -40,20 +39,18 @@ export const metadata: Metadata = {
   ],
   icons: { icon: '/favicon.ico' },
   openGraph: {
-    title: 'INITE Brain — memory that keeps time',
-    description:
-      'Open-source bitemporal knowledge graph for AI agents. Hybrid retrieval, conflict-aware ingest, GDPR forget. Self-host or managed. REST + native MCP.',
+    title: 'INITE Brain — memory with context',
+    description: ORG.description,
     url: 'https://brain.inite.ai',
     siteName: 'INITE Brain',
     type: 'website',
-    images: [{ url: ogImage({ title: 'Memory that keeps time' }), width: 1200, height: 630 }],
+    images: [{ url: ogImage({ title: 'Memory with context' }), width: 1200, height: 630 }],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'INITE Brain — memory that keeps time',
-    description:
-      'Open-source bitemporal knowledge graph for AI agents. Self-host or managed. REST + native MCP, eval-gated.',
-    images: [ogImage({ title: 'Memory that keeps time' })],
+    title: 'INITE Brain — memory with context',
+    description: ORG.description,
+    images: [ogImage({ title: 'Memory with context' })],
   },
 }
 

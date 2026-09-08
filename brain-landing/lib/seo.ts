@@ -33,7 +33,7 @@ export const ORG = {
   url: SITE_URL,
   logo: `${SITE_URL}/favicon.ico`,
   description:
-    'Open-source bitemporal knowledge graph for AI agents — semantic memory with hybrid retrieval, conflict-aware ingest and GDPR forget, over REST and MCP.',
+    'Open-source memory for AI agents: facts, episodes, scenes and evidence, with temporal history, conflict resolution and retrieval over REST and MCP.',
   sameAs: [GITHUB_URL],
 }
 

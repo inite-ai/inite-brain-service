@@ -265,7 +265,7 @@ function aggregateBy(
     .sort((a, b) => a.key.localeCompare(b.key))
 }
 
-export function SliceTable({ results }: { results: ScenarioRunOutcome[] }) {
+function SliceTable({ results }: { results: ScenarioRunOutcome[] }) {
   const slices = aggregateBy(results, (r) => r.vertical)
   if (slices.length <= 1) return null
   return (

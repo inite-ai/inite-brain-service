@@ -12,8 +12,6 @@ export function SkillsInstall({ lang }: Props) {
   return (
     <section className="py-16 border-t border-[var(--border)]">
       <SectionHeading
-        index="09"
-        eyebrow={t.skillsBlock.eyebrow}
         title={t.skillsBlock.title}
         subtitle={t.skillsBlock.subtitle}
       />
