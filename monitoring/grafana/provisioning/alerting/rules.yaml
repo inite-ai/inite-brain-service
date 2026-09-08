@@ -183,6 +183,132 @@ groups:
               conditions:
                 - evaluator: { type: gt, params: [0.15] }
 
+      # ── Capability probes ────────────────────────────────────────────
+      # The active counterpart to /ready. Readiness is polled at DEPLOY
+      # time; the scoped pool that went anonymous ~59 minutes after boot
+      # (#502) was invisible to it by construction. These three rules read
+      # the series a timer writes by actually RUNNING each capability.
+      #
+      # A busy pool never reaches any of them: `brain_capability_probe_ok`
+      # is written only on a CONCLUSIVE outcome, so saturation leaves the
+      # gauge where it was — the same call #502 made in readiness.
+      - uid: brain-capability-scoped-read-dead
+        title: ScopedReadCapabilityDead
+        condition: C
+        # 5m = five consecutive conclusive failures at the 60s default
+        # cadence. This failure is STICKY (a lapsed session stays lapsed
+        # until the process restarts), so waiting costs almost nothing and
+        # buys immunity from a single-tick blip — a DB restart, a rolling
+        # deploy, one dropped websocket. The alternative baseline is not
+        # "faster", it is the 6-day and forever-until-a-user-reported-it
+        # detection the last two incidents actually got.
+        for: 5m
+        # No series = the probe is off or the pod is still booting; a dead
+        # target is BrainScrapeDown's job, not this rule's.
+        noDataState: OK
+        execErrState: Alerting
+        labels:
+          severity: critical
+        annotations:
+          summary: >-
+            a pod's caller-facing read path cannot authorize — every search / entity / fact read is
+            failing there while /health stays green. Which pod: the `instance` label. Which tenant:
+            all of them (one scoped session serves the whole pod). Runbook: docs/operations.md §
+            Capability probes
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              # min across pods: ONE bad pod is a real outage for the share
+              # of traffic it serves, and the session lapses per-process.
+              expr: min(brain_capability_probe_ok{capability="scoped_read"})
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      # Catch-all for every OTHER capability, so the next one added gets an
+      # alert without anyone remembering to write one. Deliberately excludes
+      # scoped_read (covered above at 5m) to avoid double-paging, and runs a
+      # long window because the capability it covers today — embed — is 0
+      # during a legitimate cold bge-m3 warmup (~340MB ONNX pull). 20m is
+      # comfortably past a slow warmup and far short of a shift.
+      - uid: brain-capability-probe-failing
+        title: CapabilityProbeFailing
+        condition: C
+        for: 20m
+        noDataState: OK
+        execErrState: Alerting
+        labels:
+          severity: warning
+        annotations:
+          summary: >-
+            capability {{ $labels.capability }} has been failing its probe for 20m — it is alive
+            but not serving correctly (unauthorized, or answering outside the configured embedding
+            space). Runbook: docs/operations.md § Capability probes
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: min by (capability) (brain_capability_probe_ok{capability!="scoped_read"})
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      # The up-gauge cannot see a prober that is itself wedged (it would sit
+      # at its last value forever) or a pool that has been nothing but BUSY
+      # — the two states where "green" means "unmeasured". 30m of no
+      # confirmed serve is a warning, never a page: sustained saturation is
+      # a capacity problem, and paging on it would punish the pods that are
+      # still taking traffic.
+      - uid: brain-capability-probe-stale
+        title: CapabilityProbeStale
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Alerting
+        labels:
+          severity: warning
+        annotations:
+          summary: >-
+            capability {{ $labels.capability }} has not been confirmed serving for 30m — the probe
+            is wedged, or the pool has been saturated that whole time. Check
+            brain_capability_probe_total{outcome="busy"} to tell the two apart
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: time() - min by (capability) (brain_capability_probe_last_success_timestamp_seconds)
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [1800] }
+
       - uid: host-disk-low
         title: HostDiskLow
         condition: C

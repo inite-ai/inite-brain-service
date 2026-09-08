@@ -467,6 +467,197 @@
       }
     },
     {
+      "id": 35,
+      "type": "row",
+      "title": "Capability probes",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Capability up (last conclusive probe)",
+      "description": "1 = a probe actually ran the capability end to end and it served. 0 = alive but refusing (unauthorized) or answering wrongly (degraded). A BUSY probe leaves the previous value standing - saturation is not a failure.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "vm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "vm"
+          },
+          "expr": "min by (capability) (brain_capability_probe_ok)",
+          "legendFormat": "{{capability}}",
+          "instant": true
+        }
+      ],
+      "id": 36,
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 26
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Probe outcomes (/min)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "vm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "vm"
+          },
+          "expr": "sum by (capability, outcome) (rate(brain_capability_probe_total[5m])) * 60",
+          "legendFormat": "{{capability}} {{outcome}}"
+        }
+      ],
+      "id": 37,
+      "gridPos": {
+        "h": 8,
+        "w": 9,
+        "x": 6,
+        "y": 26
+      },
+      "description": "Every tick lands on exactly one outcome. A steady 'busy' rate means the pool is saturated, not broken; 'unauthorized' or 'degraded' is the capability itself."
+    },
+    {
+      "type": "timeseries",
+      "title": "Time since capability last served (s)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "vm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "vm"
+          },
+          "expr": "time() - min by (capability) (brain_capability_probe_last_success_timestamp_seconds)",
+          "legendFormat": "{{capability}}"
+        }
+      ],
+      "id": 38,
+      "gridPos": {
+        "h": 8,
+        "w": 9,
+        "x": 15,
+        "y": 26
+      },
+      "description": "Catches what the up-gauge cannot: a wedged prober (the gauge would sit at 1 forever) and a pool that has been nothing but busy."
+    },
+    {
       "id": 9,
       "type": "row",
       "title": "LLM cost",
@@ -475,7 +666,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 25
+        "y": 34
       },
       "panels": []
     },
@@ -537,7 +728,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 35
       }
     },
     {
@@ -595,7 +786,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 26
+        "y": 35
       }
     },
     {
@@ -649,7 +840,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 34
+        "y": 43
       }
     },
     {
@@ -712,7 +903,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 34
+        "y": 43
       }
     },
     {
@@ -770,7 +961,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 34
+        "y": 43
       }
     },
     {
@@ -782,7 +973,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 42
+        "y": 51
       },
       "panels": []
     },
@@ -844,7 +1035,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 43
+        "y": 52
       }
     },
     {
@@ -902,7 +1093,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 43
+        "y": 52
       }
     },
     {
@@ -964,7 +1155,7 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 51
+        "y": 60
       }
     },
     {
@@ -1022,7 +1213,7 @@
         "h": 8,
         "w": 9,
         "x": 6,
-        "y": 51
+        "y": 60
       }
     },
     {
@@ -1083,7 +1274,7 @@
         "h": 8,
         "w": 9,
         "x": 15,
-        "y": 51
+        "y": 60
       }
     },
     {
@@ -1095,7 +1286,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 59
+        "y": 68
       },
       "panels": []
     },
@@ -1154,7 +1345,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 60
+        "y": 69
       }
     },
     {
@@ -1212,7 +1403,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 60
+        "y": 69
       }
     },
     {
@@ -1273,7 +1464,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 68
+        "y": 77
       }
     },
     {
@@ -1331,7 +1522,7 @@
         "h": 8,
         "w": 4,
         "x": 8,
-        "y": 68
+        "y": 77
       }
     },
     {
@@ -1385,7 +1576,7 @@
         "h": 8,
         "w": 4,
         "x": 12,
-        "y": 68
+        "y": 77
       }
     },
     {
@@ -1443,7 +1634,7 @@
         "h": 8,
         "w": 4,
         "x": 16,
-        "y": 68
+        "y": 77
       }
     },
     {
@@ -1497,7 +1688,7 @@
         "h": 8,
         "w": 4,
         "x": 20,
-        "y": 68
+        "y": 77
       }
     },
     {
@@ -1509,7 +1700,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 76
+        "y": 85
       },
       "panels": []
     },
@@ -1578,7 +1769,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 77
+        "y": 86
       }
     },
     {
@@ -1641,7 +1832,7 @@
         "h": 8,
         "w": 4,
         "x": 8,
-        "y": 77
+        "y": 86
       }
     },
     {
@@ -1699,7 +1890,7 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 77
+        "y": 86
       }
     },
     {
@@ -1757,7 +1948,7 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 77
+        "y": 86
       }
     },
     {
@@ -1793,7 +1984,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 85
+        "y": 94
       }
     }
   ]

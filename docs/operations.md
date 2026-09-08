@@ -649,13 +649,86 @@ Symptoms to recognise if this ever regresses: reads answer
 while writes, `/health` and MCP keep working. `/ready` now catches it —
 `pingScoped()` runs an authorization-gated statement on a scoped connection,
 because `version()` (what `ping()` uses) is answered for anonymous sessions
-too and reported "ok" throughout the original outage.
+too and reported "ok" throughout the original outage. `/ready` is only
+polled at deploy time, though — the **continuous** signal is the
+`scoped_read` capability probe (§ Capability probes), which runs the same
+read path on a timer and alerts when it stops authorizing.
 
 `SURREALDB_SCOPED_TOKEN_DURATION` declares the scoped user's token lifetime
 (a SurrealDB duration literal; unset = the server's 1h default). It is a
 tuning knob, not the fix — brain OVERWRITEs the user definition on every
 boot, so it exists mainly so a duration set by hand on the server is not
 silently discarded on the next deploy.
+
+## Capability probes
+
+The failure class: **the service reports healthy while a whole capability is
+dead.** Three instances in one week — the scoped pool going anonymous ~59
+minutes after boot with `/health` green (#502), `/ready` green through
+embedder warmup because it ORed in an always-ready fallback (#503), and
+`POST /v1/ingest/mention` 400ing for six days from a two-flag interaction
+(#510). The common property is a green signal that does not exercise the
+thing it claims to cover.
+
+`/ready` gained real checks in the first two fixes, but **readiness is polled
+at deploy time**: a pool that lapses an hour after a successful deploy is
+invisible to it by construction. `CAPABILITY_PROBE_ENABLED=1` arms a timer
+(default 60s, every pod, no leader lease — the failure is per-process) that
+RUNS each capability and publishes what happened.
+
+| Capability | What the probe actually does | Covers `/ready` check |
+|---|---|---|
+| `scoped_read` | `withScopedCompany(canary tenant, ['brain:read'], SELECT VALUE id FROM knowledge_fact LIMIT 1)` — acquire → renew-or-fail-closed → `use(co_<tenant>)` → schema check → scope binding → an authorization-gated read of a real table. An empty result is a pass: the question is "was this authorized", not "is there data". | `dbOk`, `scopedOk` |
+| `embed` | Embeds a short string **uncached** and compares the width of the returned vector against the configured (primary) space. Not `isReady()` — that is the component's opinion of itself, and in #503 the opinion was green while every vector came back 1536 wide for a 1024-wide corpus. | `embedderReady` |
+
+Outcomes, and why `busy` is not a failure:
+
+| Outcome | Meaning | Moves the up-gauge? |
+|---|---|---|
+| `serving` | Exercised end to end, produced the expected result. | yes → 1 |
+| `unauthorized` | Alive but refusing — the session can no longer authorize. **This is #502's exact state.** | yes → 0 |
+| `degraded` | Answered, wrong property — a vector outside the configured space. **#503's exact state.** | yes → 0 |
+| `busy` | Pool acquire timed out. The pool is answering, just not us. | **no** — the previous value stands |
+| `error` | Anything else (unreachable, statement threw, probe deadline). | yes → 0 |
+| `skipped` | Nothing to exercise (no tenant in the roster, no embedder in this process). | no |
+
+A saturated pool must not page anyone — the same call `pingScoped()` makes
+in readiness (#502) — so that distinction lives in the metric itself, not in
+an alert threshold: `brain_capability_probe_ok` is written **only** on a
+conclusive outcome.
+
+### Metrics and alerts
+
+| Series | Use |
+|---|---|
+| `brain_capability_probe_ok{capability}` | 1/0 up-signal. Absent until the first conclusive probe, so a booting pod is *absent*, not *down*. |
+| `brain_capability_probe_total{capability,outcome}` | Rates per outcome. A steady `busy` rate is a capacity signal, not a health one. |
+| `brain_capability_probe_last_success_timestamp_seconds{capability}` | Catches what the up-gauge cannot: a wedged prober, or a pool that has been nothing but busy. |
+
+No `companyId` label anywhere (the standing cardinality rule): one scoped
+session serves every tenant on the pod, so the canary tenant proves the
+property for all of them and the scraper's `instance` label already pins
+*which pod*. The tenant is named in the log line.
+
+Rules in `monitoring/grafana/provisioning/alerting/rules.yaml`:
+
+- **ScopedReadCapabilityDead** (critical, `for: 5m`) — `min(brain_capability_probe_ok{capability="scoped_read"}) < 1`. Five consecutive conclusive failures at the default cadence. The failure is sticky (a lapsed session stays lapsed until restart), so the wait costs almost nothing and buys immunity from a single-tick blip.
+- **CapabilityProbeFailing** (warning, `for: 20m`) — the same check for every *other* capability, so a newly added one is alerted on without anyone remembering to write a rule. Long window because `embed` is legitimately 0 during a cold bge-m3 warmup.
+- **CapabilityProbeStale** (warning) — no confirmed serve for 30m.
+
+### When ScopedReadCapabilityDead fires
+
+1. The `instance` label names the pod. Reads are failing **there** while
+   writes, `/health` and MCP may still answer — see § Long-lived DB sessions
+   for why.
+2. Restart that pod: a fresh process re-establishes the scoped session.
+3. If it recurs across restarts, the pool cannot authenticate at all —
+   check `SURREALDB_SCOPED_USER` / `SURREALDB_SCOPED_PASS` against the server
+   and that migration 0005's `brain_caller` still exists. The probe's error
+   log carries the DB's own message.
+4. `brain_capability_probe_total{outcome="busy"}` climbing instead means
+   saturation, not authorization — that is a pool-size / slow-query problem
+   and never fires this alert.
 
 ## Boot-time validation
 
