@@ -33,12 +33,21 @@ permissions:
 jobs:
   build-test:
     runs-on: ubuntu-latest
-    # 30, not 20: the serialized e2e suite (maxWorkers 1, 2026-08 CI-stability
-    # fix) plus the growing suite count runs 18-20+ min on cold runners, and
-    # jobs were dying at exactly 20:00 as spurious "cancelled" conclusions.
-    # Two testcontainer lifecycles + cold installs need headroom; forceExit
-    # (jest configs) prevents the post-suite hang.
-    timeout-minutes: 30
+    # 45, not 30 — the same wall this job hit at 20 minutes in 2026-08, moved
+    # up by a wave of new suites (evidence plane, scenes, OCR, indexers). A
+    # timed-out job reports conclusion "cancelled", which reads like runner
+    # contention and is not: measured on main 2026-09-08, the successful runs
+    # sit at 26:38 / 27:09 / 28:09 and the failures all die at exactly 30:0x,
+    # i.e. on the cap, with no hang signature. Roughly half of all runs were
+    # being lost that way, which blocks every PR behind them.
+    #
+    # The cost of the ceiling is bounded: jest runs with forceExit, so a true hang
+    # cannot idle here for the full 45 — it is the serialized e2e suite
+    # (maxWorkers 1, the 2026-08 CI-stability fix) plus two testcontainer
+    # lifecycles and a cold install that legitimately need the headroom.
+    # Raise this again only with measured durations, never on a hunch; if the
+    # median crosses ~35 the answer is to shard the suite, not a bigger number.
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
