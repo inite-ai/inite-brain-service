@@ -144,3 +144,34 @@ describe('source hygiene', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe('credential masking', () => {
+  /**
+   * GET /v1/admin/config returned EVIDENCE_SIGNED_URL_SECRET verbatim: the
+   * entry simply omitted `secret: true`, so config-inspector handed the raw
+   * HMAC key to every brain:admin caller. That one is fixed; this gate is
+   * here so the NEXT credential cannot ship the same way, because the flag
+   * is opt-in and forgetting it fails open.
+   *
+   * The rule is deliberately name-shaped rather than a hand-kept allowlist:
+   * an allowlist has the same failure mode as the flag it guards.
+   */
+  const CREDENTIAL_NAME = /(SECRET|_API_KEY|_TOKEN|PASSWORD|PRIVATE_KEY)$/;
+
+  it('every credential-shaped catalogue key is masked', () => {
+    const unmasked = CONFIG_CATALOG.filter(
+      (e) => CREDENTIAL_NAME.test(e.key) && e.secret !== true,
+    ).map((e) => e.key);
+    expect(unmasked).toEqual([]);
+  });
+
+  it('nothing is masked that is not a credential (the regex still means something)', () => {
+    // Guards the other direction: if `secret: true` ever spreads to ordinary
+    // knobs, operators lose the ability to read their own configuration and
+    // the masking stops carrying information.
+    const surprising = CONFIG_CATALOG.filter(
+      (e) => e.secret === true && !CREDENTIAL_NAME.test(e.key),
+    ).map((e) => e.key);
+    expect(surprising).toEqual([]);
+  });
+});

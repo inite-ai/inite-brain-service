@@ -1596,8 +1596,13 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     defaultValue: '',
     runtimeMutable: true,
     isBooleanFlag: false,
+    // Masked, like OPENAI_API_KEY. This entry shipped without the flag, so
+    // GET /v1/admin/config returned the HMAC key verbatim to any brain:admin
+    // caller — and since redeem is unauthenticated by design, holding this
+    // signing key IS the capability to read any tenant's raw evidence.
+    secret: true,
     description:
-      'HMAC-SHA256 secret for minted raw-evidence URL tokens. NO default on purpose — a default would make every deployment mutually forgeable. Boot hard-errors when set shorter than 32 chars while EVIDENCE_RAW_READ_ENABLED is on, and warns when the flag is on without it (streaming works; mint answers 503, redeem 404 until the secret lands).',
+      'HMAC-SHA256 secret for minted raw-evidence URL tokens. NO default on purpose — a default would make every deployment mutually forgeable. Boot hard-errors when set shorter than 32 chars while EVIDENCE_RAW_READ_ENABLED is on, and warns when the flag is on without it (streaming works; mint answers 503, redeem 404 until the secret lands). Marked secret: the inspector masks it, because the signature it mints is itself the read capability.',
   },
   {
     key: 'EVIDENCE_SIGNED_URL_TTL_SECONDS',
