@@ -347,6 +347,37 @@
         ],
         "type": "object"
       },
+      "Citation": {
+        "additionalProperties": false,
+        "properties": {
+          "canonicalName": {
+            "type": "string"
+          },
+          "entityId": {
+            "type": "string"
+          },
+          "factId": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "sourceKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "factId",
+          "entityId",
+          "canonicalName",
+          "predicate",
+          "object"
+        ],
+        "type": "object"
+      },
       "ClaimWorkResponse": {
         "additionalProperties": false,
         "properties": {
@@ -413,6 +444,78 @@
         ],
         "type": "object"
       },
+      "ConflictExplanation": {
+        "additionalProperties": {},
+        "propertyNames": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "ConnectionEdge": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "direction": {
+            "enum": [
+              "outbound",
+              "inbound"
+            ],
+            "type": "string"
+          },
+          "edgeId": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "neighbour": {
+            "$ref": "#/components/schemas/ConnectionNeighbour"
+          },
+          "source": {},
+          "to": {
+            "type": "string"
+          },
+          "weight": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "edgeId",
+          "from",
+          "to",
+          "kind",
+          "weight",
+          "source",
+          "createdAt",
+          "direction"
+        ],
+        "type": "object"
+      },
+      "ConnectionNeighbour": {
+        "additionalProperties": false,
+        "properties": {
+          "canonicalName": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "canonicalName"
+        ],
+        "type": "object"
+      },
       "CreateEpisodeSubscriptionRequest": {
         "additionalProperties": false,
         "properties": {
@@ -443,6 +546,13 @@
           "secret",
           "watermark"
         ],
+        "type": "object"
+      },
+      "DecisionLogEntry": {
+        "additionalProperties": {},
+        "propertyNames": {
+          "type": "string"
+        },
         "type": "object"
       },
       "DeleteEpisodeSubscriptionResponse": {
@@ -730,6 +840,183 @@
         ],
         "type": "object"
       },
+      "EntityAutocompleteResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/EntityAutocompleteSuggestion"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "suggestions"
+        ],
+        "type": "object"
+      },
+      "EntityAutocompleteSuggestion": {
+        "additionalProperties": false,
+        "properties": {
+          "canonicalName": {
+            "type": "string"
+          },
+          "entityId": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "entityId",
+          "canonicalName",
+          "type",
+          "score"
+        ],
+        "type": "object"
+      },
+      "EntityConnectionsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionEdge"
+            },
+            "type": "array"
+          },
+          "entityId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "entityId",
+          "edges"
+        ],
+        "type": "object"
+      },
+      "EntityProfileFact": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "type": "number"
+          },
+          "factId": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "validFrom": {
+            "type": "string"
+          },
+          "validUntil": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "factId",
+          "predicate",
+          "object",
+          "confidence",
+          "validFrom",
+          "status"
+        ],
+        "type": "object"
+      },
+      "EntityProfileResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "canonicalName": {
+            "type": "string"
+          },
+          "entityId": {
+            "type": "string"
+          },
+          "externalRefs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/EntityProfileFact"
+            },
+            "type": "array"
+          },
+          "mergedAt": {
+            "type": "string"
+          },
+          "mergedInto": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "entityId",
+          "type",
+          "canonicalName",
+          "externalRefs",
+          "facts"
+        ],
+        "type": "object"
+      },
+      "EntityRef": {
+        "additionalProperties": {},
+        "properties": {
+          "entityId": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "vertical": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "EntityTimelineResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "entityId": {
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TimelineRecordedEvent"
+                },
+                {
+                  "$ref": "#/components/schemas/TimelineRetractedEvent"
+                }
+              ]
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "entityId",
+          "events"
+        ],
+        "type": "object"
+      },
       "EpisodeSubscriptionRow": {
         "additionalProperties": false,
         "properties": {
@@ -942,6 +1229,65 @@
           "statusCode",
           "message"
         ],
+        "type": "object"
+      },
+      "EvidenceCitation": {
+        "additionalProperties": false,
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "beliefId": {
+            "type": "string"
+          },
+          "capability": {
+            "enum": [
+              "text",
+              "visual",
+              "audio",
+              "document_region"
+            ],
+            "type": "string"
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "episodeId": {
+            "type": "string"
+          },
+          "excerpt": {
+            "type": "string"
+          },
+          "fragmentId": {
+            "type": "string"
+          },
+          "occurredAt": {
+            "type": "string"
+          },
+          "sceneId": {
+            "type": "string"
+          },
+          "span": {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "type": "number"
+              },
+              "exact": {
+                "type": "string"
+              },
+              "start": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "exact"
+            ],
+            "type": "object"
+          }
+        },
         "type": "object"
       },
       "EvidenceFragmentLocator": {
@@ -1375,6 +1721,42 @@
         ],
         "type": "object"
       },
+      "FactSource": {
+        "additionalProperties": {},
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "episodeIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/SourceEvidence"
+            },
+            "type": "array"
+          },
+          "messageId": {
+            "type": "string"
+          },
+          "recorder": {
+            "type": "string"
+          },
+          "vertical": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "vertical"
+        ],
+        "type": "object"
+      },
       "FailWorkRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1567,6 +1949,93 @@
         "required": [
           "runId",
           "leaseSeconds"
+        ],
+        "type": "object"
+      },
+      "HopOutcome": {
+        "additionalProperties": false,
+        "properties": {
+          "hits": {
+            "items": {
+              "$ref": "#/components/schemas/SearchHit"
+            },
+            "type": "array"
+          },
+          "hop": {
+            "$ref": "#/components/schemas/HopPlan"
+          },
+          "hopEntityIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "runningEntityIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "supportingFactIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "hop",
+          "hopEntityIds",
+          "runningEntityIds",
+          "hits",
+          "supportingFactIds"
+        ],
+        "type": "object"
+      },
+      "HopPlan": {
+        "additionalProperties": false,
+        "properties": {
+          "asOf": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "combination": {
+            "enum": [
+              "seed",
+              "subset_of_previous",
+              "intersect",
+              "union"
+            ],
+            "type": "string"
+          },
+          "predicates": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rationale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subQuery": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subQuery",
+          "combination"
         ],
         "type": "object"
       },
@@ -2045,6 +2514,109 @@
         ],
         "type": "object"
       },
+      "IngestFactRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "entityRef": {
+            "$ref": "#/components/schemas/EntityRef"
+          },
+          "explain": {
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "object": {
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "predicate": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FactSource"
+          },
+          "userId": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "validFrom": {
+            "type": "string"
+          },
+          "validUntil": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "entityRef",
+          "predicate",
+          "object",
+          "validFrom",
+          "source"
+        ],
+        "type": "object"
+      },
+      "IngestFactResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "competingFactIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "conflictExplanation": {
+            "$ref": "#/components/schemas/ConflictExplanation"
+          },
+          "corroboratedFactId": {
+            "type": "string"
+          },
+          "factId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "INSERTED",
+              "INSERTED_HISTORICAL",
+              "CORROBORATED",
+              "SUPERSEDED",
+              "COMPETING",
+              "REJECTED"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "supersededByFactId": {
+            "type": "string"
+          },
+          "supersededFactIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "factId",
+          "outcome"
+        ],
+        "type": "object"
+      },
       "InstallFromRegistryRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2187,6 +2759,186 @@
           "predicateCount",
           "checksum",
           "memoryModel"
+        ],
+        "type": "object"
+      },
+      "MultiHopRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "confidenceFloor": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "disableLangFilter": {
+            "type": "boolean"
+          },
+          "entityIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "entityTypes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "includeContested": {
+            "type": "boolean"
+          },
+          "includeRetracted": {
+            "type": "boolean"
+          },
+          "includeStale": {
+            "type": "boolean"
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+          },
+          "maxHops": {
+            "maximum": 5,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "minConfidence": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "outputShape": {
+            "enum": [
+              "full",
+              "compact",
+              "ids"
+            ],
+            "type": "string"
+          },
+          "predicates": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "query": {
+            "maxLength": 8000,
+            "type": "string"
+          },
+          "queryLang": {
+            "type": "string"
+          },
+          "requireProvenance": {
+            "type": "boolean"
+          },
+          "searchMode": {
+            "enum": [
+              "vector",
+              "lexical",
+              "hybrid"
+            ],
+            "type": "string"
+          },
+          "synthesisGuardrails": {
+            "enum": [
+              "strict",
+              "lenient",
+              "off",
+              "answer"
+            ],
+            "type": "string"
+          },
+          "synthesisModel": {
+            "type": "string"
+          },
+          "synthesize": {
+            "type": "boolean"
+          },
+          "tokenBudget": {
+            "maximum": 50000,
+            "minimum": 50,
+            "type": "number"
+          },
+          "userId": {
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "MultiHopResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "finalEntityIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "finalHits": {
+            "items": {
+              "$ref": "#/components/schemas/SearchHit"
+            },
+            "type": "array"
+          },
+          "hops": {
+            "items": {
+              "$ref": "#/components/schemas/HopOutcome"
+            },
+            "type": "array"
+          },
+          "isMultiHop": {
+            "type": "boolean"
+          },
+          "supportingFactIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "synthesis": {
+            "additionalProperties": false,
+            "properties": {
+              "answer": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "citations": {
+                "items": {
+                  "$ref": "#/components/schemas/Citation"
+                },
+                "type": "array"
+              },
+              "reason": {
+                "$ref": "#/components/schemas/SynthesisReason"
+              },
+              "tokenUsage": {
+                "$ref": "#/components/schemas/TokenUsage"
+              }
+            },
+            "required": [
+              "answer",
+              "citations"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "isMultiHop",
+          "hops",
+          "finalEntityIds",
+          "finalHits",
+          "supportingFactIds"
         ],
         "type": "object"
       },
@@ -3046,6 +3798,71 @@
         ],
         "type": "object"
       },
+      "RetractFactRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "retractedBy": {
+            "$ref": "#/components/schemas/RetractedBy"
+          }
+        },
+        "required": [
+          "reason",
+          "retractedBy"
+        ],
+        "type": "object"
+      },
+      "RetractFactResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "cascadedFactIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "factId": {
+            "type": "string"
+          },
+          "retractedAt": {
+            "type": "string"
+          },
+          "revivedFactIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "factId",
+          "retractedAt",
+          "cascadedFactIds",
+          "revivedFactIds"
+        ],
+        "type": "object"
+      },
+      "RetractedBy": {
+        "additionalProperties": {},
+        "properties": {
+          "source": {
+            "enum": [
+              "human",
+              "system"
+            ],
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "type": "object"
+      },
       "RevokeEvidenceGrantResponse": {
         "additionalProperties": false,
         "properties": {
@@ -3060,6 +3877,215 @@
         "required": [
           "grantId",
           "revoked"
+        ],
+        "type": "object"
+      },
+      "ScoreBreakdown": {
+        "additionalProperties": {},
+        "propertyNames": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "SearchFact": {
+        "additionalProperties": false,
+        "properties": {
+          "breakdown": {
+            "$ref": "#/components/schemas/ScoreBreakdown"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "factId": {
+            "type": "string"
+          },
+          "highlight": {
+            "type": "string"
+          },
+          "mentionedAt": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "scene": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number"
+          },
+          "sourceKey": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "validFrom": {
+            "type": "string"
+          },
+          "validUntil": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "factId",
+          "predicate",
+          "object",
+          "confidence",
+          "validFrom",
+          "status",
+          "score"
+        ],
+        "type": "object"
+      },
+      "SearchHit": {
+        "additionalProperties": false,
+        "properties": {
+          "canonicalName": {
+            "type": "string"
+          },
+          "entityId": {
+            "type": "string"
+          },
+          "entityType": {
+            "type": "string"
+          },
+          "externalRefs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/SearchFact"
+            },
+            "type": "array"
+          },
+          "score": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "entityId",
+          "entityType",
+          "canonicalName",
+          "externalRefs",
+          "facts",
+          "score"
+        ],
+        "type": "object"
+      },
+      "SearchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "confidenceFloor": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "disableLangFilter": {
+            "type": "boolean"
+          },
+          "entityIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "entityTypes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "includeContested": {
+            "type": "boolean"
+          },
+          "includeRetracted": {
+            "type": "boolean"
+          },
+          "includeStale": {
+            "type": "boolean"
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+          },
+          "minConfidence": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "outputShape": {
+            "enum": [
+              "full",
+              "compact",
+              "ids"
+            ],
+            "type": "string"
+          },
+          "predicates": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "query": {
+            "maxLength": 8000,
+            "type": "string"
+          },
+          "queryLang": {
+            "type": "string"
+          },
+          "requireProvenance": {
+            "type": "boolean"
+          },
+          "searchMode": {
+            "enum": [
+              "vector",
+              "lexical",
+              "hybrid"
+            ],
+            "type": "string"
+          },
+          "tokenBudget": {
+            "maximum": 50000,
+            "minimum": 50,
+            "type": "number"
+          },
+          "userId": {
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "SearchResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SearchHit"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "results"
         ],
         "type": "object"
       },
@@ -3080,6 +4106,34 @@
         "required": [
           "amount",
           "currency"
+        ],
+        "type": "object"
+      },
+      "SourceEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "event",
+              "message",
+              "conversation",
+              "url",
+              "document",
+              "commit",
+              "other"
+            ],
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "ref"
         ],
         "type": "object"
       },
@@ -3410,6 +4464,259 @@
         ],
         "type": "object"
       },
+      "SynthesisReason": {
+        "enum": [
+          "no_results",
+          "no_grounded_evidence",
+          "low_coverage",
+          "evidence_capability_unmet",
+          "ungrounded_evidence",
+          "verifier_failed",
+          "verifier_partial",
+          "generator_error",
+          "verifier_error"
+        ],
+        "type": "string"
+      },
+      "SynthesizeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "answerLang": {
+            "type": "string"
+          },
+          "asOf": {
+            "type": "string"
+          },
+          "confidenceFloor": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "disableLangFilter": {
+            "type": "boolean"
+          },
+          "entityIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "entityTypes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "explain": {
+            "type": "boolean"
+          },
+          "includeContested": {
+            "type": "boolean"
+          },
+          "includeRetracted": {
+            "type": "boolean"
+          },
+          "includeStale": {
+            "type": "boolean"
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+          },
+          "minConfidence": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "outputShape": {
+            "enum": [
+              "full",
+              "compact",
+              "ids"
+            ],
+            "type": "string"
+          },
+          "predicates": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "query": {
+            "maxLength": 8000,
+            "type": "string"
+          },
+          "queryLang": {
+            "type": "string"
+          },
+          "requireProvenance": {
+            "type": "boolean"
+          },
+          "searchMode": {
+            "enum": [
+              "vector",
+              "lexical",
+              "hybrid"
+            ],
+            "type": "string"
+          },
+          "synthesisGuardrails": {
+            "enum": [
+              "strict",
+              "lenient",
+              "off",
+              "answer"
+            ],
+            "type": "string"
+          },
+          "synthesisModel": {
+            "type": "string"
+          },
+          "tokenBudget": {
+            "maximum": 50000,
+            "minimum": 50,
+            "type": "number"
+          },
+          "userId": {
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "SynthesizeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cached": {
+            "type": "boolean"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/Citation"
+            },
+            "type": "array"
+          },
+          "decisionLog": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionLogEntry"
+            },
+            "type": "array"
+          },
+          "evidenceCitations": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceCitation"
+            },
+            "type": "array"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/SynthesisReason"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SearchHit"
+            },
+            "type": "array"
+          },
+          "tokenUsage": {
+            "$ref": "#/components/schemas/TokenUsage"
+          }
+        },
+        "required": [
+          "answer",
+          "citations",
+          "results"
+        ],
+        "type": "object"
+      },
+      "TimelineRecordedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "factId": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "source": {},
+          "type": {
+            "const": "fact.recorded",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "at",
+          "factId",
+          "predicate",
+          "object",
+          "source",
+          "confidence"
+        ],
+        "type": "object"
+      },
+      "TimelineRetractedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "factId": {
+            "type": "string"
+          },
+          "reason": {},
+          "retractedBy": {},
+          "supersededBy": {
+            "type": "string"
+          },
+          "type": {
+            "const": "fact.retracted",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "at",
+          "factId",
+          "retractedBy",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "TokenUsage": {
+        "additionalProperties": false,
+        "properties": {
+          "completionTokens": {
+            "type": "number"
+          },
+          "promptTokens": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "promptTokens",
+          "completionTokens"
+        ],
+        "type": "object"
+      },
       "TrustScopeRow": {
         "additionalProperties": false,
         "properties": {
@@ -3680,12 +4987,12 @@
     }
   },
   "info": {
-    "description": "Generated from the zod wire contracts (`pnpm openapi:build` — scripts/build-openapi.ts); do not edit by hand. The admin/ops surface (jobs, leases, policy, stats, maintenance) is documented in docs/api.md instead. Scopes are plain bearer-key grants, not OAuth flows — each operation states its required scope.",
+    "description": "Generated from the zod wire contracts (`pnpm openapi:build` — scripts/build-openapi.ts); do not edit by hand. Excluded on purpose: the operator/ops surface (jobs, leases, policy, stats, maintenance, GDPR cascades), which is indexed in docs/api.md, and the MCP transport `ALL /mcp/{companyId}`, which is JSON-RPC over Streamable HTTP rather than REST — MCP clients discover it through `tools/list` (docs/mcp.md). Scopes are plain bearer-key grants, not OAuth flows — each operation states its required scope.",
     "license": {
       "identifier": "AGPL-3.0-or-later",
       "name": "AGPL-3.0-or-later"
     },
-    "summary": "The community-facing platform surface: Domain Pack registry, tenant pack admin, document ingest, the external-indexer work protocol, and source reputation reads.",
+    "summary": "The community-facing platform surface: the memory core (fact ingest, search, multi-hop, synthesize, entity and fact reads), the Domain Pack registry and tenant pack admin, the document pipeline, the external-indexer work protocol, the raw-substrate driver, the evidence substrate, and source reputation reads.",
     "title": "INITE Brain — Platform API",
     "version": "2.2.0"
   },
@@ -4659,6 +5966,261 @@
         ]
       }
     },
+    "/v1/entities/autocomplete": {
+      "get": {
+        "description": "Word-start match over the edge-ngram `prefix` fulltext index, BM25-ranked via `search::score`. A query under 2 characters returns nothing (the tokenizer produces no grams). Live, tenant-global entities only — merged-away redirects and personal-scoped entities are excluded. Source: src/entities/entities.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "autocompleteEntities",
+        "parameters": [
+          {
+            "description": "The prefix to complete (under 2 chars → empty result).",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size, 1–25 (default 10).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityAutocompleteResponse"
+                }
+              }
+            },
+            "description": "Ranked suggestions."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Entity-name typeahead",
+        "tags": [
+          "Entities"
+        ]
+      }
+    },
+    "/v1/entities/{id}": {
+      "get": {
+        "description": "The entity plus the facts currently held about it, filtered by the row policy (a fact whose predicate requires a scope the caller lacks never appears). `asOf` slices WORLD time (what was true at T); `recordedAt` slices TRANSACTION time (what the graph believed at T — a later retract or supersede is ignored). A merged entity answers with `mergedInto` set: treat it as a redirect.\n\nRequired scope: `brain:read`.",
+        "operationId": "getEntityProfile",
+        "parameters": [
+          {
+            "description": "Entity id — short (`cuid_abc`) or full (`knowledge_entity:cuid_abc`).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ISO-8601 world-time slice.",
+            "in": "query",
+            "name": "asOf",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ISO-8601 transaction-time slice.",
+            "in": "query",
+            "name": "recordedAt",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityProfileResponse"
+                }
+              }
+            },
+            "description": "The profile."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Entity profile and its active facts",
+        "tags": [
+          "Entities"
+        ]
+      }
+    },
+    "/v1/entities/{id}/connections": {
+      "get": {
+        "description": "The entity’s 1-hop neighbourhood over `knowledge_edge`, in both directions (`direction` says which). `kind` filters to one edge type; `asOf` restricts to edges live at that instant. `neighbour` is absent when the far end could not be projected.\n\nRequired scope: `brain:read`.",
+        "operationId": "getEntityConnections",
+        "parameters": [
+          {
+            "description": "Entity id — short or fully-qualified.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only edges of this kind.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ISO-8601 instant the edge must be live at.",
+            "in": "query",
+            "name": "asOf",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityConnectionsResponse"
+                }
+              }
+            },
+            "description": "The typed edges."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Typed edges and direct neighbours",
+        "tags": [
+          "Entities"
+        ]
+      }
+    },
+    "/v1/entities/{id}/timeline": {
+      "get": {
+        "description": "`fact.recorded` / `fact.retracted` events on the TRANSACTION-time axis — when the graph learned and unlearned things, not when they were true. `since` / `until` page the window; `recordedAt` cuts to events known by T. `userId` is honoured only while READ_SURFACE_USER_SCOPE is on (this surface predates migration 0055 and otherwise pins `userId IS NONE`); a user-bound token is pinned to its own end user, and a mismatch is 403.\n\nRequired scope: `brain:read`.",
+        "operationId": "getEntityTimeline",
+        "parameters": [
+          {
+            "description": "Entity id — short or fully-qualified.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ISO-8601 lower bound on recordedAt.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ISO-8601 upper bound on recordedAt.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events known by this instant.",
+            "in": "query",
+            "name": "recordedAt",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Per-user scope (READ_SURFACE_USER_SCOPE only).",
+            "in": "query",
+            "name": "userId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityTimelineResponse"
+                }
+              }
+            },
+            "description": "The event sweep."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Bitemporal sweep over an entity’s memory",
+        "tags": [
+          "Entities"
+        ]
+      }
+    },
     "/v1/episodes": {
       "get": {
         "description": "Verbatim pre-extraction dialogue turns in stable (occurredAt, id) order — the raw layer any consumer can build its own projection from. Callers without `brain:read_pii` see only episodes whose piiClass is empty. 404 until EPISODES_API_ENABLED=1. Source: src/episodes/episodes.controller.ts.\n\nRequired scope: `brain:read`.",
@@ -5373,6 +6935,61 @@
         ]
       }
     },
+    "/v1/facts/{id}/retract": {
+      "post": {
+        "description": "Marks the fact retracted and writes the audit trail. Two cascades follow: facts DERIVED from it are retracted too (`cascadedFactIds`), and facts this one had SUPERSEDED come back to active (`revivedFactIds`) unless they were separately retracted on their own merits. Deliberately NOT gated by FACTS_API_ENABLED — the read routes above are, but a tenant must always be able to remove a fact. `brain:write` is the floor; FactsService elevates the requirement to `brain:admin` for billing_event / human_declared / legal-source facts once it has read the row (403 from there, not from the guard). For erasure rather than retraction, see the GDPR cascade on the admin surface (docs/api.md).\n\nRequired scope: `brain:write`.",
+        "operationId": "retractFact",
+        "parameters": [
+          {
+            "description": "Fact record id (`knowledge_fact:…`).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetractFactRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetractFactResponse"
+                }
+              }
+            },
+            "description": "What the retraction changed."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Retract a fact",
+        "tags": [
+          "Facts"
+        ]
+      }
+    },
     "/v1/indexer/work": {
       "get": {
         "description": "Pending indexer runs routed to this tenant’s installed external packs. Protocol: docs/indexer-protocol.md. Part of the document pipeline — answers `503 feature_disabled` until `DOCUMENT_INGEST_ENABLED=1`. Source: src/documents/indexer-work.controller.ts.\n\nRequired scope: `indexer:write`.",
@@ -5876,6 +7493,47 @@
         ]
       }
     },
+    "/v1/ingest/fact": {
+      "post": {
+        "description": "The headline write. Resolves the entity, embeds the claim and runs bitemporal conflict resolution against the standing timeline: the response `outcome` says what the resolver decided (INSERTED / INSERTED_HISTORICAL / CORROBORATED / SUPERSEDED / COMPETING / REJECTED), never just \"ok\". `userId` stamps a per-user memory scope (migration 0055) — scope-local conflict resolution, invisible to every other user of the tenant and to requests that don't assert one. `explain: true` adds the deterministic conflict narrative on a SUPERSEDED / COMPETING outcome. Source: src/ingest/ingest.controller.ts.\n\nRequired scope: `brain:write`.",
+        "operationId": "ingestFact",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestFactRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestFactResponse"
+                }
+              }
+            },
+            "description": "The resolver's decision."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Record a declared structured fact",
+        "tags": [
+          "Ingest"
+        ]
+      }
+    },
     "/v1/projections": {
       "get": {
         "description": "Every derived world (facts@version, …) with its lifecycle status (building/built/live/residual/failed), watermark, builder identity and stats, plus the process-local read pin (RETRIEVAL_DERIVED_VERSION). A registry row promises a queryable world. 404 until PROJECTIONS_API_ENABLED=1. Source: src/admin/projections.controller.ts.\n\nRequired scope: `brain:read`.",
@@ -6169,6 +7827,94 @@
         ]
       }
     },
+    "/v1/search": {
+      "post": {
+        "description": "The headline read. Hybrid retrieval by default (vector + BM25 fused by reciprocal rank), router-boosted, listwise-reranked, then backfilled with each hit entity’s facts. Default semantics is Datomic-style \"actual now\" — only facts whose validity window contains the query moment; `asOf` slices world-time and `includeStale` reverts to the audit shape. `userId` widens the fence from tenant-global memory to tenant-global PLUS that user's personal rows (fail-closed: omitted means global only). Facts whose predicate requires a scope the caller lacks never enter the result. Fans out to the shared embedding / LLM budget, so it sits in the per-credential `expensive` throttle bucket — 10 requests/min, not the 120/min default. Source: src/search/search.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "searchKnowledge",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            },
+            "description": "Scored entity hits with their facts."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "summary": "Search the knowledge graph",
+        "tags": [
+          "Search"
+        ]
+      }
+    },
+    "/v1/search/multi-hop": {
+      "post": {
+        "description": "A planner LLM decomposes the query into at most `maxHops` anchored sub-queries; each later hop is scoped to the running entity set, so the engine never spends compute on candidates already disqualified. Answers questions that join evidence across turns or entities. `supportingFactIds` is the evidence chain (HotpotQA-style) — the caller can audit exactly which facts drove the answer. `synthesize: true` adds a grounded answer with citations alongside the per-hop trace. Fans out to the shared embedding / LLM budget, so it sits in the per-credential `expensive` throttle bucket — 10 requests/min, not the 120/min default. Source: src/multi-hop/multi-hop.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "searchMultiHop",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MultiHopRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MultiHopResponse"
+                }
+              }
+            },
+            "description": "The hop trace and the final entity set."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "summary": "Chained multi-hop search",
+        "tags": [
+          "Search"
+        ]
+      }
+    },
     "/v1/sources": {
       "get": {
         "description": "Catalogue of everything brain knows ABOUT its fact sources: the operator-declared identity (type, authLevel) joined with the learned agreement rates, one row per sourceKey. Public projection — operator annotations (owner/note) are served only on the brain:admin surface. `domain` additionally captures that domain's learned rate into `domainTrust` and makes `minSamples` judge it (falling back to the global row). Source: src/sources/public-sources.controller.ts.\n\nRequired scope: `brain:read`.",
@@ -6298,6 +8044,50 @@
         ]
       }
     },
+    "/v1/synthesize": {
+      "post": {
+        "description": "Corrective RAG over the same retrieval stack as /v1/search: generate an answer, then verify each claim against the facts it cites. The pipeline ABSTAINS rather than guess — `answer` is null and `reason` names the gate that fired (no results, thin coverage, ungrounded support, a failed verifier…). `synthesisGuardrails` picks the policy: `strict` closes to null on a partial verdict, `lenient` returns the answer with the verdict attached, `off` skips the verifier. Cited facts are always the caller’s own visible memory. Fans out to the shared embedding / LLM budget, so it sits in the per-credential `expensive` throttle bucket — 10 requests/min, not the 120/min default. Source: src/synthesize/synthesize.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "synthesizeAnswer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SynthesizeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SynthesizeResponse"
+                }
+              }
+            },
+            "description": "The answer (or a reasoned abstention)."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "summary": "Answer a question from memory, with citations",
+        "tags": [
+          "Search"
+        ]
+      }
+    },
     "/v1/users/{userId}/profile": {
       "get": {
         "description": "Query-time assembly of what the platform knows about a user: active user-scoped facts grouped by aspect (persona-first), plus `profileText` shaped for direct prompt injection. Deterministic — no model calls. A user-bound token may only fetch its own profile (mismatch 403); M2M tokens any. 404 until USER_PROFILE_API_ENABLED=1. Source: src/users/user-profile.controller.ts.\n\nRequired scope: `brain:read`.",
@@ -6374,6 +8164,18 @@
     }
   ],
   "tags": [
+    {
+      "description": "Writing memory: the declared-fact path (scope `brain:write`). Every write goes through bitemporal conflict resolution, so the response reports a decision, not an acknowledgement.",
+      "name": "Ingest"
+    },
+    {
+      "description": "Reading memory (scope `brain:read`): hybrid search, chained multi-hop search, and cited synthesis over the same retrieval stack. All three share the per-credential `expensive` throttle bucket (10 req/min).",
+      "name": "Search"
+    },
+    {
+      "description": "The entity read surface (scope `brain:read`): typeahead, profile, bitemporal timeline and typed connections. The GDPR cascade on the same controller is an operator action and lives on the admin surface (docs/api.md).",
+      "name": "Entities"
+    },
     {
       "description": "Discovery reads over the global Domain Pack registry (shared across all tenants).",
       "name": "Registry"

@@ -1,16 +1,58 @@
 #!/usr/bin/env -S npx ts-node -T
 /**
  * build-openapi — assemble the OpenAPI 3.1 document for the PLATFORM
- * surface (the community-facing API: pack registry, pack admin, document
- * ingest/read, external-indexer candidates + work discovery, source
- * reputation reads). The admin/ops surface (jobs, leases, policy, stats,
- * maintenance) is out of scope on purpose.
+ * surface.
  *
+ * ── THE SELECTION RULE ────────────────────────────────────────────────
+ * The service serves ~192 route handlers across ~59 controllers; this
+ * document publishes far fewer, and the cut is deliberate. A route is
+ * PUBLISHED when it is part of the contract an integrator codes
+ * against:
+ *
+ *   • the memory core — declared-fact ingest, search, multi-hop search,
+ *     synthesize, the entity read surface, fact reads + provenance +
+ *     retraction, belief reads, the rolling user profile;
+ *   • the Domain Pack registry, its marketplace, and tenant pack admin
+ *     (`/v1/admin/packs*`, `/v1/admin/registry/*`) — "admin" in the
+ *     PATH, but tenant self-service, not operator ops;
+ *   • the document pipeline and the external-indexer work protocol;
+ *   • the raw-substrate driver (episodes, subscriptions, projections);
+ *   • the evidence substrate (ingest, raw reads, sharing grants);
+ *   • source-reputation reads.
+ *
+ * A route is EXCLUDED when it is not that:
+ *
+ *   • operator/ops surfaces — jobs, leases, DLQ, policy, predicates,
+ *     stats, traces, calibration, migrations, scheduler, maintenance,
+ *     GDPR cascades (POST /v1/entities/:id/forget) and everything else
+ *     behind `brain:platform_admin`. These are indexed in docs/api.md
+ *     and change with the operator playbook, not with an integration.
+ *   • the admin BFF and its dynamic UI paths, the internal poller /
+ *     changefeed surfaces, and health/metrics endpoints.
+ *   • the MCP transport, `ALL /mcp/:companyId`. NOT AN OVERSIGHT, and
+ *     please do not "fix" it: that route is JSON-RPC 2.0 over MCP
+ *     Streamable HTTP, one URL carrying `initialize` / `tools/list` /
+ *     `tools/call` messages whose shapes live in the MCP tool
+ *     registrations (src/mcp/*-tools.ts), not in an HTTP method+path
+ *     matrix. An OpenAPI `paths` block can only lie about it. MCP
+ *     clients discover the surface through `tools/list`; humans read
+ *     docs/mcp.md.
+ *
+ * ── SCHEMAS ───────────────────────────────────────────────────────────
  * components.schemas are GENERATED from the zod wire contracts under
  * src/contracts/ (zod v4 z.toJSONSchema over a registry, so nested
  * contracts become $refs). zod's default output is JSON Schema 2020-12,
  * which OpenAPI 3.1 accepts natively — no down-conversion. paths are
- * hand-written below against the controllers they document.
+ * hand-written below against the controllers they document, but a
+ * request/response BODY is never hand-written: it always $refs a zod
+ * contract, and each contract is pinned to the DTO / service result
+ * type it mirrors by a test/contracts-*.unit-spec.ts parity guard.
+ *
+ * The one sanctioned exception: `explain`-mode debug payloads (a search
+ * hit's `breakdown`, a synthesis `decisionLog` entry, an ingest
+ * `conflictExplanation`) are published as OPEN objects. They mirror
+ * scorer/resolver internals that move with every retrieval lever, and
+ * pinning them would publish a promise the engine never made.
  *
  * Output: docs/openapi.json (committed artifact, keys sorted so
  * regenerate-and-diff is deterministic).
@@ -19,7 +61,8 @@
  *   pnpm openapi:build
  *
  * Drift gate: test/openapi-doc.unit-spec.ts re-builds the document and
- * asserts deep-equality with the committed file.
+ * asserts deep-equality with BOTH committed copies (docs/ and
+ * brain-landing/public/ — see OUT_PATHS).
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -114,7 +157,52 @@ import {
   FactProvenanceEpisodeSchema,
   FactProvenanceResponseSchema,
   FactReadResponseSchema,
+  RetractedBySchema,
+  RetractFactRequestSchema,
+  RetractFactResponseSchema,
 } from '../src/contracts/facts/facts.schema';
+import {
+  ConflictExplanationSchema,
+  EntityRefSchema,
+  FactSourceSchema,
+  IngestFactRequestSchema,
+  IngestFactResponseSchema,
+  SourceEvidenceSchema,
+} from '../src/contracts/ingest/ingest.schema';
+import {
+  ScoreBreakdownSchema,
+  SearchFactSchema,
+  SearchHitSchema,
+  SearchRequestSchema,
+  SearchResponseSchema,
+} from '../src/contracts/search/search.schema';
+import {
+  HopOutcomeSchema,
+  HopPlanSchema,
+  MultiHopRequestSchema,
+  MultiHopResponseSchema,
+} from '../src/contracts/search/multi-hop.schema';
+import {
+  CitationSchema,
+  DecisionLogEntrySchema,
+  EvidenceCitationSchema,
+  SynthesisReasonSchema,
+  SynthesizeRequestSchema,
+  SynthesizeResponseSchema,
+  TokenUsageSchema,
+} from '../src/contracts/synthesize/synthesize.schema';
+import {
+  ConnectionEdgeSchema,
+  ConnectionNeighbourSchema,
+  EntityAutocompleteResponseSchema,
+  EntityAutocompleteSuggestionSchema,
+  EntityConnectionsResponseSchema,
+  EntityProfileFactSchema,
+  EntityProfileResponseSchema,
+  EntityTimelineResponseSchema,
+  TimelineRecordedEventSchema,
+  TimelineRetractedEventSchema,
+} from '../src/contracts/entities/entities.schema';
 import {
   BeliefReadResponseSchema,
   BeliefsListResponseSchema,
@@ -234,10 +322,50 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   EpisodeSubscriptionsListResponse: EpisodeSubscriptionsListResponseSchema,
   DeleteEpisodeSubscriptionResponse: DeleteEpisodeSubscriptionResponseSchema,
   EpisodesAvailableEvent: EpisodesAvailableEventSchema,
-  // --- fact read + provenance (src/contracts/facts/facts.schema.ts)
+  // --- fact read + provenance + retraction (src/contracts/facts/…)
   FactReadResponse: FactReadResponseSchema,
   FactProvenanceEpisode: FactProvenanceEpisodeSchema,
   FactProvenanceResponse: FactProvenanceResponseSchema,
+  RetractedBy: RetractedBySchema,
+  RetractFactRequest: RetractFactRequestSchema,
+  RetractFactResponse: RetractFactResponseSchema,
+  // --- declared-fact ingest (src/contracts/ingest/ingest.schema.ts)
+  EntityRef: EntityRefSchema,
+  SourceEvidence: SourceEvidenceSchema,
+  FactSource: FactSourceSchema,
+  IngestFactRequest: IngestFactRequestSchema,
+  IngestFactResponse: IngestFactResponseSchema,
+  ConflictExplanation: ConflictExplanationSchema,
+  // --- search (src/contracts/search/search.schema.ts)
+  SearchRequest: SearchRequestSchema,
+  SearchFact: SearchFactSchema,
+  SearchHit: SearchHitSchema,
+  SearchResponse: SearchResponseSchema,
+  ScoreBreakdown: ScoreBreakdownSchema,
+  // --- multi-hop search (src/contracts/search/multi-hop.schema.ts)
+  MultiHopRequest: MultiHopRequestSchema,
+  HopPlan: HopPlanSchema,
+  HopOutcome: HopOutcomeSchema,
+  MultiHopResponse: MultiHopResponseSchema,
+  // --- synthesize (src/contracts/synthesize/synthesize.schema.ts)
+  SynthesizeRequest: SynthesizeRequestSchema,
+  SynthesizeResponse: SynthesizeResponseSchema,
+  SynthesisReason: SynthesisReasonSchema,
+  Citation: CitationSchema,
+  EvidenceCitation: EvidenceCitationSchema,
+  TokenUsage: TokenUsageSchema,
+  DecisionLogEntry: DecisionLogEntrySchema,
+  // --- entity read surface (src/contracts/entities/entities.schema.ts)
+  EntityAutocompleteSuggestion: EntityAutocompleteSuggestionSchema,
+  EntityAutocompleteResponse: EntityAutocompleteResponseSchema,
+  EntityProfileFact: EntityProfileFactSchema,
+  EntityProfileResponse: EntityProfileResponseSchema,
+  TimelineRecordedEvent: TimelineRecordedEventSchema,
+  TimelineRetractedEvent: TimelineRetractedEventSchema,
+  EntityTimelineResponse: EntityTimelineResponseSchema,
+  ConnectionNeighbour: ConnectionNeighbourSchema,
+  ConnectionEdge: ConnectionEdgeSchema,
+  EntityConnectionsResponse: EntityConnectionsResponseSchema,
   // --- belief reads (src/contracts/beliefs/beliefs.schema.ts)
   BeliefReadResponse: BeliefReadResponseSchema,
   BeliefsListResponse: BeliefsListResponseSchema,
@@ -768,6 +896,246 @@ function packsAdminPaths(): Json {
   };
 }
 
+/**
+ * The memory core — the two calls the README's quick start makes
+ * (declared-fact ingest, search) plus the two reasoning surfaces built
+ * on the same retrieval stack (multi-hop, synthesize). Always mounted:
+ * no feature flag gates these, so there is no 404-until-on arm.
+ *
+ * `search`, `search/multi-hop` and `synthesize` all fan out to the
+ * shared embedding / generator budget, so all three sit in the tight
+ * per-credential `expensive` throttle bucket (10 req/min) rather than
+ * the 120/min default.
+ */
+const EXPENSIVE_NOTE =
+  'Fans out to the shared embedding / LLM budget, so it sits in the ' +
+  'per-credential `expensive` throttle bucket — 10 requests/min, not ' +
+  'the 120/min default.';
+
+function memoryCorePaths(): Json {
+  return {
+    '/v1/ingest/fact': {
+      post: operation({
+        operationId: 'ingestFact',
+        tag: 'Ingest',
+        summary: 'Record a declared structured fact',
+        description:
+          'The headline write. Resolves the entity, embeds the claim and ' +
+          'runs bitemporal conflict resolution against the standing ' +
+          'timeline: the response `outcome` says what the resolver ' +
+          'decided (INSERTED / INSERTED_HISTORICAL / CORROBORATED / ' +
+          'SUPERSEDED / COMPETING / REJECTED), never just "ok". ' +
+          '`userId` stamps a per-user memory scope (migration 0055) — ' +
+          'scope-local conflict resolution, invisible to every other ' +
+          "user of the tenant and to requests that don't assert one. " +
+          '`explain: true` adds the deterministic conflict narrative on ' +
+          'a SUPERSEDED / COMPETING outcome. ' +
+          'Source: src/ingest/ingest.controller.ts.',
+        scope: 'brain:write',
+        requestBody: jsonBody(ref('IngestFactRequest')),
+        responses: {
+          '201': jsonResponse("The resolver's decision.", ref('IngestFactResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/search': {
+      post: operation({
+        operationId: 'searchKnowledge',
+        tag: 'Search',
+        summary: 'Search the knowledge graph',
+        description:
+          'The headline read. Hybrid retrieval by default (vector + BM25 ' +
+          'fused by reciprocal rank), router-boosted, listwise-reranked, ' +
+          'then backfilled with each hit entity’s facts. Default ' +
+          'semantics is Datomic-style "actual now" — only facts whose ' +
+          'validity window contains the query moment; `asOf` slices ' +
+          'world-time and `includeStale` reverts to the audit shape. ' +
+          '`userId` widens the fence from tenant-global memory to ' +
+          "tenant-global PLUS that user's personal rows (fail-closed: " +
+          'omitted means global only). Facts whose predicate requires a ' +
+          `scope the caller lacks never enter the result. ${EXPENSIVE_NOTE} ` +
+          'Source: src/search/search.controller.ts.',
+        scope: 'brain:read',
+        requestBody: jsonBody(ref('SearchRequest')),
+        responses: {
+          '201': jsonResponse('Scored entity hits with their facts.', ref('SearchResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '429': errorRef('TooManyRequests'),
+        },
+      }),
+    },
+    '/v1/search/multi-hop': {
+      post: operation({
+        operationId: 'searchMultiHop',
+        tag: 'Search',
+        summary: 'Chained multi-hop search',
+        description:
+          'A planner LLM decomposes the query into at most `maxHops` ' +
+          'anchored sub-queries; each later hop is scoped to the running ' +
+          'entity set, so the engine never spends compute on candidates ' +
+          'already disqualified. Answers questions that join evidence ' +
+          'across turns or entities. `supportingFactIds` is the evidence ' +
+          'chain (HotpotQA-style) — the caller can audit exactly which ' +
+          'facts drove the answer. `synthesize: true` adds a grounded ' +
+          `answer with citations alongside the per-hop trace. ${EXPENSIVE_NOTE} ` +
+          'Source: src/multi-hop/multi-hop.controller.ts.',
+        scope: 'brain:read',
+        requestBody: jsonBody(ref('MultiHopRequest')),
+        responses: {
+          '201': jsonResponse('The hop trace and the final entity set.', ref('MultiHopResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '429': errorRef('TooManyRequests'),
+        },
+      }),
+    },
+    '/v1/synthesize': {
+      post: operation({
+        operationId: 'synthesizeAnswer',
+        tag: 'Search',
+        summary: 'Answer a question from memory, with citations',
+        description:
+          'Corrective RAG over the same retrieval stack as /v1/search: ' +
+          'generate an answer, then verify each claim against the facts ' +
+          'it cites. The pipeline ABSTAINS rather than guess — `answer` ' +
+          'is null and `reason` names the gate that fired (no results, ' +
+          'thin coverage, ungrounded support, a failed verifier…). ' +
+          '`synthesisGuardrails` picks the policy: `strict` closes to ' +
+          'null on a partial verdict, `lenient` returns the answer with ' +
+          'the verdict attached, `off` skips the verifier. Cited facts ' +
+          'are always the caller’s own visible memory. ' +
+          `${EXPENSIVE_NOTE} Source: src/synthesize/synthesize.controller.ts.`,
+        scope: 'brain:read',
+        requestBody: jsonBody(ref('SynthesizeRequest')),
+        responses: {
+          '201': jsonResponse('The answer (or a reasoned abstention).', ref('SynthesizeResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '429': errorRef('TooManyRequests'),
+        },
+      }),
+    },
+  };
+}
+
+/**
+ * The entity READ surface. The GDPR cascade on the same controller
+ * (POST /v1/entities/{id}/forget, `brain:admin`) is an operator action
+ * and stays on the docs/api.md admin index — see the selection rule.
+ */
+function entitiesPaths(): Json {
+  return {
+    '/v1/entities/autocomplete': {
+      get: operation({
+        operationId: 'autocompleteEntities',
+        tag: 'Entities',
+        summary: 'Entity-name typeahead',
+        description:
+          'Word-start match over the edge-ngram `prefix` fulltext index, ' +
+          'BM25-ranked via `search::score`. A query under 2 characters ' +
+          'returns nothing (the tokenizer produces no grams). Live, ' +
+          'tenant-global entities only — merged-away redirects and ' +
+          'personal-scoped entities are excluded. ' +
+          'Source: src/entities/entities.controller.ts.',
+        scope: 'brain:read',
+        parameters: [
+          queryParam('q', 'The prefix to complete (under 2 chars → empty result).'),
+          queryParam('limit', 'Page size, 1–25 (default 10).', { type: 'integer' }),
+        ],
+        responses: {
+          '200': jsonResponse('Ranked suggestions.', ref('EntityAutocompleteResponse')),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/entities/{id}': {
+      get: operation({
+        operationId: 'getEntityProfile',
+        tag: 'Entities',
+        summary: 'Entity profile and its active facts',
+        description:
+          'The entity plus the facts currently held about it, filtered ' +
+          'by the row policy (a fact whose predicate requires a scope the ' +
+          'caller lacks never appears). `asOf` slices WORLD time (what ' +
+          'was true at T); `recordedAt` slices TRANSACTION time (what the ' +
+          'graph believed at T — a later retract or supersede is ' +
+          'ignored). A merged entity answers with `mergedInto` set: ' +
+          'treat it as a redirect.',
+        scope: 'brain:read',
+        parameters: [
+          pathParam('id', 'Entity id — short (`cuid_abc`) or full (`knowledge_entity:cuid_abc`).'),
+          queryParam('asOf', 'ISO-8601 world-time slice.'),
+          queryParam('recordedAt', 'ISO-8601 transaction-time slice.'),
+        ],
+        responses: {
+          '200': jsonResponse('The profile.', ref('EntityProfileResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/entities/{id}/timeline': {
+      get: operation({
+        operationId: 'getEntityTimeline',
+        tag: 'Entities',
+        summary: 'Bitemporal sweep over an entity’s memory',
+        description:
+          '`fact.recorded` / `fact.retracted` events on the ' +
+          'TRANSACTION-time axis — when the graph learned and unlearned ' +
+          'things, not when they were true. `since` / `until` page the ' +
+          'window; `recordedAt` cuts to events known by T. `userId` is ' +
+          'honoured only while READ_SURFACE_USER_SCOPE is on (this ' +
+          'surface predates migration 0055 and otherwise pins ' +
+          '`userId IS NONE`); a user-bound token is pinned to its own ' +
+          'end user, and a mismatch is 403.',
+        scope: 'brain:read',
+        parameters: [
+          pathParam('id', 'Entity id — short or fully-qualified.'),
+          queryParam('since', 'ISO-8601 lower bound on recordedAt.'),
+          queryParam('until', 'ISO-8601 upper bound on recordedAt.'),
+          queryParam('recordedAt', 'Only events known by this instant.'),
+          queryParam('userId', 'Per-user scope (READ_SURFACE_USER_SCOPE only).'),
+        ],
+        responses: {
+          '200': jsonResponse('The event sweep.', ref('EntityTimelineResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/entities/{id}/connections': {
+      get: operation({
+        operationId: 'getEntityConnections',
+        tag: 'Entities',
+        summary: 'Typed edges and direct neighbours',
+        description:
+          'The entity’s 1-hop neighbourhood over `knowledge_edge`, in ' +
+          'both directions (`direction` says which). `kind` filters to ' +
+          'one edge type; `asOf` restricts to edges live at that ' +
+          'instant. `neighbour` is absent when the far end could not be ' +
+          'projected.',
+        scope: 'brain:read',
+        parameters: [
+          pathParam('id', 'Entity id — short or fully-qualified.'),
+          queryParam('kind', 'Only edges of this kind.'),
+          queryParam('asOf', 'ISO-8601 instant the edge must be live at.'),
+        ],
+        responses: {
+          '200': jsonResponse('The typed edges.', ref('EntityConnectionsResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+  };
+}
+
 function documentsPaths(): Json {
   return {
     '/v1/ingest/document': {
@@ -1110,10 +1478,11 @@ function driverPaths(): Json {
 }
 
 /**
- * Memory read surface: fact-by-id + provenance ("show me why I
- * remember this"), belief reads (semantic_belief) and the rolling user
- * profile. Dark behind default-off flags with 404 (an absent surface
- * is indistinguishable from a disabled one).
+ * Fact-level memory surface: fact-by-id + provenance ("show me why I
+ * remember this"), retraction, belief reads (semantic_belief) and the
+ * rolling user profile. The READS are dark behind default-off flags
+ * with 404 (an absent surface is indistinguishable from a disabled
+ * one); retraction is deliberately flag-independent.
  */
 function memoryReadPaths(): Json {
   return {
@@ -1152,6 +1521,35 @@ function memoryReadPaths(): Json {
         responses: {
           '200': jsonResponse('The grounding episodes.', ref('FactProvenanceResponse')),
           ...DRIVER_404,
+        },
+      }),
+    },
+    '/v1/facts/{id}/retract': {
+      post: operation({
+        operationId: 'retractFact',
+        tag: 'Facts',
+        summary: 'Retract a fact',
+        description:
+          'Marks the fact retracted and writes the audit trail. Two ' +
+          'cascades follow: facts DERIVED from it are retracted too ' +
+          '(`cascadedFactIds`), and facts this one had SUPERSEDED come ' +
+          'back to active (`revivedFactIds`) unless they were separately ' +
+          'retracted on their own merits. Deliberately NOT gated by ' +
+          'FACTS_API_ENABLED — the read routes above are, but a tenant ' +
+          'must always be able to remove a fact. `brain:write` is the ' +
+          'floor; FactsService elevates the requirement to `brain:admin` ' +
+          'for billing_event / human_declared / legal-source facts once ' +
+          'it has read the row (403 from there, not from the guard). ' +
+          'For erasure rather than retraction, see the GDPR cascade on ' +
+          'the admin surface (docs/api.md).',
+        scope: 'brain:write',
+        parameters: [pathParam('id', 'Fact record id (`knowledge_fact:…`).')],
+        requestBody: jsonBody(ref('RetractFactRequest')),
+        responses: {
+          '201': jsonResponse('What the retraction changed.', ref('RetractFactResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
         },
       }),
     },
@@ -1800,15 +2198,22 @@ export function buildOpenApiDocument(): Json {
       title: 'INITE Brain — Platform API',
       version: pkg.version,
       summary:
-        'The community-facing platform surface: Domain Pack registry, ' +
-        'tenant pack admin, document ingest, the external-indexer ' +
-        'work protocol, and source reputation reads.',
+        'The community-facing platform surface: the memory core ' +
+        '(fact ingest, search, multi-hop, synthesize, entity and fact ' +
+        'reads), the Domain Pack registry and tenant pack admin, the ' +
+        'document pipeline, the external-indexer work protocol, the ' +
+        'raw-substrate driver, the evidence substrate, and source ' +
+        'reputation reads.',
       description:
         'Generated from the zod wire contracts (`pnpm openapi:build` — ' +
-        'scripts/build-openapi.ts); do not edit by hand. The admin/ops ' +
-        'surface (jobs, leases, policy, stats, maintenance) is documented ' +
-        'in docs/api.md instead. Scopes are plain bearer-key grants, not ' +
-        'OAuth flows — each operation states its required scope.',
+        'scripts/build-openapi.ts); do not edit by hand. Excluded on ' +
+        'purpose: the operator/ops surface (jobs, leases, policy, stats, ' +
+        'maintenance, GDPR cascades), which is indexed in docs/api.md, ' +
+        'and the MCP transport `ALL /mcp/{companyId}`, which is JSON-RPC ' +
+        'over Streamable HTTP rather than REST — MCP clients discover it ' +
+        'through `tools/list` (docs/mcp.md). Scopes are plain bearer-key ' +
+        'grants, not OAuth flows — each operation states its required ' +
+        'scope.',
       license: {
         name: 'AGPL-3.0-or-later',
         identifier: 'AGPL-3.0-or-later',
@@ -1824,6 +2229,29 @@ export function buildOpenApiDocument(): Json {
     ],
     security: [{ bearerAuth: [] }],
     tags: [
+      {
+        name: 'Ingest',
+        description:
+          'Writing memory: the declared-fact path (scope `brain:write`). ' +
+          'Every write goes through bitemporal conflict resolution, so ' +
+          'the response reports a decision, not an acknowledgement.',
+      },
+      {
+        name: 'Search',
+        description:
+          'Reading memory (scope `brain:read`): hybrid search, chained ' +
+          'multi-hop search, and cited synthesis over the same retrieval ' +
+          'stack. All three share the per-credential `expensive` ' +
+          'throttle bucket (10 req/min).',
+      },
+      {
+        name: 'Entities',
+        description:
+          'The entity read surface (scope `brain:read`): typeahead, ' +
+          'profile, bitemporal timeline and typed connections. The GDPR ' +
+          'cascade on the same controller is an operator action and ' +
+          'lives on the admin surface (docs/api.md).',
+      },
       {
         name: 'Registry',
         description:
@@ -1934,6 +2362,8 @@ export function buildOpenApiDocument(): Json {
       },
     ],
     paths: {
+      ...memoryCorePaths(),
+      ...entitiesPaths(),
       ...registryPaths(),
       ...marketplacePaths(),
       ...packsAdminPaths(),

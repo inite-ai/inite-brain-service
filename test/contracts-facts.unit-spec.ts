@@ -11,12 +11,17 @@ import {
   FactProvenanceEpisodeSchema,
   FactProvenanceResponseSchema,
   FactReadResponseSchema,
+  RetractedBySchema,
+  RetractFactRequestSchema,
+  RetractFactResponseSchema,
 } from '../src/contracts/facts/facts.schema';
 import type {
   FactProvenanceEpisode,
   FactProvenanceResult,
   FactReadResult,
+  RetractResult,
 } from '../src/facts/facts.service';
+import type { RetractedBy, RetractFactDto } from '../src/facts/dto/retract.dto';
 
 const expectKeys = (shape: Record<string, unknown>, sample: Record<string, unknown>) =>
   expect(Object.keys(shape).sort()).toEqual(Object.keys(sample).sort());
@@ -76,6 +81,20 @@ const fullProvenance: Required<FactProvenanceResult> = {
   ],
 };
 
+const fullRetractedBy: Required<RetractedBy> = { userId: 'ops_1', source: 'human' };
+
+const fullRetractRequest: Required<RetractFactDto> = {
+  reason: 'entered in error',
+  retractedBy: fullRetractedBy,
+};
+
+const fullRetractResult: Required<RetractResult> = {
+  factId: 'knowledge_fact:abc',
+  retractedAt: '2026-09-02T10:00:00.000Z',
+  cascadedFactIds: ['knowledge_fact:derived'],
+  revivedFactIds: ['knowledge_fact:predecessor'],
+};
+
 describe('facts wire contracts', () => {
   it('FactReadResponseSchema parses a fully-populated service result', () => {
     const parsed = FactReadResponseSchema.safeParse(fullFact);
@@ -105,5 +124,31 @@ describe('facts wire contracts', () => {
 
   it('FactProvenanceEpisodeSchema covers every episode field — both directions', () => {
     expectKeys(FactProvenanceEpisodeSchema.shape, fullEpisode);
+  });
+
+  it('RetractFactRequestSchema parses a fully-populated DTO', () => {
+    expect(RetractFactRequestSchema.safeParse(fullRetractRequest).success).toBe(true);
+    expectKeys(RetractFactRequestSchema.shape, fullRetractRequest);
+    expectKeys(RetractedBySchema.shape, fullRetractedBy);
+  });
+
+  it('RetractFactRequestSchema rejects an unknown key but not one inside retractedBy', () => {
+    // The pipe runs forbidNonWhitelisted, so a stray body key is a 400 —
+    // but `retractedBy` is an opaque @IsObject() field the pipe never
+    // walks into.
+    expect(RetractFactRequestSchema.safeParse({ ...fullRetractRequest, nope: 1 }).success).toBe(
+      false,
+    );
+    expect(
+      RetractFactRequestSchema.safeParse({
+        ...fullRetractRequest,
+        retractedBy: { ...fullRetractedBy, ticket: 'OPS-1' },
+      }).success,
+    ).toBe(true);
+  });
+
+  it('RetractFactResponseSchema covers every service field — both directions', () => {
+    expect(RetractFactResponseSchema.safeParse(fullRetractResult).success).toBe(true);
+    expectKeys(RetractFactResponseSchema.shape, fullRetractResult);
   });
 });

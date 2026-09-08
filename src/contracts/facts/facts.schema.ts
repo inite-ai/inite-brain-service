@@ -125,5 +125,36 @@ export const FactProvenanceResponseSchema = z.object({
     .optional(),
 });
 
+/**
+ * Who asked for the retraction. `@IsObject()` on the DTO — the pipe
+ * treats it as opaque (an extra key inside is not a 400), so the
+ * schema is loose and says so.
+ */
+export const RetractedBySchema = z.looseObject({
+  userId: z.string().optional(),
+  source: z.enum(['human', 'system']),
+});
+
+export const RetractFactRequestSchema = z.strictObject({
+  /** Free-text justification, written into the audit trail. */
+  reason: z.string(),
+  retractedBy: RetractedBySchema,
+});
+
+export const RetractFactResponseSchema = z.object({
+  factId: z.string(),
+  retractedAt: z.string(),
+  /** Facts retracted along with this one (derived-from cascade). */
+  cascadedFactIds: z.array(z.string()),
+  /**
+   * Facts the retracted one had superseded that are now active again.
+   * Empty when it superseded nothing, or when every predecessor was
+   * itself separately retracted (never revived on someone else's merits).
+   */
+  revivedFactIds: z.array(z.string()),
+});
+
 export type FactReadResponse = z.infer<typeof FactReadResponseSchema>;
 export type FactProvenanceResponse = z.infer<typeof FactProvenanceResponseSchema>;
+export type RetractFactRequest = z.infer<typeof RetractFactRequestSchema>;
+export type RetractFactResponse = z.infer<typeof RetractFactResponseSchema>;
