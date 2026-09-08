@@ -69,7 +69,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@nestjs/common": "^11.1.29",
+    "@nestjs/common": "^11.2.3",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.29",
     "@nestjs/platform-express": "^11.1.29",
