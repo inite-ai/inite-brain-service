@@ -9,15 +9,21 @@ import { composePredicateId, type DomainPackManifest } from './manifest';
  *
  * As of 0.5.0 the memoryModel carries a MEDIA CONTRACT: failure/dashboard
  * screenshots and text-ish artifacts (logs, traces) as input modalities,
- * the two core capabilities the Evidence Plane can actually run (image
- * metadata, document text), and NO raw-evidence declaration. NOTE the
+ * the core capabilities the Evidence Plane can actually run, and NO
+ * raw-evidence declaration. 0.6.0 adds `ocr` now that a local OCR
+ * processor exists — a screenshot of a red CI pane is this domain's most
+ * common attachment and its text is the whole point of it. NOTE the
  * builtin caveat: builtins never pass through DomainPackInstallService, so
  * no `domain_pack` consent row exists for this pack — MemoryModelReader-
  * Service surfaces the declaration through its builtin union, but both
  * media gates still deny at their consent clause until a consent path for
  * builtins lands. The declaration is the contract, not an activation.
  *
- * 0.6.0 corrects a DOMAIN MODELLING ERROR: `invariant` shipped as
+ * 0.6.0 carries a SECOND, independent change that landed in the same
+ * release window as the `ocr` declaration above — one bump, not two
+ * stacked, so a consumer moves from 0.5.0 to 0.6.0 once.
+ *
+ * It corrects a DOMAIN MODELLING ERROR: `invariant` shipped as
  * `single_active` from the very first version, which silently made every
  * newly recorded constraint retire the previous one. A module's
  * invariants coexist, so that was data loss with nothing gained — there
@@ -345,6 +351,14 @@ never split its clauses across facts or predicates.`,
     processors: [
       { id: 'image_metadata', modality: 'image', produces: ['caption'] },
       { id: 'document_text', modality: 'document', produces: ['text'] },
+      // 0.6.0: the screenshot is this domain's native artefact. A red CI
+      // pane, a stack trace pasted as a picture, a dashboard at the
+      // moment it went wrong — engineers attach these constantly, and the
+      // one thing that makes them worth attaching is the TEXT in them:
+      // the failing assertion, the error code, the metric name. Without
+      // OCR the pack stores a picture of the answer to "why did this
+      // break", which is exactly the non-derivable "why" it exists for.
+      { id: 'image_ocr', modality: 'image', produces: ['ocr'] },
     ],
     // rawEvidence is DELIBERATELY ABSENT (omission = deny). A builtin is
     // seeded into EVERY tenant without an install decision, so it is the

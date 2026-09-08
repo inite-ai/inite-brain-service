@@ -10,15 +10,17 @@ import type { DomainPackManifest } from './manifest';
  * rule for dosage claims and a corroboration rule for contraindications).
  *
  * As of 0.3.0 the memoryModel also carries a MEDIA CONTRACT: imaging and
- * document scans as input modalities, the two core capabilities the
- * Evidence Plane can actually run (image metadata, document text), and NO
- * raw-evidence declaration — clinical images never serve raw.
+ * document scans as input modalities, the core capabilities the Evidence
+ * Plane can actually run, and NO raw-evidence declaration — clinical
+ * images never serve raw. 0.4.0 adds `ocr` now that a local OCR processor
+ * exists: a scan carries its findings as pixels, and reading them is the
+ * only way this pack's predicates ever see them.
  *
  * Bump `version` to update.
  */
 export const MEDICAL_PACK: DomainPackManifest = {
   id: 'medical',
-  version: '0.3.0',
+  version: '0.4.0',
   description:
     'Clinical pharmacology ontology — indications, dosing, routes, interactions, and contraindications of drugs/treatments, with a domain extraction profile and memory model.',
   predicates: [
@@ -200,6 +202,13 @@ pack captures drug ontology, not clinical records.`,
     processors: [
       { id: 'image_metadata', modality: 'image', produces: ['caption'] },
       { id: 'document_text', modality: 'document', produces: ['text'] },
+      // 0.4.0: a clinical scan, a photographed lab report, a discharge
+      // summary faxed as a TIFF — all arrive as IMAGE bytes with no text
+      // layer, so `document_text` never sees them and `image_metadata`
+      // can only say "2480x3508 greyscale TIFF". The values, units and
+      // drug names that this pack's predicates exist to hold are printed
+      // on the page and nowhere else; without OCR they are unreadable.
+      { id: 'image_ocr', modality: 'image', produces: ['ocr'] },
     ],
     // rawEvidence is DELIBERATELY ABSENT — the most conservative setting
     // the schema offers (the only other legal value is `{ serve: true }`;

@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { validateEvidenceOrphanGcEnv } from './evidence-flags';
+import { validateEvidenceOrphanGcEnv, validateOcrEnvValues } from './evidence-flags';
 import { isProcessRole, normalizeProcessRole } from './process-role';
 
 const log = new Logger('EnvValidation');
@@ -271,6 +271,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'EVIDENCE_ORPHAN_BLOB_GC_GRACE_HOURS', errors);
   positiveInt(env, 'EVIDENCE_ORPHAN_BLOB_GC_MAX_DELETIONS', errors);
   positiveInt(env, 'EVIDENCE_ORPHAN_BLOB_GC_TIME_BUDGET_MS', errors);
+  // Local OCR processor knobs, same clamp contract (the validator lives
+  // beside its readers in evidence-flags.ts — see the note there).
+  validateOcrEnvValues(env, errors);
 
   // ── Retrieval profile (per-tenant genre configuration) ─────────────
   validateRetrievalProfileEnv(env, errors);
@@ -1339,6 +1342,17 @@ const KNOWN_BOOLEAN_FLAGS = [
   'EVIDENCE_ORPHAN_BLOB_GC',
   'EVIDENCE_ORPHAN_BLOB_GC_DELETE',
   'EVIDENCE_ORPHAN_BLOB_GC_SCHEDULED',
+  // Local OCR processor: OcrAdapter offers the 'ocr' capability for image
+  // assets (tesseract.js WASM, models read off local disk — no network,
+  // ever). Default off ⇒ accepts() declines before any engine is touched
+  // and the broker records the same `no installed processor` denial it
+  // records today, byte-identical. It carries its own switch — unlike its
+  // sibling adapters — because recognition is CPU- and memory-heavy where
+  // theirs are header reads. The language set (EVIDENCE_OCR_LANGS) and
+  // confidence floor (EVIDENCE_OCR_MIN_CONFIDENCE) are a string and an
+  // int, not booleans (validateEvidenceOcrEnv). EVIDENCE_ family sits off
+  // the ENGINE flag budget by design (see above).
+  'EVIDENCE_OCR_ENABLED',
   // Representation embeddings: the write-side producer for
   // derived_representation.embedding (WRITE-DEAD since 0109), which is
   // what the fragment lane's dense leg reads. Off (default) = the

@@ -1,6 +1,6 @@
 {
   "id": "medical",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Clinical pharmacology ontology — indications, dosing, routes, interactions, and contraindications of drugs/treatments, with a domain extraction profile and memory model.",
   "predicates": [
     {
@@ -300,6 +300,13 @@
         "modality": "document",
         "produces": [
           "text"
+        ]
+      },
+      {
+        "id": "image_ocr",
+        "modality": "image",
+        "produces": [
+          "ocr"
         ]
       }
     ]

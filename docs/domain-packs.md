@@ -689,22 +689,39 @@ media contract (as of 0.3.0), not a stub:
 ### Media contracts (`modalities` / `processors` / `rawEvidence`)
 
 What each pack declares its domain can PERCEIVE, which core-owned
-capabilities it asks for, and whether raw bytes may ever serve. Only two
-processor capabilities are declared anywhere in the library, because only
-two adapters exist: `image → caption` (image metadata) and
-`document → text` (text extraction). OCR, ASR and vision captioning are
-deliberately undeclared — declaring a capability with no adapter arms a
-dispatch that always denies.
+capabilities it asks for, and whether raw bytes may ever serve. A pack may
+only declare a capability an installed adapter can actually run —
+declaring one with no adapter arms a dispatch that always denies. Three
+exist today: `image → caption` (image metadata), `document → text` (text
+extraction / PDF), and `image → ocr` (local tesseract.js). ASR, object
+tracking and scene graphs remain deliberately undeclared.
 
 | pack | version | modalities | processors | rawEvidence | why |
 |---|---|---|---|---|---|
-| `real_estate` | 0.3.0 | text, image, document | image metadata, document text | **serve** | listing photos and floor plans are published marketing material |
-| `medical` | 0.3.0 | text, image, document | image metadata, document text | deny | scans and X-ray photographs are clinical data — never served raw |
-| `insurance` | 0.3.0 | text, image, document | image metadata, document text | deny | claim photos carry injuries, plates, bystanders |
-| `legal` | 0.3.0 | text, image, document | document text, image metadata | deny | contracts, filings and scanned exhibits carry privilege |
-| `fintech` | 0.3.0 | text, document | document text | deny | statements and KYC files; `image` withheld (biometric-adjacent) |
-| `hr` | 0.3.0 | text, document | document text | deny | CVs and offer letters are personal data; `image` withheld |
-| `code_memory` (builtin) | 0.5.0 | text, image, document | image metadata, document text | deny | failure/dashboard screenshots + log artifacts |
+| `real_estate` | 0.4.0 | text, image, document | image metadata, document text, **ocr** | **serve** | listing photos and floor plans are published marketing material; a floor plan's content IS its lettering |
+| `medical` | 0.4.0 | text, image, document | image metadata, document text, **ocr** | deny | scans and X-ray photographs are clinical data — never served raw, but a scan's findings are printed on it |
+| `insurance` | 0.4.0 | text, image, document | image metadata, document text, **ocr** | deny | claim photos carry injuries, plates, bystanders — and repair estimates, policy numbers, receipts |
+| `legal` | 0.4.0 | text, image, document | document text, image metadata, **ocr** | deny | contracts, filings and scanned exhibits carry privilege; an exhibit has no text layer |
+| `fintech` | 0.3.0 | text, document | document text | deny | statements and KYC files; `image` withheld (biometric-adjacent), so no ocr |
+| `hr` | 0.3.0 | text, document | document text | deny | CVs and offer letters are personal data; `image` withheld, so no ocr |
+| `code_memory` (builtin) | 0.6.0 | text, image, document | image metadata, document text, **ocr** | deny | failure/dashboard screenshots + log artifacts; the text in a screenshot is the whole point of it |
+
+The `ocr` capability needs `EVIDENCE_OCR_ENABLED` on top of the usual
+ladder (`EVIDENCE_PROCESSOR_BROKER`, pack declaration, current modality
+consent, quarantine, tombstone): recognition is CPU-heavy where the other
+two adapters are header reads, so it is an operator opt-in. Everything it
+uses — the WASM core and the `.traineddata` models — is a lockfile-pinned
+npm dependency read off local disk; nothing is ever downloaded at runtime.
+Languages shipped: `eng` (default) and `rus`, selected with
+`EVIDENCE_OCR_LANGS`. Words scoring below `EVIDENCE_OCR_MIN_CONFIDENCE`
+(0..100, default 60) are dropped from the stored text and the drop is
+stated in it; an image with nothing above the floor fails the run rather
+than storing invented characters.
+
+Note the version bumps: adding a processor changes the media section, so
+the modality-consent checksum changes with it and an installed tenant
+must re-accept (`--accept-modalities`) before the new capability
+dispatches. That is the consent surface working as designed.
 
 `rawEvidence: deny` is the *absence* of the field — the schema's only
 other value is `{ "serve": true }`, so omission is how a pack refuses.

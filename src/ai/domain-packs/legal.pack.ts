@@ -9,16 +9,17 @@ import type { DomainPackManifest } from './manifest';
  * termination and effective-date claims).
  *
  * As of 0.3.0 the memoryModel also carries a MEDIA CONTRACT: contracts and
- * filings as documents, scanned exhibits as images, the two core
- * capabilities the Evidence Plane can actually run (document text, image
- * metadata), and NO raw-evidence declaration — an exhibit's bytes carry
- * privilege.
+ * filings as documents, scanned exhibits as images, the core capabilities
+ * the Evidence Plane can actually run, and NO raw-evidence declaration —
+ * an exhibit's bytes carry privilege. 0.4.0 adds `ocr` now that a local
+ * OCR processor exists: a scanned exhibit has no text layer, so it was
+ * legible to nothing in the plane before.
  *
  * Bump `version` to ship an update.
  */
 export const LEGAL_PACK: DomainPackManifest = {
   id: 'legal',
-  version: '0.3.0',
+  version: '0.4.0',
   description:
     'Legal / contracts ontology — governing law, parties, obligations, and term of agreements, with a domain extraction profile and memory model.',
   predicates: [
@@ -211,6 +212,12 @@ an agreement, emit an edge between them in addition to the party facts.`,
     processors: [
       { id: 'document_text', modality: 'document', produces: ['text'] },
       { id: 'image_metadata', modality: 'image', produces: ['caption'] },
+      // 0.4.0: exhibits are the archetypal scanned artefact — a signature
+      // page photographed on a phone, an executed agreement scanned to
+      // TIFF, an annexe delivered as a flat image. `document_text`
+      // extracts nothing from them (no text layer) and the governing law,
+      // parties and dates this pack extracts are printed on the page.
+      { id: 'image_ocr', modality: 'image', produces: ['ocr'] },
     ],
     // rawEvidence is DELIBERATELY ABSENT (omission = deny). Exhibits and
     // executed agreements carry privilege and counterparty personal data;

@@ -549,9 +549,13 @@ describe('code-memory pack', () => {
 // signed-URL mint that call it. The pins below are the contract each pack
 // now offers; the gate block after them proves the consumers came alive.
 
-/** The two capabilities an installed adapter can actually run today. */
+/** The capabilities an installed adapter can actually run today. `ocr`
+ *  joined them when OcrAdapter landed — before that every pack left the
+ *  slot undeclared precisely because declaring it would have armed a
+ *  capability that always denied at dispatch. */
 const IMAGE_METADATA = { id: 'image_metadata', modality: 'image', produces: ['caption'] };
 const DOCUMENT_TEXT = { id: 'document_text', modality: 'document', produces: ['text'] };
+const IMAGE_OCR = { id: 'image_ocr', modality: 'image', produces: ['ocr'] };
 
 interface MediaExpectation {
   pack: DomainPackManifest;
@@ -565,31 +569,31 @@ interface MediaExpectation {
 const MEDIA_CONTRACT: MediaExpectation[] = [
   {
     pack: packById('real_estate'),
-    version: '0.3.0',
+    version: '0.4.0',
     modalities: ['text', 'image', 'document'],
-    processors: [IMAGE_METADATA, DOCUMENT_TEXT],
+    processors: [IMAGE_METADATA, DOCUMENT_TEXT, IMAGE_OCR],
     // Listing media is published marketing material — the one pack that serves raw.
     rawEvidence: { serve: true },
   },
   {
     pack: packById('medical'),
-    version: '0.3.0',
+    version: '0.4.0',
     modalities: ['text', 'image', 'document'],
-    processors: [IMAGE_METADATA, DOCUMENT_TEXT],
+    processors: [IMAGE_METADATA, DOCUMENT_TEXT, IMAGE_OCR],
     rawEvidence: undefined, // clinical imaging never serves raw
   },
   {
     pack: packById('insurance'),
-    version: '0.3.0',
+    version: '0.4.0',
     modalities: ['text', 'image', 'document'],
-    processors: [IMAGE_METADATA, DOCUMENT_TEXT],
+    processors: [IMAGE_METADATA, DOCUMENT_TEXT, IMAGE_OCR],
     rawEvidence: undefined, // claim photos carry third-party personal data
   },
   {
     pack: packById('legal'),
-    version: '0.3.0',
+    version: '0.4.0',
     modalities: ['text', 'image', 'document'],
-    processors: [DOCUMENT_TEXT, IMAGE_METADATA],
+    processors: [DOCUMENT_TEXT, IMAGE_METADATA, IMAGE_OCR],
     rawEvidence: undefined, // exhibits carry privilege
   },
   {
@@ -608,12 +612,14 @@ const MEDIA_CONTRACT: MediaExpectation[] = [
   },
   {
     pack: CODE_MEMORY_PACK,
-    // 0.6.0: the `invariant` semantics correction (single_active →
-    // append_only). The media contract itself is unchanged from 0.5.0 —
-    // this pin just has to move deliberately on every version bump.
+    // 0.6.0 carries TWO independent changes that landed in the same
+    // release window: the `invariant` semantics correction
+    // (single_active → append_only) and the `ocr` media declaration. One
+    // bump, not two stacked — 0.5.0 is the last version either was
+    // absent from, so a tenant re-accepts modalities once.
     version: '0.6.0',
     modalities: ['text', 'image', 'document'],
-    processors: [IMAGE_METADATA, DOCUMENT_TEXT],
+    processors: [IMAGE_METADATA, DOCUMENT_TEXT, IMAGE_OCR],
     rawEvidence: undefined, // a builtin seeds into every tenant unasked
   },
 ];
@@ -640,20 +646,32 @@ describe.each(MEDIA_CONTRACT.map((e) => [e.pack.id, e] as const))(
     });
 
     it('requests ONLY capabilities an installed adapter can run', () => {
-      // ImageMetadataStubAdapter (image→caption) and
-      // TextExtractionPassthroughAdapter (document→text) are the whole
-      // installed set. Declaring ocr/asr/vision-caption would arm a
-      // capability that always denies at dispatch.
+      // ImageMetadataAdapter (image→caption), DocumentTextAdapter +
+      // TextExtractionPassthroughAdapter (document→text) and OcrAdapter
+      // (image→ocr) are the whole installed set. Declaring asr / object
+      // tracking / scene graphs would arm a capability that always denies
+      // at dispatch — which is why `ocr` appears here only now that its
+      // adapter exists.
       for (const processor of mm?.processors ?? []) {
         expect(['image', 'document']).toContain(processor.modality);
         for (const kind of processor.produces) {
-          expect(['caption', 'text']).toContain(kind);
+          expect(['caption', 'text', 'ocr']).toContain(kind);
         }
       }
       const kinds = (mm?.processors ?? []).flatMap((p) => p.produces);
-      for (const unbuilt of ['ocr', 'asr', 'object_track', 'scene_graph', 'embedding']) {
+      for (const unbuilt of ['asr', 'object_track', 'scene_graph', 'embedding']) {
         expect(kinds).not.toContain(unbuilt);
       }
+    });
+
+    it('declares ocr only where a domain genuinely has text-bearing images', () => {
+      // fintech and hr take documents only — they have no image modality
+      // at all, so an ocr declaration would be dead weight that still
+      // costs a consent re-acceptance. Everything else here has scans,
+      // claim photos, floor plans or screenshots.
+      const declaresOcr = (mm?.processors ?? []).some((p) => p.produces.includes('ocr'));
+      const expectOcr = !['fintech', 'hr'].includes(expected.pack.id);
+      expect(declaresOcr).toBe(expectOcr);
     });
 
     it('never requests a processor for an undeclared input modality', () => {
@@ -705,6 +723,28 @@ describe('the media gates came alive (they denied every pack before)', () => {
           asset: asset('image'),
         }),
       ).toEqual({ allowed: true });
+    });
+
+    it('ADMITS image→ocr now that an OCR adapter exists to run it', () => {
+      // Before OcrAdapter this was the only capability every pack left
+      // undeclared, so this gate denied it for the whole library.
+      expect(
+        gateProcessorDispatch({
+          ...consent(MEDICAL),
+          capability: 'ocr',
+          asset: asset('image'),
+        }),
+      ).toEqual({ allowed: true });
+    });
+
+    it('still DENIES image→ocr for a pack that declares no image modality', () => {
+      const d = gateProcessorDispatch({
+        ...consent(FINTECH),
+        capability: 'ocr',
+        asset: asset('image'),
+      });
+      expect(d.allowed).toBe(false);
+      if (!d.allowed) expect(d.reason).toContain('does not declare');
     });
 
     it('ADMITS document→text for a document-only pack', () => {

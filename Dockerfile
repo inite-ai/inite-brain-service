@@ -62,6 +62,27 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml* ./
 # Runtime stage: same allowlist semantics as the builder — the prod
 # install still needs sharp + onnxruntime-node native binaries.
+#
+# OCR ASSETS RIDE THIS INSTALL, deliberately. The local OCR processor
+# (src/evidence/processing/adapters/ocr.adapter.ts) must never reach the
+# network, and tesseract.js is CDN-first by default: unless told
+# otherwise it fetches its WASM core and each language's ~3-11 MB
+# `.traineddata` from jsDelivr on first use. Rather than add a build-time
+# download step (a new network dependency, its own checksum problem, and
+# an image that differs from what a developer runs locally), the assets
+# are ordinary dependencies: `tesseract.js-core` carries the WASM, and
+# `@tesseract.js-data/{eng,rus}` carry the models. `pnpm install
+# --frozen-lockfile --prod` therefore places them on local disk, pinned
+# by integrity hash like everything else, with NO extra layer here — the
+# adapter resolves them through require.resolve and asserts they are
+# present before starting the engine. Cost: ~68 MB (core ~43, eng ~13,
+# rus ~11, tesseract.js ~2).
+#
+# `onlyBuiltDependencies` matters here in the negative: tesseract.js
+# declares a `postinstall` (an OpenCollective donation banner). It is NOT
+# in the allowlist and must not be added — nothing in the OCR path needs
+# it, and the allowlist is exactly the control that keeps an unreviewed
+# install script from running in the image.
 RUN corepack enable && pnpm install --frozen-lockfile --prod
 
 COPY --from=builder /app/dist ./dist
