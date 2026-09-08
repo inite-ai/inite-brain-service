@@ -65,6 +65,7 @@ import {
   toCandidatePayload,
 } from '../src/code-memory/repo-indexer/bundle';
 import { EMPTY_STATE, runIndexer, type RunState } from '../src/code-memory/repo-indexer/run';
+import { CODE_MEMORY_PACK } from '../src/ai/domain-packs/code-memory.pack';
 import type {
   BrainClient,
   IngestDocumentInput,
@@ -602,22 +603,14 @@ describe('bundle', () => {
     expect(dropped[0]?.detail).toBe('code_memory__other_pack__thing');
   });
 
-  it('keeps only the strongest claim for a single_active predicate', () => {
-    const weak = fact({
-      kind: 'invariant',
-      object: 'the resolver must run first',
-      confidence: 0.6,
-    });
+  it('keeps only the strongest claim for a genuinely single_active predicate', () => {
+    const weak = fact({ kind: 'owns', subject: 'src', object: 'ada', confidence: 0.55 });
     const strong = fact({
-      kind: 'invariant',
-      object: 'the resolver must never be reentered',
+      kind: 'owns',
+      subject: 'src',
+      object: 'grace',
       confidence: 0.9,
-      evidence: {
-        path: 'src/a.ts',
-        startLine: 9,
-        endLine: 9,
-        excerpt: '// must never be reentered',
-      },
+      evidence: { path: '.github/CODEOWNERS', startLine: 2, endLine: 2, excerpt: '/src/ @grace' },
     });
     const { kept, dropped } = applyShapeFences({
       facts: identify([weak, strong]),
@@ -625,8 +618,42 @@ describe('bundle', () => {
       caps,
       alreadySubmitted: new Set(),
     });
-    expect(kept.map((f) => f.object)).toEqual(['the resolver must never be reentered']);
+    expect(kept.map((f) => f.object)).toEqual(['grace']);
     expect(dropped[0]?.reason).toBe('single_active_collision');
+  });
+
+  /**
+   * The regression this fence originally exposed. Under pack 0.5.0
+   * `invariant` was single_active, so a file's rules retired each other
+   * and the first dogfood pass had to drop 1254 of them across this
+   * repository. 0.6.0 made the predicate append_only; coexisting rules
+   * must now survive the fence intact.
+   */
+  it('lets coexisting invariants through — they do not retire each other', () => {
+    const rules = [
+      'every handler validates its body with the shared zod schema',
+      'amounts are always emitted in cents, never floats',
+      'the resolver must never be reentered',
+    ].map((object, i) =>
+      fact({
+        kind: 'invariant',
+        object,
+        evidence: { path: 'src/a.ts', startLine: i + 1, endLine: i + 1, excerpt: `// ${object}` },
+      }),
+    );
+    const { kept, dropped } = applyShapeFences({
+      facts: identify(rules),
+      packId: 'code_memory',
+      caps,
+      alreadySubmitted: new Set(),
+    });
+    expect(kept).toHaveLength(3);
+    expect(dropped).toHaveLength(0);
+    // ...and the fence still reads its set from the manifest, so the
+    // exemption is the ontology's doing, not a hard-coded carve-out.
+    expect(CODE_MEMORY_PACK.predicates.find((pr) => pr.localId === 'invariant')?.semantics).toBe(
+      'append_only',
+    );
   });
 
   it('composes an evidence document each fact grounds against', () => {

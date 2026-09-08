@@ -75,18 +75,35 @@ function drop(
 }
 
 /**
- * Kinds whose pack semantics are `single_active`, read from the manifest
- * itself so the two can never drift. Emitting five `invariant` facts on
- * one file entity would not record five rules — the fifth would
- * SUPERSEDE the other four on commit, and the run would quietly destroy
- * its own output. So the fence keeps the strongest claim per
- * (subject, kind) and drops the rest with a reason.
+ * Kinds whose pack semantics are `single_active`, read from the MANIFEST
+ * rather than restated here, so the fence and the ontology can never
+ * drift apart.
+ *
+ * Sending several claims for one of these on a single anchor does not
+ * record several values — each would SUPERSEDE the last on commit, and
+ * only the final one would survive. That is right for the slots that
+ * genuinely have one current value (`owns`, `default_value`,
+ * `depends_on_version`, `decided`) and the fence keeps the strongest per
+ * (subject, kind).
+ *
+ * It is NOT a licence to drop coexisting claims. The first dogfood pass
+ * over this repository lost 1254 legitimate `invariant` facts across 515
+ * anchors to this fence — which was the fence correctly reporting a
+ * DOMAIN MODELLING ERROR upstream, not doing its job. `invariant` became
+ * `append_only` in pack 0.6.0 and now flows through untouched; the fence
+ * is deliberately left reading the manifest so the next such mistake
+ * surfaces the same way instead of being hard-coded around.
  */
 const SINGLE_ACTIVE_KINDS = new Set(
   CODE_MEMORY_PACK.predicates.filter((p) => p.semantics === 'single_active').map((p) => p.localId),
 );
 
-/** Winner per (subject, kind): highest confidence, ties to the first seen. */
+/**
+ * Winner per (subject, kind): highest confidence, ties to the first
+ * seen. Derivers emit newest-evidence-first (git log is read
+ * newest-first), so equal-confidence claims resolve to the most recent
+ * artefact — the current owner, the current pin, the current decision.
+ */
 function singleActiveWinners(facts: IdentifiedRepoFact[], packId: string): Set<string> | null {
   // Another pack's semantics are unknown to this table, so the fence
   // stands down rather than dropping claims on a guess.

@@ -400,11 +400,36 @@ describe('code-memory pack', () => {
     expect(byLocal.get('depends_on_version')?.semantics).toBe('single_active');
     expect(byLocal.get('owns')?.semantics).toBe('single_active');
     expect(byLocal.get('superseded_by')?.semantics).toBe('append_only');
-    // The originals keep the semantics they shipped with.
     expect(byLocal.get('decided')?.semantics).toBe('single_active');
     expect(byLocal.get('because')?.semantics).toBe('append_only');
-    expect(byLocal.get('invariant')?.semantics).toBe('single_active');
     expect(byLocal.get('gotcha')?.semantics).toBe('append_only');
+  });
+
+  /**
+   * 0.6.0 semantics correction. `invariant` shipped `single_active`, so
+   * every newly recorded constraint retired the previous one — but a
+   * module's invariants COEXIST, and there is no "which one is current"
+   * question for supersession to answer. `decided` is the opposite case
+   * and must NOT drift with it: an anchor has exactly one current
+   * decision (the eval battery's k09 asserts precisely that, and reads
+   * the old one back at an asOf between the writes), and
+   * `superseded_by` records what replaced it.
+   */
+  it('0.6.0: coexisting invariants append; the one-current-value slots supersede', () => {
+    const byLocal = new Map(CODE_MEMORY_PACK.predicates.map((p) => [p.localId, p]));
+    expect(byLocal.get('invariant')?.semantics).toBe('append_only');
+    // The description has to TEACH coexistence, or an extractor reading
+    // the manifest still behaves as if one rule retires the next.
+    expect(byLocal.get('invariant')?.description).toContain('COEXIST');
+    expect(byLocal.get('invariant')?.description).toContain('multi-valued');
+
+    // The exactly-one-current-value slots are unaffected by that fix.
+    for (const local of ['decided', 'owns', 'default_value', 'depends_on_version']) {
+      expect(byLocal.get(local)?.semantics).toBe('single_active');
+    }
+    // Not a patch: the semantics change alters stored-fact behaviour.
+    const [major = '0', minor = '0'] = CODE_MEMORY_PACK.version.split('.');
+    expect(`${major}.${minor}`).not.toBe('0.5');
   });
 
   it('ships a SELF-SCOPING extractionProfile (builtin = injected into every tenant)', () => {
@@ -583,7 +608,10 @@ const MEDIA_CONTRACT: MediaExpectation[] = [
   },
   {
     pack: CODE_MEMORY_PACK,
-    version: '0.5.0',
+    // 0.6.0: the `invariant` semantics correction (single_active →
+    // append_only). The media contract itself is unchanged from 0.5.0 —
+    // this pin just has to move deliberately on every version bump.
+    version: '0.6.0',
     modalities: ['text', 'image', 'document'],
     processors: [IMAGE_METADATA, DOCUMENT_TEXT],
     rawEvidence: undefined, // a builtin seeds into every tenant unasked

@@ -454,9 +454,22 @@ A candidate that would fail server-side is dropped locally with a
 reason, never sent: predicate outside the pack namespace, entity name
 over 256 chars, object over 2000, a `default_value` that is prose rather
 than a value token (the pack's 0.4.3 rule), a span that is not verbatim
-in its evidence document, and `single_active_collision` — emitting five
-`invariant` claims on one anchor would make the fifth supersede the
-other four, so only the strongest is sent.
+in its evidence document, and `single_active_collision` — for a
+predicate the pack declares `single_active` (`owns`, `default_value`,
+`depends_on_version`, `decided`) several claims on one anchor would make
+the last supersede the rest, so only the strongest is sent.
+
+The single-active set is read from the pack manifest, never restated, so
+the fence and the ontology cannot drift. That is how a **domain
+modelling error** surfaced: the first dogfood pass dropped 1254
+legitimate `invariant` facts across 515 anchors, because `invariant` had
+shipped as `single_active` since the pack's first version. A module's
+invariants coexist — "every handler validates its body with the shared
+zod schema" and "amounts are always emitted in cents" are both true of
+one file at once — so supersession there was pure data loss. Pack
+**0.6.0** makes `invariant` `append_only`; `decided` deliberately stays
+`single_active` (an anchor has exactly one *current* decision, and
+`superseded_by` records what replaced the old one).
 
 ### Caps
 
