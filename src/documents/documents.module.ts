@@ -8,6 +8,7 @@ import { DocumentsController } from './documents.controller';
 import { DocumentsIngestController } from './documents-ingest.controller';
 import { ExternalCandidatesController } from './external-candidates.controller';
 import { ExternalCandidatesService } from './external-candidates.service';
+import { SourceDriftStalenessService } from './source-drift-staleness.service';
 import { IndexerWorkController } from './indexer-work.controller';
 import { IndexerWorkService } from './indexer-work.service';
 import { IndexerAdminController } from './indexer-admin.controller';
@@ -72,6 +73,7 @@ import { OutcomesModule } from '../outcomes/outcomes.module';
     IndexerOperatorService,
     IndexerWebhookService,
     SceneCandidateWriterService,
+    SourceDriftStalenessService,
   ],
   exports: [
     DocumentIngestService,

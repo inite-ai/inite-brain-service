@@ -255,6 +255,61 @@ into shadow `memory_episode` rows under `segmenterVersion`
 counts. Scene payloads are default-deny in the candidates audit view —
 content opens only under `brain:read_pii`.
 
+**Source-version stamps (`sourceVersion`).** When the operator enables
+`PACK_SOURCE_VERSION_STALENESS` (default off — the field is rejected 400
+otherwise), a submission may name the revision of the EXTERNAL system of
+record it read:
+
+```json
+{
+  "sourceVersion": {
+    "system": "git",
+    "ref": "main",
+    "version": "9f2c1ab…",
+    "readAt": "2026-09-08T05:11:00Z"
+  }
+}
+```
+
+Why it exists: some domains have a system of record that is better than
+our copy — exact, versioned, cheap, never wrong about the past. Code has
+git; legal has the DMS revision; medical has the study in PACS. For
+those, memory should MATERIALIZE what is not derivable (a decision, its
+rationale, a gotcha, an invariant) and merely POINT AT what is derivable
+(who owns a file, what a flag defaults to, which version a dependency is
+pinned to). A derivable claim stored as timeless truth is a promise to
+start lying the moment the source moves; bound to a revision it stays
+true forever. All four fields are required (a half-stamp is a 400), and
+the shape is deliberately not git-shaped — a DMS revision id or an EHR
+study id fills the same fields.
+
+The stamp rides candidate provenance into every committed fact's
+`source.sourceVersion`, and the same submission runs a DRIFT SWEEP: the
+pack's derivable facts whose stamp names an older revision of the same
+`system` + `ref` are marked with the existing staleness fields
+(`staleAt` / `staleReason = "source_version_drift"`, migration 0072) as
+candidates for re-verification, and facts back at the current revision
+have that mark cleared. The response then carries a `sourceDrift`
+summary. No git ever runs server-side: the current revision is whatever
+the indexer — the party holding the working tree — reports.
+
+WHICH facts are derivable is the PACK's declaration, never the engine's
+guess. In the manifest `memoryModel`:
+
+```ts
+verificationRules: [
+  { requires: 'source_version_match',
+    appliesTo: ['owns', 'default_value', 'depends_on_version'] },
+]
+```
+
+`appliesTo` names the pack's own predicate localIds and is mandatory for
+this rule. Interpretation predicates (`decided`, `because`, `gotcha`,
+`invariant`) are simply omitted: they are statements about the PAST and
+do not rot when new commits land. A pack that declares no such rule never
+sweeps, and a fact carrying no stamp is untouchable by the sweep by
+construction.
+
 ### 5. Can't process it? Give it back
 
 ```

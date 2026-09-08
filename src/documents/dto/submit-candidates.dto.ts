@@ -1,4 +1,4 @@
-import { IsArray, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsArray, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 
 /**
  * An EXTERNAL indexer's reading of a stored document — the
@@ -128,4 +128,15 @@ export class SubmitCandidatesDto {
   @IsOptional()
   @IsArray()
   stateDeltas?: SubmittedStateDelta[];
+
+  /**
+   * The revision of the external system of record this submission read
+   * (`{ system, ref, version, readAt }` — src/common/source-version.ts).
+   * Rejected 400 while PACK_SOURCE_VERSION_STALENESS is off (default),
+   * so the flag-off surface is byte-identical. Field shape is
+   * service-validated, like every other nested shape here.
+   */
+  @IsOptional()
+  @IsObject()
+  sourceVersion?: Record<string, unknown>;
 }

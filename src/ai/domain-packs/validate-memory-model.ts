@@ -43,7 +43,16 @@ import {
 const SNAKE = /^[a-z][a-z0-9_]*$/;
 /** Fixed zoom targets available to every pack alongside its own scenes. */
 const ZOOM_LITERALS = new Set(['episodes', 'facts', 'scenes']);
-const REQUIRES = new Set(['human_confirmation', 'corroboration', 'recency_check']);
+const REQUIRES = new Set([
+  'human_confirmation',
+  'corroboration',
+  'recency_check',
+  'source_version_match',
+]);
+/** Rules that MUST name the predicate class they cover (see appliesTo). */
+const REQUIRES_APPLIES_TO = new Set(['source_version_match']);
+/** A rule cannot cover more of the pack's predicates than it HAS. */
+const MM_MAX_APPLIES_TO = 32;
 const RETENTION_HINTS = new Set(['ephemeral', 'standard', 'durable']);
 const MEMORY_MODEL_FIELDS = new Set([
   'sceneSchemas',
@@ -201,7 +210,7 @@ export function validateMemoryModel(pack: DomainPackManifest, mm: unknown): void
     predicateLocalIds,
     sceneIds,
   });
-  validateVerificationRules(pack.id, model.verificationRules);
+  validateVerificationRules(pack.id, model.verificationRules, predicateLocalIds);
   validateRetentionHints({
     packId: pack.id,
     hints: model.retentionHints,
@@ -499,7 +508,11 @@ function validateHintRefs(opts: {
   }
 }
 
-function validateVerificationRules(packId: string, rules: unknown): void {
+function validateVerificationRules(
+  packId: string,
+  rules: unknown,
+  predicateLocalIds: Set<string>,
+): void {
   if (rules === undefined) return;
   assertPresentList({
     packId,
@@ -515,6 +528,7 @@ function validateVerificationRules(packId: string, rules: unknown): void {
         `pack "${packId}" memoryModel verificationRule requires "${String(r.requires)}" must be one of ${[...REQUIRES].join('|')}`,
       );
     }
+    validateAppliesTo(packId, r, predicateLocalIds);
     if (r.claimPattern === undefined) continue;
     assertLiteralText({
       packId,
@@ -528,6 +542,53 @@ function validateVerificationRules(packId: string, rules: unknown): void {
         `pack "${packId}" memoryModel verificationRule claimPattern "${r.claimPattern}" must be a literal substring, not a pattern — regex metacharacters are not allowed`,
       );
     }
+  }
+}
+
+/**
+ * `appliesTo` names the pack's OWN predicate localIds — the same
+ * cannot-squat posture attentionHints.prefer and retentionHints already
+ * hold. A `source_version_match` rule must carry one: it declares WHICH
+ * class of the domain's claims is re-derivable from the external system
+ * of record, and a drift sweep with no declared class would either touch
+ * every claim the pack ever recorded or none of them.
+ */
+function validateAppliesTo(
+  packId: string,
+  rule: Partial<PackVerificationRule>,
+  predicateLocalIds: Set<string>,
+): void {
+  const requires = String(rule.requires);
+  if (rule.appliesTo === undefined) {
+    if (REQUIRES_APPLIES_TO.has(requires)) {
+      throw new DomainPackError(
+        `pack "${packId}" memoryModel verificationRule requires "${requires}" must declare appliesTo — the predicate class it covers`,
+      );
+    }
+    return;
+  }
+  if (
+    !Array.isArray(rule.appliesTo) ||
+    rule.appliesTo.length === 0 ||
+    rule.appliesTo.length > MM_MAX_APPLIES_TO
+  ) {
+    throw new DomainPackError(
+      `pack "${packId}" memoryModel verificationRule appliesTo must be 1..${MM_MAX_APPLIES_TO} predicate localIds`,
+    );
+  }
+  const seen = new Set<string>();
+  for (const local of rule.appliesTo) {
+    if (typeof local !== 'string' || !predicateLocalIds.has(local)) {
+      throw new DomainPackError(
+        `pack "${packId}" memoryModel verificationRule appliesTo references "${String(local)}", which is not a predicate of this pack`,
+      );
+    }
+    if (seen.has(local)) {
+      throw new DomainPackError(
+        `pack "${packId}" memoryModel verificationRule appliesTo lists "${local}" twice`,
+      );
+    }
+    seen.add(local);
   }
 }
 

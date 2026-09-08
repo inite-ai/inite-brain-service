@@ -13,6 +13,7 @@
  * keys corroboration on originKey, migration 0050). Per-contributor
  * confidences survive in `contributors` for provenance.
  */
+import { readSourceVersionStamp, type SourceVersionStamp } from '../common/source-version';
 import type { CandidateRow } from './candidate-store.service';
 
 export interface MergedEntity {
@@ -31,6 +32,9 @@ export interface FactContributor {
   model: string | null;
   confidence: number;
   chunkSeq: number;
+  /** The external revision this contributor read (0072-adjacent drift
+   *  staleness). Absent unless the staging payload carried one. */
+  sourceVersion?: SourceVersionStamp | undefined;
 }
 
 export interface MergedFact {
@@ -207,6 +211,10 @@ function foldFactIntoGroup(p: {
 }): void {
   const { row } = p;
   const payload = row.payload;
+  // Re-fenced on the way out of storage: a row written by a looser
+  // writer (or hand-edited) must not smuggle a malformed stamp into the
+  // drift comparison. A stamp that fails the fence is simply absent.
+  const stamp = readSourceVersionStamp(payload.sourceVersion);
   const contributor: FactContributor = {
     candidateId: row.id,
     indexerId: String(payload.indexerId ?? 'core'),
@@ -214,6 +222,7 @@ function foldFactIntoGroup(p: {
     model: typeof payload.model === 'string' ? payload.model : null,
     confidence: row.confidence,
     chunkSeq: row.chunkSeq,
+    ...(stamp ? { sourceVersion: stamp } : {}),
   };
   const group = p.factGroups.get(p.groupKey);
   if (!group) {

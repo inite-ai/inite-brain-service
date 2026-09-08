@@ -782,6 +782,19 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Pack memory projections (migration 0110), TWO producers. DOCUMENT origin: external candidate submissions may carry scenes/stateDeltas validated against the submitting pack’s manifest memoryModel (sceneSchemas / stateModels), staged as candidate kinds scene/state_delta and projected at commit time. CAPTURE origin: a mention turn is matched against the installed packs’ declared sceneSchemas.cues (literal substrings, model-free — no LLM, no embedding) and declared stateModels.states, projected inline at ingest. Both write shadow memory_episode rows under segmenterVersion pack:<packId>+<fp> (registry scenes:<packId>; purge via DELETE /scenes/versions/:v); capture-origin rows also carry a memory_episode_member edge to their L0 turn (the GDPR erasure anchor — the capture producer requires EPISODE_SUBSTRATE_ENABLED and skips a turn it could not capture). Off = submissions carrying either array are rejected 400, no such candidate row is written, no projection runs on either path — byte-identical. The GDPR forget cascades for projected rows run regardless.',
   },
   {
+    key: 'PACK_SOURCE_VERSION_STALENESS',
+    category: 'scenes',
+    // Read at call time (pack-projection-flags.packSourceVersionStaleness-
+    // Enabled) by the external-submission validator and the drift sweep —
+    // never captured in a constructor — so a flip takes effect without
+    // restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Source-version stamps + drift-based staleness. An external candidate submission may carry sourceVersion = {system, ref, version, readAt} naming the revision of the EXTERNAL system of record it read (git commit, DMS revision, EHR study). The stamp rides candidate provenance into every committed fact’s source.sourceVersion, so a derivable claim reads “at commit abc123, X is Y” instead of the timeless — and eventually false — “X is Y”. The same submission then sweeps: facts of the pack’s DERIVABLE predicate class whose stamp names an older revision of the SAME system+ref are marked with the existing 0072 staleAt/staleReason (reason source_version_drift) as candidates for re-verification, and facts back at the current revision have that mark cleared. Which predicates are derivable is DECLARED by the pack — memoryModel.verificationRules entries with requires=source_version_match and appliesTo=[localIds] — never inferred from predicate names: an interpretation (decided/because/gotcha/invariant) is a statement about the past and never drifts. No git ever runs server-side; the current revision is told to the server by the indexer that holds the working tree. Marking only, the 0072 contract — a drifted fact keeps serving, and the recompose pass is fenced to source.kind=compaction-summary so it never picks these up. Off = a submitted sourceVersion is rejected 400, no candidate payload or fact source gains the key, and no sweep query runs — byte-identical.',
+  },
+  {
     key: 'SCENES_BELIEF_PROMOTION',
     category: 'scenes',
     // Read at call time (scene-flags.sceneBeliefPromotionEnabled) by the

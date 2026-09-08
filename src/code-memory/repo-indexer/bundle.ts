@@ -22,6 +22,7 @@ import { createHash } from 'node:crypto';
 import { isGroundedSpan, normalizeForGrounding } from '../../ai/extractor-internals/grounding';
 import { CODE_MEMORY_PACK } from '../../ai/domain-packs/code-memory.pack';
 import { isValueShaped } from './modules/config.module';
+import type { SourceVersionStamp } from '../../common/source-version';
 import {
   MAX_ENTITY_NAME_CHARS,
   MAX_FACT_OBJECT_CHARS,
@@ -318,10 +319,38 @@ export interface CandidatePayload {
   indexerId: string;
   entities: SubmittedEntityPayload[];
   facts: SubmittedFactPayload[];
+  /**
+   * The revision of the external system of record this run read
+   * (server: PACK_SOURCE_VERSION_STALENESS). Sent ONLY when the working
+   * tree resolved to a real commit AND a ref — a half-stamp is worse
+   * than none, and the server rejects one anyway. Its absence keeps the
+   * body byte-identical to a pre-stamp submission.
+   */
+  sourceVersion?: SourceVersionStamp;
+}
+
+/**
+ * The stamp for this run, or undefined outside a git checkout. `git` is
+ * hardcoded here and NOWHERE else: the stamp shape is domain-agnostic —
+ * a DMS revision or an EHR study id fills the same four fields — and it
+ * is the INDEXER, the party that actually holds the working tree, that
+ * names its own system of record. The server never learns what git is.
+ */
+export function repoSourceVersion(p: {
+  headSha: string | null;
+  ref: string | null;
+  readAt: string;
+}): SourceVersionStamp | undefined {
+  if (!p.headSha || !p.ref) return undefined;
+  return { system: 'git', ref: p.ref, version: p.headSha, readAt: p.readAt };
 }
 
 /** Build the `POST /v1/documents/:id/candidates` body for one document. */
-export function toCandidatePayload(facts: IdentifiedRepoFact[], packId: string): CandidatePayload {
+export function toCandidatePayload(
+  facts: IdentifiedRepoFact[],
+  packId: string,
+  sourceVersion?: SourceVersionStamp | undefined,
+): CandidatePayload {
   const entityIndex = new Map<string, number>();
   const entities: SubmittedEntityPayload[] = [];
   const payloadFacts: SubmittedFactPayload[] = [];
@@ -342,5 +371,10 @@ export function toCandidatePayload(facts: IdentifiedRepoFact[], packId: string):
       clause: fact.evidence.excerpt.replace(/\s+/g, ' ').trim().slice(0, 1_000),
     });
   }
-  return { indexerId: packId, entities, facts: payloadFacts };
+  return {
+    indexerId: packId,
+    entities,
+    facts: payloadFacts,
+    ...(sourceVersion ? { sourceVersion } : {}),
+  };
 }
