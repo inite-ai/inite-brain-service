@@ -9,7 +9,10 @@ and decides what becomes memory.
 
 A dependency-free reference implementation lives at
 [`examples/reference-indexer.ts`](../examples/reference-indexer.ts)
-(`pnpm indexer:reference`).
+(`pnpm indexer:reference`). For a *real* producer — one that reads a git
+repository and derives `code_memory` candidates from it — see
+[the code-repository indexer](#the-code-repository-indexer) below
+(`pnpm indexer:repo`).
 
 ## Prerequisites
 
@@ -359,6 +362,132 @@ routed to their pack (`/content`) — that text can carry anything the
 source carried (post-redaction). Mint per-integration keys, scope packs
 narrowly via relevance, and treat external indexers as processors in
 your data-protection terms.
+
+## The code-repository indexer
+
+`code_memory` is the only pack in the library that declares
+`indexer: { mode: 'external' }`, and for a long time nothing fed it.
+`scripts/index-repo.ts` (`pnpm indexer:repo`) is that producer: it walks
+a git working tree plus its history and submits `code_memory`
+candidates through the protocol above. It is an **operator/CI-invoked
+tool** — nothing schedules it, no Nest module imports it, and it makes
+no network call at all until `--submit` is passed.
+
+### Dogfood: index this repository
+
+```bash
+# 1. See what this repo would contribute. No network, no key needed.
+pnpm indexer:repo -- --repo . --dry-run
+
+# 2. Submit for real. The key needs BOTH brain:write (to store the
+#    evidence documents) and indexer:write (to stage the candidates);
+#    if it is pack-bound it must be bound to code_memory.
+BRAIN_API_KEY=<key> pnpm indexer:repo -- \
+  --repo . --brain-url https://brain.inite.ai --submit
+
+# 3. Later runs: only the delta since the last recorded HEAD.
+BRAIN_API_KEY=<key> pnpm indexer:repo -- \
+  --repo . --brain-url https://brain.inite.ai --since auto --submit
+```
+
+Operator flags `DOCUMENT_INGEST_ENABLED=1` and
+`DOCUMENT_MULTI_INDEXER_ENABLED=1` must be on, as for every external
+indexer. Run 2 writes `.brain-indexer-state.json` in the repo root
+(override with `--state`); keep it — it is what makes run 3 cheap.
+
+Other flags: `--pack <id>`, `--vertical <name>`, `--modules <a,b>`,
+`--max-candidates <n>`, `--max-files <n>`, `--json`.
+
+### How a repository becomes candidates
+
+Brain re-grounds every external span against stored document text, so
+the indexer first composes an **evidence document**: one block per
+claim carrying the anchor, the value, the *derivation rule* that
+produced it, and the artefact quoted verbatim with its file and line
+span. That document is ingested (`POST /v1/ingest/document`, routed with
+`indexers: ["code_memory"]`), and the candidates are then staged against
+it with the claimless flow. The document is the audit trail — every
+claim can be re-derived from it without trusting the indexer.
+
+Nothing is guessed. Every fact traces to a concrete artefact:
+
+| Predicate | Evidence |
+|---|---|
+| `owns` | a CODEOWNERS line; failing that, git-history authorship concentration (dominant author, thresholds stated in the fact) |
+| `depends_on_version` | the pnpm lockfile's exact resolution, else the package.json range, verbatim |
+| `default_value` | a config-catalogue row, else a `DEFAULT_*` literal — value-shaped tokens only |
+| `decided` / `because` | a commit message or an ADR-style `## Decision` / `## Rationale` section that explicitly states one |
+| `invariant` / `gotcha` | a comment that explicitly warns ("must", "never", "gotcha", "beware", "⚡"), quoted verbatim |
+
+Semantic summaries of code are deliberately **out of scope**.
+
+### Core + ecosystem modules
+
+The tool is a small language-agnostic core plus a registry of ecosystem
+modules (`src/code-memory/repo-indexer/`).
+
+- **Core** (`core/`) always runs and knows no language: git history and
+  authorship, CODEOWNERS, commit-message decisions, ADR docs, warning
+  comments, the file inventory and caps, dedupe/incremental machinery,
+  and the submission client with its client-side fences.
+- **Modules** (`modules/`) hold every ecosystem-specific rule. Each
+  declares `claims(path)`, an `extract()` returning the same fact shape
+  the core emits, and its own `version`, which rides into the derivation
+  of everything it produced. Shipping today: `javascript`
+  (package.json + pnpm-lock.yaml), `config_catalog`
+  (`config-catalog*.data.ts`), `default_constants` (`DEFAULT_*`
+  literals).
+
+A repository whose ecosystem has no module still gets everything the
+core derives. When two modules claim one path the higher `priority`
+wins, ties break on ascending `id` — never registration order. The
+registry (`modules/registry.ts`) is an explicit list, not filesystem
+discovery.
+
+**Adding an ecosystem** (Python, Go, Rust, a framework) is one new file
+under `modules/` exporting an `EcosystemModule`, plus one entry in
+`BUILTIN_MODULES`. No core file changes.
+
+### Client-side fences
+
+A candidate that would fail server-side is dropped locally with a
+reason, never sent: predicate outside the pack namespace, entity name
+over 256 chars, object over 2000, a `default_value` that is prose rather
+than a value token (the pack's 0.4.3 rule), a span that is not verbatim
+in its evidence document, and `single_active_collision` — for a
+predicate the pack declares `single_active` (`owns`, `default_value`,
+`depends_on_version`, `decided`) several claims on one anchor would make
+the last supersede the rest, so only the strongest is sent.
+
+The single-active set is read from the pack manifest, never restated, so
+the fence and the ontology cannot drift. That is how a **domain
+modelling error** surfaced: the first dogfood pass dropped 1254
+legitimate `invariant` facts across 515 anchors, because `invariant` had
+shipped as `single_active` since the pack's first version. A module's
+invariants coexist — "every handler validates its body with the shared
+zod schema" and "amounts are always emitted in cents" are both true of
+one file at once — so supersession there was pure data loss. Pack
+**0.6.0** makes `invariant` `append_only`; `decided` deliberately stays
+`single_active` (an anchor has exactly one *current* decision, and
+`superseded_by` records what replaced the old one).
+
+### Caps
+
+| Cap | Default | Meaning |
+|---|---|---|
+| `maxFiles` | 5000 | working-tree files opened |
+| `maxFileBytes` | 512_000 | larger files skipped whole |
+| `maxCommits` | 500 | commits read in an incremental run |
+| `ownershipHistoryDepth` | 200 | commits inspected for authorship |
+| `maxCandidates` | 500 | facts emitted per run |
+| `maxFactsPerDocument` | 120 | facts per evidence document (server allows 200/kind) |
+| `maxDocChars` | 100_000 | evidence-document text (server hard cap 512_000) |
+| `maxWarningsPerFile` | 5 | warning comments taken from one file |
+
+`.git`, `node_modules`, `dist`, `build`, `out`, `coverage`, `vendor`,
+`third_party`, `models` and other dot-directories (except `.github`) are
+never walked; symlinks are never followed; binaries are detected by a
+NUL byte in the first 8KiB and skipped.
 
 ## See also
 
