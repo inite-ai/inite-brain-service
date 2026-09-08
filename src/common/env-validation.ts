@@ -170,6 +170,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── HNSW vector leg ────────────────────────────────────────────────
   positiveInt(env, 'SEARCH_HNSW_EF', errors);
   positiveInt(env, 'SEARCH_HNSW_OVERFETCH', errors);
+  // 0 is meaningful (answer with the first probe, don't wait), so
+  // non-negative rather than positive.
+  nonNegativeInt(env, 'SEARCH_HNSW_BUILD_WAIT_MS', errors);
 
   // ── HNSW on the inline entity-resolution name-candidate scan ───────
   positiveInt(env, 'INGEST_INLINE_RESOLUTION_HNSW_EF', errors);
@@ -947,6 +950,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   'INGEST_EPISODE_ONLY',
   'SEARCH_PPR_ENABLED',
   'SEARCH_HNSW_ENABLED',
+  // Build the per-tenant HNSW indexes CONCURRENTLY. Off = the historical
+  // synchronous DDL, which fails outright over a 20k × 1024-d corpus.
+  'SEARCH_HNSW_CONCURRENT',
   // Default-ON: read as `SEARCH_TOKEN_COUNT_OFFLOAD ?? '1'` before
   // envFlagEnabled, so only an explicit 0/false disables the offload.
   'SEARCH_TOKEN_COUNT_OFFLOAD',
