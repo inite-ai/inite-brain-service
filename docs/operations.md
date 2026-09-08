@@ -620,6 +620,44 @@ UI:
   is not fenced — the paywall guards the REGISTRY resolve path only; an
   operator who already has the manifest file can always install it.
 
+## Long-lived DB sessions (why reads used to die after an hour)
+
+`surrealdb-js` renews only the sessions it opened itself. When application
+code calls `db.signin()`, the driver records `authOverriden` and its renewal
+timer has nothing left to renew with — at `exp − 60s` it calls `invalidate()`
+and the connection is **anonymous for the rest of the process**. Its own type
+declarations say so: *"When this method is called, the `authentication`
+property passed to `connect()` will be ignored. You will be responsible for
+handling session invalidation."*
+
+`DEFINE USER` issues a 1-hour access token by default, so any connection that
+signs in once and lives forever goes anonymous about 59 minutes after boot.
+Nothing expires server-side; `DURATION FOR SESSION NONE` does **not** help,
+because the driver reads the JWT `exp` and never asks the server.
+
+Every long-lived connection in brain therefore re-signs before that timer
+fires:
+
+| Connection | Renewal |
+|---|---|
+| Root pool (`withCompany`, `withAdminDb`) | `signin` on every acquire (also its zombie-websocket liveness probe). |
+| Migrator connection | Same, via `ensureRootSession`. |
+| Scoped pool (`withScopedCompany` — every caller-facing read) | Re-signs when the access token enters a 5-minute margin. A signin runs the server-side password KDF (~16ms vs ~0.3ms for a `SELECT`), so paying it per read is not free; the margin comfortably clears the driver's 60s invalidate lead time. Fails **closed** if it cannot — a request errors rather than being served root-authorized. |
+| LIVE subscription channels | Renewed on the catch-up tick, same margin. |
+
+Symptoms to recognise if this ever regresses: reads answer
+`Anonymous access not allowed: Not enough permissions to perform this action`
+while writes, `/health` and MCP keep working. `/ready` now catches it —
+`pingScoped()` runs an authorization-gated statement on a scoped connection,
+because `version()` (what `ping()` uses) is answered for anonymous sessions
+too and reported "ok" throughout the original outage.
+
+`SURREALDB_SCOPED_TOKEN_DURATION` declares the scoped user's token lifetime
+(a SurrealDB duration literal; unset = the server's 1h default). It is a
+tuning knob, not the fix — brain OVERWRITEs the user definition on every
+boot, so it exists mainly so a duration set by hand on the server is not
+silently discarded on the next deploy.
+
 ## Boot-time validation
 
 The service runs `validateEnv()` before NestJS starts. Missing or

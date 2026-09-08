@@ -42,6 +42,7 @@
 import { Surreal, StringRecordId } from 'surrealdb';
 import { detectLanguage, DETECTOR_VERSION } from '../src/ai/locale/language-detector';
 import { envFlagEnabled } from '../src/common/env-validation';
+import { SurrealSessionKeeper } from '../src/db/session-keeper';
 
 interface Args {
   url: string;
@@ -118,9 +119,22 @@ async function main(): Promise<void> {
   }
 
   const db = new Surreal();
+  const creds = { username: a.user, password: a.pass };
+  // A `signin()`-established session is NOT renewed by surrealdb-js — it is
+  // INVALIDATED when the access token lapses (1h by default), after which
+  // every statement fails with "Anonymous access not allowed". This loop is
+  // unbounded in the size of the tenant's corpus, so a large backfill will
+  // cross that line mid-run; `keepSession` re-signs before it happens.
+  // See src/db/session-keeper.ts.
+  const sessions = new SurrealSessionKeeper();
+  const keepSession = async () => {
+    if (!sessions.needsSignin(db)) return;
+    const tokens = await db.signin(creds);
+    sessions.record(db, tokens?.access);
+    await db.use({ namespace: a.ns, database: `co_${a.tenant}` });
+  };
   await db.connect(a.url);
-  await db.signin({ username: a.user, password: a.pass });
-  await db.use({ namespace: a.ns, database: `co_${a.tenant}` });
+  await keepSession();
 
   console.info(
     `backfill-lang-attribution: tenant=${a.tenant} detector=${DETECTOR_VERSION} ` +
@@ -131,6 +145,7 @@ async function main(): Promise<void> {
   let scanned = 0;
   let stamped = 0;
   for (;;) {
+    await keepSession();
     // Keyset pagination over the record id — stable under concurrent writes
     // and index-friendly (no OFFSET blow-up on large corpora).
     const [rows] = await db.query<[FactRow[]]>(

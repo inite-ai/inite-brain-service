@@ -37,9 +37,17 @@ describe('LiveSubscriptionManager', () => {
     opts: { changes?: any[]; versionstamp?: number } = {},
   ) {
     const received: Array<{ sub: string; event: LiveEvent }> = [];
+    const signins: number[] = [];
     const channel = {
       conn: {
         query: async () => [opts.changes ?? []],
+        // A subscription connection outlives its access token, so the
+        // catch-up tick renews it. Hand back a token that is nowhere near
+        // expiring, so a second tick must NOT re-sign.
+        signin: async () => {
+          signins.push(Date.now());
+          return { access: farFutureJwt() };
+        },
       },
       sub: { kill: async () => {} },
       unsubscribe: () => {},
@@ -58,7 +66,13 @@ describe('LiveSubscriptionManager', () => {
         queued: 0,
       });
     };
-    return { channel, received, addSubscriber };
+    return { channel, received, addSubscriber, signins };
+  }
+
+  /** A syntactically real access token that expires in a year. */
+  function farFutureJwt(): string {
+    const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    return `${b64({ alg: 'HS512' })}.${b64({ exp: Math.floor(Date.now() / 1000) + 31_536_000 })}.s`;
   }
 
   const change = (versionstamp: number, id: string, predicate: string) => ({
@@ -224,6 +238,35 @@ describe('LiveSubscriptionManager', () => {
       addSubscriber('reader', ['brain:read'], lookup);
       await mgr.catchUp('co_x');
       expect(received.map((r) => r.sub)).toEqual(['privileged']);
+    });
+  });
+
+  describe('session renewal', () => {
+    /**
+     * A subscription connection is the longest-lived connection in the
+     * process, and surrealdb-js invalidates a `signin()`-established session
+     * when its access token lapses — after which the LIVE stream is dead and
+     * every catch-up tick fails with "Anonymous access not allowed" (audit
+     * 2026-09-08, see src/db/session-keeper.ts). The catch-up tick is where
+     * the session gets renewed.
+     */
+    it('signs the channel connection in on the first catch-up tick', async () => {
+      const mgr = makeManager();
+      const { signins } = installChannel(mgr, { versionstamp: 10, changes: [] });
+      await mgr.catchUp('co_x');
+      expect(signins).toHaveLength(1);
+    });
+
+    it('does not re-sign while the token still has life left', async () => {
+      const mgr = makeManager();
+      const { signins } = installChannel(mgr, { versionstamp: 10, changes: [] });
+      await mgr.catchUp('co_x');
+      await mgr.catchUp('co_x');
+      await mgr.catchUp('co_x');
+      // Renewal is driven by the token's own expiry, not by the tick — a
+      // signin runs the server-side password KDF and must not ride every
+      // catch-up interval.
+      expect(signins).toHaveLength(1);
     });
   });
 

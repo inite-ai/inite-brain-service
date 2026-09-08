@@ -47,19 +47,23 @@ export class HealthController {
   @Get('ready')
   @HttpCode(HttpStatus.OK)
   async ready() {
-    const { dbOk, embedderReady, ready } = await this.healthService.readiness();
+    const { dbOk, scopedOk, embedderReady, ready } = await this.healthService.readiness();
     if (!ready) {
       throw new ServiceUnavailableException({
         ready: false,
         checks: {
           surrealdb: dbOk ? 'ok' : 'unreachable',
+          // Distinct from `surrealdb`: the socket can be perfectly healthy
+          // while the scoped session has gone anonymous, which is exactly
+          // the failure /ready used to miss.
+          scopedPool: scopedOk ? 'ok' : 'unauthorized',
           embedder: embedderReady ? 'ok' : 'warming',
         },
       });
     }
     return {
       ready: true,
-      checks: { surrealdb: 'ok', embedder: 'ok' },
+      checks: { surrealdb: 'ok', scopedPool: 'ok', embedder: 'ok' },
     };
   }
 }

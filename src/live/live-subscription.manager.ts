@@ -4,6 +4,7 @@ import { Surreal, Table } from 'surrealdb';
 import type { LiveSubscription } from 'surrealdb';
 import { envFlagEnabled } from '../common/env-validation';
 import { queryRows } from '../db/surreal.service';
+import { SurrealSessionKeeper } from '../db/session-keeper';
 import { changefeedRow } from '../db/changefeed-row';
 import { makeRowPolicyFilter, type PredicatePolicyLookup } from '../policy/row-filter';
 
@@ -117,6 +118,16 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
   private readonly maxSubscribersPerTenant: number;
   private readonly maxQueuePerSubscriber: number;
   private readonly catchUpMs: number;
+  /**
+   * Subscription connections live OUTSIDE both pools and used to sign in
+   * exactly once, at channel open — the same shape that took the scoped pool
+   * anonymous ~59 minutes after boot (audit 2026-09-08, see
+   * db/session-keeper.ts). A standing subscription is the longest-lived
+   * connection in the process, so it is the most exposed: past the driver's
+   * invalidate timer the LIVE session dies and every catch-up tick fails with
+   * "Anonymous access not allowed". The keeper re-signs before that happens.
+   */
+  private readonly sessions = new SurrealSessionKeeper();
   private seq = 0;
 
   constructor(private readonly config: ConfigService) {
@@ -185,7 +196,7 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
 
     const conn = new Surreal();
     await conn.connect(this.url);
-    await conn.signin(this.creds);
+    await this.signin(conn);
     await conn.use({ namespace: this.namespace, database: dbNameFor(companyId) });
 
     // Anchor the changefeed cursor BEFORE the LIVE query starts. Anything
@@ -230,6 +241,12 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
   async catchUp(companyId: string): Promise<number> {
     const channel = this.channels.get(companyId);
     if (!channel) return 0;
+    // The catch-up tick is the only thing that touches this connection on a
+    // schedule, so it is where the session gets renewed. A re-signin does not
+    // disturb the selected namespace/database (verified against v3.2.4) and
+    // does not tear down the standing LIVE query — unlike the driver-side
+    // invalidate it is racing.
+    await this.signin(channel.conn);
     const changes = await queryRows<ChangefeedShowRow>(
       channel.conn,
       `SHOW CHANGES FOR TABLE ${TABLE} SINCE ${channel.versionstamp} LIMIT 1000`,
@@ -298,10 +315,22 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
     }
   }
 
+  /**
+   * Sign the subscription connection in, but only when its access token is
+   * close enough to expiry that the driver would otherwise invalidate the
+   * session. A no-op on the overwhelming majority of catch-up ticks.
+   */
+  private async signin(conn: Surreal): Promise<void> {
+    if (!this.sessions.needsSignin(conn)) return;
+    const tokens = await conn.signin(this.creds);
+    this.sessions.record(conn, tokens?.access);
+  }
+
   private async closeChannel(companyId: string): Promise<void> {
     const channel = this.channels.get(companyId);
     if (!channel) return;
     this.channels.delete(companyId);
+    this.sessions.forget(channel.conn);
     if (channel.timer) clearInterval(channel.timer);
     try {
       channel.unsubscribe();
