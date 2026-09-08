@@ -16,3 +16,6 @@ data/code-memory/*.model.json
 
 # LoCoMo eval run reports — throwaway scratch output, never source
 var/
+
+# Repo-indexer run state (per-checkout, never source) — scripts/index-repo.ts
+.brain-indexer-state.json
