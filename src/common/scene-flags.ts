@@ -369,6 +369,70 @@ export function scenePredictionBaselineEnabled(): boolean {
 }
 
 /**
+ * Memory-value promotion gate — SCENES_VALUE_GATE_ENABLED.
+ *
+ * The scene VALUE VECTOR (novelty, contradiction, stateChange, identity,
+ * explicitness, estimatedUtility — 0106) is written by two producers (the
+ * composer's deterministic scorer and, since SCENES_PREDICTION_BASELINE,
+ * the measured `scene-scorer-v1` into `enrichedMemoryValue`) and was read
+ * by exactly ONE field: `explicitness`, folded into belief confidence.
+ * Every other dimension was a write with no reader.
+ *
+ * When on, the belief promotion pass gives the vector a real consumer at
+ * the one place where scene value is a DECISION: whether a scene's
+ * stateDeltas may change the belief plane. A scene whose measured
+ * `contradiction` is high is exactly the one whose deltas most deserve
+ * promotion (it changes the world model); a scene with near-zero novelty,
+ * no contradiction and no state change carries nothing durable.
+ *
+ * THE POLICY IS ASYMMETRIC ON PURPOSE — "promote unless demonstrably
+ * noise", never "promote only if demonstrably valuable". A scene is
+ * refused ONLY when all three gated dimensions are PRESENT and every one
+ * of them sits below SCENES_VALUE_GATE_MIN. An UNDEFINED dimension is an
+ * unknown, never a confident zero (the read-side half of the #473
+ * write-side rule), so one missing dimension is enough to promote — an
+ * unscored world (pack scenes, legacy rows, enrichment off) therefore
+ * promotes exactly as it does with the gate off. The full doctrine, and
+ * why the other three dimensions are deliberately NOT gated on, lives on
+ * `sceneValueVerdict` in admin/belief-value-gate.ts.
+ *
+ * The env read lives here in the common layer, NOT inside the engine dirs
+ * (engine-gates S5.2). Read ONCE per promotion run (the Drift-3 contract)
+ * so a mid-run flip can never gate half a batch. Default off ⇒ the
+ * selection query, its parameters and every admitted scene are
+ * byte-identical to the pre-flag pass — the vector is not even projected.
+ */
+export function sceneValueGateEnabled(): boolean {
+  return envFlagEnabled(process.env.SCENES_VALUE_GATE_ENABLED);
+}
+
+/**
+ * Default noise floor for the value gate. Deliberately near the bottom of
+ * the [0,1] range: at 0.05 a scene is refused only when EVERY gated
+ * dimension is essentially zero — a scene both producers agree carries
+ * nothing. The gate is a noise filter, not a relevance ranker; raise it
+ * (0.1-0.2) only after watching `skippedLowValue` on a real world.
+ */
+const DEFAULT_VALUE_GATE_MIN = 0.05;
+
+/**
+ * Value-gate noise floor (SCENES_VALUE_GATE_MIN): a scene promotes unless
+ * novelty AND contradiction AND stateChange are all PRESENT and all below
+ * this value. 0 makes the gate a no-op (every present dimension is >= 0),
+ * which is the documented way to turn the flag on and watch the counters
+ * before choosing a floor. A non-boolean knob resolved here in the common
+ * layer (engine-gates S5.2); read at call time so a change is
+ * runtime-mutable. Must be a number in [0,1]; unset, blank, or invalid →
+ * 0.05. Ignored unless SCENES_VALUE_GATE_ENABLED is on.
+ */
+export function sceneValueGateMin(): number {
+  const raw = process.env.SCENES_VALUE_GATE_MIN;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_VALUE_GATE_MIN;
+  const v = Number(raw);
+  return Number.isFinite(v) && v >= 0 && v <= 1 ? v : DEFAULT_VALUE_GATE_MIN;
+}
+
+/**
  * Belief corroboration floor (SCENES_BELIEF_MIN_SCENES): promote a
  * (subject, field) group only when its winning value is corroborated by
  * scenes from at least this many DISTINCT CONVERSATIONS (the #377

@@ -538,7 +538,11 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
         row.conversationIds = [...(p.convs as string[])];
         return [];
       }
-      if (sqlText.includes('UPDATE memory_episode')) return [];
+      // Scene stamps are no-ops here (pinned by their own e2e), including
+      // the namespaced baselineRef read-then-write: no scene row exists,
+      // so the merge writes nothing.
+      if (sqlText.startsWith('SELECT id, baselineRef FROM memory_episode')) return [[]];
+      if (sqlText.includes('UPDATE memory_episode') || sqlText.includes('UPDATE $scene')) return [];
       throw new Error(`FakeBeliefDb: unhandled SQL: ${sqlText}`);
     }
 
@@ -986,6 +990,7 @@ describe('OFF-state hard guarantee (byte-identical prod)', () => {
       scenes: 0,
       eligibleScenes: 0,
       skippedMixedUser: 0,
+      skippedLowValue: 0,
       skippedConflict: 0,
       fieldFolds: 0,
       fieldFoldAmbiguous: 0,

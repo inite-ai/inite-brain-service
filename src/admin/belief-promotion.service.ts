@@ -12,6 +12,8 @@ import {
   sceneBeliefNegationDeltasEnabled,
   sceneBeliefPromotionEnabled,
   scenePackDeltaPromotionEnabled,
+  sceneValueGateEnabled,
+  sceneValueGateMin,
 } from '../common/scene-flags';
 import { supportEdgesEnabled } from '../common/provenance-flags';
 import { buildSupportEdgeBatches } from '../common/support-edges';
@@ -20,13 +22,20 @@ import {
   beliefPromoterVersion,
   buildPromotableScenesQuery,
   promoterVersionFor,
+  sceneSingleUser,
+  type PromotableSceneHead,
 } from './belief-scene-selection';
+import { formatValueDims, sceneValueVerdict } from './belief-value-gate';
+import { stampSupersededFrom } from './scene-baseline-ref';
 import { SceneVersionService } from './scene-version';
 
-// The lexical fold rule lives in belief-field-fold.ts and the scene
-// selection / world stamping in belief-scene-selection.ts (god-file
-// split); both are re-exported here so the historical import surface is
-// unchanged.
+// The lexical fold rule lives in belief-field-fold.ts, the scene
+// selection / row shape / #387 fence / world stamping in
+// belief-scene-selection.ts, the value-gate policy in
+// belief-value-gate.ts and the two-producer baselineRef contract in
+// scene-baseline-ref.ts (god-file split, 800-line ceiling); the first two
+// are re-exported here so the historical import surface — the enricher,
+// the prediction baseline, every spec — is unchanged.
 export { FIELD_FOLD_GENERIC_TOKENS, fieldsFold, resolveFieldFold } from './belief-field-fold';
 export {
   BELIEF_PROMOTER_VERSION,
@@ -35,7 +44,9 @@ export {
   buildPromotableScenesQuery,
   isPackSceneWorld,
   promoterVersionFor,
+  sceneSingleUser,
 } from './belief-scene-selection';
+export type { PromotableSceneHead } from './belief-scene-selection';
 
 /**
  * Belief promotion (Belief-A, SCENES_BELIEF_PROMOTION — default off):
@@ -120,6 +131,25 @@ export {
  *    stamped promoterVersion `belief-promotion-v1|pack:<packId>+<fp>`
  *    (promoterVersionFor) — an existing column, no migration.
  *
+ * MEMORY-VALUE GATE (SCENES_VALUE_GATE_ENABLED — default off): the first
+ * real consumer of the 0106 value vector. Until now this pass read
+ * exactly ONE of its six dimensions (`explicitness`, as the confidence
+ * signal above) and the other five were a write nothing read — including
+ * the two the measured `scene-scorer-v1` fills under
+ * SCENES_PREDICTION_BASELINE. With the flag on, a scene must clear a
+ * noise floor (SCENES_VALUE_GATE_MIN, default 0.05) on at least ONE of
+ * novelty / contradiction / stateChange before its deltas may change the
+ * belief plane. The policy is asymmetric on purpose — "promote unless
+ * demonstrably noise" — so a scene is refused ONLY when all three
+ * dimensions are PRESENT and all three are below the floor; an UNDEFINED
+ * dimension is an unknown, never a confident zero, and short-circuits to
+ * promote. An unscored world (pack scenes, legacy rows, enrichment off)
+ * therefore behaves exactly as with the gate off. Refusals are counted
+ * (`skippedLowValue`, in the run summary and the API response) and logged
+ * per scene with the dimensions that produced them. The full doctrine
+ * lives on `sceneValueVerdict` in belief-value-gate.ts. Off ⇒ the value
+ * dimensions are not even projected — byte-identical selection and fold.
+ *
  * CONFLICT GUARD (built-in, no flag): a group whose latest timestamp is
  * shared by two DIFFERENT values has no deterministic winner — the whole
  * (subject, field) group is SKIPPED LOUDLY with a warn. Same for a
@@ -141,10 +171,22 @@ export {
  *
  * SCENE CONTRACTS (0106, finally fulfilled): consumed scenes get
  * consolidatedInto ∪= [belief] (idempotent array::union; column widened
- * to generic records in 0120) and — on a revision ONLY — baselineRef =
- * {belief, revision, value, stampedAt}: the belief revision the delta
- * was applied against. Revision 1 has no baseline (baselineRef stays
- * NONE).
+ * to generic records in 0120) and — on a revision ONLY — the
+ * `baselineRef.supersededFrom` backpointer {belief, revision, value,
+ * stampedAt}: the belief revision the delta was applied against.
+ * Revision 1 has no baseline (the section is never written).
+ *
+ * `baselineRef` IS NAMESPACED (two producers, one FLEXIBLE column). The
+ * enrichment pass stamps an EXPECTATION snapshot into the same column
+ * under SCENES_PREDICTION_BASELINE, and both writers used to own the
+ * whole object — so a promotion revision destroyed the pre-scene world
+ * model that nothing else records. This pass now writes the two sections
+ * side by side, `{expectation, supersededFrom}`, preserving whatever
+ * snapshot it finds in ANY of the tolerated shapes (namespaced, legacy
+ * expectation, legacy backpointer, hybrid). No migration: the column is
+ * FLEXIBLE and the reading rule handles every shape. The whole contract
+ * — reader, merge and the primary-key read-then-write — lives in
+ * scene-baseline-ref.ts.
  *
  * #387 USER FENCE (fail-closed): a belief inherits the SINGLE-user
  * scope of its scenes. A scene whose userIds (0117) is missing (legacy,
@@ -194,39 +236,6 @@ export const BELIEF_NEGATION_VALUE = 'none';
  * #412/#413/#415: flag off ⇒ byte-identical prompt).
  */
 export const BELIEF_SYNTHESIS_NEGATION_CLAUSE = ` A value of "${BELIEF_NEGATION_VALUE}" means the subject NO LONGER has the attribute — phrase it as a natural negation (e.g. "no longer has a car"), never as possessing something called "${BELIEF_NEGATION_VALUE}".`;
-
-/** Scene head as selected by the promotion query (validated in JS). */
-export interface PromotableSceneHead {
-  id: unknown;
-  userId?: unknown;
-  userIds?: unknown;
-  conversationIds?: unknown;
-  occurredTo?: unknown;
-  stateDeltas?: unknown;
-  /** enrichedMemoryValue.explicitness projection (confidence signal). */
-  explicitness?: unknown;
-  /**
-   * The scene world this row belongs to. Selected ONLY under
-   * SCENES_PACK_DELTA_PROMOTION (the flag-off query is byte-identical),
-   * where it becomes the belief's pack provenance.
-   */
-  segmenterVersion?: unknown;
-}
-
-/**
- * Pure: the single user a scene's beliefs may inherit, or null when the
- * scene must be skipped fail-closed (#387): userIds missing (legacy),
- * empty (tenant-global), longer than one (mixed group), or disagreeing
- * with the folded userId stamp.
- */
-export function sceneSingleUser(scene: PromotableSceneHead): string | null {
-  const userIds = scene.userIds;
-  if (!Array.isArray(userIds) || userIds.length !== 1) return null;
-  const only = userIds[0];
-  if (typeof only !== 'string' || only === '') return null;
-  if (scene.userId !== only) return null;
-  return only;
-}
 
 /** One delta occurrence, normalized for the fold. */
 export interface BeliefContribution {
@@ -597,9 +606,14 @@ export function beliefIdTail(
 export interface BeliefPromotionResult {
   /** Enriched scenes of the current version seen by the pass. */
   scenes: number;
-  /** Scenes that passed the #387 single-user fence into the fold. */
+  /** Scenes that reached the fold: past the #387 fence AND the value gate. */
   eligibleScenes: number;
   skippedMixedUser: number;
+  /**
+   * Scenes the memory-value gate refused as demonstrably noise (0 unless
+   * SCENES_VALUE_GATE_ENABLED) — the gate's audit counter.
+   */
+  skippedLowValue: number;
   /** (subject, field) groups the conflict guard refused. */
   skippedConflict: number;
   /** Field names folded onto an existing one (SCENES_BELIEF_FIELD_FOLD). */
@@ -675,6 +689,7 @@ export class BeliefPromotionService {
       scenes: 0,
       eligibleScenes: 0,
       skippedMixedUser: 0,
+      skippedLowValue: 0,
       skippedConflict: 0,
       fieldFolds: 0,
       fieldFoldAmbiguous: 0,
@@ -701,11 +716,14 @@ export class BeliefPromotionService {
     const negationDeltas = sceneBeliefNegationDeltasEnabled();
     const fieldFoldOn = sceneBeliefFieldFoldEnabled();
     const packDeltas = scenePackDeltaPromotionEnabled();
+    const valueGate = sceneValueGateEnabled();
+    const valueGateMin = valueGate ? sceneValueGateMin() : 0;
     await this.surreal.withCompany(companyId, async (db) => {
       const selection = buildPromotableScenesQuery({
         version,
         ...(opts.conversationId !== undefined ? { conversationId: opts.conversationId } : {}),
         packDeltas,
+        valueGate,
       });
       const [scenes] = await db.query<[PromotableSceneHead[]]>(selection.sql, selection.params);
       const eligible: Array<{ scene: PromotableSceneHead; userId: string }> = [];
@@ -721,6 +739,22 @@ export class BeliefPromotionService {
               `(userIds=${JSON.stringify(scene.userIds ?? null)}) — #387 fence`,
           );
           continue;
+        }
+        // MEMORY-VALUE GATE: the value vector's first consumer. Runs
+        // AFTER the #387 fence (a security fence is never traded against
+        // a quality one) and BEFORE the fold, so a refused scene
+        // contributes no delta at all. Off ⇒ not even evaluated.
+        if (valueGate) {
+          const verdict = sceneValueVerdict(scene, valueGateMin);
+          if (!verdict.promote) {
+            result.skippedLowValue += 1;
+            this.logger.log(
+              `belief promotion value gate: scene ${String(scene.id)} skipped as noise ` +
+                `(${formatValueDims(verdict.dims)}; all < ${valueGateMin}) — ` +
+                `SCENES_VALUE_GATE_ENABLED`,
+            );
+            continue;
+          }
         }
         result.eligibleScenes += 1;
         eligible.push({ scene, userId });
@@ -808,7 +842,8 @@ export class BeliefPromotionService {
       `belief promotion pass: ${result.beliefsCreated} created, ` +
         `${result.beliefsCorroborated} corroborated, ${result.beliefsRevised} revised ` +
         `over ${result.eligibleScenes}/${result.scenes} scene(s) ` +
-        `(mixedUser=${result.skippedMixedUser} conflict=${result.skippedConflict} ` +
+        `(mixedUser=${result.skippedMixedUser} lowValue=${result.skippedLowValue} ` +
+        `conflict=${result.skippedConflict} ` +
         `fieldFolds=${result.fieldFolds} foldAmbiguous=${result.fieldFoldAmbiguous} ` +
         `orphansAbsorbed=${result.fieldOrphansAbsorbed} ` +
         `orphanAmbiguous=${result.fieldOrphanAmbiguous} ` +
@@ -959,16 +994,20 @@ export class BeliefPromotionService {
       },
     );
     await this.stampScenes(db, belief.sceneIds, newId);
-    // The 0106 baselineRef contract: the belief revision the delta was
-    // applied against (NONE for revision 1 — no baseline existed).
-    await db.query(`UPDATE memory_episode SET baselineRef = $baseline WHERE id INSIDE $sceneIds`, {
-      baseline: {
+    // The 0106 baselineRef contract, NAMESPACED: the belief revision the
+    // delta was applied against lands in `baselineRef.supersededFrom`
+    // (revision 1 writes nothing — no baseline existed), and whatever
+    // expectation snapshot the enrichment pass left in the same column is
+    // PRESERVED rather than overwritten. Merge + writes: scene-baseline-ref.ts.
+    await stampSupersededFrom({
+      db,
+      sceneIds: belief.sceneIds,
+      ref: {
         belief: headId,
         revision: head.revision,
         value: head.value,
         stampedAt: new Date().toISOString(),
       },
-      sceneIds: belief.sceneIds.map((s) => new StringRecordId(s)),
     });
     if (edgesOn) {
       result.supportEdges += await this.writeEdges(db, promoterVersion, [
