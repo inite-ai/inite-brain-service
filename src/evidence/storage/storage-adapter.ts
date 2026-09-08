@@ -11,9 +11,14 @@ import type { Readable } from 'node:stream';
  * Contract points:
  *   * put() is CONTENT-ADDRESSED and idempotent: the blob's location is a
  *     pure function of (companyId, byteHash), so re-putting identical
- *     bytes lands on the same ref and is a no-op. Paired with the
- *     evidence_asset_hash_idx UNIQUE row invariant this keeps row↔blob
- *     1:1 — deleting one row's blob can never orphan another row's.
+ *     bytes lands on the same ref and is a no-op. The
+ *     evidence_asset_hash_idx UNIQUE invariant means one row per byte
+ *     stream, so the COMMON case is row↔blob 1:1 — but it is not a
+ *     guarantee the delete side may lean on: registerAsset accepts an
+ *     explicit storageRef whose hash is not the row's own byteHash, so a
+ *     blob can back MORE THAN ONE row. Every deletion path must therefore
+ *     answer "does any row still point here?", never "is this row's hash
+ *     mine?" (see listBlobs and orphan-blob-gc.service.ts).
  *   * delete() returns whether a blob existed — the GDPR cascade and the
  *     retention/reconciliation sweeps log honest counts.
  *   * All methods throw a clear error when the adapter is unconfigured
@@ -53,6 +58,64 @@ export interface EvidenceStorageAdapter {
    * answers CAN it mint one.
    */
   signedGetUrl?(storageRef: string, ttlSeconds: number): Promise<string | null>;
+  /**
+   * OPTIONAL (orphan-GC extension point — existing third-party
+   * implementations keep compiling): enumerate the blobs this adapter
+   * holds FOR ONE TENANT, oldest-first is not required but stable
+   * iteration is. Streamed (AsyncIterable), never materialised: a store
+   * can hold more blobs than fit in one array.
+   *
+   * TWO CONTRACT POINTS, both load-bearing for the orphan sweep, which
+   * is the only caller and which DELETES what this yields:
+   *   1. TENANT SCOPING IS THE ADAPTER'S PROMISE. Every yielded ref MUST
+   *      satisfy `belongsToTenant(companyId, ref)`. An adapter whose
+   *      addressing cannot separate tenants (a flat bucket with no tenant
+   *      segment) MUST NOT implement this method — leaving it undefined
+   *      makes the sweep skip the scheme entirely, which is the safe
+   *      outcome. The sweep re-checks belongsToTenant per entry anyway,
+   *      but that is defence in depth, not the primary fence.
+   *   2. AGE IS WHEN THE BYTES WERE WRITTEN. `modifiedAtMs` gates the
+   *      grace window that protects an upload whose bytes are already
+   *      stored and whose row does not exist yet. An adapter that cannot
+   *      date a blob exactly must err YOUNGER: reporting a blob as older
+   *      than it is deletes live uploads, while reporting it younger only
+   *      defers a sweep. It must NOT, however, fold in timestamps that
+   *      move for unrelated reasons (a metadata touch, a restore) — that
+   *      is not conservatism, it is a store that can silently read as
+   *      entirely fresh forever.
+   *
+   * A missing tenant partition is an empty iteration, never a throw.
+   */
+  listBlobs?(companyId: string): AsyncIterable<StoredBlobEntry>;
+  /**
+   * OPTIONAL (orphan-GC extension point): drop this tenant's PARTIAL
+   * WRITE artefacts older than `olderThanMs` — the fs adapter's
+   * `.tmp-<uuid>` stragglers from a process killed between write and
+   * rename, an s3-class adapter's abandoned multipart uploads. Such
+   * artefacts are not addressable by any storageRef, so no row can
+   * reference them and listBlobs cannot enumerate them: they are
+   * unreachable garbage by construction, which is exactly why they need
+   * their own broom.
+   *
+   * `dryRun` reports what WOULD go without removing anything — the sweep
+   * runs report-only in its first stage and this leg must honour that.
+   */
+  sweepIncompleteWrites?(
+    companyId: string,
+    opts: { olderThanMs: number; dryRun: boolean },
+  ): Promise<{ found: number; removed: number }>;
+}
+
+/**
+ * One stored blob as the orphan sweep sees it: its ref (the join key
+ * against evidence_asset.storageRef), its size (so a report can state
+ * how much a run would reclaim), and when the store last touched it (the
+ * grace-window input — see the listBlobs contract).
+ */
+export interface StoredBlobEntry {
+  storageRef: string;
+  byteLength: number;
+  modifiedAtMs: number;
 }
 
 /**

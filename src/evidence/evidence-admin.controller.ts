@@ -11,7 +11,15 @@ import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { ApiKeyService } from '../auth/api-key.service';
 import { resolvePlatformTenant } from '../auth/tenant-scope';
-import { evidenceSubstrateEnabled, processorBrokerEnabled } from '../common/evidence-flags';
+import {
+  evidenceSubstrateEnabled,
+  orphanBlobGcEnabled,
+  processorBrokerEnabled,
+} from '../common/evidence-flags';
+import {
+  EvidenceOrphanBlobGcService,
+  type OrphanBlobGcTenantResult,
+} from './orphan-blob-gc.service';
 import {
   EvidenceProcessorBrokerService,
   type DispatchSweepResult,
@@ -27,6 +35,14 @@ interface DispatchBody {
   packId?: string;
   assetId?: string;
   limit?: number;
+}
+
+interface OrphanBlobGcBody {
+  tenant?: string;
+  /** Force report-only. Cannot enable deletion — only the flag can. */
+  dryRun?: boolean;
+  /** Lower this run's deletion cap. Never raises the configured one. */
+  maxDeletions?: number;
 }
 
 /**
@@ -49,6 +65,11 @@ interface DispatchBody {
  * v1 ships no scheduler (processing-run.service.ts claimRun), and a sweep
  * that runs itself would need its own flag, its own claim, and its own
  * backpressure story.
+ *
+ * The controller now hosts a SECOND maintenance verb on the same idiom —
+ * `…/evidence/orphan-blob-gc`, the delete-side hygiene sweep — with its
+ * own flag and its own gate; see the method docblock for how the two
+ * differ.
  */
 @Controller('v1/admin')
 @UseGuards(ApiKeyGuard)
@@ -56,6 +77,7 @@ export class EvidenceAdminController {
   constructor(
     private readonly broker: EvidenceProcessorBrokerService,
     private readonly apiKeys: ApiKeyService,
+    private readonly orphanGc: EvidenceOrphanBlobGcService,
   ) {}
 
   @Post('maintenance/evidence/dispatch')
@@ -82,6 +104,56 @@ export class EvidenceAdminController {
       assetId,
       limit: body.limit,
     });
+  }
+
+  /**
+   * POST /v1/admin/maintenance/evidence/orphan-blob-gc — the operator's
+   * handle on the orphan-blob sweep (see orphan-blob-gc.service.ts for
+   * what an orphan is and why the pass is safe to run live).
+   *
+   * The REQUIRED trigger, and the one an operator reaches for first: the
+   * nightly cron is optional and off by default, so this route is how a
+   * dry run gets looked at before deletion is ever enabled. Same
+   * admin-scenes idiom as the dispatch verb above — `brain:admin`, the
+   * shared resolvePlatformTenant seam (an admin key reaches only its OWN
+   * tenant unless it carries `brain:platform_admin` AND the override gate
+   * is on), and a bare 404 while the feature is off.
+   *
+   * Gated on EVIDENCE_ORPHAN_BLOB_GC ALONE — deliberately NOT also on
+   * EVIDENCE_SUBSTRATE_ENABLED, unlike the dispatch verb. Dispatch is a
+   * write-side surface and must not run while the writers are dark; this
+   * is a delete-side hygiene pass, and bytes written while the substrate
+   * was on must stay collectable after it is turned off (the
+   * sweepTenantEvidence precedent).
+   *
+   * `dryRun: true` and a lower `maxDeletions` are the only two things the
+   * body can say about safety, and both can only make the run MORE
+   * conservative: whether a byte may be destroyed at all is
+   * EVIDENCE_ORPHAN_BLOB_GC_DELETE's decision, never the caller's.
+   */
+  @Post('maintenance/evidence/orphan-blob-gc')
+  @RequireScopes('brain:admin')
+  async orphanBlobGc(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: OrphanBlobGcBody = {},
+  ): Promise<OrphanBlobGcTenantResult> {
+    if (!orphanBlobGcEnabled()) throw new NotFoundException();
+    const tenant = resolvePlatformTenant(req, body.tenant, {
+      knownTenants: () => this.apiKeys.knownCompanyIds(),
+    });
+    return this.orphanGc.sweepTenant(tenant, {
+      dryRun: body.dryRun === true,
+      maxDeletions: this.maxDeletions(body.maxDeletions),
+    });
+  }
+
+  /** Optional per-run tightening of the deletion cap. */
+  private maxDeletions(raw: number | undefined): number | undefined {
+    if (raw === undefined) return undefined;
+    if (!Number.isInteger(raw) || raw <= 0) {
+      throw new BadRequestException('maxDeletions must be a positive integer');
+    }
+    return raw;
   }
 
   /** Optional single-asset target; the broker clamps the sweep bound. */

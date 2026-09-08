@@ -147,6 +147,175 @@ export function evidenceMaxBytes(): number {
 }
 
 /**
+ * Orphan-blob GC (Brain v2.1 MM-7 follow-up) — EVIDENCE_ORPHAN_BLOB_GC.
+ *
+ * THE LEAK THIS CLOSES. The upload path stores bytes BEFORE the asset
+ * row exists (put() → registerAsset), and deliberately does not delete
+ * them when registration fails: put() is content-addressed, so those
+ * bytes may already back another row, and an eager unlink would destroy
+ * someone else's evidence. Correct, and it leaks — a failed
+ * registration, a crashed request, a killed process leaves bytes on disk
+ * that no row references. This flag turns on the sweep that finds them.
+ *
+ * STAGE ONE IS REPORT-ONLY. This flag alone makes the sweep EXIST and
+ * REPORT: it enumerates, joins against the live rows, and logs/metrics
+ * what it WOULD reclaim, deleting nothing. Unlinking needs the second
+ * stage (EVIDENCE_ORPHAN_BLOB_GC_DELETE below) — an operator looks at a
+ * dry run before a byte is destroyed, because the failure mode of a
+ * wrong orphan sweep is unrecoverable data loss.
+ *
+ * Off (default) ⇒ the admin route answers a bare 404, the nightly cron
+ * returns before touching a lease, and NOTHING is enumerated — no
+ * filesystem walk, no query. Deliberately NOT gated on
+ * EVIDENCE_SUBSTRATE_ENABLED (unlike the write-side surfaces): this is a
+ * delete-side hygiene pass, and the delete side never depends on the
+ * write flag — bytes written while the substrate was on must stay
+ * collectable after it is turned off (the sweepTenantEvidence
+ * precedent). Read at call time (runtime-mutable); common layer per
+ * engine-gates S5.2.
+ */
+export function orphanBlobGcEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_ORPHAN_BLOB_GC);
+}
+
+/**
+ * Orphan-blob GC stage two — EVIDENCE_ORPHAN_BLOB_GC_DELETE.
+ *
+ * Promotes the sweep from report-only to actually unlinking the orphans
+ * it finds. Requires EVIDENCE_ORPHAN_BLOB_GC (this flag alone does
+ * nothing — the sweep does not exist). Off (default) ⇒ every run is a
+ * dry run whatever the caller asks for: the admin route's `dryRun: true`
+ * can only make a run MORE conservative, never less, so the flag is the
+ * single authority on whether bytes may be destroyed.
+ *
+ * Read at call time (runtime-mutable), and read PER RUN rather than per
+ * process, so an operator can flip a running deployment back to
+ * report-only the moment a run reports something they did not expect.
+ */
+export function orphanBlobGcDeleteEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_ORPHAN_BLOB_GC_DELETE);
+}
+
+/**
+ * Orphan-blob GC nightly schedule — EVIDENCE_ORPHAN_BLOB_GC_SCHEDULED.
+ *
+ * Its OWN knob on top of the master flag (the SCENES_SCHEDULED_MAINTENANCE
+ * idiom): the admin maintenance route is the required trigger and always
+ * available while the master flag is on, whereas a pass that runs itself
+ * needs a separate, deliberate decision. Off (default) ⇒ the 04:35 UTC
+ * cron returns before the lease guard and issues no query.
+ */
+export function orphanBlobGcScheduledEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_ORPHAN_BLOB_GC_SCHEDULED);
+}
+
+/** Default grace window before a blob may be considered an orphan: 24 h. */
+const DEFAULT_ORPHAN_GRACE_HOURS = 24;
+
+/**
+ * Orphan grace window — EVIDENCE_ORPHAN_BLOB_GC_GRACE_HOURS (non-boolean).
+ *
+ * A blob younger than this is NEVER an orphan candidate, however
+ * unreferenced it looks. The upload path has a real window in which
+ * bytes exist and their row does not (put → registerAsset → scan), and a
+ * sweep that raced it would delete a live upload's evidence. Generous by
+ * default (24 h) because the cost of waiting is disk and the cost of
+ * being wrong is destroyed evidence — this is the one knob where the
+ * asymmetry is total. The same window gates the partial-write leg.
+ *
+ * Must be a positive integer number of hours; unset, blank, or invalid →
+ * 24. Read at call time (runtime-mutable); common layer per engine-gates
+ * S5.2.
+ */
+export function orphanBlobGcGraceHours(): number {
+  const raw = process.env.EVIDENCE_ORPHAN_BLOB_GC_GRACE_HOURS;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_ORPHAN_GRACE_HOURS;
+  const v = Number(raw);
+  return Number.isInteger(v) && v > 0 ? v : DEFAULT_ORPHAN_GRACE_HOURS;
+}
+
+/** Default per-tenant deletion cap for ONE run. */
+const DEFAULT_ORPHAN_MAX_DELETIONS = 500;
+
+/**
+ * Per-tenant deletion cap — EVIDENCE_ORPHAN_BLOB_GC_MAX_DELETIONS
+ * (non-boolean).
+ *
+ * The blast radius of one run against one tenant. A misconfiguration
+ * that makes every blob look unreferenced (a wrong tenant roster, a
+ * half-migrated store) then costs at most this many blobs before an
+ * operator sees the count and stops — the difference between an incident
+ * and a catastrophe. The cap bounds DELETIONS, not scanning: a capped
+ * run still reports every orphan it found, so the report tells the
+ * operator the true size of the backlog.
+ *
+ * Must be a positive integer; unset, blank, or invalid → 500. Read at
+ * call time (runtime-mutable); common layer per engine-gates S5.2.
+ */
+export function orphanBlobGcMaxDeletions(): number {
+  const raw = process.env.EVIDENCE_ORPHAN_BLOB_GC_MAX_DELETIONS;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_ORPHAN_MAX_DELETIONS;
+  const v = Number(raw);
+  return Number.isInteger(v) && v > 0 ? v : DEFAULT_ORPHAN_MAX_DELETIONS;
+}
+
+/** Default wall-clock budget for ONE orphan-GC run: 10 minutes. */
+const DEFAULT_ORPHAN_TIME_BUDGET_MS = 10 * 60 * 1000;
+
+/**
+ * Wall-clock budget — EVIDENCE_ORPHAN_BLOB_GC_TIME_BUDGET_MS
+ * (non-boolean).
+ *
+ * Bounds ONE run: the store walk stops when it expires and the roster
+ * stops starting new tenants. Nothing is lost when it bites — an orphan
+ * is rediscovered by enumeration on the next run, which is exactly why
+ * this sweep needs no durable queue of its own (see the 0114 note in
+ * orphan-blob-gc.service.ts).
+ *
+ * Must be a positive integer number of milliseconds; unset, blank, or
+ * invalid → 600_000. Read at call time (runtime-mutable); common layer
+ * per engine-gates S5.2.
+ */
+export function orphanBlobGcTimeBudgetMs(): number {
+  const raw = process.env.EVIDENCE_ORPHAN_BLOB_GC_TIME_BUDGET_MS;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_ORPHAN_TIME_BUDGET_MS;
+  const v = Number(raw);
+  return Number.isInteger(v) && v > 0 ? v : DEFAULT_ORPHAN_TIME_BUDGET_MS;
+}
+
+/**
+ * Cross-flag consistency for the orphan-blob GC, dispatched from
+ * validateEnv. It lives HERE, beside the three readers whose gating it
+ * mirrors, rather than in the env-validation catalog: which knob depends
+ * on which is defined a few lines up, and a validator that drifts from
+ * its readers is worse than no validator.
+ *
+ * WARNINGS, not errors — every inconsistent pair here fails SAFE (the
+ * sweep does less, never more), but each is an operator who thinks they
+ * enabled something and did not:
+ *
+ *  - _DELETE or _SCHEDULED without the master flag: the sweep does not
+ *    exist at all, so neither knob does anything. Worth saying out loud,
+ *    because "I turned deletion on" and "nothing was ever reclaimed" is
+ *    a silent pair otherwise;
+ *  - the master flag with _DELETE off is NOT flagged: that is stage one
+ *    working exactly as designed (report-only), and the intended state
+ *    to sit in until a dry run has been read.
+ */
+export function validateEvidenceOrphanGcEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
+  if (envFlagEnabled(env.EVIDENCE_ORPHAN_BLOB_GC)) return;
+  for (const dependent of ['EVIDENCE_ORPHAN_BLOB_GC_DELETE', 'EVIDENCE_ORPHAN_BLOB_GC_SCHEDULED']) {
+    if (envFlagEnabled(env[dependent])) {
+      warnings.push(
+        `${dependent} is set while EVIDENCE_ORPHAN_BLOB_GC is not — the orphan-blob ` +
+          'sweep does not exist, so this knob has no effect; nothing is enumerated, ' +
+          'the admin route answers 404 and the nightly pass returns immediately.',
+      );
+    }
+  }
+}
+
+/**
  * Trusted processor broker (Brain v2.1 MM-1, migration 0121) —
  * EVIDENCE_PROCESSOR_BROKER.
  *
