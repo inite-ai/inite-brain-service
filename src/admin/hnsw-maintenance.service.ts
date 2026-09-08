@@ -1,5 +1,4 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 
@@ -19,29 +18,35 @@ import { EmbedderService } from '../ai/embedder.service';
  *   3. re-run the quality eval — filtered KNN is approximate; the
  *      over-fetch knob (SEARCH_HNSW_OVERFETCH) trades recall for speed.
  *
- * Embedder swap (dimension change) — STRICT order, or the tenant's
- * writes stall. The dimension is baked into the index DDL, and once an
- * index exists every ingest/upsert of a differently-sized vector is
- * rejected, which ALSO blocks the reindex that would fix it. Recover in
- * this order (each step is a separate admin call):
+ * Embedder swap (dimension change). The width is baked into the index
+ * DDL, and once an index exists every write of a differently-sized
+ * vector is rejected — which ALSO blocks the reindex that would fix it.
+ * `create` therefore RECREATES unconditionally: it removes each index
+ * and defines it again at the declared width, in one statement.
  *
- *   a. {action:'drop'}        — remove the old-dimension indexes;
- *   b. reindex embeddings     — rewrite every vector at the new size
- *      (POST /v1/admin/maintenance/reindex-embeddings), now unblocked;
- *   c. {action:'create'}      — build fresh indexes at the new size.
+ * There is deliberately no "the index is at the old width" branch. That
+ * compatibility path would exist for a state no deployment is in, and it
+ * would have to be carried forever for a case that never arrives.
+ * Recreating is also strictly safer than the guard it replaces:
+ * `DEFINE INDEX IF NOT EXISTS` SILENTLY NO-OPS when an index exists at a
+ * different dimension (verified on 3.1.5), so the previous code could
+ * only detect-and-refuse, leaving the operator to run a three-call
+ * drop → reindex → create sequence by hand. An unconditional recreate
+ * cannot leave a stale index behind and cannot be done in the wrong
+ * order.
+ *
+ * The swap ORDER still matters for the DATA: recreate leaves the index
+ * matching the embedder, but rows embedded in the old space are still
+ * old-width, so run the embedding reindex (POST
+ * /v1/admin/reindex/embeddings) BEFORE `create` — with no index present
+ * the rewrites it must perform are not rejected.
  *
  * segment_embedding_hnsw (the coverage-scan leg, V11 §5) has a swap
  * caveat: reindex-embeddings rewrites knowledge_fact ONLY — segments
  * keep their old-size vectors. Segments are derived state (0075), so
- * the segment step of a swap is drop → delete + re-segment the world →
- * create; entity_embedding_hnsw shares the same hole and today relies
- * on entity vectors being rewritten by their own ingest path.
- *
- * `create` guards this: DEFINE INDEX IF NOT EXISTS SILENTLY NO-OPS when
- * an index already exists at a different dimension (verified on 3.1.5),
- * so a naive re-`create` after a swap would report success while leaving
- * the stale index in place. We detect the mismatch and refuse, pointing
- * the operator at the drop→reindex→create order above.
+ * the segment step of a swap is delete + re-segment the world;
+ * entity_embedding_hnsw shares the same hole and today relies on entity
+ * vectors being rewritten by their own ingest path.
  *
  * DEFINE INDEX is synchronous — on a large tenant the call can take a
  * while; run it off-peak.
@@ -78,19 +83,24 @@ export class HnswMaintenanceService {
     }
     return this.surreal.withCompany(companyId, async (db) => {
       if (action === 'create') {
-        // Refuse a create that would SILENTLY leave a stale-dimension
-        // index in place (IF NOT EXISTS no-ops on a dimension change).
-        await this.assertNoDimensionMismatch(db, dimension);
-        // DIMENSION can't be parameterised in DDL — `dimension` is a
-        // validated integer, never caller input.
+        // RECREATE, not create-if-absent: REMOVE then DEFINE, so the
+        // index always ends at the declared width. `IF NOT EXISTS` alone
+        // silently no-ops on a width change and would leave a stale
+        // index while reporting success. DIMENSION cannot be
+        // parameterised in DDL — `dimension` comes from the space
+        // declaration and is range-validated above, never caller input.
         await db.query(
-          `DEFINE INDEX IF NOT EXISTS ${FACT_MAIN} ON knowledge_fact FIELDS embedding
+          `REMOVE INDEX IF EXISTS ${FACT_MAIN} ON knowledge_fact;
+           REMOVE INDEX IF EXISTS ${FACT_ALT} ON knowledge_fact;
+           REMOVE INDEX IF EXISTS ${ENTITY_MAIN} ON knowledge_entity;
+           REMOVE INDEX IF EXISTS ${SEGMENT_MAIN} ON episode_segment;
+           DEFINE INDEX ${FACT_MAIN} ON knowledge_fact FIELDS embedding
              HNSW DIMENSION ${dimension} DIST COSINE EFC 200 M 16;
-           DEFINE INDEX IF NOT EXISTS ${FACT_ALT} ON knowledge_fact FIELDS altEmbedding
+           DEFINE INDEX ${FACT_ALT} ON knowledge_fact FIELDS altEmbedding
              HNSW DIMENSION ${dimension} DIST COSINE EFC 200 M 16;
-           DEFINE INDEX IF NOT EXISTS ${ENTITY_MAIN} ON knowledge_entity FIELDS embedding
+           DEFINE INDEX ${ENTITY_MAIN} ON knowledge_entity FIELDS embedding
              HNSW DIMENSION ${dimension} DIST COSINE EFC 200 M 16;
-           DEFINE INDEX IF NOT EXISTS ${SEGMENT_MAIN} ON episode_segment FIELDS embedding
+           DEFINE INDEX ${SEGMENT_MAIN} ON episode_segment FIELDS embedding
              HNSW DIMENSION ${dimension} DIST COSINE EFC 200 M 16;`,
         );
       } else {
@@ -109,44 +119,5 @@ export class HnswMaintenanceService {
         indexes: [FACT_MAIN, FACT_ALT, ENTITY_MAIN, SEGMENT_MAIN],
       };
     });
-  }
-
-  /**
-   * Throw if any target HNSW index already exists at a dimension other
-   * than `dimension`. Without this, DEFINE INDEX IF NOT EXISTS reports
-   * success but leaves the old-dimension index untouched (empirically
-   * confirmed on SurrealDB 3.1.5).
-   */
-  private async assertNoDimensionMismatch(db: Surreal, dimension: number): Promise<void> {
-    const existing = await this.readIndexDimensions(db);
-    const mismatched = [FACT_MAIN, FACT_ALT, ENTITY_MAIN, SEGMENT_MAIN].filter(
-      (name) => existing.has(name) && existing.get(name) !== dimension,
-    );
-    if (mismatched.length > 0) {
-      const detail = mismatched.map((n) => `${n}=${existing.get(n)}`).join(', ');
-      throw new BadRequestException(
-        `HNSW index(es) [${detail}] already exist at a different dimension; ` +
-          `the embedder now reports ${dimension}. DEFINE INDEX IF NOT EXISTS ` +
-          `silently no-ops on a dimension change, so this create would leave ` +
-          `the stale index in place. Recover in order: drop → reindex ` +
-          `embeddings → create.`,
-      );
-    }
-  }
-
-  /** Map of HNSW index name → its declared DIMENSION, parsed from INFO. */
-  private async readIndexDimensions(db: Surreal): Promise<Map<string, number>> {
-    const out = new Map<string, number>();
-    for (const table of ['knowledge_fact', 'knowledge_entity', 'episode_segment']) {
-      const [info] = await db.query<[{ indexes?: Record<string, string> }]>(
-        `INFO FOR TABLE ${table};`,
-      );
-      const indexes = (info as { indexes?: Record<string, string> })?.indexes ?? {};
-      for (const [name, ddl] of Object.entries(indexes)) {
-        const m = /DIMENSION\s+(\d+)/i.exec(String(ddl));
-        if (m) out.set(name, parseInt(m[1]!, 10)); // group 1 mandatory
-      }
-    }
-    return out;
   }
 }

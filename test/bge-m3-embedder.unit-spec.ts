@@ -1,10 +1,15 @@
 import { BgeM3EmbedderProvider } from '../src/ai/embedder/bge-m3-embedder.provider';
+import { declaredSpace } from '../src/ai/embedder/embedding-space';
+
+/** A space literal for the truncation/padding cases, which deliberately
+ *  use a tiny width. Production widths come from `declaredSpace`. */
+const space = (model: string, dim: number) =>
+  ({ provider: 'bge-m3', model, dim, norm: 'l2' }) as const;
 
 describe('BgeM3EmbedderProvider', () => {
   it('reports providerId encoding model + dim', () => {
     const p = new BgeM3EmbedderProvider({
-      modelId: 'Xenova/bge-m3',
-      dimensions: 1024,
+      space: declaredSpace('bge-m3'),
       concurrency: 4,
     });
     expect(p.providerId).toBe('bge-m3:Xenova/bge-m3:1024');
@@ -12,8 +17,7 @@ describe('BgeM3EmbedderProvider', () => {
 
   it('is not ready until the pipeline is set', () => {
     const p = new BgeM3EmbedderProvider({
-      modelId: 'Xenova/bge-m3',
-      dimensions: 1024,
+      space: declaredSpace('bge-m3'),
       concurrency: 4,
     });
     expect(p.isReady()).toBe(false);
@@ -21,8 +25,7 @@ describe('BgeM3EmbedderProvider', () => {
 
   it('throws when embed() is called before warmup completes', async () => {
     const p = new BgeM3EmbedderProvider({
-      modelId: 'Xenova/bge-m3',
-      dimensions: 1024,
+      space: declaredSpace('bge-m3'),
       concurrency: 4,
     });
     await expect(p.embed('hello')).rejects.toThrow(/not ready/);
@@ -30,8 +33,7 @@ describe('BgeM3EmbedderProvider', () => {
 
   it('returns the zero vector for empty input', async () => {
     const p = new BgeM3EmbedderProvider({
-      modelId: 'Xenova/bge-m3',
-      dimensions: 8,
+      space: space('Xenova/bge-m3', 8),
       concurrency: 2,
     });
     p.setPipelineForTesting(async () => ({ data: new Float32Array(8).fill(0.5) }));
@@ -41,8 +43,7 @@ describe('BgeM3EmbedderProvider', () => {
 
   it('truncates an oversized model output to configured dim', async () => {
     const p = new BgeM3EmbedderProvider({
-      modelId: 'm',
-      dimensions: 4,
+      space: space('m', 4),
       concurrency: 2,
     });
     p.setPipelineForTesting(async () => ({
@@ -54,8 +55,7 @@ describe('BgeM3EmbedderProvider', () => {
 
   it('zero-pads an undersized model output up to configured dim', async () => {
     const p = new BgeM3EmbedderProvider({
-      modelId: 'm',
-      dimensions: 6,
+      space: space('m', 6),
       concurrency: 2,
     });
     p.setPipelineForTesting(async () => ({

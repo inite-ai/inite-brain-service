@@ -70,12 +70,6 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Process role (api / worker split) ─────────────────────────────
   validateProcessRole(env, errors);
 
-  // ── Embedding dimensions ──────────────────────────────────────────
-  const dims = env.OPENAI_EMBEDDING_DIMENSIONS;
-  if (dims && (!/^\d+$/.test(dims) || parseInt(dims, 10) < 8)) {
-    errors.push('OPENAI_EMBEDDING_DIMENSIONS must be an integer ≥ 8');
-  }
-
   // ── Pool size ─────────────────────────────────────────────────────
   const pool = env.SURREALDB_POOL_SIZE;
   if (pool && (!/^\d+$/.test(pool) || parseInt(pool, 10) < 1)) {

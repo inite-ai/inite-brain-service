@@ -21,4 +21,4 @@ DEFINE FIELD IF NOT EXISTS embedding ON knowledge_predicate
 
 -- Optional HNSW for very large registries — leave commented until needed.
 -- DEFINE INDEX IF NOT EXISTS predicate_embedding_idx ON knowledge_predicate
---   FIELDS embedding HNSW DIMENSION 1536 DIST COSINE EFC 200 M 16;
+--   FIELDS embedding HNSW DIMENSION <declared width> DIST COSINE EFC 200 M 16;

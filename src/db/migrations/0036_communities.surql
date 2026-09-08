@@ -43,7 +43,7 @@ DEFINE INDEX IF NOT EXISTS community_summary_idx ON community_node
 -- communities; full-scan cosine in CommunityBuilderService is fine at
 -- walking-skeleton scale (communities are O(10²), not O(facts)).
 -- DEFINE INDEX community_embedding_idx ON community_node FIELDS summaryEmbedding
---   HNSW DIMENSION 1024 DIST COSINE EFC 200 M 16;
+--   HNSW DIMENSION <declared width> DIST COSINE EFC 200 M 16;
 
 -- ─── community_member (community_node -> knowledge_entity) ───────────────
 DEFINE TABLE IF NOT EXISTS community_member SCHEMAFULL TYPE RELATION

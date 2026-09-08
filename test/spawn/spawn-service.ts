@@ -54,8 +54,6 @@ export async function spawnService(opts: SpawnOptions = {}): Promise<SpawnedServ
     SURREALDB_PASSWORD: process.env.SURREALDB_PASSWORD ?? 'root',
     SURREALDB_NAMESPACE: 'brain',
     OPENAI_API_KEY: loadOpenAiKey(),
-    OPENAI_EMBEDDING_MODEL: 'text-embedding-3-small',
-    OPENAI_EMBEDDING_DIMENSIONS: '1536',
     // Pinned snapshot — alias `gpt-4o-mini` silently re-targets when
     // OpenAI rolls a new default, which moves eval baselines and breaks
     // delta-gate diffs. Extractor still uses temperature=0.1 (intentional

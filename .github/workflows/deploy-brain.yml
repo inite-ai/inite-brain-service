@@ -418,8 +418,6 @@ jobs:
                 - SURREALDB_SCOPED_PASS=${{ secrets.BRAIN_SURREAL_SCOPED_PASS }}
                 # OpenAI for embeddings + extraction + faithfulness verifier.
                 - OPENAI_API_KEY=${{ secrets.BRAIN_OPENAI_API_KEY }}
-                - OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-                - OPENAI_EMBEDDING_DIMENSIONS=1536
                 - OPENAI_CHAT_MODEL=gpt-4o-mini-2024-07-18
                 # OpenAI client budget — same as eval. Per-stage budgets
                 # in search.service.ts (SEARCH_STAGE_BUDGET_MS) cap the

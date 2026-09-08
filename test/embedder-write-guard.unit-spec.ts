@@ -3,7 +3,7 @@
  *
  * Background — the defect this locks down. With `EMBEDDER_PROVIDER=bge-m3`
  * (what production deploys) the ONNX model takes ~10-20s to load. During
- * that window `activeProvider()` failed over to the 1536-wide OpenAI
+ * that window the serving provider failed over to the 1536-wide OpenAI
  * fallback while the corpus is 1024-wide. Verified against SurrealDB 3.2.4:
  * the vector columns are `option<array<float>>` with NO width, so the wrong
  * width is accepted silently and durably; afterwards
@@ -12,8 +12,10 @@
  * `DEFINE INDEX … HNSW DIMENSION 1024` refuses to build.
  *
  * Proves:
- *   - `/ready` (isReady) reflects the PRIMARY only, so the rollout
- *     playbook's "reindex after /ready is 200" gate is real.
+ *   - `/ready` (isReady) is green iff the next embed would answer in the
+ *     configured space, so the rollout playbook's "reindex after /ready
+ *     is 200" gate is real — and cannot drift from what embed() does,
+ *     because both are the same predicate.
  *   - Vector WRITES fail closed during the window, unconditionally.
  *   - Vector READS keep the documented degraded-mode failover.
  *   - HNSW DDL reads the primary width, never the fallback's.
@@ -70,7 +72,6 @@ function mkSvc(opts: {
   const config = {
     get: (k: string, def?: string) => {
       if (k === 'OPENAI_API_KEY') return 'sk-test-stub';
-      if (k === 'OPENAI_EMBEDDING_DIMENSIONS') return '1536';
       if (k === 'EMBEDDING_CACHE_SIZE') return '50';
       if (k === 'EMBEDDER_PROVIDER') return 'openai';
       return def;
@@ -111,6 +112,55 @@ describe('EmbedderService — readiness reflects the primary', () => {
     const { svc } = mkSvc({ primary: openai(), fallback: null, primarySpaceId: OPENAI_SPACE });
     expect(svc.isReady()).toBe(true);
     expect(svc.isServingDegraded()).toBe(false);
+  });
+});
+
+describe('EmbedderService — readiness is a property, not a checklist', () => {
+  // Readiness, the degraded flag and the write guard are all one
+  // expression (`servesPrimarySpace`), so "ready while answering from
+  // another space" is not a state the object can be in — rather than a
+  // rule someone has to remember to check.
+  const cases: Array<[string, FakeProvider, FakeProvider | null, string]> = [
+    ['warming bge-m3', bge(false), openai(), BGE_SPACE],
+    ['warm bge-m3', bge(true), openai(), BGE_SPACE],
+    ['openai only', openai(), null, OPENAI_SPACE],
+    ['failed warmup', bge(false), openai(), BGE_SPACE],
+  ];
+
+  it.each(cases)('%s: ready ⇔ not degraded', (_name, primary, fallback, primarySpaceId) => {
+    const { svc } = mkSvc({ primary, fallback, primarySpaceId });
+    expect(svc.isReady()).toBe(!svc.isServingDegraded());
+  });
+
+  it.each(cases)(
+    '%s: ready ⇒ the active space IS the primary space',
+    (_n, p, f, primarySpaceId) => {
+      const { svc } = mkSvc({ primary: p, fallback: f, primarySpaceId });
+      if (svc.isReady()) expect(svc.activeSpaceId()).toBe(svc.primarySpaceId());
+    },
+  );
+
+  it.each(cases)('%s: ready ⇔ a vector write is permitted', async (_n, p, f, primarySpaceId) => {
+    const { svc } = mkSvc({ primary: p, fallback: f, primarySpaceId });
+    const permitted = await svc
+      .embedForWrite('x')
+      .then(() => true)
+      .catch(() => false);
+    expect(permitted).toBe(svc.isReady());
+  });
+
+  it('health probes do not inflate the fallback counter', () => {
+    // The selector behind readiness must stay pure — otherwise every
+    // /ready scrape would look like a cross-space serve.
+    const { svc, fallbackCounter } = mkSvc({
+      primary: bge(false),
+      fallback: openai(),
+      primarySpaceId: BGE_SPACE,
+    });
+    svc.isReady();
+    svc.isServingDegraded();
+    svc.activeSpaceId();
+    expect(fallbackCounter.inc).not.toHaveBeenCalled();
   });
 });
 

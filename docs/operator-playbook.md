@@ -104,7 +104,7 @@ Symptoms: `POST /v1/ingest/fact` returns 500, or 4xx with a validation error.
 
 Symptoms: `POST /v1/search` returns `{ results: [] }` for queries that obviously match.
 
-1. **Embedding mismatch.** If you changed `OPENAI_EMBEDDING_MODEL` or `OPENAI_EMBEDDING_DIMENSIONS`, old vectors don't match new queries. Re-embed by reingesting (events) or compacting.
+1. **Embedding mismatch.** If you changed `EMBEDDER_PROVIDER`, old vectors don't match new queries. Re-embed via `POST /v1/admin/reindex/embeddings` (wait for `/ready` 200 first — vector writes are refused while the primary embedder is warming). Model and width are not separately configurable; they are declared in `src/ai/embedder/embedding-space.ts`.
 2. **The data was forgotten.** Check the tenant's `forgotten_entity` table — there'll be a tombstone row per cascade-forget. Ingests after a forget go to a fresh entity with a new `cuid`, so old searches won't find them.
 3. **Wrong `asOf`.** A historical query with `asOf` predating the fact's `validFrom` will skip it. Drop `asOf` and retry to confirm.
 4. **PII gating.** A caller without `brain:read_pii` cannot see PII facts. Search itself is unaffected (entity still ranks), but specific facts will be missing from the result. Inspect the caller's scopes via the request log's `key=` tag and your key registry.

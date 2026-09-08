@@ -3,12 +3,15 @@ import OpenAI from 'openai';
 import { Semaphore } from '../../common/semaphore';
 import { getAbortSignal } from '../../common/request-context';
 import type { EmbedderProvider } from './embedder-provider.interface';
+import { providerIdOf, type EmbeddingSpaceConfig } from './embedding-space';
 
 export interface OpenAIEmbedderConfig {
   /** Pre-built SDK client (see `createOpenAiClient` in src/ai/openai-client.ts). */
   client: OpenAI;
-  model: string;
-  dimensions: number;
+  /** The DECLARED space (EMBEDDING_SPACES.openai) — model + width arrive
+   *  together, so this provider cannot be built at a width the store does
+   *  not expect. */
+  space: EmbeddingSpaceConfig;
   concurrency: number;
 }
 
@@ -31,9 +34,9 @@ export class OpenAIEmbedderProvider implements EmbedderProvider {
 
   constructor(cfg: OpenAIEmbedderConfig) {
     this.openai = cfg.client;
-    this.model = cfg.model;
-    this.dimensions = cfg.dimensions;
-    this.providerId = `openai:${cfg.model}:${cfg.dimensions}`;
+    this.model = cfg.space.model;
+    this.dimensions = cfg.space.dim;
+    this.providerId = providerIdOf(cfg.space);
     this.limiter = new Semaphore(cfg.concurrency);
   }
 
