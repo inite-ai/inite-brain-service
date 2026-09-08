@@ -12,12 +12,26 @@ import { EmbedderService } from '../ai/embedder.service';
 export class FactEmbeddingService {
   constructor(private readonly embedder: EmbedderService) {}
 
+  /**
+   * Both methods route to the WRITE-guarded embedder entrypoints: every
+   * consumer of this facade (fact resolution, the scene / arc / segment /
+   * aggregate composers, the window deriver, scene gist backfill)
+   * persists the vector it gets back. During the bge-m3 warmup window the
+   * embedder would otherwise hand back a 1536-wide OpenAI vector, which
+   * lands unvalidated in a 1024-wide corpus and durably breaks cosine
+   * search for the whole table.
+   *
+   * Resolution-only comparisons inside an ingest go through here too, and
+   * that is intended: the comparison exists to decide a write in the same
+   * request, so failing the request beats resolving against a
+   * cross-space score and then persisting the result.
+   */
   embed(text: string): Promise<number[]> {
-    return this.embedder.embed(text);
+    return this.embedder.embedForWrite(text);
   }
 
   embedMany(texts: string[]): Promise<number[][]> {
-    return this.embedder.embedMany(texts);
+    return this.embedder.embedManyForWrite(texts);
   }
 
   /**

@@ -98,6 +98,20 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Embedder fallback counter. Non-zero means the configured primary
+  // (e.g. bge-m3/1024) was not ready and the OpenAI fallback (1536)
+  // answered instead — a cross-space serve. Expected to tick briefly at
+  // boot while the ONNX model loads and then stop; a series that keeps
+  // climbing means warmup failed and every read is being answered in the
+  // wrong space. `primary` labels the configured space, so the series is
+  // bounded by deployment config, not by traffic.
+  readonly embedderFallbackServes = new Counter({
+    name: 'brain_embedder_fallback_serves_total',
+    help: 'Embed calls served by the fallback provider because the primary was not ready',
+    labelNames: ['primary'] as const,
+    registers: [this.registry],
+  });
+
   readonly searchDuration = new Histogram({
     name: 'brain_search_duration_seconds',
     help: 'Search latency in seconds',

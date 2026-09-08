@@ -23,6 +23,9 @@ import {
   type EmbeddingNorm,
 } from './embedder/embedding-space';
 
+/** Minimum gap between two "serving on fallback" warnings. */
+const FALLBACK_WARN_THROTTLE_MS = 10_000;
+
 /**
  * EmbedderService — thin facade in front of an EmbedderProvider.
  *
@@ -41,6 +44,7 @@ import {
 @Injectable()
 export class EmbedderService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(EmbedderService.name);
+  private lastFallbackWarnAt = 0;
   private readonly cache: LRUCache<string, number[]>;
   private readonly primary: EmbedderProvider;
   private readonly fallback: EmbedderProvider | null;
@@ -105,15 +109,37 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * `/ready` probe. Up = the primary embedder is ready OR there's a
-   * fallback the request path can use. We never report "not ready"
-   * when an openai fallback is wired, because the service is in fact
-   * able to serve search/synthesize traffic on the fallback.
+   * `/ready` probe. Up = the PRIMARY (configured) embedder is ready.
+   *
+   * This deliberately does NOT count the fallback. The old form ORed the
+   * fallback in, which made `/ready` green from the first millisecond of
+   * boot whenever `EMBEDDER_PROVIDER=bge-m3` — because
+   * OpenAIEmbedderProvider.isReady() is unconditionally true. That broke
+   * the one gate the rollout playbook depends on: deploy-brain.yml tells
+   * the operator to run the embedding reindex "after /ready returns 200
+   * (model warm)". With /ready green during warmup, the sweep runs on the
+   * OpenAI fallback and rewrites every vector in every table at 1536 wide
+   * for a tenant whose space is bge-m3/1024 — mass, durable poisoning.
+   *
+   * Nothing external gates on this route (Traefik routes only /v1, /mcp,
+   * /health, /registry; the container healthcheck probes /health; the
+   * deploy's readiness loop is `continue-on-error`), so reporting the
+   * truth here takes no traffic out of rotation — it only makes the
+   * operator's documented gate real. Liveness stays on /health, which is
+   * unchanged and still answers during warmup.
    */
   isReady(): boolean {
-    if (this.primary.isReady()) return true;
-    if (this.fallback && this.fallback.isReady()) return true;
-    return false;
+    return this.primary.isReady();
+  }
+
+  /**
+   * True when the request path is currently being served by the FALLBACK
+   * rather than the configured primary — i.e. the warmup window (or a
+   * failed warmup). Surfaced to the admin health grid so the degraded
+   * state is legible instead of rendering a green `ok` row.
+   */
+  isServingDegraded(): boolean {
+    return !this.primary.isReady() && this.fallback !== null;
   }
 
   /**
@@ -165,6 +191,88 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
 
   getDimensions(): number {
     return this.activeProvider().getDimensions();
+  }
+
+  /**
+   * Width of the PRIMARY (configured) provider — the width a tenant's rows
+   * are expected to be, independent of who happens to be serving right now.
+   *
+   * `getDimensions()` reads the ACTIVE provider, so during the bge-m3
+   * warmup window it answers 1536 (the OpenAI fallback) for a deployment
+   * whose corpus is 1024. Any consumer baking a width into durable state —
+   * HNSW `DIMENSION` DDL above all — must use this instead, or it builds
+   * an index the primary can never write to.
+   */
+  primaryDimensions(): number {
+    return this.primary.getDimensions();
+  }
+
+  /**
+   * Embed text that is about to be PERSISTED. Fails closed when the
+   * serving provider's space is incompatible with the configured primary.
+   *
+   * Read and write are asymmetric on purpose. A cross-space READ is
+   * transient and self-healing: it returns a bad ranking (or a 503) for the
+   * seconds the primary is warming, and is correct again afterwards. A
+   * cross-space WRITE is durable damage — the vector columns are
+   * `option<array<float>>` with no width, so SurrealDB accepts a 1536-wide
+   * vector into a 1024-wide corpus silently and forever. Afterwards
+   * `vector::similarity::cosine` raises "The two vectors must be of the
+   * same dimension" for EVERY row of that table (one poisoned row breaks
+   * the whole query), the `<|K,DIST|>` operator quietly skips the
+   * mismatched rows, and `DEFINE INDEX … HNSW DIMENSION 1024` refuses to
+   * build at all. All three verified against SurrealDB 3.2.4.
+   *
+   * So there is no configuration in which persisting a fallback-width
+   * vector is the desired outcome, and this guard is unconditional rather
+   * than flag-gated: failing an ingest with a 503 the caller can retry is
+   * strictly better than accepting a write that poisons the tenant.
+   */
+  async embedForWrite(text: string): Promise<number[]> {
+    this.assertWriteSpaceSafe();
+    const vector = await this.embed(text);
+    this.assertWriteWidth(vector.length);
+    return vector;
+  }
+
+  /** Batched {@link embedForWrite}. The reindex sweep and every composer
+   *  batch go through here. */
+  async embedManyForWrite(texts: string[]): Promise<number[][]> {
+    this.assertWriteSpaceSafe();
+    const vectors = await this.embedMany(texts);
+    for (const v of vectors) this.assertWriteWidth(v.length);
+    return vectors;
+  }
+
+  /**
+   * Refuse when the provider that would serve is not in the primary's
+   * space. Checked BEFORE the embed so a doomed batch costs no inference.
+   */
+  private assertWriteSpaceSafe(): void {
+    const servingSpace = this.spaceIdOf(this.activeProvider());
+    if (spacesCompatible(servingSpace, this.primarySpaceIdValue)) return;
+    const reason = describeSpaceIncompatibility(servingSpace, this.primarySpaceIdValue);
+    throw new ServiceUnavailableException(
+      `embedding write guard: refusing to persist a vector produced in ` +
+        `'${servingSpace}' into a corpus in '${this.primarySpaceIdValue}' (${reason}). ` +
+        `The primary embedder is still warming up; retry once it is ready.`,
+    );
+  }
+
+  /**
+   * Post-check on the produced width. The pre-check can race: warmup may
+   * fail (or a worker may die) between the check and the inference, which
+   * would flip the serving provider mid-call. Width is the invariant that
+   * actually matters, so assert it on the result too.
+   */
+  private assertWriteWidth(width: number): void {
+    const expected = this.primary.getDimensions();
+    if (width === expected) return;
+    throw new ServiceUnavailableException(
+      `embedding write guard: produced a ${width}-wide vector but the ` +
+        `configured embedder is ${expected}-wide (${this.primarySpaceIdValue}). ` +
+        `Refusing to persist a mismatched vector.`,
+    );
   }
 
   /**
@@ -266,8 +374,34 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
 
   private activeProvider(): EmbedderProvider {
     if (this.primary.isReady()) return this.primary;
-    if (this.fallback) return this.fallback;
+    if (this.fallback) {
+      this.noteFallbackServe();
+      return this.fallback;
+    }
     return this.primary;
+  }
+
+  /**
+   * Record that the fallback served instead of the primary. Previously
+   * this substitution left no trace at all: the only fallback-related
+   * logging fires on warmup FAILURE, so the ordinary warmup window — when
+   * every request is silently answered in the wrong embedding space — was
+   * invisible in both logs and metrics. (`embedMany`, which the reindex
+   * sweep uses, does not even emit a gen_ai span.)
+   *
+   * A counter carries the signal; the log line is throttled to once per
+   * 10s so a busy warmup window cannot flood the log.
+   */
+  private noteFallbackServe(): void {
+    this.metrics?.embedderFallbackServes.inc({ primary: this.primarySpaceIdValue });
+    const now = Date.now();
+    if (now - this.lastFallbackWarnAt < FALLBACK_WARN_THROTTLE_MS) return;
+    this.lastFallbackWarnAt = now;
+    this.logger.warn(
+      `embedder serving on FALLBACK: primary '${this.primarySpaceIdValue}' is not ready; ` +
+        `answering in '${this.spaceIdOf(this.fallback!)}'. Vector writes are refused ` +
+        `until the primary warms up; reads are cross-space and unreliable.`,
+    );
   }
 
   /**

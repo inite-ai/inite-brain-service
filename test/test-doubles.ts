@@ -16,7 +16,14 @@ import { BeliefPromotionService } from '../src/admin/belief-promotion.service';
  */
 export class StubEmbedder implements Pick<
   EmbedderService,
-  'embed' | 'embedMany' | 'getDimensions' | 'primarySpaceId' | 'activeSpaceId'
+  | 'embed'
+  | 'embedMany'
+  | 'embedForWrite'
+  | 'embedManyForWrite'
+  | 'getDimensions'
+  | 'primaryDimensions'
+  | 'primarySpaceId'
+  | 'activeSpaceId'
 > {
   constructor(private readonly dimensions = 1536) {}
 
@@ -46,7 +53,23 @@ export class StubEmbedder implements Pick<
     return Promise.all(texts.map((t) => this.embed(t)));
   }
 
+  // Write-guarded surface. The stub is always "in its own space" (there is
+  // no fallback to fail over to), so these simply delegate — but they MUST
+  // exist: the ingest facade and the reindex sweep call these names, and a
+  // missing method fails the same silent way the note above describes.
+  async embedForWrite(text: string): Promise<number[]> {
+    return this.embed(text);
+  }
+
+  async embedManyForWrite(texts: string[]): Promise<number[][]> {
+    return this.embedMany(texts);
+  }
+
   getDimensions(): number {
+    return this.dimensions;
+  }
+
+  primaryDimensions(): number {
     return this.dimensions;
   }
 }

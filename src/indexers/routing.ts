@@ -103,8 +103,13 @@ export function headMatchesKeyword(head: string, keyword: string): boolean {
   return new RegExp(`(?:^|[^\\p{L}\\p{N}])${esc}(?:[^\\p{L}\\p{N}]|$)`, 'u').test(head);
 }
 
+/** Cosine similarity; 0 when either side is empty or the widths differ.
+ *  Cross-width pairs are cross-space (bge-m3 1024 vs the OpenAI fallback's
+ *  1536) — truncating to the shorter would score two unrelated coordinate
+ *  systems against each other and silently route on the result. */
 export function cosineSimilarity(a: number[], b: number[]): number {
-  const n = Math.min(a.length, b.length);
+  if (a.length !== b.length) return 0;
+  const n = a.length;
   if (n === 0) return 0;
   let dot = 0;
   let na = 0;

@@ -12,6 +12,7 @@
  *     `embeddingSpaceId = <active space>`.
  */
 import { ReindexEngineService } from '../src/ai/embedder/reindex-engine.service';
+import { ServiceUnavailableException } from '@nestjs/common';
 
 interface QueryCall {
   sql: string;
@@ -47,8 +48,11 @@ function makeEngine(opts: {
   const surreal = {
     withCompany: async <T>(_c: string, fn: (d: typeof db) => Promise<T>) => fn(db),
   } as never;
+  // The sweep embeds through the WRITE-guarded entrypoint: every vector it
+  // produces is written straight back to a row, so a cross-space vector
+  // here would durably poison the corpus.
   const embedder = {
-    embedMany: async (texts: string[]) => texts.map(() => [1, 2, 3]),
+    embedManyForWrite: async (texts: string[]) => texts.map(() => [1, 2, 3]),
     activeSpaceId: () => ACTIVE_SPACE,
     cacheStats: () => ({ provider: 'openai:text-embedding-3-small:1536' }),
   } as never;
@@ -148,5 +152,33 @@ describe('ReindexEngineService — EMBEDDING_SPACE_TRACKING stamping', () => {
       expect(u.sql).toContain('embeddingSpaceId = $space');
       expect(u.params?.space).toBe(ACTIVE_SPACE);
     }
+  });
+});
+
+describe('ReindexEngineService — refuses to sweep in the wrong space', () => {
+  it('propagates the write guard instead of reporting an empty success', async () => {
+    // The rollout playbook says "run the reindex once /ready is 200". If
+    // the sweep runs while the primary is still warming it would rewrite
+    // every vector at the fallback's width. The guard stops that — and the
+    // refusal must PROPAGATE: swallowing it per page would report a
+    // successful reindex that silently rewrote nothing.
+    const { db, calls } = makeDb(ALL_PAGES);
+    const surreal = {
+      withCompany: async <T>(_c: string, fn: (d: typeof db) => Promise<T>) => fn(db),
+    } as never;
+    const embedder = {
+      embedManyForWrite: async () => {
+        throw new ServiceUnavailableException('embedding write guard: primary not ready');
+      },
+      activeSpaceId: () => ACTIVE_SPACE,
+      cacheStats: () => ({ provider: 'openai:text-embedding-3-small:1536' }),
+    } as never;
+    const config = { get: (_k: string, def?: string) => def } as never;
+    const engine = new ReindexEngineService(surreal, embedder, config);
+
+    await expect(engine.reindexTenant('acme', { dryRun: false, remaining: 1000 })).rejects.toThrow(
+      /write guard/i,
+    );
+    expect(calls.filter((c) => /^\s*UPDATE/.test(c.sql))).toHaveLength(0);
   });
 });

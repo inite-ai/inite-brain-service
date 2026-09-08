@@ -68,7 +68,11 @@ export class HnswMaintenanceService {
   ) {}
 
   async apply(companyId: string, action: 'create' | 'drop'): Promise<HnswMaintenanceResult> {
-    const dimension = this.embedder.getDimensions();
+    // PRIMARY, not active: getDimensions() reports whoever is serving, so
+    // an index build triggered during the bge-m3 warmup window would bake
+    // the OpenAI fallback's 1536 into DDL for a 1024 corpus — an index the
+    // primary can never write to once warm.
+    const dimension = this.embedder.primaryDimensions();
     if (!Number.isInteger(dimension) || dimension < 8 || dimension > 8192) {
       throw new BadRequestException(`embedder reports implausible dimension ${dimension}`);
     }
