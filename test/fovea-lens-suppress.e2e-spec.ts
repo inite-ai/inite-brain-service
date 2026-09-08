@@ -162,4 +162,76 @@ describe('Fovea Optics §4.3 lens-suppression governor e2e', () => {
     expect(prompt).not.toContain(INSTRUCTION_MARKER);
     expect(await suppressCount(fSuppress, 'suppressed')).toBe(before + 1);
   });
+
+  /**
+   * The centroid write guard (0132). The `fit` ingest is the only way a
+   * vector enters this store, and it never passes EmbedderService — so
+   * #503's cross-space write guard cannot see it. A wrong-width centroid
+   * here is durable and unrepairable (no stored source text to re-embed
+   * from), which is why the refusal is unconditional rather than flagged.
+   */
+  describe('POST /v1/admin/lens-suppression/fit — centroid space guard', () => {
+    const fit = (body: object) =>
+      fControl.http.post('/v1/admin/lens-suppression/fit').set(authControl()).send(body);
+
+    const cls = (centroid: number[], extra: Record<string, unknown> = {}) => ({
+      classes: [
+        {
+          classId: 'guard_probe',
+          centroid,
+          suppressLanes: ['instruction'],
+          sampleCount: 10,
+          ...extra,
+        },
+      ],
+    });
+
+    beforeEach(() => {
+      process.env.FOVEA_LENS_SUPPRESS = '1';
+    });
+
+    it('refuses a wrong-width centroid with a 400', async () => {
+      const width = fControl.app.get(EmbedderService).primaryDimensions();
+      const wrong = width === 1024 ? 1536 : 1024;
+      const r = await fit(cls(new Array(wrong).fill(0.01)));
+      expect(r.status).toBe(400);
+      expect(String(r.body.message)).toContain(`${wrong}-wide centroid`);
+
+      // Nothing was written: the class never appears in the listing.
+      const list = await fControl.http.get('/v1/admin/lens-suppression/classes').set(authControl());
+      expect(list.status).toBe(200);
+      expect(
+        (list.body.classes as Array<{ classId: string }>).some((c) => c.classId === 'guard_probe'),
+      ).toBe(false);
+    });
+
+    it('refuses a centroid that declares a foreign space with a 400', async () => {
+      const width = fControl.app.get(EmbedderService).primaryDimensions();
+      const r = await fit(
+        cls(new Array(width).fill(0.01), { embeddingSpaceId: 'openai:some-other-model:1536:l2' }),
+      );
+      expect(r.status).toBe(400);
+    });
+
+    it('accepts a right-width centroid and stamps the tenant space', async () => {
+      const embedder = fControl.app.get(EmbedderService);
+      const r = await fit(cls(new Array(embedder.primaryDimensions()).fill(0.01)));
+      expect([200, 201]).toContain(r.status);
+      expect(r.body.persisted).toBe(1);
+
+      const list = await fControl.http.get('/v1/admin/lens-suppression/classes').set(authControl());
+      const row = (
+        list.body.classes as Array<{
+          classId: string;
+          centroidDim: number;
+          embeddingSpaceId: string | null;
+        }>
+      ).find((c) => c.classId === 'guard_probe');
+      expect(row).toBeDefined();
+      expect(row!.centroidDim).toBe(embedder.primaryDimensions());
+      // The stamp is the space the guard validated against — 0101's
+      // descriptor, now reaching the column 0101 missed.
+      expect(row!.embeddingSpaceId).toBe(embedder.primarySpaceId());
+    });
+  });
 });

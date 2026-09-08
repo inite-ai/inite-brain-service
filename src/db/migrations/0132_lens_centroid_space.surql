@@ -1,0 +1,61 @@
+-- 0132: embedding-space stamps for the two vector columns 0101 missed —
+-- lens_suppression.centroid and semantic_belief.embedding.
+--
+-- WHY. 0101 gave every embedding-bearing table an `embeddingSpaceId`
+-- describing the (model, dimensionality, normalization) triple its vectors
+-- were produced under, so a cross-space compare can be refused instead of
+-- silently returning meaningless numbers. Two vector columns were left out,
+-- and one of them is the only vector in the system that arrives from
+-- OUTSIDE the embedder.
+--
+-- lens_suppression.centroid (0096) is cosine-compared against a live query
+-- embedding on the serving path (decideSuppression, nearest-centroid match)
+-- and is written by a THIN ADMIN INGEST — the training data is offline
+-- ablation-mined, so the operator POSTs the centroid rather than the
+-- service computing it. The write guard added in #503 (`0cd331c`) is a
+-- guard on EmbedderService: it fails closed when the provider that would
+-- serve is not in the primary's space, and it re-checks the produced
+-- width. A vector that never touches the embedder cannot be reached by it.
+-- Until now the only validation on an ingested centroid was that its
+-- numbers are finite — not its width, not its space — so a 1536-wide
+-- centroid could be persisted into a 1024-wide tenant and would sit there
+-- until the serving cosine failed on it.
+--
+-- semantic_belief.embedding (0126) is write-dead by design (no producer
+-- yet) but is declared in VECTOR_COLUMNS and will be cosine-compared the
+-- moment a producer exists. It gets the same stamp now so the column
+-- cannot acquire a writer without a space.
+--
+-- ADDITIVE + OPTIONAL, the 0101 posture exactly: `option<string>`, so every
+-- existing row reads NONE and NO backfill runs at migrate time. NONE is
+-- interpreted as "the current provider's space" (the legacy / implicit
+-- space), which is what those rows are in — the ingest that wrote them
+-- could only produce the deployed embedder's width without failing at read
+-- time. Nothing is rewritten here.
+--
+-- GDPR. Neither column is new personal data and neither needs new forget
+-- reach. `embeddingSpaceId` holds a deployment descriptor
+-- (`provider:model:dim:norm`), not user content. `lens_suppression` is
+-- tenant-scoped aggregate state (companyId, no userId) that no user- or
+-- entity-forget path touches. `semantic_belief` IS reached by both forget
+-- paths, and both DELETE the whole row through the mandatory two-step
+-- `LET $ids = (SELECT VALUE id …); DELETE $ids;` idiom
+-- (user-forget.service.ts, entity-forget.service.ts) — a column on a row
+-- that is deleted entirely needs no separate sweep.
+--
+-- No index, no changefeed, no event: this column is read by the admin
+-- surface and by nothing on the hot path, and a single-field index over it
+-- would only invite the `UPDATE … WHERE <indexed field>` shape 3.2.4's
+-- planner mishandles.
+
+-- lens_suppression — the externally-supplied class centroid (0096). The
+-- admin `fit` ingest now refuses a centroid whose width does not match the
+-- tenant's primary embedder and stamps the space it validated against.
+DEFINE FIELD IF NOT EXISTS embeddingSpaceId ON lens_suppression TYPE option<string>
+    ASSERT $value IS NONE OR string::len($value) >= 3;
+
+-- semantic_belief — the belief lane's dense leg (0126), write-dead until a
+-- promotion-side producer exists. Stamped now so it cannot gain one
+-- without declaring a space.
+DEFINE FIELD IF NOT EXISTS embeddingSpaceId ON semantic_belief TYPE option<string>
+    ASSERT $value IS NONE OR string::len($value) >= 3;

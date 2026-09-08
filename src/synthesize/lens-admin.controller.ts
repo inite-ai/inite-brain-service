@@ -22,6 +22,13 @@ import { LensSuppressionService, type LensSuppressionFitClass } from './lens-sup
  * idiom). The `fit` is a THIN INGEST of externally-mined (class, centroid,
  * suppressLanes) rows — the training data is offline/parked, so this surface
  * persists provided rows rather than learning at serving time.
+ *
+ * Because the centroid arrives from outside, it is the one vector in the
+ * system that never passes EmbedderService and therefore never met #503's
+ * cross-space write guard. The width/space check now lives in the service
+ * (LensSuppressionService.assertCentroidSpace) rather than here, so it
+ * covers every caller of `fitAndPersist` and not merely this route; the
+ * shape validation below stays where it is.
  */
 @Controller('v1/admin/lens-suppression')
 @UseGuards(ApiKeyGuard)
@@ -42,6 +49,8 @@ export class LensAdminController {
       sampleCount: number;
       version: number;
       centroidDim: number;
+      /** The space stamp (0132). NULL = written before the guard existed. */
+      embeddingSpaceId: string | null;
     }>;
   }> {
     this.assertEnabled();
@@ -61,6 +70,7 @@ export class LensAdminController {
         centroid?: unknown;
         suppressLanes?: unknown;
         sampleCount?: unknown;
+        embeddingSpaceId?: unknown;
       }>;
     },
   ): Promise<{ persisted: number; classes: string[] }> {
@@ -86,11 +96,17 @@ export class LensAdminController {
           'each class needs a classId, a numeric centroid[], a string suppressLanes[], and a non-negative sampleCount',
         );
       }
+      // Optional, but not free-form: a declared space is an assertion the
+      // service checks against the tenant's primary space.
+      if (c.embeddingSpaceId !== undefined && typeof c.embeddingSpaceId !== 'string') {
+        throw new BadRequestException('embeddingSpaceId must be a string when supplied');
+      }
       return {
         classId: c.classId,
         centroid: c.centroid as number[],
         suppressLanes: c.suppressLanes as string[],
         sampleCount: c.sampleCount,
+        ...(typeof c.embeddingSpaceId === 'string' ? { embeddingSpaceId: c.embeddingSpaceId } : {}),
       };
     });
     return this.lens.fitAndPersist(req.brainAuth.companyId, classes);
