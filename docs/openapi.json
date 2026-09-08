@@ -2039,6 +2039,400 @@
         ],
         "type": "object"
       },
+      "IndexerCandidateTotals": {
+        "additionalProperties": false,
+        "properties": {
+          "committed": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "duplicate": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "expired": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "merged": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "pending": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rejected": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "submitted": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "submitted",
+          "pending",
+          "committed",
+          "merged",
+          "duplicate",
+          "rejected",
+          "expired"
+        ],
+        "type": "object"
+      },
+      "IndexerExternalHealth": {
+        "additionalProperties": false,
+        "properties": {
+          "lastClaimAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "oldestPendingAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pendingWork": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "polledRecently": {
+            "type": "boolean"
+          },
+          "polledWithinHours": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "publisher": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "publisher",
+          "pendingWork",
+          "oldestPendingAt",
+          "lastClaimAt",
+          "polledRecently",
+          "polledWithinHours"
+        ],
+        "type": "object"
+      },
+      "IndexerOverview": {
+        "additionalProperties": false,
+        "properties": {
+          "candidates": {
+            "$ref": "#/components/schemas/IndexerCandidateTotals"
+          },
+          "description": {
+            "type": "string"
+          },
+          "external": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IndexerExternalHealth"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "installedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastRun": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IndexerRunSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode": {
+            "enum": [
+              "virtual",
+              "dedicated",
+              "external"
+            ],
+            "type": "string"
+          },
+          "packId": {
+            "type": "string"
+          },
+          "packVersion": {
+            "type": "string"
+          },
+          "runs": {
+            "$ref": "#/components/schemas/IndexerRunTotals"
+          },
+          "source": {
+            "enum": [
+              "builtin",
+              "installed"
+            ],
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "packId",
+          "packVersion",
+          "mode",
+          "source",
+          "description",
+          "installedAt",
+          "lastRun",
+          "runs",
+          "candidates",
+          "external",
+          "truncated"
+        ],
+        "type": "object"
+      },
+      "IndexerOverviewListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "indexers": {
+            "items": {
+              "$ref": "#/components/schemas/IndexerOverview"
+            },
+            "type": "array"
+          },
+          "tenant": {
+            "type": "string"
+          },
+          "window": {
+            "$ref": "#/components/schemas/IndexerWindow"
+          }
+        },
+        "required": [
+          "tenant",
+          "window",
+          "indexers"
+        ],
+        "type": "object"
+      },
+      "IndexerRunListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "packId": {
+            "type": "string"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/IndexerRunSummary"
+            },
+            "type": "array"
+          },
+          "tenant": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "window": {
+            "$ref": "#/components/schemas/IndexerWindow"
+          }
+        },
+        "required": [
+          "tenant",
+          "packId",
+          "window",
+          "runs",
+          "truncated"
+        ],
+        "type": "object"
+      },
+      "IndexerRunStats": {
+        "additionalProperties": false,
+        "properties": {
+          "chunks": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "durationMs": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "entities": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "facts": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "relations": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "chunks",
+          "entities",
+          "facts",
+          "relations",
+          "durationMs"
+        ],
+        "type": "object"
+      },
+      "IndexerRunSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "candidates": {
+            "$ref": "#/components/schemas/IndexerCandidateTotals"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "external": {
+            "type": "boolean"
+          },
+          "finishedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "packVersion": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "stats": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IndexerRunStats"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId",
+          "documentId",
+          "packVersion",
+          "status",
+          "external",
+          "startedAt",
+          "finishedAt",
+          "stats",
+          "error",
+          "candidates"
+        ],
+        "type": "object"
+      },
+      "IndexerRunTotals": {
+        "additionalProperties": false,
+        "properties": {
+          "failed": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "pending": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "running": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "skipped": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "succeeded": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "pending",
+          "running",
+          "succeeded",
+          "failed",
+          "skipped"
+        ],
+        "type": "object"
+      },
+      "IndexerWindow": {
+        "additionalProperties": false,
+        "properties": {
+          "days": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "runCap": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "since": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "since",
+          "days",
+          "runCap"
+        ],
+        "type": "object"
+      },
       "IndexerWorkItem": {
         "additionalProperties": false,
         "properties": {
@@ -4998,6 +5392,135 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/v1/admin/indexers": {
+      "get": {
+        "description": "One row per pack that declared an `indexer` descriptor (a pack without one rides the union pass and has no run ledger of its own, so it is absent): execution mode, pack id + installed version, the last run, and run/candidate tallies over a bounded recent window. For `external` packs it also reports publisher liveness — unclaimed backlog and the newest claim, the ledger-derived proxy for \"is the publisher still polling\". Read-only. Answers `404` until `INDEXER_OPERATOR_VIEW_ENABLED=1`. Source: src/documents/indexer-admin.controller.ts.\n\nRequired scope: `brain:admin`.",
+        "operationId": "listIndexerOperatorView",
+        "parameters": [
+          {
+            "description": "Target tenant (platform operators only).",
+            "in": "query",
+            "name": "tenant",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Window width in days (default 7, max 90).",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Runs read per indexer (default 50, max 200).",
+            "in": "query",
+            "name": "runCap",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexerOverviewListResponse"
+                }
+              }
+            },
+            "description": "Installed indexers and run health."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "List the tenant's installed indexers and their run health",
+        "tags": [
+          "Indexer operations"
+        ]
+      }
+    },
+    "/v1/admin/indexers/{packId}/runs": {
+      "get": {
+        "description": "The `indexer_run` ledger rows of a single declared indexer, newest first, each with its staged-candidate tallies. A pack that is not a declared indexer of this tenant answers 404. Read-only. Answers `404` until `INDEXER_OPERATOR_VIEW_ENABLED=1`. Source: src/documents/indexer-admin.controller.ts.\n\nRequired scope: `brain:admin`.",
+        "operationId": "listIndexerRuns",
+        "parameters": [
+          {
+            "description": "The indexer (= pack) id.",
+            "in": "path",
+            "name": "packId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Target tenant (platform operators only).",
+            "in": "query",
+            "name": "tenant",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Window width in days (default 7, max 90).",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Max runs to return (default 50, max 200).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexerRunListResponse"
+                }
+              }
+            },
+            "description": "Recent runs."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Recent runs of one indexer",
+        "tags": [
+          "Indexer operations"
+        ]
+      }
+    },
     "/v1/admin/packs": {
       "get": {
         "description": "Builtin packs are globally available and cannot be installed or uninstalled here. Source: src/admin/admin-packs.controller.ts.\n\nRequired scope: `brain:admin`.",
@@ -8199,6 +8722,10 @@
     {
       "description": "The external-indexer protocol (scope `indexer:write`): poll → claim → read content → submit candidates / fail. See docs/indexer-protocol.md.",
       "name": "Indexer work"
+    },
+    {
+      "description": "Read-only operator view (scope `brain:admin`) over the tenant’s installed indexers and their run health. Dark behind INDEXER_OPERATOR_VIEW_ENABLED (default off).",
+      "name": "Indexer operations"
     },
     {
       "description": "Read-only trust inputs (scope `brain:read`): declared source identity ⋈ learned reputation. Public projection — operator annotations (owner/note) stay on the admin surface.",

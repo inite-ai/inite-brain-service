@@ -10,6 +10,8 @@ import { ExternalCandidatesController } from './external-candidates.controller';
 import { ExternalCandidatesService } from './external-candidates.service';
 import { IndexerWorkController } from './indexer-work.controller';
 import { IndexerWorkService } from './indexer-work.service';
+import { IndexerAdminController } from './indexer-admin.controller';
+import { IndexerOperatorService } from './indexer-operator.service';
 import { IndexerWebhookService } from './indexer-webhook.service';
 import { DocumentStoreService } from './document-store.service';
 import { CandidateStoreService } from './candidate-store.service';
@@ -50,6 +52,7 @@ import { OutcomesModule } from '../outcomes/outcomes.module';
     DocumentsIngestController,
     ExternalCandidatesController,
     IndexerWorkController,
+    IndexerAdminController,
   ],
   providers: [
     DocumentStoreService,
@@ -66,6 +69,7 @@ import { OutcomesModule } from '../outcomes/outcomes.module';
     MentionViaDocumentService,
     ExternalCandidatesService,
     IndexerWorkService,
+    IndexerOperatorService,
     IndexerWebhookService,
     SceneCandidateWriterService,
   ],

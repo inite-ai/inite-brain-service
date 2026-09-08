@@ -68,6 +68,9 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   ['/v1/indexer/work/{runId}/heartbeat', 'post'],
   ['/v1/indexer/work/{runId}/content', 'get'],
   ['/v1/indexer/work/{runId}/fail', 'post'],
+  // Read-only operator view — 404 until INDEXER_OPERATOR_VIEW_ENABLED=1.
+  ['/v1/admin/indexers', 'get'],
+  ['/v1/admin/indexers/{packId}/runs', 'get'],
   ['/v1/sources', 'get'],
   ['/v1/sources/{sourceKey}', 'get'],
   // raw-substrate driver v1 (episodes read + subscriptions + projections)

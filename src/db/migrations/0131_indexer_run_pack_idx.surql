@@ -1,0 +1,26 @@
+-- 0131: indexer_run_pack_idx — the index behind the operator view over
+-- installed indexers (GET /v1/admin/indexers, INDEXER_OPERATOR_VIEW_ENABLED).
+--
+-- WHY. An indexer's identity IS its pack, and the run ledger has been
+-- keyed by (docId, packId, packVersion) since 0049 — but every index over
+-- indexer_run so far served a WRITER's access path: the identity UNIQUE
+-- (idempotency), `status` (the stale reaper), and (external, status)
+-- (work discovery). Nothing indexed a READ by pack, because until now
+-- nothing read the ledger BY pack: /v1/indexer/work asks "what work is
+-- pending", never "how is pack X doing". The operator view asks exactly
+-- the latter, per installed indexer, so without this index each row of
+-- the response costs a full table scan of the tenant's run ledger.
+--
+-- WHAT. A single-field index on packId. Deliberately NOT a compound
+-- (packId, createdAt): the recency bound rides in the WHERE and the
+-- result set is LIMITed per pack, so the leading equality is what
+-- matters — and a compound index would put `createdAt` (a field the
+-- stale-reaper's UPDATE ... WHERE does reference) into an index, which
+-- is precisely the SurrealDB 3.2.4 planner shape we keep away from
+-- mutating statements. `packId` appears in no DELETE/UPDATE ... WHERE
+-- anywhere in the service, so this index can only ever serve reads.
+--
+-- Non-unique by construction: one pack has many runs (one per document ×
+-- pack version).
+
+DEFINE INDEX IF NOT EXISTS indexer_run_pack_idx ON indexer_run FIELDS packId;

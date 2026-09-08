@@ -121,6 +121,17 @@ import {
   WorkContentResponseSchema,
 } from '../src/contracts/indexer/indexer-work.schema';
 import {
+  IndexerCandidateTotalsSchema,
+  IndexerExternalHealthSchema,
+  IndexerOverviewListResponseSchema,
+  IndexerOverviewSchema,
+  IndexerRunListResponseSchema,
+  IndexerRunStatsSchema,
+  IndexerRunSummarySchema,
+  IndexerRunTotalsSchema,
+  IndexerWindowSchema,
+} from '../src/contracts/indexer/indexer-operator.schema';
+import {
   CandidateSchema,
   CommitCountsSchema,
   DocumentCandidatesResponseSchema,
@@ -309,6 +320,16 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   IndexerWorkListResponse: IndexerWorkListResponseSchema,
   WorkContentChunk: WorkContentChunkSchema,
   WorkContentResponse: WorkContentResponseSchema,
+  // --- indexer operator view (src/contracts/indexer/indexer-operator.schema.ts)
+  IndexerCandidateTotals: IndexerCandidateTotalsSchema,
+  IndexerExternalHealth: IndexerExternalHealthSchema,
+  IndexerOverview: IndexerOverviewSchema,
+  IndexerOverviewListResponse: IndexerOverviewListResponseSchema,
+  IndexerRunListResponse: IndexerRunListResponseSchema,
+  IndexerRunStats: IndexerRunStatsSchema,
+  IndexerRunSummary: IndexerRunSummarySchema,
+  IndexerRunTotals: IndexerRunTotalsSchema,
+  IndexerWindow: IndexerWindowSchema,
   // --- raw-substrate driver (src/contracts/episodes/driver.schema.ts)
   EpisodeWire: EpisodeWireSchema,
   EpisodesListResponse: EpisodesListResponseSchema,
@@ -1966,6 +1987,72 @@ function indexerWorkPaths(): Json {
   };
 }
 
+/** Dark-launch note for the read-only indexer operator view. */
+const INDEXER_OPERATOR_NOTE = 'Read-only. Answers `404` until `INDEXER_OPERATOR_VIEW_ENABLED=1`.';
+
+function indexerOperatorPaths(): Json {
+  return {
+    '/v1/admin/indexers': {
+      get: operation({
+        operationId: 'listIndexerOperatorView',
+        tag: 'Indexer operations',
+        summary: "List the tenant's installed indexers and their run health",
+        description:
+          'One row per pack that declared an `indexer` descriptor (a pack ' +
+          'without one rides the union pass and has no run ledger of its ' +
+          'own, so it is absent): execution mode, pack id + installed ' +
+          'version, the last run, and run/candidate tallies over a ' +
+          'bounded recent window. For `external` packs it also reports ' +
+          'publisher liveness — unclaimed backlog and the newest claim, ' +
+          'the ledger-derived proxy for "is the publisher still polling". ' +
+          `${INDEXER_OPERATOR_NOTE} ` +
+          'Source: src/documents/indexer-admin.controller.ts.',
+        scope: 'brain:admin',
+        parameters: [
+          queryParam('tenant', 'Target tenant (platform operators only).'),
+          queryParam('days', 'Window width in days (default 7, max 90).', { type: 'integer' }),
+          queryParam('runCap', 'Runs read per indexer (default 50, max 200).', {
+            type: 'integer',
+          }),
+        ],
+        responses: {
+          '200': jsonResponse(
+            'Installed indexers and run health.',
+            ref('IndexerOverviewListResponse'),
+          ),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/indexers/{packId}/runs': {
+      get: operation({
+        operationId: 'listIndexerRuns',
+        tag: 'Indexer operations',
+        summary: 'Recent runs of one indexer',
+        description:
+          'The `indexer_run` ledger rows of a single declared indexer, ' +
+          'newest first, each with its staged-candidate tallies. A pack ' +
+          'that is not a declared indexer of this tenant answers 404. ' +
+          `${INDEXER_OPERATOR_NOTE} ` +
+          'Source: src/documents/indexer-admin.controller.ts.',
+        scope: 'brain:admin',
+        parameters: [
+          pathParam('packId', 'The indexer (= pack) id.'),
+          queryParam('tenant', 'Target tenant (platform operators only).'),
+          queryParam('days', 'Window width in days (default 7, max 90).', { type: 'integer' }),
+          queryParam('limit', 'Max runs to return (default 50, max 200).', { type: 'integer' }),
+        ],
+        responses: {
+          '200': jsonResponse('Recent runs.', ref('IndexerRunListResponse')),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+  };
+}
+
 /* ------------------------------------------------------------------ *
  * Document assembly.
  * ------------------------------------------------------------------ */
@@ -2291,6 +2378,13 @@ export function buildOpenApiDocument(): Json {
           'See docs/indexer-protocol.md.',
       },
       {
+        name: 'Indexer operations',
+        description:
+          'Read-only operator view (scope `brain:admin`) over the ' +
+          'tenant’s installed indexers and their run health. Dark behind ' +
+          'INDEXER_OPERATOR_VIEW_ENABLED (default off).',
+      },
+      {
         name: 'Sources',
         description:
           'Read-only trust inputs (scope `brain:read`): declared source ' +
@@ -2369,6 +2463,7 @@ export function buildOpenApiDocument(): Json {
       ...packsAdminPaths(),
       ...documentsPaths(),
       ...indexerWorkPaths(),
+      ...indexerOperatorPaths(),
       ...sourcesPaths(),
       ...driverPaths(),
       ...memoryReadPaths(),
