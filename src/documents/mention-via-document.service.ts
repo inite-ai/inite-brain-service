@@ -2,6 +2,7 @@ import { Injectable, Optional } from '@nestjs/common';
 import { MetricsService } from '../metrics/metrics.service';
 import { IngestMentionDto } from '../ingest/dto/ingest-mention.dto';
 import { DocumentIngestService } from './document-ingest.service';
+import { internalDocumentMeta } from './document-meta';
 import { pinUserScope } from '../auth/user-scope';
 
 export interface MentionCompatResult {
@@ -57,26 +58,39 @@ export class MentionViaDocumentService {
       };
     }
     try {
-      const res = await this.documents.ingestDocument(companyId, {
-        kind: 'chat',
-        text: dto.text,
-        occurredAt: dto.emittedAt,
-        // The pinned per-user scope (0128) — stamps the stored document,
-        // every committed fact and any projected scenes. Absent key for
-        // tenant-global traffic keeps that path byte-identical.
-        ...(userId !== undefined ? { userId } : {}),
-        contextRef: {
-          vertical: dto.contextRef.vertical,
-          recorder: dto.contextRef.recorder,
+      const res = await this.documents.ingestDocument(
+        companyId,
+        {
+          kind: 'chat',
+          text: dto.text,
+          occurredAt: dto.emittedAt,
+          // The pinned per-user scope (0128) — stamps the stored document,
+          // every committed fact and any projected scenes. Absent key for
+          // tenant-global traffic keeps that path byte-identical.
+          ...(userId !== undefined ? { userId } : {}),
+          contextRef: {
+            vertical: dto.contextRef.vertical,
+            recorder: dto.contextRef.recorder,
+          },
+          // NO `meta`. The document `meta` field is the CALLER channel —
+          // operator vocabulary bound for the ABAC `source.meta` surface,
+          // policed by SOURCE_META_STRICT. A mention has no caller meta
+          // at all (IngestMentionDto has no such field); what follows is
+          // brain's own provenance, read off the TYPED contextRef, and it
+          // rides the internal channel instead. Asserting it as caller
+          // meta 400'd every mention under SOURCE_META_STRICT=1 — and,
+          // because an object literal materialises a key even for an
+          // undefined value, it did so even for requests that sent no
+          // conversationId/messageId/eventId whatsoever.
+          indexers: 'general',
+          mode: 'sync',
         },
-        meta: {
+        internalDocumentMeta({
           conversationId: dto.contextRef.conversationId,
           messageId: dto.contextRef.messageId,
           eventId: dto.contextRef.eventId,
-        },
-        indexers: 'general',
-        mode: 'sync',
-      });
+        }),
+      );
       if (res.committed.entityIds.length === 0) {
         this.metrics?.countIngestMention('skipped');
         return {
