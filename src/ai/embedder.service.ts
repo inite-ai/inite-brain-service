@@ -185,6 +185,30 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
     const key = this.cacheKey(provider.providerId, trimmed);
     const hit = this.cache.get(key);
     if (hit) return hit;
+    const vector = await this.embedThrough(provider, trimmed);
+    this.cache.set(key, vector);
+    return vector;
+  }
+
+  /**
+   * Embed WITHOUT reading or writing the cache.
+   *
+   * For the capability probe (src/metrics/capability-probe.service.ts),
+   * which measures the width of a vector the embedder actually produced.
+   * Through `embed()` a fixed probe string would be a cache hit from the
+   * second tick onwards, and the probe would then be measuring the LRU —
+   * a green signal that proves nothing, which is the exact class of bug
+   * it exists to catch. Nothing on the request path should use this: the
+   * cache is there for a reason.
+   */
+  async embedUncached(text: string): Promise<number[]> {
+    const trimmed = text.trim();
+    if (!trimmed) return new Array(this.getDimensions()).fill(0);
+    return this.embedThrough(this.serveProvider(), trimmed);
+  }
+
+  /** The provider call itself, with its gen_ai span + token accounting. */
+  private async embedThrough(provider: EmbedderProvider, trimmed: string): Promise<number[]> {
     // Provider IDs encode `${vendor}:${model}:${dim}` (see
     // OpenAIEmbedderProvider / BgeM3EmbedderProvider). We split for
     // gen_ai.system + gen_ai.request.model; OpenAI is the only vendor
@@ -213,7 +237,6 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
           ? provider.embedWithUsage(trimmed)
           : { vector: await provider.embed(trimmed) },
     );
-    this.cache.set(key, vector);
     return vector;
   }
 
