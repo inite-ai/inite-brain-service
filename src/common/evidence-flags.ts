@@ -284,6 +284,38 @@ export function orphanBlobGcTimeBudgetMs(): number {
 }
 
 /**
+ * Cross-flag consistency for the orphan-blob GC, dispatched from
+ * validateEnv. It lives HERE, beside the three readers whose gating it
+ * mirrors, rather than in the env-validation catalog: which knob depends
+ * on which is defined a few lines up, and a validator that drifts from
+ * its readers is worse than no validator.
+ *
+ * WARNINGS, not errors — every inconsistent pair here fails SAFE (the
+ * sweep does less, never more), but each is an operator who thinks they
+ * enabled something and did not:
+ *
+ *  - _DELETE or _SCHEDULED without the master flag: the sweep does not
+ *    exist at all, so neither knob does anything. Worth saying out loud,
+ *    because "I turned deletion on" and "nothing was ever reclaimed" is
+ *    a silent pair otherwise;
+ *  - the master flag with _DELETE off is NOT flagged: that is stage one
+ *    working exactly as designed (report-only), and the intended state
+ *    to sit in until a dry run has been read.
+ */
+export function validateEvidenceOrphanGcEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
+  if (envFlagEnabled(env.EVIDENCE_ORPHAN_BLOB_GC)) return;
+  for (const dependent of ['EVIDENCE_ORPHAN_BLOB_GC_DELETE', 'EVIDENCE_ORPHAN_BLOB_GC_SCHEDULED']) {
+    if (envFlagEnabled(env[dependent])) {
+      warnings.push(
+        `${dependent} is set while EVIDENCE_ORPHAN_BLOB_GC is not — the orphan-blob ` +
+          'sweep does not exist, so this knob has no effect; nothing is enumerated, ' +
+          'the admin route answers 404 and the nightly pass returns immediately.',
+      );
+    }
+  }
+}
+
+/**
  * Trusted processor broker (Brain v2.1 MM-1, migration 0121) —
  * EVIDENCE_PROCESSOR_BROKER.
  *

@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { validateEvidenceOrphanGcEnv } from './evidence-flags';
 import { isProcessRole, normalizeProcessRole } from './process-role';
 
 const log = new Logger('EnvValidation');
@@ -284,6 +285,8 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   validateEvidenceProcessingEnv(env, warnings);
 
   // ── Evidence plane: orphan-blob GC (delete-side hygiene) ───────────
+  // The validator lives beside its readers in evidence-flags.ts — see
+  // the note there.
   validateEvidenceOrphanGcEnv(env, warnings);
 
   // ── Belief serving: damping requires the lane ──────────────────────
@@ -567,33 +570,6 @@ function validateEvidenceGrantsApiEnv(env: NodeJS.ProcessEnv, warnings: string[]
         'the sharing surface stays dark (its double gate answers a bare 404 for ' +
         'every grant/list/revoke) until EVIDENCE_SUBSTRATE_ENABLED is turned on.',
     );
-  }
-}
-
-/**
- * Cross-flag consistency for the orphan-blob GC (MM-7 follow-up).
- * WARNINGS, not errors — every inconsistent pair here fails SAFE (the
- * sweep does less, never more), but each is an operator who thinks they
- * enabled something and did not:
- *
- *  - _DELETE or _SCHEDULED without the master flag: the sweep does not
- *    exist at all, so neither knob does anything. Worth saying out loud,
- *    because "I turned deletion on" and "nothing was ever reclaimed" is
- *    a silent pair otherwise;
- *  - the master flag with _DELETE off is NOT flagged: that is stage one
- *    working exactly as designed (report-only), and the intended state
- *    to sit in until a dry run has been read.
- */
-function validateEvidenceOrphanGcEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
-  if (envFlagEnabled(env.EVIDENCE_ORPHAN_BLOB_GC)) return;
-  for (const dependent of ['EVIDENCE_ORPHAN_BLOB_GC_DELETE', 'EVIDENCE_ORPHAN_BLOB_GC_SCHEDULED']) {
-    if (envFlagEnabled(env[dependent])) {
-      warnings.push(
-        `${dependent} is set while EVIDENCE_ORPHAN_BLOB_GC is not — the orphan-blob ` +
-          'sweep does not exist, so this knob has no effect; nothing is enumerated, ' +
-          'the admin route answers 404 and the nightly pass returns immediately.',
-      );
-    }
   }
 }
 
