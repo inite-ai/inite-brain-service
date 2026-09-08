@@ -9,6 +9,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
+import { OCR_SUPPORTED_LANGUAGES, type OcrLanguage } from '../../../common/evidence-flags';
 
 /**
  * OCR ASSET RESOLUTION — the module that makes the OCR adapter genuinely
@@ -61,11 +62,18 @@ import { dirname, isAbsolute, join } from 'node:path';
  * more accurate of the two LSTM options.
  */
 
-/** Languages whose traineddata ships with the image. An operator may
- *  select a SUBSET (EVIDENCE_OCR_LANGS); anything outside this list is
- *  refused rather than fetched. */
-export const OCR_SUPPORTED_LANGUAGES = ['eng', 'rus'] as const;
-export type OcrLanguage = (typeof OCR_SUPPORTED_LANGUAGES)[number];
+/**
+ * Languages whose traineddata ships with the image. An operator may
+ * select a SUBSET (EVIDENCE_OCR_LANGS); anything outside this list is
+ * refused rather than fetched.
+ *
+ * DEFINED in the common layer beside the knob that selects from it, so
+ * boot validation can reject an unshipped language without importing the
+ * evidence dirs; re-exported here because this module is where the set is
+ * actually resolved to files, and a caller reasoning about models should
+ * not have to know which layer owns the vocabulary.
+ */
+export { OCR_SUPPORTED_LANGUAGES, type OcrLanguage };
 
 /** The tessdata generation pinned above; part of the model identity, so
  *  it rides the adapter's fingerprint. */

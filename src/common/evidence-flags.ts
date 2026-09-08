@@ -567,6 +567,20 @@ export function evidenceOcrEnabled(): boolean {
   return envFlagEnabled(process.env.EVIDENCE_OCR_ENABLED);
 }
 
+/**
+ * Languages whose `.traineddata` ships in the image. THE authority for
+ * the set — ocr-assets.ts re-exports it rather than keeping a second
+ * copy, and the boot validator below checks against it, so adding a
+ * language is one edit next to one dependency addition.
+ *
+ * It lives in the common layer with the knob that selects from it
+ * (engine-gates S5.2), not in the adapter: boot validation must be able
+ * to reject an unshipped language without importing anything from the
+ * evidence dirs.
+ */
+export const OCR_SUPPORTED_LANGUAGES = ['eng', 'rus'] as const;
+export type OcrLanguage = (typeof OCR_SUPPORTED_LANGUAGES)[number];
+
 /** Default OCR language set. (Named WITHOUT the full env-key substring so
  *  the W6 boot-capture truth gate doesn't mistake this module-scope
  *  default for a boot-captured read.) */
@@ -631,4 +645,46 @@ export function evidenceOcrMinConfidence(): number {
   if (raw === undefined || raw.trim() === '') return DEFAULT_OCR_CONFIDENCE_FLOOR;
   const v = Number(raw);
   return Number.isInteger(v) && v >= 0 && v <= 100 ? v : DEFAULT_OCR_CONFIDENCE_FLOOR;
+}
+
+/**
+ * Boot validation of the two OCR value knobs, dispatched from
+ * validateEnv. It lives HERE, beside the readers whose clamp rules it
+ * mirrors, rather than in the env-validation catalog: the accepted range
+ * and the shipped-language set are defined a few lines up, and a
+ * validator that drifts from its reader is worse than no validator.
+ *
+ * ERRORS, not warnings. Both readers clamp an invalid value back to the
+ * default at call time, so a typo would otherwise run OCR under settings
+ * the operator did not choose — a silently different confidence floor
+ * stores different text, and an unshipped language code silently drops
+ * back to English. Boot is the only place that can say so out loud.
+ */
+export function validateOcrEnvValues(env: NodeJS.ProcessEnv, errors: string[]): void {
+  const floor = env.EVIDENCE_OCR_MIN_CONFIDENCE;
+  if (floor !== undefined && floor.trim() !== '') {
+    const v = Number(floor);
+    if (!Number.isInteger(v) || v < 0 || v > 100) {
+      errors.push('EVIDENCE_OCR_MIN_CONFIDENCE must be an integer in 0..100');
+    }
+  }
+  const langs = env.EVIDENCE_OCR_LANGS;
+  if (langs === undefined || langs.trim() === '') return;
+  const codes = langs
+    .split(/[+,]/)
+    .map((part) => part.trim().toLowerCase())
+    .filter((part) => part !== '');
+  if (codes.length === 0) {
+    errors.push('EVIDENCE_OCR_LANGS must name at least one language');
+    return;
+  }
+  const shipped: readonly string[] = OCR_SUPPORTED_LANGUAGES;
+  const unknown = codes.filter((code) => !shipped.includes(code));
+  if (unknown.length > 0) {
+    errors.push(
+      `EVIDENCE_OCR_LANGS names languages this build does not ship ` +
+        `(${unknown.join(', ')}) — available: ${shipped.join(', ')}. ` +
+        'OCR models are never downloaded at runtime.',
+    );
+  }
 }

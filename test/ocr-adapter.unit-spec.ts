@@ -14,6 +14,7 @@ import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { Readable } from 'node:stream';
 import sharp from 'sharp';
+import { validateOcrEnvValues } from '../src/common/evidence-flags';
 import { OcrAdapter } from '../src/evidence/processing/adapters/ocr.adapter';
 import {
   OCR_SUPPORTED_LANGUAGES,
@@ -527,6 +528,47 @@ describe('OcrAdapter deadline enforcement', () => {
       }),
     ).rejects.toThrow(/OCR engine start/);
     expect(terminated).toBe(true);
+  });
+});
+
+describe('OCR boot validation', () => {
+  const errorsFor = (env: NodeJS.ProcessEnv): string[] => {
+    const errors: string[] = [];
+    validateOcrEnvValues(env, errors);
+    return errors;
+  };
+
+  it('accepts an unset, blank or shipped language set', () => {
+    expect(errorsFor({})).toEqual([]);
+    expect(errorsFor({ EVIDENCE_OCR_LANGS: '  ' })).toEqual([]);
+    expect(errorsFor({ EVIDENCE_OCR_LANGS: 'eng' })).toEqual([]);
+    expect(errorsFor({ EVIDENCE_OCR_LANGS: 'RUS, eng' })).toEqual([]);
+  });
+
+  it('ERRORS on a language this build does not ship', () => {
+    // Not a warning: the reader clamps back to English, so without this
+    // the operator would silently get a language they did not choose.
+    const [error] = errorsFor({ EVIDENCE_OCR_LANGS: 'eng+fra' });
+    expect(error).toContain('does not ship');
+    expect(error).toContain('fra');
+    expect(error).toContain('never downloaded at runtime');
+  });
+
+  it('ERRORS on a confidence floor outside 0..100 or non-integer', () => {
+    expect(errorsFor({ EVIDENCE_OCR_MIN_CONFIDENCE: '101' })).toHaveLength(1);
+    expect(errorsFor({ EVIDENCE_OCR_MIN_CONFIDENCE: '-1' })).toHaveLength(1);
+    expect(errorsFor({ EVIDENCE_OCR_MIN_CONFIDENCE: '60.5' })).toHaveLength(1);
+    expect(errorsFor({ EVIDENCE_OCR_MIN_CONFIDENCE: 'high' })).toHaveLength(1);
+    expect(errorsFor({ EVIDENCE_OCR_MIN_CONFIDENCE: '0' })).toEqual([]);
+    expect(errorsFor({ EVIDENCE_OCR_MIN_CONFIDENCE: '100' })).toEqual([]);
+  });
+
+  it('validates against the SAME set the adapter resolves models from', () => {
+    // One source of truth: a language that validates must also resolve.
+    for (const lang of OCR_SUPPORTED_LANGUAGES) {
+      expect(errorsFor({ EVIDENCE_OCR_LANGS: lang })).toEqual([]);
+      expect(() => assertOcrLanguagesLocal([lang])).not.toThrow();
+    }
   });
 });
 
