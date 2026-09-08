@@ -8,6 +8,8 @@ export interface LivenessReport {
 
 export interface ReadinessReport {
   dbOk: boolean;
+  /** The caller-facing read path (scoped pool) can still authorize a query. */
+  scopedOk: boolean;
   embedderReady: boolean;
   ready: boolean;
 }
@@ -33,11 +35,20 @@ export class HealthService {
 
   /**
    * Readiness — request-path dependencies warm enough for production
-   * traffic: DB reachable AND the embedder finished its (ONNX) warmup.
+   * traffic: DB reachable, the CALLER-FACING read path still authorized,
+   * and the embedder finished its (ONNX) warmup.
+   *
+   * `ping()` alone is not enough: it calls `version()`, which SurrealDB
+   * answers for an anonymous session too. During the 2026-09-08
+   * scoped-session-expiry outage that made /ready green while every read
+   * failed with "Anonymous access not allowed". `pingScoped()` runs an
+   * authorization-gated statement on a scoped connection, so a read path
+   * that can no longer authorize takes the pod out of rotation.
    */
   async readiness(): Promise<ReadinessReport> {
     const dbOk = await this.surreal.ping().catch(() => false);
+    const scopedOk = dbOk ? await this.surreal.pingScoped().catch(() => false) : false;
     const embedderReady = this.embedder.isReady();
-    return { dbOk, embedderReady, ready: dbOk && embedderReady };
+    return { dbOk, scopedOk, embedderReady, ready: dbOk && scopedOk && embedderReady };
   }
 }

@@ -16,9 +16,12 @@ import { HealthService } from '../src/common/health.service';
 import { ServiceUnavailableException } from '@nestjs/common';
 
 describe('HealthController', () => {
-  function mk({ db, embedderReady }: { db: boolean; embedderReady: boolean }) {
-    const surreal = { ping: async () => db } as any;
-    const embedder = { isReady: () => embedderReady } as any;
+  function mk(opts: { db: boolean; embedderReady: boolean; scoped?: boolean }) {
+    const surreal = {
+      ping: async () => opts.db,
+      pingScoped: async () => opts.scoped ?? true,
+    } as any;
+    const embedder = { isReady: () => opts.embedderReady } as any;
     return new HealthController(new HealthService(surreal, embedder));
   }
 
@@ -49,7 +52,32 @@ describe('HealthController', () => {
       const res = await mk({ db: true, embedderReady: true }).ready();
       expect(res.ready).toBe(true);
       expect(res.checks.surrealdb).toBe('ok');
+      expect(res.checks.scopedPool).toBe('ok');
       expect(res.checks.embedder).toBe('ok');
+    });
+
+    /**
+     * Audit 2026-09-08: the scoped pool's session lapsed an hour after boot
+     * and every caller-facing read answered "Anonymous access not allowed" —
+     * while /ready stayed green, because `ping()` calls `version()`, which
+     * SurrealDB answers for an anonymous session too. A readiness probe that
+     * cannot see the request path is part of the outage, so /ready now runs
+     * an authorization-gated statement on a scoped connection.
+     */
+    it('throws 503 when the socket is fine but the scoped read path is unauthorized', async () => {
+      await expect(
+        mk({ db: true, embedderReady: true, scoped: false }).ready(),
+      ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    });
+
+    it('names the scoped pool in the 503 body so the operator sees which leg failed', async () => {
+      const err = await mk({ db: true, embedderReady: true, scoped: false })
+        .ready()
+        .catch((e: ServiceUnavailableException) => e);
+      expect((err as ServiceUnavailableException).getResponse()).toMatchObject({
+        ready: false,
+        checks: { surrealdb: 'ok', scopedPool: 'unauthorized', embedder: 'ok' },
+      });
     });
 
     it('throws 503 when embedder is still warming', async () => {

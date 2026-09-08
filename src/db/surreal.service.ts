@@ -4,6 +4,7 @@ import { Surreal } from 'surrealdb';
 import { join } from 'node:path';
 import { SchemaMigrator } from './migrator.service';
 import { enrichTransactionError } from './surreal-retry';
+import { SurrealSessionKeeper } from './session-keeper';
 import { envFlagEnabled } from '../common/env-validation';
 import { getPolicyContext } from '../common/request-context';
 import { compileDenyPushdown } from '../policy/db-fence';
@@ -16,6 +17,12 @@ export {
   enrichTransactionError,
   retryOnUniqueViolation,
 } from './surreal-retry';
+
+/**
+ * How long the readiness probe waits for a scoped connection before it gives
+ * the pool the benefit of the doubt. Short on purpose — see `pingScoped`.
+ */
+const SCOPED_PROBE_ACQUIRE_MS = 2000;
 
 /**
  * SurrealService — pooled connections with per-tenant database routing.
@@ -57,6 +64,18 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    * never hands out a root-authorized conn silently.
    */
   private readonly rootFallbackConns = new Set<Surreal>();
+  /**
+   * Access-token expiry bookkeeping for the SCOPED pool. Audit 2026-09-08:
+   * scoped connections signed in exactly ONCE, at boot, and surrealdb-js
+   * 2.0.8 answers a `signin()`-established session's expiry by calling
+   * `invalidate()` — so ~59 minutes after boot every caller-facing read
+   * failed with "Anonymous access not allowed" while writes (root pool,
+   * re-signed per acquire) and /health kept answering. The keeper re-signs a
+   * scoped connection before the driver can invalidate it. See
+   * db/session-keeper.ts for the full mechanism.
+   */
+  private readonly scopedSessions = new SurrealSessionKeeper();
+  private scopedCreds?: { username: string; password: string; namespace: string };
   private readonly rootWaiters: Array<(c: Surreal) => void> = [];
   private readonly scopedWaiters: Array<(c: Surreal) => void> = [];
   private namespace!: string;
@@ -148,6 +167,65 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
+  /**
+   * Sign a connection in as the scoped (`brain_caller`) user and record the
+   * access token's expiry so the pool knows when it must re-sign.
+   */
+  private async signinScoped(conn: Surreal): Promise<void> {
+    if (!this.scopedCreds) throw new Error('scoped credentials not configured');
+    const tokens = await withTimeout(conn.signin(this.scopedCreds), 3000, 'scoped signin');
+    this.scopedSessions.record(conn, tokens?.access);
+    this.rootFallbackConns.delete(conn);
+  }
+
+  /**
+   * The scoped-pool counterpart of `ensureRootSession`: guarantee the
+   * connection about to serve a caller-facing read is still authorized as
+   * `brain_caller`.
+   *
+   * Unlike the root path this does NOT sign in unconditionally. A Surreal
+   * `signin` runs the server-side password KDF (~16ms locally, vs ~0.3ms for
+   * a SELECT), and reads are the hot path — paying it per request would be a
+   * ~48x tax on the cheapest queries. Instead we re-sign only when the access
+   * token is inside the re-auth margin, which is the condition that actually
+   * matters: past it, surrealdb-js invalidates the session and the connection
+   * goes anonymous (see db/session-keeper.ts).
+   *
+   * A signin failure means the socket is gone (zombie ws, gh#618) or the
+   * credentials no longer work. Rebuild once; if the rebuilt connection also
+   * cannot sign in scoped, throw — `acquireScoped` turns that into a
+   * fail-closed error rather than serving the request root-authorized.
+   *
+   * Returns the connection to use: the original, or a freshly built
+   * replacement. Callers MUST use the returned reference.
+   */
+  private async ensureScopedSession(conn: Surreal): Promise<Surreal> {
+    if (!this.rootFallbackConns.has(conn) && !this.scopedSessions.needsSignin(conn)) return conn;
+    try {
+      await this.signinScoped(conn);
+      return conn;
+    } catch (e) {
+      this.logger.warn(
+        `Scoped signin failed (${(e as Error).message?.slice(0, 120)}) — rebuilding conn`,
+      );
+      this.scopedSessions.forget(conn);
+      this.rootFallbackConns.delete(conn);
+      await withTimeout(conn.close(), 1000, 'close').catch(() => undefined);
+      const fresh = new Surreal();
+      await withTimeout(fresh.connect(this.surrealUrl), 5000, 'connect');
+      try {
+        await this.signinScoped(fresh);
+      } catch (rebuildErr) {
+        await fresh.close().catch(() => undefined);
+        throw rebuildErr;
+      }
+      const oldIdx = this.all.indexOf(conn);
+      if (oldIdx >= 0) this.all[oldIdx] = fresh;
+      else this.all.push(fresh);
+      return fresh;
+    }
+  }
+
   async onModuleInit() {
     const url = this.configService.getOrThrow<string>('SURREALDB_URL');
     const username = this.configService.getOrThrow<string>('SURREALDB_USERNAME');
@@ -209,15 +287,16 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       // so any scoped pool signin failures with "user not found" are
       // contained to that tenant's first request and resolve on retry.
       this.scopedEnabled = true;
+      this.scopedCreds = {
+        username: scopedUser,
+        password: scopedPass,
+        namespace: this.namespace,
+      };
       for (let i = 0; i < this.scopedPoolSize; i++) {
         const conn = new Surreal();
         await conn.connect(url);
         try {
-          await conn.signin({
-            username: scopedUser,
-            password: scopedPass,
-            namespace: this.namespace,
-          });
+          await this.signinScoped(conn);
         } catch (e) {
           // brain_caller user not yet defined (first boot, no migrations
           // applied yet). Fall back to root signin so the conn is at
@@ -264,6 +343,69 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Readiness probe for the CALLER-FACING read path.
+   *
+   * `ping()` cannot see this class of failure: `version()` is answered for an
+   * anonymous connection too (verified against surrealdb 3.2.4), so during
+   * the 2026-09-08 scoped-session-expiry outage /health and /ready both
+   * reported "ok" while every search, entity read and fact read 500'd. A
+   * readiness check that cannot observe the request path is not a readiness
+   * check — so this takes a real scoped connection and runs an
+   * authorization-gated statement on it.
+   *
+   * `RETURN 1` is the cheapest such statement: SurrealDB refuses it for an
+   * anonymous session with the same "Anonymous access not allowed" it refuses
+   * a SELECT with. Going through `acquireScoped` is deliberate — the probe
+   * exercises the same renew-or-fail-closed path a request takes, so a pool
+   * that can no longer authenticate at all (rotated secret, dropped user,
+   * unreachable DB) takes the pod out of rotation instead of serving errors.
+   *
+   * A BUSY pool is deliberately NOT a readiness failure. Saturation is a
+   * different signal — already visible as acquire-timeout 5xx and in
+   * /admin/now — and answering "not ready" for it would pull pods out of
+   * rotation exactly when the remaining pods are the most loaded. So the
+   * probe waits only briefly for a connection and reports ready if it does
+   * not get one; the question it answers is "can the read path authorize",
+   * not "is the read path idle".
+   *
+   * Returns true when the scoped pool is disabled: reads run on the root
+   * pool then, and `ping()` already covers it.
+   */
+  async pingScoped(): Promise<boolean> {
+    if (!this.scopedEnabled) return true;
+    const acquiring = this.acquireScoped();
+    let conn: Surreal | undefined;
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      conn = await Promise.race([
+        acquiring,
+        new Promise<undefined>((resolve) => {
+          timer = setTimeout(() => resolve(undefined), SCOPED_PROBE_ACQUIRE_MS);
+        }),
+      ]);
+    } catch {
+      // The acquire itself failed closed — the pool cannot authorize.
+      return false;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (!conn) {
+      // Still queued. Hand the connection straight back whenever it lands,
+      // so an abandoned probe never leaks a pool slot.
+      void acquiring.then((c) => this.releaseScoped(c)).catch(() => undefined);
+      return true;
+    }
+    try {
+      await withTimeout(conn.query('RETURN 1'), 3000, 'scoped ping');
+      return true;
+    } catch {
+      return false;
+    } finally {
+      this.releaseScoped(conn);
     }
   }
 
@@ -455,35 +597,28 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
 
   private async acquireScoped(): Promise<Surreal> {
     const conn = await this.acquireWithTimeout(this.scopedIdle, this.scopedWaiters, 'scoped');
+    if (!this.scopedCreds) return conn;
     // Audit 2026-08-19 P1 / 2026-08-21 P1: a root-fallback conn
     // re-attempts the scoped signin on EVERY acquire — and FAILS CLOSED
     // when it can't. A deployment that configured the scoped pool asked
     // for a DB-level fence; silently serving the request root-authorized
     // widens privilege exactly when the caller believes it narrowed.
-    // The conn goes back to the pool (still flagged) for the next
-    // acquire's retry; this request errors instead of degrading.
-    if (this.rootFallbackConns.has(conn)) {
-      const scopedUser = this.configService.get<string>('SURREALDB_SCOPED_USER');
-      const scopedPass = this.configService.get<string>('SURREALDB_SCOPED_PASS');
-      if (scopedUser && scopedPass) {
-        try {
-          await conn.signin({
-            username: scopedUser,
-            password: scopedPass,
-            namespace: this.namespace,
-          });
-          this.rootFallbackConns.delete(conn);
-          this.logger.log('Root-fallback scoped conn re-signed as scoped');
-        } catch (e) {
-          this.releaseScoped(conn);
-          throw new Error(
-            `scoped DB signin unavailable — failing closed rather than ` +
-              `serving the request root-authorized: ${(e as Error).message}`,
-          );
-        }
-      }
+    // Audit 2026-09-08 P0: the SAME acquire now also renews a session whose
+    // access token is about to lapse. Without it, surrealdb-js invalidated
+    // the session ~59 minutes after boot and every caller-facing read
+    // answered "Anonymous access not allowed" until the process restarted,
+    // with writes and /health none the wiser.
+    // Either way the conn goes back to the pool for the next acquire's
+    // retry; this request errors instead of degrading.
+    try {
+      return await this.ensureScopedSession(conn);
+    } catch (e) {
+      this.releaseScoped(conn);
+      throw new Error(
+        `scoped DB signin unavailable — failing closed rather than ` +
+          `serving the request root-authorized: ${(e as Error).message}`,
+      );
     }
-    return conn;
   }
 
   private releaseScoped(conn: Surreal): void {
@@ -635,7 +770,8 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     const escapedPass = scopedPass.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     try {
       await this.migratorConn.query(
-        `DEFINE USER OVERWRITE ${scopedUser} ON NAMESPACE PASSWORD '${escapedPass}' ROLES EDITOR`,
+        `DEFINE USER OVERWRITE ${scopedUser} ON NAMESPACE PASSWORD '${escapedPass}' ` +
+          `ROLES EDITOR${this.scopedTokenDurationClause()}`,
       );
       this.logger.log(`Reset password for scoped user '${scopedUser}'`);
     } catch (err) {
@@ -649,6 +785,35 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   }
 
   /**
+   * Optional `DURATION FOR TOKEN …` clause for the scoped user, from
+   * SURREALDB_SCOPED_TOKEN_DURATION. Empty by default, which leaves
+   * SurrealDB's own default (1h) in place.
+   *
+   * This exists because brain OVERWRITEs `brain_caller` on every boot, so
+   * a duration an operator sets by hand is silently discarded on the next
+   * deploy — the knob makes the token lifetime brain's declared property
+   * rather than an invisible server default. It is NOT the fix for session
+   * expiry (a longer token only moves the cliff; the pool re-signs before
+   * either lapses — see ensureScopedSession), but it makes the lifetime
+   * explicit and lets the expiry path be tested in seconds instead of an
+   * hour.
+   *
+   * Durations cannot be bound as parameters, so the value is spliced —
+   * hence the strict shape check. Anything else is refused, loudly.
+   */
+  private scopedTokenDurationClause(): string {
+    const raw = this.configService.get<string>('SURREALDB_SCOPED_TOKEN_DURATION')?.trim();
+    if (!raw) return '';
+    if (!/^\d+(ns|us|ms|s|m|h|d|w|y)$/.test(raw)) {
+      this.logger.error(
+        `Ignoring SURREALDB_SCOPED_TOKEN_DURATION='${raw}' — not a SurrealDB duration literal`,
+      );
+      return '';
+    }
+    return ` DURATION FOR TOKEN ${raw}`;
+  }
+
+  /**
    * Re-sign all idle scoped pool connections as `brain_caller` after
    * migration 0005 lands. Connections currently in flight will be
    * re-signed on their next acquire (we mark them via shadow Set).
@@ -656,24 +821,15 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    * just no PERMISSIONS enforcement).
    */
   private async resignScopedConns(): Promise<void> {
-    const url = this.configService.getOrThrow<string>('SURREALDB_URL');
-    const scopedUser = this.configService.get<string>('SURREALDB_SCOPED_USER');
-    const scopedPass = this.configService.get<string>('SURREALDB_SCOPED_PASS');
-    if (!scopedUser || !scopedPass) return;
+    if (!this.scopedCreds) return;
     for (const conn of this.scopedIdle) {
       try {
-        await conn.signin({
-          username: scopedUser,
-          password: scopedPass,
-          namespace: this.namespace,
-        });
-        this.rootFallbackConns.delete(conn);
+        await this.signinScoped(conn);
       } catch (e) {
         this.rootFallbackConns.add(conn);
         this.logger.warn(`Re-signin to scoped failed for an idle conn: ${(e as Error).message}`);
       }
     }
-    void url; // silence unused
   }
 }
 
