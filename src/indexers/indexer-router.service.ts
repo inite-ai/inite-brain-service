@@ -39,20 +39,30 @@ export class IndexerRouterService {
 
   /** All indexer bindings for a tenant: builtin + active installed packs. */
   async bindingsFor(companyId: string): Promise<IndexerBinding[]> {
-    const manifests = [...BUILTIN_PACKS, ...(await this.installedManifests(companyId))];
+    const installed = await this.installedPacks(companyId);
+    const entries: InstalledPack[] = [
+      ...BUILTIN_PACKS.map((m) => ({ manifest: m, source: 'builtin' as const })),
+      ...installed,
+    ];
     const seen = new Set<string>();
     const bindings: IndexerBinding[] = [];
-    for (const m of manifests) {
+    for (const e of entries) {
+      const m = e.manifest;
       if (seen.has(m.id)) continue;
       seen.add(m.id);
       bindings.push({
         indexerId: m.id,
-        packVersion: m.version,
+        // An installed row's own `version` column is the tenant's
+        // effective version; the embedded manifest is its mirror.
+        packVersion: e.version ?? m.version,
         mode: m.indexer?.mode ?? 'virtual',
         description: m.description,
         relevance: m.indexer?.relevance,
         dedicated: m.indexer?.dedicated,
         external: m.indexer?.external,
+        source: e.source,
+        installedAt: e.installedAt,
+        declared: m.indexer !== undefined,
       });
     }
     return bindings;
@@ -122,14 +132,22 @@ export class IndexerRouterService {
     return matched.sort((a, b) => b.sim - a.sim).map((m) => m.binding);
   }
 
-  private async installedManifests(companyId: string): Promise<DomainPackManifest[]> {
+  private async installedPacks(companyId: string): Promise<InstalledPack[]> {
     try {
       return await this.surreal.withCompany(companyId, async (db) => {
-        const rows = await queryRows<{ manifest: DomainPackManifest }>(
-          db,
-          `SELECT manifest FROM domain_pack WHERE status = 'active'`,
-        );
-        return rows.map((r) => r.manifest).filter(Boolean);
+        const rows = await queryRows<{
+          manifest: DomainPackManifest;
+          version?: unknown;
+          installedAt?: unknown;
+        }>(db, `SELECT manifest, version, installedAt FROM domain_pack WHERE status = 'active'`);
+        return rows
+          .filter((r) => Boolean(r.manifest))
+          .map((r) => ({
+            manifest: r.manifest,
+            source: 'installed' as const,
+            version: r.version === undefined || r.version === null ? undefined : String(r.version),
+            installedAt: toDate(r.installedAt),
+          }));
       });
     } catch (e) {
       this.logger.warn(
@@ -138,6 +156,20 @@ export class IndexerRouterService {
       return [];
     }
   }
+}
+
+/** A manifest plus where it came from (builtin bundle vs domain_pack row). */
+interface InstalledPack {
+  manifest: DomainPackManifest;
+  source: 'builtin' | 'installed';
+  version?: string | undefined;
+  installedAt?: Date | undefined;
+}
+
+function toDate(v: unknown): Date | undefined {
+  if (v === undefined || v === null) return undefined;
+  const d = new Date(String(v));
+  return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
 /** Upper bound on dedicated indexers per document — the LLM-call fan-out is

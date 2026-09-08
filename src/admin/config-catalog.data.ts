@@ -1615,6 +1615,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Dedicated per-pack indexer runs + relevance router + async fan-out + external work items. Off = only the generalist union pass runs.',
   },
   {
+    key: 'INDEXER_OPERATOR_VIEW_ENABLED',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Read-only operator view over the tenant’s installed indexers and their run health (GET /v1/admin/indexers + /v1/admin/indexers/{packId}/runs, scope brain:admin): mode, pack version, last run, window-bounded run/candidate tallies, and — for external packs — publisher poll liveness derived from the claim ledger. Off = both routes 404. No mutation verbs; nothing about extraction changes either way.',
+  },
+  {
     key: 'PACK_SEED_INGEST_ENABLED',
     category: 'pipeline',
     defaultValue: '1',

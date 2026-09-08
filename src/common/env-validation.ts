@@ -1061,6 +1061,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   // dropped. Off (default) → composed rows byte-identical.
   'PRIVACY_COMPOSER_USER_SCOPE',
   'INDEXER_WEBHOOK_PUSH_ENABLED',
+  // Read-only operator view over installed indexers and their run health
+  // (GET /v1/admin/indexers). Off (default) → both routes 404.
+  'INDEXER_OPERATOR_VIEW_ENABLED',
   'REINDEX_ON_PACK_INSTALL',
   'DOCUMENT_ALLOW_UNGROUNDED_EXTERNAL',
   // Default-ON: read as `PACK_SEED_INGEST_ENABLED ?? '1'` before

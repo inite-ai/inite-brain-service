@@ -17,6 +17,19 @@ export interface IndexerBinding {
   relevance?: IndexerRelevance | undefined;
   dedicated?: IndexerDescriptor['dedicated'] | undefined;
   external?: IndexerDescriptor['external'] | undefined;
+  /**
+   * Provenance of the binding — inert for routing (the layers below never
+   * read these), carried for the operator view (`/v1/admin/indexers`),
+   * which must distinguish "ships with the service" from "this tenant
+   * installed it" and must list ONLY packs that actually declared an
+   * `indexer` descriptor (an absent descriptor reads as 'virtual', which
+   * is a routing default, not an operator's statement of intent).
+   */
+  source?: 'builtin' | 'installed' | undefined;
+  /** Install timestamp of the domain_pack row; absent for builtins. */
+  installedAt?: Date | undefined;
+  /** true = the manifest carried an explicit `indexer` descriptor. */
+  declared?: boolean | undefined;
 }
 
 export interface RoutingInput {
