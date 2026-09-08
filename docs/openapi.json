@@ -1095,6 +1095,57 @@
           }
         ]
       },
+      "EvidenceGrantRow": {
+        "additionalProperties": false,
+        "properties": {
+          "grantId": {
+            "type": "string"
+          },
+          "grantedAt": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "ownerKind": {
+            "enum": [
+              "user",
+              "pack",
+              "system"
+            ],
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "grantId",
+          "ownerKind",
+          "ownerId",
+          "grantedAt"
+        ],
+        "type": "object"
+      },
+      "EvidenceGrantsListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceGrantRow"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "assetId",
+          "grants"
+        ],
+        "type": "object"
+      },
       "EvidenceRawUrlResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1396,6 +1447,59 @@
         "required": [
           "packId",
           "featured"
+        ],
+        "type": "object"
+      },
+      "GrantEvidenceAccessRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "ownerId": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "ownerKind": {
+            "enum": [
+              "user",
+              "pack"
+            ],
+            "type": "string"
+          },
+          "purpose": {
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "required": [
+          "ownerKind",
+          "ownerId"
+        ],
+        "type": "object"
+      },
+      "GrantEvidenceAccessResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "grantId": {
+            "type": "string"
+          },
+          "retainUntil": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "grantId",
+          "created",
+          "assetId",
+          "retainUntil"
         ],
         "type": "object"
       },
@@ -2939,6 +3043,23 @@
           "packId",
           "latestVersion",
           "versions"
+        ],
+        "type": "object"
+      },
+      "RevokeEvidenceGrantResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "grantId": {
+            "type": "string"
+          },
+          "revoked": {
+            "const": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "grantId",
+          "revoked"
         ],
         "type": "object"
       },
@@ -4906,6 +5027,48 @@
         ]
       }
     },
+    "/v1/evidence/grants/{grantId}": {
+      "delete": {
+        "description": "Stamps `revokedAt` and KEEPS the row for audit (GDPR erasure hard-deletes instead — a revoked grant still names its owner). IDEMPOTENT: an already-revoked grant answers exactly like a freshly revoked one, keeping its original timestamp, so a retry is indistinguishable from the first call. Ownership is co-equal (0122): any owner of the grant’s asset may revoke any grant on it, including the last one — which is how an asset is administratively killed (the raw-read gateway then denies every read, minted URLs included). Revocation only ever removes access. Acting requires the caller to pass the raw-read gateway’s own fences over the asset: tenant (the lookup runs inside the authenticated tenant), liveness (not tombstoned, quarantine clean-or-absent, retention horizon not already past), OWNERSHIP (at least one live grant exists, and a user-bound key must hold the end user’s own live user grant), and the media-PII polarity (unclassified blocked, `[]` open, classified needs `brain:read_media`) — nobody shares what they cannot read. The byte-delivery steps are deliberately NOT applied (no bytes move here), so a metadata-only `external` asset is shareable; every serve still re-runs the full gateway ladder against the grantee. Any denial is the same bare 404 — unknown, foreign and forbidden are indistinguishable. 404 until `EVIDENCE_GRANTS_API_ENABLED=1` AND `EVIDENCE_SUBSTRATE_ENABLED=1` (raised in a guard, before body validation could reveal the route). Source: src/evidence/evidence-grants.controller.ts.\n\nRequired scope: `brain:write`.",
+        "operationId": "revokeEvidenceGrant",
+        "parameters": [
+          {
+            "description": "evidence_grant record id.",
+            "in": "path",
+            "name": "grantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeEvidenceGrantResponse"
+                }
+              }
+            },
+            "description": "The revoked grant."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Revoke an evidence grant",
+        "tags": [
+          "Evidence"
+        ]
+      }
+    },
     "/v1/evidence/redeem/{token}": {
       "get": {
         "description": "Unauthenticated by design — the token IS the capability. No ABAC/consent/PII re-run; fail-closed re-checks only: signature, expiry, the token’s own tenant, availability still 'hot', and at least one live grant (revocation backstop). Bad, expired and revoked tokens all answer the same bare 404. 404 until EVIDENCE_RAW_READ_ENABLED=1.",
@@ -4938,6 +5101,101 @@
           }
         },
         "summary": "Redeem a signed raw-evidence URL (no auth)",
+        "tags": [
+          "Evidence"
+        ]
+      }
+    },
+    "/v1/evidence/{assetId}/grants": {
+      "get": {
+        "description": "The asset’s LIVE (unrevoked) ownership rows. Revoked rows are audit, not a directory, and stay off the wire. Grantee handles are ownership facts about other principals, so they reach a caller that passed the ownership fence and nobody else — a non-owner gets the same bare 404 as for an asset that does not exist. Acting requires the caller to pass the raw-read gateway’s own fences over the asset: tenant (the lookup runs inside the authenticated tenant), liveness (not tombstoned, quarantine clean-or-absent, retention horizon not already past), OWNERSHIP (at least one live grant exists, and a user-bound key must hold the end user’s own live user grant), and the media-PII polarity (unclassified blocked, `[]` open, classified needs `brain:read_media`) — nobody shares what they cannot read. The byte-delivery steps are deliberately NOT applied (no bytes move here), so a metadata-only `external` asset is shareable; every serve still re-runs the full gateway ladder against the grantee. Any denial is the same bare 404 — unknown, foreign and forbidden are indistinguishable. 404 until `EVIDENCE_GRANTS_API_ENABLED=1` AND `EVIDENCE_SUBSTRATE_ENABLED=1` (raised in a guard, before body validation could reveal the route). Source: src/evidence/evidence-grants.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "listEvidenceGrants",
+        "parameters": [
+          {
+            "description": "evidence_asset record id.",
+            "in": "path",
+            "name": "assetId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceGrantsListResponse"
+                }
+              }
+            },
+            "description": "The asset's live grants."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "List an evidence asset’s live owners",
+        "tags": [
+          "Evidence"
+        ]
+      },
+      "post": {
+        "description": "Adds one ownership row (migration 0122) for a `user` handle or an installed `pack`. Idempotent over the live (asset, ownerKind, ownerId) triple: a repeat returns the standing grant with `created: false`. `ownerKind: \"system\"` is REFUSED (400) — a system grant never dies with a user, so a client could pin content past GDPR erasure with it; system ownership stays a write-seam property of registration. The grantee handle is never checked for existence (a grant to an unknown handle is inert), so this is no user-enumeration oracle. There is no grant expiry: 0122 has no such column, an `expiresAt` field is rejected rather than silently ignored, and the asset’s own `retainUntil` — echoed here — is the horizon, since retention purges asset and grants together. Acting requires the caller to pass the raw-read gateway’s own fences over the asset: tenant (the lookup runs inside the authenticated tenant), liveness (not tombstoned, quarantine clean-or-absent, retention horizon not already past), OWNERSHIP (at least one live grant exists, and a user-bound key must hold the end user’s own live user grant), and the media-PII polarity (unclassified blocked, `[]` open, classified needs `brain:read_media`) — nobody shares what they cannot read. The byte-delivery steps are deliberately NOT applied (no bytes move here), so a metadata-only `external` asset is shareable; every serve still re-runs the full gateway ladder against the grantee. Any denial is the same bare 404 — unknown, foreign and forbidden are indistinguishable. 404 until `EVIDENCE_GRANTS_API_ENABLED=1` AND `EVIDENCE_SUBSTRATE_ENABLED=1` (raised in a guard, before body validation could reveal the route). Source: src/evidence/evidence-grants.controller.ts.\n\nRequired scope: `brain:write`.",
+        "operationId": "grantEvidenceAccess",
+        "parameters": [
+          {
+            "description": "evidence_asset record id.",
+            "in": "path",
+            "name": "assetId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantEvidenceAccessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GrantEvidenceAccessResponse"
+                }
+              }
+            },
+            "description": "The live grant (created now, or the standing one)."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Grant a principal access to an evidence asset",
         "tags": [
           "Evidence"
         ]
@@ -6161,7 +6419,7 @@
       "name": "Beliefs"
     },
     {
-      "description": "The multimodal evidence substrate, both directions. IN: the metadata-only ingest surface — register asset headers + citation-target fragments (originUri required, storageRef rejected, no bytes — the MM-6 boundary); flags EVIDENCE_INGEST_ENABLED (off → 404) and EVIDENCE_SUBSTRATE_ENABLED (off → 503). OUT: the raw-evidence read gateway — original observation bytes back out via direct stream, signed short-lived URLs, fragment twins — behind the full deny-overrides gate ladder (scope, ABAC, tenant/availability/quarantine, ownership grants, pack modality consent, media-PII polarity), every attempt audited content-free; flag EVIDENCE_RAW_READ_ENABLED (off → 404).",
+      "description": "The multimodal evidence substrate, both directions. IN: the metadata-only ingest surface — register asset headers + citation-target fragments (originUri required, storageRef rejected, no bytes — the MM-6 boundary); flags EVIDENCE_INGEST_ENABLED (off → 404) and EVIDENCE_SUBSTRATE_ENABLED (off → 503). OUT: the raw-evidence read gateway — original observation bytes back out via direct stream, signed short-lived URLs, fragment twins — behind the full deny-overrides gate ladder (scope, ABAC, tenant/availability/quarantine, ownership grants, pack modality consent, media-PII polarity), every attempt audited content-free; flag EVIDENCE_RAW_READ_ENABLED (off → 404). ACCESS: the sharing surface — grant, list and revoke the ownership rows (migration 0122) the read side spends, behind the same ownership + media-PII fences and the same uniform 404 (no existence oracle; assets are named by record id, never by content hash); flag EVIDENCE_GRANTS_API_ENABLED (off → 404).",
       "name": "Evidence"
     },
     {

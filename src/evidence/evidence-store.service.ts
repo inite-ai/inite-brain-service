@@ -309,9 +309,15 @@ export class EvidenceStoreService {
   }
 
   /**
-   * Grant an owner access to an existing asset (0122). Service-only —
-   * this PR ships NO HTTP sharing surface; callers are authorized code
-   * paths (and future PRs), never a hash-probing client.
+   * Grant an owner access to an existing asset (0122).
+   *
+   * Persistence only, by design: this seam authorizes NOTHING. It was
+   * held service-only until a caller existed that could not be a
+   * hash-probing client — that caller is now EvidenceGrantService (MM-4,
+   * EVIDENCE_GRANTS_API_ENABLED), which runs the ownership + media-PII
+   * ladder and answers one uniform 404 before it ever reaches here. Any
+   * other call site inherits the same obligation: check first, write
+   * here.
    */
   async addGrant(
     companyId: string,

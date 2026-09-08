@@ -124,6 +124,38 @@ media-PII (`brain:read_media`) → blob head.
 | `GET /v1/evidence/fragments/:fragmentId/raw-url` | Signed-URL twin for fragments. |
 | `GET /v1/evidence/redeem/:token` | Redeem a signed URL — unauthenticated by design; the token IS the capability. Fail-closed re-checks only: signature (timing-safe, before any DB touch), expiry, tenant pin, availability, ≥1 live grant (revocation backstop). Bad/expired/revoked all answer the same bare 404. |
 
+## Evidence sharing surface
+
+The ownership counterpart of the read gateway (Brain v2.1 MM-4,
+migration 0122): the `evidence_grant` rows the ladder above spends, over
+HTTP. All routes answer a bare 404 while `EVIDENCE_GRANTS_API_ENABLED`
+or `EVIDENCE_SUBSTRATE_ENABLED` is off — raised in a **guard**, so even a
+malformed body cannot turn the dark route into a route-revealing 400.
+
+Acting requires the caller to pass the read side's own fences over the
+asset: tenant → liveness (not tombstoned, quarantine clean-or-absent,
+retention horizon not past) → **ownership** (≥1 live grant, and a
+user-bound key must hold the end user's own) → media-PII
+(`brain:read_media`). Nobody shares what they cannot read. The
+byte-delivery steps (`availability='hot'`, blob head) and pack modality
+consent are deliberately NOT applied — no bytes move here, so a
+metadata-only `external` asset is shareable, and every serve still
+re-runs the full gateway ladder against the grantee.
+
+**No existence oracle.** Assets are named by RECORD ID only — no route,
+body field or query parameter accepts a `byteHash` (registration's bare
+409 closes the other half of the dedup-probe leak). Unknown asset,
+foreign tenant, dead asset, non-owner, PII-blocked and malformed id all
+answer the SAME bare 404, over the same two DB round-trips; the grantee
+handle is never checked for existence, so sharing is not a
+user-enumeration oracle either.
+
+| Endpoint | Notes |
+|---|---|
+| `POST /v1/evidence/:assetId/grants` | Share with a `user` handle or an installed `pack` (`brain:write`, ABAC `rest.evidence.grant`). Idempotent over the live (asset, ownerKind, ownerId) triple → `created: false` on a repeat. `ownerKind: "system"` is refused (400): a system grant survives every user's GDPR erasure, so it stays a write-seam property of registration. No expiry field exists (0122 has no column) — `expiresAt` is rejected rather than silently ignored; the asset's `retainUntil`, echoed in the response, is the horizon. |
+| `GET /v1/evidence/:assetId/grants` | The asset's LIVE owners (`brain:read`, ABAC `rest.evidence.grants`). Revoked rows are audit, not a directory, and stay off the wire; a non-owner gets the uniform 404, never a handle. |
+| `DELETE /v1/evidence/grants/:grantId` | Revoke (`brain:write`, ABAC `rest.evidence.revoke`). Idempotent — an already-revoked grant answers identically and keeps its original `revokedAt`. Ownership is co-equal: any owner may revoke any grant on the asset, **including the last one**, which administratively kills it for everyone (minted signed URLs included). Revocation only ever removes access; the row survives as the audit trail. |
+
 ## Mutation (audited)
 
 | Endpoint | Notes |

@@ -266,6 +266,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Evidence plane: claim grounding (Drift-1, migration 0115) ──────
   validateEvidenceGroundingEnv(env, warnings);
   validateEvidenceIngestEnv(env, warnings);
+  validateEvidenceGrantsApiEnv(env, warnings);
   validateEvidenceUploadEnv(env, warnings);
 
   // ── Evidence plane: processing lifecycle (migration 0121) ──────────
@@ -529,6 +530,28 @@ function validateEvidenceIngestEnv(env: NodeJS.ProcessEnv, warnings: string[]): 
         'the ingest surface is exposed but the evidence write seam refuses every ' +
         'call; every POST /v1/ingest/evidence-asset will be rejected (503) until ' +
         'EVIDENCE_SUBSTRATE_ENABLED is turned on.',
+    );
+  }
+}
+
+/**
+ * Cross-flag consistency for the sharing surface (Brain v2.1 MM-4): a
+ * WARNING, not an error — the same shape as the ingest pair. With
+ * EVIDENCE_GRANTS_API_ENABLED but no EVIDENCE_SUBSTRATE_ENABLED the
+ * controller's double gate answers a bare 404 for every call (the write
+ * seam would refuse anyway), so the surface looks absent while the
+ * operator believes it is on. Nothing fails open — the pair is simply
+ * inert, and the operator should know before the first caller bounces.
+ */
+function validateEvidenceGrantsApiEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
+  if (
+    envFlagEnabled(env.EVIDENCE_GRANTS_API_ENABLED) &&
+    !envFlagEnabled(env.EVIDENCE_SUBSTRATE_ENABLED)
+  ) {
+    warnings.push(
+      'EVIDENCE_GRANTS_API_ENABLED is set while EVIDENCE_SUBSTRATE_ENABLED is not — ' +
+        'the sharing surface stays dark (its double gate answers a bare 404 for ' +
+        'every grant/list/revoke) until EVIDENCE_SUBSTRATE_ENABLED is turned on.',
     );
   }
 }
@@ -1278,6 +1301,15 @@ const KNOWN_BOOLEAN_FLAGS = [
   // (validateEvidenceRawReadEnv). EVIDENCE_ family sits off the ENGINE
   // flag budget by design (see above).
   'EVIDENCE_RAW_READ_ENABLED',
+  // Sharing surface (MM-4, migration 0122): the three ownership verbs
+  // over an existing asset (share / list live owners / revoke). Default
+  // off = every route answers a bare 404 raised in a GUARD, before the
+  // global ValidationPipe could turn a malformed body into a
+  // route-revealing 400 — byte-identical prod. Needs
+  // EVIDENCE_SUBSTRATE_ENABLED to write (validateEvidenceGrantsApiEnv
+  // warns on the inconsistent pair). EVIDENCE_ family sits off the
+  // ENGINE flag budget by design (see above).
+  'EVIDENCE_GRANTS_API_ENABLED',
   // Outcome telemetry master (0107): writers append memory_outcome rows
   // + fold memory_outcome_stat counters; the nightly raw-log prune runs.
   // Default off = byte-identical (every writer is a guarded no-op).

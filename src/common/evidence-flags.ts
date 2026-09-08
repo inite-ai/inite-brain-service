@@ -73,6 +73,39 @@ export function evidenceBlobUploadEnabled(): boolean {
 }
 
 /**
+ * Sharing surface (Brain v2.1 MM-4, migration 0122) —
+ * EVIDENCE_GRANTS_API_ENABLED.
+ *
+ * When on, EvidenceGrantsController exposes the three ownership verbs
+ * over an existing asset: POST /v1/evidence/{assetId}/grants (share),
+ * GET /v1/evidence/{assetId}/grants (list live owners) and DELETE
+ * /v1/evidence/grants/{grantId} (revoke). Off (default) ⇒ every route
+ * answers a bare 404 — raised in a GUARD, so it precedes the global
+ * ValidationPipe and a malformed body cannot turn the dark route into a
+ * route-revealing 400 (the EVIDENCE_BLOB_UPLOAD_ENABLED interceptor
+ * lesson, applied to a JSON body).
+ *
+ * The surface is the reason 0122's write seam was held back
+ * service-only: a sharing route is exactly where a hash-probing client
+ * would look for an existence oracle. It therefore addresses assets ONLY
+ * by record id (never by byteHash), requires the caller to pass the same
+ * ownership + media-PII fences the raw-read gateway applies before it
+ * will act, and answers ONE bare 404 for every negative outcome —
+ * unknown asset, foreign tenant, dead asset, non-owner and PII-blocked
+ * are indistinguishable in status, body and DB round-trips.
+ *
+ * Needs EVIDENCE_SUBSTRATE_ENABLED to write (the store's own 503 gate;
+ * the controller double-gates to a 404 so a dark substrate advertises no
+ * sharing surface at all) — env-validation warns at boot on the
+ * inconsistent pair. Read at call time (runtime-mutable); the env read
+ * lives here in the common layer, NOT in the controller (engine-gates
+ * S5.2). EVIDENCE_ family sits off the ENGINE flag budget by design.
+ */
+export function evidenceGrantsApiEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_GRANTS_API_ENABLED);
+}
+
+/**
  * Filesystem storage-adapter root — EVIDENCE_FS_ROOT (non-boolean).
  *
  * The directory the fs:// adapter stores content-addressed blobs under

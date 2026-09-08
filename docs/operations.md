@@ -138,6 +138,7 @@ overview — one line per flag, plus the orderings that matter.
 | `EVIDENCE_RAW_READ_ENABLED` | `0` | The raw-read gateway (`/v1/evidence/*` — see [api.md](api.md#evidence-raw-read-gateway)); off = bare 404s. |
 | `EVIDENCE_SIGNED_URL_SECRET` | unset | HMAC secret for signed raw URLs; boot hard-errors when shorter than 32 chars while the gateway is on. No default on purpose. |
 | `EVIDENCE_SIGNED_URL_TTL_SECONDS` | `300` | Signed-URL lifetime — deliberately short; expiry + the live-grant re-check at redeem are the only revocation levers. |
+| `EVIDENCE_GRANTS_API_ENABLED` | `0` | The sharing surface (`/v1/evidence/*/grants` — see [api.md](api.md#evidence-sharing-surface)): grant, list and revoke the ownership rows (0122) the read side spends. Requires the substrate flag (boot warns on the pair); off = bare 404s raised in a guard, so not even a malformed body reveals the route. |
 
 **Grounding order:** stamp before you gate. Enable
 `EVIDENCE_GROUNDING_STAMP` first and let writes accrue stamps; only
@@ -151,7 +152,12 @@ external ingest by definition, so with the seam off every upload answers
 503 (boot warns on the pair). Note the scan hook shipped today is the
 ALLOW-ALL stub — it exercises the quarantined → scanning → clean
 lifecycle but passes everything; install a real scanner before trusting
-uploads from untrusted callers.
+uploads from untrusted callers. **Sharing order:** the sharing surface
+hands out the very grants the raw-read gateway spends, so turn
+`EVIDENCE_GRANTS_API_ENABLED` on only once you are satisfied with who
+holds `brain:write` — a caller who can already read an asset can hand it
+to anyone, and revoking the LAST grant kills the asset for everyone
+(minted signed URLs included, by design).
 
 ### `TOOL_OBSERVATION*` — MCP tool-call observations (0111)
 
