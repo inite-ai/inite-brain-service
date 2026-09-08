@@ -94,41 +94,44 @@ describe('HNSW vector leg (real SurrealDB)', () => {
     expect(results.length).toBeGreaterThan(0);
   });
 
-  it('refuses create when an index exists at a stale dimension', async () => {
+  it('create RECREATES a stale-width index instead of refusing', async () => {
     // Fresh, empty tenant so a mismatched index can be planted directly
     // (DEFINE at a wrong dimension only fails once rows disagree).
     const g = await createApp({ companyId: 'co_hnsw_dim_e2e' });
     try {
       const surreal = g.app.get(SurrealService);
+      const dimensionOf = async (): Promise<number | null> =>
+        surreal.withCompany(g.companyId, async (db) => {
+          const [info] = await db.query<[{ indexes?: Record<string, string> }]>(
+            `INFO FOR TABLE knowledge_fact;`,
+          );
+          const ddl = (info as { indexes?: Record<string, string> })?.indexes?.[
+            'fact_embedding_hnsw'
+          ];
+          const m = ddl ? /DIMENSION\s+(\d+)/i.exec(String(ddl)) : null;
+          return m ? parseInt(m[1]!, 10) : null;
+        });
+
       await surreal.withCompany(g.companyId, async (db) => {
         await db.query(
           `DEFINE INDEX fact_embedding_hnsw ON knowledge_fact FIELDS embedding
              HNSW DIMENSION 8 DIST COSINE EFC 200 M 16;`,
         );
       });
+      expect(await dimensionOf()).toBe(8);
 
-      // The live StubEmbedder reports 1536 — a naive create would report
-      // success (IF NOT EXISTS no-ops) yet leave the dim-8 index in place.
+      // One call, no drop step. `DEFINE INDEX IF NOT EXISTS` would have
+      // silently no-opped here and left the dim-8 index in place while
+      // reporting success — which is why create now REMOVEs first.
       const create = await g.http
         .post('/v1/admin/maintenance/hnsw')
         .set({ Authorization: `Bearer ${g.apiKey}` })
         .send({});
-      expect(create.status).toBe(400);
-      expect(String(create.body.message)).toMatch(/different dimension/i);
+      expect(create.status).toBe(201);
+      expect(create.body.dimension).toBe(1536); // StubEmbedder's declared space
 
-      // The documented recovery — drop first — then create succeeds.
-      const drop = await g.http
-        .post('/v1/admin/maintenance/hnsw')
-        .set({ Authorization: `Bearer ${g.apiKey}` })
-        .send({ action: 'drop' });
-      expect(drop.status).toBe(201);
-
-      const recreate = await g.http
-        .post('/v1/admin/maintenance/hnsw')
-        .set({ Authorization: `Bearer ${g.apiKey}` })
-        .send({});
-      expect(recreate.status).toBe(201);
-      expect(recreate.body.dimension).toBe(1536);
+      // The stale index is genuinely gone, not merely reported over.
+      expect(await dimensionOf()).toBe(1536);
     } finally {
       await g.close();
     }

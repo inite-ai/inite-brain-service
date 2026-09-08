@@ -330,7 +330,8 @@ export class CommunityBuilderService {
   ): Promise<void> {
     const { label, summaryInput } = await this.gatherMemberContext(db, members, derivedVersion);
     const summary = await this.summaryGenerator.generate(summaryInput);
-    const summaryEmbedding = summary ? await this.embedder.embed(summary) : null;
+    // Write-guarded: persisted as community_node.summaryEmbedding.
+    const summaryEmbedding = summary ? await this.embedder.embedForWrite(summary) : null;
 
     // lastBuiltMaxEdgeAt is option<datetime>: OMIT it (leave NONE) when the
     // cluster has no dated internal edge, rather than passing NULL — a JS

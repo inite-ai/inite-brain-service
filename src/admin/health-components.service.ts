@@ -46,7 +46,10 @@ export class HealthComponentsService {
       status: embedderReady ? 'ok' : 'warming',
       message: embedderReady
         ? `cache size ${this.embedder.cacheStats().size}`
-        : 'downloading model weights',
+        : this.embedder.isServingDegraded()
+          ? `loading model weights — serving cross-space on the ${embedderProvider} ` +
+            `fallback; vector writes are refused until the primary is ready`
+          : 'downloading model weights',
     });
 
     // Intent classifier

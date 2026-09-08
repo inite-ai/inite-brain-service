@@ -585,7 +585,9 @@ export class DomainPackInstallService {
     if (changed.length === 0) return;
     let embeddings: Array<number[] | null>;
     try {
-      embeddings = await this.embedder.embedMany(changed.map((p) => embeddingTextFor(p)));
+      // Write-guarded: merged onto knowledge_predicate.embedding below.
+      // The catch already degrades to "install without vectors".
+      embeddings = await this.embedder.embedManyForWrite(changed.map((p) => embeddingTextFor(p)));
     } catch {
       embeddings = changed.map(() => null);
     }

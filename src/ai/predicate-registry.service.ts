@@ -144,7 +144,9 @@ export class PredicateRegistryService {
         // same process pays no API calls.
         let embeddings: Array<number[] | null>;
         try {
-          embeddings = await this.embedder.embedMany(missing.map((p) => embeddingTextFor(p)));
+          embeddings = await this.embedder.embedManyForWrite(
+            missing.map((p) => embeddingTextFor(p)),
+          );
         } catch (e) {
           this.logger.warn(
             `Batched predicate embed failed (${(e as Error).message}); ` +
@@ -177,7 +179,7 @@ export class PredicateRegistryService {
         });
         let embs: Array<number[] | null>;
         try {
-          embs = await this.embedder.embedMany(texts);
+          embs = await this.embedder.embedManyForWrite(texts);
         } catch (e) {
           this.logger.warn(
             `Batched backfill embed failed (${(e as Error).message}); ` +
@@ -340,7 +342,7 @@ export class PredicateRegistryService {
     };
     let embedding: number[] | null = null;
     try {
-      embedding = await this.embedder.embed(embeddingTextFor(def));
+      embedding = await this.embedder.embedForWrite(embeddingTextFor(def));
     } catch (e) {
       this.logger.warn(`Failed to embed new predicate ${def.predicateId}: ${(e as Error).message}`);
     }
@@ -377,7 +379,7 @@ export class PredicateRegistryService {
       const textChanged = patch.description !== undefined || patch.displayLabel !== undefined;
       if (textChanged) {
         try {
-          embedding = await this.embedder.embed(embeddingTextFor(next));
+          embedding = await this.embedder.embedForWrite(embeddingTextFor(next));
         } catch (e) {
           this.logger.warn(`Failed to re-embed ${predicateId}: ${(e as Error).message}`);
         }

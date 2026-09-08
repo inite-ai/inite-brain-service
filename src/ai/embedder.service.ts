@@ -17,11 +17,18 @@ import { OpenAIEmbedderProvider } from './embedder/openai-embedder.provider';
 import { BgeM3EmbedderProvider } from './embedder/bge-m3-embedder.provider';
 import { envFlagEnabled } from '../common/env-validation';
 import {
+  DEFAULT_EMBEDDER_PROVIDER,
+  declaredSpace,
   describeSpaceIncompatibility,
   embeddingSpaceIdFromProviderId,
+  isEmbedderProviderName,
   spacesCompatible,
+  type EmbedderProviderName,
   type EmbeddingNorm,
 } from './embedder/embedding-space';
+
+/** Minimum gap between two "serving on fallback" warnings. */
+const FALLBACK_WARN_THROTTLE_MS = 10_000;
 
 /**
  * EmbedderService — thin facade in front of an EmbedderProvider.
@@ -41,6 +48,7 @@ import {
 @Injectable()
 export class EmbedderService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(EmbedderService.name);
+  private lastFallbackWarnAt = 0;
   private readonly cache: LRUCache<string, number[]>;
   private readonly primary: EmbedderProvider;
   private readonly fallback: EmbedderProvider | null;
@@ -60,7 +68,13 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
     const cacheSize = parseInt(this.configService.get<string>('EMBEDDING_CACHE_SIZE', '2000'), 10);
     this.cache = new LRUCache<string, number[]>(cacheSize);
 
-    const providerName = this.configService.get<string>('EMBEDDER_PROVIDER', 'openai');
+    const configured = this.configService.get<string>(
+      'EMBEDDER_PROVIDER',
+      DEFAULT_EMBEDDER_PROVIDER,
+    );
+    const providerName: EmbedderProviderName = isEmbedderProviderName(configured)
+      ? configured
+      : DEFAULT_EMBEDDER_PROVIDER;
     const openai = this.buildOpenAIProvider();
     if (providerName === 'bge-m3') {
       this.primary = this.buildBgeM3Provider();
@@ -81,7 +95,7 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
     // Liveness then SIGKILL'd the container before /health could
     // answer, so a one-line `EMBEDDER_PROVIDER=bge-m3` flip bricked
     // the rollout. Now the primary stays "not ready" until warmup
-    // resolves; `activeProvider()` routes to the OpenAI fallback in
+    // resolves; `servingProvider()` routes to the OpenAI fallback in
     // the meantime, and `/ready` (HealthController) waits for the
     // primary to flip ready before reporting up.
     if (this.primary instanceof BgeM3EmbedderProvider) {
@@ -105,15 +119,55 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * `/ready` probe. Up = the primary embedder is ready OR there's a
-   * fallback the request path can use. We never report "not ready"
-   * when an openai fallback is wired, because the service is in fact
-   * able to serve search/synthesize traffic on the fallback.
+   * `/ready` probe. Up = the next embed would answer in the CONFIGURED
+   * space. Defined as exactly that question, so "ready" cannot mean
+   * anything other than "answers are in the space the corpus is in".
+   *
+   * The old form ORed the fallback in — "is somebody able to answer" —
+   * and OpenAIEmbedderProvider.isReady() is unconditionally true, so
+   * `/ready` was green from the first millisecond of boot whenever
+   * `EMBEDDER_PROVIDER=bge-m3`. That broke
+   * the one gate the rollout playbook depends on: deploy-brain.yml tells
+   * the operator to run the embedding reindex "after /ready returns 200
+   * (model warm)". With /ready green during warmup, the sweep runs on the
+   * OpenAI fallback and rewrites every vector in every table at 1536 wide
+   * for a tenant whose space is bge-m3/1024 — mass, durable poisoning.
+   *
+   * Nothing external gates on this route (Traefik routes only /v1, /mcp,
+   * /health, /registry; the container healthcheck probes /health; the
+   * deploy's readiness loop is `continue-on-error`), so reporting the
+   * truth here takes no traffic out of rotation — it only makes the
+   * operator's documented gate real. Liveness stays on /health, which is
+   * unchanged and still answers during warmup.
    */
   isReady(): boolean {
-    if (this.primary.isReady()) return true;
-    if (this.fallback && this.fallback.isReady()) return true;
-    return false;
+    return this.servesPrimarySpace();
+  }
+
+  /**
+   * True when the request path would answer from a space OTHER than the
+   * configured one — the warmup window, or a failed warmup. Surfaced to
+   * the admin health grid so the degraded state is legible instead of
+   * rendering a green `ok` row.
+   */
+  isServingDegraded(): boolean {
+    return !this.servesPrimarySpace();
+  }
+
+  /**
+   * THE predicate. Readiness, the degraded flag and the write guard are
+   * all this one expression, so they cannot disagree with each other or
+   * with what `embed()` actually does.
+   *
+   * Stated as a property rather than a checklist: `/ready` is green iff
+   * the provider that would serve the very next call is in the configured
+   * space. There is no way to be "ready" while answering from a different
+   * space, because that is the same question. The old form asked a
+   * different one — "is SOMEBODY able to answer" — which is why `/ready`
+   * was green from boot while every answer came from the wrong space.
+   */
+  private servesPrimarySpace(): boolean {
+    return spacesCompatible(this.spaceIdOf(this.servingProvider()), this.primarySpaceIdValue);
   }
 
   /**
@@ -164,7 +218,89 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
   }
 
   getDimensions(): number {
-    return this.activeProvider().getDimensions();
+    return this.servingProvider().getDimensions();
+  }
+
+  /**
+   * Width of the PRIMARY (configured) provider — the width a tenant's rows
+   * are expected to be, independent of who happens to be serving right now.
+   *
+   * `getDimensions()` reads the ACTIVE provider, so during the bge-m3
+   * warmup window it answers 1536 (the OpenAI fallback) for a deployment
+   * whose corpus is 1024. Any consumer baking a width into durable state —
+   * HNSW `DIMENSION` DDL above all — must use this instead, or it builds
+   * an index the primary can never write to.
+   */
+  primaryDimensions(): number {
+    return this.primary.getDimensions();
+  }
+
+  /**
+   * Embed text that is about to be PERSISTED. Fails closed when the
+   * serving provider's space is incompatible with the configured primary.
+   *
+   * Read and write are asymmetric on purpose. A cross-space READ is
+   * transient and self-healing: it returns a bad ranking (or a 503) for the
+   * seconds the primary is warming, and is correct again afterwards. A
+   * cross-space WRITE is durable damage — the vector columns are
+   * `option<array<float>>` with no width, so SurrealDB accepts a 1536-wide
+   * vector into a 1024-wide corpus silently and forever. Afterwards
+   * `vector::similarity::cosine` raises "The two vectors must be of the
+   * same dimension" for EVERY row of that table (one poisoned row breaks
+   * the whole query), the `<|K,DIST|>` operator quietly skips the
+   * mismatched rows, and `DEFINE INDEX … HNSW DIMENSION 1024` refuses to
+   * build at all. All three verified against SurrealDB 3.2.4.
+   *
+   * So there is no configuration in which persisting a fallback-width
+   * vector is the desired outcome, and this guard is unconditional rather
+   * than flag-gated: failing an ingest with a 503 the caller can retry is
+   * strictly better than accepting a write that poisons the tenant.
+   */
+  async embedForWrite(text: string): Promise<number[]> {
+    this.assertWriteSpaceSafe();
+    const vector = await this.embed(text);
+    this.assertWriteWidth(vector.length);
+    return vector;
+  }
+
+  /** Batched {@link embedForWrite}. The reindex sweep and every composer
+   *  batch go through here. */
+  async embedManyForWrite(texts: string[]): Promise<number[][]> {
+    this.assertWriteSpaceSafe();
+    const vectors = await this.embedMany(texts);
+    for (const v of vectors) this.assertWriteWidth(v.length);
+    return vectors;
+  }
+
+  /**
+   * Refuse when the provider that would serve is not in the primary's
+   * space. Checked BEFORE the embed so a doomed batch costs no inference.
+   */
+  private assertWriteSpaceSafe(): void {
+    if (this.servesPrimarySpace()) return;
+    const servingSpace = this.spaceIdOf(this.servingProvider());
+    const reason = describeSpaceIncompatibility(servingSpace, this.primarySpaceIdValue);
+    throw new ServiceUnavailableException(
+      `embedding write guard: refusing to persist a vector produced in ` +
+        `'${servingSpace}' into a corpus in '${this.primarySpaceIdValue}' (${reason}). ` +
+        `The primary embedder is still warming up; retry once it is ready.`,
+    );
+  }
+
+  /**
+   * Post-check on the produced width. The pre-check can race: warmup may
+   * fail (or a worker may die) between the check and the inference, which
+   * would flip the serving provider mid-call. Width is the invariant that
+   * actually matters, so assert it on the result too.
+   */
+  private assertWriteWidth(width: number): void {
+    const expected = this.primary.getDimensions();
+    if (width === expected) return;
+    throw new ServiceUnavailableException(
+      `embedding write guard: produced a ${width}-wide vector but the ` +
+        `configured embedder is ${expected}-wide (${this.primarySpaceIdValue}). ` +
+        `Refusing to persist a mismatched vector.`,
+    );
   }
 
   /**
@@ -260,14 +396,43 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
       size: this.cache.size,
       inFlight: 0,
       waiting: 0,
-      provider: this.activeProvider().providerId,
+      provider: this.servingProvider().providerId,
     };
   }
 
-  private activeProvider(): EmbedderProvider {
+  /**
+   * The provider that would answer the next call. PURE — no metrics, no
+   * logging — because `servesPrimarySpace()` (and therefore `/ready` and
+   * every health probe) calls it. Observability of an actual fallback
+   * serve belongs on the embed path, not on the selector.
+   */
+  private servingProvider(): EmbedderProvider {
     if (this.primary.isReady()) return this.primary;
     if (this.fallback) return this.fallback;
     return this.primary;
+  }
+
+  /**
+   * Record that the fallback served instead of the primary. Previously
+   * this substitution left no trace at all: the only fallback-related
+   * logging fires on warmup FAILURE, so the ordinary warmup window — when
+   * every request is silently answered in the wrong embedding space — was
+   * invisible in both logs and metrics. (`embedMany`, which the reindex
+   * sweep uses, does not even emit a gen_ai span.)
+   *
+   * A counter carries the signal; the log line is throttled to once per
+   * 10s so a busy warmup window cannot flood the log.
+   */
+  private noteFallbackServe(): void {
+    this.metrics?.embedderFallbackServes.inc({ primary: this.primarySpaceIdValue });
+    const now = Date.now();
+    if (now - this.lastFallbackWarnAt < FALLBACK_WARN_THROTTLE_MS) return;
+    this.lastFallbackWarnAt = now;
+    this.logger.warn(
+      `embedder serving on FALLBACK: primary '${this.primarySpaceIdValue}' is not ready; ` +
+        `answering in '${this.spaceIdOf(this.fallback!)}'. Vector writes are refused ` +
+        `until the primary warms up; reads are cross-space and unreliable.`,
+    );
   }
 
   /**
@@ -277,7 +442,7 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
    * was embedded in.
    */
   activeSpaceId(): string {
-    return this.spaceIdOf(this.activeProvider());
+    return this.spaceIdOf(this.servingProvider());
   }
 
   /**
@@ -291,7 +456,7 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * The serving provider for an actual embed call. Byte-identical to
-   * `activeProvider()` UNLESS EMBEDDING_SPACE_STRICT is on: then a query
+   * `servingProvider()` UNLESS EMBEDDING_SPACE_STRICT is on: then a query
    * that would be embedded in a space INCOMPATIBLE with the primary
    * (configured) space — the warmup-window failover from bge-m3 (1024) to
    * the OpenAI fallback (1536) is the canonical case — is refused rather
@@ -299,7 +464,10 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
    * flag per-call so an operator flip takes effect without a restart.
    */
   private serveProvider(): EmbedderProvider {
-    const provider = this.activeProvider();
+    const provider = this.servingProvider();
+    // Observability lives here, on the embed path, so the pure selector
+    // stays callable from health probes without inflating the counter.
+    if (provider !== this.primary) this.noteFallbackServe();
     if (!envFlagEnabled(this.configService.get<string>('EMBEDDING_SPACE_STRICT'))) {
       return provider; // default: the existing warmup failover, unchanged
     }
@@ -343,22 +511,23 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
     return 'l2';
   }
 
+  // Model identity and width come from the declaration, never from env.
+  // The four knobs that used to set them are deliberately gone: a width
+  // is a property of the model, so an operator "configuring" one could
+  // only desynchronise the store from what the model emits. Concurrency
+  // and the worker toggle stay — they are genuinely deployment-shaped and
+  // cannot make a vector the wrong width.
   private buildOpenAIProvider(): OpenAIEmbedderProvider {
     return new OpenAIEmbedderProvider({
       client: createOpenAiClientOrThrow(this.configService),
-      model: this.configService.get<string>('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small'),
-      dimensions: parseInt(
-        this.configService.get<string>('OPENAI_EMBEDDING_DIMENSIONS', '1536'),
-        10,
-      ),
+      space: declaredSpace('openai'),
       concurrency: parseInt(this.configService.get<string>('OPENAI_CONCURRENCY', '8'), 10),
     });
   }
 
   private buildBgeM3Provider(): BgeM3EmbedderProvider {
     return new BgeM3EmbedderProvider({
-      modelId: this.configService.get<string>('BGE_M3_MODEL_ID', 'Xenova/bge-m3'),
-      dimensions: parseInt(this.configService.get<string>('BGE_M3_DIMENSIONS', '1024'), 10),
+      space: declaredSpace('bge-m3'),
       concurrency: parseInt(this.configService.get<string>('BGE_M3_CONCURRENCY', '4'), 10),
       // Off-by-default for now (1) tests assume in-thread; (2) the
       // worker bootstraps @xenova/transformers fresh per worker which

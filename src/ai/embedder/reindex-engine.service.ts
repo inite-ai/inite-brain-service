@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Surreal } from 'surrealdb';
 import { SurrealService } from '../../db/surreal.service';
@@ -327,8 +327,20 @@ export class ReindexEngineService {
    *  caller advances past the page rather than retry-looping). */
   private async embedPageOrNull(texts: string[], where: string): Promise<number[][] | null> {
     try {
-      return await this.embedder.embedMany(texts);
+      // WRITE-guarded: every vector this returns is written straight back
+      // to the row. The rollout playbook tells the operator to start this
+      // sweep once /ready is 200, so a sweep launched during the bge-m3
+      // warmup window would otherwise rewrite EVERY vector in EVERY table
+      // at the fallback's 1536 width — mass, durable cross-space
+      // poisoning, done by the very tool meant to migrate the space.
+      return await this.embedder.embedManyForWrite(texts);
     } catch (e) {
+      // The write guard is NOT a transient page failure — it means the
+      // primary embedder is not ready, so every remaining page would be
+      // refused too. Swallowing it would report a "successful" reindex
+      // that silently rewrote nothing. Propagate so the admin route
+      // answers 503 and the operator learns to wait for warmup.
+      if (e instanceof ServiceUnavailableException) throw e;
       this.logger.warn(
         `reindex batch embed failed (${where}, page=${texts.length}): ${(e as Error).message}`,
       );

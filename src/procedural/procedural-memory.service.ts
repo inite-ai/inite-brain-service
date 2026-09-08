@@ -35,7 +35,8 @@ export class ProceduralMemoryService {
 
   async record(companyId: string, args: RecordProcedureArgs): Promise<ProcedureRecord> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const embedding = await this.embedder.embed(args.trigger);
+      // Write-guarded: persisted as procedural_memory.triggerEmbedding.
+      const embedding = await this.embedder.embedForWrite(args.trigger);
 
       const [row] = await db.query<[ProcedureRowDb]>(
         `CREATE ONLY procedural_memory CONTENT {

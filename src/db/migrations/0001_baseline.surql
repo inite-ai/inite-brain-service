@@ -30,7 +30,7 @@ DEFINE INDEX IF NOT EXISTS entity_canonical_idx   ON knowledge_entity FIELDS can
 -- active facts. For walking-skeleton scale, full-scan cosine in
 -- SearchService is faster end-to-end (no index build).
 -- DEFINE INDEX entity_embedding_idx ON knowledge_entity FIELDS embedding
---   HNSW DIMENSION 1536 DIST COSINE EFC 200 M 16;
+--   HNSW DIMENSION <declared width> DIST COSINE EFC 200 M 16;
 
 -- ─── KnowledgeFact ───────────────────────────────────────────────────────
 DEFINE TABLE IF NOT EXISTS knowledge_fact SCHEMAFULL;
@@ -61,7 +61,7 @@ DEFINE INDEX IF NOT EXISTS fact_recorded_idx      ON knowledge_fact FIELDS recor
 DEFINE INDEX IF NOT EXISTS fact_entity_pred_idx   ON knowledge_fact FIELDS entityId, predicate, status;
 -- HNSW commented out — see knowledge_entity above.
 -- DEFINE INDEX fact_embedding_idx ON knowledge_fact FIELDS embedding
---   HNSW DIMENSION 1536 DIST COSINE EFC 200 M 16;
+--   HNSW DIMENSION <declared width> DIST COSINE EFC 200 M 16;
 
 -- ─── KnowledgeEdge ───────────────────────────────────────────────────────
 -- Surreal graph relations are first-class. We model edges as a `RELATE`-able

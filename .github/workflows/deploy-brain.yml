@@ -418,8 +418,6 @@ jobs:
                 - SURREALDB_SCOPED_PASS=${{ secrets.BRAIN_SURREAL_SCOPED_PASS }}
                 # OpenAI for embeddings + extraction + faithfulness verifier.
                 - OPENAI_API_KEY=${{ secrets.BRAIN_OPENAI_API_KEY }}
-                - OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-                - OPENAI_EMBEDDING_DIMENSIONS=1536
                 - OPENAI_CHAT_MODEL=gpt-4o-mini-2024-07-18
                 # OpenAI client budget — same as eval. Per-stage budgets
                 # in search.service.ts (SEARCH_STAGE_BUDGET_MS) cap the
@@ -606,8 +604,25 @@ jobs:
                 #      0cde424), so the container goes /health=ok
                 #      immediately and serves search/synthesize on the
                 #      openai fallback during the ~10s ONNX load.
-                #   2. After /ready returns 200 (model warm), an
-                #      operator runs:
+                #      READS degrade onto that fallback; vector WRITES
+                #      (ingest, compose, reindex) are REFUSED with 503
+                #      for the duration. That is deliberate: the vector
+                #      columns carry no width, so a 1536-wide fallback
+                #      vector would land in the 1024-wide corpus
+                #      silently and permanently, after which cosine
+                #      search errors for the WHOLE table and the HNSW
+                #      index can no longer be built. Watch
+                #      brain_embedder_fallback_serves_total — it should
+                #      tick briefly at boot and then stop. If it keeps
+                #      climbing, warmup FAILED and the tenant is stuck
+                #      on cross-space reads.
+                #   2. /ready reports the PRIMARY embedder only, so it
+                #      genuinely goes 200 when the model is warm (it
+                #      used to be green from boot because the fallback
+                #      counted as ready — which made this step a no-op
+                #      and let the reindex below run in the warmup
+                #      window). After /ready returns 200, an operator
+                #      runs:
                 #        curl -X POST -H 'Authorization: Bearer <admin>' \
                 #          'https://brain.inite.ai/api/v1/admin/reindex/embeddings?dryRun=true'
                 #      to size the work, then re-runs without dryRun
@@ -788,7 +803,9 @@ jobs:
             echo "[info] booted, waiting for readiness (embedder warmup)... ($i/24)"
             sleep 5
           done
-          echo "[warn] /ready never went green within 120s — embedder may still be warming; serving on OpenAI fallback until then"
+          echo "[warn] /ready never went green within 120s — the primary embedder is still warming (or warmup failed)."
+          echo "[warn] Reads are being served cross-space on the OpenAI fallback and vector WRITES are refused with 503."
+          echo "[warn] Do NOT start the embedding reindex until /ready is 200. Check brain_embedder_fallback_serves_total and the container logs for 'BGE-M3 ... warmup failed'."
 
       - name: External health probe (warning-only)
         if: github.event.inputs.action != 'logs'

@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { Semaphore } from '../../common/semaphore';
 import type { EmbedderProvider } from './embedder-provider.interface';
+import { providerIdOf, type EmbeddingSpaceConfig } from './embedding-space';
 
 interface FeatureExtractionPipeline {
   (
@@ -13,9 +14,11 @@ interface FeatureExtractionPipeline {
 }
 
 export interface BgeM3EmbedderConfig {
-  modelId: string;
-  /** BGE-M3 native dim is 1024; configurable for downstream truncation. */
-  dimensions: number;
+  /** The DECLARED space (EMBEDDING_SPACES['bge-m3']) — model id and width
+   *  arrive together and are not separately configurable. Truncating the
+   *  model's native output to a "configured" width produced a vector the
+   *  model never emits, in a space nothing else in the system speaks. */
+  space: EmbeddingSpaceConfig;
   concurrency: number;
   /**
    * When true (default), inference runs in a worker_thread so each
@@ -67,9 +70,9 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
   >();
 
   constructor(cfg: BgeM3EmbedderConfig) {
-    this.modelId = cfg.modelId;
-    this.dimensions = cfg.dimensions;
-    this.providerId = `bge-m3:${cfg.modelId}:${cfg.dimensions}`;
+    this.modelId = cfg.space.model;
+    this.dimensions = cfg.space.dim;
+    this.providerId = providerIdOf(cfg.space);
     this.limiter = new Semaphore(cfg.concurrency);
     // Worker is OPT-IN — callers (EmbedderService) flip via env. Tests
     // construct the provider directly and rely on the in-thread path

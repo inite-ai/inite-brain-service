@@ -621,7 +621,11 @@ export class EvidenceStoreService {
     const content = input.content ?? '';
     if (content.trim() === '' || !this.embedder) return {};
     try {
-      const embedding = await this.embedder.embed(content.slice(0, EMBED_TEXT_MAX_CHARS));
+      // Write-guarded: this vector is persisted on the representation, so a
+      // warmup-window fallback vector would land cross-space. The catch
+      // below already treats an embed failure as "no vector, keep the row",
+      // which is exactly the right degradation for a refused write.
+      const embedding = await this.embedder.embedForWrite(content.slice(0, EMBED_TEXT_MAX_CHARS));
       return { embedding, embeddingSpaceId: this.embedder.activeSpaceId() };
     } catch (e) {
       this.logger.warn(`representation embedding skipped: ${(e as Error).message}`);

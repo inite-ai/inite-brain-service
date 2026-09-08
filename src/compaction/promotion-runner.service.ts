@@ -330,7 +330,8 @@ export class PromotionRunnerService {
     // (BM25-only, same as compaction rollups).
     let embedding: number[] | null = null;
     try {
-      embedding = await this.embedder.embed(summaryText);
+      // Write-guarded: persisted as the promoted fact's embedding.
+      embedding = await this.embedder.embedForWrite(summaryText);
     } catch (e) {
       this.logger.warn(
         `promotion summary embed failed (${group.predicate}): ${(e as Error).message}`,

@@ -136,3 +136,101 @@ describe('Multilingual Tier 2 — embedding-space e2e (migration 0101)', () => {
     expect(stamped[0]!.embeddingSpaceId).toBe(OPENAI_SPACE);
   });
 });
+
+/**
+ * What a wrong-width vector ACTUALLY does, against a real SurrealDB.
+ *
+ * This is the empirical basis for the unconditional write guard in
+ * EmbedderService: the store does not protect the corpus, so the service
+ * has to. Each expectation below was first reproduced by hand against
+ * surrealdb/surrealdb:v3.2.4 (the version docker-compose.yml pins).
+ *
+ * The headline is counter-intuitive: the DANGEROUS operation is the WRITE,
+ * which succeeds, and the SAFE-looking operation is the READ, which then
+ * fails for the whole table — including for every correctly-written row.
+ */
+describe('cross-width vectors on a real SurrealDB', () => {
+  let f: AppFixture;
+  const W_BGE = 1024;
+  const W_OPENAI = 1536;
+  const vec = (w: number) => new Array(w).fill(0.1);
+
+  beforeAll(async () => {
+    f = await createApp();
+  });
+
+  afterAll(async () => {
+    if (f) await f.close();
+  });
+
+  it('accepts BOTH widths into the same column — the store is no guard', async () => {
+    const surreal = f.app.get(SurrealService);
+    const widths = await surreal.withCompany(f.companyId, async (db) => {
+      // `option<array<float>>` (migration 0001) carries no width, so a
+      // fallback-width vector lands silently and permanently.
+      await db.query(`DELETE knowledge_fact WHERE predicate = 'width_probe'`);
+      const [ents] = await db.query<[Array<{ id: unknown }>]>(
+        `CREATE knowledge_entity SET type = 'other', canonicalName = 'width probe'`,
+      );
+      const entityId = (ents as Array<{ id: unknown }>)[0]!.id;
+      const row = (object: string, v: number[]) =>
+        db.query(
+          `CREATE knowledge_fact SET entityId = $e, predicate = 'width_probe',
+             object = $o, confidence = 0.9, validFrom = time::now(),
+             source = { vertical: 'rent', eventId: 'width.probe' }, embedding = $v`,
+          { e: entityId, o: object, v },
+        );
+      await row('bge', vec(W_BGE));
+      await row('openai', vec(W_OPENAI));
+      const [rows] = await db.query<[Array<{ width: number }>]>(
+        `SELECT array::len(embedding) AS width FROM knowledge_fact
+         WHERE predicate = 'width_probe' ORDER BY width`,
+      );
+      return ((rows as Array<{ width: number }>) ?? []).map((r) => r.width);
+    });
+    expect(widths).toEqual([W_BGE, W_OPENAI]);
+  });
+
+  it('poisons cosine search for the ENTIRE table, not just the bad row', async () => {
+    const surreal = f.app.get(SurrealService);
+    const outcome = await surreal.withCompany(f.companyId, async (db) => {
+      try {
+        // A 1024-wide query against a table holding one 1536-wide row.
+        // The mismatched row does not merely rank badly — it aborts the
+        // whole query, so a single poisoned row takes down dense search
+        // for every other row in the table.
+        await db.query(
+          `SELECT vector::similarity::cosine(embedding, $q) AS score
+           FROM knowledge_fact WHERE predicate = 'width_probe'`,
+          { q: vec(W_BGE) },
+        );
+        return 'no-error';
+      } catch (e) {
+        return (e as Error).message;
+      }
+    });
+    expect(outcome).toMatch(/same dimension/i);
+  });
+
+  it('blocks HNSW index creation entirely once a mismatched row exists', async () => {
+    const surreal = f.app.get(SurrealService);
+    const outcome = await surreal.withCompany(f.companyId, async (db) => {
+      try {
+        // HnswMaintenanceService issues exactly this DDL. A poisoned row
+        // makes the index un-buildable, so the tenant cannot be moved onto
+        // the fast KNN path until the corpus is cleaned.
+        await db.query(
+          `DEFINE INDEX ix_width_probe ON knowledge_fact FIELDS embedding
+           HNSW DIMENSION ${W_BGE} DIST COSINE EFC 200 M 16`,
+        );
+        return 'no-error';
+      } catch (e) {
+        return (e as Error).message;
+      } finally {
+        await db.query(`REMOVE INDEX IF EXISTS ix_width_probe ON knowledge_fact`);
+        await db.query(`DELETE knowledge_fact WHERE predicate = 'width_probe'`);
+      }
+    });
+    expect(outcome).toMatch(/dimension/i);
+  });
+});

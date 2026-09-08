@@ -296,7 +296,8 @@ export class StrategyMemoryService {
     return this.surreal.withCompany(companyId, async (db) => {
       // Embed the retrieval key: situation carries the preconditions
       // the query is matched against; title disambiguates near-twins.
-      const embedding = await this.embedder.embed(`${args.title}\n${args.situation}`);
+      // Write-guarded: persisted as strategy_memory.embedding.
+      const embedding = await this.embedder.embedForWrite(`${args.title}\n${args.situation}`);
       // 0098 experience fields: a HARD service-side gate — only when the
       // trajectories flag is on AND a field was supplied does it enter the
       // CONTENT. Off ⇒ this fragment is empty and the CREATE is

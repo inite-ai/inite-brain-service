@@ -38,6 +38,7 @@
  * stricter floor, then the stricter margin.
  */
 import { BgeM3EmbedderProvider } from '../../../src/ai/embedder/bge-m3-embedder.provider';
+import { declaredSpace } from '../../../src/ai/embedder/embedding-space';
 import {
   createTransitionClassifier,
   type TransitionClass,
@@ -432,9 +433,10 @@ function perClass(scored: Scored[], floor: number, margin: number): string[] {
 
 async function main(): Promise<void> {
   const t0 = Date.now();
+  // The declared space — the harness calibrates against the real
+  // production embedder, so it must use the production model + width.
   const provider = new BgeM3EmbedderProvider({
-    modelId: process.env['BGE_M3_MODEL_ID'] ?? 'Xenova/bge-m3',
-    dimensions: 1024,
+    space: declaredSpace('bge-m3'),
     concurrency: 2,
     useWorker: false,
   });
