@@ -43,6 +43,13 @@ export interface RepoSource {
   /** HEAD sha, or null outside a git checkout. */
   head(): string | null;
   /**
+   * The LINE of history HEAD is on — the branch name, or `HEAD` on a
+   * detached checkout, or null outside git. It is half of a source
+   * version stamp's identity: a fact derived on `main` says nothing
+   * about `release/2.x`, so drift is only ever compared within one ref.
+   */
+  ref(): string | null;
+  /**
    * Paths changed in `since..HEAD`, or null when the delta cannot be
    * computed (no git, unknown commit-ish) — the caller then falls back
    * to a full walk rather than silently indexing nothing.
@@ -125,6 +132,11 @@ export class FsRepoSource implements RepoSource {
 
   head(): string | null {
     return this.git(['rev-parse', 'HEAD'])?.trim() ?? null;
+  }
+
+  ref(): string | null {
+    const name = this.git(['rev-parse', '--abbrev-ref', 'HEAD'])?.trim();
+    return name ? name : null;
   }
 
   readCommits(opts: { since?: string | undefined; limit: number }): CommitRecord[] {

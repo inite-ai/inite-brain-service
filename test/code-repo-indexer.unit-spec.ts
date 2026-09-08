@@ -82,6 +82,7 @@ class FakeRepoSource implements RepoSource {
     private readonly commits: CommitRecord[] = [],
     private readonly headSha: string | null = 'head0000',
     private readonly changed: string[] | null = null,
+    private readonly refName: string | null = 'main',
   ) {}
 
   listFiles(): RepoFileRef[] {
@@ -98,6 +99,10 @@ class FakeRepoSource implements RepoSource {
 
   head(): string | null {
     return this.headSha;
+  }
+
+  ref(): string | null {
+    return this.refName;
   }
 
   changedSince(): string[] | null {
@@ -817,6 +822,63 @@ describe('runIndexer', () => {
     expect(summary.filesScanned).toBe(Object.keys(RUNNER_FILES).length);
     expect(lines.join(' ')).toContain('falling back to a full walk');
   });
+
+  // ── source-version stamp ───────────────────────────────────────────
+  //
+  // The claim a derivable fact makes is not "X is Y" but "at commit
+  // abc123, X is Y". These pin that the stamp is composed from the
+  // revision actually walked and rides EVERY submission of the run.
+
+  it('stamps every submission with the commit and ref it read', async () => {
+    const client = new StubBrainClient();
+    const summary = await runIndexer(
+      runnerOptions({
+        client,
+        source: new FakeRepoSource(RUNNER_FILES, [], 'abc123', null, 'release/2.x'),
+      }),
+    );
+    expect(summary.sourceVersion).toEqual({
+      system: 'git',
+      ref: 'release/2.x',
+      version: 'abc123',
+      readAt: expect.any(String),
+    });
+    expect(client.payloads.length).toBeGreaterThan(0);
+    for (const payload of client.payloads) {
+      expect(payload.sourceVersion).toEqual(summary.sourceVersion);
+    }
+    // Generic by construction: the shape names a system of record, not
+    // git — the server never learns what a commit is.
+    expect(Object.keys(summary.sourceVersion ?? {}).sort()).toEqual([
+      'readAt',
+      'ref',
+      'system',
+      'version',
+    ]);
+  });
+
+  it('sends no stamp at all outside a git checkout — a half-stamp is worse than none', async () => {
+    const client = new StubBrainClient();
+    const noHead = await runIndexer(
+      runnerOptions({ client, source: new FakeRepoSource(RUNNER_FILES, [], null, null, 'main') }),
+    );
+    expect(noHead.sourceVersion).toBeUndefined();
+    for (const payload of client.payloads) {
+      expect('sourceVersion' in payload).toBe(false);
+    }
+
+    const noRef = new StubBrainClient();
+    const detached = await runIndexer(
+      runnerOptions({
+        client: noRef,
+        source: new FakeRepoSource(RUNNER_FILES, [], 'abc123', null, null),
+      }),
+    );
+    expect(detached.sourceVersion).toBeUndefined();
+    for (const payload of noRef.payloads) {
+      expect('sourceVersion' in payload).toBe(false);
+    }
+  });
 });
 
 // ── the filesystem/git layer ─────────────────────────────────────────
@@ -902,6 +964,9 @@ describe('parseCommitLog', () => {
     expect(commits[0]?.authorName).toBe('Ada');
     expect(source.changedSince('HEAD~1')).toEqual(['src/third.ts']);
     expect(source.changedSince('no-such-ref')).toBeNull();
+    // The line of history, not just the point on it: drift is only ever
+    // compared within one ref.
+    expect(source.ref()).toBe('main');
   });
 
   it('derives a commit decision anchored on the single changed file', () => {

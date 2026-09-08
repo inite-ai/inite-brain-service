@@ -4637,6 +4637,38 @@
             },
             "type": "array"
           },
+          "sourceVersion": {
+            "additionalProperties": false,
+            "description": "The revision of the external system of record these claims were read at. Rejected 400 unless PACK_SOURCE_VERSION_STALENESS. Rides into every committed fact's source.sourceVersion, and sweeps the pack's DERIVABLE facts (memoryModel.verificationRules with requires=source_version_match) that were read at an older revision, marking them stale for re-verification.",
+            "properties": {
+              "readAt": {
+                "description": "ISO 8601 datetime the derivation read that revision.",
+                "type": "string"
+              },
+              "ref": {
+                "description": "The line within that system — a branch/ref, a matter id, a study series.",
+                "maxLength": 200,
+                "type": "string"
+              },
+              "system": {
+                "description": "System of record the claims were read from: 'git', 'dms', 'ehr', 'ledger', …",
+                "maxLength": 32,
+                "type": "string"
+              },
+              "version": {
+                "description": "The exact revision read — a commit sha, a document revision id.",
+                "maxLength": 200,
+                "type": "string"
+              }
+            },
+            "required": [
+              "system",
+              "ref",
+              "version",
+              "readAt"
+            ],
+            "type": "object"
+          },
           "stateDeltas": {
             "description": "Lifecycle-transition claims (0110) riding scenes of this submission (sceneIndex). Validated against the pack's memoryModel.stateModels; declared transitions stay advisory (never a gate).",
             "items": {

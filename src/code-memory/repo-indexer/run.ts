@@ -25,8 +25,10 @@ import {
   applyShapeFences,
   composeEvidenceDocuments,
   identify,
+  repoSourceVersion,
   toCandidatePayload,
 } from './bundle';
+import type { SourceVersionStamp } from '../../common/source-version';
 import type { BrainClient } from './brain-client';
 import type { RepoSource } from './repo-source';
 import type { DroppedRepoFact, IdentifiedRepoFact, IndexerCaps, RepoFact } from './types';
@@ -56,6 +58,13 @@ export interface RunOptions {
 
 export interface RunSummary {
   headSha: string | null;
+  /**
+   * The stamp sent with every submission of this run — the revision the
+   * derivations were read at. Undefined outside a git checkout, in which
+   * case nothing is version-bound and the server's drift sweep never
+   * runs for this pack.
+   */
+  sourceVersion?: SourceVersionStamp | undefined;
   incremental: boolean;
   filesScanned: number;
   commitsRead: number;
@@ -158,6 +167,13 @@ export async function runIndexer(opts: RunOptions): Promise<RunSummary> {
   let alreadyProcessed = 0;
   let documentCount = 0;
   const occurredAt = new Date().toISOString();
+  // Every claim of this run was read at ONE revision — the head we
+  // walked — so one stamp rides every submission. The derivable claims
+  // (owns / default_value / depends_on_version) become "at commit X, …"
+  // instead of timeless assertions the next merge would falsify; the
+  // interpretation claims carry it too, harmlessly, because the pack —
+  // not the indexer — decides which class drifts.
+  const sourceVersion = repoSourceVersion({ headSha, ref: opts.source.ref(), readAt: occurredAt });
   for (const [i, doc] of documents.entries()) {
     const grounded = applyGroundingFence(doc);
     dropped.push(...grounded.dropped);
@@ -170,7 +186,7 @@ export async function runIndexer(opts: RunOptions): Promise<RunSummary> {
     });
     const outcome = await opts.client.submitCandidates(
       ingested.documentId,
-      toCandidatePayload(grounded.kept, opts.packId),
+      toCandidatePayload(grounded.kept, opts.packId, sourceVersion),
     );
     documentCount += 1;
     if (outcome.alreadyProcessed) {
@@ -186,6 +202,7 @@ export async function runIndexer(opts: RunOptions): Promise<RunSummary> {
 
   return {
     headSha,
+    ...(sourceVersion ? { sourceVersion } : {}),
     incremental,
     filesScanned: paths.length,
     commitsRead: commits.length,

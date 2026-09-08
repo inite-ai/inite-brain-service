@@ -510,7 +510,7 @@ describe('code-memory pack', () => {
     expect(defaultValue?.description).toContain('value-shaped');
   });
 
-  it('declares the perception contract: three lifecycles, hints, one recency rule', () => {
+  it('declares the perception contract: three lifecycles, hints, recency + drift rules', () => {
     const mm = CODE_MEMORY_PACK.memoryModel;
     expect(mm?.stateModels?.map((m) => m.id).sort()).toEqual([
       'change_lifecycle',
@@ -520,7 +520,18 @@ describe('code-memory pack', () => {
     const flag = mm?.stateModels?.find((m) => m.id === 'flag_lifecycle');
     expect(flag?.states).toEqual(['declared', 'enabled', 'deprecated', 'removed']);
     expect(mm?.attentionHints?.length ?? 0).toBeGreaterThanOrEqual(5);
-    expect(mm?.verificationRules).toEqual([{ claimPattern: 'default', requires: 'recency_check' }]);
+    // 0.7.0 adds the DERIVABLE-CLASS declaration alongside the recency
+    // rule. The full list stays pinned — a new rule must be a deliberate
+    // edit here — and the interpretation predicates must stay OUT of it:
+    // `decided`/`because`/`gotcha`/`invariant` are statements about the
+    // past and never drift with the repository.
+    expect(mm?.verificationRules).toEqual([
+      { claimPattern: 'default', requires: 'recency_check' },
+      {
+        requires: 'source_version_match',
+        appliesTo: ['owns', 'default_value', 'depends_on_version'],
+      },
+    ]);
     expect(mm?.retentionHints?.some((h) => h.predicateOrScene === 'gotcha')).toBe(true);
   });
 
@@ -612,12 +623,14 @@ const MEDIA_CONTRACT: MediaExpectation[] = [
   },
   {
     pack: CODE_MEMORY_PACK,
-    // 0.6.0 carries TWO independent changes that landed in the same
-    // release window: the `invariant` semantics correction
-    // (single_active → append_only) and the `ocr` media declaration. One
-    // bump, not two stacked — 0.5.0 is the last version either was
-    // absent from, so a tenant re-accepts modalities once.
-    version: '0.6.0',
+    // 0.7.0: the derivable-class declaration (a source_version_match
+    // verificationRule over owns / default_value / depends_on_version),
+    // after 0.6.0, which carried TWO independent changes of its own in
+    // one bump rather than two stacked — the `invariant` semantics
+    // correction (single_active → append_only) and the `ocr` media
+    // declaration. The media contract itself is unchanged from 0.6.0 —
+    // this pin just has to move deliberately on every version bump.
+    version: '0.7.0',
     modalities: ['text', 'image', 'document'],
     processors: [IMAGE_METADATA, DOCUMENT_TEXT, IMAGE_OCR],
     rawEvidence: undefined, // a builtin seeds into every tenant unasked

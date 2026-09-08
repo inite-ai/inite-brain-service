@@ -437,6 +437,11 @@ export class CandidateStoreService {
             packVersion: prov.packVersion,
             executionMode: prov.executionMode,
             model: prov.model,
+            // Source-version stamp (PACK_SOURCE_VERSION_STALENESS): the
+            // KEY IS ABSENT unless the submission carried one under the
+            // flag, so every in-process and every flag-off fact payload
+            // stays byte-identical to today's row.
+            ...(prov.sourceVersion ? { sourceVersion: prov.sourceVersion } : {}),
           },
         })),
         ...batch.relations.map((r) => ({

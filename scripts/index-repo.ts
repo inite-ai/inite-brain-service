@@ -131,6 +131,7 @@ async function main(): Promise<void> {
   } else {
     console.error(
       `[indexer] head=${summary.headSha?.slice(0, 12) ?? 'none'} ` +
+        `ref=${summary.sourceVersion?.ref ?? 'none'} ` +
         `incremental=${summary.incremental} files=${summary.filesScanned} ` +
         `commits=${summary.commitsRead} derived=${summary.derived} ` +
         `submitted=${summary.submitted} dropped=${summary.dropped.length} ` +

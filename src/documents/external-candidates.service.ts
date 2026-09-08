@@ -11,7 +11,15 @@ import { PACK_NAMESPACE_SEP } from '../ai/domain-packs/manifest';
 import { policyFor } from '../ingest/conflict-resolver';
 import { RETRACT_ADMIN_PREDICATES } from '../facts/facts.service';
 import { envFlagEnabled } from '../common/env-validation';
-import { packMemoryProjectionsEnabled } from '../common/pack-projection-flags';
+import {
+  packMemoryProjectionsEnabled,
+  packSourceVersionStalenessEnabled,
+} from '../common/pack-projection-flags';
+import { parseSourceVersionStamp, type SourceVersionStamp } from '../common/source-version';
+import {
+  SourceDriftStalenessService,
+  type DriftSweepResult,
+} from './source-drift-staleness.service';
 import { sanitizeIngestText } from '../common/text-sanitizer';
 import { MetricsService } from '../metrics/metrics.service';
 import { MemoryModelReaderService } from '../ai/memory-model-reader.service';
@@ -46,6 +54,10 @@ export interface ExternalSubmissionResult {
   dropped: GroundingDrop[];
   /** true when the document has no stored content — spans unverifiable. */
   ungrounded: boolean;
+  /** Drift sweep outcome — present ONLY when the submission carried a
+   *  sourceVersion under PACK_SOURCE_VERSION_STALENESS, so the flag-off
+   *  response stays byte-identical. */
+  sourceDrift?: DriftSweepResult;
 }
 
 /** Abuse bounds on one submission — an external key stages hypotheses,
@@ -87,6 +99,7 @@ export class ExternalCandidatesService {
     private readonly work: IndexerWorkService,
     private readonly memoryModels: MemoryModelReaderService,
     @Optional() private readonly metrics?: MetricsService,
+    @Optional() private readonly sourceDrift?: SourceDriftStalenessService,
   ) {}
 
   async submit(p: {
@@ -107,6 +120,7 @@ export class ExternalCandidatesService {
     const binding = await this.resolveExternalBinding(companyId, dto);
     validateShapes(dto, binding.indexerId);
     await this.validateProjectionShapes(companyId, dto, binding.indexerId);
+    const sourceVersion = resolveSourceVersion(dto);
     const claim = resolveClaimFields(dto);
 
     // Claimed flow: the run row already exists (claimed via the work
@@ -137,6 +151,7 @@ export class ExternalCandidatesService {
       // caller may omit. Keeps candidate/fact provenance in lockstep with
       // the run ledger instead of stamping the '0' fallback.
       packVersion,
+      sourceVersion,
     });
 
     if (runId === undefined) {
@@ -170,6 +185,20 @@ export class ExternalCandidatesService {
       stats: { ...counts, dropped: dropped.length, external: true },
     });
 
+    // Drift sweep (PACK_SOURCE_VERSION_STALENESS). The indexer has just
+    // told us the source's CURRENT revision — the only moment the server
+    // can learn it without touching git — so this is where the pack's
+    // derivable facts that were read at an older revision are marked for
+    // re-verification. Runs AFTER staging, and never fails the
+    // submission: the candidates are already durable.
+    const sourceDrift = sourceVersion
+      ? await this.sourceDrift?.sweep({
+          companyId,
+          packId: binding.indexerId,
+          current: sourceVersion,
+        })
+      : undefined;
+
     return {
       runId,
       packId: binding.indexerId,
@@ -177,6 +206,7 @@ export class ExternalCandidatesService {
       staged: counts,
       dropped,
       ungrounded,
+      ...(sourceDrift ? { sourceDrift } : {}),
     };
   }
 
@@ -252,6 +282,7 @@ export class ExternalCandidatesService {
     doc: StoredDocument;
     dto: SubmitCandidatesDto;
     packVersion: string;
+    sourceVersion: SourceVersionStamp | undefined;
   }): Promise<{
     batch: CandidateBatch;
     dropped: GroundingDrop[];
@@ -293,6 +324,10 @@ export class ExternalCandidatesService {
       packVersion: p.packVersion,
       executionMode: 'external' as const,
       model: null,
+      // Absent unless the submission carried a stamp under
+      // PACK_SOURCE_VERSION_STALENESS — the key never appears otherwise,
+      // so staged payloads stay byte-identical with the flag off.
+      ...(p.sourceVersion ? { sourceVersion: p.sourceVersion } : {}),
     };
 
     if (!doc.hasContent) {
@@ -341,6 +376,30 @@ export class ExternalCandidatesService {
       ungrounded: false,
     };
   }
+}
+
+/**
+ * The source-version stamp: flag fence FIRST (fail-closed), then shape.
+ *
+ * With PACK_SOURCE_VERSION_STALENESS off (default) a submission carrying
+ * `sourceVersion` is REJECTED rather than silently stripped — the same
+ * honest-upgrade posture 0110 took for scenes/stateDeltas. Silent
+ * stripping is how an indexer ships version-bound facts for a month and
+ * only then discovers every one of them was recorded as timeless truth.
+ *
+ * Exported for the unit spec (the validateScenes precedent).
+ */
+export function resolveSourceVersion(dto: SubmitCandidatesDto): SourceVersionStamp | undefined {
+  if (dto.sourceVersion === undefined) return undefined;
+  if (!packSourceVersionStalenessEnabled()) {
+    throw new BadRequestException(
+      'sourceVersion submissions are disabled ' +
+        '(set PACK_SOURCE_VERSION_STALENESS=1 to bind claims to a source revision)',
+    );
+  }
+  const parsed = parseSourceVersionStamp(dto.sourceVersion);
+  if (!parsed.ok) throw new BadRequestException(parsed.error);
+  return parsed.stamp;
 }
 
 /** runId + claimToken travel together, or not at all. */

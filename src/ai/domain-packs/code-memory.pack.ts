@@ -36,11 +36,22 @@ import { composePredicateId, type DomainPackManifest } from './manifest';
  * left `single_active` — each of those really does have exactly one
  * current value.
  *
+ * 0.7.0 declares the DERIVABLE CLASS. Code is the domain where the split
+ * is starkest: git is an external system of record that is better than
+ * our copy — exact, versioned, cheap, and never wrong about the past. So
+ * `owns` / `default_value` / `depends_on_version` are POINTERS at a
+ * state of the repository, only as good as the commit they were read at,
+ * while `decided` / `because` / `invariant` / `gotcha` /
+ * `superseded_by` are MATERIALIZED prose that exists nowhere else and
+ * does not rot when new commits land. The new
+ * `source_version_match` verificationRule names the first group; the
+ * second is simply not listed, and is therefore never swept.
+ *
  * Bump `version` to ship an updated code-memory ontology.
  */
 export const CODE_MEMORY_PACK: DomainPackManifest = {
   id: 'code_memory',
-  version: '0.6.0',
+  version: '0.7.0',
   description:
     'Non-derivable engineering "why" of a codebase — decisions, rationale, invariants, gotchas, ownership, flag/config defaults, dependency pins, and decision supersession anchored to code, with a domain extraction profile and memory model.',
   // Retro-declaration, documentation-true: code-memory has ALWAYS been an
@@ -325,7 +336,28 @@ never split its clauses across facts or predicates.`,
     ],
     // The dogfood north-star claim class: "what is the current default of X"
     // must not serve stale — a default_value claim deserves a recency check.
-    verificationRules: [{ claimPattern: 'default', requires: 'recency_check' }],
+    verificationRules: [
+      { claimPattern: 'default', requires: 'recency_check' },
+      // THE DERIVABLE CLASS. Each of these three POINTS AT a state of the
+      // working tree that git can re-derive exactly at any moment: who
+      // owns a path (CODEOWNERS / authorship concentration), what a flag
+      // or constant defaults to, which version a dependency is pinned to.
+      // Stored as timeless truth they would start lying on the next
+      // merge, so they are bound to the commit they were read at and go
+      // back for re-verification when the source moves on.
+      //
+      // `decided`, `because`, `invariant`, `gotcha` and `superseded_by`
+      // are deliberately ABSENT. They are interpretation — the reason a
+      // choice was made, the constraint someone learned the hard way —
+      // which exists only in prose and is lost without us. A statement
+      // about the past does not become false because the future arrived,
+      // so calendar age and commit drift are both the wrong question for
+      // them.
+      {
+        requires: 'source_version_match',
+        appliesTo: ['owns', 'default_value', 'depends_on_version'],
+      },
+    ],
     retentionHints: [
       { predicateOrScene: 'decided', hint: 'durable' },
       { predicateOrScene: 'invariant', hint: 'durable' },

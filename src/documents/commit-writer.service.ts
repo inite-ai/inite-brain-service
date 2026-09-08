@@ -210,6 +210,7 @@ export class CommitWriterService {
       documentId: doc.id,
       originKey: originKeyOf(doc.contentHash),
       ...(meta ? { meta } : {}),
+      ...sourceVersionOf(mf),
       indexers: mf.contributors.map((c) => ({
         packId: c.indexerId,
         packVersion: c.packVersion,
@@ -250,4 +251,27 @@ export class CommitWriterService {
       },
     ];
   }
+}
+
+/**
+ * The source-version hop (PACK_SOURCE_VERSION_STALENESS): a derivable
+ * claim is bound to the revision of the external system of record it was
+ * read at, so `source.sourceVersion` says "at commit abc123" and the
+ * drift sweep has something to compare against. FLEXIBLE `source` is the
+ * natural home — no migration, exactly the `evidence[]`/`meta`
+ * precedent.
+ *
+ * The LEADER's stamp wins, because the leader is the reading the fact's
+ * value came from; a corroborating contributor from another run may have
+ * read a different commit and its stamp would misdescribe this value.
+ * Falls back to any contributor carrying one only when the leader has
+ * none. Returns `{}` — not a null key — when nothing carries a stamp, so
+ * the flag-off `source` object is byte-identical.
+ */
+export function sourceVersionOf(mf: MergedFact): Record<string, unknown> {
+  const leader = mf.contributors.find((c) => c.candidateId === mf.leaderId);
+  const stamp =
+    leader?.sourceVersion ??
+    mf.contributors.find((c) => c.sourceVersion !== undefined)?.sourceVersion;
+  return stamp ? { sourceVersion: stamp } : {};
 }

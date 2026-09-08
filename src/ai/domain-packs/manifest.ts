@@ -358,7 +358,30 @@ export interface PackVerificationRule {
   /** Literal substring (2..128 chars) selecting claims — NOT a pattern;
    *  absent = the rule applies to all of the pack's claims. */
   claimPattern?: string;
-  requires: 'human_confirmation' | 'corroboration' | 'recency_check';
+  /**
+   * `source_version_match` is the DERIVABLE-CLASS declaration: the claim
+   * is re-derivable at any moment from an external system of record
+   * (git, a DMS, an EHR, a ledger), so it is only as good as the version
+   * it was read at — when that version moves on, the claim is a
+   * candidate for re-verification. The other three are about how a claim
+   * EARNS confidence; this one is about when it LOSES currency.
+   */
+  requires: 'human_confirmation' | 'corroboration' | 'recency_check' | 'source_version_match';
+  /**
+   * The pack's OWN predicate localIds this rule covers — the declarative
+   * split between what rots and what does not. `depends_on_version`
+   * describes a state of the source and drifts with it; `decided` /
+   * `because` / `gotcha` describe the PAST and are still exactly as true
+   * after a thousand commits. Listing the first class and omitting the
+   * second is how a domain says so, instead of the engine guessing from
+   * predicate names.
+   *
+   * Absent = the rule is not predicate-scoped (the pre-existing
+   * claimPattern behaviour). A `source_version_match` rule REQUIRES it:
+   * a drift sweep with no declared class would either touch everything
+   * or nothing, and both are wrong.
+   */
+  appliesTo?: string[];
 }
 
 /** ADVISORY retention preference for one of the pack's own predicates

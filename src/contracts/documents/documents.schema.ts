@@ -224,6 +224,23 @@ export const SubmittedSceneSchema = z.object({
   confidence: z.number().optional(),
 });
 
+/** Mirror of SourceVersionStamp (src/common/source-version.ts). */
+export const SourceVersionSchema = z.object({
+  system: z
+    .string()
+    .max(32)
+    .describe("System of record the claims were read from: 'git', 'dms', 'ehr', 'ledger', …"),
+  ref: z
+    .string()
+    .max(200)
+    .describe('The line within that system — a branch/ref, a matter id, a study series.'),
+  version: z
+    .string()
+    .max(200)
+    .describe('The exact revision read — a commit sha, a document revision id.'),
+  readAt: z.string().describe('ISO 8601 datetime the derivation read that revision.'),
+});
+
 /** Mirror of SubmittedStateDelta (0110). */
 export const SubmittedStateDeltaSchema = z.object({
   sceneIndex: z
@@ -278,6 +295,14 @@ export const SubmitCandidatesRequestSchema = z.object({
         "(sceneIndex). Validated against the pack's memoryModel.stateModels; " +
         'declared transitions stay advisory (never a gate).',
     ),
+  sourceVersion: SourceVersionSchema.optional().describe(
+    'The revision of the external system of record these claims were read ' +
+      'at. Rejected 400 unless PACK_SOURCE_VERSION_STALENESS. Rides into ' +
+      "every committed fact's source.sourceVersion, and sweeps the pack's " +
+      'DERIVABLE facts (memoryModel.verificationRules with requires=' +
+      'source_version_match) that were read at an older revision, marking ' +
+      'them stale for re-verification.',
+  ),
 });
 
 /** Mirror of GroundingDrop (candidate-grounding.ts). */

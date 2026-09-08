@@ -1194,6 +1194,19 @@ const KNOWN_BOOLEAN_FLAGS = [
   // PACK_ sits off the ENGINE flag budget (shadow-substrate writer, the
   // SCENES_/EVIDENCE_ precedent).
   'PACK_MEMORY_PROJECTIONS_ENABLED',
+  // Source-version stamps + drift staleness. An external submission may
+  // carry a `sourceVersion` ({system, ref, version, readAt}) naming the
+  // revision of the external system of record it read; the stamp rides
+  // candidate provenance into every committed fact's
+  // source.sourceVersion, and the same submission marks the pack's
+  // DERIVABLE facts (declared via memoryModel.verificationRules with
+  // requires='source_version_match') whose stamp is behind that revision
+  // stale, through the EXISTING 0072 staleAt/staleReason fields. Default
+  // off ⇒ a submitted sourceVersion is rejected 400, no payload or fact
+  // source ever gains the key, and no sweep query runs — byte-identical.
+  // PACK_ sits off the ENGINE flag budget, like the projections flag
+  // above.
+  'PACK_SOURCE_VERSION_STALENESS',
   // Belief promotion (Belief-A, migration 0120): fold ENRICHED scenes of
   // the current effective segmenter version into the shadow
   // semantic_belief substrate via POST /v1/admin/maintenance/scenes/

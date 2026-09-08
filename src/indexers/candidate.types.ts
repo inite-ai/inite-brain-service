@@ -13,6 +13,7 @@ import type {
   ExtractedFact,
   ExtractedEdge,
 } from '../ai/extractor-internals/types';
+import type { SourceVersionStamp } from '../common/source-version';
 
 /** The pack-less generalist (union) pass — today's extractor, as an indexer. */
 export const GENERAL_INDEXER_ID = '_general';
@@ -33,6 +34,17 @@ export interface CandidateProvenance {
   packVersion: string;
   executionMode: IndexerExecutionMode;
   model: string | null;
+  /**
+   * The revision of the EXTERNAL system of record these candidates were
+   * derived from (PACK_SOURCE_VERSION_STALENESS). Present only on
+   * external submissions that carried a `sourceVersion` while the flag
+   * was on; it rides into every committed fact's `source.sourceVersion`,
+   * so a derivable claim reads "at commit abc123, X is Y" rather than
+   * the timeless — and eventually false — "X is Y". Absent on every
+   * in-process batch and on every flag-off submission, which keeps those
+   * payloads byte-identical.
+   */
+  sourceVersion?: SourceVersionStamp | undefined;
 }
 
 /**
