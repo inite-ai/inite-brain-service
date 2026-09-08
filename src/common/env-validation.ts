@@ -247,6 +247,11 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   floatInRange(env, 'SCENES_TOPIC_MIN_COSINE', -1, 1, errors);
   // Belief promotion floor (Belief-A, migration 0120): 0 = off.
   nonNegativeInt(env, 'SCENES_BELIEF_MIN_SCENES', errors);
+  // Memory-value gate noise floor: a [0,1] fraction of the value vector,
+  // NOT a count. The gate clamps a bad value to 0.05 at read time; boot
+  // validation catches the typo before a "0.5" meant as 50% of scenes
+  // silently reads as the default and gates almost nothing.
+  floatInRange(env, 'SCENES_VALUE_GATE_MIN', 0, 1, errors);
   // Scheduled maintenance budgets (migration 0130): the nightly pass
   // clamps bad values to defaults at read time; boot validation catches
   // the typo before an unbounded-looking knob silently reads as 200/30min.
@@ -1220,6 +1225,16 @@ const KNOWN_BOOLEAN_FLAGS = [
   // byte-identical scene-gist-v1 prompt and composite, no baselineRef
   // write — byte-identical rows.
   'SCENES_PREDICTION_BASELINE',
+  // Memory-value promotion gate: the first consumer of the 0106 value
+  // vector beyond `explicitness`. On, belief promotion drops a scene
+  // whose novelty AND contradiction AND stateChange are all PRESENT and
+  // all below SCENES_VALUE_GATE_MIN — "promote unless demonstrably
+  // noise", so an UNDEFINED dimension promotes (unknown is not a
+  // confident zero) and an unscored world behaves exactly as with the
+  // gate off. Refusals are counted (skippedLowValue) and logged per
+  // scene. Default off ⇒ the value dimensions are not even projected —
+  // byte-identical selection, fold and rows.
+  'SCENES_VALUE_GATE_ENABLED',
   // Scene evidence links (MM-zoom PR1, migration 0123): typed
   // scene-reconstructed_from->evidence_fragment|evidence_asset edges in
   // memory_support from the union of member episodes' source.evidenceRefs

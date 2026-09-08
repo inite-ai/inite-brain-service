@@ -842,6 +842,29 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Belief promotion field fold (#135 seam 2): deterministically fold an enricher-re-coined field name onto an existing one for the same (userId, subject) — token-set subset whose extra tokens are all generic modifiers (ownership/status/state/current/of/the); the EXISTING name wins, and more than one match folds nothing and warns loudly (skip loudly, never flip-flop). NO embeddings, NO LLM. Also absorbs orphans: after each canonical upsert, ACTIVE beliefs of the same (userId, subject) stored under a foldable VARIANT of the canonical field (earlier-batch leftovers the incoming-name fold can never retire) are stamped superseded so they stop serving stale values; the canonical belief keeps its own value, the orphan value backfills priorValue only when the canonical has none, and more than one distinct variant field skips loudly. Off = exact-string (subject, field) grouping and zero extra queries — byte-identical fold output.',
   },
   {
+    key: 'SCENES_VALUE_GATE_ENABLED',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneValueGateEnabled) ONCE per
+    // promotion run — never captured in a constructor — so a flip takes
+    // effect without restart and can never gate half a batch.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Memory-value promotion gate: the first real consumer of the 0106 scene VALUE VECTOR. The vector (novelty, contradiction, stateChange, identity, explicitness, estimatedUtility) is written by the composer’s deterministic scorer and by the MEASURED scene-scorer-v1 (SCENES_PREDICTION_BASELINE), but only `explicitness` was ever read (as belief confidence) — five of six dimensions were a write with no reader. On, belief promotion refuses a scene whose deltas carry nothing durable: a scene promotes unless novelty AND contradiction AND stateChange are all PRESENT and all below SCENES_VALUE_GATE_MIN. The policy is asymmetric on purpose — "promote unless demonstrably NOISE", never "promote only if demonstrably valuable" — so an UNDEFINED dimension short-circuits to promote (an unknown baseline is not a confident zero, the read-side half of the scene-scorer-v1 rule) and an unscored world (pack-projection scenes, legacy rows, enrichment off) promotes exactly as with the gate off. A scene with HIGH contradiction is the one whose deltas most deserve promotion — it changes the world model — so one high dimension is always enough. explicitness / identity / estimatedUtility are deliberately NOT gated on: the first is already the confidence signal, the second answers "about whom" rather than "worth remembering", and the third is the model’s self-report of the very question the gate decides. Refusals are counted (skippedLowValue in the run summary and the API response) and logged per scene with the dimensions that produced them. Off = the value dimensions are not even projected — byte-identical selection query, fold and rows.',
+  },
+  {
+    key: 'SCENES_VALUE_GATE_MIN',
+    category: 'scenes',
+    // Read at call time (scene-flags.sceneValueGateMin) once per
+    // promotion run — never captured in a constructor — runtime-mutable.
+    defaultValue: '0.05',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Memory-value gate noise floor: a scene promotes unless novelty AND contradiction AND stateChange are all present and all BELOW this value. A number in [0,1]; unset/invalid → 0.05, deliberately near the bottom of the range so the gate only refuses scenes every producer scores at essentially zero. 0 makes the gate a no-op (every present dimension is ≥ 0) — the documented way to switch SCENES_VALUE_GATE_ENABLED on and watch skippedLowValue before committing to a threshold. Ignored unless that flag is on.',
+  },
+  {
     key: 'SCENES_PACK_DELTA_PROMOTION',
     category: 'scenes',
     // Read at call time (scene-flags.scenePackDeltaPromotionEnabled) ONCE

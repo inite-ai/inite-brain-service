@@ -19,9 +19,14 @@ import { createApp } from './app-fixture';
 import { mockBeliefSynthesisOpenAi } from './test-doubles';
 import { SurrealService } from '../src/db/surreal.service';
 import { beliefIdTail } from '../src/admin/belief-promotion.service';
+import { readSceneBaselineRef } from '../src/admin/scene-baseline-ref';
 
 const USER = 'belief_u1';
 const OTHER_USER = 'belief_u2';
+/** Own user for the value-gate leg — untouched by the GDPR cascades above. */
+const GATE_USER = 'belief_u3';
+/** Own user for the two-producer baselineRef leg. */
+const BASELINE_USER = 'belief_u4';
 
 interface BeliefRow {
   id: unknown;
@@ -57,6 +62,8 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
     'SCENES_BELIEF_LLM_SYNTHESIS',
     'SCENES_BELIEF_NEGATION_DELTAS',
     'SCENES_BELIEF_FIELD_FOLD',
+    'SCENES_VALUE_GATE_ENABLED',
+    'SCENES_VALUE_GATE_MIN',
     'PROVENANCE_SUPPORT_EDGES',
   ];
 
@@ -72,6 +79,13 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
     occurredTo: string;
     deltas: Array<{ subject: string; field: string; from: string; to: string }>;
     enriched?: boolean;
+    /**
+     * enrichedMemoryValue override. Defaults to the historical
+     * explicitness-only vector, so every pre-existing fixture keeps
+     * exactly the row it had — the value gate reads the three extra
+     * dimensions as UNDEFINED there, which promotes.
+     */
+    value?: Record<string, number>;
   }): Promise<void> => {
     await db(async (d) => {
       await d.query(
@@ -89,13 +103,14 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
            segmenterVersion: 'scene-segmenter-v1',
            generation: 'seed-gen',
            source: { recorder: 'test-seed' }
-           ${opts.enriched !== false ? `, enrichmentVersion: 'seed-enrich-v1', enrichedMemoryValue: { explicitness: 0.8 }` : ''}
+           ${opts.enriched !== false ? `, enrichmentVersion: 'seed-enrich-v1', enrichedMemoryValue: $value` : ''}
          }`,
         {
           tail: opts.tail,
           conv: opts.conv,
           to: opts.occurredTo,
           deltas: opts.deltas,
+          value: opts.value ?? { explicitness: 0.8 },
           ...(opts.user !== undefined ? { user: opts.user } : {}),
           ...(opts.users !== undefined ? { users: opts.users } : {}),
         },
@@ -134,6 +149,11 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
     });
 
   const promote = () => f.http.post('/v1/admin/maintenance/scenes/beliefs').set(auth()).send({});
+
+  /** Conversation-scoped promotion — exact counters regardless of what
+   *  the earlier fixtures (and the GDPR cascades) left behind. */
+  const promoteConv = (conversationId: string) =>
+    f.http.post('/v1/admin/maintenance/scenes/beliefs').set(auth()).send({ conversationId });
 
   beforeAll(async () => {
     for (const k of FLAGS) {
@@ -365,16 +385,17 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
     expect((rev2!.sourceSceneIds ?? []).map(String)).toEqual(['memory_episode:sb']);
 
     // The 0106 contracts on the consumed scene: consolidatedInto names
-    // the NEW revision; baselineRef names the revision the delta was
-    // applied AGAINST.
+    // the NEW revision; the NAMESPACED baselineRef.supersededFrom names
+    // the revision the delta was applied AGAINST (the sibling
+    // `expectation` section belongs to the enrichment pass — see the
+    // coexistence test below).
     const sb = await sceneRow('sb');
     expect((sb.consolidatedInto ?? []).map(String)).toEqual([String(rev2!.id)]);
     expect(sb.baselineRef).toMatchObject({
-      belief: String(rev1!.id),
-      revision: 1,
-      value: 'lisbon',
+      supersededFrom: { belief: String(rev1!.id), revision: 1, value: 'lisbon' },
     });
-    expect(sb.baselineRef!.stampedAt).toBeDefined();
+    expect(readSceneBaselineRef(sb.baselineRef).supersededFrom!.stampedAt).not.toBe('');
+    expect(Object.keys(sb.baselineRef!)).toEqual(['supersededFrom']);
 
     const edges = await supportRows();
     const contradiction = edges.filter((e) => e.kind === 'contradicted_by');
@@ -455,9 +476,7 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
     const scar2 = await sceneRow('scar2');
     expect((scar2.consolidatedInto ?? []).map(String)).toEqual([String(rev2!.id)]);
     expect(scar2.baselineRef).toMatchObject({
-      belief: String(rev1!.id),
-      revision: 1,
-      value: 'Jeep Compass',
+      supersededFrom: { belief: String(rev1!.id), revision: 1, value: 'Jeep Compass' },
     });
 
     delete process.env.SCENES_BELIEF_NEGATION_DELTAS;
@@ -565,5 +584,138 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
       .send({ reason: 'gdpr_request', requestId: 'belief-forget-1' });
     expect(replay.status).toBe(201);
     expect(replay.body.beliefsDeleted).toBe(1);
+  });
+
+  it('memory-value gate: the noisy scene is skipped with it ON and promoted with it OFF', async () => {
+    process.env.SCENES_BELIEF_PROMOTION = '1';
+    delete process.env.SCENES_BELIEF_MIN_SCENES;
+    const CONV = 'proj:gate';
+
+    // Two scenes, one conversation. The first is what the gate exists
+    // for: every producer scored it at essentially zero. The second is
+    // the case the gate must never touch — nothing new, nothing durable,
+    // but it DISAGREES with the world model, which is exactly the kind
+    // of scene whose deltas most deserve promotion.
+    await seedScene({
+      tail: 'sgate_noise',
+      conv: CONV,
+      user: GATE_USER,
+      users: [GATE_USER],
+      occurredTo: '2026-04-01T10:00:00.000Z',
+      deltas: [{ subject: 'gata', field: 'snack', from: '', to: 'crisps' }],
+      value: { explicitness: 0.8, novelty: 0.01, contradiction: 0, stateChange: 0 },
+    });
+    await seedScene({
+      tail: 'sgate_signal',
+      conv: CONV,
+      user: GATE_USER,
+      users: [GATE_USER],
+      occurredTo: '2026-04-01T11:00:00.000Z',
+      deltas: [{ subject: 'gata', field: 'home.city', from: '', to: 'porto' }],
+      value: { explicitness: 0.8, novelty: 0, contradiction: 0.9, stateChange: 0 },
+    });
+
+    const mine = async (): Promise<BeliefRow[]> =>
+      (await beliefs()).filter((r) => r.userId === GATE_USER);
+
+    process.env.SCENES_VALUE_GATE_ENABLED = '1';
+    const gated = await promoteConv(CONV);
+    expect(gated.status).toBe(201);
+    expect(gated.body).toMatchObject({
+      scenes: 2,
+      eligibleScenes: 1, // the noisy scene never reaches the fold
+      skippedLowValue: 1,
+      skippedMixedUser: 0,
+      beliefsCreated: 1,
+    });
+    expect((await mine()).map((r) => r.field)).toEqual(['home.city']);
+
+    // Flag off: the SAME world promotes the SAME noisy scene it refused.
+    delete process.env.SCENES_VALUE_GATE_ENABLED;
+    const ungated = await promoteConv(CONV);
+    expect(ungated.status).toBe(201);
+    expect(ungated.body).toMatchObject({
+      scenes: 2,
+      eligibleScenes: 2,
+      skippedLowValue: 0,
+      beliefsCreated: 1, // snack; home.city is an unchanged no-op
+      beliefsRevised: 0,
+    });
+    expect((await mine()).map((r) => r.field).sort()).toEqual(['home.city', 'snack']);
+  });
+
+  it('baselineRef: the enricher’s expectation and the promoter’s backpointer coexist on one scene', async () => {
+    process.env.SCENES_BELIEF_PROMOTION = '1';
+    delete process.env.SCENES_VALUE_GATE_ENABLED;
+    const CONV = 'proj:baseline';
+
+    await seedScene({
+      tail: 'sbase1',
+      conv: CONV,
+      user: BASELINE_USER,
+      users: [BASELINE_USER],
+      occurredTo: '2026-05-01T10:00:00.000Z',
+      deltas: [{ subject: 'bruno', field: 'home.city', from: '', to: 'lisbon' }],
+    });
+    const first = await promoteConv(CONV);
+    expect(first.status).toBe(201);
+    expect(first.body).toMatchObject({ beliefsCreated: 1 });
+    const rev1 = (await beliefs()).find((r) => r.userId === BASELINE_USER)!;
+
+    // The SECOND scene carries the revising value AND — as the enrichment
+    // pass under SCENES_PREDICTION_BASELINE would have left it — a
+    // legacy-A expectation snapshot already sitting in `baselineRef`.
+    await seedScene({
+      tail: 'sbase2',
+      conv: CONV,
+      user: BASELINE_USER,
+      users: [BASELINE_USER],
+      occurredTo: '2026-05-02T10:00:00.000Z',
+      deltas: [{ subject: 'bruno', field: 'home.city', from: 'lisbon', to: 'porto' }],
+    });
+    await db(async (d) => {
+      await d.query(`UPDATE memory_episode:sbase2 SET baselineRef = $ref`, {
+        ref: {
+          beliefs: [
+            {
+              id: String(rev1.id),
+              subject: 'bruno',
+              field: 'home.city',
+              value: 'lisbon',
+              revision: 1,
+            },
+          ],
+          stampedAt: '2026-05-02T09:59:00.000Z',
+          baselineVersion: 'scene-baseline-v1',
+        },
+      });
+    });
+
+    const second = await promoteConv(CONV);
+    expect(second.status).toBe(201);
+    expect(second.body).toMatchObject({ beliefsRevised: 1 });
+
+    // BOTH sections are on the row, under their own keys — the promotion
+    // no longer eats the pre-scene world model.
+    const scene = await sceneRow('sbase2');
+    expect(Object.keys(scene.baselineRef!).sort()).toEqual(['expectation', 'supersededFrom']);
+    const sections = readSceneBaselineRef(scene.baselineRef);
+    expect(sections.expectation).toMatchObject({
+      baselineVersion: 'scene-baseline-v1',
+      stampedAt: '2026-05-02T09:59:00.000Z',
+    });
+    expect(sections.expectation!.beliefs).toHaveLength(1);
+    expect(sections.supersededFrom).toMatchObject({
+      belief: String(rev1.id),
+      revision: 1,
+      value: 'lisbon',
+    });
+
+    // And the belief chain itself is the ordinary supersede chain.
+    const chain = (await beliefs()).filter((r) => r.userId === BASELINE_USER);
+    expect(chain.map((r) => `${r.revision}:${r.value}:${r.status}`)).toEqual([
+      '1:lisbon:superseded',
+      '2:porto:active',
+    ]);
   });
 });

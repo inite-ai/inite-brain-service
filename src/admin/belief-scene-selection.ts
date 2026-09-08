@@ -17,6 +17,53 @@
  * WHERE serve both without an ambiguity.
  */
 
+/** Scene head as selected by the promotion query (validated in JS). */
+export interface PromotableSceneHead {
+  id: unknown;
+  userId?: unknown;
+  userIds?: unknown;
+  conversationIds?: unknown;
+  occurredTo?: unknown;
+  stateDeltas?: unknown;
+  /** enrichedMemoryValue.explicitness projection (confidence signal). */
+  explicitness?: unknown;
+  /**
+   * enrichedMemoryValue value-vector projections read by the memory-value
+   * gate. Selected ONLY under SCENES_VALUE_GATE_ENABLED (the flag-off
+   * query is byte-identical), so with the gate off they are always
+   * undefined — which the gate reads as "unknown", never as zero.
+   */
+  novelty?: unknown;
+  contradiction?: unknown;
+  stateChange?: unknown;
+  /**
+   * The scene world this row belongs to. Selected ONLY under
+   * SCENES_PACK_DELTA_PROMOTION (the flag-off query is byte-identical),
+   * where it becomes the belief's pack provenance.
+   */
+  segmenterVersion?: unknown;
+}
+
+/**
+ * Pure: the single user a scene's beliefs may inherit, or null when the
+ * scene must be skipped fail-closed (#387): userIds missing (legacy),
+ * empty (tenant-global), longer than one (mixed group), or disagreeing
+ * with the folded userId stamp.
+ *
+ * Lives beside the query that produces the row it fences (and is
+ * re-exported from belief-promotion.service.ts, so every historical
+ * import site — the enricher, the prediction baseline, the specs — is
+ * unchanged). A duplicated scope fence is a fence that drifts.
+ */
+export function sceneSingleUser(scene: PromotableSceneHead): string | null {
+  const userIds = scene.userIds;
+  if (!Array.isArray(userIds) || userIds.length !== 1) return null;
+  const only = userIds[0];
+  if (typeof only !== 'string' || only === '') return null;
+  if (scene.userId !== only) return null;
+  return only;
+}
+
 /** Promoter identity — composed with the effective scene world below. */
 export const BELIEF_PROMOTER_VERSION = 'belief-promotion-v1';
 
@@ -37,12 +84,33 @@ export function isPackSceneWorld(world: string): boolean {
 }
 
 /**
+ * Pure: the extra value-vector projections the memory-value gate needs
+ * (SCENES_VALUE_GATE_ENABLED). OFF returns the empty string, so the
+ * caller's template is byte-identical to the pre-gate SQL — the gate
+ * does not even LOOK at the vector unless it is on. `indent` keeps the
+ * appended lines aligned with the leg they join (the two legs are
+ * indented differently).
+ *
+ * `explicitness` is deliberately NOT here: it is projected
+ * unconditionally because the confidence fold has always consumed it.
+ */
+function valueDimProjections(on: boolean, indent: string): string {
+  if (!on) return '';
+  return (
+    `,\n${indent}enrichedMemoryValue.novelty AS novelty,` +
+    `\n${indent}enrichedMemoryValue.contradiction AS contradiction,` +
+    `\n${indent}enrichedMemoryValue.stateChange AS stateChange`
+  );
+}
+
+/**
  * Pure: the promotion pass's scene selection.
  *
  * FLAG OFF (default) the SQL string and the bind map are byte-identical
  * to the pre-SCENES_PACK_DELTA_PROMOTION pass — pinned by unit test,
  * because "off is byte-identical" is the whole contract of a shadow
- * substrate flag.
+ * substrate flag. The same holds for SCENES_VALUE_GATE_ENABLED: off, the
+ * value dimensions are not projected at all.
  *
  * FLAG ON a second leg admits the pack-projection worlds. That leg
  * deliberately does NOT require `enrichmentVersion`: a pack scene's
@@ -60,26 +128,30 @@ export function buildPromotableScenesQuery(p: {
   version: string;
   conversationId?: string | undefined;
   packDeltas: boolean;
+  valueGate?: boolean;
 }): { sql: string; params: Record<string, unknown> } {
   const conv = p.conversationId !== undefined ? ` AND conversationIds CONTAINS $conv` : '';
+  const gate = p.valueGate === true;
   const params: Record<string, unknown> = {
     v: p.version,
     ...(p.conversationId !== undefined ? { conv: p.conversationId } : {}),
   };
   if (!p.packDeltas) {
+    const dims = valueDimProjections(gate, ' '.repeat(16));
     return {
       sql:
         `SELECT id, userId, userIds, conversationIds, occurredTo, stateDeltas,
-                enrichedMemoryValue.explicitness AS explicitness
+                enrichedMemoryValue.explicitness AS explicitness${dims}
            FROM memory_episode
           WHERE segmenterVersion = $v AND enrichmentVersion IS NOT NONE` + conv,
       params,
     };
   }
+  const dims = valueDimProjections(gate, ' '.repeat(14));
   return {
     sql:
       `SELECT id, userId, userIds, conversationIds, occurredTo, stateDeltas, segmenterVersion,
-              enrichedMemoryValue.explicitness AS explicitness
+              enrichedMemoryValue.explicitness AS explicitness${dims}
          FROM memory_episode
         WHERE ((segmenterVersion = $v AND enrichmentVersion IS NOT NONE)
             OR (string::starts_with(segmenterVersion, $packPrefix)
