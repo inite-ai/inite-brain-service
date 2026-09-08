@@ -158,8 +158,13 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
         // Closing a dead conn can throw — ignored intentionally.
       }
       const fresh = new Surreal();
-      await withTimeout(fresh.connect(this.surrealUrl), 5000, 'connect');
-      await withTimeout(fresh.signin(this.rootCreds), 3000, 'signin');
+      try {
+        await withTimeout(fresh.connect(this.surrealUrl), 5000, 'connect');
+        await withTimeout(fresh.signin(this.rootCreds), 3000, 'signin');
+      } catch (rebuildErr) {
+        await withTimeout(fresh.close(), 1000, 'close').catch(() => undefined);
+        throw rebuildErr;
+      }
       // Swap the conn in `all` so process shutdown closes the new one.
       const oldIdx = this.all.indexOf(conn);
       if (oldIdx >= 0) this.all[oldIdx] = fresh;
@@ -200,7 +205,13 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    * replacement. Callers MUST use the returned reference.
    */
   private async ensureScopedSession(conn: Surreal): Promise<Surreal> {
-    if (!this.rootFallbackConns.has(conn) && !this.scopedSessions.needsSignin(conn)) return conn;
+    if (
+      !this.rootFallbackConns.has(conn) &&
+      conn.isConnected &&
+      conn.accessToken &&
+      !this.scopedSessions.needsSignin(conn)
+    )
+      return conn;
     try {
       await this.signinScoped(conn);
       return conn;
@@ -212,11 +223,11 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       this.rootFallbackConns.delete(conn);
       await withTimeout(conn.close(), 1000, 'close').catch(() => undefined);
       const fresh = new Surreal();
-      await withTimeout(fresh.connect(this.surrealUrl), 5000, 'connect');
       try {
+        await withTimeout(fresh.connect(this.surrealUrl), 5000, 'connect');
         await this.signinScoped(fresh);
       } catch (rebuildErr) {
-        await fresh.close().catch(() => undefined);
+        await withTimeout(fresh.close(), 1000, 'close').catch(() => undefined);
         throw rebuildErr;
       }
       const oldIdx = this.all.indexOf(conn);
@@ -339,7 +350,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   async ping(): Promise<boolean> {
     if (this.all.length === 0) return false;
     try {
-      await this.all[0]!.version(); // non-empty guaranteed by the guard above
+      await withTimeout(this.all[0]!.version(), 3000, 'version');
       return true;
     } catch {
       return false;
@@ -359,10 +370,11 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    *
    * `RETURN 1` is the cheapest such statement: SurrealDB refuses it for an
    * anonymous session with the same "Anonymous access not allowed" it refuses
-   * a SELECT with. Going through `acquireScoped` is deliberate — the probe
+   * a SELECT with. Going through `ensureScopedSession` is deliberate — the probe
    * exercises the same renew-or-fail-closed path a request takes, so a pool
    * that can no longer authenticate at all (rotated secret, dropped user,
-   * unreachable DB) takes the pod out of rotation instead of serving errors.
+   * unreachable DB) makes readiness fail instead of reporting a healthy read
+   * path. Traffic removal additionally requires a balancer readiness probe.
    *
    * A BUSY pool is deliberately NOT a readiness failure. Saturation is a
    * different signal — already visible as acquire-timeout 5xx and in
@@ -377,7 +389,9 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    */
   async pingScoped(): Promise<boolean> {
     if (!this.scopedEnabled) return true;
-    const acquiring = this.acquireScoped();
+    // Time only the queue, not authentication. An available slot whose
+    // signin takes >2s is an auth probe in progress, not a saturated pool.
+    const acquiring = this.acquireWithTimeout(this.scopedIdle, this.scopedWaiters, 'scoped');
     let conn: Surreal | undefined;
     let timer: NodeJS.Timeout | undefined;
     try {
@@ -388,7 +402,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
         }),
       ]);
     } catch {
-      // The acquire itself failed closed — the pool cannot authorize.
+      // Pool acquisition itself failed.
       return false;
     } finally {
       if (timer) clearTimeout(timer);
@@ -400,6 +414,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       return true;
     }
     try {
+      if (this.scopedCreds) conn = await this.ensureScopedSession(conn);
       await withTimeout(conn.query('RETURN 1'), 3000, 'scoped ping');
       return true;
     } catch {
@@ -554,8 +569,9 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       throw new Error(`Invalid companyId: ${companyId}`);
     }
     const database = `co_${companyId}`;
-    const conn = await this.acquireRoot();
+    let conn = await this.acquireRoot();
     try {
+      conn = await this.ensureRootSession(conn);
       await conn.use({ namespace: this.namespace, database });
       await conn.query(`REMOVE DATABASE ${database};`);
       this.knownDatabases.delete(database);

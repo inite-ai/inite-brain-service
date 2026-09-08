@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ApiKeyService } from '../../auth/api-key.service';
 import { ReindexEngineService, type TableReindexCount } from './reindex-engine.service';
 
@@ -84,6 +84,10 @@ export class ReindexEmbeddingsService {
         }
         if (factsScanned >= maxFacts) break;
       } catch (e) {
+        // The engine propagates warmup/write-guard failures. Preserve that
+        // signal through the tenant loop so HTTP and queued jobs see failure,
+        // rather than a successful run that rewrote zero vectors.
+        if (e instanceof ServiceUnavailableException) throw e;
         this.logger.warn(`reindex failed for ${companyId}: ${(e as Error).message}`);
       }
     }

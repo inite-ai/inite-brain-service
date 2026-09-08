@@ -17,7 +17,7 @@
  *     is 200" gate is real — and cannot drift from what embed() does,
  *     because both are the same predicate.
  *   - Vector WRITES fail closed during the window, unconditionally.
- *   - Vector READS keep the documented degraded-mode failover.
+ *   - Vector READS refuse cross-space fallback by default.
  *   - HNSW DDL reads the primary width, never the fallback's.
  */
 import { EmbedderService } from '../src/ai/embedder.service';
@@ -209,23 +209,20 @@ describe('EmbedderService — vector writes fail closed across spaces', () => {
   });
 });
 
-describe('EmbedderService — reads keep the documented degraded mode', () => {
-  it('embed() still serves the fallback during warmup', async () => {
-    // deploy-brain.yml promises search/synthesize keep serving on the
-    // OpenAI fallback during the ONNX load. Reads are transient and
-    // self-healing, so that behaviour is preserved deliberately.
+describe('EmbedderService — reads refuse incompatible fallback', () => {
+  it('embed() refuses a different space during warmup', async () => {
     const { svc } = mkSvc({ primary: bge(false), fallback: openai(), primarySpaceId: BGE_SPACE });
-    await expect(svc.embed('hello')).resolves.toHaveLength(1536);
+    await expect(svc.embed('hello')).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
-  it('counts every fallback serve so the window is not silent', async () => {
+  it('does not count refused requests as actual fallback serves', async () => {
     const { svc, fallbackCounter } = mkSvc({
       primary: bge(false),
       fallback: openai(),
       primarySpaceId: BGE_SPACE,
     });
-    await svc.embed('hello');
-    expect(fallbackCounter.inc).toHaveBeenCalledWith({ primary: BGE_SPACE });
+    await expect(svc.embed('hello')).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(fallbackCounter.inc).not.toHaveBeenCalled();
   });
 });
 

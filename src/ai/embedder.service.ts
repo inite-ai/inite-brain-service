@@ -15,7 +15,7 @@ import type { EmbedderProvider } from './embedder/embedder-provider.interface';
 import { createOpenAiClientOrThrow } from './openai-client';
 import { OpenAIEmbedderProvider } from './embedder/openai-embedder.provider';
 import { BgeM3EmbedderProvider } from './embedder/bge-m3-embedder.provider';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
 import {
   DEFAULT_EMBEDDER_PROVIDER,
   declaredSpace,
@@ -179,9 +179,8 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
    */
   async embed(text: string): Promise<number[]> {
     const trimmed = text.trim();
-    if (!trimmed) return new Array(this.getDimensions()).fill(0);
-
     const provider = this.serveProvider();
+    if (!trimmed) return new Array(provider.getDimensions()).fill(0);
     const key = this.cacheKey(provider.providerId, trimmed);
     const hit = this.cache.get(key);
     if (hit) return hit;
@@ -456,7 +455,7 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * The serving provider for an actual embed call. Byte-identical to
-   * `servingProvider()` UNLESS EMBEDDING_SPACE_STRICT is on: then a query
+   * `servingProvider()` with a default-on space guard: a query
    * that would be embedded in a space INCOMPATIBLE with the primary
    * (configured) space — the warmup-window failover from bge-m3 (1024) to
    * the OpenAI fallback (1536) is the canonical case — is refused rather
@@ -465,14 +464,11 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
    */
   private serveProvider(): EmbedderProvider {
     const provider = this.servingProvider();
-    // Observability lives here, on the embed path, so the pure selector
-    // stays callable from health probes without inflating the counter.
-    if (provider !== this.primary) this.noteFallbackServe();
-    if (!envFlagEnabled(this.configService.get<string>('EMBEDDING_SPACE_STRICT'))) {
-      return provider; // default: the existing warmup failover, unchanged
-    }
     const servingSpace = this.spaceIdOf(provider);
-    if (!spacesCompatible(servingSpace, this.primarySpaceIdValue)) {
+    if (
+      envFlagNotDisabled(this.configService.get<string>('EMBEDDING_SPACE_STRICT')) &&
+      !spacesCompatible(servingSpace, this.primarySpaceIdValue)
+    ) {
       const reason = describeSpaceIncompatibility(servingSpace, this.primarySpaceIdValue);
       // 503, not 500: this is transient — the primary provider is warming
       // up (or has failed warmup); the query is refused ONLY because a
@@ -480,10 +476,11 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
       throw new ServiceUnavailableException(
         `embedding space strict-guard: refusing to serve a query in '${servingSpace}' ` +
           `against rows in '${this.primarySpaceIdValue}' (${reason}). The primary ` +
-          `embedder is not ready; retry once warmup completes or reindex the tenant ` +
-          `into the serving space.`,
+          `embedder is not ready; retry once warmup completes.`,
       );
     }
+    // Count only actual fallback serves, not requests refused by the guard.
+    if (provider !== this.primary) this.noteFallbackServe();
     return provider;
   }
 

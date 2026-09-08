@@ -1640,10 +1640,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   // Stamp `embeddingSpaceId` on rewrite (reindex sweep). Off ⇒ no column
   // written, serving byte-identical.
   'EMBEDDING_SPACE_TRACKING',
-  // Strict-space serving guard: refuse a query embedded in a space
+  // Default-ON strict-space serving guard: refuse a query embedded in a space
   // incompatible with the target rows (no cross-space cosine, no warmup
-  // failover across incompatible dims). Off ⇒ the existing warmup failover
-  // is byte-identical.
+  // failover across incompatible dims). Explicit 0/false opts into unsafe
+  // legacy read fallback; durable writes remain guarded unconditionally.
   'EMBEDDING_SPACE_STRICT',
   // Shadow dual-write: arm a migration to write BOTH the active and the
   // target space. Off ⇒ no target-space write is armed.
