@@ -1,20 +1,20 @@
 <p align="center">
   <a href="https://brain.inite.ai">
-    <img src="https://brain.inite.ai/api/og?title=Memory%20that%20keeps%20time&kind=brand" alt="INITE Brain — memory that keeps time" width="100%">
+    <img src="https://brain.inite.ai/api/og?title=Memory%20with%20context&kind=brand" alt="INITE Brain — memory with context" width="100%">
   </a>
 </p>
 
 <h1 align="center">INITE Brain</h1>
 
 <p align="center">
-  <b>Open-source bitemporal knowledge graph — long-term memory for AI agents.</b><br>
-  Typed facts on a graph, two clocks per fact, hybrid retrieval, conflict-aware ingest,<br>
-  and a GDPR forget that actually deletes. Over REST and a native MCP endpoint.
+  <b>Open-source memory for AI agents.</b><br>
+  Facts, conversations, events and their evidence — connected across sessions.<br>
+  Temporal history, domain memory models and grounded answers over REST and MCP.
 </p>
 
 <p align="center">
   <a href="https://github.com/inite-ai/inite-brain-service/actions/workflows/ci.yml"><img src="https://github.com/inite-ai/inite-brain-service/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg" alt="License: AGPL-3.0-or-later"></a>
   <a href="https://github.com/inite-ai/inite-brain-service/stargazers"><img src="https://img.shields.io/github/stars/inite-ai/inite-brain-service?style=flat" alt="Stars"></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs welcome"></a>
   <img src="https://img.shields.io/badge/TypeScript-3178c6.svg" alt="TypeScript">
@@ -23,362 +23,435 @@
 
 <p align="center">
   <a href="https://brain.inite.ai">Website</a> ·
-  <a href="https://brain.inite.ai/en/docs">Docs</a> ·
-  <a href="https://brain.inite.ai/en/blog">Blog</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#domain-packs">Domain Packs</a> ·
   <a href="#quick-start">Quick start</a> ·
-  <a href="#contributing">Contributing</a>
+  <a href="https://brain.inite.ai/en/docs">Docs</a> ·
+  <a href="AGENTS.md">Agent guide</a>
 </p>
 
----
+Brain gives an agent memory between conversations: what was said, what changed,
+which entities are involved, and what supports an answer. A bitemporal graph
+stores structured facts and relationships; source episodes preserve context;
+scenes and beliefs capture events and evolving state. **Domain Packs** adapt
+that memory to a product's vocabulary and lifecycles without forking the engine.
 
-Most "memory" for AI agents is a vector store: embed text, return what looks
-similar. That can't tell you *when* something was true, can't reconcile two
-sources that disagree, and can't truly delete a user on request. **Brain** is
-a per-tenant knowledge graph built for those jobs — a *system of insight, not
-a system of record*.
-
-```mermaid
-flowchart LR
-  subgraph ingest ["Ingest"]
-    facts["facts · mentions · links"]
-    docs["documents<br/>Source → Indexer → Candidates"]
-  end
-  ext["external indexers ✳<br/>pull work API"] --> docs
-  packs["Domain Packs ✳<br/>registry · marketplace"] -. "predicates · indexers<br/>seed documents" .-> ingest
-  facts --> resolver["conflict resolver<br/>+ trust snapshot"]
-  docs --> resolver
-  resolver --> kg[("bitemporal graph<br/>two clocks per fact")]
-  kg --> entry["entry legs — doors into the graph<br/>vector + BM25 over typed facts"]
-  entry --> rank["graph-native ranking<br/>ontology router → entity buckets →<br/>edge walk → PPR → rerank"]
-  rank --> rest["REST /v1"]
-  rank --> mcp["MCP per tenant<br/>+ pack tools ✳"]
-```
-
-✳ = extension points for third parties — see [Build on Brain](#build-on-brain).
+Run Brain on your infrastructure or connect to the hosted service at
+[brain.inite.ai](https://brain.inite.ai). The web app provides memory search and
+exploration; REST and MCP provide the integration surface.
 
 ## Why Brain
 
-- **Two clocks per fact.** Every fact carries *valid time* (when it was true)
-  and *transaction time* (when Brain learned it). Query `now`, or replay
-  exactly what the graph knew on any past date. History is replayed, never
-  rewritten.
-- **Graph-first retrieval, not a cosine match.** The unit of retrieval is a
-  typed fact on the graph — never a text chunk. Vector + BM25 (+ HyPE) are
-  only the *doors in*: they seed candidate facts from a free-text query, and
-  everything after is graph-native — ontology-driven predicate/type router,
-  per-entity bucketing with degree boost, 1-hop edge expansion, tier-aware
-  PPR over the candidate subgraph, then cross-encoder + listwise LLM rerank,
-  with bitemporal closure and trust/corroboration multipliers throughout.
-  Queries that already name their anchors skip the doors entirely:
-  `graph_retrieve` and the multi-hop planner walk the graph from entities.
-- **Conflict-aware ingest.** Two ingests for one fact go through a scored
-  ladder; close calls land as `COMPETING`, not a silent overwrite.
-- **Source-aware trust.** A fact isn't *true* — it's *claimed by a source,
-  trusted under context*. Every fact records who claimed it plus a reputation
-  snapshot taken at write time; reputation is **domain-scoped** (a source strong
-  on one predicate isn't trusted blindly on another), agreement across sources
-  **corroborates**, and the trust that moves a ranking is stored with its
-  "because" decomposition — never recomputed behind your back.
-- **Per-key access policies (ABAC).** Scopes say *may this key search*;
-  policy sets say *what it may see*: allow/deny rules over MCP tools and REST
-  actions, plus row-level read filtering by predicate, PII class, source
-  vertical, projected document metadata (`data_class: pii`), numeric trust
-  thresholds, and corroboration. Deny-overrides, report-only rollout, per-rule
-  explain, and a visual policy editor + Key Lens simulator in the admin UI.
-  See [`docs/abac.md`](docs/abac.md).
-- **Pluggable ontology — as a platform.** Domain Packs extend the predicate
-  registry without forking core: signed, versioned JSON manifests that carry
-  predicates, extraction tuning, eval fixtures, indexer descriptors, seed
-  documents, and MCP tools. A six-pack industry library ships in-repo
-  (real-estate, fintech, medical, legal, insurance, HR); a global registry
-  with immutable versions, verified-publisher badges, download counters, and
-  pull-only mirroring closes the publish → discover → install loop.
-- **An execution seam for third parties.** External indexers contribute
-  knowledge over a pull work API — poll → claim → read content → submit
-  candidates — without ever running inside Brain's process. Every submitted
-  span is re-grounded against the stored document text, and indexer trust is
-  earned through the nightly refit, not granted.
-- **Pack-declared MCP tools.** A pack can extend a tenant's MCP surface:
-  declarative query tools locked to its own predicates, or HMAC-signed proxies
-  to a publisher-operated endpoint. Registered only with explicit operator
-  consent, flag-gated, never in-process code.
-- **A marketplace with honest defaults.** Featured curation, publisher
-  profiles, and paid packs via a central billing service (per-pack
-  entitlements, self-describing 402 → checkout → retry, fail-closed when
-  billing is unreachable). With billing off — the default — every pack
-  installs free: the self-hosted posture.
-- **A document pipeline, not an upload button.** Ingestion is split into four
-  layers — *Source* (a normalized document; Brain doesn't know what a PDF is) →
-  *Indexer* (composable domain readers: one meeting can be read by the meetings,
-  sales, and tasks indexers at once) → *Candidates* ("this MIGHT be a fact" — a
-  staged hypothesis, not yet memory) → *Brain* (merge, dedupe, conflict-resolve,
-  then commit). Stored documents can be **re-indexed** when a new pack lands,
-  and corroboration is keyed on the *origin document*, so two indexers reading
-  the same source never masquerade as independent evidence.
-- **Per-user memory scope, provenance-first.** A fact can belong to one end
-  user, and that scope survives the whole pipeline — episode ingest, derived
-  worlds, retrieval, profiles, retraction (ownership-fenced). Every derived
-  fact keeps pointers to the verbatim turns it came from:
-  `GET /v1/facts/:id/provenance` shows *why the system remembers*, and
-  `GET /v1/users/:id/profile` assembles a deterministic, prompt-ready profile
-  from one user's own memory — no silent fact-mining, nothing you can't
-  inspect or erase.
-- **Versioned derived worlds.** Memory can be re-derived from the raw episode
-  substrate (session-window derivation: the whole conversation as the unit of
-  understanding, not one turn) into a NEW versioned world — built in a
-  per-run staging namespace under a lease and promoted with one atomic flip —
-  while readers stay pinned to the previous world until the swap.
-- **A forget that deletes.** GDPR erasure is a synchronous hard cascade —
-  facts, edges, and embeddings gone, only an HMAC tombstone left to prove it.
-  Works at entity scope and at end-user scope (`POST /v1/users/:id/forget`).
-- **Native MCP.** A per-tenant Streamable HTTP endpoint with scope-aware tools.
-  Hermes, Claude Desktop, Cursor, Goose, n8n — same URL, no glue code; stdio-only
-  harnesses connect via the [`@inite/brain-mcp`](https://www.npmjs.com/package/@inite/brain-mcp) connector.
-- **Eval-gated in CI.** Every push re-runs the retrieval + memory-lifecycle
-  suite; a regression past tolerance blocks the merge.
+- **Memory with its context.** Retrieve structured facts, source passages and,
+  when enabled, scenes and beliefs. Follow provenance back to the supporting
+  conversation, document or evidence fragment.
+- **Changes stay inspectable.** Facts carry valid time and knowledge time.
+  Updates can supersede earlier facts; unresolved disagreements remain
+  `COMPETING`. Retraction preserves history; administrative forgetting deletes
+  associated records and leaves tombstones.
+- **A model of your domain.** Packs define typed predicates, extraction
+  guidance, scene schemas, state transitions, verification and retention hints,
+  and optional media capabilities and MCP tools.
+- **Scope is explicit.** Each tenant has a separate database. Personal memory
+  uses `userId`; omitting it selects tenant-global memory. Key scopes, ABAC
+  policies and PII controls further constrain access.
+- **Answers can be checked.** Hybrid search, graph retrieval and multi-hop
+  gather evidence. Synthesis cites it and runs verification; strict guardrails
+  can abstain when support is insufficient.
+
+## Architecture
+
+Brain separates source material, derived memory and the read path. This is a
+conceptual view; individual ingestion routes and retrieval profiles activate
+different parts of it.
+
+```mermaid
+flowchart LR
+  input["REST / MCP<br/>conversations · documents · facts"]
+  raw[("Source records<br/>documents · episodes · evidence")]
+  derive["Indexers and scene builders<br/>candidates · entity resolution · conflicts"]
+  memory[("Connected memory on SurrealDB<br/>facts + graph · scenes · beliefs")]
+  retrieve["Retrieval<br/>semantic + lexical · graph · multi-hop"]
+  answer["Synthesis + verification<br/>answer with citations or abstention"]
+  packs["Domain Packs<br/>vocabulary · memoryModel · tools"]
+  media["Evidence registration / upload<br/>scan hook · trusted processors"]
+  input --> raw
+  input --> derive
+  media --> raw
+  raw --> derive
+  derive --> memory
+  memory --> retrieve
+  raw --> retrieve
+  retrieve --> answer
+  packs -. "domain configuration" .-> derive
+  packs -. "capabilities and consent" .-> media
+```
+
+| Memory layer | What it preserves |
+| --- | --- |
+| **Facts and entities** | Typed claims, canonical entities, relationships, confidence, source attribution and temporal history. |
+| **Episodes** | Source turns and conversation context that derived memory can point back to or be rebuilt from. |
+| **Scenes** | Bounded events with gists, entities, state changes and source links. Optional gist embeddings and a scene retrieval lane make them searchable alongside other evidence. |
+| **Beliefs** | Derived state with revision history and supporting scenes. Pack-projected state deltas can feed belief promotion. |
+| **Evidence** | Assets, located fragments, processing runs and derived representations, with links to the memories they support. |
+
+**Rebuildable memory.** Derived worlds can be rebuilt from retained episodes in
+a staging version. Readers stay pinned to the previous world until promotion.
+Scene maintenance can process dirty conversations on a schedule, with budgets,
+leases and metrics; it can compose scenes and promote supported beliefs.
+
+**Configurable retrieval.** Retrieval profiles select mechanisms for the corpus
+and question. Semantic and lexical search, graph expansion, reranking, raw
+passages, scene retrieval and belief retrieval are distinct capabilities. A
+known entity can enter through `graph_retrieve`; a question spanning
+relationships can use `search_multi_hop`.
+
+**Separate serving and background work.** The NestJS service uses a
+SurrealDB-backed job queue, leases and worker-thread offloads. Run the image as
+one process or split `PROCESS_ROLE=api|worker`; see the
+[operations guide](docs/operations.md#splitting-api-and-worker-roles).
+
+The code includes capabilities that are **opt-in**, not a promise that every
+installation runs every layer. Scene construction, scene serving, belief
+promotion, evidence upload/processing and pack projections have separate gates.
+Check the [architecture](docs/architecture.md), [operations](docs/operations.md)
+and flag definitions for [scenes](src/common/scene-flags.ts),
+[evidence](src/common/evidence-flags.ts) and
+[pack projections](src/common/pack-projection-flags.ts) when enabling them.
+
+## Domain Packs
+
+A pack is a versioned JSON manifest installed per tenant. It tells the engine
+how to interpret a domain's material. Pack-derived observations remain
+candidates for the core pipeline to validate and resolve.
+
+| A pack can declare | Purpose |
+| --- | --- |
+| `predicates` | Typed vocabulary, value constraints, conflict semantics, decay and PII classes. |
+| `extractionProfile`, `evalFixtures` | Domain instructions, examples and extraction checks. |
+| `memoryModel` | Scene schemas, state models and transitions, attention hints, verification rules and advisory retention hints. Also declares supported modalities, requested processor capabilities and raw-evidence policy. |
+| `indexer`, `seedDocuments` | Participation in document indexing and knowledge supplied with the pack. |
+| `mcpTools` | Additional agent tools, subject to explicit operator consent. |
+
+The [industry pack library](packs) includes:
+
+| Pack | Example memory models |
+| --- | --- |
+| [`real_estate`](packs/real-estate.pack.json) | Listings, tenancies and permits. |
+| [`fintech`](packs/fintech.pack.json) | Licenses and certifications. |
+| [`medical`](packs/medical.pack.json) | Drug ontology, prescription and approval lifecycles. |
+| [`legal`](packs/legal.pack.json) | Agreements, obligations and legal matters. |
+| [`insurance`](packs/insurance.pack.json) | Policy and claim lifecycles. |
+| [`hr`](packs/hr.pack.json) | Positions and employee lifecycles. |
+
+For example, `real_estate` declares the listing path
+`listed → under_offer → sold`, as well as withdrawal and return-to-market
+transitions. It distinguishes viewing and closing scenes, with an ephemeral
+retention hint for a viewing and a durable hint for a closing.
+
+The built-in [`code_memory`](src/ai/domain-packs/code-memory.pack.ts) pack covers
+engineering decisions, rationale, invariants, gotchas and change lifecycles.
+Use `record_decision`, `why` and `recall_decisions` to retain the reasons behind
+the code. The six industry packs are distributable; built-in code memory is
+part of the core seed.
+
+**Author and distribute.** Scaffold with `pnpm pack:init my_pack`, validate,
+optionally sign, publish to a registry and install per tenant. Registry versions
+are immutable, installs are checksum-pinned, and signature requirements follow
+the server's trust policy. Registry and marketplace support discovery,
+publisher profiles, mirroring and optional billing.
+
+**Consent is part of installation.** The current first-party industry packs
+declare media capabilities, so installing them requires reviewing that section
+and passing `--accept-modalities`. This authorizes the declared capabilities;
+it does not supply a missing processor or enable every server feature. Pack
+MCP tools have a separate consent path. Built-in `code_memory` media declarations
+also do not, by themselves, activate media processing.
+
+Full authoring, signing and installation commands:
+[Domain Packs standard](docs/domain-packs.md) ·
+[MCP pack tools](docs/mcp-pack-tools.md) ·
+[pack evaluation](test/eval/domain-packs/README.md).
 
 ## Quick start
 
-Self-host the whole stack with Docker:
+### Use the hosted service
+
+Get an API key and its company ID from the
+[web app](https://brain.inite.ai/en/app/keys), then set:
 
 ```bash
-git clone https://github.com/inite-ai/inite-brain-service
-cd inite-brain-service
+export BRAIN_URL="https://brain.inite.ai"
+export BRAIN_KEY="brain_YOUR_API_KEY"
+```
 
-docker compose up -d surrealdb     # storage
-pnpm install
-cp .env.example .env               # set OPENAI_API_KEY + BRAIN_API_KEYS
+### Run locally
+
+Prerequisites: **Node.js 22**, **pnpm 10** and **Docker Compose**. The default
+model configuration needs an OpenAI API key. Local embeddings and alternative
+model providers are configuration choices; see [operations](docs/operations.md).
+
+```bash
+git clone https://github.com/inite-ai/inite-brain-service.git
+cd inite-brain-service
+pnpm install --frozen-lockfile
+cp .env.example .env
+# Set OPENAI_API_KEY in .env for the default model configuration.
+```
+
+Create a local read/write key. This appends a generated key and its registration
+to your development `.env`; Brain authenticates against the SHA-256 hash.
+
+```bash
+node <<'JS'
+const { randomBytes, createHash } = require('node:crypto');
+const { appendFileSync } = require('node:fs');
+const key = 'brain_' + randomBytes(24).toString('hex');
+const keys = [{
+  keyHash: 'sha256:' + createHash('sha256').update(key).digest('hex'),
+  companyId: 'co_demo',
+  scopes: ['brain:read', 'brain:write'],
+}];
+appendFileSync('.env', '\nBRAIN_KEY=' + key + '\nBRAIN_API_KEYS=' + JSON.stringify(keys) + '\n');
+JS
+
+docker compose up -d surrealdb
 pnpm start:dev
 ```
 
-Ingest a fact, then search for it:
+In a second terminal, from the same directory:
 
 ```bash
-curl -X POST localhost:3000/v1/ingest/fact \
-  -H "Authorization: Bearer $BRAIN_KEY" -H "Content-Type: application/json" \
-  -d '{ "entityRef": {"vertical":"rent","id":"cust_42"},
-        "predicate": "complained_about", "object": "late maintenance",
-        "validFrom": "2026-05-05T10:00:00Z",
-        "source": {"vertical":"rent","messageId":"msg_1"} }'
-
-curl -X POST localhost:3000/v1/search \
-  -H "Authorization: Bearer $BRAIN_KEY" -H "Content-Type: application/json" \
-  -d '{ "query": "maintenance issues", "limit": 5 }'
+export BRAIN_URL="http://localhost:3000"
+export BRAIN_KEY="$(node --env-file=.env -p 'process.env.BRAIN_KEY')"
+curl --fail-with-body "$BRAIN_URL/health"
 ```
 
-Prefer not to run it? The same API is hosted at **[brain.inite.ai](https://brain.inite.ai)**.
-Full walkthrough: [Getting started](https://brain.inite.ai/en/docs/getting-started).
+For the full container setup, use `docker compose --env-file .env up -d --build`
+instead of `pnpm start:dev`. Its host port defaults to **3030**, so set
+`BRAIN_URL=http://localhost:3030` for the requests below. The Compose defaults
+are for local development; production credentials and topology are covered in
+[deployment](docs/DEPLOY.md).
+
+### Write and retrieve a fact
+
+The same requests work with either `BRAIN_URL` above:
+
+```bash
+curl --fail-with-body -X POST "$BRAIN_URL/v1/ingest/fact" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entityRef": { "vertical": "rent", "id": "cust_42" },
+    "predicate": "complained_about",
+    "object": "late maintenance",
+    "validFrom": "2026-09-01T10:00:00Z",
+    "userId": "user_42",
+    "source": { "vertical": "rent", "messageId": "msg_1" }
+  }'
+
+curl --fail-with-body -X POST "$BRAIN_URL/v1/search" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "query": "maintenance issues", "userId": "user_42", "limit": 5 }'
+```
+
+Use your application's stable user ID on **both** writes and reads. Omit
+`userId` on both only for tenant-global memory. The local key above has no
+administrative scope; pack installation and forgetting require an appropriately
+scoped operator key. More: [getting started](docs/getting-started.md).
 
 ## Connect an agent
 
-Brain is an MCP server, so any MCP-capable agent gets long-term memory by
-pointing at the per-tenant URL with a Bearer key — no glue code.
+For clients that launch a stdio MCP server, use the first-party
+[`@inite/brain-mcp`](clients/brain-mcp/README.md) connector. This configuration
+fits clients with a `mcpServers` map, including Claude Desktop:
 
-- **Harnesses with native remote MCP** (Hermes, Claude Desktop, Cursor, Goose v2,
-  n8n, Continue.dev) connect directly. Add brain to the harness's MCP config with
-  `url: https://brain.inite.ai/mcp/<companyId>` and an `Authorization: Bearer <key>`
-  header. Example for [Hermes](https://hermes-agent.nousresearch.com)
-  (`~/.hermes/config.yaml`):
+```json
+{
+  "mcpServers": {
+    "brain": {
+      "command": "npx",
+      "args": ["-y", "@inite/brain-mcp"],
+      "env": {
+        "BRAIN_API_KEY": "brain_YOUR_API_KEY",
+        "BRAIN_COMPANY_ID": "YOUR_COMPANY_ID"
+      }
+    }
+  }
+}
+```
 
-  ```yaml
-  mcp_servers:
-    brain:
-      url: "https://brain.inite.ai/mcp/<companyId>"
-      headers:
-        Authorization: "Bearer <api-key>"
-  ```
+For the local setup, use company ID `co_demo`, the key from `.env`, and add
+`"BRAIN_BASE_URL": "http://localhost:3000"` to `env` (port `3030` for Compose).
+Node.js and `npx` must be available to the client.
 
-- **stdio-only harnesses** that can't attach an auth header (openclaw, Goose 1.x)
-  spawn the first-party [`@inite/brain-mcp`](https://www.npmjs.com/package/@inite/brain-mcp)
-  connector, which transparently proxies every scoped tool over Streamable HTTP:
+Clients with native remote MCP support can connect directly over
+**Streamable HTTP**:
 
-  ```json
-  { "mcp": { "servers": { "brain": {
-    "command": "npx", "args": ["-y", "@inite/brain-mcp"],
-    "env": { "BRAIN_API_KEY": "brain_xxx", "BRAIN_COMPANY_ID": "<companyId>" }
-  }}}}
-  ```
+```text
+URL: https://brain.inite.ai/mcp/<companyId>
+Authorization: Bearer brain_<api-key>
+```
 
-Full per-client guide: [MCP setup](https://brain.inite.ai/en/docs/mcp/setup).
-Installed Domain Packs can extend the tool surface with their own consented,
-flag-gated tools — see [MCP pack tools](docs/mcp-pack-tools.md).
+The key's scopes determine available tools; server flags and installed packs
+can extend the surface. The connector forwards tools and resources, and bridges
+MCP sampling when the client supports it. See the
+[per-client setup guide](https://brain.inite.ai/en/docs/mcp/setup).
+
+| Agent task | Start with |
+| --- | --- |
+| Find relevant memory | `search_knowledge`, `graph_retrieve`, `search_multi_hop` |
+| Answer with citations | `synthesize` |
+| Resume after a gap | `memory_diff`, `get_entity_timeline` |
+| Record information | `record_fact` for one claim; `ingest_document` for longer material |
+| Inspect disagreement | `detect_contradiction`, `get_competing_facts` |
+| Remember engineering rationale | `record_decision`, `why`, `recall_decisions` |
+
+Read [AGENTS.md](AGENTS.md) for memory semantics and the
+[skills guide](skills/README.md) for reusable agent workflows.
+Synthesis keeps fact references in `citations` and other evidence references
+(episodes, fragments, scenes and beliefs) in `evidenceCitations`; preserve both
+when presenting an answer.
 
 ## Feed it documents
 
-Beyond single facts and 16K mentions, Brain ingests whole normalized documents
-through the **Source → Indexer → Candidates → Brain** pipeline (flagged off by
-default — set `DOCUMENT_INGEST_ENABLED=1`):
+Enable `DOCUMENT_INGEST_ENABLED=1` on the server. Submit normalized text through
+**Source → Indexer → Candidates → Brain**:
 
 ```bash
-curl -X POST localhost:3000/v1/ingest/document \
-  -H "Authorization: Bearer $BRAIN_KEY" -H "Content-Type: application/json" \
-  -d '{ "kind": "markdown", "title": "Q3 review with Acme",
-        "text": "<normalized document text, up to 512K chars>",
-        "occurredAt": "2026-07-01T10:00:00Z",
-        "contextRef": {"vertical": "crm"} }'
+curl --fail-with-body -X POST "$BRAIN_URL/v1/ingest/document" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "kind": "markdown",
+    "title": "Acme maintenance review",
+    "text": "Customer cust_42 reported late maintenance. The team agreed to review response times next week.",
+    "occurredAt": "2026-09-01T10:00:00Z",
+    "userId": "user_42",
+    "contextRef": { "vertical": "rent" }
+  }'
 ```
 
-The document is stored (content-hash deduped, PII-redacted, chunked), read by
-the generalist indexer — plus any Domain Pack that opted into a **dedicated
-run** and matched the relevance router — staged as candidates you can audit at
-`GET /v1/documents/:id/candidates`, and only then committed through the same
-conflict-resolution ladder as every other fact. Connectors own raw formats
-(PDF, email, chat exports); Brain owns understanding what was read.
+Indexers stage candidates before the core resolves and commits facts. Stored
+content can be re-indexed after installing a new pack; external indexers can
+join over a pull work API. `storeContent: false` disables content retention for
+that document, so later re-indexing cannot reuse its text.
+[Document pipeline](docs/document-pipeline.md) ·
+[External indexers](docs/indexer-protocol.md).
 
-What that buys:
+## Files and evidence
 
-- **Composable indexers.** Every pack's facts are attributed by predicate
-  namespace out of the union extraction call at zero extra LLM cost; packs
-  that need their own prompt budget or model declare
-  `indexer: { mode: "dedicated" }` in their manifest and are routed per
-  document (`DOCUMENT_MULTI_INDEXER_ENABLED=1`).
-- **Re-indexing.** Install a new pack and replay it over stored documents —
-  `POST /v1/admin/documents/reindex` or automatically with
-  `REINDEX_ON_PACK_INSTALL=1`. The run ledger skips whatever a pack version
-  already processed.
-- **Honest corroboration.** Facts carry `originKey = doc:<contentHash>`;
-  agreement only counts as independent evidence when it comes from a
-  *different document*, not a different reader of the same one.
-- **A privacy dial.** `storeContent: false` keeps only the content hash and
-  metadata — extraction still runs, but nothing to re-index or leak later.
+The evidence plane supports metadata/reference registration through
+`POST /v1/ingest/evidence-asset` and multipart blob upload through
+`POST /v1/ingest/evidence-blob`. Uploaded assets pass a scan hook and can be
+dispatched to trusted processors; outputs are derived representations, with
+fragment locators where supplied by the processor.
+
+Current adapters include local image metadata decoding, PDF text-layer
+extraction and plain-text extraction. **Image metadata is not visual scene
+understanding; PDF text extraction is not OCR.** A modality declared by a pack
+is a capability request, not proof that a corresponding audio, video or vision
+processor is installed.
+
+These paths require their evidence gates, storage configuration and applicable
+pack consent. Raw serving additionally checks scope and PII policy.
+[Evidence contracts](src/contracts/evidence) ·
+[Evidence configuration](src/common/evidence-flags.ts) ·
+[Processor adapters](src/evidence/processing/adapters).
 
 ## Build on Brain
 
-Brain is a platform, not just a service: third parties extend the ontology,
-the ingestion plane, and the tool surface without a PR to this repo.
+- **Extend the domain:** [author a pack](docs/domain-packs.md), publish to the
+  registry and install a reviewed version per tenant.
+- **Connect an indexer:** use the [pull protocol](docs/indexer-protocol.md) and
+  [reference client](examples/reference-indexer.ts).
+- **Extend the agent:** declare [pack MCP tools](docs/mcp-pack-tools.md), with
+  separate consent for the added tool surface.
+- **Inspect the API:** [OpenAPI 3.1](docs/openapi.json) is generated with
+  `pnpm openapi:build` from the platform contracts.
 
-- **Author a Domain Pack.** `pnpm pack:init` scaffolds a valid manifest;
-  edit → `pack:validate` → `pack:sign` (ed25519) → `pack:publish` →
-  `pack:install`. A pack is JSON — no compiled module, no fork.
-  [Domain Packs](docs/domain-packs.md).
-- **Publish to the global registry.** Immutable versions, yank-not-delete,
-  verified-publisher badges, download counters, and pull-only cross-instance
-  mirroring (`REGISTRY_UPSTREAM_URL`). Public catalogue at `GET /registry/ui`.
-  [Registry](docs/domain-packs.md#the-registry-global-catalogue).
-- **Sell it on the marketplace.** Hosting instances can feature packs, render
-  publisher profiles, and price packs through the central billing service —
-  the entitlement `domain_pack:<packId>` gates the install, and a refused
-  install is a self-describing 402 with the checkout path. Billing off =
-  everything installs free. [Marketplace](docs/domain-packs.md#marketplace).
-- **Run an external indexer.** A plain HTTP client polls for routed documents,
-  claims a lease, reads stored text, and submits candidate facts that Brain
-  re-grounds and adjudicates. Protocol: [indexer-protocol.md](docs/indexer-protocol.md);
-  dependency-free reference client: [`examples/reference-indexer.ts`](examples/reference-indexer.ts)
-  (`pnpm indexer:reference`).
-- **Declare MCP tools.** Packs contribute query tools over their own
-  predicates or HMAC-proxied external tools, installed only with explicit
-  operator consent (`acceptMcpTools`). [MCP pack tools](docs/mcp-pack-tools.md).
-- **Ship knowledge with the pack.** `seedDocuments` in the manifest are
-  ingested through the normal document pipeline on install — same chunking,
-  staging, conflict resolution, and provenance as any connector's document.
-  [Seed documents](docs/domain-packs.md#seed-documents-consumed).
+## Quality and evaluation
 
-The platform surface is machine-described in
-[`docs/openapi.json`](docs/openapi.json) (OpenAPI 3.1, regenerate with
-`pnpm openapi:build`).
+Retrieval, answer accuracy and state-transition correctness measure different
+things. Published scores belong to a particular dataset, reader model,
+retrieval profile, token budget and code revision; they are not a general
+accuracy guarantee for the running service.
 
-## Quality (latest gate run)
+| Evaluation | What it probes |
+| --- | --- |
+| LoCoMo | Representation quality when the source conversation fits in context. |
+| LongMemEval | Recall and reasoning over longer conversation histories. |
+| BEAM | How quality changes as history scales. |
+| Memory fitness and state transitions | Mechanical, judge-free checks of memory behavior and lifecycle changes. |
+| Domain-pack and code-memory batteries | Domain extraction, entity identity, state and engineering-memory scenarios. |
 
-```
-recall@1                 0.962  [0.94–0.98]   n=262
-recall@3                 0.989  [0.97–1.00]   n=262
-MRR                      0.976  [0.96–0.99]   n=262
-NDCG@10                  0.973  [0.96–0.99]
-identity-resolution-f1   1.000
-pii-gating-correctness   1.000
-memory-lifecycle         1.000
-faithfulness pass-rate   1.000  n=3
-```
+Conversational-memory results use a **strict binary judge, our own full-context
+baseline, paired statistics and a held-out split**. Read the
+[evaluation protocol](docs/eval-protocol.md) and
+[methodology](docs/eval-methodology.md) alongside any reported number; scores
+published under different protocols are not directly comparable.
 
-CI floors: recall@1 ≥ 0.6, recall@3 ≥ 0.8, MRR ≥ 0.5, identity-F1 ≥ 0.8,
-pii-gating = 1.0, memory-lifecycle = 1.0, faithfulness ≥ 0.8. Bootstrap-CI on
-every retrieval metric, with a per-predicate breakdown and per-vertical +
-temporal/current split in the report. Numbers from the multi-vertical scenario
-suite plus 180 wikidata queries (90 Latin + 90 Cyrillic).
-Methodology: [`docs/eval.md`](docs/eval.md).
+**CI:** PRs run lint, formatting, type checking, builds, unit tests with coverage,
+socket and integration tests, plus frontend checks and supply-chain checks.
+The real-LLM quality eval runs **nightly or by manual dispatch**, not on every
+PR. The workflow is the source of truth:
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
+Battery guides: [memory fitness](test/eval/memory-fitness/README.md) ·
+[state transitions](test/eval/state-transitions/README.md) ·
+[domain packs](test/eval/domain-packs/README.md) ·
+[code memory](test/eval/code-memory/README.md).
 
 ## Stack
 
-NestJS 11 + TypeScript on Node 22 · SurrealDB 3.x (HNSW + BM25, one database
-per tenant) · BGE-M3 embeddings (ONNX, runs locally in a worker thread) ·
-OpenAI `gpt-4o-mini` for extraction / synthesize / verifier · optional Cohere
-Rerank or a local ONNX cross-encoder · a SurrealDB-native job queue ·
-OpenTelemetry. CPU-heavy work (embeddings, cross-encoder, NLI intent routing,
-local NER, label propagation, token counting) runs in `worker_threads` so the
-event loop keeps serving HTTP, and `PROCESS_ROLE=api|worker` splits one image
-into an HTTP pod and a jobs pod when a deployment outgrows a single process.
-Ships as a Docker image; runs on any host.
+Node.js 22 · NestJS · TypeScript · SurrealDB 3.x · configurable embedding and
+LLM providers · local BGE-M3 option · configurable reranking · SurrealDB-backed
+jobs and leases · worker threads · OpenTelemetry. The web app and docs use
+Next.js, React and Tailwind CSS.
 
 ## Documentation
 
-The hub with per-persona routing lives at [`docs/README.md`](docs/README.md).
+[Documentation hub](docs/README.md) · [Web docs, EN/RU](https://brain.inite.ai/en/docs)
 
-| | |
-|---|---|
-| **Get going** | [Getting started](docs/getting-started.md) · [Migration guide](docs/migration-guide.md) |
-| **Understand it** | [Architecture](docs/architecture.md) · [API reference](docs/api.md) · [OpenAPI 3.1 spec](docs/openapi.json) (platform surface, generated) · [Data model](docs/data-model.md) · [Bitemporal semantics](docs/bitemporal-semantics.md) · [Source reputation & trust](docs/source-reputation.md) · [ABAC access policies](docs/abac.md) · [Document pipeline](docs/document-pipeline.md) · [Fact provenance API](docs/fact-provenance-api.md) · [User profile API](docs/user-profile-api.md) |
-| **Extend it** | [Domain Packs](docs/domain-packs.md) (registry + marketplace + seed documents) · [External indexer protocol](docs/indexer-protocol.md) · [MCP pack tools](docs/mcp-pack-tools.md) · [Listing playbook](docs/distribution.md) · [Code memory](docs/roadmap/code-memory-domain.md) |
-| **Run it** | [Operations](docs/operations.md) · [Operator playbook](docs/operator-playbook.md) · [Deploy runbook](docs/DEPLOY.md) |
-| **Measure it** | [Eval methodology](docs/eval-methodology.md) (strict-judge protocol + measured judge inflation) · [Eval harness](docs/eval.md) · [LoCoMo benchmark](docs/locomo.md) |
-
-A reader-friendly version of the docs lives at
-**[brain.inite.ai/en/docs](https://brain.inite.ai/en/docs)** (also in Russian).
+| Task | Read |
+| --- | --- |
+| Integrate | [Getting started](docs/getting-started.md), [API](docs/api.md), [MCP agent guide](AGENTS.md) |
+| Understand memory | [Architecture](docs/architecture.md), [Data model](docs/data-model.md), [Bitemporal semantics](docs/bitemporal-semantics.md), [Retrieval profiles](docs/architecture-manifest.md) |
+| Inspect provenance and access | [Fact provenance](docs/fact-provenance-api.md), [User profiles](docs/user-profile-api.md), [Source trust](docs/source-reputation.md), [ABAC](docs/abac.md) |
+| Extend | [Domain Packs](docs/domain-packs.md), [Document pipeline](docs/document-pipeline.md), [MCP pack tools](docs/mcp-pack-tools.md) |
+| Operate | [Operations](docs/operations.md), [Operator playbook](docs/operator-playbook.md), [Deployment](docs/DEPLOY.md) |
+| Evaluate | [Protocol](docs/eval-protocol.md), [Methodology](docs/eval-methodology.md), [Harness](docs/eval.md) |
 
 ## Contributing
 
-PRs are welcome — from typo fixes to new retrieval legs. Good first issues are
-tagged [`good first issue`](https://github.com/inite-ai/inite-brain-service/issues?q=is%3Aopen+label%3A%22good+first+issue%22).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community guidelines.
 
 ```bash
-pnpm install
-docker compose up -d surrealdb
-cp .env.example .env          # OPENAI_API_KEY needed for ingest/search
-pnpm start:dev                # run the service
-pnpm test                     # unit tests — must pass before a PR
-pnpm test:eval                # retrieval-quality eval (needs an OpenAI key)
+pnpm lint:ci
+pnpm format:check
+pnpm typecheck
+pnpm build
+pnpm test
+pnpm test:socket
+# Integration suites require Docker:
+pnpm test:e2e
+pnpm test:e2e:jobs
 ```
 
-Two hard bars for every PR: **tests + the eval gate pass** (a retrieval
-regression past tolerance blocks merge), and **schema changes ship as new
-numbered migrations** in `src/db/migrations/`. Details in
-[`CONTRIBUTING.md`](CONTRIBUTING.md). Please also read the
-[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). Found a vulnerability? Don't open a
-public issue — see [`SECURITY.md`](SECURITY.md).
+Choose additional evals for the behavior you change; real-model runs require
+provider credentials. Database changes belong in new numbered migrations in
+`src/db/migrations/`. For vulnerability reports, follow
+[SECURITY.md](SECURITY.md).
 
 ## Roadmap
 
-Shipped: bitemporal graph, hybrid retrieval pipeline, conflict resolution,
-domain-scoped source reputation + cross-source corroboration + a read-only
-trust-inputs API, identity merge, GDPR forget, native MCP, per-key ABAC
-policy sets, the document pipeline with an external-indexer protocol
-(pull work API + signed webhook hints + reference client), Domain Packs
-(industry library, signed global registry with verified badges, download
-counters and pull-only mirroring, marketplace with paid packs, pack-declared
-MCP tools, seed documents), OpenAPI 3.1 platform spec, worker-thread offloads
-+ `PROCESS_ROLE` api/worker split, code memory (record *why* a decision was
-made, drift-resistant symbol anchors), eval-gated CI, off-hours
-self-improvement (dreams), the raw episode substrate with versioned derived
-worlds (atomic per-run staged rebuilds, lease-fenced promotion, read pins),
-end-to-end per-user memory scope (episode ingest → derivation → retrieval →
-profile → ownership-fenced retraction), fact-provenance + rolling
-user-profile read APIs, measured genre presets over the retrieval profile,
-and long-horizon conversational memory benchmarks run under a strict judge
-([LoCoMo](docs/locomo.md), LongMemEval, BEAM — protocol in
-[docs/eval-protocol.md](docs/eval-protocol.md)).
-
-Exploring (issues + ideas welcome): a non-conversational (document / KG) eval
-axis on the same harness, failure-memory for agents (distill what went wrong
-into reusable strategies), prospective-memory / preference-drift benchmarks,
-extractor span-grounding offload, and worker-pool right-sizing as more
-handlers move to threads. Temporal was evaluated and deliberately not
-adopted — the re-evaluation triggers live in
-[docs/roadmap/platform-gap-2026-07.md](docs/roadmap/platform-gap-2026-07.md).
-Have a use case? Open an issue.
+Follow [issues](https://github.com/inite-ai/inite-brain-service/issues) and
+[releases](https://github.com/inite-ai/inite-brain-service/releases) for current
+work. Design notes and earlier experiments remain in [docs/roadmap](docs/roadmap);
+read their dates and status before treating an item as shipped or pending.
 
 ## License
 
-[AGPL-3.0-or-later](LICENSE). Brain is a hosted backend service, so AGPL is the
-honest choice: if you run Brain (modified or not) for users over a network, you
-make the corresponding source available to them under the same terms. If AGPL is
-incompatible with your downstream needs, open an issue — we may relicense specific
-modules when the request is reasonable.
+[AGPL-3.0-or-later](LICENSE).
