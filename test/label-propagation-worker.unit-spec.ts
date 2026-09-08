@@ -158,7 +158,7 @@ function mkBuilder(pool?: JobWorkerPool): CommunityBuilderService {
       // Tiny threshold so the 6-edge fixture graph qualifies for offload.
       COMMUNITIES_LP_OFFLOAD_MIN_EDGES: '1',
     }),
-    { embed: jest.fn(async () => [0.1, 0.2]) } as never,
+    { embedForWrite: jest.fn(async () => [0.1, 0.2]) } as never,
     { generate: jest.fn(async () => 'summary') } as never,
     pool,
   );
@@ -222,7 +222,7 @@ describe('CommunityBuilderService worker-pool offload', () => {
         DREAMS_COMMUNITIES_ENABLED: '1',
         COMMUNITIES_LP_OFFLOAD_MIN_EDGES: '0',
       }),
-      { embed: jest.fn(async () => [0.1, 0.2]) } as never,
+      { embedForWrite: jest.fn(async () => [0.1, 0.2]) } as never,
       { generate: jest.fn(async () => 'summary') } as never,
       pool,
     );

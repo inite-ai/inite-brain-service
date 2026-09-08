@@ -105,8 +105,10 @@ const adapterOf = (outputs: ProcessorOutput[], version = 'proc-v1'): ProcessorAd
   process: () => Promise.resolve(outputs),
 });
 
+// EvidenceStoreService persists the vector it gets back, so it embeds
+// through the WRITE-guarded entrypoint — these stubs mirror that name.
 const embedderThrowing = {
-  embed: () => {
+  embedForWrite: () => {
     throw new Error('the embedder must not be called');
   },
   activeSpaceId: () => {
@@ -115,12 +117,12 @@ const embedderThrowing = {
 } as unknown as EmbedderService;
 
 const embedderOk = {
-  embed: async (text: string) => [text.length, 0.5],
+  embedForWrite: async (text: string) => [text.length, 0.5],
   activeSpaceId: () => 'openai:text-embedding-3-small:1536:l2',
 } as unknown as EmbedderService;
 
 const embedderBroken = {
-  embed: async () => {
+  embedForWrite: async () => {
     throw new Error('model 503');
   },
   activeSpaceId: () => 'openai:text-embedding-3-small:1536:l2',
@@ -368,7 +370,7 @@ describe('representation embeddings — EVIDENCE_FRAGMENT_EMBEDDINGS', () => {
     process.env.EVIDENCE_FRAGMENT_EMBEDDINGS = '1';
     let embedCalls = 0;
     const counting = {
-      embed: async () => {
+      embedForWrite: async () => {
         embedCalls += 1;
         return [0.1];
       },

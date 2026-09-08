@@ -35,7 +35,7 @@ export async function seedMissingPredicates(opts: {
   // rather than failing the whole seed on an embedder hiccup.
   let embeddings: Array<number[] | null>;
   try {
-    embeddings = await embedder.embedMany(missing.map((p) => embeddingTextFor(p)));
+    embeddings = await embedder.embedManyForWrite(missing.map((p) => embeddingTextFor(p)));
   } catch {
     embeddings = missing.map(() => null);
   }

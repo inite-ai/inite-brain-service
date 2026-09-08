@@ -35,7 +35,10 @@ import type { EmbedderService } from '../src/ai/embedder.service';
 
 function stubEmbedder(vectors: Record<string, number[]>): EmbedderService {
   return {
+    // create() persists the vector, so it embeds through the WRITE guard;
+    // the query side still uses embed().
     embed: async (text: string) => vectors[text] ?? [0, 0],
+    embedForWrite: async (text: string) => vectors[text] ?? [0, 0],
   } as unknown as EmbedderService;
 }
 
