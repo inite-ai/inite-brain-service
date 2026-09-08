@@ -171,6 +171,18 @@ spend is the stand's own normal serving cost.
   marker-first: an honest decline never fails a serve check by itself.
 - **`eval:domain-packs`** — a pack-conformance battery in the same
   family, landing in a separate in-flight PR.
+- **`pnpm eval:evidence`** (`test/eval/evidence/`) — 29 checks over the
+  evidence plane end to end (upload → quarantine → processing_run →
+  fragment → citation → signed-URL gateway → grants → GC → GDPR
+  erasure), scored on 8 dimensions: E1 ingest & identity, E2 quarantine,
+  E3 processing, E4 fragments, E5 citations (the unrollability north
+  star: a citation must resolve to the exact fragment AND blob), E6
+  access, E7 GC, E8 GDPR. Unlike its four siblings it spends **nothing**
+  on models — no path on this plane calls one — and its capability gates
+  are read from the live stand (`GET /v1/admin/config`, a probe of the
+  orphan-GC route, the fixture-pack install result), so an absent
+  capability reports `skipped` with the observed reason instead of a
+  silent pass.
 
 Methodology: each battery runs against a **fresh tenant per run**
 (`BRAIN_COMPANY_ID` is operator-supplied; every scenario seeds its own
