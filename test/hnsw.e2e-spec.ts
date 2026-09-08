@@ -49,6 +49,45 @@ describe('HNSW vector leg (real SurrealDB)', () => {
     expect(results[0]!.canonicalName).toBe('hnsw_subject');
   });
 
+  /**
+   * The behaviour the whole fallback rests on, asserted against the real
+   * engine rather than assumed. Before this was pinned, the leg's catch
+   * clause waited for an exception that never arrives and the search was
+   * answered from unranked table-order rows.
+   */
+  it('a missing index does not error — the KNN operator is dropped and every distance is null', async () => {
+    const surreal = f.app.get(SurrealService);
+    await surreal.withCompany(f.companyId, async (db) => {
+      const [info] = await db.query<[{ indexes?: Record<string, string> }]>(
+        `INFO FOR TABLE knowledge_fact;`,
+      );
+      // Precondition: this tenant genuinely has no HNSW index.
+      expect((info as { indexes?: Record<string, string> })?.indexes?.fact_embedding_hnsw).toBe(
+        undefined,
+      );
+
+      const [rows] = await db.query<[Array<{ id: unknown; knnDist: number | null }>]>(
+        `SELECT id, vector::distance::knn() AS knnDist
+           FROM knowledge_fact
+          WHERE embedding <|8,100|> $q
+          LIMIT 8`,
+        { q: new Array(1536).fill(0.01) },
+      );
+      // Not an error, not empty — rows with NO similarity information.
+      expect(Array.isArray(rows)).toBe(true);
+      expect((rows ?? []).length).toBeGreaterThan(0);
+      for (const r of rows ?? []) expect(typeof r.knnDist).not.toBe('number');
+
+      // EXPLAIN confirms the operator left the plan entirely.
+      const [plan] = await db.query<[unknown]>(
+        `SELECT id FROM knowledge_fact WHERE embedding <|8,100|> $q EXPLAIN`,
+        { q: new Array(1536).fill(0.01) },
+      );
+      expect(JSON.stringify(plan)).toContain('TableScan');
+      expect(JSON.stringify(plan)).not.toContain('KnnScan');
+    });
+  });
+
   it('creates indexes with the live dimension and matches the exact scan', async () => {
     // A second entity so ranking has something to order.
     await f.http

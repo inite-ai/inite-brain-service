@@ -5,6 +5,10 @@ import { EmbedderService } from '../ai/embedder.service';
 import { EntityJudgeService, EntityVerdict } from '../ai/entity-judge.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { dbCreate } from '../db/surreal.service';
+import { hnswIndexState, knnDroppedMessage, knnOperatorDropped } from '../db/knn-index';
+
+/** The index the name-candidate KNN scan rides — for the diagnostic. */
+const NAME_HNSW = { table: 'knowledge_fact', index: 'fact_embedding_hnsw' } as const;
 
 /** One auditable reuse/candidate decision (migration 0102 entity_merge_log). */
 export interface MergeLogEntry {
@@ -209,6 +213,13 @@ export class EntityResolverService {
    * native HNSW index (`<|k,ef|>`); any failure — most commonly "no index
    * on this tenant yet" — falls back to the exact full scan, so the flag
    * can be flipped globally while tenants are indexed one by one.
+   *
+   * "No index on this tenant yet" is NOT a failure the statement reports:
+   * SurrealDB drops the KNN operator and answers with table-order rows
+   * carrying a NULL distance, which this path read as `sim = 0`. Since the
+   * rows are sorted DESC and the loop `break`s below `cosineFloor`, an
+   * un-indexed tenant resolved nothing at all. Detected from the rows
+   * (src/db/knn-index.ts), which returns null and falls through.
    */
   private async findBestNameCandidate(
     db: Surreal,
@@ -264,13 +275,13 @@ export class EntityResolverService {
    * The `<|kOver,ef|>` operator picks candidates before the WHERE filters,
    * so we over-fetch (kOver = candidateK × overfetch, capped 1000) and let
    * the same predicate/status/type fences narrow the result, then LIMIT to
-   * candidateK. Throws when the tenant has no HNSW index — the caller falls
-   * back to the exact scan.
+   * candidateK. Returns NULL — not a throw — when the tenant has no usable
+   * HNSW index, so the caller falls back to the exact scan.
    */
   private async queryNameCandidatesKnn(
     db: Surreal,
     q: number[],
-  ): Promise<Array<{ entityId: unknown; etype: string; sim: number }>> {
+  ): Promise<Array<{ entityId: unknown; etype: string; sim: number }> | null> {
     const kOver = Math.min(this.candidateK * this.hnswOverfetch, 1000);
     // `<|K,EF|>` takes literals, not params — kOver/ef are validated ints.
     // vector::distance::knn() reuses the walk's distance — projecting a
@@ -291,12 +302,17 @@ export class EntityResolverService {
          LIMIT $k`,
       { q, k: this.candidateK },
     );
-    return ((rows as Array<{ entityId: unknown; etype: string; dist: number }>) ?? []).map(
-      ({ dist, ...rest }) => ({
-        ...rest,
-        sim: typeof dist === 'number' ? 1 - dist : 0,
-      }),
-    );
+    const knnRows = (rows as Array<{ entityId: unknown; etype: string; dist: number }>) ?? [];
+    if (knnOperatorDropped(knnRows, 'dist')) {
+      this.logger.error(
+        `[ingest.inline_resolution] ${knnDroppedMessage(NAME_HNSW, await hnswIndexState(db, NAME_HNSW))}`,
+      );
+      return null;
+    }
+    return knnRows.map(({ dist, ...rest }) => ({
+      ...rest,
+      sim: typeof dist === 'number' ? 1 - dist : 0,
+    }));
   }
 }
 
