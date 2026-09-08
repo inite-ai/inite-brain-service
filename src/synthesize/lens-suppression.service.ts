@@ -1,7 +1,14 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  Optional,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { lensSuppressEnabled, lensSuppressMinCosine } from '../common/fovea-flags';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
+import { describeSpaceIncompatibility } from '../ai/embedder/embedding-space';
 import { MetricsService } from '../metrics/metrics.service';
 import type { RetrievalProfile } from '../search/retrieval-profile';
 import {
@@ -18,6 +25,14 @@ export interface LensSuppressionFitClass {
   centroid: number[];
   suppressLanes: string[];
   sampleCount: number;
+  /**
+   * The embedding space the centroid was mined in
+   * (`provider:model:dim:norm`). Optional: omitted means "the tenant's
+   * primary space", which is the only space a centroid may be stored in.
+   * Supplied and incompatible is a 400 — an operator who names a space is
+   * asserting something checkable, and a wrong assertion here is durable.
+   */
+  embeddingSpaceId?: string;
 }
 
 /**
@@ -148,18 +163,87 @@ export class LensSuppressionService {
   }
 
   /**
+   * The write guard #503 could not reach.
+   *
+   * `lens_suppression.centroid` is the one vector in the system that never
+   * touches the embedder: the training data is offline ablation-mined, so
+   * the operator POSTs the centroid. EmbedderService's guard is a guard on
+   * the embedder — it fails closed when the serving provider is in a
+   * foreign space and re-checks the produced width — and a vector produced
+   * elsewhere simply walks past it. Until this, the only validation was
+   * that the numbers are finite.
+   *
+   * The invariant is the same one #503 argued and the reason is the same:
+   * a cross-space READ is transient and self-healing, a cross-space WRITE
+   * is durable damage. A 1536-wide centroid in a 1024-wide tenant makes
+   * `vector::similarity::cosine` raise for the whole query the moment the
+   * governor is switched on, and it cannot be repaired by re-embedding —
+   * there is no stored source text for it (it arrives from outside), so
+   * the only fix is to re-fit the model offline.
+   *
+   * Validated against the PRIMARY space, never the serving one: the
+   * centroid did not come from whoever happens to be serving, and the
+   * corpus it will be compared against is the primary's. That also keeps
+   * the ingest usable during the bge-m3 warmup window instead of 503-ing
+   * for no reason.
+   *
+   * Unconditional, not flag-gated — exactly as #503's guard is. There is no
+   * configuration in which persisting a wrong-width centroid is the desired
+   * outcome, and the whole surface is already behind FOVEA_LENS_SUPPRESS
+   * (the routes 404 when it is off).
+   */
+  private assertCentroidSpace(c: LensSuppressionFitClass): string {
+    if (!this.embedder) {
+      // Width unknowable ⇒ refuse. Fail closed: an unvalidated centroid is
+      // durable and unrepairable, a 503 is retryable.
+      throw new ServiceUnavailableException(
+        `lens-suppression fit: no embedder is wired, so the centroid width for ` +
+          `class '${c.classId}' cannot be validated. Refusing to persist an ` +
+          `unvalidated vector.`,
+      );
+    }
+    const expected = this.embedder.primaryDimensions();
+    if (c.centroid.length !== expected) {
+      throw new BadRequestException(
+        `lens-suppression fit: class '${c.classId}' has a ${c.centroid.length}-wide ` +
+          `centroid but this tenant's corpus is ${expected}-wide ` +
+          `(${this.embedder.primarySpaceId()}). A cross-space centroid is ` +
+          `cosine-compared against query vectors and is meaningless.`,
+      );
+    }
+    const primary = this.embedder.primarySpaceId();
+    if (c.embeddingSpaceId !== undefined) {
+      const reason = describeSpaceIncompatibility(c.embeddingSpaceId, primary);
+      if (reason !== null) {
+        throw new BadRequestException(
+          `lens-suppression fit: class '${c.classId}' declares embedding space ` +
+            `'${c.embeddingSpaceId}' but this tenant serves '${primary}' (${reason}).`,
+        );
+      }
+    }
+    // Stamp the space that was actually validated, so a later width change
+    // can tell an old centroid from a current one (0101/0132).
+    return primary;
+  }
+
+  /**
    * THIN INGEST of externally-mined suppression rows (the training data is
    * offline/parked). Each class is persisted as a NEW versioned row
    * (calibration_table idiom); the reader picks max(version) per class.
    * Unknown lane ids are dropped. Returns the persisted class ids.
+   *
+   * Every class is width- and space-checked BEFORE anything is written, so
+   * a batch with one bad centroid persists nothing rather than half of
+   * itself.
    */
   async fitAndPersist(
     companyId: string,
     classes: readonly LensSuppressionFitClass[],
   ): Promise<{ persisted: number; classes: string[] }> {
+    const spaces = classes.map((c) => this.assertCentroidSpace(c));
     return this.surreal.withCompany(companyId, async (db) => {
       const out: string[] = [];
-      for (const c of classes) {
+      for (const [i, c] of classes.entries()) {
         const suppressLanes = c.suppressLanes
           .map(toLaneId)
           .filter((l): l is NonNullable<typeof l> => l !== null);
@@ -176,7 +260,8 @@ export class LensSuppressionService {
               centroid: $centroid,
               suppressLanes: $suppressLanes,
               sampleCount: $sampleCount,
-              version: $version
+              version: $version,
+              embeddingSpaceId: $embeddingSpaceId
            }`,
           {
             companyId,
@@ -185,6 +270,7 @@ export class LensSuppressionService {
             suppressLanes,
             sampleCount: c.sampleCount,
             version: next,
+            embeddingSpaceId: spaces[i],
           },
         );
         out.push(c.classId);
@@ -194,7 +280,10 @@ export class LensSuppressionService {
   }
 
   /** List the latest suppression class per classId (max version) — the admin
-   *  read surface. Centroid vectors are omitted (bulky, not operator-useful). */
+   *  read surface. Centroid vectors are omitted (bulky, not operator-useful);
+   *  the width and the space stamp are exactly what an operator checking a
+   *  fit needs, so both are reported (0132). A NONE stamp is a row written
+   *  before the guard existed and reads as the legacy/implicit space. */
   async listClasses(companyId: string): Promise<
     Array<{
       classId: string;
@@ -202,6 +291,7 @@ export class LensSuppressionService {
       sampleCount: number;
       version: number;
       centroidDim: number;
+      embeddingSpaceId: string | null;
     }>
   > {
     return this.surreal.withCompany(companyId, async (db) => {
@@ -213,10 +303,11 @@ export class LensSuppressionService {
             suppressLanes: string[];
             sampleCount: number;
             version: number;
+            embeddingSpaceId?: string | null;
           }>,
         ]
       >(
-        `SELECT classId, centroid, suppressLanes, sampleCount, version
+        `SELECT classId, centroid, suppressLanes, sampleCount, version, embeddingSpaceId
             FROM lens_suppression
             ORDER BY version DESC`,
       );
@@ -227,6 +318,7 @@ export class LensSuppressionService {
         sampleCount: number;
         version: number;
         centroidDim: number;
+        embeddingSpaceId: string | null;
       }> = [];
       for (const r of rows ?? []) {
         if (seen.has(r.classId)) continue;
@@ -239,6 +331,7 @@ export class LensSuppressionService {
           sampleCount: typeof r.sampleCount === 'number' ? r.sampleCount : 0,
           version: r.version,
           centroidDim: Array.isArray(r.centroid) ? r.centroid.length : 0,
+          embeddingSpaceId: typeof r.embeddingSpaceId === 'string' ? r.embeddingSpaceId : null,
         });
       }
       return out;
