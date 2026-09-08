@@ -1095,7 +1095,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Zero-downtime migration phase 1: arm shadow dual-write so a begun migration keeps the target space warm (new writes produced in BOTH the active and target space) while the reindex backfills history. Off (default) → no target-space write is armed and beginMigration refuses.',
+      'Zero-downtime migration phase 1: unlock POST /v1/admin/embedding-space/begin, which records dual-write arming in embedding_space_state. NOT YET WIRED: no write site consults targetSpaceFor(), and no table has a second vector column for a target-space vector to land in, so arming this records state and produces NO second vector — turning it on changes no behaviour at all. Off (default) → beginMigration refuses (400). The per-write-site wiring is programme item E7/E8 in docs/roadmap/embedding-spaces-2026-09.md; do not run the documented migration against a corpus until it lands.',
   },
   {
     key: 'EMBEDDING_SPACE_ACTIVE',
@@ -1105,7 +1105,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Zero-downtime migration phase 3: per-tenant active-space selection + ATOMIC cutover. When on, reads resolve the tenant’s active space from embedding_space_state and the admin cutover flips it all-or-nothing after reindex. Off (default) → reads use the current provider space and the cutover surface refuses — byte-identical serving.',
+      'Zero-downtime migration phase 3: unlock POST /v1/admin/embedding-space/cutover, which atomically flips activeSpace in embedding_space_state. NOT YET WIRED: no read path consults activeSpaceFor(), so the cutover flips a field nothing reads — an operator can run begin → reindex → cutover to completion and change NOTHING about what is served. Off (default) → the cutover surface refuses (400), which is the honest state. Wiring the resolver into the 13 cosine sites, the 4 KNN sites and the resolve_fact dedup gate is programme item E9 in docs/roadmap/embedding-spaces-2026-09.md.',
   },
   // ── Cost ────────────────────────────────────────────
   {
