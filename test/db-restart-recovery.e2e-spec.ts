@@ -19,6 +19,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { Surreal } from 'surrealdb';
+import request from 'supertest';
 import { AppFixture, createApp } from './app-fixture';
 
 const CONTAINER_ID = process.env.SURREALDB_CONTAINER_ID;
@@ -201,14 +202,22 @@ describeIfContainer('database restart recovery (real SurrealDB)', () => {
 
     // And the whole pool, not just the first connection /ready happened to
     // take: more reads than there are scoped connections, all served.
+    // Twelve requests at once through ONE listening server: supertest
+    // otherwise listens and closes the server per request, and twelve
+    // concurrent listen/close cycles on the same http.Server reset each
+    // other (4 of 12 on Linux CI) — a harness artefact, not the app.
+    const server = f.app.getHttpServer() as import('node:http').Server;
+    const base = await new Promise<string>((resolve) => {
+      server.listen(0, '127.0.0.1', () => {
+        const a = server.address();
+        resolve(typeof a === 'object' && a ? `http://127.0.0.1:${a.port}` : '');
+      });
+    });
     const reads = await Promise.all(
       Array.from({ length: 12 }, () =>
-        withRetry('parallel read', () =>
-          f.http
-            .get(`/v1/facts/${encodeURIComponent(before)}`)
-            .set(auth())
-            .set('Connection', 'close'),
-        ),
+        request(base)
+          .get(`/v1/facts/${encodeURIComponent(before)}`)
+          .set(auth()),
       ),
     );
     expect(reads.map((r) => r.status)).toEqual(Array(12).fill(200));
