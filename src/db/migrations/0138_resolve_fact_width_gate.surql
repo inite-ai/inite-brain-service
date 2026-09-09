@@ -13,8 +13,9 @@
 -- application code (see src/db/vector-width.ts and the truth test
 -- test/embedding-space-truth.unit-spec.ts).
 --
--- fn::resolve_facts (the batch mapper, 0129) calls fn::resolve_fact by name
--- and is unchanged.
+-- fn::resolve_facts (the batch mapper) is copied verbatim too: the positional
+-- contract lives beside the function it calls, and the doctrine test reads
+-- both from the latest file that defines fn::resolve_fact.
 
 DEFINE FUNCTION OVERWRITE fn::resolve_fact(
     $entity_id: record<knowledge_entity>,
@@ -559,4 +560,24 @@ DEFINE FUNCTION OVERWRITE fn::resolve_fact(
         bestOpponentId: $best_opp.id,
         reason: NONE
     };
+};
+
+-- Batch mapper stays in lockstep with the 27-arg signature (positional
+-- contract lives HERE, beside the function it calls — see 0071/0084).
+-- $cfg.tiebreak_window_ms / $f.update_cue are absent-tolerant: a caller
+-- that never sets them maps to NONE and the tiebreaker stays off — the
+-- batch path only carries append_only / bitemporal_event rows today,
+-- neither of which the 'bitemporal'-gated tiebreaker can touch.
+DEFINE FUNCTION OVERWRITE fn::resolve_facts($facts: array, $cfg: object) {
+    RETURN $facts.map(|$f| fn::resolve_fact(
+        type::record('knowledge_entity', $f.eid),
+        $f.predicate, $f.object, $f.object_meta, $f.embedding,
+        $f.confidence, $f.valid_from, $f.valid_until, $f.source,
+        $f.source_trust, $f.semantics, $cfg.similarity_threshold,
+        $cfg.w_confidence, $cfg.w_source_trust, $cfg.w_recency, $cfg.w_authority,
+        $cfg.reject_threshold, $cfg.margin_for_supersede,
+        $f.lang, $f.script, $f.entropy, $f.user_id, $f.derived_version,
+        $f.predicate_alias, $cfg.slot_similarity,
+        $cfg.tiebreak_window_ms, $f.update_cue
+    ));
 };
