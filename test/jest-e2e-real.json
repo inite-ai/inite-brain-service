@@ -10,7 +10,7 @@
   "transform": {
     "^.+\\.(t|j)s$": ["ts-jest", { "tsconfig": { "allowJs": true } }]
   },
-  "transformIgnorePatterns": ["node_modules/(?!\\.pnpm|jose)", "node_modules/\\.pnpm/(?!jose@)"],
+  "transformIgnorePatterns": ["node_modules/(?!\\.pnpm|jose|@nestjs/(?:config|schedule))", "node_modules/\\.pnpm/(?!jose@|@nestjs\\+(?:config|schedule)@)"],
   "testTimeout": 180000,
   "forceExit": true,
   "globalSetup": "<rootDir>/test/global-setup.ts",
