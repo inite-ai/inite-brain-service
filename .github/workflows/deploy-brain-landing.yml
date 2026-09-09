@@ -232,35 +232,38 @@ jobs:
           docker-compose logs --tail=120 ${{ env.PROJECT_NAME }}
           exit 1
 
-      - name: External health probe
-        if: github.event.inputs.action != 'logs'
-        run: |
-          # Unreachable domain stays a WARNING (DNS/Traefik propagation on a
-          # fresh deploy is not this job's fault — the container-level probe
-          # above already gates the deploy). But once the domain answers,
-          # every artifact path must be a 200: a 404 here is a broken deploy,
-          # not a flake (audit 2026-08-19: this step was warning-only and
-          # /openapi.json 404'd for months while it ran green).
-          for i in $(seq 1 12); do
-            if curl -fs "https://${{ env.DOMAIN }}/en" > /dev/null 2>&1; then
-              echo "[ok] https://${{ env.DOMAIN }}/en responds"
-              fail=0
-              for path in /skills.tar.gz /install.sh /health /openapi.json; do
-                code=$(curl -s -o /dev/null -w '%{http_code}' "https://${{ env.DOMAIN }}$path")
-                if [ "$code" = "200" ]; then
-                  echo "[ok]  $path -> $code"
-                else
-                  echo "[err] $path -> $code"
-                  fail=1
-                fi
-              done
-              exit $fail
-            fi
-            echo "[info] external probe retry ($i/12)..."
-            sleep 10
-          done
-          echo "[warn] https://${{ env.DOMAIN }}/en never responded — check DNS + Traefik routing"
+      # The external check now asserts only the paths LANDING owns.
+      #
+      # It used to include /health, and on the shared brain.inite.ai host
+      # /health is claimed by the BACKEND router (PathPrefix, priority 200
+      # — see the Traefik labels in deploy-brain.yml). So this step was
+      # gating the landing's release on the ENGINE's health: a landing
+      # deploy could fail because a different service was down, and the
+      # failure read as "the landing is broken", which it was not.
+      #
+      # The path list is otherwise unchanged, and the 2026-08-19 finding it
+      # was written for still holds: once the domain answers, a 404 on a
+      # published artifact is a broken deploy, not a flake. Unreachability
+      # itself is still tolerated for the DNS/cert window and only then
+      # becomes a failure.
+      # (moved to the `smoke` job below — it needs a checkout, and running
+      # an external HTTPS probe from the deploy box buys nothing.)
 
       - name: Cleanup
         if: always() && github.event.inputs.action != 'logs'
         run: docker system prune -f
+
+  smoke:
+    needs: deploy
+    if: needs.deploy.result == 'success' && github.event.inputs.action != 'logs'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Smoke the deployed surface
+        env:
+          SMOKE_BASE_URL: https://${{ env.DOMAIN }}
+          SMOKE_SURFACE: landing
+        run: node scripts/ci/smoke.mjs
