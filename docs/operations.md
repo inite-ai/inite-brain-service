@@ -635,14 +635,21 @@ Nothing expires server-side; `DURATION FOR SESSION NONE` does **not** help,
 because the driver reads the JWT `exp` and never asks the server.
 
 Every long-lived connection in brain therefore re-signs before that timer
-fires:
+fires. Both pools follow one discipline (`SurrealService.ensureSession`): on
+every acquire, a connection whose socket is up and whose token has more than
+5 minutes of life runs a `RETURN 1` probe (~0.3 ms; fails on a half-open
+socket and on an anonymous session alike); otherwise it re-signs (~16 ms, the
+server-side password KDF). If either fails the pool builds a replacement
+first and closes the old connection only once the replacement signed in. The
+root pool used to re-sign on every acquire instead — correct, but paying the
+KDF on every write and admin query.
 
-| Connection | Renewal |
-|---|---|
-| Root pool (`withCompany`, `withAdminDb`, `dropCompanyDatabase`) | `signin` on every acquire (also its zombie-websocket liveness probe). |
-| Migrator connection | Same, via `ensureRootSession`. |
-| Scoped pool (`withScopedCompany` — every caller-facing read) | Checks the live connection/token and re-signs when authorization is lost or the access token enters a 5-minute margin. A signin runs the server-side password KDF (~16ms vs ~0.3ms for a `SELECT`), so paying it per read is not free; the margin comfortably clears the driver's 60s invalidate lead time. Fails **closed** if it cannot — a request errors rather than being served root-authorized. |
-| LIVE subscription channels | Renewed on the catch-up tick, same margin. |
+| Connection | Identity | On failure |
+|---|---|---|
+| Root pool (`withCompany`, `withAdminDb`, `dropCompanyDatabase`) and the migrator connection | root | Error propagates. |
+| Scoped pool (`withScopedCompany` — every caller-facing read) | `brain_caller` | Fails **closed** with a 503 — never served root-authorized; the connection stays in the pool for the next acquire's retry. |
+| LIVE subscription channels | `brain_caller` when the scoped pool is configured, root otherwise | Renewed on the catch-up tick (bounded by a timeout, ticks never stack); whatever the driver-side invalidate does to the standing `LIVE` query, the changefeed replay on the next tick delivers what it missed. |
+| `scripts/backfill-lang-attribution.ts` | root | Re-signs per batch. |
 
 Symptoms to recognise if this ever regresses: reads answer
 `Anonymous access not allowed: Not enough permissions to perform this action`
@@ -658,7 +665,9 @@ read path on a timer and alerts when it stops authorizing.
 (a SurrealDB duration literal; unset = the server's 1h default). It is a
 tuning knob, not the fix — brain OVERWRITEs the user definition on every
 boot, so it exists mainly so a duration set by hand on the server is not
-silently discarded on the next deploy.
+silently discarded on the next deploy. A value at or below the 5-minute
+re-auth margin is honoured but logged at error level: every scoped acquire
+then re-signs, which only the expiry e2e wants.
 
 ## Capability probes
 
