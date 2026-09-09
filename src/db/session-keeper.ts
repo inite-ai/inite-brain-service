@@ -3,49 +3,22 @@ import type { Surreal } from 'surrealdb';
 /**
  * Token-expiry bookkeeping for LONG-LIVED SurrealDB connections.
  *
- * ── The failure this exists to prevent ───────────────────────────────────
- * surrealdb-js 2.0.8 owns session renewal, and it only owns it for sessions
- * it opened itself. `ConnectionController` records `authOverriden = true` the
- * moment `db.signin()` is called from application code (dist/surrealdb.mjs
- * `signin(auth, session, skipOverride = false)`), and its own type
- * declarations say so out loud:
+ * Contract: surrealdb-js (2.0.8) renews only sessions it opened itself. A
+ * session established by `db.signin()` from application code is INVALIDATED
+ * by the driver at `exp − 60s` — client-side, from the JWT `exp`, regardless
+ * of any server `DURATION FOR SESSION` — after which the socket stays open,
+ * `version()` still answers, and every authorization-gated statement fails
+ * with "Anonymous access not allowed". So every connection that outlives its
+ * token must re-`signin()` before that timer fires. This class records each
+ * connection's token expiry and answers whether it must be re-signed now:
+ * inside the margin, or never seen, or holding an unreadable token — never
+ * "assume valid". The margin must exceed the driver's 60s lead time; 5 min
+ * costs one signin (≈16 ms, the server-side KDF) per connection per ~55 min
+ * on a default 1h token.
  *
- *   "When this method is called, the `authentication` property passed to
- *    `connect()` will be ignored. You will be responsible for handling
- *    session invalidation by listening to the `auth` event."
- *
- * What "handling" means concretely: on signin the driver schedules a timer at
- * `exp - expiryMargin` (margin defaults to 60s). When it fires,
- * `#applyAuthentication` cannot reuse the near-dead access token, has no
- * refresh token for a system user, and — because `authOverriden` is set —
- * refuses to consult the connect-time auth provider. It falls through to
- * `#abortAuthentication`, which calls `invalidate()`. The socket stays open,
- * `version()` still answers, and every authorization-gated statement from
- * that point on fails with:
- *
- *   "Anonymous access not allowed: Not enough permissions to perform this
- *    action"
- *
- * …for the rest of the process. Nothing expired server-side: `DEFINE USER`
- * defaults to `DURATION FOR TOKEN 1h`, and setting `DURATION FOR SESSION
- * NONE` does NOT help, because the driver reads the JWT `exp` and never asks
- * the server. Verified empirically against surrealdb/surrealdb:v3.2.4 — see
- * test/scoped-session-expiry.e2e-spec.ts.
- *
- * ── The discipline ───────────────────────────────────────────────────────
- * Any connection that outlives its access token must re-`signin()` BEFORE the
- * driver's invalidation timer fires. The root pool already did this the
- * expensive way (unconditionally, on every acquire — see
- * `SurrealService.ensureRootSession`), which is why writes never showed the
- * bug. Doing the same unconditionally on the READ path is not free: a Surreal
- * `signin` runs the server-side password KDF and measures ~16ms against a
- * local v3.2.4, versus ~0.3ms for a `SELECT` — a ~48x tax on every read.
- *
- * So this class tracks the access token's own expiry and re-signs only when
- * the remaining life drops inside a margin. The margin MUST exceed the
- * driver's own `expiryMargin` (60s) or we lose the race with its invalidate
- * timer; 5 minutes leaves a 4-minute buffer on a default 1h token while
- * costing one signin per connection per ~55 minutes.
+ * Owners: SurrealService (both pools), LiveSubscriptionManager, the backfill
+ * script. Proof against a real server: test/scoped-session-expiry.e2e-spec.ts.
+ * Incident: docs/audits/runtime-auth-embedding-2026-09-08.md.
  */
 export const SESSION_REAUTH_MARGIN_MS = 5 * 60_000;
 

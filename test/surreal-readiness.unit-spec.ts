@@ -7,6 +7,7 @@ describe('SurrealService readiness under connection faults', () => {
     const state = svc as any;
     state.scopedEnabled = true;
     state.scopedCreds = { username: 'reader', password: 'test', namespace: 'brain' };
+    state.rootCreds = { username: 'root', password: 'root' };
     state.acquireTimeoutMs = 10_000;
     return { svc, state };
   }
@@ -19,7 +20,7 @@ describe('SurrealService readiness under connection faults', () => {
     const conn = { query: jest.fn() };
     state.scopedIdle.push(conn);
     jest
-      .spyOn(state, 'ensureScopedSession')
+      .spyOn(state, 'ensureSession')
       .mockImplementation(
         () => new Promise((_, reject) => setTimeout(() => reject(new Error('auth down')), 2500)),
       );
@@ -38,7 +39,7 @@ describe('SurrealService readiness under connection faults', () => {
 
   it('returns a late queued connection without leaking it or authenticating it', async () => {
     const { svc, state } = setup();
-    const auth = jest.spyOn(state, 'ensureScopedSession');
+    const auth = jest.spyOn(state, 'ensureSession');
     const probe = svc.pingScoped();
     await jest.advanceTimersByTimeAsync(2001);
     await expect(probe).resolves.toBe(true);
