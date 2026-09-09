@@ -338,6 +338,31 @@ describe('capability probe — scheduling', () => {
   });
 });
 
+describe('capability probe — armed series', () => {
+  it('a skipped capability withdraws its armed series so it cannot read as "never succeeded"', async () => {
+    const savedFlag = process.env.CAPABILITY_PROBE_ENABLED;
+    process.env.CAPABILITY_PROBE_ENABLED = '1';
+    // No embedder wired: the embed probe legitimately reports `skipped`.
+    const stubs = makeStubs();
+    const metrics = new MetricsService();
+    const svc = new CapabilityProbeService(stubs.surreal as any, stubs.apiKeys as any, metrics);
+    svc.onApplicationBootstrap();
+    const armed = (capability: string) =>
+      series(metrics, 'brain_capability_probe_armed_timestamp_seconds', { capability });
+    expect(await armed('embed')).toBeDefined();
+    expect(await armed('scoped_read')).toBeDefined();
+
+    await svc.runOnce();
+
+    expect(await armed('embed')).toBeUndefined();
+    // The capability that actually ran keeps its arming time.
+    expect(await armed('scoped_read')).toBeDefined();
+    svc.onApplicationShutdown();
+    if (savedFlag === undefined) delete process.env.CAPABILITY_PROBE_ENABLED;
+    else process.env.CAPABILITY_PROBE_ENABLED = savedFlag;
+  });
+});
+
 describe('capability coverage gate', () => {
   /**
    * The generalisation, and its limit. Enumerating every capability brain

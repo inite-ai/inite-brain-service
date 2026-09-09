@@ -160,6 +160,13 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
 
   private publish(report: ProbeReport): void {
     this.metrics.recordCapabilityProbe(report.capability, report.outcome);
+    if (report.outcome === 'skipped') {
+      // Nothing to exercise here (no embedder wired, no tenant yet): a
+      // capability that legitimately never runs must not read as "armed and
+      // never succeeded" to the staleness alert. Withdraw its armed series;
+      // a later tick that does run re-publishes success on its own.
+      this.metrics.capabilityProbeArmed.remove({ capability: report.capability });
+    }
     if (report.outcome === 'serving') return;
     const line = `capability '${report.capability}' is ${report.outcome}: ${report.detail ?? '—'}`;
     if (isConclusive(report.outcome)) this.logger.error(`${line} — ${RUNBOOK}`);

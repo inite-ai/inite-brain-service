@@ -704,6 +704,7 @@ conclusive outcome.
 | `brain_capability_probe_ok{capability}` | 1/0 up-signal. Absent until the first conclusive probe, so a booting pod is *absent*, not *down*. |
 | `brain_capability_probe_total{capability,outcome}` | Rates per outcome. A steady `busy` rate is a capacity signal, not a health one. |
 | `brain_capability_probe_last_success_timestamp_seconds{capability}` | Catches what the up-gauge cannot: a wedged prober, or a pool that has been nothing but busy. |
+| `brain_capability_probe_armed_timestamp_seconds{capability}` | Written at bootstrap, before the first tick, so a capability that has **never** succeeded reads as a large age in `CapabilityProbeStale` (`last_success or armed`) instead of as absence. Withdrawn for a capability whose probe reports `skipped` (no embedder wired, no tenant yet), so a legitimately idle capability does not page. |
 
 No `companyId` label anywhere (the standing cardinality rule): one scoped
 session serves every tenant on the pod, so the canary tenant proves the

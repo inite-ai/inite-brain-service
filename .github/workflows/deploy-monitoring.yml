@@ -108,9 +108,13 @@ jobs:
       # green while Grafana kept serving the previous ruleset, which is the
       # worst possible shape for a monitoring change: it looks applied.
       #
-      # Restarting grafana is the whole fix. It is cheap (seconds), alert
-      # state and silences live in its own database and survive, and unlike
-      # the reload API it needs no admin credential in the workflow.
+      # Restarting grafana is the fix chosen here. It is cheap (seconds) and
+      # alert state and silences live in its own database and survive. The
+      # alternative — POST /api/admin/provisioning/alerting/reload — would
+      # avoid the few seconds of evaluation gap and the credential IS at hand
+      # (GRAFANA_ADMIN_PASSWORD is written to .env above); a restart is kept
+      # because it also picks up dashboard and datasource provisioning in one
+      # step, and needs no reachable API port from the runner.
       - name: Reload Grafana provisioning (alert rules load at startup only)
         if: github.event.inputs.action != 'logs' && github.event.inputs.action != 'restart'
         run: |
