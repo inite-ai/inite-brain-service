@@ -33,6 +33,9 @@ import {
   adaptiveL3SessionCount,
   estimateTokens,
   mergeAnchorSources,
+  momentCenters,
+  selectWindowCenters,
+  type L3AnchorCenter,
   type L3SessionAnchor,
   type L3AdaptiveGate,
   type L3AnchorSource,
@@ -100,6 +103,13 @@ interface L3Turn {
 interface L3Fences {
   includePii: boolean;
   userId?: string | undefined;
+}
+
+/** What every anchor source hands back: the ranking anchors AND the
+ *  window centers the over-budget degrade path widens on. */
+interface L3AnchorProbe {
+  anchors: L3SessionAnchor[];
+  centers: L3AnchorCenter[];
 }
 
 export interface L3EscalateInput {
@@ -220,8 +230,8 @@ const L3_DEGRADE_SPAN_MULT = 4;
 /** Ceiling on episode ids resolved per escalation (bounds the IN set). */
 const ANCHOR_EPISODE_CAP = 300;
 /** Aux anchor source top-Ks (L3 anchor independence). Their sum stays
- *  far under ANCHOR_EPISODE_CAP, so aux episodeById insertions are
- *  bounded by construction. */
+ *  far under ANCHOR_EPISODE_CAP, so aux window centers are bounded by
+ *  construction. */
 const L3_DIRECT_ANCHOR_TOPK = 20;
 const L3_SEGMENT_ANCHOR_TOPK = 12;
 const L3_TEMPORAL_ANCHOR_TOPK = 10;
@@ -361,17 +371,23 @@ export class L3EscalationService {
     const includePii = input.callerScopes.includes('brain:read_pii');
     const userId = dto.userId || undefined;
     const fences = { includePii, userId };
-    const { anchors: factAnchors, episodeById } = await this.resolveAnchors(input, fences);
+    const fact = await this.resolveAnchors(input, fences);
+    const factAnchors = fact.anchors;
     let sources: L3AnchorSource[] = [{ source: 'fact', anchors: factAnchors }];
     let anchors = factAnchors;
+    // The degrade-path window centers travel with the anchors from
+    // whichever source produced them, so no anchored session lacks one.
+    let centers = fact.centers;
     if (factAnchors.length === 0) {
       // L3 anchor independence: the aux sources run ONLY on the empty-
       // fact-anchor residual, so a fact-anchored escalation is byte-
       // identical to before, and skipped_no_anchor below now means
       // "every ENABLED anchor source came up empty". No hint boost here:
       // aux anchors carry no predicate, so there is nothing to match.
-      sources = await this.resolveAuxiliaryAnchors(input, fences, episodeById);
+      const aux = await this.resolveAuxiliaryAnchors(input, fences);
+      sources = aux.sources;
       anchors = mergeAnchorSources(sources);
+      centers = aux.centers;
     } else {
       // Attention hints (FOVEA_ATTENTION_HINTS): resolved lazily — the
       // memory-model reader is consulted ONLY here, flag on, on a fired
@@ -423,7 +439,7 @@ export class L3EscalationService {
     const episodeCitations = l3EpisodeCitationsEnabled();
     const ctx = await this.assembleContext(input, {
       sessionIds,
-      episodeById,
+      centers,
       includePii,
       userId,
       episodeCitations,
@@ -505,10 +521,7 @@ export class L3EscalationService {
   private async resolveAnchors(
     input: L3EscalateInput,
     fences: { includePii: boolean; userId?: string | undefined },
-  ): Promise<{
-    anchors: L3SessionAnchor[];
-    episodeById: Map<string, { conversationId: string; atMs?: number | undefined }>;
-  }> {
+  ): Promise<L3AnchorProbe> {
     const factScore = new Map<string, number>();
     // factId → stored predicate id, stamped onto the anchors so the
     // attention-hint boost (FOVEA_ATTENTION_HINTS) can match; inert
@@ -523,7 +536,7 @@ export class L3EscalationService {
       }
     }
     const factIds = [...factScore.keys()];
-    if (factIds.length === 0) return { anchors: [], episodeById: new Map() };
+    if (factIds.length === 0) return { anchors: [], centers: [] };
 
     const factEps = await this.surreal.withCompany(input.companyId, async (db) => {
       const [rows] = await db.query<[Array<{ id?: unknown; eps?: unknown }>]>(
@@ -546,7 +559,7 @@ export class L3EscalationService {
         if (allEpisodeIds.size < ANCHOR_EPISODE_CAP) allEpisodeIds.add(e);
       }
     }
-    if (allEpisodeIds.size === 0) return { anchors: [], episodeById: new Map() };
+    if (allEpisodeIds.size === 0) return { anchors: [], centers: [] };
 
     const episodeRows = await this.episodes.byIds({
       companyId: input.companyId,
@@ -555,12 +568,15 @@ export class L3EscalationService {
       ...(fences.userId !== undefined ? { userId: fences.userId } : {}),
     });
     const episodeById = new Map<string, { conversationId: string; atMs?: number | undefined }>();
+    // One window center per grounding episode (≤ ANCHOR_EPISODE_CAP).
+    const centers: L3AnchorCenter[] = [];
     for (const r of episodeRows) {
       if (!r.conversationId) continue;
-      episodeById.set(String(r.id), {
-        conversationId: String(r.conversationId),
-        atMs: toMs(r.occurredAt),
-      });
+      const episodeId = String(r.id);
+      const conversationId = String(r.conversationId);
+      const atMs = toMs(r.occurredAt);
+      episodeById.set(episodeId, { conversationId, atMs });
+      if (atMs !== undefined) centers.push({ episodeId, conversationId, atMs });
     }
     // One anchor per (fact, conversation): a fact grounded in several
     // turns of one session still counts once toward that session's
@@ -580,7 +596,7 @@ export class L3EscalationService {
         });
       }
     }
-    return { anchors, episodeById };
+    return { anchors, centers };
   }
 
   /**
@@ -591,10 +607,7 @@ export class L3EscalationService {
    * own profile flag, each individually fail-soft (warn + contribute
    * nothing):
    *   direct   — BM25 episode hits on the query text, via the SAME
-   *              fenced searchText read the episode lane uses; returned
-   *              rows also seed `episodeById` (bounded by the source
-   *              topK ≪ ANCHOR_EPISODE_CAP) so the over-budget degrade
-   *              path has window centers.
+   *              fenced searchText read the episode lane uses.
    *   segment  — dense+BM25 RRF-fused segment hits, recall-first (no
    *              rerank).
    *   temporal — conversations active in a query-named absolute period,
@@ -602,22 +615,24 @@ export class L3EscalationService {
    *              here UNCONDITIONALLY (discovery) — distinct from the
    *              lane-gated rank-only window preference in
    *              runEscalation, which is untouched.
-   * All flags off ⇒ empty result, byte-identical skipped_no_anchor.
-   * Every read composes the same PII/user/scope fences as the fact
-   * path.
+   * Every probe returns its window centers alongside its anchors (one
+   * per hit/moment, bounded by the source topK ≪ ANCHOR_EPISODE_CAP),
+   * so the over-budget degrade path can widen around a session only an
+   * aux source named. All flags off ⇒ empty result, byte-identical
+   * skipped_no_anchor. Every read composes the same PII/user/scope
+   * fences as the fact path.
    */
   private async resolveAuxiliaryAnchors(
     input: L3EscalateInput,
     fences: L3Fences,
-    episodeById: Map<string, { conversationId: string; atMs?: number | undefined }>,
-  ): Promise<L3AnchorSource[]> {
+  ): Promise<{ sources: L3AnchorSource[]; centers: L3AnchorCenter[] }> {
     const { profile } = input;
     const probes: Array<{
       source: L3AnchorSource['source'];
-      run: () => Promise<L3SessionAnchor[]>;
+      run: () => Promise<L3AnchorProbe>;
     }> = [];
     if (profile.l3DirectAnchor) {
-      probes.push({ source: 'direct', run: () => this.directAnchors(input, fences, episodeById) });
+      probes.push({ source: 'direct', run: () => this.directAnchors(input, fences) });
     }
     if (profile.l3SegmentAnchor && this.segments) {
       probes.push({ source: 'segment', run: () => this.segmentAnchors(input, fences) });
@@ -626,27 +641,25 @@ export class L3EscalationService {
       probes.push({ source: 'temporal', run: () => this.temporalAnchors(input, fences) });
     }
     const sources: L3AnchorSource[] = [];
+    const centers: L3AnchorCenter[] = [];
     for (const probe of probes) {
       try {
-        const anchors = await probe.run();
-        if (anchors.length > 0) sources.push({ source: probe.source, anchors });
+        const probed = await probe.run();
+        if (probed.anchors.length === 0) continue;
+        sources.push({ source: probe.source, anchors: probed.anchors });
+        centers.push(...probed.centers);
       } catch (e) {
         this.logger.warn(
           `L3 ${probe.source} anchor source failed (companyId=${input.companyId}): ${(e as Error).message}`,
         );
       }
     }
-    return sources;
+    return { sources, centers };
   }
 
-  /** Direct aux probe: fenced BM25 episode hits → session anchors; the
-   *  rows also seed episodeById (window centers for the degrade path),
-   *  bounded by the source topK ≪ ANCHOR_EPISODE_CAP. */
-  private async directAnchors(
-    input: L3EscalateInput,
-    fences: L3Fences,
-    episodeById: Map<string, { conversationId: string; atMs?: number | undefined }>,
-  ): Promise<L3SessionAnchor[]> {
+  /** Direct aux probe: fenced BM25 episode hits → session anchors, each
+   *  hit its own episode-keyed window center. */
+  private async directAnchors(input: L3EscalateInput, fences: L3Fences): Promise<L3AnchorProbe> {
     const rows = await this.episodes.searchText({
       companyId: input.companyId,
       query: input.dto.query,
@@ -655,24 +668,26 @@ export class L3EscalationService {
       ...(fences.userId !== undefined ? { userId: fences.userId } : {}),
     });
     const anchors: L3SessionAnchor[] = [];
+    const centers: L3AnchorCenter[] = [];
     for (const r of rows) {
       if (!r.conversationId) continue;
       const conversationId = String(r.conversationId);
       const atMs = toMs(r.occurredAt);
       anchors.push({ conversationId, score: r.score ?? 0, atMs });
-      if (r.id !== undefined && episodeById.size < ANCHOR_EPISODE_CAP) {
-        const key = String(r.id);
-        if (!episodeById.has(key)) episodeById.set(key, { conversationId, atMs });
+      if (atMs !== undefined) {
+        centers.push({
+          conversationId,
+          atMs,
+          ...(r.id !== undefined ? { episodeId: String(r.id) } : {}),
+        });
       }
     }
-    return anchors;
+    return { anchors, centers };
   }
 
-  /** Segment aux probe: fused segment hits → session anchors. */
-  private async segmentAnchors(
-    input: L3EscalateInput,
-    fences: L3Fences,
-  ): Promise<L3SessionAnchor[]> {
+  /** Segment aux probe: fused segment hits → session anchors, one
+   *  moment center per hit. */
+  private async segmentAnchors(input: L3EscalateInput, fences: L3Fences): Promise<L3AnchorProbe> {
     const rows =
       (await this.segments?.topSegmentAnchors({
         companyId: input.companyId,
@@ -681,22 +696,20 @@ export class L3EscalationService {
         ...(fences.userId !== undefined ? { userId: fences.userId } : {}),
         limit: L3_SEGMENT_ANCHOR_TOPK,
       })) ?? [];
-    return rows.map((r): L3SessionAnchor => ({
+    const anchors = rows.map((r): L3SessionAnchor => ({
       conversationId: r.conversationId,
       score: r.score,
       atMs: toMs(r.occurredAt),
     }));
+    return { anchors, centers: momentCenters(anchors) };
   }
 
   /** Temporal aux probe: conversations active in the query-named
-   *  absolute period, scored by visible turn count. No parseable
-   *  period → no read, no anchors. */
-  private async temporalAnchors(
-    input: L3EscalateInput,
-    fences: L3Fences,
-  ): Promise<L3SessionAnchor[]> {
+   *  absolute period, scored by visible turn count, one moment center
+   *  per conversation. No parseable period → no read, no anchors. */
+  private async temporalAnchors(input: L3EscalateInput, fences: L3Fences): Promise<L3AnchorProbe> {
     const range = parseQueryTimeRange(input.dto.query);
-    if (!range) return [];
+    if (!range) return { anchors: [], centers: [] };
     const rows = await this.episodes.conversationsInRange({
       companyId: input.companyId,
       fromIso: new Date(range.fromMs).toISOString(),
@@ -705,24 +718,27 @@ export class L3EscalationService {
       includePii: fences.includePii,
       ...(fences.userId !== undefined ? { userId: fences.userId } : {}),
     });
-    return rows.map((r): L3SessionAnchor => ({
+    const anchors = rows.map((r): L3SessionAnchor => ({
       conversationId: r.conversationId,
       score: r.turns,
       atMs: r.atMs,
     }));
+    return { anchors, centers: momentCenters(anchors) };
   }
 
   /**
    * Fetch the selected full sessions and render them as fenced
    * transcript sections. When the assembled context exceeds the token
-   * cap, degrade to widened L2 raw-turn windows around the anchor turns
-   * of those sessions instead of truncating a session mid-way.
+   * cap, degrade to widened L2 raw-turn windows around the anchor
+   * centers of those sessions instead of truncating a session mid-way.
    */
   private async assembleContext(
     input: L3EscalateInput,
     args: {
       sessionIds: string[];
-      episodeById: Map<string, { conversationId: string; atMs?: number | undefined }>;
+      /** Every anchor source's window centers; narrowed to the selected
+       *  sessions here (selectWindowCenters). */
+      centers: L3AnchorCenter[];
       includePii: boolean;
       userId?: string | undefined;
       /** FOVEA_L3_EPISODE_CITATIONS: render [episode:...] turn headers
@@ -750,25 +766,20 @@ export class L3EscalationService {
         turnsById: args.episodeCitations ? citableTurnsOf(sessions) : new Map(),
       };
     }
-    // Over budget: widen the L2 windows around the anchor turns of the
+    // Over budget: widen the L2 windows around the anchor centers of the
     // selected sessions (reuse windowAround) rather than truncating.
-    const selected = new Set(args.sessionIds);
-    const centers = [...args.episodeById.entries()].filter(([, v]) =>
-      selected.has(v.conversationId),
-    );
+    const centers = selectWindowCenters(args.centers, args.sessionIds);
     const span = Math.max(1, input.profile.rawWindowSpan * L3_DEGRADE_SPAN_MULT);
     const windows = await Promise.all(
-      centers.map(([, v]): Promise<L3Turn[]> =>
-        v.atMs === undefined
-          ? Promise.resolve([])
-          : this.episodes.windowAround({
-              companyId: input.companyId,
-              conversationId: v.conversationId,
-              centerIso: new Date(v.atMs).toISOString(),
-              span,
-              includePii: args.includePii,
-              ...(args.userId !== undefined ? { userId: args.userId } : {}),
-            }),
+      centers.map((c): Promise<L3Turn[]> =>
+        this.episodes.windowAround({
+          companyId: input.companyId,
+          conversationId: c.conversationId,
+          centerIso: new Date(c.atMs).toISOString(),
+          span,
+          includePii: args.includePii,
+          ...(args.userId !== undefined ? { userId: args.userId } : {}),
+        }),
       ),
     );
     const byId = new Map<string, L3Turn>();

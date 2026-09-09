@@ -9,7 +9,8 @@
  *    preference for windowed (temporal-class) questions.
  *  - Service: anchor requirement (no session → skipped_no_anchor, no
  *    full-context call), the flip / no-flip telemetry, and the
- *    over-budget → widened-window degrade path.
+ *    over-budget → widened-window degrade path, whose window centers
+ *    come from EVERY anchor source (fact / direct / segment / temporal).
  */
 import type OpenAI from 'openai';
 import {
@@ -19,6 +20,9 @@ import {
   estimateTokens,
   adaptiveL3SessionCount,
   mergeAnchorSources,
+  momentCenters,
+  selectWindowCenters,
+  type L3AnchorCenter,
   type L3SessionAnchor,
 } from '../src/synthesize/l3-escalation';
 import { hasUsableCalibration } from '../src/synthesize/focus-signal';
@@ -390,6 +394,50 @@ describe('mergeAnchorSources — attention-hint boost', () => {
   });
 });
 
+describe('momentCenters + selectWindowCenters — degrade-path window centers', () => {
+  it('momentCenters: one moment-only center per timed anchor; untimed anchors yield none', () => {
+    const anchors: L3SessionAnchor[] = [
+      { conversationId: 'a', score: 1, atMs: 1000 },
+      { conversationId: 'a', score: 1, atMs: 2000 },
+      { conversationId: 'b', score: 1 },
+      { conversationId: 'c', score: 1, atMs: Number.NaN },
+    ];
+    expect(momentCenters(anchors)).toEqual([
+      { conversationId: 'a', atMs: 1000 },
+      { conversationId: 'a', atMs: 2000 },
+    ]);
+  });
+
+  it('selectWindowCenters: keeps only the selected sessions, in first-seen order', () => {
+    const centers: L3AnchorCenter[] = [
+      { conversationId: 'b', atMs: 5, episodeId: 'episode:b1' },
+      { conversationId: 'a', atMs: 1 },
+      { conversationId: 'c', atMs: 9 },
+    ];
+    expect(selectWindowCenters(centers, ['a', 'b'])).toEqual([
+      { conversationId: 'b', atMs: 5, episodeId: 'episode:b1' },
+      { conversationId: 'a', atMs: 1 },
+    ]);
+    expect(selectWindowCenters(centers, [])).toEqual([]);
+  });
+
+  it('selectWindowCenters: dedupes by episodeId when known, by (session, moment) otherwise', () => {
+    const centers: L3AnchorCenter[] = [
+      { conversationId: 'a', atMs: 1, episodeId: 'episode:e1' },
+      { conversationId: 'a', atMs: 1, episodeId: 'episode:e1' },
+      // A second turn at the same moment is a distinct episode-keyed center.
+      { conversationId: 'a', atMs: 1, episodeId: 'episode:e2' },
+      { conversationId: 'a', atMs: 7 },
+      { conversationId: 'a', atMs: 7 },
+    ];
+    expect(selectWindowCenters(centers, ['a'])).toEqual([
+      { conversationId: 'a', atMs: 1, episodeId: 'episode:e1' },
+      { conversationId: 'a', atMs: 1, episodeId: 'episode:e2' },
+      { conversationId: 'a', atMs: 7 },
+    ]);
+  });
+});
+
 describe('verifierPasses + estimateTokens', () => {
   it('passes only on supported (and answering under topic coverage)', () => {
     expect(verifierPasses({ verdict: 'supported' }, false)).toBe(true);
@@ -411,6 +459,9 @@ interface Mocks {
   /** One entry per counted episode-citation outcome (n expanded). */
   episodeCitationOutcomes: string[];
   windowAroundCalls: number;
+  /** Every windowAround call's center, in order — the observable
+   *  degrade-path window centers. */
+  windowAroundArgs: Array<{ conversationId: string; centerIso: string; span: number }>;
   conversationTurnsCalls: number;
   /** conversationIds fetched, in order — the observable session ranking. */
   conversationTurnsIds: string[];
@@ -496,6 +547,7 @@ function makeService(opts: {
     anchorSources: [],
     episodeCitationOutcomes: [],
     windowAroundCalls: 0,
+    windowAroundArgs: [],
     conversationTurnsCalls: 0,
     conversationTurnsIds: [],
     searchTextCalls: 0,
@@ -514,8 +566,13 @@ function makeService(opts: {
       mocks.conversationTurnsIds.push(a.conversationId);
       return opts.sessionTurns[a.conversationId] ?? [];
     },
-    windowAround: async () => {
+    windowAround: async (a: { conversationId: string; centerIso: string; span: number }) => {
       mocks.windowAroundCalls += 1;
+      mocks.windowAroundArgs.push({
+        conversationId: a.conversationId,
+        centerIso: a.centerIso,
+        span: a.span,
+      });
       return opts.windowTurns ?? [];
     },
     searchText: async () => {
@@ -1049,6 +1106,169 @@ describe('L3EscalationService — auxiliary anchor sources', () => {
       expect(mocks.conversationsInRangeCalls).toBe(1);
       expect(mocks.anchorSources).toEqual(['temporal']);
     }
+  });
+});
+
+// ── service: degrade-path window centers per anchor source ──────────
+describe('L3EscalationService — over-budget degrade centers from every anchor source', () => {
+  // A session that blows the tiny token cap on its own: the widened
+  // windows (windowAround) are the only way any transcript reaches the
+  // generator, so an anchor source without centers yields NO evidence.
+  const bigText = 'x'.repeat(2000);
+  const flipScript = () =>
+    fakeOpenAi([
+      JSON.stringify({ answer: 'sapphire', citedFactIds: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+    ]);
+  const windowTurns = [
+    {
+      id: 'episode:w1',
+      speaker: 'user',
+      text: 'tier is sapphire',
+      occurredAt: '2026-04-01T00:00:00Z',
+    },
+  ];
+  const overBudget = (overrides: Partial<RetrievalProfile>) =>
+    makeProfile({ l3TokenCap: 10, ...overrides });
+  // makeProfile's rawWindowSpan 2 × the L3 degrade multiplier 4.
+  const DEGRADE_SPAN = 8;
+  const bigSession = (id: string, occurredAt: string) => [
+    { id, speaker: 'user', text: bigText, occurredAt },
+  ];
+
+  it('segment-only anchors + long conversation → windows around the segment moments', async () => {
+    const { service, mocks } = makeService({
+      factEps: [],
+      episodesByIds: [],
+      sessionTurns: { conv_seg: bigSession('episode:s1', '2026-04-01T00:00:00Z') },
+      segmentAnchors: [
+        { conversationId: 'conv_seg', occurredAt: '2026-04-01T00:00:00Z', score: 0.03 },
+        { conversationId: 'conv_seg', occurredAt: '2026-04-02T00:00:00Z', score: 0.02 },
+      ],
+      windowTurns,
+    });
+    const out = await service.escalate(
+      baseInput(flipScript(), overBudget({ l3SegmentAnchor: true })),
+    );
+    expect(out?.answer).toBe('sapphire');
+    expect(mocks.outcomes).toEqual(['fired', 'over_budget_degraded', 'flipped']);
+    expect(mocks.anchorSources).toEqual(['segment']);
+    expect(mocks.windowAroundArgs).toEqual([
+      { conversationId: 'conv_seg', centerIso: '2026-04-01T00:00:00.000Z', span: DEGRADE_SPAN },
+      { conversationId: 'conv_seg', centerIso: '2026-04-02T00:00:00.000Z', span: DEGRADE_SPAN },
+    ]);
+  });
+
+  it('temporal-only anchors + long conversation → a window around the in-range moment', async () => {
+    const { service, mocks } = makeService({
+      factEps: [],
+      episodesByIds: [],
+      sessionTurns: { conv_range: bigSession('episode:t1', '2023-05-03T00:00:00Z') },
+      rangeConversations: [{ conversationId: 'conv_range', atMs: Date.UTC(2023, 4, 3), turns: 4 }],
+      windowTurns,
+    });
+    const out = await service.escalate({
+      ...baseInput(flipScript(), overBudget({ l3TemporalAnchor: true })),
+      dto: { query: 'what tier did I have in May 2023?' } as SynthesizeDto,
+    });
+    expect(out?.answer).toBe('sapphire');
+    expect(mocks.outcomes).toEqual(['fired', 'over_budget_degraded', 'flipped']);
+    expect(mocks.anchorSources).toEqual(['temporal']);
+    expect(mocks.windowAroundArgs).toEqual([
+      { conversationId: 'conv_range', centerIso: '2023-05-03T00:00:00.000Z', span: DEGRADE_SPAN },
+    ]);
+  });
+
+  it('direct-only anchors + long conversation → one window per BM25 hit (unchanged)', async () => {
+    const { service, mocks } = makeService({
+      factEps: [],
+      episodesByIds: [],
+      sessionTurns: { conv_direct: bigSession('episode:d1', '2026-04-01T00:00:00Z') },
+      searchTextRows: [
+        {
+          id: 'episode:d1',
+          conversationId: 'conv_direct',
+          speaker: 'user',
+          text: 'tier',
+          occurredAt: '2026-04-01T00:00:00Z',
+          score: 3.2,
+        },
+        {
+          id: 'episode:d2',
+          conversationId: 'conv_direct',
+          speaker: 'user',
+          text: 'sapphire',
+          occurredAt: '2026-04-03T00:00:00Z',
+          score: 1.1,
+        },
+      ],
+      windowTurns,
+    });
+    const out = await service.escalate(
+      baseInput(flipScript(), overBudget({ l3DirectAnchor: true })),
+    );
+    expect(out?.answer).toBe('sapphire');
+    expect(mocks.outcomes).toEqual(['fired', 'over_budget_degraded', 'flipped']);
+    expect(mocks.anchorSources).toEqual(['direct']);
+    expect(mocks.windowAroundArgs).toEqual([
+      { conversationId: 'conv_direct', centerIso: '2026-04-01T00:00:00.000Z', span: DEGRADE_SPAN },
+      { conversationId: 'conv_direct', centerIso: '2026-04-03T00:00:00.000Z', span: DEGRADE_SPAN },
+    ]);
+  });
+
+  it('fact anchors + long conversation → one window per grounding episode of the SELECTED sessions only (unchanged)', async () => {
+    const F2 = 'knowledge_fact:f2';
+    const hit = (factId: string, score: number): SearchHit => ({
+      entityId: 'knowledge_entity:e1',
+      entityType: 'topic',
+      canonicalName: 'tier',
+      externalRefs: {},
+      facts: [
+        {
+          factId,
+          predicate: 'tier',
+          object: 'sapphire',
+          confidence: 0.9,
+          validFrom: '2026-04-01T00:00:00Z',
+          status: 'active',
+          score,
+        },
+      ],
+      score,
+    });
+    const { service, mocks } = makeService({
+      // f1 grounds in two turns of conv1, f2 in one turn of conv2.
+      factEps: [
+        { id: FACT_ID, eps: ['episode:ep1', 'episode:ep2'] },
+        { id: F2, eps: ['episode:ep3'] },
+      ],
+      episodesByIds: [
+        { id: 'episode:ep1', conversationId: 'conv1', occurredAt: '2026-04-01T00:00:00Z' },
+        { id: 'episode:ep2', conversationId: 'conv1', occurredAt: '2026-04-01T01:00:00Z' },
+        { id: 'episode:ep3', conversationId: 'conv2', occurredAt: '2026-04-02T00:00:00Z' },
+      ],
+      sessionTurns: {
+        conv1: bigSession('episode:ep1', '2026-04-01T00:00:00Z'),
+        conv2: bigSession('episode:ep3', '2026-04-02T00:00:00Z'),
+      },
+      windowTurns,
+    });
+    // Both scores stay under the coverage floor (the ladder must fire);
+    // equal density (one fact each), so f1's higher score ranks conv1
+    // first and l3MaxSessions 1 selects it alone.
+    const out = await service.escalate({
+      ...baseInput(flipScript(), overBudget({ l3MaxSessions: 1 })),
+      results: [hit(FACT_ID, 0.2), hit(F2, 0.1)],
+    });
+    expect(out?.answer).toBe('sapphire');
+    expect(mocks.outcomes).toEqual(['fired', 'over_budget_degraded', 'flipped']);
+    expect(mocks.anchorSources).toEqual(['fact']);
+    expect(mocks.conversationTurnsIds).toEqual(['conv1']);
+    // Both conv1 grounding turns are centers; conv2's is not selected.
+    expect(mocks.windowAroundArgs).toEqual([
+      { conversationId: 'conv1', centerIso: '2026-04-01T00:00:00.000Z', span: DEGRADE_SPAN },
+      { conversationId: 'conv1', centerIso: '2026-04-01T01:00:00.000Z', span: DEGRADE_SPAN },
+    ]);
   });
 });
 
