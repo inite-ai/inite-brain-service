@@ -166,6 +166,47 @@ describe('VectorCorpusService', () => {
     expect(metrics.countVectorCorpusRepair).toHaveBeenCalledWith('deferred');
   });
 
+  it('a repair deferred at boot runs by itself once the embedder is warm — not the next night', async () => {
+    jest.useFakeTimers();
+    try {
+      let ready = false;
+      const { svc, reindex } = make({
+        census: { 'knowledge_fact.embedding': [{ width: 1536, count: 39 }] },
+        afterRepair: { 'knowledge_fact.embedding': [{ width: 1024, count: 39 }] },
+      });
+      (svc as unknown as { embedder: { isReady: () => boolean } }).embedder.isReady = () => ready;
+      const first = await svc.reconcileTenant('co_x', 'startup');
+      expect(first.outcome).toBe('embedder_not_ready');
+      expect(reindex.run).not.toHaveBeenCalled();
+      // Two checks while still warming: nothing happens.
+      await jest.advanceTimersByTimeAsync(2 * 60_000);
+      expect(reindex.run).not.toHaveBeenCalled();
+      // Warm now: the next check re-queues the tenant and the sweep runs.
+      ready = true;
+      await jest.advanceTimersByTimeAsync(60_000);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(reindex.run).toHaveBeenCalledTimes(1);
+      expect(reindex.run).toHaveBeenCalledWith({ tenant: 'co_x', allTables: true });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('a deferral on the nightly pass does not start a poller — the next night retries', async () => {
+    jest.useFakeTimers();
+    try {
+      const { svc, reindex } = make({
+        census: { 'knowledge_fact.embedding': [{ width: 1536, count: 39 }] },
+        ready: false,
+      });
+      await svc.reconcileTenant('co_x', 'cron');
+      await jest.advanceTimersByTimeAsync(2 * 60 * 60_000);
+      expect(reindex.run).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('a conforming corpus is a no-op: no sweep, no job run', async () => {
     const { svc, reindex, jobs } = make({
       census: { 'knowledge_fact.embedding': [{ width: 1024, count: 40 }] },
