@@ -104,7 +104,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    * inside the global schema-apply queue on the first request for that
    * tenant. Anything real belongs on the listener's own timer.
    */
-  private schemaReadyListener?: (companyId: string) => void;
+  private readonly schemaReadyListeners = new Set<(companyId: string) => void>();
   // All schema applications (across all databases) are serialized through
   // this chain. SurrealDB raises transaction read-conflicts when multiple
   // tenants concurrently CREATE DATABASE + DEFINE on shared metadata.
@@ -774,13 +774,14 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   }
 
   /**
-   * Register the tenant-provisioning listener. One listener, last writer
-   * wins — this is a single well-known consumer (HNSW index provisioning),
-   * not an event bus, and pretending otherwise would invite work onto the
-   * schema-apply queue that has no business being there.
+   * Register a tenant-schema-ready listener. Listeners are SYNCHRONOUS and
+   * must not throw or block: they run inside the global schema-apply queue
+   * on the first request for that tenant, so anything real belongs on the
+   * listener's own timer. Several may register (a Set, not a slot) — the
+   * contract is the same for one listener as for five.
    */
   onTenantSchemaReady(listener: (companyId: string) => void): void {
-    this.schemaReadyListener = listener;
+    this.schemaReadyListeners.add(listener);
   }
 
   /**
@@ -790,12 +791,14 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    * and must not poison the schema queue for every other tenant behind it.
    */
   private notifySchemaReady(database: string): void {
-    const listener = this.schemaReadyListener;
-    if (!listener || !database.startsWith('co_')) return;
-    try {
-      listener(database.slice('co_'.length));
-    } catch (e) {
-      this.logger.warn(`tenant schema-ready listener threw: ${(e as Error).message}`);
+    if (this.schemaReadyListeners.size === 0 || !database.startsWith('co_')) return;
+    const companyId = database.slice('co_'.length);
+    for (const listener of this.schemaReadyListeners) {
+      try {
+        listener(companyId);
+      } catch (e) {
+        this.logger.warn(`tenant schema-ready listener threw: ${(e as Error).message}`);
+      }
     }
   }
 

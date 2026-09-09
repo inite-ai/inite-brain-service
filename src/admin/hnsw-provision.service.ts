@@ -185,8 +185,16 @@ export class HnswProvisionService implements OnModuleInit {
   ) {}
 
   /** Master gate. Off ⇒ no hook, no cron, no lease, no registry write. */
+  /**
+   * Provisioning follows SEARCH_HNSW_ENABLED: a deployment that rides the
+   * KNN legs wants every tenant indexed, and one that does not has nothing
+   * to provision. HNSW_PROVISION_ENABLED, when set explicitly, overrides
+   * in either direction (e.g. build ahead of flipping the search flag).
+   */
   static enabled(): boolean {
-    return envFlagEnabled(process.env.HNSW_PROVISION_ENABLED);
+    const explicit = process.env.HNSW_PROVISION_ENABLED;
+    if (explicit !== undefined && explicit !== '') return envFlagEnabled(explicit);
+    return envFlagEnabled(process.env.SEARCH_HNSW_ENABLED);
   }
 
   /** Second gate: the nightly roster walk only. Default ON under the master. */
@@ -307,7 +315,7 @@ export class HnswProvisionService implements OnModuleInit {
       dryRun: opts.dryRun === true,
     };
     let builds = 0;
-    for (const companyId of opts.tenants ?? this.apiKeys.knownCompanyIds()) {
+    for (const companyId of opts.tenants ?? this.roster()) {
       if (Date.now() >= deadline) {
         // Nothing is lost — an un-indexed tenant is rediscovered by the
         // next walk. Count what we did not start rather than drop it.
@@ -319,6 +327,10 @@ export class HnswProvisionService implements OnModuleInit {
       // At the cap we still PROBE (so the roster stays honest about this
       // tenant) but suppress the DDL — which is exactly a dry run.
       const capped = builds >= maxBuilds;
+      // The sweep's own first touch of a tenant fires the schema-ready hook;
+      // marking it seen first keeps the hook from provisioning it a second
+      // time in parallel with this pass.
+      this.seen.add(companyId);
       const tenant = await this.provisionTenant(companyId, {
         dryRun: opts.dryRun === true || capped,
       });
@@ -381,6 +393,17 @@ export class HnswProvisionService implements OnModuleInit {
    * have a ready index". Registry only — no tenant database is opened and no
    * DDL is emitted, so it is safe to call at any cadence.
    */
+  /**
+   * Tenants the sweep walks: the registry's ACTIVE roster when it has one
+   * (suspended tenants and dormant static keys are not provisioned, and a
+   * walk over every known key would CREATE a database for each), else the
+   * static key roster of a registry-less deployment.
+   */
+  private roster(): readonly string[] {
+    const active = this.registry?.activeCompanyIds() ?? [];
+    return active.length > 0 ? active : this.apiKeys.knownCompanyIds();
+  }
+
   async rosterState(): Promise<TenantIndexStateRow[]> {
     return (await this.registry?.listIndexState()) ?? [];
   }
@@ -421,8 +444,9 @@ export class HnswProvisionService implements OnModuleInit {
  * `mismatch` outranks everything: an index at a foreign width is worse than
  * a missing one (it also rejects writes), and no automatic action fixes it.
  * `partial` exists because a concurrent build finishes per index, and
- * because the four indexes serve different legs — the entity index alone is
- * what stands between a tenant and a duplicate entity per mention.
+ * because the four indexes serve different legs (entity resolution and the
+ * dedup seed both ride fact_embedding_hnsw; the segment index serves the
+ * coverage-scan lane), so one missing index degrades one lane, not all.
  */
 function foldState(r: HnswMaintenanceResult): HnswProvisionState {
   if (r.mismatched.length > 0) return 'mismatch';

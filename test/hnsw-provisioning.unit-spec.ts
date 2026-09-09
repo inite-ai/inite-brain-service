@@ -202,6 +202,8 @@ function provision(opts: {
       created: action === 'ensure' ? ['entity_embedding_hnsw'] : [],
     }));
   const registry = {
+    // No registry roster in these fixtures: the sweep falls back to the static keys.
+    activeCompanyIds: () => [] as string[],
     recordIndexState: jest.fn(async (companyId: string, o: { state: string }) => {
       opts.recorded?.push({ companyId, state: o.state });
     }),

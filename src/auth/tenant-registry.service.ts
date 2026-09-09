@@ -232,7 +232,7 @@ export class TenantRegistryService implements OnModuleInit, OnModuleDestroy {
     if (!COMPANY_ID.test(companyId) || !this.surreal) return;
     // Only SET what was supplied — the columns are option<> and SurrealDB
     // rejects a bound NULL on an option type. Names are code literals.
-    const sets = ['companyId = $companyId', 'indexState = $indexState', 'indexStateAt = $at'];
+    const sets = ['companyId = $companyId', 'indexState = $indexState'];
     const vars: Record<string, unknown> = {
       companyId,
       indexState: observed.state,
