@@ -11,9 +11,11 @@ import {
   canonicalDerivedPin,
   computeCacheKey,
   computeProfileHash,
+  dependenciesOf,
   deterministicSerialize,
   normalizeQuery,
   type AnswerCacheStoreContext,
+  type CachedDependencyKind,
 } from '../src/answer-cache/answer-cache.service';
 
 /**
@@ -127,7 +129,9 @@ describe('computeCacheKey', () => {
   });
 
   it('bakes the prompt version in (a bump misses every old entry)', () => {
-    expect(ANSWER_CACHE_PROMPT_VERSION).toBe(1);
+    // 2 = 0136: a row carries its typed non-fact dependencies, so every
+    // pre-0136 entry (which cannot be revalidated) misses by key.
+    expect(ANSWER_CACHE_PROMPT_VERSION).toBe(2);
   });
 });
 
@@ -153,11 +157,29 @@ function makeHarness(opts: {
    *  — used to model DB rows that survive the SQL scope gate but are then
    *  discarded by the JS row-policy (the gap-1 cap-before-scope vector). */
   deniedPredicate?: string;
+  /** 0136: the live rows behind non-fact dependencies, per kind — what the
+   *  per-kind dependency SELECTs (one batch, kinds in declared order)
+   *  return at admission and on read. Absent kind ⇒ no rows ⇒ 'missing'. */
+  dependencyRows?: Partial<Record<CachedDependencyKind, Array<Record<string, unknown>>>>;
 }) {
   const calls: QueryCall[] = [];
+  const DEP_TABLES: Record<CachedDependencyKind, string> = {
+    belief: 'FROM semantic_belief',
+    episode: 'FROM episode ',
+    fragment: 'FROM evidence_fragment',
+    scene: 'FROM memory_episode',
+  };
   const db = {
     query: async (sql: string, params: Record<string, unknown> = {}) => {
       calls.push({ sql, params });
+      const depKinds = (Object.keys(DEP_TABLES) as CachedDependencyKind[]).filter((k) =>
+        sql.includes(DEP_TABLES[k]),
+      );
+      if (depKinds.length > 0) {
+        // One result slot per kind present, in the order the service emits
+        // the statements (the declared kind order).
+        return depKinds.map((k) => opts.dependencyRows?.[k] ?? []);
+      }
       if (/FROM knowledge_fact/.test(sql)) {
         // check-on-read batch: [cited facts, entity names, newer-fact probe].
         // Model the DB-side LIMIT on the probe so cap-before-scope behaves
@@ -233,6 +255,9 @@ function liveCacheRow(over: Record<string, unknown> = {}) {
     answer: 'Acme is gold tier.',
     citedFactIds: ['knowledge_fact:f1'],
     entityIds: ['knowledge_entity:e1'],
+    // 0136: a fact-only answer carries an EMPTY dependency list (an absent
+    // list is a pre-0136 row and fails closed — see the dependency block).
+    dependencies: [],
     createdAt: new Date(Date.now() - 3_600_000),
     expiresAt: new Date(Date.now() + 3_600_000),
     invalidatedAt: null,
@@ -708,4 +733,392 @@ describe('AnswerCacheService.admit — admission rules', () => {
       expect(h.outcomes).toEqual([]);
     },
   );
+});
+
+// ── 0136: every dependency, not only the facts (audit F3) ──────────
+
+describe('dependenciesOf — the typed dependency set of an answer', () => {
+  it('maps each evidence arm to its kind, de-duplicates, orders by declared kind', () => {
+    expect(
+      dependenciesOf([
+        { sceneId: 'memory_episode:s1' },
+        { beliefId: 'semantic_belief:b1', excerpt: 'x' },
+        { episodeId: 'episode:e1', conversationId: 'c1' },
+        { fragmentId: 'evidence_fragment:f1', assetId: 'evidence_asset:a1' },
+        { beliefId: 'semantic_belief:b1' },
+      ]),
+    ).toEqual([
+      { kind: 'belief', id: 'semantic_belief:b1' },
+      { kind: 'episode', id: 'episode:e1' },
+      { kind: 'fragment', id: 'evidence_fragment:f1' },
+      { kind: 'scene', id: 'memory_episode:s1' },
+    ]);
+  });
+
+  it('no evidence citations ⇒ an empty (trackable) set', () => {
+    expect(dependenciesOf(undefined)).toEqual([]);
+    expect(dependenciesOf([])).toEqual([]);
+  });
+
+  it('a citation with no trackable arm ⇒ null (untrackable, blocks admission)', () => {
+    expect(dependenciesOf([{ beliefId: 'semantic_belief:b1' }, {}])).toBeNull();
+    // Not a record id — 3.x cannot bind it, so it can never be revalidated.
+    expect(dependenciesOf([{ beliefId: 'b1' }])).toBeNull();
+  });
+});
+
+describe('AnswerCacheService.admit — dependencies are stamped, or the answer is not cached', () => {
+  const ctx: AnswerCacheStoreContext = {
+    key: 'b'.repeat(64),
+    companyId: 'co_test',
+    profileHash: 'ph',
+    model: 'gpt-4o-mini',
+    normalizedQuery: 'where does alice live and work',
+    isEnumeration: false,
+  };
+  /** The audit's repro: one fact (employer) plus one belief (residence). */
+  const mixed: SynthesizeResult = {
+    answer: 'Alice lives in A and works at Acme.',
+    citations: [
+      {
+        factId: 'knowledge_fact:f',
+        entityId: 'knowledge_entity:e',
+        canonicalName: 'Alice',
+        predicate: 'employer',
+        object: 'Acme',
+      },
+    ],
+    evidenceCitations: [{ beliefId: 'semantic_belief:old', excerpt: 'Alice — residence: A' }],
+    results: [],
+  };
+  const liveBelief = (over: Record<string, unknown> = {}) => ({
+    id: 'semantic_belief:old',
+    revision: 3,
+    status: 'active',
+    supersededBy: null,
+    validUntil: null,
+    userId: 'alice',
+    ...over,
+  });
+
+  it('audit F3 repro: a mixed fact+belief answer is admitted WITH the belief as a stamped dependency', async () => {
+    const h = makeHarness({ dependencyRows: { belief: [liveBelief()] } });
+    await h.svc.admit(ctx, mixed, 'supported');
+    // The belief row was read (its revision is the stamp)…
+    const lookup = h.calls.find((c) => /FROM semantic_belief/.test(c.sql));
+    expect(lookup).toBeDefined();
+    expect(JSON.stringify(lookup!.params)).toContain('semantic_belief:old');
+    // …and the stored row carries it — this is what 0091 dropped.
+    const upsert = h.calls.find((c) => /UPSERT/.test(c.sql))!;
+    expect(upsert.sql).toContain('dependencies: $dependencies');
+    expect(upsert.params.dependencies).toEqual([
+      { kind: 'belief', id: 'semantic_belief:old', rev: '3' },
+    ]);
+    expect(upsert.params.citedFactIds).toEqual(['knowledge_fact:f']);
+    expect(h.outcomes).toEqual(['stored']);
+  });
+
+  it('a fact-only answer stores an empty dependency list and issues no dependency query', async () => {
+    const h = makeHarness({});
+    await h.svc.admit(ctx, { ...mixed, evidenceCitations: [] }, 'supported');
+    expect(h.calls.some((c) => /FROM semantic_belief/.test(c.sql))).toBe(false);
+    const upsert = h.calls.find((c) => /UPSERT/.test(c.sql))!;
+    expect(upsert.params.dependencies).toEqual([]);
+    expect(h.outcomes).toEqual(['stored']);
+  });
+
+  it.each([
+    ['belief already superseded', liveBelief({ status: 'superseded' })],
+    ['belief already retracted', liveBelief({ status: 'retracted' })],
+    ['belief past validUntil', liveBelief({ validUntil: new Date(Date.now() - 1_000) })],
+    ['belief bound to another user (answer partition = bob)', liveBelief({ userId: 'alice' })],
+  ] as Array<[string, Record<string, unknown>]>)(
+    'not admitted when a dependency is already dead at admission: %s',
+    async (name, row) => {
+      const h = makeHarness({ dependencyRows: { belief: [row] } });
+      const scoped = name.includes('another user') ? { ...ctx, userId: 'bob' } : ctx;
+      await h.svc.admit(scoped, mixed, 'supported');
+      expect(h.calls.some((c) => /UPSERT/.test(c.sql))).toBe(false);
+      expect(h.outcomes).toEqual(['not_admitted']);
+    },
+  );
+
+  it('not admitted when a dependency row is missing', async () => {
+    const h = makeHarness({ dependencyRows: { belief: [] } });
+    await h.svc.admit(ctx, mixed, 'supported');
+    expect(h.calls.some((c) => /UPSERT/.test(c.sql))).toBe(false);
+    expect(h.outcomes).toEqual(['not_admitted']);
+  });
+
+  it('not admitted when a citation carries no trackable arm (no query at all)', async () => {
+    const h = makeHarness({ dependencyRows: { belief: [liveBelief()] } });
+    await h.svc.admit(
+      ctx,
+      { ...mixed, evidenceCitations: [{ beliefId: 'semantic_belief:old' }, {}] },
+      'supported',
+    );
+    expect(h.calls).toHaveLength(0);
+    expect(h.outcomes).toEqual(['not_admitted']);
+  });
+
+  it('stamps every arm with its own revision: episode (existence), fragment (asset quarantine), scene (gist hash)', async () => {
+    const h = makeHarness({
+      dependencyRows: {
+        episode: [{ id: 'episode:ep1', userId: null }],
+        fragment: [{ id: 'evidence_fragment:fr1', quarantineStatus: 'clean' }],
+        scene: [{ id: 'memory_episode:sc1', gist: 'moved to A', enrichedGist: null }],
+      },
+    });
+    await h.svc.admit(
+      ctx,
+      {
+        ...mixed,
+        evidenceCitations: [
+          { episodeId: 'episode:ep1', conversationId: 'c1' },
+          { fragmentId: 'evidence_fragment:fr1', assetId: 'evidence_asset:a1' },
+          { sceneId: 'memory_episode:sc1' },
+        ],
+      },
+      'supported',
+    );
+    const upsert = h.calls.find((c) => /UPSERT/.test(c.sql))!;
+    const deps = upsert.params.dependencies as Array<{ kind: string; id: string; rev: string }>;
+    expect(deps.map((d) => [d.kind, d.id])).toEqual([
+      ['episode', 'episode:ep1'],
+      ['fragment', 'evidence_fragment:fr1'],
+      ['scene', 'memory_episode:sc1'],
+    ]);
+    expect(deps[0]!.rev).toBe('');
+    expect(deps[1]!.rev).toBe('clean');
+    expect(deps[2]!.rev).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it('a fragment whose asset is quarantine-rejected is dead at admission', async () => {
+    const h = makeHarness({
+      dependencyRows: { fragment: [{ id: 'evidence_fragment:fr1', quarantineStatus: 'rejected' }] },
+    });
+    await h.svc.admit(
+      ctx,
+      { ...mixed, evidenceCitations: [{ fragmentId: 'evidence_fragment:fr1' }] },
+      'supported',
+    );
+    expect(h.calls.some((c) => /UPSERT/.test(c.sql))).toBe(false);
+    expect(h.outcomes).toEqual(['not_admitted']);
+  });
+});
+
+describe('AnswerCacheService.begin — dependency check-on-read (0136)', () => {
+  const beliefDep = { kind: 'belief', id: 'semantic_belief:b1', rev: '3' };
+  const liveBelief = (over: Record<string, unknown> = {}) => ({
+    id: 'semantic_belief:b1',
+    revision: 3,
+    status: 'active',
+    supersededBy: null,
+    validUntil: null,
+    userId: null,
+    ...over,
+  });
+  const args = () => beginArgs();
+
+  it('the audit scenario: the cited fact still validates, the belief was superseded → cause=superseded, miss', async () => {
+    const h = makeHarness({
+      cacheRow: liveCacheRow({ dependencies: [beliefDep] }),
+      factRows: [activeFact()],
+      dependencyRows: {
+        belief: [liveBelief({ status: 'superseded', supersededBy: 'semantic_belief:b2' })],
+      },
+    });
+    const out = await h.svc.begin(args());
+    expect(out?.hit).toBeUndefined();
+    expect(h.outcomes).toEqual(['rejected_stale']);
+    const inv = h.calls.find((c) => /invalidationCause/.test(c.sql))!;
+    expect(inv.params.cause).toBe('superseded');
+  });
+
+  it.each([
+    ['belief retracted → retracted', liveBelief({ status: 'retracted' }), 'retracted'],
+    [
+      'belief past validUntil → expired_validity',
+      liveBelief({ validUntil: new Date(Date.now() - 1_000) }),
+      'expired_validity',
+    ],
+    [
+      'belief revised in place (revision moved) → dependency_changed',
+      liveBelief({ revision: 4 }),
+      'dependency_changed',
+    ],
+    [
+      'belief left the servable lifecycle → missing',
+      liveBelief({ status: 'competing' }),
+      'missing',
+    ],
+  ] as Array<[string, Record<string, unknown>, string]>)('%s', async (_n, row, cause) => {
+    const h = makeHarness({
+      cacheRow: liveCacheRow({ dependencies: [beliefDep] }),
+      factRows: [activeFact()],
+      dependencyRows: { belief: [row] },
+    });
+    expect((await h.svc.begin(args()))?.hit).toBeUndefined();
+    expect(h.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe(cause);
+  });
+
+  it('a dependency row that is gone → missing (existence never leaks)', async () => {
+    const h = makeHarness({
+      cacheRow: liveCacheRow({ dependencies: [beliefDep] }),
+      factRows: [activeFact()],
+      dependencyRows: { belief: [] },
+    });
+    expect((await h.svc.begin(args()))?.hit).toBeUndefined();
+    expect(h.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe('missing');
+  });
+
+  it('scene gist recomposed → dependency_changed; unchanged gist → serves', async () => {
+    const admitted = makeHarness({
+      dependencyRows: {
+        scene: [{ id: 'memory_episode:s1', gist: 'moved to A', enrichedGist: null }],
+      },
+    });
+    await admitted.svc.admit(
+      {
+        key: 'c'.repeat(64),
+        companyId: 'co_test',
+        profileHash: 'ph',
+        model: 'm',
+        normalizedQuery: 'q',
+        isEnumeration: false,
+      },
+      {
+        answer: 'a',
+        citations: [
+          {
+            factId: 'knowledge_fact:f1',
+            entityId: 'knowledge_entity:e1',
+            canonicalName: 'E',
+            predicate: 'p',
+            object: 'o',
+          },
+        ],
+        evidenceCitations: [{ sceneId: 'memory_episode:s1' }],
+        results: [],
+      },
+      'supported',
+    );
+    const stored = admitted.calls.find((c) => /UPSERT/.test(c.sql))!.params.dependencies as Array<
+      Record<string, unknown>
+    >;
+
+    const changed = makeHarness({
+      cacheRow: liveCacheRow({ dependencies: stored }),
+      factRows: [activeFact()],
+      dependencyRows: {
+        scene: [{ id: 'memory_episode:s1', gist: 'moved to B', enrichedGist: null }],
+      },
+    });
+    expect((await changed.svc.begin(args()))?.hit).toBeUndefined();
+    expect(changed.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe(
+      'dependency_changed',
+    );
+
+    const same = makeHarness({
+      cacheRow: liveCacheRow({ dependencies: stored }),
+      factRows: [activeFact()],
+      dependencyRows: {
+        scene: [{ id: 'memory_episode:s1', gist: 'moved to A', enrichedGist: null }],
+      },
+    });
+    expect((await same.svc.begin(args()))?.hit?.cached).toBe(true);
+  });
+
+  it('fragment: asset quarantine state moved → dependency_changed; rejected → missing', async () => {
+    const dep = { kind: 'fragment', id: 'evidence_fragment:fr1', rev: 'clean' };
+    const moved = makeHarness({
+      cacheRow: liveCacheRow({ dependencies: [dep] }),
+      factRows: [activeFact()],
+      dependencyRows: { fragment: [{ id: 'evidence_fragment:fr1', quarantineStatus: 'pending' }] },
+    });
+    expect((await moved.svc.begin(args()))?.hit).toBeUndefined();
+    expect(moved.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe(
+      'dependency_changed',
+    );
+    const rejected = makeHarness({
+      cacheRow: liveCacheRow({ dependencies: [dep] }),
+      factRows: [activeFact()],
+      dependencyRows: { fragment: [{ id: 'evidence_fragment:fr1', quarantineStatus: 'rejected' }] },
+    });
+    expect((await rejected.svc.begin(args()))?.hit).toBeUndefined();
+    expect(rejected.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe(
+      'missing',
+    );
+  });
+
+  it('episode: the row exists → serves; forgotten → missing', async () => {
+    const dep = { kind: 'episode', id: 'episode:ep1', rev: '' };
+    const alive = makeHarness({
+      cacheRow: liveCacheRow({ dependencies: [dep] }),
+      factRows: [activeFact()],
+      dependencyRows: { episode: [{ id: 'episode:ep1', userId: null }] },
+    });
+    expect((await alive.svc.begin(args()))?.hit?.cached).toBe(true);
+    const gone = makeHarness({
+      cacheRow: liveCacheRow({ dependencies: [dep] }),
+      factRows: [activeFact()],
+      dependencyRows: { episode: [] },
+    });
+    expect((await gone.svc.begin(args()))?.hit).toBeUndefined();
+    expect(gone.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe('missing');
+  });
+
+  it('every dependency live → serves, and the additive-write probe still runs after them', async () => {
+    const served = makeHarness({
+      cacheRow: liveCacheRow({ dependencies: [beliefDep] }),
+      factRows: [activeFact()],
+      dependencyRows: { belief: [liveBelief()] },
+    });
+    const hit = await served.svc.begin(args());
+    expect(hit?.hit?.cached).toBe(true);
+    // The revalidated arm comes back as an id-only evidence citation.
+    expect(hit?.hit?.evidenceCitations).toEqual([{ beliefId: 'semantic_belief:b1' }]);
+    expect(served.outcomes).toEqual(['hit']);
+
+    const newer = makeHarness({
+      cacheRow: liveCacheRow({ dependencies: [beliefDep] }),
+      factRows: [activeFact()],
+      dependencyRows: { belief: [liveBelief()] },
+      probeRows: [newerFact()],
+    });
+    expect((await newer.svc.begin(args()))?.hit).toBeUndefined();
+    expect(newer.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe(
+      'newer_fact',
+    );
+  });
+
+  it('precedence: a dead cited fact wins over a dead dependency', async () => {
+    const h = makeHarness({
+      cacheRow: liveCacheRow({ dependencies: [beliefDep] }),
+      factRows: [activeFact({ status: 'retracted' })],
+      dependencyRows: { belief: [liveBelief({ status: 'superseded' })] },
+    });
+    expect((await h.svc.begin(args()))?.hit).toBeUndefined();
+    expect(h.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe('retracted');
+  });
+
+  it('a pre-0136 row (no dependency list) is never served — fail closed before any fact read', async () => {
+    const legacy = liveCacheRow();
+    delete (legacy as Record<string, unknown>).dependencies;
+    const h = makeHarness({ cacheRow: legacy, factRows: [activeFact()] });
+    expect((await h.svc.begin(args()))?.hit).toBeUndefined();
+    expect(h.calls.some((c) => /FROM knowledge_fact/.test(c.sql))).toBe(false);
+    expect(h.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe('missing');
+    expect(h.outcomes).toEqual(['rejected_stale']);
+  });
+
+  it('a malformed stored dependency entry fails closed as missing', async () => {
+    const h = makeHarness({
+      cacheRow: liveCacheRow({ dependencies: [{ kind: 'belief', id: 'nope', rev: '1' }] }),
+      factRows: [activeFact()],
+      dependencyRows: { belief: [liveBelief()] },
+    });
+    expect((await h.svc.begin(args()))?.hit).toBeUndefined();
+    expect(h.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe('missing');
+  });
 });

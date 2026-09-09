@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
-import { StringRecordId } from 'surrealdb';
+import { StringRecordId, type Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { pinUserScope } from '../auth/user-scope';
@@ -12,7 +12,7 @@ import { ReadPinService, type ReadPin } from '../episodes/read-pin.service';
 import { detectEnumerationShape } from '../synthesize/answer-router';
 import type { RetrievalProfile } from '../search/retrieval-profile';
 import type { SynthesizeDto } from '../synthesize/dto/synthesize.dto';
-import type { SynthesizeResult } from '../synthesize/synthesize.types';
+import type { EvidenceCitation, SynthesizeResult } from '../synthesize/synthesize.types';
 import type { Citation } from '../synthesize/fact-index';
 
 /**
@@ -21,20 +21,206 @@ import type { Citation } from '../synthesize/fact-index';
  * the evidence: a change to the generator system prompt, the fact-line
  * rendering, or the frame sections can change what the same facts
  * produce — and none of that is visible in the profile or the model
- * id. Bump this constant MANUALLY in the PR that changes prompt shape;
- * every existing entry then misses by key construction (no sweep
- * needed, TTL reaps the orphans).
+ * id. Bump this constant MANUALLY in the PR that changes prompt shape OR
+ * the stored-row contract; every existing entry then misses by key
+ * construction (no sweep needed, TTL reaps the orphans).
+ *
+ *   1 — 0091 shape.
+ *   2 — 0136: a row carries its typed non-fact `dependencies`; a pre-0136
+ *       row cannot be revalidated and must never be served.
  */
-export const ANSWER_CACHE_PROMPT_VERSION = 1;
+export const ANSWER_CACHE_PROMPT_VERSION = 2;
 
 /** Table + record-id namespace of the cache rows (migration 0091). */
 const TABLE = 'answer_cache';
 
-/** Mirrors the migration-0091/0097 ASSERT on answer_cache.invalidationCause.
- *  `newer_fact` (0097) = the additive-write freshness cause: a NEW active
- *  fact appeared on a cited entity after the answer was built. */
+/** Mirrors the migration-0091/0097/0136 ASSERT on
+ *  answer_cache.invalidationCause. `newer_fact` (0097) = the additive-write
+ *  freshness cause: a NEW active fact appeared on a cited entity after the
+ *  answer was built. `dependency_changed` (0136) = a non-fact dependency's
+ *  lifecycle stamp moved while its row stayed servable (a belief revised in
+ *  place, a scene recomposed, an asset's quarantine state changed). */
 export type InvalidationCause =
-  'superseded' | 'retracted' | 'expired_validity' | 'missing' | 'newer_fact';
+  'superseded' | 'retracted' | 'expired_validity' | 'missing' | 'newer_fact' | 'dependency_changed';
+
+/**
+ * The non-fact evidence a cached answer rests on (0136, audit F3) — one
+ * entry per EvidenceCitation arm, in the order the arms are declared.
+ * Every kind here is revalidated on EVERY read; an arm this list does not
+ * name is untrackable, and an answer citing one is never admitted.
+ */
+export type CachedDependencyKind = 'belief' | 'episode' | 'fragment' | 'scene';
+
+export interface CachedDependency {
+  kind: CachedDependencyKind;
+  /** Full record id — `semantic_belief:…`, `episode:…`,
+   *  `evidence_fragment:…`, `memory_episode:…`. */
+  id: string;
+  /**
+   * Lifecycle stamp observed at admission, compared byte-for-byte on
+   * read: a belief's `revision`, a scene's gist hash, a fragment's asset
+   * quarantine state; '' for an episode (immutable text — existence IS
+   * its lifecycle). A changed stamp is `dependency_changed`.
+   */
+  rev: string;
+}
+
+const DEPENDENCY_KINDS: readonly CachedDependencyKind[] = [
+  'belief',
+  'episode',
+  'fragment',
+  'scene',
+];
+
+/** A dependency row as the per-kind SELECT returns it (see dependencySelect). */
+interface DependencyRow {
+  id: unknown;
+  userId?: string | null;
+  revision?: number | string | null;
+  status?: string | null;
+  supersededBy?: unknown;
+  validUntil?: Date | string | null;
+  quarantineStatus?: string | null;
+  gist?: string | null;
+  enrichedGist?: string | null;
+}
+
+/**
+ * The typed dependency set of a result's evidence citations, or null when
+ * a citation carries no arm this cache can revalidate (the ONE-OF
+ * invariant means exactly one id is present on a well-formed citation;
+ * a malformed one is untrackable and blocks admission — fail closed).
+ * De-duplicated per (kind, id); kind order is the declared arm order.
+ */
+export function dependenciesOf(
+  evidenceCitations: EvidenceCitation[] | undefined,
+): Array<Pick<CachedDependency, 'kind' | 'id'>> | null {
+  const out: Array<Pick<CachedDependency, 'kind' | 'id'>> = [];
+  const seen = new Set<string>();
+  for (const c of evidenceCitations ?? []) {
+    const dep = dependencyArm(c);
+    if (!dep) return null;
+    const key = `${dep.kind}|${dep.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(dep);
+  }
+  return out.sort((a, b) => DEPENDENCY_KINDS.indexOf(a.kind) - DEPENDENCY_KINDS.indexOf(b.kind));
+}
+
+function dependencyArm(c: EvidenceCitation): Pick<CachedDependency, 'kind' | 'id'> | null {
+  if (isRecordId(c.beliefId)) return { kind: 'belief', id: c.beliefId };
+  if (isRecordId(c.episodeId)) return { kind: 'episode', id: c.episodeId };
+  if (isRecordId(c.fragmentId)) return { kind: 'fragment', id: c.fragmentId };
+  if (isRecordId(c.sceneId)) return { kind: 'scene', id: c.sceneId };
+  return null;
+}
+
+/** 3.x does not coerce string↔record: only a `table:key` string can be
+ *  bound as a record id, so anything else is untrackable. */
+function isRecordId(v: unknown): v is string {
+  return typeof v === 'string' && v.includes(':') && v.length > 2;
+}
+
+/** The id-only evidence citation a served hit returns for a dependency —
+ *  the arm the answer was admitted with, nothing rendered. */
+function citationOfDependency(dep: CachedDependency): EvidenceCitation {
+  switch (dep.kind) {
+    case 'belief':
+      return { beliefId: dep.id };
+    case 'episode':
+      return { episodeId: dep.id };
+    case 'fragment':
+      return { fragmentId: dep.id };
+    case 'scene':
+      return { sceneId: dep.id };
+  }
+}
+
+/** A stored dependency entry as the 0136 ASSERTs shape it; anything else
+ *  is a malformed row and fails closed on read. */
+function isCachedDependency(v: unknown): v is CachedDependency {
+  if (v === null || typeof v !== 'object') return false;
+  const d = v as Record<string, unknown>;
+  return (
+    typeof d.kind === 'string' &&
+    (DEPENDENCY_KINDS as readonly string[]).includes(d.kind) &&
+    isRecordId(d.id) &&
+    typeof d.rev === 'string'
+  );
+}
+
+/**
+ * One SELECT per kind, bound on `$<kind>` (a record-id array). The
+ * projection is exactly what `dependencyRev` and `dependencyLifecycle`
+ * read: existence, the user-scope fence column, the lifecycle state and
+ * the revision stamp — nothing content-bearing leaves the DB.
+ */
+function dependencySelect(kind: CachedDependencyKind): string {
+  switch (kind) {
+    case 'belief':
+      return `SELECT id, revision, status, supersededBy, validUntil, userId
+                FROM semantic_belief WHERE id INSIDE $belief`;
+    case 'episode':
+      return `SELECT id, userId FROM episode WHERE id INSIDE $episode`;
+    case 'fragment':
+      // The fragment row is immutable; its parent asset's quarantine
+      // state is the lifecycle (a rejected asset must not keep serving
+      // through a cached answer). A dangling asset link reads as NONE.
+      return `SELECT id, assetId.quarantineStatus AS quarantineStatus
+                FROM evidence_fragment WHERE id INSIDE $fragment`;
+    case 'scene':
+      return `SELECT id, gist, enrichedGist, userId FROM memory_episode WHERE id INSIDE $scene`;
+  }
+}
+
+/** The stamp that must not move for the cached answer to stay valid. */
+function dependencyRev(kind: CachedDependencyKind, row: DependencyRow): string {
+  switch (kind) {
+    case 'belief':
+      return String(row.revision ?? '');
+    case 'episode':
+      return '';
+    case 'fragment':
+      return String(row.quarantineStatus ?? '');
+    case 'scene':
+      return sha256(`${row.gist ?? ''}\n${row.enrichedGist ?? ''}`).slice(0, 16);
+  }
+}
+
+/**
+ * The lifecycle gate a dependency row must pass to be servable — the
+ * cited-fact gate's counterpart per kind. Null = servable. The user-scope
+ * fence is shared: a row bound to ANOTHER user is invisible (existence
+ * never leaks), so it reads as 'missing'.
+ */
+function dependencyLifecycle(
+  kind: CachedDependencyKind,
+  row: DependencyRow,
+  scopeUserId: string | undefined,
+): InvalidationCause | null {
+  if (
+    scopeUserId !== undefined &&
+    typeof row.userId === 'string' &&
+    row.userId.length > 0 &&
+    row.userId !== scopeUserId
+  ) {
+    return 'missing';
+  }
+  if (kind === 'belief') {
+    if (row.status === 'retracted') return 'retracted';
+    if (
+      row.status === 'superseded' ||
+      (row.supersededBy !== undefined && row.supersededBy !== null)
+    ) {
+      return 'superseded';
+    }
+    if (row.status !== 'active') return 'missing';
+    if (row.validUntil && toMs(row.validUntil) <= Date.now()) return 'expired_validity';
+  }
+  if (kind === 'fragment' && row.quarantineStatus === 'rejected') return 'missing';
+  return null;
+}
 
 /** Cap on freshness-probe candidate rows pulled per read. The probe only
  *  needs existence of ONE scope+policy-visible newer fact.
@@ -176,6 +362,9 @@ interface CacheRow {
   createdAt: Date | string;
   expiresAt: Date | string;
   invalidatedAt?: Date | string | null;
+  /** 0136 typed non-fact dependencies; absent on a pre-0136 row, which
+   *  therefore cannot be revalidated and fails closed. */
+  dependencies?: CachedDependency[] | null;
 }
 
 /** The two read fences the fact read path applies, threaded together
@@ -237,6 +426,16 @@ interface CitedFactRow {
  * verified grounded answers, per-user key partitioning (NDSS'26
  * semantic-cache poisoning + CacheAttack both exploit shared/unverified
  * admission).
+ *
+ * Every dependency, not only the facts (0136, audit F3): a mixed answer
+ * — facts plus belief / episode / fragment / scene citations — stores
+ * its non-fact arms as typed {kind, id, rev} entries stamped from the
+ * live rows at admission, and check-on-read revalidates each one under
+ * the same user-scope fence: missing or fenced ⇒ 'missing', a belief
+ * superseded / retracted / past validUntil ⇒ its lifecycle cause, a
+ * moved stamp (belief revision, scene gist, asset quarantine state) ⇒
+ * 'dependency_changed'. An answer whose evidence the cache cannot track
+ * is not admitted; a pre-0136 row (no dependency list) is never served.
  *
  * v2 (deferred by design): embedding-similarity candidates promoted to
  * servable only after async judge verification — never served
@@ -311,17 +510,18 @@ export class AnswerCacheService {
    * are never cached — an uncited answer is uninvalidatable, and a
    * non-supported one failed the grounding audit.
    *
-   * L3 evidence citations (FOVEA_L3_EPISODE_CITATIONS) are DELIBERATELY
-   * not admission-bearing: an episode-only-cited L3 answer (zero fact
-   * citations, ≥1 evidence citation) has citations.length 0 and is
-   * rejected by the gate below. Check-on-read revalidates cited FACT
-   * rows against the live substrate and cannot (yet) invalidate episode
-   * citations, so caching such an answer would make it uninvalidatable.
-   * The BELIEF arm (BELIEFS_SERVING_LANE) rides the same doctrine: a
-   * belief-only-cited current-state answer has citations.length 0 and
-   * is rejected here too — check-on-read cannot invalidate a belief
-   * citation against the supersede chain, so caching it would serve a
-   * stale current-state answer past the next revision.
+   * Evidence citations are admission-bearing ONLY as tracked dependencies
+   * (0136, audit F3). Fact citations remain the admission gate — an
+   * answer with zero fact citations (episode-only L3, belief-only
+   * current-state) has citations.length 0 and is rejected below, since
+   * the entity-scoped freshness probe has nothing to anchor on. A MIXED
+   * answer (≥1 fact plus belief / episode / fragment / scene citations)
+   * used to be admitted with only its fact half recorded, so a belief
+   * revision left the cached text serving until TTL; it is now admitted
+   * with every non-fact arm stored as {kind, id, rev} and revalidated on
+   * read, and it is NOT admitted at all when any arm is untrackable or
+   * already dead at admission time (fail closed — the answer is stale
+   * before it is stored).
    */
   async admit(
     ctx: AnswerCacheStoreContext,
@@ -334,6 +534,13 @@ export class AnswerCacheService {
       result.reason !== undefined ||
       result.citations.length === 0
     ) {
+      return;
+    }
+    const wanted = dependenciesOf(result.evidenceCitations);
+    if (wanted === null) {
+      // A citation with no trackable arm — the cache cannot promise to
+      // notice when it dies, so the answer is served fresh every time.
+      this.metrics?.countAnswerCache('not_admitted');
       return;
     }
     const answer = result.answer;
@@ -355,7 +562,14 @@ export class AnswerCacheService {
     const ttlHours = this.ttlHours(ctx.isEnumeration || broadAnswer);
     const expiresAt = new Date(Date.now() + ttlHours * 3_600_000);
     try {
-      await this.surreal.withCompany(ctx.companyId, async (db) => {
+      const stored = await this.surreal.withCompany(ctx.companyId, async (db) => {
+        // Stamp every non-fact dependency from its LIVE row first: the
+        // revision the answer was built against is what the read path
+        // compares to. A dependency that is already missing, fenced, or
+        // dead at admission means the answer is stale before it is
+        // stored — never written (fail closed).
+        const dependencies = await this.stampDependencies(db, wanted, ctx.userId);
+        if (dependencies === null) return false;
         // Record id = queryHash, so re-admission after invalidation or
         // TTL expiry REPLACES the row in place (the unique
         // (companyId, queryHash) index stays trivially consistent).
@@ -371,6 +585,7 @@ export class AnswerCacheService {
              reason: '',
              citedFactIds: $citedFactIds,
              entityIds: $entityIds,
+             dependencies: $dependencies,
              profileHash: $profileHash,
              modelId: $modelId,
              promptVersion: $promptVersion,
@@ -390,14 +605,16 @@ export class AnswerCacheService {
             answer,
             citedFactIds,
             entityIds,
+            dependencies,
             profileHash: ctx.profileHash,
             modelId: ctx.model,
             promptVersion: ANSWER_CACHE_PROMPT_VERSION,
             expiresAt,
           },
         );
+        return true;
       });
-      this.metrics?.countAnswerCache('stored');
+      this.metrics?.countAnswerCache(stored ? 'stored' : 'not_admitted');
     } catch (e) {
       this.logger.warn(
         `answer-cache store failed (companyId=${ctx.companyId}): ${(e as Error).message}`,
@@ -507,8 +724,8 @@ export class AnswerCacheService {
       // clause double-fences both (a user-scoped query must never hit
       // a global entry and vice versa).
       const [rows] = await db.query<[CacheRow[]]>(
-        `SELECT id, answer, citedFactIds, entityIds, createdAt, expiresAt,
-                invalidatedAt
+        `SELECT id, answer, citedFactIds, entityIds, dependencies, createdAt,
+                expiresAt, invalidatedAt
            FROM type::record($tb, $key)
           WHERE companyId = $companyId
             AND queryHash = $key
@@ -534,9 +751,15 @@ export class AnswerCacheService {
       return null;
     }
     await this.recordServe(ctx);
+    // 0136: the non-fact arms the answer rests on, just revalidated, come
+    // back as id-only evidence citations (the rendered excerpt is not
+    // stored); absent when there are none, per the SynthesizeResult
+    // contract.
+    const evidenceCitations = (row.dependencies ?? []).map(citationOfDependency);
     return {
       answer: row.answer,
       citations: verdict.citations,
+      ...(evidenceCitations.length > 0 ? { evidenceCitations } : {}),
       // A cached serve skipped retrieval — there is no hit list to
       // return; the citations above are rebuilt from the LIVE fact
       // rows the check-on-read just validated.
@@ -568,6 +791,11 @@ export class AnswerCacheService {
   ): Promise<{ cause: InvalidationCause } | { citations: Citation[] }> {
     const ids = row.citedFactIds ?? [];
     if (ids.length === 0) return { cause: 'missing' };
+    // 0136: a pre-0136 row carries no dependency list, so what it rests on
+    // beyond its cited facts is unknown — fail closed (the key-version
+    // bump already makes such a row miss; this is the belt to that brace).
+    const dependencies = row.dependencies;
+    if (!Array.isArray(dependencies)) return { cause: 'missing' };
     const entityIds = row.entityIds ?? [];
     const answerCreatedAt =
       row.createdAt instanceof Date ? row.createdAt : new Date(String(row.createdAt));
@@ -581,10 +809,13 @@ export class AnswerCacheService {
     const probeUserGate = ctx.userId
       ? 'AND (userId IS NONE OR userId = $probeScopeUserId)'
       : 'AND userId IS NONE';
-    const { facts, names, newer } = await this.surreal.withScopedCompany(
+    const { facts, names, newer, dependencyRows } = await this.surreal.withScopedCompany(
       ctx.companyId,
       callerScopes,
       async (db) => {
+        // 0136: the non-fact dependencies' live rows, on the SAME scoped
+        // connection (one extra round trip only when the row has any).
+        const dependencyRows = await this.fetchDependencyRows(db, dependencies);
         const [factRows, entityRows, newerRows] = await db.query<
           [CitedFactRow[], Array<{ id: unknown; canonicalName: string }>, CitedFactRow[]]
         >(
@@ -612,6 +843,7 @@ export class AnswerCacheService {
           facts: factRows ?? [],
           names: entityRows ?? [],
           newer: newerRows ?? [],
+          dependencyRows,
         };
       },
     );
@@ -627,19 +859,95 @@ export class AnswerCacheService {
     });
     const fences: ReadFences = { scopeUserId, rowPolicy };
     const cited = this.evaluateCitedFacts(ids, { byId, nameById }, fences);
-    // Additive-write freshness probe (audit F1) runs ONLY when every cited
-    // fact still validated — a more specific lifecycle cause
-    // (retracted/superseded/…) takes precedence over 'newer_fact' for
-    // observability. A newer visible fact on a cited entity means the
-    // store changed under this answer: fail closed to a fresh synthesis.
-    const result: { cause: InvalidationCause } | { citations: Citation[] } =
-      'cause' in cited
-        ? cited
-        : this.hasNewerVisibleFact(newer, fences)
-          ? { cause: 'newer_fact' }
-          : cited;
+    // Precedence, most specific first: a dead cited fact, then a dead or
+    // changed non-fact dependency (0136), then the additive-write freshness
+    // probe (audit F1) — which runs ONLY when everything the answer rests
+    // on still validated, so a lifecycle cause is never masked by
+    // 'newer_fact'. Any of them means the store changed under this
+    // answer: fail closed to a fresh synthesis.
+    let result: { cause: InvalidationCause } | { citations: Citation[] } = cited;
+    if (!('cause' in result)) {
+      const dependencyCause = this.evaluateDependencies(dependencies, dependencyRows, scopeUserId);
+      if (dependencyCause) result = { cause: dependencyCause };
+      else if (this.hasNewerVisibleFact(newer, fences)) result = { cause: 'newer_fact' };
+    }
     rowPolicy.finish();
     return result;
+  }
+
+  /**
+   * Admission-time stamping (0136): every wanted dependency's LIVE row,
+   * read on the connection the cache row is written with, so the stored
+   * `rev` is exactly the state the answer was built against. Null when
+   * any dependency is missing, fenced from the answer's user partition,
+   * or already dead — the answer is stale before it is stored and must
+   * not be.
+   */
+  private async stampDependencies(
+    db: Pick<Surreal, 'query'>,
+    wanted: ReadonlyArray<Pick<CachedDependency, 'kind' | 'id'>>,
+    scopeUserId: string | undefined,
+  ): Promise<CachedDependency[] | null> {
+    if (wanted.length === 0) return [];
+    const rows = await this.fetchDependencyRows(db, wanted);
+    const out: CachedDependency[] = [];
+    for (const dep of wanted) {
+      const row = rows.get(`${dep.kind}|${dep.id}`);
+      if (!row || dependencyLifecycle(dep.kind, row, scopeUserId) !== null) return null;
+      out.push({ kind: dep.kind, id: dep.id, rev: dependencyRev(dep.kind, row) });
+    }
+    return out;
+  }
+
+  /**
+   * The live rows behind a dependency set — one SELECT per kind present,
+   * one round trip, keyed `kind|id`. Empty input ⇒ no query at all, so a
+   * fact-only answer costs exactly what it did before 0136.
+   */
+  private async fetchDependencyRows(
+    db: Pick<Surreal, 'query'>,
+    deps: ReadonlyArray<Pick<CachedDependency, 'kind' | 'id'>>,
+  ): Promise<Map<string, DependencyRow>> {
+    const out = new Map<string, DependencyRow>();
+    const kinds = DEPENDENCY_KINDS.filter((k) => deps.some((d) => d.kind === k));
+    if (kinds.length === 0) return out;
+    const params: Record<string, StringRecordId[]> = {};
+    for (const k of kinds) {
+      params[k] = deps
+        .filter((d) => d.kind === k && isRecordId(d.id))
+        .map((d) => new StringRecordId(d.id));
+    }
+    const results = await db.query<DependencyRow[][]>(
+      kinds.map((k) => `${dependencySelect(k)};`).join('\n'),
+      params,
+    );
+    kinds.forEach((k, i) => {
+      for (const r of results[i] ?? []) out.set(`${k}|${String(r.id)}`, r);
+    });
+    return out;
+  }
+
+  /**
+   * Read-time gate over the stored dependency list (0136): every entry
+   * must still exist under the user-scope fence, pass its kind's lifecycle
+   * gate, and carry the SAME revision stamp it was admitted with. The
+   * FIRST failure returns its cause, fail-closed; a malformed stored
+   * entry reads as 'missing'.
+   */
+  private evaluateDependencies(
+    deps: ReadonlyArray<unknown>,
+    rows: ReadonlyMap<string, DependencyRow>,
+    scopeUserId: string | undefined,
+  ): InvalidationCause | null {
+    for (const raw of deps) {
+      if (!isCachedDependency(raw)) return 'missing';
+      const row = rows.get(`${raw.kind}|${raw.id}`);
+      if (!row) return 'missing';
+      const cause = dependencyLifecycle(raw.kind, row, scopeUserId);
+      if (cause) return cause;
+      if (dependencyRev(raw.kind, row) !== raw.rev) return 'dependency_changed';
+    }
+    return null;
   }
 
   /**

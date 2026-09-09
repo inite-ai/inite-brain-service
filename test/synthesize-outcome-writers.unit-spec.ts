@@ -28,6 +28,8 @@ import type {
   OutcomeEventInput,
 } from '../src/outcomes/memory-outcome.service';
 import type { DecisionInput, MemoryDecisionService } from '../src/outcomes/memory-decision.service';
+import type { SurrealService } from '../src/db/surreal.service';
+import type { AnswerCacheService } from '../src/answer-cache/answer-cache.service';
 
 interface RecordedCall {
   companyId: string;
@@ -64,7 +66,7 @@ function makeConfig(): ConfigService {
 
 /** Generator answers with a citation; the verifier (system prompt names
  *  the auditor role) returns the requested verdict. */
-function stubOpenAI(verdict: string) {
+function stubOpenAI(verdict: string, citedId = 'f1') {
   return {
     chat: {
       completions: {
@@ -76,7 +78,7 @@ function stubOpenAI(verdict: string) {
                 message: {
                   content: isVerifier
                     ? JSON.stringify({ verdict })
-                    : JSON.stringify({ answer: 'Maya [f1].', citedFactIds: ['f1'] }),
+                    : JSON.stringify({ answer: `Maya [${citedId}].`, citedFactIds: [citedId] }),
                 },
                 finish_reason: 'stop',
               },
@@ -99,6 +101,13 @@ function makeSvc(
     metrics?: MetricsService | undefined;
     decisionCalls?: DecisionCall[] | undefined;
     searchImpl?: (() => Promise<{ results: SearchHit[] }>) | undefined;
+    /** The hit's fact id (and what the generator cites); a `table:key` id
+     *  is needed for the 0115 grounding fetch to consider it at all. */
+    factId?: string | undefined;
+    /** 0115 grounding fetch port source — a stub whose withCompany
+     *  answers the `SELECT id, groundingStatus` read. */
+    surreal?: SurrealService | undefined;
+    answerCache?: AnswerCacheService | undefined;
   } = {},
 ): { svc: SynthesizeService; calls: RecordedCall[] } {
   const calls: RecordedCall[] = [];
@@ -115,25 +124,26 @@ function makeSvc(
         },
       } as unknown as MemoryDecisionService)
     : undefined;
+  const factId = opts.factId ?? 'f1';
   const search = {
-    search: opts.searchImpl ?? (async () => ({ results: [makeHit('cust_a', 'f1')] })),
+    search: opts.searchImpl ?? (async () => ({ results: [makeHit('cust_a', factId)] })),
   } as unknown as SearchService;
   const svc = new SynthesizeService(
     search,
     makeConfig(),
     opts.metrics, // metrics
     undefined, // evidenceCollector
-    undefined, // answerCache
+    opts.answerCache, // answerCache
     undefined, // l3
     undefined, // focusSignal
     undefined, // lensSuppression
     undefined, // laneClassifier
     outcomes,
     undefined, // predicateRegistry
-    undefined, // surreal (0115 grounding fetch)
+    opts.surreal, // surreal (0115 grounding fetch)
     decisions,
   );
-  (svc as unknown as { openai: unknown }).openai = stubOpenAI(verdict);
+  (svc as unknown as { openai: unknown }).openai = stubOpenAI(verdict, factId);
   return { svc, calls };
 }
 
@@ -175,16 +185,115 @@ describe('SynthesizeService — 0107 outcome writer seams', () => {
     expect(calls.every((c) => c.companyId === 'co_x')).toBe(true);
   });
 
-  it('strict + unsupported: used_in_answer still recorded at the finalize seam, NO verifier_supported', async () => {
+  it('strict + unsupported: nothing was served, so NO used_in_answer and NO verifier_supported (audit F7)', async () => {
+    // Strict fails closed on an unsupported verdict (answer: null,
+    // citations: []). Before F7 the finalize seam still recorded
+    // used_in_answer for the DRAFT's citations — a use that never reached
+    // the caller. Usage is now emitted from the FINAL result only.
     const { svc, calls } = makeSvc('unsupported');
-    await svc.synthesize({
+    const out = await svc.synthesize({
       companyId: 'co_x',
       dto: { ...baseDto, synthesisGuardrails: 'strict' },
       callerScopes: ['brain:read'],
     });
+    expect(out.answer).toBeNull();
     expect(named(calls, 'selected_for_context')).toHaveLength(1);
-    expect(named(calls, 'used_in_answer')).toHaveLength(1);
+    expect(named(calls, 'used_in_answer')).toHaveLength(0);
     expect(named(calls, 'verifier_supported')).toHaveLength(0);
+  });
+
+  it('lenient + partial: the answer IS served (reason-tagged) → used_in_answer, never verifier_supported', async () => {
+    // Abstention off: under 'verifier' calibration a lenient partial is the
+    // explicit decline (nothing served); with it off the lenient path serves
+    // the reason-tagged answer — the served-but-not-verified case.
+    process.env.RETRIEVAL_ABSTENTION_CALIBRATION = 'off';
+    try {
+      const { svc, calls } = makeSvc('partial');
+      const out = await svc.synthesize({
+        companyId: 'co_x',
+        dto: { ...baseDto, synthesisGuardrails: 'lenient' },
+        callerScopes: ['brain:read'],
+      });
+      expect(out.answer).toBe('Maya [f1].');
+      expect(out.reason).toBe('verifier_partial');
+      const used = named(calls, 'used_in_answer');
+      expect(used).toHaveLength(1);
+      expect(used[0]).toMatchObject({ subjectId: 'f1' });
+      expect(named(calls, 'verifier_supported')).toHaveLength(0);
+    } finally {
+      delete process.env.RETRIEVAL_ABSTENTION_CALIBRATION;
+    }
+  });
+
+  it('a supported draft the serving gate downgrades records NOTHING — no used_in_answer, no verifier_supported (audit F7)', async () => {
+    // EVIDENCE_UNGROUNDED_SERVING_GATE: every cited fact is ungrounded ⇒
+    // the supported verdict is downgraded to an abstention AFTER the
+    // verifier said 'supported'. The pre-F7 seam had already counted the
+    // draft's citations as verified use by then.
+    process.env.EVIDENCE_UNGROUNDED_SERVING_GATE = '1';
+    try {
+      const surreal = {
+        withCompany: async <T>(_c: string, fn: (db: unknown) => Promise<T>) =>
+          fn({
+            query: async () => [[{ id: 'knowledge_fact:f1', groundingStatus: 'ungrounded' }]],
+          }),
+      } as unknown as SurrealService;
+      const { svc, calls } = makeSvc('supported', { surreal, factId: 'knowledge_fact:f1' });
+      const out = await svc.synthesize({
+        companyId: 'co_x',
+        dto: { ...baseDto, synthesisGuardrails: 'strict' },
+        callerScopes: ['brain:read'],
+      });
+      expect(out.reason).toBe('ungrounded_evidence');
+      expect(out.citations).toEqual([]);
+      expect(named(calls, 'selected_for_context')).toHaveLength(1);
+      expect(named(calls, 'used_in_answer')).toHaveLength(0);
+      expect(named(calls, 'verifier_supported')).toHaveLength(0);
+    } finally {
+      delete process.env.EVIDENCE_UNGROUNDED_SERVING_GATE;
+    }
+  });
+
+  it('an answer-cache hit is served as-is: counted as ok, no outcome events (read-only accounting)', async () => {
+    const counted: string[] = [];
+    const metrics = new Proxy(
+      {},
+      {
+        get: (_t, prop) =>
+          prop === 'countSynthesize' ? (o: string) => counted.push(o) : () => undefined,
+      },
+    ) as unknown as MetricsService;
+    const answerCache = {
+      begin: async () => ({
+        hit: {
+          answer: 'Maya (cached).',
+          citations: [
+            {
+              factId: 'f1',
+              entityId: 'cust_a',
+              canonicalName: 'cust_a',
+              predicate: 'name',
+              object: 'Maya',
+            },
+          ],
+          results: [],
+          cached: true,
+        },
+      }),
+      admit: async () => undefined,
+    } as unknown as AnswerCacheService;
+    const { svc, calls } = makeSvc('supported', { metrics, answerCache });
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesisGuardrails: 'strict' },
+      callerScopes: ['brain:read'],
+    });
+    expect(out.cached).toBe(true);
+    expect(out.answer).toBe('Maya (cached).');
+    expect(counted).toEqual(['ok']);
+    // The hit's citations were already counted when the answer was first
+    // served and admitted; a re-serve from the cache records nothing.
+    expect(calls).toEqual([]);
   });
 
   it("'answer' guardrails (unverifiedReturn exit): used_in_answer, never verifier_supported", async () => {

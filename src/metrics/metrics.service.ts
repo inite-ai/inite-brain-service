@@ -379,6 +379,9 @@ export class MetricsService implements OnModuleInit {
   //                    exactly how much staleness the fact link caught.
   //   stored         — verified grounded answer admitted (write-through)
   //   bypass         — cache on but request ineligible (explain/empty)
+  //   not_admitted   — a supported answer refused at admission (0136):
+  //                    its evidence carries an arm the cache cannot
+  //                    revalidate, or a dependency was already dead
   readonly answerCacheCount = new Counter({
     name: 'brain_answer_cache_total',
     help: 'Answer-cache decisions by outcome',
@@ -1007,7 +1010,9 @@ export class MetricsService implements OnModuleInit {
     this.synthesizeCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
-  countAnswerCache(outcome: 'hit' | 'miss' | 'rejected_stale' | 'stored' | 'bypass'): void {
+  countAnswerCache(
+    outcome: 'hit' | 'miss' | 'rejected_stale' | 'stored' | 'bypass' | 'not_admitted',
+  ): void {
     this.answerCacheCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
