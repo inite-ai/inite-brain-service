@@ -48,29 +48,73 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  build-test:
+  # ---------------------------------------------------------------------
+  # Change detection. Decides which gates this diff can possibly break.
+  #
+  # Deny-list shaped on purpose: only buckets that provably feed no gate
+  # are skippable, and every other path — including one nobody has seen
+  # before — runs everything. See the docblock in
+  # scripts/ci/change-buckets.mjs for why an allowlist is the wrong shape
+  # for CI even though it is the right shape for the deploy trigger, and
+  # test/ci-change-buckets.unit-spec.ts for the guard that keeps a
+  # gate-bearing file from hiding inside a skip bucket.
+  # ---------------------------------------------------------------------
+  changes:
     runs-on: ubuntu-latest
-    # 45, not 30 — the same wall this job hit at 20 minutes in 2026-08, moved
-    # up by a wave of new suites (evidence plane, scenes, OCR, indexers). A
-    # timed-out job reports conclusion "cancelled", which reads like runner
-    # contention and is not: measured on main 2026-09-08, the successful runs
-    # sit at 26:38 / 27:09 / 28:09 and the failures all die at exactly 30:0x,
-    # i.e. on the cap, with no hang signature. Roughly half of all runs were
-    # being lost that way, which blocks every PR behind them.
-    #
-    # The cost of the ceiling is bounded: jest runs with forceExit, so a true hang
-    # cannot idle here for the full 45 — it is the serialized e2e suite
-    # (maxWorkers 1, the 2026-08 CI-stability fix) plus two testcontainer
-    # lifecycles and a cold install that legitimately need the headroom.
-    # Raise this again only with measured durations, never on a hunch; if the
-    # median crosses ~35 the answer is to shard the suite, not a bigger number.
-    timeout-minutes: 45
-
+    timeout-minutes: 5
+    outputs:
+      engine: ${{ steps.classify.outputs.engine }}
+      web: ${{ steps.classify.outputs.web }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history so the merge-base diff below resolves. A shallow
+          # clone yields no merge base and the classifier would then see an
+          # empty file list — which it treats as "run everything", so the
+          # failure mode is safe either way, just slow.
+          fetch-depth: 0
 
+      - name: Classify changed paths
+        id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != "pull_request" ]; then
+            # push to main, schedule and manual dispatch always run the full
+            # pipeline: main is what the deploy and the release ride on, and
+            # a partial verdict there is not a verdict.
+            echo "[ci] event=$EVENT — running every gate"
+            echo "engine=true" >> "$GITHUB_OUTPUT"
+            echo "web=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # actions/checkout gives us refs/pull/N/merge, whose merge base with
+          # base.sha IS base.sha, so the three-dot diff is exactly the PR's
+          # own changes. If that cannot be resolved — a force-push mid-run, a
+          # base branch rewritten under us — the list comes out empty, which
+          # the classifier deliberately reads as "run everything" rather than
+          # "skip everything". An unresolvable diff is a reason to be careful.
+          if ! git diff --name-only "$BASE_SHA...HEAD" > changed-files.txt; then
+            echo "[ci] could not diff against $BASE_SHA — running every gate"
+            : > changed-files.txt
+          fi
+          node scripts/ci/classify-changes.mjs < changed-files.txt
+
+  # ---------------------------------------------------------------------
+  # Engine static gates: lint, format, typecheck, build. Together ~95s of
+  # work, so they stay in one job — splitting them buys nothing but four
+  # more cold installs.
+  # ---------------------------------------------------------------------
+  engine-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
           node-version: '22'
@@ -78,40 +122,6 @@ jobs:
 
       - name: Install
         run: pnpm install --frozen-lockfile --ignore-workspace
-
-      # ts-jest transform cache, persisted across runs.
-      #
-      # Jest's default cacheDirectory is os.tmpdir()/jest_<uid>, which dies
-      # with the runner, so every CI run re-compiled all 541 spec files from
-      # cold while the same suites locally reuse a warm cache. The jest
-      # configs now point at <rootDir>/.jest-cache and this step carries it
-      # between runs.
-      #
-      # The key is content-addressed twice over: the restore key pins the
-      # lockfile and tsconfig (ts-jest invalidates on compiler options and on
-      # its own version), and jest itself keys every cached entry on the
-      # source file's content hash — so a stale entry cannot be served, and
-      # the worst case of a cold or mismatched cache is the old behaviour.
-      # The github.sha suffix makes each run write a fresh entry; the
-      # restore-keys prefix then picks the most recent compatible one.
-      #
-      # MEASURED, AND THE RESULT IS NOT WHAT IT LOOKS LIKE. On a confirmed
-      # cache hit the unit step ran 1:26 against 1:27 on a confirmed miss,
-      # and an e2e shard 2:58 against 3:03 — i.e. nothing, inside the noise.
-      # Once ts-jest is transpile-only the per-file work is cheap enough
-      # that redoing it costs about what unpacking the cache costs. The
-      # entry is ~16MB and restores in two seconds, so this is kept as a
-      # hedge (it would matter again if the transpile-only change were ever
-      # reverted), but do NOT read a speed claim into it. The 13 minutes
-      # came from isolatedModules, not from here.
-      - name: Restore ts-jest transform cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: .jest-cache
-          key: jest-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json') }}-${{ github.sha }}
-          restore-keys: |
-            jest-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json') }}-
-            jest-${{ runner.os }}-
 
       - name: Lint
         # lint:ci has no --fix and fails on any warning, so a fixable violation
@@ -133,23 +143,54 @@ jobs:
       # that spec — a skipped or never-run spec shipped its type error
       # green. tsconfig.spec.json re-includes test/ and gates it here.
       #
-      # Since tsconfig.json turned on isolatedModules, ts-jest transpiles
-      # without a program and this is the ONLY typecheck the specs get. It
-      # was already covering every one of them, over the same file set —
-      # what changed is that it is now load-bearing instead of duplicated,
-      # which is where the e2e speed-up came from. If this step is ever
-      # weakened or made conditional, put the typecheck back into ts-jest
-      # first.
+      # Since the transpile-only change this is also the ONLY typecheck the
+      # specs get: ts-jest runs isolatedModules and emits without a
+      # program. That makes this step load-bearing rather than duplicative,
+      # which is the trade the speed came from.
       - name: Typecheck (src + tests)
         run: pnpm typecheck
 
       - name: Build
         run: pnpm build
 
-      # Unit suite (79 specs: auth guard, calibration, CAS job-claim,
-      # conflict-explainer, chat-router gates, …). These were defined in
-      # package.json but never wired into CI, so a regression in any of
-      # them shipped green. Now a hard gate on every PR.
+  # ---------------------------------------------------------------------
+  # Unit suite + coverage ratchet.
+  # ---------------------------------------------------------------------
+  engine-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
+      # MEASURED, AND THE RESULT IS NOT WHAT IT LOOKS LIKE. On a confirmed
+      # cache hit this step ran 1:26 against 1:27 on a confirmed miss, and
+      # an e2e shard 2:58 against 3:03 — nothing, inside the noise. Once
+      # ts-jest is transpile-only the per-file work is cheap enough that
+      # redoing it costs about what unpacking the cache costs. The entry is
+      # ~16MB and restores in two seconds, so it is kept as a hedge against
+      # the transpile-only change ever being reverted — but do NOT read a
+      # speed claim into it.
+      - name: Restore ts-jest transform cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .jest-cache
+          key: jest-unit-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json') }}-${{ github.sha }}
+          restore-keys: |
+            jest-unit-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json') }}-
+            jest-unit-${{ runner.os }}-
+
+      # 403 specs: auth guard, calibration, CAS job-claim, conflict-explainer,
+      # chat-router gates, …
       # --coverage activates the coverageThreshold floor in jest-unit.json
       # (an all-src ratchet: statements/lines 52%, branches 40%, functions
       # 45% — a few points under the current ~57/45/50/58 to prevent
@@ -160,45 +201,188 @@ jobs:
       - name: Unit tests (+ coverage ratchet)
         run: pnpm test:unit:cov
 
-      # Socket suite: the 6 specs that bind real loopback HTTP servers
-      # (.listen(0, '127.0.0.1')) live behind their own *.socket-spec.ts
-      # config so `pnpm test` stays hermetic in sandboxes that forbid
-      # listen(). CI runs them right after the unit suite — coverage is
-      # unchanged, only the partition moved.
+  # ---------------------------------------------------------------------
+  # Socket suite: the 6 specs that bind real loopback HTTP servers
+  # (.listen(0, '127.0.0.1')) live behind their own *.socket-spec.ts
+  # config so `pnpm test` stays hermetic in sandboxes that forbid
+  # listen(). ~25s — it shares a job with nothing because it needs no
+  # database and finishes before any other job has finished installing.
+  # ---------------------------------------------------------------------
+  engine-socket:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
       - name: Socket unit tests (loopback listeners)
         run: pnpm test:socket
 
-      - name: In-process e2e (testcontainers + stubs)
-        run: pnpm test:e2e
+  # ---------------------------------------------------------------------
+  # In-process e2e, sharded.
+  #
+  # This is the only lever that moves the number: measured on main
+  # 2026-09-08 the whole build-test job ran 29:45 / 32:54 / 39:29 and the
+  # e2e step alone was 23:54 / 26:33 / 34:21 of it. Everything else in the
+  # old monolith was ≤3 minutes.
+  #
+  # Sharding was considered and rejected once — see the long docblock in
+  # test/jest-e2e.json. Read in full, the rejection is narrower than it
+  # looks: it says sharding "would not have prevented" the SIGABRT,
+  # because that abort landed on a fresh worker's FIRST file and so a
+  # fresh process per shard would not have avoided it. That is an argument
+  # against sharding as a CRASH FIX, and it was correct. It is not an
+  # argument against sharding as a SPEED FIX, and the crash it refers to
+  # was root-caused and removed in the fixture (the e2e app no longer
+  # loads any ONNX model), so the reason to leave the suite serial is
+  # gone. The same docblock's CI counterpart already pre-committed to
+  # this: "if the median crosses ~35 the answer is to shard the suite,
+  # not a bigger number."
+  #
+  # Each shard is a separate runner and therefore a separate jest process,
+  # a separate globalSetup and a separate SurrealDB container. That
+  # REDUCES cross-suite coupling rather than adding it: a shard's database
+  # now holds only that shard's tenants. The hazard is the mirror image —
+  # a spec that passes today only because a sibling suite's fixture
+  # populated a shared table (PR #474 had to fix exactly that class of
+  # assertion) will fail once the sibling lands in another shard. That is
+  # a real bug being surfaced, not one being introduced, and the shard
+  # split was run to green before this landed.
+  #
+  # maxWorkers stays 1 WITHIN a shard: the native-heap corruption the
+  # docblock documents is a property of the app's teardown path, not of
+  # the worker count, and nothing here re-litigates it.
+  # ---------------------------------------------------------------------
+  engine-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
+    strategy:
+      # Do not cancel sibling shards when one fails: a single flaky shard
+      # would otherwise hide the results of the other three, and "which
+      # shards were green" is the first question when triaging a shard
+      # split.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
 
-      # Real-Surreal job-queue suite (CAS claim / leader lease / zombie
-      # reap / backoff). No OpenAI, no SDK — pure DB correctness against
-      # testcontainers. Previously matched no CI pattern and never ran.
+      - name: Install
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
+      - name: Restore ts-jest transform cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Per-shard key: each shard transforms a different slice of the
+          # tree, so one shared cache entry would be written four times
+          # with four partial contents and the last writer would win.
+          path: .jest-cache
+          key: jest-e2e-${{ matrix.shard }}-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json') }}-${{ github.sha }}
+          restore-keys: |
+            jest-e2e-${{ matrix.shard }}-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json') }}-
+            jest-e2e-${{ matrix.shard }}-${{ runner.os }}-
+
+      - name: In-process e2e (testcontainers + stubs) — shard ${{ matrix.shard }}/4
+        # `pnpm test:e2e -- --shard=N/4` does NOT work: the flag arrives
+        # after jest's own argv terminator and jest reads it as a positional
+        # test-path pattern, matching zero files and exiting 1 ("Pattern:
+        # --shard=1/4 - 0 matches"). Invoking jest directly is unambiguous.
+        run: pnpm exec jest --config ./test/jest-e2e.json --shard=${{ matrix.shard }}/4
+
+  # ---------------------------------------------------------------------
+  # Real-Surreal job-queue suite (CAS claim / leader lease / zombie
+  # reap / backoff). No OpenAI, no SDK — pure DB correctness against
+  # testcontainers. ~20s.
+  # ---------------------------------------------------------------------
+  engine-jobs-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
       - name: Jobs e2e (real Surreal, no OpenAI)
         run: pnpm test:e2e:jobs
+
+  # ---------------------------------------------------------------------
+  # The landing app. Its own runner, its own lockfile, its own failure.
+  #
+  # Split out of the engine job because `build-test` is a required check
+  # and a landing lint violation was therefore blocking unrelated engine
+  # hotfixes. typecheck and build are here because eslint-config-next
+  # never typechecked: a type error in an admin component passed CI green
+  # and only surfaced as a failed Docker build during the landing deploy,
+  # where one `next build` covers every route — so a broken admin
+  # component blocked the SEO-critical public site from shipping.
+  # ---------------------------------------------------------------------
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    defaults:
+      run:
+        working-directory: brain-landing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: brain-landing/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
 
       # i18n gate — admin components must use the getMessages() pipeline,
       # never hardcoded JSX literals. See brain-landing/eslint.config.mjs
       # and § Quality gates in CONTRIBUTING.md.
-      - name: Install brain-landing deps
-        working-directory: brain-landing
-        run: pnpm install --frozen-lockfile
-
       - name: i18n lint — admin components
-        working-directory: brain-landing
         run: pnpm lint:i18n
 
       # Full ESLint over the whole landing app (Next 16 removed `next lint`, so
       # this is eslint-config-next via the flat config). Gates on errors; the
       # stricter react-hooks-7 rules are warnings tracked as tech debt.
-      - name: Lint brain-landing (full)
-        working-directory: brain-landing
+      - name: Lint (full)
         run: pnpm lint
 
-      - name: Test brain-landing (sitemap + locale parity)
-        working-directory: brain-landing
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test (sitemap + locale parity)
         run: pnpm test
 
+      # The same build the deploy image runs. Catches what lint cannot.
+      - name: Build
+        run: pnpm build
+
+  # ---------------------------------------------------------------------
   # Supply-chain CVE gate. scorecard.yml + dependency-review.yml are both
   # gated on `repository.private == false`, so they no-op while this repo
   # is private — a lockfile dependency with a known CVE could merge
@@ -206,14 +390,16 @@ jobs:
   # runs `pnpm audit` regardless of visibility and blocks on high/critical.
   # `--ignore-workspace` matches the install: it audits THIS repo's
   # lockfile only, never a stray parent pnpm workspace.
+  #
+  # Unconditional: it is its OWN required status check by name, so it must
+  # report on every PR including a docs-only one.
+  # ---------------------------------------------------------------------
   supply-chain:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
           node-version: '22'
@@ -227,6 +413,91 @@ jobs:
       # this is the gate that stops a known-vulnerable tree from merging.
       - name: pnpm audit (high+ blocks)
         run: pnpm audit --audit-level=high --ignore-workspace
+
+  # ---------------------------------------------------------------------
+  # Image build + smoke. No longer `needs: build-test` — it never needed
+  # the test results to build an image, and depending on the gate would
+  # be a cycle now that the gate depends on it.
+  # ---------------------------------------------------------------------
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build image
+        run: docker build -t inite-brain-service:ci .
+
+      - name: Smoke run
+        run: |
+          docker network create brain-ci
+          docker run -d --name surreal --network brain-ci \
+            surrealdb/surrealdb:v3.2.4 \
+            start --user=root --pass=root --bind=0.0.0.0:8000 memory
+          sleep 5
+          docker run -d --name brain --network brain-ci -p 3030:3000 \
+            -e SURREALDB_URL=ws://surreal:8000 \
+            -e SURREALDB_USERNAME=root \
+            -e SURREALDB_PASSWORD=root \
+            -e SURREALDB_NAMESPACE=brain \
+            -e SURREALDB_SCOPED_USER=brain_caller \
+            -e SURREALDB_SCOPED_PASS=ci-scoped-pass \
+            -e OPENAI_API_KEY=sk-ci-stub \
+            -e BRAIN_API_KEYS='[]' \
+            -e FORGET_HMAC_KEY=ci-hmac-key-must-be-at-least-32-chars \
+            inite-brain-service:ci
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:3030/health >/dev/null; then
+              echo "service healthy"
+              curl -s http://localhost:3030/health
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "service did not become healthy"
+          docker logs brain
+          exit 1
+
+  # ---------------------------------------------------------------------
+  # THE GATE. `build-test` is a required status check on main and only a
+  # repo admin can change that list, so the NAME stays even though the job
+  # no longer runs a build or a test. It judges the jobs that do.
+  #
+  # The subtlety is that GitHub reports `skipped` both for "your `if:`
+  # said no" and for "something you needed failed", and the two must land
+  # on opposite sides of the gate. scripts/ci/gate.mjs disambiguates by
+  # checking each result against an expectation recomputed from the same
+  # change-detection outputs the job's own `if:` used;
+  # test/ci-gate-truth.unit-spec.ts pins that table to this YAML so the
+  # duplication cannot rot, and fails if a job is added here without being
+  # judged.
+  # ---------------------------------------------------------------------
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always()
+    needs:
+      [
+        changes,
+        engine-checks,
+        engine-unit,
+        engine-socket,
+        engine-e2e,
+        engine-jobs-e2e,
+        web,
+        docker,
+      ]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Judge
+        env:
+          GATE_NEEDS: ${{ toJSON(needs) }}
+          GATE_ENGINE: ${{ needs.changes.outputs.engine }}
+          GATE_WEB: ${{ needs.changes.outputs.web }}
+        run: node scripts/ci/gate.mjs
 
   real-e2e:
     runs-on: ubuntu-latest
@@ -347,44 +618,3 @@ jobs:
           # snapshot — no ratchet. eval:diff blocks on regressions beyond
           # per-metric tolerances; improvements never block.
           pnpm eval:diff test/eval/golden-baseline.json .eval-current/report.json
-
-  docker:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: build-test
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Build image
-        run: docker build -t inite-brain-service:ci .
-
-      - name: Smoke run
-        run: |
-          docker network create brain-ci
-          docker run -d --name surreal --network brain-ci \
-            surrealdb/surrealdb:v3.2.4 \
-            start --user=root --pass=root --bind=0.0.0.0:8000 memory
-          sleep 5
-          docker run -d --name brain --network brain-ci -p 3030:3000 \
-            -e SURREALDB_URL=ws://surreal:8000 \
-            -e SURREALDB_USERNAME=root \
-            -e SURREALDB_PASSWORD=root \
-            -e SURREALDB_NAMESPACE=brain \
-            -e SURREALDB_SCOPED_USER=brain_caller \
-            -e SURREALDB_SCOPED_PASS=ci-scoped-pass \
-            -e OPENAI_API_KEY=sk-ci-stub \
-            -e BRAIN_API_KEYS='[]' \
-            -e FORGET_HMAC_KEY=ci-hmac-key-must-be-at-least-32-chars \
-            inite-brain-service:ci
-          for i in $(seq 1 30); do
-            if curl -fs http://localhost:3030/health >/dev/null; then
-              echo "service healthy"
-              curl -s http://localhost:3030/health
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "service did not become healthy"
-          docker logs brain
-          exit 1
