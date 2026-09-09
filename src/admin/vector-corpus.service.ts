@@ -62,6 +62,9 @@ const LEASE_TTL_SECONDS = 30 * 60;
 /** One operator-facing line per tenant per hour about a corpus that is still
  *  non-conforming; the metric carries the number continuously. */
 const WARN_EVERY_MS = 60 * 60_000;
+/** A repair deferred at boot re-checks the embedder every minute, for an hour. */
+const DEFERRED_RETRY_EVERY_MS = 60_000;
+const DEFERRED_RETRY_MAX_ATTEMPTS = 60;
 
 /**
  * Corpus census and self-repair for the thirteen vector columns.
@@ -205,11 +208,20 @@ export class VectorCorpusService implements OnModuleInit {
       return { companyId, before, after: null, outcome: 'nothing_to_repair' };
     }
     if (!this.embedder.isReady()) {
+      // The schema-ready hook fires during boot, before the primary embedder
+      // has finished warming (bge-m3: ~30 s in-thread), so a boot-time census
+      // almost always lands here. Waiting for the nightly pass would leave the
+      // tenant's dense retrieval blind for a day; instead the tenant is
+      // re-queued once the embedder reports ready, polling every minute for
+      // up to an hour (a warmup that never completes is #518's problem and
+      // is visible on /ready).
       this.logger.warn(
         `vector corpus repair for ${companyId} deferred: ${before.repairable} row(s) need the ` +
-          `primary embedder (${before.spaceId}) and it is not ready yet; retried on the next pass`,
+          `primary embedder (${before.spaceId}) and it is not ready yet; ` +
+          `retried as soon as it is`,
       );
       this.metrics?.countVectorCorpusRepair('deferred');
+      if (trigger === 'startup') this.retryWhenReady(companyId);
       return { companyId, before, after: null, outcome: 'embedder_not_ready' };
     }
     const run = await this.jobs?.start({
@@ -253,6 +265,27 @@ export class VectorCorpusService implements OnModuleInit {
       this.logger.error(`vector corpus repair for ${companyId} failed: ${message}`);
       return { companyId, before, after: null, outcome: 'failed', error: message };
     }
+  }
+
+  /** Poll the embedder's readiness and re-queue the tenant the moment it is warm. */
+  private retryWhenReady(companyId: string, attempt = 0): void {
+    if (attempt >= DEFERRED_RETRY_MAX_ATTEMPTS) {
+      this.logger.warn(
+        `vector corpus repair for ${companyId} still deferred after ` +
+          `${DEFERRED_RETRY_MAX_ATTEMPTS} checks — the nightly pass will retry`,
+      );
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (this.embedder.isReady()) {
+        this.seen.delete(companyId);
+        this.noteTenant(companyId);
+      } else {
+        this.retryWhenReady(companyId, attempt + 1);
+      }
+    }, DEFERRED_RETRY_EVERY_MS);
+    // Never keep the process alive for it.
+    timer.unref?.();
   }
 
   /** Read-only census of every vector column. */
