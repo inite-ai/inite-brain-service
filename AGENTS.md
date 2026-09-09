@@ -42,7 +42,7 @@ Read (with `brain:read`):
 
 | Tool | One-line semantics |
 |---|---|
-| `search_knowledge` | Semantic search over the graph; entities + top facts; `asOf` for "what did we know on X" |
+| `search_knowledge` | Semantic search over the graph; entities + top facts; `asOf` for "what was TRUE on X" (valid time — a fact learned later still shows) |
 | `search_multi_hop` | Planner-LLM decomposes into ≤5 anchored hops; returns an auditable evidence chain (`finalEntityIds` + `supportingFactIds`); `synthesize=true` for a grounded answer |
 | `graph_retrieve` | Graph-first retrieval around named entities (1-hop neighbourhood); use when you already know WHICH entities |
 | `synthesize` | Hybrid search → citation-bearing answer (each claim ends `[factId]`) → verifier LLM; guardrails `strict`/`lenient`/`off` |
@@ -52,7 +52,7 @@ Read (with `brain:read`):
 | `summarize_entity` | One-line briefing; `styleHint='client_llm'` delegates wording to YOUR model via MCP sampling |
 | `get_competing_facts` | Unresolved same-predicate disagreements (COMPETING status) for an entity |
 | `detect_contradiction` | Dry-run the conflict resolver: "if I recorded this fact, what would happen?" (`INSERTED`/`SUPERSEDED`/`COMPETING`/`REJECTED`) |
-| `find_related_entities` | Entities connected via graph edges, with bitemporal `asOf` cutoff |
+| `find_related_entities` | Entities connected via graph edges; here `asOf` cuts EDGES on knowledge time (as they were believed at T) — the one read surface where it is not valid time |
 | `match_procedure`, `list_procedures` | Procedural memory: reusable how-to recipes |
 | `search_communities`, `list_communities`, `find_entity_communities` | Graph community summaries (thematic clusters) |
 | `why`, `recall_decisions` | Code-memory: why code is the way it is; past recorded decisions |
@@ -82,9 +82,15 @@ synchronous cascade and tombstones.
   them. Reads serve facts; provenance points back at the raw source.
 - **Bitemporal by default.** Every fact carries valid time
   (`validFrom`/`validUntil` — when it held in reality) and knowledge time
-  (when brain learned/retracted it). Default reads = "actual now". Pass
-  `asOf` to ask "what did we believe at T" — it is knowledge-time, not
-  valid-time. See [docs/bitemporal-semantics.md](docs/bitemporal-semantics.md).
+  (`recordedAt`/`retractedAt` — when brain learned/retracted it). Default
+  reads = "actual now". `asOf` on search/synthesize/`get_entity_profile`
+  asks "what was TRUE at T" — VALID time: `validFrom <= T < validUntil`,
+  a retraction dated before T hides the fact, and a fact brain learned
+  after T still shows (a backdated fact is not disappeared by a late
+  ingest). It is NOT a knowledge-time snapshot; that exists only on
+  `GET /v1/entities/:id?recordedAt=` and the entity timeline. See
+  [docs/bitemporal-semantics.md](docs/bitemporal-semantics.md) for the
+  per-surface table.
 - **Conflicts are explicit.** A new fact meeting an overlapping same-predicate
   prior is auto-superseded, or parked as COMPETING when too close to call —
   never silently last-write-wins. Preflight contested writes with
@@ -144,7 +150,10 @@ synchronous cascade and tombstones.
 
 1. Omitting `userId` and concluding a user's memory is empty (fail-closed
    scope, see above).
-2. Passing `asOf` expecting valid-time filtering — it is belief-time.
+2. Passing `asOf` expecting a knowledge-time snapshot ("what did we know at
+   T") — on search it is VALID time; knowledge time is `recordedAt` on the
+   entity profile and timeline. (On `find_related_entities` alone, `asOf`
+   is knowledge time for edges.)
 3. Re-deriving "what changed" by diffing two full dumps — use `memory_diff`;
    windows are half-open, adjacent windows never double-count.
 4. Recording multi-claim prose via `record_fact` — use `ingest_document` and

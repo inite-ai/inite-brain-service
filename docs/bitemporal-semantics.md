@@ -97,6 +97,32 @@ brain.search({ query: 'Maya tier', asOf: '2026-03-01T00:00:00Z' });
 
 The entity-timeline endpoint (`GET /v1/entities/:id/timeline`) is unchanged — it always returns the full audit shape, gated by `recordedAt`.
 
+## `asOf` — which axis, on which surface
+
+`asOf` is one parameter name on several read surfaces, and it does not mean
+the same axis everywhere. This table is the contract; the code it describes
+is `src/search/internals/where-builder.ts`, `src/entities/entity-read.helpers.ts`
+(`activeFactWhere`) and the connections query in `src/entities/entities.service.ts`.
+Nothing here is renamed — consumers already depend on it.
+
+| Surface | `asOf` means | Knowledge-time control |
+|---|---|---|
+| `POST /v1/search`, `/v1/search/multi-hop`, `/v1/synthesize`; MCP `search_knowledge`, `search_multi_hop`, `graph_retrieve`, `synthesize` | **Valid time.** `validFrom <= asOf < validUntil`, plus `retractedAt IS NONE OR retractedAt > asOf`. `recordedAt` is deliberately **not** bounded: a fact brain learned after `asOf` (a backdated ingest) still answers "what was true then". | **None.** There is no knowledge-time snapshot on search. |
+| `GET /v1/entities/:id`; MCP `get_entity_profile` | **Valid time**, same closure as search. | `?recordedAt=` (REST only) — transaction time: only facts recorded by T, retractions/supersedes after T ignored. Combines with `asOf`. |
+| `GET /v1/entities/:id/timeline`; MCP `get_entity_timeline` | n/a — the timeline is the transaction-time axis itself. | `?recordedAt=` (REST only) cuts the event list to what was known by T; the MCP tool returns the full audit shape. |
+| `GET /v1/entities/:id/connections`; MCP `find_related_entities` | **Transaction time on edges**: `createdAt <= asOf AND (invalidatedAt IS NONE OR invalidatedAt > asOf)` — "connections as they were believed at T". Edges carry no valid-time interval. | (that is what `asOf` already is here) |
+
+Two consequences worth stating plainly:
+
+- "What was true at T?" and "what did brain know at T?" are different
+  questions and can have different answers once a backdated fact arrives.
+  Search answers only the first. To ask the second, use the entity profile
+  with `recordedAt`, or the timeline.
+- The retraction clause on search is the one knowledge-time-flavoured
+  element of a valid-time query: a fact retracted before `asOf` is hidden
+  even if its validity interval covers `asOf`. This is intentional — a
+  retraction is brain saying the fact was never true, not that it ended.
+
 ## Why not just filter `validUntil` post-hoc on the JS side?
 
 Two reasons:
