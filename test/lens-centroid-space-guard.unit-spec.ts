@@ -66,8 +66,17 @@ const cls = (over: Partial<Record<string, unknown>> = {}) => ({
   centroid: new Array(DIM).fill(0.01),
   suppressLanes: ['instruction'],
   sampleCount: 42,
+  embeddingSpaceId: SPACE,
   ...over,
 });
+
+/** A db that answers the model SELECT with `rows` — for the read-side guard. */
+function loadingSurreal(rows: Array<Record<string, unknown>>) {
+  return {
+    withCompany: async <T>(_c: string, fn: (db: unknown) => Promise<T>): Promise<T> =>
+      fn({ query: async () => [rows] }),
+  };
+}
 
 describe('lens-suppression fit — the centroid write guard', () => {
   it('a 1536-wide centroid into a 1024 tenant is a 400, and nothing is written', async () => {
@@ -109,6 +118,19 @@ describe('lens-suppression fit — the centroid write guard', () => {
     expect(created[0]!.embeddingSpaceId).toBe(SPACE);
   });
 
+  it('no declared space is a 400 — width alone cannot tell two same-width models apart', async () => {
+    const { svc, created } = service();
+    for (const missing of [undefined, '', '   ']) {
+      await expect(
+        svc.fitAndPersist('co1', [cls({ embeddingSpaceId: missing }) as never]),
+      ).rejects.toMatchObject({ status: 400 });
+    }
+    await expect(
+      svc.fitAndPersist('co1', [cls({ embeddingSpaceId: undefined }) as never]),
+    ).rejects.toThrow(/must declare embeddingSpaceId/);
+    expect(created).toEqual([]);
+  });
+
   it('one bad centroid in a batch persists NOTHING — the check runs before any write', async () => {
     const { svc, created } = service();
     await expect(
@@ -138,6 +160,59 @@ describe('lens-suppression fit — the centroid write guard', () => {
     const { svc, created } = service(embedder(1024, SPACE));
     await svc.fitAndPersist('co1', [cls() as never]);
     expect(created[0]!.embeddingSpaceId).toBe(SPACE);
+  });
+});
+
+describe('lens-suppression loadModel — the read-side guard', () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    classId: 'default',
+    centroid: new Array(DIM).fill(0.01),
+    suppressLanes: ['instruction'],
+    sampleCount: 42,
+    version: 1,
+    embeddingSpaceId: SPACE,
+    ...over,
+  });
+
+  it('a stored centroid at a foreign width is skipped, never cosine-compared', async () => {
+    // The pre-0132 shape: written before the write guard existed, or left
+    // behind by an embedder re-configuration. Serving it raises for the
+    // whole query; the governor must stay static instead.
+    const svc = new LensSuppressionService(
+      loadingSurreal([
+        row({ centroid: new Array(1536).fill(0.01), embeddingSpaceId: null }),
+      ]) as never,
+      embedder() as never,
+    );
+    expect(await svc.loadModel('co1')).toEqual([]);
+  });
+
+  it('a stored centroid stamped with a foreign space is skipped even at the right width', async () => {
+    const svc = new LensSuppressionService(
+      loadingSurreal([row({ embeddingSpaceId: 'other:same-width-model:1024:l2' })]) as never,
+      embedder() as never,
+    );
+    expect(await svc.loadModel('co1')).toEqual([]);
+  });
+
+  it('an unstamped legacy row at the right width still loads (history cannot declare)', async () => {
+    const svc = new LensSuppressionService(
+      loadingSurreal([row({ embeddingSpaceId: null })]) as never,
+      embedder() as never,
+    );
+    const model = await svc.loadModel('co1');
+    expect(model.map((c) => c.classId)).toEqual(['default']);
+  });
+
+  it('a usable class is kept while an unusable sibling is dropped', async () => {
+    const svc = new LensSuppressionService(
+      loadingSurreal([
+        row({ classId: 'good' }),
+        row({ classId: 'bad', centroid: [0.1, 0.2, 0.3] }),
+      ]) as never,
+      embedder() as never,
+    );
+    expect((await svc.loadModel('co1')).map((c) => c.classId)).toEqual(['good']);
   });
 });
 
