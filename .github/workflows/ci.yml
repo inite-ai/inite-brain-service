@@ -173,7 +173,7 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-workspace
 
       - name: Restore ts-jest transform cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .jest-cache
           key: jest-unit-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json') }}-${{ github.sha }}
@@ -279,7 +279,7 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-workspace
 
       - name: Restore ts-jest transform cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           # Per-shard key: each shard transforms a different slice of the
           # tree, so one shared cache entry would be written four times
@@ -291,7 +291,11 @@ jobs:
             jest-e2e-${{ matrix.shard }}-${{ runner.os }}-
 
       - name: In-process e2e (testcontainers + stubs) — shard ${{ matrix.shard }}/4
-        run: pnpm test:e2e -- --shard=${{ matrix.shard }}/4
+        # `pnpm test:e2e -- --shard=N/4` does NOT work: the flag arrives
+        # after jest's own argv terminator and jest reads it as a positional
+        # test-path pattern, matching zero files and exiting 1 ("Pattern:
+        # --shard=1/4 - 0 matches"). Invoking jest directly is unambiguous.
+        run: pnpm exec jest --config ./test/jest-e2e.json --shard=${{ matrix.shard }}/4
 
   # ---------------------------------------------------------------------
   # Real-Surreal job-queue suite (CAS claim / leader lease / zombie
