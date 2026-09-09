@@ -3,17 +3,37 @@ name: Deploy brain.inite.ai
 on:
   push:
     branches: [main]
-    # `test/**` is intentionally not in the ignore list — `test/eval/scenarios`
-    # and `test/eval/fixtures` ship inside the prod image (admin scenario
-    # runner reads them at runtime), so a scenario-only change must trigger
-    # a deploy. Use explicit `paths` if a narrower trigger is ever needed.
-    paths-ignore:
-      - 'docs/**'
-      - '*.md'
-      - '.planning/**'
-      # The monitoring stack has its own deploy workflow
-      # (deploy-monitoring.yml) — don't redeploy brain for it.
-      - 'monitoring/**'
+    # An ALLOWLIST, not an ignore list. It used to be the other way round,
+    # which meant the engine rebuilt and redeployed for anything not
+    # explicitly excluded — including every `brain-landing/**` change, i.e.
+    # every landing and admin-panel edit, none of which enter this image.
+    # The landing has owned its own deploy (deploy-brain-landing.yml, with
+    # its own allowlist) all along; the coupling was one-directional.
+    #
+    # The list below is derived from the Dockerfile: the image copies
+    # package.json, pnpm-lock.yaml, tsconfig.json, nest-cli.json and src/,
+    # and nothing else. The compose file is generated inline by this
+    # workflow, so there is no external stack file to watch.
+    #
+    # This is self-maintaining rather than a list somebody must remember to
+    # update: anything NEW entering the image needs a COPY, and `Dockerfile`
+    # is itself in the allowlist — so the commit that starts shipping a new
+    # path also trips the trigger. test/deploy-trigger-truth.unit-spec.ts
+    # pins that property.
+    #
+    # (The previous comment here claimed `test/**` had to trigger a deploy
+    # because test/eval/scenarios ships in the image. That stopped being
+    # true when eval moved to src/eval to honour the
+    # production-code-must-not-import-from-test rule — see the Dockerfile.)
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'tsconfig.json'
+      - 'nest-cli.json'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/deploy-brain.yml'
   workflow_dispatch:
     inputs:
       action:
