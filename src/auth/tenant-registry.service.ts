@@ -64,24 +64,23 @@ interface RosterRow extends TenantRow {
 /**
  * TenantRegistryService — the production tenant roster (R4 finding #1).
  *
- * ApiKeyService.knownCompanyIds() (the enumeration every background fan-out
- * and the platform-operator cross-tenant scope go through) historically
- * read companyIds off the in-memory BRAIN_API_KEYS table. In production
- * with a remote verifier (JWKS / introspection) that static table is
- * disabled and typically empty, so the roster was [] and every fan-out
- * silently did nothing. This service backs the roster with a real DB table
- * (`tenant_registry`, migration 0104) living in the SYSTEM database — the
- * one place every tenant can be enumerated from regardless of credential
- * source — and keeps a synchronously-readable in-memory cache so
- * knownCompanyIds() stays synchronous and no fan-out caller has to change.
+ * Tenant enumeration historically read companyIds off the in-memory
+ * BRAIN_API_KEYS table. In production with a remote verifier (JWKS /
+ * introspection) that static table is disabled and typically empty, so the
+ * roster was [] and every fan-out silently did nothing. This service backs
+ * the roster with a real DB table (`tenant_registry`, migration 0104)
+ * living in the SYSTEM database — the one place every tenant can be
+ * enumerated from regardless of credential source — and keeps a
+ * synchronously-readable in-memory cache so the ApiKeyService accessors
+ * stay synchronous. Two of them read it: fanOutRoster() (background loops;
+ * registry-active ONLY, static keys just as the empty-registry fallback)
+ * and knownCompanyIds() (operator `?tenant=` validation; the union).
  *
  * Fallback: the cache reflects only what the registry contains. When the
- * registry is empty or unavailable, ApiKeyService.knownCompanyIds() unions
- * this (empty) set with the static BRAIN_API_KEYS set and returns the
- * latter unchanged — byte-identical to pre-0104 dev / single-tenant /
- * bootstrap behaviour. In prod the registry fills at runtime as tenants
- * authenticate (touch() from CredentialResolverService) or are provisioned
- * (register()).
+ * registry is empty or unavailable, both accessors return the static
+ * BRAIN_API_KEYS set — the pre-0104 dev / single-tenant / bootstrap
+ * behaviour. In prod the registry fills at runtime as tenants authenticate
+ * (touch() from CredentialResolverService) or are provisioned (register()).
  *
  * Optional SurrealService: unit-test fixtures construct this with no
  * connection; every method degrades to a pure in-memory no-op then.

@@ -94,7 +94,7 @@ export class ChangefeedConsumerService {
     let pendingThisTick = 0;
     let consumedThisTick = 0;
     try {
-      for (const companyId of this.apiKeys.knownCompanyIds()) {
+      for (const companyId of this.apiKeys.fanOutRoster()) {
         try {
           if (!(await this.holdLease())) {
             this.logger.warn('[changefeed] lease lost mid-walk — stopping this tick');
@@ -192,7 +192,7 @@ export class ChangefeedConsumerService {
     this.inFlight = true;
     const consumed: Record<string, number> = {};
     let pending = 0;
-    const tenants = this.apiKeys.knownCompanyIds();
+    const tenants = this.apiKeys.fanOutRoster();
     try {
       for (const companyId of tenants) {
         try {
@@ -227,7 +227,7 @@ export class ChangefeedConsumerService {
   async cursorState(): Promise<Array<{ companyId: string; source: string; cursor: number }>> {
     if (!this.drain.enabled) return [];
     const out: Array<{ companyId: string; source: string; cursor: number }> = [];
-    for (const companyId of this.apiKeys.knownCompanyIds()) {
+    for (const companyId of this.apiKeys.fanOutRoster()) {
       try {
         const rows = await this.drain.cursorStateForTenant(companyId);
         for (const r of rows) {

@@ -95,6 +95,73 @@ function makeFakeSurreal() {
 /** Let fire-and-forget touch() writes settle. */
 const flush = () => new Promise((r) => setImmediate(r));
 
+// ── fanOutRoster / hostTenant — the ONE roster background loops walk ────
+describe('ApiKeyService.fanOutRoster() — registry-active only, static keys as the empty fallback', () => {
+  it('registry non-empty → registry tenants ONLY, even when static keys name extra tenants', () => {
+    // A static key whose tenant never authenticated must not be walked:
+    // opening its scope creates and migrates `co_<id>` (audit A-10 / V-5).
+    const registry = {
+      activeCompanyIds: () => ['co_live2', 'co_live1'],
+    } as unknown as TenantRegistryService;
+    const svc = makeApiKeys(['co_dormant', 'co_live1'], registry);
+    expect(svc.fanOutRoster()).toEqual(['co_live1', 'co_live2']);
+    expect(svc.fanOutRoster()).not.toContain('co_dormant');
+  });
+
+  it('registry empty → the static set (bootstrap / dev fallback)', () => {
+    const registry = { activeCompanyIds: () => [] } as unknown as TenantRegistryService;
+    expect(makeApiKeys(['co_b', 'co_a'], registry).fanOutRoster()).toEqual(['co_a', 'co_b']);
+  });
+
+  it('no registry wired → the static set', () => {
+    expect(makeApiKeys(['co_a']).fanOutRoster()).toEqual(['co_a']);
+  });
+
+  it('is never the union: a static-only tenant is absent whenever the registry has anyone', () => {
+    const registry = {
+      activeCompanyIds: () => ['co_prod'],
+    } as unknown as TenantRegistryService;
+    const svc = makeApiKeys(['co_static'], registry);
+    expect(svc.fanOutRoster()).toEqual(['co_prod']);
+    // …while the validation roster still knows the static tenant.
+    expect(svc.knownCompanyIds()).toEqual(['co_static', 'co_prod']);
+  });
+
+  it('is sorted and deduped, so sweep order is stable across pods', () => {
+    const registry = {
+      activeCompanyIds: () => ['co_c', 'co_a', 'co_b', 'co_a'],
+    } as unknown as TenantRegistryService;
+    expect(makeApiKeys([], registry).fanOutRoster()).toEqual(['co_a', 'co_b', 'co_c']);
+  });
+});
+
+describe('ApiKeyService.hostTenant() — deterministic across replicas', () => {
+  it('two replicas whose registry caches filled in different orders pick the SAME host', () => {
+    // The cache fills from an unordered read plus request-path touch()
+    // inserts, so "first cached" differs per pod; the dedup index on
+    // (jobType, dedupKey) is per tenant DB and cannot collapse two hosts.
+    const podA = { activeCompanyIds: () => ['co_z', 'co_m', 'co_b'] };
+    const podB = { activeCompanyIds: () => ['co_b', 'co_z', 'co_m'] };
+    const hostA = makeApiKeys([], podA as unknown as TenantRegistryService).hostTenant();
+    const hostB = makeApiKeys([], podB as unknown as TenantRegistryService).hostTenant();
+    expect(hostA).toBe('co_b');
+    expect(hostB).toBe(hostA);
+  });
+
+  it('is the lexicographically smallest id of the FAN-OUT roster, never a dormant static key', () => {
+    const registry = {
+      activeCompanyIds: () => ['co_live'],
+    } as unknown as TenantRegistryService;
+    // 'co_aaa' sorts first in the union but is static-only: not a host.
+    expect(makeApiKeys(['co_aaa'], registry).hostTenant()).toBe('co_live');
+  });
+
+  it('falls back to the smallest static id, and is undefined with no tenants at all', () => {
+    expect(makeApiKeys(['co_b', 'co_a']).hostTenant()).toBe('co_a');
+    expect(makeApiKeys([]).hostTenant()).toBeUndefined();
+  });
+});
+
 // ── knownCompanyIds fallback / union ────────────────────────────────────
 describe('ApiKeyService.knownCompanyIds() — registry-backed with BRAIN_API_KEYS fallback', () => {
   it('no registry injected → static set (byte-identical to pre-R4)', () => {
@@ -132,6 +199,15 @@ describe('ApiKeyService.knownCompanyIds() — registry-backed with BRAIN_API_KEY
     } as unknown as TenantRegistryService;
     const svc = makeApiKeys([], registry); // static table disabled/empty in prod
     expect(svc.knownCompanyIds()).toEqual(['co_prod1', 'co_prod2']);
+  });
+
+  it('is the VALIDATION roster: a dormant static tenant stays targetable even once the registry is live', () => {
+    const registry = {
+      activeCompanyIds: () => ['co_live'],
+    } as unknown as TenantRegistryService;
+    const svc = makeApiKeys(['co_dormant'], registry);
+    expect(svc.knownCompanyIds()).toContain('co_dormant');
+    expect(svc.fanOutRoster()).not.toContain('co_dormant');
   });
 
   it('noteResolvedTenant() forwards the resolved tenant to the registry (the auth hook)', () => {

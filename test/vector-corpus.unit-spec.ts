@@ -60,14 +60,13 @@ describe('VectorCorpusService', () => {
       setVectorCorpusTenantsNonconforming: jest.fn(),
       countVectorCorpusRepair: jest.fn(),
     };
-    const apiKeys = { knownCompanyIds: () => ['co_x'] };
+    const apiKeys = { fanOutRoster: () => ['co_x'] };
     const svc = new VectorCorpusService(
       surreal as never,
       embedder as never,
       reindex as never,
       apiKeys as never,
       jobs as never,
-      undefined,
       metrics as never,
     );
     return { svc, reindex, jobs, metrics, queries };

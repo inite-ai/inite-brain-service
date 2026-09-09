@@ -102,7 +102,7 @@ describe('Capability probe — scoped read path', () => {
     metrics = new MetricsService();
     probe = new CapabilityProbeService(
       svc,
-      { knownCompanyIds: () => [tenant] } as unknown as ApiKeyService,
+      { fanOutRoster: () => [tenant] } as unknown as ApiKeyService,
       metrics,
       undefined,
     );

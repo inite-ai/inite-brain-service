@@ -186,7 +186,7 @@ describe('ToolObservationService.verifyRef', () => {
 });
 
 describe('OutcomePruneService — tool_observation leg', () => {
-  const apiKeys = (ids: string[]) => ({ knownCompanyIds: () => ids }) as unknown as ApiKeyService;
+  const apiKeys = (ids: string[]) => ({ fanOutRoster: () => ids }) as unknown as ApiKeyService;
 
   afterEach(() => {
     delete process.env.TOOL_OBSERVATIONS_ENABLED;

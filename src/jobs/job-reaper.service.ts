@@ -54,7 +54,7 @@ export class JobReaperService {
    */
   async reap(): Promise<ReapResult | null> {
     if (!this.claim || !this.apiKeys) return null;
-    const tenants = this.apiKeys.knownCompanyIds();
+    const tenants = this.apiKeys.fanOutRoster();
     let requeued = 0;
     let failed = 0;
     const erroredTenants: string[] = [];

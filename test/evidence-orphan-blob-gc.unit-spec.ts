@@ -180,7 +180,7 @@ function makeService(
   queries: string[];
 } {
   const { surreal, queries } = makeSurreal(tenants);
-  const apiKeys = { knownCompanyIds: () => Object.keys(tenants) } as unknown as ApiKeyService;
+  const apiKeys = { fanOutRoster: () => Object.keys(tenants) } as unknown as ApiKeyService;
   const registry: EvidenceStorageRegistry = new Map([['fs', makeAdapter(store, adapterOpts)]]);
   return {
     service: new EvidenceOrphanBlobGcService(surreal, apiKeys, registry),

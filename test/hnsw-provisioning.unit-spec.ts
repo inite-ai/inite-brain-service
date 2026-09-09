@@ -191,14 +191,12 @@ function provision(opts: {
       created: action === 'ensure' ? ['segment_embedding_hnsw'] : [],
     }));
   const registry = {
-    // No registry roster in these fixtures: the sweep falls back to the static keys.
-    activeCompanyIds: () => [] as string[],
     recordIndexState: jest.fn(async (companyId: string, o: { state: string }) => {
       opts.recorded?.push({ companyId, state: o.state });
     }),
     listIndexState: jest.fn(async () => []),
   };
-  const apiKeys = { knownCompanyIds: () => opts.roster ?? ['co1'] };
+  const apiKeys = { fanOutRoster: () => opts.roster ?? ['co1'] };
   const svc = new HnswProvisionService(
     surreal as never,
     { apply } as never,

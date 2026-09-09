@@ -27,16 +27,15 @@ const FAIL_CLOSED =
 
 type Stubs = {
   surreal: { withScopedCompany: jest.Mock };
-  apiKeys: { knownCompanyIds: jest.Mock };
+  /** The fan-out roster as ApiKeyService.fanOutRoster() would hand it over: sorted. */
+  apiKeys: { fanOutRoster: jest.Mock };
   embedder: { primaryDimensions: jest.Mock; embedUncached: jest.Mock; activeSpaceId: jest.Mock };
-  /** The registry's active roster; absent = the process has no registry wired. */
-  registry?: { activeCompanyIds: jest.Mock };
 };
 
 function makeStubs(overrides: Partial<Stubs> = {}): Stubs {
   return {
     surreal: { withScopedCompany: jest.fn().mockResolvedValue([[]]) },
-    apiKeys: { knownCompanyIds: jest.fn().mockReturnValue(['acme']) },
+    apiKeys: { fanOutRoster: jest.fn().mockReturnValue(['acme']) },
     embedder: {
       primaryDimensions: jest.fn().mockReturnValue(1024),
       embedUncached: jest.fn().mockResolvedValue(new Array(1024).fill(0.1)),
@@ -53,7 +52,6 @@ function build(stubs: Stubs): { svc: CapabilityProbeService; metrics: MetricsSer
     stubs.apiKeys as any,
     metrics,
     stubs.embedder as any,
-    stubs.registry as any,
   );
   return { svc, metrics };
 }
@@ -202,7 +200,7 @@ describe('capability probe — scoped read', () => {
 
   it('SKIPS (does not fail) when the roster has no tenant to probe', async () => {
     const stubs = makeStubs();
-    stubs.apiKeys.knownCompanyIds.mockReturnValue([]);
+    stubs.apiKeys.fanOutRoster.mockReturnValue([]);
     const { svc, metrics } = build(stubs);
 
     const [scoped] = await svc.runOnce();
@@ -216,7 +214,7 @@ describe('capability probe — scoped read', () => {
     process.env.CAPABILITY_PROBE_TENANT = 'canary';
     try {
       const stubs = makeStubs();
-      stubs.apiKeys.knownCompanyIds.mockReturnValue(['acme', 'canary']);
+      stubs.apiKeys.fanOutRoster.mockReturnValue(['acme', 'canary']);
       const { svc } = build(stubs);
       await svc.runOnce();
       expect(stubs.surreal.withScopedCompany.mock.calls[0][0]).toBe('canary');
@@ -245,29 +243,22 @@ describe('capability probe — scoped read', () => {
     }
   });
 
-  it("picks the canary from the registry's ACTIVE roster before the static key set", async () => {
+  it('picks the canary as the FIRST tenant of the fan-out roster — the same one every tick', async () => {
+    // fanOutRoster() is sorted, so [0] is stable across ticks and pods; the
+    // probe must not re-order or re-source it.
     const stubs = makeStubs({
-      registry: { activeCompanyIds: jest.fn().mockReturnValue(['zed', 'beta']) },
+      apiKeys: { fanOutRoster: jest.fn().mockReturnValue(['beta', 'zed']) },
     });
     const { svc } = build(stubs);
     await svc.runOnce();
-    // Sorted for a stable canary; the static 'acme' is not consulted.
     expect(stubs.surreal.withScopedCompany.mock.calls[0][0]).toBe('beta');
+    expect(stubs.apiKeys.fanOutRoster).toHaveBeenCalled();
   });
 
-  it('falls back to the static key set only when the registry knows nothing', async () => {
-    const stubs = makeStubs({ registry: { activeCompanyIds: jest.fn().mockReturnValue([]) } });
-    const { svc } = build(stubs);
-    await svc.runOnce();
-    expect(stubs.surreal.withScopedCompany.mock.calls[0][0]).toBe('acme');
-  });
-
-  it('a suspended tenant named by the override is not known — it is refused, not probed', async () => {
+  it('a suspended tenant named by the override is not on the fan-out roster — refused, not probed', async () => {
     process.env.CAPABILITY_PROBE_TENANT = 'sleeper';
     try {
-      const stubs = makeStubs({
-        registry: { activeCompanyIds: jest.fn().mockReturnValue(['acme']) },
-      });
+      const stubs = makeStubs({ apiKeys: { fanOutRoster: jest.fn().mockReturnValue(['acme']) } });
       const { svc } = build(stubs);
       const [scoped] = await svc.runOnce();
       expect(scoped?.outcome).toBe('error');

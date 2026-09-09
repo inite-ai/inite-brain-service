@@ -144,7 +144,7 @@ export class EpisodeSubscriptionService {
     if (this.lease) {
       if (!(await this.acquireLease())) return;
     }
-    for (const companyId of this.apiKeys.knownCompanyIds()) {
+    for (const companyId of this.apiKeys.fanOutRoster()) {
       try {
         if (!(await this.holdLease())) {
           this.logger.warn('episode-subscription dispatch stopped — the lease lapsed mid-walk');

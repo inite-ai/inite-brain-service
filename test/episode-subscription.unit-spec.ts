@@ -44,7 +44,7 @@ function makeService(opts: {
     metaSince: async () => opts.meta ?? [],
   } as unknown as EpisodeReadStoreService;
   const apiKeys = {
-    knownCompanyIds: () => opts.tenants ?? ['co_x'],
+    fanOutRoster: () => opts.tenants ?? ['co_x'],
   } as unknown as ApiKeyService;
   return {
     svc: new EpisodeSubscriptionService(surreal, episodes, apiKeys, opts.lease as never),

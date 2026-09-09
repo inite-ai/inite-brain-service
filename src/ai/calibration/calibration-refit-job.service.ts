@@ -48,7 +48,7 @@ export class CalibrationRefitJobService {
   }
 
   private async runWithJobRow(opts: RunTrackedOptions): Promise<number> {
-    const hostTenant = this.apiKeys.knownCompanyIds()[0];
+    const hostTenant = this.apiKeys.hostTenant();
     let jobRow = null as null | Awaited<ReturnType<JobRunService['start']>>;
     if (hostTenant && this.jobs) {
       try {

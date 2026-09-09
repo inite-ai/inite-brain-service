@@ -70,7 +70,7 @@ export class RegistryMirrorService implements OnModuleInit {
   async runScheduled(): Promise<{ enqueued: boolean }> {
     const upstream = this.upstreamUrl();
     if (!upstream || !this.claim) return { enqueued: false };
-    const hostTenant = this.apiKeys.knownCompanyIds()[0];
+    const hostTenant = this.apiKeys.hostTenant();
     if (!hostTenant) {
       this.logger.warn('registry_mirror enqueue skipped — no known tenants');
       return { enqueued: false };

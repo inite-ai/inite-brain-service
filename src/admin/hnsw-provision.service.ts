@@ -340,7 +340,7 @@ export class HnswProvisionService implements OnModuleInit {
       dryRun: opts.dryRun === true,
     };
     let builds = 0;
-    for (const companyId of opts.tenants ?? this.roster()) {
+    for (const companyId of opts.tenants ?? this.apiKeys.fanOutRoster()) {
       if (Date.now() >= deadline) {
         // Nothing is lost — an un-indexed tenant is rediscovered by the
         // next walk. Count what we did not start rather than drop it.
@@ -418,17 +418,6 @@ export class HnswProvisionService implements OnModuleInit {
    * have a ready index". Registry only — no tenant database is opened and no
    * DDL is emitted, so it is safe to call at any cadence.
    */
-  /**
-   * Tenants the sweep walks: the registry's ACTIVE roster when it has one
-   * (suspended tenants and dormant static keys are not provisioned, and a
-   * walk over every known key would CREATE a database for each), else the
-   * static key roster of a registry-less deployment.
-   */
-  private roster(): readonly string[] {
-    const active = this.registry?.activeCompanyIds() ?? [];
-    return active.length > 0 ? active : this.apiKeys.knownCompanyIds();
-  }
-
   async rosterState(): Promise<TenantIndexStateRow[]> {
     return (await this.registry?.listIndexState()) ?? [];
   }
