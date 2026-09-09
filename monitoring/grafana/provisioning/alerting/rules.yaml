@@ -289,15 +289,31 @@ groups:
         annotations:
           summary: >-
             capability {{ $labels.capability }} has not been confirmed serving for 30m — the probe
-            is wedged, or the pool has been saturated that whole time. Check
-            brain_capability_probe_total{outcome="busy"} to tell the two apart
+            is wedged, the pool has been saturated that whole time, or it has never once
+            succeeded since this pod armed it. Check
+            brain_capability_probe_total{outcome="busy"} to tell saturation from the rest
         data:
           - refId: A
             relativeTimeRange: { from: 3600, to: 0 }
             datasourceUid: vm
+            # `or … armed_timestamp` is what makes "never succeeded" visible.
+            # Measuring age against last_success ALONE meant a capability that
+            # had never once served produced no series, the expression
+            # returned no data, and noDataState: OK swallowed it — so the one
+            # case this alert most needed to catch (broken from the first
+            # tick) was the one case it could not. Falling back to the
+            # armed-at series measures age from arming instead, so "never
+            # worked" reads as a large age rather than as absence. Arming
+            # time rather than now() keeps a legitimately slow first success
+            # — a cold model warmup — inside the same 30m budget instead of
+            # paging immediately.
             model:
               refId: A
-              expr: time() - min by (capability) (brain_capability_probe_last_success_timestamp_seconds)
+              expr: >-
+                time() - min by (capability) (
+                  brain_capability_probe_last_success_timestamp_seconds
+                  or brain_capability_probe_armed_timestamp_seconds
+                )
               instant: true
           - refId: C
             relativeTimeRange: { from: 0, to: 0 }

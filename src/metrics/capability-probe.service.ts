@@ -134,6 +134,15 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
     if (!this.enabled) return;
     // unref: a monitoring timer must never be the reason a process (or a
     // jest worker) refuses to exit.
+    // Publish the armed-at series for every declared capability BEFORE the
+    // first tick. Without it a capability that never once succeeded has no
+    // series for the staleness alert to measure, and noDataState: OK turns
+    // "broken since boot" into silence — the exact failure the probe exists
+    // to catch.
+    const armedAt = Date.now() / 1000;
+    for (const capability of CAPABILITY_NAMES) {
+      this.metrics.capabilityProbeArmed.set({ capability }, armedAt);
+    }
     this.timer = setInterval(() => void this.tick(), this.intervalMs);
     this.timer.unref();
     this.logger.log(
@@ -214,6 +223,13 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
   private publish(report: ProbeReport): void {
     this.last.set(report.capability, { ...report, at: new Date().toISOString() });
     this.metrics.recordCapabilityProbe(report.capability, report.outcome);
+    if (report.outcome === 'skipped') {
+      // Nothing to exercise here (no embedder wired, no tenant yet): a
+      // capability that legitimately never runs must not read as "armed and
+      // never succeeded" to the staleness alert. Withdraw its armed series;
+      // a later tick that does run re-publishes success on its own.
+      this.metrics.capabilityProbeArmed.remove({ capability: report.capability });
+    }
     if (report.outcome === 'serving') return;
     const line = `capability '${report.capability}' is ${report.outcome}: ${report.detail ?? '—'}`;
     if (isConclusive(report.outcome)) this.logger.error(`${line} — ${RUNBOOK}`);
