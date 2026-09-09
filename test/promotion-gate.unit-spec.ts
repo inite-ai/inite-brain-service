@@ -5,8 +5,9 @@
  *
  *   - corroboration floor (COMPACTION_PROMOTION_MIN_EPISODES): a group
  *     folds only when its members span enough DISTINCT evidence contexts
- *     (union of member source.episodeIds + source.conversationId) — five
- *     facts from ONE conversation are one witness, not five;
+ *     (source.conversationId; source.episodeIds only as the fallback for
+ *     a member whose conversation is unknown — distinctEvidenceContexts)
+ *     — five facts from ONE conversation are one witness, not five;
  *   - conflict guard (COMPACTION_PROMOTION_CONFLICT_GUARD): sibling
  *     COMPETING rows abort the group loudly;
  *   - both off/unset → promotion byte-identical to today (pinned);
@@ -14,7 +15,10 @@
  */
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PromotionRunnerService } from '../src/compaction/promotion-runner.service';
+import {
+  PromotionRunnerService,
+  distinctEvidenceContexts,
+} from '../src/compaction/promotion-runner.service';
 import type { EmbedderService } from '../src/ai/embedder.service';
 import type { SurrealService } from '../src/db/surreal.service';
 
@@ -161,22 +165,83 @@ describe('PromotionRunnerService — corroboration floor', () => {
     expect(created[0]!.predicate).toBe('summary_said');
   });
 
-  it('counts episode stamps and conversation ids into ONE distinct-context set', async () => {
-    // One conversation only, but two members carry distinct episode
-    // stamps: contexts = {episode:e1, episode:e2, conv_1} = 3.
+  it('one conversation is ONE witness however many episode stamps its replies carry (F10)', async () => {
+    // One conversation only; two members carry distinct episode stamps.
+    // The pre-fix union counted {episode:e1, episode:e2, conv_1} = 3 and
+    // promoted at floor 3 — contradicting the floor's own doctrine. The
+    // context is the conversation: one witness, floor 2 not met.
+    const debug = jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
     const seeds = ONE_CONVERSATION.map((s, i) => ({
       ...s,
       ...(i === 0 ? { eps: ['episode:e1'] } : {}),
       ...(i === 1 ? { eps: ['episode:e2'] } : {}),
     }));
     const { runner, created } = makePromotionStack(seeds, {
-      COMPACTION_PROMOTION_MIN_EPISODES: '3',
+      COMPACTION_PROMOTION_MIN_EPISODES: '2',
+    });
+    const stats = await runner.promoteCompany('co_a');
+    expect(stats.groupsPromoted).toBe(0);
+    expect(created).toHaveLength(0);
+    expect(debug).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'promotion skipped (corroboration floor): knowledge_entity:e1/said distinct=1 < 2',
+      ),
+    );
+  });
+
+  it('episode stamps are the fallback witness only for members whose conversation is unknown', async () => {
+    // Three members without a conversation, each grounded in its own
+    // episode, plus two from conv_1: contexts = {conv_1, e1, e2, e3} = 4.
+    const seeds = ONE_CONVERSATION.map((s, i) =>
+      i < 3
+        ? { id: s.id, object: s.object, validFrom: s.validFrom, eps: [`episode:e${i + 1}`] }
+        : s,
+    );
+    const { runner, created } = makePromotionStack(seeds, {
+      COMPACTION_PROMOTION_MIN_EPISODES: '4',
     });
     const stats = await runner.promoteCompany('co_a');
     expect(stats.groupsPromoted).toBe(1);
     expect(created).toHaveLength(1);
   });
+});
 
+describe('distinctEvidenceContexts (pure)', () => {
+  it('several episodes of one conversation are one witness', () => {
+    const contexts = distinctEvidenceContexts([
+      { conversationId: 'c1', eps: ['episode:e1'] },
+      { conversationId: 'c1', eps: ['episode:e2'] },
+      { conversationId: 'c1', eps: ['episode:e3', 'episode:e4'] },
+    ]);
+    expect([...contexts]).toEqual(['conversation:c1']);
+  });
+
+  it('one member carrying both references is one witness', () => {
+    expect([...distinctEvidenceContexts([{ conversationId: 'c1', eps: ['episode:e1'] }])]).toEqual([
+      'conversation:c1',
+    ]);
+  });
+
+  it('two conversations are two witnesses', () => {
+    const contexts = distinctEvidenceContexts([
+      { conversationId: 'c1', eps: ['episode:e1'] },
+      { conversationId: 'c2', eps: ['episode:e1'] },
+    ]);
+    expect([...contexts].sort()).toEqual(['conversation:c1', 'conversation:c2']);
+  });
+
+  it('a context-less member falls back to its episodes, minus those a conversation already claims', () => {
+    const contexts = distinctEvidenceContexts([
+      { conversationId: 'c1', eps: ['episode:e1'] },
+      { eps: ['episode:e1', 'episode:e9'] },
+      { eps: ['episode:e9'] },
+      {},
+    ]);
+    expect([...contexts].sort()).toEqual(['conversation:c1', 'episode:e9']);
+  });
+});
+
+describe('PromotionRunnerService — corroboration floor (member SELECT)', () => {
   it('the member SELECT carries the evidence-context column', async () => {
     const { runner, calls } = makePromotionStack(TWO_CONVERSATIONS, {});
     await runner.promoteCompany('co_a');
