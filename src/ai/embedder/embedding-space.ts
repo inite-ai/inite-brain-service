@@ -213,7 +213,6 @@ export const VECTOR_COLUMNS = [
   { table: 'episode', field: 'embedding' },
   { table: 'episode_segment', field: 'embedding' },
   { table: 'knowledge_entity', field: 'embedding' },
-  { table: 'knowledge_fact', field: 'altEmbedding' },
   { table: 'knowledge_fact', field: 'embedding' },
   { table: 'knowledge_predicate', field: 'embedding' },
   { table: 'lens_suppression', field: 'centroid' },
@@ -246,7 +245,7 @@ export const NON_EMBEDDING_FLOAT_COLUMNS = [
  * be swept for a column the schema does not declare.
  */
 export const EMBEDDING_TABLES = [
-  { table: 'knowledge_fact', vectorFields: ['embedding', 'altEmbedding'] },
+  { table: 'knowledge_fact', vectorFields: ['embedding'] },
   { table: 'knowledge_entity', vectorFields: ['embedding'] },
   { table: 'knowledge_predicate', vectorFields: ['embedding'] },
   { table: 'episode', vectorFields: ['embedding'] },

@@ -1,6 +1,10 @@
 import type { Surreal } from 'surrealdb';
-import type { CoverageScanMode } from '../search/retrieval-profile';
-import { knnIndexKnownUnusable, knnOperatorDropped, noteKnnOperatorDropped } from '../db/knn-index';
+import type { CoverageScanMode } from '../retrieval-profile';
+import {
+  knnIndexKnownUnusable,
+  knnOperatorDropped,
+  noteKnnOperatorDropped,
+} from '../../db/knn-index';
 
 /** The HNSW index each coverage-scan table rides — for the diagnostic. */
 const SCAN_HNSW: Record<DenseScanLegRequest['table'], string> = {

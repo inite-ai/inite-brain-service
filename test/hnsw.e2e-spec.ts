@@ -112,12 +112,7 @@ describe('HNSW vector leg (real SurrealDB)', () => {
     // the default wait (60 s) is far more than a fixture-sized tenant needs.
     expect(create.body.concurrent).toBe(true);
     expect(create.body.ready).toBe(true);
-    expect(create.body.builds.map((b: { state: string }) => b.state)).toEqual([
-      'ready',
-      'ready',
-      'ready',
-      'ready',
-    ]);
+    expect(create.body.builds.map((b: { state: string }) => b.state)).toEqual(['ready', 'ready']);
 
     const baseline = await search('HNSW Probe Tenant');
 
@@ -148,7 +143,7 @@ describe('HNSW vector leg (real SurrealDB)', () => {
       expect(create.status).toBe(201);
       expect(create.body.concurrent).toBe(true);
       expect(create.body.ready).toBe(true);
-      expect(create.body.builds).toHaveLength(4);
+      expect(create.body.builds).toHaveLength(2);
       for (const b of create.body.builds as Array<{ index: string; state: string }>) {
         expect(b.state).toBe('ready');
       }
@@ -293,12 +288,7 @@ describe('HNSW provisioning + roster (real SurrealDB)', () => {
     const first = await ensure();
     // A fresh tenant has none of the four, so ensure defines all four —
     // always CONCURRENTLY, and without dropping anything.
-    expect(first.created.sort()).toEqual([
-      'entity_embedding_hnsw',
-      'fact_alt_embedding_hnsw',
-      'fact_embedding_hnsw',
-      'segment_embedding_hnsw',
-    ]);
+    expect(first.created.sort()).toEqual(['fact_embedding_hnsw', 'segment_embedding_hnsw']);
     expect(first.mismatched).toEqual([]);
 
     // Idempotence is the property that makes this safe to run on a
@@ -343,7 +333,7 @@ describe('HNSW provisioning + roster (real SurrealDB)', () => {
   it('a dry run records the state and emits no DDL', async () => {
     const surreal = f.app.get(SurrealService);
     await surreal.withCompany(f.companyId, async (db) => {
-      await db.query(`REMOVE INDEX IF EXISTS entity_embedding_hnsw ON knowledge_entity;`);
+      await db.query(`REMOVE INDEX IF EXISTS segment_embedding_hnsw ON episode_segment;`);
     });
     const dry = await f.http
       .post('/v1/admin/maintenance/hnsw/reconcile')
@@ -355,9 +345,9 @@ describe('HNSW provisioning + roster (real SurrealDB)', () => {
     // Still absent — a dry run reports, it does not repair.
     await surreal.withCompany(f.companyId, async (db) => {
       const [info] = await db.query<[{ indexes?: Record<string, string> }]>(
-        `INFO FOR TABLE knowledge_entity;`,
+        `INFO FOR TABLE episode_segment;`,
       );
-      expect((info as { indexes?: Record<string, string> })?.indexes?.entity_embedding_hnsw).toBe(
+      expect((info as { indexes?: Record<string, string> })?.indexes?.segment_embedding_hnsw).toBe(
         undefined,
       );
     });

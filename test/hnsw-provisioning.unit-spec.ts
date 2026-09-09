@@ -25,12 +25,7 @@ import { HnswProvisionService } from '../src/admin/hnsw-provision.service';
  *                                            from the existence probe alone
  */
 
-const ALL = [
-  'fact_embedding_hnsw',
-  'fact_alt_embedding_hnsw',
-  'entity_embedding_hnsw',
-  'segment_embedding_hnsw',
-];
+const ALL = ['fact_embedding_hnsw', 'segment_embedding_hnsw'];
 
 type IndexState = { status: 'ready' | 'indexing'; dimension?: number };
 
@@ -82,7 +77,7 @@ describe('ensure — the idempotent action provisioning is allowed to call', () 
     const db = fakeDb({ fact_embedding_hnsw: { status: 'ready' } });
     const r = await maintenance(db).apply('co1', 'ensure');
     const emitted = ddl(db.calls);
-    expect(emitted).toHaveLength(3);
+    expect(emitted).toHaveLength(1);
     for (const stmt of emitted) {
       expect(stmt).toMatch(/^DEFINE INDEX/);
       expect(stmt).toContain('CONCURRENTLY');
@@ -92,11 +87,7 @@ describe('ensure — the idempotent action provisioning is allowed to call', () 
     // is never dropped, so there is no window where the tenant is served
     // unranked rows because maintenance was running.
     expect(emitted.some((s) => s.startsWith('REMOVE'))).toBe(false);
-    expect(r.created).toEqual([
-      'fact_alt_embedding_hnsw',
-      'entity_embedding_hnsw',
-      'segment_embedding_hnsw',
-    ]);
+    expect(r.created).toEqual(['segment_embedding_hnsw']);
     expect(r.concurrent).toBe(true);
   });
 
@@ -154,17 +145,17 @@ describe('width is part of readiness', () => {
     // wrong width is `ready` to the engine and rejects every write.
     const db = fakeDb({
       ...Object.fromEntries(ALL.map((n) => [n, { status: 'ready' as const }])),
-      entity_embedding_hnsw: { status: 'ready' as const, dimension: 1536 },
+      segment_embedding_hnsw: { status: 'ready' as const, dimension: 1536 },
     });
     const r = await maintenance(db, 1024).apply('co1', 'status');
-    expect(r.mismatched).toEqual(['entity_embedding_hnsw']);
+    expect(r.mismatched).toEqual(['segment_embedding_hnsw']);
     expect(r.ready).toBe(false);
   });
 
   it('ensure does not try to repair a mismatch — the repair is destructive', async () => {
     const db = fakeDb({
       ...Object.fromEntries(ALL.map((n) => [n, { status: 'ready' as const }])),
-      entity_embedding_hnsw: { status: 'ready' as const, dimension: 1536 },
+      segment_embedding_hnsw: { status: 'ready' as const, dimension: 1536 },
     });
     await maintenance(db, 1024).apply('co1', 'ensure');
     expect(ddl(db.calls)).toEqual([]);
@@ -196,7 +187,7 @@ function provision(opts: {
       ready: true,
       builds: ALL.map((index) => ({ index, table: 't', state: 'ready' as const })),
       mismatched: [],
-      created: action === 'ensure' ? ['entity_embedding_hnsw'] : [],
+      created: action === 'ensure' ? ['segment_embedding_hnsw'] : [],
     }));
   const registry = {
     // No registry roster in these fixtures: the sweep falls back to the static keys.
@@ -366,7 +357,7 @@ describe('HnswProvisionService — reconciliation', () => {
       concurrent: true,
       ready: false,
       builds: ALL.map((index) => ({ index, table: 't', state: 'ready' as const })),
-      mismatched: ['entity_embedding_hnsw'],
+      mismatched: ['segment_embedding_hnsw'],
       created: [],
     }));
     const { svc } = provision({ apply, recorded });

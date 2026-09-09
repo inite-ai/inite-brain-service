@@ -3,6 +3,8 @@ import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { RerankerService } from '../ai/reranker.service';
 import { segmentUserGate } from '../auth/segment-scope';
+import { resolveSearchTuning } from '../search/retrieval-profile';
+import { runDenseScanLeg, type CoverageScanTuning } from '../search/internals/scan-leg';
 
 interface SegmentRow {
   id: unknown;
@@ -72,15 +74,16 @@ export class SegmentLaneService {
     try {
       const queryVector = await this.embedder.embed(opts.query);
       const fused = await this.surreal.withCompany(opts.companyId, async (db) => {
-        const [dense] = await db.query<[SegmentRow[]]>(
-          `SELECT id, text, occurredAt,
-                    vector::similarity::cosine(embedding, $q) AS score
-               FROM episode_segment
-              WHERE embedding != NONE AND array::len(embedding) = array::len($q) ${piiGate} ${gate.clause}
-              ORDER BY score DESC
-              LIMIT $k`,
-          { q: queryVector, k: fetchK, ...gate.params },
-        );
+        const dense = await runDenseScanLeg<SegmentRow>({
+          db,
+          table: 'episode_segment',
+          projection: 'id, text, occurredAt',
+          gates: `${piiGate} ${gate.clause}`,
+          params: { q: queryVector, k: fetchK, ...gate.params },
+          k: fetchK,
+          tuning: segmentScanTuning(),
+          logger: this.logger,
+        });
         const [bm25] = await db.query<[SegmentRow[]]>(
           `SELECT id, text, occurredAt, search::score(1) AS score
                FROM episode_segment
@@ -134,15 +137,16 @@ export class SegmentLaneService {
     try {
       const queryVector = await this.embedder.embed(opts.query);
       const fused = await this.surreal.withCompany(opts.companyId, async (db) => {
-        const [dense] = await db.query<[SegmentAnchorRow[]]>(
-          `SELECT id, conversationId, occurredAt,
-                    vector::similarity::cosine(embedding, $q) AS score
-               FROM episode_segment
-              WHERE embedding != NONE AND array::len(embedding) = array::len($q) ${piiGate} ${gate.clause}
-              ORDER BY score DESC
-              LIMIT $k`,
-          { q: queryVector, k: opts.limit, ...gate.params },
-        );
+        const dense = await runDenseScanLeg<SegmentAnchorRow>({
+          db,
+          table: 'episode_segment',
+          projection: 'id, conversationId, occurredAt',
+          gates: `${piiGate} ${gate.clause}`,
+          params: { q: queryVector, k: opts.limit, ...gate.params },
+          k: opts.limit,
+          tuning: segmentScanTuning(),
+          logger: this.logger,
+        });
         const [bm25] = await db.query<[SegmentAnchorRow[]]>(
           `SELECT id, conversationId, occurredAt, search::score(1) AS score
                FROM episode_segment
@@ -221,4 +225,19 @@ function rrfFuseScored<T extends { id: unknown }>(
     });
   }
   return [...scores.values()].sort((a, b) => b.score - a.score);
+}
+
+/**
+ * The segment lane rides segment_embedding_hnsw under the same flags as
+ * the search legs (SEARCH_HNSW_ENABLED / _EF / _OVERFETCH); with the flag
+ * off, or no index yet, the exact scan is byte-identical to the pre-HNSW
+ * query. Read per call so an operator flip needs no restart.
+ */
+function segmentScanTuning(): CoverageScanTuning {
+  const t = resolveSearchTuning();
+  return {
+    mode: t.hnswEnabled ? 'hnsw' : 'brute',
+    ef: t.hnswEf,
+    overfetch: t.hnswOverfetch,
+  };
 }

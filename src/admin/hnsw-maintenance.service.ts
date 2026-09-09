@@ -43,12 +43,20 @@ import { probeHnswIndex, resetKnnIndexMemo } from '../db/knn-index';
  * /v1/admin/reindex/embeddings) BEFORE `create` — with no index present
  * the rewrites it must perform are not rejected.
  *
- * segment_embedding_hnsw (the coverage-scan leg, V11 §5) has a swap
- * caveat: reindex-embeddings rewrites knowledge_fact ONLY — segments
- * keep their old-size vectors. Segments are derived state (0075), so
- * the segment step of a swap is delete + re-segment the world;
- * entity_embedding_hnsw shares the same hole and today relies on entity
- * vectors being rewritten by their own ingest path.
+ * Two indexes, each with a consumer: fact_embedding_hnsw rides under the
+ * fact legs, the dedup seed and inline entity resolution (all `<|K,EF|>`
+ * over knowledge_fact.embedding); segment_embedding_hnsw rides under the
+ * segment legs, the segment lane and the coverage-scan lane
+ * (episode_segment.embedding). fact_alt_embedding_hnsw (a column with no
+ * writer since the HyPE experiment was reverted) and entity_embedding_hnsw
+ * (knowledge_entity.embedding has no KNN and no cosine consumer — entity
+ * resolution reads fact vectors) were retired by migration 0139: they were
+ * built, waited for and counted in readiness for nothing.
+ *
+ * segment_embedding_hnsw has a swap caveat: the reindex sweep re-embeds
+ * episode_segment along with the other swept tables (reindex-engine
+ * ADDITIONAL_TABLE_SPECS), and a segment world can also be rebuilt from
+ * its episodes (0075).
  *
  * ── Every build is CONCURRENTLY ────────────────────────────────────────
  *
@@ -62,7 +70,7 @@ import { probeHnswIndex, resetKnnIndexMemo } from '../db/knn-index';
  * default; a default that is a measured failure at exactly the corpus size
  * the index exists for is not a configuration, so there is one path now.
  *
- * `create` also emits one DEFINE per index rather than a four-index
+ * `create` also emits one DEFINE per index rather than a multi-index
  * super-statement: a concurrent build is per-index by nature (each has
  * its own `building` progress), and a single failing DEFINE inside a
  * multi-statement query takes its siblings with it.
@@ -80,7 +88,7 @@ import { probeHnswIndex, resetKnnIndexMemo } from '../db/knn-index';
  *
  * ── `ensure` — the idempotent action provisioning is allowed to call ──
  *
- * `create` RECREATES: it REMOVEs all four indexes and defines them again.
+ * `create` RECREATES: it REMOVEs both indexes and defines them again.
  * That is right for an operator repairing a width swap and catastrophic for
  * anything automatic — a provisioning hook that ran `create` on process
  * boot would drop a large tenant's working indexes and leave it serving
@@ -171,15 +179,11 @@ export interface HnswMaintenanceResult {
 }
 
 const FACT_MAIN = 'fact_embedding_hnsw';
-const FACT_ALT = 'fact_alt_embedding_hnsw';
-const ENTITY_MAIN = 'entity_embedding_hnsw';
 const SEGMENT_MAIN = 'segment_embedding_hnsw';
 
 /** Every index this service owns, with the table and column it rides. */
 const INDEX_SPECS = [
   { index: FACT_MAIN, table: 'knowledge_fact', field: 'embedding' },
-  { index: FACT_ALT, table: 'knowledge_fact', field: 'altEmbedding' },
-  { index: ENTITY_MAIN, table: 'knowledge_entity', field: 'embedding' },
   { index: SEGMENT_MAIN, table: 'episode_segment', field: 'embedding' },
 ] as const;
 
@@ -378,7 +382,7 @@ export class HnswMaintenanceService {
   /**
    * RECREATE at the declared width: remove first, then define each index
    * on its own statement, CONCURRENTLY, so one failure cannot take the
-   * other three with it and each build has its own progress row.
+   * other with it and each build has its own progress row.
    */
   private async create(db: Surreal, dimension: number): Promise<void> {
     // DIMENSION cannot be parameterised in DDL — `dimension` comes from
@@ -394,8 +398,6 @@ export class HnswMaintenanceService {
   private async drop(db: Surreal): Promise<void> {
     await db.query(
       `REMOVE INDEX IF EXISTS ${FACT_MAIN} ON knowledge_fact;
-           REMOVE INDEX IF EXISTS ${FACT_ALT} ON knowledge_fact;
-           REMOVE INDEX IF EXISTS ${ENTITY_MAIN} ON knowledge_entity;
            REMOVE INDEX IF EXISTS ${SEGMENT_MAIN} ON episode_segment;`,
     );
   }

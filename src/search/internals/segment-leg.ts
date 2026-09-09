@@ -1,6 +1,8 @@
 import type { Surreal } from 'surrealdb';
 import { segmentUserGate } from '../../auth/segment-scope';
 import type { FactRow } from './types';
+import type { LegTuning } from './legs';
+import { runDenseScanLeg } from './scan-leg';
 
 /**
  * Verbatim fusion leg (audit W4 #18): episode_segment rows retrieved as
@@ -39,6 +41,8 @@ export interface SegmentLegOptions {
   callerScopes: string[];
   userId?: string | undefined;
   mode: 'hybrid' | 'vector' | 'lexical';
+  /** Resolved by the retrieval-profile bootstrap; absent → exact scan. */
+  tuning?: Pick<LegTuning, 'hnswEnabled' | 'hnswEf' | 'hnswOverfetch'> | undefined;
 }
 
 interface SegmentRow {
@@ -110,6 +114,7 @@ export async function runSegmentLegs({
   callerScopes,
   userId,
   mode,
+  tuning,
 }: SegmentLegOptions): Promise<{
   vectorRows: FactRow[];
   lexicalRows: FactRow[];
@@ -122,16 +127,23 @@ export async function runSegmentLegs({
   const gate = segmentUserGate(userId);
 
   const [denseRes, bm25Res] = await Promise.all([
+    // HNSW-first when the tenant has segment_embedding_hnsw (the same
+    // KNN → missing-index memo → exact-scan path the fact leg takes);
+    // the exact scan is byte-identical to the pre-HNSW query.
     mode !== 'lexical' && queryVector
-      ? db.query<[SegmentRow[]]>(
-          `SELECT id, conversationId, text, occurredAt,
-                  vector::similarity::cosine(embedding, $q) AS score
-             FROM episode_segment
-            WHERE embedding != NONE AND array::len(embedding) = array::len($q) ${piiGate} ${gate.clause}
-            ORDER BY score DESC
-            LIMIT $k`,
-          { q: queryVector, k: fetchK, ...gate.params },
-        )
+      ? runDenseScanLeg<SegmentRow>({
+          db,
+          table: 'episode_segment',
+          projection: 'id, conversationId, text, occurredAt',
+          gates: `${piiGate} ${gate.clause}`,
+          params: { q: queryVector, k: fetchK, ...gate.params },
+          k: fetchK,
+          tuning: {
+            mode: tuning?.hnswEnabled ? 'hnsw' : 'brute',
+            ef: tuning?.hnswEf ?? 100,
+            overfetch: tuning?.hnswOverfetch ?? 4,
+          },
+        }).then((rows) => [rows] as [SegmentRow[]])
       : Promise.resolve([[] as SegmentRow[]]),
     mode !== 'vector'
       ? db.query<[SegmentRow[]]>(
