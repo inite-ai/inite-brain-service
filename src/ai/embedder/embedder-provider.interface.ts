@@ -29,6 +29,16 @@ export interface EmbedderProvider {
    */
   isReady(): boolean;
 
+  /**
+   * Optional: load the model. Resolves once `isReady()` is true; REJECTS
+   * when the model could not be loaded (network, disk, a dead worker), so
+   * the owner can retry — a warmup that swallows its own failure leaves
+   * the provider permanently not-ready with nobody the wiser. Must be safe
+   * to call again after a failure and after `isReady()` has flipped back
+   * to false (e.g. a worker that died mid-life).
+   */
+  warmup?(): Promise<void>;
+
   /** Embed a single string. Empty / whitespace → zero vector. */
   embed(text: string): Promise<number[]>;
 

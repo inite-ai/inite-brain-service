@@ -117,6 +117,19 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Hybrid searches answered lexical-only because the vector leg could not
+  // run. `reason` is one of two fixed values: embedder_unavailable (query
+  // could not be embedded — primary warming up or down) or
+  // vector_query_failed (the similarity statement errored, e.g. rows not
+  // in the query's space). A non-zero rate is a degraded read path that
+  // /health cannot see.
+  readonly searchVectorLegDegraded = new Counter({
+    name: 'brain_search_vector_leg_degraded_total',
+    help: 'Hybrid searches served lexical-only because the vector leg was unavailable',
+    labelNames: ['reason'] as const,
+    registers: [this.registry],
+  });
+
   // ── Capability probes (src/metrics/capability-probe.service.ts) ──────
   // The ACTIVE signal for "the service reports healthy while a whole
   // capability is dead" — the class behind #502 (scoped pool anonymous

@@ -102,6 +102,14 @@ export const SearchHitSchema = z.object({
 
 export const SearchResponseSchema = z.object({
   results: z.array(SearchHitSchema),
+  /**
+   * Retrieval stages that were skipped on this request. Present only when
+   * non-empty. `vector_leg`: the query could not be embedded (embedder
+   * warming up or down) or the similarity query failed, so `results` is a
+   * lexical-only ranking — complete for keyword matches, blind to semantic
+   * ones. Retry later for the full ranking.
+   */
+  degraded: z.array(z.enum(['vector_leg'])).optional(),
 });
 
 export type SearchRequest = z.infer<typeof SearchRequestSchema>;

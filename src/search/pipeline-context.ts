@@ -4,6 +4,14 @@ import type { QueryTimeRange } from './internals/scoring';
 import type { ReadPin } from '../episodes/read-pin.service';
 
 /**
+ * A retrieval stage that could not run and was skipped rather than failing
+ * the whole request. Reported to the caller on the response so a
+ * lexical-only answer during an embedder outage is not mistaken for the
+ * full ranking.
+ */
+export type SearchDegradation = 'vector_leg';
+
+/**
  * Per-request retrieval-pipeline context, shared by the search
  * orchestrator and its stage services (retrieval / rerank). Built once
  * by SearchService.search() from the public SearchDto.
@@ -39,4 +47,10 @@ export interface PipelineContext {
    * Null/absent → every scoring factor is exactly 1.0.
    */
   queryRange?: QueryTimeRange | null;
+  /**
+   * Stages skipped on this request (see SearchDegradation). A Set so the
+   * shallow copies the orchestrator makes for follow-up passes (entity
+   * expansion, lang-filter backoff) share it by reference.
+   */
+  degraded?: Set<SearchDegradation>;
 }

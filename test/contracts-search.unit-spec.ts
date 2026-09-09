@@ -74,13 +74,20 @@ describe('search wire contracts', () => {
 
   it('SearchResponseSchema parses a fully-populated service result', () => {
     expect(() => SearchResponseSchema.parse({ results: [fullSearchHit] })).not.toThrow();
+    // A lexical-only answer during an embedder outage says so.
+    expect(() =>
+      SearchResponseSchema.parse({ results: [fullSearchHit], degraded: ['vector_leg'] }),
+    ).not.toThrow();
+    expect(() =>
+      SearchResponseSchema.parse({ results: [fullSearchHit], degraded: ['rerank'] }),
+    ).toThrow();
   });
 
   it('pins every request/response key on both sides', () => {
     expectKeys(SearchRequestSchema.shape, fullSearchRequest);
     expectKeys(SearchHitSchema.shape, fullSearchHit);
     expectKeys(SearchFactSchema.shape, fullFact);
-    expect(Object.keys(SearchResponseSchema.shape)).toEqual(['results']);
+    expect(Object.keys(SearchResponseSchema.shape)).toEqual(['results', 'degraded']);
   });
 
   it('rejects an unknown request key (the pipe forbids non-whitelisted)', () => {

@@ -45,7 +45,7 @@ import {
 import { SearchRetrievalService } from './search-retrieval.service';
 import { SearchRerankService } from './search-rerank.service';
 import { resolveVerbatimMode } from './verbatim-routing';
-import { PipelineContext } from './pipeline-context';
+import { PipelineContext, type SearchDegradation } from './pipeline-context';
 import { ReadPinService } from '../episodes/read-pin.service';
 import { getActiveRetrievalProfile, resolveSearchTuning } from './retrieval-profile';
 import { JobWorkerPool } from '../jobs/job-worker-pool.service';
@@ -371,7 +371,7 @@ export class SearchService {
     companyId: string,
     dto: SearchDto,
     callerScopes: string[],
-  ): Promise<{ results: SearchHit[] }> {
+  ): Promise<{ results: SearchHit[]; degraded?: SearchDegradation[] }> {
     // Defence-in-depth clamp. SearchDto.@MaxLength catches caller-direct
     // requests, but multi-hop / synthesize / admin-demo / mcp call this
     // method with raw shapes that may bypass class-validator. Clamping
@@ -443,6 +443,7 @@ export class SearchService {
       // request; no parseable period (or flag off) → null → every
       // scoring factor is exactly 1.0.
       queryRange: profile.timeFilter ? parseQueryTimeRange(dto.query) : null,
+      degraded: new Set(),
     };
     // Audit W4 #20: only the DB-touching stages run inside the scoped
     // connection; the cross-encoder pass and the external LLM rerank —
@@ -725,7 +726,7 @@ export class SearchService {
   private async rankAndAssemble(
     staged: StagedPipeline,
     ctx: PipelineContext,
-  ): Promise<{ results: SearchHit[] }> {
+  ): Promise<{ results: SearchHit[]; degraded?: SearchDegradation[] }> {
     const { byEntity, rowPolicy, neighboursByEntity } = staged;
     // 7. Cross-encoder + LLM rerank.
     let topEntities = await this.rerank.runRerankStage({
@@ -779,9 +780,8 @@ export class SearchService {
       factsPerEntity: factCentricBudget,
     });
     rowPolicy.finish();
-    return {
-      results: await applyOutputShaping(hits, ctx.dto, this.workerPool, ctx.tuning),
-    };
+    const results = await applyOutputShaping(hits, ctx.dto, this.workerPool, ctx.tuning);
+    return ctx.degraded?.size ? { results, degraded: [...ctx.degraded] } : { results };
   }
 
   private async runEdgeExpansionStage({
