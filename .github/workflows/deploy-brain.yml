@@ -808,6 +808,16 @@ jobs:
                 - "traefik.http.routers.${PROJECT_NAME}.tls.certresolver=letsencrypt"
                 - "traefik.http.services.${PROJECT_NAME}.loadbalancer.server.port=${PORT}"
                 - "traefik.http.services.${PROJECT_NAME}.loadbalancer.responseForwarding.flushInterval=-1"
+                # Edge liveness: a wedged process answers 503 at Traefik instead of
+                # timing out client connections. Deliberately /health, NOT /ready:
+                # this is a single replica, and the process degrades on its own
+                # (lexical-only search while the embedder warms, 503 on scoped reads
+                # while writes still work) — pulling it out of rotation on /ready
+                # would turn every partial outage into a total one. /ready is the
+                # deploy gate and the k8s readinessProbe for a multi-replica layout.
+                - "traefik.http.services.${PROJECT_NAME}.loadbalancer.healthcheck.path=/health"
+                - "traefik.http.services.${PROJECT_NAME}.loadbalancer.healthcheck.interval=15s"
+                - "traefik.http.services.${PROJECT_NAME}.loadbalancer.healthcheck.timeout=5s"
                 # http→https redirect for the same backend paths (landing has its own).
                 - "traefik.http.routers.${PROJECT_NAME}-http.rule=Host(\`${DOMAIN}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/registry\`))"
                 - "traefik.http.routers.${PROJECT_NAME}-http.priority=200"

@@ -684,9 +684,23 @@ thing it claims to cover.
 
 `/ready` gained real checks in the first two fixes, but **readiness is polled
 at deploy time**: a pool that lapses an hour after a successful deploy is
-invisible to it by construction. `CAPABILITY_PROBE_ENABLED=1` arms a timer
-(default 60s, every pod, no leader lease — the failure is per-process) that
-RUNS each capability and publishes what happened.
+invisible to it by construction. The capability probe — on by default,
+`CAPABILITY_PROBE_ENABLED=0` disables it — arms a timer (default 60s, every
+pod, no leader lease — the failure is per-process) that RUNS each capability
+and publishes what happened.
+
+**Readiness vs traffic.** This is a single-replica deployment, and the
+process degrades on its own: hybrid search answers lexical-only (marked
+`degraded`) while the embedder warms or is down, scoped reads answer 503
+while writes keep working. Traefik therefore health-checks `/health`
+(liveness — a wedged process answers 503 at the edge instead of hanging
+clients) and deliberately **not** `/ready`: pulling the only replica out of
+rotation on a partial failure would turn it into a total one. `/ready` is the
+deploy-time check (the workflow waits up to five minutes for it and fails
+the job — not the rollout — if it never goes green) and the readinessProbe
+for a multi-replica layout. The continuous signal between deploys is the
+probe below; the actuator for what it finds is the runbook, because after
+#502 every self-healable failure already heals itself.
 
 | Capability | What the probe actually does | Covers `/ready` check |
 |---|---|---|
@@ -724,7 +738,7 @@ property for all of them and the scraper's `instance` label already pins
 
 Rules in `monitoring/grafana/provisioning/alerting/rules.yaml`:
 
-- **ScopedReadCapabilityDead** (critical, `for: 5m`) — `min(brain_capability_probe_ok{capability="scoped_read"}) < 1`. Five consecutive conclusive failures at the default cadence. The failure is sticky (a lapsed session stays lapsed until restart), so the wait costs almost nothing and buys immunity from a single-tick blip.
+- **ScopedReadCapabilityDead** (critical, `for: 5m`) — `min(brain_capability_probe_ok{capability="scoped_read"}) < 1`. Five consecutive conclusive failures at the default cadence. A lapsed session is no longer sticky (the pool re-signs on the next acquire), so five failures in a row mean the pool cannot sign in at all; the wait buys immunity from a single-tick blip.
 - **CapabilityProbeFailing** (warning, `for: 20m`) — the same check for every *other* capability, so a newly added one is alerted on without anyone remembering to write a rule. Long window because `embed` is legitimately 0 during a cold bge-m3 warmup.
 - **CapabilityProbeStale** (warning) — no confirmed serve for 30m.
 
@@ -733,12 +747,19 @@ Rules in `monitoring/grafana/provisioning/alerting/rules.yaml`:
 1. The `instance` label names the pod. Reads are failing **there** while
    writes, `/health` and MCP may still answer — see § Long-lived DB sessions
    for why.
-2. Restart that pod: a fresh process re-establishes the scoped session.
-3. If it recurs across restarts, the pool cannot authenticate at all —
-   check `SURREALDB_SCOPED_USER` / `SURREALDB_SCOPED_PASS` against the server
-   and that migration 0005's `brain_caller` still exists. The probe's error
-   log carries the DB's own message.
-4. `brain_capability_probe_total{outcome="busy"}` climbing instead means
+2. **Do not start with a restart.** The pool re-signs a lapsed session on
+   the next acquire and rebuilds a dead socket, so a probe that stays
+   `unauthorized` means the pool cannot *sign in* — a restart reproduces the
+   same failure. Read the probe's error log: it carries the DB's own message.
+3. `There was a problem with authentication` / `not found` → check
+   `SURREALDB_SCOPED_USER` / `SURREALDB_SCOPED_PASS` against the server and
+   that migration 0005's `brain_caller` still exists (`INFO FOR NS` on the
+   brain namespace). Brain OVERWRITEs the user on boot from those two
+   variables, so a rotated secret takes effect on the next deploy.
+4. `timed out` → the rebuild could not replace a wedged socket (half-open
+   TCP to the DB). Check the DB container and the network first; restart
+   the pod only if the DB is healthy and the timeouts persist.
+5. `brain_capability_probe_total{outcome="busy"}` climbing instead means
    saturation, not authorization — that is a pool-size / slow-query problem
    and never fires this alert.
 

@@ -3265,11 +3265,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'CAPABILITY_PROBE_ENABLED',
     category: 'misc',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
-      'Periodically RUN each capability the service claims and publish the result (brain_capability_probe_*). Covers the class where the service reports healthy while a capability is dead: the scoped pool that went anonymous ~59 min after boot with /health green (#502), and the embedder answering outside the configured space while /ready was green (#503). Both fixes landed in /ready, which is only polled at deploy time — this is the continuous counterpart. Per pod, no leader lease (the failure is per-process). Off = no timer, no series.',
+      'Periodically RUN each capability the service claims (scoped read, embed) and publish the result as brain_capability_probe_* — the continuous counterpart of /ready, which a deploy polls once. On by default so a forgotten flag cannot recreate a green /health over a dead read path; set 0 to disable (no timer, no series). Per pod, no leader lease. See docs/operations.md § Capability probes.',
   },
   {
     key: 'CAPABILITY_PROBE_INTERVAL_MS',

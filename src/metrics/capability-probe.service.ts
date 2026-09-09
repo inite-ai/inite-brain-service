@@ -9,7 +9,7 @@ import { SurrealService } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { MetricsService } from './metrics.service';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import {
   CAPABILITY_NAMES,
   classifyProbeFailure,
@@ -49,11 +49,18 @@ const EMBED_PROBE_TEXT = 'brain capability probe';
 
 const RUNBOOK = 'runbook: docs/operations.md § Capability probes';
 
-/** What an operator should do about a scoped read path that cannot authorize. */
+/**
+ * What an operator should do about a scoped read path that cannot authorize.
+ * A lapsed session heals on the next acquire (SurrealService.ensureSession),
+ * so a probe that stays `unauthorized` means the pool cannot SIGN IN at all —
+ * credentials or the user definition, which a restart cannot fix.
+ */
 const REMEDY =
-  'Reads are failing on THIS pod while writes and /health may still answer; ' +
-  'restart it to re-establish the session, then check SURREALDB_SCOPED_USER/PASS ' +
-  "and that migration 0005's brain_caller still exists";
+  'Reads are failing on THIS pod while writes and /health may still answer. ' +
+  'The pool re-signs on every acquire, so this is not a lapsed session: check ' +
+  "SURREALDB_SCOPED_USER/PASS against the server and that migration 0005's " +
+  "brain_caller still exists (the error above is the DB's own message). Restart " +
+  'only if the error is a timeout — a wedged socket the rebuild could not replace';
 
 /**
  * CapabilityProbeService — periodically RUNS each capability the service
@@ -78,7 +85,10 @@ const REMEDY =
 @Injectable()
 export class CapabilityProbeService implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new Logger(CapabilityProbeService.name);
-  private readonly enabled = envFlagEnabled(process.env.CAPABILITY_PROBE_ENABLED);
+  // Default ON: a deployment that forgets the flag must not get the exact
+  // blindness this probe exists for (a green /health over a dead read path).
+  // The cost is one LIMIT 1 read and one short embed per minute per pod.
+  private readonly enabled = envFlagNotDisabled(process.env.CAPABILITY_PROBE_ENABLED);
   private readonly intervalMs = Math.max(
     MIN_INTERVAL_MS,
     parseInt(process.env.CAPABILITY_PROBE_INTERVAL_MS ?? String(DEFAULT_INTERVAL_MS), 10) ||
