@@ -12,7 +12,7 @@ import { LRUCache } from '../common/lru-cache';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
 import type { EmbedderProvider } from './embedder/embedder-provider.interface';
-import { createOpenAiClientOrThrow } from './openai-client';
+import { createOpenAiClient, createOpenAiClientOrThrow } from './openai-client';
 import { OpenAIEmbedderProvider } from './embedder/openai-embedder.provider';
 import { BgeM3EmbedderProvider } from './embedder/bge-m3-embedder.provider';
 import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
@@ -100,13 +100,22 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
     const providerName: EmbedderProviderName = isEmbedderProviderName(configured)
       ? configured
       : DEFAULT_EMBEDDER_PROVIDER;
-    const openai = this.buildOpenAIProvider();
     if (providerName === 'bge-m3') {
       this.primary = this.buildBgeM3Provider();
-      this.fallback = openai;
-      this.logger.log(`Embedder primary=bge-m3 fallback=openai (until warmup completes)`);
+      // The OpenAI fallback is OPTIONAL here. Under the default-on strict
+      // space guard it can never serve a bge-m3 corpus anyway (a 1536-wide
+      // answer against 1024-wide rows is refused), so a deployment that
+      // has no OpenAI key must not be refused at boot for a provider it
+      // cannot use. With no fallback a not-ready primary answers 503 until
+      // warmup completes — the same outcome the guard produces.
+      this.fallback = this.buildOpenAIProvider({ required: false });
+      this.logger.log(
+        this.fallback
+          ? `Embedder primary=bge-m3 fallback=openai (until warmup completes)`
+          : `Embedder primary=bge-m3, no fallback (OPENAI_API_KEY unset): requests answer 503 until warmup completes`,
+      );
     } else {
-      this.primary = openai;
+      this.primary = this.buildOpenAIProvider({ required: true });
       this.fallback = null;
       this.logger.log(`Embedder primary=openai`);
     }
@@ -583,6 +592,15 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
   private serveProvider(): EmbedderProvider {
     if (!this.primary.isReady()) this.kickWarmup('serve');
     const provider = this.servingProvider();
+    if (provider === this.primary && !this.primary.isReady()) {
+      // No fallback to fail over to (or none configured): the same 503 the
+      // strict guard would give, instead of the provider's bare
+      // "not ready" Error surfacing as a 500.
+      throw new ServiceUnavailableException(
+        `embedder primary '${this.primarySpaceIdValue}' is not ready and no fallback is ` +
+          `configured; retry once warmup completes.`,
+      );
+    }
     const servingSpace = this.spaceIdOf(provider);
     if (
       envFlagNotDisabled(this.configService.get<string>('EMBEDDING_SPACE_STRICT')) &&
@@ -633,9 +651,17 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
   // only desynchronise the store from what the model emits. Concurrency
   // and the worker toggle stay — they are genuinely deployment-shaped and
   // cannot make a vector the wrong width.
-  private buildOpenAIProvider(): OpenAIEmbedderProvider {
+  private buildOpenAIProvider(opts: { required: true }): OpenAIEmbedderProvider;
+  private buildOpenAIProvider(opts: { required: false }): OpenAIEmbedderProvider | null;
+  private buildOpenAIProvider(opts: { required: boolean }): OpenAIEmbedderProvider | null {
+    // Required when OpenAI is the primary (the canonical configuration
+    // error at construction); optional as the bge-m3 fallback.
+    const client = opts.required
+      ? createOpenAiClientOrThrow(this.configService)
+      : createOpenAiClient(this.configService);
+    if (!client) return null;
     return new OpenAIEmbedderProvider({
-      client: createOpenAiClientOrThrow(this.configService),
+      client,
       space: declaredSpace('openai'),
       concurrency: parseInt(this.configService.get<string>('OPENAI_CONCURRENCY', '8'), 10),
     });
