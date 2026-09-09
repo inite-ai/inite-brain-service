@@ -18,7 +18,6 @@ describe('HNSW vector leg (real SurrealDB)', () => {
 
   afterAll(async () => {
     delete process.env.SEARCH_HNSW_ENABLED;
-    delete process.env.SEARCH_HNSW_CONCURRENT;
     if (f) await f.close();
   });
 
@@ -109,8 +108,9 @@ describe('HNSW vector leg (real SurrealDB)', () => {
     expect(create.body.dimension).toBe(1536); // StubEmbedder
     expect(create.body.indexes).toContain('fact_embedding_hnsw');
     expect(create.body.indexes).toContain('segment_embedding_hnsw');
-    // Readiness is reported, not assumed — on the synchronous path too.
-    expect(create.body.concurrent).toBe(false);
+    // Readiness is reported, not assumed; every build is CONCURRENTLY and
+    // the default wait (60 s) is far more than a fixture-sized tenant needs.
+    expect(create.body.concurrent).toBe(true);
     expect(create.body.ready).toBe(true);
     expect(create.body.builds.map((b: { state: string }) => b.state)).toEqual([
       'ready',
@@ -130,18 +130,21 @@ describe('HNSW vector leg (real SurrealDB)', () => {
   });
 
   /**
-   * SEARCH_HNSW_CONCURRENT against the real engine. The failure this
-   * replaces is a scale failure (a synchronous build over 20 000 × 1024-d
-   * aborts after ~133 s with a RocksDB transaction conflict) that a
-   * fixture-sized tenant cannot reproduce; what IS assertable here is that
-   * the CONCURRENTLY keyword parses on 3.2.4, that the four indexes really
-   * land, that `INFO FOR INDEX` yields a build state the route reports, and
-   * that a KNN search over the finished index still answers.
+   * The concurrent build against the real engine. The failure it replaced
+   * is a scale failure (a synchronous build over 20 000 × 1024-d aborts
+   * after ~133 s with a RocksDB transaction conflict) that a fixture-sized
+   * tenant cannot reproduce; what IS assertable here is that the
+   * CONCURRENTLY keyword parses on 3.2.4, that the four indexes really
+   * land, that `INFO FOR INDEX` yields a build state the route reports, that
+   * `waitMs` is honoured as a request field, and that a KNN search over the
+   * finished index still answers.
    */
   it('builds CONCURRENTLY, reports per-index readiness, and serves', async () => {
-    process.env.SEARCH_HNSW_CONCURRENT = '1';
-    try {
-      const create = await f.http.post('/v1/admin/maintenance/hnsw').set(auth()).send({});
+    {
+      const create = await f.http
+        .post('/v1/admin/maintenance/hnsw')
+        .set(auth())
+        .send({ waitMs: 30_000 });
       expect(create.status).toBe(201);
       expect(create.body.concurrent).toBe(true);
       expect(create.body.ready).toBe(true);
@@ -174,8 +177,10 @@ describe('HNSW vector leg (real SurrealDB)', () => {
       const results = await search('HNSW Probe Tenant');
       delete process.env.SEARCH_HNSW_ENABLED;
       expect(results.length).toBeGreaterThan(0);
-    } finally {
-      delete process.env.SEARCH_HNSW_CONCURRENT;
+
+      // A malformed wait is a 400 before any DDL, never a silent default.
+      const bad = await f.http.post('/v1/admin/maintenance/hnsw').set(auth()).send({ waitMs: -1 });
+      expect(bad.status).toBe(400);
     }
   });
 

@@ -1701,30 +1701,12 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Switch the KNN vector leg on. Tenants without a built index fall back to the full scan; build via POST /v1/admin/maintenance/hnsw.',
-  },
-  {
-    key: 'SEARCH_HNSW_CONCURRENT',
-    category: 'search',
-    defaultValue: '0',
-    runtimeMutable: true,
-    isBooleanFlag: true,
-    description:
-      'Build the per-tenant HNSW indexes with DEFINE INDEX … CONCURRENTLY (POST /v1/admin/maintenance/hnsw {action:"create"}), one statement per index instead of one four-index super-statement. Off = the historical synchronous DDL, which FAILS at real scale: measured on SurrealDB 3.2.4, a synchronous build over 20 000 × 1024-d aborts after ~133 s with a RocksDB transaction conflict, while CONCURRENTLY reaches ready in 4.2 s. Concurrent builds are asynchronous — the route waits up to SEARCH_HNSW_BUILD_WAIT_MS and then reports per-index build state; check `ready` (or POST {action:"status"}) before flipping SEARCH_HNSW_ENABLED, because an index that exists but is still indexing answers KNN with the same unranked rows a missing index does.',
-  },
-  {
-    key: 'SEARCH_HNSW_BUILD_WAIT_MS',
-    category: 'search',
-    defaultValue: '60000',
-    runtimeMutable: true,
-    isBooleanFlag: false,
-    description:
-      'How long POST /v1/admin/maintenance/hnsw {action:"create"} waits for a SEARCH_HNSW_CONCURRENT build before answering with whatever progress it reached. Not a failure ceiling — the build continues server-side and {action:"status"} reports it. Default 60000 covers ~280k rows at the measured ~4 700 rows/s; 0 answers immediately. Inert when SEARCH_HNSW_CONCURRENT is off.',
+      'Switch the KNN vector leg on. Tenants without a built index fall back to the full scan; build via POST /v1/admin/maintenance/hnsw (every build is CONCURRENTLY; `waitMs` in the request body bounds how long that call holds for the build, default 60 s). Check `ready` in the response before flipping this for a tenant. Provisioning (the schema-ready hook and the nightly sweep) follows this flag unless HNSW_PROVISION_ENABLED says otherwise.',
   },
   // ── HNSW index provisioning + reconciliation ──
   // Category 'jobs', not 'search': these gate a scheduled maintenance pass
   // and a provisioning hook, never a retrieval code path. They sit beside
-  // SEARCH_HNSW_ENABLED / SEARCH_HNSW_CONCURRENT in the runbook.
+  // SEARCH_HNSW_ENABLED in the runbook.
   {
     key: 'HNSW_PROVISION_ENABLED',
     category: 'jobs',
@@ -1732,16 +1714,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Give every tenant its HNSW indexes without a human remembering. On: (a) a hook on SurrealService.ensureSchema — the one place a tenant database is created — notes each tenant and provisions it off the request path; (b) a nightly leader-elected sweep (05:10 UTC) reconciles the whole roster; (c) every observation is recorded in tenant_registry (indexState/indexDetail/indexStateAt/embeddingSpace) so "which tenants have a ready index" is one SELECT. Provisioning uses the idempotent `ensure` action — defines only ABSENT indexes, always CONCURRENTLY, never REMOVEs, never restarts a build in flight — so it is safe on every pass. THIS SHOULD BE ON WHEREVER SEARCH_HNSW_ENABLED IS: production sets that globally, and #506 measured that an un-indexed tenant is served k arbitrary rows with a NULL distance rather than an error.',
-  },
-  {
-    key: 'HNSW_PROVISION_SCHEDULED',
-    category: 'jobs',
-    defaultValue: '1',
-    runtimeMutable: true,
-    isBooleanFlag: true,
-    description:
-      'The nightly roster reconciliation (05:10 UTC) only. Default ON under HNSW_PROVISION_ENABLED; set to 0 to keep new-tenant provisioning and the admin reconcile route while silencing the schedule. Inert when HNSW_PROVISION_ENABLED is off — both gates are checked before the lease, so a disabled sweep never touches leader_lease.',
+      'Give every tenant its HNSW indexes without a human remembering: (a) a hook on SurrealService.ensureSchema — the one place a tenant database is created — notes each tenant and provisions it off the request path; (b) a leader-elected nightly sweep (05:10 UTC) reconciles the roster within HNSW_PROVISION_TIME_BUDGET_MS and HNSW_PROVISION_MAX_BUILDS_PER_RUN; (c) every observation lands in tenant_registry (indexState/indexStateAt/embeddingSpace), so GET /v1/admin/maintenance/hnsw/roster answers with no DDL. Provisioning only ever ADDS absent indexes, always CONCURRENTLY, and never waits for a build. UNSET (the normal case) it FOLLOWS SEARCH_HNSW_ENABLED — a deployment riding the KNN legs wants every tenant indexed; set it explicitly only to build ahead of flipping the search flag (1) or to hold provisioning back while the search flag is on (0).',
   },
   {
     key: 'HNSW_PROVISION_TIME_BUDGET_MS',

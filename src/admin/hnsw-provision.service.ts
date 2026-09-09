@@ -6,7 +6,7 @@ import { SurrealService } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { DistributedLeaseGuard } from '../common/distributed-lease.guard';
 import { InFlightGuard } from '../common/in-flight-guard';
-import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
+import { envFlagEnabled } from '../common/env-validation';
 import { HnswMaintenanceService, type HnswMaintenanceResult } from './hnsw-maintenance.service';
 
 /**
@@ -197,11 +197,6 @@ export class HnswProvisionService implements OnModuleInit {
     return envFlagEnabled(process.env.SEARCH_HNSW_ENABLED);
   }
 
-  /** Second gate: the nightly roster walk only. Default ON under the master. */
-  private static scheduledEnabled(): boolean {
-    return envFlagNotDisabled(process.env.HNSW_PROVISION_SCHEDULED);
-  }
-
   private static timeBudgetMs(): number {
     return HnswProvisionService.intEnv('HNSW_PROVISION_TIME_BUDGET_MS', DEFAULT_TIME_BUDGET_MS);
   }
@@ -277,9 +272,11 @@ export class HnswProvisionService implements OnModuleInit {
    */
   @Cron('10 5 * * *', { timeZone: 'UTC' })
   async runNightly(): Promise<HnswProvisionRunResult> {
-    if (!HnswProvisionService.enabled() || !HnswProvisionService.scheduledEnabled()) {
-      return EMPTY_RUN;
-    }
+    // One gate. The nightly walk used to have a second one
+    // (HNSW_PROVISION_SCHEDULED); the time budget and the per-run build cap
+    // already bound what a sweep may do, and a deployment that wants no
+    // sweep at all wants no provisioning at all.
+    if (!HnswProvisionService.enabled()) return EMPTY_RUN;
     const run = this.guard
       ? await this.guard.run(LOCK_KEY, () => this.reconcileAll(), LEASE_TTL_SECONDS)
       : await this.local.run(LOCK_KEY, () => this.reconcileAll());

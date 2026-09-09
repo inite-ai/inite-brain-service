@@ -231,8 +231,6 @@ describe('hnsw maintenance and the memo', () => {
   }
 
   afterEach(() => {
-    delete process.env.SEARCH_HNSW_CONCURRENT;
-    delete process.env.SEARCH_HNSW_BUILD_WAIT_MS;
     jest.useRealTimers();
   });
 
@@ -240,8 +238,7 @@ describe('hnsw maintenance and the memo', () => {
     const tenant = tenantDb([INFO_TABLE_NO_INDEX]);
     await noteKnnOperatorDropped(tenant as never, SPEC);
     expect(knnIndexKnownUnusable(tenant as never, SPEC)).toBe(true);
-    process.env.SEARCH_HNSW_BUILD_WAIT_MS = '0';
-    await maintenance('ready').svc.apply('co_x', 'create');
+    await maintenance('ready').svc.apply('co_x', 'create', { waitMs: 0 });
     expect(knnIndexKnownUnusable(tenant as never, SPEC)).toBe(false);
   });
 
@@ -254,10 +251,8 @@ describe('hnsw maintenance and the memo', () => {
 
   it('waits for a concurrent build with a fresh pool hold per poll, never one long one', async () => {
     jest.useFakeTimers();
-    process.env.SEARCH_HNSW_CONCURRENT = '1';
-    process.env.SEARCH_HNSW_BUILD_WAIT_MS = '2500';
     const { svc, withCompany } = maintenance('indexing');
-    const pending = svc.apply('co_x', 'create');
+    const pending = svc.apply('co_x', 'create', { waitMs: 2500 });
     await jest.advanceTimersByTimeAsync(0);
     // DDL + first probe: one hold, released before the wait begins.
     expect(withCompany).toHaveBeenCalledTimes(1);

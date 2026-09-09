@@ -191,9 +191,13 @@ describe('Fovea Optics §4.3 lens-suppression governor e2e', () => {
     });
 
     it('refuses a wrong-width centroid with a 400', async () => {
-      const width = fControl.app.get(EmbedderService).primaryDimensions();
+      const embedder = fControl.app.get(EmbedderService);
+      const width = embedder.primaryDimensions();
       const wrong = width === 1024 ? 1536 : 1024;
-      const r = await fit(cls(new Array(wrong).fill(0.01)));
+      // Declares the tenant's own space, so the WIDTH check is what fires.
+      const r = await fit(
+        cls(new Array(wrong).fill(0.01), { embeddingSpaceId: embedder.primarySpaceId() }),
+      );
       expect(r.status).toBe(400);
       expect(String(r.body.message)).toContain(`${wrong}-wide centroid`);
 
@@ -213,9 +217,20 @@ describe('Fovea Optics §4.3 lens-suppression governor e2e', () => {
       expect(r.status).toBe(400);
     });
 
-    it('accepts a right-width centroid and stamps the tenant space', async () => {
+    it('refuses a centroid that declares no space with a 400 — the stamp is required', async () => {
+      const width = fControl.app.get(EmbedderService).primaryDimensions();
+      const r = await fit(cls(new Array(width).fill(0.01)));
+      expect(r.status).toBe(400);
+      expect(String(r.body.message)).toContain('embeddingSpaceId');
+    });
+
+    it('accepts a right-width centroid that declares the tenant space, and stamps it', async () => {
       const embedder = fControl.app.get(EmbedderService);
-      const r = await fit(cls(new Array(embedder.primaryDimensions()).fill(0.01)));
+      const r = await fit(
+        cls(new Array(embedder.primaryDimensions()).fill(0.01), {
+          embeddingSpaceId: embedder.primarySpaceId(),
+        }),
+      );
       expect([200, 201]).toContain(r.status);
       expect(r.body.persisted).toBe(1);
 

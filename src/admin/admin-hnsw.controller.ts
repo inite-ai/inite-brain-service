@@ -6,6 +6,7 @@ import { resolvePlatformTenant, resolvePlatformTenantScope } from '../auth/tenan
 import {
   HnswMaintenanceService,
   HnswMaintenanceResult,
+  MAX_BUILD_WAIT_MS,
   type HnswMaintenanceAction,
 } from './hnsw-maintenance.service';
 import { HnswProvisionService, type HnswProvisionRunResult } from './hnsw-provision.service';
@@ -19,13 +20,19 @@ const ACTIONS: readonly HnswMaintenanceAction[] = ['create', 'drop', 'status', '
  * indexes are usable before touching the flag.
  *
  * "Either applies or throws" was the old contract and it was never true of
- * the outcome that matters. With SEARCH_HNSW_CONCURRENT on, the DDL returns
- * in ~20 ms and the build continues in the background; an index that exists
+ * the outcome that matters. Every build is CONCURRENTLY: the DDL returns in
+ * ~20 ms and the build continues in the background; an index that exists
  * but is still `indexing` answers a KNN query with the same unranked,
  * null-distance rows a MISSING index does. So the response reports the
  * per-index build state and a single `ready` boolean, and `action:'status'`
  * re-reads it without emitting any DDL. Do not flip SEARCH_HNSW_ENABLED for
  * a tenant while `ready` is false.
+ *
+ * `waitMs` (create only) is how long THIS request holds for the builds
+ * before answering with whatever progress it reached — a per-call choice,
+ * so it lives in the request body rather than in deployment configuration.
+ * Default 60 s, 0 answers with the first probe, at most MAX_BUILD_WAIT_MS;
+ * past that, poll `status`.
  *
  * The three actions, and which one an automation may call:
  *   * `create` — DESTRUCTIVE. REMOVEs all four indexes and defines them
@@ -54,16 +61,31 @@ export class AdminHnswController {
   @RequireScopes('brain:admin')
   async apply(
     @Req() req: AuthenticatedRequest,
-    @Body() body: { action?: HnswMaintenanceAction; tenant?: string } = {},
+    @Body() body: { action?: HnswMaintenanceAction; tenant?: string; waitMs?: unknown } = {},
   ): Promise<HnswMaintenanceResult> {
     const action = body.action ?? 'create';
     if (!ACTIONS.includes(action)) {
       throw new BadRequestException(`action must be one of ${ACTIONS.join(', ')}`);
     }
+    if (
+      body.waitMs !== undefined &&
+      (typeof body.waitMs !== 'number' ||
+        !Number.isInteger(body.waitMs) ||
+        body.waitMs < 0 ||
+        body.waitMs > MAX_BUILD_WAIT_MS)
+    ) {
+      throw new BadRequestException(
+        `waitMs must be an integer between 0 and ${MAX_BUILD_WAIT_MS} (milliseconds)`,
+      );
+    }
     const tenant = resolvePlatformTenant(req, body.tenant, {
       knownTenants: () => this.apiKeys.knownCompanyIds(),
     });
-    return this.hnsw.apply(tenant, action);
+    return this.hnsw.apply(
+      tenant,
+      action,
+      body.waitMs === undefined ? {} : { waitMs: body.waitMs },
+    );
   }
 
   /**
