@@ -22,6 +22,7 @@ export class StubEmbedder implements Pick<
   | 'embedManyForWrite'
   | 'getDimensions'
   | 'primaryDimensions'
+  | 'isReady'
   | 'primarySpaceId'
   | 'activeSpaceId'
 > {
@@ -67,6 +68,12 @@ export class StubEmbedder implements Pick<
 
   getDimensions(): number {
     return this.dimensions;
+  }
+
+  /** The stub is always warm: readiness must see a ready embedder, so the
+   *  probes it answers (`/ready`) exercise the database, not a model load. */
+  isReady(): boolean {
+    return true;
   }
 
   primaryDimensions(): number {

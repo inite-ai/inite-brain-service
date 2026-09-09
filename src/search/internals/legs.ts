@@ -107,7 +107,7 @@ export async function runVectorLeg({
         ${combinedGraphProjection(tuning.combinedVectorGraph, edgeFence)}
         vector::similarity::cosine(embedding, $q) AS simScore
       FROM knowledge_fact
-      WHERE embedding != NONE
+      WHERE embedding != NONE AND array::len(embedding) = array::len($q)
         ${baseWhere.sql}
       ORDER BY simScore DESC
       LIMIT $k

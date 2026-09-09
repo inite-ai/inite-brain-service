@@ -13,6 +13,11 @@ import { AuthenticatedRequest } from '../auth/api-key.types';
 import { ApiKeyService } from '../auth/api-key.service';
 import { resolvePlatformTenant } from '../auth/tenant-scope';
 import {
+  VectorCorpusService,
+  type VectorCorpusInventory,
+  type VectorCorpusRepairResult,
+} from './vector-corpus.service';
+import {
   EmbeddingSpaceService,
   type EmbeddingSpaceState,
 } from '../ai/embedder/embedding-space.service';
@@ -58,6 +63,7 @@ export class AdminEmbeddingSpaceController {
   constructor(
     private readonly spaces: EmbeddingSpaceService,
     private readonly apiKeys: ApiKeyService,
+    private readonly corpus: VectorCorpusService,
   ) {}
 
   private tenant(req: AuthenticatedRequest, requested?: string): string {
@@ -74,6 +80,34 @@ export class AdminEmbeddingSpaceController {
     @Query('tenant') tenant?: string,
   ): Promise<EmbeddingSpaceState> {
     return this.spaces.getState(this.tenant(req, tenant));
+  }
+
+  /**
+   * Read-only census: every vector column counted by stored width and
+   * space against the primary embedder. A non-zero `nonConforming` is
+   * memory that dense retrieval cannot reach (the width gate skips it);
+   * `repairable` is what POST repair (or the nightly pass) re-embeds.
+   */
+  @Get('inventory')
+  @RequireScopes('brain:admin')
+  async inventory(
+    @Req() req: AuthenticatedRequest,
+    @Query('tenant') tenant?: string,
+  ): Promise<VectorCorpusInventory> {
+    return this.corpus.inventory(this.tenant(req, tenant));
+  }
+
+  /**
+   * Census, then re-embed every repairable row with the primary embedder
+   * (the same sweep the nightly pass runs), recorded as a reindex job run.
+   */
+  @Post('repair')
+  @RequireScopes('brain:admin')
+  async repair(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { tenant?: string } = {},
+  ): Promise<VectorCorpusRepairResult> {
+    return this.corpus.reconcileTenant(this.tenant(req, body.tenant), 'manual');
   }
 
   /** Phase 1 — arm shadow dual-write into the target space. */

@@ -398,7 +398,7 @@ export class AgentQaService {
           `SELECT predicate, object, validFrom,
                     vector::similarity::cosine(embedding, $q) AS score
                FROM knowledge_fact
-              WHERE status = 'active' AND embedding != NONE ${versionClause}
+              WHERE status = 'active' AND embedding != NONE AND array::len(embedding) = array::len($q) ${versionClause}
               ORDER BY score DESC
               LIMIT 40`,
           { q: vec, dv: version },

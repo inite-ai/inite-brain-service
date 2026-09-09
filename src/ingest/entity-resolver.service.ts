@@ -260,7 +260,7 @@ export class EntityResolverService {
          WHERE predicate = 'name'
            AND status = 'active'
            AND retractedAt IS NONE
-           AND embedding != NONE
+           AND embedding != NONE AND array::len(embedding) = array::len($q)
            AND userId IS NONE
            AND entityId.mergedInto IS NONE
          ORDER BY sim DESC

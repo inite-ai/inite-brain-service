@@ -326,6 +326,28 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Vector rows whose width is not the primary embedder's, summed over every
+  // tenant at the last nightly census (VectorCorpusService). Non-zero means
+  // memory that dense retrieval cannot reach; `repairs` says what the
+  // actuator did about it.
+  readonly vectorCorpusNonconforming = new Gauge({
+    name: 'brain_vector_corpus_nonconforming_rows',
+    help: 'Vector rows not in the primary embedding space, by column, at the last census',
+    labelNames: ['table', 'field'] as const,
+    registers: [this.registry],
+  });
+  readonly vectorCorpusTenantsNonconforming = new Gauge({
+    name: 'brain_vector_corpus_tenants_nonconforming',
+    help: 'Tenants with at least one vector row outside the primary embedding space',
+    registers: [this.registry],
+  });
+  readonly vectorCorpusRepairs = new Counter({
+    name: 'brain_vector_corpus_repairs_total',
+    help: 'Corpus repair attempts by outcome (repaired, partial, deferred, failed)',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
   // What the sweep saw, by kind:
   //   scanned — blobs the store offered
   //   orphan  — unreferenced past the grace window (what a real run
@@ -1186,6 +1208,18 @@ export class MetricsService implements OnModuleInit {
 
   setHnswIndexTenants(state: string, n: number): void {
     this.hnswIndexTenants.set({ state } as LabelValues<'state'>, n);
+  }
+
+  setVectorCorpusNonconforming(table: string, field: string, n: number): void {
+    this.vectorCorpusNonconforming.set({ table, field } as LabelValues<'table' | 'field'>, n);
+  }
+
+  setVectorCorpusTenantsNonconforming(n: number): void {
+    this.vectorCorpusTenantsNonconforming.set(n);
+  }
+
+  countVectorCorpusRepair(outcome: 'repaired' | 'partial' | 'deferred' | 'failed'): void {
+    this.vectorCorpusRepairs.inc({ outcome } as LabelValues<'outcome'>);
   }
 
   countEvidenceOrphanBlobs(kind: 'scanned' | 'orphan' | 'deleted' | 'failed', n = 1): void {

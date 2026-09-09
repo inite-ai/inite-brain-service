@@ -76,7 +76,7 @@ export class CodeMemorySearchService {
            WHERE predicate >= $prefix AND predicate < $prefixEnd
              AND status = 'active'
              AND retractedAt IS NONE
-             AND embedding != NONE
+             AND embedding != NONE AND array::len(embedding) = array::len($embedding)
              AND validFrom <= time::now()
              AND (validUntil IS NONE OR validUntil > time::now())
            ORDER BY score DESC
