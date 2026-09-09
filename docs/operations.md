@@ -734,6 +734,29 @@ session serves every tenant on the pod, so the canary tenant proves the
 property for all of them and the scraper's `instance` label already pins
 *which pod*. The tenant is named in the log line.
 
+**The canary tenant** is the first (sorted) id of the tenant registry's
+*active* roster — the same roster provisioning and every sweep should use;
+the static `BRAIN_API_KEYS` set stands in only where the registry knows
+nothing (dev, a fresh install). `CAPABILITY_PROBE_TENANT` pins one, and it
+**must name a tenant the process already knows**: the scoped path provisions
+the database it is handed, so a typo used to create `co_<typo>` with the full
+migration set on every boot. An unknown or suspended override is refused
+before any connection is taken and reported as a conclusive `error` — it
+pages, on purpose, as a configuration error.
+
+**`degraded` is reachable both ways.** With the strict space guard on (the
+default) a not-warm primary never returns a wrong-width vector — the
+embedder refuses the call with its "embedding space strict-guard" 503, and
+the probe reads that refusal as `degraded`. With the guard off the fallback
+answers in its own space and the width measurement catches it.
+
+**The admin cockpit shows the same thing.** `/v1/admin/health/components`
+reads the readiness report `/ready` answers from (database, scoped pool with
+its own row, embedder with the warmup bookkeeping — attempts, last error,
+next retry) and annotates each row with the probe's last outcome (`probe
+serving 12s ago`). It does not probe on its own, so the grid, `/ready` and
+the alert cannot disagree.
+
 Rules in `monitoring/grafana/provisioning/alerting/rules.yaml`:
 
 - **ScopedReadCapabilityDead** (critical, `for: 5m`) — `min(brain_capability_probe_ok{capability="scoped_read"}) < 1`. Five consecutive conclusive failures at the default cadence. A lapsed session is no longer sticky (the pool re-signs on the next acquire), so five failures in a row mean the pool cannot sign in at all; the wait buys immunity from a single-tick blip.
