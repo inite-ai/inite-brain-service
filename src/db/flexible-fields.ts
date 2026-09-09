@@ -6,12 +6,28 @@ import { join } from 'node:path';
  *
  * A SCHEMAFULL table rejects every sub-field the schema does not name unless
  * the field is FLEXIBLE. Tenants whose data crossed the 2.3.10 → 3.1.5 cut
- * can hold stored definitions WITHOUT the flag while the migration ledger
- * says the defining migration ran, and `IF NOT EXISTS` never reconciles an
- * existing definition. Repairing that by retyping ~45 declarations by hand
- * is how 0134's first attempt got several wrong; this module reads each
- * field's LATEST declaration out of the migration files instead, so the
- * generated reconcile migration cannot disagree with the schema it restates.
+ * hold stored definitions WITHOUT the flag while the migration ledger says
+ * the defining migration ran, and `IF NOT EXISTS` never reconciles an
+ * existing definition.
+ *
+ * The mechanism is the exporter, not our DDL (reproduced 2026-09-09 with
+ * 2.3.10 → 2.6.5 in-place → `surreal export --v3` → 3.1.5 import): the
+ * 2.6.5 `--v3` writer emits `TYPE option<object>` and `TYPE
+ * option<array<object>>` with the FLEXIBLE keyword dropped, and keeps it
+ * only on a plain `TYPE object`. So the drifted set on the server is
+ * exactly "every `option<object> FLEXIBLE` field whose defining migration
+ * ran before the cut" — 14 fields in `system` (declared up to 0057), 6 in
+ * the registered tenant (declared up to 0035) — and every plain `object
+ * FLEXIBLE` field, and every `option<object>` declared on 3.x afterwards,
+ * is intact. 0134 repaired the four `job_run` fields of that set.
+ *
+ * Repairing the rest by retyping ~45 declarations by hand is how 0134's
+ * first attempt got several wrong; this module reads each field's LATEST
+ * declaration out of the migration files instead, so the generated
+ * reconcile migration cannot disagree with the schema it restates. Every
+ * declaration is listed, not only the drifted ones: OVERWRITE on a
+ * correct field is a no-op, and the list must not depend on which servers
+ * were inspected.
  */
 
 export interface FlexibleFieldDeclaration {
@@ -83,17 +99,24 @@ export function renderFlexibleReconcile(declarations: FlexibleFieldDeclaration[]
 -- (src/db/flexible-fields.ts); test/flexible-reconcile.unit-spec.ts fails
 -- when this file and the declarations disagree. Do not edit by hand.
 --
--- Why: a tenant whose data crossed the 2.3.10 -> 3.1.5 cut (surreal export
--- --v3 + re-import, 2026-07-15) can hold a stored field definition WITHOUT
--- FLEXIBLE while the migration ledger says the defining migration ran, and
--- IF NOT EXISTS never reconciles an existing definition. A SCHEMAFULL table
--- then rejects every sub-field the schema does not name ("Found field
--- 'error.message', but no such field exists"). 0134 repaired the four
--- job_run fields after fn::reap_zombies had failed on every sweep; this
--- covers the whole class, each field with its LATEST declaration verbatim.
--- OVERWRITE restates type, optionality, default and permissions and touches
--- no rows, so on a correct field it is a no-op. Which tenants actually
--- drifted is a question for INFO FOR TABLE on the server, not for this file.
+-- Why: the 2.3.10 -> 3.1.5 cut (2026-07-15) moved every database through
+-- \`surreal export --v3\` on 2.6.5, and that writer drops the FLEXIBLE
+-- keyword from \`option<object>\` / \`option<array<object>>\` declarations
+-- while keeping it on a plain \`object\` (reproduced 2026-09-09). A tenant
+-- that crossed the cut therefore holds \`TYPE none | object\` WITHOUT
+-- FLEXIBLE for every such field whose defining migration ran before the
+-- cut, while the ledger says the migration ran, and IF NOT EXISTS never
+-- reconciles an existing definition. A SCHEMAFULL table then rejects every
+-- sub-field the schema does not name ("Found field 'error.message', but no
+-- such field exists"). Measured on the server: 14 drifted fields in
+-- \`system\` (declared up to 0057), 6 in the registered tenant (declared up
+-- to 0035); every plain-object field and every option<object> declared on
+-- 3.x is intact. 0134 repaired the four job_run fields of that set after
+-- fn::reap_zombies had failed on every sweep; this covers the whole class,
+-- each field with its LATEST declaration verbatim. OVERWRITE restates type,
+-- optionality, default and permissions and touches no rows, so on a correct
+-- field it is a no-op — which is why every declaration is listed, not only
+-- the ones a particular server was seen to have lost.
 `;
   const body = declarations.map((d) => `-- ${d.migration}\n${d.statement};`).join('\n');
   return `${header}\n${body}\n`;
