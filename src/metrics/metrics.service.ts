@@ -290,6 +290,29 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  readonly hnswProvisionCount = new Counter({
+    name: 'brain_hnsw_provision_total',
+    help: 'HNSW index provisioning tenant passes by outcome (ready|created|building|partial|absent|mismatch|unknown|dry_run|failed|skipped_budget)',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
+  // The roster fold, as of the last reconciliation pass. This is the series
+  // that answers "which tenants have a ready index" for an alert — the one
+  // question nothing in this service could answer before, because nothing
+  // recorded it. `absent` and `mismatch` above zero mean tenants are being
+  // served unranked rows with SEARCH_HNSW_ENABLED=1 (#506).
+  //
+  // Cardinality: one series per state (6), no companyId label — the named
+  // list lives in tenant_registry and on the admin roster route, where an
+  // operator chasing a specific tenant looks.
+  readonly hnswIndexTenants = new Gauge({
+    name: 'brain_hnsw_index_tenants',
+    help: 'Tenants by recorded HNSW index state as of the last reconciliation pass',
+    labelNames: ['state'] as const,
+    registers: [this.registry],
+  });
+
   // What the sweep saw, by kind:
   //   scanned — blobs the store offered
   //   orphan  — unreferenced past the grace window (what a real run
@@ -1137,6 +1160,14 @@ export class MetricsService implements OnModuleInit {
 
   countEvidenceOrphanGc(outcome: 'ok' | 'dry_run' | 'failed' | 'skipped_budget'): void {
     this.evidenceOrphanGcCount.inc({ outcome } as LabelValues<'outcome'>);
+  }
+
+  countHnswProvision(outcome: string): void {
+    this.hnswProvisionCount.inc({ outcome } as LabelValues<'outcome'>);
+  }
+
+  setHnswIndexTenants(state: string, n: number): void {
+    this.hnswIndexTenants.set({ state } as LabelValues<'state'>, n);
   }
 
   countEvidenceOrphanBlobs(kind: 'scanned' | 'orphan' | 'deleted' | 'failed', n = 1): void {
