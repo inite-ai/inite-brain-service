@@ -436,13 +436,14 @@ export class HnswProvisionService implements OnModuleInit {
 }
 
 /**
- * Fold four per-index states into the one word the roster carries.
+ * Fold the per-index states into the one word the roster carries.
  *
  * `mismatch` outranks everything: an index at a foreign width is worse than
  * a missing one (it also rejects writes), and no automatic action fixes it.
  * `partial` exists because a concurrent build finishes per index, and
- * because the four indexes serve different legs (entity resolution and the
- * dedup seed both ride fact_embedding_hnsw; the segment index serves the
+ * because the two indexes serve different legs (the fact legs, the dedup
+ * seed and inline entity resolution all ride fact_embedding_hnsw; the
+ * segment index serves the segment legs, the segment lane and the
  * coverage-scan lane), so one missing index degrades one lane, not all.
  */
 function foldState(r: HnswMaintenanceResult): HnswProvisionState {

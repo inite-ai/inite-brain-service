@@ -128,6 +128,6 @@ describe('EMBEDDING_TABLES / field constant', () => {
       'procedural_memory',
     ]);
     const fact = EMBEDDING_TABLES.find((t) => t.table === 'knowledge_fact')!;
-    expect(fact.vectorFields).toEqual(['embedding', 'altEmbedding']);
+    expect(fact.vectorFields).toEqual(['embedding']);
   });
 });

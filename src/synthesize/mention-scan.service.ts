@@ -13,7 +13,7 @@ import {
   topicTerms,
   type ScanRow,
 } from './mention-scan';
-import { BRUTE_ONLY, runDenseScanLeg, type CoverageScanTuning } from './scan-leg';
+import { BRUTE_ONLY, runDenseScanLeg, type CoverageScanTuning } from '../search/internals/scan-leg';
 import { buildLexMatchLeg } from './lex-leg';
 import type { CoverageLexMode } from '../search/retrieval-profile';
 

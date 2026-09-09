@@ -1,5 +1,5 @@
 import { runVectorLeg } from '../src/search/internals/legs';
-import { runDenseScanLeg } from '../src/synthesize/scan-leg';
+import { runDenseScanLeg } from '../src/search/internals/scan-leg';
 import { hnswIndexState, knnDroppedMessage, knnOperatorDropped } from '../src/db/knn-index';
 
 /**

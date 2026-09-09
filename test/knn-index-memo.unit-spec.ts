@@ -199,12 +199,10 @@ describe('hnsw maintenance and the memo', () => {
         state === 'absent'
           ? {}
           : Object.fromEntries(
-              [
-                'fact_embedding_hnsw',
-                'fact_alt_embedding_hnsw',
-                'entity_embedding_hnsw',
-                'segment_embedding_hnsw',
-              ].map((n) => [n, `DEFINE INDEX ${n} …`]),
+              ['fact_embedding_hnsw', 'segment_embedding_hnsw'].map((n) => [
+                n,
+                `DEFINE INDEX ${n} …`,
+              ]),
             ),
       lives: {},
       tables: {},

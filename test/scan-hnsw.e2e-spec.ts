@@ -11,7 +11,7 @@ import { SurrealService } from '../src/db/surreal.service';
 import { EmbedderService } from '../src/ai/embedder.service';
 import { MentionScanService } from '../src/synthesize/mention-scan.service';
 import { QueryArcService } from '../src/synthesize/query-arc.service';
-import type { CoverageScanTuning } from '../src/synthesize/scan-leg';
+import type { CoverageScanTuning } from '../src/search/internals/scan-leg';
 
 describe('coverage-scan HNSW parity (real SurrealDB)', () => {
   let f: AppFixture;

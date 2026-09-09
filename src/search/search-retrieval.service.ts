@@ -179,6 +179,7 @@ export class SearchRetrievalService {
           callerScopes: ctx.callerScopes,
           userId: ctx.dto.userId,
           mode: ctx.mode,
+          tuning: ctx.tuning,
         });
         const fused = fuse(vectorRows, lexicalRows, ctx.mode);
         for (const r of fused) {

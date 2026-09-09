@@ -54,10 +54,15 @@ const stripComments = (text: string): string => text.replace(/\/\*[\s\S]*?\*\/|\
 function declaredFloatColumns(): Set<string> {
   const pattern =
     /DEFINE\s+FIELD\s+(?:IF\s+NOT\s+EXISTS\s+|OVERWRITE\s+)?(\w+)\s+ON\s+(?:TABLE\s+)?(\w+)\s+TYPE\s+(?:option<)?array<float>/gi;
+  // A later migration may retire a column (`REMOVE FIELD [IF EXISTS] f ON
+  // [TABLE] t`); the schema a tenant runs is the fold of the files in
+  // order, so a removal after the last definition takes the column out.
+  const removal = /REMOVE\s+FIELD\s+(?:IF\s+EXISTS\s+)?(\w+)\s+ON\s+(?:TABLE\s+)?(\w+)/gi;
   const found = new Set<string>();
-  for (const f of SURQL_FILES) {
+  for (const f of [...SURQL_FILES].sort()) {
     const text = readFileSync(f, 'utf8').replace(/\s+/g, ' ');
     for (const m of text.matchAll(pattern)) found.add(`${m[2]}.${m[1]}`);
+    for (const m of text.matchAll(removal)) found.delete(`${m[2]}.${m[1]}`);
   }
   return found;
 }

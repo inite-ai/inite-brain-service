@@ -32,12 +32,7 @@ const INFO_TABLE = (indexes: string[]) => [
   },
 ];
 
-const ALL_INDEXES = [
-  'fact_embedding_hnsw',
-  'fact_alt_embedding_hnsw',
-  'entity_embedding_hnsw',
-  'segment_embedding_hnsw',
-];
+const ALL_INDEXES = ['fact_embedding_hnsw', 'segment_embedding_hnsw'];
 
 /**
  * A db that records every statement and answers the two INFO probes from
@@ -81,7 +76,7 @@ describe('hnsw create — always CONCURRENTLY', () => {
     // 1 REMOVE + 4 DEFINE. Not a super-statement: one failing DEFINE inside
     // a multi-statement query takes its siblings with it, and each
     // concurrent build has its own progress row.
-    expect(statements).toHaveLength(5);
+    expect(statements).toHaveLength(3);
     expect(statements[0]).toContain('REMOVE INDEX IF EXISTS');
     expect(statements[0]).not.toContain('DEFINE INDEX');
     for (const s of statements.slice(1)) {
@@ -100,7 +95,7 @@ describe('hnsw create — always CONCURRENTLY', () => {
     try {
       const db = fakeDb('ready');
       await service(db).apply('co1', 'create', { waitMs: 0 });
-      expect(ddl(db.calls)).toHaveLength(5);
+      expect(ddl(db.calls)).toHaveLength(3);
       expect(ddl(db.calls).every((s) => s.includes('CONCURRENTLY') || s.startsWith('REMOVE'))).toBe(
         true,
       );
@@ -115,12 +110,7 @@ describe('hnsw create — always CONCURRENTLY', () => {
     const db = fakeDb('indexing');
     const res = await service(db).apply('co1', 'create', { waitMs: 0 });
     expect(res.ready).toBe(false);
-    expect(res.builds.map((b) => b.state)).toEqual([
-      'building',
-      'building',
-      'building',
-      'building',
-    ]);
+    expect(res.builds.map((b) => b.state)).toEqual(['building', 'building']);
     // Progress is surfaced, not just a boolean.
     expect(res.builds[0]!.initial).toBe(20000);
     expect(res.builds[0]!.pending).toBe(0);
@@ -161,7 +151,7 @@ describe('waitMs — the request decides how long it holds', () => {
     const res = await pending;
     expect(res.ready).toBe(false);
     // One probe round (DDL + first probe), no polling.
-    expect(db.calls.filter((c) => c.startsWith('INFO FOR TABLE'))).toHaveLength(4);
+    expect(db.calls.filter((c) => c.startsWith('INFO FOR TABLE'))).toHaveLength(2);
   });
 });
 
@@ -178,13 +168,13 @@ describe('hnsw status / drop', () => {
   it("action:'status' on an un-indexed tenant reports absent, not ready", async () => {
     const db = fakeDb('absent');
     const res = await service(db).apply('co1', 'status');
-    expect(res.builds.map((b) => b.state)).toEqual(['absent', 'absent', 'absent', 'absent']);
+    expect(res.builds.map((b) => b.state)).toEqual(['absent', 'absent']);
     expect(res.ready).toBe(false);
     // INFO FOR INDEX throws on a missing index, so it must not be called.
     expect(db.calls.some((c) => c.startsWith('INFO FOR INDEX'))).toBe(false);
   });
 
-  it('drop removes the four indexes and never claims ready', async () => {
+  it('drop removes both indexes and never claims ready', async () => {
     const db = fakeDb('absent');
     const res = await service(db).apply('co1', 'drop');
     const statements = ddl(db.calls);
@@ -203,7 +193,7 @@ describe('hnsw status / drop', () => {
       }),
     };
     const res = await service(db as never).apply('co1', 'status');
-    expect(res.builds.map((b) => b.state)).toEqual(['unknown', 'unknown', 'unknown', 'unknown']);
+    expect(res.builds.map((b) => b.state)).toEqual(['unknown', 'unknown']);
     expect(res.ready).toBe(false);
   });
 
