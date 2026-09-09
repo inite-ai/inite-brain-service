@@ -508,7 +508,7 @@ describe('capability probe — armed series', () => {
     expect(await armed('embed')).toBeUndefined();
     // The capability that actually ran keeps its arming time.
     expect(await armed('scoped_read')).toBeDefined();
-    svc.onApplicationShutdown();
+    await svc.onApplicationShutdown();
     if (savedFlag === undefined) delete process.env.CAPABILITY_PROBE_ENABLED;
     else process.env.CAPABILITY_PROBE_ENABLED = savedFlag;
   });
