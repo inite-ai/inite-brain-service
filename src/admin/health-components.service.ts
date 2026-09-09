@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { envFlagNotDisabled } from '../common/env-validation';
 import { HealthService, type ReadinessReport } from '../common/health.service';
+import type { WarmupStatus } from '../common/warmup-status';
 import { EmbedderService } from '../ai/embedder.service';
 import { CapabilityProbeService, type LastProbeReport } from '../metrics/capability-probe.service';
 import { isConclusive } from '../metrics/capability-probe';
@@ -104,19 +105,13 @@ export class HealthComponentsService {
     const name = `embedder (${stats.provider})`;
     const w = r.detail.embedder;
     if (!r.embedderReady) {
-      const attempt = w.failures > 0 ? `warmup failed ${w.failures}×` : 'warming up';
-      const detail = w.lastError ? ` (last error: ${w.lastError})` : '';
-      const next = w.inFlight
-        ? 'attempt in flight'
-        : w.nextRetryAt
-          ? `next attempt at ${w.nextRetryAt}`
-          : 'the next readiness poll re-arms an attempt';
       return {
         name,
         status: w.failures > 0 ? 'degraded' : 'warming',
         message: joinParts(
-          `${attempt}${detail}; ${next}. Queries that need the configured space are refused ` +
-            `(503) until the primary is ready; hybrid search answers lexical-only`,
+          `${warmupSummary(w, 'the next readiness poll re-arms an attempt')}. Queries that need ` +
+            `the configured space are refused (503) until the primary is ready; hybrid search ` +
+            `answers lexical-only`,
           probeSummary(probe),
         ),
       };
@@ -130,14 +125,34 @@ export class HealthComponentsService {
     };
   }
 
+  /**
+   * Not a `/ready` gate — chat routing answers with the punctuation
+   * heuristic while the model is missing — but the same warmup bookkeeping
+   * as the embedder row, so a model repo that vanished from the Hub reads
+   * `degraded` with the reason instead of `warming` forever.
+   */
   private intentRow(): HealthComponent {
     const intentStats = this.intent.stats();
+    const name = 'intent classifier';
+    if (!intentStats.enabled) {
+      return { name, status: 'disabled', message: 'CHAT_ROUTE_NLI_ENABLED=0' };
+    }
+    if (!intentStats.ready) {
+      const w = this.intent.warmupStatus();
+      return {
+        name,
+        status: w.failures > 0 ? 'degraded' : 'warming',
+        message: joinParts(
+          `${warmupSummary(w, 'the next chat-route request re-arms an attempt')}. Chat routing ` +
+            `answers with the punctuation-only intent heuristic meanwhile`,
+          `model=${intentStats.model}`,
+        ),
+      };
+    }
     return {
-      name: 'intent classifier',
-      status: !intentStats.enabled ? 'disabled' : intentStats.ready ? 'ok' : 'warming',
-      message: intentStats.enabled
-        ? `model=${intentStats.model} cache=${intentStats.cacheSize}`
-        : 'CHAT_ROUTE_NLI_ENABLED=0',
+      name,
+      status: 'ok',
+      message: `model=${intentStats.model} cache=${intentStats.cacheSize}`,
     };
   }
 
@@ -175,6 +190,22 @@ export class HealthComponentsService {
       message: 'see /admin/calibration for ECE + version history',
     };
   }
+}
+
+/**
+ * `warmup failed 3× (last error: …); next attempt at …` — one wording for
+ * every not-ready model row; `rearm` says what triggers an attempt when
+ * none is scheduled.
+ */
+function warmupSummary(w: WarmupStatus, rearm: string): string {
+  const attempt = w.failures > 0 ? `warmup failed ${w.failures}×` : 'warming up';
+  const detail = w.lastError ? ` (last error: ${w.lastError})` : '';
+  const next = w.inFlight
+    ? 'attempt in flight'
+    : w.nextRetryAt
+      ? `next attempt at ${w.nextRetryAt}`
+      : rearm;
+  return `${attempt}${detail}; ${next}`;
 }
 
 /** `probe serving 12s ago`, or the failure with its detail when conclusive. */

@@ -16,6 +16,7 @@ import { createOpenAiClient, createOpenAiClientOrThrow } from './openai-client';
 import { OpenAIEmbedderProvider } from './embedder/openai-embedder.provider';
 import { BgeM3EmbedderProvider } from './embedder/bge-m3-embedder.provider';
 import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
+import type { WarmupStatus } from '../common/warmup-status';
 import {
   DEFAULT_EMBEDDER_PROVIDER,
   declaredSpace,
@@ -34,17 +35,8 @@ const WARMUP_RETRY_BASE_MS = 5_000;
 /** Ceiling on the warmup retry interval. */
 const WARMUP_RETRY_MAX_MS = 5 * 60_000;
 
-export interface EmbedderWarmupStatus {
-  /** The primary provider can serve right now. */
-  ready: boolean;
-  /** Consecutive failed warmup attempts (0 once ready). */
-  failures: number;
-  /** A warmup attempt is currently running. */
-  inFlight: boolean;
-  lastError?: string;
-  /** ISO time of the next scheduled attempt, when one is pending. */
-  nextRetryAt?: string;
-}
+/** The primary provider's warmup bookkeeping, in the shared vocabulary. */
+export type EmbedderWarmupStatus = WarmupStatus;
 
 /**
  * EmbedderService — thin facade in front of an EmbedderProvider.

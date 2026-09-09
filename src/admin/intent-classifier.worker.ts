@@ -3,8 +3,8 @@
  *
  * Why a dedicated worker: @xenova/transformers runs ONNX inference (WASM or
  * native) on the main thread by default. The intent model
- * (Xenova/distilbert-base-multilingual-cased-finetuned-mnli, ~135MB ONNX)
- * takes ~100-200ms per classification — every cache-missed chat-route
+ * (Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7, ~340MB ONNX)
+ * takes hundreds of ms per classification — every cache-missed chat-route
  * request froze the event loop, and every other tenant's request, for the
  * whole inference. Hosting the model in a worker_thread confines the
  * blocking to a dedicated loop, exactly as the cross-encoder reranker

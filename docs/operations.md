@@ -343,7 +343,7 @@ under the `ProcessRole` context.
 |---|---|---|
 | `all` (default) | none | Byte-identical single-process behavior. |
 | `api` | `WORKER_LOOP_ENABLED=0`, `JOB_WORKER_POOL_SIZE=0` | Serves HTTP; never claims/dispatches queued jobs; skips the `worker_threads` job pool (it serves cpuBound *job* handlers only — nothing on the request path uses it). |
-| `worker` | `CHAT_ROUTE_NLI_ENABLED=false` | Runs the queue loop + crons. Keeps the HTTP server up (healthcheck + `/v1/admin/*` need it) but the compose recipe publishes no ports. Skips the ~135MB NLI intent-classifier ONNX model — a worker pod doesn't chat-route. |
+| `worker` | `CHAT_ROUTE_NLI_ENABLED=false` | Runs the queue loop + crons. Keeps the HTTP server up (healthcheck + `/v1/admin/*` need it) but the compose recipe publishes no ports. Skips the ~340MB NLI intent-classifier ONNX model — a worker pod doesn't chat-route. |
 
 **`JOBS_QUEUE_MODE=enqueue` is required** (it is the default):
 `PROCESS_ROLE=api|worker` combined with `JOBS_QUEUE_MODE=inline` fails
@@ -392,7 +392,7 @@ worker service out of the single-process deployment.
 - A second pod is a second full Node + Nest RSS (~200-300MB baseline
   before models) plus its own SurrealDB connection pool
   (`SURREALDB_POOL_SIZE` per pod). Budget both against the host.
-- ONNX models lazy-load where used: the NLI intent classifier (~135MB)
+- ONNX models lazy-load where used: the NLI intent classifier (~340MB)
   loads only where chat routing runs (api pod; disabled on worker by
   the role default), the local cross-encoder (~279MB, opt-in) only
   where search runs. The BGE-M3 embedder (~150MB, when

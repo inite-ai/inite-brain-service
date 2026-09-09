@@ -356,6 +356,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: true,
   },
   {
+    key: 'CHAT_ROUTE_NLI_MODEL',
+    category: 'router',
+    defaultValue: 'Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'HuggingFace repo of the zero-shot NLI intent model (transformers.js ONNX export, must cover English + Russian). Xenova/distilbert-base-multilingual-cased-finetuned-mnli, Xenova/mDeBERTa-v3-base-mnli-xnli and Xenova/xlm-roberta-large-xnli answer HTTP 401 on the Hub and never warm. A gated/removed repo shows as degraded on /v1/admin/health/components with the reason.',
+  },
+  {
     key: 'CHAT_ROUTE_NLI_ASK_THRESHOLD',
     category: 'router',
     defaultValue: '0.6',

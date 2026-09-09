@@ -20,7 +20,7 @@
  *                     leader-lease-gated — see docs/operations.md.
  *   worker          — keeps the HTTP server (healthcheck + admin need it;
  *                     the compose recipe publishes no ports) and sets
- *                     CHAT_ROUTE_NLI_ENABLED=false so the ~135MB NLI ONNX
+ *                     CHAT_ROUTE_NLI_ENABLED=false so the ~340MB NLI ONNX
  *                     model never loads on a pod that doesn't chat-route.
  *
  * Precedence: a flag the operator set explicitly ALWAYS wins — the role
