@@ -28,15 +28,22 @@ const CURSOR = 'recompose:knowledge_fact';
  */
 const CONTENT_CHANGED = new Set(['superseded', 'retracted']);
 
-/** One `SHOW CHANGES` batch row: a versionstamp plus its changefeed items. */
+/**
+ * One `SHOW CHANGES` batch row: a versionstamp plus its changefeed items.
+ *
+ * On SurrealDB 3.x the versionstamp is a u64 (~1.17e17 — above
+ * Number.MAX_SAFE_INTEGER) and the SDK hands it over as a bigint. A unit
+ * stub may still emit a plain number; both are normalised with BigInt() at
+ * the one place they are read.
+ */
 interface ShowChangesRow {
-  versionstamp?: number | string;
+  versionstamp?: number | bigint | string;
   changes?: unknown[];
 }
 
 /** The `changefeed_state` cursor row this pass reads/advances. */
 interface CursorRow {
-  lastVersionstamp?: number;
+  lastVersionstamp?: number | bigint;
 }
 
 /** A stale compaction summary awaiting re-derivation. */
@@ -179,7 +186,12 @@ export class RecomposeService implements OnModuleInit {
       let highest = since;
       const changed: string[] = [];
       for (const c of changes) {
-        const vs = Number(c.versionstamp ?? 0);
+        // bigint, never Number(): a 3.x versionstamp does not fit a double,
+        // and the SDK refuses to encode an unsafe integer back into the cursor
+        // UPSERT ("Number too big to be encoded") — which is how every nightly
+        // recompose failed in production while the unit stub's small integers
+        // kept passing. Same idiom as changefeed-drain.service.ts.
+        const vs = BigInt(c.versionstamp ?? 0);
         // SINCE is inclusive of the boundary — skip the row the cursor sits on.
         if (vs <= since) continue;
         if (vs > highest) highest = vs;
@@ -376,16 +388,21 @@ export class RecomposeService implements OnModuleInit {
   }
 }
 
-async function loadCursor(db: Surreal): Promise<number> {
+/**
+ * bigint throughout — see ShowChangesRow. BigInt() accepts the stored int
+ * (number or bigint) and the 0 cold-start default alike, and a bigint
+ * interpolates into `SINCE ${since}` as plain digits.
+ */
+async function loadCursor(db: Surreal): Promise<bigint> {
   const row = await queryFirst<CursorRow>(
     db,
     `SELECT lastVersionstamp FROM changefeed_state WHERE source = $s LIMIT 1`,
     { s: CURSOR },
   );
-  return row?.lastVersionstamp ?? 0;
+  return BigInt(row?.lastVersionstamp ?? 0);
 }
 
-async function advanceCursor(db: Surreal, versionstamp: number): Promise<void> {
+async function advanceCursor(db: Surreal, versionstamp: bigint): Promise<void> {
   await db.query(
     `UPSERT changefeed_state:[$s] CONTENT {
        source: $s, lastVersionstamp: $v, updatedAt: time::now()
