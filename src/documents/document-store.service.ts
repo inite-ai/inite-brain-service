@@ -21,6 +21,7 @@ import { idTailOf, redactPii } from '../ingest/ingest-utils';
 import { MetricsService } from '../metrics/metrics.service';
 import { scopeForUser } from '../auth/scope-tags';
 import { chunkDocument, DocumentChunk } from './chunker';
+import { mergeDocumentMeta, reservedKeysIn, type InternalDocumentMeta } from './document-meta';
 import { markFactsProvenancePurged, purgeDocumentChunks } from './document-purge.util';
 import { IngestDocumentDto } from './dto/ingest-document.dto';
 
@@ -83,12 +84,23 @@ export class DocumentStoreService {
    * PII redaction runs BEFORE hashing, so idempotency is over the stored
    * form (hash shifts only when the redactor itself changes — per-deploy,
    * acceptable).
+   *
+   * `internalMeta` is brain's OWN document-header provenance (see
+   * document-meta.ts). It bypasses the caller gate below by construction
+   * — the gate polices untrusted operator vocabulary destined for the
+   * ABAC `source.meta` surface, and an internal writer is neither.
    */
-  async createOrGet(companyId: string, dto: IngestDocumentDto): Promise<CreateDocumentResult> {
-    // Meta becomes ABAC-matchable `source.meta` on every derived fact
-    // (commit-writer projection), so it must be operator vocabulary.
-    // Default: sanitize-and-warn; SOURCE_META_STRICT=1 rejects instead —
-    // a silently-dropped data_class would silently widen access.
+  async createOrGet(
+    companyId: string,
+    dto: IngestDocumentDto,
+    internalMeta?: InternalDocumentMeta | undefined,
+  ): Promise<CreateDocumentResult> {
+    // CALLER meta becomes ABAC-matchable `source.meta` on every derived
+    // fact (commit-writer projection), so it must be operator
+    // vocabulary. Default: sanitize-and-warn; SOURCE_META_STRICT=1
+    // rejects instead — a silently-dropped data_class would silently
+    // widen access. Only dto.meta is checked: brain's own provenance is
+    // not caller input and is merged in AFTER this gate.
     if (dto.meta !== undefined) {
       const { dropped } = sanitizeSourceMeta(dto.meta);
       if (dropped.length > 0) {
@@ -103,6 +115,15 @@ export class DocumentStoreService {
         );
       }
     }
+    // Brain's keys are brain's: a caller asserting one has it dropped,
+    // loudly. `toolObservationRef` rides into every derived fact's
+    // source.evidence[] verbatim, so an accepted caller copy would be a
+    // provenance hop nobody earned.
+    const reserved = reservedKeysIn(dto.meta);
+    if (reserved.length > 0) {
+      this.logger.warn(`document meta asserts ${reserved.length} reserved key(s): ${reserved[0]}`);
+    }
+    const meta = mergeDocumentMeta(dto.meta, internalMeta);
     // G9 ingest sanitization (INGEST_SANITIZE_UNICODE, default off):
     // strip bidi/zero-width/control chars from the document body BEFORE
     // redaction, hashing, and chunking — so stored chunks (and the spans
@@ -143,7 +164,7 @@ export class DocumentStoreService {
           vertical: dto.contextRef.vertical,
           recorder: dto.contextRef.recorder,
           occurredAt: new Date(dto.occurredAt),
-          meta: dto.meta,
+          meta,
           status: 'received',
           // Per-user scope (0128): userId + the 0093 scope-tag mirror.
           // Tenant-global writes keep the field absent / scope [] — the

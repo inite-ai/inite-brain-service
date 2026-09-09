@@ -53,6 +53,34 @@ pointer back to the container.
   but operators can tell them apart from facts whose source text is still
   retrievable.
 
+### Two writers share `meta`, and only one of them is the caller
+
+`source_document.meta` carries two populations, and they are governed
+differently. Conflating them is what took `POST /v1/ingest/mention` down
+between 2026-09-02 and 2026-09-05.
+
+- **Caller meta** — `IngestDocumentDto.meta`. Operator vocabulary
+  (`data_class: pii`, `department: finance`) that the commit writer
+  projects onto every derived fact's `source.meta`, where ABAC source
+  rules match it. Untrusted input into a security-relevant surface, so it
+  is sanitized to snake_case keys / short scalars / ≤16 entries and,
+  under `SOURCE_META_STRICT`, rejected outright rather than trimmed.
+- **Internal provenance** — `src/documents/document-meta.ts`. Brain's own
+  document-header keys: the mention wrapper's `contextRef` identifiers
+  (`conversationId`, `messageId`, `eventId`) and the 0111 tool-observation
+  hop (`toolObservationRef`, `toolObservationNote`). Not caller input, so
+  it does not pass the caller gate; it is never projected onto
+  `source.meta` (the commit writer re-sanitizes `doc.meta` before
+  projecting, and reads these back off the RAW header instead); and the
+  same keys are stripped from a caller's bag, so a client cannot forge a
+  provenance hop it did not earn.
+
+The rule: an internal writer that needs a key on the header declares it
+in `INTERNAL_DOCUMENT_META_KEYS` and passes it as `internalMeta`. Putting
+brain's vocabulary through the caller's validator is a category error —
+it validates one vocabulary against a rule written for another, and under
+`SOURCE_META_STRICT` it 400s the write.
+
 ## Indexer
 
 An indexer is a domain-aware reader. Three execution modes, declared in
