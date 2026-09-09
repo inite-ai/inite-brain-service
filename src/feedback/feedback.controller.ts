@@ -21,6 +21,7 @@ export class FeedbackController {
       verdict: body.verdict,
       reason: body.reason,
       actor: req.brainAuth.keyHash,
+      scopes: req.brainAuth.scopes,
     });
   }
 }

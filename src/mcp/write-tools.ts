@@ -249,7 +249,7 @@ export function registerWriteTools({
     },
   );
 
-  registerFeedbackTool({ server, companyId, deps, actorKeyHash });
+  registerFeedbackTool({ server, companyId, deps, actorKeyHash, scopes });
 
   // ── record_procedure ───────────────────────────────────────────
   server.registerTool(
@@ -320,11 +320,13 @@ function registerFeedbackTool({
   companyId,
   deps,
   actorKeyHash,
+  scopes,
 }: {
   server: McpServer;
   companyId: string;
   deps: WriteToolDeps;
   actorKeyHash?: string | undefined;
+  scopes: readonly BrainScope[];
 }): void {
   if (!deps.feedback) return;
   const feedback = deps.feedback;
@@ -347,6 +349,7 @@ function registerFeedbackTool({
         verdict: args.verdict,
         ...(args.reason !== undefined ? { reason: args.reason } : {}),
         actor: actorKeyHash ?? `mcp:${companyId}`,
+        scopes,
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
