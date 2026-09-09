@@ -341,6 +341,16 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    * question here is "can the read path authorize", not "is it idle".
    * Returns true when the scoped pool is disabled (`ping()` covers root).
    */
+  /**
+   * Whether the caller-facing read path runs on the scoped (`brain_caller`)
+   * pool at all. False = SURREALDB_SCOPED_USER/PASS unset, reads route to
+   * root and `pingScoped()` answers true vacuously — the health surfaces
+   * show that as "disabled" rather than as a healthy fence.
+   */
+  scopedPoolEnabled(): boolean {
+    return this.scopedEnabled;
+  }
+
   async pingScoped(): Promise<boolean> {
     if (!this.scopedEnabled) return true;
     // Time only the queue, not authentication. An available slot whose

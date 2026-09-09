@@ -20,8 +20,12 @@ describe('HealthController', () => {
     const surreal = {
       ping: async () => opts.db,
       pingScoped: async () => opts.scoped ?? true,
+      scopedPoolEnabled: () => true,
     } as any;
-    const embedder = { isReady: () => opts.embedderReady } as any;
+    const embedder = {
+      isReady: () => opts.embedderReady,
+      warmupStatus: () => ({ ready: opts.embedderReady, failures: 0, inFlight: false }),
+    } as any;
     return new HealthController(new HealthService(surreal, embedder));
   }
 

@@ -8,6 +8,8 @@ import { AdminInfraService } from '../src/admin/admin-infra.service';
 import { HealthComponentsService } from '../src/admin/health-components.service';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { EmbedderService } from '../src/ai/embedder.service';
+import type { HealthService } from '../src/common/health.service';
+import type { CapabilityProbeService } from '../src/metrics/capability-probe.service';
 import type { IntentClassifierService } from '../src/admin/intent-classifier.service';
 import type { ChangefeedConsumerService } from '../src/audit/changefeed-consumer.service';
 
@@ -16,9 +18,28 @@ function makeController(): AdminInfraController {
     ping: async () => true,
   } as unknown as SurrealService;
   const embedder = {
-    isReady: () => true,
     cacheStats: () => ({ provider: 'bge-m3', size: 100 }),
   } as unknown as EmbedderService;
+  const health = {
+    readiness: async () => ({
+      dbOk: true,
+      scopedOk: true,
+      embedderReady: true,
+      ready: true,
+      detail: {
+        dbLatencyMs: 1,
+        scopedEnabled: true,
+        scopedLatencyMs: 2,
+        embedder: { ready: true, failures: 0, inFlight: false },
+      },
+    }),
+  } as unknown as HealthService;
+  const probe = {
+    lastReports: () => ({
+      scoped_read: { capability: 'scoped_read', outcome: 'serving', at: new Date().toISOString() },
+      embed: { capability: 'embed', outcome: 'serving', at: new Date().toISOString() },
+    }),
+  } as unknown as CapabilityProbeService;
   const intent = {
     stats: () => ({ enabled: true, ready: true, model: 'mini', cacheSize: 0 }),
   } as unknown as IntentClassifierService;
@@ -36,7 +57,7 @@ function makeController(): AdminInfraController {
     }),
   } as unknown as ChangefeedConsumerService;
   const adminInfra = new AdminInfraService(surreal, undefined as never);
-  const healthComponents = new HealthComponentsService(embedder, intent, changefeed);
+  const healthComponents = new HealthComponentsService(health, probe, embedder, intent, changefeed);
   return makeAdminInfraController({ adminInfra, healthComponents });
 }
 

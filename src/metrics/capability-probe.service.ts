@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
+import { TenantRegistryService } from '../auth/tenant-registry.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { MetricsService } from './metrics.service';
 import { envFlagNotDisabled } from '../common/env-validation';
@@ -15,8 +16,15 @@ import {
   classifyProbeFailure,
   isConclusive,
   probeErrorDetail,
+  type CapabilityName,
   type ProbeReport,
 } from './capability-probe';
+
+/** The last thing the probe saw for one capability, for the health surfaces. */
+export interface LastProbeReport extends ProbeReport {
+  /** ISO time the report was published. */
+  at: string;
+}
 
 /** Default probe cadence. One minute is the detection latency floor. */
 const DEFAULT_INTERVAL_MS = 60_000;
@@ -28,6 +36,13 @@ const MIN_INTERVAL_MS = 5_000;
  * short enough that a wedged capability cannot hold the tick past the next.
  */
 const PROBE_DEADLINE_MS = 15_000;
+/**
+ * How long shutdown waits for a tick that is mid-flight. A probe holds a
+ * pool connection and a pending query; tearing the pool down underneath it
+ * lands an error on a closing SurrealService. Bounded by the probe's own
+ * deadline plus slack, so a hung capability cannot hold the process open.
+ */
+const SHUTDOWN_DRAIN_MS = PROBE_DEADLINE_MS + 1_000;
 
 /**
  * The cheapest statement that exercises the WHOLE scoped read path:
@@ -97,6 +112,9 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
   private readonly tenantOverride = process.env.CAPABILITY_PROBE_TENANT?.trim() || undefined;
   private timer: NodeJS.Timeout | undefined;
   private running = false;
+  /** The tick in progress, so shutdown can wait for it. */
+  private inFlight: Promise<void> | undefined;
+  private readonly last = new Map<CapabilityName, LastProbeReport>();
 
   // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token and cannot be folded into an options object without breaking DI
   constructor(
@@ -107,6 +125,9 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
     // unit fixture) still gets the scoped-read probe; the embed probe then
     // reports `skipped` rather than pretending to have run.
     @Optional() private readonly embedder?: EmbedderService,
+    // The production roster. Optional for the same unit fixtures; without
+    // it the canary comes from the static key set alone.
+    @Optional() private readonly registry?: TenantRegistryService,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -117,13 +138,40 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
     this.timer.unref();
     this.logger.log(
       `capability probe armed: [${CAPABILITY_NAMES.join(', ')}] every ${this.intervalMs}ms ` +
-        `(tenant=${this.probeTenant() ?? 'none yet'})`,
+        `(tenant=${this.probeTenant().tenant ?? 'none yet'})`,
     );
   }
 
-  onApplicationShutdown(): void {
+  /**
+   * Stop the timer, then let a tick that is mid-flight finish (bounded).
+   * Nest tears the pools down right after this hook; a probe still holding
+   * a scoped connection would otherwise fail on a closing service and log
+   * an error that is not a capability failure.
+   */
+  async onApplicationShutdown(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
+    const pending = this.inFlight;
+    if (!pending) return;
+    let drain: NodeJS.Timeout | undefined;
+    await Promise.race([
+      pending,
+      new Promise<void>((resolve) => {
+        drain = setTimeout(resolve, SHUTDOWN_DRAIN_MS);
+      }),
+    ]).finally(() => {
+      if (drain) clearTimeout(drain);
+    });
+  }
+
+  /**
+   * What the probe last saw, per capability — the health surfaces show it
+   * next to the readiness report so the cockpit and the alert agree.
+   */
+  lastReports(): Partial<Record<CapabilityName, LastProbeReport>> {
+    const out: Partial<Record<CapabilityName, LastProbeReport>> = {};
+    for (const [capability, report] of this.last) out[capability] = report;
+    return out;
   }
 
   /**
@@ -148,18 +196,23 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
       return;
     }
     this.running = true;
-    try {
-      await this.runOnce();
-    } catch (e) {
-      // runOnce swallows per-capability failures; reaching here means the
-      // prober itself broke, which must not kill the timer.
-      this.logger.error(`capability probe tick failed: ${probeErrorDetail(e)}`);
-    } finally {
-      this.running = false;
-    }
+    this.inFlight = (async () => {
+      try {
+        await this.runOnce();
+      } catch (e) {
+        // runOnce swallows per-capability failures; reaching here means the
+        // prober itself broke, which must not kill the timer.
+        this.logger.error(`capability probe tick failed: ${probeErrorDetail(e)}`);
+      } finally {
+        this.running = false;
+        this.inFlight = undefined;
+      }
+    })();
+    await this.inFlight;
   }
 
   private publish(report: ProbeReport): void {
+    this.last.set(report.capability, { ...report, at: new Date().toISOString() });
     this.metrics.recordCapabilityProbe(report.capability, report.outcome);
     if (report.outcome === 'serving') return;
     const line = `capability '${report.capability}' is ${report.outcome}: ${report.detail ?? '—'}`;
@@ -168,28 +221,62 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
   }
 
   /**
-   * The canary tenant. Explicit override first, else the first id of the
-   * known roster (static keys before registry ids — a stable ordering, so
-   * the probe hits the same database every tick and its cost is bounded).
+   * The canary tenant, or why there is none.
+   *
+   * The registry's ACTIVE roster is the source: it is what production
+   * provisions from and what a suspension removes a tenant from. The static
+   * key set (BRAIN_API_KEYS) only stands in where the registry knows nothing
+   * — dev, unit fixtures, a fresh install. Sorted, so the probe hits the
+   * same database every tick and its cost is bounded.
+   *
+   * An explicit CAPABILITY_PROBE_TENANT must name a tenant the process
+   * already knows. `withScopedCompany` provisions the database it is given
+   * — a typo or a deleted id would silently create `co_<typo>` with the
+   * full migration set on every boot — so an unknown override is refused
+   * here, before any connection is taken, and reported as a conclusive
+   * `error` so it pages instead of quietly probing the wrong thing.
    *
    * One tenant, not all of them: the scoped session is shared by every
    * tenant on the pod, so a per-tenant sweep would multiply series and DB
    * load by the roster size to re-answer the same question.
    */
-  private probeTenant(): string | undefined {
-    if (this.tenantOverride) return this.tenantOverride;
-    return this.apiKeys.knownCompanyIds()[0];
-  }
-
-  private async probeScopedRead(): Promise<ProbeReport> {
-    const tenant = this.probeTenant();
-    if (!tenant) {
+  private probeTenant(): { tenant: string } | { tenant?: undefined; reason: ProbeReport } {
+    const known = this.knownRoster();
+    if (this.tenantOverride) {
+      if (known.includes(this.tenantOverride)) return { tenant: this.tenantOverride };
       return {
+        reason: {
+          capability: 'scoped_read',
+          outcome: 'error',
+          detail:
+            `CAPABILITY_PROBE_TENANT='${this.tenantOverride}' is not a known tenant ` +
+            `(registry active roster or BRAIN_API_KEYS); refusing to probe it — it would ` +
+            `create co_${this.tenantOverride}. Known: [${known.join(', ') || 'none'}]`,
+        },
+      };
+    }
+    const tenant = known[0];
+    if (tenant) return { tenant };
+    return {
+      reason: {
         capability: 'scoped_read',
         outcome: 'skipped',
         detail: 'no tenant in the roster to probe (set CAPABILITY_PROBE_TENANT to pin one)',
-      };
-    }
+      },
+    };
+  }
+
+  /** Registry-active first, static keys only when the registry is silent. */
+  private knownRoster(): string[] {
+    const active = this.registry?.activeCompanyIds() ?? [];
+    const roster = active.length > 0 ? active : this.apiKeys.knownCompanyIds();
+    return [...new Set(roster)].sort();
+  }
+
+  private async probeScopedRead(): Promise<ProbeReport> {
+    const pick = this.probeTenant();
+    if (pick.tenant === undefined) return pick.reason;
+    const { tenant } = pick;
     try {
       await withDeadline(
         this.surreal.withScopedCompany(tenant, PROBE_SCOPES, (db) =>
@@ -222,6 +309,14 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
    * asks the same question as the thing it monitors inherits its bugs.
    * `embedUncached` for the same reason — a cached answer proves only that
    * the cache works.
+   *
+   * Two roads lead to `degraded`. With the strict space guard on (the
+   * default) a not-warm primary never answers: `serveProvider` refuses the
+   * call with its "embedding space strict-guard" 503, which
+   * `classifyProbeFailure` reads as `degraded` — that refusal IS the
+   * wrong-width condition. With the guard off the fallback answers in its
+   * own space and the width measurement below catches it. Same outcome,
+   * same operator meaning, whichever way the flag is set.
    */
   private async probeEmbed(): Promise<ProbeReport> {
     const embedder = this.embedder;
@@ -251,10 +346,16 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
       }
       return { capability: 'embed', outcome: 'serving' };
     } catch (e) {
+      const outcome = classifyProbeFailure(e);
       return {
         capability: 'embed',
-        outcome: classifyProbeFailure(e),
-        detail: `embedder: ${probeErrorDetail(e)}`,
+        outcome,
+        detail:
+          outcome === 'degraded'
+            ? `embedder refused to answer outside the configured space: ${probeErrorDetail(e)}. ` +
+              `The primary is not warm (see its warmup status on /ready and the admin health ` +
+              `grid); it retries on its own`
+            : `embedder: ${probeErrorDetail(e)}`,
       };
     }
   }

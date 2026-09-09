@@ -1,4 +1,4 @@
-import type { ReadinessReport } from '../common/health.service';
+import type { ReadinessChecks } from '../common/health.service';
 
 /**
  * Capability probes — the ACTIVE half of "is this capability alive".
@@ -47,7 +47,7 @@ import type { ReadinessReport } from '../common/health.service';
  */
 
 /** The checks `/ready` reports, minus its own roll-up field. */
-export type ReadinessCheck = Exclude<keyof ReadinessReport, 'ready'>;
+export type ReadinessCheck = keyof ReadinessChecks;
 
 export const CAPABILITY_NAMES = ['scoped_read', 'embed'] as const;
 export type CapabilityName = (typeof CAPABILITY_NAMES)[number];
@@ -132,10 +132,23 @@ const UNAUTHORIZED =
  * could have authorized — reporting it as a failure is how a load spike
  * turns into a page.
  */
-export function classifyProbeFailure(error: unknown): 'unauthorized' | 'busy' | 'error' {
+/**
+ * The embedder's own refusal to answer from a space other than the
+ * configured one (`EmbedderService.serveProvider`, on by default). Under
+ * that guard a not-warm primary never returns a wrong-width vector — the
+ * call is refused first — so this message IS the wrong-width condition,
+ * and it classifies as `degraded`, the same outcome the width measurement
+ * reports when the guard is off.
+ */
+const SPACE_GUARD = /embedding space strict-guard/i;
+
+export function classifyProbeFailure(
+  error: unknown,
+): 'unauthorized' | 'busy' | 'degraded' | 'error' {
   const message = error instanceof Error ? error.message : String(error);
   if (BUSY.test(message)) return 'busy';
   if (UNAUTHORIZED.test(message)) return 'unauthorized';
+  if (SPACE_GUARD.test(message)) return 'degraded';
   return 'error';
 }
 
