@@ -34,8 +34,13 @@ async function waitForDatabase(url: string, timeoutMs: number): Promise<void> {
       // The published port answers TCP the moment the container is up
       // (docker-proxy), before the server accepts websockets — an unbounded
       // connect() hangs there, so every attempt is bounded.
+      const attempt = probe.connect(url).then(() => probe.version());
+      // When the timeout wins, the losing connect can still reject later
+      // (on Linux the half-open socket ends in ECONNRESET); an unobserved
+      // rejection would fail the test as "read ECONNRESET" with no stack.
+      attempt.catch(() => undefined);
       await Promise.race([
-        probe.connect(url).then(() => probe.version()),
+        attempt,
         new Promise((_, reject) => setTimeout(() => reject(new Error('probe timeout')), 3_000)),
       ]);
       await probe.close().catch(() => undefined);
