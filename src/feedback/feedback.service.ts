@@ -1,8 +1,9 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import type { BrainScope } from '../auth/api-key.types';
 import { FactsService } from '../facts/facts.service';
-import { StringRecordId } from 'surrealdb';
-import { SurrealService } from '../db/surreal.service';
+import { StringRecordId, type Surreal } from 'surrealdb';
+import { SurrealService, runTransaction } from '../db/surreal.service';
+import { retryOnUniqueViolation } from '../db/surreal-retry';
 import { MetricsService } from '../metrics/metrics.service';
 import { idTailOf } from '../ingest/ingest-utils';
 import {
@@ -53,6 +54,65 @@ const OUTCOME_BUCKET: Record<FeedbackVerdict, OutcomeCounter | null> = {
   not_helpful: null,
 };
 
+/** The RETURN slot of the vote transaction: the verdict the vote replaced. */
+interface CastVoteRow {
+  prior?: FeedbackVerdict | null;
+}
+
+/**
+ * Cast one standing vote and learn what it replaced — in ONE transaction.
+ *
+ * The prior verdict and the write used to be two round-trips (a SELECT,
+ * then an INSERT … ON DUPLICATE KEY UPDATE). Two concurrent votes from the
+ * same actor both saw "no prior vote" in the gap: the UNIQUE index kept one
+ * row, but each request then emitted its own `+1` rollup delta, and the
+ * fact's confirmedCount counted one standing vote twice (audit 2026-09-06,
+ * F8). Reading the prior INSIDE the transaction that writes the vote makes
+ * the delta a function of what the database actually replaced: under
+ * contention the server serialises the two — the second one sees the
+ * first's row as its prior (a same-verdict replacement, net zero) — or
+ * aborts it with a write conflict, which the retry re-runs against the
+ * committed row. Either way exactly one vote stands and exactly one `+1`
+ * is emitted.
+ *
+ * Returns the replaced verdict, or undefined for a first vote.
+ */
+export async function castVote(
+  db: Surreal,
+  v: {
+    fact: StringRecordId;
+    verdict: FeedbackVerdict;
+    actor: string;
+    reason: string | undefined;
+  },
+): Promise<FeedbackVerdict | undefined> {
+  return retryOnUniqueViolation(async () => {
+    const row = await runTransaction<CastVoteRow | null | undefined>(db, (tx) => {
+      tx.add(
+        `LET $prior = (SELECT VALUE verdict FROM retrieval_feedback
+            WHERE factId = $fact AND actor = $actor LIMIT 1)[0]`,
+      )
+        // One standing vote per (fact, actor): the UNIQUE index routes a
+        // repeat into the UPDATE branch — verdict replaced, not stacked.
+        .add(
+          `INSERT INTO retrieval_feedback {
+             factId: $fact, verdict: $verdict, actor: $actor,
+             reason: $reason, createdAt: time::now()
+           } ON DUPLICATE KEY UPDATE
+             verdict = $verdict, reason = $reason, createdAt = time::now()`,
+        )
+        .add(`RETURN { prior: $prior }`)
+        .bind('fact', v.fact)
+        .bind('verdict', v.verdict)
+        .bind('actor', v.actor)
+        // undefined → NONE on the wire; option<string> rejects NULL.
+        .bind('reason', v.reason);
+    });
+    const prior = row?.prior;
+    return prior === null || prior === undefined ? undefined : prior;
+  });
+}
+
 @Injectable()
 export class FeedbackService {
   private readonly logger = new Logger(FeedbackService.name);
@@ -83,32 +143,15 @@ export class FeedbackService {
     await this.facts.getFact({ companyId: p.companyId, factId: p.factId, scopes: p.scopes });
     return this.surreal.withCompany(p.companyId, async (db) => {
       const fact = new StringRecordId(`knowledge_fact:${idTailOf(p.factId)}`);
-      // One standing vote per (fact, actor): the UNIQUE index routes a
-      // repeat into the UPDATE branch — verdict replaced, not stacked.
-      // The prior verdict is read alongside so the 0107 rollup can move
-      // the replaced vote out of its old bucket (−1 old / +1 new).
-      const [existing] = await db.query<[Array<{ id: unknown; verdict: FeedbackVerdict }>]>(
-        `SELECT id, verdict FROM retrieval_feedback WHERE factId = $fact AND actor = $actor`,
-        { fact, actor: p.actor },
-      );
-      const prior = ((existing as Array<{ id: unknown; verdict: FeedbackVerdict }>) ?? [])[0];
+      const prior = await castVote(db, {
+        fact,
+        verdict: p.verdict,
+        actor: p.actor,
+        reason: p.reason,
+      });
       const replaced = prior !== undefined;
-      await db.query(
-        `INSERT INTO retrieval_feedback {
-           factId: $fact, verdict: $verdict, actor: $actor,
-           reason: $reason, createdAt: time::now()
-         } ON DUPLICATE KEY UPDATE
-           verdict = $verdict, reason = $reason, createdAt = time::now()`,
-        {
-          fact,
-          verdict: p.verdict,
-          actor: p.actor,
-          // undefined → NONE on the wire; option<string> rejects NULL.
-          reason: p.reason,
-        },
-      );
       this.metrics?.countFeedback(p.verdict);
-      this.emitOutcome(p.companyId, String(fact), p.verdict, prior?.verdict, p.actor);
+      this.emitOutcome(p.companyId, String(fact), p.verdict, prior, p.actor);
       this.logger.log(
         `feedback ${p.companyId}: ${String(fact)} ${p.verdict}${replaced ? ' (replaced)' : ''}`,
       );
