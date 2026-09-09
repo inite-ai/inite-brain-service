@@ -56,6 +56,12 @@ async function waitForDatabase(url: string, timeoutMs: number): Promise<void> {
 
 describeIfContainer('database restart recovery (real SurrealDB)', () => {
   let f: AppFixture;
+  // Every request rides its own connection. supertest re-listens per request
+  // and closes its server between requests, which on Node >= 19 also closes
+  // idle keep-alive sockets — a request racing onto one of those is a bare
+  // "read ECONNRESET" from the client, which is what Linux CI saw after the
+  // restart. Unrelated to the database; keep-alive is simply not what this
+  // test is about.
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
 
   // A socket that dies under the app must never surface as an unhandled
@@ -90,6 +96,7 @@ describeIfContainer('database restart recovery (real SurrealDB)', () => {
     const res = await f.http
       .post('/v1/ingest/fact')
       .set(auth())
+      .set('Connection', 'close')
       .send({
         entityRef: { vertical: 'rent', id: 'db_restart_subject' },
         predicate: 'claim_probe',
@@ -109,10 +116,13 @@ describeIfContainer('database restart recovery (real SurrealDB)', () => {
 
   it('recovers on its own after the database restarts: /ready, scoped reads and root writes all work again', async () => {
     // Baseline: the surface works before the restart.
-    const baseline = await f.http.get('/ready');
+    const baseline = await f.http.get('/ready').set('Connection', 'close');
     expect({ status: baseline.status, body: baseline.body }).toMatchObject({ status: 200 });
     const before = await ingest('written before the database restarted');
-    const baselineRead = await f.http.get(`/v1/facts/${encodeURIComponent(before)}`).set(auth());
+    const baselineRead = await f.http
+      .get(`/v1/facts/${encodeURIComponent(before)}`)
+      .set(auth())
+      .set('Connection', 'close');
     expect(baselineRead.status).toBe(200);
 
     // The database goes away and comes back. rocksdb lives inside the
@@ -128,11 +138,11 @@ describeIfContainer('database restart recovery (real SurrealDB)', () => {
     // answer 503 once or twice while the pools rebuild; it must converge
     // well inside a minute without anyone restarting the process.
     const deadline = Date.now() + 60_000;
-    let ready = await f.http.get('/ready');
+    let ready = await f.http.get('/ready').set('Connection', 'close');
     stage(`first /ready after restart: ${ready.status} ${JSON.stringify(ready.body)}`);
     while (ready.status !== 200 && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 500));
-      ready = await f.http.get('/ready');
+      ready = await f.http.get('/ready').set('Connection', 'close');
       stage(`/ready: ${ready.status} ${JSON.stringify(ready.body)}`);
     }
     expect({ status: ready.status, body: ready.body }).toMatchObject({
@@ -142,20 +152,31 @@ describeIfContainer('database restart recovery (real SurrealDB)', () => {
 
     // Scoped read path (brain_caller pool) — the one that stayed
     // "unauthorized" on the box.
-    const read = await f.http.get(`/v1/facts/${encodeURIComponent(before)}`).set(auth());
+    const read = await f.http
+      .get(`/v1/facts/${encodeURIComponent(before)}`)
+      .set(auth())
+      .set('Connection', 'close');
     expect(read.status).toBe(200);
 
     // Root write path.
     const after = await ingest('written after the database restarted');
-    expect((await f.http.get(`/v1/facts/${encodeURIComponent(after)}`).set(auth())).status).toBe(
-      200,
-    );
+    expect(
+      (
+        await f.http
+          .get(`/v1/facts/${encodeURIComponent(after)}`)
+          .set(auth())
+          .set('Connection', 'close')
+      ).status,
+    ).toBe(200);
 
     // And the whole pool, not just the first connection /ready happened to
     // take: more reads than there are scoped connections, all served.
     const reads = await Promise.all(
       Array.from({ length: 12 }, () =>
-        f.http.get(`/v1/facts/${encodeURIComponent(before)}`).set(auth()),
+        f.http
+          .get(`/v1/facts/${encodeURIComponent(before)}`)
+          .set(auth())
+          .set('Connection', 'close'),
       ),
     );
     expect(reads.map((r) => r.status)).toEqual(Array(12).fill(200));
