@@ -751,23 +751,6 @@ export class SynthesizeService {
     verdict: VerifierOutput,
     args: Omit<Parameters<typeof finalizeVerdict>[1], 'verdict' | 'questionAnswered'>,
   ): Promise<SynthesizeResult> {
-    // 0107: cited facts were USED; a supported verdict ⇒ VERIFIED use.
-    // Both serving paths (primary + L3 flip) land here with companyId;
-    // the 0119 primary decision id (capture on) joins outcome → decision.
-    emitAnswerUse(this.outcomes, {
-      companyId: ctx.companyId,
-      citations: args.citations,
-      verdict,
-      decisionId: ctx.decisionId,
-    });
-    // 0107 belief arm (D7): cited beliefs count as use — and as VERIFIED
-    // use on a supported verdict — with the same decisionId threading.
-    emitBeliefAnswerUse(this.outcomes, {
-      companyId: ctx.companyId,
-      evidenceCitations: args.evidenceCitations,
-      verdict,
-      decisionId: ctx.decisionId,
-    });
     // The gate-resolution also folds in the evidence-capability flag
     // (FOVEA_EVIDENCE_CAPABILITY, 0113 — resolveEvidenceCapability, the
     // resolveAnswerIntegrity sibling in answer-integrity.ts): does the
@@ -784,6 +767,31 @@ export class SynthesizeService {
       questionAnswered: verdict.questionAnswered,
       ...args,
       ...gate,
+    });
+    // 0107: usage is what was actually SERVED — emitted AFTER every gate
+    // (answer-integrity Parts A + C, evidence capability, ungrounded
+    // support) from the FINAL result, never from the draft (audit F7). A
+    // supported draft the gate downgraded to an abstention carries
+    // citations: [] here and records nothing; a lenient partial/failed
+    // serve counts as use of its citations but never as VERIFIED use
+    // (the verdict rides along only on the supported ok-path). Both
+    // serving paths (primary + L3 flip) land here with companyId; the
+    // 0119 primary decision id (capture on) joins outcome → decision.
+    const servedVerdict = final.reason === undefined ? verdict : undefined;
+    emitAnswerUse(this.outcomes, {
+      companyId: ctx.companyId,
+      citations: final.citations,
+      verdict: servedVerdict,
+      decisionId: ctx.decisionId,
+    });
+    // 0107 belief arm (D7): the served answer's cited beliefs count as
+    // use — and as VERIFIED use on the supported ok-path — with the same
+    // decisionId threading.
+    emitBeliefAnswerUse(this.outcomes, {
+      companyId: ctx.companyId,
+      evidenceCitations: final.evidenceCitations,
+      verdict: servedVerdict,
+      decisionId: ctx.decisionId,
     });
     if (ctx.cache?.ctx) {
       await this.answerCache?.admit(ctx.cache.ctx, final, verdict.verdict);
