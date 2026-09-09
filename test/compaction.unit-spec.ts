@@ -425,7 +425,9 @@ describe('CompactionRunnerService — summary episode stamping', () => {
  * Evidence plane (PROVENANCE_SUMMARY_EPISODE_STAMP) on the promotion
  * runner: the episodic→semantic summary carries the union of the folded
  * members' grounding stamps. Off (default) the written source
- * deep-equals today's `{ kind: 'promotion' }` exactly.
+ * is `{ kind: 'promotion', eventRange }` exactly — the range the summarised
+ * events span is provenance every summary carries; the stamp is the only
+ * flag-dependent key.
  */
 describe('PromotionRunnerService — summary episode stamping', () => {
   const saved = process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
@@ -465,9 +467,12 @@ describe('PromotionRunnerService — summary episode stamping', () => {
             })),
           ] as unknown as R;
         }
-        if (sql.startsWith('CREATE type::table($t)')) {
-          created.push(params!.d as Record<string, unknown>);
-          return [[{ id: 'knowledge_fact:summary1' }]] as unknown as R;
+        if (sql.startsWith('BEGIN TRANSACTION')) {
+          // The replacement and the compaction land in ONE batch:
+          // BEGIN, LET (create), UPDATE (compact), RETURN, COMMIT — the
+          // 3.x slot shape runTransaction reads the RETURN from.
+          created.push(params!.doc as Record<string, unknown>);
+          return [null, null, [], [{ id: 'knowledge_fact:summary1' }], null] as unknown as R;
         }
         return [[]] as unknown as R;
       },
@@ -504,13 +509,16 @@ describe('PromotionRunnerService — summary episode stamping', () => {
     },
   ];
 
-  it('flag OFF (default): written source deep-equals today’s { kind: promotion }', async () => {
+  it('flag OFF (default): written source is kind + the summarised event range, no stamp', async () => {
     delete process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
     const { runner, created } = makePromotionStack(SEEDS);
     const stats = await runner.promoteCompany('co_a');
     expect(stats.groupsPromoted).toBe(1);
     expect(created).toHaveLength(1);
-    expect(created[0]!.source).toEqual({ kind: 'promotion' });
+    expect(created[0]!.source).toEqual({
+      kind: 'promotion',
+      eventRange: { from: '2025-01-01T00:00:00Z', to: '2025-02-01T00:00:00Z' },
+    });
   });
 
   it('flag ON: source carries the member union — member order, deduped', async () => {
@@ -519,15 +527,19 @@ describe('PromotionRunnerService — summary episode stamping', () => {
     await runner.promoteCompany('co_a');
     expect(created[0]!.source).toEqual({
       kind: 'promotion',
+      eventRange: { from: '2025-01-01T00:00:00Z', to: '2025-02-01T00:00:00Z' },
       episodeIds: ['episode:e1', 'episode:shared', 'episode:e2'],
     });
   });
 
-  it('flag ON: unstamped members yield today’s source (no empty key)', async () => {
+  it('flag ON: unstamped members yield no episodeIds key at all', async () => {
     process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = '1';
     const { runner, created } = makePromotionStack(SEEDS.map(({ eps: _eps, ...s }) => s));
     await runner.promoteCompany('co_a');
-    expect(created[0]!.source).toEqual({ kind: 'promotion' });
+    expect(created[0]!.source).toEqual({
+      kind: 'promotion',
+      eventRange: { from: '2025-01-01T00:00:00Z', to: '2025-02-01T00:00:00Z' },
+    });
   });
 
   it('the member SELECT carries the grounding stamp column', async () => {
@@ -568,6 +580,16 @@ describe('summary runners — derived_from edge mirror (PROVENANCE_SUPPORT_EDGES
           sql.includes('WHERE entityId = $entity AND predicate = $predicate')
         ) {
           return [candidates] as unknown as R;
+        }
+        if (sql.startsWith('BEGIN TRANSACTION')) {
+          // Promotion: create + compact in one batch (BEGIN, LET, UPDATE, RETURN, COMMIT).
+          return [
+            null,
+            null,
+            [],
+            [{ ...(params!.doc as object), id: 'knowledge_fact:sum1' }],
+            null,
+          ] as unknown as R;
         }
         if (sql.startsWith('CREATE type::table($t)')) {
           return [[{ ...(params!.d as object), id: 'knowledge_fact:sum1' }]] as unknown as R;
@@ -662,7 +684,8 @@ describe('summary runners — derived_from edge mirror (PROVENANCE_SUPPORT_EDGES
     process.env.PROVENANCE_SUPPORT_EDGES = '1';
     const { surreal, calls } = makeMirrorSurreal(PROMOTION_SEEDS);
     await promotionRunner(surreal).promoteCompany('co_a');
-    const createIdx = calls.findIndex((c) => c.sql.startsWith('CREATE type::table($t)'));
+    // The summary is created inside the promotion transaction (BEGIN…COMMIT).
+    const createIdx = calls.findIndex((c) => c.sql.startsWith('BEGIN TRANSACTION'));
     const insertIdx = calls.findIndex((c) => c.sql.includes('memory_support'));
     expect(createIdx).toBeGreaterThanOrEqual(0);
     expect(insertIdx).toBeGreaterThan(createIdx);

@@ -80,9 +80,12 @@ function makePromotionStack(
           })),
         ] as unknown as R;
       }
-      if (sql.startsWith('CREATE type::table($t)')) {
-        created.push(params!.d as Record<string, unknown>);
-        return [[{ id: 'knowledge_fact:summary1' }]] as unknown as R;
+      if (sql.startsWith('BEGIN TRANSACTION')) {
+        // The replacement and the compaction land in ONE batch:
+        // BEGIN, LET (create), UPDATE (compact), RETURN, COMMIT — the
+        // 3.x slot shape runTransaction reads the RETURN from.
+        created.push(params!.doc as Record<string, unknown>);
+        return [null, null, [], [{ id: 'knowledge_fact:summary1' }], null] as unknown as R;
       }
       return [[]] as unknown as R;
     },
@@ -225,7 +228,10 @@ describe('PromotionRunnerService — gate off/unset is byte-identical (pin)', ()
     expect(summary.predicate).toBe('summary_said');
     expect(summary.object).toBe('promoted summary');
     expect(summary.status).toBe('active');
-    expect(summary.source).toEqual({ kind: 'promotion' });
+    expect(summary.source).toEqual({
+      kind: 'promotion',
+      eventRange: { from: '2025-01-01T00:00:00Z', to: '2025-05-01T00:00:00Z' },
+    });
     expect((summary.derivedFrom as unknown[]).length).toBe(5);
     // No consolidation-gate query was issued.
     expect(calls.some((c) => c.sql.includes("status = 'competing'"))).toBe(false);
