@@ -13,7 +13,12 @@ describe('retrieval feedback loop', () => {
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
 
   beforeAll(async () => {
-    f = await createApp({ companyId: 'co_feedback_e2e' });
+    f = await createApp({
+      companyId: 'co_feedback_e2e',
+      // A USER-BOUND key: may read tenant-global facts and its own user's,
+      // never another user's personal memory (0055).
+      extraKeys: [{ scopes: ['brain:read', 'brain:write'], userId: 'bob' }],
+    });
   });
 
   afterAll(async () => {
@@ -95,5 +100,48 @@ describe('retrieval feedback loop', () => {
       expect(trust!.lossCount).toBeGreaterThanOrEqual(1);
       expect(trust!.sampleCount).toBeGreaterThanOrEqual(2);
     });
+  });
+
+  it("a user-bound key cannot rate another user's personal fact — 404, never 201", async () => {
+    // F2 (audit 2026-09-06): feedback used to check only that the fact id
+    // existed, so `brain:write` plus a guessed id could move the trust
+    // signals of a fact the caller was not allowed to see, and the 404/201
+    // split confirmed the id existed. The vote now passes the read path's
+    // own visibility fence.
+    const ingest = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'fb_alice_subject' },
+        predicate: 'tier',
+        object: 'platinum',
+        validFrom: '2026-01-01',
+        confidence: 0.9,
+        userId: 'alice',
+        source: { vertical: 'rent', recorder: 'fb_bot' },
+      });
+    expect(ingest.status).toBe(201);
+    const factId = ingest.body.factId as string;
+
+    const asBob = { Authorization: `Bearer ${f.extraApiKeys[0]}` };
+    const foreign = await f.http
+      .post('/v1/feedback')
+      .set(asBob)
+      .send({ factId, verdict: 'incorrect' });
+    expect(foreign.status).toBe(404);
+
+    // The tenant-wide (M2M) key still may.
+    const own = await f.http.post('/v1/feedback').set(auth()).send({ factId, verdict: 'helpful' });
+    expect(own.status).toBe(201);
+
+    const surreal = f.app.get(SurrealService);
+    const votes = await surreal.withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<[unknown[]]>(
+        `SELECT id FROM retrieval_feedback WHERE factId = type::record($fid)`,
+        { fid: factId },
+      );
+      return (rows as unknown[]) ?? [];
+    });
+    expect(votes).toHaveLength(1);
   });
 });
