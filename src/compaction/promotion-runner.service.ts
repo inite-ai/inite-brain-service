@@ -272,16 +272,10 @@ export class PromotionRunnerService {
 
     // Corroboration floor (COMPACTION_PROMOTION_MIN_EPISODES > 0): a
     // summary must consolidate INDEPENDENT evidence, so the floor counts
-    // distinct evidence contexts — the union of the members' grounding
-    // episode ids and conversation ids — not member rows. Five facts
-    // from ONE conversation are one witness, not five.
+    // distinct evidence contexts — not member rows. Five facts from ONE
+    // conversation are one witness, not five (distinctEvidenceContexts).
     if (schedule.minEpisodes > 0) {
-      const distinct = new Set<string>(unionEpisodeIds(members.map((m) => m.eps)));
-      for (const m of members) {
-        if (typeof m.conversationId === 'string' && m.conversationId.length > 0) {
-          distinct.add(m.conversationId);
-        }
-      }
+      const distinct = distinctEvidenceContexts(members);
       if (distinct.size < schedule.minEpisodes) {
         this.logger.debug(
           `promotion skipped (corroboration floor): ${String(group.entityId)}/${group.predicate} ` +
@@ -506,4 +500,38 @@ function scopeFilterFor(group: { userId?: string | null }): {
     scopeClause: group.userId ? 'AND userId = $scopeUser' : 'AND userId IS NONE',
     scopeParams: group.userId ? { scopeUser: group.userId } : {},
   };
+}
+
+/**
+ * Pure: the distinct evidence CONTEXTS behind a promotable group — the
+ * unit the corroboration floor counts (audit 2026-09-06 F10).
+ *
+ * ONE level of independence: a member's context is its conversation.
+ * Every reply of one conversation is the same witness, however many
+ * scene/episode stamps it carries — the union of episode ids AND
+ * conversation ids that used to be counted here made one reply from one
+ * conversation two witnesses and five replies up to six. Episode ids are
+ * the FALLBACK for a member whose conversation is unknown (legacy rows,
+ * document-derived facts), and even then an episode a conversation-known
+ * member already claims is not a second witness. A member with neither
+ * says nothing about independence and contributes no context.
+ */
+export function distinctEvidenceContexts(
+  members: ReadonlyArray<{ eps?: unknown; conversationId?: unknown }>,
+): Set<string> {
+  const contexts = new Set<string>();
+  const claimedEpisodes = new Set<string>();
+  const orphans: unknown[] = [];
+  for (const m of members) {
+    if (typeof m.conversationId === 'string' && m.conversationId.length > 0) {
+      contexts.add(`conversation:${m.conversationId}`);
+      for (const ep of unionEpisodeIds([m.eps])) claimedEpisodes.add(ep);
+    } else {
+      orphans.push(m.eps);
+    }
+  }
+  for (const ep of unionEpisodeIds(orphans)) {
+    if (!claimedEpisodes.has(ep)) contexts.add(ep);
+  }
+  return contexts;
 }
