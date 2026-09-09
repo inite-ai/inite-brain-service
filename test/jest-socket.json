@@ -13,6 +13,7 @@
   },
   "transformIgnorePatterns": ["node_modules/(?!\\.pnpm|jose)", "node_modules/\\.pnpm/(?!jose@)"],
   "testTimeout": 30000,
+  "cacheDirectory": "<rootDir>/.jest-cache",
   "moduleNameMapper": {
     "^@/(.*)$": "<rootDir>/src/$1"
   }

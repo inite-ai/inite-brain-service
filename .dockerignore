@@ -54,3 +54,6 @@ docs
 # Skills bundle — published separately
 skills
 skill-bundles
+
+# ts-jest transform cache — build output of the test run, not of the image
+.jest-cache
