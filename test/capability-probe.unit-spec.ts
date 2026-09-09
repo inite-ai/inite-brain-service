@@ -29,6 +29,8 @@ type Stubs = {
   surreal: { withScopedCompany: jest.Mock };
   apiKeys: { knownCompanyIds: jest.Mock };
   embedder: { primaryDimensions: jest.Mock; embedUncached: jest.Mock; activeSpaceId: jest.Mock };
+  /** The registry's active roster; absent = the process has no registry wired. */
+  registry?: { activeCompanyIds: jest.Mock };
 };
 
 function makeStubs(overrides: Partial<Stubs> = {}): Stubs {
@@ -51,9 +53,15 @@ function build(stubs: Stubs): { svc: CapabilityProbeService; metrics: MetricsSer
     stubs.apiKeys as any,
     metrics,
     stubs.embedder as any,
+    stubs.registry as any,
   );
   return { svc, metrics };
 }
+
+const STRICT_GUARD_503 =
+  "embedding space strict-guard: refusing to serve a query in 'openai:text-embedding-3-small:1536' " +
+  "against rows in 'bge-m3:Xenova/bge-m3:1024' (different width). The primary embedder is not " +
+  'ready; retry once warmup completes.';
 
 /** Current value of a labelled gauge/counter series, or undefined. */
 async function series(
@@ -204,16 +212,81 @@ describe('capability probe — scoped read', () => {
     expect(await ok(metrics, 'scoped_read')).toBeUndefined();
   });
 
-  it('honours CAPABILITY_PROBE_TENANT over the roster', async () => {
+  it('honours CAPABILITY_PROBE_TENANT over the roster when it names a known tenant', async () => {
     process.env.CAPABILITY_PROBE_TENANT = 'canary';
     try {
       const stubs = makeStubs();
+      stubs.apiKeys.knownCompanyIds.mockReturnValue(['acme', 'canary']);
       const { svc } = build(stubs);
       await svc.runOnce();
       expect(stubs.surreal.withScopedCompany.mock.calls[0][0]).toBe('canary');
     } finally {
       delete process.env.CAPABILITY_PROBE_TENANT;
     }
+  });
+
+  it('refuses an UNKNOWN CAPABILITY_PROBE_TENANT loudly, without touching the database', async () => {
+    // withScopedCompany provisions the database it is handed. A typo in the
+    // override used to create co_<typo> with the full migration set on
+    // every boot — silently, while the probe reported that tenant healthy.
+    process.env.CAPABILITY_PROBE_TENANT = 'typo';
+    try {
+      const stubs = makeStubs();
+      const { svc, metrics } = build(stubs);
+      const [scoped] = await svc.runOnce();
+      expect(scoped?.outcome).toBe('error');
+      expect(scoped?.detail).toContain("CAPABILITY_PROBE_TENANT='typo'");
+      expect(scoped?.detail).toContain('co_typo');
+      expect(stubs.surreal.withScopedCompany).not.toHaveBeenCalled();
+      // Conclusive: the up-gauge goes to 0 and the alert pages the config error.
+      expect(await ok(metrics, 'scoped_read')).toBe(0);
+    } finally {
+      delete process.env.CAPABILITY_PROBE_TENANT;
+    }
+  });
+
+  it("picks the canary from the registry's ACTIVE roster before the static key set", async () => {
+    const stubs = makeStubs({
+      registry: { activeCompanyIds: jest.fn().mockReturnValue(['zed', 'beta']) },
+    });
+    const { svc } = build(stubs);
+    await svc.runOnce();
+    // Sorted for a stable canary; the static 'acme' is not consulted.
+    expect(stubs.surreal.withScopedCompany.mock.calls[0][0]).toBe('beta');
+  });
+
+  it('falls back to the static key set only when the registry knows nothing', async () => {
+    const stubs = makeStubs({ registry: { activeCompanyIds: jest.fn().mockReturnValue([]) } });
+    const { svc } = build(stubs);
+    await svc.runOnce();
+    expect(stubs.surreal.withScopedCompany.mock.calls[0][0]).toBe('acme');
+  });
+
+  it('a suspended tenant named by the override is not known — it is refused, not probed', async () => {
+    process.env.CAPABILITY_PROBE_TENANT = 'sleeper';
+    try {
+      const stubs = makeStubs({
+        registry: { activeCompanyIds: jest.fn().mockReturnValue(['acme']) },
+      });
+      const { svc } = build(stubs);
+      const [scoped] = await svc.runOnce();
+      expect(scoped?.outcome).toBe('error');
+      expect(stubs.surreal.withScopedCompany).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.CAPABILITY_PROBE_TENANT;
+    }
+  });
+
+  it('remembers the last report per capability for the health surfaces', async () => {
+    const stubs = makeStubs();
+    stubs.surreal.withScopedCompany.mockRejectedValue(new Error(ANONYMOUS));
+    const { svc } = build(stubs);
+    expect(svc.lastReports()).toEqual({});
+    await svc.runOnce();
+    const last = svc.lastReports();
+    expect(last.scoped_read?.outcome).toBe('unauthorized');
+    expect(last.embed?.outcome).toBe('serving');
+    expect(Date.parse(last.scoped_read!.at)).toBeGreaterThan(0);
   });
 });
 
@@ -239,6 +312,23 @@ describe('capability probe — embed', () => {
     const { svc, metrics } = build(makeStubs());
     await svc.runOnce();
     expect(await ok(metrics, 'embed')).toBe(1);
+  });
+
+  it("reads the strict space guard's 503 as DEGRADED — the refusal is the wrong-width condition", async () => {
+    // With the guard on (the default) a not-warm primary never answers at
+    // all: serveProvider refuses first. That is the production path; the
+    // width measurement above is the flag-off path. Same outcome.
+    const stubs = makeStubs();
+    stubs.embedder.embedUncached.mockRejectedValue(new Error(STRICT_GUARD_503));
+    const { svc, metrics } = build(stubs);
+
+    const embed = (await svc.runOnce()).find((r) => r.capability === 'embed');
+
+    expect(embed?.outcome).toBe('degraded');
+    expect(embed?.detail).toContain('configured space');
+    expect(embed?.detail).toContain('strict-guard');
+    expect(await ok(metrics, 'embed')).toBe(0);
+    expect(classifyProbeFailure(new Error(STRICT_GUARD_503))).toBe('degraded');
   });
 
   it('never lets a cached answer stand in for a live one', async () => {
@@ -291,7 +381,20 @@ describe('capability probe — scheduling', () => {
     await jest.advanceTimersByTimeAsync(300_000);
 
     expect(stubs.surreal.withScopedCompany).not.toHaveBeenCalled();
-    svc.onApplicationShutdown();
+    await svc.onApplicationShutdown();
+  });
+
+  it('is armed by default — a forgotten flag must not recreate the blindness', async () => {
+    delete process.env.CAPABILITY_PROBE_ENABLED;
+    setEnv('CAPABILITY_PROBE_INTERVAL_MS', '5000');
+    const stubs = makeStubs();
+    const { svc } = build(stubs);
+
+    svc.onApplicationBootstrap();
+    await jest.advanceTimersByTimeAsync(5_000);
+
+    expect(stubs.surreal.withScopedCompany).toHaveBeenCalledTimes(1);
+    await svc.onApplicationShutdown();
   });
 
   it('probes on the configured interval once enabled', async () => {
@@ -302,10 +405,55 @@ describe('capability probe — scheduling', () => {
 
     svc.onApplicationBootstrap();
     await jest.advanceTimersByTimeAsync(11_000);
-    svc.onApplicationShutdown();
+    await svc.onApplicationShutdown();
 
     expect(stubs.surreal.withScopedCompany).toHaveBeenCalledTimes(2);
     expect(await ticks(metrics, 'scoped_read', 'serving')).toBe(2);
+  });
+
+  it('shutdown waits for the tick in flight instead of pulling the pool from under it', async () => {
+    setEnv('CAPABILITY_PROBE_ENABLED', '1');
+    setEnv('CAPABILITY_PROBE_INTERVAL_MS', '5000');
+    const stubs = makeStubs();
+    let release!: () => void;
+    stubs.surreal.withScopedCompany.mockReturnValue(
+      new Promise<unknown[]>((resolve) => {
+        release = () => resolve([[]]);
+      }),
+    );
+    const { svc } = build(stubs);
+
+    svc.onApplicationBootstrap();
+    await jest.advanceTimersByTimeAsync(5_000);
+    expect(stubs.surreal.withScopedCompany).toHaveBeenCalledTimes(1);
+
+    let shutDown = false;
+    const shutdown = svc.onApplicationShutdown().then(() => {
+      shutDown = true;
+    });
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(shutDown).toBe(false); // still waiting on the probe
+    release();
+    await shutdown;
+    expect(shutDown).toBe(true);
+  });
+
+  it('shutdown is bounded — a hung probe cannot hold the process open', async () => {
+    setEnv('CAPABILITY_PROBE_ENABLED', '1');
+    setEnv('CAPABILITY_PROBE_INTERVAL_MS', '5000');
+    const stubs = makeStubs();
+    stubs.surreal.withScopedCompany.mockReturnValue(new Promise(() => undefined));
+    const { svc } = build(stubs);
+
+    svc.onApplicationBootstrap();
+    await jest.advanceTimersByTimeAsync(5_000);
+    let shutDown = false;
+    const shutdown = svc.onApplicationShutdown().then(() => {
+      shutDown = true;
+    });
+    await jest.advanceTimersByTimeAsync(20_000);
+    await shutdown;
+    expect(shutDown).toBe(true);
   });
 
   it('does not stack ticks when a capability hangs', async () => {
@@ -318,7 +466,10 @@ describe('capability probe — scheduling', () => {
     svc.onApplicationBootstrap();
     // Two further ticks land inside the first probe's 15s deadline.
     await jest.advanceTimersByTimeAsync(14_000);
-    svc.onApplicationShutdown();
+    // Shutdown waits for the hung probe up to its (faked) drain bound.
+    const shutdown = svc.onApplicationShutdown();
+    await jest.advanceTimersByTimeAsync(20_000);
+    await shutdown;
 
     expect(stubs.surreal.withScopedCompany).toHaveBeenCalledTimes(1);
   });
@@ -331,10 +482,35 @@ describe('capability probe — scheduling', () => {
 
     svc.onApplicationBootstrap();
     await jest.advanceTimersByTimeAsync(6_000);
-    svc.onApplicationShutdown();
+    await svc.onApplicationShutdown();
     await jest.advanceTimersByTimeAsync(60_000);
 
     expect(stubs.surreal.withScopedCompany).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('capability probe — armed series', () => {
+  it('a skipped capability withdraws its armed series so it cannot read as "never succeeded"', async () => {
+    const savedFlag = process.env.CAPABILITY_PROBE_ENABLED;
+    process.env.CAPABILITY_PROBE_ENABLED = '1';
+    // No embedder wired: the embed probe legitimately reports `skipped`.
+    const stubs = makeStubs();
+    const metrics = new MetricsService();
+    const svc = new CapabilityProbeService(stubs.surreal as any, stubs.apiKeys as any, metrics);
+    svc.onApplicationBootstrap();
+    const armed = (capability: string) =>
+      series(metrics, 'brain_capability_probe_armed_timestamp_seconds', { capability });
+    expect(await armed('embed')).toBeDefined();
+    expect(await armed('scoped_read')).toBeDefined();
+
+    await svc.runOnce();
+
+    expect(await armed('embed')).toBeUndefined();
+    // The capability that actually ran keeps its arming time.
+    expect(await armed('scoped_read')).toBeDefined();
+    svc.onApplicationShutdown();
+    if (savedFlag === undefined) delete process.env.CAPABILITY_PROBE_ENABLED;
+    else process.env.CAPABILITY_PROBE_ENABLED = savedFlag;
   });
 });
 
@@ -348,13 +524,15 @@ describe('capability coverage gate', () => {
    * so the next check to ship cannot quietly be deploy-time-only.
    *
    * Renaming a check is caught by the compiler instead (CAPABILITY_COVERAGE
-   * is typed on `keyof ReadinessReport`); this catches ADDING one.
+   * is typed on `keyof ReadinessChecks`); this catches ADDING one. The
+   * measurements next to the checks (`ReadinessDetail`) are not gates and
+   * are not enumerated here.
    */
   const health = readFileSync(join(__dirname, '..', 'src', 'common', 'health.service.ts'), 'utf8');
 
   function readinessChecks(): string[] {
-    const block = /export interface ReadinessReport \{([\s\S]*?)\n\}/.exec(health);
-    if (!block) throw new Error('ReadinessReport interface not found — the gate cannot run');
+    const block = /export interface ReadinessChecks \{([\s\S]*?)\n\}/.exec(health);
+    if (!block) throw new Error('ReadinessChecks interface not found — the gate cannot run');
     return [...block[1]!.matchAll(/^\s{2}(\w+)\??:/gm)]
       .map((m) => m[1]!)
       .filter((name) => name !== 'ready');

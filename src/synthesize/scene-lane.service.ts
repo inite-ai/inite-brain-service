@@ -225,7 +225,7 @@ export class SceneLaneService {
               `SELECT ${select},
                       vector::similarity::cosine(gistEmbedding, $q) AS score
                  FROM memory_episode
-                WHERE gistEmbedding != NONE
+                WHERE gistEmbedding != NONE AND array::len(gistEmbedding) = array::len($q)
                   ${fences}
                 ORDER BY score DESC
                 LIMIT $k`,

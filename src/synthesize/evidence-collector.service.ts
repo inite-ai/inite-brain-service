@@ -27,7 +27,7 @@ import type { CitableFragment } from './fragment-citations';
 import type { CitableBelief } from './belief-citations';
 import type { CitableScene } from './scene-citations';
 import type { ZoomCandidate } from './fragment-zoom';
-import type { CoverageScanTuning } from './scan-leg';
+import type { CoverageScanTuning } from '../search/internals/scan-leg';
 
 /** Grounding anchors the raw-window lane expands (top evidence order). */
 const RAW_WINDOW_MAX_ANCHORS = 4;

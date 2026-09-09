@@ -31,8 +31,13 @@ import { CONFIG_CATALOG } from '../src/admin/config-catalog.data';
  * the second gate, so profile-field status is a reviewed decision, not
  * a free pass around the budget.
  */
+// HNSW_ is inside the budget on purpose. The provisioning flags were given
+// that prefix "so as not to consume engine flag budget" — which is exactly
+// the shape this gate exists to refuse: a prefix chosen to sit outside the
+// budget is a fork by another name. If a knob gates provisioning rather
+// than retrieval, it still costs a reviewed golden entry.
 const ENGINE_PREFIX =
-  /^(SEARCH|SYNTHESIZE|MULTI_HOP|EXTRACTOR|EXTRACTION|INGEST|EPISODE|EPISODES|DERIVER|AGENT_QA)_/;
+  /^(SEARCH|SYNTHESIZE|MULTI_HOP|EXTRACTOR|EXTRACTION|INGEST|EPISODE|EPISODES|DERIVER|AGENT_QA|HNSW)_/;
 
 const SRC = join(__dirname, '..', 'src');
 const GOLDEN_PATH = join(__dirname, 'golden', 'engine-behavior-flags.golden.json');

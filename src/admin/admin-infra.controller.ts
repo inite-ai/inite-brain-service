@@ -38,15 +38,15 @@ export class AdminInfraController {
   /**
    * Per-component health grid. Each component reports status (ok |
    * warming | degraded | disabled | unreachable) + latency (when
-   * cheap) + a short message. Distinct from /health which is the
-   * binary up/down for k8s.
+   * cheap) + a short message. The database, scoped-pool and embedder rows
+   * come from the same readiness report /ready answers from, annotated
+   * with the capability probe's last outcome — one vocabulary, not a
+   * second set of probes.
    */
   @Get('health/components')
   @RequireScopes('brain:admin')
   async healthComponentsView(): Promise<HealthComponentsResponse> {
-    const dbStart = Date.now();
-    const dbOk = await this.adminInfra.pingDb();
-    return this.healthComponents.build(dbOk, Date.now() - dbStart);
+    return this.healthComponents.build();
   }
 
   /**

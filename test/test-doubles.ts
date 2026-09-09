@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
-import type { EmbedderService } from '../src/ai/embedder.service';
+import type { EmbedderService, EmbedderWarmupStatus } from '../src/ai/embedder.service';
 import type { ExtractorService, ExtractionResult } from '../src/ai/extractor.service';
 import type { LocalCrossEncoderProvider } from '../src/ai/cross-encoder/local-cross-encoder.provider';
 import { SynthesizeService } from '../src/synthesize/synthesize.service';
@@ -22,6 +22,10 @@ export class StubEmbedder implements Pick<
   | 'embedManyForWrite'
   | 'getDimensions'
   | 'primaryDimensions'
+  | 'isReady'
+  | 'warmupStatus'
+  | 'cacheStats'
+  | 'embedUncached'
   | 'primarySpaceId'
   | 'activeSpaceId'
 > {
@@ -67,6 +71,27 @@ export class StubEmbedder implements Pick<
 
   getDimensions(): number {
     return this.dimensions;
+  }
+
+  /** The stub is always warm: readiness must see a ready embedder, so the
+   *  surfaces it feeds (`/ready`, the admin health grid) exercise the
+   *  database, not a model load. */
+  isReady(): boolean {
+    return true;
+  }
+
+  warmupStatus(): EmbedderWarmupStatus {
+    return { ready: true, failures: 0, inFlight: false };
+  }
+
+  /** What the admin health grid names the embedder row by. */
+  cacheStats(): { size: number; inFlight: number; waiting: number; provider: string } {
+    return { size: 0, inFlight: 0, waiting: 0, provider: 'stub' };
+  }
+
+  /** The capability probe's uncached call — the stub has no cache to bypass. */
+  async embedUncached(text: string): Promise<number[]> {
+    return this.embed(text);
   }
 
   primaryDimensions(): number {

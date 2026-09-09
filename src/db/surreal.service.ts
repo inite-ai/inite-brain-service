@@ -1,10 +1,17 @@
-import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnApplicationShutdown,
+  OnModuleInit,
+  Optional,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Surreal } from 'surrealdb';
 import { join } from 'node:path';
 import { SchemaMigrator } from './migrator.service';
 import { enrichTransactionError } from './surreal-retry';
-import { SurrealSessionKeeper } from './session-keeper';
+import { SESSION_REAUTH_MARGIN_MS, SurrealSessionKeeper } from './session-keeper';
 import { envFlagEnabled } from '../common/env-validation';
 import { getPolicyContext } from '../common/request-context';
 import { compileDenyPushdown } from '../policy/db-fence';
@@ -23,6 +30,16 @@ export {
  * the pool the benefit of the doubt. Short on purpose — see `pingScoped`.
  */
 const SCOPED_PROBE_ACQUIRE_MS = 2000;
+/** Bound on the per-acquire `RETURN 1` liveness probe (see ensureSession). */
+const SESSION_PROBE_TIMEOUT_MS = 3000;
+
+type PoolRole = 'root' | 'scoped';
+
+/** Test-only construction options; production wiring passes none. */
+export interface SurrealServiceOptions {
+  /** Re-auth margin for both pools' session keepers (default 5 min). */
+  sessionReauthMarginMs?: number;
+}
 
 /**
  * SurrealService — pooled connections with per-tenant database routing.
@@ -38,43 +55,35 @@ const SCOPED_PROBE_ACQUIRE_MS = 2000;
  *
  * Tenancy: NS=brain, DB=co_<companyId>. Cross-tenant queries are
  * physically impossible from outside `withCompany`.
+ *
+ * Two pools: root (admin paths — schema apply, GDPR forget, drop database,
+ * compaction, ops scripts) and scoped (`brain_caller`, caller-facing reads).
+ * The DB-level PERMISSIONS fence does NOT fire for `brain_caller` — a
+ * namespace-level system user — so the application-layer row filter is the
+ * effective PII/row barrier on both pools; the scoped pool is kept for the
+ * Record Access track that will make PERMISSIONS apply (docs/abac.md).
+ * Session lifetime, the re-auth discipline and the incident that shaped it:
+ * docs/operations.md § Long-lived DB sessions and
+ * docs/audits/runtime-auth-embedding-2026-09-08.md.
  */
 @Injectable()
 export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(SurrealService.name);
-  // Two pools — admin (root) and scoped (brain_caller user).
-  // Caller-facing reads route through scopedPool. NOTE (R4 audit): the
-  // DB-level field/table PERMISSIONS fence (migrations 0005/0057) does NOT
-  // currently fire — SurrealDB skips PERMISSIONS for SYSTEM users, and
-  // brain_caller is a NAMESPACE-level EDITOR (a system user); `LET` session
-  // vars also don't persist across query() boundaries. The EFFECTIVE
-  // PII/row barrier is the application-layer filter. The scoped pool is
-  // kept for the future Record Access (DEFINE ACCESS … TYPE RECORD WITH
-  // JWT) track that WILL make PERMISSIONS apply — see withScopedCompany
-  // and docs/abac.md. Admin paths (migration apply, GDPR forget, drop
-  // database) use rootPool (root bypasses PERMISSIONS by design).
   private readonly all: Surreal[] = [];
   private readonly rootIdle: Surreal[] = [];
   private readonly scopedIdle: Surreal[] = [];
   /**
-   * Scoped-pool connections currently authorized as ROOT (scoped signin
-   * failed at boot or after a migration). Audit 2026-08-19 P1: such a
-   * connection previously stayed root-authorized FOREVER once busy at
-   * resign time — every acquire now retries the scoped signin first and
-   * never hands out a root-authorized conn silently.
+   * Access-token expiry per pooled connection, one keeper per pool.
+   * surrealdb-js invalidates a `signin()`-established session at `exp − 60s`
+   * (it renews only sessions it opened itself), so every long-lived
+   * connection must re-sign before that — see db/session-keeper.ts. Both
+   * pools follow the same discipline in `ensureSession`.
    */
-  private readonly rootFallbackConns = new Set<Surreal>();
-  /**
-   * Access-token expiry bookkeeping for the SCOPED pool. Audit 2026-09-08:
-   * scoped connections signed in exactly ONCE, at boot, and surrealdb-js
-   * 2.0.8 answers a `signin()`-established session's expiry by calling
-   * `invalidate()` — so ~59 minutes after boot every caller-facing read
-   * failed with "Anonymous access not allowed" while writes (root pool,
-   * re-signed per acquire) and /health kept answering. The keeper re-signs a
-   * scoped connection before the driver can invalidate it. See
-   * db/session-keeper.ts for the full mechanism.
-   */
-  private readonly scopedSessions = new SurrealSessionKeeper();
+  private readonly sessionReauthMarginMs: number;
+  private readonly rootSessions: SurrealSessionKeeper;
+  private readonly scopedSessions: SurrealSessionKeeper;
+  /** Every scoped-pool connection, idle or in flight (see resignScopedConns). */
+  private readonly scopedAll = new Set<Surreal>();
   private scopedCreds?: { username: string; password: string; namespace: string };
   private readonly rootWaiters: Array<(c: Surreal) => void> = [];
   private readonly scopedWaiters: Array<(c: Surreal) => void> = [];
@@ -90,6 +99,21 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   // One-shot per process — cheap NS-level DDL but no need to repeat.
   private scopedPasswordSynced = false;
   private readonly knownDatabases = new Set<string>();
+  /**
+   * Called once per tenant database, immediately after its schema is
+   * created/migrated — the single moment a tenant comes into existence in
+   * this deployment (there is no onboarding route: `DEFINE DATABASE` in
+   * ensureSchema is the only code that creates one, and it fires on the
+   * first request that enters the tenant's scope).
+   *
+   * A callback rather than a dependency because this is the bottom of the
+   * stack: SurrealService is constructed before, and injected into, every
+   * service that could care. The contract is deliberately narrow — the
+   * listener is SYNCHRONOUS and must not throw or block, because it runs
+   * inside the global schema-apply queue on the first request for that
+   * tenant. Anything real belongs on the listener's own timer.
+   */
+  private readonly schemaReadyListeners = new Set<(companyId: string) => void>();
   // All schema applications (across all databases) are serialized through
   // this chain. SurrealDB raises transaction read-conflicts when multiple
   // tenants concurrently CREATE DATABASE + DEFINE on shared metadata.
@@ -114,127 +138,85 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   // any caller-facing semantics.
   private migratorConn!: Surreal;
   /** Cached root credentials + URL so a connection can be fully rebuilt
-   *  on auth failure. surrealdb-js v2.0.3 has multiple long-running
-   *  failure modes (zombie websockets per gh#618; session timer bugs)
-   *  where the auto-reconnect doesn't fire OR fires without preserving
-   *  auth, leaving queries to fail with "IAM error". The robust fix is
-   *  to drop the conn entirely and create a fresh one on failure. */
+   *  on failure: surrealdb-js (2.0.8) can hold a half-open socket that still
+   *  reports connected (gh#618) or invalidate a signin()-established session
+   *  on its own timer, and in both cases the only reliable repair is a fresh
+   *  connection (`ensureSession`). History and measurements:
+   *  docs/audits/runtime-auth-embedding-2026-09-08.md. */
   private rootCreds!: { username: string; password: string };
   private surrealUrl!: string;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional() opts?: SurrealServiceOptions,
+  ) {
     this.migrator = new SchemaMigrator(join(__dirname, 'migrations'));
+    this.sessionReauthMarginMs = opts?.sessionReauthMarginMs ?? SESSION_REAUTH_MARGIN_MS;
+    this.rootSessions = new SurrealSessionKeeper(this.sessionReauthMarginMs);
+    this.scopedSessions = new SurrealSessionKeeper(this.sessionReauthMarginMs);
   }
 
   /**
-   * Test conn liveness with a bounded-time signin. On failure (timeout
-   * or rejection), tear the conn down and rebuild it fresh.
+   * Guarantee `conn` is connected and authenticated for `role` before it is
+   * handed out. One discipline for both pools:
    *
-   * Why signin specifically: surrealdb-js v2.0.3 known issues —
-   *   - gh#618 (zombie ws): conn.status stays "connected" forever after
-   *     a half-open TCP drop; no reconnect event fires.
-   *   - sessions less-than-60s and bearer-greater-than-24.8d cases
-   *     silently invalidate the session timer, so queries succeed with
-   *     no auth (IAM error).
-   * Issuing signin actually exercises the auth path AND is idempotent
-   * for a healthy conn. With a 3s timeout the call cannot wedge.
+   *   1. socket connected, session holds a token, token outside the re-auth
+   *      margin → a `RETURN 1` probe (≈0.3 ms), which fails on a half-open
+   *      socket (surrealdb-js gh#618: status stays "connected") and on an
+   *      anonymous session alike;
+   *   2. otherwise re-sign (≈16 ms, the server-side password KDF) — this is
+   *      also what heals a session the driver already invalidated;
+   *   3. if either fails, build a replacement connection FIRST and close the
+   *      old one only once the replacement signed in, swapping the pool slot.
+   *      If the replacement cannot sign in either, throw with the original
+   *      still open — root callers propagate, `acquireScoped` fails closed.
    *
-   * Returns the original conn when signin succeeded; returns a brand-new
-   * authenticated conn when signin had to be rebuilt. Caller MUST use
-   * the returned reference (we replace the pool slot with the new conn
-   * since the old one's lifecycle is now this function's problem).
+   * The root pool used to re-sign unconditionally on every acquire (which is
+   * why writes never showed the expiry bug, at the KDF's cost on every
+   * query); the scoped pool skipped the liveness probe. Returns the
+   * connection to use — callers MUST use the returned reference.
    */
-  private async ensureRootSession(conn: Surreal): Promise<Surreal> {
+  private async ensureSession(conn: Surreal, role: PoolRole): Promise<Surreal> {
+    const keeper = role === 'root' ? this.rootSessions : this.scopedSessions;
     try {
-      await withTimeout(conn.signin(this.rootCreds), 3000, 'signin');
+      if (conn.isConnected && conn.accessToken && !keeper.needsSignin(conn)) {
+        await withTimeout(conn.query('RETURN 1'), SESSION_PROBE_TIMEOUT_MS, `${role} probe`);
+      } else {
+        await this.signin(conn, role);
+      }
       return conn;
     } catch (e) {
       this.logger.warn(
-        `Root signin failed (${(e as Error).message?.slice(0, 120)}) — rebuilding conn`,
+        `${role} session check failed (${(e as Error).message?.slice(0, 120)}) — rebuilding conn`,
       );
-      try {
-        await withTimeout(conn.close(), 1000, 'close').catch(() => undefined);
-      } catch {
-        // Closing a dead conn can throw — ignored intentionally.
-      }
-      const fresh = new Surreal();
-      try {
-        await withTimeout(fresh.connect(this.surrealUrl), 5000, 'connect');
-        await withTimeout(fresh.signin(this.rootCreds), 3000, 'signin');
-      } catch (rebuildErr) {
-        await withTimeout(fresh.close(), 1000, 'close').catch(() => undefined);
-        throw rebuildErr;
-      }
-      // Swap the conn in `all` so process shutdown closes the new one.
-      const oldIdx = this.all.indexOf(conn);
-      if (oldIdx >= 0) this.all[oldIdx] = fresh;
-      return fresh;
     }
-  }
-
-  /**
-   * Sign a connection in as the scoped (`brain_caller`) user and record the
-   * access token's expiry so the pool knows when it must re-sign.
-   */
-  private async signinScoped(conn: Surreal): Promise<void> {
-    if (!this.scopedCreds) throw new Error('scoped credentials not configured');
-    const tokens = await withTimeout(conn.signin(this.scopedCreds), 3000, 'scoped signin');
-    this.scopedSessions.record(conn, tokens?.access);
-    this.rootFallbackConns.delete(conn);
-  }
-
-  /**
-   * The scoped-pool counterpart of `ensureRootSession`: guarantee the
-   * connection about to serve a caller-facing read is still authorized as
-   * `brain_caller`.
-   *
-   * Unlike the root path this does NOT sign in unconditionally. A Surreal
-   * `signin` runs the server-side password KDF (~16ms locally, vs ~0.3ms for
-   * a SELECT), and reads are the hot path — paying it per request would be a
-   * ~48x tax on the cheapest queries. Instead we re-sign only when the access
-   * token is inside the re-auth margin, which is the condition that actually
-   * matters: past it, surrealdb-js invalidates the session and the connection
-   * goes anonymous (see db/session-keeper.ts).
-   *
-   * A signin failure means the socket is gone (zombie ws, gh#618) or the
-   * credentials no longer work. Rebuild once; if the rebuilt connection also
-   * cannot sign in scoped, throw — `acquireScoped` turns that into a
-   * fail-closed error rather than serving the request root-authorized.
-   *
-   * Returns the connection to use: the original, or a freshly built
-   * replacement. Callers MUST use the returned reference.
-   */
-  private async ensureScopedSession(conn: Surreal): Promise<Surreal> {
-    if (
-      !this.rootFallbackConns.has(conn) &&
-      conn.isConnected &&
-      conn.accessToken &&
-      !this.scopedSessions.needsSignin(conn)
-    )
-      return conn;
+    const fresh = new Surreal();
     try {
-      await this.signinScoped(conn);
-      return conn;
-    } catch (e) {
-      this.logger.warn(
-        `Scoped signin failed (${(e as Error).message?.slice(0, 120)}) — rebuilding conn`,
-      );
-      this.scopedSessions.forget(conn);
-      this.rootFallbackConns.delete(conn);
-      await withTimeout(conn.close(), 1000, 'close').catch(() => undefined);
-      const fresh = new Surreal();
-      try {
-        await withTimeout(fresh.connect(this.surrealUrl), 5000, 'connect');
-        await this.signinScoped(fresh);
-      } catch (rebuildErr) {
-        await withTimeout(fresh.close(), 1000, 'close').catch(() => undefined);
-        throw rebuildErr;
-      }
-      const oldIdx = this.all.indexOf(conn);
-      if (oldIdx >= 0) this.all[oldIdx] = fresh;
-      else this.all.push(fresh);
-      return fresh;
+      await withTimeout(fresh.connect(this.surrealUrl), 5000, 'connect');
+      await this.signin(fresh, role);
+    } catch (rebuildErr) {
+      await withTimeout(fresh.close(), 1000, 'close').catch(() => undefined);
+      throw rebuildErr;
     }
+    keeper.forget(conn);
+    await withTimeout(conn.close(), 1000, 'close').catch(() => undefined);
+    // Swap the slot in `all` so process shutdown closes the replacement.
+    const oldIdx = this.all.indexOf(conn);
+    if (oldIdx >= 0) this.all[oldIdx] = fresh;
+    else this.all.push(fresh);
+    if (role === 'scoped') {
+      this.scopedAll.delete(conn);
+      this.scopedAll.add(fresh);
+    }
+    return fresh;
+  }
+
+  /** Sign `conn` in for `role` and record the access token's expiry. */
+  private async signin(conn: Surreal, role: PoolRole): Promise<void> {
+    const creds = role === 'root' ? this.rootCreds : this.scopedCreds;
+    if (!creds) throw new Error(`${role} credentials not configured`);
+    const tokens = await withTimeout(conn.signin(creds), 3000, `${role} signin`);
+    (role === 'root' ? this.rootSessions : this.scopedSessions).record(conn, tokens?.access);
   }
 
   async onModuleInit() {
@@ -258,7 +240,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       throw new Error('SURREALDB_ACQUIRE_TIMEOUT_MS must be >= 100ms');
     }
 
-    // Cache for re-signin / rebuild on ws drops (see ensureRootSession).
+    // Cache for re-signin / rebuild on ws drops (see ensureSession).
     this.rootCreds = { username, password };
     this.surrealUrl = url;
 
@@ -268,35 +250,24 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     // a fresh root conn from a saturated pool.
     this.migratorConn = new Surreal();
     await this.migratorConn.connect(url);
-    await this.migratorConn.signin({ username, password });
+    await this.signin(this.migratorConn, 'root');
     this.all.push(this.migratorConn);
 
     // Root pool — admin signin.
     for (let i = 0; i < this.poolSize; i++) {
       const conn = new Surreal();
       await conn.connect(url);
-      await conn.signin({ username, password });
+      await this.signin(conn, 'root');
       this.all.push(conn);
       this.rootIdle.push(conn);
     }
 
     // Scoped pool — sign in as `brain_caller` (defined in migration 0005).
-    // Disabled cleanly when the user/password aren't set; falls back to the
-    // root pool for everything. NOTE (R4 audit): the DB-level PERMISSIONS
-    // fence does NOT fire even when the scoped pool IS enabled — SurrealDB
-    // skips PERMISSIONS for the system `brain_caller` user, so the
-    // application-layer filter is the effective barrier either way. The
-    // scoped pool is retained for the future Record Access track; set
-    // SURREALDB_SCOPED_USER + SURREALDB_SCOPED_PASS to exercise it. See
-    // docs/abac.md.
+    // Disabled cleanly when the user/password aren't set: reads then run on
+    // the root pool (same effective app-layer barrier — see the class note).
     const scopedUser = this.configService.get<string>('SURREALDB_SCOPED_USER');
     const scopedPass = this.configService.get<string>('SURREALDB_SCOPED_PASS');
     if (scopedUser && scopedPass) {
-      // Apply migrations on a root conn FIRST so brain_caller user exists.
-      // The first withCompany call that targets a fresh tenant DB still
-      // runs the migrations queue — but the root pool is already up,
-      // so any scoped pool signin failures with "user not found" are
-      // contained to that tenant's first request and resolve on retry.
       this.scopedEnabled = true;
       this.scopedCreds = {
         username: scopedUser,
@@ -307,20 +278,20 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
         const conn = new Surreal();
         await conn.connect(url);
         try {
-          await this.signinScoped(conn);
+          await this.signin(conn, 'scoped');
         } catch (e) {
-          // brain_caller user not yet defined (first boot, no migrations
-          // applied yet). Fall back to root signin so the conn is at
-          // least usable; on first scoped request, withScopedCompany
-          // re-signs in as scoped after migrations land.
+          // First boot: `brain_caller` does not exist until migration 0005
+          // lands (the tenant-registry refresh runs it right after boot).
+          // Leave the connection unauthenticated — the keeper holds no
+          // record for it, so the next acquire re-signs, and fails closed
+          // if that still does not work. It is never signed in as root.
           this.logger.warn(
-            `Scoped signin failed (likely first boot before migrations): ${(e as Error).message}. ` +
-              `Falling back to root for this connection until first migration runs.`,
+            `Scoped signin failed (${(e as Error).message}) — ` +
+              `the connection will re-sign on its first acquire`,
           );
-          await conn.signin({ username, password });
-          this.rootFallbackConns.add(conn);
         }
         this.all.push(conn);
+        this.scopedAll.add(conn);
         this.scopedIdle.push(conn);
       }
     }
@@ -358,35 +329,28 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   }
 
   /**
-   * Readiness probe for the CALLER-FACING read path.
+   * Readiness probe for the CALLER-FACING read path: takes a scoped
+   * connection and runs the same authorization-gated check a request runs
+   * (`ensureSession`). `ping()` cannot see an anonymous session — `version()`
+   * is answered for one too — which is how /ready stayed green through the
+   * 2026-09-08 outage.
    *
-   * `ping()` cannot see this class of failure: `version()` is answered for an
-   * anonymous connection too (verified against surrealdb 3.2.4), so during
-   * the 2026-09-08 scoped-session-expiry outage /health and /ready both
-   * reported "ok" while every search, entity read and fact read 500'd. A
-   * readiness check that cannot observe the request path is not a readiness
-   * check — so this takes a real scoped connection and runs an
-   * authorization-gated statement on it.
-   *
-   * `RETURN 1` is the cheapest such statement: SurrealDB refuses it for an
-   * anonymous session with the same "Anonymous access not allowed" it refuses
-   * a SELECT with. Going through `ensureScopedSession` is deliberate — the probe
-   * exercises the same renew-or-fail-closed path a request takes, so a pool
-   * that can no longer authenticate at all (rotated secret, dropped user,
-   * unreachable DB) makes readiness fail instead of reporting a healthy read
-   * path. Traffic removal additionally requires a balancer readiness probe.
-   *
-   * A BUSY pool is deliberately NOT a readiness failure. Saturation is a
-   * different signal — already visible as acquire-timeout 5xx and in
-   * /admin/now — and answering "not ready" for it would pull pods out of
-   * rotation exactly when the remaining pods are the most loaded. So the
-   * probe waits only briefly for a connection and reports ready if it does
-   * not get one; the question it answers is "can the read path authorize",
-   * not "is the read path idle".
-   *
-   * Returns true when the scoped pool is disabled: reads run on the root
-   * pool then, and `ping()` already covers it.
+   * A BUSY pool is deliberately NOT a readiness failure: saturation is
+   * already visible as acquire-timeout 5xx, and answering "not ready" for
+   * it would pull pods out of rotation when the rest are most loaded. The
+   * question here is "can the read path authorize", not "is it idle".
+   * Returns true when the scoped pool is disabled (`ping()` covers root).
    */
+  /**
+   * Whether the caller-facing read path runs on the scoped (`brain_caller`)
+   * pool at all. False = SURREALDB_SCOPED_USER/PASS unset, reads route to
+   * root and `pingScoped()` answers true vacuously — the health surfaces
+   * show that as "disabled" rather than as a healthy fence.
+   */
+  scopedPoolEnabled(): boolean {
+    return this.scopedEnabled;
+  }
+
   async pingScoped(): Promise<boolean> {
     if (!this.scopedEnabled) return true;
     // Time only the queue, not authentication. An available slot whose
@@ -414,8 +378,9 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       return true;
     }
     try {
-      if (this.scopedCreds) conn = await this.ensureScopedSession(conn);
-      await withTimeout(conn.query('RETURN 1'), 3000, 'scoped ping');
+      // ensureSession already ran the authorization-gated probe (or a fresh
+      // signin) on this connection — that IS the readiness check.
+      conn = await this.ensureSession(conn, 'scoped');
       return true;
     } catch {
       return false;
@@ -442,11 +407,9 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     const database = `co_${companyId}`;
     let conn = await this.acquireRoot();
     try {
-      // Pool conns can lose auth (zombie ws, session-timer bugs in
-      // surrealdb-js v2.0.3) — ensureRootSession either re-signs the
-      // existing conn or hands back a freshly-built one. Always use
-      // the returned reference.
-      conn = await this.ensureRootSession(conn);
+      // ensureSession may hand back a rebuilt connection — always use the
+      // returned reference.
+      conn = await this.ensureSession(conn, 'root');
       await conn.use({ namespace: this.namespace, database });
       await this.ensureSchema(conn, database);
       return await fn(conn);
@@ -472,7 +435,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     const database = 'system';
     let conn = await this.acquireRoot();
     try {
-      conn = await this.ensureRootSession(conn);
+      conn = await this.ensureSession(conn, 'root');
       await conn.use({ namespace: this.namespace, database });
       await this.ensureSchema(conn, database);
       return await fn(conn);
@@ -482,30 +445,21 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   }
 
   /**
-   * Run a callback inside a per-tenant DB scope on a SCOPED connection.
-   * The connection is signed in as `brain_caller` (EDITOR role, not root).
+   * Run a callback inside a per-tenant DB scope on a SCOPED connection
+   * (`brain_caller`, EDITOR role, not root).
    *
-   * IMPORTANT (R4 audit — do not claim a barrier that does not exist): the
-   * DB-level field/table PERMISSIONS fence DOES NOT CURRENTLY FIRE on this
-   * connection. `brain_caller` is a NAMESPACE-level system (EDITOR) user,
-   * and SurrealDB evaluates table/field PERMISSIONS for RECORD
-   * (ACCESS/SCOPE) users only — system users bypass them entirely.
-   * Independently, `LET $caller_scopes` / `$caller_policy_deny` do not
-   * persist across query() boundaries on this driver/server, so a later
-   * statement reads them as NONE. The EFFECTIVE PII/row barrier is the
-   * APPLICATION-LAYER filter (policy/row-filter.ts, entity-read.helpers),
-   * which covers every read surface and is e2e-enforced.
+   * R4 audit — do not claim a barrier that does not exist: SurrealDB skips
+   * table/field PERMISSIONS for system users, and `LET` session variables
+   * do not persist across query() calls, so the DB-level fence is INERT on
+   * this connection. The effective PII/row barrier is the application-layer
+   * filter (policy/row-filter.ts, entity-read.helpers). The scoped identity
+   * and the `$caller_scopes` / `$caller_policy_deny` binding are kept so a
+   * real fence can be switched on with Record Access; the 0057 canary
+   * (test/abac-db-fence.e2e-spec.ts) fails loudly if PERMISSIONS ever start
+   * firing. See docs/abac.md § DB-level fence status.
    *
-   * The scoped connection and the `$caller_scopes` / `$caller_policy_deny`
-   * `LET` binding below are kept intact so a real DB fence can be switched
-   * on the day callers move to Record Access (DEFINE ACCESS … TYPE RECORD
-   * WITH JWT) — a future track. The 0057 canary
-   * (test/abac-db-fence.e2e-spec.ts) fails loudly if the stack ever starts
-   * honoring PERMISSIONS. See docs/abac.md § DB-level fence status.
-   *
-   * If the scoped pool is disabled (env var unset, dev without a non-root
-   * user), this falls back to `withCompany` semantics — identical effective
-   * enforcement, since the app-layer filter is the gate either way.
+   * With the scoped pool disabled this runs on the root pool — identical
+   * effective enforcement.
    */
   async withScopedCompany<T>(
     companyId: string,
@@ -571,7 +525,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     const database = `co_${companyId}`;
     let conn = await this.acquireRoot();
     try {
-      conn = await this.ensureRootSession(conn);
+      conn = await this.ensureSession(conn, 'root');
       await conn.use({ namespace: this.namespace, database });
       await conn.query(`REMOVE DATABASE ${database};`);
       this.knownDatabases.delete(database);
@@ -613,24 +567,17 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
 
   private async acquireScoped(): Promise<Surreal> {
     const conn = await this.acquireWithTimeout(this.scopedIdle, this.scopedWaiters, 'scoped');
-    if (!this.scopedCreds) return conn;
-    // Audit 2026-08-19 P1 / 2026-08-21 P1: a root-fallback conn
-    // re-attempts the scoped signin on EVERY acquire — and FAILS CLOSED
-    // when it can't. A deployment that configured the scoped pool asked
-    // for a DB-level fence; silently serving the request root-authorized
-    // widens privilege exactly when the caller believes it narrowed.
-    // Audit 2026-09-08 P0: the SAME acquire now also renews a session whose
-    // access token is about to lapse. Without it, surrealdb-js invalidated
-    // the session ~59 minutes after boot and every caller-facing read
-    // answered "Anonymous access not allowed" until the process restarted,
-    // with writes and /health none the wiser.
-    // Either way the conn goes back to the pool for the next acquire's
-    // retry; this request errors instead of degrading.
     try {
-      return await this.ensureScopedSession(conn);
+      return await this.ensureSession(conn, 'scoped');
     } catch (e) {
+      // Fail CLOSED. A deployment that configured the scoped pool asked for
+      // the narrower identity; serving the request root-authorized would
+      // widen privilege exactly when the caller believes it narrowed. The
+      // (still open) connection goes back for the next acquire's retry; a
+      // 503 tells balancers and retrying clients this is availability, not
+      // a bug.
       this.releaseScoped(conn);
-      throw new Error(
+      throw new ServiceUnavailableException(
         `scoped DB signin unavailable — failing closed rather than ` +
           `serving the request root-authorized: ${(e as Error).message}`,
       );
@@ -699,9 +646,9 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       // Use the dedicated migrator conn rather than acquiring from
       // the pool. Avoids the deadlock where every pool conn is
       // currently held in withCompany awaiting THIS migration to
-      // finish. ensureRootSession may return a rebuilt conn — track
+      // finish. ensureSession may return a rebuilt conn — track
       // the swap so future migrations use the live reference.
-      this.migratorConn = await this.ensureRootSession(this.migratorConn);
+      this.migratorConn = await this.ensureSession(this.migratorConn, 'root');
       // SurrealDB 3.x no longer auto-creates a namespace/database on first
       // DEFINE — `use()` + DDL against a non-existent NS/DB errors ("The
       // namespace 'brain' does not exist"). 2.x created them implicitly.
@@ -752,9 +699,39 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
             `(${result.alreadyApplied.length} migration(s) applied)`,
         );
       }
+      this.notifySchemaReady(database);
     });
     this.schemaQueue = next.catch(() => undefined);
     await next;
+  }
+
+  /**
+   * Register a tenant-schema-ready listener. Listeners are SYNCHRONOUS and
+   * must not throw or block: they run inside the global schema-apply queue
+   * on the first request for that tenant, so anything real belongs on the
+   * listener's own timer. Several may register (a Set, not a slot) — the
+   * contract is the same for one listener as for five.
+   */
+  onTenantSchemaReady(listener: (companyId: string) => void): void {
+    this.schemaReadyListeners.add(listener);
+  }
+
+  /**
+   * Fire the listener for a TENANT database only — `system` is the
+   * platform's own DB and has no companyId. Never throws: a listener fault
+   * must not fail the request that happened to be first through the door,
+   * and must not poison the schema queue for every other tenant behind it.
+   */
+  private notifySchemaReady(database: string): void {
+    if (this.schemaReadyListeners.size === 0 || !database.startsWith('co_')) return;
+    const companyId = database.slice('co_'.length);
+    for (const listener of this.schemaReadyListeners) {
+      try {
+        listener(companyId);
+      } catch (e) {
+        this.logger.warn(`tenant schema-ready listener threw: ${(e as Error).message}`);
+      }
+    }
   }
 
   /**
@@ -810,7 +787,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    * deploy — the knob makes the token lifetime brain's declared property
    * rather than an invisible server default. It is NOT the fix for session
    * expiry (a longer token only moves the cliff; the pool re-signs before
-   * either lapses — see ensureScopedSession), but it makes the lifetime
+   * either lapses — see ensureSession), but it makes the lifetime
    * explicit and lets the expiry path be tested in seconds instead of an
    * hour.
    *
@@ -818,31 +795,30 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    * hence the strict shape check. Anything else is refused, loudly.
    */
   private scopedTokenDurationClause(): string {
-    const raw = this.configService.get<string>('SURREALDB_SCOPED_TOKEN_DURATION')?.trim();
-    if (!raw) return '';
-    if (!/^\d+(ns|us|ms|s|m|h|d|w|y)$/.test(raw)) {
-      this.logger.error(
-        `Ignoring SURREALDB_SCOPED_TOKEN_DURATION='${raw}' — not a SurrealDB duration literal`,
-      );
-      return '';
-    }
-    return ` DURATION FOR TOKEN ${raw}`;
+    const decision = scopedTokenDurationDecision(
+      this.configService.get<string>('SURREALDB_SCOPED_TOKEN_DURATION'),
+      this.sessionReauthMarginMs,
+    );
+    if (decision.problem) this.logger.error(decision.problem);
+    return decision.clause;
   }
 
   /**
-   * Re-sign all idle scoped pool connections as `brain_caller` after
-   * migration 0005 lands. Connections currently in flight will be
-   * re-signed on their next acquire (we mark them via shadow Set).
-   * Best-effort — failures fall back to root-signed (still functional,
-   * just no PERMISSIONS enforcement).
+   * Re-sign the idle scoped connections after migration 0005 lands or the
+   * scoped password was rotated. In-flight connections re-sign on their
+   * next acquire (the keeper record is dropped here so they must).
    */
   private async resignScopedConns(): Promise<void> {
     if (!this.scopedCreds) return;
-    for (const conn of this.scopedIdle) {
+    for (const conn of this.scopedAll) {
+      if (!this.scopedIdle.includes(conn)) {
+        this.scopedSessions.forget(conn);
+        continue;
+      }
       try {
-        await this.signinScoped(conn);
+        await this.signin(conn, 'scoped');
       } catch (e) {
-        this.rootFallbackConns.add(conn);
+        this.scopedSessions.forget(conn);
         this.logger.warn(`Re-signin to scoped failed for an idle conn: ${(e as Error).message}`);
       }
     }
@@ -1022,13 +998,68 @@ export async function runTransaction<T>(db: Surreal, build: (tx: TxBuilder) => v
 }
 
 /**
+ * The decision behind SURREALDB_SCOPED_TOKEN_DURATION, as a pure function so
+ * it can be pinned: an unparseable literal is IGNORED (the server default,
+ * 1h, stays) and reported; a literal at or under the session re-auth margin
+ * is HONOURED — a token that lives shorter than the margin is always "about
+ * to expire", so every scoped acquire pays the ~16 ms signin KDF, which only
+ * the expiry e2e wants — and reported. `problem` is the operator-facing line.
+ */
+export function scopedTokenDurationDecision(
+  raw: string | undefined,
+  reauthMarginMs: number,
+): { clause: string; problem?: string } {
+  const value = raw?.trim();
+  if (!value) return { clause: '' };
+  const ms = surrealDurationToMs(value);
+  if (ms === undefined) {
+    return {
+      clause: '',
+      problem: `Ignoring SURREALDB_SCOPED_TOKEN_DURATION='${value}' — not a SurrealDB duration literal`,
+    };
+  }
+  const clause = ` DURATION FOR TOKEN ${value}`;
+  if (ms <= reauthMarginMs) {
+    return {
+      clause,
+      problem:
+        `SURREALDB_SCOPED_TOKEN_DURATION='${value}' is within the ${reauthMarginMs}ms ` +
+        `session re-auth margin: every scoped acquire will re-sign. Intended for tests only.`,
+    };
+  }
+  return { clause };
+}
+
+/**
+ * A SurrealDB duration literal (`5s`, `1h`, `30m`…) in milliseconds, or
+ * undefined when the string is not one. Sub-millisecond units round down.
+ */
+export function surrealDurationToMs(raw: string): number | undefined {
+  const m = /^(\d+)(ns|us|ms|s|m|h|d|w|y)$/.exec(raw);
+  if (!m) return undefined;
+  const n = Number(m[1]);
+  const unit: Record<string, number> = {
+    ns: 1e-6,
+    us: 1e-3,
+    ms: 1,
+    s: 1_000,
+    m: 60_000,
+    h: 3_600_000,
+    d: 86_400_000,
+    w: 604_800_000,
+    y: 31_536_000_000,
+  };
+  return Math.floor(n * unit[m[2]!]!);
+}
+
+/**
  * Race a promise against a timer; reject if the timer wins. Used to guard
  * surrealdb-js calls against zombie-websocket hangs (gh#618) where the
  * underlying socket is half-open and queries / signin never get a
- * response. Without this, ensureRootSession could wedge a request for
+ * response. Without this, ensureSession could wedge a request for
  * minutes before the OS reaps the TCP connection.
  */
-async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+export async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([

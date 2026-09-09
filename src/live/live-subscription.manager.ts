@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Surreal, Table } from 'surrealdb';
 import type { LiveSubscription } from 'surrealdb';
 import { envFlagEnabled } from '../common/env-validation';
-import { queryRows } from '../db/surreal.service';
+import { queryRows, withTimeout } from '../db/surreal.service';
 import { SurrealSessionKeeper } from '../db/session-keeper';
 import { changefeedRow } from '../db/changefeed-row';
 import { makeRowPolicyFilter, type PredicatePolicyLookup } from '../policy/row-filter';
@@ -72,9 +72,18 @@ interface TenantChannel {
   /** Fact ids the LIVE path already delivered, so replay doesn't double-send. */
   delivered: Set<string>;
   timer: NodeJS.Timeout | null;
+  /** A catch-up tick is running; the interval must not stack another. */
+  catchingUp: boolean;
 }
 
 const TABLE = 'knowledge_fact';
+/** Bounds on the two statements a catch-up tick issues on a standing socket. */
+const SIGNIN_TIMEOUT_MS = 3_000;
+const CATCHUP_QUERY_TIMEOUT_MS = 10_000;
+
+type LiveCredentials =
+  | { username: string; password: string }
+  | { username: string; password: string; namespace: string };
 
 /**
  * LiveSubscriptionManager — realtime fact subscriptions (flag
@@ -114,18 +123,16 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
   private readonly enabled: boolean;
   private readonly url: string;
   private readonly namespace: string;
-  private readonly creds: { username: string; password: string };
+  private readonly creds: LiveCredentials;
   private readonly maxSubscribersPerTenant: number;
   private readonly maxQueuePerSubscriber: number;
   private readonly catchUpMs: number;
   /**
-   * Subscription connections live OUTSIDE both pools and used to sign in
-   * exactly once, at channel open — the same shape that took the scoped pool
-   * anonymous ~59 minutes after boot (audit 2026-09-08, see
-   * db/session-keeper.ts). A standing subscription is the longest-lived
-   * connection in the process, so it is the most exposed: past the driver's
-   * invalidate timer the LIVE session dies and every catch-up tick fails with
-   * "Anonymous access not allowed". The keeper re-signs before that happens.
+   * Subscription connections live OUTSIDE both pools, so they follow the
+   * same expiry discipline on their own: surrealdb-js invalidates a
+   * `signin()`-established session at `exp − 60s`, and a standing
+   * subscription is the longest-lived connection in the process. The
+   * catch-up tick re-signs before that (see db/session-keeper.ts).
    */
   private readonly sessions = new SurrealSessionKeeper();
   private seq = 0;
@@ -134,10 +141,18 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
     this.enabled = envFlagEnabled(config.get<string>('LIVE_SUBSCRIPTIONS_ENABLED'));
     this.url = config.get<string>('SURREALDB_URL', '');
     this.namespace = config.get<string>('SURREALDB_NAMESPACE', 'brain');
-    this.creds = {
-      username: config.get<string>('SURREALDB_USERNAME', ''),
-      password: config.get<string>('SURREALDB_PASSWORD', ''),
-    };
+    // Same identity as the caller-facing read pool: `brain_caller` when the
+    // scoped pool is configured, root otherwise. A push path is a read path;
+    // it must not hold a wider identity than `/v1/search` does.
+    const scopedUser = config.get<string>('SURREALDB_SCOPED_USER');
+    const scopedPass = config.get<string>('SURREALDB_SCOPED_PASS');
+    this.creds =
+      scopedUser && scopedPass
+        ? { username: scopedUser, password: scopedPass, namespace: this.namespace }
+        : {
+            username: config.get<string>('SURREALDB_USERNAME', ''),
+            password: config.get<string>('SURREALDB_PASSWORD', ''),
+          };
     this.maxSubscribersPerTenant = parseInt(
       config.get<string>('LIVE_MAX_SUBSCRIBERS_PER_TENANT', '20'),
       10,
@@ -212,6 +227,7 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
       versionstamp,
       delivered: new Set(),
       timer: null,
+      catchingUp: false,
     };
     channel.unsubscribe = sub.subscribe((msg) => {
       const event = toFactEvent(msg, 'live');
@@ -241,16 +257,32 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
   async catchUp(companyId: string): Promise<number> {
     const channel = this.channels.get(companyId);
     if (!channel) return 0;
-    // The catch-up tick is the only thing that touches this connection on a
-    // schedule, so it is where the session gets renewed. A re-signin does not
-    // disturb the selected namespace/database (verified against v3.2.4) and
-    // does not tear down the standing LIVE query — unlike the driver-side
-    // invalidate it is racing.
-    await this.signin(channel.conn);
-    const changes = await queryRows<ChangefeedShowRow>(
-      channel.conn,
-      `SHOW CHANGES FOR TABLE ${TABLE} SINCE ${channel.versionstamp} LIMIT 1000`,
-    );
+    // A tick that outlives the interval (half-open socket, slow server)
+    // must not stack the next one on top of it.
+    if (channel.catchingUp) return 0;
+    channel.catchingUp = true;
+    try {
+      // The catch-up tick is the only thing that touches this connection on
+      // a schedule, so it is where the session gets renewed. The changefeed
+      // makes the renewal safe regardless of what the driver-side invalidate
+      // does to the standing LIVE query: anything LIVE misses in the gap is
+      // replayed from here (test/scoped-session-expiry.e2e-spec.ts).
+      await this.signin(channel.conn);
+      const changes = await withTimeout(
+        queryRows<ChangefeedShowRow>(
+          channel.conn,
+          `SHOW CHANGES FOR TABLE ${TABLE} SINCE ${channel.versionstamp} LIMIT 1000`,
+        ),
+        CATCHUP_QUERY_TIMEOUT_MS,
+        'live catch-up',
+      );
+      return this.replay(channel, changes);
+    } finally {
+      channel.catchingUp = false;
+    }
+  }
+
+  private replay(channel: TenantChannel, changes: ChangefeedShowRow[]): number {
     let emitted = 0;
     let highest = channel.versionstamp;
     for (const change of changes) {
@@ -322,7 +354,7 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
    */
   private async signin(conn: Surreal): Promise<void> {
     if (!this.sessions.needsSignin(conn)) return;
-    const tokens = await conn.signin(this.creds);
+    const tokens = await withTimeout(conn.signin(this.creds), SIGNIN_TIMEOUT_MS, 'live signin');
     this.sessions.record(conn, tokens?.access);
   }
 

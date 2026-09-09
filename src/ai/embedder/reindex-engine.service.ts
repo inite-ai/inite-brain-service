@@ -104,6 +104,17 @@ const ADDITIONAL_TABLE_SPECS: ReindexTableSpec[] = [
   },
 ];
 
+/**
+ * Every (table, field) the reindex sweep rewrites — knowledge_fact's main
+ * column plus ADDITIONAL_TABLE_SPECS. The corpus census (VectorCorpusService)
+ * classifies a non-conforming row as repairable exactly when its column is
+ * here; every other vector column is producer-owned.
+ */
+export const REINDEX_SWEPT_COLUMNS: ReadonlyArray<{ table: string; field: string }> = [
+  { table: 'knowledge_fact', field: 'embedding' },
+  ...ADDITIONAL_TABLE_SPECS.map((t) => ({ table: t.table, field: t.vectorField })),
+];
+
 /** Per-table row of the opt-in all-tables sweep, surfaced for operator audit. */
 export interface TableReindexCount {
   table: string;

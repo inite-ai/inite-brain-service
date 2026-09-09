@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { StringRecordId, Surreal } from 'surrealdb';
-import { SurrealService, dbCreate } from '../db/surreal.service';
+import { SurrealService, runTransaction } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { PREDICATE_POLICIES } from '../ingest/conflict-resolver';
 import { ConcatSummaryGenerator, FactToSummarize, SummaryGenerator } from './summary-generator';
@@ -32,6 +32,14 @@ import { compactionOverridesFor } from './compaction-overrides';
  * Unlike compaction rollups the summary IS embedded (best-effort) — it
  * REPLACES the originals in the active set, so it must stay reachable
  * on the vector leg, not just BM25.
+ *
+ * Because it replaces active memory, the summary's VALIDITY is the
+ * originals' validity (open-ended if any member is open-ended; else the
+ * latest member close) and the span of the summarised events is kept
+ * separately as `source.eventRange` — see summaryValidityOf. The
+ * replacement and the compaction of the originals are ONE transaction:
+ * at no point are the originals hidden without a summary standing in
+ * for them.
  *
  * Deliberately narrow:
  *   - append_only semantics only (single_active keeps one live value;
@@ -264,16 +272,10 @@ export class PromotionRunnerService {
 
     // Corroboration floor (COMPACTION_PROMOTION_MIN_EPISODES > 0): a
     // summary must consolidate INDEPENDENT evidence, so the floor counts
-    // distinct evidence contexts — the union of the members' grounding
-    // episode ids and conversation ids — not member rows. Five facts
-    // from ONE conversation are one witness, not five.
+    // distinct evidence contexts — not member rows. Five facts from ONE
+    // conversation are one witness, not five (distinctEvidenceContexts).
     if (schedule.minEpisodes > 0) {
-      const distinct = new Set<string>(unionEpisodeIds(members.map((m) => m.eps)));
-      for (const m of members) {
-        if (typeof m.conversationId === 'string' && m.conversationId.length > 0) {
-          distinct.add(m.conversationId);
-        }
-      }
+      const distinct = distinctEvidenceContexts(members);
       if (distinct.size < schedule.minEpisodes) {
         this.logger.debug(
           `promotion skipped (corroboration floor): ${String(group.entityId)}/${group.predicate} ` +
@@ -341,45 +343,66 @@ export class PromotionRunnerService {
     const first = members[0];
     const last = members[members.length - 1];
     if (!first || !last) return 0; // members non-empty (length ≥ minGroup)
-    const earliest = first.validFrom;
     const meanConfidence = members.reduce((acc, m) => acc + m.confidence, 0) / members.length;
+    const validity = summaryValidityOf(members);
 
     // Evidence plane (PROVENANCE_SUMMARY_EPISODE_STAMP): the summary
     // carries the union of its members' grounding stamps (window-deriver
-    // idiom, capped 64). Flag off → empty union → the source object is
-    // byte-identical to today's `{ kind: 'promotion' }`.
+    // idiom, capped 64). Flag off → empty union.
     const episodeIds = summaryEpisodeStampEnabled()
       ? unionEpisodeIds(members.map((m) => m.eps))
       : [];
 
-    const summary = await dbCreate(db, 'knowledge_fact', {
+    const doc: Record<string, unknown> = {
       entityId: first.entityId,
       predicate: `summary_${group.predicate}`,
       object: summaryText,
       confidence: meanConfidence,
-      validFrom: earliest,
-      validUntil: last.validUntil ?? last.validFrom,
-      source: { kind: 'promotion', ...(episodeIds.length ? { episodeIds } : {}) },
+      validFrom: validity.validFrom,
+      // Open-ended stays open-ended: `validUntil` is omitted, not null —
+      // `option<datetime>` reads NONE either way, and the search filter
+      // `validUntil IS NONE OR validUntil > time::now()` admits it.
+      ...(validity.validUntil ? { validUntil: validity.validUntil } : {}),
+      source: {
+        kind: 'promotion',
+        // The interval the summarised EVENTS span — provenance, not
+        // validity. This used to be smuggled into validUntil, which is
+        // what made every summary of open-ended history expire at birth.
+        eventRange: validity.eventRange,
+        ...(episodeIds.length ? { episodeIds } : {}),
+      },
       derivedFrom: members.map((m) => m.id),
       status: 'active',
       ...(group.userId ? { userId: group.userId } : {}),
       ...(embedding ? { embedding } : {}),
+    };
+
+    // One transaction: the replacement lands and the originals close
+    // together, or neither does. Two round-trips used to leave a window
+    // (crash, pool loss) where the originals were compacted — hidden from
+    // every read surface, embeddings dropped — with no summary carrying
+    // their content, or a summary next to five still-active originals.
+    // Record-id params — 3.x does not coerce string↔record (see
+    // compaction-runner).
+    const ids = members.map((m) => new StringRecordId(String(m.id)));
+    const createdRows = await runTransaction<Array<{ id: unknown }> | undefined>(db, (tx) => {
+      tx.add(`LET $created = (CREATE knowledge_fact CONTENT $doc RETURN AFTER)`).bind('doc', doc);
+      tx.add(
+        `UPDATE knowledge_fact
+           SET status = 'compacted', embedding = NONE
+           WHERE id INSIDE $ids`,
+      ).bind('ids', ids);
+      tx.add(`RETURN $created`);
     });
+    const summary = createdRows?.[0];
+    if (!summary?.id) {
+      throw new Error(`promotion transaction returned no summary row for ${group.predicate}`);
+    }
 
     await this.mirrorDerivedFromEdges(db, {
       summaryId: String(summary.id),
       memberIds: members.map((m) => String(m.id)),
     });
-
-    // Record-id params — 3.x does not coerce string↔record (see
-    // compaction-runner).
-    const ids = members.map((m) => new StringRecordId(String(m.id)));
-    await db.query(
-      `UPDATE knowledge_fact
-         SET status = 'compacted', embedding = NONE
-         WHERE id INSIDE $ids`,
-      { ids },
-    );
     return members.length;
   }
 
@@ -410,6 +433,63 @@ function isoOf(v: unknown): string {
   return v instanceof Date ? v.toISOString() : String(v);
 }
 
+/** What the promotion summary is valid for, and what it summarises. */
+export interface SummaryValidity {
+  /** Earliest member validFrom — the summary holds from the first event. */
+  validFrom: string | Date;
+  /**
+   * The validity the originals actually had: open-ended (undefined) if
+   * ANY member is open-ended, else the latest member validUntil. Never
+   * derived from validFrom — a group of open-ended events used to get
+   * `validUntil = last.validFrom`, i.e. a replacement born expired.
+   */
+  validUntil?: string | Date;
+  /** The interval the summarised events span (member validFrom..last
+   *  event boundary) — provenance stored on `source`, not validity. */
+  eventRange: { from: string; to: string };
+}
+
+/**
+ * Validity of a promotion summary, derived from its members (sorted by
+ * validFrom ASC, as the member SELECT orders them).
+ *
+ * A summary REPLACES active memory — the originals are compacted and
+ * hidden from every read surface — so it must be visible for exactly as
+ * long as the originals would have been: open-ended events yield an
+ * open-ended summary; a group whose every member has closed yields a
+ * summary closed at the latest of those closings. The events' own time
+ * span is kept separately as `eventRange` so nothing the old
+ * `validUntil` encoded is lost — it just no longer decides visibility.
+ */
+export function summaryValidityOf(
+  // The SDK hands datetime columns back as Date; a stub may pass ISO text.
+  members: ReadonlyArray<{ validFrom: string | Date; validUntil?: string | Date | null }>,
+): SummaryValidity {
+  const first = members[0];
+  const last = members[members.length - 1];
+  if (!first || !last) throw new Error('summaryValidityOf: no members');
+  const open = members.some((m) => m.validUntil === undefined || m.validUntil === null);
+  let latestClose: string | Date | undefined;
+  if (!open) {
+    for (const m of members) {
+      const until = m.validUntil as string | Date;
+      if (latestClose === undefined || toMs(until) > toMs(latestClose)) latestClose = until;
+    }
+  }
+  return {
+    validFrom: first.validFrom,
+    ...(latestClose !== undefined ? { validUntil: latestClose } : {}),
+    eventRange: {
+      from: isoOf(first.validFrom),
+      to: isoOf(last.validUntil ?? last.validFrom),
+    },
+  };
+}
+
+function toMs(v: string | Date): number {
+  return v instanceof Date ? v.getTime() : new Date(v).getTime();
+}
+
 /** User-scope member filter (0055) — shared by the member SELECT and the
  *  conflict-guard count so the two can never disagree on scope. */
 function scopeFilterFor(group: { userId?: string | null }): {
@@ -420,4 +500,38 @@ function scopeFilterFor(group: { userId?: string | null }): {
     scopeClause: group.userId ? 'AND userId = $scopeUser' : 'AND userId IS NONE',
     scopeParams: group.userId ? { scopeUser: group.userId } : {},
   };
+}
+
+/**
+ * Pure: the distinct evidence CONTEXTS behind a promotable group — the
+ * unit the corroboration floor counts (audit 2026-09-06 F10).
+ *
+ * ONE level of independence: a member's context is its conversation.
+ * Every reply of one conversation is the same witness, however many
+ * scene/episode stamps it carries — the union of episode ids AND
+ * conversation ids that used to be counted here made one reply from one
+ * conversation two witnesses and five replies up to six. Episode ids are
+ * the FALLBACK for a member whose conversation is unknown (legacy rows,
+ * document-derived facts), and even then an episode a conversation-known
+ * member already claims is not a second witness. A member with neither
+ * says nothing about independence and contributes no context.
+ */
+export function distinctEvidenceContexts(
+  members: ReadonlyArray<{ eps?: unknown; conversationId?: unknown }>,
+): Set<string> {
+  const contexts = new Set<string>();
+  const claimedEpisodes = new Set<string>();
+  const orphans: unknown[] = [];
+  for (const m of members) {
+    if (typeof m.conversationId === 'string' && m.conversationId.length > 0) {
+      contexts.add(`conversation:${m.conversationId}`);
+      for (const ep of unionEpisodeIds([m.eps])) claimedEpisodes.add(ep);
+    } else {
+      orphans.push(m.eps);
+    }
+  }
+  for (const ep of unionEpisodeIds(orphans)) {
+    if (!claimedEpisodes.has(ep)) contexts.add(ep);
+  }
+  return contexts;
 }

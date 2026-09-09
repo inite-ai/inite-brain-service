@@ -54,7 +54,7 @@ the operator's reference for running Brain.
 | `DREAMS_CORROBORATE_ENABLED` | `0` | Enable fuzzy cross-source corroboration: same-(entity, predicate) active pairs from different origins, cosine ≥ `DREAMS_CORROBORATE_COSINE_THRESHOLD` (0.9), LLM confirms same assertion → younger row becomes `corroborating`, incumbent's counter bumped with the 0051 origin-dedup shape. Only `bitemporal`-semantics predicates; exact-equal objects skip the LLM. Bounded by `DREAMS_CORROBORATE_MAX_PAIRS` (default 20). |
 | `DREAMS_LLM_SUMMARY_ENABLED` | `0` | Swap the compaction summary generator from concat to LLM-backed. The LlmSummaryGenerator falls back to concat on any LLM error, so flipping the flag is safe. |
 | `COMPACTION_PROMOTION_ENABLED` | `0` | Episodic→semantic promotion, rides the compaction cron: ≥`COMPACTION_PROMOTION_MIN_GROUP` (5) active `append_only` facts per (entity, predicate), all older than `COMPACTION_PROMOTION_AGE_DAYS` (180) → one embedded `summary_<predicate>` fact (`derivedFrom` originals), originals become `compacted`. Fresh group members stay active. ≤`COMPACTION_PROMOTION_MAX_GROUPS` (20) groups/run. |
-| `EMBEDDER_PROVIDER` | `openai` | `openai` (text-embedding-3-small, 1536d) or `bge-m3` (local, 1024d multilingual, ~150MB ONNX). Production ships `bge-m3` via the deploy workflow. Switching providers requires reindex (`POST /v1/admin/maintenance/reindex`) — old vectors don't match new queries. **Warmup window:** with `bge-m3` the ONNX model takes ~10-20s to load. During that window `/ready` is 503 (it tracks the PRIMARY provider only), embedding requests for reads and writes are refused with 503 instead of sending incompatible vectors to the database. Read paths with a lexical fallback may continue without vector retrieval. The read guard is default-on (`EMBEDDING_SPACE_STRICT`; explicit `0`/`false` restores unsafe legacy read fallback); vector writes are always guarded. The write refusal is deliberate and unconditional: vector columns are `option<array<float>>` with no width, so a fallback-width vector persists silently and permanently, after which `vector::similarity::cosine` errors for **every** row of that table and the HNSW index can no longer be built (verified on SurrealDB 3.2.4). Do not start the reindex until `/ready` is 200. |
+| `EMBEDDER_PROVIDER` | `openai` | `openai` (text-embedding-3-small, 1536d) or `bge-m3` (local, 1024d multilingual, ~150MB ONNX). Production ships `bge-m3` via the deploy workflow. Switching providers requires reindex (`POST /v1/admin/maintenance/reindex`) — old vectors don't match new queries. **Warmup window:** with `bge-m3` the ONNX model takes ~10-20s to load. During that window `/ready` is 503 (it tracks the PRIMARY provider only), embedding requests for reads and writes are refused with 503 instead of sending incompatible vectors to the database. Hybrid `/v1/search` keeps answering lexical-only and marks the response `degraded: ["vector_leg"]` (metric `brain_search_vector_leg_degraded_total`); vector-only searches fail. A failed warmup is **retried** (5s, doubling, capped at 5 min) and re-armed by every `/ready` poll and embed attempt, so a transient model-download failure or a dead inference worker heals without a restart; `warmupStatus()` (failures, last error, next retry) is what the health surfaces read. The read guard is default-on (`EMBEDDING_SPACE_STRICT`; explicit `0`/`false` restores unsafe legacy read fallback); vector writes are always guarded. The write refusal is deliberate and unconditional: vector columns are `option<array<float>>` with no width, so a fallback-width vector persists silently and permanently, after which `vector::similarity::cosine` errors for **every** row of that table and the HNSW index can no longer be built (verified on SurrealDB 3.2.4). Do not start the reindex until `/ready` is 200. |
 | `BGE_M3_WORKER` | `1` | When `1` (and provider=bge-m3), runs ONNX inference inside a dedicated `worker_thread` so the main event loop keeps serving HTTP while embeds compute. `0` falls back to in-thread inference (~80-800ms event-loop pauses under concurrent embeds; tests use this). |
 | `CALIBRATION_NIGHTLY_REFIT` | `true` | Master switch for the nightly source-trust refit crons (03:42 enqueue / 03:51 inline). Enabled ONLY on literal `true` — any other value disables. |
 | `SEARCH_TRUST_BETA` | `0` | fact_trust in ranking (source-reputation Phase 5): search scores ×= `1 + β·(sourceReputation − 0.5)` from the write-time trust snapshot. `0` = byte-identical ranking; snapshot-less facts sit on the neutral 0.5 at any β. |
@@ -68,8 +68,9 @@ the operator's reference for running Brain.
 | `SEARCH_HIGHLIGHT_ENABLED` | `0` | BM25 match snippets. The FULLTEXT indexes are defined with `HIGHLIGHTS` but `search::highlight` was never queried; when on, the lexical leg projects `search::highlight('<em>','</em>',1)` and search responses carry a `highlight` field on lexically-matched facts (matched terms wrapped in `<em>…</em>`). `0` = no `highlight` field (byte-identical payload). Read at boot. |
 | `SEARCH_USAGE_RECORDING_ENABLED` | `0` | Stamp the facts each search surfaces into `fact_usage` (readCount + lastReadAt), fire-and-forget after the response. Prerequisite for usage-aware decay — enable this first and let usage accumulate. |
 | `SEARCH_USAGE_DECAY_ENABLED` | `0` | Restart the ranking decay clock at `max(recordedAt, lastReadAt)` — facts that keep getting retrieved stay fresh. Off (or no usage row) = decay from `recordedAt`, byte-identical. |
-| `SEARCH_HNSW_ENABLED` | `0` | Approximate-KNN vector leg over the per-tenant HNSW indexes (create first: `POST /v1/admin/maintenance/hnsw`, per tenant, after any embedder reindex). Tenants without indexes soft-fall back to the exact full scan, so the flag is safe to flip globally mid-rollout. `SEARCH_HNSW_OVERFETCH` (4) × k candidates are pulled before WHERE filters (KNN filters post-hoc); `SEARCH_HNSW_EF` (100) is the search width. Re-run the quality eval after enabling — approximate recall is a trade. Worth it past ~50k active facts per tenant. |
-| `SEARCH_HNSW_CONCURRENT` | `0` | Build the per-tenant HNSW indexes with `DEFINE INDEX … CONCURRENTLY`, one statement per index instead of one four-index super-statement. Off = the historical synchronous DDL, which **fails at real scale**: measured on SurrealDB 3.2.4, a synchronous build over 20 000 × 1024-d aborts after ~133 s with a RocksDB transaction conflict, while `CONCURRENTLY` reaches `ready` in 4.2 s (~4 700 rows/s). Concurrent builds are asynchronous: `POST /v1/admin/maintenance/hnsw {action:'create'}` waits up to `SEARCH_HNSW_BUILD_WAIT_MS` (`60000`) and then answers with the per-index build state it reached — the build continues server-side, and `{action:'status'}` re-reads it. **Check `ready` before flipping `SEARCH_HNSW_ENABLED` for that tenant**: an index that exists but is still `indexing` answers the KNN operator with the same unranked, null-distance rows a missing index does. |
+| `SEARCH_HNSW_ENABLED` | `0` | Approximate-KNN vector leg over the per-tenant HNSW indexes (create first: `POST /v1/admin/maintenance/hnsw`, per tenant, after any embedder reindex). Tenants without indexes soft-fall back to the exact full scan, so the flag is safe to flip globally mid-rollout. `SEARCH_HNSW_OVERFETCH` (4) × k candidates are pulled before WHERE filters (KNN filters post-hoc); `SEARCH_HNSW_EF` (100) is the search width. Re-run the quality eval after enabling — approximate recall is a trade. Worth it past ~50k active facts per tenant. Every build is `CONCURRENTLY` (the synchronous DDL was a measured failure: 20 000 × 1024-d aborts after ~133 s with a RocksDB transaction conflict, while `CONCURRENTLY` reaches `ready` in 4.2 s), so a build is asynchronous: `{action:'create'}` holds the request for `waitMs` (body field, default `60000`, `0` = answer with the first probe, max `600000`) and then answers with the per-index build state it reached; `{action:'status'}` re-reads it. **Check `ready` before flipping this for a tenant**: an index that exists but is still `indexing` answers the KNN operator with the same unranked, null-distance rows a missing index does. |
+| `HNSW_PROVISION_ENABLED` | _follows `SEARCH_HNSW_ENABLED`_ | Unset, provisioning is on exactly when the KNN leg is on; set it explicitly only to build ahead of flipping the search flag (`1`) or to hold provisioning back while the search flag is on (`0`). It closes the process hole behind #506: production sets the KNN leg on globally while index creation was a manual per-tenant admin call with exactly one caller in the codebase and nothing recording which tenants had indexes — so every tenant onboarded since the last manual sweep was served k arbitrary rows with a null distance rather than an error. On, three things exist: (1) a hook on `SurrealService.ensureSchema()` — the one place a tenant database is created, since there is no onboarding route — notes each new tenant and provisions it off the request path; (2) a leader-elected nightly sweep at **05:10 UTC** reconciles the whole roster; (3) every observation is recorded in `tenant_registry` (`indexState` / `indexDetail` / `indexStateAt` / `embeddingSpace`, migrations 0104 + 0133), so `GET /v1/admin/maintenance/hnsw/roster` answers "which tenants have a ready index" with no DDL and no per-tenant round trip. Provisioning uses the idempotent `ensure` action — defines only **absent** indexes, always `CONCURRENTLY`, never `REMOVE`s, never restarts a build in flight, never waits — so it is safe on every pass and cannot drop a working index. Measured on SurrealDB 3.2.4 over 20 000 × 1024-d: a probe-only pass is ~0.2 ms of engine time per index; the `DEFINE … CONCURRENTLY` returns in 2.4 ms and the build reaches `ready` in under 4 s. |
+| `HNSW_PROVISION_MAX_BUILDS_PER_RUN` | `5` | How many tenants may START index builds in one reconciliation run. Bounds the blast radius of the FIRST run after enablement — the only one that finds a backlog. Tenants held back by the cap are still probed and recorded, so the roster tells the truth about them the same night; only the DDL waits. `HNSW_PROVISION_TIME_BUDGET_MS` (`600000`) bounds the walk (keep it under the 20-minute lease TTL); a 250 ms pause after each tenant that actually emitted DDL keeps five builds from landing in the same millisecond. |
 | `INGEST_INLINE_RESOLUTION_HNSW` | `0` | Route the inline entity-resolution name-candidate scan through the same per-tenant HNSW index instead of a full cosine scan of every `name` fact on each inline resolution. Over-fetches `INGEST_INLINE_RESOLUTION_HNSW_OVERFETCH` (8) × k candidates before the name/type WHERE (KNN filters post-hoc); `INGEST_INLINE_RESOLUTION_HNSW_EF` (100) is the search width. Tenants without the index soft-fall back to the full scan. Only active when `INGEST_INLINE_RESOLUTION_ENABLED` is also on. **Correctness gate:** a missed approximate candidate creates a DUPLICATE entity (not just lower recall like search) — before enabling per tenant, run the dedup/quality eval and confirm the HNSW path finds every candidate the full scan does. Higher default over-fetch than search (8 vs 4) because `name` facts are a small fraction of all facts; a name-query embedding is near other name facts, but verify per corpus. |
 | `RETRIEVAL_COVERAGE_SCAN_MODE` | `brute` | Dense-leg mode of the two coverage-first scan lanes — mention-scan over `episode_segment` (`RETRIEVAL_TIMELINE_EVIDENCE=scan`) and query_arc over `knowledge_fact` (`RETRIEVAL_INSIGHT_EVIDENCE=query_arc`). `brute` = exact full-table cosine (correct at eval scale by design). `hnsw` = approximate KNN against the per-tenant indexes (`segment_embedding_hnsw` / `fact_embedding_hnsw`; `create` builds all four indexes) with `RETRIEVAL_SCAN_HNSW_OVERFETCH` (4; query_arc doubles it internally) × k candidates pulled before the WHERE gates and `RETRIEVAL_SCAN_HNSW_EF` clamped up to the overfetched k. Falls back to the brute scan on error OR an empty post-filter pool. **Enable gate per tenant:** build indexes, then `npx tsx scripts/scan-hnsw-parity.ts --tenant <id>` must show recall ≥ 0.98 before flipping the tenant's override. Segment-index embedder-swap caveat: reindex-embeddings does NOT rewrite segments — drop → re-segment → create. |
 | `RETRIEVAL_COVERAGE_LEX_MODE` | `phrase` | Lexical-leg (BM25) query shape of the same two scan lanes. `phrase` = one matcher per indexed field fed the whole extracted topic phrase — the matches operator (`@N@`) is AND-semantics over analyzed tokens on SurrealDB 3.x, so a multi-word topic must appear IN FULL and the lexical leg rarely fires (V11 audit A2). `or_terms` = per-term matchers over the stripped topic terms OR-ed with unique match refs (bounded at 8 terms), scored as the sum over terms of the best per-field BM25 — a row mentioning ANY topic word is a lexical hit, and rows covering more topic words rank higher. Overlayable per tenant (`coverageLexMode`). Measured-behavior change: flip after an eval pair, not by default. |
@@ -635,14 +636,21 @@ Nothing expires server-side; `DURATION FOR SESSION NONE` does **not** help,
 because the driver reads the JWT `exp` and never asks the server.
 
 Every long-lived connection in brain therefore re-signs before that timer
-fires:
+fires. Both pools follow one discipline (`SurrealService.ensureSession`): on
+every acquire, a connection whose socket is up and whose token has more than
+5 minutes of life runs a `RETURN 1` probe (~0.3 ms; fails on a half-open
+socket and on an anonymous session alike); otherwise it re-signs (~16 ms, the
+server-side password KDF). If either fails the pool builds a replacement
+first and closes the old connection only once the replacement signed in. The
+root pool used to re-sign on every acquire instead — correct, but paying the
+KDF on every write and admin query.
 
-| Connection | Renewal |
-|---|---|
-| Root pool (`withCompany`, `withAdminDb`, `dropCompanyDatabase`) | `signin` on every acquire (also its zombie-websocket liveness probe). |
-| Migrator connection | Same, via `ensureRootSession`. |
-| Scoped pool (`withScopedCompany` — every caller-facing read) | Checks the live connection/token and re-signs when authorization is lost or the access token enters a 5-minute margin. A signin runs the server-side password KDF (~16ms vs ~0.3ms for a `SELECT`), so paying it per read is not free; the margin comfortably clears the driver's 60s invalidate lead time. Fails **closed** if it cannot — a request errors rather than being served root-authorized. |
-| LIVE subscription channels | Renewed on the catch-up tick, same margin. |
+| Connection | Identity | On failure |
+|---|---|---|
+| Root pool (`withCompany`, `withAdminDb`, `dropCompanyDatabase`) and the migrator connection | root | Error propagates. |
+| Scoped pool (`withScopedCompany` — every caller-facing read) | `brain_caller` | Fails **closed** with a 503 — never served root-authorized; the connection stays in the pool for the next acquire's retry. |
+| LIVE subscription channels (`LIVE_SUBSCRIPTIONS_ENABLED`) | `brain_caller` when `SURREALDB_SCOPED_USER`/`_PASS` are set, **root otherwise** — a caller-facing read path, so configure the scoped user wherever LIVE is on; every pushed row still passes the app-layer policy filter (docs/abac.md § Which connection carries which identity) | Renewed on the catch-up tick (bounded by a timeout, ticks never stack); whatever the driver-side invalidate does to the standing `LIVE` query, the changefeed replay on the next tick delivers what it missed. |
+| `scripts/backfill-lang-attribution.ts` | root | Re-signs per batch. |
 
 Symptoms to recognise if this ever regresses: reads answer
 `Anonymous access not allowed: Not enough permissions to perform this action`
@@ -658,7 +666,9 @@ read path on a timer and alerts when it stops authorizing.
 (a SurrealDB duration literal; unset = the server's 1h default). It is a
 tuning knob, not the fix — brain OVERWRITEs the user definition on every
 boot, so it exists mainly so a duration set by hand on the server is not
-silently discarded on the next deploy.
+silently discarded on the next deploy. A value at or below the 5-minute
+re-auth margin is honoured but logged at error level: every scoped acquire
+then re-signs, which only the expiry e2e wants.
 
 ## Capability probes
 
@@ -672,9 +682,23 @@ thing it claims to cover.
 
 `/ready` gained real checks in the first two fixes, but **readiness is polled
 at deploy time**: a pool that lapses an hour after a successful deploy is
-invisible to it by construction. `CAPABILITY_PROBE_ENABLED=1` arms a timer
-(default 60s, every pod, no leader lease — the failure is per-process) that
-RUNS each capability and publishes what happened.
+invisible to it by construction. The capability probe — on by default,
+`CAPABILITY_PROBE_ENABLED=0` disables it — arms a timer (default 60s, every
+pod, no leader lease — the failure is per-process) that RUNS each capability
+and publishes what happened.
+
+**Readiness vs traffic.** This is a single-replica deployment, and the
+process degrades on its own: hybrid search answers lexical-only (marked
+`degraded`) while the embedder warms or is down, scoped reads answer 503
+while writes keep working. Traefik therefore health-checks `/health`
+(liveness — a wedged process answers 503 at the edge instead of hanging
+clients) and deliberately **not** `/ready`: pulling the only replica out of
+rotation on a partial failure would turn it into a total one. `/ready` is the
+deploy-time check (the workflow waits up to five minutes for it and fails
+the job — not the rollout — if it never goes green) and the readinessProbe
+for a multi-replica layout. The continuous signal between deploys is the
+probe below; the actuator for what it finds is the runbook, because after
+#502 every self-healable failure already heals itself.
 
 | Capability | What the probe actually does | Covers `/ready` check |
 |---|---|---|
@@ -704,15 +728,39 @@ conclusive outcome.
 | `brain_capability_probe_ok{capability}` | 1/0 up-signal. Absent until the first conclusive probe, so a booting pod is *absent*, not *down*. |
 | `brain_capability_probe_total{capability,outcome}` | Rates per outcome. A steady `busy` rate is a capacity signal, not a health one. |
 | `brain_capability_probe_last_success_timestamp_seconds{capability}` | Catches what the up-gauge cannot: a wedged prober, or a pool that has been nothing but busy. |
+| `brain_capability_probe_armed_timestamp_seconds{capability}` | Written at bootstrap, before the first tick, so a capability that has **never** succeeded reads as a large age in `CapabilityProbeStale` (`last_success or armed`) instead of as absence. Withdrawn for a capability whose probe reports `skipped` (no embedder wired, no tenant yet), so a legitimately idle capability does not page. |
 
 No `companyId` label anywhere (the standing cardinality rule): one scoped
 session serves every tenant on the pod, so the canary tenant proves the
 property for all of them and the scraper's `instance` label already pins
 *which pod*. The tenant is named in the log line.
 
+**The canary tenant** is the first (sorted) id of the tenant registry's
+*active* roster — the same roster provisioning and every sweep should use;
+the static `BRAIN_API_KEYS` set stands in only where the registry knows
+nothing (dev, a fresh install). `CAPABILITY_PROBE_TENANT` pins one, and it
+**must name a tenant the process already knows**: the scoped path provisions
+the database it is handed, so a typo used to create `co_<typo>` with the full
+migration set on every boot. An unknown or suspended override is refused
+before any connection is taken and reported as a conclusive `error` — it
+pages, on purpose, as a configuration error.
+
+**`degraded` is reachable both ways.** With the strict space guard on (the
+default) a not-warm primary never returns a wrong-width vector — the
+embedder refuses the call with its "embedding space strict-guard" 503, and
+the probe reads that refusal as `degraded`. With the guard off the fallback
+answers in its own space and the width measurement catches it.
+
+**The admin cockpit shows the same thing.** `/v1/admin/health/components`
+reads the readiness report `/ready` answers from (database, scoped pool with
+its own row, embedder with the warmup bookkeeping — attempts, last error,
+next retry) and annotates each row with the probe's last outcome (`probe
+serving 12s ago`). It does not probe on its own, so the grid, `/ready` and
+the alert cannot disagree.
+
 Rules in `monitoring/grafana/provisioning/alerting/rules.yaml`:
 
-- **ScopedReadCapabilityDead** (critical, `for: 5m`) — `min(brain_capability_probe_ok{capability="scoped_read"}) < 1`. Five consecutive conclusive failures at the default cadence. The failure is sticky (a lapsed session stays lapsed until restart), so the wait costs almost nothing and buys immunity from a single-tick blip.
+- **ScopedReadCapabilityDead** (critical, `for: 5m`) — `min(brain_capability_probe_ok{capability="scoped_read"}) < 1`. Five consecutive conclusive failures at the default cadence. A lapsed session is no longer sticky (the pool re-signs on the next acquire), so five failures in a row mean the pool cannot sign in at all; the wait buys immunity from a single-tick blip.
 - **CapabilityProbeFailing** (warning, `for: 20m`) — the same check for every *other* capability, so a newly added one is alerted on without anyone remembering to write a rule. Long window because `embed` is legitimately 0 during a cold bge-m3 warmup.
 - **CapabilityProbeStale** (warning) — no confirmed serve for 30m.
 
@@ -721,12 +769,19 @@ Rules in `monitoring/grafana/provisioning/alerting/rules.yaml`:
 1. The `instance` label names the pod. Reads are failing **there** while
    writes, `/health` and MCP may still answer — see § Long-lived DB sessions
    for why.
-2. Restart that pod: a fresh process re-establishes the scoped session.
-3. If it recurs across restarts, the pool cannot authenticate at all —
-   check `SURREALDB_SCOPED_USER` / `SURREALDB_SCOPED_PASS` against the server
-   and that migration 0005's `brain_caller` still exists. The probe's error
-   log carries the DB's own message.
-4. `brain_capability_probe_total{outcome="busy"}` climbing instead means
+2. **Do not start with a restart.** The pool re-signs a lapsed session on
+   the next acquire and rebuilds a dead socket, so a probe that stays
+   `unauthorized` means the pool cannot *sign in* — a restart reproduces the
+   same failure. Read the probe's error log: it carries the DB's own message.
+3. `There was a problem with authentication` / `not found` → check
+   `SURREALDB_SCOPED_USER` / `SURREALDB_SCOPED_PASS` against the server and
+   that migration 0005's `brain_caller` still exists (`INFO FOR NS` on the
+   brain namespace). Brain OVERWRITEs the user on boot from those two
+   variables, so a rotated secret takes effect on the next deploy.
+4. `timed out` → the rebuild could not replace a wedged socket (half-open
+   TCP to the DB). Check the DB container and the network first; restart
+   the pod only if the DB is healthy and the timeouts persist.
+5. `brain_capability_probe_total{outcome="busy"}` climbing instead means
    saturation, not authorization — that is a pool-size / slow-query problem
    and never fires this alert.
 
@@ -742,6 +797,83 @@ This is intentional — better to refuse to start than to dribble out
 `SIGTERM` and `SIGINT` close the SurrealDB connection and drain in-
 flight requests. A 15s deadline guards against a hung shutdown so
 docker / fly / k8s don't `SIGKILL` you with no log line.
+
+## Deploys, and how to undo one
+
+The engine deploy does not build. CI builds the image once, pushes it,
+pulls the published **digest** back, smoke-tests that, and records it in a
+`deploy-manifest` artifact. `deploy-brain.yml` waits for CI's verdict on
+its own commit, reads that manifest, and pins
+`inite-brain-service@sha256:…` in the compose file. A tag is never
+deployed: `:latest` resolves to whatever the registry holds at pull time
+and cannot carry the claim "this is what CI tested".
+
+Consequences worth knowing:
+
+- **A red `main` does not deploy.** The `verify` job fails and nothing
+  downstream runs. So does "CI never ran for this commit" and "CI is still
+  running 45 minutes later" — not being able to confirm green is not
+  permission to ship.
+- **The commit and the running image are the same thing.**
+  `docker inspect inite-brain-service --format '{{index .RepoDigests 0}}'`
+  on the box gives you a digest you can match against the CI run that
+  produced it.
+
+### Verification after a deploy
+
+Two internal gates on the box (`/health` for liveness, `/ready` for the
+database, scoped authorization and the primary embedder), then an external
+`smoke` job that goes through DNS, the certificate and Traefik —
+`scripts/ci/smoke.mjs`, surface `brain`. It asserts more than liveness: an
+unauthenticated `POST /v1/search` must return **401**. A 404 means the API
+is not mounted; a 200 means auth is not enforced. Only 401 says the
+surface is there and fail-closed.
+
+The landing has its own surface (`/en`, `/skills.tar.gz`, `/install.sh`,
+`/openapi.json`) and deliberately does **not** assert `/health` — Traefik
+routes that path to the engine, so asserting it made the landing's release
+gate on a different service's health.
+
+### Rollback
+
+Three files live in `/opt/projects/inite-brain-service/`:
+
+| File | Meaning |
+|---|---|
+| `.pending-image` | the digest this run is deploying |
+| `.previous-image` | whatever was pinned before this run started |
+| `.last-good-image` | the last digest that passed **both** the readiness gate and the external smoke test |
+
+`.last-good-image` is written only by the `finalize` job, only when the
+smoke test passed. It is a known-good target rather than merely a previous
+one — which matters, because rolling back to a previous deploy that was
+itself broken achieves nothing.
+
+**Automatic.** If the deploy job or the smoke job fails, `finalize`
+rewrites the compose image to `.last-good-image` (falling back to
+`.previous-image`), pulls, restarts, and then waits for `/ready` on the
+rolled-back container. It reports the run as **failed** even when the
+rollback succeeds — production is safe, but the commit on `main` is still
+broken and needs a fix-forward or a revert.
+
+**By hand.** Actions → *Deploy brain.inite.ai* → Run workflow →
+`action: rollback`. This skips verification entirely (it must work while
+CI is red — that is what it is for) and redeploys `.last-good-image`.
+
+**When there is nothing to roll back to** — a first deploy, or a host
+whose state files were wiped — the rollback step says so and exits 1
+rather than pretending. Recover by pinning a digest by hand:
+
+```bash
+cd /opt/projects/inite-brain-service
+sed -i 's|^\( *image:\).*|\1 <user>/inite-brain-service@sha256:…|' docker-compose.yml
+docker-compose pull inite-brain-service && docker-compose up -d
+```
+
+A `rollback` cannot cross a database migration. Migrations run forward on
+boot and are not reversed by pinning an older image; if the bad deploy
+introduced a schema change, roll back the image to stop the bleeding and
+then handle the schema deliberately.
 
 ## Tests
 

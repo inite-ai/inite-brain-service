@@ -1,4 +1,4 @@
-import { runDenseScanLeg, BRUTE_ONLY } from '../src/synthesize/scan-leg';
+import { runDenseScanLeg, BRUTE_ONLY } from '../src/search/internals/scan-leg';
 import {
   resolveRetrievalProfile,
   resolveRetrievalProfileFor,

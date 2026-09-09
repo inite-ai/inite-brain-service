@@ -1,0 +1,64 @@
+
+> inite-brain-landing@0.1.0 build /private/tmp/brain-audit-current/brain-landing
+> next build --webpack
+
+▲ Next.js 16.3.4 (webpack)
+✓ Running next.config.js took 12ms
+
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead.
+
+  To migrate automatically, run:
+  npx @next/codemod@canary middleware-to-proxy .
+
+  Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+  Creating an optimized production build ...
+⚠ The Edge Runtime is deprecated. You can use the "nodejs" runtime instead. Learn more: https://nextjs.org/docs/messages/edge-runtime-deprecated
+⚠ Compiled with warnings in 7.7s
+
+./node_modules/.pnpm/next@16.3.4_@babel+core@7.29.7_@types+node@26.4.1_react-dom@19.2.8_react@19.2.8__react@19.2.8/node_modules/next/dist/esm/server/app-render/dynamic-rendering.js
+A Node.js API is used (process.cwd at line: 1044) which is not supported in the Edge Runtime.
+Learn more: https://nextjs.org/docs/api-reference/edge-runtime
+
+Import trace for requested module:
+./node_modules/.pnpm/next@16.3.4_@babel+core@7.29.7_@types+node@26.4.1_react-dom@19.2.8_react@19.2.8__react@19.2.8/node_modules/next/dist/esm/server/app-render/dynamic-rendering.js
+./node_modules/.pnpm/next@16.3.4_@babel+core@7.29.7_@types+node@26.4.1_react-dom@19.2.8_react@19.2.8__react@19.2.8/node_modules/next/dist/esm/server/request/connection.js
+./node_modules/.pnpm/next@16.3.4_@babel+core@7.29.7_@types+node@26.4.1_react-dom@19.2.8_react@19.2.8__react@19.2.8/node_modules/next/dist/esm/server/web/exports/index.js
+./node_modules/.pnpm/next@16.3.4_@babel+core@7.29.7_@types+node@26.4.1_react-dom@19.2.8_react@19.2.8__react@19.2.8/node_modules/next/dist/esm/api/server.js
+
+./node_modules/.pnpm/next@16.3.4_@babel+core@7.29.7_@types+node@26.4.1_react-dom@19.2.8_react@19.2.8__react@19.2.8/node_modules/next/dist/esm/server/app-render/dynamic-rendering.js
+A Node.js API is used (process.cwd at line: 1044) which is not supported in the Edge Runtime.
+Learn more: https://nextjs.org/docs/api-reference/edge-runtime
+
+Import trace for requested module:
+./node_modules/.pnpm/next@16.3.4_@babel+core@7.29.7_@types+node@26.4.1_react-dom@19.2.8_react@19.2.8__react@19.2.8/node_modules/next/dist/esm/server/app-render/dynamic-rendering.js
+./node_modules/.pnpm/next@16.3.4_@babel+core@7.29.7_@types+node@26.4.1_react-dom@19.2.8_react@19.2.8__react@19.2.8/node_modules/next/dist/esm/server/request/connection.js
+./node_modules/.pnpm/next@16.3.4_@babel+core@7.29.7_@types+node@26.4.1_react-dom@19.2.8_react@19.2.8__react@19.2.8/node_modules/next/dist/esm/server/web/exports/index.js
+./node_modules/.pnpm/next@16.3.4_@babel+core@7.29.7_@types+node@26.4.1_react-dom@19.2.8_react@19.2.8__react@19.2.8/node_modules/next/dist/esm/api/server.js
+
+./node_modules/.pnpm/jose@6.2.10/node_modules/jose/dist/webapi/lib/deflate.js
+A Node.js API is used (CompressionStream at line: 18) which is not supported in the Edge Runtime.
+Learn more: https://nextjs.org/docs/api-reference/edge-runtime
+
+Import trace for requested module:
+./node_modules/.pnpm/jose@6.2.10/node_modules/jose/dist/webapi/lib/deflate.js
+./node_modules/.pnpm/jose@6.2.10/node_modules/jose/dist/webapi/lib/jwe_decrypt.js
+./node_modules/.pnpm/jose@6.2.10/node_modules/jose/dist/webapi/jwt/decrypt.js
+./node_modules/.pnpm/jose@6.2.10/node_modules/jose/dist/webapi/index.js
+
+./node_modules/.pnpm/jose@6.2.10/node_modules/jose/dist/webapi/lib/deflate.js
+A Node.js API is used (DecompressionStream at line: 34) which is not supported in the Edge Runtime.
+Learn more: https://nextjs.org/docs/api-reference/edge-runtime
+
+Import trace for requested module:
+./node_modules/.pnpm/jose@6.2.10/node_modules/jose/dist/webapi/lib/deflate.js
+./node_modules/.pnpm/jose@6.2.10/node_modules/jose/dist/webapi/lib/jwe_decrypt.js
+./node_modules/.pnpm/jose@6.2.10/node_modules/jose/dist/webapi/jwt/decrypt.js
+./node_modules/.pnpm/jose@6.2.10/node_modules/jose/dist/webapi/index.js
+
+  Running TypeScript ...
+.next/types/app/[lang]/admin/scenarios/page.ts(14,13): error TS2344: Type 'OmitWithTag<typeof import("/private/tmp/brain-audit-current/brain-landing/app/[lang]/admin/scenarios/page"), "metadata" | "default" | "prefetch" | "viewport" | "config" | "generateStaticParams" | ... 10 more ... | "generateViewport", "">' does not satisfy the constraint '{ [x: string]: never; }'.
+  Property 'SliceTable' is incompatible with index signature.
+    Type '({ results }: { results: ScenarioRunOutcome[]; }) => Element | null' is not assignable to type 'never'.
+Failed to type check.
+
+ ELIFECYCLE  Command failed with exit code 1.

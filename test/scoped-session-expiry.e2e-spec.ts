@@ -22,6 +22,7 @@
 import { ConfigService } from '@nestjs/config';
 import { Surreal } from 'surrealdb';
 import { SurrealService } from '../src/db/surreal.service';
+import { LiveSubscriptionManager } from '../src/live/live-subscription.manager';
 
 const SCOPED_USER = 'brain_caller';
 const SCOPED_PASS = 'scoped-session-expiry-spec';
@@ -202,4 +203,82 @@ describe('Scoped pool — session expiry', () => {
     expect(svc.poolStats().scopedIdle).toBe(2);
     expect(svc.poolStats().scopedWaiters).toBe(0);
   });
+
+  it('FIX: a LIVE subscription channel keeps delivering across the lapse', async () => {
+    // Back on 5-second tokens: the channel opens its own connection, as
+    // brain_caller (the same identity as the read pool).
+    await root.query(
+      `DEFINE USER OVERWRITE ${SCOPED_USER} ON NAMESPACE PASSWORD '${SCOPED_PASS}' ROLES EDITOR DURATION FOR TOKEN ${TOKEN_DURATION}`,
+    );
+    setEnv('LIVE_SUBSCRIPTIONS_ENABLED', '1');
+    const mgr = new LiveSubscriptionManager(new ConfigService());
+    const received: string[] = [];
+    const handle = await mgr.subscribe(tenant, {
+      callerScopes: ['brain:read'],
+      sink: (e) => {
+        if (e.kind === 'fact') received.push(e.object);
+      },
+    });
+    const entityId = await svc.withCompany(tenant, async (db) => {
+      const [ents] = await db.query<[Array<{ id: unknown }>]>(
+        `CREATE knowledge_entity SET type = 'other', canonicalName = 'lapse probe'`,
+      );
+      return (ents as Array<{ id: unknown }>)[0]!.id;
+    });
+    const createFact = (object: string) =>
+      svc.withCompany(tenant, (db) =>
+        db.query(
+          `CREATE knowledge_fact SET entityId = $e, predicate = 'lapse_probe', object = $o,
+             confidence = 0.9, validFrom = time::now(),
+             source = { vertical: 'rent', eventId: 'lapse.probe' }`,
+          { e: entityId, o: object },
+        ),
+      );
+    await createFact('before-lapse');
+    await sleep(PAST_EXPIRY_MS);
+    // The driver has invalidated the channel's session by now. Whatever that
+    // did to the standing LIVE query, the catch-up tick re-signs and replays
+    // from the changefeed — the subscriber sees every fact either way.
+    await createFact('after-lapse');
+    await mgr.catchUp(tenant);
+    expect(received).toEqual(expect.arrayContaining(['before-lapse', 'after-lapse']));
+    await handle.close();
+    await mgr.onApplicationShutdown();
+  }, 60_000);
+
+  it('FIX: renewal is expiry-driven — no re-signin while the token has life, one before the driver acts', async () => {
+    // 80-second tokens against a 65-second re-auth margin. A 5-second token
+    // cannot tell the keeper apart from "re-sign on every acquire" (it is
+    // always inside the margin), so this leg gets its own service and its
+    // own token lifetime: the keeper must hold off while >65s remain and
+    // act once ≤65s remain — before the driver's own timer at exp−60s.
+    process.env.SURREALDB_SCOPED_TOKEN_DURATION = '80s';
+    const timed = new SurrealService(new ConfigService(), { sessionReauthMarginMs: 65_000 });
+    await timed.onModuleInit();
+    // The first root touch re-provisions the user with the 80s lifetime and
+    // re-signs the idle scoped connections: t0 for their tokens.
+    await timed.withCompany(tenant, readOne);
+    const t0 = Date.now();
+    let signins = 0;
+    for (const c of (timed as unknown as { all: Surreal[] }).all) {
+      const original = c.signin.bind(c) as (...args: unknown[]) => Promise<unknown>;
+      (c as unknown as { signin: unknown }).signin = (...args: unknown[]) => {
+        signins += 1;
+        return original(...args);
+      };
+    }
+    // Four acquires over two slots with ~80s of token life: probe only.
+    for (let i = 0; i < 4; i++) {
+      await expect(timed.withScopedCompany(tenant, ['brain:read'], readOne)).resolves.toEqual([1]);
+    }
+    expect(signins).toBe(0);
+    await sleep(Math.max(0, 16_000 - (Date.now() - t0)));
+    // ≤65s remain on both slots: the next two acquires re-sign, and do so
+    // before the driver's exp−60s timer (t0+20s) can invalidate anything.
+    await expect(timed.withScopedCompany(tenant, ['brain:read'], readOne)).resolves.toEqual([1]);
+    await expect(timed.withScopedCompany(tenant, ['brain:read'], readOne)).resolves.toEqual([1]);
+    expect(signins).toBe(2);
+    expect(Date.now() - t0).toBeLessThan(20_000);
+    await timed.onApplicationShutdown();
+  }, 90_000);
 });

@@ -4,7 +4,7 @@ import { EmbedderService } from '../ai/embedder.service';
 import { ReadPinService, derivedVersionFence } from '../episodes/read-pin.service';
 import { filterMentions, LEX_MATCH_FLOOR, type ScanRow } from './mention-scan';
 import { extractArcTopic, pickArcBeats, renderArcLines, type ArcBeat } from './query-arc';
-import { BRUTE_ONLY, runDenseScanLeg, type CoverageScanTuning } from './scan-leg';
+import { BRUTE_ONLY, runDenseScanLeg, type CoverageScanTuning } from '../search/internals/scan-leg';
 import { buildLexMatchLeg } from './lex-leg';
 import type { CoverageLexMode } from '../search/retrieval-profile';
 import { makeRowPolicyFilter } from '../policy/row-filter';

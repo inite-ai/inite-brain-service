@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
 import { EmbedderService } from '../ai/embedder.service';
 import { CalibrationService } from '../ai/calibration/calibration.service';
+import { MetricsService } from '../metrics/metrics.service';
 import { withSpan } from '../common/tracing';
 import { traceArtifact } from '../common/debug-trace';
 import type { EntityBucket, FactRow } from './internals/types';
@@ -13,6 +14,9 @@ import type { QueryTimeRange } from './internals/scoring';
 import { runSegmentLegs } from './internals/segment-leg';
 import { PipelineContext } from './pipeline-context';
 import { resolveSearchTuning, type SearchTuning } from './retrieval-profile';
+
+/** Minimum gap between two "vector leg degraded" warnings. */
+const DEGRADE_WARN_THROTTLE_MS = 10_000;
 
 /**
  * SearchRetrievalService — the retrieval-side stages of the search
@@ -26,10 +30,12 @@ import { resolveSearchTuning, type SearchTuning } from './retrieval-profile';
 @Injectable()
 export class SearchRetrievalService {
   private readonly logger = new Logger(SearchRetrievalService.name);
+  private lastDegradeWarnAt = 0;
 
   constructor(
     private readonly embedder: EmbedderService,
     private readonly calibration: CalibrationService,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   /**
@@ -48,7 +54,18 @@ export class SearchRetrievalService {
     }
   }
 
-  /** Retrieval legs (parallel) + fusion. */
+  /**
+   * Retrieval legs (parallel) + fusion.
+   *
+   * The vector leg DEGRADES rather than fails in hybrid mode: when the
+   * query cannot be embedded (primary embedder not warm under the
+   * strict-space guard, a dead worker) or the similarity query itself
+   * errors (a corpus whose rows are not in the query's space), the lexical
+   * leg still answers and the request is marked `degraded: ['vector_leg']`.
+   * Before this, one embedder hiccup 503'd every hybrid search for as long
+   * as it lasted. A `vector`-only request has nothing to degrade to and
+   * still fails.
+   */
   async runRetrievalStage(
     db: Surreal,
     ctx: PipelineContext,
@@ -60,16 +77,24 @@ export class SearchRetrievalService {
         : withSpan(
             'search.vector_leg',
             async (span) => {
-              const rows = await runVectorLeg({
-                db,
-                embedder: this.embedder,
-                query: ctx.dto.query,
-                k: ctx.candidateK,
-                baseWhere,
-                logger: this.logger,
-                tuning: ctx.tuning,
-                edgeFence: buildEdgeFence(ctx.dto.userId),
-              });
+              let rows: FactRow[];
+              try {
+                rows = await runVectorLeg({
+                  db,
+                  embedder: this.embedder,
+                  query: ctx.dto.query,
+                  k: ctx.candidateK,
+                  baseWhere,
+                  logger: this.logger,
+                  tuning: ctx.tuning,
+                  edgeFence: buildEdgeFence(ctx.dto.userId),
+                });
+              } catch (e) {
+                if (ctx.mode === 'vector') throw e;
+                this.noteVectorLegDegraded(ctx, e as Error);
+                span.setAttribute('degraded', true);
+                return [];
+              }
               span.setAttribute('candidates', rows.length);
               traceArtifact(
                 'search.vector_hits',
@@ -117,6 +142,21 @@ export class SearchRetrievalService {
     return fuse(vectorRows, lexicalRows, ctx.mode);
   }
 
+  private noteVectorLegDegraded(ctx: PipelineContext, err: Error): void {
+    ctx.degraded?.add('vector_leg');
+    const reason =
+      err instanceof ServiceUnavailableException || /not ready|worker/i.test(err.message)
+        ? 'embedder_unavailable'
+        : 'vector_query_failed';
+    this.metrics?.searchVectorLegDegraded.inc({ reason });
+    const now = Date.now();
+    if (now - this.lastDegradeWarnAt < DEGRADE_WARN_THROTTLE_MS) return;
+    this.lastDegradeWarnAt = now;
+    this.logger.warn(
+      `vector leg degraded to lexical-only (${reason}, companyId=${ctx.companyId}): ${err.message}`,
+    );
+  }
+
   /**
    * Verbatim fusion leg (audit W4 #18, profile verbatimEvidence =
    * 'fused'): episode segments retrieved as first-class candidates —
@@ -139,6 +179,7 @@ export class SearchRetrievalService {
           callerScopes: ctx.callerScopes,
           userId: ctx.dto.userId,
           mode: ctx.mode,
+          tuning: ctx.tuning,
         });
         const fused = fuse(vectorRows, lexicalRows, ctx.mode);
         for (const r of fused) {

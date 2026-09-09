@@ -126,11 +126,50 @@ describe('foldBeliefGroups', () => {
     expect(folded).toHaveLength(1);
     expect(folded[0]).toMatchObject({
       value: 'lisbon',
-      priorValue: '',
+      // The chain's previous distinct value — what the current state
+      // displaced — not the winner delta's own (empty) `from`.
+      priorValue: 'porto',
       sceneIds: ['memory_episode:s2', 'memory_episode:s3'],
+      allSceneIds: ['memory_episode:s1', 'memory_episode:s2', 'memory_episode:s3'],
       conversationIds: ['conv:b', 'conv:c'],
     });
-    expect(folded[0]!.validFrom.toISOString()).toBe('2026-03-03T10:00:00.000Z');
+    // TWO CLOCKS (F6): the state BEGAN with the run's opener (s2) — a
+    // later confirmation (s3) is the evidence watermark, not the start.
+    expect(folded[0]!.validFrom.toISOString()).toBe('2026-03-02T10:00:00.000Z');
+    expect(folded[0]!.evidenceAt.toISOString()).toBe('2026-03-03T10:00:00.000Z');
+    expect(folded[0]!.runEvidenceAt.map((d) => d.toISOString())).toEqual([
+      '2026-03-02T10:00:00.000Z',
+      '2026-03-03T10:00:00.000Z',
+    ]);
+  });
+
+  it('an interlude of another value restarts the state: validFrom is the run AFTER it', () => {
+    // A on Jan 1, B on Feb 1, A on Mar 1: the current state is A since
+    // MARCH — the January A corroborates the value but the beginning
+    // does not reach back past the February interlude.
+    const at = (id: string, day: string, value: string, from = '') => ({
+      userId: 'u1',
+      scene: scene({
+        id: `memory_episode:${id}`,
+        conversationIds: [`conv:${id}`],
+        occurredTo: `2026-${day}T00:00:00.000Z`,
+        stateDeltas: [delta('alice', 'city', value, from)],
+      }),
+    });
+    const { folded } = foldBeliefGroups([
+      at('t3', '03-01', 'A'),
+      at('t1', '01-01', 'A'),
+      at('t2', '02-01', 'B'),
+    ]);
+    expect(folded).toHaveLength(1);
+    expect(folded[0]).toMatchObject({
+      value: 'A',
+      priorValue: 'B',
+      sceneIds: ['memory_episode:t1', 'memory_episode:t3'],
+    });
+    expect(folded[0]!.validFrom.toISOString()).toBe('2026-03-01T00:00:00.000Z');
+    expect(folded[0]!.evidenceAt.toISOString()).toBe('2026-03-01T00:00:00.000Z');
+    expect(folded[0]!.runEvidenceAt).toHaveLength(1);
   });
 
   it('conflict guard: two different values at the winning timestamp skip the whole group', () => {
@@ -152,7 +191,13 @@ describe('foldBeliefGroups', () => {
     ]);
     expect(folded).toEqual([]);
     expect(conflicts).toEqual([
-      { userId: 'u1', subject: 'mika', field: 'job.title', values: ['designer', 'engineer'] },
+      {
+        userId: 'u1',
+        subject: 'mika',
+        field: 'job.title',
+        values: ['designer', 'engineer'],
+        allSceneIds: ['memory_episode:s1', 'memory_episode:s2'],
+      },
     ]);
   });
 
@@ -391,7 +436,10 @@ describe('foldBeliefGroups: field fold (#135 seam 2)', () => {
       subject: 'Mikhail',
       field: 'car',
       value: BELIEF_NEGATION_VALUE,
-      priorValue: 'Compass',
+      // The chain's ACTUAL displaced value ('Jeep Compass', from s1) beats
+      // the negation delta's own claimed `from` ('Compass') — the same
+      // rule the revise path applies against a stored head.
+      priorValue: 'Jeep Compass',
       sceneIds: ['memory_episode:s2'],
     });
     expect(fieldFolds).toEqual([
@@ -455,6 +503,8 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
     supersededBy?: string;
     validFrom: unknown;
     validUntil?: unknown;
+    /** 0137 evidence watermark. */
+    latestEvidenceAt?: unknown;
     sourceSceneIds: string[];
     conversationIds: string[];
   }
@@ -469,6 +519,8 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
     rows: FakeBeliefRow[] = [];
     sceneHeads: PromotableSceneHead[] = [];
     sql: string[] = [];
+    /** Runs right before a commitRevision transaction — a concurrent writer's move. */
+    beforeTransaction?: () => void;
 
     async query(sqlText: string, params: Record<string, unknown> = {}): Promise<unknown> {
       this.sql.push(sqlText);
@@ -501,24 +553,35 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
             .map((r) => ({ ...r })),
         ];
       }
-      if (sqlText.startsWith('INSERT IGNORE INTO semantic_belief')) {
-        for (const raw of p.rows as Array<Record<string, unknown>>) {
-          const id = String(raw.id);
-          if (this.rows.some((r) => r.id === id)) continue;
-          this.rows.push({
-            id,
-            userId: String(raw.userId),
-            subject: String(raw.subject),
-            field: String(raw.field),
-            value: String(raw.value),
-            ...(raw.priorValue !== undefined ? { priorValue: String(raw.priorValue) } : {}),
-            revision: raw.revision as number,
-            status: String(raw.status),
-            validFrom: raw.validFrom,
-            sourceSceneIds: (raw.sourceSceneIds as unknown[]).map(String),
-            conversationIds: [...(raw.conversationIds as string[])],
-          });
+      // commitRevision: the compare-and-set transaction (BEGIN … COMMIT).
+      // Modelled statement by statement: the revision-slot check, the
+      // INSERT IGNORE, and — on a revise — the guarded supersede stamp
+      // whose miss aborts the whole transaction (the real server rolls
+      // the INSERT back on THROW; here nothing was inserted yet when the
+      // stamp is checked first, which is observably the same).
+      if (sqlText.startsWith('BEGIN TRANSACTION')) {
+        // A concurrent writer's move, injected between the run's head read
+        // and its transaction — the contention seam the CAS exists for.
+        this.beforeTransaction?.();
+        const newId = String(p.newId);
+        const held = this.rows.find((r) => r.id === newId);
+        if (held !== undefined && held.value !== String(p.value)) {
+          throw new Error('The query was not executed due to a failed transaction');
         }
+        if (p.headId !== undefined) {
+          const head = this.rows.find((r) => r.id === String(p.headId));
+          if (head === undefined || head.status !== 'active' || head.revision !== p.headRevision) {
+            throw new Error('The query was not executed due to a failed transaction');
+          }
+          head.status = 'superseded';
+          head.supersededBy = newId;
+          head.validUntil = p.until;
+        }
+        this.insertIgnore(p.rows as Array<Record<string, unknown>>);
+        return [true];
+      }
+      if (sqlText.startsWith('INSERT IGNORE INTO semantic_belief')) {
+        this.insertIgnore(p.rows as Array<Record<string, unknown>>);
         return [];
       }
       if (sqlText.includes(`SET status = 'superseded'`)) {
@@ -528,14 +591,15 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
         row.validUntil = p.until;
         return [];
       }
-      if (sqlText.includes('SET priorValue = $prior')) {
-        this.byId(String(p.id)).priorValue = String(p.prior);
-        return [];
-      }
-      if (sqlText.includes('SET sourceSceneIds')) {
+      // The in-place corroboration UPDATE: whichever of the counters /
+      // watermark / realignment assignments the service composed.
+      if (sqlText.startsWith('UPDATE $id SET')) {
         const row = this.byId(String(p.id));
-        row.sourceSceneIds = (p.scenes as unknown[]).map(String);
-        row.conversationIds = [...(p.convs as string[])];
+        if (p.scenes !== undefined) row.sourceSceneIds = (p.scenes as unknown[]).map(String);
+        if (p.convs !== undefined) row.conversationIds = [...(p.convs as string[])];
+        if (p.evidenceAt !== undefined) row.latestEvidenceAt = p.evidenceAt;
+        if (p.validFrom !== undefined) row.validFrom = p.validFrom;
+        if (p.prior !== undefined) row.priorValue = String(p.prior);
         return [];
       }
       // Scene stamps are no-ops here (pinned by their own e2e), including
@@ -550,6 +614,27 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
       const row = this.rows.find((r) => r.id === id);
       if (row === undefined) throw new Error(`FakeBeliefDb: no row ${id}`);
       return row;
+    }
+
+    private insertIgnore(rows: Array<Record<string, unknown>>): void {
+      for (const raw of rows) {
+        const id = String(raw.id);
+        if (this.rows.some((r) => r.id === id)) continue;
+        this.rows.push({
+          id,
+          userId: String(raw.userId),
+          subject: String(raw.subject),
+          field: String(raw.field),
+          value: String(raw.value),
+          ...(raw.priorValue !== undefined ? { priorValue: String(raw.priorValue) } : {}),
+          revision: raw.revision as number,
+          status: String(raw.status),
+          validFrom: raw.validFrom,
+          ...(raw.latestEvidenceAt !== undefined ? { latestEvidenceAt: raw.latestEvidenceAt } : {}),
+          sourceSceneIds: (raw.sourceSceneIds as unknown[]).map(String),
+          conversationIds: [...(raw.conversationIds as string[])],
+        });
+      }
     }
 
     active(field: string, subject = 'Sasha', userId = 'u1'): FakeBeliefRow | undefined {
@@ -710,7 +795,8 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
 
     const first = await svc.run('co_test');
     expect(first.fieldOrphansAbsorbed).toBe(1);
-    const after = JSON.parse(JSON.stringify(db.rows)) as FakeBeliefRow[];
+    // structuredClone, not a JSON round-trip: the 0137 watermark is a Date.
+    const after = structuredClone(db.rows);
 
     const second = await svc.run('co_test');
     expect(second.fieldOrphansAbsorbed).toBe(0);
@@ -820,6 +906,124 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
     expect(res.fieldOrphanAmbiguous).toBe(0);
     expect(db.active('car', 'Mikhail')).toBeDefined();
     expect(db.active('car ownership', 'Mikhail')).toBeDefined();
+  });
+  describe('two clocks + compare-and-set (audit 2026-09-06 F6, fake db)', () => {
+    const at = (day: string) => `2026-${day}T00:00:00.000Z`;
+    const evidence = (tail: string, day: string, value: string, from = ''): PromotableSceneHead =>
+      scene({
+        id: `memory_episode:${tail}`,
+        conversationIds: [`conv:${tail}`],
+        occurredTo: at(day),
+        stateDeltas: [{ subject: 'alice', field: 'city', from, to: value }],
+      });
+    const headA = (over: Partial<FakeBeliefRow> = {}): FakeBeliefRow =>
+      belief({
+        id: 'semantic_belief:city1',
+        subject: 'alice',
+        field: 'city',
+        value: 'A',
+        validFrom: at('01-01'),
+        sourceSceneIds: ['memory_episode:t1'],
+        conversationIds: ['conv:t1'],
+        ...over,
+      });
+
+    it('stale guard against the WATERMARK: a differing value dated between two confirmations is a skip', async () => {
+      // The audit's repro judged against the head ALONE: A began Jan 1,
+      // was confirmed Mar 1, and B dated Feb 1 arrives late.
+      const db = new FakeBeliefDb();
+      db.rows = [
+        headA({
+          latestEvidenceAt: at('03-01'),
+          sourceSceneIds: ['memory_episode:t1', 'memory_episode:t3'],
+          conversationIds: ['conv:t1', 'conv:t3'],
+        }),
+      ];
+      db.sceneHeads = [evidence('t2', '02-01', 'B')];
+      const res = await makeRunService(db).run('co_test');
+      expect(res).toMatchObject({ skippedStale: 1, beliefsRevised: 0, beliefsCreated: 0 });
+      expect(db.rows).toHaveLength(1);
+      expect(db.rows[0]).toMatchObject({ value: 'A', status: 'active', revision: 1 });
+      expect(db.sql.some((s) => s.startsWith('BEGIN TRANSACTION'))).toBe(false);
+    });
+
+    it('a confirmation advances the watermark and leaves the beginning alone; a legacy row is stamped', async () => {
+      const db = new FakeBeliefDb();
+      db.rows = [headA()]; // pre-0137: no watermark at all
+      db.sceneHeads = [evidence('t3', '03-01', 'A')];
+      const res = await makeRunService(db).run('co_test');
+      expect(res).toMatchObject({ beliefsCorroborated: 1, beliefsRevised: 0, beliefsRealigned: 0 });
+      const head = db.active('city', 'alice')!;
+      expect(head.validFrom).toBe(at('01-01'));
+      expect(head.latestEvidenceAt).toEqual(new Date(at('03-01')));
+      expect(head.sourceSceneIds).toEqual(['memory_episode:t1', 'memory_episode:t3']);
+    });
+
+    it('a targeted run folds the WHOLE chain: the late B realigns the beginning to the run after it', async () => {
+      // Same world, but the run is targeted at the late conversation and
+      // the chain read (the fake answers every scene query with the whole
+      // world) shows A · B · A: the current A began in MARCH, displacing B.
+      const db = new FakeBeliefDb();
+      db.rows = [
+        headA({
+          latestEvidenceAt: at('03-01'),
+          sourceSceneIds: ['memory_episode:t1', 'memory_episode:t3'],
+          conversationIds: ['conv:t1', 'conv:t3'],
+        }),
+      ];
+      db.sceneHeads = [
+        evidence('t1', '01-01', 'A'),
+        evidence('t2', '02-01', 'B'),
+        evidence('t3', '03-01', 'A'),
+      ];
+      const res = await makeRunService(db).run('co_test', { conversationId: 'conv:t2' });
+      expect(res).toMatchObject({
+        beliefsRealigned: 1,
+        beliefsRevised: 0,
+        beliefsCreated: 0,
+        skippedStale: 0,
+      });
+      const head = db.active('city', 'alice')!;
+      expect(head).toMatchObject({ value: 'A', priorValue: 'B', revision: 1, status: 'active' });
+      expect(head.validFrom).toEqual(new Date(at('03-01')));
+      expect(db.rows).toHaveLength(1);
+      // The chain was read with the affected users as the filter.
+      expect(db.sql.some((s) => s.includes('userIds CONTAINSANY $users'))).toBe(true);
+    });
+
+    it('a revision is one compare-and-set transaction; a head that moved under the run is not revised twice', async () => {
+      const db = new FakeBeliefDb();
+      db.rows = [headA({ latestEvidenceAt: at('01-01') })];
+      db.sceneHeads = [evidence('t2', '02-01', 'B', 'A')];
+      // Another writer supersedes the head between this run's read and
+      // its transaction — the guarded stamp matches zero rows and the
+      // whole write (INSERT included) is abandoned.
+      db.beforeTransaction = () => {
+        db.rows[0]!.status = 'superseded';
+      };
+      const res = await makeRunService(db).run('co_test');
+      expect(res).toMatchObject({ skippedContended: 1, beliefsRevised: 0, beliefsCreated: 0 });
+      expect(db.rows).toHaveLength(1);
+      expect(db.sql.filter((s) => s.startsWith('BEGIN TRANSACTION'))).toHaveLength(1);
+    });
+
+    it('the revise transaction carries the new row AND the guarded supersede stamp together', async () => {
+      const db = new FakeBeliefDb();
+      db.rows = [headA({ latestEvidenceAt: at('01-01') })];
+      db.sceneHeads = [evidence('t2', '02-01', 'B', 'A')];
+      const res = await makeRunService(db).run('co_test');
+      expect(res).toMatchObject({ beliefsRevised: 1, skippedContended: 0 });
+      const tx = db.sql.find((s) => s.startsWith('BEGIN TRANSACTION'))!;
+      expect(tx).toContain('INSERT IGNORE INTO semantic_belief $rows');
+      expect(tx).toContain("WHERE status = 'active' AND revision = $headRevision RETURN AFTER");
+      expect(tx).toContain("THROW 'belief head moved'");
+      expect(tx).toContain('COMMIT TRANSACTION');
+      const [rev1, rev2] = [...db.rows].sort((a, b) => a.revision - b.revision);
+      expect(rev1).toMatchObject({ status: 'superseded', supersededBy: rev2!.id });
+      expect(rev2).toMatchObject({ value: 'B', priorValue: 'A', status: 'active', revision: 2 });
+      expect(rev2!.validFrom).toEqual(new Date(at('02-01')));
+      expect(rev2!.latestEvidenceAt).toEqual(new Date(at('02-01')));
+    });
   });
 });
 
@@ -1001,6 +1205,8 @@ describe('OFF-state hard guarantee (byte-identical prod)', () => {
       beliefsCreated: 0,
       beliefsCorroborated: 0,
       beliefsRevised: 0,
+      beliefsRealigned: 0,
+      skippedContended: 0,
       supportEdges: 0,
     });
   });

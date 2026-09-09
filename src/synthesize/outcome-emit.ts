@@ -57,18 +57,21 @@ export function unverifiedServe(
  * The cited facts were used in the answer; on a `supported` verdict the
  * same ids additionally count as VERIFIED use (meta carries the verdict
  * string only — content-free). Called from BOTH finalizeAndAdmit
- * serving paths (primary + L3 flip) with the verdict, and from the
- * unverifiedReturn exit WITHOUT one — guardrails off/'answer' serve
- * citations with no verifier, which counts as use, never as verified
- * use. `companyId` is optional because bare-cache finalize callers may
- * not carry it — absent ⇒ no events.
+ * serving paths (primary + L3 flip) AFTER every serving gate, with the
+ * FINAL result's citations and the verdict only when that result is the
+ * supported ok-path (audit F7: a draft the gate downgraded records
+ * nothing, a lenient partial serve records use but never verified use);
+ * and from the unverifiedReturn exit WITHOUT a verdict — guardrails
+ * off/'answer' serve citations with no verifier, which counts as use,
+ * never as verified use. `companyId` is optional because bare-cache
+ * finalize callers may not carry it — absent ⇒ no events.
  */
 export function emitAnswerUse(
   outcomes: MemoryOutcomeService | undefined,
   opts: {
     companyId: string | undefined;
     citations: Citation[];
-    verdict?: VerifierOutput;
+    verdict?: VerifierOutput | undefined;
     /**
      * 0119: the request's primary decision id (abstain gate or L3
      * trigger), threaded by synthesize ONLY under
@@ -136,7 +139,7 @@ export function emitBeliefAnswerUse(
   opts: {
     companyId: string | undefined;
     evidenceCitations: EvidenceCitation[] | undefined;
-    verdict?: VerifierOutput;
+    verdict?: VerifierOutput | undefined;
     decisionId?: string | undefined;
   },
 ): void {

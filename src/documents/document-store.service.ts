@@ -21,7 +21,7 @@ import { idTailOf, redactPii } from '../ingest/ingest-utils';
 import { MetricsService } from '../metrics/metrics.service';
 import { scopeForUser } from '../auth/scope-tags';
 import { chunkDocument, DocumentChunk } from './chunker';
-import { mergeDocumentMeta, reservedKeysIn, type InternalDocumentMeta } from './document-meta';
+import { mergeDocumentMeta, reservedKeysIn, type DocumentWriteOrigin } from './document-meta';
 import { markFactsProvenancePurged, purgeDocumentChunks } from './document-purge.util';
 import { IngestDocumentDto } from './dto/ingest-document.dto';
 
@@ -85,15 +85,18 @@ export class DocumentStoreService {
    * form (hash shifts only when the redactor itself changes — per-deploy,
    * acceptable).
    *
-   * `internalMeta` is brain's OWN document-header provenance (see
-   * document-meta.ts). It bypasses the caller gate below by construction
-   * — the gate polices untrusted operator vocabulary destined for the
-   * ABAC `source.meta` surface, and an internal writer is neither.
+   * `origin` names the writer and carries brain's OWN document-header
+   * keys (see document-meta.ts) — bounded upstream by
+   * `internalDocumentMeta`, so they bypass the caller gate below by
+   * construction: the gate polices untrusted operator vocabulary destined
+   * for the ABAC `source.meta` surface, and an internal writer is neither.
+   * `origin.internal` is required (undefined allowed) so a new writer
+   * cannot drop a provenance hop by leaving an argument off.
    */
   async createOrGet(
     companyId: string,
     dto: IngestDocumentDto,
-    internalMeta?: InternalDocumentMeta | undefined,
+    origin: DocumentWriteOrigin,
   ): Promise<CreateDocumentResult> {
     // CALLER meta becomes ABAC-matchable `source.meta` on every derived
     // fact (commit-writer projection), so it must be operator
@@ -123,7 +126,7 @@ export class DocumentStoreService {
     if (reserved.length > 0) {
       this.logger.warn(`document meta asserts ${reserved.length} reserved key(s): ${reserved[0]}`);
     }
-    const meta = mergeDocumentMeta(dto.meta, internalMeta);
+    const meta = mergeDocumentMeta(dto.meta, origin.internal);
     // G9 ingest sanitization (INGEST_SANITIZE_UNICODE, default off):
     // strip bidi/zero-width/control chars from the document body BEFORE
     // redaction, hashing, and chunking — so stored chunks (and the spans

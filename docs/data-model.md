@@ -19,8 +19,9 @@ Every fact carries two time axes:
 **Default search = "actual now"** (Datomic / Zep convention). Without
 `asOf`, brain returns only currently-true facts:
 `validFrom <= now < validUntil`, status not superseded/compacted, not
-retracted. Audit / historical access through `asOf=<date>` or
-`includeStale: true`. Conflict resolver uses Allen's interval
+retracted. Historical access through `asOf=<date>` (valid time — see
+[bitemporal-semantics](bitemporal-semantics.md) for which surfaces also
+offer a knowledge-time `recordedAt`) or `includeStale: true`. Conflict resolver uses Allen's interval
 algebra — sequential validity intervals don't compete.
 
 Full semantics: [bitemporal-semantics.md](bitemporal-semantics.md).

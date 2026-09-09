@@ -1701,25 +1701,38 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Switch the KNN vector leg on. Tenants without a built index fall back to the full scan; build via POST /v1/admin/maintenance/hnsw.',
+      'Switch the KNN vector leg on. Tenants without a built index fall back to the full scan; build via POST /v1/admin/maintenance/hnsw (every build is CONCURRENTLY; `waitMs` in the request body bounds how long that call holds for the build, default 60 s). Check `ready` in the response before flipping this for a tenant. Provisioning (the schema-ready hook and the nightly sweep) follows this flag unless HNSW_PROVISION_ENABLED says otherwise.',
   },
+  // ── HNSW index provisioning + reconciliation ──
+  // Category 'jobs', not 'search': these gate a scheduled maintenance pass
+  // and a provisioning hook, never a retrieval code path. They sit beside
+  // SEARCH_HNSW_ENABLED in the runbook.
   {
-    key: 'SEARCH_HNSW_CONCURRENT',
-    category: 'search',
+    key: 'HNSW_PROVISION_ENABLED',
+    category: 'jobs',
     defaultValue: '0',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Build the per-tenant HNSW indexes with DEFINE INDEX … CONCURRENTLY (POST /v1/admin/maintenance/hnsw {action:"create"}), one statement per index instead of one four-index super-statement. Off = the historical synchronous DDL, which FAILS at real scale: measured on SurrealDB 3.2.4, a synchronous build over 20 000 × 1024-d aborts after ~133 s with a RocksDB transaction conflict, while CONCURRENTLY reaches ready in 4.2 s. Concurrent builds are asynchronous — the route waits up to SEARCH_HNSW_BUILD_WAIT_MS and then reports per-index build state; check `ready` (or POST {action:"status"}) before flipping SEARCH_HNSW_ENABLED, because an index that exists but is still indexing answers KNN with the same unranked rows a missing index does.',
+      'Give every tenant its HNSW indexes without a human remembering: (a) a hook on SurrealService.ensureSchema — the one place a tenant database is created — notes each tenant and provisions it off the request path; (b) a leader-elected nightly sweep (05:10 UTC) reconciles the roster within HNSW_PROVISION_TIME_BUDGET_MS and HNSW_PROVISION_MAX_BUILDS_PER_RUN; (c) every observation lands in tenant_registry (indexState/indexStateAt/embeddingSpace), so GET /v1/admin/maintenance/hnsw/roster answers with no DDL. Provisioning only ever ADDS absent indexes, always CONCURRENTLY, and never waits for a build. UNSET (the normal case) it FOLLOWS SEARCH_HNSW_ENABLED — a deployment riding the KNN legs wants every tenant indexed; set it explicitly only to build ahead of flipping the search flag (1) or to hold provisioning back while the search flag is on (0).',
   },
   {
-    key: 'SEARCH_HNSW_BUILD_WAIT_MS',
-    category: 'search',
-    defaultValue: '60000',
+    key: 'HNSW_PROVISION_TIME_BUDGET_MS',
+    category: 'jobs',
+    defaultValue: '600000',
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      'How long POST /v1/admin/maintenance/hnsw {action:"create"} waits for a SEARCH_HNSW_CONCURRENT build before answering with whatever progress it reached. Not a failure ceiling — the build continues server-side and {action:"status"} reports it. Default 60000 covers ~280k rows at the measured ~4 700 rows/s; 0 answers immediately. Inert when SEARCH_HNSW_CONCURRENT is off.',
+      'Wall-clock budget for one reconciliation walk. Tenants not started are counted (skippedForBudget), never dropped — an un-indexed tenant is rediscovered by the next walk. Keep it below the 20-minute lease TTL, or a run can outlive its own lease and let a second pod start a parallel pass.',
+  },
+  {
+    key: 'HNSW_PROVISION_MAX_BUILDS_PER_RUN',
+    category: 'jobs',
+    defaultValue: '5',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'How many tenants may START index builds in one reconciliation run. Bounds the blast radius of the FIRST run after enablement, which is the only one that finds a backlog: converging 200 un-indexed tenants over 40 nights costs nothing, converging them in one pass puts 4 × 200 concurrent HNSW builds on one SurrealDB. Tenants held back by the cap are still PROBED and recorded, so the roster tells the truth about them the same night.',
   },
   {
     key: 'SEARCH_USAGE_RECORDING_ENABLED',
@@ -3225,11 +3238,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'CAPABILITY_PROBE_ENABLED',
     category: 'misc',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
-      'Periodically RUN each capability the service claims and publish the result (brain_capability_probe_*). Covers the class where the service reports healthy while a capability is dead: the scoped pool that went anonymous ~59 min after boot with /health green (#502), and the embedder answering outside the configured space while /ready was green (#503). Both fixes landed in /ready, which is only polled at deploy time — this is the continuous counterpart. Per pod, no leader lease (the failure is per-process). Off = no timer, no series.',
+      'Periodically RUN each capability the service claims (scoped read, embed) and publish the result as brain_capability_probe_* — the continuous counterpart of /ready, which a deploy polls once. On by default so a forgotten flag cannot recreate a green /health over a dead read path; set 0 to disable (no timer, no series). Per pod, no leader lease. See docs/operations.md § Capability probes.',
   },
   {
     key: 'CAPABILITY_PROBE_INTERVAL_MS',

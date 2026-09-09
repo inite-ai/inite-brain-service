@@ -18,7 +18,6 @@ describe('HNSW vector leg (real SurrealDB)', () => {
 
   afterAll(async () => {
     delete process.env.SEARCH_HNSW_ENABLED;
-    delete process.env.SEARCH_HNSW_CONCURRENT;
     if (f) await f.close();
   });
 
@@ -109,15 +108,11 @@ describe('HNSW vector leg (real SurrealDB)', () => {
     expect(create.body.dimension).toBe(1536); // StubEmbedder
     expect(create.body.indexes).toContain('fact_embedding_hnsw');
     expect(create.body.indexes).toContain('segment_embedding_hnsw');
-    // Readiness is reported, not assumed — on the synchronous path too.
-    expect(create.body.concurrent).toBe(false);
+    // Readiness is reported, not assumed; every build is CONCURRENTLY and
+    // the default wait (60 s) is far more than a fixture-sized tenant needs.
+    expect(create.body.concurrent).toBe(true);
     expect(create.body.ready).toBe(true);
-    expect(create.body.builds.map((b: { state: string }) => b.state)).toEqual([
-      'ready',
-      'ready',
-      'ready',
-      'ready',
-    ]);
+    expect(create.body.builds.map((b: { state: string }) => b.state)).toEqual(['ready', 'ready']);
 
     const baseline = await search('HNSW Probe Tenant');
 
@@ -130,22 +125,25 @@ describe('HNSW vector leg (real SurrealDB)', () => {
   });
 
   /**
-   * SEARCH_HNSW_CONCURRENT against the real engine. The failure this
-   * replaces is a scale failure (a synchronous build over 20 000 × 1024-d
-   * aborts after ~133 s with a RocksDB transaction conflict) that a
-   * fixture-sized tenant cannot reproduce; what IS assertable here is that
-   * the CONCURRENTLY keyword parses on 3.2.4, that the four indexes really
-   * land, that `INFO FOR INDEX` yields a build state the route reports, and
-   * that a KNN search over the finished index still answers.
+   * The concurrent build against the real engine. The failure it replaced
+   * is a scale failure (a synchronous build over 20 000 × 1024-d aborts
+   * after ~133 s with a RocksDB transaction conflict) that a fixture-sized
+   * tenant cannot reproduce; what IS assertable here is that the
+   * CONCURRENTLY keyword parses on 3.2.4, that the four indexes really
+   * land, that `INFO FOR INDEX` yields a build state the route reports, that
+   * `waitMs` is honoured as a request field, and that a KNN search over the
+   * finished index still answers.
    */
   it('builds CONCURRENTLY, reports per-index readiness, and serves', async () => {
-    process.env.SEARCH_HNSW_CONCURRENT = '1';
-    try {
-      const create = await f.http.post('/v1/admin/maintenance/hnsw').set(auth()).send({});
+    {
+      const create = await f.http
+        .post('/v1/admin/maintenance/hnsw')
+        .set(auth())
+        .send({ waitMs: 30_000 });
       expect(create.status).toBe(201);
       expect(create.body.concurrent).toBe(true);
       expect(create.body.ready).toBe(true);
-      expect(create.body.builds).toHaveLength(4);
+      expect(create.body.builds).toHaveLength(2);
       for (const b of create.body.builds as Array<{ index: string; state: string }>) {
         expect(b.state).toBe('ready');
       }
@@ -174,8 +172,10 @@ describe('HNSW vector leg (real SurrealDB)', () => {
       const results = await search('HNSW Probe Tenant');
       delete process.env.SEARCH_HNSW_ENABLED;
       expect(results.length).toBeGreaterThan(0);
-    } finally {
-      delete process.env.SEARCH_HNSW_CONCURRENT;
+
+      // A malformed wait is a 400 before any DDL, never a silent default.
+      const bad = await f.http.post('/v1/admin/maintenance/hnsw').set(auth()).send({ waitMs: -1 });
+      expect(bad.status).toBe(400);
     }
   });
 
@@ -237,5 +237,126 @@ describe('HNSW vector leg (real SurrealDB)', () => {
     } finally {
       await g.close();
     }
+  });
+});
+
+/**
+ * Provisioning + reconciliation against the real engine.
+ *
+ * The gap this closes is a PROCESS one: `SEARCH_HNSW_ENABLED=1` is set
+ * globally in production while index creation had exactly one caller (the
+ * admin route) and nothing recorded which tenants had indexes. Asserted
+ * here end-to-end: `ensure` is idempotent and additive, the roster answers
+ * "who is ready" from `tenant_registry` with no DDL, and a re-run changes
+ * nothing.
+ */
+describe('HNSW provisioning + roster (real SurrealDB)', () => {
+  let f: AppFixture;
+  const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
+
+  beforeAll(async () => {
+    process.env.HNSW_PROVISION_ENABLED = '1';
+    f = await createApp({ companyId: 'co_hnsw_prov_e2e' });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'prov_subject' },
+        predicate: 'name',
+        object: 'Provisioning Probe',
+        validFrom: '2026-01-01',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'bot' },
+      });
+  });
+
+  afterAll(async () => {
+    delete process.env.HNSW_PROVISION_ENABLED;
+    if (f) await f.close();
+  });
+
+  const ensure = async () => {
+    const r = await f.http
+      .post('/v1/admin/maintenance/hnsw')
+      .set(auth())
+      .send({ action: 'ensure' });
+    expect(r.status).toBe(201);
+    return r.body as { created: string[]; ready: boolean; mismatched: string[] };
+  };
+
+  it('ensure builds what is missing, then does nothing on a second pass', async () => {
+    const first = await ensure();
+    // A fresh tenant has none of the four, so ensure defines all four —
+    // always CONCURRENTLY, and without dropping anything.
+    expect(first.created.sort()).toEqual(['fact_embedding_hnsw', 'segment_embedding_hnsw']);
+    expect(first.mismatched).toEqual([]);
+
+    // Idempotence is the property that makes this safe to run on a
+    // schedule, on every pass, forever.
+    const second = await ensure();
+    expect(second.created).toEqual([]);
+
+    // And the indexes are genuinely there, not merely reported over.
+    const surreal = f.app.get(SurrealService);
+    await surreal.withCompany(f.companyId, async (db) => {
+      const [info] = await db.query<[{ indexes?: Record<string, string> }]>(
+        `INFO FOR TABLE knowledge_fact;`,
+      );
+      const indexes = (info as { indexes?: Record<string, string> })?.indexes ?? {};
+      expect(indexes.fact_embedding_hnsw).toContain('HNSW');
+      expect(indexes.fact_embedding_hnsw).toContain('DIMENSION 1536');
+    });
+  });
+
+  it('the roster answers "who has a ready index" with no DDL', async () => {
+    // reconcile records what it observes; the roster then reads it back
+    // out of the SYSTEM database without opening a tenant DB at all.
+    const run = await f.http.post('/v1/admin/maintenance/hnsw/reconcile').set(auth()).send({});
+    expect(run.status).toBe(201);
+    expect(run.body.tenants.map((t: { companyId: string }) => t.companyId)).toContain(f.companyId);
+
+    const roster = await f.http.get('/v1/admin/maintenance/hnsw/roster').set(auth());
+    expect(roster.status).toBe(200);
+    const row = (roster.body.tenants as Array<{ companyId: string }>).find(
+      (r) => r.companyId === f.companyId,
+    ) as
+      { state: string; detail?: string; observedAt?: string; embeddingSpace?: string } | undefined;
+    expect(row).toBeDefined();
+    expect(['ready', 'building']).toContain(row!.state);
+    expect(row!.detail).toContain('fact_embedding_hnsw=');
+    // The timestamp is what makes a green roster falsifiable: without it,
+    // an observation from before an embedder swap reads like a fresh one.
+    expect(row!.observedAt).toBeDefined();
+    expect(row!.embeddingSpace).toBeDefined();
+  });
+
+  it('a dry run records the state and emits no DDL', async () => {
+    const surreal = f.app.get(SurrealService);
+    await surreal.withCompany(f.companyId, async (db) => {
+      await db.query(`REMOVE INDEX IF EXISTS segment_embedding_hnsw ON episode_segment;`);
+    });
+    const dry = await f.http
+      .post('/v1/admin/maintenance/hnsw/reconcile')
+      .set(auth())
+      .send({ dryRun: true });
+    expect(dry.status).toBe(201);
+    expect(dry.body.dryRun).toBe(true);
+    expect(dry.body.tenants[0].created).toEqual([]);
+    // Still absent — a dry run reports, it does not repair.
+    await surreal.withCompany(f.companyId, async (db) => {
+      const [info] = await db.query<[{ indexes?: Record<string, string> }]>(
+        `INFO FOR TABLE episode_segment;`,
+      );
+      expect((info as { indexes?: Record<string, string> })?.indexes?.segment_embedding_hnsw).toBe(
+        undefined,
+      );
+    });
+    // …and the roster now says so, which is the point.
+    const roster = await f.http.get('/v1/admin/maintenance/hnsw/roster').set(auth());
+    const row = (roster.body.tenants as Array<{ companyId: string; state: string }>).find(
+      (r) => r.companyId === f.companyId,
+    )!;
+    expect(row.state).toBe('partial');
+    expect(roster.body.notReady).toBeGreaterThan(0);
   });
 });

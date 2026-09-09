@@ -10,6 +10,10 @@ coverage/
 .idea/
 *.tsbuildinfo
 
+# ts-jest transform cache, moved in-repo (from os.tmpdir()) so CI can
+# persist it with actions/cache. Derived output, never source.
+.jest-cache/
+
 # Generated code-memory silver datasets + trained gate models (track C)
 data/code-memory/*.jsonl
 data/code-memory/*.model.json

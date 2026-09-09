@@ -5,7 +5,6 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD } from '@nestjs/core';
 import { CommonModule } from './common/common.module';
 import { HealthController } from './common/health.controller';
-import { HealthService } from './common/health.service';
 import { TenantThrottlerGuard } from './common/tenant-throttler.guard';
 import { SurrealModule } from './db/surreal.module';
 import { LiveModule } from './live/live.module';
@@ -112,7 +111,6 @@ import { MriModule } from './mri/mri.module';
   ],
   controllers: [HealthController],
   providers: [
-    HealthService,
     {
       provide: APP_GUARD,
       useClass: TenantThrottlerGuard,

@@ -178,6 +178,28 @@ every read surface (e2e-enforced). The canary test fails loudly the moment an
 upgrade or a move to record users makes PERMISSIONS fire — activate the fence
 then, deliberately.
 
+### Which connection carries which identity
+
+Because PERMISSIONS do not fire for system users, the identity a connection
+signs in with is bookkeeping for the Record Access track, not a barrier
+today. What IS the barrier on every one of these paths is the application
+filter (`policy/row-filter.ts`, `entity-read.helpers.ts`), and each path
+below applies it before a row leaves the process:
+
+| Path | Identity | App-layer filter |
+|---|---|---|
+| Caller-facing reads (`withScopedCompany`: search, entities, facts, MCP read tools) | `brain_caller` (scoped pool) | yes |
+| Writes, migrations, admin and GDPR paths (`withCompany`, `withAdminDb`) | root | n/a (not caller-facing reads) |
+| LIVE subscription channels (`LIVE_SUBSCRIPTIONS_ENABLED`, `src/live/`) | `brain_caller` when `SURREALDB_SCOPED_USER`/`_PASS` are configured; **root** when they are not | yes — every pushed row passes `makeRowPolicyFilter` with the subscriber's scopes and the tenant's predicate policy |
+
+The LIVE row is the one to read twice: a deployment without the scoped
+credentials runs its subscription channels root-authorized, and then the
+only thing between a subscriber and a row it must not see is the app-layer
+filter. That is the same guarantee the scoped pool gives today (see above),
+but it is a weaker posture on the day PERMISSIONS start to fire. Configure
+the scoped user wherever LIVE is enabled; `operations.md` § Long-lived DB
+sessions lists the renewal behaviour per channel.
+
 ## See also
 
 - [API reference](api.md#abac-policy-sets) — every policy-set endpoint with wire notes.

@@ -96,17 +96,23 @@ export class LensAdminController {
           'each class needs a classId, a numeric centroid[], a string suppressLanes[], and a non-negative sampleCount',
         );
       }
-      // Optional, but not free-form: a declared space is an assertion the
-      // service checks against the tenant's primary space.
-      if (c.embeddingSpaceId !== undefined && typeof c.embeddingSpaceId !== 'string') {
-        throw new BadRequestException('embeddingSpaceId must be a string when supplied');
+      // Required, and not free-form: the declared space is an assertion the
+      // service checks against the tenant's primary space. A width check
+      // alone cannot tell two models of the same width apart, and a
+      // centroid from the wrong model is durable — there is no source text
+      // to re-embed it from.
+      if (typeof c.embeddingSpaceId !== 'string' || c.embeddingSpaceId.trim() === '') {
+        throw new BadRequestException(
+          'each class must declare embeddingSpaceId — the space the centroid was mined in ' +
+            '(provider:model:dim:norm, e.g. bge-m3:Xenova/bge-m3:1024:l2)',
+        );
       }
       return {
         classId: c.classId,
         centroid: c.centroid as number[],
         suppressLanes: c.suppressLanes as string[],
         sampleCount: c.sampleCount,
-        ...(typeof c.embeddingSpaceId === 'string' ? { embeddingSpaceId: c.embeddingSpaceId } : {}),
+        embeddingSpaceId: c.embeddingSpaceId,
       };
     });
     return this.lens.fitAndPersist(req.brainAuth.companyId, classes);

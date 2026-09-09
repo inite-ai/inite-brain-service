@@ -1,0 +1,54 @@
+import { ConfigService } from '@nestjs/config';
+import { AnswerCacheService } from '../src/answer-cache/answer-cache.service';
+import { SurrealService } from '../src/db/surreal.service';
+import { TenantRegistryService } from '../src/auth/tenant-registry.service';
+import { FeedbackService } from '../src/feedback/feedback.service';
+import { MemoryOutcomeService, type StatDelta } from '../src/outcomes/memory-outcome.service';
+
+describe('audit edge-case observations', () => {
+  it('admits a mixed fact+belief answer without recording the belief dependency', async () => {
+    const query = jest.fn(async () => [[]]);
+    const surreal = { withCompany: async (_: string, fn: (db: {query: typeof query}) => unknown) => fn({query}) };
+    const service = new AnswerCacheService(surreal as unknown as SurrealService, new ConfigService());
+    await service.admit({ key: 'a'.repeat(64), companyId: 'co_a', profileHash: 'p', model: 'm', normalizedQuery: 'city', isEnumeration: false }, {
+      answer: 'Alice lives in A and works at Acme.',
+      citations: [{factId: 'knowledge_fact:f', entityId: 'knowledge_entity:e', canonicalName: 'Alice', predicate: 'employer', object: 'Acme'}],
+      evidenceCitations: [{ beliefId: 'semantic_belief:old' }],
+      results: [],
+    }, 'supported');
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(query.mock.calls)).not.toContain('semantic_belief:old');
+  });
+
+  it('touch re-adds a suspended tenant to the active roster', async () => {
+    const registry = new TenantRegistryService();
+    await registry.register('co_a', {status: 'suspended'});
+    expect(registry.activeCompanyIds()).toEqual([]);
+    registry.touch('co_a');
+    expect(registry.activeCompanyIds()).toEqual(['co_a']);
+  });
+
+  it('two overlapping feedback reads count the same actor twice', async () => {
+    process.env.OUTCOME_TELEMETRY_ENABLED = '1';
+    const deltas: StatDelta[] = [];
+    let pending: (() => void) | undefined;
+    let reads = 0;
+    const query = async (sql: string) => {
+      if (sql.startsWith('SELECT id FROM')) return [[{id:'knowledge_fact:f'}]];
+      if (sql.startsWith('SELECT id, verdict')) {
+        reads++;
+        if (reads === 1) await new Promise<void>(resolve => { pending = resolve; });
+        else pending!();
+        return [[]];
+      }
+      return [[]];
+    };
+    const surreal = {withCompany: async (_: string, fn: (db: {query: typeof query}) => unknown) => fn({query})};
+    const outcomes = { recordOutcomes: (o: {statDeltas: StatDelta[]}) => deltas.push(...o.statDeltas) };
+    const service = new FeedbackService(surreal as unknown as SurrealService, undefined, outcomes as unknown as MemoryOutcomeService);
+    const p = {companyId:'co_a', factId:'knowledge_fact:f', verdict:'helpful' as const, actor:'same_actor'};
+    await Promise.all([service.record(p), service.record(p)]);
+    expect(deltas.filter(d => d.counter === 'confirmedCount').reduce((n,d) => n+d.delta,0)).toBe(2);
+    delete process.env.OUTCOME_TELEMETRY_ENABLED;
+  });
+});

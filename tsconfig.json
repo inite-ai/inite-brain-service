@@ -12,6 +12,25 @@
     "rootDir": "./src",
     "baseUrl": "./",
     "skipLibCheck": true,
+    // Set here, in the BASE config, rather than in the ts-jest transform
+    // options — and that placement is the whole point.
+    //
+    // ts-jest reads this flag and, when it is on, compiles each spec with
+    // ts.transpileModule instead of standing up a LanguageService. That
+    // drops the per-file semantic typecheck ts-jest was doing on every
+    // spec on every run — work the dedicated `pnpm typecheck` step
+    // (tsc -p tsconfig.spec.json) already does once, over the same files,
+    // in ~17 seconds.
+    //
+    // transpileModule cannot see across files, so it silently mis-emits
+    // the handful of constructs that need whole-program knowledge — a
+    // type re-exported without `export type` becomes a runtime import of
+    // a value that does not exist. Putting the flag HERE means tsc
+    // enforces those constraints in the typecheck and build steps, so the
+    // mis-emit is a merge-blocking error instead of a runtime surprise.
+    // Setting it only inside the jest transform would have bought the
+    // speed and left the trap armed.
+    "isolatedModules": true,
     "strict": true,
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,

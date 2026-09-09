@@ -1,8 +1,7 @@
-import { createHash } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type OpenAI from 'openai';
-import { RecordId, StringRecordId } from 'surrealdb';
+import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { chatCallParams, createOpenAiClient } from '../ai/openai-client';
 import {
@@ -19,15 +18,21 @@ import { supportEdgesEnabled } from '../common/provenance-flags';
 import { buildSupportEdgeBatches } from '../common/support-edges';
 import { absorbFoldableOrphans, resolveFieldFold } from './belief-field-fold';
 import {
+  admitScenes,
   beliefPromoterVersion,
   buildPromotableScenesQuery,
   promoterVersionFor,
-  sceneSingleUser,
   type PromotableSceneHead,
 } from './belief-scene-selection';
-import { formatValueDims, sceneValueVerdict } from './belief-value-gate';
 import { stampSupersededFrom } from './scene-baseline-ref';
 import { SceneVersionService } from './scene-version';
+import {
+  beliefRecordString,
+  commitRevision,
+  corroborateBelief,
+  epochMs,
+  type ActiveBeliefRow,
+} from './belief-revision';
 
 // The lexical fold rule lives in belief-field-fold.ts, the scene
 // selection / row shape / #387 fence / world stamping in
@@ -47,6 +52,7 @@ export {
   sceneSingleUser,
 } from './belief-scene-selection';
 export type { PromotableSceneHead } from './belief-scene-selection';
+export { beliefIdTail } from './belief-revision';
 
 /**
  * Belief promotion (Belief-A, SCENES_BELIEF_PROMOTION — default off):
@@ -153,15 +159,37 @@ export type { PromotableSceneHead } from './belief-scene-selection';
  * CONFLICT GUARD (built-in, no flag): a group whose latest timestamp is
  * shared by two DIFFERENT values has no deterministic winner — the whole
  * (subject, field) group is SKIPPED LOUDLY with a warn. Same for a
- * batch whose winner is not newer than the active belief's validFrom
- * (stale/ambiguous re-promotion — skipped loudly, never flip-flopped).
+ * differing candidate whose own latest evidence is not past the active
+ * belief's WATERMARK (stale re-promotion — skipped loudly, never
+ * flip-flopped).
+ *
+ * TWO CLOCKS (audit 2026-09-06 F6). A revision carries `validFrom` —
+ * when the state BEGAN, the opener of the trailing same-value run of
+ * its evidence — and `latestEvidenceAt` (0137) — the WATERMARK, the
+ * latest scene it has processed. A confirmation advances the watermark
+ * and leaves the beginning alone; a differing value is judged against
+ * the watermark, so evidence older than what the belief already saw
+ * cannot revise it in ANY arrival order (A on Jan 1, A again on Mar 1,
+ * then B dated Feb 1 arriving late stays a skip). A TARGETED run
+ * (conversationId) therefore folds the affected users' WHOLE promotable
+ * chain, not the one conversation, and promotes only the keys that
+ * conversation touched — a late scene lands at its place in the chain.
+ * The verdict is a function of the evidence, not of the order the runs
+ * saw it: every permutation converges to the same active row
+ * (belief-revision-chain.e2e-spec).
  *
  * REVISIONS: supersede chain in code, NEVER in-place for values. A new
  * value creates revision N+1 and stamps the old row status='superseded'
- * + validUntil + supersededBy; in-place UPDATE is allowed ONLY for the
- * corroboration counters (sourceSceneIds / conversationIds /
- * corroborationCount / conversationCount / updatedAt). fn::resolve_fact
- * reuse was REJECTED (claim-specific — 0120 header).
+ * + validUntil + supersededBy — the two in ONE compare-and-set
+ * transaction (commitRevision), so a head that moved under the run, or
+ * a revision slot another run filled with a different value, aborts
+ * cleanly instead of leaving two active heads. In-place UPDATE is
+ * allowed ONLY for the corroboration counters (sourceSceneIds /
+ * conversationIds / corroborationCount / conversationCount / updatedAt),
+ * the watermark, and the two chain-derived corrections that change no
+ * value: validFrom (when the same value began) and a missing priorValue
+ * (what it displaced). fn::resolve_fact reuse was REJECTED
+ * (claim-specific — 0120 header).
  *
  * PROVENANCE: sourceSceneIds is the inline canonical trail (survives
  * flag-off); when PROVENANCE_SUPPORT_EDGES is on, the pass additionally
@@ -260,11 +288,50 @@ export interface FoldedBelief {
   subject: string;
   field: string;
   value: string;
-  /** The winner delta's `from` ('' when unknown). */
+  /**
+   * The value the current state displaced: the chain's previous distinct
+   * value when the winning run does not open the chain, else the
+   * run-opening delta's own `from` ('' when unknown).
+   */
   priorValue: string;
+  /**
+   * The chain's previous distinct value alone ('' when the winning run
+   * opens the chain) — what a corroboration may backfill onto a head that
+   * records no priorValue. Unlike priorValue it never falls back to a
+   * delta's self-reported `from`.
+   */
+  displacedValue: string;
+  /** When the chain last held displacedValue — undefined with it. */
+  displacedAt?: Date;
+  /**
+   * When the current state BEGAN — the earliest contribution of the
+   * trailing same-value run, never the latest confirmation (audit
+   * 2026-09-06 F6). A re-confirmation on a later day leaves it where it
+   * is; an interlude of another value moves it to the run that followed.
+   */
   validFrom: Date;
+  /**
+   * The latest evidence behind the winning value — the run's last
+   * contribution — i.e. the revision WATERMARK. A differing candidate
+   * whose own evidenceAt is not past the active belief's watermark is
+   * stale: the belief has already processed later evidence.
+   */
+  evidenceAt: Date;
+  /**
+   * Every contribution time of the trailing run, ascending — validFrom
+   * is the first, evidenceAt the last. A revision that follows a head
+   * whose watermark falls inside the run begins at the first of these
+   * past that watermark.
+   */
+  runEvidenceAt: Date[];
   /** Scenes contributing the WINNING value (distinct, emission order). */
   sceneIds: string[];
+  /**
+   * EVERY scene that contributed to this key, winning value or not
+   * (distinct). A targeted run uses it to tell which keys the folded
+   * conversation actually touched.
+   */
+  allSceneIds: string[];
   /** Distinct conversations behind those scenes — the floor unit. */
   conversationIds: string[];
   confidence: number;
@@ -281,7 +348,14 @@ export interface FoldedBelief {
 export interface BeliefFold {
   folded: FoldedBelief[];
   /** Groups the conflict guard refused (ambiguous latest value). */
-  conflicts: Array<{ userId: string; subject: string; field: string; values: string[] }>;
+  conflicts: Array<{
+    userId: string;
+    subject: string;
+    field: string;
+    values: string[];
+    /** Every contributing scene — the targeted-run touch test. */
+    allSceneIds: string[];
+  }>;
   /** SCENES_BELIEF_FIELD_FOLD: incoming names folded onto existing ones. */
   fieldFolds: Array<{ userId: string; subject: string; from: string; to: string }>;
   /** Field-fold ambiguity guard: >1 existing candidates — NOT folded. */
@@ -481,6 +555,7 @@ function foldGroupVerdict(group: {
   const ambiguous = ordered.some(
     (c) => c.occurredAt === winner.occurredAt && c.value !== winner.value,
   );
+  const allSceneIds = [...new Set(ordered.map((c) => c.sceneId))];
   if (ambiguous) {
     return {
       conflict: {
@@ -488,11 +563,23 @@ function foldGroupVerdict(group: {
         subject: group.subject,
         field: group.field,
         values: [...new Set(ordered.map((c) => c.value))].sort(),
+        allSceneIds,
       },
     };
   }
   const corroborating = ordered.filter((c) => c.value === winner.value);
   const sceneIds = [...new Set(corroborating.map((c) => c.sceneId))];
+  // The trailing same-value run: walk back from the winner while the
+  // value holds. Its opener is when the current state BEGAN; the winner
+  // is the latest evidence for it (the watermark). Confirmations that sit
+  // BEFORE an interlude of another value still corroborate — they are
+  // evidence for the value — but they do not pull the beginning back past
+  // the interlude: the state was interrupted and began again.
+  let runStart = ordered.length - 1;
+  while (runStart > 0 && ordered[runStart - 1]!.value === winner.value) runStart -= 1;
+  const opener = ordered[runStart]!;
+  const displaced = runStart > 0 ? ordered[runStart - 1]!.value : '';
+  const priorValue = displaced !== '' ? displaced : opener.priorValue;
   const conversationIds = [
     ...new Set(corroborating.map((c) => c.conversationId).filter((c) => c !== '')),
   ];
@@ -511,9 +598,14 @@ function foldGroupVerdict(group: {
       subject: group.subject,
       field: group.field,
       value: winner.value,
-      priorValue: winner.priorValue,
-      validFrom: new Date(winner.occurredAt),
+      priorValue,
+      displacedValue: displaced,
+      ...(runStart > 0 ? { displacedAt: new Date(ordered[runStart - 1]!.occurredAt) } : {}),
+      validFrom: new Date(opener.occurredAt),
+      evidenceAt: new Date(winner.occurredAt),
+      runEvidenceAt: ordered.slice(runStart).map((c) => new Date(c.occurredAt)),
       sceneIds,
+      allSceneIds,
       conversationIds,
       confidence: Math.round(confidence * 10000) / 10000,
       // Distinct worlds behind the winning value (sorted = deterministic).
@@ -586,23 +678,6 @@ export function renderBeliefStatement(f: {
   return withPrior.slice(0, STATEMENT_MAX_CHARS);
 }
 
-/**
- * Pure: deterministic record-id tail over (userId|subject|field|
- * revision) — the composer's sceneIdTail idiom. Paired with INSERT
- * IGNORE it makes every create replay-idempotent, and it enforces
- * (userId, subject, field, revision) uniqueness in CODE — a compound
- * UNIQUE index is exactly the 3.2.4 planner trap 0120 avoids.
- */
-export function beliefIdTail(
-  key: { userId: string; subject: string; field: string },
-  revision: number,
-): string {
-  return createHash('sha256')
-    .update(`${key.userId}\x00${key.subject}\x00${key.field}\x00${revision}`)
-    .digest('hex')
-    .slice(0, 24);
-}
-
 export interface BeliefPromotionResult {
   /** Enriched scenes of the current version seen by the pass. */
   scenes: number;
@@ -631,18 +706,21 @@ export interface BeliefPromotionResult {
   beliefsCreated: number;
   beliefsCorroborated: number;
   beliefsRevised: number;
+  /**
+   * Active beliefs whose validFrom / priorValue were corrected from the
+   * full evidence chain without a value change (a late-arriving scene
+   * showed the state began at a different time, or what it displaced).
+   */
+  beliefsRealigned: number;
+  /**
+   * Revisions this run lost to a concurrent writer of the same key: the
+   * compare-and-set transaction found the head already superseded, or
+   * the revision slot already holding another value. Nothing was
+   * written; the next run recomputes the key from its evidence.
+   */
+  skippedContended: number;
   /** memory_support rows written (0 unless PROVENANCE_SUPPORT_EDGES). */
   supportEdges: number;
-}
-
-/** Active-belief head read back for the upsert decision. */
-interface ActiveBeliefRow {
-  id: unknown;
-  revision: number;
-  value: string;
-  validFrom: unknown;
-  sourceSceneIds?: unknown;
-  conversationIds?: unknown;
 }
 
 export interface BeliefDb {
@@ -700,6 +778,8 @@ export class BeliefPromotionService {
       beliefsCreated: 0,
       beliefsCorroborated: 0,
       beliefsRevised: 0,
+      beliefsRealigned: 0,
+      skippedContended: 0,
       supportEdges: 0,
     };
     // Defense in depth: the controller already 404s with the flag off; a
@@ -726,38 +806,56 @@ export class BeliefPromotionService {
         valueGate,
       });
       const [scenes] = await db.query<[PromotableSceneHead[]]>(selection.sql, selection.params);
-      const eligible: Array<{ scene: PromotableSceneHead; userId: string }> = [];
-      for (const scene of scenes ?? []) {
-        result.scenes += 1;
-        const userId = sceneSingleUser(scene);
-        if (userId === null) {
-          // #387 fail-closed: mixed-user, tenant-global or legacy
-          // (pre-0117 userIds) scenes never feed a belief.
-          result.skippedMixedUser += 1;
+      const gate = { valueGate, valueGateMin };
+      const eligible = admitScenes({
+        scenes: scenes ?? [],
+        gate,
+        count: result,
+        logger: this.logger,
+      });
+
+      // FULL-CHAIN RECOMPUTE (audit 2026-09-06 F6). A targeted run selects
+      // ONE conversation's scenes, but a belief is the verdict of ALL the
+      // evidence for its key, in time order — a late-arriving scene must
+      // land at its place in the chain, not be judged against the head
+      // alone (which is how a stale value dated between two confirmations
+      // used to displace the confirmed one). So the scenes the run folds
+      // are the affected users' whole promotable world; the batch only
+      // decides WHICH keys this run is about (the ones its scenes touch)
+      // and what the run summary counts. A full run already reads the
+      // whole world — nothing to add there.
+      const batchSceneIds = new Set(eligible.map((e) => String(e.scene.id)));
+      let foldInput = eligible;
+      if (opts.conversationId !== undefined && eligible.length > 0) {
+        const chainSelection = buildPromotableScenesQuery({
+          version,
+          packDeltas,
+          valueGate,
+          userIds: [...new Set(eligible.map((e) => e.userId))],
+        });
+        const [chainScenes] = await db.query<[PromotableSceneHead[]]>(
+          chainSelection.sql,
+          chainSelection.params,
+        );
+        foldInput = admitScenes({
+          scenes: chainScenes ?? [],
+          gate,
+          count: null,
+          logger: this.logger,
+        });
+        // The batch's scenes are part of the chain by construction (same
+        // users, no conversation filter); a chain read that somehow
+        // lacks one falls back to folding the batch alone rather than
+        // silently dropping the run's own evidence.
+        if (
+          !eligible.every((e) => foldInput.some((c) => String(c.scene.id) === String(e.scene.id)))
+        ) {
           this.logger.warn(
-            `belief promotion skipped scene ${String(scene.id)}: not single-user ` +
-              `(userIds=${JSON.stringify(scene.userIds ?? null)}) — #387 fence`,
+            `belief promotion: chain read for ${opts.conversationId} missed batch scenes — ` +
+              `folding the batch alone`,
           );
-          continue;
+          foldInput = eligible;
         }
-        // MEMORY-VALUE GATE: the value vector's first consumer. Runs
-        // AFTER the #387 fence (a security fence is never traded against
-        // a quality one) and BEFORE the fold, so a refused scene
-        // contributes no delta at all. Off ⇒ not even evaluated.
-        if (valueGate) {
-          const verdict = sceneValueVerdict(scene, valueGateMin);
-          if (!verdict.promote) {
-            result.skippedLowValue += 1;
-            this.logger.log(
-              `belief promotion value gate: scene ${String(scene.id)} skipped as noise ` +
-                `(${formatValueDims(verdict.dims)}; all < ${valueGateMin}) — ` +
-                `SCENES_VALUE_GATE_ENABLED`,
-            );
-            continue;
-          }
-        }
-        result.eligibleScenes += 1;
-        eligible.push({ scene, userId });
       }
 
       // #135 seam 2: fold candidates are the existing ACTIVE belief
@@ -765,8 +863,8 @@ export class BeliefPromotionService {
       // the 3.2.4 planner; the DELETE-WHERE trap does not apply to
       // reads). Flag off ⇒ zero extra queries.
       let existingFields: Map<string, string[]> | undefined;
-      if (fieldFoldOn && eligible.length > 0) {
-        const userIds = [...new Set(eligible.map((e) => e.userId))];
+      if (fieldFoldOn && foldInput.length > 0) {
+        const userIds = [...new Set(foldInput.map((e) => e.userId))];
         const [rows] = await db.query<
           [Array<{ userId: unknown; subject: unknown; field: unknown }>]
         >(
@@ -787,10 +885,18 @@ export class BeliefPromotionService {
         }
       }
 
-      const { folded, conflicts, fieldFolds, fieldFoldAmbiguities } = foldBeliefGroups(eligible, {
+      const chainFold = foldBeliefGroups(foldInput, {
         negationDeltas,
         ...(existingFields !== undefined ? { existingFields } : {}),
       });
+      // A targeted run promotes only the keys its own scenes touch — the
+      // rest of the users' chain was context for the fold, not this run's
+      // business (its verdicts are unchanged and would only re-stamp).
+      const touched = (g: { allSceneIds: string[] }) =>
+        foldInput === eligible || g.allSceneIds.some((s) => batchSceneIds.has(s));
+      const folded = chainFold.folded.filter(touched);
+      const conflicts = chainFold.conflicts.filter(touched);
+      const { fieldFolds, fieldFoldAmbiguities } = chainFold;
       result.skippedConflict = conflicts.length;
       result.fieldFolds = fieldFolds.length;
       result.fieldFoldAmbiguous = fieldFoldAmbiguities.length;
@@ -847,12 +953,34 @@ export class BeliefPromotionService {
         `fieldFolds=${result.fieldFolds} foldAmbiguous=${result.fieldFoldAmbiguous} ` +
         `orphansAbsorbed=${result.fieldOrphansAbsorbed} ` +
         `orphanAmbiguous=${result.fieldOrphanAmbiguous} ` +
-        `floor=${result.skippedFloor} stale=${result.skippedStale} edges=${result.supportEdges})`,
+        `floor=${result.skippedFloor} stale=${result.skippedStale} ` +
+        `realigned=${result.beliefsRealigned} contended=${result.skippedContended} ` +
+        `edges=${result.supportEdges})`,
     );
     return result;
   }
 
-  /** One (userId, subject, field) verdict: create / corroborate / revise. */
+  /**
+   * One (userId, subject, field) verdict: create / corroborate / revise.
+   *
+   * Every write that changes what the belief SAYS goes through ONE
+   * compare-and-set transaction (commitRevision, belief-revision.ts): the
+   * new revision row and the supersede stamp on the head land together or
+   * not at all, and a head that moved under this run — another pod
+   * revised the same key first — aborts the transaction instead of
+   * leaving two active revisions or a revision slot silently holding
+   * someone else's value. The stamps that follow (consolidatedInto,
+   * baselineRef, support edges) are replay-idempotent and re-asserted on
+   * every run, so a crash between the transaction and the stamps heals on
+   * the next pass.
+   *
+   * TWO CLOCKS (audit 2026-09-06 F6). `validFrom` is when the current
+   * state BEGAN; `latestEvidenceAt` (0137) is the WATERMARK — the latest
+   * scene the belief has processed for its value. A confirmation advances
+   * the watermark and leaves the beginning alone; a differing candidate
+   * is measured against the watermark, so evidence older than what the
+   * belief already saw can never revise it, whatever order it arrived in.
+   */
   private async upsertBelief({
     db,
     belief,
@@ -870,15 +998,18 @@ export class BeliefPromotionService {
     // came wholly out of ONE pack world (promoterVersionFor).
     const promoterVersion = promoterVersionFor(belief, runPromoterVersion);
     const [actives] = await db.query<[ActiveBeliefRow[]]>(
-      `SELECT id, revision, value, validFrom, sourceSceneIds, conversationIds
+      `SELECT id, revision, value, priorValue, validFrom, latestEvidenceAt,
+              sourceSceneIds, conversationIds
          FROM semantic_belief
         WHERE userId = $u AND subject = $s AND field = $f AND status = 'active'
         ORDER BY revision DESC`,
       { u: belief.userId, s: belief.subject, f: belief.field },
     );
     const head = (actives ?? [])[0];
-    // Self-heal a crash window (revision created, supersede stamp lost):
-    // every active row below the highest revision is stamped superseded.
+    // Self-heal a pre-0137 crash window (revision created, supersede
+    // stamp lost — impossible since the two became one transaction, but
+    // rows written before that can still carry it): every active row
+    // below the highest revision is stamped superseded.
     for (const dangling of (actives ?? []).slice(1)) {
       this.logger.warn(
         `belief promotion: repairing dangling active revision ${dangling.revision} ` +
@@ -896,7 +1027,18 @@ export class BeliefPromotionService {
     }
 
     if (!head) {
-      await this.createRevision({ db, belief, revision: 1, promoterVersion });
+      const committed = await commitRevision({
+        db,
+        belief,
+        revision: 1,
+        promoterVersion,
+        statement: await this.composeStatement(belief),
+        logger: this.logger,
+      });
+      if (!committed) {
+        result.skippedContended += 1;
+        return;
+      }
       await this.stampScenes(db, belief.sceneIds, beliefRecordString(belief, 1));
       if (edgesOn) {
         result.supportEdges += await this.writeEdges(db, promoterVersion, [
@@ -911,40 +1053,24 @@ export class BeliefPromotionService {
     }
 
     const headId = String(head.id);
-    // The WS driver returns datetimes as Date instances — never round-trip
-    // through String(Date) (the query_arc lesson).
-    const headValidFrom =
-      head.validFrom instanceof Date
-        ? head.validFrom.getTime()
-        : new Date(String(head.validFrom)).getTime();
+    const headValidFrom = epochMs(head.validFrom);
+    // The watermark. A legacy row (pre-0137) carries none: validFrom is
+    // then the comparison point — exactly the pre-0137 rule — and the
+    // row is stamped on its next corroboration.
+    const storedWatermark = epochMs(head.latestEvidenceAt);
+    const headWatermark = Number.isFinite(storedWatermark) ? storedWatermark : headValidFrom;
 
     if (head.value === belief.value) {
-      // CORROBORATION — the only in-place update the substrate allows:
-      // counters + provenance union, never value/statement/validFrom.
-      const knownScenes = (Array.isArray(head.sourceSceneIds) ? head.sourceSceneIds : []).map(
-        String,
-      );
-      const knownConvs = (Array.isArray(head.conversationIds) ? head.conversationIds : []).map(
-        String,
-      );
-      const mergedScenes = [...new Set([...knownScenes, ...belief.sceneIds])];
-      const mergedConvs = [...new Set([...knownConvs, ...belief.conversationIds])];
-      const newScenes = belief.sceneIds.filter((s) => !knownScenes.includes(s));
-      if (newScenes.length > 0) {
-        await db.query(
-          `UPDATE $id SET sourceSceneIds = $scenes, conversationIds = $convs,
-                          corroborationCount = $n, conversationCount = $m,
-                          updatedAt = time::now()`,
-          {
-            id: new StringRecordId(headId),
-            scenes: mergedScenes.map((s) => new StringRecordId(s)),
-            convs: mergedConvs,
-            n: mergedScenes.length,
-            m: mergedConvs.length,
-          },
-        );
-        result.beliefsCorroborated += 1;
-      }
+      await corroborateBelief({
+        db,
+        head,
+        headId,
+        headValidFrom,
+        headWatermark,
+        belief,
+        result,
+        logger: this.logger,
+      });
       // Stamps + edges are replay-idempotent (array::union / INSERT
       // IGNORE) and always re-asserted so a crash between the belief
       // write and the stamps heals on the next run.
@@ -960,39 +1086,61 @@ export class BeliefPromotionService {
       return;
     }
 
-    // Stale/ambiguous batch: never revise BACKWARD in valid time — a
-    // re-promotion of an older world must not flip-flop the chain.
-    if (!Number.isFinite(headValidFrom) || belief.validFrom.getTime() <= headValidFrom) {
+    // STALE GUARD against the WATERMARK, not the beginning: a differing
+    // value whose own latest evidence is not past what the belief has
+    // already processed is older news — A on Jan 1, A again on Mar 1,
+    // then B dated Feb 1 arriving late must not displace A. Never revise
+    // backward in valid time either (a re-promotion of an older world
+    // must not flip-flop the chain).
+    if (!Number.isFinite(headWatermark) || belief.evidenceAt.getTime() <= headWatermark) {
       result.skippedStale += 1;
       this.logger.warn(
         `belief promotion stale guard: (${belief.subject}, ${belief.field}) candidate ` +
-          `'${belief.value}' at ${belief.validFrom.toISOString()} is not newer than the ` +
-          `active revision ${head.revision} ('${head.value}') — group skipped`,
+          `'${belief.value}' with evidence at ${belief.evidenceAt.toISOString()} is not past ` +
+          `the active revision ${head.revision} ('${head.value}') watermark ` +
+          `${new Date(headWatermark).toISOString()} — group skipped`,
+      );
+      return;
+    }
+    // The new state began at the first contribution of its run that is
+    // past the head's watermark: a run that started before the head's
+    // latest evidence was interrupted by it, and only resumed after.
+    const revisionValidFrom =
+      belief.runEvidenceAt.find((t) => t.getTime() > headWatermark) ?? belief.evidenceAt;
+    if (!Number.isFinite(headValidFrom) || revisionValidFrom.getTime() <= headValidFrom) {
+      result.skippedStale += 1;
+      this.logger.warn(
+        `belief promotion stale guard: (${belief.subject}, ${belief.field}) candidate ` +
+          `'${belief.value}' would begin at ${revisionValidFrom.toISOString()}, not after the ` +
+          `active revision ${head.revision} ('${head.value}') began — group skipped`,
       );
       return;
     }
 
     // REVISION — supersede chain in code, never in-place: revision N+1
     // holds the new value; the displaced row gets status/validUntil/
-    // supersededBy stamped. The ACTUAL displaced value beats the delta's
-    // claimed `from` as priorValue.
+    // supersededBy stamped in the SAME transaction. The ACTUAL displaced
+    // value beats the chain's reading as priorValue.
     const revision = head.revision + 1;
     const newId = beliefRecordString(belief, revision);
-    await this.createRevision({
+    const revised: FoldedBelief = {
+      ...belief,
+      priorValue: head.value,
+      validFrom: revisionValidFrom,
+    };
+    const committed = await commitRevision({
       db,
-      belief: { ...belief, priorValue: head.value },
+      belief: revised,
       revision,
       promoterVersion,
+      statement: await this.composeStatement(revised),
+      displaced: { id: headId, revision: head.revision, until: revisionValidFrom },
+      logger: this.logger,
     });
-    await db.query(
-      `UPDATE $id SET status = 'superseded', supersededBy = $new,
-                      validUntil = $until, updatedAt = time::now()`,
-      {
-        id: new StringRecordId(headId),
-        new: new StringRecordId(newId),
-        until: belief.validFrom,
-      },
-    );
+    if (!committed) {
+      result.skippedContended += 1;
+      return;
+    }
     await this.stampScenes(db, belief.sceneIds, newId);
     // The 0106 baselineRef contract, NAMESPACED: the belief revision the
     // delta was applied against lands in `baselineRef.supersededFrom`
@@ -1022,44 +1170,6 @@ export class BeliefPromotionService {
       ]);
     }
     result.beliefsRevised += 1;
-  }
-
-  /** INSERT IGNORE one revision row (deterministic id — replay-safe). */
-  private async createRevision({
-    db,
-    belief,
-    revision,
-    promoterVersion,
-  }: {
-    db: BeliefDb;
-    belief: FoldedBelief;
-    revision: number;
-    promoterVersion: string;
-  }): Promise<void> {
-    const statement = await this.composeStatement(belief);
-    await db.query(`INSERT IGNORE INTO semantic_belief $rows`, {
-      rows: [
-        {
-          id: new RecordId('semantic_belief', beliefIdTail(belief, revision)),
-          userId: belief.userId,
-          subject: belief.subject,
-          field: belief.field,
-          value: belief.value,
-          ...(belief.priorValue !== '' ? { priorValue: belief.priorValue } : {}),
-          statement: statement.text,
-          statementSource: statement.source,
-          confidence: belief.confidence,
-          revision,
-          status: 'active',
-          validFrom: belief.validFrom,
-          sourceSceneIds: belief.sceneIds.map((s) => new StringRecordId(s)),
-          conversationIds: belief.conversationIds,
-          corroborationCount: belief.sceneIds.length,
-          conversationCount: belief.conversationIds.length,
-          promoterVersion,
-        },
-      ],
-    });
   }
 
   /** consolidatedInto ∪= [belief] on the consumed scenes (idempotent). */
@@ -1178,12 +1288,4 @@ export class BeliefPromotionService {
       return { text: template, source: 'template' };
     }
   }
-}
-
-/** Full record-id string for a folded belief at a given revision. */
-function beliefRecordString(
-  belief: Pick<FoldedBelief, 'userId' | 'subject' | 'field'>,
-  revision: number,
-): string {
-  return `semantic_belief:${beliefIdTail(belief, revision)}`;
 }

@@ -5,6 +5,8 @@ import {
   mergeDocumentMeta,
   reservedKeysIn,
   INTERNAL_DOCUMENT_META_KEYS,
+  INTERNAL_DOCUMENT_META_MAX_CHARS,
+  type DocumentIngestOrigin,
 } from '../src/documents/document-meta';
 import { DocumentStoreService } from '../src/documents/document-store.service';
 import type { SurrealService } from '../src/db/surreal.service';
@@ -48,6 +50,36 @@ describe('internalDocumentMeta', () => {
 
   it('drops empty strings — an empty id is not provenance', () => {
     expect(internalDocumentMeta({ conversationId: '' })).toBeUndefined();
+  });
+
+  it('treats null as absent (JSON has no other way of not sending a field)', () => {
+    expect(internalDocumentMeta({ conversationId: 'c1', messageId: null })).toEqual({
+      conversationId: 'c1',
+    });
+  });
+
+  // The values are CALLER strings that merely arrive typed; the bound is
+  // the caller gate's short-scalar limit, and the failure is a refusal
+  // with the key named — a truncated reference is a wrong reference, and a
+  // silently dropped one is the failure SOURCE_META_STRICT exists to stop.
+  it('accepts an identifier exactly at the bound', () => {
+    const atBound = 'c'.repeat(INTERNAL_DOCUMENT_META_MAX_CHARS);
+    expect(internalDocumentMeta({ conversationId: atBound })).toEqual({ conversationId: atBound });
+  });
+
+  it('refuses an over-long identifier as a 400 naming the key', () => {
+    const over = 'c'.repeat(INTERNAL_DOCUMENT_META_MAX_CHARS + 1);
+    expect(() => internalDocumentMeta({ eventId: over })).toThrow(BadRequestException);
+    expect(() => internalDocumentMeta({ eventId: over })).toThrow(/contextRef\.eventId exceeds/);
+  });
+
+  it('refuses a non-string identifier instead of dropping it in silence', () => {
+    expect(() => internalDocumentMeta({ messageId: 42 as never })).toThrow(
+      /contextRef\.messageId must be a string/,
+    );
+    expect(() => internalDocumentMeta({ messageId: { nested: true } as never })).toThrow(
+      BadRequestException,
+    );
   });
 });
 
@@ -153,24 +185,27 @@ describe('DocumentStoreService: SOURCE_META_STRICT polices the caller channel on
   it('rejects non-operator CALLER meta under the flag (gate unchanged)', async () => {
     process.env.SOURCE_META_STRICT = '1';
     const { store } = makeStore();
-    await expect(store.createOrGet('co_x', docDto({ dataClass: 'pii' }))).rejects.toThrow(
-      BadRequestException,
-    );
+    await expect(
+      store.createOrGet('co_x', docDto({ dataClass: 'pii' }), {
+        channel: 'ingest_sync',
+        internal: undefined,
+      }),
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('accepts brain-synthesised meta under the flag and stores it', async () => {
     process.env.SOURCE_META_STRICT = '1';
     const { store, created } = makeStore();
     await store.createOrGet('co_x', docDto(), {
-      conversationId: 'c1',
-      messageId: 'm1',
+      channel: 'ingest_sync',
+      internal: { conversationId: 'c1', messageId: 'm1' },
     });
     expect(created[0]!.meta).toEqual({ conversationId: 'c1', messageId: 'm1' });
   });
 
   it('a document with neither bag stores no meta at all (byte-identical row)', async () => {
     const { store, created } = makeStore();
-    await store.createOrGet('co_x', docDto());
+    await store.createOrGet('co_x', docDto(), { channel: 'ingest_sync', internal: undefined });
     expect(created[0]!.meta).toBeUndefined();
   });
 });
@@ -178,10 +213,10 @@ describe('DocumentStoreService: SOURCE_META_STRICT polices the caller channel on
 // ── the mention wrapper no longer asserts caller meta ─────────────────
 
 function makeWrapper() {
-  const calls: Array<{ dto: IngestDocumentDto; internal: unknown }> = [];
+  const calls: Array<{ dto: IngestDocumentDto; origin: DocumentIngestOrigin }> = [];
   const documents = {
-    ingestDocument: async (_co: string, dto: IngestDocumentDto, internal?: unknown) => {
-      calls.push({ dto, internal });
+    ingestDocument: async (_co: string, dto: IngestDocumentDto, origin: DocumentIngestOrigin) => {
+      calls.push({ dto, origin });
       return {
         documentId: 'source_document:d1',
         deduplicated: false,
@@ -217,11 +252,21 @@ describe('MentionViaDocumentService routes contextRef ids off the caller channel
       ),
     );
     expect(Object.prototype.hasOwnProperty.call(calls[0]!.dto, 'meta')).toBe(false);
-    expect(calls[0]!.internal).toEqual({
-      conversationId: 'c1',
-      messageId: 'm1',
-      eventId: 'e1',
+    expect(calls[0]!.origin).toEqual({
+      channel: 'mention',
+      internal: { conversationId: 'c1', messageId: 'm1', eventId: 'e1' },
     });
+  });
+
+  it('refuses an over-long contextRef id at the door — a 400, not a failed extraction', async () => {
+    const { svc, calls } = makeWrapper();
+    const tooLong = 'c'.repeat(INTERNAL_DOCUMENT_META_MAX_CHARS + 1);
+    await expect(
+      runWithRequestContext({ correlationId: 'm4' }, () =>
+        svc.ingest('co_x', mentionDto({ vertical: 'crm', conversationId: tooLong })),
+      ),
+    ).rejects.toThrow(/contextRef\.conversationId exceeds/);
+    expect(calls).toHaveLength(0);
   });
 
   it('omits identifiers the caller never sent (the eventId proof)', async () => {
@@ -229,7 +274,7 @@ describe('MentionViaDocumentService routes contextRef ids off the caller channel
     await runWithRequestContext({ correlationId: 'm2' }, () =>
       svc.ingest('co_x', mentionDto({ vertical: 'crm', conversationId: 'c1' })),
     );
-    expect(calls[0]!.internal).toEqual({ conversationId: 'c1' });
+    expect(calls[0]!.origin).toEqual({ channel: 'mention', internal: { conversationId: 'c1' } });
   });
 
   it('a bare contextRef produces no internal bag at all', async () => {
@@ -237,6 +282,6 @@ describe('MentionViaDocumentService routes contextRef ids off the caller channel
     await runWithRequestContext({ correlationId: 'm3' }, () =>
       svc.ingest('co_x', mentionDto({ vertical: 'crm' })),
     );
-    expect(calls[0]!.internal).toBeUndefined();
+    expect(calls[0]!.origin).toEqual({ channel: 'mention', internal: undefined });
   });
 });

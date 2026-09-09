@@ -11,6 +11,7 @@
     "start": "next start -p 3030",
     "lint": "eslint .",
     "lint:i18n": "eslint components/admin",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {

@@ -1,11 +1,16 @@
-import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { traceSpan } from '../common/debug-trace';
 import { DocumentStoreService } from './document-store.service';
 import { IndexerDispatchService } from './indexer-dispatch.service';
 import type { IndexerRunResult } from './indexer-run.service';
 import { CandidateCommitService, CommitResult } from './candidate-commit.service';
 import { IngestDocumentDto } from './dto/ingest-document.dto';
-import { internalDocumentMeta, type InternalDocumentMeta } from './document-meta';
+import {
+  internalDocumentMeta,
+  originInternalMeta,
+  type DocumentIngestOrigin,
+} from './document-meta';
+import { toolObservationMeta } from './tool-observation-meta';
 import { ToolObservationService } from '../outcomes/tool-observation.service';
 import { pinUserScope } from '../auth/user-scope';
 
@@ -45,16 +50,17 @@ export class DocumentIngestService {
   ) {}
 
   /**
-   * `internalMeta` carries brain-synthesised document-header provenance
-   * from an in-process caller (the mention-via-document wrapper). It is
-   * NOT reachable from the wire — the HTTP/MCP surfaces only ever pass a
-   * validated IngestDocumentDto — so it never widens what a client can
-   * assert. See document-meta.ts.
+   * `origin` says who is calling. Only the in-process mention wrapper may
+   * attach an internal bag (its typed contextRef identifiers, bounded by
+   * `internalDocumentMeta`); the wire-facing channels (HTTP, MCP, pack
+   * seeds) hand over a validated IngestDocumentDto and nothing else, so
+   * the channel never widens what a client can assert. See
+   * document-meta.ts.
    */
   async ingestDocument(
     companyId: string,
     dto: IngestDocumentDto,
-    internalMeta?: InternalDocumentMeta | undefined,
+    origin: DocumentIngestOrigin,
   ): Promise<DocumentIngestResponse> {
     // Per-user scope pin at the service entry (0128; the audit 2026-08-21
     // P0 seam, same as fact-ingest / mention-ingest): a user-bound token
@@ -63,12 +69,22 @@ export class DocumentIngestService {
     // the stored document row into fact commit + scene projection.
     dto = { ...dto, userId: pinUserScope(dto.userId) };
     return traceSpan('ingest.document', async () => {
-      const toolObservation = await this.threadToolObservation(companyId, dto);
+      const toolObservation = await toolObservationMeta(
+        this.toolObservations,
+        companyId,
+        dto.toolObservationRef,
+      );
       // internalDocumentMeta() collapses an all-absent bag back to
       // undefined, so a document with neither hop keeps the pre-fix row
       // (no `meta` key at all) byte-identical.
-      const internal = internalDocumentMeta({ ...internalMeta, ...toolObservation });
-      const { doc, chunks, deduplicated } = await this.store.createOrGet(companyId, dto, internal);
+      const internal = internalDocumentMeta({
+        ...originInternalMeta(origin),
+        ...toolObservation,
+      });
+      const { doc, chunks, deduplicated } = await this.store.createOrGet(companyId, dto, {
+        channel: 'ingest_sync',
+        internal,
+      });
 
       try {
         await this.store.setStatus({ companyId, docId: doc.id, status: 'indexing' });
@@ -107,41 +123,6 @@ export class DocumentIngestService {
           .catch(() => undefined);
         throw err;
       }
-    });
-  }
-
-  /**
-   * Thread a `tool_observation:<id>` provenance ref (0111) onto the
-   * document header. Under TOOL_OBSERVATIONS_ENABLED the ref is
-   * validated against the tenant's own rows (unknown/foreign/malformed
-   * ⇒ 400 — a provenance claim must not be storable unverified) and
-   * stored in doc meta (FLEXIBLE) together with a content-free note
-   * ('<tool> @ <iso>') the commit-writer folds into every committed
-   * fact's source.evidence[]. Flag off ⇒ the ref is ignored and the
-   * write path is byte-identical.
-   *
-   * These two keys are BRAIN's, not the caller's — `toolObservationNote`
-   * is synthesised outright from the verified row, and the ref is only
-   * trustworthy because it was just verified. They therefore ride the
-   * internal document-meta channel (document-meta.ts) instead of being
-   * folded into `dto.meta`, where SOURCE_META_STRICT would reject their
-   * camelCase against a rule written for operator vocabulary.
-   */
-  private async threadToolObservation(
-    companyId: string,
-    dto: IngestDocumentDto,
-  ): Promise<InternalDocumentMeta | undefined> {
-    const ref = dto.toolObservationRef;
-    if (ref === undefined || !this.toolObservations?.enabled()) return undefined;
-    const verified = await this.toolObservations.verifyRef(companyId, ref);
-    if (!verified) {
-      throw new BadRequestException(
-        'toolObservationRef does not resolve to a tool_observation row in this tenant',
-      );
-    }
-    return internalDocumentMeta({
-      toolObservationRef: ref,
-      toolObservationNote: `${verified.tool} @ ${verified.createdAt}`,
     });
   }
 

@@ -27,12 +27,15 @@ export interface LensSuppressionFitClass {
   sampleCount: number;
   /**
    * The embedding space the centroid was mined in
-   * (`provider:model:dim:norm`). Optional: omitted means "the tenant's
-   * primary space", which is the only space a centroid may be stored in.
-   * Supplied and incompatible is a 400 — an operator who names a space is
-   * asserting something checkable, and a wrong assertion here is durable.
+   * (`provider:model:dim:norm`). REQUIRED, and it must be the tenant's
+   * primary space — the only space a centroid may be stored in. A width
+   * check alone cannot tell two models of the same width apart, and a
+   * centroid from the wrong model at the right width is silently wrong
+   * forever (there is no source text to re-embed it from); requiring the
+   * declaration makes the operator assert something checkable. Absent or
+   * incompatible is a 400.
    */
-  embeddingSpaceId?: string;
+  embeddingSpaceId: string;
 }
 
 /**
@@ -136,10 +139,11 @@ export class LensSuppressionService {
             suppressLanes: string[];
             sampleCount: number;
             version: number;
+            embeddingSpaceId?: string | null;
           }>,
         ]
       >(
-        `SELECT classId, centroid, suppressLanes, sampleCount, version
+        `SELECT classId, centroid, suppressLanes, sampleCount, version, embeddingSpaceId
             FROM lens_suppression
             ORDER BY version DESC`,
       );
@@ -148,6 +152,17 @@ export class LensSuppressionService {
         // First row per class wins (rows are version-desc ordered).
         if (byClass.has(r.classId)) continue;
         if (!Array.isArray(r.centroid) || !Array.isArray(r.suppressLanes)) continue;
+        // Never cosine a centroid the corpus cannot be compared against: a
+        // row written before the write guard (0132) at a foreign width, or
+        // one left behind by an embedder re-configuration, would raise for
+        // the whole query. Skip it, say so (once an hour per class), and let
+        // the governor stay static for that class — the byte-identical
+        // fallback.
+        const unusable = this.centroidUnusableReason(r);
+        if (unusable !== null) {
+          this.noteUnusableCentroid(companyId, r.classId, unusable);
+          continue;
+        }
         const suppressLanes = r.suppressLanes
           .map(toLaneId)
           .filter((l): l is NonNullable<typeof l> => l !== null);
@@ -160,6 +175,48 @@ export class LensSuppressionService {
       }
       return [...byClass.values()];
     });
+  }
+
+  /**
+   * Why a stored centroid must not be served, or null when it may. The
+   * width is compared against the PRIMARY space (the corpus it will be
+   * compared with); a stamped space must be compatible with it. An
+   * unstamped row at the right width predates 0132 and is accepted — the
+   * stamp is what makes a same-width foreign model detectable, so it is
+   * required on every NEW write (assertCentroidSpace) but cannot be
+   * demanded of history.
+   */
+  private centroidUnusableReason(r: {
+    centroid: number[];
+    embeddingSpaceId?: string | null;
+  }): string | null {
+    if (!this.embedder) return null;
+    const expected = this.embedder.primaryDimensions();
+    const primary = this.embedder.primarySpaceId();
+    if (r.centroid.length !== expected) {
+      return `${r.centroid.length}-wide centroid, corpus is ${expected}-wide (${primary})`;
+    }
+    if (typeof r.embeddingSpaceId === 'string' && r.embeddingSpaceId !== '') {
+      const reason = describeSpaceIncompatibility(r.embeddingSpaceId, primary);
+      if (reason !== null) {
+        return `stamped '${r.embeddingSpaceId}', corpus is '${primary}' (${reason})`;
+      }
+    }
+    return null;
+  }
+
+  /** Once an hour per (tenant, class) — loadModel runs per query. */
+  private readonly unusableWarnedAt = new Map<string, number>();
+
+  private noteUnusableCentroid(companyId: string, classId: string, reason: string): void {
+    const key = `${companyId}::${classId}`;
+    const now = Date.now();
+    if (now - (this.unusableWarnedAt.get(key) ?? 0) < 60 * 60_000) return;
+    this.unusableWarnedAt.set(key, now);
+    this.logger.warn(
+      `lens-suppression: skipping class '${classId}' for ${companyId} — ${reason}. ` +
+        `The governor stays static for it; re-fit the class offline in the tenant's space.`,
+    );
   }
 
   /**
@@ -212,14 +269,20 @@ export class LensSuppressionService {
       );
     }
     const primary = this.embedder.primarySpaceId();
-    if (c.embeddingSpaceId !== undefined) {
-      const reason = describeSpaceIncompatibility(c.embeddingSpaceId, primary);
-      if (reason !== null) {
-        throw new BadRequestException(
-          `lens-suppression fit: class '${c.classId}' declares embedding space ` +
-            `'${c.embeddingSpaceId}' but this tenant serves '${primary}' (${reason}).`,
-        );
-      }
+    if (typeof c.embeddingSpaceId !== 'string' || c.embeddingSpaceId.trim() === '') {
+      // Width alone cannot tell two models of the same width apart, and a
+      // wrong-model centroid at the right width is durable and silent.
+      throw new BadRequestException(
+        `lens-suppression fit: class '${c.classId}' must declare embeddingSpaceId — the space ` +
+          `the centroid was mined in; this tenant's is '${primary}'.`,
+      );
+    }
+    const reason = describeSpaceIncompatibility(c.embeddingSpaceId, primary);
+    if (reason !== null) {
+      throw new BadRequestException(
+        `lens-suppression fit: class '${c.classId}' declares embedding space ` +
+          `'${c.embeddingSpaceId}' but this tenant serves '${primary}' (${reason}).`,
+      );
     }
     // Stamp the space that was actually validated, so a later width change
     // can tell an old centroid from a current one (0101/0132).

@@ -19,7 +19,7 @@ describe('RecomposeService', () => {
 
   function make(opts: {
     changes?: any[];
-    cursor?: number;
+    cursor?: number | bigint;
     stale?: any[];
     parents?: Record<string, any>;
     summaryText?: string;
@@ -60,7 +60,7 @@ describe('RecomposeService', () => {
     return { svc, queries, generator };
   }
 
-  const change = (versionstamp: number, id: string, status: string) => ({
+  const change = (versionstamp: number | bigint, id: string, status: string) => ({
     versionstamp,
     changes: [{ update: { id, status } }],
   });
@@ -126,7 +126,8 @@ describe('RecomposeService', () => {
       });
       await svc.invalidate('co_x');
       const upsert = queries.find((q) => q.sql.includes('UPSERT changefeed_state'));
-      expect(upsert!.params.v).toBe(14);
+      // bigint even from a plain-number stub — the cursor is bigint-typed end to end.
+      expect(upsert!.params.v).toBe(14n);
     });
 
     it('skips changes at or below the cursor (SINCE is inclusive)', async () => {
@@ -136,6 +137,35 @@ describe('RecomposeService', () => {
       });
       expect(await svc.invalidate('co_x')).toBe(0);
       expect(queries.some((q) => q.sql.includes('fn::mark_derived_stale'))).toBe(false);
+    });
+
+    it('carries a u64 versionstamp as bigint end to end (3.x stamps exceed 2^53)', async () => {
+      // Production: every nightly recompose failed with
+      // `CborNumberError: Number too big to be encoded` because the u64
+      // SHOW CHANGES versionstamp (~1.17e17) went through Number() and was
+      // then bound into the cursor UPSERT. The stub emits what the SDK emits.
+      const cursor = 117205247460507647n;
+      const stamp = 117205247460507648n;
+      const { svc, queries } = make({
+        cursor,
+        changes: [change(stamp, 'knowledge_fact:p1', 'superseded')],
+      });
+      expect(await svc.invalidate('co_x')).toBe(1);
+      const show = queries.find((q) => q.sql.includes('SHOW CHANGES'));
+      expect(show!.sql).toContain(`SINCE ${cursor} `);
+      const upsert = queries.find((q) => q.sql.includes('UPSERT changefeed_state'));
+      expect(typeof upsert!.params.v).toBe('bigint');
+      expect(upsert!.params.v).toBe(stamp);
+    });
+
+    it('does not advance past a u64 stamp at or below a bigint cursor', async () => {
+      const cursor = 117205247460507648n;
+      const { svc, queries } = make({
+        cursor,
+        changes: [change(cursor, 'knowledge_fact:old', 'superseded')],
+      });
+      expect(await svc.invalidate('co_x')).toBe(0);
+      expect(queries.some((q) => q.sql.includes('UPSERT changefeed_state'))).toBe(false);
     });
   });
 

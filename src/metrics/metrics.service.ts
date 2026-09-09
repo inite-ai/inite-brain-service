@@ -117,6 +117,19 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Hybrid searches answered lexical-only because the vector leg could not
+  // run. `reason` is one of two fixed values: embedder_unavailable (query
+  // could not be embedded — primary warming up or down) or
+  // vector_query_failed (the similarity statement errored, e.g. rows not
+  // in the query's space). A non-zero rate is a degraded read path that
+  // /health cannot see.
+  readonly searchVectorLegDegraded = new Counter({
+    name: 'brain_search_vector_leg_degraded_total',
+    help: 'Hybrid searches served lexical-only because the vector leg was unavailable',
+    labelNames: ['reason'] as const,
+    registers: [this.registry],
+  });
+
   // ── Capability probes (src/metrics/capability-probe.service.ts) ──────
   // The ACTIVE signal for "the service reports healthy while a whole
   // capability is dead" — the class behind #502 (scoped pool anonymous
@@ -158,6 +171,28 @@ export class MetricsService implements OnModuleInit {
   readonly capabilityProbeLastSuccess = new Gauge({
     name: 'brain_capability_probe_last_success_timestamp_seconds',
     help: 'Unix time of the last probe that found this capability serving',
+    labelNames: ['capability'] as const,
+    registers: [this.registry],
+  });
+
+  // When the probe was armed for this capability, written once at bootstrap
+  // for every declared capability — BEFORE any probe has run.
+  //
+  // It exists to close the hole the staleness alert had on its own: that
+  // alert measured `time() - last_success`, so a capability that had never
+  // ONCE succeeded had no last_success series at all, the expression
+  // returned no data, and noDataState: OK swallowed it. A capability broken
+  // from the very first tick was therefore the one case the staleness alert
+  // could not see — precisely the shape of the outage it was written for.
+  //
+  // With this series the alert can fall back to it (`last_success or armed`)
+  // and measure age from arming instead, so "never worked" reads as a large
+  // age rather than as absence. Arming time, not now(): it must not claim a
+  // success that never happened, and it must still allow a legitimately slow
+  // first success (a cold model warmup) the alert's full window.
+  readonly capabilityProbeArmed = new Gauge({
+    name: 'brain_capability_probe_armed_timestamp_seconds',
+    help: 'Unix time the probe was armed for this capability (present before the first probe runs)',
     labelNames: ['capability'] as const,
     registers: [this.registry],
   });
@@ -290,6 +325,51 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  readonly hnswProvisionCount = new Counter({
+    name: 'brain_hnsw_provision_total',
+    help: 'HNSW index provisioning tenant passes by outcome (ready|created|building|partial|absent|mismatch|unknown|dry_run|failed|skipped_budget)',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
+  // The roster fold, as of the last reconciliation pass. This is the series
+  // that answers "which tenants have a ready index" for an alert — the one
+  // question nothing in this service could answer before, because nothing
+  // recorded it. `absent` and `mismatch` above zero mean tenants are being
+  // served unranked rows with SEARCH_HNSW_ENABLED=1 (#506).
+  //
+  // Cardinality: one series per state (6), no companyId label — the named
+  // list lives in tenant_registry and on the admin roster route, where an
+  // operator chasing a specific tenant looks.
+  readonly hnswIndexTenants = new Gauge({
+    name: 'brain_hnsw_index_tenants',
+    help: 'Tenants by recorded HNSW index state as of the last reconciliation pass',
+    labelNames: ['state'] as const,
+    registers: [this.registry],
+  });
+
+  // Vector rows whose width is not the primary embedder's, summed over every
+  // tenant at the last nightly census (VectorCorpusService). Non-zero means
+  // memory that dense retrieval cannot reach; `repairs` says what the
+  // actuator did about it.
+  readonly vectorCorpusNonconforming = new Gauge({
+    name: 'brain_vector_corpus_nonconforming_rows',
+    help: 'Vector rows not in the primary embedding space, by column, at the last census',
+    labelNames: ['table', 'field'] as const,
+    registers: [this.registry],
+  });
+  readonly vectorCorpusTenantsNonconforming = new Gauge({
+    name: 'brain_vector_corpus_tenants_nonconforming',
+    help: 'Tenants with at least one vector row outside the primary embedding space',
+    registers: [this.registry],
+  });
+  readonly vectorCorpusRepairs = new Counter({
+    name: 'brain_vector_corpus_repairs_total',
+    help: 'Corpus repair attempts by outcome (repaired, partial, deferred, failed)',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
   // What the sweep saw, by kind:
   //   scanned — blobs the store offered
   //   orphan  — unreferenced past the grace window (what a real run
@@ -343,6 +423,9 @@ export class MetricsService implements OnModuleInit {
   //                    exactly how much staleness the fact link caught.
   //   stored         — verified grounded answer admitted (write-through)
   //   bypass         — cache on but request ineligible (explain/empty)
+  //   not_admitted   — a supported answer refused at admission (0136):
+  //                    its evidence carries an arm the cache cannot
+  //                    revalidate, or a dependency was already dead
   readonly answerCacheCount = new Counter({
     name: 'brain_answer_cache_total',
     help: 'Answer-cache decisions by outcome',
@@ -971,7 +1054,9 @@ export class MetricsService implements OnModuleInit {
     this.synthesizeCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
-  countAnswerCache(outcome: 'hit' | 'miss' | 'rejected_stale' | 'stored' | 'bypass'): void {
+  countAnswerCache(
+    outcome: 'hit' | 'miss' | 'rejected_stale' | 'stored' | 'bypass' | 'not_admitted',
+  ): void {
     this.answerCacheCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
@@ -1137,6 +1222,26 @@ export class MetricsService implements OnModuleInit {
 
   countEvidenceOrphanGc(outcome: 'ok' | 'dry_run' | 'failed' | 'skipped_budget'): void {
     this.evidenceOrphanGcCount.inc({ outcome } as LabelValues<'outcome'>);
+  }
+
+  countHnswProvision(outcome: string): void {
+    this.hnswProvisionCount.inc({ outcome } as LabelValues<'outcome'>);
+  }
+
+  setHnswIndexTenants(state: string, n: number): void {
+    this.hnswIndexTenants.set({ state } as LabelValues<'state'>, n);
+  }
+
+  setVectorCorpusNonconforming(table: string, field: string, n: number): void {
+    this.vectorCorpusNonconforming.set({ table, field } as LabelValues<'table' | 'field'>, n);
+  }
+
+  setVectorCorpusTenantsNonconforming(n: number): void {
+    this.vectorCorpusTenantsNonconforming.set(n);
+  }
+
+  countVectorCorpusRepair(outcome: 'repaired' | 'partial' | 'deferred' | 'failed'): void {
+    this.vectorCorpusRepairs.inc({ outcome } as LabelValues<'outcome'>);
   }
 
   countEvidenceOrphanBlobs(kind: 'scanned' | 'orphan' | 'deleted' | 'failed', n = 1): void {

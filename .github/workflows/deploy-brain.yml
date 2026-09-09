@@ -37,7 +37,12 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'deploy | restart | logs'
+        # `rollback` redeploys the last image that passed BOTH the
+        # readiness gate and the external smoke test, recorded on the box
+        # at .last-good-image. It is the manual twin of the automatic
+        # rollback the deploy job performs when its own verification
+        # fails; see § Rollback in docs/operations.md.
+        description: 'deploy | restart | logs | rollback'
         required: false
         default: 'deploy'
 
@@ -59,56 +64,84 @@ permissions:
   contents: read
 
 jobs:
-  build-and-push:
-    # Skip build for restart/logs ops. Push events have no inputs,
-    # so the inputs.action check defaults to true (build runs).
-    if: github.event_name == 'push' || (github.event.inputs.action != 'restart' && github.event.inputs.action != 'logs')
-    runs-on: [self-hosted, sfo]
-
+  # ---------------------------------------------------------------------
+  # The deploy no longer builds anything.
+  #
+  # It used to: this workflow rebuilt the image from source on the
+  # self-hosted runner, pushed it as :latest, and the deploy pulled
+  # :latest. Two things were wrong with that, and they compound.
+  #
+  # First, nothing connected the artifact CI tested to the artifact
+  # production ran. Same source, two builds, no identity between them —
+  # and the SHA tag this workflow already pushed was never consumed by
+  # anything, so it could not even serve as a manual rollback target
+  # without hand-editing the compose file.
+  #
+  # Second, ci.yml and this workflow both fired on `push` to main, in
+  # parallel, with no ordering. A red main deployed; the only thing
+  # between a broken merge and brain.inite.ai was whether the deploy's
+  # build happened to be slower than the test suite.
+  #
+  # So this job does neither: it waits for CI's verdict on THIS commit,
+  # then takes the digest CI recorded after it smoke-tested the pushed
+  # image. It runs on a GitHub-hosted runner, deliberately — the wait can
+  # be twenty minutes and the single self-hosted deploy runner should not
+  # spend them idle.
+  #
+  # `on: workflow_run` would give the CI conclusion for free and is
+  # rejected: it carries no `paths:` filter, and this workflow's path
+  # trigger is a guarded, load-bearing thing. Trading a tested trigger for
+  # an untested one to save a poll loop is a bad trade.
+  # ---------------------------------------------------------------------
+  verify:
+    # restart, logs and rollback do not deploy a NEW image, so none of
+    # them needs a freshly verified artifact. rollback in particular must
+    # work when CI is red — that is the situation it exists for.
+    if: github.event_name == 'push' || (github.event.inputs.action == 'deploy' || github.event.inputs.action == '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      # Reading another workflow's run status, and downloading its artifact.
+      actions: read
+    outputs:
+      image: ${{ steps.manifest.outputs.image }}
+      digest: ${{ steps.manifest.outputs.digest }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # @inite/knowledge SDK is a test-only import (TS path mapping in
-      # tsconfig.json points at ../inite-shared/...). Production build
-      # only compiles src/ and ships dist/main.js — no SDK code is
-      # bundled. So we skip the inite-shared checkout: nothing to fetch.
+      - name: Wait for CI to conclude on this commit
+        id: ci
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          AWAIT_SHA: ${{ github.sha }}
+          AWAIT_TIMEOUT_MINUTES: '45'
+        run: node scripts/ci/await-ci.mjs
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+      - name: Download the deploy manifest CI published
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          name: deploy-manifest
+          run-id: ${{ steps.ci.outputs.run_id }}
+          github-token: ${{ github.token }}
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:${{ github.sha }}
-          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:buildcache
-          cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:buildcache,mode=max
-          platforms: linux/amd64
-
-      - name: Build info
-        run: |
-          echo "[ok] Image pushed: ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:${{ github.sha }}"
+      - name: Resolve the image digest
+        id: manifest
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: node scripts/ci/read-deploy-manifest.mjs
 
   deploy:
-    needs: build-and-push
+    needs: verify
     # Run the deploy job when:
-    #   - push event: only after a successful build
-    #   - workflow_dispatch deploy: only after a successful build
-    #   - workflow_dispatch restart/logs: skip build, run anyway
+    #   - push event: only after CI went green and a digest was resolved
+    #   - workflow_dispatch deploy: same
+    #   - workflow_dispatch restart/logs: no image needed, run anyway
     if: |
       always() && (
-        (github.event_name == 'push' && needs.build-and-push.result == 'success') ||
-        (github.event_name == 'workflow_dispatch' && (needs.build-and-push.result == 'success' || github.event.inputs.action == 'restart' || github.event.inputs.action == 'logs'))
+        (github.event_name == 'push' && needs.verify.result == 'success') ||
+        (github.event_name == 'workflow_dispatch' && (needs.verify.result == 'success' || github.event.inputs.action == 'restart' || github.event.inputs.action == 'logs' || github.event.inputs.action == 'rollback'))
       )
     runs-on: [self-hosted, sfo]
 
@@ -196,6 +229,14 @@ jobs:
           SEARCH_FACT_RERANK=1
           # ── Search stack ──
           SEARCH_HNSW_ENABLED=1
+          # …and the provisioning that makes the line above true. Without
+          # it the KNN leg is on for every tenant while index creation is a
+          # human remembering to POST /v1/admin/maintenance/hnsw, and a
+          # tenant nobody remembered is served k arbitrary rows with a null
+          # distance rather than an error (#506). Provisioning only ADDS
+          # absent indexes, always CONCURRENTLY, capped at 5 tenants
+          # starting builds per nightly run.
+          HNSW_PROVISION_ENABLED=1
           SEARCH_COMBINED_VECTOR_GRAPH=1
           SEARCH_HIGHLIGHT_ENABLED=1
           SEARCH_USAGE_RECORDING_ENABLED=1
@@ -401,9 +442,77 @@ jobs:
 
       - name: Deploy to server
         if: github.event.inputs.action != 'logs'
+        # Everything the script needs from the workflow context comes in as
+        # environment, not as `${{ }}` spliced into the script. GitHub treats
+        # a `run:` that contains any expression as ONE expression and caps
+        # it at 21000 characters; this step is ~26k, so the file was invalid
+        # and every deploy since #523 failed before a job started ("Exceeded
+        # max expression length 21000"). Reading secrets from env is also the
+        # documented practice — a value never becomes shell source.
+        env:
+          IMAGE_FROM_CI: ${{ needs.verify.outputs.image }}
+          ACTION: ${{ github.event.inputs.action }}
+          BRAIN_SURREAL_USER: ${{ secrets.BRAIN_SURREAL_USER }}
+          BRAIN_SURREAL_PASS: ${{ secrets.BRAIN_SURREAL_PASS }}
+          BRAIN_SURREAL_SCOPED_PASS: ${{ secrets.BRAIN_SURREAL_SCOPED_PASS }}
+          BRAIN_OPENAI_API_KEY: ${{ secrets.BRAIN_OPENAI_API_KEY }}
+          BRAIN_FORGET_HMAC_KEY: ${{ secrets.BRAIN_FORGET_HMAC_KEY }}
+          BRAIN_BILLING_API_KEY: ${{ secrets.BRAIN_BILLING_API_KEY }}
         run: |
-          mkdir -p /opt/projects/${{ env.PROJECT_NAME }}
-          cd /opt/projects/${{ env.PROJECT_NAME }}
+          mkdir -p "/opt/projects/${PROJECT_NAME}"
+          cd "/opt/projects/${PROJECT_NAME}"
+
+          # The image is a DIGEST resolved from the manifest CI published
+          # after it smoke-tested that exact artifact — never `:latest`,
+          # which is a mutable pointer and cannot carry the claim "this is
+          # what CI tested".
+          #
+          # restart/logs skip the verify job, so there is no digest to
+          # resolve; those reuse whatever the compose file on disk already
+          # pins, which is the last thing this workflow deployed. An empty
+          # image after both attempts is fatal — writing a compose file
+          # with a blank image would silently resolve to something else.
+          # Whatever is pinned right now is what we roll back TO if this
+          # deploy fails its own verification. Captured before the compose
+          # file is rewritten, because rewriting destroys the only record.
+          PREVIOUS_IMAGE=""
+          if [ -f docker-compose.yml ]; then
+            PREVIOUS_IMAGE="$(awk '/^[[:space:]]+image:/ {print $2; exit}' docker-compose.yml)"
+          fi
+          echo "PREVIOUS_IMAGE=${PREVIOUS_IMAGE}" >> "$GITHUB_ENV"
+          echo "[deploy] currently pinned: ${PREVIOUS_IMAGE:-<nothing>}"
+
+          IMAGE_REF="${IMAGE_FROM_CI}"
+          if [ "${ACTION}" = "rollback" ]; then
+            # The manual escape hatch. .last-good-image is only written
+            # after a deploy passed BOTH the readiness gate and the
+            # external smoke test, so it is a known-good target rather
+            # than merely a previous one.
+            if [ ! -s .last-good-image ]; then
+              echo "[err] no .last-good-image recorded on this host — nothing to roll back to."
+              echo "[err] Deploy a known-good commit instead, or pin a digest by hand."
+              exit 1
+            fi
+            IMAGE_REF="$(cat .last-good-image)"
+            echo "[deploy] ROLLBACK to last known-good image: $IMAGE_REF"
+          fi
+          if [ -z "$IMAGE_REF" ]; then
+            IMAGE_REF="$PREVIOUS_IMAGE"
+            echo "[deploy] reusing the pinned image already on disk: $IMAGE_REF"
+          fi
+          if [ -z "$IMAGE_REF" ]; then
+            echo "[err] no image to deploy: CI published no digest and no compose file is pinned."
+            exit 1
+          fi
+          echo "IMAGE_REF=${IMAGE_REF}" >> "$GITHUB_ENV"
+          echo "[deploy] image: $IMAGE_REF"
+
+          # Persisted to disk, not just to $GITHUB_ENV, because the
+          # promote/rollback decision is made in a LATER job (after the
+          # external smoke test, which runs off-box) and job env does not
+          # survive that hop.
+          printf '%s' "$PREVIOUS_IMAGE" > .previous-image
+          printf '%s' "$IMAGE_REF" > .pending-image
 
           # Brain talks to the SHARED inite-surrealdb container that lives in
           # the temporal stack (inite-temporal/docker-compose). Brain owns
@@ -414,9 +523,9 @@ jobs:
           # pool tries to sign in.
           tee docker-compose.yml > /dev/null << EOF
           services:
-            ${{ env.PROJECT_NAME }}:
-              image: ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:latest
-              container_name: ${{ env.PROJECT_NAME }}
+            ${PROJECT_NAME}:
+              image: ${IMAGE_REF}
+              container_name: ${PROJECT_NAME}
               restart: unless-stopped
               # PID-1 init (tini): reaps zombie children from the worker
               # pool / native deps and forwards signals so SIGTERM reaches
@@ -427,25 +536,25 @@ jobs:
               # give it headroom past that budget.
               stop_grace_period: 30s
               expose:
-                - "${{ env.PORT }}"
+                - "${PORT}"
               environment:
                 - NODE_ENV=production
-                - PORT=${{ env.PORT }}
+                - PORT=${PORT}
                 - LOG_FORMAT=json
                 # Shared SurrealDB — same instance gateway uses.
                 # NS=inite (shared namespace; brain's tables knowledge_*
                 # don't collide with gateway's). Per-tenant DBs are
                 # co_<companyId> created on first request via ensureSchema.
                 - SURREALDB_URL=ws://inite-surrealdb:8000
-                - SURREALDB_USERNAME=${{ secrets.BRAIN_SURREAL_USER }}
-                - SURREALDB_PASSWORD=${{ secrets.BRAIN_SURREAL_PASS }}
+                - SURREALDB_USERNAME=${BRAIN_SURREAL_USER}
+                - SURREALDB_PASSWORD=${BRAIN_SURREAL_PASS}
                 - SURREALDB_NAMESPACE=inite
                 - SURREALDB_POOL_SIZE=8
                 - SURREALDB_SCOPED_POOL_SIZE=8
                 - SURREALDB_SCOPED_USER=brain_caller
-                - SURREALDB_SCOPED_PASS=${{ secrets.BRAIN_SURREAL_SCOPED_PASS }}
+                - SURREALDB_SCOPED_PASS=${BRAIN_SURREAL_SCOPED_PASS}
                 # OpenAI for embeddings + extraction + faithfulness verifier.
-                - OPENAI_API_KEY=${{ secrets.BRAIN_OPENAI_API_KEY }}
+                - OPENAI_API_KEY=${BRAIN_OPENAI_API_KEY}
                 - OPENAI_CHAT_MODEL=gpt-4o-mini-2024-07-18
                 # OpenAI client budget — same as eval. Per-stage budgets
                 # in search.service.ts (SEARCH_STAGE_BUDGET_MS) cap the
@@ -473,7 +582,7 @@ jobs:
                 # 'unexpected "iss" claim value' (admin BFF data plane 401).
                 - AUTH_SERVICE_ISSUER=https://auth-api.inite.ai
                 # GDPR forget HMAC — opaque tombstone marker.
-                - FORGET_HMAC_KEY=${{ secrets.BRAIN_FORGET_HMAC_KEY }}
+                - FORGET_HMAC_KEY=${BRAIN_FORGET_HMAC_KEY}
                 # Search retrieval features — eval-validated ON config.
                 # Now safe to keep on because each LLM stage runs under
                 # its own withStageBudget wrapper (search.service.ts):
@@ -563,7 +672,7 @@ jobs:
                 # domain_pack:<packId>, billing userId = brain companyId.
                 - DOMAIN_PACK_BILLING_ENABLED=1
                 - BILLING_SERVICE_URL=https://billing.inite.ai
-                - BILLING_SERVICE_API_KEY=${{ secrets.BRAIN_BILLING_API_KEY }}
+                - BILLING_SERVICE_API_KEY=${BRAIN_BILLING_API_KEY}
                 # ── MCP pack tools (docs/mcp-pack-tools.md) ─────────────
                 # Master ON: consented packs may register declarative QUERY
                 # tools (namespace-locked, row-fenced). EXTERNAL proxy tools
@@ -694,7 +803,7 @@ jobs:
               env_file:
                 - ./enablement.env
               volumes:
-                - /opt/projects/${{ env.PROJECT_NAME }}/baselines:/var/brain/baselines
+                - /opt/projects/${PROJECT_NAME}/baselines:/var/brain/baselines
               labels:
                 # ── Backend routes only — landing handles the rest of brain.inite.ai.
                 # Backend owns /v1/*, /mcp/*, /health, /metrics.
@@ -712,22 +821,32 @@ jobs:
                 # /skills.tar.gz, written there by scripts/build-openapi.ts.
                 - "traefik.enable=true"
                 - "traefik.docker.network=traefik-global"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}.rule=Host(\`${{ env.DOMAIN }}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/registry\`))"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}.priority=200"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}.entrypoints=websecure"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}.tls=true"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}.tls.certresolver=letsencrypt"
-                - "traefik.http.services.${{ env.PROJECT_NAME }}.loadbalancer.server.port=${{ env.PORT }}"
-                - "traefik.http.services.${{ env.PROJECT_NAME }}.loadbalancer.responseForwarding.flushInterval=-1"
+                - "traefik.http.routers.${PROJECT_NAME}.rule=Host(\`${DOMAIN}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/registry\`))"
+                - "traefik.http.routers.${PROJECT_NAME}.priority=200"
+                - "traefik.http.routers.${PROJECT_NAME}.entrypoints=websecure"
+                - "traefik.http.routers.${PROJECT_NAME}.tls=true"
+                - "traefik.http.routers.${PROJECT_NAME}.tls.certresolver=letsencrypt"
+                - "traefik.http.services.${PROJECT_NAME}.loadbalancer.server.port=${PORT}"
+                - "traefik.http.services.${PROJECT_NAME}.loadbalancer.responseForwarding.flushInterval=-1"
+                # Edge liveness: a wedged process answers 503 at Traefik instead of
+                # timing out client connections. Deliberately /health, NOT /ready:
+                # this is a single replica, and the process degrades on its own
+                # (lexical-only search while the embedder warms, 503 on scoped reads
+                # while writes still work) — pulling it out of rotation on /ready
+                # would turn every partial outage into a total one. /ready is the
+                # deploy gate and the k8s readinessProbe for a multi-replica layout.
+                - "traefik.http.services.${PROJECT_NAME}.loadbalancer.healthcheck.path=/health"
+                - "traefik.http.services.${PROJECT_NAME}.loadbalancer.healthcheck.interval=15s"
+                - "traefik.http.services.${PROJECT_NAME}.loadbalancer.healthcheck.timeout=5s"
                 # http→https redirect for the same backend paths (landing has its own).
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.rule=Host(\`${{ env.DOMAIN }}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/registry\`))"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.priority=200"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.entrypoints=web"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.middlewares=redirect-to-https"
+                - "traefik.http.routers.${PROJECT_NAME}-http.rule=Host(\`${DOMAIN}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/registry\`))"
+                - "traefik.http.routers.${PROJECT_NAME}-http.priority=200"
+                - "traefik.http.routers.${PROJECT_NAME}-http.entrypoints=web"
+                - "traefik.http.routers.${PROJECT_NAME}-http.middlewares=redirect-to-https"
                 - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
                 - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
               healthcheck:
-                test: ["CMD", "wget", "-qO-", "http://localhost:${{ env.PORT }}/health"]
+                test: ["CMD", "wget", "-qO-", "http://localhost:${PORT}/health"]
                 interval: 15s
                 timeout: 5s
                 retries: 5
@@ -757,15 +876,15 @@ jobs:
           # USER node, so this chown matches the runtime user). Without
           # this docker creates it root-owned and BaselineService's
           # fs.writeFile fails with EACCES on first save.
-          mkdir -p /opt/projects/${{ env.PROJECT_NAME }}/baselines
-          chown -R 1000:1000 /opt/projects/${{ env.PROJECT_NAME }}/baselines || true
+          mkdir -p "/opt/projects/${PROJECT_NAME}/baselines"
+          chown -R 1000:1000 "/opt/projects/${PROJECT_NAME}/baselines" || true
 
-          if [ "${{ github.event.inputs.action }}" = "restart" ]; then
+          if [ "${ACTION}" = "restart" ]; then
             echo "[deploy] restart only"
-            docker-compose restart ${{ env.PROJECT_NAME }}
+            docker-compose restart "${PROJECT_NAME}"
           else
             echo "[deploy] pulling image..."
-            docker-compose pull ${{ env.PROJECT_NAME }}
+            docker-compose pull "${PROJECT_NAME}"
             echo "[deploy] up -d"
             docker-compose up -d --remove-orphans
           fi
@@ -773,10 +892,10 @@ jobs:
           sleep 25
 
           if docker-compose ps | grep -q "Up"; then
-            echo "[ok] ${{ env.DOMAIN }} container is up"
+            echo "[ok] ${DOMAIN} container is up"
           else
             echo "[err] container failed to start"
-            docker-compose logs --tail=100 ${{ env.PROJECT_NAME }}
+            docker-compose logs --tail=100 "${PROJECT_NAME}"
             exit 1
           fi
 
@@ -824,25 +943,129 @@ jobs:
           echo "[err] Inspect scoped DB credentials and primary embedder warmup logs; do not start reindex until /ready is 200."
           exit 1
 
-      - name: External health probe (warning-only)
-        if: github.event.inputs.action != 'logs'
-        continue-on-error: true
-        run: |
-          # Best-effort — DNS may not be wired yet, Let's Encrypt cert
-          # provisioning can take 30-90s on first deploy. Failure here
-          # surfaces as a workflow warning, not a deploy block.
-          for i in $(seq 1 12); do
-            if curl -fs https://${{ env.DOMAIN }}/health > /dev/null 2>&1; then
-              echo "[ok] https://${{ env.DOMAIN }}/health responds"
-              curl -s https://${{ env.DOMAIN }}/health | head -c 500
-              echo ""
-              exit 0
-            fi
-            echo "[info] external probe retry ($i/12)..."
-            sleep 10
-          done
-          echo "[warn] https://${{ env.DOMAIN }}/health never responded — check DNS A-record + Traefik cert in droplet logs"
+      # The external check moved OUT of this job and into `smoke` below.
+      # It used to be `curl -fs .../health`, warning-only — which verified
+      # that Nest had bound a port and nothing else, and could not fail a
+      # deploy even when it did notice something. Liveness is already
+      # covered by the two internal gates above; what was missing was any
+      # assertion about the surface actually being served.
 
       - name: Cleanup
         if: always() && github.event.inputs.action != 'logs'
         run: docker system prune -f
+
+  # ---------------------------------------------------------------------
+  # Post-deploy smoke test of the real surface, off-box and through
+  # Traefik — so it exercises DNS, the certificate, the router rules and
+  # the container, which is the whole path a caller uses.
+  #
+  # It asserts behaviour a dead or misrouted deploy cannot fake: an
+  # unauthenticated POST to /v1/search must come back 401. A 404 means the
+  # API is not mounted; a 200 means auth is not enforced. Only 401 says
+  # the surface is there and fail-closed. See scripts/ci/smoke.mjs.
+  #
+  # This job BLOCKS. Its failure is what triggers the rollback below.
+  # ---------------------------------------------------------------------
+  smoke:
+    needs: deploy
+    if: needs.deploy.result == 'success' && github.event.inputs.action != 'logs' && github.event.inputs.action != 'restart'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Smoke the deployed surface
+        env:
+          SMOKE_BASE_URL: https://${{ env.DOMAIN }}
+          SMOKE_SURFACE: brain
+        run: node scripts/ci/smoke.mjs
+
+  # ---------------------------------------------------------------------
+  # Promote or roll back, depending on what the verification said.
+  #
+  # There was previously no way back at all: a failed probe dumped logs,
+  # exited 1, and left the broken container running. The SHA-tagged image
+  # the old build pushed was referenced by nothing, so even a manual
+  # rollback meant hand-editing the compose file on the box.
+  #
+  # `.last-good-image` is written ONLY here, only after both the readiness
+  # gate and the external smoke passed — so it is a known-good target
+  # rather than merely a previous one. `workflow_dispatch` with
+  # action=rollback redeploys it.
+  # ---------------------------------------------------------------------
+  finalize:
+    needs: [deploy, smoke]
+    if: always() && github.event.inputs.action != 'logs' && github.event.inputs.action != 'restart'
+    runs-on: [self-hosted, sfo]
+    timeout-minutes: 15
+    steps:
+      - name: Promote this image to last-known-good
+        if: needs.deploy.result == 'success' && needs.smoke.result == 'success'
+        run: |
+          set -euo pipefail
+          cd /opt/projects/${{ env.PROJECT_NAME }}
+          if [ ! -s .pending-image ]; then
+            echo "[promote] nothing pending — leaving .last-good-image untouched"
+            exit 0
+          fi
+          cp .pending-image .last-good-image
+          echo "[promote] last known-good is now $(cat .last-good-image)"
+
+      # Deliberately NOT `!= 'success'`. When `verify` fails — a red CI, no
+      # manifest — `deploy` is *skipped*, which is also not 'success', and
+      # rolling back then would restart production over a deploy that never
+      # happened. Nothing was touched, so nothing needs undoing. Only a
+      # deploy that actually ran and went wrong, or a smoke test that
+      # actually failed, is a reason to move the running image.
+      - name: Roll back to the previous image
+        if: needs.deploy.result == 'failure' || needs.deploy.result == 'cancelled' || needs.smoke.result == 'failure'
+        run: |
+          set -euo pipefail
+          cd /opt/projects/${{ env.PROJECT_NAME }}
+
+          # Prefer the last image that passed BOTH gates over merely "the
+          # one that was pinned before this run" — if the previous deploy
+          # was itself broken, rolling back to it achieves nothing.
+          TARGET=""
+          if [ -s .last-good-image ]; then
+            TARGET="$(cat .last-good-image)"
+          elif [ -s .previous-image ]; then
+            TARGET="$(cat .previous-image)"
+          fi
+
+          if [ -z "$TARGET" ]; then
+            echo "[rollback] no known-good or previous image recorded on this host."
+            echo "[rollback] The broken deploy is still running and MUST be handled by hand:"
+            echo "[rollback]   pin a digest in /opt/projects/${{ env.PROJECT_NAME }}/docker-compose.yml"
+            echo "[rollback]   then: docker-compose up -d"
+            exit 1
+          fi
+
+          CURRENT="$(awk '/^[[:space:]]+image:/ {print $2; exit}' docker-compose.yml || true)"
+          if [ "$TARGET" = "$CURRENT" ]; then
+            echo "[rollback] already running $TARGET — the failure is not the image."
+            echo "[rollback] Not restarting into the same thing. Investigate the deploy logs."
+            exit 1
+          fi
+
+          echo "[rollback] $CURRENT -> $TARGET"
+          sed -i "s|^\([[:space:]]*image:\).*|\1 ${TARGET}|" docker-compose.yml
+          docker-compose pull ${{ env.PROJECT_NAME }}
+          docker-compose up -d --remove-orphans
+
+          # A rollback that is not itself verified is just a second
+          # unverified deploy.
+          deadline=$((SECONDS + 300))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            if timeout 15s docker-compose exec -T ${{ env.PROJECT_NAME }} wget -T 12 -qO- http://localhost:${{ env.PORT }}/ready > /dev/null 2>&1; then
+              echo "[rollback] $TARGET is READY. Production is back on the last known-good image."
+              echo "[rollback] The commit that failed is still on main — fix forward or revert it."
+              exit 1
+            fi
+            echo "[rollback] waiting for readiness on the rolled-back image..."
+            sleep 5
+          done
+          echo "[rollback] FAILED — the rolled-back image did not become ready either."
+          docker-compose logs --tail=120 ${{ env.PROJECT_NAME }}
+          exit 1

@@ -54,6 +54,8 @@ import { SceneEvidenceLinkerService } from './scene-evidence-linker.service';
 import { SceneVersionService } from './scene-version';
 import { SceneGistEmbeddingService } from './scene-gist-embedding.service';
 import { HnswMaintenanceService } from './hnsw-maintenance.service';
+import { HnswProvisionService } from './hnsw-provision.service';
+import { VectorCorpusService } from './vector-corpus.service';
 import { CodeMemoryModule } from '../code-memory/code-memory.module';
 import { RegistryModule } from '../registry/registry.module';
 import { IndexersModule } from '../indexers/indexers.module';
@@ -125,6 +127,8 @@ import { ConfigInspectorService } from './config-inspector.service';
   providers: [
     AdminService,
     HnswMaintenanceService,
+    HnswProvisionService,
+    VectorCorpusService,
     AggregateComposerService,
     ArcComposerService,
     WindowDeriverService,

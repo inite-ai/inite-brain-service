@@ -3,7 +3,11 @@ import type { EmbedderService } from '../../ai/embedder.service';
 import type { FactRow } from './types';
 import type { SearchTuning } from '../retrieval-profile';
 import { buildEdgeFence, type EdgeFence } from './edge-fence';
-import { hnswIndexState, knnDroppedMessage, knnOperatorDropped } from '../../db/knn-index';
+import {
+  knnIndexKnownUnusable,
+  knnOperatorDropped,
+  noteKnnOperatorDropped,
+} from '../../db/knn-index';
 
 /** The index the fact vector leg rides; named here for the diagnostic. */
 const FACT_HNSW = { table: 'knowledge_fact', index: 'fact_embedding_hnsw' } as const;
@@ -79,24 +83,17 @@ export async function runVectorLeg({
   //
   //   - the statement throws → the legacy catch below;
   //   - the statement SUCCEEDS with the KNN operator silently dropped from
-  //     the plan, because the tenant has no (or a still-building) index.
-  //     SurrealDB then answers with the table's first k rows and a NULL
-  //     distance on each — unranked rows that are indistinguishable from
-  //     ranked ones downstream. See src/db/knn-index.ts for the 3.2.4
-  //     measurement.
+  //     the plan, because the tenant has no (or a still-building) index —
+  //     unranked table-order rows with a NULL distance (src/db/knn-index.ts).
   //
-  // The second case is the one production is in: SEARCH_HNSW_ENABLED=1 is
-  // set globally while index creation is a manual per-tenant admin call.
-  // Both now fall back to the exact scan below, which is byte-identical to
-  // what the tenant is served with the flag off.
-  if (tuning.hnswEnabled) {
+  // Both fall back to the exact scan below, byte-identical to what the
+  // tenant is served with the flag off. A tenant observed un-indexed within
+  // the memo TTL skips the KNN attempt outright — one scan, no diagnostics.
+  if (tuning.hnswEnabled && !knnIndexKnownUnusable(db, FACT_HNSW)) {
     try {
       const knnRows = await runVectorLegKnn({ db, queryEmbedding, k, baseWhere, tuning });
       if (knnRows !== null) return knnRows;
-      const state = await hnswIndexState(db, FACT_HNSW);
-      const message = knnDroppedMessage(FACT_HNSW, state);
-      if (logger?.error) logger.error(message);
-      else logger?.warn(message);
+      await noteKnnOperatorDropped(db, FACT_HNSW, { logger });
     } catch (e) {
       logger?.warn(`hnsw vector leg fell back to full scan: ${(e as Error).message}`);
     }
@@ -110,7 +107,7 @@ export async function runVectorLeg({
         ${combinedGraphProjection(tuning.combinedVectorGraph, edgeFence)}
         vector::similarity::cosine(embedding, $q) AS simScore
       FROM knowledge_fact
-      WHERE embedding != NONE
+      WHERE embedding != NONE AND array::len(embedding) = array::len($q)
         ${baseWhere.sql}
       ORDER BY simScore DESC
       LIMIT $k

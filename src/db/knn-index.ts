@@ -3,40 +3,29 @@ import type { Surreal } from 'surrealdb';
 /**
  * Missing-HNSW-index detection for the `<|k,ef|>` KNN legs.
  *
- * THE DEFECT. SurrealDB does not error when the `<|K,EF|>` operator has no
- * index to ride. It drops the operator from the plan and answers the rest
- * of the statement — `EXPLAIN` shows a bare `TableScan` — so the query
- * returns the first k rows in TABLE ORDER with `vector::distance::knn()`
- * projecting NULL. Measured on `surrealdb/surrealdb:v3.2.4` (3 000 × 1024-d,
- * scratch container):
+ * SurrealDB (3.2.4) does not error when the `<|K,EF|>` operator has no index
+ * to ride — or an index that is still building CONCURRENTLY. It drops the
+ * operator from the plan (`EXPLAIN` shows a bare `TableScan`) and answers
+ * with the table's first k rows in storage order, `vector::distance::knn()`
+ * projecting NULL on every one of them. Every KNN leg was written against
+ * the opposite assumption ("throws when the tenant has no index"), so the
+ * fallback never fired and un-indexed tenants were served unranked rows that
+ * looked exactly like ranked ones. Production runs `SEARCH_HNSW_ENABLED=1`
+ * while index creation is a per-tenant admin call, so that is the common
+ * state, not an edge case.
  *
- *   no index   → [{"knnDist":null,"n":1144},{"knnDist":null,"n":2781}, …]
- *                EXPLAIN → SelectProject → TableScan (no KnnScan node)
- *   index ready→ [{"knnDist":0.8998…,"n":1802},{"knnDist":0.8999…,"n":2007}, …]
+ * THE SIGNAL is the rows themselves: a numeric distance on any row means
+ * the operator ran; NULL on every row means it was dropped. Exact and free.
  *
- * Every KNN leg in this repo was written against the OPPOSITE assumption —
- * "throws when the tenant has no index — the caller falls back to the scan"
- * — so the `catch` that implements the fallback never fires and the leg
- * hands its caller k arbitrary rows with no similarity score. Production
- * runs `SEARCH_HNSW_ENABLED=1` while index creation is a manual per-tenant
- * admin call, so any tenant whose index was never built is served unranked
- * rows that look exactly like ranked ones.
- *
- * THE SIGNAL. `knnDist === null` on every returned row is a DIRECT
- * observation that the operator was not applied — not an inference from an
- * error that never arrives. It costs nothing (the rows are already in hand)
- * and it is exact: when the index rides, SurrealDB projects a number on
- * every row; when it is dropped, it projects NULL on every row.
- *
- * It also covers a second state that `INFO FOR TABLE` alone cannot see.
- * A `DEFINE INDEX … CONCURRENTLY` build EXISTS from the moment the DDL
- * returns but is not usable until it reports `ready`, and during the build
- * the KNN operator is dropped exactly as if no index existed (measured: at
- * `t+0.1s`, `{"initial":16,"pending":0,"status":"indexing"}` returned the
- * same three null-distance rows as the un-indexed table; at `t+1.2s`,
- * `status:"ready"` returned real distances). So "the index exists" is not
- * the property a KNN leg needs — "the operator was applied" is, and that is
- * what this module tests.
+ * THE MEMO. Detecting the drop after the fact still costs the KNN table
+ * scan, the exact scan, and two `INFO` round-trips per query — on every
+ * search, dense-scan lane, ingest mention and dedup seed of an un-indexed
+ * tenant. So a dropped operator is remembered per (namespace, database,
+ * table, index) for `KNN_INDEX_MEMO_TTL_MS`: while the memo is fresh the
+ * legs skip the KNN attempt and run the exact scan directly (one scan, no
+ * diagnostics), and the operator-facing line is emitted once per
+ * `KNN_INDEX_WARN_EVERY_MS` rather than per request. Index builds clear the
+ * memo (`resetKnnIndexMemo`); the TTL bounds the lag when they do not.
  */
 
 /**
@@ -57,59 +46,162 @@ export function knnOperatorDropped(
   return rows.every((row) => typeof (row as Record<string, unknown>)?.[distanceField] !== 'number');
 }
 
-/** What an HNSW index is doing on a tenant, for the diagnostic log. */
+/** What an HNSW index is doing on a tenant. */
 export type HnswIndexState = 'ready' | 'building' | 'absent' | 'unknown';
 
+export interface HnswIndexSpec {
+  table: string;
+  index: string;
+}
+
+export interface HnswIndexProbe {
+  state: HnswIndexState;
+  /** Rows walked by the initial build, when the engine reports it. */
+  initial?: number;
+  /** Rows queued behind the build (live writes), when reported. */
+  pending?: number;
+  /** The DIMENSION the engine echoes back in the index DDL; absent when the
+   *  DDL shape is not the one we expect, so a parse miss reads as "not
+   *  checked", never as "matches". */
+  dimension?: number;
+}
+
+type ProbeDb = Pick<Surreal, 'query'>;
+type MemoDb = ProbeDb & Partial<Pick<Surreal, 'namespace' | 'database'>>;
+/** The legs' logger shape; `debug` is optional because plain objects stand in for Nest's Logger in tests. */
+export interface KnnDiagnosticLogger {
+  warn: (msg: string) => void;
+  error?: (msg: string) => void;
+  debug?: (msg: string) => void;
+}
+
 /**
- * Why the KNN operator was dropped, for the operator-facing log line.
+ * The one INFO probe every consumer shares — read-only and best-effort: any
+ * error answers `unknown` rather than escalating, because a diagnostic must
+ * not turn a recovered query into a failed one.
  *
- * Read-only and best-effort: it runs ONLY on the failure path (never on the
- * hot path), and any error answers `'unknown'` rather than escalating — a
- * diagnostic must not turn a recovered query into a failed one.
- *
- * `INFO FOR TABLE` is the existence probe because `INFO FOR INDEX` THROWS
- * on an absent index ("The index 'x' does not exist"); `INFO FOR INDEX` is
- * then consulted only when the index does exist, to separate a finished
- * index from one still building (`{building:{status:'indexing'|'ready',…}}`).
+ * `INFO FOR TABLE` is the existence probe because `INFO FOR INDEX` THROWS on
+ * an absent index; `INFO FOR INDEX` is then consulted only when the index
+ * exists, to separate a finished index from one still building. A
+ * synchronously built index reports no `building` block at all — `ready`.
  */
-export async function hnswIndexState(
-  db: Pick<Surreal, 'query'>,
-  spec: { table: string; index: string },
-): Promise<HnswIndexState> {
+export async function probeHnswIndex(db: ProbeDb, spec: HnswIndexSpec): Promise<HnswIndexProbe> {
   try {
     const [info] = await db.query<[{ indexes?: Record<string, string> }]>(
       `INFO FOR TABLE ${spec.table};`,
     );
     const indexes = (info as { indexes?: Record<string, string> } | undefined)?.indexes;
-    if (!indexes || typeof indexes[spec.index] !== 'string') return 'absent';
+    const ddl = indexes?.[spec.index];
+    if (typeof ddl !== 'string') return { state: 'absent' };
+    const declared = /DIMENSION\s+(\d+)/i.exec(ddl);
+    const dimension = declared ? { dimension: parseInt(declared[1]!, 10) } : {};
+    const [detail] = await db.query<
+      [{ building?: { status?: string; initial?: number; pending?: number } }]
+    >(`INFO FOR INDEX ${spec.index} ON ${spec.table};`);
+    const building = (
+      detail as { building?: { status?: string; initial?: number; pending?: number } } | undefined
+    )?.building;
+    if (!building || building.status === undefined) return { state: 'ready', ...dimension };
+    return {
+      state: building.status === 'ready' ? 'ready' : 'building',
+      ...(typeof building.initial === 'number' ? { initial: building.initial } : {}),
+      ...(typeof building.pending === 'number' ? { pending: building.pending } : {}),
+      ...dimension,
+    };
   } catch {
-    return 'unknown';
-  }
-  try {
-    const [detail] = await db.query<[{ building?: { status?: string } }]>(
-      `INFO FOR INDEX ${spec.index} ON ${spec.table};`,
-    );
-    const status = (detail as { building?: { status?: string } } | undefined)?.building?.status;
-    if (status === undefined) return 'ready';
-    return status === 'ready' ? 'ready' : 'building';
-  } catch {
-    return 'unknown';
+    return { state: 'unknown' };
   }
 }
 
+/** `probeHnswIndex` reduced to its state. */
+export async function hnswIndexState(db: ProbeDb, spec: HnswIndexSpec): Promise<HnswIndexState> {
+  return (await probeHnswIndex(db, spec)).state;
+}
+
+/** How long a dropped-operator observation keeps the KNN attempt skipped. */
+export const KNN_INDEX_MEMO_TTL_MS = 60_000;
+/** Minimum gap between two operator-facing lines about the same index. */
+export const KNN_INDEX_WARN_EVERY_MS = 60 * 60_000;
+
+interface MemoEntry {
+  state: HnswIndexState;
+  at: number;
+  warnedAt: number;
+}
+
+const memo = new Map<string, MemoEntry>();
+
 /**
- * The single operator-facing sentence for a dropped KNN operator. ERROR,
- * not WARN: with `SEARCH_HNSW_ENABLED=1` this is a live misconfiguration
- * that has been answering searches with unranked rows, and the remedy is
- * one admin call. The exact scan the caller falls back to is the same query
- * every tenant runs with the flag off, so the request is still answered
- * correctly — the shout is about the tenant being un-indexed, not about the
- * request failing.
+ * The memo key: the connection's selected namespace/database plus the index.
+ * A connection that has not selected a database (unit fakes, admin paths)
+ * yields null, which disables the memo for that call — every such call then
+ * behaves as before: probe and log.
  */
-export function knnDroppedMessage(
-  spec: { table: string; index: string },
-  state: HnswIndexState,
-): string {
+export function knnIndexKey(db: MemoDb, spec: HnswIndexSpec): string | null {
+  const ns = db.namespace;
+  const database = db.database;
+  if (!ns || !database) return null;
+  return `${ns}/${database}/${spec.table}/${spec.index}`;
+}
+
+/**
+ * True when this tenant's index was observed absent or still building
+ * within the TTL — the leg should run its exact scan directly instead of
+ * paying for a KNN statement it knows will come back unranked.
+ */
+export function knnIndexKnownUnusable(
+  db: MemoDb,
+  spec: HnswIndexSpec,
+  now: number = Date.now(),
+): boolean {
+  const key = knnIndexKey(db, spec);
+  if (!key) return false;
+  const entry = memo.get(key);
+  if (!entry || now - entry.at >= KNN_INDEX_MEMO_TTL_MS) return false;
+  return entry.state === 'absent' || entry.state === 'building';
+}
+
+/**
+ * Record that a `<|k,ef|>` statement came back with the operator dropped:
+ * find out why (probing at most once per TTL per index), remember it, and
+ * tell the operator — ERROR the first time in an hour (with
+ * `SEARCH_HNSW_ENABLED=1` this is a live misconfiguration whose remedy is
+ * one admin call), a debug crumb after that. Returns the observed state.
+ */
+export async function noteKnnOperatorDropped(
+  db: MemoDb,
+  spec: HnswIndexSpec,
+  opts: { logger?: KnnDiagnosticLogger | undefined; now?: number | undefined } = {},
+): Promise<HnswIndexState> {
+  const { logger } = opts;
+  const now = opts.now ?? Date.now();
+  const key = knnIndexKey(db, spec);
+  const prev = key ? memo.get(key) : undefined;
+  const fresh = prev !== undefined && now - prev.at < KNN_INDEX_MEMO_TTL_MS;
+  const state = fresh ? prev.state : await hnswIndexState(db, spec);
+  const warnedAt = prev?.warnedAt ?? 0;
+  const shout = now - warnedAt >= KNN_INDEX_WARN_EVERY_MS;
+  // `at` is the PROBE time: a cached observation must not extend the skip,
+  // or a tenant could stay skipped indefinitely on repeated observations.
+  if (key) memo.set(key, { state, at: fresh ? prev.at : now, warnedAt: shout ? now : warnedAt });
+  const message = knnDroppedMessage(spec, state);
+  if (shout) (logger?.error ?? logger?.warn)?.(message);
+  else logger?.debug?.(message);
+  return state;
+}
+
+/** Forget every observation — after an index build, or between tests. */
+export function resetKnnIndexMemo(): void {
+  memo.clear();
+}
+
+/**
+ * The single operator-facing sentence for a dropped KNN operator. The exact
+ * scan the caller falls back to is the same query every tenant runs with
+ * the flag off, so the request is still answered correctly — the shout is
+ * about the tenant being un-indexed, not about the request failing.
+ */
+export function knnDroppedMessage(spec: HnswIndexSpec, state: HnswIndexState): string {
   const why =
     state === 'absent'
       ? `index '${spec.index}' does not exist on this tenant — build it with POST /v1/admin/maintenance/hnsw`
@@ -118,6 +210,7 @@ export function knnDroppedMessage(
         : `index '${spec.index}' state could not be determined`;
   return (
     `hnsw KNN operator was DROPPED on ${spec.table} (every row came back with a null ` +
-    `distance, i.e. unranked table-order rows): ${why}. Falling back to the exact scan.`
+    `distance, i.e. unranked table-order rows): ${why}. Falling back to the exact scan` +
+    ` (skipping KNN on this tenant for the next ${KNN_INDEX_MEMO_TTL_MS / 1000}s).`
   );
 }
