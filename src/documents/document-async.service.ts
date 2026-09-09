@@ -8,6 +8,13 @@ import { CandidateCommitService } from './candidate-commit.service';
 import { CandidateStoreService } from './candidate-store.service';
 import { IngestDocumentDto } from './dto/ingest-document.dto';
 import { pinUserScope } from '../auth/user-scope';
+import {
+  internalDocumentMeta,
+  originInternalMeta,
+  type DocumentIngestOrigin,
+} from './document-meta';
+import { toolObservationMeta } from './tool-observation-meta';
+import { ToolObservationService } from '../outcomes/tool-observation.service';
 
 export interface DocumentAsyncResponse {
   documentId: string;
@@ -50,6 +57,7 @@ export class DocumentAsyncService implements OnModuleInit {
     private readonly candidates: CandidateStoreService,
     @Optional() private readonly workerLoop?: WorkerLoopService,
     @Optional() private readonly claim?: JobClaimService,
+    @Optional() private readonly toolObservations?: ToolObservationService,
   ) {}
 
   onModuleInit(): void {
@@ -67,8 +75,22 @@ export class DocumentAsyncService implements OnModuleInit {
     });
   }
 
-  /** Create the document, then fan indexer runs out onto the queue. */
-  async ingestAsync(companyId: string, dto: IngestDocumentDto): Promise<DocumentAsyncResponse> {
+  /**
+   * Create the document, then fan indexer runs out onto the queue.
+   *
+   * The document header is written here, so the same provenance the sync
+   * path threads must be threaded here: the verified tool-observation hop
+   * (0111) and whatever internal bag the origin carries. Before this the
+   * async path reached the store with no internal meta at all and a
+   * `toolObservationRef` posted with `mode: 'async'` was dropped — not
+   * rejected, not logged, just absent from every fact the queue later
+   * committed.
+   */
+  async ingestAsync(
+    companyId: string,
+    dto: IngestDocumentDto,
+    origin: DocumentIngestOrigin,
+  ): Promise<DocumentAsyncResponse> {
     if (!this.claim) {
       throw new Error('async ingest unavailable: job queue not wired');
     }
@@ -76,7 +98,16 @@ export class DocumentAsyncService implements OnModuleInit {
     // pinned value persists on the document row, which is all the queued
     // jobs (and the eventual commit) ever read.
     dto = { ...dto, userId: pinUserScope(dto.userId) };
-    const { doc, chunks, deduplicated } = await this.store.createOrGet(companyId, dto);
+    const toolObservation = await toolObservationMeta(
+      this.toolObservations,
+      companyId,
+      dto.toolObservationRef,
+    );
+    const internal = internalDocumentMeta({ ...originInternalMeta(origin), ...toolObservation });
+    const { doc, chunks, deduplicated } = await this.store.createOrGet(companyId, dto, {
+      channel: 'ingest_async',
+      internal,
+    });
     const dedicated = await this.dispatch.selectDedicated({
       companyId,
       doc,
