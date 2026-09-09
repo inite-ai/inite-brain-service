@@ -85,11 +85,20 @@ retries for 2 minutes.
    `default`).
 3. Run **Actions → Deploy brain.inite.ai → Run workflow** with `action=deploy`.
 4. Workflow flow:
-   - Builds the docker image, pushes to `dockerhub/inite-brain-service:<sha>` and `:latest`.
-   - On the droplet: writes `/opt/projects/inite-brain-service/docker-compose.yml`,
-     pulls the new image, `docker-compose up -d`.
-   - Waits 25s for the container, then probes `https://brain.inite.ai/health`
-     with retries (cert provisioning).
+   - **`verify`** — waits for the CI run on this exact commit and refuses
+     to continue on anything but success. CI, not this workflow, builds
+     and publishes the image; `verify` reads the digest CI recorded after
+     smoke-testing it.
+   - **`deploy`** (droplet) — writes
+     `/opt/projects/inite-brain-service/docker-compose.yml` pinned to
+     `dockerhub/inite-brain-service@sha256:…`, pulls, `docker-compose up -d`,
+     then gates on `/health` (liveness) and `/ready` (database, scoped
+     authorization, primary embedder) from inside the container.
+   - **`smoke`** — external, through DNS + Traefik: asserts `/health` is
+     200, an unauthenticated `POST /v1/search` is **401**, and `/mcp/…`
+     refuses rather than 404s. Blocking.
+   - **`finalize`** (droplet) — records `.last-good-image` on success, or
+     rolls back to it on failure. See § Rollback.
 5. First request to any tenant triggers `ensureSchema` — every numbered
    migration in `src/db/migrations/` (0001 through the current head) applies
    on the per-tenant `co_<companyId>` DB, including 0005 (PII PERMISSIONS +
@@ -150,22 +159,51 @@ Internal: `wget -qO- http://localhost:3000/health` (configured in the
 container healthcheck — Docker marks unhealthy after 5 failures × 15s).
 
 External: `https://brain.inite.ai/health` returns brain's standard
-HealthController shape. The `Health probe` step in the workflow polls
-this for 2 minutes after `up -d`.
+HealthController shape. The `smoke` job polls it after `up -d` — and
+does not stop there: a 200 on `/health` only means Nest bound a port, so
+the same job asserts that an unauthenticated `POST /v1/search` returns
+**401** (404 would mean the API is not mounted; 200 would mean auth is
+not enforced).
 
 ## Rollback
+
+**The old recipe on this page no longer works and has been removed.** It
+retagged a previous sha as `:latest` and relied on the compose file
+pulling `:latest`. The compose file now pins an immutable digest, so
+moving a tag changes nothing on the box.
+
+Preferred: **Actions → Deploy brain.inite.ai → Run workflow →
+`action: rollback`.** This skips CI verification entirely — it has to
+work while `main` is red, which is the situation it exists for — and
+redeploys `/opt/projects/inite-brain-service/.last-good-image`, the last
+digest that passed both the readiness gate and the external smoke test.
+
+It usually will not be needed: if a deploy fails its own verification,
+the `finalize` job performs that rollback automatically and then reports
+the run as **failed anyway** — production is back, but the commit on
+`main` is still broken and wants a fix-forward or a revert.
+
+By hand, when there is no recorded known-good image (a fresh host, wiped
+state):
 
 ```bash
 ssh root@<droplet>
 cd /opt/projects/inite-brain-service
-docker pull dockerhub/inite-brain-service:<previous-sha>
-docker tag dockerhub/inite-brain-service:<previous-sha> dockerhub/inite-brain-service:latest
-docker-compose up -d --force-recreate inite-brain-service
+sed -i 's|^\( *image:\).*|\1 dockerhub/inite-brain-service@sha256:<digest>|' docker-compose.yml
+docker-compose pull inite-brain-service && docker-compose up -d
 ```
 
-The `:latest` tag is what the docker-compose pulls; pinning a previous
-sha as `:latest` rolls back without changing the workflow file. Or
-re-run the workflow on a previous commit.
+Get `<digest>` from the CI run that built the commit you want (the
+`docker` job's publish step), or from
+`docker inspect --format '{{index .RepoDigests 0}}' <image-id>`.
+
+**A rollback does not cross a migration.** Migrations run forward on boot
+and pinning an older image does not reverse them. If the bad deploy
+changed the schema, roll the image back to stop the bleeding and then
+handle the schema deliberately.
+
+See also § *Deploys, and how to undo one* in
+[`operations.md`](operations.md).
 
 ## Observability
 
