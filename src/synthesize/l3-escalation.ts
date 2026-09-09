@@ -280,6 +280,55 @@ export function mergeAnchorSources(
 }
 
 /**
+ * One window center for the over-budget degrade path: the moment inside
+ * a session an anchor points at. EVERY anchor source populates centers
+ * alongside its anchors — fact stamps one per grounding episode, the
+ * direct probe one per BM25 hit, segment/temporal one per anchor moment
+ * — so a session selected from any source has ≥1 center to widen a raw
+ * window around. An anchor with no parseable time yields no center.
+ */
+export interface L3AnchorCenter {
+  conversationId: string;
+  atMs: number;
+  /** The centering turn when the source knows it (fact/direct);
+   *  segment/temporal centers are moment-only. */
+  episodeId?: string | undefined;
+}
+
+/** Moment-only centers, one per anchor that carries a time — the
+ *  segment/temporal probes' contribution. Pure; no IO. */
+export function momentCenters(anchors: ReadonlyArray<L3SessionAnchor>): L3AnchorCenter[] {
+  const out: L3AnchorCenter[] = [];
+  for (const a of anchors) {
+    if (typeof a.atMs !== 'number' || !Number.isFinite(a.atMs)) continue;
+    out.push({ conversationId: a.conversationId, atMs: a.atMs });
+  }
+  return out;
+}
+
+/**
+ * The centers the degrade path widens on: those inside the selected
+ * sessions, deduplicated by episodeId when known and by
+ * (conversationId, atMs) otherwise, in first-seen order. Pure; no IO.
+ */
+export function selectWindowCenters(
+  centers: ReadonlyArray<L3AnchorCenter>,
+  sessionIds: ReadonlyArray<string>,
+): L3AnchorCenter[] {
+  const selected = new Set(sessionIds);
+  const seen = new Set<string>();
+  const out: L3AnchorCenter[] = [];
+  for (const c of centers) {
+    if (!selected.has(c.conversationId)) continue;
+    const key = c.episodeId ?? `${c.conversationId}|${c.atMs}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+  }
+  return out;
+}
+
+/**
  * Cheap token estimate for the L3 budget check — chars / 4, the usual
  * English-token rule of thumb. Deliberately an over-approximation-safe
  * heuristic (no tokenizer dependency on the escalation hot path): the
