@@ -1,55 +1,24 @@
--- 0133: tenant_registry — WHEN the index state was observed, and WHICH
--- indexes it was observed on.
+-- 0133: tenant_registry — WHEN the index state was observed, and on WHICH
+-- indexes.
 --
--- WHY. 0104 reserved two columns for exactly this and left them for "the
--- provisioning path" to annotate: `indexState` and `embeddingSpace`. That
--- path did not exist — `HnswMaintenanceService.apply` had one caller (the
--- admin route), nothing recorded its outcome, and so the only way to answer
--- "which tenants have a usable HNSW index" was to run DDL-adjacent probes
--- against every tenant database one at a time. Meanwhile production sets
--- SEARCH_HNSW_ENABLED=1 globally, and #506 measured what an un-indexed
--- tenant is served: SurrealDB drops the KNN operator from the plan and
--- returns k arbitrary rows with a NULL distance rather than erroring.
---
--- Two columns is all that was missing, and both are about TRUST in the
--- other two rather than new state:
+-- 0104 reserved `indexState` / `embeddingSpace` for a provisioning path that
+-- did not exist; the HNSW provisioner (#512) now writes them. Two columns
+-- were still missing, both about trusting the other two:
 --
 --   * indexStateAt — `updatedAt` is bumped by every touch()/register(), so
---     it cannot say when the INDEX was last looked at. Without a timestamp
---     of its own, `indexState = 'ready'` is unfalsifiable: an observation
---     from before an embedder swap reads exactly like one from a minute
---     ago. A stale-but-green roster is the failure mode this whole change
---     exists to remove, so the roster must be able to admit its own age.
---   * indexDetail — `indexState` is the fold over FOUR indexes
---     (fact_embedding_hnsw, fact_alt_embedding_hnsw, entity_embedding_hnsw,
---     segment_embedding_hnsw). 'partial' is a real and common state (a
---     concurrent build finishes per index), and the operator's next action
---     differs depending on WHICH one is missing — the entity index is the
---     one whose absence mints duplicate entities on every mention (#506).
---     A compact `name=state` list keeps that in the roster row instead of
---     in a per-tenant round trip.
+--     it cannot say when the INDEX was last looked at. Without its own
+--     timestamp, `indexState = 'ready'` is unfalsifiable; the roster must be
+--     able to admit its own age.
+--   * indexDetail — `indexState` is a fold over several indexes and
+--     'partial' is a real state (concurrent builds finish per index); the
+--     operator's next action depends on WHICH one is missing.
 --
--- WHERE IT LIVES. `tenant_registry` is a SYSTEM-database table (0104, the
--- leader_lease posture): read and written only through
--- SurrealService.withAdminDb(). The migrator applies every numbered file to
--- every database, so tenant-side copies of these fields are defined and sit
--- unused, exactly as the rest of the table does.
---
--- GDPR. No reach. The row is keyed by companyId and holds operational
--- metadata about a database's indexes — no personal data, no user-scoped
--- rows, nothing an erasure request can name. Both forget paths
--- (user-forget.service.ts, entity-forget.service.ts) operate inside a
--- tenant's `co_*` database and never open the system DB, so neither list
--- grows here. (The pre-existing gap that `dropCompanyDatabase` leaves the
--- registry row behind is untouched by this migration and not widened by
--- it: two operational columns on a row that already survives offboarding.)
---
--- ADDITIVE + OVERWRITE-safe. Two option<> fields on an existing table,
--- both IF NOT EXISTS, no data mutation of any row in any database, no new
--- index (3.2.4's planner mishandles UPDATE/DELETE … WHERE over an indexed
--- field, and the writer here is a point UPSERT by record id anyway).
--- Existing rows read NONE for both, which is the honest answer: nothing has
--- observed their indexes yet.
+-- `tenant_registry` lives in the SYSTEM database (0104), read and written
+-- only through SurrealService.withAdminDb(); the migrator applies every file
+-- to every database, so tenant-side copies of these fields exist unused.
+-- Additive: two option<> fields, IF NOT EXISTS, no row touched, no index.
+-- Existing rows read NONE for both — nothing has observed their indexes yet.
+-- Operational metadata keyed by companyId: no personal data, no GDPR reach.
 
 -- When indexState / indexDetail were last observed. NONE until the first
 -- observation — never defaulted to time::now(), because a default would

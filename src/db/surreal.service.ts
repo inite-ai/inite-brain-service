@@ -58,11 +58,13 @@ export interface SurrealServiceOptions {
  *
  * Two pools: root (admin paths — schema apply, GDPR forget, drop database,
  * compaction, ops scripts) and scoped (`brain_caller`, caller-facing reads).
- * NOTE (R4 audit): the DB-level PERMISSIONS fence does NOT fire for
- * `brain_caller` — a namespace-level system user — so the application-layer
- * row filter is the effective PII/row barrier on both pools; the scoped pool
- * is kept for the Record Access track that will make PERMISSIONS apply. See
- * docs/abac.md.
+ * The DB-level PERMISSIONS fence does NOT fire for `brain_caller` — a
+ * namespace-level system user — so the application-layer row filter is the
+ * effective PII/row barrier on both pools; the scoped pool is kept for the
+ * Record Access track that will make PERMISSIONS apply (docs/abac.md).
+ * Session lifetime, the re-auth discipline and the incident that shaped it:
+ * docs/operations.md § Long-lived DB sessions and
+ * docs/audits/runtime-auth-embedding-2026-09-08.md.
  */
 @Injectable()
 export class SurrealService implements OnModuleInit, OnApplicationShutdown {
@@ -136,11 +138,11 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   // any caller-facing semantics.
   private migratorConn!: Surreal;
   /** Cached root credentials + URL so a connection can be fully rebuilt
-   *  on auth failure. surrealdb-js v2.0.3 has multiple long-running
-   *  failure modes (zombie websockets per gh#618; session timer bugs)
-   *  where the auto-reconnect doesn't fire OR fires without preserving
-   *  auth, leaving queries to fail with "IAM error". The robust fix is
-   *  to drop the conn entirely and create a fresh one on failure. */
+   *  on failure: surrealdb-js (2.0.8) can hold a half-open socket that still
+   *  reports connected (gh#618) or invalidate a signin()-established session
+   *  on its own timer, and in both cases the only reliable repair is a fresh
+   *  connection (`ensureSession`). History and measurements:
+   *  docs/audits/runtime-auth-embedding-2026-09-08.md. */
   private rootCreds!: { username: string; password: string };
   private surrealUrl!: string;
 
