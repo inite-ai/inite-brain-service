@@ -1,0 +1,11 @@
+
+> inite-brain-service@2.1.0 test:unit /private/tmp/brain-audit-current
+> jest --config ./test/jest-unit.json --runInBand --testPathPatterns=audit-review-repros
+
+[Nest] 99944  - 09/06/2026, 9:20:23 PM     LOG [FeedbackService] feedback co_a: knowledge_fact:f helpful
+[Nest] 99944  - 09/06/2026, 9:20:23 PM     LOG [FeedbackService] feedback co_a: knowledge_fact:f helpful
+Test Suites: 1 passed, 1 total
+Tests:       3 passed, 3 total
+Snapshots:   0 total
+Time:        2.781 s
+Ran all test suites matching audit-review-repros.

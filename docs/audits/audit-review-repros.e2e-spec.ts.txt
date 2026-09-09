@@ -1,0 +1,115 @@
+import { createApp, type AppFixture } from './app-fixture';
+import { SurrealService } from '../src/db/surreal.service';
+import { PromotionRunnerService } from '../src/compaction/promotion-runner.service';
+import { BeliefPromotionService } from '../src/admin/belief-promotion.service';
+import { EvidenceReadService } from '../src/evidence/evidence-read.service';
+
+// Audit probes: assertions pin the observed defects, not desired behavior.
+describe('audit observations at 1acce24', () => {
+  let f: AppFixture;
+  beforeAll(async () => {
+    process.env.COMPACTION_PROMOTION_ENABLED = '1';
+    process.env.SCENES_BELIEF_PROMOTION = '1';
+    process.env.SCENES_BELIEF_LLM_SYNTHESIS = '0';
+    process.env.SCENES_VERSION_FINGERPRINT = '0';
+    f = await createApp({ extraKeys: [{ userId: 'bob', scopes: ['brain:read', 'brain:write'] }] });
+  });
+  afterAll(async () => { if (f) await f.close(); });
+
+  it('a bob-bound key can vote on an alice-owned fact hidden from its fact read', async () => {
+    const ingest = await f.http.post('/v1/ingest/fact').set('Authorization', `Bearer ${f.apiKey}`).send({
+      entityRef: { vertical: 'rent', id: 'private_subject' }, predicate: 'tier', object: 'gold',
+      userId: 'alice', validFrom: '2026-01-01', confidence: 0.9,
+      source: { vertical: 'rent', recorder: 'audit' },
+    });
+    expect(ingest.status).toBe(201);
+    const id = ingest.body.factId as string;
+    const auth = `Bearer ${f.extraApiKeys[0]}`;
+    const read = await f.http.get(`/v1/facts/${id}`).set('Authorization', auth);
+    expect(read.status).toBe(404);
+    const vote = await f.http.post('/v1/feedback').set('Authorization', auth)
+      .send({ factId: id, verdict: 'incorrect' });
+    expect(vote.status).toBe(201);
+  });
+
+  it('promotion hides all five aged facts and creates an already-expired replacement', async () => {
+    const surreal = f.app.get(SurrealService);
+    for (let i = 0; i < 5; i++) {
+      const ingest = await f.http.post('/v1/ingest/fact').set('Authorization', `Bearer ${f.apiKey}`).send({
+        entityRef: { vertical: 'rent', id: 'promotion_subject' }, predicate: 'said',
+        object: `historic memory number ${i}`, validFrom: '2025-01-01', confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'audit' },
+      });
+      expect(ingest.status).toBe(201);
+    }
+    await surreal.withCompany(f.companyId, db => db.query(
+      `UPDATE knowledge_fact SET recordedAt = <datetime>'2025-01-01T00:00:00Z' WHERE predicate = 'said'`,
+    ));
+    const result = await f.app.get(PromotionRunnerService).promoteCompany(f.companyId);
+    expect(result.factsPromoted).toBe(5);
+    await surreal.withCompany(f.companyId, async db => {
+      const [rows] = await db.query<[Array<{ predicate: string; status: string; validUntil?: Date }>]>(
+        `SELECT predicate, status, validUntil FROM knowledge_fact WHERE predicate INSIDE ['said', 'summary_said']`,
+      );
+      expect(rows.filter(r => r.status === 'compacted')).toHaveLength(5);
+      const summary = rows.find(r => r.predicate === 'summary_said')!;
+      expect(summary.status).toBe('active');
+      expect(new Date(summary.validUntil!).getTime()).toBeLessThan(Date.now());
+      const [visible] = await db.query<[unknown[]]>(
+        `SELECT id FROM knowledge_fact WHERE predicate INSIDE ['said', 'summary_said']
+         AND validFrom <= time::now() AND (validUntil IS NONE OR validUntil > time::now())
+         AND status != 'compacted'`,
+      );
+      expect(visible).toHaveLength(0);
+    });
+  });
+
+  it('targeted promotion accepts stale B after A was reconfirmed at a later date', async () => {
+    const surreal = f.app.get(SurrealService);
+    const promoter = f.app.get(BeliefPromotionService);
+    const seed = async (conv: string, at: string, value: string) => {
+      await surreal.withCompany(f.companyId, db => db.query(
+        `CREATE type::record('memory_episode', $conv) CONTENT {
+          userId: 'alice', userIds: ['alice'], scope: ['user:alice'], sceneLabel: 'audit',
+          conversationIds: [$conv], occurredFrom: <datetime>$at, occurredTo: <datetime>$at,
+          gist: 'audit', confidence: 1, segmenterVersion: 'scene-segmenter-v1', generation: 'audit',
+          source: { recorder: 'audit' }, enrichmentVersion: 'audit',
+          enrichedMemoryValue: { explicitness: 0.8 },
+          stateDeltas: [{ subject: 'alice', field: 'city', from: '', to: $value }]
+        }`, { conv, at, value },
+      ));
+      await promoter.run(f.companyId, { conversationId: conv });
+    };
+    await seed('t1', '2026-01-01T00:00:00Z', 'A');
+    await seed('t3', '2026-03-01T00:00:00Z', 'A');
+    await seed('t2', '2026-02-01T00:00:00Z', 'B');
+    await surreal.withCompany(f.companyId, async db => {
+      const [rows] = await db.query<[Array<{ value: string }>]>(
+        `SELECT * FROM semantic_belief WHERE subject = 'alice' AND field = 'city' AND status = 'active'`,
+      );
+      expect(rows.map(r => r.value)).toEqual(['B']);
+    });
+  });
+
+  it('removed raw-evidence pack still satisfies the raw-read consent gate', async () => {
+    const pack = {
+      id: 'audit_raw_pack', version: '1.0.0', description: 'Audit fixture',
+      predicates: [{ localId: 'note', displayLabel: 'note', description: 'A note',
+        datatype: 'string', semantics: 'append_only', decayHalfLifeDays: null,
+        piiClass: 'none', status: 'active' }],
+      memoryModel: { modalities: ['image'], rawEvidence: { serve: true } },
+    };
+    const auth = `Bearer ${f.apiKey}`;
+    const install = await f.http.post('/v1/admin/packs').set('Authorization', auth)
+      .send({ manifest: pack, acceptModalities: true });
+    expect([200, 201]).toContain(install.status);
+    const uninstall = await f.http.delete('/v1/admin/packs/audit_raw_pack').set('Authorization', auth);
+    expect(uninstall.status).toBe(200);
+    const reads = f.app.get(EvidenceReadService) as unknown as {
+      consentingManifest(db: unknown, scopes: string[]): Promise<{ manifest: { id: string } } | null>;
+    };
+    const consent = await f.app.get(SurrealService).withCompany(f.companyId,
+      db => reads.consentingManifest(db, ['brain:read']));
+    expect(consent?.manifest.id).toBe(pack.id);
+  });
+});
