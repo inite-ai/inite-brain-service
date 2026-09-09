@@ -122,21 +122,18 @@ describe('ensure — the idempotent action provisioning is allowed to call', () 
     expect(r.builds.find((b) => b.index === 'segment_embedding_hnsw')!.state).toBe('building');
   });
 
-  it('is concurrent even with SEARCH_HNSW_CONCURRENT off — the sync DDL is a measured failure', async () => {
-    delete process.env.SEARCH_HNSW_CONCURRENT;
+  it('is concurrent — the synchronous DDL was a measured failure and no longer exists', async () => {
     const db = fakeDb({});
     const r = await maintenance(db).apply('co1', 'ensure');
     expect(r.concurrent).toBe(true);
     for (const stmt of ddl(db.calls)) expect(stmt).toContain('CONCURRENTLY');
   });
 
-  it('never waits for the build — the DDL returns and the sweep moves on', async () => {
-    process.env.SEARCH_HNSW_BUILD_WAIT_MS = '60000';
+  it('never waits for the build, whatever waitMs says — the DDL returns and the sweep moves on', async () => {
     const db = fakeDb({});
     const started = Date.now();
-    await maintenance(db).apply('co1', 'ensure');
+    await maintenance(db).apply('co1', 'ensure', { waitMs: 60_000 });
     expect(Date.now() - started).toBeLessThan(2000);
-    delete process.env.SEARCH_HNSW_BUILD_WAIT_MS;
   });
 
   it('swallows the measured "already exists" race and propagates anything else', async () => {
@@ -394,12 +391,27 @@ describe('HnswProvisionService — reconciliation', () => {
     expect(gauge).toContainEqual(['ready', 2]);
   });
 
-  it('the nightly sweep is silenced by the second gate alone', async () => {
+  it('the nightly sweep has ONE gate: a retired HNSW_PROVISION_SCHEDULED=0 does not silence it', async () => {
     process.env.HNSW_PROVISION_SCHEDULED = '0';
-    const { svc, apply } = provision({});
-    await expect(svc.runNightly()).resolves.toMatchObject({ tenants: [] });
-    expect(apply).not.toHaveBeenCalled();
-    delete process.env.HNSW_PROVISION_SCHEDULED;
+    try {
+      const { svc, apply } = provision({});
+      const run = await svc.runNightly();
+      expect(run.tenants.length).toBeGreaterThan(0);
+      expect(apply).toHaveBeenCalled();
+    } finally {
+      delete process.env.HNSW_PROVISION_SCHEDULED;
+    }
+  });
+
+  it('the nightly sweep is inert only when provisioning itself is off', async () => {
+    process.env.HNSW_PROVISION_ENABLED = '0';
+    try {
+      const { svc, apply } = provision({});
+      await expect(svc.runNightly()).resolves.toMatchObject({ tenants: [] });
+      expect(apply).not.toHaveBeenCalled();
+    } finally {
+      process.env.HNSW_PROVISION_ENABLED = '1';
+    }
   });
 });
 

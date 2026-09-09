@@ -170,9 +170,6 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── HNSW vector leg ────────────────────────────────────────────────
   positiveInt(env, 'SEARCH_HNSW_EF', errors);
   positiveInt(env, 'SEARCH_HNSW_OVERFETCH', errors);
-  // 0 is meaningful (answer with the first probe, don't wait), so
-  // non-negative rather than positive.
-  nonNegativeInt(env, 'SEARCH_HNSW_BUILD_WAIT_MS', errors);
 
   // ── HNSW index provisioning + reconciliation ───────────────────────
   // 0 is meaningful on both (no budget / no builds started this run), so
@@ -956,21 +953,12 @@ const KNOWN_BOOLEAN_FLAGS = [
   'INGEST_EPISODE_ONLY',
   'SEARCH_PPR_ENABLED',
   'SEARCH_HNSW_ENABLED',
-  // Build the per-tenant HNSW indexes CONCURRENTLY. Off = the historical
-  // synchronous DDL, which fails outright over a 20k × 1024-d corpus.
-  'SEARCH_HNSW_CONCURRENT',
-  // Index PROVISIONING, not retrieval behaviour: the schema-ready hook that
-  // gives a new tenant its indexes, and the nightly sweep that reconciles
-  // the roster. HNSW_ rather than SEARCH_ deliberately — this is an ops
-  // flag in the DREAMS_/ABAC_ family, gating a deployment behaviour rather
-  // than an engine code path, and it must not consume engine flag budget.
+  // Index PROVISIONING: the schema-ready hook that gives a new tenant its
+  // indexes, and the nightly sweep that reconciles the roster. Derived
+  // from SEARCH_HNSW_ENABLED when unset; an explicit value overrides in
+  // either direction. Counted in the engine flag budget like any other
+  // HNSW_-prefixed boolean — a prefix is not a way around the budget.
   'HNSW_PROVISION_ENABLED',
-  // HNSW_PROVISION_SCHEDULED (the nightly-walk gate, split out so an
-  // operator can keep new-tenant provisioning while silencing the sweep)
-  // is deliberately NOT listed: this list is defined as the flags parsed
-  // via envFlagEnabled, and that one is default-ON via
-  // envFlagNotDisabled — an unrecognised value reads as ON, which is the
-  // safe direction, not the fail-open shape this warning exists for.
   // Default-ON: read as `SEARCH_TOKEN_COUNT_OFFLOAD ?? '1'` before
   // envFlagEnabled, so only an explicit 0/false disables the offload.
   'SEARCH_TOKEN_COUNT_OFFLOAD',

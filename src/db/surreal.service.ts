@@ -783,25 +783,12 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    * hence the strict shape check. Anything else is refused, loudly.
    */
   private scopedTokenDurationClause(): string {
-    const raw = this.configService.get<string>('SURREALDB_SCOPED_TOKEN_DURATION')?.trim();
-    if (!raw) return '';
-    const ms = surrealDurationToMs(raw);
-    if (ms === undefined) {
-      this.logger.error(
-        `Ignoring SURREALDB_SCOPED_TOKEN_DURATION='${raw}' — not a SurrealDB duration literal`,
-      );
-      return '';
-    }
-    if (ms <= this.sessionReauthMarginMs) {
-      // Honoured, but loudly: a token that lives shorter than the re-auth
-      // margin is always "about to expire", so every scoped acquire pays
-      // the ~16 ms signin KDF. Only the expiry e2e wants that.
-      this.logger.error(
-        `SURREALDB_SCOPED_TOKEN_DURATION='${raw}' is within the ${this.sessionReauthMarginMs}ms ` +
-          `session re-auth margin: every scoped acquire will re-sign. Intended for tests only.`,
-      );
-    }
-    return ` DURATION FOR TOKEN ${raw}`;
+    const decision = scopedTokenDurationDecision(
+      this.configService.get<string>('SURREALDB_SCOPED_TOKEN_DURATION'),
+      this.sessionReauthMarginMs,
+    );
+    if (decision.problem) this.logger.error(decision.problem);
+    return decision.clause;
   }
 
   /**
@@ -996,6 +983,39 @@ export async function runTransaction<T>(db: Surreal, build: (tx: TxBuilder) => v
   // We compose exactly one BEGIN and one COMMIT, so the shapes are
   // disjoint: only a 3.x server can answer with stmts+2 slots.
   return (arr.length === stmts.length + 2 ? arr[arr.length - 2] : arr[arr.length - 1]) as T;
+}
+
+/**
+ * The decision behind SURREALDB_SCOPED_TOKEN_DURATION, as a pure function so
+ * it can be pinned: an unparseable literal is IGNORED (the server default,
+ * 1h, stays) and reported; a literal at or under the session re-auth margin
+ * is HONOURED — a token that lives shorter than the margin is always "about
+ * to expire", so every scoped acquire pays the ~16 ms signin KDF, which only
+ * the expiry e2e wants — and reported. `problem` is the operator-facing line.
+ */
+export function scopedTokenDurationDecision(
+  raw: string | undefined,
+  reauthMarginMs: number,
+): { clause: string; problem?: string } {
+  const value = raw?.trim();
+  if (!value) return { clause: '' };
+  const ms = surrealDurationToMs(value);
+  if (ms === undefined) {
+    return {
+      clause: '',
+      problem: `Ignoring SURREALDB_SCOPED_TOKEN_DURATION='${value}' — not a SurrealDB duration literal`,
+    };
+  }
+  const clause = ` DURATION FOR TOKEN ${value}`;
+  if (ms <= reauthMarginMs) {
+    return {
+      clause,
+      problem:
+        `SURREALDB_SCOPED_TOKEN_DURATION='${value}' is within the ${reauthMarginMs}ms ` +
+        `session re-auth margin: every scoped acquire will re-sign. Intended for tests only.`,
+    };
+  }
+  return { clause };
 }
 
 /**

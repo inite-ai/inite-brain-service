@@ -2,7 +2,6 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
-import { envFlagEnabled } from '../common/env-validation';
 import { probeHnswIndex, resetKnnIndexMemo } from '../db/knn-index';
 
 /**
@@ -51,18 +50,19 @@ import { probeHnswIndex, resetKnnIndexMemo } from '../db/knn-index';
  * entity_embedding_hnsw shares the same hole and today relies on entity
  * vectors being rewritten by their own ingest path.
  *
- * ── SEARCH_HNSW_CONCURRENT (default off) ──────────────────────────────
+ * ── Every build is CONCURRENTLY ────────────────────────────────────────
  *
  * Synchronous `DEFINE INDEX … HNSW` does not merely block at real scale,
  * it FAILS. Measured on `surrealdb/surrealdb:v3.2.4`, 20 000 × 1024-d:
  * the statement aborts after ~133 s with a RocksDB transaction conflict
  * ("MemTable only contains changes newer than SequenceNumber …"),
  * reproduced after a 30 s settle at 140 s with the same failure. The same
- * DDL with `CONCURRENTLY` reaches `ready` in 4.2 s (~4 700 rows/s). So the
- * only index-build path this service has is broken at exactly the corpus
- * size the index exists for, and the fix is one keyword.
+ * DDL with `CONCURRENTLY` reaches `ready` in 4.2 s (~4 700 rows/s). The
+ * synchronous form used to sit behind SEARCH_HNSW_CONCURRENT=0 as the
+ * default; a default that is a measured failure at exactly the corpus size
+ * the index exists for is not a configuration, so there is one path now.
  *
- * With the flag on, `create` also stops emitting one four-index
+ * `create` also emits one DEFINE per index rather than a four-index
  * super-statement: a concurrent build is per-index by nature (each has
  * its own `building` progress), and a single failing DEFINE inside a
  * multi-statement query takes its siblings with it.
@@ -74,10 +74,9 @@ import { probeHnswIndex, resetKnnIndexMemo } from '../db/knn-index';
  * table-order rows it returns with no index at all; only at
  * `{"status":"ready"}` do real distances come back. "The index exists" is
  * therefore NOT the property an operator may act on before flipping
- * SEARCH_HNSW_ENABLED — `ready` is. Every result this service returns now
+ * SEARCH_HNSW_ENABLED — `ready` is. Every result this service returns
  * carries the per-index build state rather than letting the caller assume
- * it, on both the concurrent and the synchronous path, and `action:
- * 'status'` reports it without touching any DDL.
+ * it, and `action: 'status'` reports it without touching any DDL.
  *
  * ── `ensure` — the idempotent action provisioning is allowed to call ──
  *
@@ -94,13 +93,9 @@ import { probeHnswIndex, resetKnnIndexMemo } from '../db/knn-index';
  * flight leaves that build alone — so it is safe on every pass, which is
  * what a reconciliation sweep needs.
  *
- * `ensure` always emits CONCURRENTLY, whatever SEARCH_HNSW_CONCURRENT says.
- * That flag exists to keep the ADMIN route's DDL byte-identical to its
- * history; `ensure` has no history to preserve, and the synchronous DDL is
- * not a slower alternative but a measured failure over 20k × 1024-d (133 s,
- * RocksDB transaction conflict). Shipping an automatic path onto a build
- * that is known to fail at the corpus size the index exists for would be
- * shipping a scheduled outage.
+ * `ensure` never waits for the build it starts: the DDL returns and the
+ * sweep moves on, and the tenant registry records the build state as it
+ * is observed. Only an explicit `create` waits (see `waitMs`).
  *
  * WIDTH IS PART OF READINESS. An index that exists at the wrong DIMENSION
  * is `ready` to `INFO FOR INDEX` and useless in fact: every write of a
@@ -145,8 +140,12 @@ export interface HnswMaintenanceResult {
    */
   space: string;
   indexes: string[];
-  /** Whether the DDL was emitted with CONCURRENTLY (SEARCH_HNSW_CONCURRENT). */
-  concurrent: boolean;
+  /**
+   * Always true: every build is `CONCURRENTLY` (the synchronous form is a
+   * measured failure at scale, see the class docstring). Kept on the wire
+   * so an operator script written against the flagged shape keeps parsing.
+   */
+  concurrent: true;
   /**
    * True only when EVERY index reports `ready` AT THE DECLARED WIDTH. Do
    * not flip SEARCH_HNSW_ENABLED for this tenant while it is false — a
@@ -186,15 +185,39 @@ const INDEX_SPECS = [
 
 /**
  * How long `create` waits for the concurrent builds before answering with
- * whatever progress it reached (SEARCH_HNSW_BUILD_WAIT_MS). Not a failure
- * ceiling — the build keeps running server-side and `action:'status'`
- * reports it — just the point at which holding the HTTP request (and its
- * pooled connection) stops being the useful thing to do. The 60 s default
- * covers ~280k rows at the measured ~4 700 rows/s; 0 answers immediately
- * with the first probe.
+ * whatever progress it reached. A per-call parameter of the admin request
+ * (`waitMs`), not an environment knob: how long ONE operator is willing to
+ * hold ONE request is not deployment configuration. Not a failure ceiling —
+ * the build keeps running server-side and `action:'status'` reports it —
+ * just the point at which holding the HTTP request stops being the useful
+ * thing to do. The 60 s default covers ~280k rows at the measured ~4 700
+ * rows/s; 0 answers immediately with the first probe.
  */
-const DEFAULT_BUILD_WAIT_MS = 60_000;
+export const DEFAULT_BUILD_WAIT_MS = 60_000;
+/** Longest wait a single request may ask for — past this, poll `status`. */
+export const MAX_BUILD_WAIT_MS = 600_000;
 const BUILD_POLL_MS = 2_000;
+
+/** Per-call options of {@link HnswMaintenanceService.apply}. */
+export interface HnswApplyOptions {
+  /**
+   * `create` only: how long to wait for the builds before answering, in
+   * milliseconds, 0 ≤ waitMs ≤ {@link MAX_BUILD_WAIT_MS}. Absent → the
+   * 60 s default. Ignored by `ensure` (never waits), `status` and `drop`.
+   */
+  waitMs?: number;
+}
+
+/** Validate a caller-supplied wait; a bad value is a 400, never a silent default. */
+export function resolveBuildWaitMs(waitMs: number | undefined): number {
+  if (waitMs === undefined) return DEFAULT_BUILD_WAIT_MS;
+  if (!Number.isInteger(waitMs) || waitMs < 0 || waitMs > MAX_BUILD_WAIT_MS) {
+    throw new BadRequestException(
+      `waitMs must be an integer between 0 and ${MAX_BUILD_WAIT_MS} (milliseconds)`,
+    );
+  }
+  return waitMs;
+}
 
 /**
  * The one DEFINE INDEX failure `ensure` treats as success. Measured verbatim
@@ -213,19 +236,13 @@ export class HnswMaintenanceService {
     private readonly embedder: EmbedderService,
   ) {}
 
-  /** Read at call time, never captured — the knob stays runtime-mutable. */
-  private static concurrentEnabled(): boolean {
-    return envFlagEnabled(process.env.SEARCH_HNSW_CONCURRENT);
-  }
-
-  /** Same: read per call, so an operator can widen the wait for a huge
-   *  tenant without a restart. Invalid/absent → the 60 s default. */
-  private static buildWaitMs(): number {
-    const raw = Number.parseInt(process.env.SEARCH_HNSW_BUILD_WAIT_MS ?? '', 10);
-    return Number.isInteger(raw) && raw >= 0 ? raw : DEFAULT_BUILD_WAIT_MS;
-  }
-
-  async apply(companyId: string, action: HnswMaintenanceAction): Promise<HnswMaintenanceResult> {
+  async apply(
+    companyId: string,
+    action: HnswMaintenanceAction,
+    opts: HnswApplyOptions = {},
+  ): Promise<HnswMaintenanceResult> {
+    // Validated before any DDL: a malformed wait must not cost a rebuild.
+    const waitMs = resolveBuildWaitMs(opts.waitMs);
     // PRIMARY, not active: getDimensions() reports whoever is serving, so
     // an index build triggered during the bge-m3 warmup window would bake
     // the OpenAI fallback's 1536 into DDL for a 1024 corpus — an index the
@@ -234,16 +251,14 @@ export class HnswMaintenanceService {
     if (!Number.isInteger(dimension) || dimension < 8 || dimension > 8192) {
       throw new BadRequestException(`embedder reports implausible dimension ${dimension}`);
     }
-    // `ensure` is concurrent by construction, not by flag — see the
-    // docstring. The reported value is what the DDL actually used.
-    const concurrent = action === 'ensure' || HnswMaintenanceService.concurrentEnabled();
+    const concurrent = true;
     // The DDL and the first probe share one pool hold; the build WAIT does
     // not — each poll takes a connection for the INFO statements and gives
     // it back, so a 60 s wait no longer pins a root-pool slot (and the
     // migrator, which needs one, cannot deadlock behind it).
     const created: string[] = [];
     let builds = await this.surreal.withCompany(companyId, async (db) => {
-      if (action === 'create') await this.create(db, dimension, concurrent);
+      if (action === 'create') await this.create(db, dimension);
       else if (action === 'drop') await this.drop(db);
       else if (action === 'ensure') created.push(...(await this.ensure(db, dimension)));
       return this.probeBuilds(db);
@@ -251,8 +266,8 @@ export class HnswMaintenanceService {
     // Only an explicit create waits: `ensure` is the provisioner's sweep
     // action and returns as soon as the DDL is issued (the sweep moves on;
     // the tenant registry records the build state as it is observed).
-    if (action === 'create' && concurrent && !builds.every((b) => b.state === 'ready')) {
-      builds = await this.waitForBuilds(companyId, builds);
+    if (action === 'create' && !builds.every((b) => b.state === 'ready')) {
+      builds = await this.waitForBuilds(companyId, builds, waitMs);
     }
     // The legs remember an index they saw missing or building; a build or
     // drop makes that memory stale on every pod that shares this process.
@@ -361,37 +376,19 @@ export class HnswMaintenanceService {
   }
 
   /**
-   * RECREATE at the declared width. Concurrent off keeps the historical
-   * single super-statement byte-for-byte; concurrent on removes first,
-   * then defines each index on its own so one failure cannot take the
+   * RECREATE at the declared width: remove first, then define each index
+   * on its own statement, CONCURRENTLY, so one failure cannot take the
    * other three with it and each build has its own progress row.
    */
-  private async create(db: Surreal, dimension: number, concurrent: boolean): Promise<void> {
+  private async create(db: Surreal, dimension: number): Promise<void> {
     // DIMENSION cannot be parameterised in DDL — `dimension` comes from
     // the space declaration and is range-validated by the caller, never
     // caller input.
-    const define = (spec: (typeof INDEX_SPECS)[number], suffix: string) =>
+    const define = (spec: (typeof INDEX_SPECS)[number]) =>
       `DEFINE INDEX ${spec.index} ON ${spec.table} FIELDS ${spec.field}
-             HNSW DIMENSION ${dimension} DIST COSINE EFC 200 M 16${suffix};`;
-    if (!concurrent) {
-      await db.query(
-        `REMOVE INDEX IF EXISTS ${FACT_MAIN} ON knowledge_fact;
-           REMOVE INDEX IF EXISTS ${FACT_ALT} ON knowledge_fact;
-           REMOVE INDEX IF EXISTS ${ENTITY_MAIN} ON knowledge_entity;
-           REMOVE INDEX IF EXISTS ${SEGMENT_MAIN} ON episode_segment;
-           DEFINE INDEX ${FACT_MAIN} ON knowledge_fact FIELDS embedding
-             HNSW DIMENSION ${dimension} DIST COSINE EFC 200 M 16;
-           DEFINE INDEX ${FACT_ALT} ON knowledge_fact FIELDS altEmbedding
-             HNSW DIMENSION ${dimension} DIST COSINE EFC 200 M 16;
-           DEFINE INDEX ${ENTITY_MAIN} ON knowledge_entity FIELDS embedding
-             HNSW DIMENSION ${dimension} DIST COSINE EFC 200 M 16;
-           DEFINE INDEX ${SEGMENT_MAIN} ON episode_segment FIELDS embedding
-             HNSW DIMENSION ${dimension} DIST COSINE EFC 200 M 16;`,
-      );
-      return;
-    }
+             HNSW DIMENSION ${dimension} DIST COSINE EFC 200 M 16 CONCURRENTLY;`;
     await this.drop(db);
-    for (const spec of INDEX_SPECS) await db.query(define(spec, ' CONCURRENTLY'));
+    for (const spec of INDEX_SPECS) await db.query(define(spec));
   }
 
   private async drop(db: Surreal): Promise<void> {
@@ -411,8 +408,9 @@ export class HnswMaintenanceService {
   private async waitForBuilds(
     companyId: string,
     last: HnswIndexBuild[],
+    waitMs: number,
   ): Promise<HnswIndexBuild[]> {
-    const deadline = Date.now() + HnswMaintenanceService.buildWaitMs();
+    const deadline = Date.now() + waitMs;
     let builds = last;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, BUILD_POLL_MS));
