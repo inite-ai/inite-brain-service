@@ -5,7 +5,7 @@ import { EmbedderService } from '../ai/embedder.service';
 import { EntityJudgeService, EntityVerdict } from '../ai/entity-judge.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { dbCreate } from '../db/surreal.service';
-import { hnswIndexState, knnDroppedMessage, knnOperatorDropped } from '../db/knn-index';
+import { knnIndexKnownUnusable, knnOperatorDropped, noteKnnOperatorDropped } from '../db/knn-index';
 
 /** The index the name-candidate KNN scan rides — for the diagnostic. */
 const NAME_HNSW = { table: 'knowledge_fact', index: 'fact_embedding_hnsw' } as const;
@@ -282,6 +282,9 @@ export class EntityResolverService {
     db: Surreal,
     q: number[],
   ): Promise<Array<{ entityId: unknown; etype: string; sim: number }> | null> {
+    // Observed un-indexed within the memo TTL: let the caller run its exact
+    // scan without paying for a KNN statement that comes back unranked.
+    if (knnIndexKnownUnusable(db, NAME_HNSW)) return null;
     const kOver = Math.min(this.candidateK * this.hnswOverfetch, 1000);
     // `<|K,EF|>` takes literals, not params — kOver/ef are validated ints.
     // vector::distance::knn() reuses the walk's distance — projecting a
@@ -304,9 +307,13 @@ export class EntityResolverService {
     );
     const knnRows = (rows as Array<{ entityId: unknown; etype: string; dist: number }>) ?? [];
     if (knnOperatorDropped(knnRows, 'dist')) {
-      this.logger.error(
-        `[ingest.inline_resolution] ${knnDroppedMessage(NAME_HNSW, await hnswIndexState(db, NAME_HNSW))}`,
-      );
+      await noteKnnOperatorDropped(db, NAME_HNSW, {
+        logger: {
+          warn: (m) => this.logger.warn(`[ingest.inline_resolution] ${m}`),
+          error: (m) => this.logger.error(`[ingest.inline_resolution] ${m}`),
+          debug: (m) => this.logger.debug(`[ingest.inline_resolution] ${m}`),
+        },
+      });
       return null;
     }
     return knnRows.map(({ dist, ...rest }) => ({

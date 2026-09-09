@@ -1,6 +1,6 @@
 import type { Surreal } from 'surrealdb';
 import type { CoverageScanMode } from '../search/retrieval-profile';
-import { hnswIndexState, knnDroppedMessage, knnOperatorDropped } from '../db/knn-index';
+import { knnIndexKnownUnusable, knnOperatorDropped, noteKnnOperatorDropped } from '../db/knn-index';
 
 /** The HNSW index each coverage-scan table rides — for the diagnostic. */
 const SCAN_HNSW: Record<DenseScanLegRequest['table'], string> = {
@@ -80,6 +80,9 @@ export interface DenseScanLegRequest {
 export async function runDenseScanLeg<Row>(req: DenseScanLegRequest): Promise<Row[]> {
   const { db, params, k, tuning, logger } = req;
   if (tuning.mode !== 'hnsw') return runBrute(req);
+  const spec = { table: req.table, index: SCAN_HNSW[req.table] };
+  // Observed un-indexed within the memo TTL: straight to the brute scan.
+  if (knnIndexKnownUnusable(db, spec)) return runBrute(req);
   const kOver = Math.min(k * tuning.overfetch, SCAN_KNN_K_CAP);
   // ef below the candidate count is never useful in HNSW; the knob only
   // matters when raised ABOVE the overfetched k.
@@ -107,10 +110,7 @@ export async function runDenseScanLeg<Row>(req: DenseScanLegRequest): Promise<Ro
       params,
     );
     if (knnOperatorDropped(rows, 'knnDist')) {
-      const spec = { table: req.table, index: SCAN_HNSW[req.table] };
-      const message = knnDroppedMessage(spec, await hnswIndexState(db, spec));
-      if (logger?.error) logger.error(message);
-      else logger?.warn(message);
+      await noteKnnOperatorDropped(db, spec, { logger });
       return runBrute(req);
     }
     if (rows && rows.length > 0) {
