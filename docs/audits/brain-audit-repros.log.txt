@@ -1,0 +1,21 @@
+
+> inite-brain-service@2.1.0 test:e2e /private/tmp/brain-audit-current
+> jest --config ./test/jest-e2e.json --runInBand --testPathPatterns=audit-review-repros
+
+[e2e] starting ephemeral SurrealDB container...
+[e2e] SurrealDB ready at ws://localhost:57099
+(node:99696) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///private/tmp/brain-audit-current/src/jobs/job-worker-runner.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /private/tmp/brain-audit-current/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:99696) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///private/tmp/brain-audit-current/src/jobs/job-worker-runner.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /private/tmp/brain-audit-current/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+Test Suites: 1 passed, 1 total
+Tests:       4 passed, 4 total
+Snapshots:   0 total
+Time:        5.81 s, estimated 9 s
+Ran all test suites matching audit-review-repros.
+[e2e] SurrealDB container stopped
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?

@@ -651,7 +651,7 @@ KDF on every write and admin query.
 |---|---|---|
 | Root pool (`withCompany`, `withAdminDb`, `dropCompanyDatabase`) and the migrator connection | root | Error propagates. |
 | Scoped pool (`withScopedCompany` — every caller-facing read) | `brain_caller` | Fails **closed** with a 503 — never served root-authorized; the connection stays in the pool for the next acquire's retry. |
-| LIVE subscription channels | `brain_caller` when the scoped pool is configured, root otherwise | Renewed on the catch-up tick (bounded by a timeout, ticks never stack); whatever the driver-side invalidate does to the standing `LIVE` query, the changefeed replay on the next tick delivers what it missed. |
+| LIVE subscription channels (`LIVE_SUBSCRIPTIONS_ENABLED`) | `brain_caller` when `SURREALDB_SCOPED_USER`/`_PASS` are set, **root otherwise** — a caller-facing read path, so configure the scoped user wherever LIVE is on; every pushed row still passes the app-layer policy filter (docs/abac.md § Which connection carries which identity) | Renewed on the catch-up tick (bounded by a timeout, ticks never stack); whatever the driver-side invalidate does to the standing `LIVE` query, the changefeed replay on the next tick delivers what it missed. |
 | `scripts/backfill-lang-attribution.ts` | root | Re-signs per batch. |
 
 Symptoms to recognise if this ever regresses: reads answer

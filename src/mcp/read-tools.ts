@@ -104,13 +104,19 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
     {
       title: 'Search company knowledge',
       description:
-        'Semantic search over the company knowledge graph. Returns entities with their top facts and external references back to the originating verticals. Apply asOf for historical "what did we know on X" queries.' +
+        'Semantic search over the company knowledge graph. Returns entities with their top facts and external references back to the originating verticals. Apply asOf for historical "what was true on X" queries (valid time: a fact brain learned after X still shows).' +
         embedderHint,
       inputSchema: {
         query: z.string().describe('Natural-language query'),
         limit: z.number().int().min(1).max(100).optional().describe('Max results (default 10)'),
         predicates: z.array(z.string()).optional().describe('Filter to these predicates only'),
-        asOf: z.string().datetime().optional().describe('Knowledge as-of this ISO 8601 moment'),
+        asOf: z
+          .string()
+          .datetime()
+          .optional()
+          .describe(
+            'Valid-time as-of: facts true at this ISO 8601 moment (a retraction dated before it hides the fact; a fact learned after it still shows — not a knowledge snapshot)',
+          ),
         minConfidence: z.number().min(0).max(1).optional(),
         userId: z
           .string()
@@ -172,7 +178,13 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
           .describe(
             'Override guardrails when synthesize=true: strict closes to null on partial; lenient returns the answer with the verifier verdict; off skips the verifier',
           ),
-        asOf: z.string().datetime().optional().describe('Knowledge as-of this ISO 8601 moment'),
+        asOf: z
+          .string()
+          .datetime()
+          .optional()
+          .describe(
+            'Valid-time as-of: facts true at this ISO 8601 moment (a retraction dated before it hides the fact; a fact learned after it still shows — not a knowledge snapshot)',
+          ),
         predicates: z.array(z.string()).optional().describe('Filter to these predicates only'),
         limit: z.number().int().min(1).max(100).optional(),
         userId: z
@@ -230,7 +242,13 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
           .optional()
           .describe('Top-K facts fed to the generator (default 10)'),
         predicates: z.array(z.string()).optional(),
-        asOf: z.string().datetime().optional(),
+        asOf: z
+          .string()
+          .datetime()
+          .optional()
+          .describe(
+            'Valid-time as-of: facts true at this ISO 8601 moment (not a knowledge snapshot)',
+          ),
         minConfidence: z.number().min(0).max(1).optional(),
         synthesisGuardrails: z
           .enum(['strict', 'lenient', 'off'])
@@ -344,7 +362,13 @@ function registerGraphRetrieveTool({
           .describe(
             'Prefer facts with these predicates (non-matching neighbour facts are dropped, seed facts kept at lower score)',
           ),
-        asOf: z.string().datetime().optional().describe('Knowledge as-of this ISO 8601 moment'),
+        asOf: z
+          .string()
+          .datetime()
+          .optional()
+          .describe(
+            'Valid-time as-of: facts true at this ISO 8601 moment (a retraction dated before it hides the fact; a fact learned after it still shows — not a knowledge snapshot)',
+          ),
       },
     },
     async (args) => {
@@ -379,7 +403,13 @@ function registerEntityReadTools({
         'Full profile of one entity: canonical name, type, externalRefs (cross-vertical ids), and active facts. Use externalRefs to rehydrate fresh state from the originating vertical via @inite/api-kit.',
       inputSchema: {
         entityId: z.string().describe('Brain entity id (knowledge_entity:...) or short id'),
-        asOf: z.string().datetime().optional(),
+        asOf: z
+          .string()
+          .datetime()
+          .optional()
+          .describe(
+            'Valid-time as-of: facts true at this ISO 8601 moment (not a knowledge snapshot)',
+          ),
       },
     },
     async (args) => {
