@@ -325,8 +325,7 @@ describe('HNSW provisioning + roster (real SurrealDB)', () => {
     const row = (roster.body.tenants as Array<{ companyId: string }>).find(
       (r) => r.companyId === f.companyId,
     ) as
-      | { state: string; detail?: string; observedAt?: string; embeddingSpace?: string }
-      | undefined;
+      { state: string; detail?: string; observedAt?: string; embeddingSpace?: string } | undefined;
     expect(row).toBeDefined();
     expect(['ready', 'building']).toContain(row!.state);
     expect(row!.detail).toContain('fact_embedding_hnsw=');
