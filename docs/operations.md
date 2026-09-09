@@ -743,6 +743,83 @@ This is intentional — better to refuse to start than to dribble out
 flight requests. A 15s deadline guards against a hung shutdown so
 docker / fly / k8s don't `SIGKILL` you with no log line.
 
+## Deploys, and how to undo one
+
+The engine deploy does not build. CI builds the image once, pushes it,
+pulls the published **digest** back, smoke-tests that, and records it in a
+`deploy-manifest` artifact. `deploy-brain.yml` waits for CI's verdict on
+its own commit, reads that manifest, and pins
+`inite-brain-service@sha256:…` in the compose file. A tag is never
+deployed: `:latest` resolves to whatever the registry holds at pull time
+and cannot carry the claim "this is what CI tested".
+
+Consequences worth knowing:
+
+- **A red `main` does not deploy.** The `verify` job fails and nothing
+  downstream runs. So does "CI never ran for this commit" and "CI is still
+  running 45 minutes later" — not being able to confirm green is not
+  permission to ship.
+- **The commit and the running image are the same thing.**
+  `docker inspect inite-brain-service --format '{{index .RepoDigests 0}}'`
+  on the box gives you a digest you can match against the CI run that
+  produced it.
+
+### Verification after a deploy
+
+Two internal gates on the box (`/health` for liveness, `/ready` for the
+database, scoped authorization and the primary embedder), then an external
+`smoke` job that goes through DNS, the certificate and Traefik —
+`scripts/ci/smoke.mjs`, surface `brain`. It asserts more than liveness: an
+unauthenticated `POST /v1/search` must return **401**. A 404 means the API
+is not mounted; a 200 means auth is not enforced. Only 401 says the
+surface is there and fail-closed.
+
+The landing has its own surface (`/en`, `/skills.tar.gz`, `/install.sh`,
+`/openapi.json`) and deliberately does **not** assert `/health` — Traefik
+routes that path to the engine, so asserting it made the landing's release
+gate on a different service's health.
+
+### Rollback
+
+Three files live in `/opt/projects/inite-brain-service/`:
+
+| File | Meaning |
+|---|---|
+| `.pending-image` | the digest this run is deploying |
+| `.previous-image` | whatever was pinned before this run started |
+| `.last-good-image` | the last digest that passed **both** the readiness gate and the external smoke test |
+
+`.last-good-image` is written only by the `finalize` job, only when the
+smoke test passed. It is a known-good target rather than merely a previous
+one — which matters, because rolling back to a previous deploy that was
+itself broken achieves nothing.
+
+**Automatic.** If the deploy job or the smoke job fails, `finalize`
+rewrites the compose image to `.last-good-image` (falling back to
+`.previous-image`), pulls, restarts, and then waits for `/ready` on the
+rolled-back container. It reports the run as **failed** even when the
+rollback succeeds — production is safe, but the commit on `main` is still
+broken and needs a fix-forward or a revert.
+
+**By hand.** Actions → *Deploy brain.inite.ai* → Run workflow →
+`action: rollback`. This skips verification entirely (it must work while
+CI is red — that is what it is for) and redeploys `.last-good-image`.
+
+**When there is nothing to roll back to** — a first deploy, or a host
+whose state files were wiped — the rollback step says so and exits 1
+rather than pretending. Recover by pinning a digest by hand:
+
+```bash
+cd /opt/projects/inite-brain-service
+sed -i 's|^\( *image:\).*|\1 <user>/inite-brain-service@sha256:…|' docker-compose.yml
+docker-compose pull inite-brain-service && docker-compose up -d
+```
+
+A `rollback` cannot cross a database migration. Migrations run forward on
+boot and are not reversed by pinning an older image; if the bad deploy
+introduced a schema change, roll back the image to stop the bleeding and
+then handle the schema deliberately.
+
 ## Tests
 
 | Command | What it does | When to run |
