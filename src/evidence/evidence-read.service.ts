@@ -236,7 +236,12 @@ export class EvidenceReadService {
     let rows: ConsentRow[];
     try {
       const [r] = await db.query<[ConsentRow[]]>(
-        `SELECT manifest, acceptedModalities, acceptedModalitiesChecksum FROM domain_pack`,
+        // ACTIVE installs only: uninstall keeps the row (status='removed')
+        // with its manifest and accepted-modality checksum, and a removed
+        // pack must not go on consenting to raw-evidence reads (audit
+        // 2026-09-06 F5).
+        `SELECT manifest, acceptedModalities, acceptedModalitiesChecksum FROM domain_pack
+          WHERE status = 'active'`,
       );
       rows = r ?? [];
     } catch (e) {
