@@ -958,8 +958,14 @@ jobs:
           cp .pending-image .last-good-image
           echo "[promote] last known-good is now $(cat .last-good-image)"
 
+      # Deliberately NOT `!= 'success'`. When `verify` fails — a red CI, no
+      # manifest — `deploy` is *skipped*, which is also not 'success', and
+      # rolling back then would restart production over a deploy that never
+      # happened. Nothing was touched, so nothing needs undoing. Only a
+      # deploy that actually ran and went wrong, or a smoke test that
+      # actually failed, is a reason to move the running image.
       - name: Roll back to the previous image
-        if: needs.deploy.result != 'success' || needs.smoke.result != 'success'
+        if: needs.deploy.result == 'failure' || needs.deploy.result == 'cancelled' || needs.smoke.result == 'failure'
         run: |
           set -euo pipefail
           cd /opt/projects/${{ env.PROJECT_NAME }}

@@ -80,10 +80,19 @@ describe('a failed deploy has a way back', () => {
     expect(promote?.[0]).toMatch(/needs\.smoke\.result == 'success'/);
   });
 
-  it('rollback triggers when either the deploy or the smoke test failed', () => {
-    expect(BRAIN).toMatch(
-      /needs\.deploy\.result != 'success' \|\| needs\.smoke\.result != 'success'/,
-    );
+  it('rollback triggers when the deploy or the smoke test actually failed', () => {
+    expect(BRAIN).toMatch(/needs\.deploy\.result == 'failure'/);
+    expect(BRAIN).toMatch(/needs\.smoke\.result == 'failure'/);
+  });
+
+  it('rollback does NOT trigger when the deploy was merely skipped', () => {
+    // `verify` failing (red CI, no manifest) skips `deploy`, which is also
+    // "not success". Rolling back then would restart production over a
+    // deploy that never happened — nothing was touched, so nothing needs
+    // undoing. The condition must test for failure, not for non-success.
+    const start = BRAIN.indexOf('Roll back to the previous image');
+    const condition = BRAIN.slice(start, start + 400);
+    expect(condition).not.toMatch(/result != 'success'/);
   });
 
   it('the rollback re-verifies readiness instead of trusting the restart', () => {
