@@ -36,6 +36,7 @@ function mkSvc(opts: {
     embedMany: opts.embedManyMock ?? (async (texts: string[]) => texts.map((_, i) => [i, i, i, i])),
   } as any;
   (svc as any).primary = fake;
+  (svc as any).primarySpaceIdValue = `${fake.providerId}:l2`;
   (svc as any).fallback = null;
   return svc;
 }

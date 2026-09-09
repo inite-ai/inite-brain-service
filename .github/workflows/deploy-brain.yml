@@ -602,20 +602,11 @@ jobs:
                 #   1. Deploy this commit so the BGE-M3 provider is
                 #      preferred. Warmup is now non-blocking (commit
                 #      0cde424), so the container goes /health=ok
-                #      immediately and serves search/synthesize on the
-                #      openai fallback during the ~10s ONNX load.
-                #      READS degrade onto that fallback; vector WRITES
-                #      (ingest, compose, reindex) are REFUSED with 503
-                #      for the duration. That is deliberate: the vector
-                #      columns carry no width, so a 1536-wide fallback
-                #      vector would land in the 1024-wide corpus
-                #      silently and permanently, after which cosine
-                #      search errors for the WHOLE table and the HNSW
-                #      index can no longer be built. Watch
-                #      brain_embedder_fallback_serves_total — it should
-                #      tick briefly at boot and then stop. If it keeps
-                #      climbing, warmup FAILED and the tenant is stuck
-                #      on cross-space reads.
+                #      immediately. Embedding requests refuse incompatible
+                #      fallback with 503 until warmup completes. Vector
+                #      writes are guarded unconditionally; reads are guarded
+                #      by default (EMBEDDING_SPACE_STRICT). A fallback vector
+                #      cannot meaningfully query a different model's corpus.
                 #   2. /ready reports the PRIMARY embedder only, so it
                 #      genuinely goes 200 when the model is warm (it
                 #      used to be green from boot because the fallback
@@ -624,11 +615,12 @@ jobs:
                 #      window). After /ready returns 200, an operator
                 #      runs:
                 #        curl -X POST -H 'Authorization: Bearer <admin>' \
-                #          'https://brain.inite.ai/api/v1/admin/reindex/embeddings?dryRun=true'
+                #          'https://brain.inite.ai/v1/admin/reindex/embeddings?dryRun=true&allTables=true'
                 #      to size the work, then re-runs without dryRun
                 #      to write the new vectors per tenant.
-                #   3. Old vectors stay searchable until rewritten —
-                #      reindex is idempotent.
+                #   3. Reindex is idempotent, but old-space vectors are not
+                #      compatible with new queries. Audit all vector columns;
+                #      allTables does not yet repair every derived table.
                 #
                 # Drop to `openai` to roll back to text-embedding-3-small.
                 - EMBEDDER_PROVIDER=bge-m3
@@ -783,29 +775,26 @@ jobs:
           docker-compose logs --tail=120 ${{ env.PROJECT_NAME }}
           exit 1
 
-      - name: Internal readiness probe (warning-only)
+      - name: Internal readiness gate
         if: github.event.inputs.action != 'logs'
-        continue-on-error: true
         run: |
           cd /opt/projects/${{ env.PROJECT_NAME }}
           # /health (gate above) is liveness — green as soon as Nest boots,
-          # while the bge-m3 embedder is still warming and the app serves on
-          # the OpenAI fallback. /ready 503s until DB + embedder are warm.
-          # Surfaced as warning-only (NOT a gate) because a cold-image ONNX
-          # download can exceed this window without anything being wrong;
-          # failing the deploy on it would be a false alarm. Gives ops a
-          # clear "booted but not yet warm" signal in the deploy log.
-          for i in $(seq 1 24); do
-            if docker-compose exec -T ${{ env.PROJECT_NAME }} wget -qO- http://localhost:${{ env.PORT }}/ready > /dev/null 2>&1; then
-              echo "[ok] container is READY (db + embedder warm)"
+          # while the primary embedder is warming. A live process with broken
+          # reads is not a successful deploy. Allow five minutes for cold boot;
+          # bound each probe as well as the retry window.
+          deadline=$((SECONDS + 300))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            if timeout 15s docker-compose exec -T ${{ env.PROJECT_NAME }} wget -T 12 -qO- http://localhost:${{ env.PORT }}/ready > /dev/null 2>&1; then
+              echo "[ok] container is READY (db + scoped authorization + primary embedder)"
               exit 0
             fi
-            echo "[info] booted, waiting for readiness (embedder warmup)... ($i/24)"
+            echo "[info] waiting for readiness (database, scoped authorization, primary embedder)..."
             sleep 5
           done
-          echo "[warn] /ready never went green within 120s — the primary embedder is still warming (or warmup failed)."
-          echo "[warn] Reads are being served cross-space on the OpenAI fallback and vector WRITES are refused with 503."
-          echo "[warn] Do NOT start the embedding reindex until /ready is 200. Check brain_embedder_fallback_serves_total and the container logs for 'BGE-M3 ... warmup failed'."
+          echo "[err] /ready never went green within the readiness window. Deployment is not ready."
+          echo "[err] Inspect scoped DB credentials and primary embedder warmup logs; do not start reindex until /ready is 200."
+          exit 1
 
       - name: External health probe (warning-only)
         if: github.event.inputs.action != 'logs'

@@ -167,4 +167,39 @@ describe('Scoped pool — session expiry', () => {
     // …while the root pool, which may reach it, still can.
     await expect(svc.withCompany(tenant, (db) => db.query('INFO FOR ROOT'))).resolves.toBeDefined();
   }, 60_000);
+  it('recovers auth invalidation even while the cached JWT has almost an hour left', async () => {
+    await root.query(
+      `DEFINE USER OVERWRITE ${SCOPED_USER} ON NAMESPACE PASSWORD '${SCOPED_PASS}' ROLES EDITOR DURATION FOR TOKEN 1h`,
+    );
+    // Both slots currently carry short tokens, so the next acquire obtains
+    // a long-lived one. Invalidate the live session while the keeper still
+    // considers that token fresh: expiry bookkeeping alone cannot see this.
+    for (let slot = 0; slot < 2; slot++) {
+      await svc.withScopedCompany(tenant, ['brain:read'], async (db) => {
+        const claims = JSON.parse(
+          Buffer.from(db.accessToken!.split('.')[1]!, 'base64url').toString(),
+        );
+        expect(claims.exp * 1000 - Date.now()).toBeGreaterThan(3_000_000);
+        await db.invalidate();
+      });
+    }
+    for (let slot = 0; slot < 2; slot++) {
+      await expect(svc.withScopedCompany(tenant, ['brain:read'], readOne)).resolves.toEqual([1]);
+    }
+  });
+  it('rebuilds closed scoped connections without losing pool slots or widening privilege', async () => {
+    for (let slot = 0; slot < 2; slot++) {
+      await svc.withScopedCompany(tenant, ['brain:read'], async (db) => {
+        await db.close();
+      });
+    }
+    for (let slot = 0; slot < 2; slot++) {
+      await expect(svc.withScopedCompany(tenant, ['brain:read'], readOne)).resolves.toEqual([1]);
+      await expect(
+        svc.withScopedCompany(tenant, ['brain:read'], (db) => db.query('INFO FOR ROOT')),
+      ).rejects.toThrow();
+    }
+    expect(svc.poolStats().scopedIdle).toBe(2);
+    expect(svc.poolStats().scopedWaiters).toBe(0);
+  });
 });

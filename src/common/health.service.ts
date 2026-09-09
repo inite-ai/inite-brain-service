@@ -42,8 +42,8 @@ export class HealthService {
    * answers for an anonymous session too. During the 2026-09-08
    * scoped-session-expiry outage that made /ready green while every read
    * failed with "Anonymous access not allowed". `pingScoped()` runs an
-   * authorization-gated statement on a scoped connection, so a read path
-   * that can no longer authorize takes the pod out of rotation.
+   * authorization-gated statement on a scoped connection, so deployment
+   * checks and readiness-aware balancers can detect a broken read path.
    */
   async readiness(): Promise<ReadinessReport> {
     const dbOk = await this.surreal.ping().catch(() => false);

@@ -3,10 +3,10 @@
  * (EMBEDDING_SPACE_STRICT).
  *
  * Proves:
- *   - OFF (default): the warmup failover from a not-ready bge-m3 primary to
+ *   - Explicit OFF (legacy opt-out): warmup failover from a not-ready bge-m3 primary to
  *     the OpenAI fallback is BYTE-IDENTICAL to today — embed() serves the
  *     fallback vector, no throw.
- *   - ON: the same cross-space failover is REFUSED (503) rather than
+ *   - Default / ON: the same cross-space failover is REFUSED (503) rather than
  *     silently cross-space-compared.
  *   - ON but compatible (primary ready, or openai-only deployment): serves
  *     normally — the guard only fires on a genuine space mismatch.
@@ -68,7 +68,7 @@ const OPENAI_SPACE = 'openai:text-embedding-3-small:1536:l2';
 describe('EmbedderService strict-space guard', () => {
   it('OFF: cross-space warmup failover is byte-identical (serves the fallback)', async () => {
     const svc = mkSvc({
-      strict: undefined, // flag off
+      strict: '0', // explicit legacy opt-out
       primary: bge(false), // not warmed up yet
       fallback: openai(),
       primarySpaceId: BGE_SPACE,
@@ -80,16 +80,41 @@ describe('EmbedderService strict-space guard', () => {
     expect(many[0]).toHaveLength(1536);
   });
 
-  it('ON: refuses the cross-space failover (503), no silent cross-space compare', async () => {
-    const svc = mkSvc({
-      strict: '1',
-      primary: bge(false),
-      fallback: openai(),
-      primarySpaceId: BGE_SPACE,
-    });
+  it.each([undefined, '1', 'true'])(
+    'strict=%s: refuses cross-space failover before provider work',
+    async (strict) => {
+      const fallback = openai();
+      const embed = jest.spyOn(fallback, 'embed');
+      const embedMany = jest.spyOn(fallback, 'embedMany');
+      const svc = mkSvc({
+        strict,
+        primary: bge(false),
+        fallback,
+        primarySpaceId: BGE_SPACE,
+      });
+      await expect(svc.embed('hello')).rejects.toBeInstanceOf(ServiceUnavailableException);
+      await expect(svc.embed('hello')).rejects.toThrow(/strict-guard/i);
+      await expect(svc.embedMany(['a'])).rejects.toBeInstanceOf(ServiceUnavailableException);
+      await expect(svc.embed('  ')).rejects.toBeInstanceOf(ServiceUnavailableException);
+      await expect(svc.embedMany(['  '])).rejects.toBeInstanceOf(ServiceUnavailableException);
+      expect(embed).not.toHaveBeenCalled();
+      expect(embedMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it('recovers after warmup without restarting or calling the incompatible fallback', async () => {
+    const primary = bge(false);
+    const ready = jest.spyOn(primary, 'isReady');
+    const fallback = openai();
+    const fallbackEmbed = jest.spyOn(fallback, 'embed');
+    const svc = mkSvc({ primary, fallback, primarySpaceId: BGE_SPACE });
+    expect(svc.isReady()).toBe(false);
     await expect(svc.embed('hello')).rejects.toBeInstanceOf(ServiceUnavailableException);
-    await expect(svc.embed('hello')).rejects.toThrow(/strict-guard/i);
-    await expect(svc.embedMany(['a'])).rejects.toBeInstanceOf(ServiceUnavailableException);
+    ready.mockReturnValue(true);
+    expect(svc.isReady()).toBe(true);
+    await expect(svc.embed('hello')).resolves.toHaveLength(1024);
+    await expect(svc.embedForWrite('hello')).resolves.toHaveLength(1024);
+    expect(fallbackEmbed).not.toHaveBeenCalled();
   });
 
   it('ON but primary READY: serves the primary space (compatible ⇒ no throw)', async () => {
