@@ -5,7 +5,10 @@ import { EntityJudgeService } from '../ai/entity-judge.service';
 import { withSpan } from '../common/tracing';
 import { envFlagEnabled } from '../common/env-validation';
 import { derivedVersionFence } from '../episodes/read-pin.service';
-import { hnswIndexState, knnDroppedMessage, knnOperatorDropped } from '../db/knn-index';
+import { knnIndexKnownUnusable, knnOperatorDropped, noteKnnOperatorDropped } from '../db/knn-index';
+
+/** The index the entity-dedup seed KNN rides — for the diagnostic. */
+const DEDUP_HNSW = { table: 'knowledge_fact', index: 'fact_embedding_hnsw' } as const;
 
 /**
  * DreamsDedupService — find near-duplicate ENTITIES inside a tenant
@@ -225,7 +228,7 @@ export class DreamsDedupService {
           AND entityId.mergedInto IS NONE
           ${fence.clause}`;
     type Row = { entityId: unknown; sim: number };
-    if (envFlagEnabled(process.env.SEARCH_HNSW_ENABLED)) {
+    if (envFlagEnabled(process.env.SEARCH_HNSW_ENABLED) && !knnIndexKnownUnusable(db, DEDUP_HNSW)) {
       const ef = parseInt(process.env.SEARCH_HNSW_EF ?? '100', 10);
       const overfetch = parseInt(process.env.SEARCH_HNSW_OVERFETCH ?? '4', 10);
       const kOver = Math.min(5 * overfetch, 1000);
@@ -246,10 +249,13 @@ export class DreamsDedupService {
         );
         const knnRows = (res[1] as Array<{ entityId: unknown; dist: number }>) ?? [];
         if (knnOperatorDropped(knnRows, 'dist')) {
-          const spec = { table: 'knowledge_fact', index: 'fact_embedding_hnsw' };
-          this.logger.error(
-            `[dreams.dedup] ${knnDroppedMessage(spec, await hnswIndexState(db, spec))}`,
-          );
+          await noteKnnOperatorDropped(db, DEDUP_HNSW, {
+            logger: {
+              warn: (m) => this.logger.warn(`[dreams.dedup] ${m}`),
+              error: (m) => this.logger.error(`[dreams.dedup] ${m}`),
+              debug: (m) => this.logger.debug(`[dreams.dedup] ${m}`),
+            },
+          });
         } else {
           return knnRows.map(({ entityId, dist }) => ({
             entityId,

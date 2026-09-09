@@ -3,6 +3,7 @@ import type { Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { envFlagEnabled } from '../common/env-validation';
+import { probeHnswIndex, resetKnnIndexMemo } from '../db/knn-index';
 
 /**
  * HnswMaintenanceService — per-tenant HNSW index lifecycle.
@@ -193,7 +194,7 @@ const INDEX_SPECS = [
  * with the first probe.
  */
 const DEFAULT_BUILD_WAIT_MS = 60_000;
-const BUILD_POLL_MS = 500;
+const BUILD_POLL_MS = 2_000;
 
 /**
  * The one DEFINE INDEX failure `ensure` treats as success. Measured verbatim
@@ -236,31 +237,44 @@ export class HnswMaintenanceService {
     // `ensure` is concurrent by construction, not by flag — see the
     // docstring. The reported value is what the DDL actually used.
     const concurrent = action === 'ensure' || HnswMaintenanceService.concurrentEnabled();
-    return this.surreal.withCompany(companyId, async (db) => {
-      const created: string[] = [];
+    // The DDL and the first probe share one pool hold; the build WAIT does
+    // not — each poll takes a connection for the INFO statements and gives
+    // it back, so a 60 s wait no longer pins a root-pool slot (and the
+    // migrator, which needs one, cannot deadlock behind it).
+    const created: string[] = [];
+    let builds = await this.surreal.withCompany(companyId, async (db) => {
       if (action === 'create') await this.create(db, dimension, concurrent);
       else if (action === 'drop') await this.drop(db);
       else if (action === 'ensure') created.push(...(await this.ensure(db, dimension)));
-      const builds = await this.probeBuilds(db);
-      const mismatched = builds
-        .filter((b) => b.dimension !== undefined && b.dimension !== dimension)
-        .map((b) => b.index);
-      const ready =
-        action !== 'drop' && mismatched.length === 0 && builds.every((b) => b.state === 'ready');
-      this.report(companyId, { action, dimension, concurrent, ready, builds, mismatched, created });
-      return {
-        companyId,
-        action,
-        dimension,
-        space: this.embedder.primarySpaceId(),
-        indexes: INDEX_SPECS.map((s) => s.index),
-        concurrent,
-        ready,
-        builds,
-        mismatched,
-        created,
-      };
+      return this.probeBuilds(db);
     });
+    // Only an explicit create waits: `ensure` is the provisioner's sweep
+    // action and returns as soon as the DDL is issued (the sweep moves on;
+    // the tenant registry records the build state as it is observed).
+    if (action === 'create' && concurrent && !builds.every((b) => b.state === 'ready')) {
+      builds = await this.waitForBuilds(companyId, builds);
+    }
+    // The legs remember an index they saw missing or building; a build or
+    // drop makes that memory stale on every pod that shares this process.
+    if (action !== 'status') resetKnnIndexMemo();
+    const mismatched = builds
+      .filter((b) => b.dimension !== undefined && b.dimension !== dimension)
+      .map((b) => b.index);
+    const ready =
+      action !== 'drop' && mismatched.length === 0 && builds.every((b) => b.state === 'ready');
+    this.report(companyId, { action, dimension, concurrent, ready, builds, mismatched, created });
+    return {
+      companyId,
+      action,
+      dimension,
+      space: this.embedder.primarySpaceId(),
+      indexes: INDEX_SPECS.map((s) => s.index),
+      concurrent,
+      ready,
+      builds,
+      mismatched,
+      created,
+    };
   }
 
   /** Every log line `apply` emits, kept out of the happy path's way. */
@@ -378,7 +392,6 @@ export class HnswMaintenanceService {
     }
     await this.drop(db);
     for (const spec of INDEX_SPECS) await db.query(define(spec, ' CONCURRENTLY'));
-    await this.waitForBuilds(db);
   }
 
   private async drop(db: Surreal): Promise<void> {
@@ -390,62 +403,40 @@ export class HnswMaintenanceService {
     );
   }
 
-  /** Poll until every build reports ready, or the wait ceiling elapses. */
-  private async waitForBuilds(db: Surreal): Promise<void> {
+  /**
+   * Poll until every build reports ready, or the wait ceiling elapses.
+   * Each poll acquires and releases its own connection; the wait itself
+   * holds nothing. Returns the last observation either way.
+   */
+  private async waitForBuilds(
+    companyId: string,
+    last: HnswIndexBuild[],
+  ): Promise<HnswIndexBuild[]> {
     const deadline = Date.now() + HnswMaintenanceService.buildWaitMs();
-    for (;;) {
-      const builds = await this.probeBuilds(db);
-      if (builds.every((b) => b.state === 'ready')) return;
-      if (Date.now() >= deadline) return;
+    let builds = last;
+    while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, BUILD_POLL_MS));
+      builds = await this.surreal.withCompany(companyId, (db) => this.probeBuilds(db));
+      if (builds.every((b) => b.state === 'ready')) return builds;
     }
+    return builds;
   }
 
   /**
-   * Per-index build state. `INFO FOR INDEX` THROWS on an index that does
-   * not exist, so existence is probed on the table first; a synchronously
-   * built index reports no `building` block at all, which is `ready`.
+   * Per-index build state, through the same probe the KNN legs use
+   * (knn-index.ts): `INFO FOR INDEX` THROWS on an index that does not
+   * exist, so existence is probed on the table first; a synchronously built
+   * index reports no `building` block at all, which is `ready`. The probe
+   * also reads the DIMENSION the engine echoes back, which is how a width
+   * mismatch is detected.
    */
   private async probeBuilds(db: Surreal): Promise<HnswIndexBuild[]> {
     const out: HnswIndexBuild[] = [];
     for (const spec of INDEX_SPECS) {
-      out.push({ index: spec.index, table: spec.table, ...(await this.probeOne(db, spec)) });
+      const probe = await probeHnswIndex(db, spec);
+      if (probe.state === 'unknown') this.logger.warn(`hnsw probe failed for ${spec.index}`);
+      out.push({ index: spec.index, table: spec.table, ...probe });
     }
     return out;
-  }
-
-  private async probeOne(
-    db: Surreal,
-    spec: (typeof INDEX_SPECS)[number],
-  ): Promise<Omit<HnswIndexBuild, 'index' | 'table'>> {
-    try {
-      const [info] = await db.query<[{ indexes?: Record<string, string> }]>(
-        `INFO FOR TABLE ${spec.table};`,
-      );
-      const indexes = (info as { indexes?: Record<string, string> } | undefined)?.indexes;
-      const ddl = indexes?.[spec.index];
-      if (typeof ddl !== 'string') return { state: 'absent' };
-      // The declared width, from the DDL the engine echoes back. Absent
-      // (rather than guessed) when the shape is not what we expect, so a
-      // parse miss reads as "not checked", never as "matches".
-      const declared = /DIMENSION\s+(\d+)/i.exec(ddl);
-      const dimension = declared ? { dimension: parseInt(declared[1]!, 10) } : {};
-      const [detail] = await db.query<
-        [{ building?: { status?: string; initial?: number; pending?: number } }]
-      >(`INFO FOR INDEX ${spec.index} ON ${spec.table};`);
-      const building = (
-        detail as { building?: { status?: string; initial?: number; pending?: number } } | undefined
-      )?.building;
-      if (!building || building.status === undefined) return { state: 'ready', ...dimension };
-      return {
-        state: building.status === 'ready' ? 'ready' : 'building',
-        ...(typeof building.initial === 'number' ? { initial: building.initial } : {}),
-        ...(typeof building.pending === 'number' ? { pending: building.pending } : {}),
-        ...dimension,
-      };
-    } catch (e) {
-      this.logger.warn(`hnsw probe failed for ${spec.index}: ${(e as Error).message}`);
-      return { state: 'unknown' };
-    }
   }
 }
