@@ -294,6 +294,19 @@ describe('capability probe — scheduling', () => {
     svc.onApplicationShutdown();
   });
 
+  it('is armed by default — a forgotten flag must not recreate the blindness', async () => {
+    delete process.env.CAPABILITY_PROBE_ENABLED;
+    setEnv('CAPABILITY_PROBE_INTERVAL_MS', '5000');
+    const stubs = makeStubs();
+    const { svc } = build(stubs);
+
+    svc.onApplicationBootstrap();
+    await jest.advanceTimersByTimeAsync(5_000);
+
+    expect(stubs.surreal.withScopedCompany).toHaveBeenCalledTimes(1);
+    svc.onApplicationShutdown();
+  });
+
   it('probes on the configured interval once enabled', async () => {
     setEnv('CAPABILITY_PROBE_ENABLED', '1');
     setEnv('CAPABILITY_PROBE_INTERVAL_MS', '5000');

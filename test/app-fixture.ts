@@ -97,6 +97,9 @@ export async function createApp(
   // served the punctuation fallback — this only makes that deterministic
   // and stops the load/teardown churn. See test/jest-e2e.json.
   process.env.CHAT_ROUTE_NLI_ENABLED = 'false';
+  // The capability probe is on by default in production; a spec that wants
+  // its timer (test/capability-probe.e2e-spec.ts) arms it explicitly.
+  process.env.CAPABILITY_PROBE_ENABLED = '0';
   if (opts.enableScopedPool) {
     process.env.SURREALDB_SCOPED_USER = 'brain_caller';
     process.env.SURREALDB_SCOPED_PASS = 'brain-caller-password-must-be-overridden-via-env';
