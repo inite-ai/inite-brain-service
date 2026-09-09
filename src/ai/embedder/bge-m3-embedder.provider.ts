@@ -6,7 +6,7 @@ import { Semaphore } from '../../common/semaphore';
 import type { EmbedderProvider } from './embedder-provider.interface';
 import { providerIdOf, type EmbeddingSpaceConfig } from './embedding-space';
 
-interface FeatureExtractionPipeline {
+export interface FeatureExtractionPipeline {
   (
     input: string | string[],
     opts?: { pooling?: 'cls' | 'mean'; normalize?: boolean },
@@ -26,6 +26,12 @@ export interface BgeM3EmbedderConfig {
    * single-threaded benchmarks via BGE_M3_WORKER=0.
    */
   useWorker?: boolean;
+  /**
+   * Test seam for the in-thread path: replaces the `@xenova/transformers`
+   * model load so warmup success and failure can be driven without a
+   * model on disk. Production leaves it unset.
+   */
+  loadPipeline?: () => Promise<FeatureExtractionPipeline>;
 }
 
 /**
@@ -39,9 +45,13 @@ export interface BgeM3EmbedderConfig {
  * concurrency = 4 and main-thread inference, the event loop pauses
  * 80-800ms — every other tenant's request blocks for the duration.
  *
- * Fallback: when BGE_M3_WORKER=0 or the worker file can't be loaded
- * (some test envs), the provider falls back to in-thread inference
- * preserving the original behaviour.
+ * In-thread path: when BGE_M3_WORKER=0 or the worker file can't be loaded
+ * (some test envs), inference runs on the main thread.
+ *
+ * Warmup contract: `warmup()` rejects when the model cannot be loaded and
+ * leaves the provider not-ready; it is safe to call again. The owning
+ * EmbedderService retries with backoff — the provider itself never decides
+ * that a failure is final.
  */
 // Per-RPC deadlines for the worker path. A hung worker would otherwise
 // leave the caller's promise pending forever. Warmup loads the model from
@@ -56,6 +66,7 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
   private readonly dimensions: number;
   private readonly limiter: Semaphore;
   private readonly useWorker: boolean;
+  private readonly loadPipeline: () => Promise<FeatureExtractionPipeline>;
 
   // In-thread fallback
   private pipeline: FeatureExtractionPipeline | null = null;
@@ -78,6 +89,15 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
     // construct the provider directly and rely on the in-thread path
     // via setPipelineForTesting().
     this.useWorker = cfg.useWorker === true;
+    this.loadPipeline =
+      cfg.loadPipeline ??
+      (async () => {
+        const transformers = await import('@xenova/transformers');
+        return (await transformers.pipeline(
+          'feature-extraction',
+          this.modelId,
+        )) as unknown as FeatureExtractionPipeline;
+      });
   }
 
   getDimensions(): number {
@@ -122,23 +142,20 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
   private async warmupInThread(): Promise<void> {
     const start = Date.now();
     try {
-      const transformers = await import('@xenova/transformers');
-      this.pipeline = (await transformers.pipeline(
-        'feature-extraction',
-        this.modelId,
-      )) as unknown as FeatureExtractionPipeline;
+      this.pipeline = await this.loadPipeline();
       this.logger.log(`BGE-M3 ready (${this.modelId}) — in-thread warmup ${Date.now() - start}ms`);
     } catch (e) {
-      this.logger.warn(
-        `BGE-M3 warmup failed for ${this.modelId}: ${(e as Error).message}; service will fall back to OpenAI`,
-      );
       this.pipeline = null;
+      throw new Error(`BGE-M3 warmup failed for ${this.modelId}: ${(e as Error).message}`);
     }
   }
 
   private async warmupWorker(): Promise<void> {
     const start = Date.now();
     try {
+      // A previous attempt may have left a half-initialised worker behind
+      // (an RPC that timed out already reclaimed its own). Never stack two.
+      await this.terminate();
       const workerPath = this.resolveWorkerPath();
       this.worker = new Worker(workerPath);
       this.worker.on('message', (m: unknown) => this.handleReply(m));
@@ -161,10 +178,10 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
       this.workerReady = true;
       this.logger.log(`BGE-M3 ready (${this.modelId}) — worker warmup ${Date.now() - start}ms`);
     } catch (e) {
-      this.logger.warn(
-        `BGE-M3 worker warmup failed for ${this.modelId}: ${(e as Error).message}; service will fall back to OpenAI`,
-      );
-      this.workerReady = false;
+      // Reclaim the thread (and the partially loaded model) before
+      // reporting; the next attempt starts from a clean worker.
+      await this.terminate();
+      throw new Error(`BGE-M3 worker warmup failed for ${this.modelId}: ${(e as Error).message}`);
     }
   }
 
@@ -223,12 +240,11 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
         // Only act if the reply hasn't already landed and cleared us.
         if (this.pending.delete(id)) {
           // A wedged worker won't recover on its own — mark it not-ready
-          // so isReady() flips false and EmbedderService fails over to the
-          // fallback provider instead of stacking timed-out RPCs. And
-          // since nothing ever re-warms this provider (EmbedderService
-          // warms once at module init), the wedged worker would
-          // otherwise pin the ~600 MB model for the rest of the process
-          // lifetime while serving zero traffic — reclaim it now.
+          // so isReady() flips false (EmbedderService then refuses or
+          // fails over per its space guard, and re-arms a warmup that
+          // builds a fresh worker) instead of stacking timed-out RPCs.
+          // Reclaim the ~600 MB model now rather than pinning it while
+          // serving zero traffic.
           this.workerReady = false;
           void this.terminate();
           reject(new Error(`BGE-M3 worker '${kind}' RPC timed out after ${timeoutMs}ms`));

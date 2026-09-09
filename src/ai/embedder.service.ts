@@ -29,6 +29,22 @@ import {
 
 /** Minimum gap between two "serving on fallback" warnings. */
 const FALLBACK_WARN_THROTTLE_MS = 10_000;
+/** First retry after a failed primary warmup; doubles per failure. */
+const WARMUP_RETRY_BASE_MS = 5_000;
+/** Ceiling on the warmup retry interval. */
+const WARMUP_RETRY_MAX_MS = 5 * 60_000;
+
+export interface EmbedderWarmupStatus {
+  /** The primary provider can serve right now. */
+  ready: boolean;
+  /** Consecutive failed warmup attempts (0 once ready). */
+  failures: number;
+  /** A warmup attempt is currently running. */
+  inFlight: boolean;
+  lastError?: string;
+  /** ISO time of the next scheduled attempt, when one is pending. */
+  nextRetryAt?: string;
+}
 
 /**
  * EmbedderService — thin facade in front of an EmbedderProvider.
@@ -37,8 +53,10 @@ const FALLBACK_WARN_THROTTLE_MS = 10_000;
  *   - openai (default, back-compat): text-embedding-3-* via the
  *     OpenAI SDK. Identical-text → identical vector (deterministic).
  *   - bge-m3: Xenova/bge-m3 via @xenova/transformers, local inference.
- *     Multilingual cross-lingual recall; lazy warmup with graceful
- *     fallback to OpenAI on warmup failure.
+ *     Multilingual cross-lingual recall; warmup is retried with backoff
+ *     (see `kickWarmup`) and, under the strict-space guard, a not-ready
+ *     primary means the request path refuses (503) rather than answering
+ *     from the OpenAI fallback's incompatible space.
  *
  * The cache lives here (not on the providers) so swapping providers
  * doesn't invalidate the existing LRU keys — the cache key includes
@@ -49,6 +67,13 @@ const FALLBACK_WARN_THROTTLE_MS = 10_000;
 export class EmbedderService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(EmbedderService.name);
   private lastFallbackWarnAt = 0;
+  // Warmup lifecycle of the primary (see kickWarmup).
+  private warmupInFlight: Promise<void> | null = null;
+  private warmupTimer: NodeJS.Timeout | null = null;
+  private warmupFailures = 0;
+  private nextWarmupAt = 0;
+  private lastWarmupError: string | undefined;
+  private stopped = false;
   private readonly cache: LRUCache<string, number[]>;
   private readonly primary: EmbedderProvider;
   private readonly fallback: EmbedderProvider | null;
@@ -89,33 +114,98 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit(): Promise<void> {
-    // Fire-and-forget. The audit flagged this as P0: awaiting BGE-M3's
-    // warmup here blocked NestFactory.create until the ~340 MB ONNX
-    // pull + initial inference completed (10s warm cache, >60s cold).
-    // Liveness then SIGKILL'd the container before /health could
-    // answer, so a one-line `EMBEDDER_PROVIDER=bge-m3` flip bricked
-    // the rollout. Now the primary stays "not ready" until warmup
-    // resolves; `servingProvider()` routes to the OpenAI fallback in
-    // the meantime, and `/ready` (HealthController) waits for the
-    // primary to flip ready before reporting up.
-    if (this.primary instanceof BgeM3EmbedderProvider) {
-      void this.primary
-        .warmup()
-        .catch((e) =>
-          this.logger.warn(`bge-m3 warmup failed, falling back to openai: ${(e as Error).message}`),
-        );
-    }
+    // Never awaited: a cold bge-m3 warmup (~340 MB ONNX pull) would hold
+    // NestFactory.create past the liveness deadline and get the container
+    // killed before /health could answer. The primary stays not-ready until
+    // warmup resolves and `/ready` reports that truthfully.
+    this.kickWarmup('boot');
   }
 
   /**
-   * Terminate the BGE-M3 worker thread on shutdown. A worker_threads
+   * Stop retrying and terminate the BGE-M3 worker thread. A worker_threads
    * Worker keeps the event loop alive until terminated; without this the
    * process (and the e2e jest run) hangs on close.
    */
   async onModuleDestroy(): Promise<void> {
+    this.stopped = true;
+    if (this.warmupTimer) {
+      clearTimeout(this.warmupTimer);
+      this.warmupTimer = null;
+    }
     if (this.primary instanceof BgeM3EmbedderProvider) {
       await this.primary.terminate();
     }
+  }
+
+  /**
+   * Start a warmup attempt for the primary unless one is running, the
+   * primary is already ready, or the backoff from the last failure has not
+   * elapsed. Idempotent and cheap, so it is safe to call from any path that
+   * discovers the primary not-ready.
+   *
+   * One failed attempt used to be terminal: warmup fired once at module
+   * init, swallowed its own error, and nothing ever tried again — so a
+   * single HF download hiccup at boot left every embed refused by the
+   * strict-space guard for the life of the process, with /health green.
+   * Now a failure schedules the next attempt (5s, doubling, capped at 5
+   * min), and both `isReady()` and the embed path re-arm one whenever they
+   * find the primary not-ready — which also covers a worker that died
+   * after a successful warmup.
+   */
+  private kickWarmup(trigger: 'boot' | 'retry' | 'readiness' | 'serve'): void {
+    const primary = this.primary;
+    if (!primary.warmup || this.stopped || primary.isReady() || this.warmupInFlight) return;
+    if (Date.now() < this.nextWarmupAt) return;
+    const attempt = this.warmupFailures + 1;
+    this.warmupInFlight = primary
+      .warmup()
+      .then(() => {
+        this.warmupFailures = 0;
+        this.nextWarmupAt = 0;
+        this.lastWarmupError = undefined;
+        this.logger.log(
+          `embedder primary '${this.primarySpaceIdValue}' ready ` +
+            `(warmup attempt ${attempt}, trigger=${trigger})`,
+        );
+      })
+      .catch((e: unknown) => {
+        this.warmupFailures = attempt;
+        this.lastWarmupError = (e as Error).message;
+        const delay = Math.min(WARMUP_RETRY_BASE_MS * 2 ** (attempt - 1), WARMUP_RETRY_MAX_MS);
+        this.nextWarmupAt = Date.now() + delay;
+        this.logger.warn(
+          `embedder primary '${this.primarySpaceIdValue}' warmup attempt ${attempt} failed ` +
+            `(${this.lastWarmupError}); retrying in ${Math.round(delay / 1000)}s`,
+        );
+        this.scheduleWarmupRetry(delay);
+      })
+      .finally(() => {
+        this.warmupInFlight = null;
+      });
+  }
+
+  private scheduleWarmupRetry(delayMs: number): void {
+    if (this.stopped) return;
+    if (this.warmupTimer) clearTimeout(this.warmupTimer);
+    this.warmupTimer = setTimeout(() => {
+      this.warmupTimer = null;
+      this.kickWarmup('retry');
+    }, delayMs);
+    // A pending retry must never keep the process (or a jest worker) alive.
+    this.warmupTimer.unref?.();
+  }
+
+  /** Warmup bookkeeping for the health surfaces. */
+  warmupStatus(): EmbedderWarmupStatus {
+    const status: EmbedderWarmupStatus = {
+      ready: this.primary.isReady(),
+      failures: this.warmupFailures,
+      inFlight: this.warmupInFlight !== null,
+    };
+    if (this.lastWarmupError !== undefined) status.lastError = this.lastWarmupError;
+    if (this.nextWarmupAt > Date.now())
+      status.nextRetryAt = new Date(this.nextWarmupAt).toISOString();
+    return status;
   }
 
   /**
@@ -141,7 +231,12 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
    * unchanged and still answers during warmup.
    */
   isReady(): boolean {
-    return this.servesPrimarySpace();
+    const ready = this.servesPrimarySpace();
+    // A readiness poll is the one signal a service with no traffic still
+    // receives, so it doubles as the re-arm for a primary that is not
+    // ready (failed warmup, dead worker). Backoff-bound and idempotent.
+    if (!ready) this.kickWarmup('readiness');
+    return ready;
   }
 
   /**
@@ -486,6 +581,7 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
    * flag per-call so an operator flip takes effect without a restart.
    */
   private serveProvider(): EmbedderProvider {
+    if (!this.primary.isReady()) this.kickWarmup('serve');
     const provider = this.servingProvider();
     const servingSpace = this.spaceIdOf(provider);
     if (
