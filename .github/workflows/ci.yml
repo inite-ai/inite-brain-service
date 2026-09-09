@@ -172,6 +172,14 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile --ignore-workspace
 
+      # MEASURED, AND THE RESULT IS NOT WHAT IT LOOKS LIKE. On a confirmed
+      # cache hit this step ran 1:26 against 1:27 on a confirmed miss, and
+      # an e2e shard 2:58 against 3:03 — nothing, inside the noise. Once
+      # ts-jest is transpile-only the per-file work is cheap enough that
+      # redoing it costs about what unpacking the cache costs. The entry is
+      # ~16MB and restores in two seconds, so it is kept as a hedge against
+      # the transpile-only change ever being reverted — but do NOT read a
+      # speed claim into it.
       - name: Restore ts-jest transform cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
