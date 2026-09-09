@@ -5,6 +5,7 @@ import { IndexerDispatchService } from './indexer-dispatch.service';
 import type { IndexerRunResult } from './indexer-run.service';
 import { CandidateCommitService, CommitResult } from './candidate-commit.service';
 import { IngestDocumentDto } from './dto/ingest-document.dto';
+import { internalDocumentMeta, type InternalDocumentMeta } from './document-meta';
 import { ToolObservationService } from '../outcomes/tool-observation.service';
 import { pinUserScope } from '../auth/user-scope';
 
@@ -43,7 +44,18 @@ export class DocumentIngestService {
     @Optional() private readonly toolObservations?: ToolObservationService,
   ) {}
 
-  async ingestDocument(companyId: string, dto: IngestDocumentDto): Promise<DocumentIngestResponse> {
+  /**
+   * `internalMeta` carries brain-synthesised document-header provenance
+   * from an in-process caller (the mention-via-document wrapper). It is
+   * NOT reachable from the wire — the HTTP/MCP surfaces only ever pass a
+   * validated IngestDocumentDto — so it never widens what a client can
+   * assert. See document-meta.ts.
+   */
+  async ingestDocument(
+    companyId: string,
+    dto: IngestDocumentDto,
+    internalMeta?: InternalDocumentMeta | undefined,
+  ): Promise<DocumentIngestResponse> {
     // Per-user scope pin at the service entry (0128; the audit 2026-08-21
     // P0 seam, same as fact-ingest / mention-ingest): a user-bound token
     // writes ONLY its own user's slice (mismatch 403, omitted → the
@@ -51,8 +63,12 @@ export class DocumentIngestService {
     // the stored document row into fact commit + scene projection.
     dto = { ...dto, userId: pinUserScope(dto.userId) };
     return traceSpan('ingest.document', async () => {
-      const threaded = await this.threadToolObservation(companyId, dto);
-      const { doc, chunks, deduplicated } = await this.store.createOrGet(companyId, threaded);
+      const toolObservation = await this.threadToolObservation(companyId, dto);
+      // internalDocumentMeta() collapses an all-absent bag back to
+      // undefined, so a document with neither hop keeps the pre-fix row
+      // (no `meta` key at all) byte-identical.
+      const internal = internalDocumentMeta({ ...internalMeta, ...toolObservation });
+      const { doc, chunks, deduplicated } = await this.store.createOrGet(companyId, dto, internal);
 
       try {
         await this.store.setStatus({ companyId, docId: doc.id, status: 'indexing' });
@@ -103,27 +119,30 @@ export class DocumentIngestService {
    * ('<tool> @ <iso>') the commit-writer folds into every committed
    * fact's source.evidence[]. Flag off ⇒ the ref is ignored and the
    * write path is byte-identical.
+   *
+   * These two keys are BRAIN's, not the caller's — `toolObservationNote`
+   * is synthesised outright from the verified row, and the ref is only
+   * trustworthy because it was just verified. They therefore ride the
+   * internal document-meta channel (document-meta.ts) instead of being
+   * folded into `dto.meta`, where SOURCE_META_STRICT would reject their
+   * camelCase against a rule written for operator vocabulary.
    */
   private async threadToolObservation(
     companyId: string,
     dto: IngestDocumentDto,
-  ): Promise<IngestDocumentDto> {
+  ): Promise<InternalDocumentMeta | undefined> {
     const ref = dto.toolObservationRef;
-    if (ref === undefined || !this.toolObservations?.enabled()) return dto;
+    if (ref === undefined || !this.toolObservations?.enabled()) return undefined;
     const verified = await this.toolObservations.verifyRef(companyId, ref);
     if (!verified) {
       throw new BadRequestException(
         'toolObservationRef does not resolve to a tool_observation row in this tenant',
       );
     }
-    return {
-      ...dto,
-      meta: {
-        ...(dto.meta ?? {}),
-        toolObservationRef: ref,
-        toolObservationNote: `${verified.tool} @ ${verified.createdAt}`,
-      },
-    };
+    return internalDocumentMeta({
+      toolObservationRef: ref,
+      toolObservationNote: `${verified.tool} @ ${verified.createdAt}`,
+    });
   }
 
   /** Manual (re)commit of whatever is pending — the admin endpoint. */

@@ -1390,7 +1390,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'On = ingest 400s on an invalid source.meta entry instead of dropping it (a silently-dropped data_class would widen access).',
+      'On = ingest 400s on an invalid source.meta entry instead of dropping it (a silently-dropped data_class would widen access). Polices CALLER-supplied meta only: brain-synthesised document-header provenance rides the internal channel (src/documents/document-meta.ts) and is exempt by construction.',
   },
   {
     key: 'POLICY_META_UNION_ENABLED',
