@@ -28,6 +28,13 @@ const SHA = process.env.AWAIT_SHA;
 const WORKFLOW = process.env.AWAIT_WORKFLOW ?? 'ci.yml';
 const TIMEOUT_MIN = Number(process.env.AWAIT_TIMEOUT_MINUTES ?? '45');
 const POLL_SECONDS = Number(process.env.AWAIT_POLL_SECONDS ?? '20');
+// "CI is slow" and "CI does not exist for this commit" are different
+// problems and deserve different waits. A run appears within seconds of
+// the push that created it, so if none has shown up after this long there
+// is not going to be one — most often a manual deploy dispatched from a
+// branch that was never pushed to main. Holding a runner for the full
+// 45 minutes to tell someone that is just rude.
+const NOT_FOUND_GRACE_MIN = Number(process.env.AWAIT_NOT_FOUND_GRACE_MINUTES ?? '10');
 
 function fail(message) {
   console.error(`[await-ci] ${message}`);
@@ -66,6 +73,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function main() {
   const deadline = Date.now() + TIMEOUT_MIN * 60_000;
+  const graceDeadline = Date.now() + NOT_FOUND_GRACE_MIN * 60_000;
   let announced = false;
 
   while (Date.now() < deadline) {
@@ -94,8 +102,18 @@ async function main() {
       );
     }
 
-    if (!run) console.log(`[await-ci] no CI run for ${SHA} yet; waiting`);
-    else console.log(`[await-ci] CI is ${run.status}; waiting`);
+    if (!run) {
+      if (Date.now() > graceDeadline) {
+        fail(
+          `no CI push-run exists for ${SHA} after ${NOT_FOUND_GRACE_MIN} min. It is not ` +
+            'coming. This usually means the commit was never pushed to main — a manual ' +
+            'deploy can only ship a commit CI has already built and verified.',
+        );
+      }
+      console.log(`[await-ci] no CI run for ${SHA} yet; waiting`);
+    } else {
+      console.log(`[await-ci] CI is ${run.status}; waiting`);
+    }
 
     await sleep(POLL_SECONDS * 1000);
   }
