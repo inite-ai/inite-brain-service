@@ -101,6 +101,31 @@ jobs:
           docker-compose pull
           docker-compose up -d --remove-orphans
 
+      # Grafana reads provisioning/alerting/*.yaml at STARTUP only. The step
+      # above copies the rule files onto a bind mount, and `up -d` is a no-op
+      # for a container whose image and config are unchanged — so an edited
+      # alert rule was copied to the host and never loaded. The deploy went
+      # green while Grafana kept serving the previous ruleset, which is the
+      # worst possible shape for a monitoring change: it looks applied.
+      #
+      # Restarting grafana is the whole fix. It is cheap (seconds), alert
+      # state and silences live in its own database and survive, and unlike
+      # the reload API it needs no admin credential in the workflow.
+      - name: Reload Grafana provisioning (alert rules load at startup only)
+        if: github.event.inputs.action != 'logs' && github.event.inputs.action != 'restart'
+        run: |
+          cd "$STACK_DIR"
+          docker-compose restart grafana
+          # Confirm it came back before the health probe attributes an
+          # unrelated failure to the restart.
+          for i in $(seq 1 30); do
+            if docker-compose exec -T grafana wget -qO- http://localhost:3000/api/health >/dev/null 2>&1; then
+              echo "[ok] grafana back after provisioning reload"; exit 0
+            fi
+            sleep 2
+          done
+          echo "[error] grafana did not come back within 60s of the provisioning reload"; exit 1
+
       - name: Health probe
         if: github.event.inputs.action != 'logs' && github.event.inputs.action != 'restart'
         run: |

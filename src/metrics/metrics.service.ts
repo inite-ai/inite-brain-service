@@ -162,6 +162,28 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // When the probe was armed for this capability, written once at bootstrap
+  // for every declared capability — BEFORE any probe has run.
+  //
+  // It exists to close the hole the staleness alert had on its own: that
+  // alert measured `time() - last_success`, so a capability that had never
+  // ONCE succeeded had no last_success series at all, the expression
+  // returned no data, and noDataState: OK swallowed it. A capability broken
+  // from the very first tick was therefore the one case the staleness alert
+  // could not see — precisely the shape of the outage it was written for.
+  //
+  // With this series the alert can fall back to it (`last_success or armed`)
+  // and measure age from arming instead, so "never worked" reads as a large
+  // age rather than as absence. Arming time, not now(): it must not claim a
+  // success that never happened, and it must still allow a legitimately slow
+  // first success (a cold model warmup) the alert's full window.
+  readonly capabilityProbeArmed = new Gauge({
+    name: 'brain_capability_probe_armed_timestamp_seconds',
+    help: 'Unix time the probe was armed for this capability (present before the first probe runs)',
+    labelNames: ['capability'] as const,
+    registers: [this.registry],
+  });
+
   readonly searchDuration = new Histogram({
     name: 'brain_search_duration_seconds',
     help: 'Search latency in seconds',

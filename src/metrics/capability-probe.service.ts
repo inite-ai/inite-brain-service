@@ -103,6 +103,15 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
     if (!this.enabled) return;
     // unref: a monitoring timer must never be the reason a process (or a
     // jest worker) refuses to exit.
+    // Publish the armed-at series for every declared capability BEFORE the
+    // first tick. Without it a capability that never once succeeded has no
+    // series for the staleness alert to measure, and noDataState: OK turns
+    // "broken since boot" into silence — the exact failure the probe exists
+    // to catch.
+    const armedAt = Date.now() / 1000;
+    for (const capability of CAPABILITY_NAMES) {
+      this.metrics.capabilityProbeArmed.set({ capability }, armedAt);
+    }
     this.timer = setInterval(() => void this.tick(), this.intervalMs);
     this.timer.unref();
     this.logger.log(
