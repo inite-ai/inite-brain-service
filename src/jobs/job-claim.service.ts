@@ -483,7 +483,7 @@ export class JobClaimService {
     companyId: string;
     maxAttempts?: number;
     backoffBaseMs?: number;
-  }): Promise<{ requeued: number; failed: number }> {
+  }): Promise<{ requeued: number; failed: number; errored?: string }> {
     if (!this.surreal) return { requeued: 0, failed: 0 };
     const maxAttempts = input.maxAttempts ?? 3;
     const baseMs = input.backoffBaseMs ?? 30_000;
@@ -505,8 +505,15 @@ export class JobClaimService {
         };
       });
     } catch (e) {
-      this.logger.warn(`reapZombies(${input.companyId}) failed: ${(e as Error).message}`);
-      return { requeued: 0, failed: 0 };
+      // ERROR, not warn, and the reason is returned rather than swallowed.
+      // A throw here means NOTHING was reaped: every job whose worker died
+      // stays 'running' forever. Returning a bare {0, 0} made that total
+      // failure indistinguishable from a clean sweep with nothing to do,
+      // which is how a schema drift (migration 0134) ran for days at one
+      // failure per 10s behind a green /health.
+      const reason = (e as Error).message;
+      this.logger.error(`reapZombies(${input.companyId}) failed: ${reason}`);
+      return { requeued: 0, failed: 0, errored: reason };
     }
   }
 

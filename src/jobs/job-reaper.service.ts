@@ -8,6 +8,14 @@ export interface ReapResult {
   requeued: number;
   failed: number;
   tenants: number;
+  /**
+   * Tenants whose reap threw and reclaimed nothing. Separate from `failed`,
+   * which counts jobs the reaper deliberately gave up on — this counts
+   * tenants the reaper could not act on at all. Without it, a sweep that
+   * reclaimed nothing because it worked and a sweep that reclaimed nothing
+   * because it was broken return the identical value.
+   */
+  errored: number;
 }
 
 /**
@@ -49,6 +57,7 @@ export class JobReaperService {
     const tenants = this.apiKeys.knownCompanyIds();
     let requeued = 0;
     let failed = 0;
+    const erroredTenants: string[] = [];
     // Parallel fan-out bounded under the SURREALDB_POOL_SIZE budget
     // — each reapZombies call holds one root pool conn for its
     // SELECT+UPDATE pair. Cap at 4 so a saturated reap can't fully
@@ -64,6 +73,7 @@ export class JobReaperService {
         });
         requeued += result.requeued;
         failed += result.failed;
+        if (result.errored !== undefined) erroredTenants.push(companyId);
         return null;
       },
     });
@@ -72,6 +82,17 @@ export class JobReaperService {
         `Zombie reap: requeued=${requeued}, failed=${failed} across ${tenants.length} tenant(s)`,
       );
     }
-    return { requeued, failed, tenants: tenants.length };
+    // A sweep where every tenant threw used to be silent here: the success
+    // log is gated on requeued/failed, and both are 0 when nothing ran. Now
+    // a broken sweep says so on its own, once per pass, naming how many
+    // tenants it could not reap at all.
+    if (erroredTenants.length > 0) {
+      this.logger.error(
+        `Zombie reap could not run for ${erroredTenants.length} of ${tenants.length} tenant(s): ` +
+          `${erroredTenants.slice(0, 5).join(', ')}` +
+          `${erroredTenants.length > 5 ? ', …' : ''} — expired leases are NOT being reclaimed`,
+      );
+    }
+    return { requeued, failed, tenants: tenants.length, errored: erroredTenants.length };
   }
 }
