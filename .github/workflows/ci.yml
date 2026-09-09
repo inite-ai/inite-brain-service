@@ -79,6 +79,40 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile --ignore-workspace
 
+      # ts-jest transform cache, persisted across runs.
+      #
+      # Jest's default cacheDirectory is os.tmpdir()/jest_<uid>, which dies
+      # with the runner, so every CI run re-compiled all 541 spec files from
+      # cold while the same suites locally reuse a warm cache. The jest
+      # configs now point at <rootDir>/.jest-cache and this step carries it
+      # between runs.
+      #
+      # The key is content-addressed twice over: the restore key pins the
+      # lockfile and tsconfig (ts-jest invalidates on compiler options and on
+      # its own version), and jest itself keys every cached entry on the
+      # source file's content hash — so a stale entry cannot be served, and
+      # the worst case of a cold or mismatched cache is the old behaviour.
+      # The github.sha suffix makes each run write a fresh entry; the
+      # restore-keys prefix then picks the most recent compatible one.
+      #
+      # MEASURED, AND THE RESULT IS NOT WHAT IT LOOKS LIKE. On a confirmed
+      # cache hit the unit step ran 1:26 against 1:27 on a confirmed miss,
+      # and an e2e shard 2:58 against 3:03 — i.e. nothing, inside the noise.
+      # Once ts-jest is transpile-only the per-file work is cheap enough
+      # that redoing it costs about what unpacking the cache costs. The
+      # entry is ~16MB and restores in two seconds, so this is kept as a
+      # hedge (it would matter again if the transpile-only change were ever
+      # reverted), but do NOT read a speed claim into it. The 13 minutes
+      # came from isolatedModules, not from here.
+      - name: Restore ts-jest transform cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .jest-cache
+          key: jest-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json') }}-${{ github.sha }}
+          restore-keys: |
+            jest-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json') }}-
+            jest-${{ runner.os }}-
+
       - name: Lint
         # lint:ci has no --fix and fails on any warning, so a fixable violation
         # gates the build instead of being silently auto-fixed in CI (where the
@@ -98,6 +132,14 @@ jobs:
       # type error in a spec only surfaced if/when ts-jest happened to run
       # that spec — a skipped or never-run spec shipped its type error
       # green. tsconfig.spec.json re-includes test/ and gates it here.
+      #
+      # Since tsconfig.json turned on isolatedModules, ts-jest transpiles
+      # without a program and this is the ONLY typecheck the specs get. It
+      # was already covering every one of them, over the same file set —
+      # what changed is that it is now load-bearing instead of duplicated,
+      # which is where the e2e speed-up came from. If this step is ever
+      # weakened or made conditional, put the typecheck back into ts-jest
+      # first.
       - name: Typecheck (src + tests)
         run: pnpm typecheck
 
