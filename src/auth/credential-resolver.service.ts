@@ -75,12 +75,15 @@ export class CredentialResolverService {
     if (record) {
       recordTier(tokenTrackerKey(token), record.entitlements);
       // Registration hook (R4): a resolved credential proves its tenant is
-      // live. Routed through ApiKeyService (which owns the roster) rather
-      // than injecting the registry here — this service's DI list is capped
-      // at 3 by design. Synchronous cache-add + throttled fire-and-forget
-      // write; never blocks or fails the request. This is how tenant_registry
-      // fills under a remote verifier (JWKS / introspection), where the
-      // static key table is disabled and the roster would otherwise be empty.
+      // live — SEEN, not necessarily active: roster membership follows the
+      // registry status (a suspended tenant's key may still verify), the
+      // activity only bumps lastSeen. Routed through ApiKeyService (which
+      // owns the roster) rather than injecting the registry here — this
+      // service's DI list is capped at 3 by design. Throttled
+      // fire-and-forget write; never blocks or fails the request. This is
+      // how tenant_registry fills under a remote verifier (JWKS /
+      // introspection), where the static key table is disabled and the
+      // roster would otherwise be empty.
       this.apiKeys.noteResolvedTenant(record.companyId);
     }
     return record;
