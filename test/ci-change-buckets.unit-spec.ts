@@ -60,7 +60,12 @@ function specReadPaths(): Map<string, string[]> {
     if (!name.endsWith('-spec.ts')) continue;
     const source = readFileSync(join(specDir, name), 'utf8');
 
-    for (const call of source.matchAll(/__dirname\s*,\s*((?:'[^']*'\s*,?\s*)+)\)/g)) {
+    // `[^)]*` rather than a repeated `(?:'…'\s*,?\s*)+` group: the latter
+    // nests two optional-whitespace quantifiers inside a `+`, which is the
+    // classic exponential-backtracking shape (CodeQL js/redos flagged it,
+    // correctly). A path literal never contains `)`, so a flat negated
+    // class captures the same argument list in linear time.
+    for (const call of source.matchAll(/__dirname\s*,([^)]*)\)/g)) {
       const literals = [...(call[1] ?? '').matchAll(/'([^']*)'/g)].map((m) => m[1] ?? '');
       const segments: string[] = [];
       for (const literal of literals) {
