@@ -58,7 +58,10 @@ function service(db: ReturnType<typeof fakeDb>, dimension = 1024) {
   const surreal = {
     withCompany: async <T>(_c: string, fn: (d: unknown) => Promise<T>): Promise<T> => fn(db),
   };
-  const embedder = { primaryDimensions: () => dimension };
+  const embedder = {
+    primaryDimensions: () => dimension,
+    primarySpaceId: () => `bge:bge-m3:${dimension}:l2`,
+  };
   return new HnswMaintenanceService(surreal as never, embedder as never);
 }
 

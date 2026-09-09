@@ -48,6 +48,7 @@ interface RecordedQuery {
 function makeFakeSurreal() {
   const queries: RecordedQuery[] = [];
   let activeRows: Array<{ companyId: string }> = [];
+  let stateRows: Array<Record<string, unknown>> = [];
   const surreal = {
     async withAdminDb<T>(fn: (db: unknown) => Promise<T>): Promise<T> {
       const db = {
@@ -56,6 +57,7 @@ function makeFakeSurreal() {
           if (sql.includes('SELECT companyId FROM tenant_registry')) {
             return [activeRows] as unknown as R;
           }
+          if (sql.includes('indexState')) return [stateRows] as unknown as R;
           return [[]] as unknown as R;
         },
       };
@@ -67,6 +69,9 @@ function makeFakeSurreal() {
     queries,
     setActive(rows: string[]) {
       activeRows = rows.map((companyId) => ({ companyId }));
+    },
+    setStateRows(rows: Array<Record<string, unknown>>) {
+      stateRows = rows;
     },
   };
 }
@@ -219,6 +224,85 @@ describe('TenantRegistryService', () => {
     svc.onModuleInit(); // kicks a best-effort refresh
     await flush();
     expect(svc.activeCompanyIds().sort()).toEqual(['co_r1', 'co_r2']);
+    svc.onModuleDestroy();
+  });
+});
+
+// ── index state: the roster answer to "who has a ready index" ───────────
+describe('TenantRegistryService.recordIndexState() — 0104/0133 columns', () => {
+  it('writes the index columns and NOTHING about lifecycle', async () => {
+    // The whole reason this is not register(): register() writes `status`,
+    // defaulting it to 'active', so recording an observation through it
+    // would silently reactivate a suspended tenant and put it back on the
+    // fan-out roster. A maintenance sweep looking at a tenant is also not
+    // that tenant being seen, so `lastSeen` stays untouched too.
+    const { surreal, queries } = makeFakeSurreal();
+    const svc = new TenantRegistryService(surreal);
+    await svc.recordIndexState('co_1', {
+      state: 'partial',
+      detail: 'fact_embedding_hnsw=ready,entity_embedding_hnsw=absent',
+      embeddingSpace: 'bge:bge-m3:1024:l2',
+    });
+    const write = queries.find((q) => q.sql.includes('UPSERT'))!;
+    expect(write.sql).toContain('indexState = $indexState');
+    expect(write.sql).toContain('indexDetail = $indexDetail');
+    expect(write.sql).toContain('embeddingSpace = $embeddingSpace');
+    expect(write.sql).toContain('indexStateAt = type::datetime($at)');
+    expect(write.sql).not.toContain('status');
+    expect(write.sql).not.toContain('lastSeen');
+    // Point UPSERT by record id — never UPDATE … WHERE over an indexed
+    // field (3.2.4's planner silently matches zero rows).
+    expect(write.sql).toContain(`UPSERT type::record('tenant_registry', $companyId)`);
+    expect(write.vars).toMatchObject({ companyId: 'co_1', indexState: 'partial' });
+    svc.onModuleDestroy();
+  });
+
+  it('omits the optional columns rather than binding NULL onto an option<>', async () => {
+    const { surreal, queries } = makeFakeSurreal();
+    const svc = new TenantRegistryService(surreal);
+    await svc.recordIndexState('co_1', { state: 'unknown' });
+    const write = queries.find((q) => q.sql.includes('UPSERT'))!;
+    expect(write.sql).not.toContain('indexDetail');
+    expect(write.sql).not.toContain('embeddingSpace');
+    svc.onModuleDestroy();
+  });
+
+  it('never throws — a sweep must not lose a run to its own bookkeeping', async () => {
+    const exploding = {
+      withAdminDb: async () => {
+        throw new Error('system db unreachable');
+      },
+    } as unknown as SurrealService;
+    const svc = new TenantRegistryService(exploding);
+    await expect(svc.recordIndexState('co_1', { state: 'ready' })).resolves.toBeUndefined();
+    expect(await svc.listIndexState()).toEqual([]);
+    svc.onModuleDestroy();
+  });
+
+  it('an unobserved tenant reads as unknown, not as ready', async () => {
+    const { surreal, setStateRows } = makeFakeSurreal();
+    setStateRows([
+      { companyId: 'co_never', status: 'active' },
+      {
+        companyId: 'co_seen',
+        status: 'suspended',
+        indexState: 'ready',
+        indexDetail: 'fact_embedding_hnsw=ready',
+        indexStateAt: '2026-09-08T00:00:00.000Z',
+      },
+    ]);
+    const svc = new TenantRegistryService(surreal);
+    const rows = await svc.listIndexState();
+    // A row nothing has ever looked at must not read as ready — that
+    // assumption is the whole defect. And a suspended tenant stays in the
+    // listing: an operator chasing a gap needs to SEE it left the roster.
+    expect(rows[0]).toEqual({ companyId: 'co_never', status: 'active', state: 'unknown' });
+    expect(rows[1]).toMatchObject({
+      companyId: 'co_seen',
+      status: 'suspended',
+      state: 'ready',
+      observedAt: '2026-09-08T00:00:00.000Z',
+    });
     svc.onModuleDestroy();
   });
 });

@@ -77,8 +77,42 @@ import { envFlagEnabled } from '../common/env-validation';
  * carries the per-index build state rather than letting the caller assume
  * it, on both the concurrent and the synchronous path, and `action:
  * 'status'` reports it without touching any DDL.
+ *
+ * ── `ensure` — the idempotent action provisioning is allowed to call ──
+ *
+ * `create` RECREATES: it REMOVEs all four indexes and defines them again.
+ * That is right for an operator repairing a width swap and catastrophic for
+ * anything automatic — a provisioning hook that ran `create` on process
+ * boot would drop a large tenant's working indexes and leave it serving
+ * unranked rows for the length of the rebuild, which is the very state #506
+ * exists to end.
+ *
+ * `ensure` is the non-destructive half: probe, define ONLY the indexes that
+ * are `absent`, never REMOVE, never wait for a build. Re-running it on a
+ * ready tenant emits no DDL at all, and re-running it while a build is in
+ * flight leaves that build alone — so it is safe on every pass, which is
+ * what a reconciliation sweep needs.
+ *
+ * `ensure` always emits CONCURRENTLY, whatever SEARCH_HNSW_CONCURRENT says.
+ * That flag exists to keep the ADMIN route's DDL byte-identical to its
+ * history; `ensure` has no history to preserve, and the synchronous DDL is
+ * not a slower alternative but a measured failure over 20k × 1024-d (133 s,
+ * RocksDB transaction conflict). Shipping an automatic path onto a build
+ * that is known to fail at the corpus size the index exists for would be
+ * shipping a scheduled outage.
+ *
+ * WIDTH IS PART OF READINESS. An index that exists at the wrong DIMENSION
+ * is `ready` to `INFO FOR INDEX` and useless in fact: every write of a
+ * correctly-sized vector is rejected against it. `ensure` cannot fix that
+ * (the repair is reindex → `create`, and it destroys data), so it does the
+ * only honest thing — reports the mismatch and refuses to call the tenant
+ * ready. The declared DIMENSION is parsed out of the same `INFO FOR TABLE`
+ * response the existence probe already fetched, so it costs nothing.
  */
 export type HnswIndexBuildState = 'ready' | 'building' | 'absent' | 'unknown';
+
+/** Every action this service can be asked to perform. */
+export type HnswMaintenanceAction = 'create' | 'drop' | 'status' | 'ensure';
 
 /** Per-index build state, as reported by `INFO FOR INDEX`. */
 export interface HnswIndexBuild {
@@ -89,23 +123,51 @@ export interface HnswIndexBuild {
   initial?: number;
   /** Rows queued behind the build (live writes), when reported. */
   pending?: number;
+  /**
+   * DIMENSION declared in the index's own DDL, parsed from `INFO FOR
+   * TABLE`. Absent when the index is absent or the probe failed. A value
+   * other than the result's `dimension` means the index cannot accept the
+   * embedder's vectors at all.
+   */
+  dimension?: number;
 }
 
 export interface HnswMaintenanceResult {
   companyId: string;
-  action: 'create' | 'drop' | 'status';
+  action: HnswMaintenanceAction;
   dimension: number;
+  /**
+   * Canonical id of the PRIMARY embedding space the width came from
+   * (`provider:model:dim:norm`). Recorded alongside the index state so a
+   * later "ready" can be read against the space it was ready FOR — width
+   * alone cannot distinguish two models at the same width.
+   */
+  space: string;
   indexes: string[];
   /** Whether the DDL was emitted with CONCURRENTLY (SEARCH_HNSW_CONCURRENT). */
   concurrent: boolean;
   /**
-   * True only when EVERY index reports `ready`. Do not flip
-   * SEARCH_HNSW_ENABLED for this tenant while it is false — a
+   * True only when EVERY index reports `ready` AT THE DECLARED WIDTH. Do
+   * not flip SEARCH_HNSW_ENABLED for this tenant while it is false — a
    * still-building index serves unranked rows exactly as a missing one
-   * does. `drop` reports `ready: false` with every index `absent`.
+   * does, and a ready index at a foreign width rejects every write. `drop`
+   * reports `ready: false` with every index `absent`.
    */
   ready: boolean;
   builds: HnswIndexBuild[];
+  /**
+   * Indexes that exist at a DIMENSION other than the embedder's. Empty in
+   * every healthy deployment. Non-empty means the tenant needs the
+   * destructive repair (reindex embeddings, then `create`); `ensure` will
+   * not perform it and will not report `ready`.
+   */
+  mismatched: string[];
+  /**
+   * Indexes this call actually DEFINEd. Always empty for `status` and
+   * `drop`; for `ensure` it is exactly the set that was absent, which is
+   * what makes "did this run change anything" answerable from the result.
+   */
+  created: string[];
 }
 
 const FACT_MAIN = 'fact_embedding_hnsw';
@@ -133,6 +195,14 @@ const INDEX_SPECS = [
 const DEFAULT_BUILD_WAIT_MS = 60_000;
 const BUILD_POLL_MS = 500;
 
+/**
+ * The one DEFINE INDEX failure `ensure` treats as success. Measured verbatim
+ * on surrealdb/surrealdb:v3.2.4: `The index 'fact_embedding_hnsw' already
+ * exists`. Matched on the shape rather than the exact sentence so a wording
+ * change degrades to a loud failure, never to a swallowed one.
+ */
+const ALREADY_EXISTS = /index .* already exists/i;
+
 @Injectable()
 export class HnswMaintenanceService {
   private readonly logger = new Logger(HnswMaintenanceService.name);
@@ -154,10 +224,7 @@ export class HnswMaintenanceService {
     return Number.isInteger(raw) && raw >= 0 ? raw : DEFAULT_BUILD_WAIT_MS;
   }
 
-  async apply(
-    companyId: string,
-    action: 'create' | 'drop' | 'status',
-  ): Promise<HnswMaintenanceResult> {
+  async apply(companyId: string, action: HnswMaintenanceAction): Promise<HnswMaintenanceResult> {
     // PRIMARY, not active: getDimensions() reports whoever is serving, so
     // an index build triggered during the bge-m3 warmup window would bake
     // the OpenAI fallback's 1536 into DDL for a 1024 corpus — an index the
@@ -166,37 +233,117 @@ export class HnswMaintenanceService {
     if (!Number.isInteger(dimension) || dimension < 8 || dimension > 8192) {
       throw new BadRequestException(`embedder reports implausible dimension ${dimension}`);
     }
-    const concurrent = HnswMaintenanceService.concurrentEnabled();
+    // `ensure` is concurrent by construction, not by flag — see the
+    // docstring. The reported value is what the DDL actually used.
+    const concurrent = action === 'ensure' || HnswMaintenanceService.concurrentEnabled();
     return this.surreal.withCompany(companyId, async (db) => {
+      const created: string[] = [];
       if (action === 'create') await this.create(db, dimension, concurrent);
       else if (action === 'drop') await this.drop(db);
+      else if (action === 'ensure') created.push(...(await this.ensure(db, dimension)));
       const builds = await this.probeBuilds(db);
-      const ready = action !== 'drop' && builds.every((b) => b.state === 'ready');
-      if (action !== 'status') {
-        this.logger.log(
-          `hnsw ${action} for ${companyId} (dimension=${dimension}, concurrent=${concurrent}, ready=${ready})`,
-        );
-      }
-      if (action === 'create' && !ready) {
-        // Loud on purpose: the operator's next step is flipping
-        // SEARCH_HNSW_ENABLED, and a not-yet-ready index answers that flag
-        // with unranked rows rather than an error.
-        this.logger.warn(
-          `hnsw create for ${companyId} returned with builds NOT ready ` +
-            `(${builds.map((b) => `${b.index}=${b.state}`).join(', ')}); ` +
-            `poll POST /v1/admin/maintenance/hnsw {action:'status'} before enabling SEARCH_HNSW_ENABLED`,
-        );
-      }
+      const mismatched = builds
+        .filter((b) => b.dimension !== undefined && b.dimension !== dimension)
+        .map((b) => b.index);
+      const ready =
+        action !== 'drop' && mismatched.length === 0 && builds.every((b) => b.state === 'ready');
+      this.report(companyId, { action, dimension, concurrent, ready, builds, mismatched, created });
       return {
         companyId,
         action,
         dimension,
+        space: this.embedder.primarySpaceId(),
         indexes: INDEX_SPECS.map((s) => s.index),
         concurrent,
         ready,
         builds,
+        mismatched,
+        created,
       };
     });
+  }
+
+  /** Every log line `apply` emits, kept out of the happy path's way. */
+  private report(
+    companyId: string,
+    r: Omit<HnswMaintenanceResult, 'companyId' | 'indexes' | 'space'>,
+  ): void {
+    const states = r.builds.map((b) => `${b.index}=${b.state}`).join(', ');
+    if (r.action !== 'status' && !(r.action === 'ensure' && r.created.length === 0)) {
+      this.logger.log(
+        `hnsw ${r.action} for ${companyId} (dimension=${r.dimension}, ` +
+          `concurrent=${r.concurrent}, ready=${r.ready}` +
+          `${r.created.length > 0 ? `, created=[${r.created.join(', ')}]` : ''})`,
+      );
+    }
+    if (r.mismatched.length > 0) {
+      // ERROR, not warn: with SEARCH_HNSW_ENABLED=1 this tenant's writes of
+      // correctly-sized vectors are being REJECTED by its own index, and no
+      // automatic action can fix it — the repair destroys and rebuilds.
+      this.logger.error(
+        `hnsw index width mismatch for ${companyId}: [${r.mismatched.join(', ')}] exist at a ` +
+          `DIMENSION other than the embedder's ${r.dimension}. Every write of a correctly-sized ` +
+          `vector is rejected against them. Repair in order: reindex embeddings, then POST ` +
+          `/v1/admin/maintenance/hnsw {action:'create'} (which recreates at the current width).`,
+      );
+    }
+    if ((r.action === 'create' || r.created.length > 0) && !r.ready) {
+      // Loud on purpose: the operator's next step is flipping
+      // SEARCH_HNSW_ENABLED, and a not-yet-ready index answers that flag
+      // with unranked rows rather than an error.
+      this.logger.warn(
+        `hnsw ${r.action} for ${companyId} returned with builds NOT ready (${states}); ` +
+          `poll POST /v1/admin/maintenance/hnsw {action:'status'} before enabling SEARCH_HNSW_ENABLED`,
+      );
+    }
+  }
+
+  /**
+   * Define the indexes that are ABSENT, and only those. Returns the names
+   * it defined, so an empty array means the call emitted no DDL.
+   *
+   * `building` is deliberately left alone rather than restarted: #507
+   * measured that a build in flight is indistinguishable from a missing
+   * index to a KNN query, so a sweep that "fixed" it on every pass would
+   * restart the same build forever and never reach ready. `unknown` is left
+   * alone too — a failed probe is not evidence of absence.
+   *
+   * THE RACE IS EXPECTED AND BENIGN. `DEFINE INDEX` without IF NOT EXISTS
+   * does not no-op on an existing index, it ERRORS: measured on
+   * surrealdb/surrealdb:v3.2.4, "The index 'fact_embedding_hnsw' already
+   * exists". Two pods reconciling the same fresh tenant will therefore see
+   * one DEFINE win and one lose, and the loser's error means the index it
+   * wanted now exists — the desired state, reached by someone else. That
+   * one message is swallowed per index; anything else propagates.
+   *
+   * (IF NOT EXISTS is deliberately NOT used instead: on a DIMENSION change
+   * it silently no-ops, which is the exact trap the previous create-guard
+   * existed to catch. An error we can recognise beats a silence we cannot.)
+   */
+  private async ensure(db: Surreal, dimension: number): Promise<string[]> {
+    const builds = await this.probeBuilds(db);
+    const absent = INDEX_SPECS.filter(
+      (spec) => builds.find((b) => b.index === spec.index)?.state === 'absent',
+    );
+    const created: string[] = [];
+    for (const spec of absent) {
+      try {
+        // DIMENSION cannot be parameterised in DDL — `dimension` comes from
+        // the space declaration and is range-validated by the caller.
+        await db.query(
+          `DEFINE INDEX ${spec.index} ON ${spec.table} FIELDS ${spec.field}
+             HNSW DIMENSION ${dimension} DIST COSINE EFC 200 M 16 CONCURRENTLY;`,
+        );
+        created.push(spec.index);
+      } catch (e) {
+        if (!ALREADY_EXISTS.test((e as Error).message)) throw e;
+        this.logger.log(
+          `hnsw ensure: ${spec.index} was created concurrently by another writer — ` +
+            `the desired state, reached elsewhere`,
+        );
+      }
+    }
+    return created;
   }
 
   /**
@@ -270,24 +417,31 @@ export class HnswMaintenanceService {
   private async probeOne(
     db: Surreal,
     spec: (typeof INDEX_SPECS)[number],
-  ): Promise<{ state: HnswIndexBuildState; initial?: number; pending?: number }> {
+  ): Promise<Omit<HnswIndexBuild, 'index' | 'table'>> {
     try {
       const [info] = await db.query<[{ indexes?: Record<string, string> }]>(
         `INFO FOR TABLE ${spec.table};`,
       );
       const indexes = (info as { indexes?: Record<string, string> } | undefined)?.indexes;
-      if (!indexes || typeof indexes[spec.index] !== 'string') return { state: 'absent' };
+      const ddl = indexes?.[spec.index];
+      if (typeof ddl !== 'string') return { state: 'absent' };
+      // The declared width, from the DDL the engine echoes back. Absent
+      // (rather than guessed) when the shape is not what we expect, so a
+      // parse miss reads as "not checked", never as "matches".
+      const declared = /DIMENSION\s+(\d+)/i.exec(ddl);
+      const dimension = declared ? { dimension: parseInt(declared[1]!, 10) } : {};
       const [detail] = await db.query<
         [{ building?: { status?: string; initial?: number; pending?: number } }]
       >(`INFO FOR INDEX ${spec.index} ON ${spec.table};`);
       const building = (
         detail as { building?: { status?: string; initial?: number; pending?: number } } | undefined
       )?.building;
-      if (!building || building.status === undefined) return { state: 'ready' };
+      if (!building || building.status === undefined) return { state: 'ready', ...dimension };
       return {
         state: building.status === 'ready' ? 'ready' : 'building',
         ...(typeof building.initial === 'number' ? { initial: building.initial } : {}),
         ...(typeof building.pending === 'number' ? { pending: building.pending } : {}),
+        ...dimension,
       };
     } catch (e) {
       this.logger.warn(`hnsw probe failed for ${spec.index}: ${(e as Error).message}`);

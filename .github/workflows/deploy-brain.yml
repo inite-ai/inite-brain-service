@@ -176,6 +176,14 @@ jobs:
           SEARCH_FACT_RERANK=1
           # ── Search stack ──
           SEARCH_HNSW_ENABLED=1
+          # …and the provisioning that makes the line above true. Without
+          # it the KNN leg is on for every tenant while index creation is a
+          # human remembering to POST /v1/admin/maintenance/hnsw, and a
+          # tenant nobody remembered is served k arbitrary rows with a null
+          # distance rather than an error (#506). Provisioning only ADDS
+          # absent indexes, always CONCURRENTLY, capped at 5 tenants
+          # starting builds per nightly run.
+          HNSW_PROVISION_ENABLED=1
           SEARCH_COMBINED_VECTOR_GRAPH=1
           SEARCH_HIGHLIGHT_ENABLED=1
           SEARCH_USAGE_RECORDING_ENABLED=1

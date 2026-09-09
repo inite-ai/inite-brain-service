@@ -1721,6 +1721,46 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'How long POST /v1/admin/maintenance/hnsw {action:"create"} waits for a SEARCH_HNSW_CONCURRENT build before answering with whatever progress it reached. Not a failure ceiling — the build continues server-side and {action:"status"} reports it. Default 60000 covers ~280k rows at the measured ~4 700 rows/s; 0 answers immediately. Inert when SEARCH_HNSW_CONCURRENT is off.',
   },
+  // ── HNSW index provisioning + reconciliation ──
+  // Category 'jobs', not 'search': these gate a scheduled maintenance pass
+  // and a provisioning hook, never a retrieval code path. They sit beside
+  // SEARCH_HNSW_ENABLED / SEARCH_HNSW_CONCURRENT in the runbook.
+  {
+    key: 'HNSW_PROVISION_ENABLED',
+    category: 'jobs',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Give every tenant its HNSW indexes without a human remembering. On: (a) a hook on SurrealService.ensureSchema — the one place a tenant database is created — notes each tenant and provisions it off the request path; (b) a nightly leader-elected sweep (05:10 UTC) reconciles the whole roster; (c) every observation is recorded in tenant_registry (indexState/indexDetail/indexStateAt/embeddingSpace) so "which tenants have a ready index" is one SELECT. Provisioning uses the idempotent `ensure` action — defines only ABSENT indexes, always CONCURRENTLY, never REMOVEs, never restarts a build in flight — so it is safe on every pass. THIS SHOULD BE ON WHEREVER SEARCH_HNSW_ENABLED IS: production sets that globally, and #506 measured that an un-indexed tenant is served k arbitrary rows with a NULL distance rather than an error.',
+  },
+  {
+    key: 'HNSW_PROVISION_SCHEDULED',
+    category: 'jobs',
+    defaultValue: '1',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'The nightly roster reconciliation (05:10 UTC) only. Default ON under HNSW_PROVISION_ENABLED; set to 0 to keep new-tenant provisioning and the admin reconcile route while silencing the schedule. Inert when HNSW_PROVISION_ENABLED is off — both gates are checked before the lease, so a disabled sweep never touches leader_lease.',
+  },
+  {
+    key: 'HNSW_PROVISION_TIME_BUDGET_MS',
+    category: 'jobs',
+    defaultValue: '600000',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Wall-clock budget for one reconciliation walk. Tenants not started are counted (skippedForBudget), never dropped — an un-indexed tenant is rediscovered by the next walk. Keep it below the 20-minute lease TTL, or a run can outlive its own lease and let a second pod start a parallel pass.',
+  },
+  {
+    key: 'HNSW_PROVISION_MAX_BUILDS_PER_RUN',
+    category: 'jobs',
+    defaultValue: '5',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'How many tenants may START index builds in one reconciliation run. Bounds the blast radius of the FIRST run after enablement, which is the only one that finds a backlog: converging 200 un-indexed tenants over 40 nights costs nothing, converging them in one pass puts 4 × 200 concurrent HNSW builds on one SurrealDB. Tenants held back by the cap are still PROBED and recorded, so the roster tells the truth about them the same night.',
+  },
   {
     key: 'SEARCH_USAGE_RECORDING_ENABLED',
     category: 'search',

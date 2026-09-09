@@ -13,6 +13,24 @@ interface TenantRow {
   companyId: string;
 }
 
+/** What the provisioning path observed about one tenant's vector indexes. */
+export interface TenantIndexState {
+  /** Fold over every HNSW index: ready | building | partial | absent | mismatch | unknown. */
+  state: string;
+  /** `name=state` per index, so 'partial' names which half is missing. */
+  detail?: string;
+  /** The embedding space the indexes were built for (`provider:model:dim:norm`). */
+  embeddingSpace?: string;
+}
+
+/** One roster row as the operator reads it — no DDL, no per-tenant probe. */
+export interface TenantIndexStateRow extends TenantIndexState {
+  companyId: string;
+  status: string;
+  /** When `state` was observed. Absent = never observed. */
+  observedAt?: string;
+}
+
 /** companyId identifier shape, matching SurrealService.withCompany's guard. */
 const COMPANY_ID = /^[a-zA-Z0-9_-]+$/;
 
@@ -191,6 +209,106 @@ export class TenantRegistryService implements OnModuleInit, OnModuleDestroy {
         );
       })
       .catch((e) => this.logger.warn(`touch(${companyId}) write failed: ${(e as Error).message}`));
+  }
+
+  /**
+   * Record what the provisioning path observed about a tenant's vector
+   * indexes (0104's reserved `indexState`/`embeddingSpace`, plus 0133's
+   * `indexStateAt`/`indexDetail`). This is the only write that makes
+   * "which tenants have a ready HNSW index" answerable from ONE row set
+   * instead of a DDL-adjacent probe against every tenant database.
+   *
+   * Deliberately NOT register(): that method writes `status`, defaulting
+   * it to 'active', so recording an observation through it would silently
+   * reactivate a suspended tenant and re-add it to the fan-out roster.
+   * This one touches the index columns and nothing else — and, unlike
+   * touch(), does not bump `lastSeen`, because a maintenance sweep looking
+   * at a tenant is not that tenant being seen.
+   *
+   * Never throws: the caller is a background sweep, and a registry write
+   * failing must cost it that tenant's bookkeeping, not the run.
+   */
+  async recordIndexState(companyId: string, observed: TenantIndexState): Promise<void> {
+    if (!COMPANY_ID.test(companyId) || !this.surreal) return;
+    // Only SET what was supplied — the columns are option<> and SurrealDB
+    // rejects a bound NULL on an option type. Names are code literals.
+    const sets = ['companyId = $companyId', 'indexState = $indexState', 'indexStateAt = $at'];
+    const vars: Record<string, unknown> = {
+      companyId,
+      indexState: observed.state,
+      at: new Date().toISOString(),
+    };
+    if (observed.detail !== undefined) {
+      sets.push('indexDetail = $indexDetail');
+      vars.indexDetail = observed.detail;
+    }
+    if (observed.embeddingSpace !== undefined) {
+      sets.push('embeddingSpace = $embeddingSpace');
+      vars.embeddingSpace = observed.embeddingSpace;
+    }
+    try {
+      await retryOnUniqueViolation(() =>
+        this.surreal!.withAdminDb(async (db) => {
+          await db.query(
+            // Point UPSERT by record id — never UPDATE … WHERE over an
+            // indexed field (3.2.4's planner silently matches zero rows).
+            // `indexStateAt` is bound as an ISO string and cast, the
+            // leader_lease idiom: the 2-arg datetime forms differ across
+            // SurrealDB majors.
+            `UPSERT type::record('tenant_registry', $companyId) SET ${sets.join(', ')},
+               indexStateAt = type::datetime($at), updatedAt = time::now()`,
+            vars,
+          );
+        }),
+      );
+    } catch (e) {
+      this.logger.warn(`recordIndexState(${companyId}) failed: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * The whole roster with its recorded index state — the read that answers
+   * "which tenants have a ready index" without opening a single tenant
+   * database. Suspended tenants are included on purpose: an operator
+   * chasing a gap needs to see that a tenant is out of the roster, not have
+   * it vanish. Returns [] when no connection is wired or the read fails.
+   */
+  async listIndexState(): Promise<TenantIndexStateRow[]> {
+    if (!this.surreal) return [];
+    try {
+      return await this.surreal.withAdminDb(async (db) => {
+        const rows = await queryRows<{
+          companyId?: string;
+          status?: string;
+          indexState?: string;
+          indexDetail?: string;
+          indexStateAt?: string | Date;
+          embeddingSpace?: string;
+        }>(
+          db,
+          `SELECT companyId, status, indexState, indexDetail, indexStateAt, embeddingSpace
+             FROM tenant_registry ORDER BY companyId`,
+        );
+        return rows
+          .filter((r): r is typeof r & { companyId: string } => Boolean(r.companyId))
+          .map((r) => ({
+            companyId: r.companyId,
+            status: r.status ?? 'active',
+            // 'unknown' rather than a guess: no observation has been
+            // recorded, which is exactly the state this change exists to
+            // make visible instead of assumed.
+            state: r.indexState ?? 'unknown',
+            ...(r.indexDetail !== undefined ? { detail: r.indexDetail } : {}),
+            ...(r.embeddingSpace !== undefined ? { embeddingSpace: r.embeddingSpace } : {}),
+            ...(r.indexStateAt !== undefined
+              ? { observedAt: new Date(r.indexStateAt).toISOString() }
+              : {}),
+          }));
+      });
+    } catch (e) {
+      this.logger.warn(`listIndexState read failed: ${(e as Error).message}`);
+      return [];
+    }
   }
 
   /** Replace the cache with the current active roster; keep old on failure. */

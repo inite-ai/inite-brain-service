@@ -166,7 +166,10 @@ describe('AdminHnswController — tenant isolation (P0)', () => {
         return {};
       },
     };
-    return { ctrl: new AdminHnswController(hnsw as never, apiKeys), seen };
+    // The provisioning service is never reached by these cases — the
+    // isolation decision happens before any of them dispatch — so a null
+    // stand-in keeps the fixture honest about what is under test.
+    return { ctrl: new AdminHnswController(hnsw as never, null as never, apiKeys), seen };
   }
 
   it('brain:admin + foreign tenant → 403', async () => {

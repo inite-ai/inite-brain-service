@@ -239,3 +239,130 @@ describe('HNSW vector leg (real SurrealDB)', () => {
     }
   });
 });
+
+/**
+ * Provisioning + reconciliation against the real engine.
+ *
+ * The gap this closes is a PROCESS one: `SEARCH_HNSW_ENABLED=1` is set
+ * globally in production while index creation had exactly one caller (the
+ * admin route) and nothing recorded which tenants had indexes. Asserted
+ * here end-to-end: `ensure` is idempotent and additive, the roster answers
+ * "who is ready" from `tenant_registry` with no DDL, and a re-run changes
+ * nothing.
+ */
+describe('HNSW provisioning + roster (real SurrealDB)', () => {
+  let f: AppFixture;
+  const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
+
+  beforeAll(async () => {
+    process.env.HNSW_PROVISION_ENABLED = '1';
+    f = await createApp({ companyId: 'co_hnsw_prov_e2e' });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'prov_subject' },
+        predicate: 'name',
+        object: 'Provisioning Probe',
+        validFrom: '2026-01-01',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'bot' },
+      });
+  });
+
+  afterAll(async () => {
+    delete process.env.HNSW_PROVISION_ENABLED;
+    if (f) await f.close();
+  });
+
+  const ensure = async () => {
+    const r = await f.http
+      .post('/v1/admin/maintenance/hnsw')
+      .set(auth())
+      .send({ action: 'ensure' });
+    expect(r.status).toBe(201);
+    return r.body as { created: string[]; ready: boolean; mismatched: string[] };
+  };
+
+  it('ensure builds what is missing, then does nothing on a second pass', async () => {
+    const first = await ensure();
+    // A fresh tenant has none of the four, so ensure defines all four —
+    // always CONCURRENTLY, and without dropping anything.
+    expect(first.created.sort()).toEqual([
+      'entity_embedding_hnsw',
+      'fact_alt_embedding_hnsw',
+      'fact_embedding_hnsw',
+      'segment_embedding_hnsw',
+    ]);
+    expect(first.mismatched).toEqual([]);
+
+    // Idempotence is the property that makes this safe to run on a
+    // schedule, on every pass, forever.
+    const second = await ensure();
+    expect(second.created).toEqual([]);
+
+    // And the indexes are genuinely there, not merely reported over.
+    const surreal = f.app.get(SurrealService);
+    await surreal.withCompany(f.companyId, async (db) => {
+      const [info] = await db.query<[{ indexes?: Record<string, string> }]>(
+        `INFO FOR TABLE knowledge_fact;`,
+      );
+      const indexes = (info as { indexes?: Record<string, string> })?.indexes ?? {};
+      expect(indexes.fact_embedding_hnsw).toContain('HNSW');
+      expect(indexes.fact_embedding_hnsw).toContain('DIMENSION 1536');
+    });
+  });
+
+  it('the roster answers "who has a ready index" with no DDL', async () => {
+    // reconcile records what it observes; the roster then reads it back
+    // out of the SYSTEM database without opening a tenant DB at all.
+    const run = await f.http.post('/v1/admin/maintenance/hnsw/reconcile').set(auth()).send({});
+    expect(run.status).toBe(201);
+    expect(run.body.tenants.map((t: { companyId: string }) => t.companyId)).toContain(f.companyId);
+
+    const roster = await f.http.get('/v1/admin/maintenance/hnsw/roster').set(auth());
+    expect(roster.status).toBe(200);
+    const row = (roster.body.tenants as Array<{ companyId: string }>).find(
+      (r) => r.companyId === f.companyId,
+    ) as
+      | { state: string; detail?: string; observedAt?: string; embeddingSpace?: string }
+      | undefined;
+    expect(row).toBeDefined();
+    expect(['ready', 'building']).toContain(row!.state);
+    expect(row!.detail).toContain('fact_embedding_hnsw=');
+    // The timestamp is what makes a green roster falsifiable: without it,
+    // an observation from before an embedder swap reads like a fresh one.
+    expect(row!.observedAt).toBeDefined();
+    expect(row!.embeddingSpace).toBeDefined();
+  });
+
+  it('a dry run records the state and emits no DDL', async () => {
+    const surreal = f.app.get(SurrealService);
+    await surreal.withCompany(f.companyId, async (db) => {
+      await db.query(`REMOVE INDEX IF EXISTS entity_embedding_hnsw ON knowledge_entity;`);
+    });
+    const dry = await f.http
+      .post('/v1/admin/maintenance/hnsw/reconcile')
+      .set(auth())
+      .send({ dryRun: true });
+    expect(dry.status).toBe(201);
+    expect(dry.body.dryRun).toBe(true);
+    expect(dry.body.tenants[0].created).toEqual([]);
+    // Still absent — a dry run reports, it does not repair.
+    await surreal.withCompany(f.companyId, async (db) => {
+      const [info] = await db.query<[{ indexes?: Record<string, string> }]>(
+        `INFO FOR TABLE knowledge_entity;`,
+      );
+      expect((info as { indexes?: Record<string, string> })?.indexes?.entity_embedding_hnsw).toBe(
+        undefined,
+      );
+    });
+    // …and the roster now says so, which is the point.
+    const roster = await f.http.get('/v1/admin/maintenance/hnsw/roster').set(auth());
+    const row = (roster.body.tenants as Array<{ companyId: string; state: string }>).find(
+      (r) => r.companyId === f.companyId,
+    )!;
+    expect(row.state).toBe('partial');
+    expect(roster.body.notReady).toBeGreaterThan(0);
+  });
+});

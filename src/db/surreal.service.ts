@@ -90,6 +90,21 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   // One-shot per process — cheap NS-level DDL but no need to repeat.
   private scopedPasswordSynced = false;
   private readonly knownDatabases = new Set<string>();
+  /**
+   * Called once per tenant database, immediately after its schema is
+   * created/migrated — the single moment a tenant comes into existence in
+   * this deployment (there is no onboarding route: `DEFINE DATABASE` in
+   * ensureSchema is the only code that creates one, and it fires on the
+   * first request that enters the tenant's scope).
+   *
+   * A callback rather than a dependency because this is the bottom of the
+   * stack: SurrealService is constructed before, and injected into, every
+   * service that could care. The contract is deliberately narrow — the
+   * listener is SYNCHRONOUS and must not throw or block, because it runs
+   * inside the global schema-apply queue on the first request for that
+   * tenant. Anything real belongs on the listener's own timer.
+   */
+  private schemaReadyListener?: (companyId: string) => void;
   // All schema applications (across all databases) are serialized through
   // this chain. SurrealDB raises transaction read-conflicts when multiple
   // tenants concurrently CREATE DATABASE + DEFINE on shared metadata.
@@ -752,9 +767,36 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
             `(${result.alreadyApplied.length} migration(s) applied)`,
         );
       }
+      this.notifySchemaReady(database);
     });
     this.schemaQueue = next.catch(() => undefined);
     await next;
+  }
+
+  /**
+   * Register the tenant-provisioning listener. One listener, last writer
+   * wins — this is a single well-known consumer (HNSW index provisioning),
+   * not an event bus, and pretending otherwise would invite work onto the
+   * schema-apply queue that has no business being there.
+   */
+  onTenantSchemaReady(listener: (companyId: string) => void): void {
+    this.schemaReadyListener = listener;
+  }
+
+  /**
+   * Fire the listener for a TENANT database only — `system` is the
+   * platform's own DB and has no companyId. Never throws: a listener fault
+   * must not fail the request that happened to be first through the door,
+   * and must not poison the schema queue for every other tenant behind it.
+   */
+  private notifySchemaReady(database: string): void {
+    const listener = this.schemaReadyListener;
+    if (!listener || !database.startsWith('co_')) return;
+    try {
+      listener(database.slice('co_'.length));
+    } catch (e) {
+      this.logger.warn(`tenant schema-ready listener threw: ${(e as Error).message}`);
+    }
   }
 
   /**

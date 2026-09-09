@@ -12,16 +12,17 @@ pack tools, billing), see [operations.md](operations.md).
 2. [Promote a tenant from dev to prod auth](#promote-a-tenant-from-dev-to-prod-auth)
 3. [Troubleshoot: ingest is failing](#troubleshoot-ingest-is-failing)
 4. [Troubleshoot: search returns nothing](#troubleshoot-search-returns-nothing)
-5. [Run a forget (GDPR)](#run-a-forget-gdpr)
-6. [Monitor: metrics + logs](#monitor-metrics--logs)
-7. [Tune `SEARCH_RERANK_SKIP_MARGIN`](#tune-search_rerank_skip_margin)
-8. [Run dreams off-cycle](#run-dreams-off-cycle)
-9. [Enable dreams in production (staged checklist)](#enable-dreams-in-production-staged-checklist)
-10. [Run compaction off-cycle](#run-compaction-off-cycle)
-11. [Drain a stuck job queue](#drain-a-stuck-job-queue)
-12. [Rollback queue mode (kill switch)](#rollback-queue-mode-kill-switch)
-13. [Run the memory-lifecycle eval](#run-the-memory-lifecycle-eval)
-14. [Restore from event replay](#restore-from-event-replay)
+5. [Troubleshoot: search returns *wrong* results (the un-indexed tenant)](#troubleshoot-search-returns-wrong-results-the-un-indexed-tenant)
+6. [Run a forget (GDPR)](#run-a-forget-gdpr)
+7. [Monitor: metrics + logs](#monitor-metrics--logs)
+8. [Tune `SEARCH_RERANK_SKIP_MARGIN`](#tune-search_rerank_skip_margin)
+9. [Run dreams off-cycle](#run-dreams-off-cycle)
+10. [Enable dreams in production (staged checklist)](#enable-dreams-in-production-staged-checklist)
+11. [Run compaction off-cycle](#run-compaction-off-cycle)
+12. [Drain a stuck job queue](#drain-a-stuck-job-queue)
+13. [Rollback queue mode (kill switch)](#rollback-queue-mode-kill-switch)
+14. [Run the memory-lifecycle eval](#run-the-memory-lifecycle-eval)
+15. [Restore from event replay](#restore-from-event-replay)
 
 ---
 
@@ -109,6 +110,63 @@ Symptoms: `POST /v1/search` returns `{ results: [] }` for queries that obviously
 3. **Wrong `asOf`.** A historical query with `asOf` predating the fact's `validFrom` will skip it. Drop `asOf` and retry to confirm.
 4. **PII gating.** A caller without `brain:read_pii` cannot see PII facts. Search itself is unaffected (entity still ranks), but specific facts will be missing from the result. Inspect the caller's scopes via the request log's `key=` tag and your key registry.
 5. **Multi-tenant fan-out gone wrong.** Search runs only inside `NS=inite DB=co_<companyId>` (in prod; `NS=brain` in dev when `SURREALDB_NAMESPACE=brain`). If the caller is on the wrong companyId, they're looking in the wrong DB. Confirm `req.brainAuth.companyId` matches the data's expected tenant.
+
+## Troubleshoot: search returns *wrong* results (the un-indexed tenant)
+
+Symptoms: search returns the same handful of unrelated facts for every
+query; a tenant accumulates a duplicate entity for every mention of the
+same person; the log carries `hnsw KNN operator was DROPPED on …`.
+
+This is the failure mode that does **not** announce itself. SurrealDB does
+not error when a `<|K,EF|>` query has no index to ride — it drops the
+operator from the plan and returns the table's first k rows in storage
+order with a NULL distance. Production runs `SEARCH_HNSW_ENABLED=1`
+globally, so any tenant without a **ready** index has been served unranked
+rows shaped exactly like ranked ones. Inline entity resolution is the
+sharpest edge: `sim = 0` falls below `cosineFloor`, so nothing is ever
+reused and a duplicate entity is minted per mention.
+
+1. **Ask the roster first — it costs nothing and opens no tenant DB.**
+
+   ```bash
+   curl -s "$BRAIN/v1/admin/maintenance/hnsw/roster" \
+     -H "authorization: Bearer $PLATFORM_ADMIN_KEY" | jq
+   ```
+
+   `state` is the fold over all four indexes. `absent` / `partial` /
+   `building` all mean the same thing to a KNN query: unranked rows.
+   `mismatch` means an index exists at a different `DIMENSION` than the
+   embedder — ready to the engine, and rejecting every write.
+   No `observedAt` means nothing has ever looked at this tenant.
+
+2. **Fix it.** With `HNSW_PROVISION_ENABLED=1` this converges on its own
+   (new tenants within seconds, the roster nightly at 05:10 UTC). To not
+   wait:
+
+   ```bash
+   # probe + record only, no DDL — the right first call
+   curl -sX POST "$BRAIN/v1/admin/maintenance/hnsw/reconcile" \
+     -H "authorization: Bearer $PLATFORM_ADMIN_KEY" \
+     -H 'content-type: application/json' -d '{"dryRun":true}' | jq
+   # then for real
+   curl -sX POST "$BRAIN/v1/admin/maintenance/hnsw/reconcile" \
+     -H "authorization: Bearer $PLATFORM_ADMIN_KEY" \
+     -H 'content-type: application/json' -d '{}' | jq
+   ```
+
+   `reconcile` only ADDS absent indexes, always `CONCURRENTLY`, and never
+   drops a working one, so it is safe during traffic. It starts at most
+   `HNSW_PROVISION_MAX_BUILDS_PER_RUN` (5) tenants per call — run it again
+   to take the next batch.
+
+3. **`mismatch` is the one state automation will not fix**, because the
+   repair destroys data: run `POST /v1/admin/reindex/embeddings` for that
+   tenant first, then `POST /v1/admin/maintenance/hnsw {"action":"create"}`
+   (which recreates at the current width).
+
+4. **Alert on it.** `brain_hnsw_index_tenants{state="absent"}` and
+   `{state="mismatch"}` above zero mean tenants are being served unranked
+   rows right now.
 
 ## Run a forget (GDPR)
 
