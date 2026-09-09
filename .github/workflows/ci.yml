@@ -415,20 +415,82 @@ jobs:
         run: pnpm audit --audit-level=high --ignore-workspace
 
   # ---------------------------------------------------------------------
-  # Image build + smoke. No longer `needs: build-test` — it never needed
-  # the test results to build an image, and depending on the gate would
-  # be a cycle now that the gate depends on it.
+  # Image build + smoke, and on main the PUBLISH.
+  #
+  # This job used to build an image, smoke it, and throw it away; the
+  # deploy then rebuilt the same source on a self-hosted runner and shipped
+  # whatever that produced. Nothing tied the artifact that was tested to
+  # the artifact that ran in production — same source, different build, no
+  # identity between them.
+  #
+  # Now the image is built once, here, and on main it is pushed and its
+  # DIGEST recorded. The smoke test then pulls that digest back and runs
+  # THAT, so what CI verified is the same bytes the deploy pins. The
+  # digest travels to deploy-brain.yml in the deploy-manifest artifact.
+  #
+  # No longer `needs: build-test` — it never needed the test results to
+  # build an image, and depending on the gate would be a cycle now that the
+  # gate depends on it.
   # ---------------------------------------------------------------------
   docker:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     needs: changes
     if: needs.changes.outputs.engine == 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Build image
-        run: docker build -t inite-brain-service:ci .
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+
+      # Pull-request runs — including from forks, which get no secrets at
+      # all — build locally and never touch the registry. Only a push to
+      # main publishes.
+      - name: Login to Docker Hub
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build image (PR — local only, not published)
+        if: "!(github.event_name == 'push' && github.ref == 'refs/heads/main')"
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          push: false
+          load: true
+          tags: inite-brain-service:ci
+          platforms: linux/amd64
+
+      - name: Build and publish image (main)
+        id: publish
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:buildcache,mode=max
+          platforms: linux/amd64
+
+      # Re-tag the PUBLISHED digest as the local name the smoke step uses,
+      # so on main the thing being smoke-tested is fetched back from the
+      # registry by digest rather than taken on trust from the build cache.
+      # If the registry ever served something other than what we pushed,
+      # this is where it shows up.
+      - name: Pull back the published digest
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service@${{ steps.publish.outputs.digest }}
+        run: |
+          set -euo pipefail
+          echo "[ci] pulling $IMAGE"
+          docker pull "$IMAGE"
+          docker tag "$IMAGE" inite-brain-service:ci
 
       - name: Smoke run
         run: |
@@ -459,6 +521,37 @@ jobs:
           echo "service did not become healthy"
           docker logs brain
           exit 1
+
+      # The handoff to the deploy. Written only on main, only after the
+      # smoke test above passed, and carrying the digest — not a tag.
+      # A tag is a mutable pointer that says "whatever :latest means when
+      # you pull"; a digest is the artifact. deploy-brain.yml refuses to
+      # deploy without this file, so a deploy whose image CI never
+      # verified fails loudly instead of shipping.
+      - name: Record the deploy manifest
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          IMAGE_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DIGEST" ]; then
+            echo "[ci] the publish step produced no digest — refusing to write a manifest"
+            exit 1
+          fi
+          printf '{"sha":"%s","image":"%s@%s","digest":"%s","runId":"%s"}\n' \
+            "${{ github.sha }}" "$IMAGE_REPO" "$DIGEST" "$DIGEST" "${{ github.run_id }}" \
+            > deploy-manifest.json
+          cat deploy-manifest.json
+
+      - name: Upload the deploy manifest
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: deploy-manifest
+          path: deploy-manifest.json
+          retention-days: 30
+          if-no-files-found: error
 
   # ---------------------------------------------------------------------
   # THE GATE. `build-test` is a required status check on main and only a

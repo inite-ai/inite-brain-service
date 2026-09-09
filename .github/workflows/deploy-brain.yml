@@ -39,56 +39,82 @@ permissions:
   contents: read
 
 jobs:
-  build-and-push:
-    # Skip build for restart/logs ops. Push events have no inputs,
-    # so the inputs.action check defaults to true (build runs).
+  # ---------------------------------------------------------------------
+  # The deploy no longer builds anything.
+  #
+  # It used to: this workflow rebuilt the image from source on the
+  # self-hosted runner, pushed it as :latest, and the deploy pulled
+  # :latest. Two things were wrong with that, and they compound.
+  #
+  # First, nothing connected the artifact CI tested to the artifact
+  # production ran. Same source, two builds, no identity between them —
+  # and the SHA tag this workflow already pushed was never consumed by
+  # anything, so it could not even serve as a manual rollback target
+  # without hand-editing the compose file.
+  #
+  # Second, ci.yml and this workflow both fired on `push` to main, in
+  # parallel, with no ordering. A red main deployed; the only thing
+  # between a broken merge and brain.inite.ai was whether the deploy's
+  # build happened to be slower than the test suite.
+  #
+  # So this job does neither: it waits for CI's verdict on THIS commit,
+  # then takes the digest CI recorded after it smoke-tested the pushed
+  # image. It runs on a GitHub-hosted runner, deliberately — the wait can
+  # be twenty minutes and the single self-hosted deploy runner should not
+  # spend them idle.
+  #
+  # `on: workflow_run` would give the CI conclusion for free and is
+  # rejected: it carries no `paths:` filter, and this workflow's path
+  # trigger is a guarded, load-bearing thing. Trading a tested trigger for
+  # an untested one to save a poll loop is a bad trade.
+  # ---------------------------------------------------------------------
+  verify:
+    # restart and logs do not change the image, so they need no artifact.
     if: github.event_name == 'push' || (github.event.inputs.action != 'restart' && github.event.inputs.action != 'logs')
-    runs-on: [self-hosted, sfo]
-
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      # Reading another workflow's run status, and downloading its artifact.
+      actions: read
+    outputs:
+      image: ${{ steps.manifest.outputs.image }}
+      digest: ${{ steps.manifest.outputs.digest }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # @inite/knowledge SDK is a test-only import (TS path mapping in
-      # tsconfig.json points at ../inite-shared/...). Production build
-      # only compiles src/ and ships dist/main.js — no SDK code is
-      # bundled. So we skip the inite-shared checkout: nothing to fetch.
+      - name: Wait for CI to conclude on this commit
+        id: ci
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          AWAIT_SHA: ${{ github.sha }}
+          AWAIT_TIMEOUT_MINUTES: '45'
+        run: node scripts/ci/await-ci.mjs
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+      - name: Download the deploy manifest CI published
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          name: deploy-manifest
+          run-id: ${{ steps.ci.outputs.run_id }}
+          github-token: ${{ github.token }}
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:${{ github.sha }}
-          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:buildcache
-          cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:buildcache,mode=max
-          platforms: linux/amd64
-
-      - name: Build info
-        run: |
-          echo "[ok] Image pushed: ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:${{ github.sha }}"
+      - name: Resolve the image digest
+        id: manifest
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: node scripts/ci/read-deploy-manifest.mjs
 
   deploy:
-    needs: build-and-push
+    needs: verify
     # Run the deploy job when:
-    #   - push event: only after a successful build
-    #   - workflow_dispatch deploy: only after a successful build
-    #   - workflow_dispatch restart/logs: skip build, run anyway
+    #   - push event: only after CI went green and a digest was resolved
+    #   - workflow_dispatch deploy: same
+    #   - workflow_dispatch restart/logs: no image needed, run anyway
     if: |
       always() && (
-        (github.event_name == 'push' && needs.build-and-push.result == 'success') ||
-        (github.event_name == 'workflow_dispatch' && (needs.build-and-push.result == 'success' || github.event.inputs.action == 'restart' || github.event.inputs.action == 'logs'))
+        (github.event_name == 'push' && needs.verify.result == 'success') ||
+        (github.event_name == 'workflow_dispatch' && (needs.verify.result == 'success' || github.event.inputs.action == 'restart' || github.event.inputs.action == 'logs'))
       )
     runs-on: [self-hosted, sfo]
 
@@ -385,6 +411,27 @@ jobs:
           mkdir -p /opt/projects/${{ env.PROJECT_NAME }}
           cd /opt/projects/${{ env.PROJECT_NAME }}
 
+          # The image is a DIGEST resolved from the manifest CI published
+          # after it smoke-tested that exact artifact — never `:latest`,
+          # which is a mutable pointer and cannot carry the claim "this is
+          # what CI tested".
+          #
+          # restart/logs skip the verify job, so there is no digest to
+          # resolve; those reuse whatever the compose file on disk already
+          # pins, which is the last thing this workflow deployed. An empty
+          # image after both attempts is fatal — writing a compose file
+          # with a blank image would silently resolve to something else.
+          IMAGE_REF="${{ needs.verify.outputs.image }}"
+          if [ -z "$IMAGE_REF" ] && [ -f docker-compose.yml ]; then
+            IMAGE_REF="$(awk '/^[[:space:]]+image:/ {print $2; exit}' docker-compose.yml)"
+            echo "[deploy] reusing the pinned image already on disk: $IMAGE_REF"
+          fi
+          if [ -z "$IMAGE_REF" ]; then
+            echo "[err] no image to deploy: CI published no digest and no compose file is pinned."
+            exit 1
+          fi
+          echo "[deploy] image: $IMAGE_REF"
+
           # Brain talks to the SHARED inite-surrealdb container that lives in
           # the temporal stack (inite-temporal/docker-compose). Brain owns
           # NS=brain (separate from gateway's NS=inite); per-tenant DBs are
@@ -395,7 +442,7 @@ jobs:
           tee docker-compose.yml > /dev/null << EOF
           services:
             ${{ env.PROJECT_NAME }}:
-              image: ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:latest
+              image: ${IMAGE_REF}
               container_name: ${{ env.PROJECT_NAME }}
               restart: unless-stopped
               # PID-1 init (tini): reaps zombie children from the worker
