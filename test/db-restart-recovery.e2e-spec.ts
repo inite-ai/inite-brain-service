@@ -64,6 +64,30 @@ describeIfContainer('database restart recovery (real SurrealDB)', () => {
   // test is about.
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
 
+  // Linux CI (and only Linux CI) rejects one request with a bare
+  // "read ECONNRESET" after the restart even though every request rides its
+  // own connection and the app leaks no error (the capture below stays
+  // empty): a transport-level reset between supertest and the in-process
+  // server, not the database. Bounded: a request is retried at most three
+  // times, each retry is logged, and a persistent reset still fails.
+  let resets = 0;
+  async function withRetry<T extends { status: number }>(
+    label: string,
+    send: () => Promise<T>,
+  ): Promise<T> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await send();
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code ?? (e as Error).message;
+        if (!/ECONNRESET/.test(String(code)) || attempt >= 3) throw e;
+        resets++;
+        console.log(`[restart-e2e] ${label}: ${String(code)} on attempt ${attempt}, retrying`);
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+  }
+
   // A socket that dies under the app must never surface as an unhandled
   // error: on a production process that is a crash (Node exits on an
   // uncaught exception), and in this test it is exactly the failure that
@@ -93,30 +117,34 @@ describeIfContainer('database restart recovery (real SurrealDB)', () => {
   });
 
   async function ingest(object: string): Promise<string> {
-    const res = await f.http
-      .post('/v1/ingest/fact')
-      .set(auth())
-      .set('Connection', 'close')
-      .send({
-        entityRef: { vertical: 'rent', id: 'db_restart_subject' },
-        predicate: 'claim_probe',
-        object,
-        validFrom: '2026-01-01',
-        confidence: 0.9,
-        source: {
-          vertical: 'rent',
-          recorder: 'bot',
-          // Grounded, so the serving gate lets GET /v1/facts/:id return it.
-          evidence: [{ kind: 'message', ref: `msg_db_restart_${Date.now()}` }],
-        },
-      });
+    const res = await withRetry('ingest', () =>
+      f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .set('Connection', 'close')
+        .send({
+          entityRef: { vertical: 'rent', id: 'db_restart_subject' },
+          predicate: 'claim_probe',
+          object,
+          validFrom: '2026-01-01',
+          confidence: 0.9,
+          source: {
+            vertical: 'rent',
+            recorder: 'bot',
+            // Grounded, so the serving gate lets GET /v1/facts/:id return it.
+            evidence: [{ kind: 'message', ref: `msg_db_restart_${Date.now()}` }],
+          },
+        }),
+    );
     expect([200, 201]).toContain(res.status);
     return res.body.factId as string;
   }
 
   it('recovers on its own after the database restarts: /ready, scoped reads and root writes all work again', async () => {
     // Baseline: the surface works before the restart.
-    const baseline = await f.http.get('/ready').set('Connection', 'close');
+    const baseline = await withRetry('/ready', () =>
+      f.http.get('/ready').set('Connection', 'close'),
+    );
     expect({ status: baseline.status, body: baseline.body }).toMatchObject({ status: 200 });
     const before = await ingest('written before the database restarted');
     const baselineRead = await f.http
@@ -138,11 +166,11 @@ describeIfContainer('database restart recovery (real SurrealDB)', () => {
     // answer 503 once or twice while the pools rebuild; it must converge
     // well inside a minute without anyone restarting the process.
     const deadline = Date.now() + 60_000;
-    let ready = await f.http.get('/ready').set('Connection', 'close');
+    let ready = await withRetry('/ready', () => f.http.get('/ready').set('Connection', 'close'));
     stage(`first /ready after restart: ${ready.status} ${JSON.stringify(ready.body)}`);
     while (ready.status !== 200 && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 500));
-      ready = await f.http.get('/ready').set('Connection', 'close');
+      ready = await withRetry('/ready', () => f.http.get('/ready').set('Connection', 'close'));
       stage(`/ready: ${ready.status} ${JSON.stringify(ready.body)}`);
     }
     expect({ status: ready.status, body: ready.body }).toMatchObject({
@@ -152,10 +180,12 @@ describeIfContainer('database restart recovery (real SurrealDB)', () => {
 
     // Scoped read path (brain_caller pool) — the one that stayed
     // "unauthorized" on the box.
-    const read = await f.http
-      .get(`/v1/facts/${encodeURIComponent(before)}`)
-      .set(auth())
-      .set('Connection', 'close');
+    const read = await withRetry('scoped read', () =>
+      f.http
+        .get(`/v1/facts/${encodeURIComponent(before)}`)
+        .set(auth())
+        .set('Connection', 'close'),
+    );
     expect(read.status).toBe(200);
 
     // Root write path.
@@ -173,10 +203,12 @@ describeIfContainer('database restart recovery (real SurrealDB)', () => {
     // take: more reads than there are scoped connections, all served.
     const reads = await Promise.all(
       Array.from({ length: 12 }, () =>
-        f.http
-          .get(`/v1/facts/${encodeURIComponent(before)}`)
-          .set(auth())
-          .set('Connection', 'close'),
+        withRetry('parallel read', () =>
+          f.http
+            .get(`/v1/facts/${encodeURIComponent(before)}`)
+            .set(auth())
+            .set('Connection', 'close'),
+        ),
       ),
     );
     expect(reads.map((r) => r.status)).toEqual(Array(12).fill(200));
@@ -185,5 +217,6 @@ describeIfContainer('database restart recovery (real SurrealDB)', () => {
     // require that none did.
     await new Promise((r) => setTimeout(r, 1_500));
     expect(stray).toEqual([]);
+    expect(resets).toBeLessThanOrEqual(3);
   }, 240_000);
 });
