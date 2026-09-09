@@ -58,7 +58,22 @@ describeIfContainer('database restart recovery (real SurrealDB)', () => {
   let f: AppFixture;
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
 
+  // A socket that dies under the app must never surface as an unhandled
+  // error: on a production process that is a crash (Node exits on an
+  // uncaught exception), and in this test it is exactly the failure that
+  // showed on Linux CI as a bare "read ECONNRESET" with no stack. Record
+  // every stray error with its stack, and fail on it at the end.
+  const stray: string[] = [];
+  const onUncaught = (e: unknown) => {
+    stray.push(`uncaughtException: ${(e as Error)?.stack ?? String(e)}`);
+  };
+  const onUnhandled = (e: unknown) => {
+    stray.push(`unhandledRejection: ${(e as Error)?.stack ?? String(e)}`);
+  };
+
   beforeAll(async () => {
+    process.on('uncaughtException', onUncaught);
+    process.on('unhandledRejection', onUnhandled);
     // The fact read surface is behind FACTS_API_ENABLED (default off → 404).
     process.env.FACTS_API_ENABLED = '1';
     f = await createApp({ companyId: 'co_db_restart_e2e' });
@@ -67,6 +82,8 @@ describeIfContainer('database restart recovery (real SurrealDB)', () => {
   afterAll(async () => {
     delete process.env.FACTS_API_ENABLED;
     if (f) await f.close();
+    process.off('uncaughtException', onUncaught);
+    process.off('unhandledRejection', onUnhandled);
   });
 
   async function ingest(object: string): Promise<string> {
@@ -142,5 +159,10 @@ describeIfContainer('database restart recovery (real SurrealDB)', () => {
       ),
     );
     expect(reads.map((r) => r.status)).toEqual(Array(12).fill(200));
+
+    // Let any late socket error from the dead connections surface, then
+    // require that none did.
+    await new Promise((r) => setTimeout(r, 1_500));
+    expect(stray).toEqual([]);
   }, 240_000);
 });
