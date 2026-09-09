@@ -88,8 +88,8 @@ export async function createApp(
   // EmbedderService / ExtractorService stubs below already apply, now
   // extended to the two models AppModule boots on its own. This is the
   // NLI one: IntentClassifierService.onModuleInit fire-and-forgets a
-  // warmup that spawns a worker_thread and pulls ~135MB of weights
-  // (Xenova/distilbert-base-multilingual-cased-finetuned-mnli) on EVERY
+  // warmup that spawns a worker_thread and pulls ~340MB of weights
+  // (Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7) on EVERY
   // createApp(). No e2e spec asserts on NLI intent (the wire contract is
   // covered by test/contracts-admin-health-components.unit-spec.ts, the
   // classifier by test/chat-router-intent.unit-spec.ts), and the model

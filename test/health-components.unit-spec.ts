@@ -10,10 +10,17 @@
 import { HealthComponentsService } from '../src/admin/health-components.service';
 import { HealthComponentsResponseSchema } from '../src/contracts/admin/health-components.schema';
 import type { ReadinessReport } from '../src/common/health.service';
+import type { WarmupStatus } from '../src/common/warmup-status';
 import type { LastProbeReport } from '../src/metrics/capability-probe.service';
 import type { CapabilityName } from '../src/metrics/capability-probe';
 
 type LastReports = Partial<Record<CapabilityName, LastProbeReport>>;
+
+interface IntentFixture {
+  enabled?: boolean;
+  ready?: boolean;
+  warmup?: WarmupStatus;
+}
 
 const READY: ReadinessReport = {
   dbOk: true,
@@ -35,17 +42,27 @@ const at = (secondsAgo: number) => new Date(Date.now() - secondsAgo * 1000).toIS
 function grid(
   readiness: Partial<Omit<ReadinessReport, 'detail'>> & { detail?: DetailOverrides } = {},
   last: LastReports = {},
+  intent: IntentFixture = {},
 ) {
   const report: ReadinessReport = {
     ...READY,
     ...readiness,
     detail: { ...READY.detail, ...(readiness.detail ?? {}) },
   };
+  const intentReady = intent.ready ?? true;
   const svc = new HealthComponentsService(
     { readiness: async () => report } as never,
     { lastReports: () => last } as never,
     { cacheStats: () => ({ provider: 'bge-m3', size: 7 }) } as never,
-    { stats: () => ({ enabled: true, ready: true, model: 'mini', cacheSize: 0 }) } as never,
+    {
+      stats: () => ({
+        enabled: intent.enabled ?? true,
+        ready: intentReady,
+        model: 'mini',
+        cacheSize: 0,
+      }),
+      warmupStatus: () => intent.warmup ?? { ready: intentReady, failures: 0, inFlight: false },
+    } as never,
     {
       stats: () => ({
         enabled: false,
@@ -199,6 +216,58 @@ describe('health grid — embedder row from the warmup bookkeeping', () => {
     );
     expect(r.status).toBe('degraded');
     expect(r.message).toContain('1536-wide');
+  });
+});
+
+describe('health grid — intent classifier row from the same warmup bookkeeping', () => {
+  it('is ok with the model and cache size once the model serves', async () => {
+    const r = await row('intent classifier');
+    expect(r.status).toBe('ok');
+    expect(r.message).toBe('model=mini cache=0');
+  });
+
+  it('is disabled, not warming, when the classifier is switched off', async () => {
+    const r = await row('intent classifier', {}, {}, { enabled: false });
+    expect(r.status).toBe('disabled');
+    expect(r.message).toBe('CHAT_ROUTE_NLI_ENABLED=0');
+  });
+
+  it('is warming with the attempt in flight while the first load runs', async () => {
+    const r = await row(
+      'intent classifier',
+      {},
+      {},
+      { ready: false, warmup: { ready: false, failures: 0, inFlight: true } },
+    );
+    expect(r.status).toBe('warming');
+    expect(r.message).toContain('warming up; attempt in flight');
+    expect(r.message).toContain('punctuation-only intent heuristic');
+  });
+
+  it('is DEGRADED with the reason and the next retry once a warmup has failed (a gated repo used to read "warming" forever)', async () => {
+    const r = await row(
+      'intent classifier',
+      {},
+      {},
+      {
+        ready: false,
+        warmup: {
+          ready: false,
+          failures: 3,
+          inFlight: false,
+          lastError:
+            'model repo unavailable (gated or removed; set CHAT_ROUTE_NLI_MODEL to a public repo): ' +
+            'Unauthorized access to file: "https://huggingface.co/Xenova/gone/resolve/main/config.json".',
+          nextRetryAt: '2026-09-09T16:00:00.000Z',
+        },
+      },
+    );
+    expect(r.status).toBe('degraded');
+    expect(r.message).toContain('warmup failed 3×');
+    expect(r.message).toContain('Unauthorized access to file');
+    expect(r.message).toContain('CHAT_ROUTE_NLI_MODEL');
+    expect(r.message).toContain('next attempt at 2026-09-09T16:00:00.000Z');
+    expect(r.message).toContain('model=mini');
   });
 });
 

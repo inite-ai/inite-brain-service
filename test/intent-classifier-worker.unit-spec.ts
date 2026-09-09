@@ -182,6 +182,39 @@ describe('IntentClassifierService — worker runtime', () => {
     await svc.onApplicationShutdown();
   });
 
+  it('warmup RPC failure → backoff: no replacement worker per request, status carries the reason', async () => {
+    const svc = new IntentClassifierService(mkConfig());
+    mockOnPost = (w, msg) => {
+      if (msg.kind !== 'warmup') return;
+      queueMicrotask(() =>
+        w.emit('message', {
+          id: msg.id,
+          ok: false,
+          error:
+            'Could not locate file: "https://huggingface.co/Xenova/gone/resolve/main/config.json".',
+        }),
+      );
+    };
+    svc.onModuleInit();
+    await waitFor(() => svc.warmupStatus().failures === 1);
+    expect(svc.isReady()).toBe(false);
+    const status = svc.warmupStatus();
+    expect(status.lastError).toContain('Could not locate file');
+    expect(status.lastError).toContain('CHAT_ROUTE_NLI_MODEL');
+    expect(status.nextRetryAt).toBeDefined();
+
+    // Traffic inside the backoff neither spawns a worker nor re-sends warmup.
+    await expect(svc.classify('Maria moved to Berlin')).resolves.toMatchObject({
+      source: 'punctuation',
+    });
+    await expect(svc.classify('another statement')).resolves.toMatchObject({
+      source: 'punctuation',
+    });
+    expect(mockWorkers).toHaveLength(1);
+    expect(mockWorkers[0]!.posted.filter((m) => m.kind === 'warmup')).toHaveLength(1);
+    await svc.onApplicationShutdown();
+  });
+
   it('onApplicationShutdown terminates the worker thread', async () => {
     const svc = new IntentClassifierService(mkConfig());
     const worker = await warmService(svc);
