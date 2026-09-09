@@ -37,14 +37,23 @@ permissions:
 # nobody would merge. The queue is shared, so those zombies delayed every
 # other PR too.
 #
-# Keyed on ref, not on the PR number, so a push and its pull_request event
-# collapse into one group instead of racing each other.
+# Keyed on the PR number when there is one, else the ref. An earlier version
+# of this keyed on `github.ref` alone and claimed in this very comment that
+# doing so collapsed a push and its pull_request event into one group. It
+# does not: a push carries `refs/heads/<branch>` and a pull_request carries
+# `refs/pull/<n>/merge`, so the two land in DIFFERENT groups and both run.
+#
+# That was not merely wasteful. Observed on PR #524: two runs started one
+# second apart on the same commit, one was cancelled, and the cancelled run
+# reported a FAILED `build-test` — a red required check produced by nothing
+# but the duplicate. Keying on the PR number puts both events in one group so
+# the second supersedes the first.
 #
 # main is deliberately excluded from cancellation: a push there is what the
 # deploy and the release ride on, and a superseded merge must still report
 # its own result rather than vanish as "cancelled".
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
