@@ -95,7 +95,9 @@ export class PackSeedIngestService implements OnModuleInit {
         throw new Error('aborted');
       }
       try {
-        const r = await this.ingest.ingestDocument(companyId, this.seedDto(seed, p));
+        const r = await this.ingest.ingestDocument(companyId, this.seedDto(seed, p), {
+          channel: 'pack_seed',
+        });
         if (r.deduplicated) result.deduplicated++;
         else result.ingested++;
       } catch (err) {

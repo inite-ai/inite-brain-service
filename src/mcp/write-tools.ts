@@ -464,20 +464,24 @@ function registerIngestDocumentTool({
         // message is deliberately client-facing.
         throw new BadRequestException(`text exceeds DOC_MAX_CHARS (${docMaxChars()})`);
       }
-      const out = await documents.ingestDocument(companyId, {
-        kind: args.kind,
-        text: args.text,
-        ...(args.title !== undefined ? { title: args.title } : {}),
-        ...(args.originUri !== undefined ? { originUri: args.originUri } : {}),
-        occurredAt: args.occurredAt,
-        contextRef: { vertical: args.vertical, recorder },
-        ...(args.storeContent !== undefined ? { storeContent: args.storeContent } : {}),
-        indexers: args.indexers ?? 'general',
-        ...(args.toolObservationRef !== undefined
-          ? { toolObservationRef: args.toolObservationRef }
-          : {}),
-        mode: 'sync',
-      });
+      const out = await documents.ingestDocument(
+        companyId,
+        {
+          kind: args.kind,
+          text: args.text,
+          ...(args.title !== undefined ? { title: args.title } : {}),
+          ...(args.originUri !== undefined ? { originUri: args.originUri } : {}),
+          occurredAt: args.occurredAt,
+          contextRef: { vertical: args.vertical, recorder },
+          ...(args.storeContent !== undefined ? { storeContent: args.storeContent } : {}),
+          indexers: args.indexers ?? 'general',
+          ...(args.toolObservationRef !== undefined
+            ? { toolObservationRef: args.toolObservationRef }
+            : {}),
+          mode: 'sync',
+        },
+        { channel: 'mcp' },
+      );
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
         structuredContent: asStructuredContent(out),

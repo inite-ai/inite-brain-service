@@ -42,9 +42,9 @@ export class DocumentsIngestController {
     assertDocumentIngestEnabled();
     this.validate(body);
     if (body.mode === 'async') {
-      return this.async.ingestAsync(req.brainAuth.companyId, body);
+      return this.async.ingestAsync(req.brainAuth.companyId, body, { channel: 'api' });
     }
-    return this.ingest.ingestDocument(req.brainAuth.companyId, body);
+    return this.ingest.ingestDocument(req.brainAuth.companyId, body, { channel: 'api' });
   }
 
   @Post('documents/:id/commit')

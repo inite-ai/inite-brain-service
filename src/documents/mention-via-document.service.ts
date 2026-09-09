@@ -57,6 +57,13 @@ export class MentionViaDocumentService {
         extractedFactIds: [],
       };
     }
+    // Bounded BEFORE the pipeline runs: an over-long or non-string id is a
+    // 400 at the door, not a failed extraction.
+    const internal = internalDocumentMeta({
+      conversationId: dto.contextRef.conversationId,
+      messageId: dto.contextRef.messageId,
+      eventId: dto.contextRef.eventId,
+    });
     try {
       const res = await this.documents.ingestDocument(
         companyId,
@@ -75,21 +82,19 @@ export class MentionViaDocumentService {
           // NO `meta`. The document `meta` field is the CALLER channel —
           // operator vocabulary bound for the ABAC `source.meta` surface,
           // policed by SOURCE_META_STRICT. A mention has no caller meta
-          // at all (IngestMentionDto has no such field); what follows is
-          // brain's own provenance, read off the TYPED contextRef, and it
-          // rides the internal channel instead. Asserting it as caller
-          // meta 400'd every mention under SOURCE_META_STRICT=1 — and,
-          // because an object literal materialises a key even for an
-          // undefined value, it did so even for requests that sent no
-          // conversationId/messageId/eventId whatsoever.
+          // at all (IngestMentionDto has no such field); what follows are
+          // the caller's identifiers read off the TYPED contextRef, and
+          // they ride the internal channel instead — bounded there
+          // (internalDocumentMeta: string, ≤ the short-scalar limit, else
+          // 400). Asserting them as caller meta 400'd every mention under
+          // SOURCE_META_STRICT=1 — and, because an object literal
+          // materialises a key even for an undefined value, it did so
+          // even for requests that sent no conversationId/messageId/
+          // eventId whatsoever.
           indexers: 'general',
           mode: 'sync',
         },
-        internalDocumentMeta({
-          conversationId: dto.contextRef.conversationId,
-          messageId: dto.contextRef.messageId,
-          eventId: dto.contextRef.eventId,
-        }),
+        { channel: 'mention', internal },
       );
       if (res.committed.entityIds.length === 0) {
         this.metrics?.countIngestMention('skipped');
