@@ -1,3 +1,7 @@
+import type { Logger } from '@nestjs/common';
+import type { BeliefPromotionResult } from './belief-promotion.service';
+import { formatValueDims, sceneValueVerdict } from './belief-value-gate';
+
 /**
  * Which scenes the belief promotion pass reads, and which world stamp a
  * promoted belief carries (the god-file split off
@@ -129,12 +133,22 @@ export function buildPromotableScenesQuery(p: {
   conversationId?: string | undefined;
   packDeltas: boolean;
   valueGate?: boolean;
+  /**
+   * The full-chain read of a targeted run (F6): every promotable scene
+   * that involves these users, whatever conversation it came from, so a
+   * late-arriving scene is folded at its place in the whole chain rather
+   * than judged against the head alone. Undefined ⇒ no user clause —
+   * the SQL is byte-identical to the historical selection.
+   */
+  userIds?: readonly string[] | undefined;
 }): { sql: string; params: Record<string, unknown> } {
   const conv = p.conversationId !== undefined ? ` AND conversationIds CONTAINS $conv` : '';
+  const users = p.userIds !== undefined ? ` AND userIds CONTAINSANY $users` : '';
   const gate = p.valueGate === true;
   const params: Record<string, unknown> = {
     v: p.version,
     ...(p.conversationId !== undefined ? { conv: p.conversationId } : {}),
+    ...(p.userIds !== undefined ? { users: [...p.userIds] } : {}),
   };
   if (!p.packDeltas) {
     const dims = valueDimProjections(gate, ' '.repeat(16));
@@ -143,7 +157,9 @@ export function buildPromotableScenesQuery(p: {
         `SELECT id, userId, userIds, conversationIds, occurredTo, stateDeltas,
                 enrichedMemoryValue.explicitness AS explicitness${dims}
            FROM memory_episode
-          WHERE segmenterVersion = $v AND enrichmentVersion IS NOT NONE` + conv,
+          WHERE segmenterVersion = $v AND enrichmentVersion IS NOT NONE` +
+        conv +
+        users,
       params,
     };
   }
@@ -155,7 +171,9 @@ export function buildPromotableScenesQuery(p: {
          FROM memory_episode
         WHERE ((segmenterVersion = $v AND enrichmentVersion IS NOT NONE)
             OR (string::starts_with(segmenterVersion, $packPrefix)
-                AND stateDeltas IS NOT NONE AND array::len(stateDeltas) > 0))` + conv,
+                AND stateDeltas IS NOT NONE AND array::len(stateDeltas) > 0))` +
+      conv +
+      users,
     params: { ...params, packPrefix: PACK_SCENE_WORLD_PREFIX },
   };
 }
@@ -184,4 +202,62 @@ export function promoterVersionFor(
   return only !== undefined && isPackSceneWorld(only)
     ? beliefPromoterVersion(only)
     : runPromoterVersion;
+}
+
+/**
+ * The per-scene admission fences, in order: #387 single-user (a security
+ * fence is never traded against a quality one), then the memory-value
+ * gate. `count` is the run summary for the batch being promoted; null
+ * when the same fences are applied to the evidence chain a targeted run
+ * re-reads (that chain is context, not this run's scenes — its skips
+ * must not inflate the batch's counters).
+ */
+export function admitScenes({
+  scenes,
+  gate,
+  count,
+  logger,
+}: {
+  scenes: readonly PromotableSceneHead[];
+  gate: { valueGate: boolean; valueGateMin: number };
+  count: BeliefPromotionResult | null;
+  logger: Logger;
+}): Array<{ scene: PromotableSceneHead; userId: string }> {
+  const eligible: Array<{ scene: PromotableSceneHead; userId: string }> = [];
+  for (const scene of scenes) {
+    if (count) count.scenes += 1;
+    const userId = sceneSingleUser(scene);
+    if (userId === null) {
+      // #387 fail-closed: mixed-user, tenant-global or legacy (pre-0117
+      // userIds) scenes never feed a belief.
+      if (count) {
+        count.skippedMixedUser += 1;
+        logger.warn(
+          `belief promotion skipped scene ${String(scene.id)}: not single-user ` +
+            `(userIds=${JSON.stringify(scene.userIds ?? null)}) — #387 fence`,
+        );
+      }
+      continue;
+    }
+    // MEMORY-VALUE GATE: the value vector's first consumer. Runs AFTER the
+    // #387 fence and BEFORE the fold, so a refused scene contributes no
+    // delta at all. Off ⇒ not even evaluated.
+    if (gate.valueGate) {
+      const verdict = sceneValueVerdict(scene, gate.valueGateMin);
+      if (!verdict.promote) {
+        if (count) {
+          count.skippedLowValue += 1;
+          logger.log(
+            `belief promotion value gate: scene ${String(scene.id)} skipped as noise ` +
+              `(${formatValueDims(verdict.dims)}; all < ${gate.valueGateMin}) — ` +
+              `SCENES_VALUE_GATE_ENABLED`,
+          );
+        }
+        continue;
+      }
+    }
+    if (count) count.eligibleScenes += 1;
+    eligible.push({ scene, userId });
+  }
+  return eligible;
 }

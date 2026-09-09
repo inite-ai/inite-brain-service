@@ -1,0 +1,27 @@
+-- 0137: semantic_belief.latestEvidenceAt — the evidence watermark of a
+-- belief revision, kept SEPARATE from validFrom.
+--
+-- WHY. validFrom is "when the current state BEGAN" (the earliest scene of
+-- the trailing same-value run); the promotion pass used to derive it from
+-- the LATEST corroborating scene and then compared a differing candidate
+-- against it. Two consequences (audit 2026-09-06, F6): a confirmation
+-- moved the state's beginning forward, and a stale differing value could
+-- displace a state that later evidence had already re-confirmed — A on
+-- Jan 1, A again on Mar 1, then B dated Feb 1 arriving late made B the
+-- active belief although the latest evidence said A.
+--
+-- latestEvidenceAt is the occurredTo of the latest scene that contributed
+-- to the ACTIVE value: written on create and on revise, advanced (never
+-- rewound) by a corroboration. The stale guard compares a differing
+-- candidate's own latest evidence against THIS column, so evidence older
+-- than what the belief has already processed can never revise it. Legacy
+-- rows (NONE) fall back to validFrom — exactly the pre-0137 comparison —
+-- and are stamped on their next corroboration.
+--
+-- In-place writes remain limited to the corroboration counters plus this
+-- watermark, and to validFrom ONLY as a correction of when the same value
+-- began (a full-chain recompute finding the run's true start) — a value
+-- change still creates revision N+1 (the 0120 doctrine). No index: the
+-- column is read on a row the pass already selected by (userId, subject,
+-- field, status), never as a filter.
+DEFINE FIELD IF NOT EXISTS latestEvidenceAt ON semantic_belief TYPE option<datetime>;

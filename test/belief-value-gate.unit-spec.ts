@@ -206,9 +206,12 @@ describe('the gate through run() (fake db)', () => {
         return [this.sceneHeads];
       }
       if (sqlText.includes('field = $f')) return [[]];
-      if (sqlText.startsWith('INSERT IGNORE INTO semantic_belief')) {
+      // The revision lands through the compare-and-set transaction
+      // (commitRevision); with no head there is nothing to stamp — only
+      // the INSERT IGNORE inside it matters here.
+      if (sqlText.startsWith('BEGIN TRANSACTION')) {
         this.inserted.push(...(params.rows as Array<Record<string, unknown>>));
-        return [];
+        return [true];
       }
       if (sqlText.includes('UPDATE memory_episode')) return [];
       throw new Error(`FakeDb: unhandled SQL: ${sqlText}`);
