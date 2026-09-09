@@ -11,7 +11,8 @@
     "start": "next start -p 3030",
     "lint": "eslint .",
     "lint:i18n": "eslint components/admin",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.1.1",

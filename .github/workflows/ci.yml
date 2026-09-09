@@ -135,13 +135,45 @@ jobs:
       - name: Jobs e2e (real Surreal, no OpenAI)
         run: pnpm test:e2e:jobs
 
-      # i18n gate — admin components must use the getMessages() pipeline,
-      # never hardcoded JSX literals. See brain-landing/eslint.config.mjs
-      # and § Quality gates in CONTRIBUTING.md.
+  # The web app's own gates, in their OWN job — they used to be four steps
+  # tacked onto the end of build-test, which had two costs.
+  #
+  # First, build-test is a REQUIRED status check, so a hardcoded JSX literal
+  # in an admin component blocked merging an unrelated engine hotfix. The two
+  # deliverables now fail independently.
+  #
+  # Second, and worse, this set had a hole: there was no typecheck and no
+  # build. eslint-config-next does not typecheck, so a type error in
+  # brain-landing passed CI green, merged, and first surfaced as a FAILED
+  # DOCKER BUILD in the marketing site's deploy — the landing image runs one
+  # `next build` over every route, so a broken admin component stopped the
+  # SEO-critical public site from shipping. That is the actual mechanism by
+  # which admin breaks the landing, and it is fixed here rather than by
+  # splitting them into separate apps: what reaches main is now built and
+  # typechecked first.
+  web:
+    runs-on: ubuntu-latest
+    # Well under build-test's 45: this is one install plus lint/tsc/next
+    # build/vitest on a small app, with no containers.
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
       - name: Install brain-landing deps
         working-directory: brain-landing
         run: pnpm install --frozen-lockfile
 
+      # i18n gate — admin components must use the getMessages() pipeline,
+      # never hardcoded JSX literals. See brain-landing/eslint.config.mjs
+      # and § Quality gates in CONTRIBUTING.md.
       - name: i18n lint — admin components
         working-directory: brain-landing
         run: pnpm lint:i18n
@@ -152,6 +184,17 @@ jobs:
       - name: Lint brain-landing (full)
         working-directory: brain-landing
         run: pnpm lint
+
+      # NEW. The gap described above: nothing typechecked this app.
+      - name: Typecheck brain-landing
+        working-directory: brain-landing
+        run: pnpm typecheck
+
+      # NEW. Runs the same `next build` the production Dockerfile runs, so a
+      # build that cannot ship is caught here instead of in the deploy.
+      - name: Build brain-landing (same build the deploy image runs)
+        working-directory: brain-landing
+        run: pnpm build
 
       - name: Test brain-landing (sitemap + locale parity)
         working-directory: brain-landing
