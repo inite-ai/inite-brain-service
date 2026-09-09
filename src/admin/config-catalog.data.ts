@@ -714,7 +714,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Scenes fact backlink (Brain v2 PR2): stamp knowledge_fact rows whose source.episodeIds intersect a scene’s membership with source.memoryEpisodeIds (idempotent array::union) + source.sceneLinkVersion — facts become pointers into the episodic plane. FLEXIBLE source ride, no migration; nothing on the serving path reads the keys (additively visible where `source` is already returned). Off = no fact row is ever touched, backlink route 404s.',
+      'Scenes fact backlink (Brain v2 PR2): reconcile each knowledge_fact’s source.memoryEpisodeIds to exactly the scenes of the effective version whose membership intersects its source.episodeIds (stale pointers to purged or rebuilt scenes are removed) + source.sceneLinkVersion — facts become pointers into the episodic plane. FLEXIBLE source ride, no migration; nothing on the serving path reads the keys (additively visible where `source` is already returned). Off = no fact row is ever touched, backlink route 404s.',
   },
   {
     key: 'SCENES_GIST_EMBEDDING',

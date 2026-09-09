@@ -1140,10 +1140,11 @@ const KNOWN_BOOLEAN_FLAGS = [
   // the enrich admin route 404s — byte-identical to PR1. The model knob
   // (SCENES_ENRICH_MODEL) is a string, not a boolean.
   'SCENES_LLM_ENRICHMENT',
-  // Scenes fact backlink (Brain v2 PR2): stamp knowledge_fact rows whose
-  // source.episodeIds intersect a scene's membership with
-  // source.memoryEpisodeIds + source.sceneLinkVersion (idempotent union,
-  // FLEXIBLE source — no migration). Nothing on the serving path reads
+  // Scenes fact backlink (Brain v2 PR2): reconcile each knowledge_fact's
+  // source.memoryEpisodeIds to the scenes of the effective version whose
+  // membership intersects its source.episodeIds, + source.sceneLinkVersion
+  // (stale pointers removed; FLEXIBLE source — no migration). Nothing on
+  // the serving path reads
   // the keys; they are only VISIBLE where `source` is already returned
   // verbatim (facts read/provenance API) — additive. Default off ⇒ no
   // fact row is ever touched and the backlink admin route 404s.

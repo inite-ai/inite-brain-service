@@ -41,6 +41,9 @@ describe('SceneBacklinkService — supported_by edges', () => {
         if (sql.includes('FROM memory_episode_member WHERE in = $scene')) {
           return [[{ out: 'episode:e1' }, { out: 'episode:e2' }]] as unknown as R;
         }
+        if (sql.includes('SELECT VALUE source.conversationId')) {
+          return [[]] as unknown as R;
+        }
         if (sql.includes('FROM knowledge_fact')) {
           return [
             [
@@ -73,13 +76,14 @@ describe('SceneBacklinkService — supported_by edges', () => {
     delete process.env.PROVENANCE_SUPPORT_EDGES;
     const { svc, calls } = makeStack();
     const result = await svc.run('co_x');
-    expect(result).toEqual({ scenes: 1, factsLinked: 2 });
-    // The exact statement sequence of the pre-edge writer, in order.
+    expect(result).toEqual({ scenes: 1, factsLinked: 2, stalePointersRemoved: 0 });
+    // The exact statement sequence of the reconciling writer, in order.
     expect(calls.map((c) => c.sql.split(/\s+/).join(' ').trim())).toEqual([
       'SELECT id, conversationIds FROM memory_episode WHERE segmenterVersion = $v',
       'SELECT out FROM memory_episode_member WHERE in = $scene',
-      'SELECT id, source.episodeIds AS episodeIds FROM knowledge_fact WHERE source.conversationId = $conv',
-      'UPDATE knowledge_fact SET source.memoryEpisodeIds = array::union(source.memoryEpisodeIds ?? [], [$sceneId]), source.sceneLinkVersion = $v WHERE id INSIDE $factIds',
+      'SELECT VALUE source.conversationId FROM knowledge_fact WHERE source.memoryEpisodeIds != NONE',
+      'SELECT id, source.episodeIds AS episodeIds, source.memoryEpisodeIds AS memoryEpisodeIds, source.sceneLinkVersion AS sceneLinkVersion FROM knowledge_fact WHERE source.conversationId = $conv',
+      'UPDATE knowledge_fact SET source.memoryEpisodeIds = $sceneIds, source.sceneLinkVersion = $v WHERE id INSIDE $factIds',
     ]);
   });
 
@@ -120,7 +124,7 @@ describe('SceneBacklinkService — supported_by edges', () => {
     process.env.PROVENANCE_SUPPORT_EDGES = '1';
     const { svc, calls } = makeStack();
     const result = await svc.run('co_x');
-    expect(result).toEqual({ scenes: 0, factsLinked: 0 });
+    expect(result).toEqual({ scenes: 0, factsLinked: 0, stalePointersRemoved: 0 });
     expect(calls).toEqual([]);
   });
 });

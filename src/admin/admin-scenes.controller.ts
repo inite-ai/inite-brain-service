@@ -63,9 +63,10 @@ const SEGMENTER_VERSION_MAX_CHARS = 128;
  *    this is also the BACKFILL verb for a world composed before the flag
  *    was turned on. Re-embedding EXISTING vectors into a new embedding
  *    space stays the reindex sweep's job, not this one's.
- *  - POST /scenes/backlink — standalone fact backlink (PR2): idempotent
- *    source.memoryEpisodeIds stamps. 404 unless BOTH the master flag and
- *    SCENES_FACT_BACKLINK are on.
+ *  - POST /scenes/backlink — standalone fact backlink (PR2): reconciles
+ *    source.memoryEpisodeIds to the live scene membership of the
+ *    effective version (stale pointers removed). 404 unless BOTH the
+ *    master flag and SCENES_FACT_BACKLINK are on.
  *  - POST /scenes/evidence-links — scene evidence linker (MM-zoom PR1,
  *    migration 0123): typed scene-reconstructed_from->evidence edges
  *    from member episodes' source.evidenceRefs. 404 unless BOTH the
