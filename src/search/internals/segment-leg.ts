@@ -127,7 +127,7 @@ export async function runSegmentLegs({
           `SELECT id, conversationId, text, occurredAt,
                   vector::similarity::cosine(embedding, $q) AS score
              FROM episode_segment
-            WHERE embedding != NONE ${piiGate} ${gate.clause}
+            WHERE embedding != NONE AND array::len(embedding) = array::len($q) ${piiGate} ${gate.clause}
             ORDER BY score DESC
             LIMIT $k`,
           { q: queryVector, k: fetchK, ...gate.params },

@@ -9,6 +9,7 @@ import {
   declaredSpace,
   providerIdOf,
 } from '../src/ai/embedder/embedding-space';
+import { widthGateClause } from '../src/db/vector-width';
 
 /**
  * Embedding-space truth gate.
@@ -86,6 +87,45 @@ describe('embedding-space truth — the schema cannot hold an unclassified vecto
       t.vectorFields.map((f) => `${t.table}.${f}`),
     ).sort();
     expect(swept.filter((c) => !vectors.has(c))).toEqual([]);
+  });
+});
+
+describe('embedding-space truth — every cosine scan carries the width gate', () => {
+  // vector::similarity::cosine over one foreign-width row aborts the WHOLE
+  // statement (SurrealDB 3.2.4). Every scan in src/ must skip such rows with
+  // `array::len(col) = array::len($q)` in the same statement (see
+  // src/db/vector-width.ts); this is what keeps the next scan site honest.
+  const COSINE = /vector::similarity::cosine\(\s*([A-Za-z_.]+)\s*,\s*\$([A-Za-z_]+)\s*\)/g;
+
+  it('in application code: each statement with a cosine has the gate for that column', () => {
+    const offenders: string[] = [];
+    for (const f of TS_FILES) {
+      const text = stripComments(readFileSync(f, 'utf8'));
+      // One template literal is one statement (or one shared filter string).
+      for (const lit of text.match(/`[^`]*`/gs) ?? []) {
+        for (const m of lit.matchAll(COSINE)) {
+          const [, field, param] = m as unknown as [string, string, string];
+          if (!lit.includes(widthGateClause(field, param))) {
+            offenders.push(`${f.slice(ROOT.length + 1)}: cosine(${field}, $${param}) without gate`);
+          }
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('in the store: the latest fn::resolve_fact revision gates its dedup cosine', () => {
+    // The dedup gate inside resolve_fact is copied into every revision; only
+    // the highest-numbered file is what a tenant runs.
+    const defining = SURQL_FILES.filter((f) =>
+      /DEFINE FUNCTION (OVERWRITE |IF NOT EXISTS )?fn::resolve_fact\(/.test(
+        readFileSync(f, 'utf8'),
+      ),
+    ).sort();
+    const latest = defining[defining.length - 1]!;
+    const body = readFileSync(latest, 'utf8');
+    expect(body).toMatch(/array::len\(embedding\) = array::len\(\$embedding\)/);
+    expect(body).toMatch(/vector::similarity::cosine\(embedding, \$embedding\)/);
   });
 });
 

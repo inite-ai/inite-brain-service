@@ -139,7 +139,7 @@ async function runBrute<Row>(req: DenseScanLegRequest): Promise<Row[]> {
     `SELECT ${req.projection},
         vector::similarity::cosine(embedding, $q) AS score
    FROM ${req.table}
-  WHERE embedding != NONE ${req.gates}
+  WHERE embedding != NONE AND array::len(embedding) = array::len($q) ${req.gates}
   ORDER BY score DESC
   LIMIT $k`,
     req.params,

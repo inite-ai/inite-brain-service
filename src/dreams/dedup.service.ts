@@ -272,7 +272,8 @@ export class DreamsDedupService {
       `LET $q = (SELECT VALUE embedding FROM ONLY type::record($fid));
        SELECT entityId, vector::similarity::cosine(embedding, $q) AS sim
          FROM knowledge_fact
-        WHERE ${filters}
+        WHERE array::len(embedding) = array::len($q)
+          AND ${filters}
         ORDER BY sim DESC
         LIMIT 5;`,
       { fid: seedFactId, ...fence.params },

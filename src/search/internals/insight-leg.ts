@@ -146,7 +146,7 @@ export async function runInsightLegs({
                   source, trustSnapshot, corroboration, userId,
                   vector::similarity::cosine(embedding, $q) AS score
              FROM knowledge_fact
-            WHERE embedding != NONE ${insightGate} ${piiGate} ${userGate} ${worldGate}
+            WHERE embedding != NONE AND array::len(embedding) = array::len($q) ${insightGate} ${piiGate} ${userGate} ${worldGate}
             ORDER BY score DESC
             LIMIT $k`,
           { q: queryVector, k: fetchK, ...shared },

@@ -144,7 +144,7 @@ export class FragmentLaneService {
               `SELECT ${select},
                     vector::similarity::cosine(embedding, $q) AS score
                FROM derived_representation
-              WHERE embedding != NONE AND ${where}
+              WHERE embedding != NONE AND array::len(embedding) = array::len($q) AND ${where}
               ORDER BY score DESC
               LIMIT $k`,
               { q: queryVector, k: fetchK, ...userFence.params },
