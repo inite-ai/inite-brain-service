@@ -3221,4 +3221,32 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Boot-only role split: all (default, single do-everything process), api (applies WORKER_LOOP_ENABLED=0 + JOB_WORKER_POOL_SIZE=0 unless set explicitly), worker (applies CHAT_ROUTE_NLI_ENABLED=false unless set). api/worker require JOBS_QUEUE_MODE=enqueue — validated at boot. See docs/operations.md "Splitting API and worker roles".',
   },
+  // ── Capability probes (active monitoring) ─────────────────
+  {
+    key: 'CAPABILITY_PROBE_ENABLED',
+    category: 'misc',
+    defaultValue: '0',
+    runtimeMutable: false,
+    isBooleanFlag: true,
+    description:
+      'Periodically RUN each capability the service claims and publish the result (brain_capability_probe_*). Covers the class where the service reports healthy while a capability is dead: the scoped pool that went anonymous ~59 min after boot with /health green (#502), and the embedder answering outside the configured space while /ready was green (#503). Both fixes landed in /ready, which is only polled at deploy time — this is the continuous counterpart. Per pod, no leader lease (the failure is per-process). Off = no timer, no series.',
+  },
+  {
+    key: 'CAPABILITY_PROBE_INTERVAL_MS',
+    category: 'misc',
+    defaultValue: '60000',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Probe cadence, and therefore the detection-latency floor. Minimum 5000. Each tick costs one indexless LIMIT 1 read plus one embed of a four-word string — on EMBEDDER_PROVIDER=openai that embed is a real (tiny) API call, so raise this if probe traffic matters more than a 60s floor.',
+  },
+  {
+    key: 'CAPABILITY_PROBE_TENANT',
+    category: 'misc',
+    defaultValue: null,
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Canary tenant for the scoped-read probe. Unset = the first id of the known roster. One tenant, not all: the scoped session is shared by every tenant on the pod, so a per-tenant sweep would multiply series and DB load by the roster size to re-answer the same question.',
+  },
 ];

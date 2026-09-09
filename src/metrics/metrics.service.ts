@@ -7,6 +7,7 @@ import {
   collectDefaultMetrics,
   type LabelValues,
 } from 'prom-client';
+import { isConclusive, type CapabilityName, type ProbeOutcome } from './capability-probe';
 
 /** knowledge_fact.status enum (schema ASSERT) — every value gets a series. */
 export const FACT_STATUSES = [
@@ -49,6 +50,10 @@ export interface MemoryQualitySnapshot {
  *   - scene_maintenance_total{outcome}        — ok|failed|skipped_no_dirty|skipped_budget
  *   - scene_maintenance_emitted_total{kind}   — conversation|scene|enriched|belief|dirty_cleared
  *   - scene_maintenance_duration_seconds      — histogram, per-tenant pass
+ *   - capability_probe_total{capability,outcome}  — active probes that RUN
+ *   - capability_probe_ok{capability}               a capability on a timer
+ *   - capability_probe_last_success_timestamp_seconds{capability}
+ *                                               (see capability-probe.ts)
  *   - retract_total / forget_total            — counters
  *   - compaction_facts_total                  — counter, summed across tenants
  *   - openai_tokens_total{kind, type}         — embed|chat × prompt|completion
@@ -109,6 +114,51 @@ export class MetricsService implements OnModuleInit {
     name: 'brain_embedder_fallback_serves_total',
     help: 'Embed calls served by the fallback provider because the primary was not ready',
     labelNames: ['primary'] as const,
+    registers: [this.registry],
+  });
+
+  // ── Capability probes (src/metrics/capability-probe.service.ts) ──────
+  // The ACTIVE signal for "the service reports healthy while a whole
+  // capability is dead" — the class behind #502 (scoped pool anonymous
+  // after ~59 min, /health green), #503 (/ready green through embedder
+  // warmup) and #510. `/ready` gained real checks in both fixes, but
+  // readiness is polled at DEPLOY time; a pool that lapses an hour later
+  // is invisible to it. These series come from a timer that actually RUNS
+  // each capability.
+  //
+  // Cardinality: (capability × outcome) only — 2 × 6 worst case. NO
+  // companyId label, the same rule as every other domain metric here. The
+  // failure is per-PROCESS (one scoped session serves every tenant on the
+  // pod), so one canary tenant proves the property for all of them, and
+  // the scraper's own `instance` label already pins which pod. The tenant
+  // is named in the log line and the runbook, where the operator needs it.
+  readonly capabilityProbes = new Counter({
+    name: 'brain_capability_probe_total',
+    help: 'Capability probe ticks by capability and outcome (serving|unauthorized|degraded|busy|error|skipped)',
+    labelNames: ['capability', 'outcome'] as const,
+    registers: [this.registry],
+  });
+
+  // 1/0 up-signal, written ONLY on a conclusive outcome. A `busy` tick
+  // (pool saturated) deliberately leaves the previous value standing: a
+  // saturated pool must not page anyone — the same call #502 made in
+  // readiness. The series does not exist until the first conclusive probe,
+  // so a booting pod (or a disabled probe) is absent, not down.
+  readonly capabilityProbeOk = new Gauge({
+    name: 'brain_capability_probe_ok',
+    help: 'Whether the last CONCLUSIVE probe found this capability serving (1/0); busy/skipped ticks leave it unchanged',
+    labelNames: ['capability'] as const,
+    registers: [this.registry],
+  });
+
+  // When the capability was last observed actually serving. Catches what
+  // the up-gauge cannot: a prober that is itself wedged (the gauge would
+  // sit at 1 forever) and a pool that has been nothing but busy for a long
+  // stretch. Alert on `time() - min by (capability)(…)`.
+  readonly capabilityProbeLastSuccess = new Gauge({
+    name: 'brain_capability_probe_last_success_timestamp_seconds',
+    help: 'Unix time of the last probe that found this capability serving',
+    labelNames: ['capability'] as const,
     registers: [this.registry],
   });
 
@@ -1143,6 +1193,33 @@ export class MetricsService implements OnModuleInit {
   ): void {
     this.jobsTotal.inc({ jobType, outcome } as LabelValues<'jobType' | 'outcome'>);
     this.jobDuration.observe({ jobType } as LabelValues<'jobType'>, durationSeconds);
+  }
+
+  /**
+   * Publish one capability-probe tick.
+   *
+   * The counter takes every outcome; the up-gauge takes only CONCLUSIVE
+   * ones, so a busy pool cannot flip a capability "down" — see
+   * `isConclusive` in capability-probe.ts for why that distinction lives
+   * in the metric rather than in the alert threshold.
+   */
+  recordCapabilityProbe(
+    capability: CapabilityName,
+    outcome: ProbeOutcome,
+    atMs: number = Date.now(),
+  ): void {
+    this.capabilityProbes.inc({ capability, outcome } as LabelValues<'capability' | 'outcome'>);
+    if (!isConclusive(outcome)) return;
+    this.capabilityProbeOk.set(
+      { capability } as LabelValues<'capability'>,
+      outcome === 'serving' ? 1 : 0,
+    );
+    if (outcome === 'serving') {
+      this.capabilityProbeLastSuccess.set(
+        { capability } as LabelValues<'capability'>,
+        Math.floor(atMs / 1000),
+      );
+    }
   }
 
   setWorkerLeader(isLeader: boolean): void {

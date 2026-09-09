@@ -288,6 +288,14 @@ jobs:
           POLICY_META_UNION_ENABLED=1
           PRIVACY_SEGMENT_USER_FENCE=1
           PRIVACY_COMPOSER_USER_SCOPE=1
+          # ── Capability probes (active monitoring) ──
+          # ON deliberately, and this is the one line that makes the monitor
+          # real: a probe nobody enables repeats the bug it was written for.
+          # Both incidents it covers (#502 scoped pool anonymous, #503
+          # embedder answering cross-space) reached production while /health
+          # and /ready were green. Cost: one LIMIT 1 read + one short embed
+          # per pod per minute. Kill switch: set to 0 and restart.
+          CAPABILITY_PROBE_ENABLED=1
           # ── Packs / MCP / QA ──
           MCP_PACK_EXTERNAL_TOOLS_ENABLED=1
           AGENT_QA_TOOLS_V2=1
