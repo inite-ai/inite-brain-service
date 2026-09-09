@@ -422,9 +422,25 @@ jobs:
 
       - name: Deploy to server
         if: github.event.inputs.action != 'logs'
+        # Everything the script needs from the workflow context comes in as
+        # environment, not as `${{ }}` spliced into the script. GitHub treats
+        # a `run:` that contains any expression as ONE expression and caps
+        # it at 21000 characters; this step is ~26k, so the file was invalid
+        # and every deploy since #523 failed before a job started ("Exceeded
+        # max expression length 21000"). Reading secrets from env is also the
+        # documented practice — a value never becomes shell source.
+        env:
+          IMAGE_FROM_CI: ${{ needs.verify.outputs.image }}
+          ACTION: ${{ github.event.inputs.action }}
+          BRAIN_SURREAL_USER: ${{ secrets.BRAIN_SURREAL_USER }}
+          BRAIN_SURREAL_PASS: ${{ secrets.BRAIN_SURREAL_PASS }}
+          BRAIN_SURREAL_SCOPED_PASS: ${{ secrets.BRAIN_SURREAL_SCOPED_PASS }}
+          BRAIN_OPENAI_API_KEY: ${{ secrets.BRAIN_OPENAI_API_KEY }}
+          BRAIN_FORGET_HMAC_KEY: ${{ secrets.BRAIN_FORGET_HMAC_KEY }}
+          BRAIN_BILLING_API_KEY: ${{ secrets.BRAIN_BILLING_API_KEY }}
         run: |
-          mkdir -p /opt/projects/${{ env.PROJECT_NAME }}
-          cd /opt/projects/${{ env.PROJECT_NAME }}
+          mkdir -p "/opt/projects/${PROJECT_NAME}"
+          cd "/opt/projects/${PROJECT_NAME}"
 
           # The image is a DIGEST resolved from the manifest CI published
           # after it smoke-tested that exact artifact — never `:latest`,
@@ -446,8 +462,8 @@ jobs:
           echo "PREVIOUS_IMAGE=${PREVIOUS_IMAGE}" >> "$GITHUB_ENV"
           echo "[deploy] currently pinned: ${PREVIOUS_IMAGE:-<nothing>}"
 
-          IMAGE_REF="${{ needs.verify.outputs.image }}"
-          if [ "${{ github.event.inputs.action }}" = "rollback" ]; then
+          IMAGE_REF="${IMAGE_FROM_CI}"
+          if [ "${ACTION}" = "rollback" ]; then
             # The manual escape hatch. .last-good-image is only written
             # after a deploy passed BOTH the readiness gate and the
             # external smoke test, so it is a known-good target rather
@@ -487,9 +503,9 @@ jobs:
           # pool tries to sign in.
           tee docker-compose.yml > /dev/null << EOF
           services:
-            ${{ env.PROJECT_NAME }}:
+            ${PROJECT_NAME}:
               image: ${IMAGE_REF}
-              container_name: ${{ env.PROJECT_NAME }}
+              container_name: ${PROJECT_NAME}
               restart: unless-stopped
               # PID-1 init (tini): reaps zombie children from the worker
               # pool / native deps and forwards signals so SIGTERM reaches
@@ -500,25 +516,25 @@ jobs:
               # give it headroom past that budget.
               stop_grace_period: 30s
               expose:
-                - "${{ env.PORT }}"
+                - "${PORT}"
               environment:
                 - NODE_ENV=production
-                - PORT=${{ env.PORT }}
+                - PORT=${PORT}
                 - LOG_FORMAT=json
                 # Shared SurrealDB — same instance gateway uses.
                 # NS=inite (shared namespace; brain's tables knowledge_*
                 # don't collide with gateway's). Per-tenant DBs are
                 # co_<companyId> created on first request via ensureSchema.
                 - SURREALDB_URL=ws://inite-surrealdb:8000
-                - SURREALDB_USERNAME=${{ secrets.BRAIN_SURREAL_USER }}
-                - SURREALDB_PASSWORD=${{ secrets.BRAIN_SURREAL_PASS }}
+                - SURREALDB_USERNAME=${BRAIN_SURREAL_USER}
+                - SURREALDB_PASSWORD=${BRAIN_SURREAL_PASS}
                 - SURREALDB_NAMESPACE=inite
                 - SURREALDB_POOL_SIZE=8
                 - SURREALDB_SCOPED_POOL_SIZE=8
                 - SURREALDB_SCOPED_USER=brain_caller
-                - SURREALDB_SCOPED_PASS=${{ secrets.BRAIN_SURREAL_SCOPED_PASS }}
+                - SURREALDB_SCOPED_PASS=${BRAIN_SURREAL_SCOPED_PASS}
                 # OpenAI for embeddings + extraction + faithfulness verifier.
-                - OPENAI_API_KEY=${{ secrets.BRAIN_OPENAI_API_KEY }}
+                - OPENAI_API_KEY=${BRAIN_OPENAI_API_KEY}
                 - OPENAI_CHAT_MODEL=gpt-4o-mini-2024-07-18
                 # OpenAI client budget — same as eval. Per-stage budgets
                 # in search.service.ts (SEARCH_STAGE_BUDGET_MS) cap the
@@ -546,7 +562,7 @@ jobs:
                 # 'unexpected "iss" claim value' (admin BFF data plane 401).
                 - AUTH_SERVICE_ISSUER=https://auth-api.inite.ai
                 # GDPR forget HMAC — opaque tombstone marker.
-                - FORGET_HMAC_KEY=${{ secrets.BRAIN_FORGET_HMAC_KEY }}
+                - FORGET_HMAC_KEY=${BRAIN_FORGET_HMAC_KEY}
                 # Search retrieval features — eval-validated ON config.
                 # Now safe to keep on because each LLM stage runs under
                 # its own withStageBudget wrapper (search.service.ts):
@@ -636,7 +652,7 @@ jobs:
                 # domain_pack:<packId>, billing userId = brain companyId.
                 - DOMAIN_PACK_BILLING_ENABLED=1
                 - BILLING_SERVICE_URL=https://billing.inite.ai
-                - BILLING_SERVICE_API_KEY=${{ secrets.BRAIN_BILLING_API_KEY }}
+                - BILLING_SERVICE_API_KEY=${BRAIN_BILLING_API_KEY}
                 # ── MCP pack tools (docs/mcp-pack-tools.md) ─────────────
                 # Master ON: consented packs may register declarative QUERY
                 # tools (namespace-locked, row-fenced). EXTERNAL proxy tools
@@ -767,7 +783,7 @@ jobs:
               env_file:
                 - ./enablement.env
               volumes:
-                - /opt/projects/${{ env.PROJECT_NAME }}/baselines:/var/brain/baselines
+                - /opt/projects/${PROJECT_NAME}/baselines:/var/brain/baselines
               labels:
                 # ── Backend routes only — landing handles the rest of brain.inite.ai.
                 # Backend owns /v1/*, /mcp/*, /health, /metrics.
@@ -785,22 +801,22 @@ jobs:
                 # /skills.tar.gz, written there by scripts/build-openapi.ts.
                 - "traefik.enable=true"
                 - "traefik.docker.network=traefik-global"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}.rule=Host(\`${{ env.DOMAIN }}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/registry\`))"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}.priority=200"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}.entrypoints=websecure"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}.tls=true"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}.tls.certresolver=letsencrypt"
-                - "traefik.http.services.${{ env.PROJECT_NAME }}.loadbalancer.server.port=${{ env.PORT }}"
-                - "traefik.http.services.${{ env.PROJECT_NAME }}.loadbalancer.responseForwarding.flushInterval=-1"
+                - "traefik.http.routers.${PROJECT_NAME}.rule=Host(\`${DOMAIN}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/registry\`))"
+                - "traefik.http.routers.${PROJECT_NAME}.priority=200"
+                - "traefik.http.routers.${PROJECT_NAME}.entrypoints=websecure"
+                - "traefik.http.routers.${PROJECT_NAME}.tls=true"
+                - "traefik.http.routers.${PROJECT_NAME}.tls.certresolver=letsencrypt"
+                - "traefik.http.services.${PROJECT_NAME}.loadbalancer.server.port=${PORT}"
+                - "traefik.http.services.${PROJECT_NAME}.loadbalancer.responseForwarding.flushInterval=-1"
                 # http→https redirect for the same backend paths (landing has its own).
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.rule=Host(\`${{ env.DOMAIN }}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/registry\`))"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.priority=200"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.entrypoints=web"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.middlewares=redirect-to-https"
+                - "traefik.http.routers.${PROJECT_NAME}-http.rule=Host(\`${DOMAIN}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/registry\`))"
+                - "traefik.http.routers.${PROJECT_NAME}-http.priority=200"
+                - "traefik.http.routers.${PROJECT_NAME}-http.entrypoints=web"
+                - "traefik.http.routers.${PROJECT_NAME}-http.middlewares=redirect-to-https"
                 - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
                 - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
               healthcheck:
-                test: ["CMD", "wget", "-qO-", "http://localhost:${{ env.PORT }}/health"]
+                test: ["CMD", "wget", "-qO-", "http://localhost:${PORT}/health"]
                 interval: 15s
                 timeout: 5s
                 retries: 5
@@ -830,15 +846,15 @@ jobs:
           # USER node, so this chown matches the runtime user). Without
           # this docker creates it root-owned and BaselineService's
           # fs.writeFile fails with EACCES on first save.
-          mkdir -p /opt/projects/${{ env.PROJECT_NAME }}/baselines
-          chown -R 1000:1000 /opt/projects/${{ env.PROJECT_NAME }}/baselines || true
+          mkdir -p "/opt/projects/${PROJECT_NAME}/baselines"
+          chown -R 1000:1000 "/opt/projects/${PROJECT_NAME}/baselines" || true
 
-          if [ "${{ github.event.inputs.action }}" = "restart" ]; then
+          if [ "${ACTION}" = "restart" ]; then
             echo "[deploy] restart only"
-            docker-compose restart ${{ env.PROJECT_NAME }}
+            docker-compose restart "${PROJECT_NAME}"
           else
             echo "[deploy] pulling image..."
-            docker-compose pull ${{ env.PROJECT_NAME }}
+            docker-compose pull "${PROJECT_NAME}"
             echo "[deploy] up -d"
             docker-compose up -d --remove-orphans
           fi
@@ -846,10 +862,10 @@ jobs:
           sleep 25
 
           if docker-compose ps | grep -q "Up"; then
-            echo "[ok] ${{ env.DOMAIN }} container is up"
+            echo "[ok] ${DOMAIN} container is up"
           else
             echo "[err] container failed to start"
-            docker-compose logs --tail=100 ${{ env.PROJECT_NAME }}
+            docker-compose logs --tail=100 "${PROJECT_NAME}"
             exit 1
           fi
 
