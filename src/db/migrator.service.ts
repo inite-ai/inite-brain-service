@@ -2,8 +2,8 @@ import { Logger } from '@nestjs/common';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Surreal } from 'surrealdb';
-import { isReadConflict } from './surreal.service';
-import { isUniqueViolation } from './surreal-retry';
+import type { MigrationLock } from './migration-lock';
+import { enrichTransactionError, isReadConflict, isUniqueViolation } from './surreal-retry';
 
 /**
  * Schema migrator — versioned, append-only DDL applied per tenant DB.
@@ -26,10 +26,14 @@ import { isUniqueViolation } from './surreal-retry';
  *     appliedAt). The bootstrap DDL for that table is the only thing we
  *     run unconditionally.
  *
- * Concurrency: applications are caller-serialized through SurrealService's
- * schema queue, so we don't repeat that here. Within a single tenant, the
- * apply loop is sequential — IF NOT EXISTS DDL must be idempotent because
- * a partially-applied migration that retries shouldn't fail.
+ * Concurrency: SurrealService's schema queue only serializes appliers
+ * inside ONE process. Across replicas (N pods booting at once, or two
+ * images overlapping during a rolling deploy) the arbiter is the
+ * distributed lock passed in `MigrateOptions` — keyed per target
+ * database, so tenants still migrate in parallel. A replica that loses
+ * the race waits for the holder and then re-reads the ledger, so it
+ * applies only what is genuinely left, and each file lands together with
+ * its ledger row in one BEGIN/COMMIT.
  */
 
 export interface Migration {
@@ -42,6 +46,40 @@ export interface MigrationResult {
   applied: string[]; // migration IDs newly applied this run
   alreadyApplied: string[]; // migration IDs already present
 }
+
+export interface MigrateOptions {
+  /**
+   * Cross-replica lock. Production always passes one; unit tests and
+   * one-shot scripts driving a database nobody else touches may omit it,
+   * in which case the only arbitration left is the in-process queue.
+   */
+  lock?: MigrationLock;
+  /** Lease name for `lock` — see `migrationLeaseName`. */
+  lockName?: string;
+}
+
+/** Tunables, injected by tests; production takes the defaults. */
+export interface MigratorTiming {
+  lockTtlSeconds?: number;
+  lockWaitMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Lease TTL for the migration lock. A cold apply of the whole manifest
+ * measures under 4s against SurrealDB 3.2.4, so 30s leaves an order of
+ * magnitude of headroom while bounding how long a hard-killed holder can
+ * block the rest of the fleet; the holder renews at half-life anyway, so
+ * a slow data leg does not lose the lock.
+ */
+const LOCK_TTL_SECONDS = 30;
+
+/**
+ * How long a replica that lost the race waits for the holder before it
+ * gives up. Comfortably longer than the TTL, so a crashed holder is
+ * always taken over rather than waited out forever.
+ */
+const LOCK_WAIT_MS = 120_000;
 
 const SCHEMA_MIGRATIONS_DDL = `
 DEFINE TABLE IF NOT EXISTS schema_migrations SCHEMAFULL;
@@ -56,11 +94,78 @@ const FILE_NAME = /^(\d{4})_.+\.surql$/;
 export class SchemaMigrator {
   private readonly logger = new Logger(SchemaMigrator.name);
   private cached: Migration[] | null = null;
+  private readonly lockTtlSeconds: number;
+  private readonly lockWaitMs: number;
+  private readonly sleep: (ms: number) => Promise<void>;
 
-  constructor(private readonly migrationsDir: string) {}
+  constructor(
+    private readonly migrationsDir: string,
+    timing: MigratorTiming = {},
+  ) {
+    this.lockTtlSeconds = timing.lockTtlSeconds ?? LOCK_TTL_SECONDS;
+    this.lockWaitMs = timing.lockWaitMs ?? LOCK_WAIT_MS;
+    this.sleep = timing.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  }
 
-  /** Apply all pending migrations against `conn`. */
-  async migrate(conn: Surreal): Promise<MigrationResult> {
+  /**
+   * Apply all pending migrations against `conn`, holding `opts.lock` for
+   * the whole run so replicas booting together apply the manifest once.
+   */
+  async migrate(conn: Surreal, opts: MigrateOptions = {}): Promise<MigrationResult> {
+    const { lock, lockName } = opts;
+    if (!lock || !lockName) return this.applyPending(conn);
+    await this.acquireOrWait(lock, lockName);
+    try {
+      return await this.applyPending(conn, lock, lockName);
+    } finally {
+      await lock.release(lockName);
+    }
+  }
+
+  /**
+   * Take the lock or wait for whoever holds it. Losing the race is not a
+   * reason to proceed: we wait until the holder releases — or until its
+   * lease expires, which is how a crashed holder is taken over — and only
+   * then read the ledger, so the retry applies exactly what is left.
+   * Transient acquire failures are absorbed inside the same deadline;
+   * reaching the deadline throws, because the alternative is serving
+   * requests against a half-migrated schema.
+   */
+  private async acquireOrWait(lock: MigrationLock, name: string): Promise<void> {
+    const deadline = Date.now() + this.lockWaitMs;
+    let delayMs = 50;
+    let lastErr: unknown;
+    let waited = false;
+    for (;;) {
+      try {
+        if (await lock.tryAcquire(name, this.lockTtlSeconds)) {
+          if (waited) this.logger.log(`Took migration lock ${name} after waiting for the holder`);
+          return;
+        }
+        lastErr = undefined;
+      } catch (err) {
+        lastErr = err;
+      }
+      waited = true;
+      const left = deadline - Date.now();
+      if (left <= 0) {
+        const why = lastErr
+          ? `: ${(lastErr as Error).message}`
+          : ' — another replica is still applying schema';
+        throw new Error(
+          `Timed out after ${this.lockWaitMs}ms waiting for migration lock ${name}${why}`,
+        );
+      }
+      await this.sleep(Math.min(delayMs, left));
+      delayMs = Math.min(delayMs * 2, 2000);
+    }
+  }
+
+  private async applyPending(
+    conn: Surreal,
+    lock?: MigrationLock,
+    lockName?: string,
+  ): Promise<MigrationResult> {
     await conn.query(SCHEMA_MIGRATIONS_DDL);
 
     const manifest = await this.loadManifest();
@@ -74,55 +179,85 @@ export class SchemaMigrator {
       };
     }
 
+    let renewAt = Date.now() + (this.lockTtlSeconds * 1000) / 2;
     for (const m of pending) {
-      this.logger.log(`Applying ${m.name}`);
-      // Migrations defining NS-level objects (DEFINE USER brain_caller in
-      // 0005, function definitions in 0003/0006) race against each other
-      // when multiple tenants apply schema in parallel — SurrealDB's
-      // optimistic-concurrency aborts one with `Transaction read conflict`.
-      // Retry up to 5x with exponential backoff; the second attempt sees
-      // the racing committer's row and the IF NOT EXISTS / OVERWRITE
-      // guards make it a clean no-op.
-      let attempts = 0;
-      const maxAttempts = 5;
-
-      while (true) {
-        try {
-          await conn.query(m.sql);
-          break;
-        } catch (err) {
-          attempts++;
-          if (!isReadConflict(err) || attempts >= maxAttempts) {
-            this.logger.error(
-              `Migration ${m.name} failed after ${attempts} attempt(s): ${(err as Error).message}`,
-            );
-            throw new Error(`Migration ${m.name} failed: ${(err as Error).message}`);
-          }
-          const baseMs = 20 * Math.pow(2, attempts - 1);
-          await new Promise((r) => setTimeout(r, baseMs + Math.random() * baseMs));
+      if (lock && lockName && Date.now() >= renewAt) {
+        if (!(await lock.tryAcquire(lockName, this.lockTtlSeconds))) {
+          throw new Error(
+            `Lost migration lock ${lockName} before applying ${m.name} — another replica ` +
+              `took over; refusing to write schema behind its back`,
+          );
         }
+        renewAt = Date.now() + (this.lockTtlSeconds * 1000) / 2;
       }
-      // The ledger insert is the only non-idempotent step. Two appliers
-      // racing on a SHARED DB (the system DB under parallel e2e boots;
-      // multi-pod boots in general) both compute the same pending set —
-      // the DDL is IF-NOT-EXISTS-idempotent, so the loser of this CREATE
-      // has already applied identical schema and must treat the unique
-      // violation as "someone else recorded it first", not a failure.
-      try {
-        await conn.query(`CREATE schema_migrations CONTENT { migrationId: $id, name: $name }`, {
-          id: m.id,
-          name: m.name,
-        });
-      } catch (err) {
-        if (!isUniqueViolation(err)) throw err;
-        this.logger.log(`Ledger row for ${m.name} already written by a concurrent applier`);
-      }
+      await this.applyOne(conn, m);
     }
 
     return {
       applied: pending.map((m) => m.id),
       alreadyApplied: [...applied],
     };
+  }
+
+  /**
+   * Apply one file and write its ledger row in ONE BEGIN/COMMIT batch, so
+   * a crash mid-file leaves everything or nothing. SurrealDB 3.2.4 rolls
+   * DDL back with the transaction and every file in the manifest tolerates
+   * the wrapper; a plain multi-statement batch would NOT do, because it
+   * keeps executing after a failed statement and would record a
+   * half-applied file as done (both measured in
+   * migration-concurrency.e2e-spec).
+   */
+  private async applyOne(conn: Surreal, m: Migration): Promise<void> {
+    this.logger.log(`Applying ${m.name}`);
+    const batch =
+      `BEGIN TRANSACTION;\n${m.sql}\n` +
+      `CREATE schema_migrations CONTENT { migrationId: $mig_id, name: $mig_name };\n` +
+      `COMMIT TRANSACTION;`;
+    let attempts = 0;
+    const maxAttempts = 5;
+    for (;;) {
+      try {
+        await conn.query(batch, { mig_id: m.id, mig_name: m.name });
+        return;
+      } catch (err) {
+        // An aborted batch surfaces as one bare "failed transaction"
+        // wrapper whether the cause was an OCC conflict on NS-level
+        // metadata (0005's DEFINE USER, 0003/0006's functions) or the
+        // ledger's unique index. Settle the ambiguity by re-reading: if
+        // the row is there, an applier that raced us — only possible when
+        // a lease expired under a live holder — already applied identical
+        // DDL, so this is not a failure.
+        if (await this.isRecorded(conn, m.id)) {
+          this.logger.log(`Ledger row for ${m.name} already written by a concurrent applier`);
+          return;
+        }
+        attempts++;
+        const retriable = isReadConflict(enrichTransactionError(err)) || isUniqueViolation(err);
+        if (!retriable || attempts >= maxAttempts) {
+          this.logger.error(
+            `Migration ${m.name} failed after ${attempts} attempt(s): ${(err as Error).message}`,
+          );
+          throw new Error(`Migration ${m.name} failed: ${(err as Error).message}`);
+        }
+        const baseMs = 20 * Math.pow(2, attempts - 1);
+        await this.sleep(baseMs + Math.random() * baseMs);
+      }
+    }
+  }
+
+  /**
+   * Whether the ledger already carries `id`. Reads the whole ledger and
+   * filters in JS rather than `WHERE migrationId = $id`: the 3.2.4
+   * planner has bitten us on indexed-field predicates, and the table
+   * holds one row per migration.
+   */
+  private async isRecorded(conn: Surreal, id: string): Promise<boolean> {
+    try {
+      return (await this.fetchAppliedIds(conn)).includes(id);
+    } catch {
+      return false;
+    }
   }
 
   /** Load + cache migrations from disk. */
