@@ -25,6 +25,16 @@ const SURFACES = {
   brain: [
     { path: '/health', method: 'GET', expect: [200], why: 'engine is live behind Traefik' },
     {
+      path: '/ready',
+      method: 'GET',
+      expect: [200],
+      // This is also the load balancer's own contract: Traefik health-checks
+      // /ready and takes an unready replica out of rotation, so if the
+      // router rule for it is missing the check 404s, every replica is
+      // marked down, and the domain serves nothing. A 404 here IS that bug.
+      why: 'readiness is routed through the domain — the load balancer probes it',
+    },
+    {
       path: '/v1/search',
       method: 'POST',
       expect: [401],

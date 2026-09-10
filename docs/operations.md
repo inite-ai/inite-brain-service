@@ -915,9 +915,11 @@ Consequences worth knowing:
   running 45 minutes later" — not being able to confirm green is not
   permission to ship.
 - **The commit and the running image are the same thing.**
-  `docker inspect inite-brain-service --format '{{index .RepoDigests 0}}'`
-  on the box gives you a digest you can match against the CI run that
-  produced it.
+  `docker inspect $(docker-compose ps -q inite-brain-service) --format '{{.Config.Image}}'`
+  on the box gives you the digest of every replica, to match against the
+  CI run that produced it. The containers are no longer named
+  `inite-brain-service` (a fixed name allows only one), so reach one by
+  index instead: `docker-compose exec --index=2 inite-brain-service sh`.
 
 ### Verification after a deploy
 
@@ -934,20 +936,90 @@ The landing has its own surface (`/en`, `/skills.tar.gz`, `/install.sh`,
 routes that path to the engine, so asserting it made the landing's release
 gate on a different service's health.
 
+Both internal gates now run **per replica** (`docker-compose exec
+--index=N`) and pass only when *every* replica answers. One healthy
+container out of three is a fraction of production serving 503s, not a
+successful deploy.
+
+### What the deploy assumes about replicas
+
+**`BRAIN_REPLICAS`** is a repository *variable* (Settings → Actions →
+Variables), read by `deploy-brain.yml`; unset means **1**. It is written
+into the generated compose file as `deploy.replicas` and passed to
+`docker-compose up -d --scale`, so both the v1 and v2 compose CLIs land on
+the same count, and it is the number every post-deploy check counts
+against (`running_replicas` in the generated `deploy-lib.sh`). A
+non-integer value fails the deploy rather than silently scaling to 1.
+Changing it takes effect on the next deploy; `action: restart` restarts the
+containers that already exist, so the count check will fail the run if you
+raise the variable and only restart.
+
+**The load balancer contract is `/ready`, not `/health`.** Traefik polls
+`/ready` every 3s (2s timeout) per replica and takes an unready one out of
+rotation; `/health` stays the *liveness* probe that Docker restarts on.
+The interval is not cosmetic: SIGTERM flips readiness to 503 and waits ~6s
+before draining, so one probe has to land inside that window for the
+replica to leave rotation before it stops accepting work — raising the
+interval past ~5s puts connection errors back into a rolling deploy.
+This matters because `/health` returns 200 while the process reports
+itself `degraded`, so a replica with a broken scoped pool or a cold
+embedder used to keep its full share of traffic. Both Traefik routers
+carry `PathPrefix(/ready)`, so readiness is reachable through the domain —
+without that the healthcheck would 404 and every replica would look dead.
+The corollary: if *all* replicas are unready the edge returns 503, which
+is what a readiness failure means; the deploy gates exist so a release
+never reaches that state unnoticed.
+
+**The model cache is one shared volume** (`brain-model-cache` at
+`/app/.cache`, where the image points `TRANSFORMERS_CACHE`, `HF_HOME` and
+`XDG_CACHE_HOME`). Without it every replica downloads its own ~700MB of
+BGE-M3 + NER + reranker weights on first boot, against a 300s readiness
+gate — the second and third replicas would simply never make it. The image
+creates the directory owned by `node` (uid 1000), so a fresh named volume
+inherits that ownership and the non-root container can write it. Wiping it
+is safe (the next warmup re-downloads) but costs that download.
+
+**Every replica names itself.** `PROCESS_IDENTITY`
+(`src/common/process-identity.ts`) — `<hostname>#<pid>#<uuid>`, where the
+hostname is the container id — is a default label on all Prometheus
+series, a field on every JSON request line, and `service.instance.id` on
+OTel spans, so a metric spike, the log lines behind it and its traces can
+be tied to one process. Alloy discovers brain containers over the Docker
+socket and labels each *target* with its container name
+(`<project>-<service>-<n>`, so replica 2 is
+`inite-brain-service-inite-brain-service-2`), which is the label to filter
+on in Grafana (the app's own value arrives alongside it as
+`exported_instance`, and is what you see when you curl one replica's
+`/metrics` directly). Gauges that only the lease holder writes (changefeed
+lag, corpus census) export *nothing* on the other replicas rather than a
+boot zero — so alert rules aggregate them with `max()`, not `avg()`.
+
 ### Rollback
 
-Three files live in `/opt/projects/inite-brain-service/`:
+State files live in `/opt/projects/inite-brain-service/`:
 
-| File               | Meaning                                                                             |
-| ------------------ | ----------------------------------------------------------------------------------- |
-| `.pending-image`   | the digest this run is deploying                                                    |
-| `.previous-image`  | whatever was pinned before this run started                                         |
-| `.last-good-image` | the last digest that passed **both** the readiness gate and the external smoke test |
+| File                  | Meaning                                                                                   |
+| --------------------- | ----------------------------------------------------------------------------------------- |
+| `.deploy-txn`         | run id, attempt, action, image and previous image of the run that currently owns this host |
+| `.pending-image`      | the digest this run is deploying                                                          |
+| `.previous-image`     | whatever was pinned before this run started                                               |
+| `.last-good-image`    | the last digest that passed **both** the readiness gate and the external smoke test       |
+| `.good-image-history` | the last five such digests, oldest first — what a manual rollback picks from               |
 
-`.last-good-image` is written only by the `finalize` job, only when the
-smoke test passed. It is a known-good target rather than merely a previous
-one — which matters, because rolling back to a previous deploy that was
-itself broken achieves nothing.
+`.last-good-image` and `.good-image-history` are written only by the
+`finalize` job, only when the smoke test passed. They are known-good
+targets rather than merely previous ones — which matters, because rolling
+back to a previous deploy that was itself broken achieves nothing.
+
+**Runs queue, and each one only resolves its own transaction.** Every run
+of the workflow shares one concurrency group and never cancels an
+in-flight one, so a push deploy and a manual dispatch cannot interleave
+over these files. On top of that, `finalize` reads `.deploy-txn` and
+refuses to promote or roll back unless the run id is its own *and* the
+containers are running the image it deployed; otherwise it exits
+successfully with `superseded by run <id>, not touching state`. Seeing
+that line means another run owns production — read its logs, not this
+one's.
 
 **Automatic.** If the deploy job or the smoke job fails, `finalize`
 rewrites the compose image to `.last-good-image` (falling back to
@@ -958,16 +1030,31 @@ broken and needs a fix-forward or a revert.
 
 **By hand.** Actions → _Deploy brain.inite.ai_ → Run workflow →
 `action: rollback`. This skips verification entirely (it must work while
-CI is red — that is what it is for) and redeploys `.last-good-image`.
+CI is red — that is what it is for) and steps **back**: the target is the
+newest digest in `.good-image-history` that is not the one running, or the
+`image_digest` input if you name one, which must itself appear in that
+history.
+It deliberately does not read `.last-good-image` — after a green release
+that file holds the release you are trying to leave, so a rollback for a
+latent regression used to redeploy the same image and then overwrite
+`.previous-image` with it, destroying the only pointer to the version
+before. The `.previous-image` pointer is now written only *after* the
+rolled-back release answers `/ready`, and the rejected digest is dropped
+from the history so a second rollback goes further back instead of
+returning to it.
 
-**When there is nothing to roll back to** — a first deploy, or a host
-whose state files were wiped — the rollback step says so and exits 1
-rather than pretending. Recover by pinning a digest by hand:
+**When there is nothing to roll back to** — a first deploy, a host whose
+state files were wiped, or a history holding only the running image — the
+step says so and exits 1 rather than pretending. Recover by pinning a
+digest by hand:
 
 ```bash
 cd /opt/projects/inite-brain-service
 sed -i 's|^\( *image:\).*|\1 <user>/inite-brain-service@sha256:…|' docker-compose.yml
-docker-compose pull inite-brain-service && docker-compose up -d
+docker-compose pull inite-brain-service
+# --scale matches deploy.replicas in the file; pass it explicitly because
+# compose v1 ignores that key.
+docker-compose up -d --scale "inite-brain-service=$(awk '/replicas:/ {print $2}' docker-compose.yml)"
 ```
 
 A `rollback` cannot cross a database migration. Migrations run forward on

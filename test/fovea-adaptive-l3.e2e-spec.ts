@@ -51,7 +51,9 @@ describe('Fovea Optics-2 adaptive L3 escalation e2e', () => {
   async function triggerPathCount(app: AppFixture, path: string): Promise<number> {
     const metrics = app.app.get(MetricsService);
     const { body } = await metrics.serialize();
-    const m = body.match(new RegExp(`brain_l3_adaptive_trigger_total\\{path="${path}"\\} (\\d+)`));
+    const m = body.match(
+      new RegExp(`brain_l3_adaptive_trigger_total\\{[^}]*path="${path}"[^}]*\\} (\\d+)`),
+    );
     return m ? parseInt(m[1]!, 10) : 0;
   }
 

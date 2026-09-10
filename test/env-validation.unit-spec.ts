@@ -52,6 +52,33 @@ describe('validateEnv — scoped pool fence', () => {
   });
 });
 
+describe('validateEnv — pool sizes', () => {
+  // A typo in the SCOPED size used to parse to NaN: the build loop ran
+  // zero times while scopedPoolEnabled() stayed true, so every scoped read
+  // waited for a connection that would never exist and the replica sat
+  // permanently not-ready with nothing naming the cause. The root pool has
+  // always been guarded; both are now.
+  for (const key of ['SURREALDB_POOL_SIZE', 'SURREALDB_SCOPED_POOL_SIZE']) {
+    it(`rejects a non-numeric ${key}`, () => {
+      const env = baseProdEnv();
+      env[key] = '8x';
+      expect(() => validateEnv(env)).toThrow(new RegExp(key));
+    });
+
+    it(`rejects a zero ${key}`, () => {
+      const env = baseProdEnv();
+      env[key] = '0';
+      expect(() => validateEnv(env)).toThrow(new RegExp(key));
+    });
+
+    it(`accepts a positive ${key}`, () => {
+      const env = baseProdEnv();
+      env[key] = '4';
+      expect(() => validateEnv(env)).not.toThrow();
+    });
+  }
+});
+
 describe('validateEnv — THROTTLE_DISABLED is test-only', () => {
   it('hard-errors when THROTTLE_DISABLED=1 in production', () => {
     const env = baseProdEnv();

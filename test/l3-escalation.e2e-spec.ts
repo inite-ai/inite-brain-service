@@ -56,21 +56,25 @@ describe('G2 L3 escalation e2e', () => {
   async function l3Count(app: AppFixture, outcome: string): Promise<number> {
     const metrics = app.app.get(MetricsService);
     const { body } = await metrics.serialize();
-    const m = body.match(new RegExp(`brain_l3_escalation_total\\{outcome="${outcome}"\\} (\\d+)`));
+    const m = body.match(
+      new RegExp(`brain_l3_escalation_total\\{[^}]*outcome="${outcome}"[^}]*\\} (\\d+)`),
+    );
     return m ? parseInt(m[1]!, 10) : 0;
   }
 
   async function counter(app: AppFixture, name: string): Promise<number> {
     const metrics = app.app.get(MetricsService);
     const { body } = await metrics.serialize();
-    const m = body.match(new RegExp(`^${name} (\\d+)`, 'm'));
+    const m = body.match(new RegExp(`^${name}(?:\\{[^}]*\\})? (\\d+)`, 'm'));
     return m ? parseInt(m[1]!, 10) : 0;
   }
 
   async function anchorSourceCount(app: AppFixture, source: string): Promise<number> {
     const metrics = app.app.get(MetricsService);
     const { body } = await metrics.serialize();
-    const m = body.match(new RegExp(`brain_l3_anchor_source_total\\{source="${source}"\\} (\\d+)`));
+    const m = body.match(
+      new RegExp(`brain_l3_anchor_source_total\\{[^}]*source="${source}"[^}]*\\} (\\d+)`),
+    );
     return m ? parseInt(m[1]!, 10) : 0;
   }
 
@@ -78,7 +82,7 @@ describe('G2 L3 escalation e2e', () => {
     const metrics = app.app.get(MetricsService);
     const { body } = await metrics.serialize();
     const m = body.match(
-      new RegExp(`brain_l3_episode_citation_total\\{outcome="${outcome}"\\} (\\d+)`),
+      new RegExp(`brain_l3_episode_citation_total\\{[^}]*outcome="${outcome}"[^}]*\\} (\\d+)`),
     );
     return m ? parseInt(m[1]!, 10) : 0;
   }
