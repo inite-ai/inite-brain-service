@@ -7,14 +7,68 @@
 //   4. OTLP in from brain (HTTP :4318)      → Tempo (gRPC)
 
 // ── 1. Metrics: brain app ────────────────────────────────────────────
-// brain joins traefik-global, so its service name resolves from here.
-// /health and /metrics hits are already excluded from brain's request
-// logs, so a 15s scrape adds no log noise.
+// One target per RUNNING brain container, discovered from the Docker
+// socket this collector already mounts (read-only, for the log pipeline
+// below).
+//
+// It used to be the single static name "inite-brain-service:3000". With
+// N replicas that name round-robins over them, so one scrape landed on
+// replica 1 and the next on replica 3 while every sample carried the same
+// identity: per-process series (event-loop lag, RSS, is-leader) collapsed
+// into one flapping line, and a dead replica was invisible because the
+// other two answered for it.
+//
+// The `job = "brain"` label is preserved verbatim so every existing rule
+// and dashboard panel keeps matching; `instance` becomes the container
+// name compose assigns each replica (`<project>-<service>-<n>`).
+// Aggregating rules keep their aggregation (sum / min / max) — see
+// grafana/provisioning/alerting.
+// /health, /ready and /metrics are excluded from brain's request logs, so
+// a 15s scrape adds no log noise.
+discovery.docker "brain" {
+	host = "unix:///var/run/docker.sock"
+
+	filter {
+		name   = "label"
+		values = ["com.docker.compose.service=inite-brain-service"]
+	}
+}
+
+discovery.relabel "brain" {
+	targets = discovery.docker.brain.targets
+
+	// Docker discovery yields one target per (network, exposed port), so
+	// keep exactly the endpoint that can answer: brain's own port on the
+	// network this collector shares with it. Without both keeps the same
+	// replica is scraped twice under two addresses.
+	rule {
+		source_labels = ["__meta_docker_network_name"]
+		regex         = "traefik-global"
+		action        = "keep"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_port_private"]
+		regex         = "3000"
+		action        = "keep"
+	}
+
+	// Compose numbers replicas in the container name; strip the leading
+	// slash the Docker API adds.
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/?(.*)"
+		target_label  = "instance"
+	}
+
+	rule {
+		target_label = "job"
+		replacement  = "brain"
+	}
+}
+
 prometheus.scrape "brain" {
-	targets = [{
-		__address__ = "inite-brain-service:3000",
-		job         = "brain",
-	}]
+	targets         = discovery.relabel.brain.output
 	metrics_path    = "/metrics"
 	scrape_interval = "15s"
 	forward_to      = [prometheus.remote_write.vm.receiver]

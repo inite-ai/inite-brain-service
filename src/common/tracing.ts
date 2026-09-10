@@ -23,9 +23,10 @@ import { trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
-import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
+import { ATTR_SERVICE_NAME, ATTR_SERVICE_INSTANCE_ID } from '@opentelemetry/semantic-conventions';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { traceSpan as debugTraceSpan } from './debug-trace';
+import { PROCESS_IDENTITY } from './process-identity';
 
 const TRACER_NAME = 'inite-brain-service';
 
@@ -52,6 +53,10 @@ export function initTracing(): void {
   sdk = new NodeSDK({
     resource: resourceFromAttributes({
       [ATTR_SERVICE_NAME]: serviceName,
+      // Which replica emitted the span. Every trace in Tempo is
+      // otherwise attributed to one anonymous "inite-brain-service", so a
+      // latency tail confined to one replica is invisible.
+      [ATTR_SERVICE_INSTANCE_ID]: PROCESS_IDENTITY,
     }),
     traceExporter: new OTLPTraceExporter(),
     // Auto-instrumentations cover http/https (so OpenAI + JWKS calls),

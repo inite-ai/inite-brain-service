@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import type { Request, Response, NextFunction } from 'express';
 import { getCorrelationId } from './request-context';
+import { PROCESS_IDENTITY } from './process-identity';
 
 const log = new Logger('Request');
 
@@ -14,11 +15,13 @@ const log = new Logger('Request');
  *     friendly for log shippers (Loki, CloudWatch, Datadog).
  *   - otherwise → human-readable single-line text, friendly for `tail -f`.
  *
- * /health and /metrics are filtered out — both get hit on a tight cadence
- * by infrastructure (load balancer, prom-scraper) and would drown out
- * useful traffic.
+ * /health, /ready and /metrics are filtered out — all three get hit on a
+ * tight cadence by infrastructure (Traefik's load-balancer healthcheck
+ * polls /ready every 3s per replica, the prom-scraper /metrics every 15s)
+ * and would drown out useful traffic. Readiness flips are visible on
+ * `brain_capability_probe_*` and in the boot log, not here.
  */
-const SKIP_PATHS = new Set(['/health', '/metrics']);
+const SKIP_PATHS = new Set(['/health', '/ready', '/metrics']);
 
 function useJson(): boolean {
   if (process.env.LOG_FORMAT === 'json') return true;
@@ -53,6 +56,10 @@ export function requestLogger() {
             ts: new Date().toISOString(),
             level: 'info',
             kind: 'request',
+            // Which replica served it. Loki keeps one stream per
+            // container, but a line read on its own (or after a
+            // `| json` across replicas) is otherwise anonymous.
+            instance: PROCESS_IDENTITY,
             requestId,
             method: req.method,
             path: url,

@@ -236,6 +236,9 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     if (!Number.isFinite(this.poolSize) || this.poolSize < 1) {
       throw new Error('SURREALDB_POOL_SIZE must be a positive integer');
     }
+    if (!Number.isFinite(this.scopedPoolSize) || this.scopedPoolSize < 1) {
+      throw new Error('SURREALDB_SCOPED_POOL_SIZE must be a positive integer');
+    }
     if (!Number.isFinite(this.acquireTimeoutMs) || this.acquireTimeoutMs < 100) {
       throw new Error('SURREALDB_ACQUIRE_TIMEOUT_MS must be >= 100ms');
     }

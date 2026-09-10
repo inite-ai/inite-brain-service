@@ -121,7 +121,7 @@ describe('fovea cascade shakedown — full stack composed', () => {
   async function metricValue(name: string, outcome: string): Promise<number> {
     const metrics = f.app.get(MetricsService);
     const { body } = await metrics.serialize();
-    const m = body.match(new RegExp(`${name}\\{outcome="${outcome}"\\} (\\d+)`));
+    const m = body.match(new RegExp(`${name}\\{[^}]*outcome="${outcome}"[^}]*\\} (\\d+)`));
     return m ? parseInt(m[1]!, 10) : 0;
   }
   const l3Count = (o: string) => metricValue('brain_l3_escalation_total', o);

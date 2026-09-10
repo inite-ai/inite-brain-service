@@ -23,3 +23,7 @@ var/
 
 # Repo-indexer run state (per-checkout, never source) — scripts/index-repo.ts
 .brain-indexer-state.json
+
+# Local compose overrides (see docker-compose.override.yml.example) — a
+# laptop-specific port mapping is never source.
+docker-compose.override.yml
