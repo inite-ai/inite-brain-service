@@ -124,7 +124,9 @@ overview — one line per flag, plus the orderings that matter.
 | Flag                                     | Default  | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ---------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `EVIDENCE_SUBSTRATE_ENABLED`             | `0`      | Master switch for the multimodal evidence substrate writers (evidence_asset / evidence_fragment / derived_representation, 0109); off = every write 503s. GDPR cascade + retention run regardless.                                                                                                                                                                                                                                                                                                                                                              |
-| `EVIDENCE_FS_ROOT`                       | unset    | Directory root for the `fs://` storage adapter; unset = the adapter throws a clear unconfigured error.                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `EVIDENCE_STORAGE_SCHEME`                | `fs`     | Which blob adapter NEW uploads land in: `fs` (local disk) or `s3` (the shared object store every replica sees). Reads always resolve by the row's own `storageRef` scheme. See [Evidence blob storage](#evidence-blob-storage-fs-vs-s3).                                                                                                                                                                                                                                                                                                                       |
+| `EVIDENCE_S3_*` (7 keys)                 | unset    | Bucket / endpoint / region / prefix / credentials / path-style for the `s3://` storage adapter. Setting `EVIDENCE_S3_BUCKET` is what REGISTERS it at boot. See [Evidence blob storage](#evidence-blob-storage-fs-vs-s3).                                                                                                                                                                                                                                                                                                                                       |
+| `EVIDENCE_FS_ROOT`                       | unset    | Directory root for the `fs://` storage adapter; unset = the adapter throws a clear unconfigured error. Local disk — correct only with ONE replica or a volume every replica mounts.                                                                                                                                                                                                                                                                                                                                                                            |
 | `EVIDENCE_MAX_BYTES`                     | 1 GiB    | Sanity cap on a registered asset's DECLARED byteLength, and the transfer bound of the blob upload surface — applied there as `min(this, 64 MiB)`, so raising it past that memory-storage ceiling raises nothing.                                                                                                                                                                                                                                                                                                                                               |
 | `EVIDENCE_BLOB_UPLOAD_ENABLED`           | `0`      | The byte surface: `POST /v1/ingest/evidence-blob` (multipart) — bytes into the content-addressed storage adapter, server-computed `byteHash`/`byteLength`/`storageRef`, asset registered `hot` and SCANNED before it is dispatchable. Media types are a conservative allowlist checked against the declared modality (no SVG/HTML/archives/octet-stream). Off = a bare 404 raised BEFORE the body is parsed. Requires `EVIDENCE_FS_ROOT`, the substrate flag, and `EVIDENCE_QUARANTINE` (uploaded bytes are external ingest — see the quarantine order below). |
 | `EVIDENCE_PROCESSOR_BROKER`              | `0`      | Trusted platform-owned processor adapters over registered assets, each run an idempotent `processing_run` row (0121). Requires the substrate flag.                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -323,6 +325,41 @@ The queue is on by default. Every var has a safe default; tune below.
 | `JOB_RUN_PERSIST`              | `1`                    | Set `0` only in unit tests to disable job_run persistence entirely. Never in prod.                                                                                                                                                                                                                                                                                                             |
 | `WORKER_LOOP_MAX_CONCURRENT`   | `1`                    | In-flight dispatch bound per job type on this pod. Override per type with `WORKER_LOOP_MAX_CONCURRENT_<JOBTYPE>` (job type upper-cased, e.g. `WORKER_LOOP_MAX_CONCURRENT_DREAMS=2`, `WORKER_LOOP_MAX_CONCURRENT_INDEX_DOCUMENT=2`). `WORKER_LOOP_TENANT_MAX_CONCURRENT` (default 1) bounds per-tenant fan-out; `WORKER_LOOP_GLOBAL_MAX_CONCURRENT` (default 0 = unbounded) caps the pod total. |
 | `PROCESS_ROLE`                 | `all`                  | One-env role split: `all` / `api` / `worker`. Maps to the flag bundle described in [Splitting API and worker roles](#splitting-api-and-worker-roles). Explicitly-set flags always win over the role defaults.                                                                                                                                                                                  |
+
+## Evidence blob storage (`fs` vs `s3`)
+
+Evidence bytes never live in the DB — an `evidence_asset` row points at
+its blob through a `storageRef` (`<scheme>://<companyId>/<byteHash>`),
+and `EVIDENCE_STORAGE_SCHEME` picks which store NEW uploads land in:
+`fs` (the default) writes `<EVIDENCE_FS_ROOT>/<companyId>/<hash[0..1]>/<hash>`
+on the local disk of the process that took the upload, which is correct
+only for a SINGLE replica or a volume every replica mounts — with
+per-pod roots a blob uploaded through one pod is a bare 404 on every
+other, and the leader-elected orphan sweep only ever sees the leader's
+disk. Choose `s3` for anything else (more than one replica, an autoscaled
+or rolling deployment, or a pod whose disk is ephemeral): it needs
+`EVIDENCE_S3_BUCKET` (which is what REGISTERS the adapter at boot, so a
+deployment that never mentions S3 has nothing that could throw), plus
+`EVIDENCE_S3_ENDPOINT` for a non-AWS store, `EVIDENCE_S3_REGION`
+(default `us-east-1`), an optional `EVIDENCE_S3_PREFIX` key namespace so
+one bucket can host several environments,
+`EVIDENCE_S3_ACCESS_KEY_ID` + `EVIDENCE_S3_SECRET_ACCESS_KEY` together
+(or neither, for the instance role / SDK credential chain), and
+`EVIDENCE_S3_FORCE_PATH_STYLE=1` for MinIO-class hosts. Object key is
+`<prefix>/<companyId>/<byteHash>`; bucket, prefix and endpoint are NOT
+part of the ref, so relocating the store is configuration and never a
+row rewrite — but rows written under an old prefix are unreachable until
+it is restored. Reads resolve by each row's own `storageRef` scheme, so a
+store switched `fs`→`s3` keeps serving its existing `fs://` rows and only
+new uploads move; nothing migrates the old bytes for you. The orphan-blob
+GC lists THROUGH the adapter (`ListObjectsV2` under the tenant prefix,
+plus abandoned multipart uploads), so with `s3` the leader sweeps the
+shared bucket instead of one pod's disk — the same per-tenant fence, cap
+and grace window apply. `/ready` and the `evidence_store` capability
+probe run a live `HeadBucket` while `s3` is selected (`fs` reports
+`disabled` — local disk has nothing remote to ask), and boot refuses
+`s3` without a bucket, a malformed bucket name or endpoint, and half a
+credential pair.
 
 ## Splitting API and worker roles
 

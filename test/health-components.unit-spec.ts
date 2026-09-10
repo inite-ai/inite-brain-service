@@ -26,12 +26,15 @@ const READY: ReadinessReport = {
   dbOk: true,
   scopedOk: true,
   embedderReady: true,
+  evidenceStoreOk: true,
   ready: true,
   detail: {
     dbLatencyMs: 3,
     scopedEnabled: true,
     scopedLatencyMs: 4,
     embedder: { ready: true, failures: 0, inFlight: false },
+    // The default store: local disk, nothing remote to ask.
+    evidenceStore: { scheme: 'fs', probed: false, latencyMs: 0, error: null },
   },
 };
 
@@ -280,6 +283,7 @@ describe('health grid — wire contract and provenance', () => {
       'surrealdb',
       'scoped pool (brain_caller)',
       'embedder (bge-m3)',
+      'evidence store (fs)',
       'intent classifier',
       'openai key',
       'changefeed consumer',

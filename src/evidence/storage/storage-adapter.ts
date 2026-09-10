@@ -5,8 +5,9 @@ import type { Readable } from 'node:stream';
  * substrate (Brain v2.1 M1). Bytes NEVER live in the DB (0109 doctrine);
  * an evidence_asset row points at its blob through `storageRef`, an
  * adapter-scheme URI (`<scheme>://…`) resolved against the registry
- * below. v1 ships ONE adapter (fs); an s3-class adapter is a new scheme
- * + registry entry, zero row changes.
+ * below. Two adapters ship — fs (local disk) and s3 (the shared object
+ * store for N replicas); a further adapter is a new scheme + registry
+ * entry, zero row changes.
  *
  * Contract points:
  *   * put() is CONTENT-ADDRESSED and idempotent: the blob's location is a
@@ -104,6 +105,17 @@ export interface EvidenceStorageAdapter {
     companyId: string,
     opts: { olderThanMs: number; dryRun: boolean },
   ): Promise<{ found: number; removed: number }>;
+  /**
+   * OPTIONAL (multi-replica readiness): one round trip proving the
+   * backing store is reachable, the credentials authorize, and the
+   * configured partition exists — HeadBucket for an s3-class adapter.
+   * Resolves when the store can serve; throws an operator-actionable
+   * message otherwise. `/ready` and the `evidence_store` capability
+   * probe call it on the SELECTED adapter (EVIDENCE_STORAGE_SCHEME); an
+   * adapter with no remote dependency leaves it undefined and readiness
+   * treats the check as vacuously satisfied.
+   */
+  probe?(): Promise<void>;
 }
 
 /**

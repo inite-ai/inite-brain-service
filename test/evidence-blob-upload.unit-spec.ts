@@ -22,7 +22,6 @@ import type { CallHandler, ExecutionContext } from '@nestjs/common';
 import { EvidenceBlobUploadInterceptor } from '../src/evidence/blob-upload.interceptor';
 import { EvidenceIngestController } from '../src/evidence/evidence-ingest.controller';
 import {
-  EVIDENCE_UPLOAD_SCHEME,
   EvidenceUploadService,
   type UploadEvidenceBlobInput,
 } from '../src/evidence/evidence-upload.service';
@@ -41,6 +40,9 @@ import type { EvidenceQuarantineService } from '../src/evidence/quarantine.servi
 import type { EvidenceStorageAdapter } from '../src/evidence/storage/storage-adapter';
 
 const COMPANY = 'co_blob_unit';
+// The default EVIDENCE_STORAGE_SCHEME: uploads resolve their adapter by
+// scheme, so the fixture registers itself under the one the service asks for.
+const UPLOAD_SCHEME = 'fs';
 const BYTES = Buffer.from('hello upload', 'utf8');
 // sha256('hello upload') — pinned so a change to what the server hashes
 // (the received bytes, never a caller assertion) fails loudly here.
@@ -88,9 +90,9 @@ function harness(
   const dispatches: Array<{ packId: string; assetId: string }> = [];
   const stored = new Map<string, Buffer>();
   const adapter = {
-    scheme: EVIDENCE_UPLOAD_SCHEME,
+    scheme: UPLOAD_SCHEME,
     put: (companyId: string, byteHash: string, data: Buffer) => {
-      const storageRef = `${EVIDENCE_UPLOAD_SCHEME}://${companyId}/${byteHash}`;
+      const storageRef = `${UPLOAD_SCHEME}://${companyId}/${byteHash}`;
       stored.set(storageRef, data);
       return Promise.resolve({ storageRef, byteLength: data.byteLength });
     },
@@ -126,7 +128,7 @@ function harness(
       return opts.dispatch ? opts.dispatch() : Promise.resolve({ runs: [], denied: [] });
     },
   } as unknown as EvidenceProcessorBrokerService;
-  const adapters = opts.adapters ?? new Map([[EVIDENCE_UPLOAD_SCHEME, adapter]]);
+  const adapters = opts.adapters ?? new Map([[UPLOAD_SCHEME, adapter]]);
   return {
     service: new EvidenceUploadService(store, adapters, quarantine, broker),
     registered,
@@ -238,7 +240,7 @@ describe('blob upload pipeline', () => {
     // Server-owned identity, not caller-asserted.
     expect(spec.byteHash).toBe(BYTES_HASH);
     expect(spec.byteLength).toBe(BYTES.byteLength);
-    expect(spec.storageRef).toBe(`${EVIDENCE_UPLOAD_SCHEME}://${COMPANY}/${BYTES_HASH}`);
+    expect(spec.storageRef).toBe(`${UPLOAD_SCHEME}://${COMPANY}/${BYTES_HASH}`);
     expect(spec.originUri).toBeUndefined();
     // Bytes over HTTP are external ingest — the MM-6 fence must apply.
     expect(spec.origin).toBe('external_ingest');
@@ -279,14 +281,54 @@ describe('blob upload pipeline', () => {
       h.service.upload(COMPANY, blob({ mimetype: 'image/svg+xml' }), input({ modality: 'image' })),
     ).rejects.toMatchObject({ status: 400 });
     expect(h.registered).toHaveLength(0);
-    expect(await h.adapter.exists(`${EVIDENCE_UPLOAD_SCHEME}://${COMPANY}/${BYTES_HASH}`)).toBe(
-      false,
-    );
+    expect(await h.adapter.exists(`${UPLOAD_SCHEME}://${COMPANY}/${BYTES_HASH}`)).toBe(false);
   });
 
   it('503s when no adapter owns the upload scheme', async () => {
     const h = harness({ adapters: new Map() });
     await expect(h.service.upload(COMPANY, blob(), input())).rejects.toMatchObject({ status: 503 });
+  });
+
+  describe('EVIDENCE_STORAGE_SCHEME picks the store', () => {
+    afterEach(() => delete process.env.EVIDENCE_STORAGE_SCHEME);
+
+    /** An adapter under a different scheme, remembering what it was handed. */
+    function objectStore(): { adapter: EvidenceStorageAdapter; refs: string[] } {
+      const refs: string[] = [];
+      const adapter = {
+        scheme: 's3',
+        put: (companyId: string, byteHash: string, data: Buffer) => {
+          const storageRef = `s3://${companyId}/${byteHash}`;
+          refs.push(storageRef);
+          return Promise.resolve({ storageRef, byteLength: data.byteLength });
+        },
+        belongsToTenant: () => true,
+        head: () => Promise.resolve(null),
+        exists: () => Promise.resolve(false),
+        get: () => Promise.reject(new Error('unused')),
+        delete: () => Promise.resolve(true),
+      } as unknown as EvidenceStorageAdapter;
+      return { adapter, refs };
+    }
+
+    it('writes the bytes through the selected adapter and records ITS ref on the row', async () => {
+      process.env.EVIDENCE_STORAGE_SCHEME = 's3';
+      const s3 = objectStore();
+      const h = harness({ adapters: new Map([['s3', s3.adapter]]) });
+      await h.service.upload(COMPANY, blob(), input());
+      expect(s3.refs).toEqual([`s3://${COMPANY}/${BYTES_HASH}`]);
+      expect(h.registered[0]!.storageRef).toBe(`s3://${COMPANY}/${BYTES_HASH}`);
+    });
+
+    it('503s rather than silently falling back to local disk when s3 is unregistered', async () => {
+      process.env.EVIDENCE_STORAGE_SCHEME = 's3';
+      // The fs adapter IS registered — the point is that it is not used.
+      const h = harness();
+      await expect(h.service.upload(COMPANY, blob(), input())).rejects.toMatchObject({
+        status: 503,
+      });
+      expect(h.registered).toHaveLength(0);
+    });
   });
 });
 
@@ -296,7 +338,7 @@ describe('scan before serve', () => {
       scan: () => Promise.resolve({ assetId: 'evidence_asset:up1', quarantineStatus: 'rejected' }),
     });
     await expect(h.service.upload(COMPANY, blob(), input())).rejects.toMatchObject({ status: 422 });
-    expect(h.deleted).toEqual([`${EVIDENCE_UPLOAD_SCHEME}://${COMPANY}/${BYTES_HASH}`]);
+    expect(h.deleted).toEqual([`${UPLOAD_SCHEME}://${COMPANY}/${BYTES_HASH}`]);
   });
 
   it('a throwing scan hook leaves the asset scanning — it never fails open', async () => {

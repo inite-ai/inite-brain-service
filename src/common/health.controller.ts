@@ -47,8 +47,10 @@ export class HealthController {
   @Get('ready')
   @HttpCode(HttpStatus.OK)
   async ready() {
-    const { dbOk, scopedOk, embedderReady, ready } = await this.healthService.readiness();
+    const { dbOk, scopedOk, embedderReady, evidenceStoreOk, ready, detail } =
+      await this.healthService.readiness();
     if (!ready) {
+      const store = detail.evidenceStore;
       throw new ServiceUnavailableException({
         ready: false,
         checks: {
@@ -58,12 +60,18 @@ export class HealthController {
           // the failure /ready used to miss.
           scopedPool: scopedOk ? 'ok' : 'unauthorized',
           embedder: embedderReady ? 'ok' : 'warming',
+          // The SELECTED blob store: fs is local disk and always ok here;
+          // s3 is a live HeadBucket. Its own message rides along below so
+          // the 503 names WHICH bucket and WHY instead of sending the
+          // operator to the logs.
+          evidenceStore: evidenceStoreOk ? 'ok' : 'unreachable',
         },
+        ...(evidenceStoreOk ? {} : { evidenceStore: { scheme: store.scheme, error: store.error } }),
       });
     }
     return {
       ready: true,
-      checks: { surrealdb: 'ok', scopedPool: 'ok', embedder: 'ok' },
+      checks: { surrealdb: 'ok', scopedPool: 'ok', embedder: 'ok', evidenceStore: 'ok' },
     };
   }
 }

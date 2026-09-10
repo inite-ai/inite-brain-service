@@ -1445,7 +1445,82 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      'Directory root for the fs:// evidence storage adapter (<root>/<companyId>/<hash[0..1]>/<hash>). NO default on purpose — unset means the adapter throws a clear unconfigured error instead of silently accumulating tenant media in an unmanaged path.',
+      'Directory root for the fs:// evidence storage adapter (<root>/<companyId>/<hash[0..1]>/<hash>). NO default on purpose — unset means the adapter throws a clear unconfigured error instead of silently accumulating tenant media in an unmanaged path. Local disk: correct only for ONE replica or a volume every replica mounts — with per-pod roots a blob uploaded through one pod is a 404 on the others (select EVIDENCE_STORAGE_SCHEME=s3 for a shared store).',
+  },
+  {
+    key: 'EVIDENCE_STORAGE_SCHEME',
+    category: 'pipeline',
+    defaultValue: 'fs',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Which blob adapter NEW evidence uploads land in, and which one /ready and the evidence_store capability probe exercise: fs (default — local disk, unchanged behaviour) or s3 (the shared object store every replica sees; needs EVIDENCE_S3_BUCKET at boot or validation refuses). Reads resolve by each row’s own storageRef scheme, so a store switched fs→s3 keeps serving its fs:// rows. Read per call, but a flip can only select an adapter that was REGISTERED at boot.',
+  },
+  {
+    key: 'EVIDENCE_S3_BUCKET',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Bucket for the s3:// evidence storage adapter (object key <EVIDENCE_S3_PREFIX>/<companyId>/<byteHash>). Setting it REGISTERS the s3 adapter at boot; unset = the adapter does not exist and a deployment that never mentions S3 has nothing that could throw. The client is built on first use and kept — restart to change. Readiness runs a HeadBucket against it while s3 is the selected scheme.',
+  },
+  {
+    key: 'EVIDENCE_S3_ENDPOINT',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'http(s) endpoint of an S3-compatible store (MinIO, Ceph RGW, R2, …). Unset = the AWS regional endpoint for EVIDENCE_S3_REGION. Restart to change.',
+  },
+  {
+    key: 'EVIDENCE_S3_REGION',
+    category: 'pipeline',
+    defaultValue: 'us-east-1',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Signing region for the s3 adapter. us-east-1 is what MinIO-class hosts expect; set the real region for AWS. Restart to change.',
+  },
+  {
+    key: 'EVIDENCE_S3_PREFIX',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Key namespace inside the bucket (<prefix>/<companyId>/<byteHash>; surrounding slashes stripped) so one bucket can host several environments. Empty = the bucket root. NOT part of the storageRef, so moving the prefix is configuration, not a row rewrite — but rows written under the old prefix are then unreachable until it is restored. Restart to change.',
+  },
+  {
+    key: 'EVIDENCE_S3_ACCESS_KEY_ID',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Static credential for the s3 adapter — set together with EVIDENCE_S3_SECRET_ACCESS_KEY (validation refuses one without the other). Both unset = the SDK default credential chain (instance role, AWS_* env, profile). Restart to change.',
+  },
+  {
+    key: 'EVIDENCE_S3_SECRET_ACCESS_KEY',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    secret: true,
+    description:
+      'The secret half of the static credential pair for the s3 adapter. Masked here; never logged, never part of a probe message. Restart to change.',
+  },
+  {
+    key: 'EVIDENCE_S3_FORCE_PATH_STYLE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: false,
+    // Boolean-valued, and labelled so: the flag budget scopes itself to
+    // the ENGINE_ prefixes, so the honest label costs nothing there.
+    isBooleanFlag: true,
+    description:
+      'Path-style addressing (https://host/bucket/key) instead of virtual-hosted (https://bucket.host/key) for the s3 adapter. MinIO-class hosts need 1; AWS S3 wants 0. Store configuration, not an engine fork: boot hard-errors on a value outside 1/0/true/false rather than letting it read as OFF. Restart to change.',
   },
   {
     key: 'EVIDENCE_MAX_BYTES',

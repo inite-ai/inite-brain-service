@@ -23,18 +23,13 @@ import {
 } from './processing/processor-adapter';
 import { ProcessingRunService } from './processing/processing-run.service';
 import { AllowAllScanHook, EVIDENCE_SCAN_HOOK } from './processing/scan-hook';
-import { FsEvidenceStorageAdapter } from './storage/fs-storage.adapter';
-import {
-  EVIDENCE_STORAGE_ADAPTERS,
-  EvidenceStorageAdapter,
-  EvidenceStorageRegistry,
-} from './storage/storage-adapter';
+import { EvidenceStorageModule } from './storage/evidence-storage.module';
 
 /**
  * Evidence substrate (migration 0109): the multimodal Evidence Plane
- * write seam (EvidenceStoreService) + the blob storage-adapter registry.
- * v1 registers ONE adapter (fs://); an s3-class adapter is a new
- * provider + one more Map entry — consumers resolve by storageRef
+ * write seam (EvidenceStoreService) over the blob storage-adapter
+ * registry, which lives in the global EvidenceStorageModule (fs always;
+ * s3 when EVIDENCE_S3_BUCKET is set) — consumers resolve by storageRef
  * scheme, never by concrete class. EvidenceIngestController owns both
  * write-side HTTP surfaces — the metadata-only registration (POST
  * /v1/ingest/evidence-asset, EVIDENCE_INGEST_ENABLED) and the MM-7 byte
@@ -99,6 +94,7 @@ import {
  * provider so Nest resolves it by class in @UseGuards.
  */
 @Module({
+  imports: [EvidenceStorageModule],
   controllers: [
     EvidenceIngestController,
     EvidenceReadController,
@@ -108,13 +104,6 @@ import {
   providers: [
     EvidenceGrantsEnabledGuard,
     EvidenceGrantService,
-    FsEvidenceStorageAdapter,
-    {
-      provide: EVIDENCE_STORAGE_ADAPTERS,
-      useFactory: (fs: EvidenceStorageAdapter): EvidenceStorageRegistry =>
-        new Map([[fs.scheme, fs]]),
-      inject: [FsEvidenceStorageAdapter],
-    },
     EvidenceStoreService,
     EvidenceReadService,
     TextExtractionPassthroughAdapter,

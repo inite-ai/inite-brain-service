@@ -8,7 +8,11 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { evidenceMaxBytes, processorBrokerEnabled } from '../common/evidence-flags';
+import {
+  evidenceMaxBytes,
+  evidenceStorageScheme,
+  processorBrokerEnabled,
+} from '../common/evidence-flags';
 import type { EvidenceModality } from '../common/evidence-taxonomy';
 import type { MediaPiiClass } from '../common/media-pii';
 import type { UploadedEvidenceBlob } from './blob-upload.interceptor';
@@ -21,14 +25,6 @@ import {
   type EvidenceStorageRegistry,
 } from './storage/storage-adapter';
 import { normalizeUploadMediaType, uploadMediaTypeError } from './upload-media-types';
-
-/**
- * The scheme uploads are stored under. v1 registers exactly one adapter
- * (fs://); resolving by SCHEME rather than by concrete class keeps the
- * seam the rest of the substrate uses — an s3-class adapter is a registry
- * entry plus this constant, never a rewrite of the upload path.
- */
-export const EVIDENCE_UPLOAD_SCHEME = 'fs';
 
 export interface UploadEvidenceBlobInput {
   modality: EvidenceModality;
@@ -191,12 +187,20 @@ export class EvidenceUploadService {
     return normalizeUploadMediaType(mediaType);
   }
 
-  /** The upload-scheme adapter, or a loud retryable operator error. */
+  /**
+   * The adapter for the SELECTED scheme (EVIDENCE_STORAGE_SCHEME, read
+   * per call), or a loud retryable operator error. Resolving by scheme
+   * rather than by concrete class keeps the seam the rest of the
+   * substrate uses; s3 selected with no s3 adapter registered
+   * (EVIDENCE_S3_BUCKET unset at boot) is a 503, never a silent
+   * fall-back to local disk.
+   */
   private adapter(): EvidenceStorageAdapter {
-    const adapter = this.adapters.get(EVIDENCE_UPLOAD_SCHEME);
+    const scheme = evidenceStorageScheme();
+    const adapter = this.adapters.get(scheme);
     if (!adapter) {
       throw new ServiceUnavailableException(
-        `no '${EVIDENCE_UPLOAD_SCHEME}' storage adapter is registered — ` +
+        `no '${scheme}' storage adapter is registered — ` +
           'the blob upload surface has nowhere to put bytes',
       );
     }

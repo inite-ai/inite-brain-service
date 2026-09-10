@@ -38,7 +38,7 @@ import type { ReadinessChecks } from '../common/health.service';
  * continuously exercises, and `keyof ReadinessReport` makes that link a
  * COMPILE error if a check is renamed (test/capability-probe.unit-spec.ts
  * fails if one is ADDED without a probe). That is the whole generalisation:
- * the service's own readiness contract — three checks — must have a
+ * the service's own readiness contract — four checks — must have a
  * continuous counterpart. Enumerating every "capability" brain claims (145
  * flags, every route) and asserting each is exercised by something is NOT
  * built here: that inventory is what per-surface flag-set specs (#510) and
@@ -49,7 +49,7 @@ import type { ReadinessChecks } from '../common/health.service';
 /** The checks `/ready` reports, minus its own roll-up field. */
 export type ReadinessCheck = keyof ReadinessChecks;
 
-export const CAPABILITY_NAMES = ['scoped_read', 'embed'] as const;
+export const CAPABILITY_NAMES = ['scoped_read', 'embed', 'evidence_store'] as const;
 export type CapabilityName = (typeof CAPABILITY_NAMES)[number];
 
 /**
@@ -66,7 +66,8 @@ export type CapabilityName = (typeof CAPABILITY_NAMES)[number];
  *   error        — anything else: DB unreachable, statement threw, the
  *                  probe's own deadline expired.
  *   skipped      — nothing to exercise (no tenant in the roster, no
- *                  embedder in this process). Also not a failure.
+ *                  embedder in this process, a local-disk evidence store
+ *                  with nothing remote to ask). Also not a failure.
  */
 export const PROBE_OUTCOMES = [
   'serving',
@@ -96,6 +97,11 @@ export interface ProbeReport {
 export const CAPABILITY_COVERAGE: Record<CapabilityName, readonly ReadinessCheck[]> = {
   scoped_read: ['dbOk', 'scopedOk'],
   embed: ['embedderReady'],
+  // The SELECTED blob store: a live HeadBucket against s3 every tick
+  // (skipped on fs, which is local disk) — the continuous counterpart of
+  // /ready's evidenceStoreOk, so a bucket that stops authorizing an hour
+  // after deploy is seen, not just a bucket that was wrong at deploy.
+  evidence_store: ['evidenceStoreOk'],
 };
 
 /**
@@ -121,10 +127,12 @@ const BUSY = /pool acquire timed out/i;
  * anonymous session (incident 1); the third is brain's own fail-closed
  * wrapper when the scoped signin cannot be renewed at all — a rotated
  * secret or a dropped `brain_caller` — which is the same operator problem
- * with a different first line.
+ * with a different first line. The last clause is the s3 adapter's probe
+ * translating a 403 from the object store (S3EvidenceStorageAdapter.probe):
+ * the bucket is alive, the credentials no longer authorize it.
  */
 const UNAUTHORIZED =
-  /Anonymous access not allowed|Not enough permissions|IAM error|scoped DB signin unavailable|Invalid credentials|There was a problem with authentication/i;
+  /Anonymous access not allowed|Not enough permissions|IAM error|scoped DB signin unavailable|Invalid credentials|There was a problem with authentication|credentials do not authorize/i;
 
 /**
  * Classify a thrown probe failure. Order matters: saturation is checked
