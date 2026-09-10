@@ -122,6 +122,11 @@ export class TraceBufferService {
     return this.stream.asObservable();
   }
 
+  /** True when snapshots are written through to debug_trace (DEBUG_TRACE_PERSIST). */
+  persistsToDb(): boolean {
+    return this.persistEnabled;
+  }
+
   /**
    * Operator-facing list — companyId optional so a caller with `brain:admin`
    * on a tenant key only sees their own debug traces.

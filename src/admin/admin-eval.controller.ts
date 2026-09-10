@@ -12,12 +12,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Observable } from 'rxjs';
-import { filter, map } from 'rxjs/operators';
+import { map } from 'rxjs/operators';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { ScenarioRunnerService, ScenarioRunOutcome } from './scenario-runner.service';
 import { BaselineService } from './baseline.service';
-import { TraceBufferService } from '../common/debug-trace';
+import { TraceViewService } from './trace-view.service';
 import type { ScenariosResponse } from '../contracts/admin/scenarios.schema';
 import type { BaselinesResponse } from '../contracts/admin/baselines.schema';
 import type { TracesResponse } from '../contracts/admin/traces.schema';
@@ -41,7 +41,7 @@ export class AdminEvalController {
   constructor(
     private readonly scenarios: ScenarioRunnerService,
     private readonly baselines: BaselineService,
-    private readonly traces: TraceBufferService,
+    private readonly traces: TraceViewService,
   ) {}
 
   // ── Scenarios ────────────────────────────────────────────────────
@@ -199,17 +199,18 @@ export class AdminEvalController {
    *   GET /v1/admin/traces/stream
    *
    * The stream emits a TraceListItem (no spans / no artifacts) on
-   * each accepted snapshot matching the caller. EventSource on the
+   * each accepted snapshot matching the caller, from every replica when
+   * DEBUG_TRACE_PERSIST is on (TraceViewService). EventSource on the
    * client auto-reconnects on transport hiccup.
+   *
+   * Must stay declared BEFORE `traces/:requestId`: Express matches in
+   * registration order, so the parameterised route would swallow
+   * `traces/stream`.
    */
   @Sse('traces/stream')
   @RequireScopes('brain:admin')
   streamTraces(@Req() req: AuthenticatedRequest): Observable<{ data: unknown }> {
-    const tenant = req.brainAuth.companyId;
-    return this.traces.observe().pipe(
-      filter((t) => !tenant || t.companyId === tenant),
-      map((t) => ({ data: t })),
-    );
+    return this.traces.observe(req.brainAuth.companyId).pipe(map((t) => ({ data: t })));
   }
 
   @Get('traces/:requestId')

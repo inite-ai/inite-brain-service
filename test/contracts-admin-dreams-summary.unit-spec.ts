@@ -61,6 +61,7 @@ function makeController(): AdminJobsController {
     undef,
     undef,
     undef,
+    undef, // 14 jobStream
   );
 }
 
@@ -93,6 +94,7 @@ function capturingController() {
     undef,
     undef,
     undef,
+    undef, // 14 jobStream
   );
   return { ctrl, seen };
 }

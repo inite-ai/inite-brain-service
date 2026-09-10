@@ -3,7 +3,7 @@
  */
 import { TracesResponseSchema } from '../src/contracts/admin/traces.schema';
 import { AdminEvalController } from '../src/admin/admin-eval.controller';
-import type { TraceBufferService } from '../src/common/debug-trace';
+import type { TraceViewService } from '../src/admin/trace-view.service';
 import type { AuthenticatedRequest } from '../src/auth/api-key.types';
 
 function makeController(): AdminEvalController {
@@ -29,7 +29,7 @@ function makeController(): AdminEvalController {
         errored: { message: 'upstream timeout', name: 'TimeoutError' },
       },
     ],
-  } as unknown as TraceBufferService;
+  } as unknown as TraceViewService;
   const undef = undefined as unknown as never;
   return new AdminEvalController(undef, undef, traces);
 }

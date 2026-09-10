@@ -12,7 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Observable } from 'rxjs';
-import { filter, map } from 'rxjs/operators';
+import { map } from 'rxjs/operators';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
@@ -37,6 +37,7 @@ import { ReindexEmbeddingsService } from '../ai/embedder/reindex-embeddings.serv
 import { REINDEX_SWEPT_COLUMNS } from '../ai/embedder/reindex-engine.service';
 import { describeBatchOutcome, parseBatchKeys } from '../common/batch-outcome';
 import { ScenarioRunnerService, ScenarioRunOutcome } from './scenario-runner.service';
+import { JobStreamService } from './job-stream.service';
 import type { LeasesResponse } from '../contracts/admin/leases.schema';
 import type { SchedulerResponse } from '../contracts/admin/scheduler.schema';
 import type { ChangefeedStateResponse } from '../contracts/admin/changefeed-state.schema';
@@ -89,6 +90,7 @@ export class AdminJobsController {
     private readonly workerPool: JobWorkerPool,
     private readonly compaction: CompactionService,
     private readonly config: ConfigService,
+    private readonly jobStream: JobStreamService,
   ) {}
 
   // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Query binding, cannot be folded into an options object without breaking Nest param resolution
@@ -133,6 +135,22 @@ export class AdminJobsController {
     return { jobs: rows } satisfies JobsListResponse;
   }
 
+  /**
+   * SSE stream of job_run transitions (start, progress update, finish),
+   * scoped to the caller's tenant and covering every replica — jobs run
+   * on whichever replica holds the lease, not the one the admin's
+   * request landed on (JobStreamService).
+   *
+   * Declared BEFORE `jobs/:runId`: Express matches in registration order,
+   * so the parameterised route would otherwise swallow `jobs/stream` and
+   * answer 404.
+   */
+  @Sse('jobs/stream')
+  @RequireScopes('brain:admin')
+  streamJobs(@Req() req: AuthenticatedRequest): Observable<{ data: unknown }> {
+    return this.jobStream.observe(req.brainAuth.companyId).pipe(map((j) => ({ data: j })));
+  }
+
   @Get('jobs/:runId')
   @RequireScopes('brain:admin')
   async getJob(@Req() req: AuthenticatedRequest, @Param('runId') runId: string): Promise<JobRow> {
@@ -152,21 +170,6 @@ export class AdminJobsController {
   ): Promise<JobCancelResponse> {
     const ok = await this.jobs.requestCancel(runId, req.brainAuth.companyId);
     return { cancelRequested: ok } satisfies JobCancelResponse;
-  }
-
-  /**
-   * SSE stream of job_run transitions (start, progress update, finish).
-   * Scoped to caller's tenant. Useful for live progress bars on the
-   * /admin/jobs page without polling.
-   */
-  @Sse('jobs/stream')
-  @RequireScopes('brain:admin')
-  streamJobs(@Req() req: AuthenticatedRequest): Observable<{ data: unknown }> {
-    const tenant = req.brainAuth.companyId;
-    return this.jobs.observe().pipe(
-      filter((j) => !tenant || j.companyId === tenant),
-      map((j) => ({ data: j })),
-    );
   }
 
   /**

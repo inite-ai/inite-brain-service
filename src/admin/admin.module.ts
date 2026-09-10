@@ -67,6 +67,8 @@ import { ScenarioWriteService } from './scenario-write.service';
 import { ScenarioLifecycleService } from './scenario-lifecycle.service';
 import { ScenarioEvalService } from './scenario-eval.service';
 import { BaselineService } from './baseline.service';
+import { JobStreamService } from './job-stream.service';
+import { TraceViewService } from './trace-view.service';
 import { ChatRouterService } from './chat-router.service';
 import { ChatRouterLlmService } from './chat-router-llm.service';
 import { ChatRoutePlannerService } from './chat-route-planner.service';
@@ -159,6 +161,9 @@ import { ConfigInspectorService } from './config-inspector.service';
     ScenarioLifecycleService,
     ScenarioEvalService,
     BaselineService,
+    // Replica-wide SSE sources (DB-polled + local Subject merge):
+    JobStreamService,
+    TraceViewService,
     ChatRouterCacheService,
     CollapsePatternService,
     IntentClassifierService,

@@ -99,6 +99,7 @@ function makeController(): AdminJobsController {
     workerPool,
     undef,
     config,
+    undef, // 14 jobStream
   );
 }
 
@@ -144,6 +145,7 @@ describe('AdminJobsController.leases() — wire contract', () => {
       } as unknown as JobWorkerPool,
       undefined as never,
       { get: () => 'inline' } as unknown as ConfigService,
+      undefined as never, // 14 jobStream
     );
     const payload = await controller.leases(req(ADMIN));
     const parsed = LeasesResponseSchema.safeParse(payload);
@@ -195,6 +197,7 @@ function capturingController() {
     workerPool,
     undef,
     config,
+    undef, // 14 jobStream
   );
   return { ctrl, seen };
 }
