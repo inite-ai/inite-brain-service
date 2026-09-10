@@ -3,12 +3,17 @@ import { ConfigService } from '@nestjs/config';
 import { ApiKeyService } from './api-key.service';
 import { JwksService } from './jwks.service';
 import { IntrospectionClient } from './introspection.client';
-import { recordTier, tokenTrackerKey } from './tier-cache';
 import { ApiKeyRecord } from './api-key.types';
 
 const JWT_SHAPE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 /** Opaque auth-service API keys are ik_-prefixed — see auth admin panel. */
 const OPAQUE_KEY_PREFIX = 'ik_';
+
+/** Per-request memo slot: the throttler and the auth guard share one resolution. */
+const CREDENTIAL_MEMO = Symbol('brain.credential');
+interface MemoCarrier {
+  [CREDENTIAL_MEMO]?: { token: string; record: Promise<ApiKeyRecord | null> };
+}
 
 /**
  * CredentialResolverService — turns a bearer token into an ApiKeyRecord.
@@ -57,9 +62,26 @@ export class CredentialResolverService {
    * Resolve a bearer token to an authenticated record, or null when no
    * source recognises it. JWT-shaped tokens go to JWKS verification,
    * ik_-prefixed keys to introspection, then the static-key table when
-   * still allowed.
+   * still allowed. Pass the request as `memo` and the resolution is
+   * done once per request however many guards ask (the throttler asks
+   * first, for the verified tier; the auth guard asks next).
    */
-  async resolve(token: string): Promise<ApiKeyRecord | null> {
+  async resolve(token: string, memo?: object): Promise<ApiKeyRecord | null> {
+    const carrier = memo as MemoCarrier | undefined;
+    const hit = carrier?.[CREDENTIAL_MEMO];
+    if (hit && hit.token === token) return hit.record;
+    const record = this.resolveUncached(token);
+    if (carrier) {
+      carrier[CREDENTIAL_MEMO] = { token, record };
+      // A rejected resolution is not an answer — let the next asker retry.
+      record.catch(() => {
+        delete carrier[CREDENTIAL_MEMO];
+      });
+    }
+    return record;
+  }
+
+  private async resolveUncached(token: string): Promise<ApiKeyRecord | null> {
     let record: ApiKeyRecord | null = null;
     if (this.jwks.enabled() && JWT_SHAPE.test(token)) {
       record = await this.jwks.verify(token);
@@ -70,10 +92,15 @@ export class CredentialResolverService {
     if (!record && this.staticAllowed) {
       record = this.apiKeys.resolve(token);
     }
-    // Feed the verified tier to the throttler (which runs before this
-    // guard and must not trust unverified claims).
+    // CAEP deny-list, applied once for every source: the credential's
+    // subject (the end-user when user-bound, else the tenant) revoked at
+    // the auth-service is rejected even while a signature or a cached
+    // introspection answer still says yes.
+    if (record && (await this.jwks.subjectDenied(record.userId ?? record.companyId))) {
+      this.logger.debug('Credential rejected: subject is deny-listed (CAEP revocation)');
+      return null;
+    }
     if (record) {
-      recordTier(tokenTrackerKey(token), record.entitlements);
       // Registration hook (R4): a resolved credential proves its tenant is
       // live — SEEN, not necessarily active: roster membership follows the
       // registry status (a suspended tenant's key may still verify), the

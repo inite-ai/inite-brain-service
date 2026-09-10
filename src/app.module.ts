@@ -6,6 +6,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { CommonModule } from './common/common.module';
 import { HealthController } from './common/health.controller';
 import { TenantThrottlerGuard } from './common/tenant-throttler.guard';
+import { SurrealThrottlerStorage } from './common/surreal-throttler.storage';
 import { SurrealModule } from './db/surreal.module';
 import { LiveModule } from './live/live.module';
 import { AuthModule } from './auth/auth.module';
@@ -54,21 +55,25 @@ import { MriModule } from './mri/mri.module';
     //               token budget.
     // Both buckets key by Bearer token (see TenantThrottlerGuard), so the
     // expensive limit is per-credential, not per-IP — NAT'd tenants don't
-    // shadow each other.
+    // shadow each other. Buckets live in SurrealDB (SurrealThrottlerStorage),
+    // not process memory, so N replicas share one count per credential.
     ThrottlerModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => [
-        {
-          name: 'default',
-          ttl: parseInt(config.get<string>('THROTTLE_TTL_MS', '60000'), 10),
-          limit: parseInt(config.get<string>('THROTTLE_LIMIT', '120'), 10),
-        },
-        {
-          name: 'expensive',
-          ttl: parseInt(config.get<string>('THROTTLE_EXPENSIVE_TTL_MS', '60000'), 10),
-          limit: parseInt(config.get<string>('THROTTLE_EXPENSIVE_LIMIT', '10'), 10),
-        },
-      ],
+      inject: [ConfigService, SurrealThrottlerStorage],
+      useFactory: (config: ConfigService, storage: SurrealThrottlerStorage) => ({
+        storage,
+        throttlers: [
+          {
+            name: 'default',
+            ttl: parseInt(config.get<string>('THROTTLE_TTL_MS', '60000'), 10),
+            limit: parseInt(config.get<string>('THROTTLE_LIMIT', '120'), 10),
+          },
+          {
+            name: 'expensive',
+            ttl: parseInt(config.get<string>('THROTTLE_EXPENSIVE_TTL_MS', '60000'), 10),
+            limit: parseInt(config.get<string>('THROTTLE_EXPENSIVE_LIMIT', '10'), 10),
+          },
+        ],
+      }),
     }),
 
     // Registered once at the root. `@Cron`/`@Interval` providers in any
