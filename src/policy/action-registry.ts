@@ -79,6 +79,9 @@ export const ACTIONS: Record<string, ActionSpec> = {
 
   // Sources
   get_source_reputation: { kind: 'read', family: 'mcp_source', title: 'Source reputation' },
+  // Onboarding: what this connection is attached to, and naming it.
+  workspace_status: { kind: 'read', family: 'mcp_read', title: 'Workspace status' },
+  rename_workspace: { kind: 'write', family: 'mcp_write', title: 'Name the workspace' },
 
   // REST-only actions
   'rest.users.forget': { kind: 'write', family: 'rest', title: 'GDPR user forget' },

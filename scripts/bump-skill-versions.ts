@@ -107,7 +107,12 @@ function appendChangelog(args: {
 }
 
 function rebuildManifest(): void {
-  execSync('pnpm tsx scripts/build-skill-versions.ts', { stdio: 'inherit' });
+  // `pnpm skills:build`, not `pnpm tsx …`: tsx is not a dependency of this
+  // repo (ts-node is), so the old spelling failed with "Command tsx not
+  // found" — AFTER the version and changelog had already been written,
+  // leaving a bumped bundle with a stale manifest and no way to tell from
+  // the exit code which half had happened.
+  execSync('pnpm skills:build', { stdio: 'inherit' });
 }
 
 function defaultNote(args: Args): string {

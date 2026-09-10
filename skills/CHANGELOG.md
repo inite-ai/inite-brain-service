@@ -6,6 +6,14 @@ The bundle ships as a single versioned unit (semver in `skills/VERSION`).
 No per-skill versions — bump-skill-versions patch-bumps the bundle when
 any file under `skills/<name>/**` changes.
 
+## [0.4.1] — 2026-09-10
+
+feat(brain-mcp-setup): workspace_status + rename_workspace in the scope matrix
+
+### Changed skills
+
+- `brain-mcp-setup`
+
 ## [0.4.0] — 2026-09-02
 
 Docs refresh to the current MCP surface. The bundle had drifted badly:

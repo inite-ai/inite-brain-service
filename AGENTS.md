@@ -62,6 +62,8 @@ Read (with `brain:read`):
 | `search_communities`, `list_communities`, `find_entity_communities` | Graph community summaries (thematic clusters) |
 | `why`, `recall_decisions` | Code-memory: why code is the way it is; past recorded decisions |
 | `get_source_reputation` | Learned trust profile of a source vertical |
+| `workspace_status` | Which tenant this connection writes to, what is already in its memory, and `nextSteps` — the setup actions that would change something. First call after connecting |
+| `rename_workspace` | Name the workspace (`brain:write`). Offered only while it has none, and gone once it does |
 | `get_fact` | One fact as stored: statement, validity, source attribution, lifecycle (`retracted: true` still resolves), and `groundingStatus` (`grounded`/`ungrounded`; absent = legacy row). Registered when the server runs `FACTS_API_ENABLED` |
 | `get_fact_provenance` | Why a fact is remembered: the verbatim grounding turns (with char-span quotes when stamped); plus `derivedFacts`/`closure`/`supportEdges` on servers running the closure/support-graph read flags. Same `FACTS_API_ENABLED` gate |
 
