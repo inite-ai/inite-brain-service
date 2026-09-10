@@ -37,11 +37,7 @@ export class McpController {
    * authenticated MCP endpoint with the right scope.
    */
   @Get(':companyId/health')
-  health(): {
-    ok: boolean;
-    version: string;
-    tools: string[];
-  } {
+  health(): ReturnType<McpService['health']> {
     return this.mcp.health();
   }
 
