@@ -204,13 +204,17 @@ describe('scheduled scene maintenance (e2e)', () => {
       await ingest(QUIET_CONV, 2, '2026-04-02T09:10:00.000Z', 'And one here too.');
       expect(await dirtyRows()).toHaveLength(2);
 
+      // The roster is shared with every other suite's tenant in this
+      // container and sorted, so find this tenant's row rather than [0].
+      const own = (run: { tenants: Array<{ companyId: string }> }) =>
+        run.tenants.find((t) => t.companyId === f.companyId);
       const first = await maintenance().runNightly();
-      expect(first.tenants[0]).toMatchObject({ dirty: 1, cleared: 1 });
+      expect(own(first)).toMatchObject({ dirty: 1, cleared: 1 });
       // Exactly one mark consumed; the other waits for the next run.
       expect(await dirtyRows()).toHaveLength(1);
 
       const second = await maintenance().runNightly();
-      expect(second.tenants[0]).toMatchObject({ dirty: 1, cleared: 1 });
+      expect(own(second)).toMatchObject({ dirty: 1, cleared: 1 });
       expect(await dirtyRows()).toHaveLength(0);
     } finally {
       delete process.env.SCENES_MAINTENANCE_MAX_CONVERSATIONS;

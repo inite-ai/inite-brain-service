@@ -94,17 +94,21 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
       : DEFAULT_EMBEDDER_PROVIDER;
     if (providerName === 'bge-m3') {
       this.primary = this.buildBgeM3Provider();
-      // The OpenAI fallback is OPTIONAL here. Under the default-on strict
+      // The OpenAI fallback is OPTIONAL here: under the default-on strict
       // space guard it can never serve a bge-m3 corpus anyway (a 1536-wide
-      // answer against 1024-wide rows is refused), so a deployment that
-      // has no OpenAI key must not be refused at boot for a provider it
-      // cannot use. With no fallback a not-ready primary answers 503 until
-      // warmup completes — the same outcome the guard produces.
+      // answer against 1024-wide rows is refused), so this constructor does
+      // not demand the key. That is NOT the same as "a bge-m3 deployment
+      // needs no OPENAI_API_KEY": validateEnv() requires it at boot and
+      // every LLM path (extractor, generator, verifier, deriver, chat
+      // router, multi-hop planner) still builds its client eagerly with
+      // createOpenAiClientOrThrow. With no fallback a not-ready primary
+      // answers 503 until warmup completes — the same outcome the guard
+      // produces.
       this.fallback = this.buildOpenAIProvider({ required: false });
       this.logger.log(
         this.fallback
           ? `Embedder primary=bge-m3 fallback=openai (until warmup completes)`
-          : `Embedder primary=bge-m3, no fallback (OPENAI_API_KEY unset): requests answer 503 until warmup completes`,
+          : `Embedder primary=bge-m3, no fallback (OPENAI_API_KEY unset — note validateEnv requires it at boot): requests answer 503 until warmup completes`,
       );
     } else {
       this.primary = this.buildOpenAIProvider({ required: true });

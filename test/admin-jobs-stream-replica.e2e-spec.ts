@@ -33,6 +33,13 @@ describe('/admin/jobs/stream across replicas', () => {
   beforeAll(async () => {
     f = await createApp();
     surreal = f.app.get(SurrealService);
+    // Touch the tenant database before any stream subscribes to it, so
+    // this spec measures the cross-replica poll alone against a warm
+    // tenant. What a stream does when it is the first caller through a
+    // cold tenant's door — the schema bootstrap its first tick pays, and
+    // the writes that land inside it — is asserted in
+    // admin-jobs-stream-cold-tenant.e2e-spec.ts.
+    await surreal.withCompany(f.companyId, (db) => db.query(`RETURN time::now()`));
   });
 
   afterAll(async () => {

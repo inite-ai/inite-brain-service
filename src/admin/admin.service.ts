@@ -205,6 +205,7 @@ export class AdminService {
     // all-tenant console.
     const tenants = resolvePlatformTenantScope(req, undefined, {
       knownTenants: () => this.apiKeys.knownCompanyIds(),
+      fanOutTenants: () => this.apiKeys.fanOutRoster(),
     });
     const metricsSnapshot = await this.snapshotMetrics();
 
@@ -464,6 +465,7 @@ export class AdminService {
   ): Promise<AdminDeadLetterRow[]> {
     const tenants = resolvePlatformTenantScope(req, filter.companyId, {
       knownTenants: () => this.apiKeys.knownCompanyIds(),
+      fanOutTenants: () => this.apiKeys.fanOutRoster(),
     });
     const limit = Math.min(Math.max(filter.limit ?? 200, 1), 1000);
     const out: AdminDeadLetterRow[] = [];
@@ -540,6 +542,7 @@ export class AdminService {
   ): Promise<AdminForgottenRow[]> {
     const tenants = resolvePlatformTenantScope(req, filter.companyId, {
       knownTenants: () => this.apiKeys.knownCompanyIds(),
+      fanOutTenants: () => this.apiKeys.fanOutRoster(),
     });
     const limit = Math.min(Math.max(filter.limit ?? 200, 1), 2000);
     const where: string[] = [];
@@ -604,6 +607,7 @@ export class AdminService {
   > {
     const tenants = resolvePlatformTenantScope(req, undefined, {
       knownTenants: () => this.apiKeys.knownCompanyIds(),
+      fanOutTenants: () => this.apiKeys.fanOutRoster(),
     });
     const out: Array<{
       companyId: string;
@@ -677,6 +681,7 @@ export class AdminService {
     const limit = Math.min(Math.max(q.limit ?? 100, 1), 500);
     const tenants = resolvePlatformTenantScope(req, q.companyId, {
       knownTenants: () => this.apiKeys.knownCompanyIds(),
+      fanOutTenants: () => this.apiKeys.fanOutRoster(),
     });
     const events: AuditEventRow[] = [];
     const totalsBySource: Record<string, number> = {};

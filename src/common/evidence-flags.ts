@@ -121,6 +121,139 @@ export function evidenceFsRoot(): string | null {
   return raw.trim();
 }
 
+/**
+ * The blob stores an upload may land in. Deliberately named without the
+ * env key as a substring: the catalogue truth gate reads a module-scope
+ * const that mentions a key as "captured at boot", and the selector
+ * below is genuinely per-call.
+ */
+export const BLOB_STORE_SCHEMES = ['fs', 's3'] as const;
+export type EvidenceStorageScheme = (typeof BLOB_STORE_SCHEMES)[number];
+
+/**
+ * Upload-side store selection — EVIDENCE_STORAGE_SCHEME (fs | s3).
+ *
+ * Which registered adapter NEW uploads land in, and which one `/ready`
+ * and the evidence_store probe exercise. READS resolve by the row's own
+ * storageRef scheme, so a deployment switched from fs to s3 keeps
+ * serving its fs:// rows. `fs` (the default — unchanged behaviour) is
+ * correct only for a single replica or a shared volume; `s3` is the
+ * object store every replica sees. A value outside the set fails boot
+ * (validateEvidenceStorageEnv); read at call time, so a flip is
+ * runtime-mutable — towards an adapter that was REGISTERED at boot (s3
+ * registers only with EVIDENCE_S3_BUCKET set).
+ */
+export function evidenceStorageScheme(): EvidenceStorageScheme {
+  return normalizeScheme(process.env.EVIDENCE_STORAGE_SCHEME) === 's3' ? 's3' : 'fs';
+}
+
+function normalizeScheme(raw: string | undefined): string {
+  return (raw ?? '').trim().toLowerCase();
+}
+
+/** Trimmed value, or null for unset/blank — the fs-root idiom. */
+function trimmed(raw: string | undefined): string | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  return raw.trim();
+}
+
+/** AWS's default region when the region knob is unset — what MinIO-class hosts expect too. */
+const DEFAULT_S3_REGION = 'us-east-1';
+/** Bucket naming per the S3 rules: 3-63 chars of lowercase letters, digits, dots, hyphens. */
+const S3_BUCKET_RE = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
+
+export interface EvidenceS3Config {
+  bucket: string;
+  region: string;
+  /** null = the AWS regional endpoint. */
+  endpoint: string | null;
+  /** Key namespace inside the bucket, surrounding slashes stripped; '' = the bucket root. */
+  prefix: string;
+  /** null = the SDK default credential chain (instance role, env, profile). */
+  credentials: { accessKeyId: string; secretAccessKey: string } | null;
+  forcePathStyle: boolean;
+}
+
+/**
+ * S3-compatible object-store configuration — EVIDENCE_S3_* (strings,
+ * plus the boolean FORCE_PATH_STYLE). null while EVIDENCE_S3_BUCKET is
+ * unset: the s3 adapter then does not register at all, so a deployment
+ * that never mentions S3 has no adapter that could throw. Endpoint unset
+ * = the AWS regional endpoint; credentials unset = the SDK default chain
+ * — set BOTH keys or neither. The prefix namespaces keys
+ * (`<prefix>/<companyId>/<byteHash>`), so one bucket can host several
+ * environments. Read per call here; the adapter binds its client on
+ * first use and keeps it, so a live change needs a restart.
+ */
+export function evidenceS3Config(): EvidenceS3Config | null {
+  const bucket = trimmed(process.env.EVIDENCE_S3_BUCKET);
+  if (bucket === null) return null;
+  const accessKeyId = trimmed(process.env.EVIDENCE_S3_ACCESS_KEY_ID);
+  const secretAccessKey = trimmed(process.env.EVIDENCE_S3_SECRET_ACCESS_KEY);
+  return {
+    bucket,
+    region: trimmed(process.env.EVIDENCE_S3_REGION) ?? DEFAULT_S3_REGION,
+    endpoint: trimmed(process.env.EVIDENCE_S3_ENDPOINT),
+    prefix: (trimmed(process.env.EVIDENCE_S3_PREFIX) ?? '').replace(/^\/+|\/+$/g, ''),
+    credentials:
+      accessKeyId !== null && secretAccessKey !== null ? { accessKeyId, secretAccessKey } : null,
+    forcePathStyle: envFlagEnabled(process.env.EVIDENCE_S3_FORCE_PATH_STYLE),
+  };
+}
+
+/**
+ * Boot validation for the store selection + S3 configuration, beside
+ * its readers (the orphan-GC validator's rule). ERRORS, not warnings:
+ * each inconsistency here is an upload path with nowhere to put bytes,
+ * or a store the operator believes is shared and is not.
+ */
+export function validateEvidenceStorageEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
+  const scheme = env.EVIDENCE_STORAGE_SCHEME;
+  const normalized = normalizeScheme(scheme);
+  if (scheme !== undefined && !(BLOB_STORE_SCHEMES as readonly string[]).includes(normalized)) {
+    errors.push(`EVIDENCE_STORAGE_SCHEME must be one of fs/s3 (got "${scheme}")`);
+  }
+  const bucket = trimmed(env.EVIDENCE_S3_BUCKET);
+  if (normalized === 's3' && bucket === null) {
+    errors.push(
+      'EVIDENCE_STORAGE_SCHEME=s3 requires EVIDENCE_S3_BUCKET — without it the s3 adapter ' +
+        'does not register and every upload answers 503.',
+    );
+  }
+  if (bucket !== null && !S3_BUCKET_RE.test(bucket)) {
+    errors.push(
+      'EVIDENCE_S3_BUCKET must be an S3 bucket name (3-63 chars: lowercase letters, digits, ' +
+        'dots, hyphens)',
+    );
+  }
+  const endpoint = trimmed(env.EVIDENCE_S3_ENDPOINT);
+  if (endpoint !== null && !/^https?:\/\/[^\s/]+/.test(endpoint)) {
+    errors.push('EVIDENCE_S3_ENDPOINT must be an http(s) URL');
+  }
+  const hasId = trimmed(env.EVIDENCE_S3_ACCESS_KEY_ID) !== null;
+  const hasSecret = trimmed(env.EVIDENCE_S3_SECRET_ACCESS_KEY) !== null;
+  if (hasId !== hasSecret) {
+    errors.push(
+      'EVIDENCE_S3_ACCESS_KEY_ID and EVIDENCE_S3_SECRET_ACCESS_KEY must be set together ' +
+        '(or neither, for the SDK default credential chain)',
+    );
+  }
+  // Addressing style is parsed with envFlagEnabled, so an unrecognised
+  // value reads as virtual-hosted and every request 404s against a
+  // MinIO-class host. An error here, not the engine flags' warning: this
+  // is store configuration, and the fail-open shape is the whole point.
+  const pathStyle = env.EVIDENCE_S3_FORCE_PATH_STYLE;
+  if (pathStyle !== undefined && !FLAG_LITERALS.has(pathStyle.trim().toLowerCase())) {
+    errors.push(
+      `EVIDENCE_S3_FORCE_PATH_STYLE must be one of 1/0/true/false (got "${pathStyle}") — ` +
+        'unrecognized values parse as OFF (virtual-hosted addressing).',
+    );
+  }
+}
+
+/** Values envFlagEnabled recognises; anything else parses as OFF. */
+const FLAG_LITERALS = new Set(['1', '0', 'true', 'false']);
+
 /** Default declared-byteLength sanity cap: 1 GiB. (Named WITHOUT the
  *  full env-key substring so the W6 boot-capture truth gate doesn't
  *  mistake this module-scope default for a boot-captured read.) */

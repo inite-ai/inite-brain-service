@@ -233,10 +233,12 @@ curl --fail-with-body "$BRAIN_URL/health"
 ```
 
 For the full container setup, use `docker compose --env-file .env up -d --build`
-instead of `pnpm start:dev`. Its host port defaults to **3030**, so set
-`BRAIN_URL=http://localhost:3030` for the requests below. The Compose defaults
-are for local development; production credentials and topology are covered in
-[deployment](docs/DEPLOY.md).
+instead of `pnpm start:dev`. The app service publishes no host port — that is
+what lets `--scale brain=N` run several replicas — so copy
+`docker-compose.override.yml.example` to `docker-compose.override.yml` first;
+it maps host **3030**, and `BRAIN_URL=http://localhost:3030` then works for the
+requests below. The Compose defaults are for local development; production
+credentials and topology are covered in [deployment](docs/DEPLOY.md).
 
 ### Write and retrieve a fact
 

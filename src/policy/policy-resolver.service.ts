@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Surreal } from 'surrealdb';
 import { LRUCache } from '../common/lru-cache';
 import { envFlagEnabled } from '../common/env-validation';
 import { MetricsService } from '../metrics/metrics.service';
@@ -35,7 +36,19 @@ interface TenantPolicySnapshot {
   /** subject ('key:<hash>' / 'jwt:<sub>') → attached set names. */
   bindings: Map<string, string[]>;
   loadedAt: number;
+  /** `policy_meta:current.version` read just BEFORE the tables (0141). */
+  version: number;
+  /** When `version` was last confirmed against the database. */
+  checkedAt: number;
 }
+
+/** Raw `policy_meta:current` row — the coherence counter every writer bumps. */
+interface PolicyMetaRow {
+  version?: unknown;
+}
+
+/** How stale a cached snapshot may be before its version is re-checked. */
+const COHERENCE_MS = 5_000;
 
 /**
  * Turns (companyId, keyHash, JWT claim names) into a per-request
@@ -45,8 +58,12 @@ interface TenantPolicySnapshot {
  * snapshot (the tombstone) and contextFor returns null immediately —
  * ABAC-free tenants pay one lookup per TTL, nothing per request.
  *
- * Cross-instance invalidation is TTL-bounded: CRUD invalidates
- * in-process; other pods converge within POLICY_CACHE_TTL_MS.
+ * Cross-instance coherence: CRUD invalidates in-process and bumps the
+ * tenant's `policy_meta:current` counter in the same write; every other
+ * replica re-reads that one row at most once per COHERENCE_MS and
+ * reloads when it moved, so a tightened policy is enforced everywhere
+ * within five seconds instead of POLICY_CACHE_TTL_MS. The TTL remains
+ * the full-reload backstop.
  *
  * Fail-closed: a referenced name that isn't in the tenant's table
  * resolves to a synthetic enforce deny-all set (metric + warn log).
@@ -58,6 +75,7 @@ export class PolicyResolverService {
   private readonly logger = new Logger(PolicyResolverService.name);
   private readonly cache: LRUCache<string, TenantPolicySnapshot>;
   private readonly inFlight = new Map<string, Promise<TenantPolicySnapshot>>();
+  private readonly checks = new Map<string, Promise<number>>();
   private readonly ttlMs: number;
   private readonly enabled: boolean;
   private readonly forceReportOnly: boolean;
@@ -158,7 +176,9 @@ export class PolicyResolverService {
 
   private async snapshot(companyId: string): Promise<TenantPolicySnapshot> {
     const cached = this.cache.get(companyId);
-    if (cached && Date.now() - cached.loadedAt < this.ttlMs) return cached;
+    if (cached && Date.now() - cached.loadedAt < this.ttlMs) {
+      if (await this.stillCurrent(companyId, cached)) return cached;
+    }
 
     let p = this.inFlight.get(companyId);
     if (!p) {
@@ -186,8 +206,43 @@ export class PolicyResolverService {
     }
   }
 
+  /**
+   * Within COHERENCE_MS of the last check the snapshot is trusted as is;
+   * past it, one point read of the tenant's version decides. A failed
+   * read trusts the snapshot (and is logged) rather than reloading —
+   * the TTL still bounds that.
+   */
+  private async stillCurrent(companyId: string, cached: TenantPolicySnapshot): Promise<boolean> {
+    const now = Date.now();
+    if (now - cached.checkedAt < COHERENCE_MS) return true;
+    let checking = this.checks.get(companyId);
+    if (!checking) {
+      checking = this.readVersion(companyId).finally(() => this.checks.delete(companyId));
+      this.checks.set(companyId, checking);
+    }
+    try {
+      const current = await checking;
+      cached.checkedAt = Date.now();
+      return current === cached.version;
+    } catch (e) {
+      cached.checkedAt = Date.now();
+      this.logger.warn(
+        `Policy version check failed for ${companyId}, trusting cached snapshot: ${(e as Error).message}`,
+      );
+      return true;
+    }
+  }
+
+  private async readVersion(companyId: string): Promise<number> {
+    return this.surreal.withCompany(companyId, (db) => readPolicyVersion(db));
+  }
+
   private async loadFresh(companyId: string): Promise<TenantPolicySnapshot> {
     return this.surreal.withCompany(companyId, async (db) => {
+      // Version FIRST: a write that lands between this read and the table
+      // reads leaves a snapshot that is newer than its version, and the
+      // next check reloads it; the other order would miss that write.
+      const version = await readPolicyVersion(db);
       const policyRows = await queryRows<AccessPolicyRow>(
         db,
         `SELECT name, mode, document FROM access_policy`,
@@ -208,7 +263,15 @@ export class PolicyResolverService {
       for (const r of bindingRows) {
         bindings.set(String(r.subject), ((r.policyNames as string[]) ?? []).map(String));
       }
-      return { sets, knownNames, bindings, loadedAt: Date.now() };
+      const now = Date.now();
+      return { sets, knownNames, bindings, loadedAt: now, version, checkedAt: now };
     });
   }
+}
+
+/** The tenant's coherence counter; 0 until the first policy write. */
+async function readPolicyVersion(db: Surreal): Promise<number> {
+  const rows = await queryRows<PolicyMetaRow>(db, `SELECT version FROM policy_meta:current`);
+  const raw = Number(rows[0]?.version ?? 0);
+  return Number.isFinite(raw) ? raw : 0;
 }

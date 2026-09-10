@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { Worker } from 'node:worker_threads';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { applyTransformersCacheDir } from '../transformers-cache';
 
 /**
  * Local cross-encoder reranker via `@xenova/transformers`
@@ -146,8 +147,7 @@ export class LocalCrossEncoderProvider {
         from_pretrained: (id: string, opts?: { quantized?: boolean }) => Promise<SeqClassModel>;
       };
     };
-    const cacheDir = process.env.TRANSFORMERS_CACHE ?? process.env.HF_HOME;
-    if (cacheDir) t.env.cacheDir = cacheDir;
+    applyTransformersCacheDir(t);
     this.tokenizer = await t.AutoTokenizer.from_pretrained(this.modelId);
     this.model = await t.AutoModelForSequenceClassification.from_pretrained(this.modelId, {
       quantized: true,

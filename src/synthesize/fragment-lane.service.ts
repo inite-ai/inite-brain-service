@@ -5,6 +5,7 @@ import { EmbedderService } from '../ai/embedder.service';
 import { mediaPiiGate } from '../common/media-pii';
 import { capabilityForModality } from '../common/evidence-taxonomy';
 import { hasCurrentModalityConsent, type ModalityConsentRow } from '../ai/domain-packs';
+import { fragmentStamp, fragmentVisible, type EvidenceCaller } from './evidence-visibility';
 import { rrfFuse } from './segment-lane.service';
 import type { CitableFragment } from './fragment-citations';
 import type { ZoomCandidate } from './fragment-zoom';
@@ -25,6 +26,12 @@ interface FragmentReprRow {
   modality?: unknown;
   occurredAt?: Date | string;
   score?: number;
+  /** Fence columns re-checked in JS (fragmentVisible) — see rowFences. */
+  piiClasses?: unknown;
+  assetUserId?: unknown;
+  assetAvailability?: unknown;
+  /** The parent asset's quarantine state — the fragment's lifecycle stamp. */
+  quarantineStatus?: unknown;
 }
 
 /** The lane's output: rendered lines + the rendered-set citation fence. */
@@ -113,7 +120,11 @@ export class FragmentLaneService {
       // Fence 4 (0112): tenant-level consent — absent/stale ⇒ EMPTY.
       const consented = await this.surreal.withCompany(opts.companyId, async (db) => {
         const [rows] = await db.query<[ModalityConsentRow[]]>(
-          `SELECT manifest, acceptedModalities, acceptedModalitiesChecksum FROM domain_pack`,
+          // ACTIVE installs only: uninstall keeps the row (status =
+          // 'removed') with its manifest and accepted-modality checksum,
+          // so a removed pack must not go on consenting to derived text.
+          `SELECT manifest, acceptedModalities, acceptedModalitiesChecksum FROM domain_pack
+            WHERE status = 'active'`,
         );
         return hasCurrentModalityConsent(rows ?? []);
       });
@@ -133,11 +144,18 @@ export class FragmentLaneService {
             ${userFence.clause}
             ${piiGate}
             AND subjectId.assetId.availability != 'gone'`;
+      // The last four columns are not rendered: they carry fences 2/3/5
+      // into the JS re-check (fragmentVisible) and the lifecycle stamp
+      // into the retrieval snapshot the answer cache compares against.
       const select = `id, content, kind,
                 subjectId AS fragmentId,
                 subjectId.assetId AS assetId,
                 subjectId.assetId.modality AS modality,
-                subjectId.assetId.occurredAt AS occurredAt`;
+                subjectId.assetId.occurredAt AS occurredAt,
+                subjectId.piiClasses AS piiClasses,
+                subjectId.assetId.userId AS assetUserId,
+                subjectId.assetId.availability AS assetAvailability,
+                subjectId.assetId.quarantineStatus AS quarantineStatus`;
       const fused = await this.surreal.withCompany(opts.companyId, async (db) => {
         const [dense] = queryVector
           ? await db.query<[FragmentReprRow[]]>(
@@ -161,7 +179,10 @@ export class FragmentLaneService {
         return rrfFuse([dense ?? [], bm25 ?? []]);
       });
       if (fused.length === 0) return EMPTY_RESULT;
-      return this.render(fused, opts.withIds);
+      return this.render(fused, opts.withIds, {
+        callerScopes: opts.callerScopes,
+        userId: opts.userId,
+      });
     } catch (e) {
       // Fence 6: degrade to an empty section, never fail the answer.
       this.logger.warn(
@@ -182,10 +203,23 @@ export class FragmentLaneService {
    * VerifyRequest.capabilityEvidenceLines contract. Each kept row also
    * records its ZoomCandidate (which repr row the excerpt came from +
    * whether the cap truncated it) — bookkeeping only, no byte change.
+   *
+   * The fence stack is re-applied here in JS (fragmentVisible, the
+   * scene/belief lanes' re-check idiom): an out-of-contract row the WHERE
+   * let through never renders, and — load-bearing — the answer cache runs
+   * the SAME predicate on every cached serve, so the caller who reads a
+   * cached media line is one who would have been served it fresh.
    */
-  private render(fused: FragmentReprRow[], withIds: boolean): FragmentLaneResult {
+  private render(
+    fused: FragmentReprRow[],
+    withIds: boolean,
+    caller: EvidenceCaller,
+  ): FragmentLaneResult {
     const byFragment = new Map<string, FragmentReprRow>();
     for (const row of fused) {
+      // mediaConsent: fence 4 already passed lane-level above (EMPTY_RESULT
+      // otherwise), so it is settled for every row of this read.
+      if (!fragmentVisible(row, caller, { mediaConsent: true })) continue;
       const fragmentId = row.fragmentId === undefined ? '' : String(row.fragmentId);
       const content = typeof row.content === 'string' ? row.content : '';
       if (!fragmentId || !content.trim()) continue;
@@ -223,6 +257,7 @@ export class FragmentLaneService {
           capability,
           excerpt,
           ...(day ? { occurredAt: isoInstant(row.occurredAt) } : {}),
+          stamp: fragmentStamp(row),
         });
       }
     }
@@ -253,7 +288,9 @@ export class FragmentLaneService {
     const { piiGate, userFence } = this.rowFences(opts.callerScopes, opts.userId);
     const rows = await this.surreal.withCompany(opts.companyId, async (db) => {
       const [consentRows] = await db.query<[ModalityConsentRow[]]>(
-        `SELECT manifest, acceptedModalities, acceptedModalitiesChecksum FROM domain_pack`,
+        // ACTIVE installs only — same fence as fragmentLines above.
+        `SELECT manifest, acceptedModalities, acceptedModalitiesChecksum FROM domain_pack
+          WHERE status = 'active'`,
       );
       if (!hasCurrentModalityConsent(consentRows ?? [])) return [];
       const [reprRows] = await db.query<[Array<{ id?: unknown; content?: unknown }>]>(

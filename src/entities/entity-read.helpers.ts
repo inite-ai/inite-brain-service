@@ -54,10 +54,14 @@ export function blockedPredicates(scopes: BrainScope[]): string[] {
  * mirrored from where-builder: a superseded fact whose interval still
  * covers now (its successor is future-dated) IS the current value.
  *
- * With `asOf`, it is the four-axis cutoff — recorded by then, not yet
- * retracted as of then, and valid across the event-time window — so the
- * composite (entityId, status, recordedAt) index does the work instead of
- * pulling rows just to drop them in JS.
+ * With `asOf`, it is VALID TIME ONLY — not yet retracted as of then, and
+ * valid across the event-time window — byte-for-byte the closure search's
+ * where-builder applies. `recordedAt` is deliberately NOT bounded here:
+ * the documented per-surface contract (docs/bitemporal-semantics.md,
+ * AGENTS.md) promises the profile the same `asOf` closure as search, and
+ * bounding knowledge time made a BACKDATED fact appear in search and
+ * vanish from the profile for the very same `asOf` (round-2 review F11).
+ * Knowledge time keeps its own parameter — `recordedAt` below.
  *
  * With `recordedAt` (transaction-time travel), the closure replays what
  * the graph BELIEVED at tx-time T: recorded by T, not yet retracted as
@@ -112,7 +116,6 @@ export function activeFactWhere(
   if (asOf) {
     return {
       clauses: [
-        `recordedAt <= $asOf`,
         `(retractedAt IS NONE OR retractedAt > $asOf)`,
         `validFrom <= $asOf`,
         `(validUntil IS NONE OR validUntil > $asOf)`,

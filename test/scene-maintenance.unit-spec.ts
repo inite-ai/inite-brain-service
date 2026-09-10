@@ -97,7 +97,7 @@ function makeSurreal(tenants: Record<string, FakeTenant>): {
 }
 
 function makeApiKeys(ids: string[]): ApiKeyService {
-  return { knownCompanyIds: () => ids } as unknown as ApiKeyService;
+  return { fanOutRoster: () => ids } as unknown as ApiKeyService;
 }
 
 function makeComposer(
@@ -172,7 +172,7 @@ describe('SceneMaintenanceService — flag gate', () => {
     const { composer, calls } = makeComposer(async () => composed());
     const svc = new SceneMaintenanceService(
       makeSurreal({}).surreal,
-      { knownCompanyIds: roster } as unknown as ApiKeyService,
+      { fanOutRoster: roster } as unknown as ApiKeyService,
       composer,
       makeBeliefs().beliefs,
     );
@@ -191,7 +191,7 @@ describe('SceneMaintenanceService — flag gate', () => {
     const roster = jest.fn(() => ['co_a']);
     const svc = new SceneMaintenanceService(
       makeSurreal({}).surreal,
-      { knownCompanyIds: roster } as unknown as ApiKeyService,
+      { fanOutRoster: roster } as unknown as ApiKeyService,
       makeComposer(async () => composed()).composer,
       makeBeliefs().beliefs,
     );

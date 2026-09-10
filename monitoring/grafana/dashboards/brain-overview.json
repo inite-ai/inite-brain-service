@@ -1204,7 +1204,7 @@
             "type": "prometheus",
             "uid": "vm"
           },
-          "expr": "brain_changefeed_lag_records",
+          "expr": "max(brain_changefeed_lag_records)",
           "legendFormat": "lag"
         }
       ],

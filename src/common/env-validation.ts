@@ -1,5 +1,10 @@
 import { Logger } from '@nestjs/common';
 import { validateEvidenceOrphanGcEnv, validateOcrEnvValues } from './evidence-flags';
+// Its own statement, deliberately: this file sits at the 800-line
+// god-file ceiling, and folding a third name into the import above makes
+// prettier expand it to five lines. The blob-store family validates
+// beside its readers like every other EVIDENCE_ knob.
+import { validateEvidenceStorageEnv } from './evidence-flags';
 import { isProcessRole, normalizeProcessRole } from './process-role';
 
 const log = new Logger('EnvValidation');
@@ -22,6 +27,11 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   required({ env, name: 'SURREALDB_URL', errors, pattern: /^(ws|wss|http|https):\/\// });
   required({ env, name: 'SURREALDB_USERNAME', errors });
   required({ env, name: 'SURREALDB_PASSWORD', errors });
+  // Required UNCONDITIONALLY, EMBEDDER_PROVIDER=bge-m3 included: the local
+  // embedder removes the key's embedding role, not its LLM role — the
+  // extractor, generator, verifier, deriver, chat router and multi-hop
+  // planner all build an OpenAI client eagerly in their constructors, so a
+  // key-less boot fails there instead of here.
   required({ env, name: 'OPENAI_API_KEY', errors, pattern: /^sk-/ });
 
   // ── Auth ─────────────────────────────────────────────────────────
@@ -70,11 +80,15 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Process role (api / worker split) ─────────────────────────────
   validateProcessRole(env, errors);
 
-  // ── Pool size ─────────────────────────────────────────────────────
-  const pool = env.SURREALDB_POOL_SIZE;
-  if (pool && (!/^\d+$/.test(pool) || parseInt(pool, 10) < 1)) {
-    errors.push('SURREALDB_POOL_SIZE must be a positive integer');
-  }
+  // ── Pool sizes ────────────────────────────────────────────────────
+  // Both pools take the same guard — the same one every other integer
+  // knob here gets. The scoped pool's failure is the quieter of the two:
+  // a typo parses to NaN, the build loop runs zero times while
+  // scopedPoolEnabled() stays true, and every read then waits for a
+  // connection that will never exist — the replica sits permanently
+  // not-ready with nothing naming the cause.
+  positiveInt(env, 'SURREALDB_POOL_SIZE', errors);
+  positiveInt(env, 'SURREALDB_SCOPED_POOL_SIZE', errors);
 
   // ── OpenAI resilience knobs ───────────────────────────────────────
   positiveInt(env, 'OPENAI_TIMEOUT_MS', errors);
@@ -274,6 +288,11 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // Local OCR processor knobs, same clamp contract (the validator lives
   // beside its readers in evidence-flags.ts — see the note there).
   validateOcrEnvValues(env, errors);
+  // Store selection + the S3 object store (multi-replica): a scheme
+  // outside fs/s3, s3 without a bucket, or half a credential pair is an
+  // upload path with nowhere to put bytes — errors, validated beside the
+  // readers in evidence-flags.ts.
+  validateEvidenceStorageEnv(env, errors);
 
   // ── Retrieval profile (per-tenant genre configuration) ─────────────
   validateRetrievalProfileEnv(env, errors);
@@ -1396,6 +1415,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   // warns on the inconsistent pair). EVIDENCE_ family sits off the
   // ENGINE flag budget by design (see above).
   'EVIDENCE_GRANTS_API_ENABLED',
+  // EVIDENCE_S3_FORCE_PATH_STYLE is deliberately NOT here: it is
+  // configuration for the object store, and validateEvidenceStorageEnv
+  // hard-ERRORS on a value outside 1/0/true/false alongside the rest of
+  // the EVIDENCE_S3_ family, rather than warning like an engine flag.
   // Outcome telemetry master (0107): writers append memory_outcome rows
   // + fold memory_outcome_stat counters; the nightly raw-log prune runs.
   // Default off = byte-identical (every writer is a guarded no-op).

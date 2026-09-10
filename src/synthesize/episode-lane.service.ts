@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
+import { episodeVisible, type EvidenceCaller } from './evidence-visibility';
 
 interface EpisodeQuoteRow {
   id?: unknown;
@@ -9,6 +10,9 @@ interface EpisodeQuoteRow {
   speaker?: string;
   text: string;
   occurredAt: Date | string;
+  /** The two fence columns, re-checked in JS (episodeVisible). */
+  piiClass?: unknown;
+  userId?: unknown;
 }
 
 /** Both provenance-shaped lanes read the same grounding stamp. */
@@ -112,7 +116,11 @@ export class EpisodeLaneService {
         includePii: opts.callerScopes.includes('brain:read_pii'),
         ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
       });
-      return renderQuoteLines(rows);
+      // JS re-check of the PII + user gates through the ONE shared
+      // predicate the answer cache also runs on every cached serve (the
+      // scene/belief lanes' re-check idiom, round-2 audit F1).
+      const caller: EvidenceCaller = { callerScopes: opts.callerScopes, userId: opts.userId };
+      return renderQuoteLines(rows.filter((r) => episodeVisible(r, caller)));
     } catch (e) {
       this.logger.warn(
         `episodic lane failed (companyId=${opts.companyId}): ${(e as Error).message}`,
@@ -165,15 +173,18 @@ export class EpisodeLaneService {
         ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
         speakerSuffix: opts.match,
       });
+      const caller: EvidenceCaller = { callerScopes: opts.callerScopes, userId: opts.userId };
       return renderQuoteLines(
-        rows.map((r) =>
-          r.text.length > ASSISTANT_LINE_CHAR_CAP
-            ? {
-                ...r,
-                text: `${r.text.slice(0, ASSISTANT_LINE_CHAR_CAP - 1)}…`,
-              }
-            : r,
-        ),
+        rows
+          .filter((r) => episodeVisible(r, caller))
+          .map((r) =>
+            r.text.length > ASSISTANT_LINE_CHAR_CAP
+              ? {
+                  ...r,
+                  text: `${r.text.slice(0, ASSISTANT_LINE_CHAR_CAP - 1)}…`,
+                }
+              : r,
+          ),
       );
     } catch (e) {
       this.logger.warn(

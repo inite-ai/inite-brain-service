@@ -52,6 +52,11 @@ describe('each surface smoke-tests only what it owns', () => {
   it('the engine asserts more than liveness', () => {
     const paths = surfacePaths('brain');
     expect(paths).toContain('/health');
+    // /ready is the load balancer's contract: if its router rule is
+    // missing the healthcheck 404s, Traefik marks every replica down and
+    // the domain serves nothing. Asserting it through the domain is the
+    // only place that bug is visible before real traffic finds it.
+    expect(paths).toContain('/ready');
     // The point of the change: a route whose 401 proves the API is
     // mounted and fail-closed. /health alone proves only that Nest bound
     // a port.
@@ -108,6 +113,79 @@ describe('a failed deploy has a way back', () => {
   it('a rollback is reachable by hand without editing the box', () => {
     expect(BRAIN).toMatch(/deploy \| restart \| logs \| rollback/);
     expect(BRAIN).toMatch(/inputs\.action == 'rollback'/);
+  });
+});
+
+describe('only one run at a time may resolve the deploy transaction', () => {
+  it('every production-mutating run shares one concurrency group', () => {
+    // Keying the group by github.event_name gave a push deploy and a
+    // manual dispatch a group each — i.e. the two racers ran in parallel
+    // over the same state files (audit F2).
+    const block = /\nconcurrency:\n((?:  .*\n)+)/.exec(BRAIN);
+    expect(block).not.toBeNull();
+    const body = block?.[1] ?? '';
+    expect(body).toMatch(/group: deploy-brain-production/);
+    expect(body).not.toMatch(/github\.event_name/);
+  });
+
+  it('queues instead of cancelling a run mid-transaction', () => {
+    // The state machine spans deploy → smoke → finalize. A cancel between
+    // them leaves a half-applied transaction with nobody to resolve it.
+    expect(BRAIN).toMatch(/cancel-in-progress: false/);
+  });
+
+  it('records a transaction with the run id at deploy time', () => {
+    expect(BRAIN).toMatch(/\.deploy-txn/);
+    expect(BRAIN).toMatch(/run_id=\$\{GITHUB_RUN_ID\}/);
+  });
+
+  it('promote and rollback both refuse a transaction that is not theirs', () => {
+    const guard = /- name: Read the deployment transaction[\s\S]*?- name: Promote/.exec(BRAIN);
+    expect(guard?.[0]).toMatch(/superseded by run/);
+    for (const step of [
+      'Promote this image to last-known-good',
+      'Roll back to the previous image',
+    ]) {
+      const start = BRAIN.indexOf(`- name: ${step}`);
+      expect(start).toBeGreaterThan(-1);
+      // The `if:` on the step, i.e. everything up to its `run:`.
+      const condition = BRAIN.slice(start, BRAIN.indexOf('run: |', start));
+      expect(condition).toMatch(/steps\.txn\.outputs\.ours == '1'/);
+    }
+  });
+
+  it('promote also checks that what is RUNNING is this run’s image', () => {
+    const start = BRAIN.indexOf('- name: Promote this image to last-known-good');
+    const promote = BRAIN.slice(start, BRAIN.indexOf('- name: Roll back', start));
+    expect(promote).toMatch(/all_replicas_run_image "\$TXN_IMAGE"/);
+    // Smoke passing against the domain is only evidence about this
+    // release if this release is what the replicas serve.
+    expect(promote).toMatch(/superseded, not touching state/);
+  });
+});
+
+describe('a manual rollback steps back rather than sideways', () => {
+  it('never targets the digest that is already running', () => {
+    // .last-good-image after a green release IS the running release, so
+    // reading it re-selected the very thing being rolled back (audit F3).
+    const start = BRAIN.indexOf('if [ "${ACTION}" = "rollback" ]; then');
+    expect(start).toBeGreaterThan(-1);
+    const select = BRAIN.slice(start, BRAIN.indexOf('printf', start));
+    expect(select).toMatch(/\.good-image-history/);
+    expect(select).toMatch(/grep -vxF "\$\{PREVIOUS_IMAGE:-__none__\}"/);
+    expect(select).not.toMatch(/cat \.last-good-image/);
+  });
+
+  it('keeps the way back until the rollback has proven itself', () => {
+    expect(BRAIN).toMatch(/\.previous-image\.staged/);
+    const commit = BRAIN.indexOf('- name: Commit the rollback pointers');
+    expect(commit).toBeGreaterThan(-1);
+    // Ordering is the property: the pointer moves only after the gate.
+    expect(BRAIN.indexOf('- name: Internal readiness gate')).toBeLessThan(commit);
+  });
+
+  it('bounds the confirmed-good history', () => {
+    expect(BRAIN).toMatch(/tail -n 5 \.good-image-history/);
   });
 });
 

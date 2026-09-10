@@ -73,16 +73,20 @@ describe('SsfReceiverService.applySet', () => {
     await new Promise<void>((r) => server.close(() => r()));
   });
 
+  const pendingAcks = () => (receiver as unknown as { pendingAcks: string[] }).pendingAcks;
+
   it('deny-lists the subject of a session-revoked SET', async () => {
     const set = await mintSet({ [SESSION_REVOKED]: {} }, 'did:key:z6MkRevoked');
     await receiver.applySet('jti-1', set);
-    expect(revocations.isDenied('did:key:z6MkRevoked')).toBe(true);
+    expect(await revocations.isDenied('did:key:z6MkRevoked')).toBe(true);
+    expect(pendingAcks()).toContain('jti-1');
   });
 
   it('ignores (but acks) non-revoking event types', async () => {
     const set = await mintSet({ [VERIFICATION]: {} }, 'did:key:z6MkFine');
     await receiver.applySet('jti-2', set);
-    expect(revocations.isDenied('did:key:z6MkFine')).toBe(false);
+    expect(await revocations.isDenied('did:key:z6MkFine')).toBe(false);
+    expect(pendingAcks()).toContain('jti-2');
   });
 
   it('never trusts a SET with a foreign signature', async () => {
@@ -91,16 +95,29 @@ describe('SsfReceiverService.applySet', () => {
     });
     const set = await mintSet({ [SESSION_REVOKED]: {} }, 'did:key:z6MkForged', foreign);
     await receiver.applySet('jti-3', set);
-    expect(revocations.isDenied('did:key:z6MkForged')).toBe(false);
+    expect(await revocations.isDenied('did:key:z6MkForged')).toBe(false);
+  });
+
+  it('leaves a SET unacked when the shared deny-list write fails', async () => {
+    const failing = jest
+      .spyOn(revocations, 'deny')
+      .mockRejectedValueOnce(new Error('system db unreachable'));
+    try {
+      const set = await mintSet({ [SESSION_REVOKED]: {} }, 'did:key:z6MkUnpersisted');
+      await receiver.applySet('jti-4', set);
+      expect(pendingAcks()).not.toContain('jti-4');
+    } finally {
+      failing.mockRestore();
+    }
   });
 });
 
 describe('RevocationCacheService', () => {
-  it('expires entries after their TTL', () => {
+  it('expires entries after their TTL', async () => {
     const cache = new RevocationCacheService();
-    cache.deny('sub-1', -1);
-    expect(cache.isDenied('sub-1')).toBe(false);
-    cache.deny('sub-2', 60_000);
-    expect(cache.isDenied('sub-2')).toBe(true);
+    await cache.deny('sub-1', -1);
+    expect(await cache.isDenied('sub-1')).toBe(false);
+    await cache.deny('sub-2', 60_000);
+    expect(await cache.isDenied('sub-2')).toBe(true);
   });
 });

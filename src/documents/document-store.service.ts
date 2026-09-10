@@ -21,7 +21,12 @@ import { idTailOf, redactPii } from '../ingest/ingest-utils';
 import { MetricsService } from '../metrics/metrics.service';
 import { scopeForUser } from '../auth/scope-tags';
 import { chunkDocument, DocumentChunk } from './chunker';
-import { mergeDocumentMeta, reservedKeysIn, type DocumentWriteOrigin } from './document-meta';
+import {
+  mergeDocumentMeta,
+  reservedKeysIn,
+  type DocumentWriteOrigin,
+  type InternalDocumentMeta,
+} from './document-meta';
 import { markFactsProvenancePurged, purgeDocumentChunks } from './document-purge.util';
 import { IngestDocumentDto } from './dto/ingest-document.dto';
 
@@ -211,9 +216,59 @@ export class DocumentStoreService {
           `document dedupe hit contentHash=${contentHash.slice(0, 12)}… doc=${existing.id}`,
         );
         this.metrics?.countDocument('deduplicated');
-        return { doc: existing, chunks, deduplicated: true };
+        const doc = await this.adoptInternalMeta(db, existing, origin.internal);
+        return { doc, chunks, deduplicated: true };
       }
     });
+  }
+
+  /**
+   * A dedupe hit returns the row that already exists, so the brain-owned
+   * provenance THIS request carried has nowhere to land. The 0111
+   * tool-observation hop is merged onto the stored header when that
+   * header has none: the bytes are byte-identical and in the same user
+   * scope (fenced above), the ref was verified for this tenant, and the
+   * commit writer reads the hop off the header — so without the merge a
+   * re-post's verified observation is dropped from every fact committed
+   * afterwards, with only a generic dedupe line in the log.
+   *
+   * Never overwritten: a header that already carries a hop keeps it (one
+   * true observation must not displace another), and the origin
+   * identifiers (conversationId / messageId / eventId) name the turn the
+   * header was first stored for. Those keys are reported at warn with the
+   * document id instead of being written or swallowed.
+   */
+  private async adoptInternalMeta(
+    db: Surreal,
+    existing: StoredDocument,
+    internal: InternalDocumentMeta | undefined,
+  ): Promise<StoredDocument> {
+    if (internal === undefined) return existing;
+    const stored: Record<string, unknown> = existing.meta ?? {};
+    const adoptHop =
+      typeof internal.toolObservationRef === 'string' &&
+      typeof stored['toolObservationRef'] !== 'string';
+    const patch: Record<string, string> = {};
+    const dropped: string[] = [];
+    for (const [key, value] of Object.entries(internal)) {
+      if (typeof value !== 'string') continue;
+      const isHop = key === 'toolObservationRef' || key === 'toolObservationNote';
+      if (isHop && adoptHop) patch[key] = value;
+      else if (stored[key] !== value) dropped.push(key);
+    }
+    if (dropped.length > 0) {
+      this.logger.warn(
+        `document dedupe hit doc=${existing.id} dropped internal meta: ${dropped.join(', ')}`,
+      );
+    }
+    if (Object.keys(patch).length === 0) return existing;
+    const meta = { ...stored, ...patch };
+    await db.query(`UPDATE type::record('source_document', $id) SET meta = $meta`, {
+      id: idTailOf(existing.id),
+      meta,
+    });
+    this.logger.log(`document dedupe hit doc=${existing.id} adopted the tool-observation hop`);
+    return { ...existing, meta };
   }
 
   async getById(companyId: string, docId: string): Promise<StoredDocument | null> {

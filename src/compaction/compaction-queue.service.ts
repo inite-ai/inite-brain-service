@@ -32,7 +32,7 @@ export class CompactionQueueService {
   }
 
   knownTenants(): string[] {
-    return this.apiKeys.knownCompanyIds();
+    return this.apiKeys.fanOutRoster();
   }
 
   queueModeEnabled(): boolean {
@@ -54,7 +54,7 @@ export class CompactionQueueService {
 
   /** Enqueue one compaction row per known tenant (idempotent per day). */
   async enqueueAllTenants(jobType: JobType): Promise<{ enqueued: number }> {
-    const tenants = this.apiKeys.knownCompanyIds();
+    const tenants = this.apiKeys.fanOutRoster();
     const today = new Date().toISOString().slice(0, 10);
     let enqueued = 0;
     for (const companyId of tenants) {

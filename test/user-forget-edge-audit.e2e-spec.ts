@@ -71,6 +71,24 @@ describe('user-forget purges edge audit_event rows', () => {
            reason='secret-pii' RETURN id`,
         { f: factId },
       );
+      // answer_cache (0091/0136): the entry keeps the ANSWER TEXT beside
+      // the ids it was grounded in. Two shapes — the user's own entry and
+      // a tenant-global one (userId NONE, never NULL) quoting the user's
+      // fact.
+      const cacheBody = `companyId: $cid, queryText: 'what does user_x say',
+             answer: 'secret-pii', entityIds: [],
+             profileHash: 'p1', modelId: 'm1', promptVersion: 1, expiresAt: $exp`;
+      const exp = new Date(Date.now() + 3600_000);
+      await db.query(
+        `CREATE answer_cache CONTENT { ${cacheBody}, queryHash: 'hash-user',
+           citedFactIds: [], userId: $user }`,
+        { cid: f.companyId, exp, user: 'user_x' },
+      );
+      await db.query(
+        `CREATE answer_cache CONTENT { ${cacheBody}, queryHash: 'hash-global',
+           citedFactIds: [$cited] }`,
+        { cid: f.companyId, exp, cited: String(factId) },
+      );
       return {
         edgeId: eid,
         feedbackId: String((feedback as Array<{ id: unknown }>)[0]!.id),
@@ -95,6 +113,17 @@ describe('user-forget purges edge audit_event rows', () => {
 
     // The edge's audit mirror is gone with it.
     expect(await countAudit()).toBe(0);
+
+    // GDPR: the cached answer BYTES go too. Check-on-read stops a stale
+    // entry serving, but the quoted answer text survived until TTL.
+    const cachedRows = await surreal.withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<[Array<{ id: unknown; userId?: string }>]>(
+        `SELECT id, userId FROM answer_cache`,
+      );
+      return (rows as Array<{ id: unknown; userId?: string }>) ?? [];
+    });
+    expect(cachedRows.filter((r) => r.userId === 'user_x')).toHaveLength(0);
+    expect(cachedRows).toHaveLength(0);
 
     // The edge row and the fact-keyed feedback row must be gone BY THEIR
     // CAPTURED IDS — the reported counts and the traversal-based reads

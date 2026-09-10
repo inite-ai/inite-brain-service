@@ -332,6 +332,20 @@ export class UserForgetService {
         evidenceGrantsDeleted,
       } = await this.eraseEvidenceRows(db, companyId, userId);
 
+      // answer_cache (0091/0136): a cached entry keeps the ANSWER TEXT
+      // beside the record-id strings it was grounded in. Check-on-read
+      // stops it serving, but erasure is about the bytes, so the rows go:
+      // this user's own entries plus any tenant-global entry quoting one
+      // of the user's facts or personal entities. LET-select-ids → DELETE
+      // (the 3.2.4 compound-index planner contract).
+      await db.query(
+        `LET $ansIds = (SELECT VALUE id FROM answer_cache
+           WHERE userId = $u OR citedFactIds CONTAINSANY $facts
+              OR entityIds CONTAINSANY $ents);
+         DELETE $ansIds;`,
+        { u: userId, facts: factIds, ents: entityIds },
+      );
+
       // Purge the materialised audit mirror (same contract as entity
       // forget): recordId is the full `table:id` string. The changefeed
       // consumer's PII redaction covers any still-unconsumed lag.

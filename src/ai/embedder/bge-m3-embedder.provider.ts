@@ -5,12 +5,23 @@ import { join } from 'node:path';
 import { Semaphore } from '../../common/semaphore';
 import type { EmbedderProvider } from './embedder-provider.interface';
 import { providerIdOf, type EmbeddingSpaceConfig } from './embedding-space';
+import { applyTransformersCacheDir } from '../transformers-cache';
 
 export interface FeatureExtractionPipeline {
   (
     input: string | string[],
     opts?: { pooling?: 'cls' | 'mean'; normalize?: boolean },
   ): Promise<{ data: Float32Array | number[] }>;
+}
+
+/** The slice of `worker_threads.Worker` the provider drives; a test seam
+ *  can hand in a fake with the same members. */
+export interface InferenceWorker {
+  on(event: 'message', listener: (value: unknown) => void): unknown;
+  on(event: 'error', listener: (err: Error) => void): unknown;
+  on(event: 'exit', listener: (code: number) => void): unknown;
+  postMessage(value: unknown): void;
+  terminate(): Promise<unknown>;
 }
 
 export interface BgeM3EmbedderConfig {
@@ -32,6 +43,12 @@ export interface BgeM3EmbedderConfig {
    * model on disk. Production leaves it unset.
    */
   loadPipeline?: () => Promise<FeatureExtractionPipeline>;
+  /**
+   * Test seam for the worker path: replaces `new Worker(path)` so the
+   * thread lifecycle (late exit of a terminated worker, error events) can
+   * be driven without a model. Production leaves it unset.
+   */
+  createWorker?: (workerPath: string) => InferenceWorker;
 }
 
 /**
@@ -67,12 +84,13 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
   private readonly limiter: Semaphore;
   private readonly useWorker: boolean;
   private readonly loadPipeline: () => Promise<FeatureExtractionPipeline>;
+  private readonly createWorker: (workerPath: string) => InferenceWorker;
 
   // In-thread fallback
   private pipeline: FeatureExtractionPipeline | null = null;
 
   // Worker runtime
-  private worker: Worker | null = null;
+  private worker: InferenceWorker | null = null;
   private workerReady = false;
   private nextReqId = 1;
   private readonly pending = new Map<
@@ -89,10 +107,12 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
     // construct the provider directly and rely on the in-thread path
     // via setPipelineForTesting().
     this.useWorker = cfg.useWorker === true;
+    this.createWorker = cfg.createWorker ?? ((workerPath) => new Worker(workerPath));
     this.loadPipeline =
       cfg.loadPipeline ??
       (async () => {
         const transformers = await import('@xenova/transformers');
+        applyTransformersCacheDir(transformers);
         return (await transformers.pipeline(
           'feature-extraction',
           this.modelId,
@@ -156,15 +176,25 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
       // A previous attempt may have left a half-initialised worker behind
       // (an RPC that timed out already reclaimed its own). Never stack two.
       await this.terminate();
-      const workerPath = this.resolveWorkerPath();
-      this.worker = new Worker(workerPath);
-      this.worker.on('message', (m: unknown) => this.handleReply(m));
-      this.worker.on('error', (err) => {
+      const w = this.createWorker(this.resolveWorkerPath());
+      this.worker = w;
+      // Every handler is scoped to ITS worker. A terminated thread keeps
+      // emitting ('exit' lands after terminate() resolved, and after a
+      // timed-out RPC has already re-armed a warmup on a fresh worker); an
+      // unscoped handler would then reject the new worker's pending RPCs
+      // and mark the provider not-ready for a thread it no longer owns.
+      w.on('message', (m) => {
+        if (this.worker !== w) return;
+        this.handleReply(m);
+      });
+      w.on('error', (err) => {
+        if (this.worker !== w) return;
         this.logger.warn(`BGE-M3 worker error: ${err.message}`);
         this.failAllPending(err);
         this.workerReady = false;
       });
-      this.worker.on('exit', (code) => {
+      w.on('exit', (code) => {
+        if (this.worker !== w) return;
         if (code !== 0) {
           this.logger.warn(`BGE-M3 worker exited with code ${code}`);
         }

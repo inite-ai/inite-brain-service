@@ -11,12 +11,16 @@ import {
   canonicalDerivedPin,
   computeCacheKey,
   computeProfileHash,
+  computeScopeHash,
   dependenciesOf,
   deterministicSerialize,
   normalizeQuery,
   type AnswerCacheStoreContext,
   type CachedDependencyKind,
 } from '../src/answer-cache/answer-cache.service';
+import { mediaPiiAllowed } from '../src/common/media-pii';
+import { declaredModalitySection, modalitiesChecksum } from '../src/ai/domain-packs';
+import { sceneStamp } from '../src/synthesize/evidence-visibility';
 
 /**
  * G1 answer cache — key construction + admission + check-on-read
@@ -86,12 +90,25 @@ describe('canonicalDerivedPin', () => {
   });
 });
 
+describe('computeScopeHash', () => {
+  it('is order- and duplicate-insensitive, and separates different rights', () => {
+    expect(computeScopeHash(['brain:read', 'brain:read_media'])).toBe(
+      computeScopeHash(['brain:read_media', 'brain:read', 'brain:read']),
+    );
+    expect(computeScopeHash(['brain:read'])).not.toBe(
+      computeScopeHash(['brain:read', 'brain:read_media']),
+    );
+    expect(computeScopeHash([])).not.toBe(computeScopeHash(['brain:read']));
+  });
+});
+
 describe('computeCacheKey', () => {
   const base = {
     companyId: 'co_a',
     profileHash: 'ph1',
     model: 'gpt-4o-mini',
     derivedVersionPin: null,
+    scopeHash: computeScopeHash(['brain:read']),
     query: 'what is the plan',
   };
 
@@ -115,9 +132,15 @@ describe('computeCacheKey', () => {
     );
   });
 
-  it('differs across tenant / user / profileHash / model / derivedVersion', () => {
+  it('differs across tenant / user / scopeHash / profileHash / model / derivedVersion', () => {
     const key = computeCacheKey(base);
     expect(computeCacheKey({ ...base, companyId: 'co_b' })).not.toBe(key);
+    // Round-2 audit F1 (half b): rights partition the key, so a
+    // brain:read_media answer and a brain:read answer to the same
+    // question can never share an entry.
+    expect(
+      computeCacheKey({ ...base, scopeHash: computeScopeHash(['brain:read', 'brain:read_media']) }),
+    ).not.toBe(key);
     expect(computeCacheKey({ ...base, userId: 'user_a' })).not.toBe(key);
     expect(computeCacheKey({ ...base, profileHash: 'ph2' })).not.toBe(key);
     expect(computeCacheKey({ ...base, model: 'gpt-5-mini' })).not.toBe(key);
@@ -161,6 +184,13 @@ function makeHarness(opts: {
    *  per-kind dependency SELECTs (one batch, kinds in declared order)
    *  return at admission and on read. Absent kind ⇒ no rows ⇒ 'missing'. */
   dependencyRows?: Partial<Record<CachedDependencyKind, Array<Record<string, unknown>>>>;
+  /** Live `scenes` projection version — the scene fence's world clause.
+   *  Absent ⇒ no live world ⇒ a scene dependency is invisible. */
+  sceneWorld?: string;
+  /** Whether the tenant holds current 0112 modality consent — the
+   *  fragment fence's lane-level clause. Default true (the fragment
+   *  tests are about the row fences); false models a revocation. */
+  mediaConsent?: boolean;
 }) {
   const calls: QueryCall[] = [];
   const DEP_TABLES: Record<CachedDependencyKind, string> = {
@@ -169,9 +199,28 @@ function makeHarness(opts: {
     fragment: 'FROM evidence_fragment',
     scene: 'FROM memory_episode',
   };
+  /** The 0112 consent row shape hasCurrentModalityConsent accepts. */
+  const CONSENTED_PACK = {
+    manifest: { memoryModel: { modalities: ['text', 'image'] } },
+    acceptedModalities: true,
+    acceptedModalitiesChecksum: modalitiesChecksum(
+      declaredModalitySection({ memoryModel: { modalities: ['text', 'image'] } } as never),
+    ),
+  };
   const db = {
     query: async (sql: string, params: Record<string, unknown> = {}) => {
       calls.push({ sql, params });
+      // The dependency-fence world read: up to two statements (live scene
+      // world, then the tenant's consent rows) in the order the service
+      // emits them.
+      if (/FROM projection|FROM domain_pack/.test(sql)) {
+        const out: unknown[] = [];
+        if (/FROM projection/.test(sql)) out.push(opts.sceneWorld ? [opts.sceneWorld] : []);
+        if (/FROM domain_pack/.test(sql)) {
+          out.push(opts.mediaConsent === false ? [] : [CONSENTED_PACK]);
+        }
+        return out;
+      }
       const depKinds = (Object.keys(DEP_TABLES) as CachedDependencyKind[]).filter((k) =>
         sql.includes(DEP_TABLES[k]),
       );
@@ -276,6 +325,41 @@ function newerFact(over: Record<string, unknown> = {}) {
     entityId: 'knowledge_entity:e1',
     status: 'active',
     userId: null,
+    ...over,
+  };
+}
+
+/** The live `scenes` world every scene fixture belongs to. */
+const WORLD = 'scene-segmenter-v1';
+
+/**
+ * A fragment row as the widened dependency SELECT returns it: the
+ * lifecycle stamp PLUS the fence columns the lane reads. `piiClasses: []`
+ * is the affirmatively-clean state — the only one a plain `brain:read`
+ * caller may see (src/common/media-pii.ts).
+ */
+function liveFragment(over: Record<string, unknown> = {}) {
+  return {
+    id: 'evidence_fragment:fr1',
+    quarantineStatus: 'clean',
+    piiClasses: [],
+    assetUserId: null,
+    assetAvailability: 'stored',
+    ...over,
+  };
+}
+
+/** A scene row as the widened dependency SELECT returns it. */
+function liveScene(over: Record<string, unknown> = {}) {
+  return {
+    id: 'memory_episode:s1',
+    gist: 'moved to A',
+    enrichedGist: null,
+    unexpectedDetails: null,
+    userId: 'alice',
+    userIds: ['alice'],
+    piiClass: null,
+    segmenterVersion: WORLD,
     ...over,
   };
 }
@@ -576,6 +660,7 @@ describe('AnswerCacheService.admit — admission rules', () => {
   const ctx: AnswerCacheStoreContext = {
     key: 'a'.repeat(64),
     companyId: 'co_test',
+    callerScopes: ['brain:read'],
     profileHash: 'ph',
     model: 'gpt-4o-mini',
     normalizedQuery: 'what tier is acme',
@@ -771,6 +856,11 @@ describe('AnswerCacheService.admit — dependencies are stamped, or the answer i
   const ctx: AnswerCacheStoreContext = {
     key: 'b'.repeat(64),
     companyId: 'co_test',
+    // A belief / scene arm can only exist on a USER-SCOPED answer: both
+    // lanes are scoped-user-only, so an unscoped ctx models a state the
+    // serving path cannot produce.
+    userId: 'alice',
+    callerScopes: ['brain:read'],
     profileHash: 'ph',
     model: 'gpt-4o-mini',
     normalizedQuery: 'where does alice live and work',
@@ -829,7 +919,9 @@ describe('AnswerCacheService.admit — dependencies are stamped, or the answer i
 
   it.each([
     ['belief already superseded', liveBelief({ status: 'superseded' })],
-    ['belief already retracted', liveBelief({ status: 'retracted' })],
+    // 0120 asserts status INSIDE ['active','superseded'], so anything else
+    // is out-of-contract and reads as gone, not as a retraction.
+    ['belief in an out-of-contract status', liveBelief({ status: 'retracted' })],
     ['belief past validUntil', liveBelief({ validUntil: new Date(Date.now() - 1_000) })],
     ['belief bound to another user (answer partition = bob)', liveBelief({ userId: 'alice' })],
   ] as Array<[string, Record<string, unknown>]>)(
@@ -861,12 +953,13 @@ describe('AnswerCacheService.admit — dependencies are stamped, or the answer i
     expect(h.outcomes).toEqual(['not_admitted']);
   });
 
-  it('stamps every arm with its own revision: episode (existence), fragment (asset quarantine), scene (gist hash)', async () => {
+  it('stamps every arm with its own revision: episode (existence), fragment (asset quarantine), scene (content hash)', async () => {
     const h = makeHarness({
+      sceneWorld: WORLD,
       dependencyRows: {
         episode: [{ id: 'episode:ep1', userId: null }],
-        fragment: [{ id: 'evidence_fragment:fr1', quarantineStatus: 'clean' }],
-        scene: [{ id: 'memory_episode:sc1', gist: 'moved to A', enrichedGist: null }],
+        fragment: [liveFragment()],
+        scene: [liveScene({ id: 'memory_episode:sc1' })],
       },
     });
     await h.svc.admit(
@@ -895,7 +988,7 @@ describe('AnswerCacheService.admit — dependencies are stamped, or the answer i
 
   it('a fragment whose asset is quarantine-rejected is dead at admission', async () => {
     const h = makeHarness({
-      dependencyRows: { fragment: [{ id: 'evidence_fragment:fr1', quarantineStatus: 'rejected' }] },
+      dependencyRows: { fragment: [liveFragment({ quarantineStatus: 'rejected' })] },
     });
     await h.svc.admit(
       ctx,
@@ -919,6 +1012,9 @@ describe('AnswerCacheService.begin — dependency check-on-read (0136)', () => {
     ...over,
   });
   const args = () => beginArgs();
+  /** Scene/belief arms only exist on a user-scoped answer (both lanes are
+   *  scoped-user-only), so those cases ask as the pinned user. */
+  const scopedArgs = () => beginArgs({ userId: 'alice' });
 
   it('the audit scenario: the cited fact still validates, the belief was superseded → cause=superseded, miss', async () => {
     const h = makeHarness({
@@ -936,7 +1032,6 @@ describe('AnswerCacheService.begin — dependency check-on-read (0136)', () => {
   });
 
   it.each([
-    ['belief retracted → retracted', liveBelief({ status: 'retracted' }), 'retracted'],
     [
       'belief past validUntil → expired_validity',
       liveBelief({ validUntil: new Date(Date.now() - 1_000) }),
@@ -950,6 +1045,19 @@ describe('AnswerCacheService.begin — dependency check-on-read (0136)', () => {
     [
       'belief left the servable lifecycle → missing',
       liveBelief({ status: 'competing' }),
+      'missing',
+    ],
+    // 0120 asserts status INSIDE ['active','superseded']: 'retracted' is
+    // not a state a belief can reach, so it reads as gone like any other
+    // out-of-contract status — the 'retracted' cause belongs to FACTS.
+    [
+      'belief in an out-of-contract status → missing',
+      liveBelief({ status: 'retracted' }),
+      'missing',
+    ],
+    [
+      'belief bound to another user → missing (existence never leaks)',
+      liveBelief({ userId: 'bob' }),
       'missing',
     ],
   ] as Array<[string, Record<string, unknown>, string]>)('%s', async (_n, row, cause) => {
@@ -974,14 +1082,15 @@ describe('AnswerCacheService.begin — dependency check-on-read (0136)', () => {
 
   it('scene gist recomposed → dependency_changed; unchanged gist → serves', async () => {
     const admitted = makeHarness({
-      dependencyRows: {
-        scene: [{ id: 'memory_episode:s1', gist: 'moved to A', enrichedGist: null }],
-      },
+      sceneWorld: WORLD,
+      dependencyRows: { scene: [liveScene()] },
     });
     await admitted.svc.admit(
       {
         key: 'c'.repeat(64),
         companyId: 'co_test',
+        userId: 'alice',
+        callerScopes: ['brain:read'],
         profileHash: 'ph',
         model: 'm',
         normalizedQuery: 'q',
@@ -1008,25 +1117,51 @@ describe('AnswerCacheService.begin — dependency check-on-read (0136)', () => {
     >;
 
     const changed = makeHarness({
+      sceneWorld: WORLD,
       cacheRow: liveCacheRow({ dependencies: stored }),
       factRows: [activeFact()],
-      dependencyRows: {
-        scene: [{ id: 'memory_episode:s1', gist: 'moved to B', enrichedGist: null }],
-      },
+      dependencyRows: { scene: [liveScene({ gist: 'moved to B' })] },
     });
-    expect((await changed.svc.begin(args()))?.hit).toBeUndefined();
+    expect((await changed.svc.begin(scopedArgs()))?.hit).toBeUndefined();
     expect(changed.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe(
       'dependency_changed',
     );
 
-    const same = makeHarness({
+    // Round-2 audit F4: `unexpectedDetails` is rendered into the scene
+    // line, so re-detailing it must move the stamp too — the stamp used to
+    // cover only gist + enrichedGist while the enricher rewrites both.
+    const redetailed = makeHarness({
+      sceneWorld: WORLD,
       cacheRow: liveCacheRow({ dependencies: stored }),
       factRows: [activeFact()],
-      dependencyRows: {
-        scene: [{ id: 'memory_episode:s1', gist: 'moved to A', enrichedGist: null }],
-      },
+      dependencyRows: { scene: [liveScene({ unexpectedDetails: ['the meeting is Tuesday'] })] },
     });
-    expect((await same.svc.begin(args()))?.hit?.cached).toBe(true);
+    expect((await redetailed.svc.begin(scopedArgs()))?.hit).toBeUndefined();
+    expect(redetailed.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe(
+      'dependency_changed',
+    );
+
+    const same = makeHarness({
+      sceneWorld: WORLD,
+      cacheRow: liveCacheRow({ dependencies: stored }),
+      factRows: [activeFact()],
+      dependencyRows: { scene: [liveScene()] },
+    });
+    expect((await same.svc.begin(scopedArgs()))?.hit?.cached).toBe(true);
+
+    // Round-2 audit F6/P3: the scene WORLD moved. Promotion demotes the
+    // previous version to 'residual' without touching a single row, so
+    // every stamp still matches — only the lane's world clause closes it.
+    const promoted = makeHarness({
+      sceneWorld: 'scene-segmenter-v2',
+      cacheRow: liveCacheRow({ dependencies: stored }),
+      factRows: [activeFact()],
+      dependencyRows: { scene: [liveScene()] },
+    });
+    expect((await promoted.svc.begin(scopedArgs()))?.hit).toBeUndefined();
+    expect(promoted.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe(
+      'missing',
+    );
   });
 
   it('fragment: asset quarantine state moved → dependency_changed; rejected → missing', async () => {
@@ -1034,7 +1169,7 @@ describe('AnswerCacheService.begin — dependency check-on-read (0136)', () => {
     const moved = makeHarness({
       cacheRow: liveCacheRow({ dependencies: [dep] }),
       factRows: [activeFact()],
-      dependencyRows: { fragment: [{ id: 'evidence_fragment:fr1', quarantineStatus: 'pending' }] },
+      dependencyRows: { fragment: [liveFragment({ quarantineStatus: 'pending' })] },
     });
     expect((await moved.svc.begin(args()))?.hit).toBeUndefined();
     expect(moved.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe(
@@ -1043,7 +1178,7 @@ describe('AnswerCacheService.begin — dependency check-on-read (0136)', () => {
     const rejected = makeHarness({
       cacheRow: liveCacheRow({ dependencies: [dep] }),
       factRows: [activeFact()],
-      dependencyRows: { fragment: [{ id: 'evidence_fragment:fr1', quarantineStatus: 'rejected' }] },
+      dependencyRows: { fragment: [liveFragment({ quarantineStatus: 'rejected' })] },
     });
     expect((await rejected.svc.begin(args()))?.hit).toBeUndefined();
     expect(rejected.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe(
@@ -1120,5 +1255,174 @@ describe('AnswerCacheService.begin — dependency check-on-read (0136)', () => {
     });
     expect((await h.svc.begin(args()))?.hit).toBeUndefined();
     expect(h.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe('missing');
+  });
+});
+
+/**
+ * Round-2 audit F1 — the media-evidence leak, closed. The audit's
+ * reproduction asserted the UNSAFE behaviour (equal keys across scope
+ * sets, and a `brain:read` key served a face-classified fragment's text
+ * out of an entry a `brain:read_media` key had admitted); every
+ * assertion here is that same scenario, inverted.
+ */
+describe('AnswerCacheService — media evidence is re-fenced on every hit (round-2 F1)', () => {
+  const ANSWER = 'Acme is gold tier. Sensitive information from a face-classified fragment.';
+  const dep = { kind: 'fragment', id: 'evidence_fragment:private', rev: 'accepted' };
+  const low = () => beginArgs();
+  const high = () => ({ ...beginArgs(), callerScopes: ['brain:read', 'brain:read_media'] });
+  /** The closed row the audit used: classified `face`, quarantine accepted. */
+  const closedFragment = (over: Record<string, unknown> = {}) =>
+    liveFragment({
+      id: 'evidence_fragment:private',
+      quarantineStatus: 'accepted',
+      piiClasses: ['face'],
+      ...over,
+    });
+
+  it('(b) the two scope sets no longer share a key', async () => {
+    const h = makeHarness({ cacheRow: null });
+    const lowKey = (await h.svc.begin(low()))?.ctx?.key;
+    const highKey = (await h.svc.begin(high()))?.ctx?.key;
+    expect(lowKey).toMatch(/^[0-9a-f]{64}$/);
+    expect(highKey).not.toBe(lowKey);
+    // The canonical per-item gate still refuses the row for the low key.
+    expect(mediaPiiAllowed(['face'], low().callerScopes)).toBe(false);
+  });
+
+  it('(a) even ON the same key, a caller without brain:read_media MISSES', async () => {
+    // The load-bearing half: pretend the key matched anyway (a stored row
+    // handed straight to the low-scope caller). The fragment fence runs on
+    // the hit path, so the closed text is never returned.
+    const h = makeHarness({
+      cacheRow: liveCacheRow({ answer: ANSWER, dependencies: [dep] }),
+      factRows: [activeFact()],
+      dependencyRows: { fragment: [closedFragment()] },
+    });
+    const out = await h.svc.begin(low());
+    expect(out?.hit).toBeUndefined();
+    expect(out?.ctx).toBeDefined();
+    expect(h.outcomes).toEqual(['rejected_stale']);
+    expect(h.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe('missing');
+  });
+
+  it('the media-scoped caller is still served the same entry', async () => {
+    const h = makeHarness({
+      cacheRow: liveCacheRow({ answer: ANSWER, dependencies: [dep] }),
+      factRows: [activeFact()],
+      entityRows: [{ id: 'knowledge_entity:e1', canonicalName: 'Acme' }],
+      dependencyRows: { fragment: [closedFragment()] },
+    });
+    expect((await h.svc.begin(high()))?.hit?.answer).toBe(ANSWER);
+    expect(h.outcomes).toEqual(['hit']);
+  });
+
+  it.each([
+    ['modality consent revoked after admission', high, {}, { mediaConsent: false }],
+    // A later classifier pass finds a voice in a fragment a plain
+    // brain:read answer was built from. The KEY is unchanged — only the
+    // re-applied fence closes the entry.
+    ['the fragment reclassified after admission', low, { piiClasses: ['voice'] }, {}],
+    ['the asset erased (availability gone)', high, { assetAvailability: 'gone' }, {}],
+    ['the asset bound to another user', high, { assetUserId: 'bob' }, {}],
+  ] as Array<
+    [
+      string,
+      () => ReturnType<typeof beginArgs>,
+      Record<string, unknown>,
+      { mediaConsent?: boolean },
+    ]
+  >)(
+    'a rights change AFTER admission closes the entry for the SAME key: %s',
+    async (_n, asks, rowOver, harnessOver) => {
+      // What the scope hash alone cannot do — the key is unchanged here.
+      const h = makeHarness({
+        ...harnessOver,
+        cacheRow: liveCacheRow({ answer: ANSWER, dependencies: [dep] }),
+        factRows: [activeFact()],
+        dependencyRows: { fragment: [closedFragment(rowOver)] },
+      });
+      expect((await h.svc.begin(asks()))?.hit).toBeUndefined();
+      expect(h.calls.find((c) => /invalidationCause/.test(c.sql))!.params.cause).toBe('missing');
+    },
+  );
+});
+
+/**
+ * Round-2 audit F4 — the retrieval snapshot. The audit's reproduction
+ * asserted that an answer generated from Monday's scene was admitted
+ * against Tuesday's hash and then served; admission now compares the
+ * live stamp with the one the LANES observed and refuses to cache.
+ */
+describe('AnswerCacheService.admit — a dependency that moved during generation is not cached', () => {
+  const ctx = (): AnswerCacheStoreContext => ({
+    key: 'd'.repeat(64),
+    companyId: 'co_test',
+    userId: 'alice',
+    callerScopes: ['brain:read'],
+    profileHash: 'ph',
+    model: 'm',
+    normalizedQuery: 'when is the meeting',
+    isEnumeration: false,
+  });
+  const result = (): SynthesizeResult => ({
+    answer: 'Acme is gold tier. The meeting is Monday.',
+    citations: [
+      {
+        factId: 'knowledge_fact:f1',
+        entityId: 'knowledge_entity:e1',
+        canonicalName: 'Acme',
+        predicate: 'tier',
+        object: 'gold',
+      },
+    ],
+    evidenceCitations: [{ sceneId: 'memory_episode:s1' }],
+    results: [],
+  });
+
+  it('refuses admission when the enricher rewrote the scene while the LLM ran', async () => {
+    // What retrieval rendered (Monday) vs what the row says at admission
+    // (Tuesday) — the enricher rewrites enrichedGist + unexpectedDetails.
+    const monday = liveScene({
+      enrichedGist: 'Meeting Monday.',
+      unexpectedDetails: ['The meeting is Monday.'],
+    });
+    const tuesday = liveScene({
+      enrichedGist: 'Meeting Tuesday.',
+      unexpectedDetails: ['The meeting is Tuesday.'],
+    });
+    const h = makeHarness({ sceneWorld: WORLD, dependencyRows: { scene: [tuesday] } });
+    const c = ctx();
+    h.svc.observeRendered(c, {
+      scene: new Map([['memory_episode:s1', { stamp: sceneStamp(monday) }]]),
+    });
+    await h.svc.admit(c, result(), 'supported');
+    expect(h.calls.some((call) => /UPSERT/.test(call.sql))).toBe(false);
+    expect(h.outcomes).toEqual(['not_admitted']);
+  });
+
+  it('admits — with the observed stamp — when the scene did not move', async () => {
+    const scene = liveScene({ enrichedGist: 'Meeting Monday.' });
+    const h = makeHarness({ sceneWorld: WORLD, dependencyRows: { scene: [scene] } });
+    const c = ctx();
+    h.svc.observeRendered(c, {
+      scene: new Map([['memory_episode:s1', { stamp: sceneStamp(scene) }]]),
+    });
+    await h.svc.admit(c, result(), 'supported');
+    const upsert = h.calls.find((call) => /UPSERT/.test(call.sql))!;
+    expect(upsert.params.dependencies).toEqual([
+      { kind: 'scene', id: 'memory_episode:s1', rev: sceneStamp(scene) },
+    ]);
+    expect(h.outcomes).toEqual(['stored']);
+  });
+
+  it('refuses admission when the lanes never rendered the cited dependency', async () => {
+    // An observation was made, and this arm is not in it: the cache cannot
+    // say what the generator saw, so it must not store the answer.
+    const h = makeHarness({ sceneWorld: WORLD, dependencyRows: { scene: [liveScene()] } });
+    const c = ctx();
+    h.svc.observeRendered(c, { scene: new Map() });
+    await h.svc.admit(c, result(), 'supported');
+    expect(h.calls.some((call) => /UPSERT/.test(call.sql))).toBe(false);
+    expect(h.outcomes).toEqual(['not_admitted']);
   });
 });

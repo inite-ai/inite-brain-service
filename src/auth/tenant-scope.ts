@@ -55,6 +55,16 @@ export interface ResolvePlatformTenantOptions {
    * cross-tenant path, never on the hot own-tenant path.
    */
   knownTenants?: () => readonly string[];
+  /**
+   * The fan-out roster (ApiKeyService.fanOutRoster) — what an omitted
+   * `?tenant=` expands to for a platform operator in
+   * resolvePlatformTenantScope. Kept apart from knownTenants on purpose:
+   * the validation roster may name a dormant static tenant an operator can
+   * TARGET, but expanding "all tenants" over it would create a database per
+   * dormant key. Absent ⇒ the omitted case stays on the caller's own tenant;
+   * it never falls back to knownTenants.
+   */
+  fanOutTenants?: () => readonly string[];
 }
 
 /**
@@ -102,8 +112,9 @@ export function resolvePlatformTenant(
  * without the platform capability, then a 400 if unknown).
  *
  * Use this wherever a handler/service would otherwise fan a read out over
- * apiKeys.knownCompanyIds() and return the result to the caller, so a
- * plain admin never observes another tenant's data or activity.
+ * apiKeys.fanOutRoster() and return the result to the caller, so a plain
+ * admin never observes another tenant's data or activity. The omitted case
+ * expands over `fanOutTenants` only — never over `knownTenants`.
  */
 export function resolvePlatformTenantScope(
   req: AuthenticatedRequest,
@@ -113,6 +124,6 @@ export function resolvePlatformTenantScope(
   const target = requested?.trim();
   if (target) return [resolvePlatformTenant(req, target, opts)];
   return platformTenantCapable(req.brainAuth.scopes)
-    ? (opts.knownTenants?.() ?? [req.brainAuth.companyId])
+    ? (opts.fanOutTenants?.() ?? [req.brainAuth.companyId])
     : [req.brainAuth.companyId];
 }

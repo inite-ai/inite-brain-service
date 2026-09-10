@@ -83,7 +83,7 @@ function distillConfig(): ConfigService {
   } as unknown as ConfigService;
 }
 
-const apiKeysStub = { knownCompanyIds: () => ['c1'] } as unknown as ApiKeyService;
+const apiKeysStub = { fanOutRoster: () => ['c1'] } as unknown as ApiKeyService;
 
 /** Script the distiller's two LLM calls in order: proposal, then merge decision. */
 function mockDistillOpenAi(svc: StrategyDistillService, responses: string[]): void {

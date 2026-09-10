@@ -1,8 +1,9 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
-import { sceneUserGate, sceneVisibleToUser } from '../auth/segment-scope';
+import { sceneUserGate } from '../auth/segment-scope';
 import { scopeFenceSql } from '../auth/scope-visibility';
+import { sceneStamp, sceneVisible, type EvidenceCaller } from './evidence-visibility';
 import { buildLexMatchLeg } from './lex-leg';
 import { rrfFuse } from './segment-lane.service';
 import type { CitableScene } from './scene-citations';
@@ -42,6 +43,11 @@ interface SceneLaneRow {
   occurredFrom?: Date | string;
   occurredTo?: Date | string;
   score?: number;
+  /** Fence columns re-checked in JS (sceneVisible) — see fences 3 and 5. */
+  piiClass?: unknown;
+  segmenterVersion?: unknown;
+  /** Enricher-owned gist, not rendered: it rides the lifecycle stamp. */
+  enrichedGist?: unknown;
 }
 
 /** The lane's output: rendered lines + the rendered-set citation fence. */
@@ -189,7 +195,7 @@ export class SceneLaneService {
     const gate = sceneUserGate(userId);
     const scope = scopeFenceSql(userId);
     try {
-      const rows = await this.surreal.withCompany(opts.companyId, async (db) => {
+      const found = await this.surreal.withCompany(opts.companyId, async (db) => {
         // Fence 5: the world the registry marks LIVE. Fail-closed —
         // without one, no scene query is issued at all.
         const [worlds] = await db.query<[string[]]>(
@@ -199,13 +205,14 @@ export class SceneLaneService {
             LIMIT 1`,
         );
         const world = (worlds ?? [])[0];
-        if (typeof world !== 'string' || world === '') return [];
+        if (typeof world !== 'string' || world === '') return { world: '', rows: [] };
         // Fences 2/3/4/5, identical for BOTH legs — the dense leg must
         // never be a way around a gate the lexical leg applies.
         const fences = `AND segmenterVersion = $world
                 ${piiGate} ${gate.clause} ${scope.clause}`;
         const select = `id, userId, userIds, sceneLabel, gist, unexpectedDetails,
-                    occurredFrom, occurredTo`;
+                    occurredFrom, occurredTo, piiClass, segmenterVersion,
+                    enrichedGist`;
         // The dense leg's query vector — resolved AFTER the world check so
         // a fail-closed read still issues nothing at all, and with its own
         // degrade: an embedder failure must not kill the lexical leg.
@@ -250,10 +257,10 @@ export class SceneLaneService {
         );
         // RRF (the house fusion): with an empty dense list this is the
         // BM25 ordering, unchanged.
-        return rrfFuse([dense ?? [], hits ?? []]);
+        return { world, rows: rrfFuse([dense ?? [], hits ?? []]) };
       });
-      if (rows.length === 0) return EMPTY_RESULT;
-      return this.render(rows, userId);
+      if (found.rows.length === 0) return EMPTY_RESULT;
+      return this.render(found.rows, { callerScopes: opts.callerScopes, userId }, found.world);
     } catch (e) {
       // Fence 8: degrade to an empty section, never fail the answer.
       this.logger.warn(`scene lane failed (companyId=${opts.companyId}): ${(e as Error).message}`);
@@ -279,12 +286,15 @@ export class SceneLaneService {
    * fail-closed — an out-of-contract row the SQL fence let through
    * never renders.
    */
-  private render(rows: SceneLaneRow[], userId: string): SceneLaneResult {
+  private render(rows: SceneLaneRow[], caller: EvidenceCaller, world: string): SceneLaneResult {
     const kept: SceneLaneRow[] = [];
     const seen = new Set<string>();
     for (const row of rows) {
-      // Fence 6: JS re-check of the user fence (the read-API doctrine).
-      if (!sceneVisibleToUser(row, userId)) continue;
+      // Fence 6: JS re-check of fences 2/3/5 through the ONE shared
+      // predicate the answer cache also runs on every cached serve, so a
+      // cached scene line reaches only a caller who would be served it
+      // fresh (round-2 audit F1).
+      if (!sceneVisible(row, caller, { sceneWorld: world })) continue;
       const sceneId = row.id === undefined ? '' : String(row.id);
       const gist = typeof row.gist === 'string' ? row.gist : '';
       if (!sceneId || !gist.trim() || seen.has(sceneId)) continue;
@@ -306,6 +316,7 @@ export class SceneLaneService {
         sceneLabel: typeof row.sceneLabel === 'string' ? row.sceneLabel : '',
         excerpt,
         ...(row.occurredFrom !== undefined ? { occurredAt: isoInstant(row.occurredFrom) } : {}),
+        stamp: sceneStamp(row),
       });
     }
     return { lines, byId };

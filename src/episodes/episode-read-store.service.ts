@@ -42,6 +42,10 @@ export interface EpisodeQuoteRow {
   speaker?: string;
   text: string;
   occurredAt: Date | string;
+  /** The two fence columns, projected so a reader can re-check the SQL
+   *  gates in JS (episodeVisible). Present on the BM25 search read. */
+  piiClass?: unknown;
+  userId?: unknown;
 }
 
 /** Full row shape served by the public episodes API. */
@@ -209,7 +213,8 @@ export class EpisodeReadStoreService {
     return this.run(opts.companyId, opts.db, async (db) => {
       const scope = this.scopeGate(opts.userId);
       const [rows] = await db.query<[Array<EpisodeQuoteRow & { score?: number }>]>(
-        `SELECT id, conversationId, speaker, text, occurredAt, search::score(1) AS score
+        `SELECT id, conversationId, speaker, text, occurredAt, piiClass, userId,
+                search::score(1) AS score
            FROM episode
           WHERE text @1@ $q ${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)} ${scope.clause} ${speakerGate}
           ORDER BY score DESC

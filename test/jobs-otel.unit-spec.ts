@@ -136,23 +136,24 @@ describe('Jobs OTel handoff — wire contract', () => {
   it('claimNext returns claim.traceparent when the row has one', async () => {
     const traceparent = '00-cccccccccccccccccccccccccccccccc-3333333333333333-01';
     const db = {
-      // Real 3.x shape for the 2-statement claim tx: [BEGIN, LET,
-      // RETURN row, COMMIT] — runTransaction reads the slot before the
-      // trailing COMMIT when the response has stmts+2 slots.
-      query: async () => [
-        null,
-        null,
-        {
-          id: 'job_run:withtp',
-          runId: 'run-with-tp',
-          jobType: 'dreams',
-          attempts: 1,
-          payload: null,
-          leaseUntil: '2030-01-01T00:05:00Z',
-          traceparent,
-        },
-        null,
-      ],
+      // claimNext is two single statements: the candidate SELECT, then the
+      // CAS UPDATE … RETURN AFTER whose row carries the traceparent.
+      query: async (sql: string) =>
+        sql.includes('SELECT id, visibleAfter FROM job_run')
+          ? [[{ id: 'job_run:withtp' }]]
+          : [
+              [
+                {
+                  id: 'job_run:withtp',
+                  runId: 'run-with-tp',
+                  jobType: 'dreams',
+                  attempts: 1,
+                  payload: null,
+                  leaseUntil: '2030-01-01T00:05:00Z',
+                  traceparent,
+                },
+              ],
+            ],
     };
     const surreal = {
       withCompany: async <T>(_c: string, fn: (d: any) => Promise<T>) => fn(db),

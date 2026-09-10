@@ -195,7 +195,7 @@ function emptyTenantResult(companyId: string, dryRun: boolean): OrphanBlobGcTena
  * no query that can see all rows at once and none is attempted. Instead
  * the sweep is per-tenant on both sides of the join and the two sides
  * are pinned to the same tenant:
- *   * the roster comes from ApiKeyService.knownCompanyIds() — the same
+ *   * the roster comes from ApiKeyService.fanOutRoster() — the same
  *     source every other maintenance pass walks. A blob directory
  *     belonging to a tenant that is NOT on the roster is never
  *     enumerated, so a deregistered tenant's bytes are left alone rather
@@ -301,7 +301,7 @@ export class EvidenceOrphanBlobGcService {
       budgetExhausted: false,
       skippedForBudget: 0,
     };
-    for (const companyId of this.apiKeys.knownCompanyIds()) {
+    for (const companyId of this.apiKeys.fanOutRoster()) {
       if (Date.now() >= deadline) {
         // Nothing is lost: an orphan is rediscovered by enumeration on
         // the next run. Count what we did not start rather than drop it.

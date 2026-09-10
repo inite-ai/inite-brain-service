@@ -160,7 +160,7 @@ describe('episode subscriptions — single-writer + per-subscription breaker', (
       metaSince: async () => [],
     } as unknown as EpisodeReadStoreService;
     const apiKeys = {
-      knownCompanyIds: () => ['co_x'],
+      fanOutRoster: () => ['co_x'],
     } as unknown as ApiKeyService;
     const lease = {
       tryAcquire: async () => false,
@@ -177,7 +177,7 @@ describe('episode subscriptions — single-writer + per-subscription breaker', (
       metaSince: async () => [],
     } as unknown as EpisodeReadStoreService;
     const apiKeys = {
-      knownCompanyIds: () => ['co_x'],
+      fanOutRoster: () => ['co_x'],
     } as unknown as ApiKeyService;
     const names: string[] = [];
     const lease = {

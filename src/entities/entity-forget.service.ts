@@ -250,6 +250,7 @@ export class EntityForgetService {
           .bind('forgottenBy', actorKeyHash ?? 'unknown')
           .bind('forgottenAt', forgottenAt)
           .bind('feedbackIds', feedbackIds)
+          .bind('factIdStrings', factIds)
           .bind('artifactIds', artifactIds)
           .bind('purgeDocs', docPlan.exclusiveDocRefs)
           .bind('purgedSourceChunks', purgedSourceChunks);
@@ -263,6 +264,9 @@ export class EntityForgetService {
         // pre-collect comment above).
         tx.add(`DELETE fact_usage WHERE factId.entityId = $ent`);
         tx.add(`DELETE $feedbackIds`);
+        // answer_cache (0091/0136): the cached ANSWER TEXT is a copy of
+        // what the erased rows said — see addAnswerCachePurgeLeg.
+        this.addAnswerCachePurgeLeg(tx);
         // Scenes (0106): a scene whose membership quotes an erased episode
         // goes whole, with ALL its member rows (mixed-subject scenes lose
         // the scene, other subjects keep their own facts) — members before
@@ -726,6 +730,22 @@ export class EntityForgetService {
       // A partial batch means the subject's raw rows are drained.
       if (((batch as unknown[]) ?? []).length < 5000) break;
     }
+  }
+
+  /**
+   * answer_cache (0091/0136) in-tx leg. A cached entry keeps the ANSWER
+   * TEXT beside the record-id STRINGS it was grounded in, so an entry
+   * citing this entity or one of its facts holds a copy of what is being
+   * erased — check-on-read only stops it from SERVING. Uncounted in
+   * txRecordCount, like fact_usage: regenerable bookkeeping. Two-step
+   * LET→DELETE, the repo idiom for every delete-by-predicate.
+   */
+  private addAnswerCachePurgeLeg(tx: TxBuilder): void {
+    tx.add(
+      `LET $ansIds = (SELECT VALUE id FROM answer_cache
+         WHERE entityIds CONTAINS $needle OR citedFactIds CONTAINSANY $factIdStrings)`,
+    );
+    tx.add(`DELETE $ansIds`);
   }
 
   /**

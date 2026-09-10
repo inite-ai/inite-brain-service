@@ -173,6 +173,38 @@ function sweepPlan(opts: { allTables?: boolean; tables?: string[] }): SweepPlan 
   return { facts: true, extra: all ? ADDITIONAL_TABLE_SPECS : [], breakdown: all };
 }
 
+/**
+ * Per-tenant sweep options. `widthMismatchOnly` narrows every swept table's
+ * SELECT to rows whose vector is present and not `dim` wide — exactly the
+ * rows the corpus census counts as non-conforming — so a repair re-embeds the
+ * stray rows instead of the tenant's whole corpus.
+ */
+export interface ReindexTenantOptions {
+  dryRun: boolean;
+  remaining: number;
+  allTables?: boolean;
+  tables?: string[];
+  widthMismatchOnly?: { dim: number };
+}
+
+/** The narrowing condition for one vector column (no leading WHERE), or ''. */
+function widthNarrowing(field: string, only: { dim: number } | undefined): string {
+  // `array::len(NONE)` is a hard error on 3.2.4, so the presence check comes
+  // first and AND short-circuits it.
+  return only ? `${field} != NONE AND array::len(${field}) != $dim` : '';
+}
+
+/**
+ * How far the offset moves after one page. Under the width narrowing a
+ * repaired row leaves the result set, so the next page begins where the rows
+ * that were NOT rewritten still stand; without it every row keeps its place
+ * and the page advances by its full length. A row that failed to rewrite is
+ * stepped over either way.
+ */
+function pageStride(narrowed: boolean, scanned: number, updated: number): number {
+  return narrowed ? scanned - updated : scanned;
+}
+
 function tableFailure(table: string, f: TableFailures): BatchFailure | null {
   if (f.failedPages === 0 && f.failedRows === 0) return null;
   return {
@@ -240,10 +272,7 @@ export class ReindexEngineService {
     return this.embedder.activeSpaceId();
   }
 
-  async reindexTenant(
-    companyId: string,
-    opts: { dryRun: boolean; remaining: number; allTables?: boolean; tables?: string[] },
-  ): Promise<ReindexTenantResult> {
+  async reindexTenant(companyId: string, opts: ReindexTenantOptions): Promise<ReindexTenantResult> {
     return this.surreal.withCompany(companyId, async (db) => {
       const ctx: ReindexCtx = { db, companyId, spaceId: this.spaceStampId() };
       const plan = sweepPlan(opts);
@@ -307,26 +336,30 @@ export class ReindexEngineService {
    */
   private async reindexKnowledgeFacts(
     ctx: ReindexCtx,
-    opts: { dryRun: boolean; remaining: number },
+    opts: ReindexTenantOptions,
   ): Promise<{ factsScanned: number; factsUpdated: number } & TableFailures> {
     let offset = 0;
     let factsScanned = 0;
     let factsUpdated = 0;
     const failures: TableFailures = { failedPages: 0, failedRows: 0 };
     const batch = Math.min(this.batchSize, opts.remaining);
+    const narrowing = widthNarrowing('embedding', opts.widthMismatchOnly);
+    const params = narrowing ? { dim: opts.widthMismatchOnly!.dim } : {};
     // Paginate until either the tenant is empty or we hit the cap.
     while (factsScanned < opts.remaining) {
       const [rows] = await ctx.db.query<[FactRowForReindex[]]>(
         `SELECT id, predicate, object
             FROM knowledge_fact
+            ${narrowing ? `WHERE ${narrowing}` : ''}
             ORDER BY id
             LIMIT $batch START $offset`,
-        { batch, offset },
+        { batch, offset, ...params },
       );
       const page = (rows as FactRowForReindex[]) ?? [];
       if (page.length === 0) break;
 
       factsScanned += page.length;
+      let pageUpdated = 0;
       if (!opts.dryRun) {
         // Batch the whole page through one embedMany — the previous
         // per-row embed() loop paid one HTTP round-trip per fact.
@@ -335,13 +368,14 @@ export class ReindexEngineService {
         if (embeddings) {
           const entries = page.map((row, i) => ({ id: row.id, vector: embeddings[i] }));
           const written = await this.writePage(ctx, 'embedding', entries);
+          pageUpdated = written.updated;
           factsUpdated += written.updated;
           failures.failedRows += written.failed;
         } else {
           failures.failedPages += 1;
         }
       }
-      offset += page.length;
+      offset += pageStride(narrowing !== '', page.length, pageUpdated);
       if (page.length < batch) break;
     }
     return { factsScanned, factsUpdated, ...failures };
@@ -359,32 +393,36 @@ export class ReindexEngineService {
   private async reindexGenericTable(
     ctx: ReindexCtx,
     spec: ReindexTableSpec,
-    opts: { dryRun: boolean; remaining: number },
+    opts: ReindexTenantOptions,
   ): Promise<TableReindexCount & TableFailures> {
     let offset = 0;
     let scanned = 0;
     let updated = 0;
     const failures: TableFailures = { failedPages: 0, failedRows: 0 };
     const batch = Math.min(this.batchSize, opts.remaining);
+    const narrowing = widthNarrowing(spec.vectorField, opts.widthMismatchOnly);
+    const params = narrowing ? { dim: opts.widthMismatchOnly!.dim } : {};
     while (scanned < opts.remaining) {
       const [rows] = await ctx.db.query<[Array<Record<string, unknown>>]>(
         `SELECT ${spec.select}
             FROM ${spec.table}
-            WHERE ${spec.vectorField} != NONE
+            WHERE ${narrowing || `${spec.vectorField} != NONE`}
             ORDER BY id
             LIMIT $batch START $offset`,
-        { batch, offset },
+        { batch, offset, ...params },
       );
       const page = (rows as Array<Record<string, unknown>>) ?? [];
       if (page.length === 0) break;
       scanned += page.length;
+      let pageUpdated = 0;
       if (!opts.dryRun) {
         const written = await this.reindexGenericPage(ctx, spec, page);
+        pageUpdated = written.updated;
         updated += written.updated;
         failures.failedPages += written.failedPages;
         failures.failedRows += written.failedRows;
       }
-      offset += page.length;
+      offset += pageStride(narrowing !== '', page.length, pageUpdated);
       if (page.length < batch) break;
     }
     return { table: spec.table, scanned, updated, ...failures };

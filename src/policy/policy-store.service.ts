@@ -43,6 +43,14 @@ export interface FactPolicyView {
 
 const SUBJECT_SHAPE = /^(key|jwt|agent):[A-Za-z0-9:._-]{1,200}$/;
 
+/**
+ * Coherence counter (migration 0141): every policy/binding write bumps
+ * `policy_meta:current` in the same query, so resolvers on other
+ * replicas can validate their cached snapshot with one point read.
+ */
+const BUMP_POLICY_VERSION = `UPSERT policy_meta:current SET
+  version = (version ?? 0) + 1, updatedAt = time::now()`;
+
 /** Row shape of the `access_policy` table (migration 0056). */
 interface AccessPolicyRow {
   name: unknown;
@@ -138,7 +146,8 @@ export class PolicyStoreService {
           `CREATE access_policy CONTENT {
              name: $name, mode: $mode, document: $document,
              version: 1, updatedBy: $updatedBy
-           }`,
+           };
+           ${BUMP_POLICY_VERSION}`,
           { name: doc.name, mode: doc.mode, document: doc, updatedBy },
         );
       } catch (e) {
@@ -182,7 +191,8 @@ export class PolicyStoreService {
         `UPDATE access_policy SET
            mode = $mode, document = $document, version = version + 1,
            updatedAt = time::now(), updatedBy = $updatedBy
-         WHERE name = $name AND version = $version RETURN AFTER`,
+         WHERE name = $name AND version = $version RETURN AFTER;
+         ${BUMP_POLICY_VERSION}`,
         {
           name,
           mode: doc.mode,
@@ -210,7 +220,9 @@ export class PolicyStoreService {
       });
     }
     await this.surreal.withCompany(companyId, async (db) => {
-      await db.query(`DELETE access_policy WHERE name = $name`, { name });
+      await db.query(`DELETE access_policy WHERE name = $name; ${BUMP_POLICY_VERSION}`, {
+        name,
+      });
     });
     this.resolver.invalidate(companyId);
   }
@@ -288,6 +300,7 @@ export class PolicyStoreService {
           { subject },
         );
       }
+      await db.query(BUMP_POLICY_VERSION);
     });
     this.resolver.invalidate(companyId);
     return this.get(companyId, name);

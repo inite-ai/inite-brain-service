@@ -100,7 +100,7 @@ describe('PromotionRunnerService — the replace is one transaction', () => {
         }
         if (sql.startsWith('BEGIN TRANSACTION')) {
           txParams = params;
-          return [null, null, [], [{ id: 'knowledge_fact:summary1' }], null] as unknown as R;
+          return [null, [], null, [], [{ id: 'knowledge_fact:summary1' }], null] as unknown as R;
         }
         return [[]] as unknown as R;
       },
@@ -134,6 +134,13 @@ describe('PromotionRunnerService — the replace is one transaction', () => {
     const batch = batches[0]!;
     expect(batch).toContain('CREATE knowledge_fact CONTENT $doc');
     expect(batch).toContain("SET status = 'compacted', embedding = NONE");
+    // Atomic is not enough: the members were selected before the awaited
+    // summary window, so the close carries the FULL member predicate and
+    // its row count is checked against what was summarised — a member
+    // retracted (or already compacted by a second pass) aborts the whole
+    // transaction instead of being folded away under a new summary.
+    expect(batch).toContain("WHERE id INSIDE $ids AND status = 'active' AND retractedAt IS NONE");
+    expect(batch).toContain("THROW 'promotion members moved under the summary'");
     expect(batch.trim().endsWith('COMMIT TRANSACTION;')).toBe(true);
     // The compaction never travels on its own — that was the window where
     // the originals were hidden with nothing standing in for them.
@@ -144,6 +151,7 @@ describe('PromotionRunnerService — the replace is one transaction', () => {
       'knowledge_fact:s0',
       'knowledge_fact:s1',
     ]);
+    expect(params.expected).toBe(2);
     const doc = params.doc as Record<string, unknown>;
     expect(doc.predicate).toBe('summary_said');
     expect(doc.status).toBe('active');
@@ -211,7 +219,7 @@ describe('PromotionRunnerService — the replace is one transaction', () => {
             ] as unknown as R;
           }
           if (sql.startsWith('BEGIN TRANSACTION'))
-            return [null, null, [], [], null] as unknown as R;
+            return [null, [], null, [], [], null] as unknown as R;
           return [[]] as unknown as R;
         },
       });

@@ -55,7 +55,7 @@ export class CandidateSweeperService implements OnModuleInit {
   @Cron('45 3 * * *', { timeZone: 'UTC' })
   async runNightly(): Promise<{ enqueued: number }> {
     if (!this.claim) return { enqueued: 0 };
-    const tenants = this.apiKeys.knownCompanyIds();
+    const tenants = this.apiKeys.fanOutRoster();
     const today = new Date().toISOString().slice(0, 10);
     let enqueued = 0;
     for (const companyId of tenants) {

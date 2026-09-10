@@ -56,7 +56,7 @@ const LEASE_TTL_SECONDS = 60 * 60;
  * gated on the master flag, under the distributed lease guard so one
  * replica walks the roster, with an in-flight flag as the process-local
  * reentrancy layer. Tenant roster comes from
- * ApiKeyService.knownCompanyIds(), the same way the compaction cron
+ * ApiKeyService.fanOutRoster(), the same way the compaction cron
  * enumerates tenants.
  */
 @Injectable()
@@ -104,7 +104,7 @@ export class OutcomePruneService {
     if (!this.guard) noteUnguarded(this.logger, 'outcome prune');
     this.running = true;
     try {
-      const tenants = this.apiKeys.knownCompanyIds();
+      const tenants = this.apiKeys.fanOutRoster();
       let pruned = 0;
       for (const companyId of tenants) {
         try {

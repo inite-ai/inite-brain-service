@@ -157,6 +157,9 @@ describe('BeliefLaneService — render + degrade', () => {
       value: 'SurrealDB',
       excerpt: 'inventory service — database: SurrealDB (was: PostgreSQL)',
       occurredAt: '2026-08-01T00:00:00.000Z',
+      // The retrieval-time lifecycle stamp (the revision counter), carried
+      // into answer-cache admission — round-2 audit F4.
+      stamp: '2',
     });
   });
 
@@ -262,6 +265,9 @@ describe('BeliefLaneService — date-token disambiguation (BELIEFS_LANE_DATE_DIS
       value: 'SurrealDB',
       excerpt: 'inventory service — database: SurrealDB (was: PostgreSQL)',
       occurredAt: '2026-08-01T00:00:00.000Z',
+      // The retrieval-time lifecycle stamp (the revision counter), carried
+      // into answer-cache admission — round-2 audit F4.
+      stamp: '2',
     });
   });
 });

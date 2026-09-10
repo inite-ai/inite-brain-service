@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Logger } from '@nestjs/common';
 import { RecordId, StringRecordId, type Surreal } from 'surrealdb';
-import { runTransaction } from '../db/surreal.service';
+import { isReadConflict, isUniqueViolation, runTransaction } from '../db/surreal.service';
 import type { BeliefDb, BeliefPromotionResult, FoldedBelief } from './belief-promotion.service';
 
 /**
@@ -162,6 +162,24 @@ export async function corroborateBelief({
   if (realigned) result.beliefsRealigned += 1;
 }
 
+/** The revision transaction's own aborts, verbatim. */
+const REVISION_ABORTS = [
+  'belief revision slot already holds another value',
+  'belief head moved',
+] as const;
+
+/**
+ * Contract: exactly these failures mean "another writer won this
+ * revision" — a datastore read conflict, a unique violation, or one of
+ * the transaction's own aborts. Everything else is a fault in the write
+ * path and must reach the caller as an error.
+ */
+function isRevisionLost(e: unknown): boolean {
+  if (isReadConflict(e) || isUniqueViolation(e)) return true;
+  if (!(e instanceof Error)) return false;
+  return REVISION_ABORTS.some((abort) => e.message.includes(abort));
+}
+
 /**
  * The ONE write that changes what a belief says, as a compare-and-set
  * transaction (BEGIN … COMMIT, runTransaction):
@@ -171,18 +189,24 @@ export async function corroborateBelief({
  *      would have let this run believe it wrote its value);
  *   2. INSERT IGNORE the revision (a replay of the SAME value no-ops);
  *   3. on a revise, the displaced head is stamped superseded ONLY IF it
- *      is still the active head at the revision this run read
- *      (`WHERE status = 'active' AND revision = $headRevision`); zero
+ *      is still the active head at the revision AND the watermark this
+ *      run read (`WHERE status = 'active' AND revision = $headRevision
+ *      AND (latestEvidenceAt IS NONE OR latestEvidenceAt = $wm)`); zero
  *      rows stamped means the head moved under us — abort, which also
  *      rolls the INSERT back (verified on 3.2.4: THROW inside the
- *      transaction cancels every prior statement).
+ *      transaction cancels every prior statement). The watermark belongs
+ *      in the predicate because a corroboration changes neither status
+ *      nor revision: without it a revise decided against a January
+ *      watermark still committed over a head another run had already
+ *      confirmed into March.
  * The statement text is composed by the caller BEFORE this call (the
  * optional LLM call must not sit inside a database transaction).
  *
- * Returns false when the transaction was lost — nothing written, the
- * next run recomputes the key from its evidence. Any other failure is
- * reported the same way: the caller's contract is "did my revision
- * land", and it did not.
+ * Returns false when the revision was LOST to a concurrent writer —
+ * nothing written, the caller re-reads and decides again. Every other
+ * failure (a schema rejection, a dead connection) is a broken write path
+ * and is rethrown: a write that cannot work must not read as harmless
+ * contention forever.
  */
 export async function commitRevision({
   db,
@@ -198,7 +222,16 @@ export async function commitRevision({
   revision: number;
   promoterVersion: string;
   statement: { text: string; source: 'template' | 'llm' };
-  displaced?: { id: string; revision: number; until: Date } | undefined;
+  displaced?:
+    | {
+        id: string;
+        revision: number;
+        until: Date;
+        /** The head's stored `latestEvidenceAt` as the caller read it;
+         *  omitted for a legacy row that carried none. */
+        watermark?: Date | undefined;
+      }
+    | undefined;
   logger: Logger;
 }): Promise<boolean> {
   const newId = new RecordId('semantic_belief', beliefIdTail(belief, revision));
@@ -234,11 +267,13 @@ export async function commitRevision({
       if (displaced) {
         tx.bind('headId', new StringRecordId(displaced.id))
           .bind('headRevision', displaced.revision)
-          .bind('until', displaced.until);
+          .bind('until', displaced.until)
+          .bind('wm', displaced.watermark ?? null);
         tx.add(
           `LET $stamped = (UPDATE $headId SET status = 'superseded', supersededBy = $newId, ` +
             `validUntil = $until, updatedAt = time::now() ` +
-            `WHERE status = 'active' AND revision = $headRevision RETURN AFTER)`,
+            `WHERE status = 'active' AND revision = $headRevision ` +
+            `AND (latestEvidenceAt IS NONE OR latestEvidenceAt = $wm) RETURN AFTER)`,
         );
         tx.add(`IF array::len($stamped) = 0 { THROW 'belief head moved' }`);
       }
@@ -246,6 +281,7 @@ export async function commitRevision({
     });
     return true;
   } catch (e) {
+    if (!isRevisionLost(e)) throw e;
     logger.warn(
       `belief promotion contended: (${belief.subject}, ${belief.field}) revision ${revision} ` +
         `for user ${belief.userId} lost to a concurrent writer — nothing written, the next ` +

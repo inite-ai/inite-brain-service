@@ -274,8 +274,9 @@ export class HnswMaintenanceService {
       builds = await this.waitForBuilds(companyId, builds, waitMs);
     }
     // The legs remember an index they saw missing or building; a build or
-    // drop makes that memory stale on every pod that shares this process.
-    if (action !== 'status') resetKnnIndexMemo();
+    // drop makes that memory stale on every pod that shares this process. An
+    // `ensure` that found every index present changed nothing and keeps it.
+    if (action === 'create' || action === 'drop' || created.length > 0) resetKnnIndexMemo();
     const mismatched = builds
       .filter((b) => b.dimension !== undefined && b.dimension !== dimension)
       .map((b) => b.index);

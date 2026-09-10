@@ -295,7 +295,7 @@ export class AdminJobsController {
           }),
         ]
       : platformTenantCapable(req.brainAuth.scopes)
-        ? this.apiKeys.knownCompanyIds()
+        ? this.apiKeys.fanOutRoster()
         : [req.brainAuth.companyId];
     void (async () => {
       for (const companyId of target) {
@@ -370,7 +370,7 @@ export class AdminJobsController {
       hostTenant = reindexTenant;
     } else if (platformTenantCapable(req.brainAuth.scopes)) {
       reindexTenant = undefined;
-      hostTenant = this.apiKeys.knownCompanyIds()[0];
+      hostTenant = this.apiKeys.hostTenant();
     } else {
       reindexTenant = req.brainAuth.companyId;
       hostTenant = req.brainAuth.companyId;
@@ -450,7 +450,7 @@ export class AdminJobsController {
     // tenant. The scenarios themselves run against synthetic scratch
     // tenants — hostTenant only carries the job_run bookkeeping row.
     const hostTenant = platformTenantCapable(req.brainAuth.scopes)
-      ? this.apiKeys.knownCompanyIds()[0]
+      ? this.apiKeys.hostTenant()
       : req.brainAuth.companyId;
     if (!hostTenant) {
       throw new BadRequestException('No registered tenant to run scenarios');
@@ -539,7 +539,7 @@ export class AdminJobsController {
           }),
         ]
       : platformTenantCapable(req.brainAuth.scopes)
-        ? this.apiKeys.knownCompanyIds()
+        ? this.apiKeys.fanOutRoster()
         : [req.brainAuth.companyId];
     const emits: Array<Record<string, unknown>> = [];
     for (const companyId of tenants) {
@@ -631,7 +631,7 @@ export class AdminJobsController {
     // operator keeps the all-tenant cockpit. Leader leases + pod identity
     // are cluster-orchestration state (no tenant dimension), shown as-is.
     const claimTenants = platformTenantCapable(req.brainAuth.scopes)
-      ? this.apiKeys.knownCompanyIds()
+      ? this.apiKeys.fanOutRoster()
       : [req.brainAuth.companyId];
     const [leaderLeases, activeClaims] = await Promise.all([
       this.leaderLease.list(),
@@ -688,6 +688,7 @@ export class AdminJobsController {
     const scope = new Set(
       resolvePlatformTenantScope(req, undefined, {
         knownTenants: () => this.apiKeys.knownCompanyIds(),
+        fanOutTenants: () => this.apiKeys.fanOutRoster(),
       }),
     );
     const cursors = allCursors.filter((c) => scope.has(c.companyId));

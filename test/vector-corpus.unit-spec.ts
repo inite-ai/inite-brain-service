@@ -60,14 +60,13 @@ describe('VectorCorpusService', () => {
       setVectorCorpusTenantsNonconforming: jest.fn(),
       countVectorCorpusRepair: jest.fn(),
     };
-    const apiKeys = { knownCompanyIds: () => ['co_x'] };
+    const apiKeys = { fanOutRoster: () => ['co_x'] };
     const svc = new VectorCorpusService(
       surreal as never,
       embedder as never,
       reindex as never,
       apiKeys as never,
       jobs as never,
-      undefined,
       metrics as never,
     );
     return { svc, reindex, jobs, metrics, queries };
@@ -126,7 +125,13 @@ describe('VectorCorpusService', () => {
     const r = await svc.reconcileTenant('co_x', 'startup');
     expect(r.outcome).toBe('repaired');
     expect(reindex.run).toHaveBeenCalledTimes(1);
-    expect(reindex.run).toHaveBeenCalledWith({ tenant: 'co_x', allTables: true });
+    // The sweep is narrowed to the rows the census just counted: without
+    // `widthMismatchOnly` one stray vector costs a full-tenant re-embed.
+    expect(reindex.run).toHaveBeenCalledWith({
+      tenant: 'co_x',
+      allTables: true,
+      widthMismatchOnly: { dim: 1024 },
+    });
     expect(jobs.start).toHaveBeenCalledWith(
       expect.objectContaining({
         jobType: 'reindex_embeddings',
@@ -191,7 +196,11 @@ describe('VectorCorpusService', () => {
       await jest.advanceTimersByTimeAsync(60_000);
       await jest.advanceTimersByTimeAsync(0);
       expect(reindex.run).toHaveBeenCalledTimes(1);
-      expect(reindex.run).toHaveBeenCalledWith({ tenant: 'co_x', allTables: true });
+      expect(reindex.run).toHaveBeenCalledWith({
+        tenant: 'co_x',
+        allTables: true,
+        widthMismatchOnly: { dim: 1024 },
+      });
     } finally {
       jest.useRealTimers();
     }

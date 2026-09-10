@@ -378,7 +378,7 @@ export class StrategyDistillService {
     if (!this.guard) noteUnguarded(this.logger, 'strategy sweep');
     this.sweepInFlight = true;
     try {
-      const tenants = this.apiKeys.knownCompanyIds();
+      const tenants = this.apiKeys.fanOutRoster();
       stats.tenants = tenants.length;
       for (const companyId of tenants) {
         try {

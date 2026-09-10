@@ -7,6 +7,7 @@ import { EmbedderService } from '../src/ai/embedder.service';
 import { ExtractorService } from '../src/ai/extractor.service';
 import { LocalCrossEncoderProvider } from '../src/ai/cross-encoder/local-cross-encoder.provider';
 import { correlationIdMiddleware } from '../src/common/correlation-id.middleware';
+import { TenantRegistryService } from '../src/auth/tenant-registry.service';
 import { StubEmbedder, StubExtractor, StubLocalCrossEncoder } from './test-doubles';
 
 export interface AppFixture {
@@ -140,6 +141,13 @@ export async function createApp(
     }),
   );
   await app.init();
+  // Provision the fixture tenant the way production does (register()), so it
+  // is on the FAN-OUT roster. Background loops walk registry-active tenants
+  // only — a static key alone is not membership — and the shared e2e
+  // container's tenant_registry already holds every earlier suite's tenant,
+  // so a sweep a spec invokes directly (before any request has touched the
+  // tenant) would otherwise walk those and never this one.
+  await app.get(TenantRegistryService).register(companyId);
 
   const http = request(app.getHttpServer());
   return {

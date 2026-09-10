@@ -2,7 +2,6 @@ import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import type { Surreal } from 'surrealdb';
 import { ApiKeyService } from '../auth/api-key.service';
-import { TenantRegistryService } from '../auth/tenant-registry.service';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { VECTOR_COLUMNS } from '../ai/embedder/embedding-space';
@@ -114,7 +113,6 @@ export class VectorCorpusService implements OnModuleInit {
     private readonly reindex: ReindexEmbeddingsService,
     private readonly apiKeys: ApiKeyService,
     @Optional() private readonly jobs?: JobRunService,
-    @Optional() private readonly registry?: TenantRegistryService,
     @Optional() private readonly metrics?: MetricsService,
     @Optional() private readonly guard?: DistributedLeaseGuard,
   ) {}
@@ -192,7 +190,7 @@ export class VectorCorpusService implements OnModuleInit {
     const results: VectorCorpusRepairResult[] = [];
     const totals = new Map<string, number>();
     let tenantsNonConforming = 0;
-    for (const companyId of this.roster()) {
+    for (const companyId of this.apiKeys.fanOutRoster()) {
       try {
         const r = await this.reconcileTenant(companyId, trigger);
         results.push(r);
@@ -266,7 +264,14 @@ export class VectorCorpusService implements OnModuleInit {
       },
     });
     try {
-      const sweep = await this.reindex.run({ tenant: companyId, allTables: true });
+      // Only the rows the census just counted as non-conforming: the sweep
+      // without this narrowing re-embeds every row of every swept table, so
+      // one stray vector cost a full-tenant re-embed.
+      const sweep = await this.reindex.run({
+        tenant: companyId,
+        allTables: true,
+        widthMismatchOnly: { dim: before.dimension },
+      });
       const swept = {
         factsScanned: sweep.factsScanned,
         factsUpdated: sweep.factsUpdated,
@@ -435,10 +440,5 @@ export class VectorCorpusService implements OnModuleInit {
         `until re-embedded; ${inv.repairable} repairable by the reindex sweep, ` +
         `${inv.producerOwned} producer-owned.`,
     );
-  }
-
-  private roster(): readonly string[] {
-    const active = this.registry?.activeCompanyIds() ?? [];
-    return active.length > 0 ? active : this.apiKeys.knownCompanyIds();
   }
 }

@@ -6,6 +6,7 @@ import { withSpan } from '../common/tracing';
 import { envFlagEnabled } from '../common/env-validation';
 import { derivedVersionFence } from '../episodes/read-pin.service';
 import { knnIndexKnownUnusable, knnOperatorDropped, noteKnnOperatorDropped } from '../db/knn-index';
+import { sameWidthGate } from '../db/vector-width';
 
 /** The index the entity-dedup seed KNN rides — for the diagnostic. */
 const DEDUP_HNSW = { table: 'knowledge_fact', index: 'fact_embedding_hnsw' } as const;
@@ -272,7 +273,7 @@ export class DreamsDedupService {
       `LET $q = (SELECT VALUE embedding FROM ONLY type::record($fid));
        SELECT entityId, vector::similarity::cosine(embedding, $q) AS sim
          FROM knowledge_fact
-        WHERE array::len(embedding) = array::len($q)
+        WHERE ${sameWidthGate('embedding')}
           AND ${filters}
         ORDER BY sim DESC
         LIMIT 5;`,

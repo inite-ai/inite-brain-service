@@ -472,7 +472,7 @@ describe('PromotionRunnerService — summary episode stamping', () => {
           // BEGIN, LET (create), UPDATE (compact), RETURN, COMMIT — the
           // 3.x slot shape runTransaction reads the RETURN from.
           created.push(params!.doc as Record<string, unknown>);
-          return [null, null, [], [{ id: 'knowledge_fact:summary1' }], null] as unknown as R;
+          return [null, [], null, [], [{ id: 'knowledge_fact:summary1' }], null] as unknown as R;
         }
         return [[]] as unknown as R;
       },
@@ -582,9 +582,11 @@ describe('summary runners — derived_from edge mirror (PROVENANCE_SUPPORT_EDGES
           return [candidates] as unknown as R;
         }
         if (sql.startsWith('BEGIN TRANSACTION')) {
-          // Promotion: create + compact in one batch (BEGIN, LET, UPDATE, RETURN, COMMIT).
+          // Promotion: guarded close + create in one batch
+          // (BEGIN, LET $closed, IF, LET $created, RETURN, COMMIT).
           return [
             null,
+            [],
             null,
             [],
             [{ ...(params!.doc as object), id: 'knowledge_fact:sum1' }],

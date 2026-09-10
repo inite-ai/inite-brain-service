@@ -25,6 +25,7 @@
  */
 import type { EmbedderService } from '../src/ai/embedder.service';
 import { SceneLaneService } from '../src/synthesize/scene-lane.service';
+import { sceneStamp } from '../src/synthesize/evidence-visibility';
 import { EvidenceCollectorService } from '../src/synthesize/evidence-collector.service';
 import { buildGeneratorUserMessage } from '../src/synthesize/generator-prompt';
 import type { SearchService, SearchHit } from '../src/search/search.service';
@@ -43,6 +44,9 @@ interface SceneRowFixture {
   occurredFrom: string;
   occurredTo: string;
   score: number;
+  /** Projected for the JS re-check (fences 3 and 5) — see sceneVisible. */
+  piiClass?: string[] | undefined;
+  segmenterVersion?: string;
 }
 
 const GIST =
@@ -57,6 +61,7 @@ const row = (over: Partial<SceneRowFixture>): SceneRowFixture => ({
   occurredFrom: '2026-07-01T10:00:00.000Z',
   occurredTo: '2026-07-01T10:01:00.000Z',
   score: 1,
+  segmenterVersion: WORLD,
   ...over,
 });
 
@@ -212,18 +217,36 @@ describe('SceneLaneService — the fences matrix (JS re-check, fail-closed)', ()
   });
 });
 
+/**
+ * Round-2 audit F1: fences 3 and 5 are re-checked in JS too, through the
+ * SAME predicate the answer cache runs on a cached serve. The double
+ * returns rows the WHERE would have dropped, so only the JS half can.
+ */
+describe('SceneLaneService — JS re-check of the PII and world fences (round-2 F1)', () => {
+  const render = async (over: Partial<SceneRowFixture>, callerScopes: string[] = []) => {
+    const { surreal } = surrealOf({ rows: [row(over)] });
+    return new SceneLaneService(surreal).sceneLines({ ...baseOpts, callerScopes });
+  };
+
+  it('drops a piiClass-stamped scene without brain:read_pii, renders it with', async () => {
+    expect((await render({ piiClass: ['person'] })).lines).toEqual([]);
+    expect((await render({ piiClass: ['person'] }, ['brain:read_pii'])).lines).toHaveLength(1);
+  });
+
+  it('drops a scene from a world the registry no longer marks live', async () => {
+    // Promotion demotes the previous version to 'residual' WITHOUT
+    // deleting rows, so nothing on the scene itself changes.
+    expect((await render({ segmenterVersion: 'scene-segmenter-v0' })).lines).toEqual([]);
+  });
+});
+
+const DETAILED_ROW = row({
+  unexpectedDetails: ['the lease was signed by a third party', 'landlord named for the first time'],
+});
+
 describe('SceneLaneService — render + degrade', () => {
   it('renders the id-headed, span-stamped line with the notable-details clause', async () => {
-    const { surreal } = surrealOf({
-      rows: [
-        row({
-          unexpectedDetails: [
-            'the lease was signed by a third party',
-            'landlord named for the first time',
-          ],
-        }),
-      ],
-    });
+    const { surreal } = surrealOf({ rows: [DETAILED_ROW] });
     const out = await new SceneLaneService(surreal).sceneLines(baseOpts);
     expect(out.lines).toEqual([
       `[memory_episode:s1] (2026-07-01 10:00–10:01 UTC) ${GIST}` +
@@ -234,6 +257,9 @@ describe('SceneLaneService — render + degrade', () => {
       sceneLabel: 'lease scan intake',
       excerpt: GIST,
       occurredAt: '2026-07-01T10:00:00.000Z',
+      // The retrieval-time lifecycle stamp over the fields this lane
+      // renders, carried into answer-cache admission (round-2 audit F4).
+      stamp: sceneStamp(DETAILED_ROW),
     });
   });
 

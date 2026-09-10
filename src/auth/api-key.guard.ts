@@ -87,7 +87,8 @@ export class ApiKeyGuard implements CanActivate {
     }
 
     const token = header.slice(7).trim();
-    const record: ApiKeyRecord | null = await this.credentials.resolve(token);
+    // Memoised on the request: the throttler guard already resolved it.
+    const record: ApiKeyRecord | null = await this.credentials.resolve(token, request);
     if (!record) {
       throw unauthorized(context, 'Invalid credentials');
     }

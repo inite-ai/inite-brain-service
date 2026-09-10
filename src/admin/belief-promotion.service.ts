@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type OpenAI from 'openai';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
+import { retryOnUniqueViolation } from '../db/surreal-retry';
 import { chatCallParams, createOpenAiClient } from '../ai/openai-client';
 import {
   sceneBeliefFieldFoldEnabled,
@@ -980,8 +981,26 @@ export class BeliefPromotionService {
    * the watermark and leaves the beginning alone; a differing candidate
    * is measured against the watermark, so evidence older than what the
    * belief already saw can never revise it, whatever order it arrived in.
+   *
+   * A lost compare-and-set is CONTENTION, not a verdict: the head moved
+   * between the read and the transaction (another run revised it, or
+   * corroborated it into a later watermark), so the decision was taken
+   * against a state that no longer exists. Decide again against a fresh
+   * read, once — a second loss is counted and the group skipped.
    */
-  private async upsertBelief({
+  private async upsertBelief(args: {
+    db: BeliefDb;
+    belief: FoldedBelief;
+    promoterVersion: string;
+    edgesOn: boolean;
+    result: BeliefPromotionResult;
+  }): Promise<void> {
+    if ((await this.upsertBeliefOnce(args)) !== 'contended') return;
+    if ((await this.upsertBeliefOnce(args)) === 'contended') args.result.skippedContended += 1;
+  }
+
+  /** One attempt of the verdict above: 'contended' = nothing written. */
+  private async upsertBeliefOnce({
     db,
     belief,
     promoterVersion: runPromoterVersion,
@@ -993,7 +1012,7 @@ export class BeliefPromotionService {
     promoterVersion: string;
     edgesOn: boolean;
     result: BeliefPromotionResult;
-  }): Promise<void> {
+  }): Promise<'done' | 'contended'> {
     // Per-belief stamp: identical to the run stamp unless this belief
     // came wholly out of ONE pack world (promoterVersionFor).
     const promoterVersion = promoterVersionFor(belief, runPromoterVersion);
@@ -1035,10 +1054,7 @@ export class BeliefPromotionService {
         statement: await this.composeStatement(belief),
         logger: this.logger,
       });
-      if (!committed) {
-        result.skippedContended += 1;
-        return;
-      }
+      if (!committed) return 'contended';
       await this.stampScenes(db, belief.sceneIds, beliefRecordString(belief, 1));
       if (edgesOn) {
         result.supportEdges += await this.writeEdges(db, promoterVersion, [
@@ -1049,7 +1065,7 @@ export class BeliefPromotionService {
         ]);
       }
       result.beliefsCreated += 1;
-      return;
+      return 'done';
     }
 
     const headId = String(head.id);
@@ -1059,6 +1075,9 @@ export class BeliefPromotionService {
     // row is stamped on its next corroboration.
     const storedWatermark = epochMs(head.latestEvidenceAt);
     const headWatermark = Number.isFinite(storedWatermark) ? storedWatermark : headValidFrom;
+    // What the supersede predicate compares against: the stored value as
+    // read, or nothing at all on a legacy row (`latestEvidenceAt IS NONE`).
+    const watermark = Number.isFinite(storedWatermark) ? new Date(storedWatermark) : undefined;
 
     if (head.value === belief.value) {
       await corroborateBelief({
@@ -1083,7 +1102,7 @@ export class BeliefPromotionService {
           },
         ]);
       }
-      return;
+      return 'done';
     }
 
     // STALE GUARD against the WATERMARK, not the beginning: a differing
@@ -1100,7 +1119,7 @@ export class BeliefPromotionService {
           `the active revision ${head.revision} ('${head.value}') watermark ` +
           `${new Date(headWatermark).toISOString()} — group skipped`,
       );
-      return;
+      return 'done';
     }
     // The new state began at the first contribution of its run that is
     // past the head's watermark: a run that started before the head's
@@ -1114,7 +1133,7 @@ export class BeliefPromotionService {
           `'${belief.value}' would begin at ${revisionValidFrom.toISOString()}, not after the ` +
           `active revision ${head.revision} ('${head.value}') began — group skipped`,
       );
-      return;
+      return 'done';
     }
 
     // REVISION — supersede chain in code, never in-place: revision N+1
@@ -1134,13 +1153,10 @@ export class BeliefPromotionService {
       revision,
       promoterVersion,
       statement: await this.composeStatement(revised),
-      displaced: { id: headId, revision: head.revision, until: revisionValidFrom },
+      displaced: { id: headId, revision: head.revision, until: revisionValidFrom, watermark },
       logger: this.logger,
     });
-    if (!committed) {
-      result.skippedContended += 1;
-      return;
-    }
+    if (!committed) return 'contended';
     await this.stampScenes(db, belief.sceneIds, newId);
     // The 0106 baselineRef contract, NAMESPACED: the belief revision the
     // delta was applied against lands in `baselineRef.supersededFrom`
@@ -1170,21 +1186,32 @@ export class BeliefPromotionService {
       ]);
     }
     result.beliefsRevised += 1;
+    return 'done';
   }
 
-  /** consolidatedInto ∪= [belief] on the consumed scenes (idempotent). */
+  /**
+   * consolidatedInto ∪= [belief] on the consumed scenes (idempotent).
+   *
+   * Two promotion runs over one conversation stamp the same scene rows, so
+   * this write races and the datastore answers "Resource busy" / read
+   * conflict. The union is idempotent, so a retry is always safe: without
+   * one the whole promotion pass throws after the belief has already been
+   * committed.
+   */
   private async stampScenes(db: BeliefDb, sceneIds: string[], beliefId: string): Promise<void> {
     if (sceneIds.length === 0) return;
     // Primary-key addressed (WHERE id INSIDE explicit list) — immune by
     // construction to the 3.2.4 secondary-index planner bug class.
-    await db.query(
-      `UPDATE memory_episode
+    await retryOnUniqueViolation(() =>
+      db.query(
+        `UPDATE memory_episode
           SET consolidatedInto = array::union(consolidatedInto ?? [], [$belief])
         WHERE id INSIDE $sceneIds`,
-      {
-        belief: new StringRecordId(beliefId),
-        sceneIds: sceneIds.map((s) => new StringRecordId(s)),
-      },
+        {
+          belief: new StringRecordId(beliefId),
+          sceneIds: sceneIds.map((s) => new StringRecordId(s)),
+        },
+      ),
     );
   }
 

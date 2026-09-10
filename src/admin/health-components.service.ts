@@ -7,6 +7,7 @@ import { CapabilityProbeService, type LastProbeReport } from '../metrics/capabil
 import { isConclusive } from '../metrics/capability-probe';
 import { IntentClassifierService } from './intent-classifier.service';
 import { ChangefeedConsumerService } from '../audit/changefeed-consumer.service';
+import { LeaderLeaseService } from '../jobs/leader-lease.service';
 import type {
   HealthComponent,
   HealthComponentsResponse,
@@ -35,6 +36,7 @@ export class HealthComponentsService {
     private readonly embedder: EmbedderService,
     private readonly intent: IntentClassifierService,
     private readonly changefeed: ChangefeedConsumerService,
+    private readonly leases: LeaderLeaseService,
   ) {}
 
   async build(): Promise<HealthComponentsResponse> {
@@ -44,9 +46,10 @@ export class HealthComponentsService {
       this.database(readiness),
       this.scopedPool(readiness, last.scoped_read),
       this.embedderRow(readiness, last.embed),
+      this.evidenceStoreRow(readiness, last.evidence_store),
       this.intentRow(),
       this.openAiKeyRow(),
-      this.changefeedRow(),
+      await this.changefeedRow(),
       this.calibrationRow(),
     ];
     return {
@@ -126,6 +129,48 @@ export class HealthComponentsService {
   }
 
   /**
+   * The SELECTED blob store (EVIDENCE_STORAGE_SCHEME). `disabled` is the
+   * honest word for fs — local disk, nothing remote to probe, and correct
+   * only with one replica or a shared volume — not a green that proves
+   * nothing. For s3 the row is /ready's live HeadBucket plus the probe's
+   * last outcome; `unreachable` carries the probe's own message (which
+   * bucket, which endpoint, what the store said), and a selected scheme
+   * with no adapter registered reads the same way.
+   */
+  private evidenceStoreRow(
+    r: ReadinessReport,
+    probe: LastProbeReport | undefined,
+  ): HealthComponent {
+    const store = r.detail.evidenceStore;
+    const name = `evidence store (${store.scheme})`;
+    if (store.error !== null) {
+      return {
+        name,
+        status: 'unreachable',
+        ...(store.probed ? { latencyMs: store.latencyMs } : {}),
+        message: joinParts(store.error, probeSummary(probe)),
+      };
+    }
+    if (!store.probed) {
+      return {
+        name,
+        status: 'disabled',
+        message:
+          `EVIDENCE_STORAGE_SCHEME=${store.scheme}: local disk — correct only with one ` +
+          `replica or a shared volume; select s3 for a shared store`,
+      };
+    }
+    const probeFailed =
+      probe !== undefined && isConclusive(probe.outcome) && probe.outcome !== 'serving';
+    return {
+      name,
+      status: probeFailed ? 'degraded' : 'ok',
+      latencyMs: store.latencyMs,
+      message: joinParts('bucket answers', probeSummary(probe)),
+    };
+  }
+
+  /**
    * Not a `/ready` gate — chat routing answers with the punctuation
    * heuristic while the model is missing — but the same warmup bookkeeping
    * as the embedder row, so a model repo that vanished from the Hub reads
@@ -166,21 +211,40 @@ export class HealthComponentsService {
     };
   }
 
-  private changefeedRow(): HealthComponent {
+  /**
+   * The consumer only ticks on the pod holding the `changefeed_consumer`
+   * lease, so this pod's counters describe the cluster only when this pod
+   * is that one. On every other replica they are the initial values, and
+   * the row used to render them as "ok · 0 pending" — a green claim about
+   * work being done somewhere else. A non-leader says so instead, and
+   * names the holder so an operator knows where to look.
+   */
+  private async changefeedRow(): Promise<HealthComponent> {
     const cf = this.changefeed.stats();
+    const name = 'changefeed consumer';
+    if (!cf.enabled) {
+      return { name, status: 'disabled', message: 'AUDIT_CHANGEFEED_ENABLED=0' };
+    }
+    const holder = await this.changefeedLeaseHolder();
+    if (holder !== undefined && holder !== this.leases.identity()) {
+      return {
+        name,
+        status: 'disabled',
+        message: `not leader — ${holder} holds the changefeed_consumer lease; its pending count is the cluster's`,
+      };
+    }
     return {
-      name: 'changefeed consumer',
-      status: !cf.enabled
-        ? 'disabled'
-        : cf.lastError
-          ? 'degraded'
-          : cf.lastPendingRemaining > 100
-            ? 'degraded'
-            : 'ok',
-      message: cf.enabled
-        ? `${cf.lastPendingRemaining} pending · ${cf.tickCount} ticks`
-        : 'AUDIT_CHANGEFEED_ENABLED=0',
+      name,
+      status: cf.lastError ? 'degraded' : cf.lastPendingRemaining > 100 ? 'degraded' : 'ok',
+      message: `${cf.lastPendingRemaining} pending · ${cf.tickCount} ticks`,
     };
+  }
+
+  /** leaderId of a live `changefeed_consumer` lease, if one is held. */
+  private async changefeedLeaseHolder(): Promise<string | undefined> {
+    const row = (await this.leases.list()).find((l) => l.name === 'changefeed_consumer');
+    if (!row) return undefined;
+    return Date.parse(row.leaseUntil) > Date.now() ? row.leaderId : undefined;
   }
 
   private calibrationRow(): HealthComponent {

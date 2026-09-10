@@ -62,7 +62,12 @@ function makeReg(jobType: JobType = 'dreams'): RegisteredHandler {
 function makeControl(): { control: PollControl; abort: () => void } {
   const ac = new AbortController();
   return {
-    control: { isLeader: () => true, signal: ac.signal },
+    control: {
+      isLeader: () => true,
+      confirmLeader: async () => true,
+      epoch: () => null,
+      signal: ac.signal,
+    },
     abort: () => ac.abort(),
   };
 }
@@ -111,7 +116,7 @@ function makeQueue(jobs: Record<string, number>) {
 }
 
 function makeApiKeys(companyIds: string[]) {
-  return { knownCompanyIds: () => companyIds };
+  return { fanOutRoster: () => companyIds };
 }
 
 function makePoller(args: {

@@ -5,7 +5,7 @@ import type { Surreal } from 'surrealdb';
 import { LRUCache } from '../common/lru-cache';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import { JobRunService, type JobRunRow } from '../jobs/job-run.service';
-import { pollingObservable, stableStringify, type PollPage } from './db-poll-stream';
+import { anchorAt, pollingObservable, stableStringify, type PollPage } from './db-poll-stream';
 
 /** Cadence at which transitions made by other replicas reach a stream. */
 export const JOB_STREAM_POLL_MS = 1_500;
@@ -58,7 +58,8 @@ export class JobStreamService {
     if (!surreal) return local;
     const polled = pollingObservable<string, Date>({
       intervalMs: JOB_STREAM_POLL_MS,
-      initialCursor: () => surreal.withCompany(companyId, dbNow),
+      initialCursor: async (subscribedAt) =>
+        anchorAt(subscribedAt, await surreal.withCompany(companyId, dbNow)),
       poll: (since) => surreal.withCompany(companyId, (db) => changedSince(db, since, fresh)),
       onError: (e) => this.logger.warn(`job stream poll failed (${companyId}): ${e.message}`),
     });

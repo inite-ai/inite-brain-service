@@ -54,7 +54,7 @@ const REFRESH_MS = 60_000;
  */
 const TOUCH_THROTTLE_MS = 5 * 60_000;
 
-type TenantStatus = NonNullable<TenantRegistryMeta['status']>;
+export type TenantStatus = NonNullable<TenantRegistryMeta['status']>;
 
 /** A roster row as the registry reads it back — companyId plus lifecycle status. */
 interface RosterRow extends TenantRow {
@@ -64,24 +64,23 @@ interface RosterRow extends TenantRow {
 /**
  * TenantRegistryService — the production tenant roster (R4 finding #1).
  *
- * ApiKeyService.knownCompanyIds() (the enumeration every background fan-out
- * and the platform-operator cross-tenant scope go through) historically
- * read companyIds off the in-memory BRAIN_API_KEYS table. In production
- * with a remote verifier (JWKS / introspection) that static table is
- * disabled and typically empty, so the roster was [] and every fan-out
- * silently did nothing. This service backs the roster with a real DB table
- * (`tenant_registry`, migration 0104) living in the SYSTEM database — the
- * one place every tenant can be enumerated from regardless of credential
- * source — and keeps a synchronously-readable in-memory cache so
- * knownCompanyIds() stays synchronous and no fan-out caller has to change.
+ * Tenant enumeration historically read companyIds off the in-memory
+ * BRAIN_API_KEYS table. In production with a remote verifier (JWKS /
+ * introspection) that static table is disabled and typically empty, so the
+ * roster was [] and every fan-out silently did nothing. This service backs
+ * the roster with a real DB table (`tenant_registry`, migration 0104)
+ * living in the SYSTEM database — the one place every tenant can be
+ * enumerated from regardless of credential source — and keeps a
+ * synchronously-readable in-memory cache so the ApiKeyService accessors
+ * stay synchronous. Two of them read it: fanOutRoster() (background loops;
+ * registry-active ONLY, static keys just as the empty-registry fallback)
+ * and knownCompanyIds() (operator `?tenant=` validation; the union).
  *
  * Fallback: the cache reflects only what the registry contains. When the
- * registry is empty or unavailable, ApiKeyService.knownCompanyIds() unions
- * this (empty) set with the static BRAIN_API_KEYS set and returns the
- * latter unchanged — byte-identical to pre-0104 dev / single-tenant /
- * bootstrap behaviour. In prod the registry fills at runtime as tenants
- * authenticate (touch() from CredentialResolverService) or are provisioned
- * (register()).
+ * registry is empty or unavailable, both accessors return the static
+ * BRAIN_API_KEYS set — the pre-0104 dev / single-tenant / bootstrap
+ * behaviour. In prod the registry fills at runtime as tenants authenticate
+ * (touch() from CredentialResolverService) or are provisioned (register()).
  *
  * Optional SurrealService: unit-test fixtures construct this with no
  * connection; every method degrades to a pure in-memory no-op then.
@@ -100,6 +99,15 @@ export class TenantRegistryService implements OnModuleInit, OnModuleDestroy {
    * window until the next refresh (audit 2026-09-06, F9).
    */
   private readonly knownStatus = new Map<string, TenantStatus>();
+  /**
+   * Monotone counter bumped by every status write, plus the count each
+   * tenant's status was last written at. refresh() captures the counter
+   * before its read and keeps any status noted after that point: the row
+   * set it read is a snapshot from before such a write, so replaying it
+   * would lift a suspension that landed mid-read until the next refresh.
+   */
+  private statusWrites = 0;
+  private readonly statusWrittenAt = new Map<string, number>();
   /** companyId -> last epoch-ms we wrote lastSeen (touch throttle). */
   private readonly lastWriteAt = new Map<string, number>();
   private refreshTimer?: ReturnType<typeof setInterval>;
@@ -128,6 +136,16 @@ export class TenantRegistryService implements OnModuleInit, OnModuleDestroy {
    */
   activeCompanyIds(): string[] {
     return [...this.activeCache];
+  }
+
+  /**
+   * The lifecycle this pod has recorded for a tenant — from a refresh read,
+   * a register() write or a touch() echo — or undefined when the registry
+   * has never learned about it. Lets ApiKeyService tell "unknown: fall back
+   * to the static key" from "known non-active: keep it out of every roster".
+   */
+  statusOf(companyId: string): TenantStatus | undefined {
+    return this.knownStatus.get(companyId);
   }
 
   /**
@@ -263,6 +281,7 @@ export class TenantRegistryService implements OnModuleInit, OnModuleDestroy {
         ? status
         : 'suspended';
     this.knownStatus.set(companyId, known);
+    this.statusWrittenAt.set(companyId, ++this.statusWrites);
     if (known === 'active') this.activeCache.add(companyId);
     else this.activeCache.delete(companyId);
   }
@@ -372,13 +391,28 @@ export class TenantRegistryService implements OnModuleInit, OnModuleDestroy {
    * EVERY row, not only the active ones: a suspension written by another
    * pod has to be learned here, or a touch() on this pod would keep the
    * tenant's status unknown and its lastSeen writes would decide.
+   *
+   * The read is a snapshot taken before it returned, so a status this pod
+   * wrote while it was in flight is newer than the row it carries: those
+   * tenants keep their local status instead of being replayed from the
+   * snapshot, which is what stops a mid-read register(suspended) from
+   * being lifted until the next refresh.
    */
   private async refresh(): Promise<void> {
+    const readAt = this.statusWrites;
     try {
       const roster = await this.readRoster();
+      const concurrent = [...this.knownStatus].filter(
+        ([companyId]) => (this.statusWrittenAt.get(companyId) ?? 0) > readAt,
+      );
+      const written = new Set(concurrent.map(([companyId]) => companyId));
       this.activeCache.clear();
       this.knownStatus.clear();
-      for (const row of roster) this.noteStatus(row.companyId, row.status);
+      this.statusWrittenAt.clear();
+      for (const row of roster) {
+        if (!written.has(row.companyId)) this.noteStatus(row.companyId, row.status);
+      }
+      for (const [companyId, status] of concurrent) this.noteStatus(companyId, status);
     } catch (e) {
       // Transient DB error — keep the last-known-good cache rather than
       // wiping the roster (which would starve fan-out).

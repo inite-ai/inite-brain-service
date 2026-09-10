@@ -27,16 +27,15 @@ const FAIL_CLOSED =
 
 type Stubs = {
   surreal: { withScopedCompany: jest.Mock };
-  apiKeys: { knownCompanyIds: jest.Mock };
+  /** The fan-out roster as ApiKeyService.fanOutRoster() would hand it over: sorted. */
+  apiKeys: { fanOutRoster: jest.Mock };
   embedder: { primaryDimensions: jest.Mock; embedUncached: jest.Mock; activeSpaceId: jest.Mock };
-  /** The registry's active roster; absent = the process has no registry wired. */
-  registry?: { activeCompanyIds: jest.Mock };
 };
 
 function makeStubs(overrides: Partial<Stubs> = {}): Stubs {
   return {
     surreal: { withScopedCompany: jest.fn().mockResolvedValue([[]]) },
-    apiKeys: { knownCompanyIds: jest.fn().mockReturnValue(['acme']) },
+    apiKeys: { fanOutRoster: jest.fn().mockReturnValue(['acme']) },
     embedder: {
       primaryDimensions: jest.fn().mockReturnValue(1024),
       embedUncached: jest.fn().mockResolvedValue(new Array(1024).fill(0.1)),
@@ -53,7 +52,6 @@ function build(stubs: Stubs): { svc: CapabilityProbeService; metrics: MetricsSer
     stubs.apiKeys as any,
     metrics,
     stubs.embedder as any,
-    stubs.registry as any,
   );
   return { svc, metrics };
 }
@@ -202,7 +200,7 @@ describe('capability probe — scoped read', () => {
 
   it('SKIPS (does not fail) when the roster has no tenant to probe', async () => {
     const stubs = makeStubs();
-    stubs.apiKeys.knownCompanyIds.mockReturnValue([]);
+    stubs.apiKeys.fanOutRoster.mockReturnValue([]);
     const { svc, metrics } = build(stubs);
 
     const [scoped] = await svc.runOnce();
@@ -216,7 +214,7 @@ describe('capability probe — scoped read', () => {
     process.env.CAPABILITY_PROBE_TENANT = 'canary';
     try {
       const stubs = makeStubs();
-      stubs.apiKeys.knownCompanyIds.mockReturnValue(['acme', 'canary']);
+      stubs.apiKeys.fanOutRoster.mockReturnValue(['acme', 'canary']);
       const { svc } = build(stubs);
       await svc.runOnce();
       expect(stubs.surreal.withScopedCompany.mock.calls[0][0]).toBe('canary');
@@ -245,29 +243,22 @@ describe('capability probe — scoped read', () => {
     }
   });
 
-  it("picks the canary from the registry's ACTIVE roster before the static key set", async () => {
+  it('picks the canary as the FIRST tenant of the fan-out roster — the same one every tick', async () => {
+    // fanOutRoster() is sorted, so [0] is stable across ticks and pods; the
+    // probe must not re-order or re-source it.
     const stubs = makeStubs({
-      registry: { activeCompanyIds: jest.fn().mockReturnValue(['zed', 'beta']) },
+      apiKeys: { fanOutRoster: jest.fn().mockReturnValue(['beta', 'zed']) },
     });
     const { svc } = build(stubs);
     await svc.runOnce();
-    // Sorted for a stable canary; the static 'acme' is not consulted.
     expect(stubs.surreal.withScopedCompany.mock.calls[0][0]).toBe('beta');
+    expect(stubs.apiKeys.fanOutRoster).toHaveBeenCalled();
   });
 
-  it('falls back to the static key set only when the registry knows nothing', async () => {
-    const stubs = makeStubs({ registry: { activeCompanyIds: jest.fn().mockReturnValue([]) } });
-    const { svc } = build(stubs);
-    await svc.runOnce();
-    expect(stubs.surreal.withScopedCompany.mock.calls[0][0]).toBe('acme');
-  });
-
-  it('a suspended tenant named by the override is not known — it is refused, not probed', async () => {
+  it('a suspended tenant named by the override is not on the fan-out roster — refused, not probed', async () => {
     process.env.CAPABILITY_PROBE_TENANT = 'sleeper';
     try {
-      const stubs = makeStubs({
-        registry: { activeCompanyIds: jest.fn().mockReturnValue(['acme']) },
-      });
+      const stubs = makeStubs({ apiKeys: { fanOutRoster: jest.fn().mockReturnValue(['acme']) } });
       const { svc } = build(stubs);
       const [scoped] = await svc.runOnce();
       expect(scoped?.outcome).toBe('error');
@@ -512,6 +503,66 @@ describe('capability probe — armed series', () => {
     if (savedFlag === undefined) delete process.env.CAPABILITY_PROBE_ENABLED;
     else process.env.CAPABILITY_PROBE_ENABLED = savedFlag;
   });
+
+  /**
+   * Round-2 audit F6 — the SEQUENCE, not each outcome in isolation. The
+   * withdrawal above used to be permanent, so bootstrap → empty roster
+   * (skipped) → tenant appears → busy, busy, busy left `scoped_read` with
+   * neither last_success nor armed. `last_success or armed` then had no
+   * series at all and, with noDataState: OK, the staleness alert could
+   * never fire however long the read path stayed unmeasured.
+   */
+  it('a capability that goes skipped → busy is RE-ARMED, and later busy ticks do not reset the clock', async () => {
+    const savedFlag = process.env.CAPABILITY_PROBE_ENABLED;
+    process.env.CAPABILITY_PROBE_ENABLED = '1';
+    // The first tick has no tenant at all — an empty fan-out roster.
+    const stubs = makeStubs({ apiKeys: { fanOutRoster: jest.fn().mockReturnValue([]) } });
+    const { svc, metrics } = build(stubs);
+    const armed = () =>
+      series(metrics, 'brain_capability_probe_armed_timestamp_seconds', {
+        capability: 'scoped_read',
+      });
+    const lastSuccess = () =>
+      series(metrics, 'brain_capability_probe_last_success_timestamp_seconds', {
+        capability: 'scoped_read',
+      });
+
+    svc.onApplicationBootstrap();
+    const bootArm = await armed();
+    expect(bootArm).toBeDefined();
+
+    // Tick 1 — no tenant in the roster yet: legitimately `skipped`, and
+    // the armed series is withdrawn so it cannot read as "never worked".
+    const [skipped] = await svc.runOnce();
+    expect(skipped!.outcome).toBe('skipped');
+    expect(await armed()).toBeUndefined();
+
+    // The tenant appears, and the pool is saturated from here on.
+    stubs.apiKeys.fanOutRoster.mockReturnValue(['acme']);
+    stubs.surreal.withScopedCompany.mockRejectedValue(new Error(ACQUIRE_TIMEOUT));
+    const [firstBusy] = await svc.runOnce();
+    expect(firstBusy!.outcome).toBe('busy');
+    const reArmed = await armed();
+    expect(reArmed).toBeDefined();
+
+    // Two more busy ticks: still armed, and the arming time has NOT moved
+    // — otherwise sustained saturation would push the deadline out forever.
+    await svc.runOnce();
+    await svc.runOnce();
+    expect(await armed()).toBe(reArmed);
+    // Nothing ever succeeded, so the alert measures age from arming.
+    expect(await lastSuccess()).toBeUndefined();
+    expect(await ticks(metrics, 'scoped_read', 'busy')).toBe(3);
+
+    // And once it does serve, the success series takes over.
+    stubs.surreal.withScopedCompany.mockResolvedValue([[]]);
+    await svc.runOnce();
+    expect(await lastSuccess()).toBeDefined();
+
+    await svc.onApplicationShutdown();
+    if (savedFlag === undefined) delete process.env.CAPABILITY_PROBE_ENABLED;
+    else process.env.CAPABILITY_PROBE_ENABLED = savedFlag;
+  });
 });
 
 describe('capability coverage gate', () => {
@@ -539,7 +590,12 @@ describe('capability coverage gate', () => {
   }
 
   it('finds the readiness checks it is supposed to gate', () => {
-    expect(readinessChecks().sort()).toEqual(['dbOk', 'embedderReady', 'scopedOk']);
+    expect(readinessChecks().sort()).toEqual([
+      'dbOk',
+      'embedderReady',
+      'evidenceStoreOk',
+      'scopedOk',
+    ]);
   });
 
   it('every readiness check is continuously exercised by some probe', () => {

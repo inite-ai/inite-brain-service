@@ -40,6 +40,13 @@ export interface ReindexOptions {
   allTables?: boolean;
   /** Retry selector: sweep exactly these tables (REINDEX_SWEPT_COLUMNS). */
   tables?: string[];
+  /**
+   * Repair selector: rewrite ONLY rows whose vector is present and not `dim`
+   * wide. The corpus census (VectorCorpusService) passes its primary
+   * dimension here so one stray row costs one embed, not a full-tenant
+   * re-embed.
+   */
+  widthMismatchOnly?: { dim: number };
 }
 
 /**
@@ -73,7 +80,7 @@ export class ReindexEmbeddingsService {
     const started = Date.now();
     const dryRun = opts.dryRun === true;
     const maxFacts = opts.maxFacts ?? Number.MAX_SAFE_INTEGER;
-    const tenants = opts.tenant ? [opts.tenant] : this.apiKeys.knownCompanyIds();
+    const tenants = opts.tenant ? [opts.tenant] : this.apiKeys.fanOutRoster();
 
     const allTables = opts.allTables === true;
     const breakdown = allTables || opts.tables !== undefined;
@@ -89,6 +96,9 @@ export class ReindexEmbeddingsService {
           remaining: maxFacts - factsScanned,
           allTables,
           ...(opts.tables !== undefined ? { tables: opts.tables } : {}),
+          ...(opts.widthMismatchOnly !== undefined
+            ? { widthMismatchOnly: opts.widthMismatchOnly }
+            : {}),
         });
         parts.push({ key: companyId, outcome: tenantResult.outcome });
         factsScanned += tenantResult.factsScanned;

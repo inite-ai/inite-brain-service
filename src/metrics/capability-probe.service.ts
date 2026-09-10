@@ -1,4 +1,5 @@
 import {
+  Inject,
   Injectable,
   Logger,
   OnApplicationBootstrap,
@@ -7,10 +8,14 @@ import {
 } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
-import { TenantRegistryService } from '../auth/tenant-registry.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { MetricsService } from './metrics.service';
 import { envFlagNotDisabled } from '../common/env-validation';
+import { evidenceStorageScheme } from '../common/evidence-flags';
+import {
+  EVIDENCE_STORAGE_ADAPTERS,
+  type EvidenceStorageRegistry,
+} from '../evidence/storage/storage-adapter';
 import {
   CAPABILITY_NAMES,
   classifyProbeFailure,
@@ -91,8 +96,9 @@ const REMEDY =
  * `min by (capability)` — one bad pod is enough to page.
  *
  * ── Cost ─────────────────────────────────────────────────────────────────
- * Per pod per minute: one indexless `LIMIT 1` read, and one embed of a
- * four-word string. On `EMBEDDER_PROVIDER=bge-m3` the embed is local CPU;
+ * Per pod per minute: one indexless `LIMIT 1` read, one embed of a
+ * four-word string, and — with EVIDENCE_STORAGE_SCHEME=s3 — one HeadBucket.
+ * On `EMBEDDER_PROVIDER=bge-m3` the embed is local CPU;
  * on `openai` it is a real (tiny) API call that shows up in
  * `brain_openai_calls_total` — raise `CAPABILITY_PROBE_INTERVAL_MS` if that
  * matters more than a 60s detection floor.
@@ -115,6 +121,13 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
   /** The tick in progress, so shutdown can wait for it. */
   private inFlight: Promise<void> | undefined;
   private readonly last = new Map<CapabilityName, LastProbeReport>();
+  /** Capabilities whose armed series currently STANDS — bootstrap arms
+   *  every one, a `skipped` tick withdraws, the first tick that actually
+   *  runs re-arms. Tracked here so a later tick cannot reset the clock. */
+  private readonly armed = new Set<CapabilityName>();
+  /** Capabilities that have reported `serving` at least once in this
+   *  process: `last_success` then exists and the armed fallback is moot. */
+  private readonly served = new Set<CapabilityName>();
 
   // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token and cannot be folded into an options object without breaking DI
   constructor(
@@ -125,9 +138,11 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
     // unit fixture) still gets the scoped-read probe; the embed probe then
     // reports `skipped` rather than pretending to have run.
     @Optional() private readonly embedder?: EmbedderService,
-    // The production roster. Optional for the same unit fixtures; without
-    // it the canary comes from the static key set alone.
-    @Optional() private readonly registry?: TenantRegistryService,
+    // The blob-adapter registry (global EvidenceStorageModule). Optional
+    // for the same fixtures; without it the store probe reports `skipped`.
+    @Optional()
+    @Inject(EVIDENCE_STORAGE_ADAPTERS)
+    private readonly storage?: EvidenceStorageRegistry,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -139,10 +154,7 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
     // series for the staleness alert to measure, and noDataState: OK turns
     // "broken since boot" into silence — the exact failure the probe exists
     // to catch.
-    const armedAt = Date.now() / 1000;
-    for (const capability of CAPABILITY_NAMES) {
-      this.metrics.capabilityProbeArmed.set({ capability }, armedAt);
-    }
+    for (const capability of CAPABILITY_NAMES) this.arm(capability);
     this.timer = setInterval(() => void this.tick(), this.intervalMs);
     this.timer.unref();
     this.logger.log(
@@ -189,7 +201,11 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
    * could disagree with the one being monitored.
    */
   async runOnce(): Promise<ProbeReport[]> {
-    const reports = [await this.probeScopedRead(), await this.probeEmbed()];
+    const reports = [
+      await this.probeScopedRead(),
+      await this.probeEmbed(),
+      await this.probeEvidenceStore(),
+    ];
     for (const report of reports) this.publish(report);
     return reports;
   }
@@ -223,12 +239,25 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
   private publish(report: ProbeReport): void {
     this.last.set(report.capability, { ...report, at: new Date().toISOString() });
     this.metrics.recordCapabilityProbe(report.capability, report.outcome);
+    if (report.outcome === 'serving') this.served.add(report.capability);
     if (report.outcome === 'skipped') {
       // Nothing to exercise here (no embedder wired, no tenant yet): a
       // capability that legitimately never runs must not read as "armed and
       // never succeeded" to the staleness alert. Withdraw its armed series;
-      // a later tick that does run re-publishes success on its own.
+      // a later tick that does run re-arms it below.
+      this.armed.delete(report.capability);
       this.metrics.capabilityProbeArmed.remove({ capability: report.capability });
+    } else if (!this.served.has(report.capability)) {
+      // Round-2 audit F6: the withdrawal above used to be permanent, so
+      // the sequence bootstrap → empty roster (skipped) → tenant appears →
+      // busy, busy, busy left `scoped_read` with neither last_success nor
+      // armed. `last_success or armed` then had NO series at all and, with
+      // noDataState: OK, the staleness alert could never fire however long
+      // the capability stayed unmeasured. A capability that RAN and has
+      // never once succeeded is exactly what the armed fallback is for, so
+      // re-arm it here — once: arm() keeps the first arming time, so a run
+      // of `busy` ticks cannot keep pushing the deadline out.
+      this.arm(report.capability);
     }
     if (report.outcome === 'serving') return;
     const line = `capability '${report.capability}' is ${report.outcome}: ${report.detail ?? '—'}`;
@@ -237,12 +266,24 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
   }
 
   /**
+   * Publish the armed-at series for one capability, ONCE. The timestamp is
+   * the moment of arming, never now(): it must not claim a success that
+   * never happened, and it must still give a legitimately slow first
+   * success (a cold model warmup) the alert's full window. Re-arming an
+   * already-armed capability is a no-op for exactly that reason.
+   */
+  private arm(capability: CapabilityName): void {
+    if (this.armed.has(capability)) return;
+    this.armed.add(capability);
+    this.metrics.capabilityProbeArmed.set({ capability }, Date.now() / 1000);
+  }
+
+  /**
    * The canary tenant, or why there is none.
    *
-   * The registry's ACTIVE roster is the source: it is what production
-   * provisions from and what a suspension removes a tenant from. The static
-   * key set (BRAIN_API_KEYS) only stands in where the registry knows nothing
-   * — dev, unit fixtures, a fresh install. Sorted, so the probe hits the
+   * The fan-out roster (ApiKeyService.fanOutRoster) is the source: the
+   * registry's ACTIVE tenants, with the static key set standing in only
+   * where the registry knows nothing. It is sorted, so the probe hits the
    * same database every tick and its cost is bounded.
    *
    * An explicit CAPABILITY_PROBE_TENANT must name a tenant the process
@@ -257,7 +298,7 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
    * load by the roster size to re-answer the same question.
    */
   private probeTenant(): { tenant: string } | { tenant?: undefined; reason: ProbeReport } {
-    const known = this.knownRoster();
+    const known = this.apiKeys.fanOutRoster();
     if (this.tenantOverride) {
       if (known.includes(this.tenantOverride)) return { tenant: this.tenantOverride };
       return {
@@ -280,13 +321,6 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
         detail: 'no tenant in the roster to probe (set CAPABILITY_PROBE_TENANT to pin one)',
       },
     };
-  }
-
-  /** Registry-active first, static keys only when the registry is silent. */
-  private knownRoster(): string[] {
-    const active = this.registry?.activeCompanyIds() ?? [];
-    const roster = active.length > 0 ? active : this.apiKeys.knownCompanyIds();
-    return [...new Set(roster)].sort();
   }
 
   private async probeScopedRead(): Promise<ProbeReport> {
@@ -372,6 +406,55 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
               `The primary is not warm (see its warmup status on /ready and the admin health ` +
               `grid); it retries on its own`
             : `embedder: ${probeErrorDetail(e)}`,
+      };
+    }
+  }
+
+  /**
+   * Exercise the SELECTED blob store (EVIDENCE_STORAGE_SCHEME): one
+   * HeadBucket against s3 under the probe deadline. The fs adapter has no
+   * remote dependency, so a local-disk deployment reports `skipped`, not
+   * a green that proves nothing. s3 selected with no adapter registered
+   * (bucket unset at boot) is a conclusive `error` — the verdict /ready
+   * gives — and a 403 from the store classifies `unauthorized`: alive,
+   * but the credentials no longer authorize, the scoped-pool incident's
+   * shape on a different component.
+   */
+  private async probeEvidenceStore(): Promise<ProbeReport> {
+    const scheme = evidenceStorageScheme();
+    if (!this.storage) {
+      return {
+        capability: 'evidence_store',
+        outcome: 'skipped',
+        detail: 'no evidence storage registry in this process',
+      };
+    }
+    const adapter = this.storage.get(scheme);
+    if (!adapter) {
+      return {
+        capability: 'evidence_store',
+        outcome: 'error',
+        detail:
+          `no '${scheme}' evidence storage adapter is registered — EVIDENCE_STORAGE_SCHEME=` +
+          `${scheme} needs its store configured at boot (EVIDENCE_S3_BUCKET); uploads answer ` +
+          `503 until then`,
+      };
+    }
+    if (!adapter.probe) {
+      return {
+        capability: 'evidence_store',
+        outcome: 'skipped',
+        detail: `EVIDENCE_STORAGE_SCHEME=${scheme}: local disk, nothing remote to exercise`,
+      };
+    }
+    try {
+      await withDeadline(adapter.probe(), PROBE_DEADLINE_MS);
+      return { capability: 'evidence_store', outcome: 'serving' };
+    } catch (e) {
+      return {
+        capability: 'evidence_store',
+        outcome: classifyProbeFailure(e),
+        detail: `evidence store (${scheme}): ${probeErrorDetail(e)}`,
       };
     }
   }

@@ -1,0 +1,18 @@
+# Local-dev overrides. Copy to docker-compose.override.yml (gitignored;
+# compose picks it up automatically) — it is NOT applied as .example.
+#
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#   docker compose up -d
+#
+# Why the base file publishes no app port: a fixed host port allows
+# exactly one container, so `docker compose up -d --scale brain=3` fails
+# on the second one. Production runs N identical replicas behind Traefik
+# and reaches them over the network, so the port mapping lives here
+# instead — where it belongs, since it is a laptop convenience.
+#
+# Note this override and `--scale brain=N` are mutually exclusive for the
+# same reason: with a mapping in place, only one replica can bind 3030.
+services:
+  brain:
+    ports:
+      - "${BRAIN_HOST_PORT:-3030}:3000"

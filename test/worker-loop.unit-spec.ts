@@ -62,6 +62,7 @@ function makeJobClaim(
     companyId?: string;
     attempts?: number;
     payload?: Record<string, unknown> | null;
+    claimEpoch?: number | null;
   } = {},
 ): JobClaim {
   return {
@@ -72,6 +73,7 @@ function makeJobClaim(
     attempts: opts.attempts ?? 1,
     payload: opts.payload ?? null,
     leaseUntil: '2030-01-01T00:05:00Z',
+    claimEpoch: opts.claimEpoch ?? null,
   };
 }
 
@@ -135,6 +137,29 @@ describe('JobDispatcherService.dispatch', () => {
     expect(claimSvc.calls.completed[0]!.recordId).toBe('job_run:abc');
     expect(claimSvc.calls.completed[0]!.result).toEqual({ ok: true });
     expect(claimSvc.calls.failed).toHaveLength(0);
+  });
+
+  it('every write on the claim carries the lease epoch it was taken under', async () => {
+    // The epoch is the fence: a dispatch whose leadership lapsed must not
+    // be able to renew or terminally write a row claimed again since.
+    const claim = makeJobClaim({ claimEpoch: 4 });
+    const claimSvc = makeClaimSvc();
+    const reg = {
+      jobType: 'dreams' as JobType,
+      handler: async () => ({ ok: true }),
+      ttlSeconds: 3,
+      maxAttempts: 3,
+    };
+    await callDispatch(mkDispatcher(claimSvc), claim, reg);
+    expect(claimSvc.complete.mock.calls[0]![0]).toMatchObject({ claimEpoch: 4 });
+    const throwing = makeClaimSvc();
+    await callDispatch(mkDispatcher(throwing), claim, {
+      ...reg,
+      handler: async () => {
+        throw new Error('boom');
+      },
+    });
+    expect(throwing.fail.mock.calls[0]![0]).toMatchObject({ claimEpoch: 4 });
   });
 
   it('a returned FAILED batch outcome is treated like a throw: fail(), result persisted', async () => {

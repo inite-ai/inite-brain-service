@@ -22,9 +22,10 @@ interface DbTrace {
   errored?: { message: string } | null;
 }
 
-function harness(opts: { persist: boolean }) {
+function harness(opts: { persist: boolean; bootstrapMs?: number }) {
   const local = new Subject<TraceListItem>();
   const calls: string[] = [];
+  let cold = (opts.bootstrapMs ?? 0) > 0;
   const traces = {
     observe: () => local.asObservable(),
     persistsToDb: () => opts.persist,
@@ -39,17 +40,23 @@ function harness(opts: { persist: boolean }) {
   } as unknown as TraceBufferService;
   const state = { rows: [] as DbTrace[], froms: [] as Date[] };
   const surreal = {
-    withCompany: async (_c: string, fn: (db: any) => Promise<any>) =>
-      fn({
+    withCompany: async (_c: string, fn: (db: any) => Promise<any>) => {
+      if (cold) {
+        // The first caller through a tenant's door pays its schema bootstrap.
+        cold = false;
+        await new Promise<void>((r) => setTimeout(r, opts.bootstrapMs));
+      }
+      return fn({
         query: async (sql: string, vars?: { c: string; from: Date }) => {
-          if (sql.startsWith('RETURN time::now()')) return [T0];
+          if (sql.startsWith('RETURN time::now()')) return [new Date()];
           state.froms.push(vars!.from);
           const rows = state.rows
             .filter((r) => r.companyId === vars!.c && r.ts > vars!.from)
             .sort((a, b) => a.ts.getTime() - b.ts.getTime());
           return [rows];
         },
-      }),
+      });
+    },
   } as unknown as SurrealService;
   const svc = new TraceViewService(traces, surreal);
   const seen: TraceListItem[] = [];
@@ -85,7 +92,7 @@ function dbTrace(over: Partial<DbTrace> = {}): DbTrace {
 }
 
 describe('TraceViewService', () => {
-  beforeEach(() => jest.useFakeTimers());
+  beforeEach(() => jest.useFakeTimers({ now: T0 }));
   afterEach(() => jest.useRealTimers());
 
   it('list and get pass through to the buffer, tenant-scoped', async () => {
@@ -150,6 +157,17 @@ describe('TraceViewService', () => {
     h.state.rows.push(dbTrace({ requestId: 'req-lagged', ts: new Date(late.getTime() - 5_000) }));
     await jest.advanceTimersByTimeAsync(TRACE_STREAM_POLL_MS * 2);
     expect(h.seen.map((t) => t.requestId)).toEqual(['req-late', 'req-lagged']);
+    h.sub.unsubscribe();
+  });
+
+  it('emits a trace recorded while the first tick paid the tenant bootstrap', async () => {
+    const h = harness({ persist: true, bootstrapMs: 3_000 });
+    await jest.advanceTimersByTimeAsync(1_000);
+    // Recorded mid-bootstrap: before the clock read that ends it, and after
+    // the subscription the floor must be anchored at.
+    h.state.rows.push(dbTrace({ requestId: 'req-cold', ts: new Date(T0.getTime() + 1_000) }));
+    await jest.advanceTimersByTimeAsync(2_000 + TRACE_STREAM_POLL_MS);
+    expect(h.seen.map((t) => t.requestId)).toEqual(['req-cold']);
     h.sub.unsubscribe();
   });
 

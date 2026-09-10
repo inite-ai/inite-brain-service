@@ -46,7 +46,7 @@ export class CalibrationRefitRunnerService {
   ) {}
 
   async refitSourceTrust(onProgress?: RefitProgress): Promise<RefitOutcome> {
-    const tenants = this.apiKeys.knownCompanyIds();
+    const tenants = this.apiKeys.fanOutRoster();
     let upserted = 0;
     for (const companyId of tenants) {
       try {
@@ -63,7 +63,7 @@ export class CalibrationRefitRunnerService {
   }
 
   async refitCalibration(onProgress?: RefitProgress): Promise<RefitOutcome> {
-    const tenants = this.apiKeys.knownCompanyIds();
+    const tenants = this.apiKeys.fanOutRoster();
     const allPairs: CalibrationPair[] = [];
     for (const companyId of tenants) {
       try {
@@ -119,8 +119,7 @@ export class CalibrationRefitRunnerService {
       createdAt?: string | undefined;
     }>
   > {
-    const tenants = this.apiKeys.knownCompanyIds();
-    const host = tenants[0];
+    const host = this.apiKeys.hostTenant();
     if (!host) return [];
     return this.surreal.withCompany(host, async (db) => {
       const [rows] = await db.query<
@@ -368,8 +367,7 @@ export class CalibrationRefitRunnerService {
   }
 
   private async persistCalibrationMap(map: CalibrationMap): Promise<void> {
-    const tenants = this.apiKeys.knownCompanyIds();
-    const host = tenants[0];
+    const host = this.apiKeys.hostTenant();
     if (!host) {
       this.logger.warn('calibration persist skipped — no known tenants to host the row');
       return;

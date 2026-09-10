@@ -36,7 +36,10 @@ describe('Fovea evidence-capability gate e2e', () => {
   async function capabilityCounter(outcome: 'checked' | 'downgraded'): Promise<number> {
     const { body } = await f.app.get(MetricsService).serialize();
     const m = body.match(
-      new RegExp(`^brain_evidence_capability_total\\{outcome="${outcome}"\\} (\\d+)`, 'm'),
+      new RegExp(
+        `^brain_evidence_capability_total\\{[^}]*outcome="${outcome}"[^}]*\\} (\\d+)`,
+        'm',
+      ),
     );
     return m ? parseInt(m[1]!, 10) : 0;
   }

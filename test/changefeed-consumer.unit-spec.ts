@@ -358,7 +358,7 @@ function mkConsumer(opts: {
   );
   const drain = { enabled: true, sources: [], perBatchLimit: 500, consumeForTenant };
   const tryAcquire = opts.acquire ?? jest.fn(async () => true);
-  const apiKeys = { knownCompanyIds: () => opts.tenants };
+  const apiKeys = { fanOutRoster: () => opts.tenants };
   const svc = new ChangefeedConsumerService(
     apiKeys as never,
     drain as never,

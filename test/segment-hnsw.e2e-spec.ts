@@ -68,6 +68,32 @@ describe('segment HNSW index: retired indexes gone, segment leg rides the one th
     });
     expect(fields.embedding).toBeDefined();
     expect(fields.altEmbedding).toBeUndefined();
+    // 0140: `REMOVE FIELD altEmbedding` leaves the server-generated
+    // `altEmbedding.*` element definition behind, and while it stands a
+    // SCHEMAFULL write of the retired column is still accepted AND STORED
+    // (measured on 3.2.4). A retired column has to reject writes.
+    expect(fields['altEmbedding.*']).toBeUndefined();
+    const write = await surreal.withCompany(f.companyId, async (db) => {
+      const [ents] = await db.query<[Array<{ id: unknown }>]>(
+        `CREATE knowledge_entity SET type = 'other', canonicalName = 'alt probe'`,
+      );
+      const e = (ents as Array<{ id: unknown }>)[0]!.id;
+      const row = `entityId = $e, predicate = 'alt_probe', object = 'o', confidence = 0.9,
+         validFrom = time::now(), source = { vertical: 'rent', eventId: 'alt.probe' }`;
+      // Baseline: the identical row WITHOUT the retired column is accepted,
+      // so the rejection below is about altEmbedding and nothing else.
+      await db.query(`CREATE knowledge_fact SET ${row}`, { e });
+      try {
+        await db.query(`CREATE knowledge_fact SET ${row}, altEmbedding = [1.0]`, { e });
+        const [stored] = await db.query<[Array<{ id: unknown }>]>(
+          `SELECT id FROM knowledge_fact WHERE altEmbedding != NONE`,
+        );
+        return { rejected: false, stored: ((stored as unknown[]) ?? []).length };
+      } catch (err) {
+        return { rejected: true, message: (err as Error).message };
+      }
+    });
+    expect(write).toMatchObject({ rejected: true, message: expect.stringMatching(/altEmbedding/) });
 
     const create = await f.http.post('/v1/admin/maintenance/hnsw').set(auth()).send({});
     expect(create.status).toBe(201);
