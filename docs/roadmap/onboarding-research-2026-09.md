@@ -347,6 +347,21 @@ RFC 8707 `resource` → audience all exist.
 what the consent screen shows when a self-registered client asks for
 memory scopes.
 
+**After the connection works.** OAuth ends at "I can call brain" and
+leaves the product part undone: a workspace called `co_u_9f2c…`, empty
+memory, no domain. Two MCP tools close that inside the conversation the
+person is already having — `workspace_status` (tenant, memory counts,
+packs, and a derived `nextSteps` checklist) and `rename_workspace`, which
+is registered only while the workspace is unnamed and disappears once it
+is used. Onboarding tools that stay forever would be the same context tax
+§ P2-9 complains about; these shrink as setup completes.
+
+`invite_teammate` is NOT built. Membership lives in the auth-service, so
+it needs brain to hold an operator credential there — a real expansion of
+what brain can do, and a decision rather than a task. Until then
+`workspace_status` says a personal workspace is personal and leaves the
+invitation to a human.
+
 **Where issued keys still belong** (§ Wave 1 item 7): CI, scripts,
 self-hosted deployments — anywhere there is no browser to complete an
 OAuth flow. The two paths are complements, not alternatives.
