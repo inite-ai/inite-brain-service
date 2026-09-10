@@ -158,9 +158,17 @@ describe('FsEvidenceStorageAdapter', () => {
       // A stray name, a tmp straggler, and a well-formed hash filed under
       // the WRONG fan-out shard: none of them is an addressable blob, so
       // none may ever be offered to a deleter.
+      //
+      // The third name is derived from this blob's shard rather than
+      // hard-coded. It used to be `'b'.repeat(64)`, which is only in the
+      // WRONG shard while the random blob's hash does not itself start
+      // with `bb` — a 1-in-256 draw per run, and when it came up the file
+      // was correctly addressable and the assertion failed for a reason
+      // the test is not about.
+      const foreignShardName = (shard.endsWith('bb') ? 'c' : 'b').repeat(64);
       await writeFile(join(shard, 'README'), 'x');
       await writeFile(join(shard, '.tmp-abc'), 'x');
-      await writeFile(join(shard, 'b'.repeat(64)), 'x');
+      await writeFile(join(shard, foreignShardName), 'x');
 
       expect((await collect('co_a')).map((e) => e.storageRef)).toEqual([`fs://co_a/${hash}`]);
     });
