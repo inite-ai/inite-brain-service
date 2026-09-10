@@ -42,10 +42,20 @@ type DetailOverrides = Partial<ReadinessReport['detail']>;
 
 const at = (secondsAgo: number) => new Date(Date.now() - secondsAgo * 1000).toISOString();
 
+interface ChangefeedFixture {
+  enabled?: boolean;
+  pending?: number;
+  /** leaderId on a live changefeed_consumer lease, if any pod holds one. */
+  leaseHolder?: string;
+  /** Our own leaderId — the lease matches it when this pod is the leader. */
+  identity?: string;
+}
+
 function grid(
   readiness: Partial<Omit<ReadinessReport, 'detail'>> & { detail?: DetailOverrides } = {},
   last: LastReports = {},
   intent: IntentFixture = {},
+  changefeed: ChangefeedFixture = {},
 ) {
   const report: ReadinessReport = {
     ...READY,
@@ -68,16 +78,31 @@ function grid(
     } as never,
     {
       stats: () => ({
-        enabled: false,
+        enabled: changefeed.enabled ?? false,
         inFlight: false,
         lastTickAt: null,
-        lastPendingRemaining: 0,
+        lastPendingRemaining: changefeed.pending ?? 0,
         totalConsumed: 0,
         tickCount: 0,
         lastError: null,
         sources: [],
         perBatchLimit: 100,
       }),
+    } as never,
+    {
+      identity: () => changefeed.identity ?? 'pod-a#1',
+      list: async () =>
+        changefeed.leaseHolder === undefined
+          ? []
+          : [
+              {
+                name: 'changefeed_consumer',
+                leaderId: changefeed.leaseHolder,
+                leaseUntil: new Date(Date.now() + 60_000).toISOString(),
+                heartbeatAt: new Date().toISOString(),
+                acquiredAt: new Date().toISOString(),
+              },
+            ],
     } as never,
   );
   return svc.build();
@@ -289,6 +314,41 @@ describe('health grid — wire contract and provenance', () => {
       'changefeed consumer',
       'calibration',
     ]);
+  });
+
+  it('says NOT LEADER instead of "ok, 0 pending" on a replica that does not consume', async () => {
+    // The consumer ticks only under the changefeed_consumer lease, so on
+    // every other replica the counters are the initial values. Rendering
+    // them green was a claim about work happening on a different pod.
+    const r = await row(
+      'changefeed consumer',
+      {},
+      {},
+      {},
+      { enabled: true, leaseHolder: 'pod-b#7', identity: 'pod-a#1' },
+    );
+    expect(r.status).toBe('disabled');
+    expect(r.message).toContain('not leader');
+    expect(r.message).toContain('pod-b#7');
+    expect(r.message).not.toContain('0 pending');
+  });
+
+  it('reports its own counters on the replica that holds the lease', async () => {
+    const r = await row(
+      'changefeed consumer',
+      {},
+      {},
+      {},
+      { enabled: true, pending: 5, leaseHolder: 'pod-a#1', identity: 'pod-a#1' },
+    );
+    expect(r.status).toBe('ok');
+    expect(r.message).toContain('5 pending');
+  });
+
+  it('still says disabled when the consumer is switched off entirely', async () => {
+    const r = await row('changefeed consumer', {}, {}, {}, { enabled: false });
+    expect(r.status).toBe('disabled');
+    expect(r.message).toContain('AUDIT_CHANGEFEED_ENABLED=0');
   });
 
   it('takes the database row from the readiness report, latency included — no second ping', async () => {

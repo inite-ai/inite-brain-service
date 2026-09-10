@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { Semaphore } from '../../common/semaphore';
 import type { EmbedderProvider } from './embedder-provider.interface';
 import { providerIdOf, type EmbeddingSpaceConfig } from './embedding-space';
+import { applyTransformersCacheDir } from '../transformers-cache';
 
 export interface FeatureExtractionPipeline {
   (
@@ -111,6 +112,7 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
       cfg.loadPipeline ??
       (async () => {
         const transformers = await import('@xenova/transformers');
+        applyTransformersCacheDir(transformers);
         return (await transformers.pipeline(
           'feature-extraction',
           this.modelId,

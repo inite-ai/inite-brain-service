@@ -37,21 +37,39 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        # `rollback` redeploys the last image that passed BOTH the
-        # readiness gate and the external smoke test, recorded on the box
-        # at .last-good-image. It is the manual twin of the automatic
-        # rollback the deploy job performs when its own verification
-        # fails; see § Rollback in docs/operations.md.
+        # `rollback` redeploys the newest digest in the confirmed-good
+        # history that is NOT the one running, so it steps BACK off a
+        # release that went green and then turned out to be bad. It is the
+        # manual twin of the automatic rollback the deploy job performs
+        # when its own verification fails; see § Rollback in
+        # docs/operations.md.
         description: 'deploy | restart | logs | rollback'
         required: false
         default: 'deploy'
+      image_digest:
+        # Only read by action=rollback, and only accepted when the digest
+        # appears in .good-image-history — an arbitrary digest typed into
+        # a box is not a verified release.
+        description: 'rollback target digest (must be in the confirmed-good history); blank = newest good that is not running'
+        required: false
+        default: ''
 
-# Cancel an in-flight auto-deploy when a new push lands. Manual
-# dispatches keep their own concurrency group so they don't fight
-# auto-deploys.
+# ONE group for every run that can mutate production state on the box,
+# and it QUEUES rather than cancels.
+#
+# It used to be keyed by `github.event_name`, so a push deploy and a
+# manual dispatch ran concurrently over the same state files: run A could
+# pass smoke, run B overwrite `.pending-image`, and A's finalize then
+# promote B as verified (audit F2). Serialising by event name did not help
+# — the two groups were the two racers.
+#
+# `cancel-in-progress: false` is equally load-bearing: the deploy state
+# machine spans three jobs (deploy → smoke → finalize) and cancelling
+# between them leaves a half-applied transaction on the box with nobody
+# left to promote or undo it.
 concurrency:
-  group: deploy-brain-${{ github.event_name }}
-  cancel-in-progress: true
+  group: deploy-brain-production
+  cancel-in-progress: false
 
 env:
   PROJECT_NAME: inite-brain-service
@@ -228,15 +246,13 @@ jobs:
           SEARCH_SEGMENT_LANE_RERANK=1
           SEARCH_FACT_RERANK=1
           # ── Search stack ──
+          # Provisioning follows this flag by default (the schema-ready
+          # hook and the nightly sweep read SEARCH_HNSW_ENABLED unless
+          # HNSW_PROVISION_ENABLED is set explicitly), so the line above
+          # also turns index creation on — no separate pin restating it.
+          # Provisioning only ADDS absent indexes, always CONCURRENTLY,
+          # capped at 5 tenants starting builds per nightly run.
           SEARCH_HNSW_ENABLED=1
-          # …and the provisioning that makes the line above true. Without
-          # it the KNN leg is on for every tenant while index creation is a
-          # human remembering to POST /v1/admin/maintenance/hnsw, and a
-          # tenant nobody remembered is served k arbitrary rows with a null
-          # distance rather than an error (#506). Provisioning only ADDS
-          # absent indexes, always CONCURRENTLY, capped at 5 tenants
-          # starting builds per nightly run.
-          HNSW_PROVISION_ENABLED=1
           SEARCH_COMBINED_VECTOR_GRAPH=1
           SEARCH_HIGHLIGHT_ENABLED=1
           SEARCH_USAGE_RECORDING_ENABLED=1
@@ -350,13 +366,12 @@ jobs:
           PRIVACY_SEGMENT_USER_FENCE=1
           PRIVACY_COMPOSER_USER_SCOPE=1
           # ── Capability probes (active monitoring) ──
-          # ON deliberately, and this is the one line that makes the monitor
-          # real: a probe nobody enables repeats the bug it was written for.
-          # Both incidents it covers (#502 scoped pool anonymous, #503
-          # embedder answering cross-space) reached production while /health
-          # and /ready were green. Cost: one LIMIT 1 read + one short embed
-          # per pod per minute. Kill switch: set to 0 and restart.
-          CAPABILITY_PROBE_ENABLED=1
+          # Not pinned here: the probe is on unless CAPABILITY_PROBE_ENABLED=0,
+          # which is also its kill switch (set it and restart). Cost: one
+          # LIMIT 1 read + one short embed per pod per minute; the incidents
+          # it covers (#502 scoped pool anonymous, #503 embedder answering
+          # cross-space) both reached production while /health and /ready
+          # were green.
           # ── Packs / MCP / QA ──
           MCP_PACK_EXTERNAL_TOOLS_ENABLED=1
           AGENT_QA_TOOLS_V2=1
@@ -452,6 +467,12 @@ jobs:
         env:
           IMAGE_FROM_CI: ${{ needs.verify.outputs.image }}
           ACTION: ${{ github.event.inputs.action }}
+          # Explicit rollback target (optional); validated against the
+          # confirmed-good history below.
+          IMAGE_INPUT: ${{ github.event.inputs.image_digest }}
+          # How many identical containers of this service to run. Repo
+          # variable, empty ⇒ 1. Every check below counts against it.
+          BRAIN_REPLICAS: ${{ vars.BRAIN_REPLICAS }}
           BRAIN_SURREAL_USER: ${{ secrets.BRAIN_SURREAL_USER }}
           BRAIN_SURREAL_PASS: ${{ secrets.BRAIN_SURREAL_PASS }}
           BRAIN_SURREAL_SCOPED_PASS: ${{ secrets.BRAIN_SURREAL_SCOPED_PASS }}
@@ -459,8 +480,101 @@ jobs:
           BRAIN_FORGET_HMAC_KEY: ${{ secrets.BRAIN_FORGET_HMAC_KEY }}
           BRAIN_BILLING_API_KEY: ${{ secrets.BRAIN_BILLING_API_KEY }}
         run: |
-          mkdir -p "/opt/projects/${PROJECT_NAME}"
-          cd "/opt/projects/${PROJECT_NAME}"
+          # The project directory is the deploy's whole state store. It is
+          # read from the environment (defaulting to the real path) so the
+          # truth test can run these exact fragments over a temp dir —
+          # test/deploy-race-truth.unit-spec.ts extracts them from this
+          # file.
+          PROJECT_DIR="${PROJECT_DIR:-/opt/projects/${PROJECT_NAME}}"
+          mkdir -p "${PROJECT_DIR}"
+          cd "${PROJECT_DIR}"
+
+          # Desired replica count. One malformed value must not silently
+          # become "1" and quietly scale production down.
+          BRAIN_REPLICAS="${BRAIN_REPLICAS:-1}"
+          case "${BRAIN_REPLICAS}" in
+            ''|*[!0-9]*) echo "[err] BRAIN_REPLICAS must be a positive integer, got '${BRAIN_REPLICAS}'"; exit 1 ;;
+          esac
+          [ "${BRAIN_REPLICAS}" -ge 1 ] || { echo "[err] BRAIN_REPLICAS must be >= 1"; exit 1; }
+          echo "BRAIN_REPLICAS=${BRAIN_REPLICAS}" >> "$GITHUB_ENV"
+          echo "[deploy] replicas: ${BRAIN_REPLICAS}"
+
+          # Replica-aware helpers, shared by this job's later steps and by
+          # finalize (same host, same directory). Generated rather than
+          # repeated six times: every check has to count or iterate now
+          # that the service is N containers, and six hand-copied loops
+          # drift. Values are baked at generation time.
+          tee deploy-lib.sh > /dev/null << EOF
+          # Generated by .github/workflows/deploy-brain.yml — not edited on the box.
+          SERVICE="${PROJECT_NAME}"
+          SERVICE_PORT="${PORT}"
+          DESIRED_REPLICAS="${BRAIN_REPLICAS}"
+          EOF
+          tee -a deploy-lib.sh > /dev/null << 'EOF'
+
+          # Container ids compose created for the service, running or not.
+          replica_ids() { docker-compose ps -q "$SERVICE" 2>/dev/null || true; }
+
+          # How many of them are actually running. `docker-compose ps` prose
+          # is not parsed: one of N being up passed the old grep for "Up".
+          running_replicas() {
+            local ids n
+            ids="$(replica_ids)"
+            if [ -z "$ids" ]; then echo 0; return 0; fi
+            n="$(docker inspect -f '{{.State.Status}}' $ids 2>/dev/null | grep -c '^running$' || true)"
+            echo "${n:-0}"
+          }
+
+          # Was this container created from exactly this image reference —
+          # digest identity, not a tag that happens to resolve today.
+          replica_runs_image() {
+            local cid="$1" want="$2" cfg img
+            cfg="$(docker inspect -f '{{.Config.Image}}' "$cid" 2>/dev/null || true)"
+            if [ "$cfg" = "$want" ]; then return 0; fi
+            img="$(docker inspect -f '{{.Image}}' "$cid" 2>/dev/null || true)"
+            if [ -z "$img" ]; then return 1; fi
+            docker image inspect -f '{{range .RepoDigests}}{{println .}}{{end}}' "$img" 2>/dev/null |
+              grep -qxF "$want"
+          }
+
+          # Every running replica runs $1, and there is at least one.
+          all_replicas_run_image() {
+            local want="$1" ids seen=0 cid
+            ids="$(replica_ids)"
+            for cid in $ids; do
+              [ "$(docker inspect -f '{{.State.Status}}' "$cid" 2>/dev/null || true)" = "running" ] || continue
+              seen=$((seen + 1))
+              replica_runs_image "$cid" "$want" || { echo "[err] replica $cid does not run $want"; return 1; }
+            done
+            [ "$seen" -ge 1 ]
+          }
+
+          # HTTP probe inside replica index $1 (1-based), path $2.
+          probe_replica() {
+            timeout 15s docker-compose exec -T --index="$1" "$SERVICE" \
+              wget -T 12 -qO- "http://localhost:${SERVICE_PORT}$2" > /dev/null 2>&1
+          }
+
+          # Wait until EVERY replica answers $2 (path) within $1 seconds.
+          # One healthy replica out of N is a failed deploy, not a deploy.
+          await_all_replicas() {
+            local budget="$1" path="$2" deadline pending still i
+            deadline=$((SECONDS + budget))
+            pending="$(seq 1 "$DESIRED_REPLICAS")"
+            while [ "$SECONDS" -lt "$deadline" ]; do
+              still=""
+              for i in $pending; do
+                probe_replica "$i" "$path" || still="$still $i"
+              done
+              pending="$still"
+              if [ -z "$(echo $pending)" ]; then return 0; fi
+              echo "[info] waiting on $path for replica(s):$pending"
+              sleep 5
+            done
+            return 1
+          }
+          EOF
+          . ./deploy-lib.sh
 
           # The image is a DIGEST resolved from the manifest CI published
           # after it smoke-tested that exact artifact — never `:latest`,
@@ -484,17 +598,40 @@ jobs:
 
           IMAGE_REF="${IMAGE_FROM_CI}"
           if [ "${ACTION}" = "rollback" ]; then
-            # The manual escape hatch. .last-good-image is only written
-            # after a deploy passed BOTH the readiness gate and the
-            # external smoke test, so it is a known-good target rather
-            # than merely a previous one.
-            if [ ! -s .last-good-image ]; then
-              echo "[err] no .last-good-image recorded on this host — nothing to roll back to."
+            # The manual escape hatch, and it must step BACK.
+            #
+            # It used to read .last-good-image, which after a green
+            # release holds the release that just went green — so a
+            # rollback prompted by a latent regression re-selected the
+            # image already running and then overwrote .previous-image
+            # with it, destroying the only reference to the version before
+            # (audit F3). The target now comes from the confirmed-good
+            # HISTORY (appended on promote, last five kept), and the
+            # running digest is excluded by construction.
+            if [ ! -s .good-image-history ]; then
+              echo "[err] no confirmed-good history on this host — nothing to roll back to."
               echo "[err] Deploy a known-good commit instead, or pin a digest by hand."
               exit 1
             fi
-            IMAGE_REF="$(cat .last-good-image)"
-            echo "[deploy] ROLLBACK to last known-good image: $IMAGE_REF"
+            if [ -n "${IMAGE_INPUT}" ]; then
+              # An explicit target still has to be a release that passed
+              # both gates on this host.
+              if ! grep -qxF "${IMAGE_INPUT}" .good-image-history; then
+                echo "[err] '${IMAGE_INPUT}' is not in the confirmed-good history:"
+                sed 's/^/[err]   /' .good-image-history
+                exit 1
+              fi
+              IMAGE_REF="${IMAGE_INPUT}"
+            else
+              # Newest confirmed-good digest that is not the running one.
+              IMAGE_REF="$(grep -vxF "${PREVIOUS_IMAGE:-__none__}" .good-image-history | tail -n 1)"
+            fi
+            if [ -z "$IMAGE_REF" ]; then
+              echo "[err] the only confirmed-good image IS the running one (${PREVIOUS_IMAGE:-<nothing>})."
+              echo "[err] There is no earlier verified release on this host to step back to."
+              exit 1
+            fi
+            echo "[deploy] ROLLBACK ${PREVIOUS_IMAGE:-<nothing>} -> ${IMAGE_REF}"
           fi
           if [ -z "$IMAGE_REF" ]; then
             IMAGE_REF="$PREVIOUS_IMAGE"
@@ -511,8 +648,32 @@ jobs:
           # promote/rollback decision is made in a LATER job (after the
           # external smoke test, which runs off-box) and job env does not
           # survive that hop.
-          printf '%s' "$PREVIOUS_IMAGE" > .previous-image
+          #
+          # A manual rollback is the exception: .previous-image is then the
+          # ONLY reference to the release we are stepping off, and if this
+          # rollback is itself bad that reference is the way back. It is
+          # staged here and committed after the readiness gate passes.
+          if [ "${ACTION}" = "rollback" ]; then
+            printf '%s' "$PREVIOUS_IMAGE" > .previous-image.staged
+          else
+            printf '%s' "$PREVIOUS_IMAGE" > .previous-image
+          fi
           printf '%s' "$IMAGE_REF" > .pending-image
+
+          # The deployment transaction: who is mutating this host, what
+          # they are putting on it, and what was there before. finalize
+          # (a different job, after an off-box smoke test) reads this and
+          # refuses to promote or undo anything that is not its own — the
+          # state files alone carried no run identity, so a slow finalize
+          # could promote a newer run's image as verified (audit F2).
+          {
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "action=${ACTION:-deploy}"
+            echo "image=${IMAGE_REF}"
+            echo "previous=${PREVIOUS_IMAGE}"
+            echo "replicas=${BRAIN_REPLICAS}"
+          } > .deploy-txn
 
           # Brain talks to the SHARED inite-surrealdb container that lives in
           # the temporal stack (inite-temporal/docker-compose). Brain owns
@@ -525,7 +686,12 @@ jobs:
           services:
             ${PROJECT_NAME}:
               image: ${IMAGE_REF}
-              container_name: ${PROJECT_NAME}
+              # No container_name: it pins the service to exactly one
+              # container and makes \`--scale\` / replicas an error. Compose
+              # names the containers <project>-<service>-<n> instead, and
+              # Traefik routes to all of them through the labels below.
+              deploy:
+                replicas: ${BRAIN_REPLICAS:-1}
               restart: unless-stopped
               # PID-1 init (tini): reaps zombie children from the worker
               # pool / native deps and forwards signals so SIGTERM reaches
@@ -573,8 +739,8 @@ jobs:
                 - AUTH_SERVICE_JWKS_URL=https://auth.inite.ai/.well-known/jwks.json
                 - AUTH_SERVICE_AUDIENCE=brain
                 # Required: JwksService refuses to boot in production when JWKS
-                # is enabled without an issuer (else the `iss` claim is not
-                # validated). Must match the `iss` auth-service signs with —
+                # is enabled without an issuer (else the \`iss\` claim is not
+                # validated). Must match the \`iss\` auth-service signs with —
                 # which is the API host (auth-api), NOT the login UI host:
                 # https://auth.inite.ai/.well-known/openid-configuration
                 # reports issuer=https://auth-api.inite.ai. The old value
@@ -759,30 +925,29 @@ jobs:
                 #      compatible with new queries. Audit all vector columns;
                 #      allTables does not yet repair every derived table.
                 #
-                # Drop to `openai` to roll back to text-embedding-3-small.
+                # Drop to \`openai\` to roll back to text-embedding-3-small.
                 - EMBEDDER_PROVIDER=bge-m3
-                # Eval baselines — persisted to a host bind-mount so they
-                # survive container recreate (compose pull + up = new
-                # container; an in-image var/ would evaporate on every
-                # deploy and the diff feature would silently lose history).
-                - BRAIN_BASELINES_DIR=/var/brain/baselines
+                # Eval baselines live in a system-DB table (#553), not on
+                # local disk: a host bind-mount is one replica's disk, so
+                # N replicas would each have kept their own history and
+                # whichever one answered the request would have shown a
+                # different one.
                 # ── Phase J/K job queue (Surreal-native) ─────────────────
                 # Cron handlers (dreams, compaction, calibration_refit,
                 # source_trust_refit) write to job_run as 'pending';
                 # WorkerLoopService — gated by the 'worker_loop'
                 # leader_lease — claims and dispatches.
                 #
-                # Kill switch: set JOBS_QUEUE_MODE=inline + restart to
-                # roll back to the legacy guard.run() inline path
+                # Queue mode (enqueue), the worker loop and the lease
+                # manager are all defaults, so none of them is pinned
+                # here. Kill switch: set JOBS_QUEUE_MODE=inline + restart
+                # to roll back to the legacy guard.run() inline path
                 # without a redeploy. Use when an unexpected backlog
                 # accumulates in pending and the worker loop won't
                 # drain (handler not registered, lease acquire fails).
-                - JOBS_QUEUE_MODE=enqueue
-                - WORKER_LOOP_ENABLED=1
                 - WORKER_LOOP_POLL_MS=1000
                 - WORKER_LOOP_EMPTY_BACKOFF_MS=5000
                 - WORKER_LOOP_LEASE_RENEW_MS=30000
-                - LEASE_MANAGER_ENABLED=1
                 - JOB_RUN_MAX_ATTEMPTS=3
                 - JOB_RUN_BACKOFF_BASE_MS=30000
                 # CPU-bound dispatcher pool. Disabled (size=0) because
@@ -798,12 +963,21 @@ jobs:
               # expressions, so its whole body counts against the 21k
               # max-expression-length limit, and the ~190-line flag block
               # pushed it over (zero-job "workflow file issue" failure).
-              # compose precedence: `environment:` above overrides
+              # compose precedence: \`environment:\` above overrides
               # env_file on key collision.
               env_file:
                 - ./enablement.env
               volumes:
-                - /opt/projects/${PROJECT_NAME}/baselines:/var/brain/baselines
+                # ONNX model cache (TRANSFORMERS_CACHE / HF_HOME /
+                # XDG_CACHE_HOME all point at /app/.cache in the image).
+                # Shared and read-mostly: without it every replica
+                # downloads ~700 MB of BGE-M3 + NER + reranker weights on
+                # first boot, against a 300 s readiness gate. The image
+                # creates /app/.cache owned by node (uid 1000), so a fresh
+                # named volume inherits that ownership and the container's
+                # USER node can write it. Concurrent cold starts may fetch
+                # the same file twice; the bytes are identical.
+                - brain-model-cache:/app/.cache
               labels:
                 # ── Backend routes only — landing handles the rest of brain.inite.ai.
                 # Backend owns /v1/*, /mcp/*, /health, /metrics.
@@ -821,25 +995,36 @@ jobs:
                 # /skills.tar.gz, written there by scripts/build-openapi.ts.
                 - "traefik.enable=true"
                 - "traefik.docker.network=traefik-global"
-                - "traefik.http.routers.${PROJECT_NAME}.rule=Host(\`${DOMAIN}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/registry\`))"
+                - "traefik.http.routers.${PROJECT_NAME}.rule=Host(\`${DOMAIN}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/ready\`) || PathPrefix(\`/registry\`))"
                 - "traefik.http.routers.${PROJECT_NAME}.priority=200"
                 - "traefik.http.routers.${PROJECT_NAME}.entrypoints=websecure"
                 - "traefik.http.routers.${PROJECT_NAME}.tls=true"
                 - "traefik.http.routers.${PROJECT_NAME}.tls.certresolver=letsencrypt"
                 - "traefik.http.services.${PROJECT_NAME}.loadbalancer.server.port=${PORT}"
                 - "traefik.http.services.${PROJECT_NAME}.loadbalancer.responseForwarding.flushInterval=-1"
-                # Edge liveness: a wedged process answers 503 at Traefik instead of
-                # timing out client connections. Deliberately /health, NOT /ready:
-                # this is a single replica, and the process degrades on its own
-                # (lexical-only search while the embedder warms, 503 on scoped reads
-                # while writes still work) — pulling it out of rotation on /ready
-                # would turn every partial outage into a total one. /ready is the
-                # deploy gate and the k8s readinessProbe for a multi-replica layout.
-                - "traefik.http.services.${PROJECT_NAME}.loadbalancer.healthcheck.path=/health"
-                - "traefik.http.services.${PROJECT_NAME}.loadbalancer.healthcheck.interval=15s"
-                - "traefik.http.services.${PROJECT_NAME}.loadbalancer.healthcheck.timeout=5s"
+                # Edge rotation, on READINESS. /health answers 200 while the
+                # process reports itself degraded (health.controller.ts), so a
+                # replica with a broken read path or a cold embedder kept its
+                # full share of traffic. /ready is the honest signal: the load
+                # balancer takes an unready replica out of rotation and the
+                # remaining ones absorb it. With one replica this is also the
+                # right answer — an unready pod serving 503 at the edge is what
+                # a 503 means — and the deploy gates never let a release reach
+                # steady state unready in the first place.
+                #
+                # The interval is load-bearing for graceful shutdown: SIGTERM
+                # flips readiness to 503 and waits ~6s before draining, so one
+                # probe (3s interval + 2s timeout) has to land inside that
+                # window for the replica to leave rotation before it stops
+                # accepting work. Raising it past ~5s reintroduces the
+                # connection errors the drain exists to avoid. /health stays
+                # the container's liveness probe and answers 503 during
+                # shutdown too — do not point Docker's healthcheck here.
+                - "traefik.http.services.${PROJECT_NAME}.loadbalancer.healthcheck.path=/ready"
+                - "traefik.http.services.${PROJECT_NAME}.loadbalancer.healthcheck.interval=3s"
+                - "traefik.http.services.${PROJECT_NAME}.loadbalancer.healthcheck.timeout=2s"
                 # http→https redirect for the same backend paths (landing has its own).
-                - "traefik.http.routers.${PROJECT_NAME}-http.rule=Host(\`${DOMAIN}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/registry\`))"
+                - "traefik.http.routers.${PROJECT_NAME}-http.rule=Host(\`${DOMAIN}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/ready\`) || PathPrefix(\`/registry\`))"
                 - "traefik.http.routers.${PROJECT_NAME}-http.priority=200"
                 - "traefik.http.routers.${PROJECT_NAME}-http.entrypoints=web"
                 - "traefik.http.routers.${PROJECT_NAME}-http.middlewares=redirect-to-https"
@@ -866,18 +1051,13 @@ jobs:
                 - traefik-global
                 - default
 
+          volumes:
+            brain-model-cache:
+
           networks:
             traefik-global:
               external: true
           EOF
-
-          # Bind-mount target must exist and be writable by the container's
-          # node user (uid 1000 on node:22-slim — the image now runs as
-          # USER node, so this chown matches the runtime user). Without
-          # this docker creates it root-owned and BaselineService's
-          # fs.writeFile fails with EACCES on first save.
-          mkdir -p "/opt/projects/${PROJECT_NAME}/baselines"
-          chown -R 1000:1000 "/opt/projects/${PROJECT_NAME}/baselines" || true
 
           if [ "${ACTION}" = "restart" ]; then
             echo "[deploy] restart only"
@@ -885,63 +1065,100 @@ jobs:
           else
             echo "[deploy] pulling image..."
             docker-compose pull "${PROJECT_NAME}"
-            echo "[deploy] up -d"
-            docker-compose up -d --remove-orphans
+            echo "[deploy] up -d (${BRAIN_REPLICAS} replica(s))"
+            # --scale as well as deploy.replicas: the replicas key is
+            # honoured by compose v2 and ignored by v1, the flag by both.
+            docker-compose up -d --remove-orphans --scale "${PROJECT_NAME}=${BRAIN_REPLICAS}"
           fi
 
-          sleep 25
-
-          if docker-compose ps | grep -q "Up"; then
-            echo "[ok] ${DOMAIN} container is up"
+          # Wait for the FULL desired count, not for "something is up".
+          up=0
+          for i in $(seq 1 12); do
+            up="$(running_replicas)"
+            [ "$up" -ge "${BRAIN_REPLICAS}" ] && break
+            sleep 5
+          done
+          if [ "$up" -ge "${BRAIN_REPLICAS}" ]; then
+            echo "[ok] ${up}/${BRAIN_REPLICAS} replicas of ${DOMAIN} are up"
           else
-            echo "[err] container failed to start"
+            echo "[err] only ${up}/${BRAIN_REPLICAS} replicas started"
+            docker-compose ps
             docker-compose logs --tail=100 "${PROJECT_NAME}"
             exit 1
           fi
 
+          # Identity check: the containers actually running must be THIS
+          # run's image. Anything else means another run has replaced them
+          # underneath us, and every gate below would be measuring
+          # somebody else's release.
+          if ! all_replicas_run_image "${IMAGE_REF}"; then
+            echo "[err] running replicas are not ${IMAGE_REF} — another run replaced them mid-deploy"
+            docker-compose ps
+            exit 1
+          fi
+          echo "[ok] every running replica is ${IMAGE_REF}"
+
       - name: Internal health probe
         if: github.event.inputs.action != 'logs'
         run: |
-          cd /opt/projects/${{ env.PROJECT_NAME }}
+          cd "${PROJECT_DIR:-/opt/projects/${PROJECT_NAME}}"
+          . ./deploy-lib.sh
           # Internal probe via docker exec — bypasses DNS / Traefik /
           # cert provisioning. This is the gate signal: did brain itself
-          # boot and respond. External reachability checked separately
-          # (warning-only) so a missing DNS record or slow Let's Encrypt
-          # cert doesn't fail an otherwise-healthy deploy.
-          for i in $(seq 1 18); do
-            if docker-compose exec -T ${{ env.PROJECT_NAME }} wget -qO- http://localhost:${{ env.PORT }}/health > /dev/null 2>&1; then
-              echo "[ok] container responds on http://localhost:${{ env.PORT }}/health"
-              docker-compose exec -T ${{ env.PROJECT_NAME }} wget -qO- http://localhost:${{ env.PORT }}/health | head -c 500
-              echo ""
-              exit 0
-            fi
-            echo "[info] waiting for brain to come up... ($i/18)"
-            sleep 5
-          done
-          echo "[err] internal health never responded"
-          docker-compose logs --tail=120 ${{ env.PROJECT_NAME }}
+          # boot and respond, on EVERY replica. External reachability is
+          # checked by the smoke job so a missing DNS record or a slow
+          # Let's Encrypt cert doesn't fail an otherwise-healthy deploy.
+          if await_all_replicas 90 /health; then
+            echo "[ok] all ${DESIRED_REPLICAS} replica(s) respond on /health"
+            docker-compose exec -T --index=1 "${PROJECT_NAME}" \
+              wget -qO- "http://localhost:${PORT}/health" | head -c 500 || true
+            echo ""
+            exit 0
+          fi
+          echo "[err] internal health never responded on every replica"
+          docker-compose ps
+          docker-compose logs --tail=120 "${PROJECT_NAME}"
           exit 1
 
       - name: Internal readiness gate
         if: github.event.inputs.action != 'logs'
         run: |
-          cd /opt/projects/${{ env.PROJECT_NAME }}
+          cd "${PROJECT_DIR:-/opt/projects/${PROJECT_NAME}}"
+          . ./deploy-lib.sh
           # /health (gate above) is liveness — green as soon as Nest boots,
           # while the primary embedder is warming. A live process with broken
-          # reads is not a successful deploy. Allow five minutes for cold boot;
-          # bound each probe as well as the retry window.
-          deadline=$((SECONDS + 300))
-          while [ "$SECONDS" -lt "$deadline" ]; do
-            if timeout 15s docker-compose exec -T ${{ env.PROJECT_NAME }} wget -T 12 -qO- http://localhost:${{ env.PORT }}/ready > /dev/null 2>&1; then
-              echo "[ok] container is READY (db + scoped authorization + primary embedder)"
-              exit 0
-            fi
-            echo "[info] waiting for readiness (database, scoped authorization, primary embedder)..."
-            sleep 5
-          done
-          echo "[err] /ready never went green within the readiness window. Deployment is not ready."
+          # reads is not a successful deploy. Every replica has to clear it:
+          # Traefik balances over all of them, so one unready replica is a
+          # fraction of production serving 503s. Five minutes for cold boot
+          # (the model cache volume is what keeps that budget realistic once
+          # replicas share it); each probe is bounded as well as the window.
+          if await_all_replicas 300 /ready; then
+            echo "[ok] all ${DESIRED_REPLICAS} replica(s) READY (db + scoped authorization + primary embedder)"
+            exit 0
+          fi
+          echo "[err] /ready never went green on every replica within the readiness window."
           echo "[err] Inspect scoped DB credentials and primary embedder warmup logs; do not start reindex until /ready is 200."
+          docker-compose ps
           exit 1
+
+      # A manual rollback's `.previous-image` was staged, not written: the
+      # release we stepped off is the way back if the rollback is itself
+      # bad, and overwriting the pointer before this gate passed destroyed
+      # it (audit F3). The gate above passed, so commit it — and drop the
+      # rejected digest from the confirmed-good history so the NEXT
+      # rollback steps further back instead of returning to it.
+      - name: Commit the rollback pointers
+        if: github.event.inputs.action == 'rollback'
+        run: |
+          cd "${PROJECT_DIR:-/opt/projects/${PROJECT_NAME}}"
+          [ -s .previous-image.staged ] || { echo "[rollback] nothing staged"; exit 0; }
+          REJECTED="$(cat .previous-image.staged)"
+          mv .previous-image.staged .previous-image
+          if [ -n "$REJECTED" ] && [ -s .good-image-history ]; then
+            grep -vxF "$REJECTED" .good-image-history > .good-image-history.next || true
+            mv .good-image-history.next .good-image-history
+          fi
+          echo "[rollback] previous-image is now ${REJECTED}; dropped it from the confirmed-good history"
 
       # The external check moved OUT of this job and into `smoke` below.
       # It used to be `curl -fs .../health`, warning-only — which verified
@@ -989,10 +1206,18 @@ jobs:
   # the old build pushed was referenced by nothing, so even a manual
   # rollback meant hand-editing the compose file on the box.
   #
-  # `.last-good-image` is written ONLY here, only after both the readiness
-  # gate and the external smoke passed — so it is a known-good target
-  # rather than merely a previous one. `workflow_dispatch` with
-  # action=rollback redeploys it.
+  # `.last-good-image` and `.good-image-history` are written ONLY here,
+  # only after both the readiness gate and the external smoke passed — so
+  # they hold known-good targets rather than merely previous ones.
+  #
+  # Every step below first checks that the deployment transaction on the
+  # box is still THIS run's. The smoke job runs off-box, so minutes pass
+  # between `deploy` and here, and the state files carried no run
+  # identity: run A's finalize would happily promote the image run B had
+  # just written into `.pending-image`, declaring an unverified release
+  # good (audit F2). A superseded finalize now exits 0 and touches
+  # nothing — the run that owns the transaction is the one that resolves
+  # it.
   # ---------------------------------------------------------------------
   finalize:
     needs: [deploy, smoke]
@@ -1000,17 +1225,67 @@ jobs:
     runs-on: [self-hosted, sfo]
     timeout-minutes: 15
     steps:
-      - name: Promote this image to last-known-good
-        if: needs.deploy.result == 'success' && needs.smoke.result == 'success'
+      - name: Read the deployment transaction
+        id: txn
         run: |
-          set -euo pipefail
-          cd /opt/projects/${{ env.PROJECT_NAME }}
-          if [ ! -s .pending-image ]; then
-            echo "[promote] nothing pending — leaving .last-good-image untouched"
+          set -uo pipefail
+          cd "${PROJECT_DIR:-/opt/projects/${PROJECT_NAME}}" || { echo "ours=0" >> "$GITHUB_OUTPUT"; exit 0; }
+          if [ ! -s .deploy-txn ]; then
+            echo "[txn] no transaction recorded on this host — nothing to resolve"
+            echo "ours=0" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          cp .pending-image .last-good-image
-          echo "[promote] last known-good is now $(cat .last-good-image)"
+          TXN_RUN="$(sed -n 's/^run_id=//p' .deploy-txn)"
+          TXN_IMAGE="$(sed -n 's/^image=//p' .deploy-txn)"
+          TXN_PREVIOUS="$(sed -n 's/^previous=//p' .deploy-txn)"
+          if [ "$TXN_RUN" != "${GITHUB_RUN_ID}" ]; then
+            echo "[txn] superseded by run ${TXN_RUN}, not touching state (this run is ${GITHUB_RUN_ID})"
+            echo "ours=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "ours=1"
+            echo "image=${TXN_IMAGE}"
+            echo "previous=${TXN_PREVIOUS}"
+          } >> "$GITHUB_OUTPUT"
+          echo "[txn] run ${TXN_RUN} owns this host: image=${TXN_IMAGE} previous=${TXN_PREVIOUS:-<nothing>}"
+
+      - name: Promote this image to last-known-good
+        if: needs.deploy.result == 'success' && needs.smoke.result == 'success' && steps.txn.outputs.ours == '1'
+        env:
+          TXN_IMAGE: ${{ steps.txn.outputs.image }}
+        run: |
+          set -euo pipefail
+          cd "${PROJECT_DIR:-/opt/projects/${PROJECT_NAME}}"
+          . ./deploy-lib.sh
+          if [ ! -s .pending-image ]; then
+            echo "[promote] nothing pending — leaving the confirmed-good history untouched"
+            exit 0
+          fi
+          PENDING="$(cat .pending-image)"
+          if [ "$PENDING" != "$TXN_IMAGE" ]; then
+            echo "[promote] .pending-image (${PENDING}) is not this run's image (${TXN_IMAGE}) — superseded, not touching state"
+            exit 0
+          fi
+          # And the thing running has to BE it: smoke passed against the
+          # domain, which is only evidence about this release if this
+          # release is what the replicas are serving.
+          if ! all_replicas_run_image "$TXN_IMAGE"; then
+            echo "[promote] running replicas are not ${TXN_IMAGE} — superseded, not touching state"
+            exit 0
+          fi
+          printf '%s' "$TXN_IMAGE" > .last-good-image
+          # Confirmed-good history, oldest first, last five kept. A digest
+          # already in it is left where it is, so the order stays "when it
+          # was first confirmed" and a rollback cannot ping-pong.
+          touch .good-image-history
+          if ! grep -qxF "$TXN_IMAGE" .good-image-history; then
+            echo "$TXN_IMAGE" >> .good-image-history
+            tail -n 5 .good-image-history > .good-image-history.next
+            mv .good-image-history.next .good-image-history
+          fi
+          echo "[promote] last known-good is now ${TXN_IMAGE}; history:"
+          sed 's/^/[promote]   /' .good-image-history
 
       # Deliberately NOT `!= 'success'`. When `verify` fails — a red CI, no
       # manifest — `deploy` is *skipped*, which is also not 'success', and
@@ -1019,10 +1294,23 @@ jobs:
       # deploy that actually ran and went wrong, or a smoke test that
       # actually failed, is a reason to move the running image.
       - name: Roll back to the previous image
-        if: needs.deploy.result == 'failure' || needs.deploy.result == 'cancelled' || needs.smoke.result == 'failure'
+        if: (needs.deploy.result == 'failure' || needs.deploy.result == 'cancelled' || needs.smoke.result == 'failure') && steps.txn.outputs.ours == '1'
+        env:
+          TXN_IMAGE: ${{ steps.txn.outputs.image }}
         run: |
           set -euo pipefail
-          cd /opt/projects/${{ env.PROJECT_NAME }}
+          cd "${PROJECT_DIR:-/opt/projects/${PROJECT_NAME}}"
+          . ./deploy-lib.sh
+
+          CURRENT="$(awk '/^[[:space:]]+image:/ {print $2; exit}' docker-compose.yml || true)"
+          # Undo THIS run's deploy, or nothing. If the pinned image is no
+          # longer the one this run put there, a later run has already
+          # moved production and restarting into our idea of "previous"
+          # would roll that newer release back behind its back.
+          if [ -n "$TXN_IMAGE" ] && [ "$CURRENT" != "$TXN_IMAGE" ]; then
+            echo "[rollback] pinned image (${CURRENT}) is not this run's (${TXN_IMAGE}) — superseded, not touching state"
+            exit 0
+          fi
 
           # Prefer the last image that passed BOTH gates over merely "the
           # one that was pinned before this run" — if the previous deploy
@@ -1037,12 +1325,11 @@ jobs:
           if [ -z "$TARGET" ]; then
             echo "[rollback] no known-good or previous image recorded on this host."
             echo "[rollback] The broken deploy is still running and MUST be handled by hand:"
-            echo "[rollback]   pin a digest in /opt/projects/${{ env.PROJECT_NAME }}/docker-compose.yml"
+            echo "[rollback]   pin a digest in ${PROJECT_DIR:-/opt/projects/${PROJECT_NAME}}/docker-compose.yml"
             echo "[rollback]   then: docker-compose up -d"
             exit 1
           fi
 
-          CURRENT="$(awk '/^[[:space:]]+image:/ {print $2; exit}' docker-compose.yml || true)"
           if [ "$TARGET" = "$CURRENT" ]; then
             echo "[rollback] already running $TARGET — the failure is not the image."
             echo "[rollback] Not restarting into the same thing. Investigate the deploy logs."
@@ -1051,21 +1338,18 @@ jobs:
 
           echo "[rollback] $CURRENT -> $TARGET"
           sed -i "s|^\([[:space:]]*image:\).*|\1 ${TARGET}|" docker-compose.yml
-          docker-compose pull ${{ env.PROJECT_NAME }}
-          docker-compose up -d --remove-orphans
+          docker-compose pull "${PROJECT_NAME}"
+          docker-compose up -d --remove-orphans --scale "${PROJECT_NAME}=${DESIRED_REPLICAS}"
 
           # A rollback that is not itself verified is just a second
-          # unverified deploy.
-          deadline=$((SECONDS + 300))
-          while [ "$SECONDS" -lt "$deadline" ]; do
-            if timeout 15s docker-compose exec -T ${{ env.PROJECT_NAME }} wget -T 12 -qO- http://localhost:${{ env.PORT }}/ready > /dev/null 2>&1; then
-              echo "[rollback] $TARGET is READY. Production is back on the last known-good image."
-              echo "[rollback] The commit that failed is still on main — fix forward or revert it."
-              exit 1
-            fi
-            echo "[rollback] waiting for readiness on the rolled-back image..."
-            sleep 5
-          done
+          # unverified deploy — and one ready replica out of N is not a
+          # verified rollback either.
+          if await_all_replicas 300 /ready; then
+            echo "[rollback] $TARGET is READY on all ${DESIRED_REPLICAS} replica(s). Production is back on the last known-good image."
+            echo "[rollback] The commit that failed is still on main — fix forward or revert it."
+            exit 1
+          fi
           echo "[rollback] FAILED — the rolled-back image did not become ready either."
-          docker-compose logs --tail=120 ${{ env.PROJECT_NAME }}
+          docker-compose ps
+          docker-compose logs --tail=120 "${PROJECT_NAME}"
           exit 1

@@ -49,7 +49,9 @@ describe('Fovea Optics §4.2 adaptive abstention e2e (safety fallback)', () => {
   async function abstainPathCount(path: string): Promise<number> {
     const metrics = f.app.get(MetricsService);
     const { body } = await metrics.serialize();
-    const m = body.match(new RegExp(`brain_abstain_path_total\\{path="${path}"\\} (\\d+)`));
+    const m = body.match(
+      new RegExp(`brain_abstain_path_total\\{[^}]*path="${path}"[^}]*\\} (\\d+)`),
+    );
     return m ? parseInt(m[1]!, 10) : 0;
   }
 

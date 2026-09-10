@@ -80,11 +80,15 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Process role (api / worker split) ─────────────────────────────
   validateProcessRole(env, errors);
 
-  // ── Pool size ─────────────────────────────────────────────────────
-  const pool = env.SURREALDB_POOL_SIZE;
-  if (pool && (!/^\d+$/.test(pool) || parseInt(pool, 10) < 1)) {
-    errors.push('SURREALDB_POOL_SIZE must be a positive integer');
-  }
+  // ── Pool sizes ────────────────────────────────────────────────────
+  // Both pools take the same guard — the same one every other integer
+  // knob here gets. The scoped pool's failure is the quieter of the two:
+  // a typo parses to NaN, the build loop runs zero times while
+  // scopedPoolEnabled() stays true, and every read then waits for a
+  // connection that will never exist — the replica sits permanently
+  // not-ready with nothing naming the cause.
+  positiveInt(env, 'SURREALDB_POOL_SIZE', errors);
+  positiveInt(env, 'SURREALDB_SCOPED_POOL_SIZE', errors);
 
   // ── OpenAI resilience knobs ───────────────────────────────────────
   positiveInt(env, 'OPENAI_TIMEOUT_MS', errors);

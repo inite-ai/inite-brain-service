@@ -54,7 +54,7 @@ describe('Fovea verifier answer-integrity arm e2e', () => {
   async function counter(name: string): Promise<number> {
     const metrics = f.app.get(MetricsService);
     const { body } = await metrics.serialize();
-    const m = body.match(new RegExp(`^${name} (\\d+)`, 'm'));
+    const m = body.match(new RegExp(`^${name}(?:\\{[^}]*\\})? (\\d+)`, 'm'));
     return m ? parseInt(m[1]!, 10) : 0;
   }
 

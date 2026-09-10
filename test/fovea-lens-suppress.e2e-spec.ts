@@ -86,7 +86,7 @@ describe('Fovea Optics §4.3 lens-suppression governor e2e', () => {
     const metrics = app.app.get(MetricsService);
     const { body } = await metrics.serialize();
     const m = body.match(
-      new RegExp(`brain_lens_suppression_total\\{outcome="${outcome}"\\} (\\d+)`),
+      new RegExp(`brain_lens_suppression_total\\{[^}]*outcome="${outcome}"[^}]*\\} (\\d+)`),
     );
     return m ? parseInt(m[1]!, 10) : 0;
   }

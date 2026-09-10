@@ -8,6 +8,7 @@ import {
   type LabelValues,
 } from 'prom-client';
 import { isConclusive, type CapabilityName, type ProbeOutcome } from './capability-probe';
+import { PROCESS_IDENTITY } from '../common/process-identity';
 
 /** knowledge_fact.status enum (schema ASSERT) — every value gets a series. */
 export const FACT_STATUSES = [
@@ -965,6 +966,28 @@ export class MetricsService implements OnModuleInit {
   onModuleInit() {
     // Node defaults: GC, event-loop lag, memory, CPU. Cheap and useful.
     collectDefaultMetrics({ register: this.registry, prefix: 'brain_' });
+
+    // Which replica produced these numbers. Without it N replicas'
+    // series are indistinguishable in a scrape read straight off
+    // /metrics, and every per-process gauge (event-loop lag, RSS,
+    // is-leader) reads as one flapping identity.
+    this.registry.setDefaultLabels({ instance: PROCESS_IDENTITY });
+
+    // Cluster-wide gauges, written only by whichever replica holds the
+    // relevant lease. prom-client publishes a label-less gauge as 0 from
+    // construction, so every non-leader replica exported a confident
+    // "0 pending" / "0 nonconforming" it had never measured, and an
+    // aggregate over replicas read the invented zeros as fact. Dropping
+    // the boot series means a non-leader exports nothing for them until
+    // it actually becomes the leader and measures something.
+    //
+    // brain_worker_is_leader is deliberately NOT in this list: 0 there is
+    // a real per-replica measurement ("I am not the leader"), and
+    // sum() over replicas is how the NoWorkerLeader alert counts leaders.
+    this.changefeedLag.remove();
+    this.vectorCorpusTenantsNonconforming.remove();
+    this.memoryOrphanEntities.remove();
+    this.policySetsActive.remove();
   }
 
   countIngestFact(outcome: string): void {

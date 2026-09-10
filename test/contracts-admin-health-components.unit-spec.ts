@@ -12,6 +12,7 @@ import type { HealthService } from '../src/common/health.service';
 import type { CapabilityProbeService } from '../src/metrics/capability-probe.service';
 import type { IntentClassifierService } from '../src/admin/intent-classifier.service';
 import type { ChangefeedConsumerService } from '../src/audit/changefeed-consumer.service';
+import type { LeaderLeaseService } from '../src/jobs/leader-lease.service';
 
 function makeController(): AdminInfraController {
   const surreal = {
@@ -58,8 +59,19 @@ function makeController(): AdminInfraController {
       perBatchLimit: 100,
     }),
   } as unknown as ChangefeedConsumerService;
+  const leases = {
+    identity: () => 'pod-a#1',
+    list: async () => [],
+  } as unknown as LeaderLeaseService;
   const adminInfra = new AdminInfraService(surreal, undefined as never);
-  const healthComponents = new HealthComponentsService(health, probe, embedder, intent, changefeed);
+  const healthComponents = new HealthComponentsService(
+    health,
+    probe,
+    embedder,
+    intent,
+    changefeed,
+    leases,
+  );
   return makeAdminInfraController({ adminInfra, healthComponents });
 }
 

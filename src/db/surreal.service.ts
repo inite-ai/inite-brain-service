@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { Surreal } from 'surrealdb';
 import { join } from 'node:path';
 import { SchemaMigrator } from './migrator.service';
+import { migrationLeaseName, SurrealMigrationLock } from './migration-lock';
 import { enrichTransactionError } from './surreal-retry';
 import { SESSION_REAUTH_MARGIN_MS, SurrealSessionKeeper } from './session-keeper';
 import { envFlagEnabled } from '../common/env-validation';
@@ -32,6 +33,12 @@ export {
 const SCOPED_PROBE_ACQUIRE_MS = 2000;
 /** Bound on the per-acquire `RETURN 1` liveness probe (see ensureSession). */
 const SESSION_PROBE_TIMEOUT_MS = 3000;
+/**
+ * The platform's own database — global, tenant-agnostic state (see
+ * `withAdminDb`) and the home of the `leader_lease` table the migration
+ * lock arbitrates on.
+ */
+const ADMIN_DATABASE = 'system';
 
 type PoolRole = 'root' | 'scoped';
 
@@ -137,6 +144,16 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   // A standalone migrator conn breaks the cycle without changing
   // any caller-facing semantics.
   private migratorConn!: Surreal;
+  /**
+   * Second standalone root connection, pinned to the admin database and
+   * used ONLY to arbitrate the migration lease. Separate from
+   * `migratorConn` because that one is `use()`d to the database being
+   * migrated: sharing it would mean switching databases mid-migration
+   * every time the lease is renewed.
+   */
+  private lockConn!: Surreal;
+  private migrationLock!: SurrealMigrationLock;
+  private leaseDbReady = false;
   /** Cached root credentials + URL so a connection can be fully rebuilt
    *  on failure: surrealdb-js (2.0.8) can hold a half-open socket that still
    *  reports connected (gh#618) or invalidate a signin()-established session
@@ -236,6 +253,9 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     if (!Number.isFinite(this.poolSize) || this.poolSize < 1) {
       throw new Error('SURREALDB_POOL_SIZE must be a positive integer');
     }
+    if (!Number.isFinite(this.scopedPoolSize) || this.scopedPoolSize < 1) {
+      throw new Error('SURREALDB_SCOPED_POOL_SIZE must be a positive integer');
+    }
     if (!Number.isFinite(this.acquireTimeoutMs) || this.acquireTimeoutMs < 100) {
       throw new Error('SURREALDB_ACQUIRE_TIMEOUT_MS must be >= 100ms');
     }
@@ -252,6 +272,13 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     await this.migratorConn.connect(url);
     await this.signin(this.migratorConn, 'root');
     this.all.push(this.migratorConn);
+
+    // Lease connection + the lock that guards every migration run.
+    this.lockConn = new Surreal();
+    await this.lockConn.connect(url);
+    await this.signin(this.lockConn, 'root');
+    this.all.push(this.lockConn);
+    this.migrationLock = new SurrealMigrationLock((fn) => this.withLeaseDb(fn));
 
     // Root pool — admin signin.
     for (let i = 0; i < this.poolSize; i++) {
@@ -405,13 +432,19 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       throw new Error(`Invalid companyId: ${companyId}`);
     }
     const database = `co_${companyId}`;
+    // Schema FIRST, then the pool. Provisioning runs on the dedicated
+    // migrator and lease connections and can wait — on this pod's schema
+    // queue, and on another replica finishing the same database — so
+    // holding a pool slot across it starves every other request here for
+    // as long as the wait lasts, which is how one cold tenant used to
+    // exhaust the pool for the whole process.
+    await this.ensureSchema(database);
     let conn = await this.acquireRoot();
     try {
       // ensureSession may hand back a rebuilt connection — always use the
       // returned reference.
       conn = await this.ensureSession(conn, 'root');
       await conn.use({ namespace: this.namespace, database });
-      await this.ensureSchema(conn, database);
       return await fn(conn);
     } finally {
       this.releaseRoot(conn);
@@ -432,12 +465,12 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    * avoids a parallel migrator just for two tables.
    */
   async withAdminDb<T>(fn: (db: Surreal) => Promise<T>): Promise<T> {
-    const database = 'system';
+    const database = ADMIN_DATABASE;
+    await this.ensureSchema(database); // before the pool — see withCompany
     let conn = await this.acquireRoot();
     try {
       conn = await this.ensureSession(conn, 'root');
       await conn.use({ namespace: this.namespace, database });
-      await this.ensureSchema(conn, database);
       return await fn(conn);
     } finally {
       this.releaseRoot(conn);
@@ -490,14 +523,13 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       throw new Error(`Invalid companyId: ${companyId}`);
     }
     const database = `co_${companyId}`;
+    // Before the scoped pool, for the reason spelled out in withCompany:
+    // schema apply never runs on the caller's connection anyway, and a
+    // pool slot held across it blocks every other scoped read.
+    await this.ensureSchema(database);
     const conn = await this.acquireScoped();
     try {
       await conn.use({ namespace: this.namespace, database });
-      // Migrations are idempotent and already serialised through
-      // schemaQueue; running on a scoped connection works because
-      // EDITOR role can DEFINE in v2 against an existing database
-      // it has access to (NS-level USER + DB exists).
-      await this.ensureSchema(conn, database);
       // Bind scopes + policy-deny for this request. The variables live
       // until the next LET on this connection — releasing back to the
       // pool doesn't reset them, but the next withScopedCompany call
@@ -632,14 +664,34 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   }
 
   /**
-   * Apply migrations to the target database. ALWAYS runs on a freshly
-   * acquired root connection — migration 0005 (DEFINE USER brain_caller)
-   * requires OWNER role and would otherwise fail when reached via the
-   * scoped pool. Other migrations don't strictly need root, but
-   * centralising here means schema apply behaves identically regardless
-   * of which pool the request entered through.
+   * Run `fn` on the lease connection, pointed at the admin database.
+   *
+   * Chicken-and-egg: the lease table lives in the admin database, which
+   * is itself migrated, so this path may NOT call ensureSchema — it
+   * provisions namespace + admin database idempotently and leaves the
+   * table DDL to the lock (see SurrealMigrationLock.ensureTable).
    */
-  private async ensureSchema(_conn: Surreal, database: string): Promise<void> {
+  private async withLeaseDb<T>(fn: (db: Surreal) => Promise<T>): Promise<T> {
+    this.lockConn = await this.ensureSession(this.lockConn, 'root');
+    if (!this.leaseDbReady) {
+      await this.lockConn.query(`DEFINE NAMESPACE IF NOT EXISTS \`${this.namespace}\``);
+      await this.lockConn.use({ namespace: this.namespace });
+      await this.lockConn.query(`DEFINE DATABASE IF NOT EXISTS \`${ADMIN_DATABASE}\``);
+      this.leaseDbReady = true;
+    }
+    await this.lockConn.use({ namespace: this.namespace, database: ADMIN_DATABASE });
+    return fn(this.lockConn);
+  }
+
+  /**
+   * Apply migrations to the target database. ALWAYS runs on the dedicated
+   * migrator connection — migration 0005 (DEFINE USER brain_caller)
+   * requires OWNER role and would otherwise fail when reached via the
+   * scoped pool, and a pool connection held across a schema apply starves
+   * every concurrent request. Callers therefore await this BEFORE they
+   * acquire a connection of their own; it takes none from either pool.
+   */
+  private async ensureSchema(database: string): Promise<void> {
     if (this.knownDatabases.has(database)) return;
     const next = this.schemaQueue.then(async () => {
       if (this.knownDatabases.has(database)) return;
@@ -662,7 +714,15 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       await this.migratorConn.use({ namespace: this.namespace });
       await this.migratorConn.query(`DEFINE DATABASE IF NOT EXISTS \`${database}\``);
       await this.migratorConn.use({ namespace: this.namespace, database });
-      const result = await this.migrator.migrate(this.migratorConn);
+      // The in-process queue above orders appliers inside THIS pod only.
+      // Across replicas the arbiter is the lease, keyed per target
+      // database so tenants still migrate in parallel; a replica that
+      // loses the race waits for the holder rather than racing it, and
+      // `knownDatabases` is only marked once the manifest really landed.
+      const result = await this.migrator.migrate(this.migratorConn, {
+        lock: this.migrationLock,
+        lockName: migrationLeaseName(this.namespace, database),
+      });
       this.knownDatabases.add(database);
       if (result.applied.length > 0) {
         this.logger.log(

@@ -34,10 +34,6 @@ services:
       # password on first tenant request (migration 0005 + ensureScopedUser).
       - SURREALDB_SCOPED_USER=brain_caller
       - SURREALDB_SCOPED_PASS=${SURREALDB_SCOPED_PASS:-local-scoped-secret}
-      # Container runs as non-root (uid 1000); the default ./var path is
-      # root-owned → BaselineService writes EACCES. Point at the node-owned
-      # cache dir created in the Dockerfile.
-      - BRAIN_BASELINES_DIR=/app/.cache/baselines
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - BRAIN_API_KEYS=${BRAIN_API_KEYS:-[]}
       # The image runs NODE_ENV=production, where validateEnv REQUIRES a
@@ -52,8 +48,23 @@ services:
       # single-process deployment. See docs/operations.md
       # "Splitting API and worker roles".
       # - PROCESS_ROLE=api
-    ports:
-      - "${BRAIN_HOST_PORT:-3030}:3000"
+    # No published host port: a fixed host port allows exactly one
+    # container, so `docker compose up -d --scale brain=N` fails on the
+    # second one — and N replicas is the shape production runs. Traefik
+    # (prod) and other compose services reach the app over the network on
+    # 3000. For local dev, copy docker-compose.override.yml.example to
+    # docker-compose.override.yml to map a host port back.
+    expose:
+      - "3000"
+    volumes:
+      # Shared ONNX model cache (TRANSFORMERS_CACHE / HF_HOME /
+      # XDG_CACHE_HOME point here in the image). Read-mostly: the first
+      # container to warm up downloads BGE-M3 / NER / reranker weights and
+      # every replica — and every later `up` — reads them instead of
+      # fetching ~700MB again. The image creates /app/.cache owned by node
+      # (uid 1000), so a fresh named volume inherits that ownership and
+      # the non-root container can write it.
+      - brain-model-cache:/app/.cache
     # PID-1 init (tini): reaps zombie children — the app spawns
     # worker_threads / native processes, and without an init the Node
     # PID-1 doesn't reap them. Also forwards signals correctly.
@@ -96,11 +107,12 @@ services:
       - SURREALDB_NAMESPACE=brain
       - SURREALDB_SCOPED_USER=brain_caller
       - SURREALDB_SCOPED_PASS=${SURREALDB_SCOPED_PASS:-local-scoped-secret}
-      - BRAIN_BASELINES_DIR=/app/.cache/baselines
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - BRAIN_API_KEYS=${BRAIN_API_KEYS:-[]}
       - FORGET_HMAC_KEY=${FORGET_HMAC_KEY:-local-dev-forget-hmac-key-change-in-prod}
     # No `ports:` — internal healthcheck only; nothing routes here.
+    volumes:
+      - brain-model-cache:/app/.cache
     init: true
     stop_grace_period: 30s
     mem_limit: 2g
@@ -116,3 +128,4 @@ services:
 
 volumes:
   surrealdb-data:
+  brain-model-cache:

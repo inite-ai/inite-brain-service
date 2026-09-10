@@ -43,6 +43,42 @@ groups:
               conditions:
                 - evaluator: { type: lt, params: [1] }
 
+      # BrainScrapeDown fires when a target that IS discovered stops
+      # answering. It cannot see a replica that disappears from discovery
+      # altogether: the query still returns the survivors' series, all of
+      # them 1. This rule watches the COUNT instead — how many brain
+      # replicas are exporting now against the most this host has run in
+      # the last six hours — so "one of three quietly went away" is an
+      # alert rather than a slightly quieter dashboard. `for: 15m` rides
+      # out a rolling recreate, which briefly runs fewer containers.
+      - uid: brain-replica-missing
+        title: BrainReplicaMissing
+        condition: C
+        for: 15m
+        noDataState: OK # nothing exporting at all is BrainScrapeDown's job
+        execErrState: Alerting
+        labels:
+          severity: warning
+        annotations:
+          summary: fewer brain replicas are exporting metrics than this host was running (a replica stopped or vanished from discovery)
+        data:
+          - refId: A
+            relativeTimeRange: { from: 21600, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: count(up{job="brain"} == 1) / clamp_min(max_over_time(count(up{job="brain"} == 1)[6h:1m]), 1)
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
       - uid: brain-policy-resolution-errors
         title: PolicyResolutionErrors
         condition: C
@@ -127,6 +163,11 @@ groups:
               conditions:
                 - evaluator: { type: gt, params: [0.2] }
 
+      # max(), not sum() and not a bare series: the consumer runs only on
+      # the replica holding the changefeed_consumer lease, so exactly one
+      # instance reports a measurement and the others report nothing at
+      # all (MetricsService drops the boot zero for lease-only gauges, so
+      # a non-leader cannot contribute an invented 0 here).
       - uid: brain-changefeed-lag
         title: ChangefeedLagSustained
         condition: C
