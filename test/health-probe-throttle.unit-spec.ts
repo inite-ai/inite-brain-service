@@ -13,8 +13,11 @@ import { HealthController } from '../src/common/health.controller';
 
 describe('health probes and the throttler', () => {
   it('exempts the whole controller, so liveness and readiness both answer under load', () => {
-    // The decorator writes one key per named throttler, suffixed with the
-    // name — `THROTTLER:SKIPdefault` for the unnamed default bucket.
+    // One metadata key per named throttler. BOTH must be exempt: Nest
+    // applies every configured bucket to every route, and `expensive`
+    // (10/min) is the one that refused the 3s probe in production —
+    // a bare @SkipThrottle() writes only `default` and fixes nothing.
     expect(Reflect.getMetadata(`${THROTTLER_SKIP}default`, HealthController)).toBe(true);
+    expect(Reflect.getMetadata(`${THROTTLER_SKIP}expensive`, HealthController)).toBe(true);
   });
 });

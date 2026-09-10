@@ -18,8 +18,15 @@ import { SERVICE_VERSION } from './service-version';
  * A probe must report the process's state, not the traffic's. These two
  * routes do no work worth rationing — one reads a cached liveness flag,
  * the other four readiness checks — so they are exempt.
+ *
+ * BOTH buckets have to be named. Nest applies every configured throttler
+ * to every route, so `expensive` (10/min) also counted the probe — and
+ * that is the one that actually fired: 20 probes a minute against a
+ * 10/min bucket refuses one every three seconds, which is exactly the
+ * flapping production showed. A bare `@SkipThrottle()` only writes the
+ * `default` exemption and would have fixed nothing.
  */
-@SkipThrottle()
+@SkipThrottle({ default: true, expensive: true })
 @Controller()
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
