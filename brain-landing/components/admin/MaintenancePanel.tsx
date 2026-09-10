@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { useLoader } from '../../hooks/useLoader'
 import { useParams } from 'next/navigation'
 import {
   AlertTriangle,
@@ -40,12 +41,10 @@ export function MaintenancePanel() {
   const [changefeed, setChangefeed] = useState<ChangefeedStateResponse | null>(
     null,
   )
-  const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const [sRes, jRes, cRes] = await Promise.all([
         fetch('/api/admin/proxy/v1/admin/scheduler', { cache: 'no-store' }),
@@ -68,14 +67,10 @@ export function MaintenancePanel() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
   }, [])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { loading, reload } = useLoader(load)
 
   const lastByJobType = useMemo(() => {
     const map = new Map<string, JobRow>()
@@ -117,14 +112,14 @@ export function MaintenancePanel() {
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error ?? `Failed ${res.status}`)
-        await load()
+        await reload()
       } catch (e) {
         setError((e as Error).message)
       } finally {
         setBusy(null)
       }
     },
-    [load],
+    [reload],
   )
 
   // Card metadata is i18n-resolved at render via t.maintenance.cards.<kind>.
@@ -193,7 +188,7 @@ export function MaintenancePanel() {
         </div>
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={() => void reload()}
           className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
         >
           <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />

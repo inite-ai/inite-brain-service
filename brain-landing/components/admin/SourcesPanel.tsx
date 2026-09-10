@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { useLoader } from '../../hooks/useLoader'
 import { useParams } from 'next/navigation'
 import { Fingerprint, Loader2, RefreshCw } from 'lucide-react'
 import { ErrorLine, Field, Segmented, inputCls } from './policies/ui'
@@ -51,13 +52,11 @@ export function SourcesPanel() {
   const s = t.sources
 
   const [sources, setSources] = useState<SourceSummary[]>([])
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<SourceDetailResponse | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const res = await fetch('/api/admin/proxy/v1/admin/sources', {
         cache: 'no-store',
@@ -68,14 +67,10 @@ export function SourcesPanel() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
   }, [])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { loading, reload } = useLoader(load)
 
   const loadDetail = useCallback(async (sourceKey: string) => {
     try {
@@ -116,7 +111,7 @@ export function SourcesPanel() {
         </div>
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={() => void reload()}
           className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
         >
           <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
@@ -202,7 +197,7 @@ export function SourcesPanel() {
               detail={detail}
               s={s}
               onDeclared={async () => {
-                await Promise.all([load(), loadDetail(detail.sourceKey)])
+                await Promise.all([reload(), loadDetail(detail.sourceKey)])
               }}
             />
           ) : selected ? (

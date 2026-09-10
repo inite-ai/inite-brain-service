@@ -2,7 +2,8 @@
 
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: pre-Phase-J component, queued for separate pass. New code MUST go through getMessages(lang). */
 
-import { useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
+import { useLoader } from '../../hooks/useLoader'
 import { Coins, RefreshCw } from 'lucide-react'
 import {
   Bar,
@@ -23,11 +24,9 @@ export type { CostBucket }
 
 export function CostPanel() {
   const [data, setData] = useState<CostResponse | null>(null)
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = async () => {
-    setLoading(true)
+  const load = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/proxy/v1/admin/cost', {
         cache: 'no-store',
@@ -41,14 +40,10 @@ export function CostPanel() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
-  }
-
-  useEffect(() => {
-    void load()
   }, [])
+
+  const { loading, reload } = useLoader(load)
 
   return (
     <div className="space-y-4">
@@ -66,7 +61,7 @@ export function CostPanel() {
         </div>
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={() => void reload()}
           className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
         >
           <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />

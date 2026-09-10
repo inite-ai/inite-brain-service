@@ -2,9 +2,10 @@
 
  
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Users, Search } from 'lucide-react'
 import { useProxyBase } from '../../../../components/playground/usePlaygroundCall'
+import { useLoader } from '../../../../hooks/useLoader'
 
 interface Community {
   communityId: string
@@ -26,37 +27,33 @@ export default function CommunitiesPage() {
   const [items, setItems] = useState<Community[]>([])
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [searchBusy, setSearchBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
   const loadList = useCallback(async () => {
-    setLoading(true)
-    setErr(null)
     try {
       const res = await fetch(`${proxyBase}/v1/communities?limit=50`)
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? `Failed (${res.status})`)
       setItems((data?.communities ?? []) as Community[])
       setSearching(false)
+      setErr(null)
     } catch (e) {
       setErr((e as Error).message)
       setItems([])
-    } finally {
-      setLoading(false)
     }
   }, [proxyBase])
 
-  useEffect(() => {
-    void loadList()
-  }, [loadList])
+  const { loading: listLoading, reload: reloadList } = useLoader(loadList)
+  const loading = listLoading || searchBusy
 
   const runSearch = useCallback(
     async (q: string) => {
       if (!q.trim()) {
-        void loadList()
+        void reloadList()
         return
       }
-      setLoading(true)
+      setSearchBusy(true)
       setErr(null)
       try {
         const res = await fetch(
@@ -70,10 +67,10 @@ export default function CommunitiesPage() {
         setErr((e as Error).message)
         setItems([])
       } finally {
-        setLoading(false)
+        setSearchBusy(false)
       }
     },
-    [proxyBase, loadList],
+    [proxyBase, reloadList],
   )
 
   return (
@@ -113,7 +110,7 @@ export default function CommunitiesPage() {
             type="button"
             onClick={() => {
               setQuery('')
-              void loadList()
+              void reloadList()
             }}
             className="px-3 h-9 rounded-md border border-[var(--border)] text-sm text-[var(--text-muted)] hover:text-[var(--text)]"
           >

@@ -27,11 +27,12 @@ export function EntitySearch({ onSelect }: Props) {
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
+  // Hits belong to a non-empty query: an emptied box shows none without the
+  // effect having to clear the fetched list.
+  const hits = q.trim() ? results : []
+
   useEffect(() => {
-    if (!q.trim()) {
-      setResults([])
-      return
-    }
+    if (!q.trim()) return
     const ctrl = new AbortController()
     const t = setTimeout(async () => {
       setLoading(true)
@@ -98,12 +99,12 @@ export function EntitySearch({ onSelect }: Props) {
           <span className="text-[10px] text-[var(--text-faint)]">…</span>
         )}
       </div>
-      {open && (results.length > 0 || err) && (
+      {open && (hits.length > 0 || err) && (
         <div className="absolute z-40 left-0 right-0 mt-1 max-h-80 overflow-y-auto rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] shadow-lg">
           {err && (
             <div className="px-3 py-2 text-xs text-[var(--danger)]">{err}</div>
           )}
-          {results.map((r) => (
+          {hits.map((r) => (
             <button
               key={r.entityId}
               type="button"

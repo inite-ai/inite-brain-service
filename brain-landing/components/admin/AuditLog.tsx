@@ -2,7 +2,8 @@
 
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: pre-Phase-J component, queued for separate pass. New code MUST go through getMessages(lang). */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { useLoader } from '../../hooks/useLoader'
 import {
   Bar,
   BarChart,
@@ -34,7 +35,6 @@ const OP_TONE: Record<string, string> = {
 
 export function AuditLog() {
   const [data, setData] = useState<AuditPage | null>(null)
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState({
     companyId: '',
@@ -46,7 +46,6 @@ export function AuditLog() {
   const [selected, setSelected] = useState<AuditEvent | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const params = new URLSearchParams()
       if (filter.companyId) params.set('companyId', filter.companyId)
@@ -67,14 +66,10 @@ export function AuditLog() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
   }, [filter])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { loading, reload } = useLoader(load)
 
   const sourceData = useMemo(
     () =>
@@ -108,7 +103,7 @@ export function AuditLog() {
         </div>
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={() => void reload()}
           className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
         >
           <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />

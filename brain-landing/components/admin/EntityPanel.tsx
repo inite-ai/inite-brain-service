@@ -83,19 +83,23 @@ export function EntityPanel({
   onExpand,
 }: Props) {
   const proxyBase = useProxyBase()
-  const [profile, setProfile] = useState<EntityProfile | null>(null)
-  const [timeline, setTimeline] = useState<TimelineEvent[] | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
+  // One fetch result per (entity, asOf, recordedAt) key. Profile, timeline
+  // and error are derived from the result matching the *current* key, so
+  // switching entity shows "Loading…" instead of the previous entity's
+  // facts, and a late response for an old key is never displayed.
+  const key = entityId
+    ? JSON.stringify([entityId, asOf ?? null, recordedAt ?? null])
+    : null
+  const [result, setResult] = useState<{
+    key: string
+    profile: EntityProfile | null
+    timeline: TimelineEvent[] | null
+    err: string | null
+  } | null>(null)
 
   useEffect(() => {
-    if (!entityId) {
-      setProfile(null)
-      setTimeline(null)
-      return
-    }
-    setLoading(true)
-    setErr(null)
+    if (!entityId || !key) return
+    let current = true
     // Axis wiring: asOf (world-time) shapes the PROFILE's active-fact
     // set only; timeline events live on the transaction-time axis, so
     // the tx slider (recordedAt) is the one that cuts both surfaces.
@@ -124,12 +128,33 @@ export function EntityPanel({
         const profileData = await p.json()
         const timelineData = await t.json()
         if (!p.ok) throw new Error(profileData?.error ?? `Profile ${p.status}`)
-        setProfile(profileData as EntityProfile)
-        setTimeline((timelineData?.events ?? []) as TimelineEvent[])
+        if (!current) return
+        setResult({
+          key,
+          profile: profileData as EntityProfile,
+          timeline: (timelineData?.events ?? []) as TimelineEvent[],
+          err: null,
+        })
       })
-      .catch((e) => setErr((e as Error).message))
-      .finally(() => setLoading(false))
-  }, [entityId, asOf, recordedAt, proxyBase])
+      .catch((e) => {
+        if (!current) return
+        setResult({
+          key,
+          profile: null,
+          timeline: null,
+          err: (e as Error).message,
+        })
+      })
+    return () => {
+      current = false
+    }
+  }, [entityId, key, asOf, recordedAt, proxyBase])
+
+  const shown = result?.key === key ? result : null
+  const profile = shown?.profile ?? null
+  const timeline = shown?.timeline ?? null
+  const err = shown?.err ?? null
+  const loading = key !== null && shown === null
 
   if (!entityId) return null
 

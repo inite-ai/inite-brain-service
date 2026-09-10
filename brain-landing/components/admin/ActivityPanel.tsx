@@ -2,7 +2,8 @@
 
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: pre-Phase-J component, queued for separate pass. New code MUST go through getMessages(lang). */
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useLoader } from '../../hooks/useLoader'
 import { Loader2, Radio, RefreshCw } from 'lucide-react'
 import type {
   NowResponse as ActivityResponse,
@@ -13,13 +14,13 @@ export type { InFlightRequest }
 
 export function ActivityPanel() {
   const [data, setData] = useState<ActivityResponse | null>(null)
-  const [loading, setLoading] = useState(true)
   const [auto, setAuto] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [, force] = useState({})
+  // Wall clock the elapsed column is measured against — advanced on every
+  // poll and by a 500ms tick in between, so render itself stays pure.
+  const [now, setNow] = useState(0)
 
-  const load = async () => {
-    setLoading(true)
+  const load = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/proxy/v1/admin/now', {
         cache: 'no-store',
@@ -30,31 +31,27 @@ export function ActivityPanel() {
         throw new Error(err ?? `Failed ${res.status}`)
       }
       setData(json as ActivityResponse)
+      setNow(Date.now())
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
-  }
-
-  useEffect(() => {
-    void load()
   }, [])
+
+  const { loading, reload } = useLoader(load)
 
   useEffect(() => {
     if (!auto) return
-    const t = setInterval(load, 2000)
+    const t = setInterval(() => void reload(), 2000)
     return () => clearInterval(t)
-  }, [auto])
+  }, [auto, reload])
 
   // Re-tick every 500ms so "elapsed" updates even while no new fetch
   useEffect(() => {
-    const t = setInterval(() => force({}), 500)
+    const t = setInterval(() => setNow(Date.now()), 500)
     return () => clearInterval(t)
   }, [])
 
-  const now = Date.now()
   const rows = (data?.inFlight ?? []).map((r) => ({
     ...r,
     elapsedMs: now - r.startedAtMs,
@@ -76,7 +73,7 @@ export function ActivityPanel() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => void reload()}
             className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
           >
             <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />

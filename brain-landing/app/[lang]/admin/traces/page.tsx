@@ -1,28 +1,27 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { Radio, RefreshCw } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { normalizeLang } from '../../../../lib/i18n'
 import type { TraceListItem as TraceMeta } from '../../../../lib/contracts/admin-traces'
+import { useLoader } from '../../../../hooks/useLoader'
+import { useEventSource } from '../../../../hooks/useEventSource'
 
 export default function TracesListPage() {
   const params = useParams<{ lang: string }>()
   const lang = normalizeLang(params?.lang)
   const [traces, setTraces] = useState<TraceMeta[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
   const [live, setLive] = useState(true)
-  const [sseStatus, setSseStatus] = useState<'idle' | 'open' | 'closed'>('idle')
   const [q, setQ] = useState('')
   const [methodFilter, setMethodFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'ok' | 'err'>('all')
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const res = await fetch('/api/admin/proxy/v1/admin/traces')
       const data = await res.json()
@@ -31,26 +30,16 @@ export default function TracesListPage() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
   }, [])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { loading, reload } = useLoader(load)
 
-  useEffect(() => {
-    if (!live) {
-      setSseStatus('idle')
-      return
-    }
-    const url = '/api/admin/sse/v1/admin/traces/stream'
-    const src = new EventSource(url)
-    setSseStatus('open')
-    src.onmessage = (e) => {
+  const sseStatus = useEventSource(
+    live ? '/api/admin/sse/v1/admin/traces/stream' : null,
+    (frame) => {
       try {
-        const meta = JSON.parse(e.data) as TraceMeta
+        const meta = JSON.parse(frame) as TraceMeta
         setTraces((prev) => {
           if (prev.some((p) => p.requestId === meta.requestId)) return prev
           return [meta, ...prev].slice(0, 500)
@@ -58,15 +47,8 @@ export default function TracesListPage() {
       } catch {
         // tolerate malformed frames
       }
-    }
-    src.onerror = () => {
-      setSseStatus('closed')
-    }
-    return () => {
-      src.close()
-      setSseStatus('idle')
-    }
-  }, [live])
+    },
+  )
 
   const filtered = useMemo(() => {
     return traces.filter((t) => {
@@ -101,7 +83,7 @@ export default function TracesListPage() {
         <h1 className="text-base font-semibold text-[var(--text)]">Traces</h1>
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={() => void reload()}
           className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
         >
           <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />

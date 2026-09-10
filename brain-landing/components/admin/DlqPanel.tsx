@@ -2,14 +2,14 @@
 
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: pre-Phase-J component, queued for separate pass. New code MUST go through getMessages(lang). */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { useLoader } from '../../hooks/useLoader'
 import { ChevronRight, RefreshCw, Trash2 } from 'lucide-react'
 import { JsonView } from './JsonView'
 import type { AdminDeadLetterRow as DlqRow } from '../../lib/contracts/admin-overview'
 
 export function DlqPanel() {
   const [rows, setRows] = useState<DlqRow[]>([])
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tenant, setTenant] = useState('')
   const [reason, setReason] = useState('')
@@ -17,7 +17,6 @@ export function DlqPanel() {
   const [deleting, setDeleting] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const params = new URLSearchParams()
       if (tenant) params.set('companyId', tenant)
@@ -33,14 +32,10 @@ export function DlqPanel() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
   }, [tenant, reason])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { loading, reload } = useLoader(load)
 
   const reasons = useMemo(
     () => Array.from(new Set(rows.map((r) => r.reason))).sort(),
@@ -64,14 +59,14 @@ export function DlqPanel() {
         const data = await res.json()
         if (!res.ok) throw new Error(data.error ?? `Failed ${res.status}`)
         if (selected?.id === r.id) setSelected(null)
-        await load()
+        await reload()
       } catch (e) {
         setError((e as Error).message)
       } finally {
         setDeleting(null)
       }
     },
-    [load, selected],
+    [reload, selected],
   )
 
   return (
@@ -90,7 +85,7 @@ export function DlqPanel() {
         </div>
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={() => void reload()}
           className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
         >
           <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />

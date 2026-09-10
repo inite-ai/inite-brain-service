@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
+import { useLoader } from '../../hooks/useLoader'
 import { useParams, useSearchParams } from 'next/navigation'
 import {
   CheckCircle2,
@@ -51,7 +52,6 @@ export function PacksPanel() {
   const searchParams = useSearchParams()
 
   const [data, setData] = useState<PacksListResponse | null>(null)
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   // Install-from-registry form (prefillable via ?install=<packId> — the
@@ -78,7 +78,6 @@ export function PacksPanel() {
   const [evalFor, setEvalFor] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const res = await fetch('/api/admin/proxy/v1/admin/packs', {
         cache: 'no-store',
@@ -89,14 +88,10 @@ export function PacksPanel() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
   }, [])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { loading, reload } = useLoader(load)
 
   const doInstall = useCallback(
     async (source: InstallSource, opts?: { accept?: boolean }) => {
@@ -155,14 +150,14 @@ export function PacksPanel() {
         }
         if (!res.ok) throw new Error(errorMessage(json, res.status))
         setSuccess(json as InstallPackResponse)
-        await load()
+        await reload()
       } catch (e) {
         setError((e as Error).message)
       } finally {
         setInstallBusy(null)
       }
     },
-    [expectedChecksum, load, manifestText, p, regPackId, regVersion],
+    [expectedChecksum, reload, manifestText, p, regPackId, regVersion],
   )
 
   const createCheckout = useCallback(async () => {
@@ -216,12 +211,12 @@ export function PacksPanel() {
               ),
             ),
         )
-        await load()
+        await reload()
       } catch (e) {
         setError((e as Error).message)
       }
     },
-    [load, p],
+    [reload, p],
   )
 
   return (
@@ -235,7 +230,7 @@ export function PacksPanel() {
         </div>
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={() => void reload()}
           className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
         >
           <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />

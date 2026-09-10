@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useLoader } from '../../hooks/useLoader'
 import { useParams } from 'next/navigation'
 import { Lock, RefreshCw, AlertTriangle, Cpu } from 'lucide-react'
 import { getMessages, normalizeLang } from '../../lib/i18n'
@@ -15,12 +16,10 @@ export function LeasesPanel() {
   const lang = normalizeLang(params?.lang)
   const t = getMessages(lang).admin
   const [data, setData] = useState<LeasesResponse | null>(null)
-  const [loading, setLoading] = useState(true)
   const [auto, setAuto] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = async () => {
-    setLoading(true)
+  const load = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/proxy/v1/admin/leases', {
         cache: 'no-store',
@@ -34,20 +33,16 @@ export function LeasesPanel() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
-  }
-
-  useEffect(() => {
-    void load()
   }, [])
+
+  const { loading, reload } = useLoader(load)
 
   useEffect(() => {
     if (!auto) return
-    const t = setInterval(load, 5000)
+    const t = setInterval(() => void reload(), 5000)
     return () => clearInterval(t)
-  }, [auto])
+  }, [auto, reload])
 
   return (
     <div className="space-y-6">
@@ -63,7 +58,7 @@ export function LeasesPanel() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => void reload()}
             className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
           >
             <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />

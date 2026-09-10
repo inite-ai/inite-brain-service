@@ -2,7 +2,8 @@
 
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: pre-Phase-J component, queued for separate pass. New code MUST go through getMessages(lang). */
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useLoader } from '../../hooks/useLoader'
 import { RefreshCw, SlidersHorizontal } from 'lucide-react'
 import type {
   ThrottlerResponse as ThrottlerSnapshot,
@@ -14,12 +15,10 @@ export type { RouteRow, ActorRow }
 
 export function ThrottlerPanel() {
   const [data, setData] = useState<ThrottlerSnapshot | null>(null)
-  const [loading, setLoading] = useState(true)
   const [auto, setAuto] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const load = async () => {
-    setLoading(true)
+  const load = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/proxy/v1/admin/throttler', {
         cache: 'no-store',
@@ -33,20 +32,16 @@ export function ThrottlerPanel() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
-  }
-
-  useEffect(() => {
-    void load()
   }, [])
+
+  const { loading, reload } = useLoader(load)
 
   useEffect(() => {
     if (!auto) return
-    const t = setInterval(load, 5000)
+    const t = setInterval(() => void reload(), 5000)
     return () => clearInterval(t)
-  }, [auto])
+  }, [auto, reload])
 
   return (
     <div className="space-y-4">
@@ -66,7 +61,7 @@ export function ThrottlerPanel() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => void reload()}
             className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
           >
             <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />

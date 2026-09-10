@@ -16,8 +16,14 @@ import type {
  * active facts), so it's an estimate, not an audit.
  */
 export function RuleMatchPreview({ rule }: { rule: PolicyRule }) {
-  const [preview, setPreview] = useState<PreviewRuleResponse | null>(null)
-  const [pending, setPending] = useState(false)
+  // The count belongs to the rule signature it was computed for. Deriving
+  // preview/pending from that key makes an edited rule read "counting…"
+  // instead of the previous rule's number, and a late response for an old
+  // signature is never displayed.
+  const [cache, setCache] = useState<{
+    signature: string
+    preview: PreviewRuleResponse | null
+  } | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const ready =
@@ -34,14 +40,12 @@ export function RuleMatchPreview({ rule }: { rule: PolicyRule }) {
   const signature = JSON.stringify({ m: rule.match, e: rule.effect, i: rule.id })
 
   useEffect(() => {
-    if (!ready) {
-      setPreview(null)
-      return
-    }
-    setPending(true)
+    if (!ready) return
+    let current = true
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => {
       void (async () => {
+        let preview: PreviewRuleResponse | null = null
         try {
           const res = await fetch(
             '/api/admin/proxy/v1/admin/policy/preview-rule',
@@ -52,21 +56,24 @@ export function RuleMatchPreview({ rule }: { rule: PolicyRule }) {
             },
           )
           const data = await res.json()
-          if (res.ok) setPreview(data as PreviewRuleResponse)
+          if (res.ok) preview = data as PreviewRuleResponse
         } catch {
           /* preview is best-effort — silence transport hiccups */
-        } finally {
-          setPending(false)
         }
+        if (current) setCache({ signature, preview })
       })()
     }, 600)
     return () => {
+      current = false
       if (timer.current) clearTimeout(timer.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature, ready])
 
   if (!ready) return null
+
+  const preview = cache?.signature === signature ? cache.preview : null
+  const pending = cache?.signature !== signature
 
   const pct =
     preview && preview.sampled > 0

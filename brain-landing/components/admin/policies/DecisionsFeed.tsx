@@ -3,6 +3,7 @@
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: queued with the admin-wide pass. */
 
 import { useCallback, useEffect, useState } from 'react'
+import { useLoader } from '../../../hooks/useLoader'
 import { Radio, RefreshCw, Scale } from 'lucide-react'
 import {
   Bar,
@@ -32,13 +33,11 @@ export function DecisionsFeed() {
   const [cursor, setCursor] = useState<string | undefined>()
   const [stats, setStats] = useState<PolicyDecisionsStatsResponse | null>(null)
   const [filter, setFilter] = useState<DecisionFilter>('all')
-  const [loading, setLoading] = useState(true)
   const [live, setLive] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(
     async (before?: string) => {
-      setLoading(true)
       try {
         const qs = new URLSearchParams()
         if (filter !== 'all') qs.set('decision', filter)
@@ -67,24 +66,20 @@ export function DecisionsFeed() {
         setError(null)
       } catch (e) {
         setError((e as Error).message)
-      } finally {
-        setLoading(false)
       }
     },
     [filter],
   )
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { loading, reload } = useLoader(load)
 
   // Live tail — plain polling (the decision sink flushes every ~5 s
   // anyway, so an SSE stream would buy nothing over a 10 s poll).
   useEffect(() => {
     if (!live) return
-    const t = setInterval(() => void load(), 10_000)
+    const t = setInterval(() => void reload(), 10_000)
     return () => clearInterval(t)
-  }, [live, load])
+  }, [live, reload])
 
   const totals = stats?.series.reduce(
     (acc, d) => ({
@@ -241,7 +236,7 @@ export function DecisionsFeed() {
           </button>
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => void reload()}
             className="rounded border border-[var(--border)] p-1.5 text-[var(--text-muted)] hover:text-[var(--text)]"
             aria-label="Refresh"
           >
@@ -309,7 +304,7 @@ export function DecisionsFeed() {
         <button
           type="button"
           disabled={loading}
-          onClick={() => void load(cursor)}
+          onClick={() => void reload(cursor)}
           className="mt-3 rounded border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-50"
         >
           {loading ? 'loading…' : 'Load older'}

@@ -1,6 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { useLoader } from '../../hooks/useLoader'
+import { useEventSource } from '../../hooks/useEventSource'
 import { useParams, useSearchParams } from 'next/navigation'
 import {
   CheckCircle2,
@@ -38,7 +40,6 @@ export function JobsPanel() {
   const searchParams = useSearchParams()
   const initialRunId = searchParams?.get('runId') ?? null
   const [jobs, setJobs] = useState<JobRow[]>([])
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(initialRunId)
   const [filter, setFilter] = useState({
@@ -47,7 +48,6 @@ export function JobsPanel() {
     companyId: '',
   })
   const [live, setLive] = useState(true)
-  const [sseStatus, setSseStatus] = useState<'idle' | 'open' | 'closed'>('idle')
   // Backend JobType union keeps growing — the dropdown derives from observed
   // rows instead of a hardcoded list so it can never drift. Types accumulate
   // across loads/SSE frames; otherwise an active type filter would shrink
@@ -61,7 +61,6 @@ export function JobsPanel() {
   }, [seenTypes, filter.jobType])
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const params = new URLSearchParams()
       if (filter.jobType) params.set('jobType', filter.jobType)
@@ -80,26 +79,16 @@ export function JobsPanel() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
   }, [filter])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { loading, reload } = useLoader(load)
 
-  useEffect(() => {
-    if (!live) {
-      setSseStatus('idle')
-      return
-    }
-    const url = '/api/admin/sse/v1/admin/jobs/stream'
-    const src = new EventSource(url)
-    setSseStatus('open')
-    src.onmessage = (e) => {
+  const sseStatus = useEventSource(
+    live ? '/api/admin/sse/v1/admin/jobs/stream' : null,
+    (frame) => {
       try {
-        const j = JSON.parse(e.data) as JobRow
+        const j = JSON.parse(frame) as JobRow
         setJobs((prev) => {
           const idx = prev.findIndex((p) => p.runId === j.runId)
           if (idx < 0) return [j, ...prev].slice(0, 200)
@@ -111,13 +100,8 @@ export function JobsPanel() {
       } catch {
         // ignore malformed frame
       }
-    }
-    src.onerror = () => setSseStatus('closed')
-    return () => {
-      src.close()
-      setSseStatus('idle')
-    }
-  }, [live])
+    },
+  )
 
   const selectedJob = useMemo(
     () => jobs.find((j) => j.runId === selected) ?? null,
@@ -147,7 +131,7 @@ export function JobsPanel() {
         <div className="flex items-center gap-2 text-xs">
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => void reload()}
             className="text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
           >
             <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />

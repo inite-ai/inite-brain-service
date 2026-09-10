@@ -376,10 +376,12 @@ jobs:
         run: pnpm lint:i18n
 
       # Full ESLint over the whole landing app (Next 16 removed `next lint`, so
-      # this is eslint-config-next via the flat config). Gates on errors; the
-      # stricter react-hooks-7 rules are warnings tracked as tech debt.
-      - name: Lint (full)
-        run: pnpm lint
+      # this is eslint-config-next via the flat config). Gates on errors AND
+      # ratchets the react-hooks-7 warnings: `lint:ci` carries a
+      # `--max-warnings` cap equal to the current count, so the number can
+      # only go down. Fix a warning, lower the cap in the same PR.
+      - name: Lint (full, warning ratchet)
+        run: pnpm lint:ci
 
       - name: Typecheck
         run: pnpm typecheck

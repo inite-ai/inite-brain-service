@@ -2,7 +2,8 @@
 
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: queued with the admin-wide pass. */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
+import { useLoader } from '../../../hooks/useLoader'
 import { useParams, useRouter } from 'next/navigation'
 import {
   KeyRound,
@@ -103,12 +104,10 @@ export function PolicySetsList() {
   const params = useParams<{ lang: string }>()
   const lang = params?.lang ?? 'en'
   const [items, setItems] = useState<PolicySet[]>([])
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const res = await fetch('/api/admin/proxy/v1/admin/policy-sets', {
         cache: 'no-store',
@@ -119,14 +118,10 @@ export function PolicySetsList() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
   }, [])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { loading, reload } = useLoader(load)
 
   const createFromTemplate = useCallback(
     async (t: Template) => {
@@ -167,14 +162,14 @@ export function PolicySetsList() {
         if (!res.ok) {
           throw new Error(data.message?.message ?? data.error ?? `Failed ${res.status}`)
         }
-        await load()
+        await reload()
       } catch (e) {
         setError((e as Error).message)
       } finally {
         setBusy(null)
       }
     },
-    [load],
+    [reload],
   )
 
   if (loading) {
@@ -242,7 +237,7 @@ export function PolicySetsList() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => void reload()}
             className="rounded border border-[var(--border)] p-1.5 text-[var(--text-muted)] hover:text-[var(--text)]"
             aria-label="Refresh"
           >

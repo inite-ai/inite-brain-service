@@ -2,20 +2,19 @@
 
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: pre-Phase-J component, queued for separate pass. New code MUST go through getMessages(lang). */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { useLoader } from '../../hooks/useLoader'
 import { Download, RefreshCw, Skull } from 'lucide-react'
 import type { AdminForgottenRow as ForgottenRow } from '../../lib/contracts/admin-overview'
 
 export function ForgottenPanel() {
   const [rows, setRows] = useState<ForgottenRow[]>([])
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tenant, setTenant] = useState('')
   const [since, setSince] = useState('')
   const [reason, setReason] = useState('')
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const params = new URLSearchParams()
       if (tenant) params.set('companyId', tenant)
@@ -32,14 +31,10 @@ export function ForgottenPanel() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
   }, [tenant, since, reason])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { loading, reload } = useLoader(load)
 
   const reasons = useMemo(
     () => Array.from(new Set(rows.map((r) => r.reason))).sort(),
@@ -79,7 +74,7 @@ export function ForgottenPanel() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => void reload()}
             className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
           >
             <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />

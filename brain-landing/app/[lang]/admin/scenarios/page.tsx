@@ -25,7 +25,6 @@ export default function ScenariosListPage() {
   const [results, setResults] = useState<ScenarioRunOutcome[] | null>(null)
 
   useEffect(() => {
-    setLoading(true)
     fetch('/api/admin/proxy/v1/admin/scenarios')
       .then((r) => r.json())
       .then((data) => {

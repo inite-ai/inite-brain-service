@@ -2,7 +2,8 @@
 
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: pre-Phase-J component, queued for separate pass. New code MUST go through getMessages(lang). */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { useLoader } from '../../hooks/useLoader'
 import {
   ArrowRight,
   CheckCircle2,
@@ -42,7 +43,6 @@ const PII_TONE: Record<PiiClass, string> = {
 
 export function PredicateRegistry() {
   const [items, setItems] = useState<Predicate[]>([])
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
@@ -52,7 +52,6 @@ export function PredicateRegistry() {
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const res = await fetch('/api/admin/proxy/v1/admin/predicates', {
         cache: 'no-store',
@@ -66,14 +65,10 @@ export function PredicateRegistry() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
   }, [])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { loading, reload } = useLoader(load)
 
   const filtered = useMemo(() => {
     return items.filter((p) => {
@@ -110,14 +105,14 @@ export function PredicateRegistry() {
         )
         const data = await res.json()
         if (!res.ok) throw new Error(data.error ?? `Failed ${res.status}`)
-        await load()
+        await reload()
       } catch (e) {
         setError((e as Error).message)
       } finally {
         setBusyId(null)
       }
     },
-    [load],
+    [reload],
   )
 
   const deprecate = useCallback(
@@ -137,14 +132,14 @@ export function PredicateRegistry() {
         )
         const data = await res.json()
         if (!res.ok) throw new Error(data.error ?? `Failed ${res.status}`)
-        await load()
+        await reload()
       } catch (e) {
         setError((e as Error).message)
       } finally {
         setBusyId(null)
       }
     },
-    [load],
+    [reload],
   )
 
   return (
@@ -162,7 +157,7 @@ export function PredicateRegistry() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => void reload()}
             className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
           >
             <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
@@ -255,7 +250,7 @@ export function PredicateRegistry() {
           onClose={() => setCreating(false)}
           onSaved={() => {
             setCreating(false)
-            void load()
+            void reload()
           }}
         />
       )}
@@ -266,7 +261,7 @@ export function PredicateRegistry() {
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null)
-            void load()
+            void reload()
           }}
         />
       )}
@@ -280,7 +275,7 @@ export function PredicateRegistry() {
           onClose={() => setAliasing(null)}
           onSaved={() => {
             setAliasing(null)
-            void load()
+            void reload()
           }}
         />
       )}
