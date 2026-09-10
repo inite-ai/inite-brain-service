@@ -108,7 +108,7 @@ All routes 404 until their flag is on.
 | `GET /v1/episodes/subscriptions` | Registered endpoints (secrets never included). |
 | `DELETE /v1/episodes/subscriptions/:id` | Remove an endpoint (`brain:admin`). |
 | `GET /v1/projections` | Derived surfaces as first-class records (migration 0076): status `building/built/live/residual/failed`, watermark, builder, stats, plus the live read pin (`RETRIEVAL_DERIVED_VERSION`). Flag `PROJECTIONS_API_ENABLED`. |
-| `POST /v1/projections/:name/rebuild` | The public rebuild verb over the maintenance batch engine (`brain:admin`; v1 rebuilds `facts` via the session-window deriver). Body: `version` / `conversation` / `activate` / `force`. Flag `PROJECTIONS_API_ENABLED`. |
+| `POST /v1/projections/:name/rebuild` | The public rebuild verb over the maintenance batch engine (`brain:admin`; v1 rebuilds `facts` via the session-window deriver). Body: `version` / `conversation` / `keys` (retry selector: exactly these conversation ids) / `activate` / `force`. The response carries `outcome` (see [batch outcome](#batch-outcome)). Flag `PROJECTIONS_API_ENABLED`. |
 
 ## Evidence raw-read gateway
 
@@ -176,6 +176,18 @@ user-enumeration oracle either.
 |---|---|
 | `POST /v1/dreams/run` | Off-hours self-improvement: dedup / resolve / summarize (admin scope). |
 
+### Batch outcome
+
+Batch operations (scene compose and its scheduled pass, the derive / projection rebuild, aggregates and arcs, the evidence processing sweep, the embedding reindex) return one shared terminal status alongside their counters:
+
+```json
+{ "status": "complete | degraded | failed", "total": 12, "succeeded": 11,
+  "failed": [{ "key": "<unit id>", "error": "…" }],
+  "degradedBy": [{ "key": "post-pass:<name>", "error": "…" }] }
+```
+
+`complete` — every unit landed and every post-pass ran clean; `degraded` — some units failed, or a post-pass over landed units failed (`degradedBy`); `failed` — units were attempted and none succeeded, or the operation could not run (key `*`). `failed[].key` is the unit's retry key (conversation id, `evidence_asset` id, table name, `knowledge_entity` id): pass those back as the entrypoint's `keys` to retry only the failed units. A job-backed batch (`job_run.result.outcome`) with a `failed` outcome fails the job row.
+
 ## Domain Packs (admin)
 
 Manifest format + install semantics: [domain-packs.md](domain-packs.md).
@@ -232,14 +244,14 @@ in [source-reputation.md](source-reputation.md).
 | `GET /v1/admin/scheduler` | Registered cron entries with last/next fire timestamps. |
 | `POST /v1/admin/maintenance/dreams/run` | Fire-and-forget kick of dreams; returns `{accepted, jobType, companyId}` (no runId — poll `GET /v1/admin/maintenance/dreams/runs/:runId/emits` for a specific run). |
 | `POST /v1/admin/maintenance/calibration-refit` | Async kick of calibration + source-trust refit. |
-| `POST /v1/admin/maintenance/reindex` | Async re-embed `knowledge_fact`, optionally per tenant. |
+| `POST /v1/admin/maintenance/reindex` | Async re-embed `knowledge_fact`, optionally per tenant. Body `keys` (retry selector) sweeps exactly the named tables (`knowledge_fact`, `knowledge_entity`, `knowledge_predicate`, `episode`, `episode_segment`, `memory_episode`, `strategy_memory`). The job_run `result` carries `outcome`; a `failed` outcome fails the job row. |
 | `POST /v1/admin/maintenance/compaction` | Fire-and-forget kick of the compaction (+promotion) pass. |
 | `GET /v1/admin/maintenance/hnsw/roster` | Which tenants have a ready HNSW index, read from `tenant_registry` alone — no tenant database is opened and no DDL is emitted. Each row carries `state` (`ready` \| `building` \| `partial` \| `absent` \| `mismatch` \| `unknown`), `detail` (per-index `name=state`), `embeddingSpace` and `observedAt`. A row with no `observedAt` has never been looked at, and reads as `unknown` rather than as ready. Scoped like every cross-tenant admin read: a plain `brain:admin` sees its own tenant, a platform operator (`brain:platform_admin` + gate) sees the roster. |
 | `POST /v1/admin/maintenance/hnsw/reconcile` | Run the provisioning sweep NOW instead of waiting for 05:10 UTC: `{dryRun?, tenant?}`. `dryRun: true` probes and records without emitting any DDL — the right first call on a deployment that has never provisioned. Honours `HNSW_PROVISION_MAX_BUILDS_PER_RUN` and the wall-clock budget; tenants held back by the cap are still probed and recorded. Inert while `HNSW_PROVISION_ENABLED` is off. Cross-tenant, so the platform scope gates the roster-wide form. |
 | `POST /v1/admin/maintenance/hnsw` | Per-tenant HNSW vector-index lifecycle: `{action: 'create' \| 'drop' \| 'status' \| 'ensure', tenant?, waitMs?}`. Every build is `CONCURRENTLY`; `waitMs` (create only, default `60000`, `0`–`600000`) is how long this call holds for the builds before answering with the state it reached. **`ensure`** is the idempotent action automation uses — it defines only the indexes that are ABSENT, always `CONCURRENTLY`, never `REMOVE`s and never waits, so it is safe on every pass; `create` is the destructive repair. All actions report `mismatched`: indexes that exist at a `DIMENSION` other than the embedder's, which are `ready` to the engine and reject every write — a tenant in that state can never read as `ready` here, and `ensure` will not attempt the repair (reindex embeddings, then `create`). `create` RECREATES unconditionally at the primary embedder's width (`REMOVE` then `DEFINE`), so a stale-width index cannot survive; run the embedding reindex BEFORE `create` so the rewrites are not rejected by an existing index. Every response carries `builds[]` (per index `state`: `ready` \| `building` \| `absent` \| `unknown`, plus the engine's `initial`/`pending` counts) and a single `ready` boolean — **do not flip `SEARCH_HNSW_ENABLED` for a tenant while `ready` is false**: an index that exists but is still building answers KNN with the same unranked rows a missing index does. `status` re-reads that state and emits no DDL. The builds run `CONCURRENTLY` and the call waits up to `waitMs` before answering with the progress it reached; the build continues server-side. |
 | `POST /v1/admin/maintenance/segments` | L0 segment composer (embedding-only, no LLM); idempotent per conversation. Enable the read lane afterwards with `SEARCH_SEGMENT_LANE_ENABLED`. |
 | `POST /v1/admin/maintenance/segments/backfill-user-ids` | 0117 backfill: stamp `userIds` on legacy segment rows so `PRIVACY_SEGMENT_USER_FENCE` (fail-closed on `userIds IS NONE`) can be enabled without hiding pre-0117 windows. Run once per tenant BEFORE the first fence enable (order: migrate → backfill → flip). Scenes are not covered — re-run `…/maintenance/scenes` instead. |
-| `POST /v1/admin/maintenance/scenes` | Scene composer over the shadow `memory_episode` substrate (0106) — LLM-free, idempotent per (conversation × segmenterVersion), atomic swap. 404 unless `SCENES_SEGMENTATION_ENABLED`. Optional body: `{tenant?, conversationId?}`. |
+| `POST /v1/admin/maintenance/scenes` | Scene composer over the shadow `memory_episode` substrate (0106) — LLM-free, idempotent per (conversation × segmenterVersion), atomic swap. 404 unless `SCENES_SEGMENTATION_ENABLED`. Optional body: `{tenant?, conversationId?, keys?}` — `keys` is the retry selector (exactly these conversation ids, no enumeration). The response carries `outcome`; a post-swap pass that failed degrades it under `post-pass:<name>`. |
 | `POST /v1/admin/maintenance/scenes/enrich` | Standalone re-enrichment: ONE structured LLM call per scene of the current segmenter version; idempotent per enrichmentVersion composite (unchanged config = zero paid calls). 404 unless the master flag AND `SCENES_LLM_ENRICHMENT` are on. |
 | `POST /v1/admin/maintenance/scenes/backlink` | Standalone fact backlink: reconciles `source.memoryEpisodeIds` to exactly the scenes of the effective version whose membership intersects the fact's episodes — stale pointers to purged or rebuilt scenes are removed (`stalePointersRemoved` in the result). 404 unless the master flag AND `SCENES_FACT_BACKLINK` are on. |
 | `POST /v1/admin/maintenance/scenes/beliefs` | Belief promotion (Belief-A, 0120): folds ENRICHED scenes into `semantic_belief` upserts keyed by free-text (subject, field); replay-idempotent. 404 unless the master flag AND `SCENES_BELIEF_PROMOTION` are on. Read the result via the [beliefs API](#read). |

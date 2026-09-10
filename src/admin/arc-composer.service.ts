@@ -1,3 +1,4 @@
+import type { BatchOutcome } from '../common/batch-outcome';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
@@ -61,6 +62,8 @@ export interface ArcRunResult {
   entities: number;
   arcsWritten: number;
   skipped: Array<{ entityId: string; reason: string }>;
+  /** Units are entities (`failed[].key` is an entity id, retryable via `entityIds`). */
+  outcome: BatchOutcome;
 }
 
 interface ArcProposal {
@@ -169,14 +172,18 @@ export class ArcComposerService {
    */
   async run(
     companyId: string,
-    opts: { entities?: number | undefined; version?: string | undefined } = {},
+    opts: {
+      entities?: number | undefined;
+      version?: string | undefined;
+      entityIds?: string[] | undefined;
+    } = {},
   ): Promise<ArcRunResult> {
     const r = await runInsightComposer(
       { surreal: this.surreal, embedding: this.embedding, logger: this.logger },
       this.spec,
       { companyId, ...opts },
     );
-    return { entities: r.entities, arcsWritten: r.written, skipped: r.skipped };
+    return { entities: r.entities, arcsWritten: r.written, skipped: r.skipped, outcome: r.outcome };
   }
 
   private async callComposer(name: string, factLines: string[]): Promise<ArcProposal[]> {

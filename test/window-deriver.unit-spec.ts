@@ -2,6 +2,7 @@ import { BadGatewayException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EpisodeReadStoreService } from '../src/episodes/episode-read-store.service';
 import { throwIfDeriveFailed } from '../src/admin/admin-derive.controller';
+import { foldBatchOutcome } from '../src/common/batch-outcome';
 import {
   WindowDeriverService,
   segmentSessions,
@@ -703,14 +704,20 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
         propositions: 0,
         unresolvedSubjects: 0,
       };
+      const failedSkipped = [
+        { conversationId: 'c1', reason: '429 insufficient_quota' },
+        { conversationId: 'c2', reason: '429 insufficient_quota' },
+      ];
       const failed = {
         ...base,
         status: 'failed' as const,
         failed: 2,
-        skipped: [
-          { conversationId: 'c1', reason: '429 insufficient_quota' },
-          { conversationId: 'c2', reason: '429 insufficient_quota' },
-        ],
+        skipped: failedSkipped,
+        outcome: foldBatchOutcome({
+          total: 2,
+          succeeded: 0,
+          failed: failedSkipped.map((s) => ({ key: s.conversationId, error: s.reason })),
+        }),
       };
       expect(() => throwIfDeriveFailed(failed)).toThrow(BadGatewayException);
       const degraded = {
@@ -719,6 +726,11 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
         status: 'degraded' as const,
         failed: 1,
         skipped: [{ conversationId: 'c1', reason: 'x' }],
+        outcome: foldBatchOutcome({
+          total: 2,
+          succeeded: 1,
+          failed: [{ key: 'c1', error: 'x' }],
+        }),
       };
       expect(throwIfDeriveFailed(degraded)).toBe(degraded);
     });

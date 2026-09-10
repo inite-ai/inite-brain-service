@@ -5,6 +5,12 @@ import { SurrealService } from '../../db/surreal.service';
 import { EmbedderService } from '../embedder.service';
 import { envFlagEnabled } from '../../common/env-validation';
 import { EMBEDDING_SPACE_FIELD } from './embedding-space';
+import {
+  errorMessage,
+  foldBatchOutcome,
+  type BatchFailure,
+  type BatchOutcome,
+} from '../../common/batch-outcome';
 
 interface FactRowForReindex {
   id: { tb: string; id: { String: string } } | string;
@@ -128,6 +134,51 @@ export interface ReindexTenantResult {
   /** Present ONLY when the all-tables sweep ran; absent on the default
    *  knowledge_fact-only path so the response stays byte-identical. */
   tables?: TableReindexCount[];
+  /**
+   * Units are the tables swept (`failed[].key` is a table name, retryable
+   * via `tables`): a table failed when any page failed to embed or any
+   * row write failed — a skipped page is not a rewritten page.
+   */
+  outcome: BatchOutcome;
+}
+
+/** Which tables one tenant sweep covers, and whether to report per table. */
+interface SweepPlan {
+  facts: boolean;
+  extra: ReindexTableSpec[];
+  breakdown: boolean;
+}
+
+/** Failure counters one table's sweep accumulates. */
+interface TableFailures {
+  failedPages: number;
+  failedRows: number;
+}
+
+/**
+ * Default: knowledge_fact only, no breakdown. `allTables`: everything, with
+ * the per-table breakdown. `tables` (the retry selector): exactly the
+ * named tables, with the breakdown.
+ */
+function sweepPlan(opts: { allTables?: boolean; tables?: string[] }): SweepPlan {
+  if (opts.tables !== undefined) {
+    const wanted = new Set(opts.tables);
+    return {
+      facts: wanted.has('knowledge_fact'),
+      extra: ADDITIONAL_TABLE_SPECS.filter((s) => wanted.has(s.table)),
+      breakdown: true,
+    };
+  }
+  const all = opts.allTables === true;
+  return { facts: true, extra: all ? ADDITIONAL_TABLE_SPECS : [], breakdown: all };
+}
+
+function tableFailure(table: string, f: TableFailures): BatchFailure | null {
+  if (f.failedPages === 0 && f.failedRows === 0) return null;
+  return {
+    key: table,
+    error: `${f.failedPages} page(s) failed to embed, ${f.failedRows} row write(s) failed`,
+  };
 }
 
 /** Per-tenant reindex context — the open DB handle, the tenant id (for log
@@ -191,22 +242,39 @@ export class ReindexEngineService {
 
   async reindexTenant(
     companyId: string,
-    opts: { dryRun: boolean; remaining: number; allTables?: boolean },
+    opts: { dryRun: boolean; remaining: number; allTables?: boolean; tables?: string[] },
   ): Promise<ReindexTenantResult> {
     return this.surreal.withCompany(companyId, async (db) => {
       const ctx: ReindexCtx = { db, companyId, spaceId: this.spaceStampId() };
-      const factResult = await this.reindexKnowledgeFacts(ctx, opts);
-      if (opts.allTables !== true) return factResult;
-
+      const plan = sweepPlan(opts);
+      const failed: BatchFailure[] = [];
+      let total = 0;
+      let factsScanned = 0;
+      let factsUpdated = 0;
+      if (plan.facts) {
+        const facts = await this.reindexKnowledgeFacts(ctx, opts);
+        factsScanned = facts.factsScanned;
+        factsUpdated = facts.factsUpdated;
+        total += 1;
+        const failure = tableFailure('knowledge_fact', facts);
+        if (failure) failed.push(failure);
+      }
       // Opt-in sweep over the remaining embedding-bearing tables. Each is
       // capped independently by `remaining` (a shared budget would make the
       // per-table numbers depend on iteration order, which is worse for
       // operator reasoning).
       const tables: TableReindexCount[] = [];
-      for (const spec of ADDITIONAL_TABLE_SPECS) {
-        tables.push(await this.reindexGenericTable(ctx, spec, opts));
+      for (const spec of plan.extra) {
+        const swept = await this.reindexGenericTable(ctx, spec, opts);
+        tables.push({ table: spec.table, scanned: swept.scanned, updated: swept.updated });
+        total += 1;
+        const failure = tableFailure(spec.table, swept);
+        if (failure) failed.push(failure);
       }
-      return { ...factResult, tables };
+      const outcome = foldBatchOutcome({ total, succeeded: total - failed.length, failed });
+      return plan.breakdown
+        ? { factsScanned, factsUpdated, tables, outcome }
+        : { factsScanned, factsUpdated, outcome };
     });
   }
 
@@ -240,10 +308,11 @@ export class ReindexEngineService {
   private async reindexKnowledgeFacts(
     ctx: ReindexCtx,
     opts: { dryRun: boolean; remaining: number },
-  ): Promise<{ factsScanned: number; factsUpdated: number }> {
+  ): Promise<{ factsScanned: number; factsUpdated: number } & TableFailures> {
     let offset = 0;
     let factsScanned = 0;
     let factsUpdated = 0;
+    const failures: TableFailures = { failedPages: 0, failedRows: 0 };
     const batch = Math.min(this.batchSize, opts.remaining);
     // Paginate until either the tenant is empty or we hit the cap.
     while (factsScanned < opts.remaining) {
@@ -265,13 +334,17 @@ export class ReindexEngineService {
         const embeddings = await this.embedPageOrNull(texts, `knowledge_fact ${ctx.companyId}`);
         if (embeddings) {
           const entries = page.map((row, i) => ({ id: row.id, vector: embeddings[i] }));
-          factsUpdated += await this.writePage(ctx, 'embedding', entries);
+          const written = await this.writePage(ctx, 'embedding', entries);
+          factsUpdated += written.updated;
+          failures.failedRows += written.failed;
+        } else {
+          failures.failedPages += 1;
         }
       }
       offset += page.length;
       if (page.length < batch) break;
     }
-    return { factsScanned, factsUpdated };
+    return { factsScanned, factsUpdated, ...failures };
   }
 
   /**
@@ -287,10 +360,11 @@ export class ReindexEngineService {
     ctx: ReindexCtx,
     spec: ReindexTableSpec,
     opts: { dryRun: boolean; remaining: number },
-  ): Promise<TableReindexCount> {
+  ): Promise<TableReindexCount & TableFailures> {
     let offset = 0;
     let scanned = 0;
     let updated = 0;
+    const failures: TableFailures = { failedPages: 0, failedRows: 0 };
     const batch = Math.min(this.batchSize, opts.remaining);
     while (scanned < opts.remaining) {
       const [rows] = await ctx.db.query<[Array<Record<string, unknown>>]>(
@@ -304,11 +378,16 @@ export class ReindexEngineService {
       const page = (rows as Array<Record<string, unknown>>) ?? [];
       if (page.length === 0) break;
       scanned += page.length;
-      if (!opts.dryRun) updated += await this.reindexGenericPage(ctx, spec, page);
+      if (!opts.dryRun) {
+        const written = await this.reindexGenericPage(ctx, spec, page);
+        updated += written.updated;
+        failures.failedPages += written.failedPages;
+        failures.failedRows += written.failedRows;
+      }
       offset += page.length;
       if (page.length < batch) break;
     }
-    return { table: spec.table, scanned, updated };
+    return { table: spec.table, scanned, updated, ...failures };
   }
 
   /** Re-embed + rewrite one page of a non-fact table. Skips rows with no
@@ -317,7 +396,7 @@ export class ReindexEngineService {
     ctx: ReindexCtx,
     spec: ReindexTableSpec,
     page: Array<Record<string, unknown>>,
-  ): Promise<number> {
+  ): Promise<{ updated: number } & TableFailures> {
     const kept: Array<Record<string, unknown>> = [];
     const texts: string[] = [];
     for (const row of page) {
@@ -327,11 +406,12 @@ export class ReindexEngineService {
         texts.push(t);
       }
     }
-    if (texts.length === 0) return 0;
+    if (texts.length === 0) return { updated: 0, failedPages: 0, failedRows: 0 };
     const embeddings = await this.embedPageOrNull(texts, `${spec.table} ${ctx.companyId}`);
-    if (!embeddings) return 0;
+    if (!embeddings) return { updated: 0, failedPages: 1, failedRows: 0 };
     const entries = kept.map((row, i) => ({ id: row.id, vector: embeddings[i] }));
-    return this.writePage(ctx, spec.vectorField, entries);
+    const written = await this.writePage(ctx, spec.vectorField, entries);
+    return { updated: written.updated, failedPages: 0, failedRows: written.failed };
   }
 
   /** Embed a page, logging + swallowing a batch failure (returns null so the
@@ -353,30 +433,32 @@ export class ReindexEngineService {
       // answers 503 and the operator learns to wait for warmup.
       if (e instanceof ServiceUnavailableException) throw e;
       this.logger.warn(
-        `reindex batch embed failed (${where}, page=${texts.length}): ${(e as Error).message}`,
+        `reindex batch embed failed (${where}, page=${texts.length}): ${errorMessage(e)}`,
       );
       return null;
     }
   }
 
   /** Write each row's vector, tolerating a per-row failure. Returns the
-   *  number of rows successfully updated. */
+   *  rows successfully updated and the rows whose write failed. */
   private async writePage(
     ctx: ReindexCtx,
     vectorField: string,
     entries: Array<{ id: unknown; vector: number[] | undefined }>,
-  ): Promise<number> {
+  ): Promise<{ updated: number; failed: number }> {
     let updated = 0;
+    let failed = 0;
     for (const entry of entries) {
       try {
         await this.writeVector(ctx, vectorField, entry);
         updated += 1;
       } catch (e) {
+        failed += 1;
         this.logger.warn(
-          `reindex ${vectorField} row update failed (${ctx.companyId}): ${(e as Error).message}`,
+          `reindex ${vectorField} row update failed (${ctx.companyId}): ${errorMessage(e)}`,
         );
       }
     }
-    return updated;
+    return { updated, failed };
   }
 }

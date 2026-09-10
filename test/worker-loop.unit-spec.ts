@@ -137,6 +137,53 @@ describe('JobDispatcherService.dispatch', () => {
     expect(claimSvc.calls.failed).toHaveLength(0);
   });
 
+  it('a returned FAILED batch outcome is treated like a throw: fail(), result persisted', async () => {
+    const claim = makeJobClaim({ attempts: 2 });
+    const claimSvc = makeClaimSvc();
+    const outcome = {
+      status: 'failed',
+      total: 3,
+      succeeded: 0,
+      failed: [{ key: 'conv-1', error: 'llm down' }],
+      degradedBy: [],
+    };
+    const reg = {
+      jobType: 'recompose' as JobType,
+      handler: async () => ({ marked: 3, outcome }),
+      ttlSeconds: 3,
+      maxAttempts: 5,
+    };
+    await callDispatch(mkDispatcher(claimSvc), claim, reg);
+    expect(claimSvc.calls.completed).toHaveLength(0);
+    expect(claimSvc.calls.failed).toHaveLength(1);
+    const input = claimSvc.fail.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input).toMatchObject({
+      recordId: 'job_run:abc',
+      attempts: 2,
+      requeue: true,
+      maxAttempts: 5,
+      error: { name: 'BatchFailed' },
+      result: { marked: 3, outcome },
+    });
+    expect((input.error as { message: string }).message).toContain('conv-1 — llm down');
+  });
+
+  it('a returned DEGRADED batch outcome still completes (the units landed)', async () => {
+    const claim = makeJobClaim();
+    const claimSvc = makeClaimSvc();
+    const reg = {
+      jobType: 'recompose' as JobType,
+      handler: async () => ({
+        outcome: { status: 'degraded', total: 2, succeeded: 1, failed: [], degradedBy: [] },
+      }),
+      ttlSeconds: 3,
+      maxAttempts: 3,
+    };
+    await callDispatch(mkDispatcher(claimSvc), claim, reg);
+    expect(claimSvc.calls.completed).toHaveLength(1);
+    expect(claimSvc.calls.failed).toHaveLength(0);
+  });
+
   it('records a job metric with the terminal outcome and a duration', async () => {
     const claim = makeJobClaim({ jobType: 'dreams' });
     const claimSvc = makeClaimSvc();

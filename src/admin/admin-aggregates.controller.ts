@@ -5,6 +5,19 @@ import { ApiKeyService } from '../auth/api-key.service';
 import { resolvePlatformTenant } from '../auth/tenant-scope';
 import { AggregateComposerService, AggregateRunResult } from './aggregate-composer.service';
 import { ArcComposerService, ArcRunResult } from './arc-composer.service';
+import { parseBatchKeys } from '../common/batch-outcome';
+
+/** Retry-selector belt: the composers' own entity cap, as record ids. */
+const KEYS_MAX = 50;
+const ENTITY_ID_MAX_CHARS = 256;
+
+interface ComposerBody {
+  tenant?: string;
+  entities?: number;
+  version?: string;
+  /** Retry selector: `outcome.failed[].key` (knowledge_entity ids) of a previous run. */
+  keys?: string[];
+}
 
 /**
  * Explicit triggers for the write-time insight composers (each costs one
@@ -31,28 +44,26 @@ export class AdminAggregatesController {
   @RequireScopes('brain:admin')
   async run(
     @Req() req: AuthenticatedRequest,
-    @Body()
-    body: { tenant?: string; entities?: number; version?: string } = {},
+    @Body() body: ComposerBody = {},
   ): Promise<AggregateRunResult> {
-    const { tenant, version } = this.validate(req, body);
-    return this.composer.run(tenant, { entities: body.entities, version });
+    const { tenant, version, entityIds } = this.validate(req, body);
+    return this.composer.run(tenant, { entities: body.entities, version, entityIds });
   }
 
   @Post('maintenance/arcs')
   @RequireScopes('brain:admin')
   async runArcs(
     @Req() req: AuthenticatedRequest,
-    @Body()
-    body: { tenant?: string; entities?: number; version?: string } = {},
+    @Body() body: ComposerBody = {},
   ): Promise<ArcRunResult> {
-    const { tenant, version } = this.validate(req, body);
-    return this.arcs.run(tenant, { entities: body.entities, version });
+    const { tenant, version, entityIds } = this.validate(req, body);
+    return this.arcs.run(tenant, { entities: body.entities, version, entityIds });
   }
 
   private validate(
     req: AuthenticatedRequest,
-    body: { tenant?: string; version?: string },
-  ): { tenant: string; version?: string | undefined } {
+    body: ComposerBody,
+  ): { tenant: string; version?: string | undefined; entityIds?: string[] | undefined } {
     const tenant = resolvePlatformTenant(req, body.tenant, {
       knownTenants: () => this.apiKeys.knownCompanyIds(),
     });
@@ -60,6 +71,11 @@ export class AdminAggregatesController {
     if (version && !/^[a-z0-9-]{2,32}$/.test(version)) {
       throw new BadRequestException('version must be a short kebab-case tag (e.g. wd-v2)');
     }
-    return { tenant, version };
+    const entityIds = parseBatchKeys(body.keys, {
+      maxKeys: KEYS_MAX,
+      maxLength: ENTITY_ID_MAX_CHARS,
+      accept: (key) => key.startsWith('knowledge_entity:'),
+    });
+    return { tenant, version, entityIds };
   }
 }

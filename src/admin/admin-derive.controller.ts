@@ -17,6 +17,33 @@ import {
   DeriveRunResult,
   WINDOW_DERIVER_VERSION,
 } from './window-deriver.service';
+import { parseBatchKeys } from '../common/batch-outcome';
+
+/** Retry-selector belt: conversation ids. */
+const KEYS_MAX = 1000;
+const CONVERSATION_ID_MAX_CHARS = 128;
+
+/**
+ * The derive body's conversation selector: `conversation` (one id) or
+ * `keys` (the `outcome.failed[].key` of a previous run), never both.
+ */
+export function parseDeriveTargets(body: { conversation?: string; keys?: string[] }): {
+  conversationId: string | undefined;
+  conversationIds: string[] | undefined;
+} {
+  const conversationId = body.conversation?.trim() || undefined;
+  if (conversationId && conversationId.length > CONVERSATION_ID_MAX_CHARS) {
+    throw new BadRequestException('conversation id too long');
+  }
+  const conversationIds = parseBatchKeys(body.keys, {
+    maxKeys: KEYS_MAX,
+    maxLength: CONVERSATION_ID_MAX_CHARS,
+  });
+  if (conversationId !== undefined && conversationIds !== undefined) {
+    throw new BadRequestException('pass either conversation or keys, not both');
+  }
+  return { conversationId, conversationIds };
+}
 
 /**
  * A derive where every attempted conversation failed produced nothing:
@@ -63,6 +90,8 @@ export class AdminDeriveController {
       tenant?: string;
       version?: string;
       conversation?: string;
+      /** Retry selector: re-derive exactly these conversation ids. */
+      keys?: string[];
       /** Flip the live read pin to this version after a successful run. */
       activate?: boolean;
       /** Allow rewriting the currently pinned world in place (eval only). */
@@ -76,15 +105,13 @@ export class AdminDeriveController {
     if (!/^[a-z0-9-]{2,32}$/.test(version)) {
       throw new BadRequestException('version must be a short kebab-case tag (e.g. wd-v2)');
     }
-    const conversationId = body.conversation?.trim() || undefined;
-    if (conversationId && conversationId.length > 128) {
-      throw new BadRequestException('conversation id too long');
-    }
+    const { conversationId, conversationIds } = parseDeriveTargets(body);
     try {
       return throwIfDeriveFailed(
         await this.deriver.run(tenant, {
           version,
           conversationId,
+          conversationIds,
           activate: body.activate === true,
           force: body.force === true,
         }),

@@ -4,6 +4,7 @@ import { JobClaimService, type JobClaim } from './job-claim.service';
 import { JobWorkerPool } from './job-worker-pool.service';
 import { MetricsService } from '../metrics/metrics.service';
 import type { RegisteredHandler } from './worker-loop.types';
+import { batchOutcomeOf, describeBatchOutcome } from '../common/batch-outcome';
 
 /**
  * JobDispatcherService — runs a single claimed job to completion. Owns
@@ -149,13 +150,7 @@ export class JobDispatcherService {
         outcome = 'lost_claim';
         this.logger.warn(`Claim ${claim.runId} lost mid-handler; skipping terminal write`);
       } else {
-        consumerSpan.setAttribute('job.outcome', 'succeeded');
-        outcome = 'succeeded';
-        await this.claim.complete({
-          companyId: claim.companyId,
-          recordId: claim.recordId,
-          result: (result as Record<string, unknown>) ?? undefined,
-        });
+        outcome = await this.settle({ claim, reg, result, consumerSpan });
       }
     } catch (err) {
       clearInterval(renewTimer);
@@ -191,5 +186,44 @@ export class JobDispatcherService {
       const elapsed = (Date.now() - startedAt) / 1000;
       this.metrics?.recordJob(claim.jobType, outcome, elapsed);
     }
+  }
+
+  /**
+   * Terminal write for a handler that RETURNED. A result carrying a
+   * `failed` batch outcome is treated exactly like a throw — requeued
+   * under the same attempt policy, with the outcome persisted on the
+   * terminal row — because a run where no unit succeeded is not a
+   * succeeded job with sad numbers.
+   */
+  private async settle(args: {
+    claim: JobClaim;
+    reg: RegisteredHandler;
+    result: unknown;
+    consumerSpan: ReturnType<ReturnType<typeof trace.getTracer>['startSpan']>;
+  }): Promise<'succeeded' | 'failed'> {
+    const { claim, reg, result, consumerSpan } = args;
+    const failedBatch = batchOutcomeOf(result);
+    if (failedBatch?.status === 'failed') {
+      const message = describeBatchOutcome(failedBatch);
+      consumerSpan.setAttribute('job.outcome', 'failed');
+      consumerSpan.setStatus({ code: SpanStatusCode.ERROR, message });
+      await this.claim.fail({
+        companyId: claim.companyId,
+        recordId: claim.recordId,
+        attempts: claim.attempts,
+        error: { message, name: 'BatchFailed' },
+        requeue: true,
+        maxAttempts: reg.maxAttempts,
+        result: result as Record<string, unknown>,
+      });
+      return 'failed';
+    }
+    consumerSpan.setAttribute('job.outcome', 'succeeded');
+    await this.claim.complete({
+      companyId: claim.companyId,
+      recordId: claim.recordId,
+      result: (result as Record<string, unknown>) ?? undefined,
+    });
+    return 'succeeded';
   }
 }

@@ -34,6 +34,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { HttpCode } from '@nestjs/common';
 import { ReindexEmbeddingsService } from '../ai/embedder/reindex-embeddings.service';
+import { REINDEX_SWEPT_COLUMNS } from '../ai/embedder/reindex-engine.service';
+import { describeBatchOutcome, parseBatchKeys } from '../common/batch-outcome';
 import { ScenarioRunnerService, ScenarioRunOutcome } from './scenario-runner.service';
 import type { LeasesResponse } from '../contracts/admin/leases.schema';
 import type { SchedulerResponse } from '../contracts/admin/scheduler.schema';
@@ -331,7 +333,10 @@ export class AdminJobsController {
    * synchronous /v1/admin/reindex/embeddings handler so an operator
    * triggering a full re-embed doesn't have to keep their browser tab
    * open for the duration. Result lands in job_run with the same shape
-   * the sync endpoint returned (tenantsScanned, factsScanned, factsUpdated).
+   * the sync endpoint returned (tenantsScanned, factsScanned, factsUpdated)
+   * plus `outcome`; a `failed` outcome fails the job row. `keys` is the
+   * retry selector: sweep exactly these tables (the `failed[].key` of a
+   * previous run) instead of the default knowledge_fact-only pass.
    */
   @Post('maintenance/reindex')
   @HttpCode(202)
@@ -339,8 +344,14 @@ export class AdminJobsController {
   async triggerReindex(
     @Req() req: AuthenticatedRequest,
     @Body()
-    body: { tenant?: string; dryRun?: boolean; maxFacts?: number } = {},
+    body: { tenant?: string; dryRun?: boolean; maxFacts?: number; keys?: string[] } = {},
   ): Promise<AcceptedReindexResponse> {
+    const sweptTables = new Set(REINDEX_SWEPT_COLUMNS.map((c) => c.table));
+    const tables = parseBatchKeys(body.keys, {
+      maxKeys: sweptTables.size,
+      maxLength: 64,
+      accept: (key) => sweptTables.has(key),
+    });
     // Tenant isolation: a specific tenant resolves through the platform
     // gate (own tenant always ok; a foreign one is a 403 without the
     // platform scope + gate). Omitted → a platform operator re-embeds
@@ -373,6 +384,7 @@ export class AdminJobsController {
         tenantFilter: reindexTenant ?? null,
         dryRun: body.dryRun === true,
         maxFacts: body.maxFacts ?? null,
+        tables: tables ?? null,
       },
     });
     void (async () => {
@@ -381,10 +393,17 @@ export class AdminJobsController {
           ...(reindexTenant !== undefined ? { tenant: reindexTenant } : {}),
           dryRun: body.dryRun === true,
           ...(body.maxFacts !== undefined ? { maxFacts: body.maxFacts } : {}),
+          ...(tables !== undefined ? { tables } : {}),
         });
+        const persisted = JSON.parse(JSON.stringify(result)) as Record<string, unknown>;
+        // The terminal status follows the outcome: a sweep where nothing
+        // succeeded is a failed job, not a succeeded one with sad numbers.
         await this.jobs.finish(row, {
-          status: 'succeeded',
-          result: JSON.parse(JSON.stringify(result)) as Record<string, unknown>,
+          status: result.outcome.status === 'failed' ? 'failed' : 'succeeded',
+          result: persisted,
+          ...(result.outcome.status === 'failed'
+            ? { error: { message: describeBatchOutcome(result.outcome), name: 'BatchFailed' } }
+            : {}),
         });
       } catch (e) {
         await this.jobs.finish(row, {

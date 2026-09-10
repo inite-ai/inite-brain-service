@@ -67,10 +67,26 @@ import {
 } from './derive-staging';
 import { buildDerivedRows, collectRollupPool } from './derive-row-builder';
 import { LeaderLeaseService } from '../jobs/leader-lease.service';
+import {
+  POST_PASS_KEY,
+  emptyBatchOutcome,
+  errorMessage,
+  foldBatchOutcome,
+  type BatchOutcome,
+} from '../common/batch-outcome';
 
 export type DeriveRunStatus = 'ok' | 'degraded' | 'failed';
 
 export interface DeriveRunResult {
+  /**
+   * Terminal status. Units are conversations (`failed[].key` is a
+   * conversation id, retryable via `conversationIds`); a per-conversation
+   * post-pass (digest fold, aspect rollups, compose) that failed lands in
+   * `degradedBy` under `post-pass:<name>`. `status` below stays the
+   * UNIT-level verdict that governs promotion — a failed post-pass
+   * degrades the outcome but never withholds the atomic facts.
+   */
+  outcome: BatchOutcome;
   conversations: number;
   sessions: number;
   propositions: number;
@@ -149,6 +165,8 @@ export class WindowDeriverService {
     opts: {
       version?: string;
       conversationId?: string | undefined;
+      /** Retry selector: derive exactly these conversations. */
+      conversationIds?: string[] | undefined;
       activate?: boolean;
       force?: boolean;
     } = {},
@@ -205,13 +223,18 @@ export class WindowDeriverService {
     companyId: string;
     version: string;
     ns: DeriveNamespace;
-    opts: { conversationId?: string | undefined; activate?: boolean };
+    opts: {
+      conversationId?: string | undefined;
+      conversationIds?: string[] | undefined;
+      activate?: boolean;
+    };
     activePin: string | undefined;
     /** Promotion fence (audit 2026-08-21): checked before the flip. */
     lease: DeriveLease;
   }): Promise<DeriveRunResult> {
     const { companyId, version, ns, opts, activePin, lease } = args;
     const result: DeriveRunResult = {
+      outcome: emptyBatchOutcome(),
       conversations: 0,
       sessions: 0,
       propositions: 0,
@@ -220,6 +243,14 @@ export class WindowDeriverService {
       status: 'ok',
       failed: 0,
     };
+    // Targeted re-derivation: one bad conversation (or the failed keys of
+    // a previous run) should not force a full-tenant (paid) re-run.
+    const targets = opts.conversationId
+      ? [opts.conversationId]
+      : opts.conversationIds !== undefined
+        ? opts.conversationIds
+        : null;
+    const only = targets ? new Set(targets) : null;
     // Registry (driver surface 3): observes the lifecycle, never fails it —
     // every registry write degrades to a warning inside the service.
     // The row stays 'building' until the FLIP: 'built' must only ever
@@ -240,11 +271,7 @@ export class WindowDeriverService {
         const convs = await this.episodes.conversationCounts(db);
         for (const conv of convs) {
           const conversationId = conv.conversationId;
-          // Targeted re-derivation: one bad conversation should not force a
-          // full-tenant (paid) re-run.
-          if (opts.conversationId && conversationId !== opts.conversationId) {
-            continue;
-          }
+          if (only && !only.has(conversationId)) continue;
           try {
             await this.deriveConversation({ db, conversationId, ns, result });
             result.conversations += 1;
@@ -298,17 +325,25 @@ export class WindowDeriverService {
           `promotion fenced; staging left in place, world NOT flipped`,
       );
       result.status = 'failed';
+      result.outcome = {
+        ...result.outcome,
+        status: 'failed',
+        failed: [...result.outcome.failed, { key: '*', error: 'lease lost mid-run' }],
+      };
       return result;
     }
     // Atomic flip: staging → final (DELETE final + UPDATE staging,
     // facts + digests in ONE BEGIN/COMMIT). A run that attempted no
     // conversation has nothing to promote — flipping would wipe the
-    // final world with an empty staging namespace.
+    // final world with an empty staging namespace. A targeted run flips
+    // ONE conversation per transaction: the whole-world flip would wipe
+    // every conversation the run did not touch.
     if (result.conversations > 0) {
       try {
-        await this.surreal.withCompany(companyId, (db) =>
-          promoteStaging(db, ns, { conversationId: opts.conversationId }),
-        );
+        await this.surreal.withCompany(companyId, async (db) => {
+          if (!targets) return promoteStaging(db, ns);
+          for (const conversationId of targets) await promoteStaging(db, ns, { conversationId });
+        });
       } catch (e) {
         // The single-transaction flip failed whole: final world
         // untouched, staging intact. The registry marks the world
@@ -397,6 +432,12 @@ export class WindowDeriverService {
   private finalizeRunStatus(result: DeriveRunResult): DeriveRunStatus {
     result.failed = result.skipped.length;
     result.status = result.failed === 0 ? 'ok' : result.conversations > 0 ? 'degraded' : 'failed';
+    result.outcome = foldBatchOutcome({
+      total: result.conversations + result.failed,
+      succeeded: result.conversations,
+      failed: result.skipped.map((s) => ({ key: s.conversationId, error: s.reason })),
+      degradedBy: result.outcome.degradedBy,
+    });
     return result.status;
   }
 
@@ -610,6 +651,10 @@ export class WindowDeriverService {
           this.logger.warn(
             `digest fold failed (${(e as Error).message}) — keeping prior digest state`,
           );
+          result.outcome.degradedBy.push({
+            key: `${POST_PASS_KEY}digest-fold`,
+            error: `${conversationId}: ${errorMessage(e)}`,
+          });
         }
         const last = new Date(session[session.length - 1]!.occurredAt as string);
         if (!digestEventAt || last > digestEventAt) digestEventAt = last;
@@ -822,6 +867,10 @@ export class WindowDeriverService {
       this.logger.warn(
         `aspect rollup pass failed (${(e as Error).message}) — atomic facts unaffected`,
       );
+      result.outcome.degradedBy.push({
+        key: `${POST_PASS_KEY}aspect-rollups`,
+        error: `${conversationId}: ${errorMessage(e)}`,
+      });
     }
   }
 
@@ -907,6 +956,10 @@ export class WindowDeriverService {
       this.logger.log(`compose pass: ${landed}/${compositions.length} landed (${conversationId})`);
     } catch (e) {
       this.logger.warn(`compose pass failed (${(e as Error).message}) — atomic facts unaffected`);
+      result.outcome.degradedBy.push({
+        key: `${POST_PASS_KEY}compose`,
+        error: `${conversationId}: ${errorMessage(e)}`,
+      });
     }
   }
 

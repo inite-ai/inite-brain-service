@@ -4,6 +4,7 @@ import { SurrealService, runTransaction } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
 import { scopeForUser } from '../auth/scope-tags';
 import { privacyComposerUserScopeEnabled } from '../common/privacy-flags';
+import { emptyBatchOutcome, foldBatchOutcome, type BatchOutcome } from '../common/batch-outcome';
 
 /**
  * The shared skeleton of the write-time insight composers (aggregates,
@@ -99,6 +100,8 @@ export interface ComposerRunResult {
    * Always 0 with the flag off.
    */
   droppedCrossUser: number;
+  /** Units are entities (`failed[].key` is an entity id, retryable via `entityIds`). */
+  outcome: BatchOutcome;
 }
 
 interface KernelDeps {
@@ -124,21 +127,38 @@ export async function runInsightComposer<P>(
     companyId: string;
     entities?: number | undefined;
     version?: string | undefined;
+    /** Retry selector: compose exactly these entity ids, not the top-N. */
+    entityIds?: string[] | undefined;
   },
 ): Promise<ComposerRunResult> {
   const { companyId } = opts;
-  const entityCap = Math.min(Math.max(opts.entities ?? 12, 1), 50);
+  const entityCap = opts.entityIds
+    ? opts.entityIds.length
+    : Math.min(Math.max(opts.entities ?? 12, 1), 50);
   const version = opts.version?.trim() || undefined;
   const versionClause = version ? 'AND derivedVersion = $version' : 'AND derivedVersion IS NONE';
-  const result: ComposerRunResult = { entities: 0, written: 0, skipped: [], droppedCrossUser: 0 };
+  const entityClause = opts.entityIds ? 'AND entityId INSIDE $entityIds' : '';
+  const result: ComposerRunResult = {
+    entities: 0,
+    written: 0,
+    skipped: [],
+    droppedCrossUser: 0,
+    outcome: emptyBatchOutcome(),
+  };
   await deps.surreal.withCompany(companyId, async (db) => {
     const [tops] = await db.query<[Array<{ entityId: unknown; n: number }>]>(
       `SELECT entityId, count() AS n FROM knowledge_fact
         WHERE status = 'active'
           ${spec.sourceExclusionSql}
           ${versionClause}
+          ${entityClause}
         GROUP BY entityId ORDER BY n DESC LIMIT $k`,
-      { k: entityCap, version, ...spec.sourceExclusionParams },
+      {
+        k: entityCap,
+        version,
+        entityIds: opts.entityIds?.map((id) => new StringRecordId(id)),
+        ...spec.sourceExclusionParams,
+      },
     );
     for (const top of tops ?? []) {
       const entityId = String(top.entityId);
@@ -159,6 +179,11 @@ export async function runInsightComposer<P>(
         );
       }
     }
+  });
+  result.outcome = foldBatchOutcome({
+    total: result.entities + result.skipped.length,
+    succeeded: result.entities,
+    failed: result.skipped.map((s) => ({ key: s.entityId, error: s.reason })),
   });
   return result;
 }

@@ -24,7 +24,7 @@ import {
   WINDOW_DERIVER_VERSION,
   type DeriveRunResult,
 } from './window-deriver.service';
-import { throwIfDeriveFailed } from './admin-derive.controller';
+import { parseDeriveTargets, throwIfDeriveFailed } from './admin-derive.controller';
 
 /**
  * Public projections API (raw-substrate driver v1, surface 3 —
@@ -83,6 +83,8 @@ export class ProjectionsController {
     body: {
       version?: string;
       conversation?: string;
+      /** Retry selector: re-derive exactly these conversation ids. */
+      keys?: string[];
       /** Flip the live read pin to this version after a successful run. */
       activate?: boolean;
       /** Allow rewriting the currently pinned world in place (eval only). */
@@ -99,15 +101,13 @@ export class ProjectionsController {
     if (!/^[a-z0-9-]{2,32}$/.test(version)) {
       throw new BadRequestException('version must be a short kebab-case tag (e.g. wd-v2)');
     }
-    const conversationId = body.conversation?.trim() || undefined;
-    if (conversationId && conversationId.length > 128) {
-      throw new BadRequestException('conversation id too long');
-    }
+    const { conversationId, conversationIds } = parseDeriveTargets(body);
     try {
       return throwIfDeriveFailed(
         await this.deriver.run(req.brainAuth.companyId, {
           version,
           conversationId,
+          conversationIds,
           activate: body.activate === true,
           force: body.force === true,
         }),

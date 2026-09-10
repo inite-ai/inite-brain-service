@@ -21,6 +21,12 @@ import {
 import type { ExecuteRunResult } from './processing/processing-run.service';
 import { ProcessingRunService } from './processing/processing-run.service';
 import { storageRefScheme } from './storage/storage-adapter';
+import {
+  errorMessage,
+  foldBatchOutcome,
+  type BatchFailure,
+  type BatchOutcome,
+} from '../common/batch-outcome';
 
 interface AssetRow {
   id: unknown;
@@ -46,6 +52,11 @@ interface PackRow {
 export interface DispatchResult {
   runs: ExecuteRunResult[];
   denied: Array<{ capability: string; reason: string }>;
+  /**
+   * Units are the runs the adapters executed (`failed[].key` is the
+   * capability); a denial is policy, not a unit, and stays in `denied`.
+   */
+  outcome: BatchOutcome;
 }
 
 export interface DispatchSweepResult {
@@ -59,6 +70,12 @@ export interface DispatchSweepResult {
   denied: number;
   /** Assets whose dispatch threw — logged, never fatal to the sweep. */
   failed: number;
+  /**
+   * Units are assets (`failed[].key` is an evidence_asset id, retryable
+   * via `assetIds`): an asset failed when its dispatch threw OR any of its
+   * runs recorded `failed` — a persisted failed run is not a success.
+   */
+  outcome: BatchOutcome;
 }
 
 /** Default per-call sweep bound; a maintenance verb, not a migration. */
@@ -110,7 +127,11 @@ export class EvidenceProcessorBrokerService {
     const { asset, pack } = await this.loadRows(companyId, req);
     const modality = asset.modality as EvidenceModality;
     const capabilities = this.declaredCapabilities(pack.manifest, modality);
-    const result: DispatchResult = { runs: [], denied: [] };
+    const result: DispatchResult = {
+      runs: [],
+      denied: [],
+      outcome: foldBatchOutcome({ total: 0, succeeded: 0, failed: [] }),
+    };
     for (const capability of capabilities) {
       const adapter = this.processors.find(
         (candidate) =>
@@ -144,6 +165,14 @@ export class EvidenceProcessorBrokerService {
       });
       result.runs.push(run);
     }
+    result.outcome = foldBatchOutcome({
+      total: result.runs.length,
+      succeeded: result.runs.filter((r) => r.status === 'succeeded' || r.status === 'replayed')
+        .length,
+      failed: result.runs
+        .filter((r) => r.status === 'failed')
+        .map((r) => ({ key: r.capability, error: r.error ?? 'failed' })),
+    });
     return result;
   }
 
@@ -167,34 +196,54 @@ export class EvidenceProcessorBrokerService {
    */
   async dispatchSweep(
     companyId: string,
-    req: { packId: string; assetId?: string | undefined; limit?: number | undefined },
+    req: {
+      packId: string;
+      assetId?: string | undefined;
+      /** Retry selector: exactly these assets, no candidate read. */
+      assetIds?: string[] | undefined;
+      limit?: number | undefined;
+    },
   ): Promise<DispatchSweepResult> {
     if (!processorBrokerEnabled() || !evidenceSubstrateEnabled()) {
       throw new ServiceUnavailableException(
         'EVIDENCE_PROCESSOR_BROKER (with EVIDENCE_SUBSTRATE_ENABLED) is off',
       );
     }
-    const assetIds = req.assetId
-      ? [req.assetId]
-      : await this.sweepCandidates(companyId, req.limit ?? SWEEP_DEFAULT_LIMIT);
+    const assetIds =
+      req.assetIds ??
+      (req.assetId
+        ? [req.assetId]
+        : await this.sweepCandidates(companyId, req.limit ?? SWEEP_DEFAULT_LIMIT));
     const out: DispatchSweepResult = {
       assets: assetIds.length,
       dispatched: 0,
       runs: 0,
       denied: 0,
       failed: 0,
+      outcome: foldBatchOutcome({ total: 0, succeeded: 0, failed: [] }),
     };
+    const failedAssets: BatchFailure[] = [];
     for (const assetId of assetIds) {
       try {
         const res = await this.dispatchForPack(companyId, { packId: req.packId, assetId });
         out.dispatched++;
         out.runs += res.runs.length;
         out.denied += res.denied.length;
+        const firstFailed = res.outcome.failed[0];
+        if (firstFailed) {
+          failedAssets.push({ key: assetId, error: `${firstFailed.key}: ${firstFailed.error}` });
+        }
       } catch (e) {
         out.failed++;
-        this.logger.warn(`sweep dispatch failed for ${assetId}: ${(e as Error).message}`);
+        failedAssets.push({ key: assetId, error: errorMessage(e) });
+        this.logger.warn(`sweep dispatch failed for ${assetId}: ${errorMessage(e)}`);
       }
     }
+    out.outcome = foldBatchOutcome({
+      total: assetIds.length,
+      succeeded: assetIds.length - failedAssets.length,
+      failed: failedAssets,
+    });
     return out;
   }
 

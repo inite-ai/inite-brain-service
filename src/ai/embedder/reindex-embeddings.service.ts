@@ -1,6 +1,12 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ApiKeyService } from '../../auth/api-key.service';
 import { ReindexEngineService, type TableReindexCount } from './reindex-engine.service';
+import {
+  errorMessage,
+  failedBatchOutcome,
+  foldNestedOutcomes,
+  type BatchOutcome,
+} from '../../common/batch-outcome';
 
 export interface ReindexResult {
   tenantsScanned: number;
@@ -12,6 +18,11 @@ export interface ReindexResult {
   /** Per-table breakdown, present ONLY when the opt-in all-tables sweep
    *  ran; absent on the default knowledge_fact-only path. */
   tables?: TableReindexCount[];
+  /**
+   * Roster fold: units are tenants (`failed[].key` is a companyId); a
+   * tenant whose sweep degraded (a table failed) degrades the whole.
+   */
+  outcome: BatchOutcome;
 }
 
 export interface ReindexOptions {
@@ -27,6 +38,8 @@ export interface ReindexOptions {
    * historical knowledge_fact-only reindex, byte-identical.
    */
   allTables?: boolean;
+  /** Retry selector: sweep exactly these tables (REINDEX_SWEPT_COLUMNS). */
+  tables?: string[];
 }
 
 /**
@@ -63,17 +76,21 @@ export class ReindexEmbeddingsService {
     const tenants = opts.tenant ? [opts.tenant] : this.apiKeys.knownCompanyIds();
 
     const allTables = opts.allTables === true;
+    const breakdown = allTables || opts.tables !== undefined;
     let factsScanned = 0;
     let factsUpdated = 0;
     // Aggregate the per-table sweep counts across tenants (all-tables only).
     const tableTotals = new Map<string, TableReindexCount>();
+    const parts: Array<{ key: string; outcome: BatchOutcome }> = [];
     for (const companyId of tenants) {
       try {
         const tenantResult = await this.engine.reindexTenant(companyId, {
           dryRun,
           remaining: maxFacts - factsScanned,
           allTables,
+          ...(opts.tables !== undefined ? { tables: opts.tables } : {}),
         });
+        parts.push({ key: companyId, outcome: tenantResult.outcome });
         factsScanned += tenantResult.factsScanned;
         factsUpdated += tenantResult.factsUpdated;
         for (const t of tenantResult.tables ?? []) {
@@ -88,7 +105,8 @@ export class ReindexEmbeddingsService {
         // signal through the tenant loop so HTTP and queued jobs see failure,
         // rather than a successful run that rewrote zero vectors.
         if (e instanceof ServiceUnavailableException) throw e;
-        this.logger.warn(`reindex failed for ${companyId}: ${(e as Error).message}`);
+        parts.push({ key: companyId, outcome: failedBatchOutcome(errorMessage(e)) });
+        this.logger.warn(`reindex failed for ${companyId}: ${errorMessage(e)}`);
       }
     }
 
@@ -99,7 +117,8 @@ export class ReindexEmbeddingsService {
       durationMs: Date.now() - started,
       dryRun,
       provider: this.engine.providerId(),
-      ...(allTables ? { tables: [...tableTotals.values()] } : {}),
+      ...(breakdown ? { tables: [...tableTotals.values()] } : {}),
+      outcome: foldNestedOutcomes(parts),
     };
     this.logger.log(
       `reindex done — provider=${result.provider} tenants=${result.tenantsScanned} scanned=${result.factsScanned} updated=${result.factsUpdated} dryRun=${dryRun}`,

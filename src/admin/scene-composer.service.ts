@@ -33,6 +33,14 @@ import { SceneEnricherService } from './scene-enricher.service';
 import { SceneBacklinkService } from './scene-backlink.service';
 import { SceneEvidenceLinkerService } from './scene-evidence-linker.service';
 import { SceneGistEmbeddingService } from './scene-gist-embedding.service';
+import {
+  POST_PASS_KEY,
+  emptyBatchOutcome,
+  errorMessage,
+  foldBatchOutcome,
+  type BatchFailure,
+  type BatchOutcome,
+} from '../common/batch-outcome';
 
 /**
  * Scene composer (Brain v2 PR1): batch-derives the SHADOW memory_episode
@@ -89,6 +97,13 @@ export interface SceneRunResult {
    * to meter it without reaching past the composer into the encoder.
    */
   gistEmbedded?: number;
+  /**
+   * Terminal status of the run. Units are conversations (`failed[].key`
+   * is a conversation id, retryable via `conversationIds`); a post-swap
+   * pass that threw or reported failures lands in `degradedBy` under
+   * `post-pass:<name>` — the swap stands, the run is `degraded`.
+   */
+  outcome: BatchOutcome;
 }
 
 /**
@@ -137,7 +152,12 @@ export class SceneComposerService {
   ) {}
 
   async run(companyId: string, opts: SceneRunOptions = {}): Promise<SceneRunResult> {
-    const result: SceneRunResult = { conversations: 0, scenes: 0, skipped: [] };
+    const result: SceneRunResult = {
+      conversations: 0,
+      scenes: 0,
+      skipped: [],
+      outcome: emptyBatchOutcome(),
+    };
     // Defense in depth: the controller already 404s with the flag off; a
     // programmatic caller must not write shadow rows past a disabled flag.
     if (!sceneSegmentationEnabled()) return result;
@@ -219,8 +239,10 @@ export class SceneComposerService {
     });
     // PR2 post-swap passes, both flag-gated (default off) and both
     // degrade-never-fail: the swap has landed and its result must not be
-    // retracted by an optional pass. The enricher/backlinker re-check
-    // their own flags too — these outer guards just skip the no-op calls.
+    // retracted by an optional pass — but a pass that threw or reported
+    // failures DEGRADES the run's outcome (a warning alone hid it). The
+    // enricher/backlinker re-check their own flags too — these outer
+    // guards just skip the no-op calls.
     //
     // The three passes take a SINGLE optional conversationId, so the
     // scheduled multi-conversation working set narrows to nothing here and
@@ -231,6 +253,7 @@ export class SceneComposerService {
     // scenes this run actually changed, not by the size of the world.
     const passOpts =
       opts.conversationId !== undefined ? { conversationId: opts.conversationId } : {};
+    const degradedBy: BatchFailure[] = [];
     // PR3 encoder pass: the producer of the 0106 `gistEmbedding` column
     // (SceneGistEmbeddingService). It runs FIRST of the post-swap chain
     // because it encodes the swap's own output — the canonical `gist` text
@@ -241,44 +264,67 @@ export class SceneComposerService {
     // touches `gist`, so the vector can never go stale relative to the
     // text it encodes.
     if (sceneGistEmbeddingEnabled()) {
-      try {
+      await this.postPass('gist-embedding', degradedBy, async () => {
         const encoded = await this.gistEncoder.run(companyId, passOpts);
         result.gistEmbedded = encoded.embedded;
         this.logger.log(
           `scene gist encoder pass: ${encoded.embedded}/${encoded.scenes} embedded, ` +
             `${encoded.skipped} unusable, ${encoded.failed} failed`,
         );
-      } catch (e) {
-        this.logger.warn(`scene gist encoder pass failed: ${(e as Error).message}`);
-      }
+        return { failed: encoded.failed, scenes: encoded.scenes };
+      });
     }
     if (sceneLlmEnrichmentEnabled()) {
-      try {
+      await this.postPass('enrich', degradedBy, async () => {
         const enrich = await this.enricher.enrich(companyId, passOpts);
         result.enriched = enrich.enriched;
         this.logger.log(
           `scene enrichment pass: ${enrich.enriched}/${enrich.scenes} enriched, ` +
             `${enrich.failed} degraded, ${enrich.skipped} already current`,
         );
-      } catch (e) {
-        this.logger.warn(`scene enrichment pass failed: ${(e as Error).message}`);
-      }
+        return { failed: enrich.failed, scenes: enrich.scenes };
+      });
     }
     if (sceneFactBacklinkEnabled()) {
-      try {
-        await this.backlinker.run(companyId, passOpts);
-      } catch (e) {
-        this.logger.warn(`scene backlink pass failed: ${(e as Error).message}`);
-      }
+      await this.postPass('backlink', degradedBy, () => this.backlinker.run(companyId, passOpts));
     }
     if (sceneEvidenceLinksEnabled()) {
-      try {
-        await this.evidenceLinker.run(companyId, passOpts);
-      } catch (e) {
-        this.logger.warn(`scene evidence links pass failed: ${(e as Error).message}`);
-      }
+      await this.postPass('evidence-links', degradedBy, () =>
+        this.evidenceLinker.run(companyId, passOpts),
+      );
     }
+    result.outcome = foldBatchOutcome({
+      total: result.conversations + result.skipped.length,
+      succeeded: result.conversations,
+      failed: result.skipped.map((s) => ({ key: s.conversationId, error: s.reason })),
+      degradedBy,
+    });
     return result;
+  }
+
+  /**
+   * Run one post-swap pass and record its failure, if any, under
+   * `post-pass:<name>`: a throw, or a pass that reports `failed > 0`
+   * scenes. Never throws — the swap stands.
+   */
+  private async postPass(
+    name: string,
+    degradedBy: BatchFailure[],
+    fn: () => Promise<{ failed: number; scenes: number } | unknown>,
+  ): Promise<void> {
+    const key = `${POST_PASS_KEY}${name}`;
+    try {
+      const counts = (await fn()) as { failed?: unknown; scenes?: unknown } | null | undefined;
+      if (typeof counts?.failed === 'number' && counts.failed > 0) {
+        degradedBy.push({
+          key,
+          error: `${counts.failed} of ${String(counts.scenes)} scene(s) failed`,
+        });
+      }
+    } catch (e) {
+      this.logger.warn(`scene ${name} pass failed: ${errorMessage(e)}`);
+      degradedBy.push({ key, error: errorMessage(e) });
+    }
   }
 
   /**

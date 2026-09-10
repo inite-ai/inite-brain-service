@@ -30,6 +30,11 @@ import {
   SceneEvidenceLinkResult,
 } from './scene-evidence-linker.service';
 import { SceneGistEmbeddingService, SceneGistEmbedResult } from './scene-gist-embedding.service';
+import { parseBatchKeys } from '../common/batch-outcome';
+
+/** Retry-selector belt: conversation ids, bounded like the nightly page. */
+const KEYS_MAX = 1000;
+const CONVERSATION_ID_MAX_CHARS = 128;
 
 /** Purge param belt: DB stamps are short version slugs, not free text. */
 // 128 (was 64): pack scene worlds (0110) are versioned
@@ -103,14 +108,27 @@ export class AdminScenesController {
     private readonly apiKeys: ApiKeyService,
   ) {}
 
+  /**
+   * `keys` — retry selector: compose exactly these conversation ids (the
+   * `outcome.failed[].key` of a previous run), skipping the full
+   * enumeration. Mutually exclusive with `conversationId`.
+   */
   @Post('maintenance/scenes')
   @RequireScopes('brain:admin')
   async run(
     @Req() req: AuthenticatedRequest,
-    @Body() body: { tenant?: string; conversationId?: string } = {},
+    @Body() body: { tenant?: string; conversationId?: string; keys?: string[] } = {},
   ): Promise<SceneRunResult> {
     if (!sceneSegmentationEnabled()) throw new NotFoundException();
+    const keys = parseBatchKeys(body.keys, {
+      maxKeys: KEYS_MAX,
+      maxLength: CONVERSATION_ID_MAX_CHARS,
+    });
+    if (keys !== undefined && body.conversationId !== undefined) {
+      throw new BadRequestException('pass either conversationId or keys, not both');
+    }
     const tenant = this.resolveTenant(req, body.tenant);
+    if (keys !== undefined) return this.composer.run(tenant, { conversationIds: keys });
     return this.composer.run(
       tenant,
       body.conversationId !== undefined ? { conversationId: body.conversationId } : {},

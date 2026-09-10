@@ -19,6 +19,15 @@ import {
 } from '../common/scene-flags';
 import { SceneComposerService } from './scene-composer.service';
 import { BeliefPromotionService } from './belief-promotion.service';
+import {
+  POST_PASS_KEY,
+  emptyBatchOutcome,
+  errorMessage,
+  failedBatchOutcome,
+  foldBatchOutcome,
+  foldNestedOutcomes,
+  type BatchOutcome,
+} from '../common/batch-outcome';
 
 /** One tenant's slice of a nightly run. */
 export interface SceneMaintenanceTenantResult {
@@ -35,6 +44,11 @@ export interface SceneMaintenanceTenantResult {
   cleared: number;
   durationSeconds: number;
   error?: string;
+  /**
+   * The composer's outcome plus belief promotion as a post-pass; a tenant
+   * whose pass threw carries `failedBatchOutcome` (key `*`).
+   */
+  outcome: BatchOutcome;
 }
 
 /** Whole-roster summary — the cron's return value and the log line. */
@@ -44,6 +58,8 @@ export interface SceneMaintenanceRunResult {
   budgetExhausted: boolean;
   /** Tenants never started because the budget ran out. */
   skippedForBudget: number;
+  /** Roster fold: units are tenants (`failed[].key` is a companyId). */
+  outcome: BatchOutcome;
 }
 
 /** Lock key for both the local and the distributed guard. */
@@ -66,6 +82,7 @@ const EMPTY_RUN: SceneMaintenanceRunResult = {
   tenants: [],
   budgetExhausted: false,
   skippedForBudget: 0,
+  outcome: emptyBatchOutcome(),
 };
 
 /**
@@ -185,6 +202,7 @@ export class SceneMaintenanceService {
       tenants: [],
       budgetExhausted: false,
       skippedForBudget: 0,
+      outcome: emptyBatchOutcome(),
     };
     for (const companyId of roster) {
       if (Date.now() >= deadline) {
@@ -217,9 +235,13 @@ export class SceneMaintenanceService {
           cleared: 0,
           durationSeconds: (Date.now() - tenantStart) / 1000,
           error: message,
+          outcome: failedBatchOutcome(message),
         });
       }
     }
+    result.outcome = foldNestedOutcomes(
+      result.tenants.map((t) => ({ key: t.companyId, outcome: t.outcome })),
+    );
     const scenes = result.tenants.reduce((n, t) => n + t.scenes, 0);
     this.logger.log(
       `scene maintenance: ${result.tenants.length}/${roster.length} tenant(s), ` +
@@ -261,6 +283,7 @@ export class SceneMaintenanceService {
         beliefs: 0,
         cleared: 0,
         durationSeconds: (Date.now() - startedAt) / 1000,
+        outcome: emptyBatchOutcome(),
       };
     }
 
@@ -277,16 +300,25 @@ export class SceneMaintenanceService {
     // reads semantic_belief), so the promotion leg runs every pass — but it
     // degrades, never fails: the scene swap has already landed and must not
     // be retracted by a failing optional pass. Same doctrine as the
-    // composer's own post-swap chain.
+    // composer's own post-swap chain — and, like there, the failure lands
+    // in the outcome's `degradedBy` rather than only in a log line.
     let beliefs = 0;
+    const degradedBy = [...composed.outcome.degradedBy];
     if (sceneBeliefPromotionEnabled()) {
       try {
         const promoted = await this.beliefs.run(companyId, {});
         beliefs = promoted.beliefsCreated + promoted.beliefsRevised + promoted.beliefsCorroborated;
       } catch (e) {
-        this.logger.warn(`belief promotion failed for ${companyId}: ${(e as Error).message}`);
+        this.logger.warn(`belief promotion failed for ${companyId}: ${errorMessage(e)}`);
+        degradedBy.push({ key: `${POST_PASS_KEY}belief-promotion`, error: errorMessage(e) });
       }
     }
+    const outcome = foldBatchOutcome({
+      total: composed.outcome.total,
+      succeeded: composed.outcome.succeeded,
+      failed: composed.outcome.failed,
+      degradedBy,
+    });
 
     const cleared = await this.clearConsumed({
       companyId,
@@ -318,6 +350,7 @@ export class SceneMaintenanceService {
       beliefs,
       cleared,
       durationSeconds,
+      outcome,
     };
   }
 

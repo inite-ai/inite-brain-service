@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BatchOutcomeSchema } from '../common/batch-outcome.schema';
 
 /**
  * Wire contracts for the raw-substrate driver v1
@@ -61,6 +62,11 @@ export const RebuildProjectionRequestSchema = z.object({
   version: z.string().optional(),
   /** Restrict the rebuild to one conversation. */
   conversation: z.string().optional(),
+  /**
+   * Retry selector: rebuild exactly these conversation ids (the
+   * `outcome.failed[].key` of a previous run). Not with `conversation`.
+   */
+  keys: z.array(z.string()).optional(),
   /** Flip the live read pin to this version after a successful run. */
   activate: z.boolean().optional(),
   /** Allow rewriting the currently pinned world in place (eval only). */
@@ -81,6 +87,8 @@ export const RebuildProjectionResponseSchema = z.object({
    */
   status: z.enum(['ok', 'degraded', 'failed']),
   failed: z.number().int(),
+  /** Terminal status including post-passes; `failed[].key` feeds `keys`. */
+  outcome: BatchOutcomeSchema,
   activated: z.boolean().optional(),
   previousVersion: z.string().nullable().optional(),
 });
