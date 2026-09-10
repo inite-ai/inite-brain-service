@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type OpenAI from 'openai';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
+import { retryOnUniqueViolation } from '../db/surreal-retry';
 import { chatCallParams, createOpenAiClient } from '../ai/openai-client';
 import {
   sceneBeliefFieldFoldEnabled,
@@ -1188,19 +1189,29 @@ export class BeliefPromotionService {
     return 'done';
   }
 
-  /** consolidatedInto ∪= [belief] on the consumed scenes (idempotent). */
+  /**
+   * consolidatedInto ∪= [belief] on the consumed scenes (idempotent).
+   *
+   * Two promotion runs over one conversation stamp the same scene rows, so
+   * this write races and the datastore answers "Resource busy" / read
+   * conflict. The union is idempotent, so a retry is always safe: without
+   * one the whole promotion pass throws after the belief has already been
+   * committed.
+   */
   private async stampScenes(db: BeliefDb, sceneIds: string[], beliefId: string): Promise<void> {
     if (sceneIds.length === 0) return;
     // Primary-key addressed (WHERE id INSIDE explicit list) — immune by
     // construction to the 3.2.4 secondary-index planner bug class.
-    await db.query(
-      `UPDATE memory_episode
+    await retryOnUniqueViolation(() =>
+      db.query(
+        `UPDATE memory_episode
           SET consolidatedInto = array::union(consolidatedInto ?? [], [$belief])
         WHERE id INSIDE $sceneIds`,
-      {
-        belief: new StringRecordId(beliefId),
-        sceneIds: sceneIds.map((s) => new StringRecordId(s)),
-      },
+        {
+          belief: new StringRecordId(beliefId),
+          sceneIds: sceneIds.map((s) => new StringRecordId(s)),
+        },
+      ),
     );
   }
 
