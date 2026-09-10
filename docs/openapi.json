@@ -123,6 +123,51 @@
       }
     },
     "schemas": {
+      "ApiKeySummary": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "userId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "prefix",
+          "scopes"
+        ],
+        "type": "object"
+      },
       "AvailablePack": {
         "additionalProperties": false,
         "properties": {
@@ -3225,6 +3270,102 @@
         ],
         "type": "object"
       },
+      "IssueKeyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expiresInDays": {
+            "maximum": 3650,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "enum": [
+                "brain:read",
+                "brain:write",
+                "brain:admin",
+                "brain:read_pii"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "userId": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "scopes"
+        ],
+        "type": "object"
+      },
+      "IssuedKeyResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "companyId": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "keyRecord": {
+            "$ref": "#/components/schemas/ApiKeySummary"
+          },
+          "mcpUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "companyId",
+          "mcpUrl",
+          "keyRecord"
+        ],
+        "type": "object"
+      },
+      "KeyListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "companyId": {
+            "type": "string"
+          },
+          "issuableScopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "issuingEnabled": {
+            "type": "boolean"
+          },
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/ApiKeySummary"
+            },
+            "type": "array"
+          },
+          "mcpUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "companyId",
+          "mcpUrl",
+          "keys",
+          "issuingEnabled",
+          "issuableScopes"
+        ],
+        "type": "object"
+      },
       "MultiHopRequest": {
         "additionalProperties": false,
         "properties": {
@@ -4349,6 +4490,18 @@
         },
         "required": [
           "grantId",
+          "revoked"
+        ],
+        "type": "object"
+      },
+      "RevokeKeyResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "revoked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
           "revoked"
         ],
         "type": "object"
@@ -8177,6 +8330,112 @@
         ]
       }
     },
+    "/v1/keys": {
+      "get": {
+        "description": "The tenant's `companyId`, its MCP URL, and the keys visible to the caller — a user-bound credential sees the keys bound to that user, a `brain:admin` (or M2M) credential sees every key in the tenant. Secrets and hashes are never returned: a row carries a display `prefix` only. `issuableScopes` is what THIS credential may grant, and `issuingEnabled` is false on a deployment with no database-backed key store. Source: src/keys/keys.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "listApiKeys",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyListResponse"
+                }
+              }
+            },
+            "description": "Visible keys plus the connection values."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "List the API keys this credential can see",
+        "tags": [
+          "Keys"
+        ]
+      },
+      "post": {
+        "description": "Mints a key brain verifies itself, returning the plaintext ONCE — it is stored only as a SHA-256 hash and cannot be recovered. The granted scopes are the requested ones intersected with what the calling credential already holds, so a key is never wider than its issuer; asking for none that the caller holds is 403. Only the four delegable scopes are accepted (`brain:read`, `brain:write`, `brain:admin`, `brain:read_pii`) — operator scopes are not mintable. A user-bound caller can only bind the key to itself. Tenants are capped at 25 live keys.\n\nRequired scope: `brain:read`.",
+        "operationId": "issueApiKey",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedKeyResponse"
+                }
+              }
+            },
+            "description": "The key, shown once."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Issue an API key",
+        "tags": [
+          "Keys"
+        ]
+      }
+    },
+    "/v1/keys/{id}/revoke": {
+      "post": {
+        "description": "Stops the key authenticating. The row is kept (revoked, not deleted) so the history stays auditable. Returns `{revoked:false}` when the id is unknown OR belongs to another tenant or another user — deliberately indistinguishable, so the endpoint cannot be used to probe for key ids. Revocation is immediate on this pod and within 30s elsewhere (the resolution cache TTL).\n\nRequired scope: `brain:read`.",
+        "operationId": "revokeApiKey",
+        "parameters": [
+          {
+            "description": "Key id from the issuing response or a listing.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeKeyResponse"
+                }
+              }
+            },
+            "description": "Whether a key was revoked."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Revoke an API key",
+        "tags": [
+          "Keys"
+        ]
+      }
+    },
     "/v1/projections": {
       "get": {
         "description": "Every derived world (facts@version, …) with its lifecycle status (building/built/live/residual/failed), watermark, builder identity and stats, plus the process-local read pin (RETRIEVAL_DERIVED_VERSION). A registry row promises a queryable world. 404 until PROJECTIONS_API_ENABLED=1. Source: src/admin/projections.controller.ts.\n\nRequired scope: `brain:read`.",
@@ -8818,6 +9077,10 @@
     {
       "description": "The entity read surface (scope `brain:read`): typeahead, profile, bitemporal timeline and typed connections. The GDPR cascade on the same controller is an operator action and lives on the admin surface (docs/api.md).",
       "name": "Entities"
+    },
+    {
+      "description": "Self-serve credentials: issue, list and revoke API keys brain verifies itself. Bounded by the calling credential — a key is never wider than its issuer — and available identically on the hosted service and a self-hosted deployment.",
+      "name": "Keys"
     },
     {
       "description": "Discovery reads over the global Domain Pack registry (shared across all tenants).",

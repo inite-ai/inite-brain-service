@@ -56,8 +56,14 @@ export class CredentialResolverService {
   /**
    * Resolve a bearer token to an authenticated record, or null when no
    * source recognises it. JWT-shaped tokens go to JWKS verification,
-   * ik_-prefixed keys to introspection, then the static-key table when
-   * still allowed.
+   * ik_-prefixed keys to introspection, then brain's own issued keys
+   * (the system-DB store), then the static-key table when still allowed.
+   *
+   * The store sits BEFORE the static table and outside the
+   * `staticAllowed` gate on purpose: env keys are a dev/bootstrap
+   * fallback that production disables, while brain-issued keys are a
+   * first-class production credential — the only self-serve one, and the
+   * only one a self-hosted deployment can mint without an auth-service.
    */
   async resolve(token: string): Promise<ApiKeyRecord | null> {
     let record: ApiKeyRecord | null = null;
@@ -66,6 +72,9 @@ export class CredentialResolverService {
     }
     if (!record && this.introspection && token.startsWith(OPAQUE_KEY_PREFIX)) {
       record = await this.introspection.resolve(token);
+    }
+    if (!record) {
+      record = await this.apiKeys.resolveStored(token);
     }
     if (!record && this.staticAllowed) {
       record = this.apiKeys.resolve(token);
