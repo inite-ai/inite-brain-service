@@ -268,8 +268,8 @@ export class EntityForgetService {
         // the scene, other subjects keep their own facts) — members before
         // scenes, scenes before the episodes they quote. NOTE: surviving
         // facts may keep stale source.memoryEpisodeIds strings after this,
-        // the same class as stale source.episodeIds — repaired by the PR2
-        // backlink re-run, not chased here.
+        // the same class as stale source.episodeIds — the backlink re-run
+        // reconciles them away (scene-backlink.service.ts), not chased here.
         //
         // Two-step (SELECT ids → DELETE $ids) DELIBERATELY: on SurrealDB
         // 3.2.4 a DELETE whose WHERE filters on `in` — covered only by

@@ -153,10 +153,11 @@ export function sceneEntityLinksEnabled(): boolean {
  * Scenes fact-backlink flag — SCENES_FACT_BACKLINK (Brain v2 PR2).
  *
  * When on, a batch pass (end of the composer run + standalone POST
- * /v1/admin/maintenance/scenes/backlink) stamps each knowledge_fact whose
- * source.episodeIds intersect a scene's membership with
- * source.memoryEpisodeIds (idempotent array::union) + source.sceneLinkVersion
- * — facts become pointers into the episodic plane. FLEXIBLE `source` ride, no
+ * /v1/admin/maintenance/scenes/backlink) reconciles each knowledge_fact's
+ * source.memoryEpisodeIds to exactly the scenes of the effective version
+ * whose membership intersects its source.episodeIds (stale pointers to
+ * purged or rebuilt scenes are removed) + source.sceneLinkVersion — facts
+ * become pointers into the episodic plane. FLEXIBLE `source` ride, no
  * migration. The env read lives here in the common layer, NOT inside the
  * engine dirs (engine-gates S5.2). Read at call time so a flip is
  * runtime-mutable. Default off ⇒ no fact row is ever touched. Serving stays

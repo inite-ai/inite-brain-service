@@ -207,7 +207,7 @@ below (the beliefs READ API is also its own flag,
 | `SCENES_TOPIC_MIN_COSINE` | `0.55` | Cosine floor for the topic split. |
 | `SCENES_MAX_TURNS` | `40` | Force a scene boundary at this many turns. |
 | `SCENES_LLM_ENRICHMENT` | `0` | ONE structured LLM call per scene (gist, memoryValue vector, stateDeltas); idempotent per enrichment-version composite. |
-| `SCENES_FACT_BACKLINK` | `0` | Stamp facts with `source.memoryEpisodeIds` (idempotent) — facts become pointers into the episodic plane. |
+| `SCENES_FACT_BACKLINK` | `0` | Reconcile `source.memoryEpisodeIds` on facts to the live scene membership of the effective version (stale pointers removed on re-run) — facts become pointers into the episodic plane. |
 | `SCENES_VERSION_FINGERPRINT` | `0` | Fingerprint the segmenter config into the version so a config change forks a NEW coexisting scene world instead of overwriting in place. |
 | `SCENES_BELIEF_PROMOTION` | `0` | Belief promotion (Belief-A, 0120): fold ENRICHED scenes into `semantic_belief` supersede-chain revisions via `…/scenes/beliefs`. |
 | `SCENES_BELIEF_MIN_SCENES` | `0` | Corroboration floor: promote a (subject, field) only when the winning value spans at least this many DISTINCT conversations (0 = off). |
