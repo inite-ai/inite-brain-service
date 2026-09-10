@@ -172,6 +172,7 @@ function provision(opts: {
     countHnswProvision: (o: string) => void;
     setHnswIndexTenants: (s: string, n: number) => void;
   };
+  guard?: { run: (key: string, fn: () => Promise<unknown>, ttl?: number) => Promise<unknown> };
 }) {
   const listeners: Array<(c: string) => void> = [];
   const surreal = { onTenantSchemaReady: (l: (c: string) => void) => listeners.push(l) };
@@ -204,8 +205,20 @@ function provision(opts: {
     apiKeys as never,
     registry as never,
     opts.metrics as never,
+    opts.guard as never,
   );
   return { svc, listeners, apply, registry };
+}
+
+function fakeGuard(held = false) {
+  const calls: Array<{ key: string; ttl: number | undefined }> = [];
+  const guard = {
+    run: jest.fn(async (key: string, fn: () => Promise<unknown>, ttl?: number) => {
+      calls.push({ key, ttl });
+      return held ? null : fn();
+    }),
+  };
+  return { guard, calls };
 }
 
 describe('HnswProvisionService — the hook', () => {
@@ -435,5 +448,45 @@ describe('migration 0133 — the roster columns', () => {
     expect(body).not.toMatch(/DEFINE INDEX/);
     // A DEFAULT would make an unobserved tenant look freshly checked.
     expect(body).not.toMatch(/DEFAULT/);
+  });
+});
+
+describe('HnswProvisionService — the hook runs under a per-tenant lease', () => {
+  const flush = async () => {
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+  };
+  beforeEach(() => {
+    process.env.HNSW_PROVISION_ENABLED = '1';
+  });
+  afterEach(() => {
+    delete process.env.HNSW_PROVISION_ENABLED;
+  });
+
+  it('one tenant, one lease: hnsw_provision_startup_<tenant> (id folded to a record-id-safe key), 30 min', async () => {
+    const { guard, calls } = fakeGuard();
+    const { svc, listeners, apply } = provision({ guard });
+    svc.onModuleInit();
+    listeners[0]!('co-new');
+    await flush();
+    expect(calls).toEqual([{ key: 'hnsw_provision_startup_co_new', ttl: 30 * 60 }]);
+    expect(apply).toHaveBeenCalledWith('co-new', 'ensure');
+  });
+
+  it('a replica that finds the lease held skips: no DDL, no registry write', async () => {
+    const { guard } = fakeGuard(true);
+    const { svc, listeners, apply, registry } = provision({ guard });
+    svc.onModuleInit();
+    listeners[0]!('co-new');
+    await flush();
+    expect(apply).not.toHaveBeenCalled();
+    expect(registry.recordIndexState).not.toHaveBeenCalled();
+  });
+
+  it('the nightly sweep keeps its own roster-wide lease', async () => {
+    const { guard, calls } = fakeGuard();
+    const { svc } = provision({ guard });
+    await svc.runNightly();
+    expect(calls).toEqual([{ key: 'hnsw_provision_all', ttl: 20 * 60 }]);
   });
 });

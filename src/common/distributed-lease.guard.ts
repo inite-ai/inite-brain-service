@@ -61,3 +61,26 @@ export class DistributedLeaseGuard {
     }) as Promise<T | null>;
   }
 }
+
+/**
+ * A per-tenant lease key. Lease names are record ids in `leader_lease`
+ * (`'leader_lease:' + name`), so the tenant id is folded to [A-Za-z0-9_];
+ * two ids that fold to the same key merely serialise behind one lease.
+ */
+export function tenantLeaseKey(prefix: string, companyId: string): string {
+  return `${prefix}${companyId.replace(/[^A-Za-z0-9_]/g, '_')}`;
+}
+
+const unguardedNoted = new Set<string>();
+
+/**
+ * One warning per process for a cron that runs without the distributed
+ * guard: only a single-replica deployment (or a unit fixture) is safe there.
+ */
+export function noteUnguarded(logger: Logger, cron: string): void {
+  if (unguardedNoted.has(cron)) return;
+  unguardedNoted.add(cron);
+  logger.warn(
+    `${cron} runs without a distributed lease (JobsModule not wired) — safe for a single replica only`,
+  );
+}

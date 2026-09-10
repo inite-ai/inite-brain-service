@@ -13,18 +13,28 @@
  *      array under `update` (R4 #3 post-image parsing).
  *   5. Each event carries a deterministic record id so a re-drain is a
  *      no-op via INSERT IGNORE (R4 #3 idempotency).
+ *   6. The cursor advance is a CAS: a drain whose batch the cursor is
+ *      already past writes nothing and reports the lost race, so a slower
+ *      pod can never rewind a faster one.
+ *
+ * Plus ChangefeedConsumerService's tick: the lease is renewed across the
+ * tenant walk and the walk stops when the renewal fails or a drain finds
+ * another drainer ahead.
  */
 import { StringRecordId } from 'surrealdb';
 import { ChangefeedDrainService } from '../src/audit/changefeed-drain.service';
+import { ChangefeedConsumerService } from '../src/audit/changefeed-consumer.service';
 
 type Captured = { sql: string; params?: Record<string, unknown> | undefined };
 
 function mkSurreal(opts: {
-  cursors?: Record<string, number>;
+  cursors?: Record<string, number | bigint>;
   changes?: Record<string, Array<Record<string, unknown>>>;
+  /** Runs when the drain transaction arrives, before its CAS is evaluated. */
+  beforeTx?: (cursors: Record<string, number | bigint>) => void;
 }) {
   const calls: Captured[] = [];
-  const cursors = { ...(opts.cursors ?? {}) };
+  const cursors: Record<string, number | bigint> = { ...(opts.cursors ?? {}) };
   const changes = opts.changes ?? {};
   // Mirror INSERT IGNORE semantics: a re-inserted primary key is skipped, so
   // the store tracks which deterministic ids have already landed.
@@ -42,16 +52,24 @@ function mkSurreal(opts: {
         const table = match?.[1] ?? '';
         return [changes[table] ?? []];
       }
-      // The drain now composes the INSERT + cursor UPSERT into ONE
-      // BEGIN…COMMIT block (runTransaction), so both statements — and their
-      // merged params — arrive in a single query() call.
-      if (sql.includes('INSERT IGNORE INTO audit_event')) {
-        for (const e of (params?.events as Array<{ id: unknown }> | undefined) ?? []) {
-          inserted.add(String(e.id));
-        }
-      }
+      // The drain composes the INSERT + cursor advance into ONE BEGIN…COMMIT
+      // block (runTransaction), so both statements — and their merged params
+      // — arrive in a single query() call. Mirror the CAS: the block advances
+      // (and inserts) only while the stored cursor is behind the batch, and
+      // its RETURN slot says which way it went.
       if (sql.includes('UPSERT changefeed_state')) {
-        cursors[params?.source as string] = params?.vs as number;
+        opts.beforeTx?.(cursors);
+        const source = params?.source as string;
+        const vs = params?.vs as bigint;
+        const cur = cursors[source];
+        if (cur !== undefined && BigInt(cur) >= vs) return [false];
+        if (sql.includes('INSERT IGNORE INTO audit_event')) {
+          for (const e of (params?.events as Array<{ id: unknown }> | undefined) ?? []) {
+            inserted.add(String(e.id));
+          }
+        }
+        cursors[source] = vs;
+        return [true];
       }
       return [[], [], []];
     },
@@ -59,6 +77,7 @@ function mkSurreal(opts: {
   return {
     db,
     calls,
+    cursors,
     inserted,
     surreal: {
       withCompany: async (_c: string, fn: (d: any) => Promise<any>) => fn(db),
@@ -256,6 +275,169 @@ describe('ChangefeedDrainService', () => {
     const svc = mkSvc(surreal);
     const r = await svc.consumeForTenant('co_a');
     expect(r.consumed).toEqual({});
+    expect(r.cursorRaceLost).toBe(false);
     expect(calls.filter((c) => c.sql.includes('INSERT IGNORE INTO audit_event'))).toHaveLength(0);
+  });
+
+  it('the cursor advance is a CAS inside the drain transaction', async () => {
+    const { surreal, calls } = mkSurreal({
+      changes: {
+        knowledge_entity: [
+          { versionstamp: 10, changes: [{ update: { id: 'knowledge_entity:a' } }] },
+        ],
+      },
+    });
+    await mkSvc(surreal).consumeForTenant('co_a');
+    const tx = drainTx(calls)!;
+    // Read by record id, advance only while behind, say which way it went.
+    expect(tx.sql).toContain('FROM changefeed_state:[$source]');
+    expect(tx.sql).toContain('IF $cur IS NONE OR $cur < $vs');
+    expect(tx.sql).toContain('RETURN false');
+    expect(tx.params?.vs).toBe(10n);
+  });
+
+  it('a slower drain never rewinds the cursor: nothing written, race reported', async () => {
+    // Our window was read at cursor 0 (vs 10, 12). By the time we commit,
+    // another drainer has advanced the cursor to 20 — past our batch.
+    const { surreal, cursors, inserted } = mkSurreal({
+      changes: {
+        knowledge_entity: [
+          { versionstamp: 10, changes: [{ update: { id: 'knowledge_entity:a' } }] },
+          { versionstamp: 12, changes: [{ update: { id: 'knowledge_entity:b' } }] },
+        ],
+        knowledge_fact: [{ versionstamp: 30, changes: [{ update: { id: 'knowledge_fact:x' } }] }],
+      },
+      beforeTx: (c) => {
+        if (c.knowledge_entity === undefined) c.knowledge_entity = 20n;
+      },
+    });
+    const r = await mkSvc(surreal).consumeForTenant('co_a');
+    expect(r.cursorRaceLost).toBe(true);
+    expect(inserted.size).toBe(0);
+    expect(cursors.knowledge_entity).toBe(20n);
+    // The walk stopped at the lost source: the later source was not touched.
+    expect(r.consumed).toEqual({});
+    expect(cursors.knowledge_fact).toBeUndefined();
+  });
+
+  it('a cursor exactly at the batch high-water mark is "already past" too', async () => {
+    const { surreal, inserted } = mkSurreal({
+      changes: {
+        knowledge_entity: [
+          { versionstamp: 12, changes: [{ update: { id: 'knowledge_entity:b' } }] },
+        ],
+      },
+      beforeTx: (c) => {
+        c.knowledge_entity = 12n;
+      },
+    });
+    const r = await mkSvc(surreal).consumeForTenant('co_a');
+    expect(r.cursorRaceLost).toBe(true);
+    expect(inserted.size).toBe(0);
+  });
+});
+
+// ── the consumer tick: lease renewal across the walk ─────────────────────
+
+function mkConsumer(opts: {
+  tenants: string[];
+  acquire?: jest.Mock;
+  drainImpl?: (companyId: string) => Promise<{
+    consumed: Record<string, number>;
+    pendingRemaining: number;
+    cursorRaceLost: boolean;
+  }>;
+}) {
+  const consumeForTenant = jest.fn(
+    opts.drainImpl ??
+      (async () => ({
+        consumed: { knowledge_entity: 1 },
+        pendingRemaining: 0,
+        cursorRaceLost: false,
+      })),
+  );
+  const drain = { enabled: true, sources: [], perBatchLimit: 500, consumeForTenant };
+  const tryAcquire = opts.acquire ?? jest.fn(async () => true);
+  const apiKeys = { knownCompanyIds: () => opts.tenants };
+  const svc = new ChangefeedConsumerService(
+    apiKeys as never,
+    drain as never,
+    {
+      tryAcquire,
+    } as never,
+  );
+  return { svc, consumeForTenant, tryAcquire };
+}
+
+describe('ChangefeedConsumerService — the lease across the tenant walk', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('a short walk takes the lease once and renews nothing', async () => {
+    const { svc, consumeForTenant, tryAcquire } = mkConsumer({ tenants: ['a', 'b', 'c'] });
+    await svc.tick();
+    expect(consumeForTenant).toHaveBeenCalledTimes(3);
+    expect(tryAcquire).toHaveBeenCalledTimes(1);
+    expect(tryAcquire).toHaveBeenCalledWith('changefeed_consumer', 180);
+  });
+
+  it('renews mid-walk once less than half the TTL is left, and keeps walking', async () => {
+    jest.useFakeTimers({ now: 1_000_000 });
+    // Each tenant drain takes 100 s: after the first one 80 s of the 180 s
+    // lease remain (< 90 s), so the second tenant starts with a renew.
+    const { svc, consumeForTenant, tryAcquire } = mkConsumer({
+      tenants: ['a', 'b', 'c'],
+      drainImpl: async () => {
+        jest.setSystemTime(Date.now() + 100_000);
+        return { consumed: {}, pendingRemaining: 0, cursorRaceLost: false };
+      },
+    });
+    await svc.tick();
+    expect(consumeForTenant).toHaveBeenCalledTimes(3);
+    // Acquire at the start, renew before b and before c.
+    expect(tryAcquire).toHaveBeenCalledTimes(3);
+  });
+
+  it('stops the walk when the renewal fails — another pod may be draining', async () => {
+    jest.useFakeTimers({ now: 1_000_000 });
+    let attempts = 0;
+    const acquire = jest.fn(async () => ++attempts === 1);
+    const { svc, consumeForTenant } = mkConsumer({
+      tenants: ['a', 'b', 'c'],
+      acquire,
+      drainImpl: async () => {
+        jest.setSystemTime(Date.now() + 100_000);
+        return { consumed: {}, pendingRemaining: 0, cursorRaceLost: false };
+      },
+    });
+    await svc.tick();
+    expect(consumeForTenant).toHaveBeenCalledTimes(1);
+    expect(consumeForTenant).toHaveBeenCalledWith('a');
+    expect(svc.stats().inFlight).toBe(false);
+  });
+
+  it('stops the walk when a drain finds another drainer ahead of it', async () => {
+    const { svc, consumeForTenant } = mkConsumer({
+      tenants: ['a', 'b', 'c'],
+      drainImpl: async (companyId) => ({
+        consumed: { knowledge_entity: 2 },
+        pendingRemaining: 0,
+        cursorRaceLost: companyId === 'a',
+      }),
+    });
+    await svc.tick();
+    expect(consumeForTenant).toHaveBeenCalledTimes(1);
+    // What was drained before the race was lost still counts.
+    expect(svc.stats().totalConsumed).toBe(2);
+  });
+
+  it('drainNow stops the same way', async () => {
+    const { svc, consumeForTenant } = mkConsumer({
+      tenants: ['a', 'b'],
+      drainImpl: async () => ({ consumed: {}, pendingRemaining: 0, cursorRaceLost: true }),
+    });
+    await svc.drainNow();
+    expect(consumeForTenant).toHaveBeenCalledTimes(1);
   });
 });

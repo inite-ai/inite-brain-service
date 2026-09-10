@@ -73,9 +73,13 @@ export class ChangefeedDrainService {
   async consumeForTenant(companyId: string): Promise<{
     consumed: Record<string, number>;
     pendingRemaining: number;
+    /** A cursor was already past this drain's batch: another drainer is
+     *  ahead of us on this tenant and the walk should stop. */
+    cursorRaceLost: boolean;
   }> {
     const consumed: Record<string, number> = {};
     let pendingRemaining = 0;
+    let cursorRaceLost = false;
 
     await this.surreal.withCompany(companyId, async (db) => {
       for (const source of ChangefeedDrainService.SOURCES) {
@@ -99,37 +103,18 @@ export class ChangefeedDrainService {
         const trailing = sorted.length - batch.length;
         pendingRemaining += trailing;
 
-        // Emit the batch AND advance the cursor in ONE transaction. They
-        // were two separate round-trips before: a crash in the gap either
-        // re-inserted the whole batch on restart (INSERT succeeded, cursor
-        // never advanced) or dropped it (cursor advanced first) — R4 #3.
-        // `runTransaction` sends both as one BEGIN…COMMIT block (the driver
-        // rejects BEGIN/COMMIT issued as separate query() calls). The batch
-        // still travels in a single INSERT so the per-tick round-trip count
-        // stays at one per (tenant × source) — the load fix that replaced
-        // 75K serial CREATEs.
         const events = this.buildAuditEventBatch(source, batch);
         const lastChange = batch[batch.length - 1];
         const lastVs = lastChange ? (lastChange.versionstamp as bigint) : undefined;
         if (lastVs !== undefined) {
-          await runTransaction(db, (tx) => {
-            // INSERT IGNORE: each event carries a deterministic record id
-            // (source+versionstamp+ordinal), so a re-drain of the same
-            // window collides on the primary key and no-ops instead of
-            // duplicating — idempotent without a UNIQUE index / migration.
-            if (events.length > 0) {
-              tx.add('INSERT IGNORE INTO audit_event $events').bind('events', events);
-            }
-            tx.add(
-              `UPSERT changefeed_state:[$source] CONTENT {
-                  source: $source,
-                  lastVersionstamp: $vs,
-                  updatedAt: time::now()
-               }`,
-            )
-              .bind('source', source)
-              .bind('vs', lastVs);
-          });
+          const advanced = await this.emitAndAdvance(db, { source, events, lastVs });
+          if (!advanced) {
+            this.logger.warn(
+              `[changefeed] ${source}: cursor already past ${lastVs} — another drainer is ahead, stopping`,
+            );
+            cursorRaceLost = true;
+            break;
+          }
         }
         consumed[source] = batch.length;
       }
@@ -145,7 +130,44 @@ export class ChangefeedDrainService {
       // invisible to "sustained non-zero" alerting.
     }
 
-    return { consumed, pendingRemaining };
+    return { consumed, pendingRemaining, cursorRaceLost };
+  }
+
+  /**
+   * Emit the batch and advance the cursor in ONE transaction, and only while
+   * the cursor is still behind the batch. Events and advance were two
+   * round-trips once (a crash in the gap re-inserted or dropped the batch);
+   * one BEGIN…COMMIT fixed that. The advance is conditional because an
+   * unconditional UPSERT let a slower drainer — a second pod whose lease had
+   * lapsed mid-walk, or a manual drain — rewind the cursor below a faster one
+   * and re-emit the window. INSERT IGNORE on the deterministic event id keeps
+   * the emit idempotent; the cursor is read by record id (no table scan in
+   * the read-set). Returns false, with nothing written, when the cursor was
+   * already at or past `lastVs`.
+   */
+  private async emitAndAdvance(
+    db: Surreal,
+    batch: { source: string; events: Array<Record<string, unknown>>; lastVs: bigint },
+  ): Promise<boolean> {
+    const insert = batch.events.length > 0 ? 'INSERT IGNORE INTO audit_event $events;' : '';
+    const out = await runTransaction<unknown>(db, (tx) => {
+      tx.bind('source', batch.source).bind('vs', batch.lastVs).bind('events', batch.events);
+      tx.add(`LET $cur = (SELECT VALUE lastVersionstamp FROM changefeed_state:[$source])[0]`);
+      tx.add(
+        `IF $cur IS NONE OR $cur < $vs {
+           ${insert}
+           UPSERT changefeed_state:[$source] CONTENT {
+             source: $source,
+             lastVersionstamp: $vs,
+             updatedAt: time::now()
+           };
+           RETURN true;
+         } ELSE {
+           RETURN false;
+         }`,
+      );
+    });
+    return out === true;
   }
 
   /** Per-source cursor snapshot for ONE tenant. */

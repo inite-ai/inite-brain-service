@@ -4,7 +4,7 @@ import { ApiKeyService } from '../auth/api-key.service';
 import { TenantRegistryService, type TenantIndexStateRow } from '../auth/tenant-registry.service';
 import { SurrealService } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
-import { DistributedLeaseGuard } from '../common/distributed-lease.guard';
+import { DistributedLeaseGuard, tenantLeaseKey } from '../common/distributed-lease.guard';
 import { InFlightGuard } from '../common/in-flight-guard';
 import { envFlagEnabled } from '../common/env-validation';
 import { HnswMaintenanceService, type HnswMaintenanceResult } from './hnsw-maintenance.service';
@@ -126,6 +126,10 @@ export interface HnswProvisionOptions {
 }
 
 const LOCK_KEY = 'hnsw_provision_all';
+/** Per-tenant lease of the schema-ready hook's provisioning. */
+const STARTUP_LOCK_PREFIX = 'hnsw_provision_startup_';
+/** Covers the DDL round-trips of one tenant with room for a slow server; released on completion. */
+const STARTUP_LEASE_TTL_SECONDS = 30 * 60;
 
 /**
  * Lease TTL for the nightly sweep. Comfortably longer than the default
@@ -248,12 +252,36 @@ export class HnswProvisionService implements OnModuleInit {
         this.pending.delete(companyId);
         this.seen.add(companyId);
         if (!HnswProvisionService.enabled()) continue;
-        const result = await this.provisionTenant(companyId, {});
-        if (result.created.length > 0) await sleep(STAGGER_MS);
+        const result = await this.provisionAtStartup(companyId);
+        if (result !== null && result.created.length > 0) await sleep(STAGGER_MS);
       }
     } finally {
       this.draining = false;
     }
+  }
+
+  /**
+   * The hook's body for one tenant, under a per-tenant lease: the
+   * schema-ready hook fires on every replica that serves the tenant's first
+   * request, and `DEFINE INDEX … CONCURRENTLY` from N replicas is N
+   * concurrent builds of the same index. A replica that finds the lease held
+   * skips; `ensure` on the holder never restarts a build in flight, so the
+   * late replica has nothing to add. Without a guard (JobsModule not wired)
+   * the hook runs bare, as a single process may.
+   */
+  private async provisionAtStartup(companyId: string): Promise<HnswProvisionTenantResult | null> {
+    if (!this.guard) return this.provisionTenant(companyId, {});
+    const run = await this.guard.run(
+      tenantLeaseKey(STARTUP_LOCK_PREFIX, companyId),
+      () => this.provisionTenant(companyId, {}),
+      STARTUP_LEASE_TTL_SECONDS,
+    );
+    if (run === null) {
+      this.logger.log(
+        `hnsw provisioning for ${companyId} skipped — another replica holds the lease`,
+      );
+    }
+    return run;
   }
 
   /**

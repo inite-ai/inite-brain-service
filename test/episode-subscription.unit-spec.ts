@@ -4,40 +4,70 @@ import type { EpisodeReadStoreService } from '../src/episodes/episode-read-store
 import type { ApiKeyService } from '../src/auth/api-key.service';
 import type { SurrealService } from '../src/db/surreal.service';
 
+type Query = { sql: string; params?: Record<string, unknown> | undefined; companyId: string };
+
 function makeService(opts: {
   subs?: Array<Record<string, unknown>>;
   meta?: Array<Record<string, unknown>>;
+  tenants?: string[];
+  /** Rows the watermark CAS returns; [] means another dispatcher is past us. */
+  advanceRows?: unknown[];
+  /** Runs at each tenant's first query — a hook to move the clock. */
+  onTenant?: (companyId: string) => void;
+  lease?: { tryAcquire: (name: string, ttl: number) => Promise<boolean> };
 }): {
   svc: EpisodeSubscriptionService;
-  queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }>;
+  queries: Query[];
 } {
-  const queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
+  const queries: Query[] = [];
   const surreal = {
-    withCompany: async (_co: string, fn: (db: unknown) => Promise<unknown>) =>
-      fn({
+    withCompany: async (companyId: string, fn: (db: unknown) => Promise<unknown>) => {
+      opts.onTenant?.(companyId);
+      return fn({
         query: async (sql: string, params?: Record<string, unknown>) => {
-          queries.push({ sql, params });
+          queries.push({ sql, params, companyId });
           if (sql.includes('FROM episode_subscription')) {
             return [opts.subs ?? []];
           }
           if (sql.includes('CREATE episode_subscription')) {
             return [[{ id: 'episode_subscription:new1' }]];
           }
+          if (sql.includes('SET watermark')) {
+            return [opts.advanceRows ?? [{ id: params?.id }]];
+          }
           return [[]];
         },
-      }),
+      });
+    },
   } as unknown as SurrealService;
   const episodes = {
     metaSince: async () => opts.meta ?? [],
   } as unknown as EpisodeReadStoreService;
   const apiKeys = {
-    knownCompanyIds: () => ['co_x'],
+    knownCompanyIds: () => opts.tenants ?? ['co_x'],
   } as unknown as ApiKeyService;
   return {
-    svc: new EpisodeSubscriptionService(surreal, episodes, apiKeys),
+    svc: new EpisodeSubscriptionService(surreal, episodes, apiKeys, opts.lease as never),
     queries,
   };
 }
+
+const SUB = {
+  id: 'episode_subscription:s1',
+  url: 'https://example.com/hook',
+  secret: 'shh',
+  watermark: '2026-08-01T00:00:00.000Z',
+  failureCount: 0,
+};
+const META = [
+  {
+    id: 'episode:e1',
+    messageId: 'm1',
+    occurredAt: '2026-08-02T10:00:00.000Z',
+    recordedAt: '2026-08-02T10:00:05.000Z',
+  },
+];
+const okFetch = () => (async () => ({ ok: true, status: 200 }) as Response) as typeof fetch;
 
 describe('EpisodeSubscriptionService (driver surface 4)', () => {
   const savedFlag = process.env.EPISODE_SUBSCRIPTIONS_ENABLED;
@@ -119,10 +149,97 @@ describe('EpisodeSubscriptionService (driver surface 4)', () => {
     expect(calls[0]!.sig).toBe(`sha256=${expected}`);
     const advance = queries.find((q) => q.sql.includes('SET watermark'));
     expect(advance).toBeDefined();
-    expect(advance?.sql).toContain('WHERE watermark = <datetime> $old');
-    expect(advance?.params).toMatchObject({
-      new: '2026-08-02T10:00:05.000Z',
-      old: '2026-08-01T00:00:00.000Z',
+    // Forward-only, by record id: a dispatcher that is behind can never
+    // rewind a watermark another one already moved past.
+    expect(advance?.sql).toContain('UPDATE $id SET watermark');
+    expect(advance?.sql).toContain('WHERE watermark < <datetime> $new');
+    expect(advance?.params).toMatchObject({ new: '2026-08-02T10:00:05.000Z' });
+    expect(advance?.params).not.toHaveProperty('old');
+  });
+
+  it('a watermark another dispatcher already moved past stops the walk', async () => {
+    process.env.EPISODE_SUBSCRIPTIONS_ENABLED = '1';
+    let fetches = 0;
+    global.fetch = (async () => {
+      fetches += 1;
+      return { ok: true, status: 200 } as Response;
+    }) as typeof fetch;
+    const { svc, queries } = makeService({
+      subs: [SUB],
+      meta: META,
+      tenants: ['co_x', 'co_y'],
+      advanceRows: [],
+    });
+    await svc.dispatchTick();
+    expect(fetches).toBe(1);
+    expect(queries.some((q) => q.companyId === 'co_y')).toBe(false);
+  });
+
+  it('a batch that cannot move the millisecond watermark is re-delivered, not a lost race', async () => {
+    process.env.EPISODE_SUBSCRIPTIONS_ENABLED = '1';
+    global.fetch = okFetch();
+    // The newest row floors to the stored watermark (a later-nanosecond
+    // episode in the same millisecond): no advance is attempted and the
+    // walk goes on to the next tenant.
+    const { svc, queries } = makeService({
+      subs: [{ ...SUB, watermark: '2026-08-02T10:00:05.000Z' }],
+      meta: META,
+      tenants: ['co_x', 'co_y'],
+      advanceRows: [],
+    });
+    await svc.dispatchTick();
+    expect(queries.some((q) => q.sql.includes('SET watermark'))).toBe(false);
+    expect(queries.some((q) => q.companyId === 'co_y')).toBe(true);
+  });
+
+  describe('the lease across the tenant walk', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('a short walk takes the lease once and renews nothing', async () => {
+      process.env.EPISODE_SUBSCRIPTIONS_ENABLED = '1';
+      const tryAcquire = jest.fn(async () => true);
+      const { svc, queries } = makeService({
+        subs: [],
+        tenants: ['co_a', 'co_b', 'co_c'],
+        lease: { tryAcquire },
+      });
+      await svc.dispatchTick();
+      expect(new Set(queries.map((q) => q.companyId)).size).toBe(3);
+      expect(tryAcquire).toHaveBeenCalledTimes(1);
+      expect(tryAcquire).toHaveBeenCalledWith('episode_subscriptions', 180);
+    });
+
+    it('renews mid-walk once less than half the TTL is left', async () => {
+      process.env.EPISODE_SUBSCRIPTIONS_ENABLED = '1';
+      jest.useFakeTimers({ now: 1_000_000 });
+      const tryAcquire = jest.fn(async () => true);
+      const { svc, queries } = makeService({
+        subs: [],
+        tenants: ['co_a', 'co_b', 'co_c'],
+        lease: { tryAcquire },
+        // Each tenant takes 100 s of the 180 s lease.
+        onTenant: () => jest.setSystemTime(Date.now() + 100_000),
+      });
+      await svc.dispatchTick();
+      expect(new Set(queries.map((q) => q.companyId)).size).toBe(3);
+      expect(tryAcquire).toHaveBeenCalledTimes(3);
+    });
+
+    it('stops the walk when the renewal fails', async () => {
+      process.env.EPISODE_SUBSCRIPTIONS_ENABLED = '1';
+      jest.useFakeTimers({ now: 1_000_000 });
+      let attempts = 0;
+      const tryAcquire = jest.fn(async () => ++attempts === 1);
+      const { svc, queries } = makeService({
+        subs: [],
+        tenants: ['co_a', 'co_b', 'co_c'],
+        lease: { tryAcquire },
+        onTenant: () => jest.setSystemTime(Date.now() + 100_000),
+      });
+      await svc.dispatchTick();
+      expect(queries.map((q) => q.companyId)).toEqual(['co_a']);
     });
   });
 

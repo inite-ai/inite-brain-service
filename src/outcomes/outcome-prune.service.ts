@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { SurrealService } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
+import { DistributedLeaseGuard, noteUnguarded } from '../common/distributed-lease.guard';
 import {
   outcomeDecisionCaptureEnabled,
   outcomeDecisionRetentionDays,
@@ -39,6 +40,10 @@ export const TOOL_OBSERVATION_PRUNE_BATCH_QUERY = `DELETE (SELECT id FROM tool_o
  */
 export const DECISION_PRUNE_BATCH_QUERY = `DELETE (SELECT id FROM memory_decision WHERE createdAt < $cutoff LIMIT 5000) RETURN BEFORE`;
 
+const LOCK_KEY = 'outcome_prune';
+/** Three bounded delete loops per tenant; an hour covers a long-unpruned roster. */
+const LEASE_TTL_SECONDS = 60 * 60;
+
 /**
  * OutcomePruneService — retention for the RAW outcome event log
  * (memory_outcome, migration 0107). The rollup (memory_outcome_stat) is
@@ -48,8 +53,9 @@ export const DECISION_PRUNE_BATCH_QUERY = `DELETE (SELECT id FROM memory_decisio
  *
  * Nightly at 03:41 UTC — offset from the 03:xx cron neighbourhood
  * (compaction 03:17, memory-quality 03:35, calibration refit 03:42) —
- * gated on the master flag, with an in-flight guard so an overlapping
- * tick never doubles the work. Tenant roster comes from
+ * gated on the master flag, under the distributed lease guard so one
+ * replica walks the roster, with an in-flight flag as the process-local
+ * reentrancy layer. Tenant roster comes from
  * ApiKeyService.knownCompanyIds(), the same way the compaction cron
  * enumerates tenants.
  */
@@ -61,6 +67,7 @@ export class OutcomePruneService {
   constructor(
     private readonly surreal: SurrealService,
     private readonly apiKeys: ApiKeyService,
+    @Optional() private readonly guard?: DistributedLeaseGuard,
   ) {}
 
   @Cron('41 3 * * *', { timeZone: 'UTC' })
@@ -77,15 +84,33 @@ export class OutcomePruneService {
       this.logger.warn('outcome prune still running — skipping this tick');
       return { tenants: 0, pruned: 0 };
     }
+    const legs = { outcome: outcomeLeg, observation: observationLeg, decision: decisionLeg };
+    const run = this.guard
+      ? await this.guard.run(LOCK_KEY, () => this.pruneAll(legs), LEASE_TTL_SECONDS)
+      : await this.pruneAll(legs);
+    if (run === null) {
+      this.logger.warn('outcome prune skipped — another run holds the lease');
+      return { tenants: 0, pruned: 0 };
+    }
+    return run;
+  }
+
+  /** The roster walk under the process-local single-flight flag. */
+  private async pruneAll(legs: {
+    outcome: boolean;
+    observation: boolean;
+    decision: boolean;
+  }): Promise<{ tenants: number; pruned: number }> {
+    if (!this.guard) noteUnguarded(this.logger, 'outcome prune');
     this.running = true;
     try {
       const tenants = this.apiKeys.knownCompanyIds();
       let pruned = 0;
       for (const companyId of tenants) {
         try {
-          if (outcomeLeg) pruned += await this.pruneTenant(companyId);
-          if (observationLeg) pruned += await this.pruneToolObservations(companyId);
-          if (decisionLeg) pruned += await this.pruneDecisions(companyId);
+          if (legs.outcome) pruned += await this.pruneTenant(companyId);
+          if (legs.observation) pruned += await this.pruneToolObservations(companyId);
+          if (legs.decision) pruned += await this.pruneDecisions(companyId);
         } catch (e) {
           this.logger.warn(`outcome prune for ${companyId} failed: ${(e as Error).message}`);
         }

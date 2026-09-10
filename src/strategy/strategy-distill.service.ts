@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import type OpenAI from 'openai';
 import { chatCallParams, createOpenAiClientOrThrow } from '../ai/openai-client';
 import { ApiKeyService } from '../auth/api-key.service';
+import { DistributedLeaseGuard, noteUnguarded } from '../common/distributed-lease.guard';
 import { envFlagEnabled } from '../common/env-validation';
 import {
   StrategyMemoryService,
@@ -105,6 +106,10 @@ export const DISTILL_MAX_ITEMS = 3;
 
 /** Dedup-merge neighbor count (Mem0 idiom, G4 v1: top-3). */
 const MERGE_NEIGHBORS = 3;
+
+const SWEEP_LOCK_KEY = 'strategy_sweep';
+/** One bounded deprecate pass per tenant; half an hour covers the roster. */
+const SWEEP_LEASE_TTL_SECONDS = 30 * 60;
 
 const DISTILL_SYSTEM = `You are a strategy distiller for an answer-synthesis memory system.
 
@@ -225,10 +230,13 @@ export class StrategyDistillService {
   private readonly cronEnabled: boolean;
   private sweepInFlight = false;
 
+  // Fourth dep is the distributed lease guard for the nightly sweep.
+  // eslint-disable-next-line max-params
   constructor(
     private readonly strategies: StrategyMemoryService,
     private readonly apiKeys: ApiKeyService,
     config: ConfigService,
+    @Optional() private readonly guard?: DistributedLeaseGuard,
   ) {
     this.openai = createOpenAiClientOrThrow(config);
     this.model = config.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini');
@@ -340,8 +348,10 @@ export class StrategyDistillService {
   /**
    * Nightly lifecycle sweep at 03:52 UTC — after compaction (03:17)
    * and the calibration refits (03:42/03:51), before dreams (04:00).
-   * Env-gated and reentrancy-guarded; per-tenant failures are
-   * contained (the MemoryQualityService fan-out idiom).
+   * Env-gated, under the distributed lease guard (one replica walks the
+   * roster) with the in-flight flag as the process-local reentrancy
+   * layer; per-tenant failures are contained (the MemoryQualityService
+   * fan-out idiom).
    */
   @Cron('52 3 * * *', { timeZone: 'UTC' })
   async runNightlySweep(): Promise<SweepRunStats> {
@@ -356,6 +366,16 @@ export class StrategyDistillService {
       this.logger.warn('strategy sweep skipped — previous run still in flight');
       return stats;
     }
+    const run = this.guard
+      ? await this.guard.run(SWEEP_LOCK_KEY, () => this.sweepAll(stats), SWEEP_LEASE_TTL_SECONDS)
+      : await this.sweepAll(stats);
+    if (run === null) this.logger.warn('strategy sweep skipped — another run holds the lease');
+    return stats;
+  }
+
+  /** The roster walk under the process-local single-flight flag; fills `stats` in place. */
+  private async sweepAll(stats: SweepRunStats): Promise<SweepRunStats> {
+    if (!this.guard) noteUnguarded(this.logger, 'strategy sweep');
     this.sweepInFlight = true;
     try {
       const tenants = this.apiKeys.knownCompanyIds();
