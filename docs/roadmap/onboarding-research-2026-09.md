@@ -243,9 +243,10 @@ not about the snippets.)*
    (interim — the real fix is Wave 1 item 7).**
 5. ✅ MCP health reports `serviceVersion` alongside the MCP server's own
    `version`. **P2-11.**
-6. ⬜ Re-publish `server.json` to the MCP Registry (the live record is
-   v0.1.0) and file the top awesome-list PRs — `mcp-publisher login
-   github` is an interactive browser flow. **P2-10.**
+6. ◐ Re-published `server.json` to the MCP Registry — **v2.2.0 is live
+   and flagged latest** as of 2026-09-10, replacing the v0.1.0 record
+   from June. The awesome-list PRs in the playbook are still unfiled.
+   **P2-10.**
 
 ### Wave 1 — the path from signup to first recall (days)
 
