@@ -13,7 +13,6 @@ curl -fsSL https://brain.inite.ai/install.sh | sh
 Optional flags:
 
 - `--target project` — install into `$PWD/.claude/skills/` instead of `$HOME`
-- `--key <api-key>` — ping a probe so the dashboard marks "skills installed" complete
 
 ## What's inside
 

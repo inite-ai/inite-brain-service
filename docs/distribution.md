@@ -36,9 +36,9 @@ For everything else (Tier 3 lists, mcpservers.org form, official Registry, Pulse
 
 | Target | Status | URL when live |
 |---|---|---|
-| Official MCP Registry | ⬜ not submitted | https://registry.modelcontextprotocol.io/v0/servers?search=inite-brain |
-| PulseMCP | ⬜ auto (after registry) | https://www.pulsemcp.com/servers/inite-brain |
-| punkpeye/awesome-mcp-servers | ⬜ not submitted | — |
+| Official MCP Registry | ✅ published — but **stale**: the live record is `io.github.inite-ai/inite-brain-service` **v0.1.0**, published 2026-06-24, while `server.json` says 2.2.0. Re-publish (§1). Note the search API matches on the full name: `?search=inite-brain` finds it, `?search=inite` does not. | https://registry.modelcontextprotocol.io/v0/servers?search=inite-brain |
+| PulseMCP | ⬜ unverified — their v0beta API is sunset and the server page 403s to scripted checks; confirm by hand in a browser | https://www.pulsemcp.com/servers/inite-brain |
+| punkpeye/awesome-mcp-servers | ⬜ not submitted — verified absent from the live README on 2026-09-10 | — |
 | topoteretes/awesome-ai-memory | ⬜ not submitted | — |
 | surrealdb/awesome-surreal | ⬜ not submitted | — |
 | mcpservers.org form | ⬜ not submitted | — |

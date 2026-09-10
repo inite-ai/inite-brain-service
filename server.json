@@ -31,7 +31,7 @@
   ],
   "_meta": {
     "io.modelcontextprotocol.registry/publisher-provided": {
-      "tools": 18,
+      "tools": 30,
       "scopes": [
         "read",
         "write",

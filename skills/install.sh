@@ -4,16 +4,20 @@
 # Usage:
 #   curl -fsSL https://brain.inite.ai/install.sh | sh
 #   curl -fsSL https://brain.inite.ai/install.sh | sh -s -- --target project
-#   curl -fsSL https://brain.inite.ai/install.sh | sh -s -- --key brain_xxx
 #
 # Default: installs into ~/.claude/skills/ (user-global).
 # --target project installs into $PWD/.claude/skills/.
-# --key pings a probe so the dashboard flips "skills installed" → done.
+#
+# There used to be a --key flag here that POSTed to an "install probe"
+# so a dashboard could mark the step done. No such endpoint was ever
+# built and there is no such dashboard step, but the script printed
+# "Notified dashboard." unconditionally — the curl was `|| true`. Both
+# are gone. When the onboarding checklist ships, the flag comes back
+# with an endpoint behind it. Unknown flags are still ignored, so an
+# older command line with --key keeps working.
 set -e
 
 TARGET_MODE="user"
-INSTALL_KEY="${BRAIN_API_KEY-}"
-PROBE_URL="${BRAIN_PROBE_URL-https://brain.inite.ai/mcp/install-probe}"
 SKILLS_URL="${BRAIN_SKILLS_URL-https://brain.inite.ai/skills.tar.gz}"
 
 while [ $# -gt 0 ]; do
@@ -21,13 +25,10 @@ while [ $# -gt 0 ]; do
     --target=user)    TARGET_MODE="user"; shift ;;
     --target=project) TARGET_MODE="project"; shift ;;
     --target)         shift; TARGET_MODE="$1"; shift ;;
-    --key=*)          INSTALL_KEY="${1#--key=}"; shift ;;
-    --key)            shift; INSTALL_KEY="$1"; shift ;;
     --help|-h)
-      echo "Usage: install.sh [--target user|project] [--key brain_xxx]"
+      echo "Usage: install.sh [--target user|project]"
       echo "  user    (default) install into ~/.claude/skills/"
       echo "  project install into \$PWD/.claude/skills/"
-      echo "  --key   notify the dashboard once skills are installed"
       exit 0
       ;;
     *) shift ;;
@@ -88,16 +89,5 @@ echo ""
 echo "Installed $INSTALLED brain skills into $TARGET_DIR (bundle $(cat "$TARGET_DIR/VERSION.brain" 2>/dev/null || echo unknown))"
 echo ""
 
-# Best-effort probe ping — silent on failure so install never fails offline.
-if [ -n "$INSTALL_KEY" ] && command -v curl >/dev/null 2>&1; then
-  curl -fsS -o /dev/null \
-    -X POST "$PROBE_URL" \
-    -H "Authorization: Bearer $INSTALL_KEY" \
-    -H "Content-Type: application/json" \
-    --max-time 5 \
-    -d '{}' 2>/dev/null || true
-  echo "-> Notified dashboard."
-fi
-
 echo "Next: add brain to your MCP client config. See:"
-echo "      https://brain.inite.ai/docs/mcp/setup"
+echo "      https://brain.inite.ai/en/docs/mcp/setup"

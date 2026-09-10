@@ -177,8 +177,13 @@ Full authoring, signing and installation commands:
 
 ### Use the hosted service
 
-Get an API key and its company ID from the
-[web app](https://brain.inite.ai/en/app/keys), then set:
+Hosted brain is provisioned per company: a tenant (`companyId`) and a
+scoped API key. **Key issuance is operator-side today** — self-serve
+creation in the web app is not shipped yet, so ask for one at
+`mike@inite.ai` or through a GitHub issue. The
+[keys screen](https://brain.inite.ai/en/app/keys) shows the connection
+recipes for the key you were given. Everything below also runs against a
+local instance, which needs nobody's approval.
 
 ```bash
 export BRAIN_URL="https://brain.inite.ai"

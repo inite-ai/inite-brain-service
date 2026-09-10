@@ -11,7 +11,6 @@ curl -fsSL https://brain.inite.ai/install.sh | sh
 Optional flags:
 
 - `--target project` — install into `$PWD/.claude/skills/` instead of `$HOME`
-- `--key <api-key>` — ping a probe so the dashboard marks “skills installed” complete
 
 The installer downloads `skills.tar.gz`, unpacks each skill into `~/.claude/skills/<name>/SKILL.md`, and drops a `VERSION.brain` file alongside so the staleness check has a single number to compare against.
 

@@ -4,8 +4,8 @@ Brain отдаёт Streamable HTTP MCP-эндпоинт на `/mcp/:companyId`. 
 
 ## Что нужно
 
-1. **API-ключ** brain (формат `brain_<base64>`). Сгенерируй на [Brain app → API keys](/ru/app/keys).
-2. **companyId**, на который выдан ключ (виден на том же экране).
+1. **API-ключ** brain (формат `brain_<base64>`). На хостинге ключи выдаёт оператор — напиши на `mike@inite.ai`; самостоятельной генерации в приложении пока нет. Селф-хост? Сгенерируй ключ сам в `BRAIN_API_KEYS` — см. [getting started](/ru/docs/getting-started).
+2. **companyId**, на который выдан ключ — приходит вместе с ключом.
 3. **MCP-URL**: `https://brain.inite.ai/mcp/<companyId>`.
 
 Brain не принимает анонимный MCP-трафик. Режима общего секрета нет.
