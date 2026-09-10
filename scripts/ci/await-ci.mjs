@@ -35,6 +35,10 @@ const POLL_SECONDS = Number(process.env.AWAIT_POLL_SECONDS ?? '20');
 // branch that was never pushed to main. Holding a runner for the full
 // 45 minutes to tell someone that is just rude.
 const NOT_FOUND_GRACE_MIN = Number(process.env.AWAIT_NOT_FOUND_GRACE_MINUTES ?? '10');
+// The branch a deploy ships from. Used only to tell "this commit was
+// overtaken" from "this commit's CI was cancelled while it was still the
+// one being deployed".
+const BRANCH = process.env.AWAIT_BRANCH ?? 'main';
 
 function fail(message) {
   console.error(`[await-ci] ${message}`);
@@ -45,7 +49,10 @@ if (!REPO) fail('GITHUB_REPOSITORY is not set');
 if (!TOKEN) fail('GITHUB_TOKEN is not set');
 if (!SHA) fail('AWAIT_SHA is not set');
 
-const api = `https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW}/runs?head_sha=${SHA}&per_page=20`;
+// Overridable only so the truth test can serve both endpoints locally;
+// production never sets it.
+const API_BASE = process.env.AWAIT_API_BASE ?? 'https://api.github.com';
+const api = `${API_BASE}/repos/${REPO}/actions/workflows/${WORKFLOW}/runs?head_sha=${SHA}&per_page=20`;
 
 async function latestRun() {
   const res = await fetch(api, {
@@ -70,6 +77,29 @@ async function latestRun() {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * True when SHA is no longer the tip of the deploy branch — i.e. a newer
+ * commit has landed and owns the deploy. Any API trouble answers false, so
+ * an unreadable branch tip can never turn a cancelled CI into permission
+ * to stand down.
+ */
+async function superseded() {
+  try {
+    const res = await fetch(`${API_BASE}/repos/${REPO}/commits/${BRANCH}`, {
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        accept: 'application/vnd.github+json',
+        'x-github-api-version': '2022-11-28',
+      },
+    });
+    if (!res.ok) return false;
+    const tip = (await res.json())?.sha;
+    return typeof tip === 'string' && tip !== SHA;
+  } catch {
+    return false;
+  }
+}
 
 async function main() {
   const deadline = Date.now() + TIMEOUT_MIN * 60_000;
@@ -97,9 +127,20 @@ async function main() {
         console.log(`[await-ci] CI passed for ${SHA} (run ${run.id})`);
         process.exit(0);
       }
-      fail(
-        `CI concluded "${run.conclusion}" for ${SHA}. Not deploying. See ${run.html_url}`,
-      );
+      if (run.conclusion === 'cancelled' && (await superseded())) {
+        // GitHub keeps at most one PENDING run per concurrency group, so a
+        // second merge landing while this commit's CI is still queued
+        // cancels it. That is not a red commit and not an operator's
+        // cancellation — the newer commit carries this one's code and its
+        // own deploy will ship it. Refusing here is correct but noisy; a
+        // deploy that has been overtaken should stand down quietly.
+        console.log(
+          `[await-ci] CI for ${SHA} was cancelled and the commit is no longer the tip of ` +
+            `${BRANCH}. Superseded by a newer commit, which deploys itself. Standing down.`,
+        );
+        process.exit(0);
+      }
+      fail(`CI concluded "${run.conclusion}" for ${SHA}. Not deploying. See ${run.html_url}`);
     }
 
     if (!run) {
