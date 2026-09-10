@@ -271,11 +271,14 @@ export class EvidenceProcessorBrokerService {
         `SELECT * FROM type::record('evidence_asset', $tail) LIMIT 1`,
         { tail: idTailOf(req.assetId) },
       );
-      // Direct row read — no admin-module import, no DI cycle.
+      // Direct row read — no admin-module import, no DI cycle. ACTIVE
+      // installs only: uninstall keeps the row (status = 'removed') with
+      // its manifest and accepted-modality checksum, and a removed pack
+      // authorises no processing of raw bytes — it reads as not installed.
       const packRow = await queryFirst<PackRow>(
         db,
         `SELECT manifest, acceptedModalities, acceptedModalitiesChecksum
-           FROM domain_pack WHERE packId = $p LIMIT 1`,
+           FROM domain_pack WHERE packId = $p AND status = 'active' LIMIT 1`,
         { p: req.packId },
       );
       return { asset: assetRow, pack: packRow };

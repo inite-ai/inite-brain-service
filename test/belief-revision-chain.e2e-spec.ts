@@ -226,6 +226,53 @@ describe('belief revision chain: two clocks + compare-and-set (e2e)', () => {
     expect(iso(head!.validFrom)).toBe(MAR); // no interlude after March — kept
   });
 
+  it('a corroboration between the head read and the commit stops the revise', async () => {
+    // The window is the awaited statement composition between the head
+    // SELECT and the transaction. Another run confirms A into March in
+    // there — an in-place update that changes neither status nor revision
+    // — so a supersede guarded on those two alone still committed: A ended
+    // up superseded with a February validUntil although its own latest
+    // evidence was March.
+    const user = 'wm_race_user';
+    await seedScene({ tail: 'wmr_a1', user, conv: 'wmr:c1', at: JAN, value: 'A' });
+    expect(await promoteConv('wmr:c1')).toMatchObject({ beliefsCreated: 1 });
+    await seedScene({ tail: 'wmr_b2', user, conv: 'wmr:c2', at: FEB, value: 'B' });
+
+    const svc = f.app.get(BeliefPromotionService) as unknown as {
+      composeStatement: (b: FoldedBelief) => Promise<{ text: string; source: 'template' | 'llm' }>;
+    };
+    const compose = svc.composeStatement.bind(svc);
+    let corroborated = false;
+    svc.composeStatement = async (b: FoldedBelief) => {
+      if (!corroborated) {
+        corroborated = true;
+        await db(async (d) => {
+          await d.query(
+            `UPDATE type::record('semantic_belief', $tail)
+               SET latestEvidenceAt = <datetime>$mar, corroborationCount = corroborationCount + 1`,
+            { tail: beliefIdTail({ userId: user, subject: 'alice', field: 'city' }, 1), mar: MAR },
+          );
+        });
+      }
+      return compose(b);
+    };
+    let res: Awaited<ReturnType<typeof promoteConv>>;
+    try {
+      res = await promoteConv('wmr:c2');
+    } finally {
+      svc.composeStatement = compose;
+    }
+    expect(corroborated).toBe(true);
+    // Nothing written: the retry judged B against the watermark it found.
+    expect(res).toMatchObject({ beliefsRevised: 0, beliefsCreated: 0, skippedStale: 1 });
+    const chain = await chainOf(user);
+    expect(chain).toHaveLength(1);
+    expect(chain[0]).toMatchObject({ value: 'A', revision: 1, status: 'active' });
+    expect(chain[0]!.validUntil).toBeFalsy();
+    expect(chain[0]!.supersededBy).toBeFalsy();
+    expect(iso(chain[0]!.latestEvidenceAt)).toBe(MAR);
+  });
+
   it('two concurrent runs revising one key leave exactly one active head', async () => {
     const user = 'race_user';
     await seedScene({ tail: 'rc_a', user, conv: 'rc:c0', at: JAN, value: 'A' });
@@ -269,7 +316,13 @@ describe('belief revision chain: two clocks + compare-and-set (e2e)', () => {
     // The compare-and-set, driven directly: two writers, two values, one
     // revision slot — on two separate pool connections.
     const logger = new Logger('belief-revision-chain.e2e');
-    const displaced = { id: String(head!.id), revision: 1, until: new Date(FEB) };
+    const displaced = {
+      id: String(head!.id),
+      revision: 1,
+      until: new Date(FEB),
+      // The watermark the head carries — the supersede predicate checks it.
+      watermark: new Date(JAN),
+    };
     const commit = (value: string) =>
       db((d) =>
         commitRevision({

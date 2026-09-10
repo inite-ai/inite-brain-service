@@ -509,6 +509,10 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
     conversationIds: string[];
   }
 
+  /** A stored datetime (Date or ISO string) as epoch ms. */
+  const epoch = (v: unknown): number =>
+    v instanceof Date ? v.getTime() : new Date(String(v)).getTime();
+
   /**
    * Minimal stateful SurrealDB double for the promotion pass: routes the
    * service's exact SQL shapes onto an in-memory semantic_belief store
@@ -520,7 +524,7 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
     sceneHeads: PromotableSceneHead[] = [];
     sql: string[] = [];
     /** Runs right before a commitRevision transaction — a concurrent writer's move. */
-    beforeTransaction?: () => void;
+    beforeTransaction?: (() => void) | undefined;
 
     async query(sqlText: string, params: Record<string, unknown> = {}): Promise<unknown> {
       this.sql.push(sqlText);
@@ -570,7 +574,18 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
         }
         if (p.headId !== undefined) {
           const head = this.rows.find((r) => r.id === String(p.headId));
-          if (head === undefined || head.status !== 'active' || head.revision !== p.headRevision) {
+          // The guarded stamp models the FULL predicate: status, revision
+          // AND the watermark the run read (a corroboration moves only the
+          // watermark, so without it the CAS misses a moved head).
+          const boundWm = p.wm === null || p.wm === undefined ? undefined : epoch(p.wm);
+          const rowWm =
+            head?.latestEvidenceAt === undefined ? undefined : epoch(head.latestEvidenceAt);
+          if (
+            head === undefined ||
+            head.status !== 'active' ||
+            head.revision !== p.headRevision ||
+            (rowWm !== undefined && rowWm !== boundWm)
+          ) {
             throw new Error('The query was not executed due to a failed transaction');
           }
           head.status = 'superseded';
@@ -991,20 +1006,72 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
       expect(db.sql.some((s) => s.includes('userIds CONTAINSANY $users'))).toBe(true);
     });
 
-    it('a revision is one compare-and-set transaction; a head that moved under the run is not revised twice', async () => {
+    it('a head that moved under the run is not revised twice: the verdict is taken again against the head that now exists', async () => {
       const db = new FakeBeliefDb();
       db.rows = [headA({ latestEvidenceAt: at('01-01') })];
       db.sceneHeads = [evidence('t2', '02-01', 'B', 'A')];
-      // Another writer supersedes the head between this run's read and
-      // its transaction — the guarded stamp matches zero rows and the
-      // whole write (INSERT included) is abandoned.
+      // Another writer's revise lands between this run's head read and
+      // its transaction: the guarded stamp matches zero rows, the write
+      // (INSERT included) is abandoned whole, and the retry judges the
+      // candidate against the head that actually exists now — which
+      // already says B, so this run only corroborates it.
       db.beforeTransaction = () => {
+        db.beforeTransaction = undefined;
         db.rows[0]!.status = 'superseded';
+        db.rows.push(
+          belief({
+            id: 'semantic_belief:rival2',
+            subject: 'alice',
+            field: 'city',
+            value: 'B',
+            priorValue: 'A',
+            revision: 2,
+            validFrom: at('02-01'),
+            latestEvidenceAt: at('02-01'),
+            sourceSceneIds: [],
+            conversationIds: [],
+          }),
+        );
+      };
+      const res = await makeRunService(db).run('co_test');
+      expect(res).toMatchObject({ beliefsRevised: 0, beliefsCreated: 0, skippedContended: 0 });
+      expect(db.rows.filter((r) => r.status === 'active')).toHaveLength(1);
+      expect(db.active('city', 'alice')).toMatchObject({ value: 'B', revision: 2 });
+      expect(db.sql.filter((s) => s.startsWith('BEGIN TRANSACTION'))).toHaveLength(1);
+    });
+
+    it('a head that keeps moving is counted as contended after one retry, never written', async () => {
+      const db = new FakeBeliefDb();
+      db.rows = [headA({ latestEvidenceAt: at('01-01') })];
+      db.sceneHeads = [evidence('t2', '02-01', 'B', 'A')];
+      // The head's revision moves after every read — both attempts lose.
+      db.beforeTransaction = () => {
+        db.rows[0]!.revision += 1;
       };
       const res = await makeRunService(db).run('co_test');
       expect(res).toMatchObject({ skippedContended: 1, beliefsRevised: 0, beliefsCreated: 0 });
       expect(db.rows).toHaveLength(1);
-      expect(db.sql.filter((s) => s.startsWith('BEGIN TRANSACTION'))).toHaveLength(1);
+      expect(db.sql.filter((s) => s.startsWith('BEGIN TRANSACTION'))).toHaveLength(2);
+    });
+
+    it('a corroboration between the read and the transaction stops the revise: the watermark is in the predicate', async () => {
+      // The window is the awaited statement composition. Another run
+      // confirms A into March while this run still believes the watermark
+      // is January — its revise to B (February validity) must not land,
+      // or A would be superseded with a validUntil BEFORE its own latest
+      // evidence.
+      const db = new FakeBeliefDb();
+      db.rows = [headA({ latestEvidenceAt: at('01-01') })];
+      db.sceneHeads = [evidence('t2', '02-01', 'B', 'A')];
+      db.beforeTransaction = () => {
+        db.beforeTransaction = undefined;
+        db.rows[0]!.latestEvidenceAt = new Date(at('03-01'));
+      };
+      const res = await makeRunService(db).run('co_test');
+      expect(res).toMatchObject({ beliefsRevised: 0, beliefsCreated: 0, skippedStale: 1 });
+      expect(db.rows).toHaveLength(1);
+      expect(db.rows[0]).toMatchObject({ value: 'A', status: 'active', revision: 1 });
+      expect(db.rows[0]!.validUntil).toBeUndefined();
     });
 
     it('the revise transaction carries the new row AND the guarded supersede stamp together', async () => {
@@ -1015,7 +1082,10 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
       expect(res).toMatchObject({ beliefsRevised: 1, skippedContended: 0 });
       const tx = db.sql.find((s) => s.startsWith('BEGIN TRANSACTION'))!;
       expect(tx).toContain('INSERT IGNORE INTO semantic_belief $rows');
-      expect(tx).toContain("WHERE status = 'active' AND revision = $headRevision RETURN AFTER");
+      expect(tx).toContain(
+        "WHERE status = 'active' AND revision = $headRevision " +
+          'AND (latestEvidenceAt IS NONE OR latestEvidenceAt = $wm) RETURN AFTER',
+      );
       expect(tx).toContain("THROW 'belief head moved'");
       expect(tx).toContain('COMMIT TRANSACTION');
       const [rev1, rev2] = [...db.rows].sort((a, b) => a.revision - b.revision);

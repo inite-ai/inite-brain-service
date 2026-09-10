@@ -113,7 +113,11 @@ export class FragmentLaneService {
       // Fence 4 (0112): tenant-level consent — absent/stale ⇒ EMPTY.
       const consented = await this.surreal.withCompany(opts.companyId, async (db) => {
         const [rows] = await db.query<[ModalityConsentRow[]]>(
-          `SELECT manifest, acceptedModalities, acceptedModalitiesChecksum FROM domain_pack`,
+          // ACTIVE installs only: uninstall keeps the row (status =
+          // 'removed') with its manifest and accepted-modality checksum,
+          // so a removed pack must not go on consenting to derived text.
+          `SELECT manifest, acceptedModalities, acceptedModalitiesChecksum FROM domain_pack
+            WHERE status = 'active'`,
         );
         return hasCurrentModalityConsent(rows ?? []);
       });
@@ -253,7 +257,9 @@ export class FragmentLaneService {
     const { piiGate, userFence } = this.rowFences(opts.callerScopes, opts.userId);
     const rows = await this.surreal.withCompany(opts.companyId, async (db) => {
       const [consentRows] = await db.query<[ModalityConsentRow[]]>(
-        `SELECT manifest, acceptedModalities, acceptedModalitiesChecksum FROM domain_pack`,
+        // ACTIVE installs only — same fence as fragmentLines above.
+        `SELECT manifest, acceptedModalities, acceptedModalitiesChecksum FROM domain_pack
+          WHERE status = 'active'`,
       );
       if (!hasCurrentModalityConsent(consentRows ?? [])) return [];
       const [reprRows] = await db.query<[Array<{ id?: unknown; content?: unknown }>]>(

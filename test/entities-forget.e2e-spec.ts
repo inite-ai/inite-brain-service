@@ -179,6 +179,27 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
             object: $rid, detail: { note: 'secret-pii-value' } }`,
         { rid: entityId },
       );
+      // answer_cache (0091/0136): the cached ANSWER TEXT quotes the rows
+      // being erased. Two shapes — one keyed on the entity, one on a
+      // cited fact of it.
+      for (const [hash, ents, cited] of [
+        ['hash-entity', [entityId], []],
+        ['hash-fact', [], [String(subjFactId)]],
+      ] as Array<[string, string[], string[]]>) {
+        await db.query(
+          `CREATE answer_cache CONTENT {
+              companyId: $cid, queryHash: $h, queryText: 'who is the subject',
+              answer: 'secret-pii-value', citedFactIds: $cited, entityIds: $ents,
+              profileHash: 'p1', modelId: 'm1', promptVersion: 1, expiresAt: $exp }`,
+          {
+            cid: f.companyId,
+            h: hash,
+            cited,
+            ents,
+            exp: new Date(Date.now() + 3600_000),
+          },
+        );
+      }
       await db.query(
         `CREATE debug_trace CONTENT {
             requestId: 'rq1', method: 'POST', path: '/v1/ingest/fact',
@@ -268,6 +289,9 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
       expect(
         await countWhere(`SELECT id FROM debug_trace WHERE companyId = $cid`, { cid: f.companyId }),
       ).toBe(0);
+      // The cached answers quoting the erased entity / its facts are gone
+      // — check-on-read only stopped them serving, it kept the bytes.
+      expect(await countWhere(`SELECT id FROM answer_cache`, {})).toBe(0);
 
       // Fact-keyed side tables (fact_usage + retrieval_feedback) must be
       // gone BY THEIR CAPTURED IDS: a 3.2.4 DELETE planner no-op leaves
