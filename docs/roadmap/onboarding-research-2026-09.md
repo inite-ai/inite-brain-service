@@ -250,11 +250,18 @@ not about the snippets.)*
 
 ### Wave 1 — the path from signup to first recall (days)
 
-7. **Self-serve keys.** `POST /v1/admin/keys` (create/rotate/revoke,
-   shown once) plus a real Keys screen: the tenant's `companyId`, the
-   key, and *personalised* copy-paste snippets — no placeholders — for
-   Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI,
-   Goose, n8n. This is the single highest-leverage item on the list.
+7. ✅ **Self-serve keys.** Shipped: brain issues, verifies and revokes
+   its own keys from a system-DB store (migration 0141), exposed as
+   `POST /v1/keys` / `GET /v1/keys` / `POST /v1/keys/{id}/revoke` and as
+   a real Keys screen — the tenant's `companyId`, its MCP URL, the key
+   shown once, and *personalised* copy-paste configuration (no
+   placeholders) for Claude Code, Claude Desktop, Cursor, VS Code, Codex
+   CLI, Goose and curl. A key is never wider than the credential that
+   minted it, and the same endpoints work self-hosted, where the env-var
+   key becomes a bootstrap rather than the only way in.
+   Gemini CLI and n8n snippets are deliberately absent until their
+   current config shape is verified — a wrong snippet costs more than a
+   missing one.
 8. **`/mcp` without a tenant path** — resolve tenancy from the
    credential, keep `/mcp/:companyId` as the explicit form. Unblocks
    every one-click connector surface. **P1-5.**

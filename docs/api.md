@@ -289,6 +289,23 @@ the admin UI at brain-landing is the primary consumer):
 |---|---|
 | `ALL /mcp/:companyId` | Streamable HTTP MCP endpoint per tenant. Besides the static tool families, installed Domain Packs with a consented `mcpTools` section contribute tools named `<packId>__<toolName>` (behind `MCP_PACK_TOOLS_ENABLED`, default off) — see [mcp-pack-tools.md](mcp-pack-tools.md). Installing such a pack requires `acceptMcpTools: true` in the `POST /v1/admin/packs` (or `/from-registry`) body; a changed section on upgrade re-requires it. The unauthenticated `/health` probe lists only the static read baseline. |
 
+## Self-serve keys
+
+Brain issues its own API keys, alongside the auth-service credentials
+(JWT, `ik_` introspection) and the `BRAIN_API_KEYS` env table. This is
+the only credential path that works identically hosted and self-hosted,
+and the only one a tenant can drive without an operator.
+
+| Endpoint | Notes |
+|---|---|
+| `POST /v1/keys` | `{name, scopes[], expiresInDays?, userId?}` → the plaintext **once** plus `companyId` and `mcpUrl`. Granted scopes = requested ∩ caller's own, so a key is never wider than its issuer; none in common is 403. Only `brain:read`, `brain:write`, `brain:admin`, `brain:read_pii` are mintable — operator scopes (`brain:platform_admin`, `brain:read_media`, `registry:*`, `indexer:write`) are not. 25 live keys per tenant. |
+| `GET /v1/keys` | Visible keys (a user-bound caller sees its own; `brain:admin` and M2M see the tenant's), plus `companyId`, `mcpUrl`, `issuableScopes` and `issuingEnabled`. Never returns a secret or a hash — rows carry a display `prefix`. |
+| `POST /v1/keys/{id}/revoke` | `{revoked}`. Unknown id and someone else's id are deliberately indistinguishable. Rows are kept, not deleted, so revocation stays auditable. Effective immediately on the serving pod, within 30s elsewhere (resolution cache TTL). |
+
+Storage is the namespace-level `api_key` table in the `system` database:
+`sha256:<hex>` of the plaintext, never the plaintext. Resolution order is
+JWT → `ik_` introspection → issued keys → the env table.
+
 ## Auth + scopes
 
 | Scope | Grants |
@@ -329,6 +346,7 @@ off). All endpoints require `brain:admin`; wire contracts live in
 | `POST /v1/admin/policy/preview-rule` | `{rule}` → approximate live match count + 3 sample facts (sampled over the most recent 5 000 active facts). |
 | `GET /v1/admin/policy/decisions` | Cursor-paginated decision feed (`policySet/decision/kind/action/before` filters). `GET …/stats?windowDays=` → series, top denied actions/rules/keys, report_only promotion candidates. |
 | `GET /v1/admin/keys` | Read-only static-key inventory: `keyId`, binding `subject`, scopes, attached policy sets. |
+| `GET/POST /v1/keys`, `POST /v1/keys/{id}/revoke` | Self-serve keys brain issues and verifies itself (system-DB store, migration 0141) — see § Self-serve keys. |
 
 A key acquires policies three ways, unioned and capped at 8: a
 `policy_binding` row (attachments above), a `"policies": [...]` field on its
