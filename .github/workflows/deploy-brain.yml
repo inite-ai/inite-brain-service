@@ -806,7 +806,18 @@ jobs:
                 - /opt/projects/${PROJECT_NAME}/baselines:/var/brain/baselines
               labels:
                 # ── Backend routes only — landing handles the rest of brain.inite.ai.
-                # Backend owns /v1/*, /mcp/*, /health, /metrics.
+                # Backend owns /v1/*, /mcp/*, /health, /registry and the RFC 9728
+                # discovery document.
+                #
+                # /.well-known/oauth-protected-resource is load-bearing, not
+                # decoration: every 401 from /mcp/* names it in WWW-Authenticate,
+                # and an MCP client that follows the pointer is trying to find
+                # the authorization server so it can self-onboard. Without this
+                # prefix the request fell through to the landing's catch-all and
+                # came back as an HTML 404 — discovery dead-ended silently, and
+                # no one-click OAuth connector could ever complete. Only this
+                # exact prefix moves: /.well-known/agent-card.json and the rest
+                # of that namespace still belong to the landing app.
                 # Traefik sorts by rule length so this PathPrefix-restricted
                 # router naturally outranks the landing's Host-only catch-all.
                 #
@@ -821,7 +832,7 @@ jobs:
                 # /skills.tar.gz, written there by scripts/build-openapi.ts.
                 - "traefik.enable=true"
                 - "traefik.docker.network=traefik-global"
-                - "traefik.http.routers.${PROJECT_NAME}.rule=Host(\`${DOMAIN}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/registry\`))"
+                - "traefik.http.routers.${PROJECT_NAME}.rule=Host(\`${DOMAIN}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/registry\`) || PathPrefix(\`/.well-known/oauth-protected-resource\`))"
                 - "traefik.http.routers.${PROJECT_NAME}.priority=200"
                 - "traefik.http.routers.${PROJECT_NAME}.entrypoints=websecure"
                 - "traefik.http.routers.${PROJECT_NAME}.tls=true"
@@ -839,7 +850,7 @@ jobs:
                 - "traefik.http.services.${PROJECT_NAME}.loadbalancer.healthcheck.interval=15s"
                 - "traefik.http.services.${PROJECT_NAME}.loadbalancer.healthcheck.timeout=5s"
                 # http→https redirect for the same backend paths (landing has its own).
-                - "traefik.http.routers.${PROJECT_NAME}-http.rule=Host(\`${DOMAIN}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/registry\`))"
+                - "traefik.http.routers.${PROJECT_NAME}-http.rule=Host(\`${DOMAIN}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/registry\`) || PathPrefix(\`/.well-known/oauth-protected-resource\`))"
                 - "traefik.http.routers.${PROJECT_NAME}-http.priority=200"
                 - "traefik.http.routers.${PROJECT_NAME}-http.entrypoints=web"
                 - "traefik.http.routers.${PROJECT_NAME}-http.middlewares=redirect-to-https"
