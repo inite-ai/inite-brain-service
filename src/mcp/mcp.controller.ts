@@ -128,6 +128,7 @@ export class McpController {
       packIds: auth.packIds,
       actorId: auth.actorId,
       mcpGrantedActions: auth.mcpGrantedActions,
+      userId: auth.userId,
     });
     // Stateless mode: omitting sessionIdGenerator entirely reads the same
     // as an explicit `undefined` (the SDK just stores whatever the key

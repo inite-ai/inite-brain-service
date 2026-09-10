@@ -324,6 +324,7 @@ MCP sampling when the client supports it. See the
 | Record information | `record_fact` for one claim; `ingest_document` for longer material |
 | Inspect disagreement | `detect_contradiction`, `get_competing_facts` |
 | Remember engineering rationale | `record_decision`, `why`, `recall_decisions` |
+| Find out what you just connected to | `workspace_status` |
 
 Read [AGENTS.md](AGENTS.md) for memory semantics and the
 [skills guide](skills/README.md) for reusable agent workflows.
