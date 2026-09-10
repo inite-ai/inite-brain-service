@@ -572,6 +572,15 @@ jobs:
                 - AUTH_SERVICE_URL=https://auth.inite.ai
                 - AUTH_SERVICE_JWKS_URL=https://auth.inite.ai/.well-known/jwks.json
                 - AUTH_SERVICE_AUDIENCE=brain
+                # Canonical public URL. Two things read it: the RFC 9728
+                # discovery document (the `resource` identifier it
+                # advertises) and JWKS verification, which accepts this URL
+                # and `<url>/mcp` as audiences alongside the vertical name.
+                # An MCP client that asks for a token with RFC 8707
+                # `resource=` gets `aud = <that URL>`; without this set,
+                # the derived audience list is just "brain" and every such
+                # token is rejected.
+                - BRAIN_PUBLIC_URL=https://brain.inite.ai
                 # Required: JwksService refuses to boot in production when JWKS
                 # is enabled without an issuer (else the `iss` claim is not
                 # validated). Must match the `iss` auth-service signs with —
