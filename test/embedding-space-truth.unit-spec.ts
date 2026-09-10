@@ -9,7 +9,7 @@ import {
   declaredSpace,
   providerIdOf,
 } from '../src/ai/embedder/embedding-space';
-import { widthGateClause } from '../src/db/vector-width';
+import { sameWidthGate, widthGateClause } from '../src/db/vector-width';
 
 /**
  * Embedding-space truth gate.
@@ -102,6 +102,26 @@ describe('embedding-space truth — every cosine scan carries the width gate', (
   // src/db/vector-width.ts); this is what keeps the next scan site honest.
   const COSINE = /vector::similarity::cosine\(\s*([A-Za-z_.]+)\s*,\s*\$([A-Za-z_]+)\s*\)/g;
 
+  /** `${sameWidthGate('col'…)}` emits the whole gate — NONE check first. */
+  const helperGate = (field: string) => new RegExp(String.raw`\$\{\s*sameWidthGate\(\s*'${field}'`);
+  /** `col != NONE`, not the tail of `gistCol != NONE`. */
+  const noneCheck = (field: string) => new RegExp(String.raw`(?<![\w.])${field}\s*!=\s*NONE`);
+  const lenCall = (field: string) => new RegExp(String.raw`(?<![\w.])array::len\(\s*${field}\s*\)`);
+
+  /** What is wrong with this literal's gate for `field`, or null when nothing is. */
+  function gateOffence(lit: string, field: string, param: string): string | null {
+    if (helperGate(field).test(lit)) return null;
+    if (!lit.includes(widthGateClause(field, param))) return 'without gate';
+    // `array::len(NONE)` is a hard error on 3.2.4, so the width comparison
+    // must never be the first thing the row meets: the NONE check has to
+    // stand before it in the same WHERE, not merely somewhere in it.
+    const none = noneCheck(field).exec(lit);
+    const len = lenCall(field).exec(lit);
+    if (!none) return 'width gate with no `!= NONE` check';
+    if (len && none.index > len.index) return '`!= NONE` check after array::len';
+    return null;
+  }
+
   it('in application code: each statement with a cosine has the gate for that column', () => {
     const offenders: string[] = [];
     for (const f of TS_FILES) {
@@ -110,13 +130,20 @@ describe('embedding-space truth — every cosine scan carries the width gate', (
       for (const lit of text.match(/`[^`]*`/gs) ?? []) {
         for (const m of lit.matchAll(COSINE)) {
           const [, field, param] = m as unknown as [string, string, string];
-          if (!lit.includes(widthGateClause(field, param))) {
-            offenders.push(`${f.slice(ROOT.length + 1)}: cosine(${field}, $${param}) without gate`);
+          const offence = gateOffence(lit, field, param);
+          if (offence) {
+            offenders.push(`${f.slice(ROOT.length + 1)}: cosine(${field}, $${param}) ${offence}`);
           }
         }
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('the shared helper puts the NONE check before the width comparison', () => {
+    const gate = sameWidthGate('embedding');
+    expect(gate.indexOf('embedding != NONE')).toBeLessThan(gate.indexOf('array::len(embedding)'));
+    expect(gate).toContain(widthGateClause('embedding'));
   });
 
   it('in the store: the latest fn::resolve_fact revision gates its dedup cosine', () => {

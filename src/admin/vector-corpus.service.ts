@@ -266,7 +266,14 @@ export class VectorCorpusService implements OnModuleInit {
       },
     });
     try {
-      const sweep = await this.reindex.run({ tenant: companyId, allTables: true });
+      // Only the rows the census just counted as non-conforming: the sweep
+      // without this narrowing re-embeds every row of every swept table, so
+      // one stray vector cost a full-tenant re-embed.
+      const sweep = await this.reindex.run({
+        tenant: companyId,
+        allTables: true,
+        widthMismatchOnly: { dim: before.dimension },
+      });
       const swept = {
         factsScanned: sweep.factsScanned,
         factsUpdated: sweep.factsUpdated,
