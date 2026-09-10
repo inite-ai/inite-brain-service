@@ -69,12 +69,21 @@ function surrealOf(opts: {
   bm25Rows?: ReprRowFixture[];
   denseRows?: ReprRowFixture[];
   failRetrieval?: boolean;
+  /** Install status of the pack row the double holds (0040 default). */
+  packStatus?: string;
 }) {
   const calls: Array<{ sql: string; params: Record<string, unknown> | undefined }> = [];
   const db = {
     query: async (sql: string, params?: Record<string, unknown>) => {
       calls.push({ sql, params });
-      if (sql.includes('FROM domain_pack')) return [opts.consentRows ?? [CONSENT_ROW]];
+      // The consent read is filtered server-side: a row whose status is
+      // not 'active' is simply not returned to an active-only SELECT.
+      if (sql.includes('FROM domain_pack')) {
+        const rows = opts.consentRows ?? [CONSENT_ROW];
+        const activeOnly = sql.includes("status = 'active'");
+        const status = opts.packStatus ?? 'active';
+        return [activeOnly && status !== 'active' ? [] : rows];
+      }
       if (opts.failRetrieval) throw new Error('boom');
       if (sql.includes('vector::similarity')) return [opts.denseRows ?? []];
       if (sql.includes('@1@')) return [opts.bm25Rows ?? []];
@@ -112,6 +121,26 @@ describe('FragmentLaneService — consent gate (0112)', () => {
     expect(out.byId.size).toBe(0);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.sql).toContain('FROM domain_pack');
+  });
+
+  it('an UNINSTALLED pack consents to nothing: no fragment lines, no fuller texts', async () => {
+    // Uninstall keeps the row (status='removed') with its manifest and
+    // accepted-modality checksum, so an unfiltered consent read went on
+    // serving OCR and transcript text under a removed pack's consent.
+    const { surreal, calls } = surrealOf({ packStatus: 'removed', bm25Rows: [row({})] });
+    const lane = new FragmentLaneService(surreal, embedderOk);
+    const out = await lane.fragmentLines(baseOpts);
+    expect(out.lines).toEqual([]);
+    expect(calls).toHaveLength(1);
+    const fuller = await lane.fullerTexts({
+      companyId: baseOpts.companyId,
+      reprIds: ['derived_representation:r1'],
+      maxChars: 600,
+      callerScopes: [],
+    });
+    expect(fuller.size).toBe(0);
+    // Neither read reached derived_representation.
+    expect(calls.filter((c) => c.sql.includes('FROM derived_representation'))).toHaveLength(0);
   });
 
   it('consent STALE (checksum drift) ⇒ EMPTY', async () => {

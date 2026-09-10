@@ -68,7 +68,13 @@ function fixture(opts: { adapters: ProcessorAdapter[]; packRow?: Record<string, 
     query: jest.fn((sql: string, vars?: Record<string, unknown>) => {
       queries.push({ sql, vars });
       if (sql.includes("type::record('evidence_asset'")) return Promise.resolve([[assetRow]]);
-      if (sql.includes('FROM domain_pack')) return Promise.resolve([[packRow]]);
+      // The pack read is filtered server-side: a row whose status is not
+      // 'active' is not returned to an active-only SELECT.
+      if (sql.includes('FROM domain_pack')) {
+        const status = (packRow as { status?: string }).status ?? 'active';
+        const activeOnly = sql.includes("status = 'active'");
+        return Promise.resolve([activeOnly && status !== 'active' ? [] : [packRow]]);
+      }
       if (sql.includes('INSERT IGNORE INTO processing_run')) {
         return Promise.resolve([[{ id: (vars?.row as { id: unknown }).id }]]);
       }
@@ -151,6 +157,26 @@ describe('EvidenceProcessorBrokerService', () => {
         producedByRun: res.runs[0]!.runId,
       }),
     );
+  });
+
+  it('an UNINSTALLED pack authorises no dispatch — it reads as not installed', async () => {
+    // Uninstall keeps the row (status='removed') with its manifest and
+    // accepted-modality checksum, and packId is caller-supplied on
+    // upload — an unfiltered read let a removed pack keep authorising
+    // processor dispatch over raw bytes.
+    const f = fixture({
+      adapters: [stubAdapter()],
+      packRow: {
+        manifest: PACK,
+        acceptedModalities: true,
+        acceptedModalitiesChecksum: CHECKSUM,
+        status: 'removed',
+      },
+    });
+    await expect(
+      f.broker.dispatchForPack('co_x', { packId: 'proc_pack', assetId: 'evidence_asset:a1' }),
+    ).rejects.toThrow(/pack proc_pack is not installed/);
+    expect(f.queries.some((q) => q.sql.includes('INSERT IGNORE INTO processing_run'))).toBe(false);
   });
 
   it('no installed adapter ⇒ denied entry and NO run row', async () => {
