@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Surreal, Table } from 'surrealdb';
+import { LiveSubscriptionError, Surreal, Table } from 'surrealdb';
 import type { LiveSubscription } from 'surrealdb';
 import { envFlagEnabled } from '../common/env-validation';
 import { queryRows, withTimeout } from '../db/surreal.service';
@@ -8,9 +8,14 @@ import { SurrealSessionKeeper } from '../db/session-keeper';
 import { changefeedRow } from '../db/changefeed-row';
 import { makeRowPolicyFilter, type PredicatePolicyLookup } from '../policy/row-filter';
 
-/** One `SHOW CHANGES` batch row: a versionstamp plus its changefeed items. */
+/**
+ * One `SHOW CHANGES` batch row: a versionstamp plus its changefeed items.
+ * On SurrealDB 3.x the versionstamp is a u64 (~1.17e17, past
+ * Number.MAX_SAFE_INTEGER) and the SDK hands it over as a bigint; a unit
+ * stub may still emit a plain number. Both go through BigInt().
+ */
 interface ChangefeedShowRow {
-  versionstamp?: number | string;
+  versionstamp?: number | bigint | string;
   changes?: unknown[];
 }
 
@@ -65,21 +70,37 @@ interface Subscriber {
 interface TenantChannel {
   conn: Surreal;
   sub: LiveSubscription;
+  /** Detaches the LIVE handler and the connection-event listeners. */
   unsubscribe: () => void;
   subscribers: Map<string, Subscriber>;
-  /** Changefeed cursor — everything at or below this has been accounted for. */
-  versionstamp: number;
+  /**
+   * Changefeed cursor — everything at or below this has been accounted for.
+   * bigint end to end: folded through Number() two same-millisecond commits
+   * (16 apart at this magnitude) round to one value, and `vs <= cursor` then
+   * skips or re-delivers them.
+   */
+  versionstamp: bigint;
   /** Fact ids the LIVE path already delivered, so replay doesn't double-send. */
   delivered: Set<string>;
   timer: NodeJS.Timeout | null;
   /** A catch-up tick is running; the interval must not stack another. */
   catchingUp: boolean;
+  /**
+   * The driver failed to restart the LIVE query after a reconnect
+   * (LiveSubscriptionError on the connection) while `sub.isAlive` still says
+   * true — measured on 3.2.4 after an outage longer than its reconnect
+   * budget. The next tick rebuilds.
+   */
+  liveBroken: boolean;
 }
 
 const TABLE = 'knowledge_fact';
-/** Bounds on the two statements a catch-up tick issues on a standing socket. */
+/** Bounds on the statements a catch-up tick issues on a standing socket. */
+const CONNECT_TIMEOUT_MS = 5_000;
 const SIGNIN_TIMEOUT_MS = 3_000;
+const PROBE_TIMEOUT_MS = 3_000;
 const CATCHUP_QUERY_TIMEOUT_MS = 10_000;
+const CLOSE_TIMEOUT_MS = 1_000;
 
 type LiveCredentials =
   | { username: string; password: string }
@@ -108,6 +129,17 @@ type LiveCredentials =
  * `SHOW CHANGES FOR TABLE knowledge_fact SINCE <versionstamp>` and emits
  * anything LIVE did not deliver, deduped by fact id. The changefeed — not the
  * socket — is the source of truth about what happened.
+ *
+ * WHY THE TICK ALSO CHECKS THE CONNECTION. The pools survive a database
+ * restart because every acquire runs `ensureSession` (a bounded `RETURN 1`
+ * probe, then a rebuild). A subscription connection is handed out to nobody,
+ * so the tick is where the same discipline lives: a half-open socket
+ * (surrealdb-js gh#618 — status stays "connected"), a driver whose reconnect
+ * attempts ran out, or a session the driver brought back anonymous all fail
+ * the probe, and the channel is rebuilt on a fresh connection — new signin,
+ * new LIVE query — while the cursor it kept replays whatever the outage hid.
+ * Without that, every tick fails the same way forever and the subscribers
+ * starve silently.
  *
  * WHY THE FENCE IS NOT OPTIONAL. LIVE rows arrive raw: they never pass the
  * per-row `makeRowPolicyFilter` every read surface applies, and the DB-level
@@ -209,11 +241,7 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
     const existing = this.channels.get(companyId);
     if (existing) return existing;
 
-    const conn = new Surreal();
-    await conn.connect(this.url);
-    await this.signin(conn);
-    await conn.use({ namespace: this.namespace, database: dbNameFor(companyId) });
-
+    const conn = await this.openConnection(companyId);
     // Anchor the changefeed cursor BEFORE the LIVE query starts. Anything
     // already committed is the subscriber's problem to read normally; from
     // here on, every change reaches them via LIVE or via replay.
@@ -228,22 +256,65 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
       delivered: new Set(),
       timer: null,
       catchingUp: false,
+      liveBroken: false,
     };
-    channel.unsubscribe = sub.subscribe((msg) => {
+    channel.unsubscribe = this.attach(companyId, channel);
+    channel.timer = setInterval(() => this.tick(companyId), this.catchUpMs);
+    // Never hold the process open for a subscription.
+    channel.timer.unref?.();
+    this.channels.set(companyId, channel);
+    return channel;
+  }
+
+  /** A fresh, signed-in connection switched to the tenant's database. */
+  private async openConnection(companyId: string): Promise<Surreal> {
+    const conn = new Surreal();
+    try {
+      // Bounded: a published port can accept TCP before the server takes
+      // websockets (docker-proxy), where an unbounded connect() hangs.
+      await withTimeout(conn.connect(this.url), CONNECT_TIMEOUT_MS, 'live connect');
+      await this.signin(conn);
+      await conn.use({ namespace: this.namespace, database: dbNameFor(companyId) });
+      return conn;
+    } catch (e) {
+      await withTimeout(conn.close(), CLOSE_TIMEOUT_MS, 'live close').catch(() => undefined);
+      throw e;
+    }
+  }
+
+  /**
+   * Wire the channel's current connection: LIVE messages fan out, and the
+   * driver's own reconnect (or its giving up) runs a tick at once instead of
+   * up to an interval later — the tick decides what state the session and
+   * the standing LIVE query came back in.
+   */
+  private attach(companyId: string, channel: TenantChannel): () => void {
+    const { conn, sub } = channel;
+    const offLive = sub.subscribe((msg) => {
       const event = toFactEvent(msg, 'live');
       if (!event) return;
       channel.delivered.add(event.factId);
       this.fanOut(channel, event);
     });
-    channel.timer = setInterval(() => {
-      void this.catchUp(companyId).catch((e) =>
-        this.logger.warn(`live catch-up failed: ${(e as Error).message}`),
-      );
-    }, this.catchUpMs);
-    // Never hold the process open for a subscription.
-    channel.timer.unref?.();
-    this.channels.set(companyId, channel);
-    return channel;
+    const offConnected = conn.subscribe('connected', () => this.tick(companyId));
+    const offDisconnected = conn.subscribe('disconnected', () => this.tick(companyId));
+    const offError = conn.subscribe('error', (err) => {
+      if (!(err instanceof LiveSubscriptionError)) return;
+      channel.liveBroken = true;
+      this.tick(companyId);
+    });
+    return () => {
+      offLive();
+      offConnected();
+      offDisconnected();
+      offError();
+    };
+  }
+
+  private tick(companyId: string): void {
+    void this.catchUp(companyId).catch((e) =>
+      this.logger.warn(`live catch-up failed for ${companyId}: ${(e as Error).message}`),
+    );
   }
 
   /**
@@ -262,12 +333,7 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
     if (channel.catchingUp) return 0;
     channel.catchingUp = true;
     try {
-      // The catch-up tick is the only thing that touches this connection on
-      // a schedule, so it is where the session gets renewed. The changefeed
-      // makes the renewal safe regardless of what the driver-side invalidate
-      // does to the standing LIVE query: anything LIVE misses in the gap is
-      // replayed from here (test/scoped-session-expiry.e2e-spec.ts).
-      await this.signin(channel.conn);
+      await this.ensureLive(companyId, channel);
       const changes = await withTimeout(
         queryRows<ChangefeedShowRow>(
           channel.conn,
@@ -282,11 +348,76 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
     }
   }
 
+  /**
+   * The connection and the standing LIVE query must both be usable before
+   * the tick reads the changefeed. Same discipline as SurrealService's
+   * `ensureSession`: a session outside the re-auth margin gets a bounded
+   * `RETURN 1` probe, one inside it (or one the driver already dropped) is
+   * re-signed; if either fails, or the driver reports the LIVE query dead,
+   * the channel is rebuilt on a fresh connection and the kept cursor
+   * replays the gap (test/live-db-restart.e2e-spec.ts).
+   */
+  private async ensureLive(companyId: string, channel: TenantChannel): Promise<void> {
+    const { conn, sub } = channel;
+    try {
+      if (conn.isConnected && conn.accessToken && !this.sessions.needsSignin(conn)) {
+        await withTimeout(conn.query('RETURN 1'), PROBE_TIMEOUT_MS, 'live probe');
+      } else {
+        await this.signin(conn);
+      }
+      if (channel.liveBroken) throw new Error('LIVE query failed to restart');
+      if (sub.isAlive) return;
+      throw new Error('LIVE query is no longer alive');
+    } catch (e) {
+      this.logger.warn(
+        `live channel check failed for ${companyId} ` +
+          `(${(e as Error).message?.slice(0, 120)}) — rebuilding`,
+      );
+    }
+    await this.rebuild(companyId, channel);
+  }
+
+  /**
+   * Replace the channel's connection and LIVE query, keeping its subscribers
+   * and its cursor. The replacement is built FIRST; if it cannot be, the old
+   * one stays in place and the tick fails loudly for the interval to retry.
+   */
+  private async rebuild(companyId: string, channel: TenantChannel): Promise<void> {
+    const conn = await this.openConnection(companyId);
+    let sub: LiveSubscription;
+    try {
+      sub = await conn.live<Record<string, unknown>>(new Table(TABLE));
+    } catch (e) {
+      await withTimeout(conn.close(), CLOSE_TIMEOUT_MS, 'live close').catch(() => undefined);
+      throw e;
+    }
+    if (this.channels.get(companyId) !== channel) {
+      // The last subscriber left while the replacement was being built and
+      // closeChannel already tore the old sockets down; this one must not
+      // outlive it.
+      await withTimeout(conn.close(), CLOSE_TIMEOUT_MS, 'live close').catch(() => undefined);
+      throw new Error('channel closed during rebuild');
+    }
+    const old = { conn: channel.conn, unsubscribe: channel.unsubscribe };
+    channel.conn = conn;
+    channel.sub = sub;
+    channel.liveBroken = false;
+    channel.unsubscribe = this.attach(companyId, channel);
+    this.sessions.forget(old.conn);
+    old.unsubscribe();
+    // Closing the socket drops its server-side LIVE query with it; a KILL on
+    // a connection that may be half-open would only hang.
+    await withTimeout(old.conn.close(), CLOSE_TIMEOUT_MS, 'live close').catch(() => undefined);
+    this.logger.log(
+      `live channel for ${companyId} rebuilt; replaying the changefeed from ${channel.versionstamp}`,
+    );
+  }
+
   private replay(channel: TenantChannel, changes: ChangefeedShowRow[]): number {
     let emitted = 0;
     let highest = channel.versionstamp;
     for (const change of changes) {
-      const vs = Number(change.versionstamp ?? 0);
+      const vs = BigInt(change.versionstamp ?? 0);
       if (vs <= channel.versionstamp) continue;
       if (vs > highest) highest = vs;
       for (const item of change.changes ?? []) {
@@ -347,13 +478,8 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
     }
   }
 
-  /**
-   * Sign the subscription connection in, but only when its access token is
-   * close enough to expiry that the driver would otherwise invalidate the
-   * session. A no-op on the overwhelming majority of catch-up ticks.
-   */
+  /** Sign the connection in and record the access token's expiry. */
   private async signin(conn: Surreal): Promise<void> {
-    if (!this.sessions.needsSignin(conn)) return;
     const tokens = await withTimeout(conn.signin(this.creds), SIGNIN_TIMEOUT_MS, 'live signin');
     this.sessions.record(conn, tokens?.access);
   }
@@ -389,15 +515,18 @@ export function dbNameFor(companyId: string): string {
  * Unreadable → 0, which is safe-but-noisy (replays history) rather than
  * silently skipping forward past real changes.
  */
-async function currentVersionstamp(conn: Surreal): Promise<number> {
+async function currentVersionstamp(conn: Surreal): Promise<bigint> {
   try {
     const changes = await queryRows<ChangefeedShowRow>(
       conn,
       `SHOW CHANGES FOR TABLE ${TABLE} SINCE 0 LIMIT 100000`,
     );
-    return changes.reduce((max, c) => Math.max(max, Number(c.versionstamp ?? 0)), 0);
+    return changes.reduce((max, c) => {
+      const vs = BigInt(c.versionstamp ?? 0);
+      return vs > max ? vs : max;
+    }, 0n);
   } catch {
-    return 0;
+    return 0n;
   }
 }
 

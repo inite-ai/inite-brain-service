@@ -11,6 +11,7 @@
  */
 import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
+import { EmbedderService } from '../src/ai/embedder.service';
 
 describe('vector corpus width: gate, census, repair (real SurrealDB)', () => {
   let f: AppFixture;
@@ -102,5 +103,62 @@ describe('vector corpus width: gate, census, repair (real SurrealDB)', () => {
       return new Set((rows as Array<{ w: number }>).map((r) => Number(r.w)));
     });
     expect([...widths]).toEqual([1536]);
+  });
+
+  /**
+   * The repair pays for the rows the census counted, not for the tenant. The
+   * sweep it drives used to `SELECT id, predicate, object FROM knowledge_fact`
+   * with no width filter, so ONE stray vector re-embedded (and rewrote) every
+   * row of every swept table — the cost of a full migration for a one-row
+   * defect, plus a write storm on rows that were already correct.
+   */
+  it('re-embeds only the non-conforming rows, not the whole tenant', async () => {
+    for (const object of ['the intercom buzzes at night', 'bins collected on friday']) {
+      expect([200, 201]).toContain((await ingest(object, 'width_narrow_subject')).status);
+    }
+    const poisoned = 'the stairwell light flickers';
+    expect([200, 201]).toContain((await ingest(poisoned, 'width_narrow_subject')).status);
+
+    const surreal = f.app.get(SurrealService);
+    await surreal.withCompany(f.companyId, async (db) => {
+      await db.query(
+        `UPDATE knowledge_fact SET embedding = $v
+          WHERE predicate = 'complained_about' AND object = $object`,
+        { v: vec(FOREIGN), object: poisoned },
+      );
+    });
+
+    const conforming = await surreal.withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<[Array<{ c: number }>]>(
+        `SELECT count() AS c FROM knowledge_fact
+          WHERE embedding != NONE AND array::len(embedding) = 1536 GROUP ALL`,
+      );
+      return Number((rows as Array<{ c: number }>)[0]?.c ?? 0);
+    });
+    expect(conforming).toBeGreaterThan(1);
+
+    // Count what the repair actually asks the embedder for.
+    const embedder = f.app.get(EmbedderService);
+    const embedded: string[] = [];
+    const many = jest
+      .spyOn(embedder, 'embedManyForWrite')
+      .mockImplementation(async (texts: string[]) => {
+        embedded.push(...texts);
+        return Promise.all(texts.map((t) => embedder.embed(t)));
+      });
+    const one = jest.spyOn(embedder, 'embedForWrite');
+    try {
+      const repair = await f.http.post('/v1/admin/embedding-space/repair').set(auth()).send({});
+      expect(repair.status).toBe(201);
+      expect(repair.body.outcome).toBe('repaired');
+      expect(repair.body.after.nonConforming).toBe(0);
+    } finally {
+      many.mockRestore();
+      one.mockRestore();
+    }
+    // Exactly the poisoned row: `<predicate>: <object>` is the sweep's
+    // projection for knowledge_fact.
+    expect(embedded).toEqual([`complained_about: ${poisoned}`]);
+    expect(one).not.toHaveBeenCalled();
   });
 });
