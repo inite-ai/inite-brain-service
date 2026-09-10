@@ -432,13 +432,19 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       throw new Error(`Invalid companyId: ${companyId}`);
     }
     const database = `co_${companyId}`;
+    // Schema FIRST, then the pool. Provisioning runs on the dedicated
+    // migrator and lease connections and can wait — on this pod's schema
+    // queue, and on another replica finishing the same database — so
+    // holding a pool slot across it starves every other request here for
+    // as long as the wait lasts, which is how one cold tenant used to
+    // exhaust the pool for the whole process.
+    await this.ensureSchema(database);
     let conn = await this.acquireRoot();
     try {
       // ensureSession may hand back a rebuilt connection — always use the
       // returned reference.
       conn = await this.ensureSession(conn, 'root');
       await conn.use({ namespace: this.namespace, database });
-      await this.ensureSchema(conn, database);
       return await fn(conn);
     } finally {
       this.releaseRoot(conn);
@@ -460,11 +466,11 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    */
   async withAdminDb<T>(fn: (db: Surreal) => Promise<T>): Promise<T> {
     const database = ADMIN_DATABASE;
+    await this.ensureSchema(database); // before the pool — see withCompany
     let conn = await this.acquireRoot();
     try {
       conn = await this.ensureSession(conn, 'root');
       await conn.use({ namespace: this.namespace, database });
-      await this.ensureSchema(conn, database);
       return await fn(conn);
     } finally {
       this.releaseRoot(conn);
@@ -517,14 +523,13 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       throw new Error(`Invalid companyId: ${companyId}`);
     }
     const database = `co_${companyId}`;
+    // Before the scoped pool, for the reason spelled out in withCompany:
+    // schema apply never runs on the caller's connection anyway, and a
+    // pool slot held across it blocks every other scoped read.
+    await this.ensureSchema(database);
     const conn = await this.acquireScoped();
     try {
       await conn.use({ namespace: this.namespace, database });
-      // Migrations are idempotent and already serialised through
-      // schemaQueue; running on a scoped connection works because
-      // EDITOR role can DEFINE in v2 against an existing database
-      // it has access to (NS-level USER + DB exists).
-      await this.ensureSchema(conn, database);
       // Bind scopes + policy-deny for this request. The variables live
       // until the next LET on this connection — releasing back to the
       // pool doesn't reset them, but the next withScopedCompany call
@@ -679,14 +684,14 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   }
 
   /**
-   * Apply migrations to the target database. ALWAYS runs on a freshly
-   * acquired root connection — migration 0005 (DEFINE USER brain_caller)
+   * Apply migrations to the target database. ALWAYS runs on the dedicated
+   * migrator connection — migration 0005 (DEFINE USER brain_caller)
    * requires OWNER role and would otherwise fail when reached via the
-   * scoped pool. Other migrations don't strictly need root, but
-   * centralising here means schema apply behaves identically regardless
-   * of which pool the request entered through.
+   * scoped pool, and a pool connection held across a schema apply starves
+   * every concurrent request. Callers therefore await this BEFORE they
+   * acquire a connection of their own; it takes none from either pool.
    */
-  private async ensureSchema(_conn: Surreal, database: string): Promise<void> {
+  private async ensureSchema(database: string): Promise<void> {
     if (this.knownDatabases.has(database)) return;
     const next = this.schemaQueue.then(async () => {
       if (this.knownDatabases.has(database)) return;

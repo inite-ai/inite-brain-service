@@ -76,10 +76,12 @@ const LOCK_TTL_SECONDS = 30;
 
 /**
  * How long a replica that lost the race waits for the holder before it
- * gives up. Comfortably longer than the TTL, so a crashed holder is
- * always taken over rather than waited out forever.
+ * gives up. Longer than the TTL, so a crashed holder is always taken over
+ * rather than waited out forever, and short enough that a stuck lease
+ * cannot hold a caller's pooled connection for minutes. The wait ends
+ * early — and never throws — as soon as the ledger says the work is done.
  */
-const LOCK_WAIT_MS = 120_000;
+const LOCK_WAIT_MS = 60_000;
 
 const SCHEMA_MIGRATIONS_DDL = `
 DEFINE TABLE IF NOT EXISTS schema_migrations SCHEMAFULL;
@@ -110,11 +112,24 @@ export class SchemaMigrator {
   /**
    * Apply all pending migrations against `conn`, holding `opts.lock` for
    * the whole run so replicas booting together apply the manifest once.
+   *
+   * The ledger is read BEFORE the lease is touched. A database whose
+   * manifest is already complete needs no arbitration — that is every
+   * request after the first one for that tenant, and every boot of a
+   * tenant some other replica already migrated — and it must not pay a
+   * cross-replica round trip, let alone wait behind a lease a dead holder
+   * left, while the caller sits on a pooled connection.
    */
   async migrate(conn: Surreal, opts: MigrateOptions = {}): Promise<MigrationResult> {
     const { lock, lockName } = opts;
+    const upToDate = await this.readLedger(conn);
+    if (upToDate.pending.length === 0) return upToDate.result;
     if (!lock || !lockName) return this.applyPending(conn);
-    await this.acquireOrWait(lock, lockName);
+
+    if (!(await this.acquireOrWait(lock, lockName, conn))) {
+      // The holder finished what we were waiting for: nothing left to do.
+      return (await this.readLedger(conn)).result;
+    }
     try {
       return await this.applyPending(conn, lock, lockName);
     } finally {
@@ -123,15 +138,19 @@ export class SchemaMigrator {
   }
 
   /**
-   * Take the lock or wait for whoever holds it. Losing the race is not a
-   * reason to proceed: we wait until the holder releases — or until its
-   * lease expires, which is how a crashed holder is taken over — and only
-   * then read the ledger, so the retry applies exactly what is left.
-   * Transient acquire failures are absorbed inside the same deadline;
-   * reaching the deadline throws, because the alternative is serving
-   * requests against a half-migrated schema.
+   * Take the lock, or wait for whoever holds it.
+   *
+   * Losing the race is not a reason to apply anything: we wait until the
+   * holder releases — or until its lease expires, which is how a crashed
+   * holder is taken over. Returns false when the wait ended because the
+   * work itself is gone (the holder committed the last pending file), so
+   * the caller can proceed without ever owning the lease. Transient
+   * acquire failures are absorbed inside the same deadline, and the
+   * deadline only throws if there is still schema missing — a lease store
+   * we cannot reach must never turn a request against an already-migrated
+   * database into a 500.
    */
-  private async acquireOrWait(lock: MigrationLock, name: string): Promise<void> {
+  private async acquireOrWait(lock: MigrationLock, name: string, conn: Surreal): Promise<boolean> {
     const deadline = Date.now() + this.lockWaitMs;
     let delayMs = 50;
     let lastErr: unknown;
@@ -140,13 +159,19 @@ export class SchemaMigrator {
       try {
         if (await lock.tryAcquire(name, this.lockTtlSeconds)) {
           if (waited) this.logger.log(`Took migration lock ${name} after waiting for the holder`);
-          return;
+          return true;
         }
         lastErr = undefined;
       } catch (err) {
         lastErr = err;
       }
       waited = true;
+      // Whoever holds it may have finished while we backed off, and an
+      // unreachable lease store is only fatal if schema is still missing.
+      if ((await this.readLedger(conn)).pending.length === 0) {
+        this.logger.log(`Migration lock ${name} not needed — the manifest is already complete`);
+        return false;
+      }
       const left = deadline - Date.now();
       if (left <= 0) {
         const why = lastErr
@@ -161,23 +186,44 @@ export class SchemaMigrator {
     }
   }
 
+  /**
+   * Bootstrap the ledger table and read it. Racing replicas abort each
+   * other on the guarded DDL, so the read conflict is retried rather than
+   * surfaced — this runs before any lease is held, by construction.
+   */
+  private async readLedger(
+    conn: Surreal,
+  ): Promise<{ pending: Migration[]; result: MigrationResult }> {
+    const manifest = await this.loadManifest();
+    let attempts = 0;
+    for (;;) {
+      try {
+        await conn.query(SCHEMA_MIGRATIONS_DDL);
+        break;
+      } catch (err) {
+        if (!isReadConflict(enrichTransactionError(err)) || ++attempts >= 5) throw err;
+        await this.sleep(20 * Math.pow(2, attempts - 1));
+      }
+    }
+    const applied = new Set(await this.fetchAppliedIds(conn));
+    const pending = manifest.filter((m) => !applied.has(m.id));
+    return {
+      pending,
+      result: {
+        applied: [],
+        alreadyApplied: pending.length === 0 ? manifest.map((m) => m.id) : [...applied],
+      },
+    };
+  }
+
   private async applyPending(
     conn: Surreal,
     lock?: MigrationLock,
     lockName?: string,
   ): Promise<MigrationResult> {
-    await conn.query(SCHEMA_MIGRATIONS_DDL);
-
-    const manifest = await this.loadManifest();
-    const applied = new Set(await this.fetchAppliedIds(conn));
-
-    const pending = manifest.filter((m) => !applied.has(m.id));
-    if (pending.length === 0) {
-      return {
-        applied: [],
-        alreadyApplied: manifest.map((m) => m.id),
-      };
-    }
+    const { pending, result } = await this.readLedger(conn);
+    if (pending.length === 0) return result;
+    const applied = result.alreadyApplied;
 
     let renewAt = Date.now() + (this.lockTtlSeconds * 1000) / 2;
     for (const m of pending) {
@@ -195,7 +241,7 @@ export class SchemaMigrator {
 
     return {
       applied: pending.map((m) => m.id),
-      alreadyApplied: [...applied],
+      alreadyApplied: applied,
     };
   }
 
