@@ -4,9 +4,9 @@ Brain ships a Streamable HTTP MCP endpoint at `/mcp/:companyId`. Each tenant has
 
 ## What you need
 
-1. A brain **API key** (format `brain_<base64>`). On the hosted service keys are issued operator-side — ask for one at `mike@inite.ai`; self-serve creation in the app is not shipped yet. Self-hosting? Mint your own into `BRAIN_API_KEYS` — see [getting started](/en/docs/getting-started).
-2. The **companyId** the key was issued for — it comes with the key.
-3. The **MCP URL**: `https://brain.inite.ai/mcp/<companyId>`.
+1. A brain **API key** (format `brain_<hex>`). Issue one on the [keys screen](/en/app/keys) — it is shown once and stored only as a hash — or over the API with `POST /v1/keys` using a credential you already hold. Self-hosting? The first key comes from `BRAIN_API_KEYS`; every key after it can be issued through the same endpoint ([getting started](/en/docs/getting-started)).
+2. The **companyId** the key was issued for — the keys screen shows it, and so does every issuing response.
+3. The **MCP URL**: `https://brain.inite.ai/mcp/<companyId>` — also returned as `mcpUrl` when a key is issued.
 
 Brain refuses anonymous MCP traffic. There is no shared-secret mode.
 

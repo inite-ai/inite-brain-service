@@ -177,18 +177,22 @@ Full authoring, signing and installation commands:
 
 ### Use the hosted service
 
-Hosted brain is provisioned per company: a tenant (`companyId`) and a
-scoped API key. **Key issuance is operator-side today** — self-serve
-creation in the web app is not shipped yet, so ask for one at
-`mike@inite.ai` or through a GitHub issue. The
-[keys screen](https://brain.inite.ai/en/app/keys) shows the connection
-recipes for the key you were given. Everything below also runs against a
-local instance, which needs nobody's approval.
+Hosted brain is provisioned per company: a tenant (`companyId`) and
+scoped API keys. Sign in and issue one on the
+[keys screen](https://brain.inite.ai/en/app/keys) — it shows the key
+once, alongside ready-to-paste configuration for Claude Code, Claude
+Desktop, Cursor, VS Code, Codex CLI and Goose. If your workspace has not
+been provisioned yet, ask at `info@inite.ai`.
 
 ```bash
 export BRAIN_URL="https://brain.inite.ai"
 export BRAIN_KEY="brain_YOUR_API_KEY"
 ```
+
+Keys can also be issued over the API by any credential you already hold —
+`POST /v1/keys` mints one no wider than the caller's own scopes, and
+`POST /v1/keys/{id}/revoke` takes it back. The same endpoints work on a
+self-hosted deployment, so the env-var key below is only ever a bootstrap.
 
 ### Run locally
 
