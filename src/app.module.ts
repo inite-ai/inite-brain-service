@@ -5,6 +5,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD } from '@nestjs/core';
 import { CommonModule } from './common/common.module';
 import { HealthController } from './common/health.controller';
+import { GracefulShutdownService } from './common/graceful-shutdown.service';
 import { TenantThrottlerGuard } from './common/tenant-throttler.guard';
 import { SurrealThrottlerStorage } from './common/surreal-throttler.storage';
 import { SurrealModule } from './db/surreal.module';
@@ -120,6 +121,10 @@ import { MriModule } from './mri/mri.module';
       provide: APP_GUARD,
       useClass: TenantThrottlerGuard,
     },
+    // On the root module on purpose: Nest calls each shutdown phase
+    // root-module-first, so the readiness flip and drain precede every
+    // feature module's own hook.
+    GracefulShutdownService,
   ],
 })
 export class AppModule {}

@@ -697,9 +697,10 @@ jobs:
               # pool / native deps and forwards signals so SIGTERM reaches
               # Node cleanly.
               init: true
-              # The app's graceful shutdown drains in-flight work for up to
-              # 15s (main.ts); Docker's default 10s SIGKILLs mid-drain, so
-              # give it headroom past that budget.
+              # The app's shutdown budget (GracefulShutdownService): 6s
+              # readiness drain (/health answers 503, so traefik pulls this
+              # replica), then up to 12s for in-flight jobs, then a 25s hard
+              # stop. Docker's default 10s SIGKILLs mid-drain.
               stop_grace_period: 30s
               expose:
                 - "${PORT}"

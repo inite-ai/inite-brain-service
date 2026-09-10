@@ -94,6 +94,8 @@ export interface ReadinessReport extends ReadinessChecks {
  */
 @Injectable()
 export class HealthService {
+  private shuttingDown = false;
+
   constructor(
     private readonly surreal: SurrealService,
     private readonly embedder: EmbedderService,
@@ -104,6 +106,22 @@ export class HealthService {
     @Inject(EVIDENCE_STORAGE_ADAPTERS)
     private readonly storage?: EvidenceStorageRegistry,
   ) {}
+
+  /**
+   * Called the moment shutdown begins: from here `/health` and `/ready`
+   * both answer 503 so the balancer drains this replica within one
+   * health-check interval while it still serves in-flight requests.
+   * Traefik health-checks `/health` (deploy-brain.yml), which is why
+   * liveness has to say it too. One-way — a shutting-down process never
+   * becomes ready again.
+   */
+  markShuttingDown(): void {
+    this.shuttingDown = true;
+  }
+
+  isShuttingDown(): boolean {
+    return this.shuttingDown;
+  }
 
   /** Liveness — is the DB connection reachable right now. */
   async liveness(): Promise<LivenessReport> {
@@ -139,7 +157,8 @@ export class HealthService {
       scopedOk,
       embedderReady,
       evidenceStoreOk,
-      ready: dbOk && scopedOk && embedderReady && evidenceStoreOk,
+      // A shutting-down replica is not ready however green its checks are.
+      ready: !this.shuttingDown && dbOk && scopedOk && embedderReady && evidenceStoreOk,
       detail: { dbLatencyMs, scopedEnabled, scopedLatencyMs, embedder, evidenceStore },
     };
   }

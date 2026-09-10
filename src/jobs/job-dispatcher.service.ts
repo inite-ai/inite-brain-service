@@ -102,6 +102,7 @@ export class JobDispatcherService {
         const r = await this.claim.renew({
           companyId: claim.companyId,
           recordId: claim.recordId,
+          claimEpoch: claim.claimEpoch,
           ttlSeconds: reg.ttlSeconds,
         });
         if (!r.stillOwned) {
@@ -141,6 +142,7 @@ export class JobDispatcherService {
         await this.claim.cancelled({
           companyId: claim.companyId,
           recordId: claim.recordId,
+          claimEpoch: claim.claimEpoch,
           result: (result as Record<string, unknown>) ?? undefined,
         });
       } else if (lostClaim) {
@@ -162,6 +164,7 @@ export class JobDispatcherService {
         await this.claim.cancelled({
           companyId: claim.companyId,
           recordId: claim.recordId,
+          claimEpoch: claim.claimEpoch,
           result: { reason: 'cancel_requested', message: e.message },
         });
       } else if (lostClaim) {
@@ -175,6 +178,7 @@ export class JobDispatcherService {
         await this.claim.fail({
           companyId: claim.companyId,
           recordId: claim.recordId,
+          claimEpoch: claim.claimEpoch,
           attempts: claim.attempts,
           error: { message: e.message, name: e.name },
           requeue: true,
@@ -210,6 +214,7 @@ export class JobDispatcherService {
       await this.claim.fail({
         companyId: claim.companyId,
         recordId: claim.recordId,
+        claimEpoch: claim.claimEpoch,
         attempts: claim.attempts,
         error: { message, name: 'BatchFailed' },
         requeue: true,
@@ -222,6 +227,7 @@ export class JobDispatcherService {
     await this.claim.complete({
       companyId: claim.companyId,
       recordId: claim.recordId,
+      claimEpoch: claim.claimEpoch,
       result: (result as Record<string, unknown>) ?? undefined,
     });
     return 'succeeded';

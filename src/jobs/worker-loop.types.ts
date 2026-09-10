@@ -39,7 +39,12 @@ export interface RegisteredHandler {
 
 /** Leader/lifecycle control surface the poller reads on each cycle. */
 export interface PollControl {
+  /** Cached leadership — refreshed by the renew tick and by confirmLeader(). */
   isLeader: () => boolean;
+  /** Point-read the lease before taking a claim; false means end the loop. */
+  confirmLeader: () => Promise<boolean>;
+  /** Fencing epoch of the worker_loop lease, stamped on every claim. */
+  epoch: () => number | null;
   signal: AbortSignal;
   /**
    * Observability hook: invoked with the number of in-flight dispatches

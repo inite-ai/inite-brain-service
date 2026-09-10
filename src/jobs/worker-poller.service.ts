@@ -68,6 +68,8 @@ export class WorkerPollerService {
   private readonly inFlightByTenant = new Map<string, number>();
   /** In-flight dispatches across all runLoops in this process (global cap). */
   private globalInFlight = 0;
+  /** Claims dispatched by this process that have not reached their terminal write. */
+  private readonly active = new Set<JobClaim>();
 
   constructor(
     private readonly dispatcher: JobDispatcherService,
@@ -97,6 +99,29 @@ export class WorkerPollerService {
     this.decayTimer = null;
   }
 
+  /** Claims this process is still running a handler for. */
+  activeClaims(): JobClaim[] {
+    return [...this.active];
+  }
+
+  /**
+   * Hand every still-running claim back to the queue — the shutdown drain
+   * ran out before their handlers stopped. Returns how many rows were ours.
+   */
+  async releaseActiveClaims(reason: string): Promise<number> {
+    let released = 0;
+    for (const c of this.activeClaims()) {
+      const ok = await this.claim?.release({
+        companyId: c.companyId,
+        recordId: c.recordId,
+        claimEpoch: c.claimEpoch,
+        reason,
+      });
+      if (ok) released += 1;
+    }
+    return released;
+  }
+
   /**
    * Per-jobType polling loop. Runs while the pod holds the lease (per
    * control.isLeader). On empty queue across all tenants, backs off.
@@ -117,11 +142,11 @@ export class WorkerPollerService {
   private async runLoopSerial(reg: RegisteredHandler, control: PollControl): Promise<void> {
     this.logger.log(`Poll loop started for jobType=${reg.jobType}`);
     while (!control.signal.aborted) {
-      if (!control.isLeader()) {
-        // Lost leadership mid-loop; sleep until renew tick reinstates us.
-        await sleep(this.pollIntervalMs, control.signal);
-        continue;
-      }
+      // The cached flag is refreshed every renew tick; the point read
+      // catches a lease lost in between, before this cycle claims
+      // alongside the new leader. Either way the loop ends here —
+      // WorkerLoopService starts a fresh one once it is leader again.
+      if (!control.isLeader() || !(await control.confirmLeader())) break;
       let claimed: JobClaim | null = null;
       try {
         const tenants = this.sampleByFairness(reg.jobType, this.apiKeys?.fanOutRoster() ?? []);
@@ -131,6 +156,7 @@ export class WorkerPollerService {
             companyId,
             jobType: reg.jobType,
             ttlSeconds: reg.ttlSeconds,
+            epoch: control.epoch(),
           });
           if (claimed) {
             this.recordClaim(reg.jobType, companyId);
@@ -141,9 +167,14 @@ export class WorkerPollerService {
         this.logger.warn(`claim cycle (${reg.jobType}) failed: ${(e as Error).message}`);
       }
       if (claimed) {
-        await withSpan('jobs.dispatch', () =>
-          this.dispatcher.dispatch(claimed!, reg, control.signal),
-        );
+        this.active.add(claimed);
+        try {
+          await withSpan('jobs.dispatch', () =>
+            this.dispatcher.dispatch(claimed!, reg, control.signal),
+          );
+        } finally {
+          this.active.delete(claimed);
+        }
       } else {
         await sleep(this.emptyPollBackoffMs, control.signal);
       }
@@ -173,11 +204,8 @@ export class WorkerPollerService {
     );
     const inFlight = new Set<Promise<void>>();
     while (!control.signal.aborted) {
-      if (!control.isLeader()) {
-        // Lost leadership mid-loop; sleep until renew tick reinstates us.
-        await sleep(this.pollIntervalMs, control.signal);
-        continue;
-      }
+      // Same leadership contract as the serial loop: confirm, or end.
+      if (!control.isLeader() || !(await control.confirmLeader())) break;
       if (this.saturated(inFlight.size, limits)) {
         // All slots busy — wake on the first finished dispatch or the
         // poll tick (the tick matters for the global cap: a slot may
@@ -240,6 +268,7 @@ export class WorkerPollerService {
           companyId,
           jobType: reg.jobType,
           ttlSeconds: reg.ttlSeconds,
+          epoch: control.epoch(),
         });
         if (claimed) {
           this.recordClaim(reg.jobType, companyId);
@@ -268,12 +297,14 @@ export class WorkerPollerService {
     const { claimed, reg, control, inFlight } = args;
     const tenantKey = `${reg.jobType}::${claimed.companyId}`;
     this.inFlightByTenant.set(tenantKey, (this.inFlightByTenant.get(tenantKey) ?? 0) + 1);
+    this.active.add(claimed);
     const p: Promise<void> = withSpan('jobs.dispatch', () =>
       this.dispatcher.dispatch(claimed, reg, control.signal),
     )
       .catch(() => undefined)
       .finally(() => {
         inFlight.delete(p);
+        this.active.delete(claimed);
         const n = (this.inFlightByTenant.get(tenantKey) ?? 1) - 1;
         if (n <= 0) this.inFlightByTenant.delete(tenantKey);
         else this.inFlightByTenant.set(tenantKey, n);

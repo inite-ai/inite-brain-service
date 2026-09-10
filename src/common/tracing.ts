@@ -71,16 +71,15 @@ export function initTracing(): void {
     ],
   });
   sdk.start();
-
-  process.on('SIGTERM', () => {
-    void shutdownTracing();
-  });
 }
 
 /**
- * Flush + shut down the OTel SDK. Called from the app's graceful
- * shutdown (main.ts onTerm) so spans are exported before exit, and from
- * the SIGTERM listener above. Idempotent no-op when tracing is disabled.
+ * Flush + shut down the OTel SDK. Called from GracefulShutdownService's
+ * onApplicationShutdown so spans are exported before exit. No signal
+ * listener of its own: Nest re-raises the signal after its lifecycle, and
+ * a listener still registered at that point swallows the default exit and
+ * hangs the pod until the hard-stop deadline. Idempotent no-op when
+ * tracing is disabled.
  */
 export async function shutdownTracing(): Promise<void> {
   const s = sdk;

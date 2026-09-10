@@ -1,16 +1,15 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { context, propagation } from '@opentelemetry/api';
 import {
   SurrealService,
-  runTransaction,
   retryOnUniqueViolation,
   isUniqueViolation,
   queryRows,
   queryFirst,
 } from '../db/surreal.service';
 import { withSpan } from '../common/tracing';
+import { PROCESS_IDENTITY } from '../common/process-identity';
 import type { JobType, JobStatus } from './job-run.service';
 
 /** SurrealDB returns datetimes as a Date on 3.x and an ISO string via JSON. */
@@ -45,6 +44,12 @@ export interface JobClaim {
   /** Lease deadline. Handler MUST renew before this passes. */
   leaseUntil: string;
   /**
+   * Epoch of the worker_loop lease the claim was taken under (null when
+   * no lease was involved). Every later write on the claim is fenced on
+   * the row still carrying it.
+   */
+  claimEpoch: number | null;
+  /**
    * W3C traceparent injected at enqueue time by the producer's span
    * context. Used by WorkerLoopService.dispatch to link the consumer
    * span as a child of the producer, so trace viewers stitch the
@@ -62,9 +67,10 @@ export interface JobClaim {
  *   complete / fail → terminal state, optional requeue with backoff.
  *   reapZombies → recycle rows whose lease lapsed (worker crashed).
  *
- * The actor identity (claimedBy) is `hostname#pid` — same convention
- * as LeaderLeaseService so an operator can correlate which pod
- * holds which claim against `/admin/leases`.
+ * The actor identity (claimedBy) is PROCESS_IDENTITY — the same string
+ * LeaderLeaseService presents, so an operator can correlate which pod
+ * holds which claim against `/admin/leases`, and unique per process, so
+ * the `claimedBy = $me` guard on every write names exactly one claimer.
  *
  * Per-tenant placement: the `job_run` table lives in each tenant's
  * `co_<companyId>` database (migration 0025). All methods take a
@@ -79,11 +85,9 @@ export interface JobClaim {
 @Injectable()
 export class JobClaimService {
   private readonly logger = new Logger(JobClaimService.name);
-  private readonly workerId: string;
+  private readonly workerId: string = PROCESS_IDENTITY;
 
-  constructor(@Optional() private readonly surreal?: SurrealService) {
-    this.workerId = `${hostname()}#${process.pid}`;
-  }
+  constructor(@Optional() private readonly surreal?: SurrealService) {}
 
   identity(): string {
     return this.workerId;
@@ -108,7 +112,6 @@ export class JobClaimService {
       return { runId: randomUUID(), created: true };
     }
     const runId = randomUUID();
-    const visibleAfterIso = (input.visibleAfter ?? new Date()).toISOString();
     // Capture the active W3C trace context (if any) so the consumer
     // span can attach as a child. Empty carrier outside an active
     // span — that's fine, the field stays unset and the consumer
@@ -129,14 +132,22 @@ export class JobClaimService {
       `startedAt: time::now()`,
       `cancelRequested: false`,
       `attempts: 0`,
-      `visibleAfter: type::datetime($visibleAfter)`,
     ];
     const params: Record<string, unknown> = {
       runId,
       jobType: input.jobType,
       triggeredBy: input.triggeredBy,
-      visibleAfter: visibleAfterIso,
     };
+    // An unscheduled job takes visibleAfter from the schema DEFAULT
+    // (time::now(), migration 0028) rather than this process's clock: the
+    // claim filter is `visibleAfter <= time::now()`, so a row stamped from
+    // a clock running ahead of the datastore's is unclaimable until the
+    // difference elapses. Only a deliberately delayed job carries a
+    // caller-supplied instant.
+    if (input.visibleAfter !== undefined) {
+      fields.push(`visibleAfter: type::datetime($visibleAfter)`);
+      params.visibleAfter = input.visibleAfter.toISOString();
+    }
     if (input.triggeredByActor !== undefined) {
       fields.push(`triggeredByActor: $actor`);
       params.actor = input.triggeredByActor;
@@ -191,66 +202,71 @@ export class JobClaimService {
   }
 
   /**
-   * Find the oldest pending row for a (companyId, jobType) and CAS it
-   * to running. Returns null when nothing is claimable (queue empty,
-   * scheduled-future, or another pod grabbed it first).
+   * Claim the oldest visible pending row for a (companyId, jobType): pick
+   * the candidate with an index-backed read (job_run_claim_idx) outside
+   * any transaction, then compare-and-set that ONE record pending→running.
+   * A lost CAS (0 rows — another claimer got there first) moves on to the
+   * next candidate, up to three per call. The previous shape ran the
+   * SELECT and the UPDATE inside one transaction, which put the whole
+   * table in the SSI read-set: two claimers aborted each other instead of
+   * one of them winning. Returns null when nothing is claimable. `epoch`
+   * is the worker_loop lease epoch the caller holds — stamped on the row,
+   * it fences every later write on the claim.
    */
   async claimNext(input: {
     companyId: string;
     jobType: JobType;
     ttlSeconds: number;
+    epoch?: number | null;
   }): Promise<JobClaim | null> {
     if (!this.surreal) return null;
+    const claimEpoch = input.epoch ?? null;
     try {
       // JS-computed deadline + type::datetime: parses on SurrealDB 2.x
       // and 3.x alike, unlike the duration::from_* function path (see
-      // LeaderLeaseService.tryAcquire).
+      // LeaderLeaseService.acquire).
       const until = new Date(Date.now() + input.ttlSeconds * 1000).toISOString();
       return await retryOnUniqueViolation(() =>
         this.surreal!.withCompany(input.companyId, async (db) => {
-          const claimed = await runTransaction<unknown>(db, (tx) => {
-            tx.bind('jobType', input.jobType)
-              .bind('me', this.workerId)
-              .bind('until', until)
-              .add(
-                `LET $row = (SELECT * FROM job_run
-                              WHERE jobType = $jobType
-                                AND status = 'pending'
-                                AND visibleAfter <= time::now()
-                              ORDER BY visibleAfter ASC
-                              LIMIT 1)[0]`,
-              )
-              .add(
-                `IF $row IS NONE { RETURN NONE }
-                 ELSE {
-                   LET $updated = (UPDATE $row.id
-                       SET status = 'running',
-                           claimedBy = $me,
-                           claimedAt = time::now(),
-                           leaseUntil = type::datetime($until),
-                           heartbeatAt = time::now(),
-                           attempts = ($row.attempts OR 0) + 1
-                     WHERE status = 'pending'
-                     RETURN AFTER)[0];
-                   RETURN $updated;
-                 }`,
-              );
-          });
-          if (!claimed || typeof claimed !== 'object') return null;
-          const row = claimed as Record<string, unknown>;
-          const recordId = String(row.id ?? '');
-          const runId = String(row.runId ?? '');
-          if (!recordId || !runId) return null;
-          return {
-            recordId,
-            runId,
-            jobType: row.jobType as JobType,
-            companyId: input.companyId,
-            attempts: Number(row.attempts ?? 1),
-            payload: (row.payload as Record<string, unknown> | null) ?? null,
-            leaseUntil: new Date(row.leaseUntil as string).toISOString(),
-            traceparent: typeof row.traceparent === 'string' ? row.traceparent : undefined,
-          } satisfies JobClaim;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const candidate = await queryFirst<{ id: unknown }>(
+              db,
+              // visibleAfter is PROJECTED, not just ordered on: SurrealDB 3.x
+              // rejects an ORDER BY over an idiom missing from the selection
+              // ("Missing order idiom `visibleAfter` in statement selection").
+              `SELECT id, visibleAfter FROM job_run
+                 WHERE status = 'pending'
+                   AND visibleAfter <= time::now()
+                   AND jobType = $jobType
+                 ORDER BY visibleAfter ASC
+                 LIMIT 1`,
+              { jobType: input.jobType },
+            );
+            const rid = candidate ? String(candidate.id ?? '') : '';
+            if (!rid) return null;
+            const rows = await queryRows<Record<string, unknown>>(
+              db,
+              `UPDATE type::record($rid) SET
+                  status = 'running',
+                  claimedBy = $me,
+                  claimedAt = time::now(),
+                  leaseUntil = type::datetime($until),
+                  heartbeatAt = time::now(),
+                  attempts = (attempts OR 0) + 1,
+                  claimEpoch = ${claimEpoch === null ? 'NONE' : '$epoch'}
+                WHERE status = 'pending' AND visibleAfter <= time::now()
+                RETURN AFTER`,
+              {
+                rid,
+                me: this.workerId,
+                until,
+                ...(claimEpoch === null ? {} : { epoch: claimEpoch }),
+              },
+            );
+            const row = rows[0];
+            if (row) return this.toClaim(row, input.companyId, claimEpoch);
+          }
+          return null;
         }),
       );
     } catch (e) {
@@ -269,22 +285,24 @@ export class JobClaimService {
   async renew(input: {
     companyId: string;
     recordId: string;
+    claimEpoch: number | null;
     ttlSeconds: number;
   }): Promise<{ stillOwned: boolean; cancelRequested: boolean }> {
     if (!this.surreal) return { stillOwned: true, cancelRequested: false };
     try {
+      const guard = this.ownerGuard(input.claimEpoch);
       return await this.surreal.withCompany(input.companyId, async (db) => {
         const rows = await queryRows<{ cancelRequested?: boolean }>(
           db,
           `UPDATE type::record($rid) SET
               leaseUntil = type::datetime($until),
               heartbeatAt = time::now()
-            WHERE claimedBy = $me AND status = 'running'
+            WHERE ${guard.where}
             RETURN cancelRequested`,
           {
             rid: input.recordId,
-            me: this.workerId,
             until: new Date(Date.now() + input.ttlSeconds * 1000).toISOString(),
+            ...guard.params,
           },
         );
         if (rows.length === 0) {
@@ -322,10 +340,12 @@ export class JobClaimService {
   async complete(input: {
     companyId: string;
     recordId: string;
+    claimEpoch: number | null;
     result?: Record<string, unknown>;
   }): Promise<void> {
     if (!this.surreal) return;
     try {
+      const guard = this.ownerGuard(input.claimEpoch);
       await this.surreal.withCompany(input.companyId, async (db) => {
         const rows = await queryRows<IdRow>(
           db,
@@ -340,13 +360,13 @@ export class JobClaimService {
               status = 'succeeded',
               finishedAt = time::now(),
               result = $result,
-              claimedBy = NONE, leaseUntil = NONE
-            WHERE claimedBy = $me AND status = 'running'
+              claimedBy = NONE, leaseUntil = NONE, claimEpoch = NONE
+            WHERE ${guard.where}
             RETURN id`,
           {
             rid: input.recordId,
-            me: this.workerId,
             result: input.result ?? null,
+            ...guard.params,
           },
         );
         if (rows.length === 0) {
@@ -369,6 +389,7 @@ export class JobClaimService {
   async fail(input: {
     companyId: string;
     recordId: string;
+    claimEpoch: number | null;
     attempts: number;
     error: { message: string; name?: string };
     requeue?: boolean;
@@ -384,6 +405,7 @@ export class JobClaimService {
       // Ownership guard on both arms: a zombie-reaped, re-claimed row
       // must not be requeued or terminal-failed out from under the new
       // owner. 0 rows affected ⇒ claim lost; report requeued: false.
+      const guard = this.ownerGuard(input.claimEpoch);
       const affected = await this.surreal.withCompany(input.companyId, async (db) => {
         if (willRequeue) {
           const baseMs = input.backoffBaseMs ?? 30_000;
@@ -398,15 +420,15 @@ export class JobClaimService {
             `UPDATE type::record($rid) SET
                   status = 'pending',
                   error = $err,
-                  claimedBy = NONE, leaseUntil = NONE,
+                  claimedBy = NONE, leaseUntil = NONE, claimEpoch = NONE,
                   visibleAfter = type::datetime($visibleAfter)
-                WHERE claimedBy = $me AND status = 'running'
+                WHERE ${guard.where}
                 RETURN id`,
             {
               rid: input.recordId,
-              me: this.workerId,
               err: input.error,
               visibleAfter,
+              ...guard.params,
             },
           );
           return rows.length;
@@ -418,14 +440,14 @@ export class JobClaimService {
                 finishedAt = time::now(),
                 error = $err,
                 result = $result,
-                claimedBy = NONE, leaseUntil = NONE
-              WHERE claimedBy = $me AND status = 'running'
+                claimedBy = NONE, leaseUntil = NONE, claimEpoch = NONE
+              WHERE ${guard.where}
               RETURN id`,
           {
             rid: input.recordId,
-            me: this.workerId,
             err: input.error,
             result: input.result ?? null,
+            ...guard.params,
           },
         );
         return rows.length;
@@ -451,10 +473,12 @@ export class JobClaimService {
   async cancelled(input: {
     companyId: string;
     recordId: string;
+    claimEpoch: number | null;
     result?: Record<string, unknown>;
   }): Promise<void> {
     if (!this.surreal) return;
     try {
+      const guard = this.ownerGuard(input.claimEpoch);
       await this.surreal.withCompany(input.companyId, async (db) => {
         const rows = await queryRows<IdRow>(
           db,
@@ -463,10 +487,10 @@ export class JobClaimService {
               status = 'cancelled',
               finishedAt = time::now(),
               result = $result,
-              claimedBy = NONE, leaseUntil = NONE
-            WHERE claimedBy = $me AND status = 'running'
+              claimedBy = NONE, leaseUntil = NONE, claimEpoch = NONE
+            WHERE ${guard.where}
             RETURN id`,
-          { rid: input.recordId, me: this.workerId, result: input.result ?? null },
+          { rid: input.recordId, result: input.result ?? null, ...guard.params },
         );
         if (rows.length === 0) {
           this.logger.warn(
@@ -477,6 +501,93 @@ export class JobClaimService {
     } catch (e) {
       this.logger.warn(`cancelled(${input.recordId}) failed: ${(e as Error).message}`);
     }
+  }
+
+  /**
+   * Hand a running claim back to the queue at once, without the failure
+   * backoff: the pod is shutting down and the handler did not stop inside
+   * the drain budget. attempts stays as claimed (a restart mid-job counts,
+   * as it does for the reaper's ZombieReclaim). True iff the row was ours.
+   */
+  async release(input: {
+    companyId: string;
+    recordId: string;
+    claimEpoch: number | null;
+    reason: string;
+  }): Promise<boolean> {
+    if (!this.surreal) return false;
+    try {
+      const guard = this.ownerGuard(input.claimEpoch);
+      const rows = await this.surreal.withCompany(input.companyId, (db) =>
+        queryRows<IdRow>(
+          db,
+          `UPDATE type::record($rid) SET
+              status = 'pending',
+              error = $err,
+              claimedBy = NONE, leaseUntil = NONE, claimEpoch = NONE,
+              visibleAfter = time::now()
+            WHERE ${guard.where}
+            RETURN id`,
+          {
+            rid: input.recordId,
+            err: { name: 'PodShutdown', message: input.reason },
+            ...guard.params,
+          },
+        ),
+      );
+      if (rows.length === 0) {
+        this.logger.warn(
+          `release(${input.recordId}) no-op — claim no longer owned by ${this.workerId}`,
+        );
+      }
+      return rows.length > 0;
+    } catch (e) {
+      this.logger.warn(`release(${input.recordId}) failed: ${(e as Error).message}`);
+      return false;
+    }
+  }
+
+  /**
+   * WHERE clause naming a claim exactly: our identity, still running, and
+   * the epoch it was taken under. A row claimed again — by another pod, or
+   * by this pod in a later epoch — matches zero rows, so a stale writer
+   * cannot touch it.
+   */
+  private ownerGuard(claimEpoch: number | null): {
+    where: string;
+    params: Record<string, unknown>;
+  } {
+    return claimEpoch === null
+      ? {
+          where: `claimedBy = $me AND status = 'running' AND claimEpoch IS NONE`,
+          params: { me: this.workerId },
+        }
+      : {
+          where: `claimedBy = $me AND status = 'running' AND claimEpoch = $epoch`,
+          params: { me: this.workerId, epoch: claimEpoch },
+        };
+  }
+
+  /** Shape one claimed `RETURN AFTER` row into a JobClaim. */
+  private toClaim(
+    row: Record<string, unknown>,
+    companyId: string,
+    claimEpoch: number | null,
+  ): JobClaim | null {
+    const recordId = String(row.id ?? '');
+    const runId = String(row.runId ?? '');
+    if (!recordId || !runId) return null;
+    return {
+      recordId,
+      runId,
+      jobType: row.jobType as JobType,
+      companyId,
+      attempts: Number(row.attempts ?? 1),
+      payload: (row.payload as Record<string, unknown> | null) ?? null,
+      leaseUntil: new Date(row.leaseUntil as string).toISOString(),
+      claimEpoch,
+      traceparent: typeof row.traceparent === 'string' ? row.traceparent : undefined,
+    } satisfies JobClaim;
   }
 
   /**

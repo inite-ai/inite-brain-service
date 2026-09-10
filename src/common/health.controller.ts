@@ -27,6 +27,19 @@ export class HealthController {
   @Get('health')
   async health() {
     const { dbOk } = await this.healthService.liveness();
+    if (this.healthService.isShuttingDown()) {
+      // The balancer health-checks THIS path (traefik loadbalancer
+      // healthcheck.path=/health, deliberately not /ready), so a leaving
+      // replica has to fail it: answering 200 until the socket closes
+      // costs a whole check interval of 502s.
+      throw new ServiceUnavailableException({
+        status: 'shutting_down',
+        service: 'inite-brain-service',
+        version: SERVICE_VERSION,
+        timestamp: new Date().toISOString(),
+        checks: { surrealdb: dbOk ? 'ok' : 'unreachable' },
+      });
+    }
     return {
       status: dbOk ? 'ok' : 'degraded',
       service: 'inite-brain-service',
@@ -53,6 +66,9 @@ export class HealthController {
       const store = detail.evidenceStore;
       throw new ServiceUnavailableException({
         ready: false,
+        // Set from the first shutdown hook on: the checks may all be fine,
+        // the replica is simply leaving the pool.
+        shuttingDown: this.healthService.isShuttingDown(),
         checks: {
           surrealdb: dbOk ? 'ok' : 'unreachable',
           // Distinct from `surrealdb`: the socket can be perfectly healthy

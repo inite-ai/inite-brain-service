@@ -2,6 +2,8 @@ import { hostname } from 'node:os';
 import type { Request, Response } from 'express';
 import { PROCESS_IDENTITY } from '../src/common/process-identity';
 import { requestLogger } from '../src/common/request-logger';
+import { LeaderLeaseService } from '../src/jobs/leader-lease.service';
+import { JobClaimService } from '../src/jobs/job-claim.service';
 
 /**
  * One identity across metrics, logs and traces. Correlating a metric spike
@@ -12,6 +14,32 @@ import { requestLogger } from '../src/common/request-logger';
 describe('per-replica identity', () => {
   it('starts from the OS hostname, which Docker sets to the container id', () => {
     expect(PROCESS_IDENTITY.startsWith(`${hostname()}#${process.pid}#`)).toBe(true);
+  });
+
+  /**
+   * `hostname#pid` alone is not unique by construction: a restart of the
+   * same container (prod pins `container_name` + `restart: unless-stopped`,
+   * and `init: true` makes the app's pid deterministic) reproduces both
+   * halves exactly, and an orchestrator pinning hostnames repeats the pair
+   * across replicas — where the lease's own `leaderId = $me` branch would
+   * then grant it twice. The uuid is what names exactly one live process.
+   */
+  it('two processes with the same hostname and pid still present distinct identities', async () => {
+    const identities: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      await jest.isolateModulesAsync(async () => {
+        const mod = await import('../src/common/process-identity');
+        identities.push(mod.PROCESS_IDENTITY);
+      });
+    }
+    const [a, b] = identities as [string, string];
+    expect(a.split('#').slice(0, 2)).toEqual(b.split('#').slice(0, 2));
+    expect(a).not.toBe(b);
+  });
+
+  it('is the owner stamp on both the leader lease and the job claim', () => {
+    expect(new LeaderLeaseService().identity()).toBe(PROCESS_IDENTITY);
+    expect(new JobClaimService().identity()).toBe(PROCESS_IDENTITY);
   });
 });
 

@@ -33,6 +33,15 @@ describe('/admin/jobs/stream across replicas', () => {
   beforeAll(async () => {
     f = await createApp();
     surreal = f.app.get(SurrealService);
+    // Touch the tenant database before any stream subscribes to it. The
+    // stream anchors its cursor on the database clock inside its FIRST
+    // poll tick, and that tick pays this tenant's schema bootstrap when it
+    // is the first caller through the door — over a second, during which
+    // this spec's write lands and ends up BEHIND the anchor, invisible for
+    // good. Whether boot warms it is incidental: CalibrationService warms
+    // `hostTenant()`, which is the roster's first entry, so in a long shard
+    // it is some earlier spec's tenant rather than this one's.
+    await surreal.withCompany(f.companyId, (db) => db.query(`RETURN time::now()`));
   });
 
   afterAll(async () => {
