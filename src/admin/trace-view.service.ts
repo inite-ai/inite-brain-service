@@ -6,7 +6,7 @@ import { LRUCache } from '../common/lru-cache';
 import type { DebugTraceSnapshot } from '../common/debug-trace-core';
 import { TraceBufferService, type TraceListItem } from '../common/trace-buffer.service';
 import { SurrealService, queryRows } from '../db/surreal.service';
-import { pollingObservable, type PollPage } from './db-poll-stream';
+import { anchorAt, pollingObservable, type PollPage } from './db-poll-stream';
 
 /** Cadence at which traces recorded by other replicas reach a stream. */
 export const TRACE_STREAM_POLL_MS = 1_500;
@@ -66,8 +66,8 @@ export class TraceViewService {
     let floor: Date | undefined;
     const polled = pollingObservable<TraceListItem, Date>({
       intervalMs: TRACE_STREAM_POLL_MS,
-      initialCursor: async () => {
-        floor = await surreal.withCompany(companyId, dbNow);
+      initialCursor: async (subscribedAt) => {
+        floor = anchorAt(subscribedAt, await surreal.withCompany(companyId, dbNow));
         return floor;
       },
       poll: (at) =>

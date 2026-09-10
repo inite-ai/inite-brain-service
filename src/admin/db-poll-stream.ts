@@ -8,10 +8,31 @@ export interface PollPage<T, C> {
 
 export interface PollingSource<T, C> {
   intervalMs: number;
-  /** Read once per subscription, before the first poll. */
-  initialCursor: () => Promise<C>;
+  /**
+   * Read once per subscription, before the first poll. `subscribedAt` is
+   * a monotonic mark taken the instant the subscription began and is the
+   * same value on every retry, so a cursor read off the database clock can
+   * name that instant rather than whenever the read got through — see
+   * `anchorAt`.
+   */
+  initialCursor: (subscribedAt: bigint) => Promise<C>;
   poll: (cursor: C) => Promise<PollPage<T, C>>;
   onError?: (e: Error) => void;
+}
+
+/**
+ * The database's clock rewound to the moment the subscription began.
+ * Reading that clock enters the tenant scope and can block for seconds —
+ * the replica pays the tenant's schema bootstrap when it is the first
+ * caller through that tenant's door — and a cursor anchored after the
+ * wait sits ahead of everything written during it, which a `>= cursor`
+ * filter then never returns. Subtracting the locally measured wait keeps
+ * the anchor behind those writes; the cost is replaying the wait's worth
+ * of rows, which the caller's de-duplication absorbs.
+ */
+export function anchorAt(subscribedAt: bigint, dbNow: Date): Date {
+  const waitedMs = Number(process.hrtime.bigint() - subscribedAt) / 1_000_000;
+  return new Date(dbNow.getTime() - Math.ceil(Math.max(0, waitedMs)));
 }
 
 /**
@@ -23,6 +44,7 @@ export interface PollingSource<T, C> {
  */
 export function pollingObservable<T, C>(source: PollingSource<T, C>): Observable<T> {
   return new Observable<T>((subscriber) => {
+    const subscribedAt = process.hrtime.bigint();
     let cursor: { value: C } | undefined;
     let inFlight = false;
     let closed = false;
@@ -31,7 +53,7 @@ export function pollingObservable<T, C>(source: PollingSource<T, C>): Observable
       if (inFlight || closed) return;
       inFlight = true;
       try {
-        if (!cursor) cursor = { value: await source.initialCursor() };
+        if (!cursor) cursor = { value: await source.initialCursor(subscribedAt) };
         const page = await source.poll(cursor.value);
         cursor.value = page.cursor;
         for (const row of page.rows) {

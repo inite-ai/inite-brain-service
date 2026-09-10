@@ -23,9 +23,10 @@ interface DbRow {
   heartbeatAt?: Date | null;
 }
 
-function harness(opts: { withDb?: boolean } = {}) {
+function harness(opts: { withDb?: boolean; bootstrapMs?: number } = {}) {
   const local = new Subject<JobRunRow>();
   const state = { rows: [] as DbRow[], sinces: [] as Date[], tenants: [] as string[] };
+  let cold = (opts.bootstrapMs ?? 0) > 0;
   const reads: string[] = [];
   const jobs = {
     observe: () => local.asObservable(),
@@ -39,9 +40,14 @@ function harness(opts: { withDb?: boolean } = {}) {
   const surreal = {
     withCompany: async (companyId: string, fn: (db: any) => Promise<any>) => {
       state.tenants.push(companyId);
+      if (cold) {
+        // The first caller through a tenant's door pays its schema bootstrap.
+        cold = false;
+        await new Promise<void>((r) => setTimeout(r, opts.bootstrapMs));
+      }
       return fn({
         query: async (sql: string, vars?: { since: Date }) => {
-          if (sql.startsWith('RETURN time::now()')) return [T0];
+          if (sql.startsWith('RETURN time::now()')) return [new Date()];
           state.sinces.push(vars!.since);
           const rows = state.rows
             .filter((r) => r.updatedAt >= vars!.since)
@@ -100,7 +106,7 @@ function mapped(r: DbRow, companyId: string): JobRunRow {
 }
 
 describe('JobStreamService', () => {
-  beforeEach(() => jest.useFakeTimers());
+  beforeEach(() => jest.useFakeTimers({ now: T0 }));
   afterEach(() => jest.useRealTimers());
 
   it('emits a same-process transition at once, with no database round-trip', () => {
@@ -183,6 +189,18 @@ describe('JobStreamService', () => {
     await jest.advanceTimersByTimeAsync(JOB_STREAM_POLL_MS);
     expect(h.seen.map((r) => r.status)).toEqual(['running', 'succeeded']);
     expect(h.seen[1]!.finishedAt).toBe(row.finishedAt.toISOString());
+    h.sub.unsubscribe();
+  });
+
+  it('delivers a transition written while the first tick paid the tenant bootstrap', async () => {
+    const h = harness({ bootstrapMs: 3_000 });
+    await jest.advanceTimersByTimeAsync(1_000);
+    // Written mid-bootstrap: before the clock read that ends it, and after
+    // the subscription the cursor must be anchored at.
+    h.state.rows.push(dbRow({ updatedAt: new Date(T0.getTime() + 1_000) }));
+    await jest.advanceTimersByTimeAsync(2_000 + JOB_STREAM_POLL_MS);
+    expect(h.state.sinces[0]).toEqual(T0);
+    expect(h.seen.map((r) => r.runId)).toEqual(['run-2']);
     h.sub.unsubscribe();
   });
 
