@@ -22,10 +22,13 @@ import { SurrealService } from '../src/db/surreal.service';
 
 const USER = 'cache_deps_u1';
 const QUERY = 'which database does the inventory service use, and what was decided first?';
+/** Own key: the scene case must not share a cache entry with QUERY. */
+const SCENE_QUERY = 'when did the switch to SurrealDB happen?';
 const VERIFY_SUPPORTED = JSON.stringify({ verdict: 'supported', unsupportedClaims: [] });
 const FLAG_KEYS = [
   'SYNTHESIZE_ANSWER_CACHE',
   'BELIEFS_SERVING_LANE',
+  'RETRIEVAL_SCENE_LANE',
   'RETRIEVAL_ABSTENTION_CALIBRATION',
   'SCENES_SEGMENTATION_ENABLED',
   'SCENES_BELIEF_PROMOTION',
@@ -252,4 +255,71 @@ describe('0136 answer-cache dependencies e2e (a belief revision invalidates a mi
     expect(after).toHaveLength(1);
     expect(after[0]!.invalidationCause).toBe('dependency_changed');
   });
+
+  /**
+   * Round-2 audit P3: a scene-WORLD promotion. Promotion demotes the
+   * previous version to 'residual' without deleting a row, so every scene
+   * stamp still matches and the `facts` world the key pins never moves —
+   * the demoted gist kept serving until TTL. The scene dependency now
+   * carries the lane's world fence, so the entry stops serving at once.
+   */
+  it('promoting a new scene world stops a scene-dependent answer from serving', async () => {
+    process.env.RETRIEVAL_SCENE_LANE = '1';
+    try {
+      // The scenes world the seeded scenes belong to, marked live.
+      await db(async (d) => {
+        await d.query(
+          `UPSERT projection:['scenes', $v] SET name = 'scenes', version = $v,
+             status = 'live', builder = 'test-seed',
+             startedAt = time::now(), finishedAt = time::now()`,
+          { v: 'scene-segmenter-v1' },
+        );
+      });
+      const sceneId = 'memory_episode:cachedeps1';
+      const answer = `Postgres was decided first [${pgFactId}]; the switch happened in that scene [${sceneId}].`;
+      const round = () =>
+        mockSynthesizeOpenAi(f.app, [
+          JSON.stringify({ answer, citedFactIds: [pgFactId], citedSceneIds: [sceneId] }),
+          VERIFY_SUPPORTED,
+        ]);
+      const ask = () =>
+        f.http
+          .post('/v1/synthesize')
+          .set(auth())
+          .send({ query: SCENE_QUERY, userId: USER, limit: 5 });
+
+      const first = round();
+      const res1 = await ask();
+      expect(res1.status).toBe(201);
+      expect(res1.body.answer).toBe(answer);
+      expect(first.calls).toHaveLength(2);
+      const stored = (await cacheRows()).find((r) => r.answer === answer);
+      expect(stored?.dependencies?.[0]).toMatchObject({ kind: 'scene', id: sceneId });
+
+      // It serves from the cache while the world stands.
+      const second = round();
+      const res2 = await ask();
+      expect(res2.body.cached).toBe(true);
+      expect(second.calls).toHaveLength(0);
+
+      // Promote a NEW scene world. Nothing on memory_episode changes.
+      await db(async (d) => {
+        await d.query(
+          `UPDATE projection SET status = 'residual'
+             WHERE name = 'scenes' AND version != $v AND status = 'live';
+           UPSERT projection:['scenes', $v] SET name = 'scenes', version = $v,
+             status = 'live', builder = 'test-seed',
+             startedAt = time::now(), finishedAt = time::now()`,
+          { v: 'scene-segmenter-v2' },
+        );
+      });
+
+      const third = round();
+      const res3 = await ask();
+      expect(res3.body.cached).toBeUndefined();
+      expect(third.calls).toHaveLength(2);
+    } finally {
+      delete process.env.RETRIEVAL_SCENE_LANE;
+    }
+  }, 60000);
 });

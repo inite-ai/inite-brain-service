@@ -49,6 +49,13 @@ interface ReprRowFixture {
   modality: string;
   occurredAt: string;
   score: number;
+  /** Projected for the JS re-check (fences 2/3/5) — see fragmentVisible.
+   *  `piiClasses: []` is the affirmatively-clean state, the only one an
+   *  unscoped caller may see (src/common/media-pii.ts). */
+  piiClasses?: string[] | undefined;
+  assetUserId?: string | null;
+  assetAvailability?: string;
+  quarantineStatus?: string | null;
 }
 
 const row = (over: Partial<ReprRowFixture>): ReprRowFixture => ({
@@ -60,6 +67,10 @@ const row = (over: Partial<ReprRowFixture>): ReprRowFixture => ({
   modality: 'image',
   occurredAt: '2026-05-01T00:00:00.000Z',
   score: 1,
+  piiClasses: [],
+  assetUserId: null,
+  assetAvailability: 'stored',
+  quarantineStatus: 'accepted',
   ...over,
 });
 
@@ -186,9 +197,51 @@ describe('FragmentLaneService — WHERE fence composition', () => {
   it('brain:read_media lifts the PII fence and nothing else', async () => {
     const retrievals = await fencesOf({ callerScopes: ['brain:read_media'] });
     for (const c of retrievals) {
-      expect(c.sql).not.toContain('piiClasses');
+      // The WHERE fence is gone; the projected classification column stays
+      // (the JS re-check reads it — fragmentVisible).
+      expect(c.sql).not.toContain('AND subjectId.piiClasses = []');
+      expect(c.sql).toContain('subjectId.piiClasses AS piiClasses');
       expect(c.sql).toContain("AND subjectId.assetId.availability != 'gone'");
     }
+  });
+});
+
+/**
+ * Round-2 audit F1: the fence stack is re-applied in JS over the rows the
+ * WHERE returned, through the SAME predicate the answer cache runs on
+ * every cached serve. These cases feed the double rows the SQL fence
+ * would never have returned, so only the JS half can drop them.
+ */
+describe('FragmentLaneService — JS re-check of the fence stack (round-2 F1)', () => {
+  const render = async (over: Partial<ReprRowFixture>, callerScopes: string[] = []) => {
+    const { surreal } = surrealOf({ bm25Rows: [row(over)] });
+    return new FragmentLaneService(surreal, embedderOk).fragmentLines({
+      ...baseOpts,
+      callerScopes,
+      withIds: true,
+    });
+  };
+
+  it.each([
+    ['unclassified piiClasses (fail-closed)', { piiClasses: undefined }],
+    ['classified piiClasses', { piiClasses: ['face'] }],
+    ['an asset owned by another user', { assetUserId: 'someone_else' }],
+    ['an erased asset (availability gone)', { assetAvailability: 'gone' }],
+  ] as Array<[string, Partial<ReprRowFixture>]>)('drops %s', async (_n, over) => {
+    const out = await render(over);
+    expect(out.lines).toEqual([]);
+    expect(out.byId.size).toBe(0);
+  });
+
+  it('brain:read_media renders the classified row the plain caller cannot see', async () => {
+    const closed = { piiClasses: ['face'] };
+    expect((await render(closed)).lines).toEqual([]);
+    expect((await render(closed, ['brain:read_media'])).lines).toHaveLength(1);
+  });
+
+  it('carries the parent asset quarantine state as the retrieval stamp (F4)', async () => {
+    const out = await render({ quarantineStatus: 'accepted' });
+    expect(out.byId.get('evidence_fragment:f1')?.stamp).toBe('accepted');
   });
 });
 

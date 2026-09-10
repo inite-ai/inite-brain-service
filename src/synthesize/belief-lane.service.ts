@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { beliefVisible } from '../beliefs/beliefs.service';
+import { beliefStamp } from './evidence-visibility';
 import { rrfFuse } from './segment-lane.service';
 import { buildLexMatchLeg } from './lex-leg';
 import type { CitableBelief } from './belief-citations';
@@ -228,6 +229,7 @@ export class BeliefLaneService {
         value: String(row.value ?? ''),
         excerpt,
         ...(day ? { occurredAt: isoInstant(row.validFrom) } : {}),
+        stamp: beliefStamp(row),
       });
     }
     return { lines, byId };

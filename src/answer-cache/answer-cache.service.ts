@@ -10,6 +10,19 @@ import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { ReadPinService, type ReadPin } from '../episodes/read-pin.service';
 import { detectEnumerationShape } from '../synthesize/answer-router';
+import { hasCurrentModalityConsent, type ModalityConsentRow } from '../ai/domain-packs';
+import {
+  beliefLaneVisible,
+  beliefStamp,
+  episodeStamp,
+  episodeVisible,
+  fragmentStamp,
+  fragmentVisible,
+  sceneStamp,
+  sceneVisible,
+  type EvidenceFences,
+  type EvidenceWorldState,
+} from '../synthesize/evidence-visibility';
 import type { RetrievalProfile } from '../search/retrieval-profile';
 import type { SynthesizeDto } from '../synthesize/dto/synthesize.dto';
 import type { EvidenceCitation, SynthesizeResult } from '../synthesize/synthesize.types';
@@ -83,6 +96,15 @@ interface DependencyRow {
   quarantineStatus?: string | null;
   gist?: string | null;
   enrichedGist?: string | null;
+  unexpectedDetails?: unknown;
+  /** Visibility-fence columns — see the per-kind predicates in
+   *  synthesize/evidence-visibility.ts. */
+  userIds?: unknown;
+  piiClass?: unknown;
+  piiClasses?: unknown;
+  segmenterVersion?: unknown;
+  assetUserId?: unknown;
+  assetAvailability?: unknown;
 }
 
 /**
@@ -153,8 +175,13 @@ function isCachedDependency(v: unknown): v is CachedDependency {
 /**
  * One SELECT per kind, bound on `$<kind>` (a record-id array). The
  * projection is exactly what `dependencyRev` and `dependencyLifecycle`
- * read: existence, the user-scope fence column, the lifecycle state and
- * the revision stamp — nothing content-bearing leaves the DB.
+ * read PLUS every column the serving lane's visibility fence reads
+ * (round-2 audit F1): the stamp alone said nothing about media PII,
+ * modality consent, asset ownership, availability, text PII, scene
+ * membership or the live scene world, so re-checking only the stamp
+ * served closed evidence to a key that never held the scope. Nothing
+ * content-bearing leaves the DB — piiClasses/piiClass are
+ * classifications, not content.
  */
 function dependencySelect(kind: CachedDependencyKind): string {
   switch (kind) {
@@ -162,53 +189,84 @@ function dependencySelect(kind: CachedDependencyKind): string {
       return `SELECT id, revision, status, supersededBy, validUntil, userId
                 FROM semantic_belief WHERE id INSIDE $belief`;
     case 'episode':
-      return `SELECT id, userId FROM episode WHERE id INSIDE $episode`;
+      return `SELECT id, userId, piiClass FROM episode WHERE id INSIDE $episode`;
     case 'fragment':
       // The fragment row is immutable; its parent asset's quarantine
       // state is the lifecycle (a rejected asset must not keep serving
       // through a cached answer). A dangling asset link reads as NONE.
-      return `SELECT id, assetId.quarantineStatus AS quarantineStatus
+      return `SELECT id, piiClasses,
+                     assetId.quarantineStatus AS quarantineStatus,
+                     assetId.userId AS assetUserId,
+                     assetId.availability AS assetAvailability
                 FROM evidence_fragment WHERE id INSIDE $fragment`;
     case 'scene':
-      return `SELECT id, gist, enrichedGist, userId FROM memory_episode WHERE id INSIDE $scene`;
+      return `SELECT id, gist, enrichedGist, unexpectedDetails, userId, userIds,
+                     piiClass, segmenterVersion
+                FROM memory_episode WHERE id INSIDE $scene`;
   }
 }
 
-/** The stamp that must not move for the cached answer to stay valid. */
+/** The stamp that must not move for the cached answer to stay valid —
+ *  the SAME functions the serving lanes stamp their rendered rows with. */
 function dependencyRev(kind: CachedDependencyKind, row: DependencyRow): string {
   switch (kind) {
     case 'belief':
-      return String(row.revision ?? '');
+      return beliefStamp(row);
     case 'episode':
-      return '';
+      return episodeStamp();
     case 'fragment':
-      return String(row.quarantineStatus ?? '');
+      return fragmentStamp(row);
     case 'scene':
-      return sha256(`${row.gist ?? ''}\n${row.enrichedGist ?? ''}`).slice(0, 16);
+      return sceneStamp(row);
+  }
+}
+
+/** Kinds whose stamp can move under a running request — the ones the
+ *  retrieval snapshot has to cover (round-2 audit F4). An episode's text
+ *  is immutable, so its stamp is constant and needs no snapshot. */
+const MUTABLE_DEPENDENCY_KINDS: readonly CachedDependencyKind[] = ['belief', 'fragment', 'scene'];
+
+/**
+ * The serving lane's OWN per-row visibility fence, re-applied to a
+ * dependency row (round-2 audit F1). False = invisible to this caller,
+ * which reads as 'missing' — existence never leaks. This is the half a
+ * lifecycle stamp cannot carry: revoking modality consent, reclassifying
+ * a fragment's piiClasses, stamping a scene's piiClass, promoting a new
+ * scene world or erasing an asset's bytes all leave every stamp intact.
+ */
+function dependencyVisible(
+  kind: CachedDependencyKind,
+  row: DependencyRow,
+  fences: EvidenceFences,
+): boolean {
+  const { caller, world } = fences;
+  switch (kind) {
+    case 'belief':
+      return beliefLaneVisible(row, caller);
+    case 'episode':
+      return episodeVisible(row, caller);
+    case 'fragment':
+      return fragmentVisible(row, caller, world);
+    case 'scene':
+      return sceneVisible(row, caller, world);
   }
 }
 
 /**
  * The lifecycle gate a dependency row must pass to be servable — the
- * cited-fact gate's counterpart per kind. Null = servable. The user-scope
- * fence is shared: a row bound to ANOTHER user is invisible (existence
- * never leaks), so it reads as 'missing'.
+ * cited-fact gate's counterpart per kind. Null = servable. The scope
+ * fences live in `dependencyVisible`, which runs first.
+ *
+ * A belief never reads 'retracted': migration 0120 asserts
+ * `status INSIDE ['active','superseded']`, so retraction is not a state a
+ * belief can reach (a value change is a new revision). The cause stays in
+ * the typed union because a retracted cited FACT still emits it.
  */
 function dependencyLifecycle(
   kind: CachedDependencyKind,
   row: DependencyRow,
-  scopeUserId: string | undefined,
 ): InvalidationCause | null {
-  if (
-    scopeUserId !== undefined &&
-    typeof row.userId === 'string' &&
-    row.userId.length > 0 &&
-    row.userId !== scopeUserId
-  ) {
-    return 'missing';
-  }
   if (kind === 'belief') {
-    if (row.status === 'retracted') return 'retracted';
     if (
       row.status === 'superseded' ||
       (row.supersededBy !== undefined && row.supersededBy !== null)
@@ -301,6 +359,19 @@ export function canonicalDerivedPin(pin: ReadPin): string {
   return [...new Set(pin)].sort().join('+');
 }
 
+/**
+ * Hash of the caller's EFFECTIVE scope set (round-2 audit F1, half b):
+ * two keys of the same tenant and user but different rights must never
+ * share an entry. Order- and duplicate-insensitive so the same rights
+ * always produce the same partition. This is the cheap half of the fix —
+ * the load-bearing half is re-applying each lane's visibility fence on
+ * every hit (dependencyVisible), because the same key's own rights can be
+ * narrowed after admission by a consent revocation or a reclassification.
+ */
+export function computeScopeHash(callerScopes: readonly string[]): string {
+  return sha256([...new Set(callerScopes)].sort().join(' '));
+}
+
 export interface AnswerCacheKeyInput {
   companyId: string;
   /** Pinned end-user scope; undefined = tenant-global (M2M). */
@@ -308,17 +379,21 @@ export interface AnswerCacheKeyInput {
   profileHash: string;
   model: string;
   derivedVersionPin: ReadPin;
+  /** computeScopeHash of the caller's effective scope set. */
+  scopeHash: string;
   query: string;
 }
 
-/** SHA256 of `companyId|userId or '-'|profileHash|model|promptVersion|
- *  derivedVersionPin|normalized(query)` — the row's queryHash AND its
- *  record id (idempotent admission via UPSERT on the same id). */
+/** SHA256 of `companyId|userId or '-'|scopeHash|profileHash|model|
+ *  promptVersion|derivedVersionPin|normalized(query)` — the row's
+ *  queryHash AND its record id (idempotent admission via UPSERT on the
+ *  same id). */
 export function computeCacheKey(input: AnswerCacheKeyInput): string {
   return sha256(
     [
       input.companyId,
       input.userId ?? '-',
+      input.scopeHash,
       input.profileHash,
       input.model,
       String(ANSWER_CACHE_PROMPT_VERSION),
@@ -337,6 +412,9 @@ export interface AnswerCacheStoreContext {
   key: string;
   companyId: string;
   userId?: string | undefined;
+  /** The request's effective scope set — admission re-applies each lane's
+   *  visibility fence with it, exactly as a hit does. */
+  callerScopes: readonly string[];
   profileHash: string;
   model: string;
   normalizedQuery: string;
@@ -344,6 +422,22 @@ export interface AnswerCacheStoreContext {
    *  admit() keys a shorter TTL on it (additive writes on NOT-yet-cited
    *  entities escape the entity-scoped freshness probe). */
   isEnumeration: boolean;
+  /**
+   * Lifecycle stamps of everything the LANES RENDERED for this request,
+   * keyed `kind|id`, recorded by observeRendered() right after retrieval
+   * (round-2 audit F4). admit() compares them with the live stamps and
+   * refuses to cache when any of them moved while the generator ran —
+   * otherwise a Monday answer is stored under Tuesday's hash and the next
+   * hit validates it. Absent = no observation was made (bare-cache
+   * callers, unit fixtures): admission then stamps from the live rows, as
+   * it did before.
+   */
+  renderedStamps?: ReadonlyMap<string, string> | undefined;
+}
+
+/** One rendered evidence item, as observeRendered reads it. */
+interface StampedRendered {
+  stamp?: string | undefined;
 }
 
 export interface AnswerCacheBeginResult {
@@ -430,12 +524,34 @@ interface CitedFactRow {
  * Every dependency, not only the facts (0136, audit F3): a mixed answer
  * — facts plus belief / episode / fragment / scene citations — stores
  * its non-fact arms as typed {kind, id, rev} entries stamped from the
- * live rows at admission, and check-on-read revalidates each one under
- * the same user-scope fence: missing or fenced ⇒ 'missing', a belief
- * superseded / retracted / past validUntil ⇒ its lifecycle cause, a
- * moved stamp (belief revision, scene gist, asset quarantine state) ⇒
- * 'dependency_changed'. An answer whose evidence the cache cannot track
- * is not admitted; a pre-0136 row (no dependency list) is never served.
+ * live rows at admission, and check-on-read revalidates each one:
+ * missing or fenced ⇒ 'missing', a belief superseded / past validUntil ⇒
+ * its lifecycle cause, a moved stamp (belief revision, scene content,
+ * asset quarantine state) ⇒ 'dependency_changed'. An answer whose
+ * evidence the cache cannot track is not admitted; a pre-0136 row (no
+ * dependency list) is never served.
+ *
+ * The FENCE, not only the stamp (round-2 audit F1): a lifecycle stamp
+ * carries nothing about the caller's RIGHTS, so re-checking it alone let
+ * a `brain:read` key read a closed media fragment out of an entry a
+ * `brain:read_media` key had admitted — same tenant, same user, same
+ * key. The scoped DB connection does not help (its system user bypasses
+ * table and field PERMISSIONS), so every hit now re-applies the SERVING
+ * LANE'S OWN visibility predicate per dependency — media PII, modality
+ * consent, asset ownership and availability for a fragment; the member
+ * gate, text PII and the live scene world for a scene; text PII and
+ * ownership for an episode; ownership for a belief — from one shared
+ * module (synthesize/evidence-visibility.ts) the lanes themselves call.
+ * The caller's effective scope set additionally partitions the KEY, so
+ * differently-privileged keys cannot share an entry at all; the fence is
+ * still the load-bearing half, because the same key's own rights narrow
+ * whenever consent is revoked or evidence reclassified.
+ *
+ * The stamp is the RETRIEVAL-time one (round-2 audit F4): the lanes stamp
+ * what they rendered, observeRendered() records it, and admission refuses
+ * to cache when the live row has moved since — otherwise an answer built
+ * from Monday's scene was stored under Tuesday's hash and the next hit
+ * validated Monday's text.
  *
  * v2 (deferred by design): embedding-similarity candidates promoted to
  * servable only after async judge verification — never served
@@ -568,7 +684,7 @@ export class AnswerCacheService {
         // compares to. A dependency that is already missing, fenced, or
         // dead at admission means the answer is stale before it is
         // stored — never written (fail closed).
-        const dependencies = await this.stampDependencies(db, wanted, ctx.userId);
+        const dependencies = await this.stampDependencies(db, wanted, ctx);
         if (dependencies === null) return false;
         // Record id = queryHash, so re-admission after invalidation or
         // TTL expiry REPLACES the row in place (the unique
@@ -667,6 +783,7 @@ export class AnswerCacheService {
     opts: {
       companyId: string;
       dto: SynthesizeDto;
+      callerScopes: string[];
       profile: RetrievalProfile;
       model: string;
       guardrails: string;
@@ -696,10 +813,15 @@ export class AnswerCacheService {
       guardrails: opts.guardrails,
       dto: dtoKnobs,
     });
+    // Rights partition the key (round-2 audit F1, half b): a
+    // `brain:read_media` answer and a `brain:read` answer to the same
+    // question are different answers, so they can never share an entry.
+    const scopeHash = computeScopeHash(opts.callerScopes);
     return {
       key: computeCacheKey({
         companyId: opts.companyId,
         userId,
+        scopeHash,
         profileHash,
         model: opts.model,
         derivedVersionPin,
@@ -707,11 +829,46 @@ export class AnswerCacheService {
       }),
       companyId: opts.companyId,
       userId,
+      callerScopes: opts.callerScopes,
       profileHash,
       model: opts.model,
       normalizedQuery,
       isEnumeration: detectEnumerationShape(normalizedQuery),
     };
+  }
+
+  /**
+   * Record the retrieval-time lifecycle stamps of everything the serving
+   * lanes RENDERED into this request's prompt (round-2 audit F4). Call it
+   * once, right after evidence collection, with the lanes' rendered-set
+   * maps; admission then compares each cited dependency against the state
+   * the GENERATOR saw rather than against whatever the row has become,
+   * and refuses to cache on a mismatch. Cheap and pure — the stamps were
+   * computed by the lanes from rows already in memory. An absent ctx (the
+   * cache served a hit, or is off) is a no-op, so the caller needs no
+   * branch of its own.
+   */
+  observeRendered(
+    ctx: AnswerCacheStoreContext | undefined,
+    rendered: {
+      belief?: ReadonlyMap<string, StampedRendered> | undefined;
+      fragment?: ReadonlyMap<string, StampedRendered> | undefined;
+      scene?: ReadonlyMap<string, StampedRendered> | undefined;
+    },
+  ): void {
+    if (!ctx) return;
+    const stamps = new Map<string, string>();
+    const kinds: Array<[CachedDependencyKind, ReadonlyMap<string, StampedRendered> | undefined]> = [
+      ['belief', rendered.belief],
+      ['fragment', rendered.fragment],
+      ['scene', rendered.scene],
+    ];
+    for (const [kind, map] of kinds) {
+      for (const [id, item] of map ?? []) {
+        if (typeof item.stamp === 'string') stamps.set(`${kind}|${id}`, item.stamp);
+      }
+    }
+    ctx.renderedStamps = stamps;
   }
 
   /** Lookup + check-on-read + serve bookkeeping. Null = miss. */
@@ -809,12 +966,15 @@ export class AnswerCacheService {
     const probeUserGate = ctx.userId
       ? 'AND (userId IS NONE OR userId = $probeScopeUserId)'
       : 'AND userId IS NONE';
-    const { facts, names, newer, dependencyRows } = await this.surreal.withScopedCompany(
+    const trackable = dependencies.filter(isCachedDependency);
+    const { facts, names, newer, dependencyRows, world } = await this.surreal.withScopedCompany(
       ctx.companyId,
       callerScopes,
       async (db) => {
         // 0136: the non-fact dependencies' live rows, on the SAME scoped
-        // connection (one extra round trip only when the row has any).
+        // connection (one extra round trip only when the row has any),
+        // plus the tenant-level fence state those rows are judged against.
+        const world = await this.fetchWorldState(db, trackable);
         const dependencyRows = await this.fetchDependencyRows(db, dependencies);
         const [factRows, entityRows, newerRows] = await db.query<
           [CitedFactRow[], Array<{ id: unknown; canonicalName: string }>, CitedFactRow[]]
@@ -844,6 +1004,7 @@ export class AnswerCacheService {
           names: entityRows ?? [],
           newer: newerRows ?? [],
           dependencyRows,
+          world,
         };
       },
     );
@@ -867,7 +1028,11 @@ export class AnswerCacheService {
     // answer: fail closed to a fresh synthesis.
     let result: { cause: InvalidationCause } | { citations: Citation[] } = cited;
     if (!('cause' in result)) {
-      const dependencyCause = this.evaluateDependencies(dependencies, dependencyRows, scopeUserId);
+      // The dependency fences use the answer's OWN pinned user scope (the
+      // one the lanes read with and admission stamped against), not the
+      // ambient token scope the fact fences use.
+      const depFences: EvidenceFences = { caller: { callerScopes, userId: ctx.userId }, world };
+      const dependencyCause = this.evaluateDependencies(dependencies, dependencyRows, depFences);
       if (dependencyCause) result = { cause: dependencyCause };
       else if (this.hasNewerVisibleFact(newer, fences)) result = { cause: 'newer_fact' };
     }
@@ -877,26 +1042,94 @@ export class AnswerCacheService {
 
   /**
    * Admission-time stamping (0136): every wanted dependency's LIVE row,
-   * read on the connection the cache row is written with, so the stored
-   * `rev` is exactly the state the answer was built against. Null when
-   * any dependency is missing, fenced from the answer's user partition,
-   * or already dead — the answer is stale before it is stored and must
-   * not be.
+   * read on the connection the cache row is written with. Null — the
+   * answer is not cached at all — when any dependency is missing, fails
+   * its serving lane's visibility fence for THIS caller, is already dead,
+   * or has MOVED since retrieval.
+   *
+   * That last clause is round-2 audit F4. The live row is read after
+   * generation and verification, so stamping it blindly pinned an answer
+   * built from Monday's scene to Tuesday's hash, and the next hit passed
+   * the stamp check and served Monday's text. The retrieval snapshot
+   * (ctx.renderedStamps, recorded by observeRendered) is the state the
+   * generator actually saw: a mutable dependency missing from it, or
+   * carrying a different stamp, means the store moved under this answer —
+   * refuse to cache and let the next request re-synthesize.
    */
   private async stampDependencies(
     db: Pick<Surreal, 'query'>,
     wanted: ReadonlyArray<Pick<CachedDependency, 'kind' | 'id'>>,
-    scopeUserId: string | undefined,
+    ctx: AnswerCacheStoreContext,
   ): Promise<CachedDependency[] | null> {
     if (wanted.length === 0) return [];
+    const fences: EvidenceFences = {
+      caller: { callerScopes: ctx.callerScopes, userId: ctx.userId },
+      world: await this.fetchWorldState(db, wanted),
+    };
     const rows = await this.fetchDependencyRows(db, wanted);
+    const snapshot = ctx.renderedStamps;
     const out: CachedDependency[] = [];
     for (const dep of wanted) {
       const row = rows.get(`${dep.kind}|${dep.id}`);
-      if (!row || dependencyLifecycle(dep.kind, row, scopeUserId) !== null) return null;
-      out.push({ kind: dep.kind, id: dep.id, rev: dependencyRev(dep.kind, row) });
+      if (!row) return null;
+      if (!dependencyVisible(dep.kind, row, fences)) return null;
+      if (dependencyLifecycle(dep.kind, row) !== null) return null;
+      const rev = dependencyRev(dep.kind, row);
+      if (snapshot && MUTABLE_DEPENDENCY_KINDS.includes(dep.kind)) {
+        const observed = snapshot.get(`${dep.kind}|${dep.id}`);
+        if (observed === undefined || observed !== rev) return null;
+      }
+      out.push({ kind: dep.kind, id: dep.id, rev });
     }
     return out;
+  }
+
+  /**
+   * The tenant-level state the dependency fences read, fetched once per
+   * dependency batch and ONLY for the kinds present: the world the
+   * projection registry marks live for `scenes` (a scene demoted to
+   * 'residual' by a promotion keeps its rows and every stamp, so this is
+   * the only thing that closes it) and whether the tenant still holds
+   * current non-text modality consent (0112 — a revocation must close a
+   * cached media answer too). No fragment or scene arm ⇒ no query.
+   */
+  private async fetchWorldState(
+    db: Pick<Surreal, 'query'>,
+    deps: ReadonlyArray<Pick<CachedDependency, 'kind' | 'id'>>,
+  ): Promise<EvidenceWorldState> {
+    const needsScene = deps.some((d) => d.kind === 'scene');
+    const needsMedia = deps.some((d) => d.kind === 'fragment');
+    if (!needsScene && !needsMedia) return { sceneWorld: null, mediaConsent: false };
+    const statements: string[] = [];
+    if (needsScene) {
+      statements.push(`SELECT VALUE version FROM projection
+            WHERE name = 'scenes' AND status = 'live'
+            ORDER BY finishedAt DESC
+            LIMIT 1;`);
+    }
+    if (needsMedia) {
+      statements.push(
+        // ACTIVE installs only, exactly as the fragment lane reads it:
+        // uninstall keeps the row (status = 'removed') with its manifest
+        // and checksum, so a removed pack must not go on consenting.
+        `SELECT manifest, acceptedModalities, acceptedModalitiesChecksum FROM domain_pack
+            WHERE status = 'active';`,
+      );
+    }
+    const results = await db.query<unknown[]>(statements.join('\n'));
+    let cursor = 0;
+    let sceneWorld: string | null = null;
+    if (needsScene) {
+      const worlds = (results[cursor++] ?? []) as unknown[];
+      const first = worlds[0];
+      sceneWorld = typeof first === 'string' && first !== '' ? first : null;
+    }
+    let mediaConsent = false;
+    if (needsMedia) {
+      const packs = (results[cursor++] ?? []) as ModalityConsentRow[];
+      mediaConsent = hasCurrentModalityConsent(packs);
+    }
+    return { sceneWorld, mediaConsent };
   }
 
   /**
@@ -929,21 +1162,25 @@ export class AnswerCacheService {
 
   /**
    * Read-time gate over the stored dependency list (0136): every entry
-   * must still exist under the user-scope fence, pass its kind's lifecycle
-   * gate, and carry the SAME revision stamp it was admitted with. The
-   * FIRST failure returns its cause, fail-closed; a malformed stored
-   * entry reads as 'missing'.
+   * must still pass its serving lane's OWN visibility fence for this
+   * caller, pass its kind's lifecycle gate, and carry the SAME revision
+   * stamp it was admitted with. The FIRST failure returns its cause,
+   * fail-closed; a malformed stored entry reads as 'missing'.
    */
   private evaluateDependencies(
     deps: ReadonlyArray<unknown>,
     rows: ReadonlyMap<string, DependencyRow>,
-    scopeUserId: string | undefined,
+    fences: EvidenceFences,
   ): InvalidationCause | null {
     for (const raw of deps) {
       if (!isCachedDependency(raw)) return 'missing';
       const row = rows.get(`${raw.kind}|${raw.id}`);
       if (!row) return 'missing';
-      const cause = dependencyLifecycle(raw.kind, row, scopeUserId);
+      // The serving lane's own fence first: invisible reads as 'missing',
+      // so a caller who could not be served this evidence FRESH cannot
+      // read it out of a cached answer either (round-2 audit F1).
+      if (!dependencyVisible(raw.kind, row, fences)) return 'missing';
+      const cause = dependencyLifecycle(raw.kind, row);
       if (cause) return cause;
       if (dependencyRev(raw.kind, row) !== raw.rev) return 'dependency_changed';
     }

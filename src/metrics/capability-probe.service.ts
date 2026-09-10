@@ -121,6 +121,13 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
   /** The tick in progress, so shutdown can wait for it. */
   private inFlight: Promise<void> | undefined;
   private readonly last = new Map<CapabilityName, LastProbeReport>();
+  /** Capabilities whose armed series currently STANDS — bootstrap arms
+   *  every one, a `skipped` tick withdraws, the first tick that actually
+   *  runs re-arms. Tracked here so a later tick cannot reset the clock. */
+  private readonly armed = new Set<CapabilityName>();
+  /** Capabilities that have reported `serving` at least once in this
+   *  process: `last_success` then exists and the armed fallback is moot. */
+  private readonly served = new Set<CapabilityName>();
 
   // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token and cannot be folded into an options object without breaking DI
   constructor(
@@ -147,10 +154,7 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
     // series for the staleness alert to measure, and noDataState: OK turns
     // "broken since boot" into silence — the exact failure the probe exists
     // to catch.
-    const armedAt = Date.now() / 1000;
-    for (const capability of CAPABILITY_NAMES) {
-      this.metrics.capabilityProbeArmed.set({ capability }, armedAt);
-    }
+    for (const capability of CAPABILITY_NAMES) this.arm(capability);
     this.timer = setInterval(() => void this.tick(), this.intervalMs);
     this.timer.unref();
     this.logger.log(
@@ -235,17 +239,43 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
   private publish(report: ProbeReport): void {
     this.last.set(report.capability, { ...report, at: new Date().toISOString() });
     this.metrics.recordCapabilityProbe(report.capability, report.outcome);
+    if (report.outcome === 'serving') this.served.add(report.capability);
     if (report.outcome === 'skipped') {
       // Nothing to exercise here (no embedder wired, no tenant yet): a
       // capability that legitimately never runs must not read as "armed and
       // never succeeded" to the staleness alert. Withdraw its armed series;
-      // a later tick that does run re-publishes success on its own.
+      // a later tick that does run re-arms it below.
+      this.armed.delete(report.capability);
       this.metrics.capabilityProbeArmed.remove({ capability: report.capability });
+    } else if (!this.served.has(report.capability)) {
+      // Round-2 audit F6: the withdrawal above used to be permanent, so
+      // the sequence bootstrap → empty roster (skipped) → tenant appears →
+      // busy, busy, busy left `scoped_read` with neither last_success nor
+      // armed. `last_success or armed` then had NO series at all and, with
+      // noDataState: OK, the staleness alert could never fire however long
+      // the capability stayed unmeasured. A capability that RAN and has
+      // never once succeeded is exactly what the armed fallback is for, so
+      // re-arm it here — once: arm() keeps the first arming time, so a run
+      // of `busy` ticks cannot keep pushing the deadline out.
+      this.arm(report.capability);
     }
     if (report.outcome === 'serving') return;
     const line = `capability '${report.capability}' is ${report.outcome}: ${report.detail ?? '—'}`;
     if (isConclusive(report.outcome)) this.logger.error(`${line} — ${RUNBOOK}`);
     else this.logger.debug(line);
+  }
+
+  /**
+   * Publish the armed-at series for one capability, ONCE. The timestamp is
+   * the moment of arming, never now(): it must not claim a success that
+   * never happened, and it must still give a legitimately slow first
+   * success (a cold model warmup) the alert's full window. Re-arming an
+   * already-armed capability is a no-op for exactly that reason.
+   */
+  private arm(capability: CapabilityName): void {
+    if (this.armed.has(capability)) return;
+    this.armed.add(capability);
+    this.metrics.capabilityProbeArmed.set({ capability }, Date.now() / 1000);
   }
 
   /**

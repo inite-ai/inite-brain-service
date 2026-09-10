@@ -27,6 +27,11 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   required({ env, name: 'SURREALDB_URL', errors, pattern: /^(ws|wss|http|https):\/\// });
   required({ env, name: 'SURREALDB_USERNAME', errors });
   required({ env, name: 'SURREALDB_PASSWORD', errors });
+  // Required UNCONDITIONALLY, EMBEDDER_PROVIDER=bge-m3 included: the local
+  // embedder removes the key's embedding role, not its LLM role — the
+  // extractor, generator, verifier, deriver, chat router and multi-hop
+  // planner all build an OpenAI client eagerly in their constructors, so a
+  // key-less boot fails there instead of here.
   required({ env, name: 'OPENAI_API_KEY', errors, pattern: /^sk-/ });
 
   // ── Auth ─────────────────────────────────────────────────────────
