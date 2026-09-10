@@ -36,7 +36,16 @@ export class JwksService implements OnModuleInit {
   private readonly logger = new Logger(JwksService.name);
   private jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
   private issuer?: string | undefined;
-  private audience?: string;
+  /**
+   * Every audience this deployment answers to. More than one, because a
+   * token can be addressed at us in more than one way: the vertical name
+   * the auth-service stamps by default (`brain`), and — for a client
+   * that asked with RFC 8707 `resource=` — the URL it named. An MCP
+   * client discovering us through OAuth does exactly the latter, so
+   * accepting only the vertical name meant every correctly-issued
+   * connector token was rejected.
+   */
+  private audiences: string[] = [];
   private algorithms: string[] = ['RS256'];
   /** Canonical deployment URL — matches RFC 9396 grant `locations`. */
   private publicUrl?: string | undefined;
@@ -56,8 +65,8 @@ export class JwksService implements OnModuleInit {
     }
     this.jwks = createRemoteJWKSet(new URL(url));
     this.issuer = this.configService.get<string>('AUTH_SERVICE_ISSUER');
-    this.audience = this.configService.get<string>('AUTH_SERVICE_AUDIENCE', 'brain');
     this.publicUrl = this.configService.get<string>('BRAIN_PUBLIC_URL');
+    this.audiences = this.resolveAudiences();
     // Pin the accepted signature algorithms. Without this, jwtVerify accepts
     // ANY alg advertised in the JWKS, which is the classic algorithm-confusion
     // surface (e.g. a symmetric key smuggled into the key set). Configurable
@@ -77,9 +86,30 @@ export class JwksService implements OnModuleInit {
       );
     }
     this.logger.log(
-      `JWKS verifier enabled — url=${url}, audience=${this.audience}, ` +
+      `JWKS verifier enabled — url=${url}, audiences=[${this.audiences.join(',')}], ` +
         `issuer=${this.issuer ?? '(unvalidated)'}, algs=[${this.algorithms.join(',')}]`,
     );
+  }
+
+  /**
+   * The accepted `aud` set: the configured vertical name, plus the
+   * resource identifiers an RFC 8707-aware client would name — this
+   * deployment's public URL and its MCP endpoint. `AUTH_SERVICE_AUDIENCES`
+   * (comma-separated) replaces the derived list outright for deployments
+   * that need something else.
+   */
+  private resolveAudiences(): string[] {
+    const explicit = this.configService.get<string>('AUTH_SERVICE_AUDIENCES');
+    if (explicit) {
+      const list = explicit
+        .split(',')
+        .map((a) => a.trim())
+        .filter(Boolean);
+      if (list.length > 0) return list;
+    }
+    const vertical = this.configService.get<string>('AUTH_SERVICE_AUDIENCE', 'brain');
+    const base = this.publicUrl?.replace(/\/+$/, '');
+    return [...new Set([vertical, ...(base ? [base, `${base}/mcp`] : [])])].filter(Boolean);
   }
 
   enabled(): boolean {
@@ -97,7 +127,7 @@ export class JwksService implements OnModuleInit {
     try {
       ({ payload } = await jwtVerify(token, this.jwks, {
         ...(this.issuer !== undefined ? { issuer: this.issuer } : {}),
-        ...(this.audience !== undefined ? { audience: this.audience } : {}),
+        ...(this.audiences.length > 0 ? { audience: this.audiences } : {}),
         algorithms: this.algorithms,
       }));
     } catch (e) {

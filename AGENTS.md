@@ -10,9 +10,14 @@ memory service on SurrealDB. Humans: start at
 Brain speaks MCP over **Streamable HTTP**, one endpoint per tenant:
 
 ```
-POST https://brain.inite.ai/mcp/<companyId>
+POST https://brain.inite.ai/mcp                  # tenant from the credential
+POST https://brain.inite.ai/mcp/<companyId>      # explicit; must match the credential
 Authorization: Bearer brain_<api-key>
 ```
+
+Reach for the tenant-less form when all you have is a URL — an
+OAuth-discovered connector learns its tenant from the token's `org`
+claim, not from the path. `GET /mcp/health` answers unauthenticated.
 
 Harnesses with native remote-MCP support connect by URL + header. Harnesses
 that can only spawn stdio servers use the first-party shim
