@@ -9,7 +9,7 @@ describe('ReindexEmbeddingsService warmup failure', () => {
       providerId: () => 'bge-m3:Xenova/bge-m3:1024',
     };
     const svc = new ReindexEmbeddingsService(
-      { knownCompanyIds: () => ['tenant-a', 'tenant-b'] } as any,
+      { fanOutRoster: () => ['tenant-a', 'tenant-b'] } as any,
       engine as any,
     );
     await expect(svc.run({ allTables: true })).rejects.toBe(unavailable);

@@ -76,6 +76,7 @@ function makeController(): AdminJobsController {
 
   const apiKeys = {
     knownCompanyIds: () => ['tenant-a', 'tenant-b'],
+    fanOutRoster: () => ['tenant-a', 'tenant-b'],
   } as unknown as ApiKeyService;
 
   const config = {
@@ -179,6 +180,7 @@ function capturingController() {
   } as unknown as JobWorkerPool;
   const apiKeys = {
     knownCompanyIds: () => ['tenant-a', 'tenant-b'],
+    fanOutRoster: () => ['tenant-a', 'tenant-b'],
   } as unknown as ApiKeyService;
   const config = { get: () => 'enqueue' } as unknown as ConfigService;
   const undef = undefined as unknown as never;

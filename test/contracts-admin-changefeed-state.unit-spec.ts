@@ -18,7 +18,10 @@ import type { ChangefeedConsumerService } from '../src/audit/changefeed-consumer
 import type { ApiKeyService } from '../src/auth/api-key.service';
 
 const KNOWN = ['tenant-a', 'tenant-b'];
-const apiKeys = { knownCompanyIds: () => KNOWN } as unknown as ApiKeyService;
+const apiKeys = {
+  knownCompanyIds: () => KNOWN,
+  fanOutRoster: () => KNOWN,
+} as unknown as ApiKeyService;
 
 const OLD_GATE = process.env.BRAIN_TENANT_OVERRIDE_ENABLED;
 afterEach(() => {

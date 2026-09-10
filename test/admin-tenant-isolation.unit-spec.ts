@@ -25,7 +25,11 @@ import { StrategyAdminController } from '../src/strategy/strategy-admin.controll
 import { AdminJobsController } from '../src/admin/admin-jobs.controller';
 
 const KNOWN = ['tenant-a', 'tenant-b'];
-const apiKeys = { knownCompanyIds: () => KNOWN } as never;
+const apiKeys = {
+  knownCompanyIds: () => KNOWN,
+  fanOutRoster: () => KNOWN,
+  hostTenant: () => KNOWN[0],
+} as never;
 const ADMIN: BrainScope[] = ['brain:admin'];
 const PLATFORM: BrainScope[] = ['brain:admin', PLATFORM_TENANT_SCOPE];
 
@@ -78,7 +82,7 @@ describe('resolvePlatformTenant — cross-tenant is default-deny (P0)', () => {
 });
 
 describe('resolvePlatformTenantScope — aggregate reads default to own tenant (P0)', () => {
-  const opts = { knownTenants: () => KNOWN };
+  const opts = { knownTenants: () => KNOWN, fanOutTenants: () => KNOWN };
 
   it('no tenant requested, plain brain:admin → own tenant only', () => {
     expect(resolvePlatformTenantScope(req(ADMIN), undefined, opts)).toEqual(['tenant-a']);
@@ -86,9 +90,22 @@ describe('resolvePlatformTenantScope — aggregate reads default to own tenant (
   it('no tenant requested, platform scope but gate OFF → own tenant only', () => {
     expect(resolvePlatformTenantScope(req(PLATFORM), undefined, opts)).toEqual(['tenant-a']);
   });
-  it('no tenant requested, platform scope + gate ON → all registered tenants', () => {
+  it('no tenant requested, platform scope + gate ON → the FAN-OUT roster', () => {
     gateOn();
     expect(resolvePlatformTenantScope(req(PLATFORM), undefined, opts)).toEqual(KNOWN);
+  });
+  it('omitted tenant never expands over the VALIDATION roster: without fanOutTenants → own only', () => {
+    // knownTenants may name a dormant static tenant an operator can target;
+    // "all tenants" must not create a database per such key (A-10 / V-5).
+    gateOn();
+    const validationOnly = { knownTenants: () => [...KNOWN, 'tenant-dormant'] };
+    expect(resolvePlatformTenantScope(req(PLATFORM), undefined, validationOnly)).toEqual([
+      'tenant-a',
+    ]);
+    // …while a single requested dormant tenant still validates through it.
+    expect(resolvePlatformTenantScope(req(PLATFORM), 'tenant-dormant', validationOnly)).toEqual([
+      'tenant-dormant',
+    ]);
   });
   it('own tenant requested → own tenant only', () => {
     expect(resolvePlatformTenantScope(req(ADMIN), 'tenant-a', opts)).toEqual(['tenant-a']);

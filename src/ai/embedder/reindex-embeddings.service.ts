@@ -73,7 +73,7 @@ export class ReindexEmbeddingsService {
     const started = Date.now();
     const dryRun = opts.dryRun === true;
     const maxFacts = opts.maxFacts ?? Number.MAX_SAFE_INTEGER;
-    const tenants = opts.tenant ? [opts.tenant] : this.apiKeys.knownCompanyIds();
+    const tenants = opts.tenant ? [opts.tenant] : this.apiKeys.fanOutRoster();
 
     const allTables = opts.allTables === true;
     const breakdown = allTables || opts.tables !== undefined;

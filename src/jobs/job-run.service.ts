@@ -388,7 +388,7 @@ export class JobRunService {
   }): Promise<JobRunRow[]> {
     if (!this.persistEnabled || !this.surreal || !this.apiKeys) return [];
     const limit = Math.min(Math.max(filter.limit ?? 50, 1), 500);
-    const tenants = filter.companyId ? [filter.companyId] : this.apiKeys.knownCompanyIds();
+    const tenants = filter.companyId ? [filter.companyId] : this.apiKeys.fanOutRoster();
     const where = buildJobRunListWhere(filter);
     const out: JobRunRow[] = [];
     for (const companyId of tenants) {
