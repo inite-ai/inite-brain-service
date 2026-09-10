@@ -894,9 +894,23 @@ This is intentional — better to refuse to start than to dribble out
 
 ## Graceful shutdown
 
-`SIGTERM` and `SIGINT` close the SurrealDB connection and drain in-
-flight requests. A 15s deadline guards against a hung shutdown so
-docker / fly / k8s don't `SIGKILL` you with no log line.
+`SIGTERM` and `SIGINT` run Nest's shutdown lifecycle exactly once —
+there is no second signal handler, and adding one races `app.close()`
+with itself. `GracefulShutdownService` owns the sequence:
+
+1. `/health` and `/ready` answer 503 immediately. Traefik health-checks
+   `/health`, so this is what takes the replica out of rotation.
+2. The process keeps serving for 6s while the balancer notices.
+3. The worker loop stops claiming, waits up to 12s for in-flight
+   dispatches, hands any claim that outlived that back to the queue
+   (`status='pending'`, visible now, `error.name='PodShutdown'`) rather
+   than leaving it `running` until its lease expires, then releases the
+   `worker_loop` lease.
+4. HTTP close, OTel flush, SurrealDB pool close.
+
+A 25s deadline forces `exit(1)` if any of that hangs, inside compose's
+`stop_grace_period: 30s`, so docker / fly / k8s never `SIGKILL` you with
+no log line.
 
 ## Deploys, and how to undo one
 

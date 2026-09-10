@@ -1,12 +1,13 @@
 /**
  * Unit coverage for JobClaimService — CAS enqueue / claimNext / renew
- * / complete / fail / reapZombies. We mock the SurrealService at the
- * withCompany boundary and assert what SQL it issued and how the
+ * / complete / fail / release / reapZombies. We mock the SurrealService
+ * at the withCompany boundary and assert what SQL it issued and how the
  * service reacted to driver-level errors (unique violation collapse,
  * read conflict retry).
  */
 import { Logger } from '@nestjs/common';
 import { JobClaimService } from '../src/jobs/job-claim.service';
+import { PROCESS_IDENTITY } from '../src/common/process-identity';
 
 interface QueryCall {
   sql: string;
@@ -35,13 +36,18 @@ function mkSurreal(db: { query: (s: string, p?: any) => Promise<any> }) {
   } as any;
 }
 
+const CLAIMED_ROW = {
+  id: 'job_run:abc',
+  runId: 'run-uuid-1',
+  jobType: 'dreams',
+  attempts: 1,
+  payload: { operations: ['dedup'] },
+  leaseUntil: '2030-01-01T00:05:00Z',
+};
+
 describe('JobClaimService', () => {
-  it('claimNext returns null when the transaction yields no row', async () => {
-    // Real SurrealDB 3.x shape for the 2-statement claim tx: one slot
-    // per statement INCLUDING BEGIN and COMMIT → [BEGIN, LET,
-    // RETURN NONE, COMMIT]. runTransaction detects the stmts+2 shape
-    // and reads the slot before COMMIT.
-    const { db } = mkDbScript([() => [null, null, null, null]]);
+  it('claimNext returns null when no candidate is pending', async () => {
+    const { db, calls } = mkDbScript([() => [[]]]);
     const svc = new JobClaimService(mkSurreal(db));
     const got = await svc.claimNext({
       companyId: 'co_x',
@@ -49,63 +55,83 @@ describe('JobClaimService', () => {
       ttlSeconds: 300,
     });
     expect(got).toBeNull();
+    // One index-backed read; no CAS attempted, no transaction opened.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.sql).toContain('SELECT id, visibleAfter FROM job_run');
+    expect(calls[0]!.sql).not.toContain('BEGIN');
   });
 
-  it('claimNext returns a typed JobClaim when the tx yields a row', async () => {
-    // 3.x shape: [BEGIN, LET, RETURN row, COMMIT] — row sits right
-    // before the trailing COMMIT null.
-    const { db } = mkDbScript([
-      () => [
-        null,
-        null,
-        {
-          id: 'job_run:abc',
-          runId: 'run-uuid-1',
-          jobType: 'dreams',
-          attempts: 1,
-          payload: { operations: ['dedup'] },
-          leaseUntil: '2030-01-01T00:05:00Z',
-        },
-        null,
-      ],
-    ]);
+  it('claimNext selects the candidate outside any transaction, then CAS-updates that one record', async () => {
+    const { db, calls } = mkDbScript([() => [[{ id: 'job_run:abc' }]], () => [[CLAIMED_ROW]]]);
     const svc = new JobClaimService(mkSurreal(db));
     const got = await svc.claimNext({
       companyId: 'co_x',
       jobType: 'dreams',
       ttlSeconds: 300,
+      epoch: 7,
     });
     expect(got).not.toBeNull();
     expect(got?.runId).toBe('run-uuid-1');
     expect(got?.recordId).toBe('job_run:abc');
     expect(got?.payload).toEqual({ operations: ['dedup'] });
     expect(got?.attempts).toBe(1);
+    expect(got?.claimEpoch).toBe(7);
+
+    expect(calls).toHaveLength(2);
+    const [select, cas] = calls as [QueryCall, QueryCall];
+    expect(select.sql).toMatch(/status = 'pending'\s+AND visibleAfter <= time::now\(\)/);
+    expect(select.sql).toContain('LIMIT 1');
+    // The CAS is a point write on the candidate's id, guarded on the
+    // state the candidate was read in, and stamps the lease epoch.
+    expect(cas.sql).toContain('UPDATE type::record($rid)');
+    expect(cas.sql).toContain("WHERE status = 'pending' AND visibleAfter <= time::now()");
+    expect(cas.sql).toContain('claimEpoch = $epoch');
+    expect(cas.sql).not.toContain('BEGIN');
+    expect(cas.params).toMatchObject({ rid: 'job_run:abc', me: PROCESS_IDENTITY, epoch: 7 });
   });
 
-  it('claimNext reads the last slot on the 2.x response shape', async () => {
-    // 2.x shape: BEGIN/COMMIT emit no slots and LETs collapse — the
-    // RETURN row is simply the LAST (often only) slot. Regression for
-    // prod v2.3.10, where blind arr[length-2] silently discarded every
-    // committed claim.
-    const { db } = mkDbScript([
-      () => [
-        {
-          id: 'job_run:abc2',
-          runId: 'run-uuid-2',
-          jobType: 'dreams',
-          attempts: 1,
-          payload: null,
-          leaseUntil: '2030-01-01T00:05:00Z',
-        },
-      ],
+  it('claimNext without a lease epoch stamps claimEpoch = NONE', async () => {
+    const { db, calls } = mkDbScript([() => [[{ id: 'job_run:abc' }]], () => [[CLAIMED_ROW]]]);
+    const svc = new JobClaimService(mkSurreal(db));
+    const got = await svc.claimNext({ companyId: 'co_x', jobType: 'dreams', ttlSeconds: 300 });
+    expect(got?.claimEpoch).toBeNull();
+    expect(calls[1]!.sql).toContain('claimEpoch = NONE');
+    expect(calls[1]!.params).not.toHaveProperty('epoch');
+  });
+
+  it('claimNext moves on to the next candidate when the CAS loses the race', async () => {
+    const { db, calls } = mkDbScript([
+      () => [[{ id: 'job_run:a' }]],
+      () => [[]], // another claimer flipped job_run:a between our read and our write
+      () => [[{ id: 'job_run:b' }]],
+      () => [[{ ...CLAIMED_ROW, id: 'job_run:b', runId: 'run-b' }]],
     ]);
     const svc = new JobClaimService(mkSurreal(db));
-    const got = await svc.claimNext({
-      companyId: 'co_x',
-      jobType: 'dreams',
-      ttlSeconds: 300,
-    });
-    expect(got?.runId).toBe('run-uuid-2');
+    const got = await svc.claimNext({ companyId: 'co_x', jobType: 'dreams', ttlSeconds: 300 });
+    expect(got?.recordId).toBe('job_run:b');
+    expect(got?.runId).toBe('run-b');
+    expect(calls.map((c) => c.params?.rid)).toEqual([
+      undefined,
+      'job_run:a',
+      undefined,
+      'job_run:b',
+    ]);
+  });
+
+  it('claimNext gives up after three lost races', async () => {
+    const { db, calls } = mkDbScript([
+      () => [[{ id: 'job_run:a' }]],
+      () => [[]],
+      () => [[{ id: 'job_run:b' }]],
+      () => [[]],
+      () => [[{ id: 'job_run:c' }]],
+      () => [[]],
+      () => [[{ id: 'job_run:d' }]], // never read
+    ]);
+    const svc = new JobClaimService(mkSurreal(db));
+    const got = await svc.claimNext({ companyId: 'co_x', jobType: 'dreams', ttlSeconds: 300 });
+    expect(got).toBeNull();
+    expect(calls).toHaveLength(6);
   });
 
   it('claimNext returns null and swallows transient driver errors', async () => {
@@ -125,6 +151,28 @@ describe('JobClaimService', () => {
       ttlSeconds: 300,
     });
     expect(got).toBeNull();
+  });
+
+  it('enqueue leaves visibleAfter to the datastore unless the job is deliberately delayed', async () => {
+    // The claim filter is `visibleAfter <= time::now()`, evaluated by the
+    // datastore: a row stamped from a process clock running ahead of it is
+    // unclaimable until the difference elapses.
+    const { db, calls } = mkDbScript([() => [[{ id: 'job_run:new' }]]]);
+    const svc = new JobClaimService(mkSurreal(db));
+    await svc.enqueue({ jobType: 'dreams', companyId: 'co_x', triggeredBy: 'cron' });
+    expect(calls[0]!.sql).not.toContain('visibleAfter');
+    expect(calls[0]!.params).not.toHaveProperty('visibleAfter');
+
+    const at = new Date('2030-01-01T00:00:00.000Z');
+    const scheduled = mkDbScript([() => [[{ id: 'job_run:later' }]]]);
+    await new JobClaimService(mkSurreal(scheduled.db)).enqueue({
+      jobType: 'dreams',
+      companyId: 'co_x',
+      triggeredBy: 'cron',
+      visibleAfter: at,
+    });
+    expect(scheduled.calls[0]!.sql).toContain('visibleAfter: type::datetime($visibleAfter)');
+    expect(scheduled.calls[0]!.params).toMatchObject({ visibleAfter: at.toISOString() });
   });
 
   it('enqueue collapses a dedup collision onto the existing row', async () => {
@@ -167,6 +215,7 @@ describe('JobClaimService', () => {
     const out = await svc.renew({
       companyId: 'co_x',
       recordId: 'job_run:abc',
+      claimEpoch: null,
       ttlSeconds: 300,
     });
     expect(out.stillOwned).toBe(false);
@@ -179,6 +228,7 @@ describe('JobClaimService', () => {
     const out = await svc.renew({
       companyId: 'co_x',
       recordId: 'job_run:abc',
+      claimEpoch: null,
       ttlSeconds: 300,
     });
     expect(out.stillOwned).toBe(true);
@@ -198,6 +248,7 @@ describe('JobClaimService', () => {
     const out = await svc.fail({
       companyId: 'co_x',
       recordId: 'job_run:abc',
+      claimEpoch: null,
       attempts: 1,
       error: { message: 'boom' },
       maxAttempts: 3,
@@ -206,7 +257,7 @@ describe('JobClaimService', () => {
     expect(updateSql).toContain("status = 'pending'");
     expect(updateSql).toContain('visibleAfter');
     // Ownership guard present so a re-claimed row can't be stomped.
-    expect(updateSql).toContain("claimedBy = $me AND status = 'running'");
+    expect(updateSql).toContain("claimedBy = $me AND status = 'running' AND claimEpoch IS NONE");
   });
 
   it('fail terminal-fails at maxAttempts', async () => {
@@ -221,13 +272,14 @@ describe('JobClaimService', () => {
     const out = await svc.fail({
       companyId: 'co_x',
       recordId: 'job_run:abc',
+      claimEpoch: null,
       attempts: 3,
       error: { message: 'boom' },
       maxAttempts: 3,
     });
     expect(out.requeued).toBe(false);
     expect(updateSql).toContain("status = 'failed'");
-    expect(updateSql).toContain("claimedBy = $me AND status = 'running'");
+    expect(updateSql).toContain("claimedBy = $me AND status = 'running' AND claimEpoch IS NONE");
   });
 
   it('fail reports requeued=false when the guarded UPDATE matches no row (claim lost to a re-claim)', async () => {
@@ -238,6 +290,7 @@ describe('JobClaimService', () => {
     const out = await svc.fail({
       companyId: 'co_x',
       recordId: 'job_run:abc',
+      claimEpoch: null,
       attempts: 1,
       error: { message: 'boom' },
       maxAttempts: 3,
@@ -254,21 +307,21 @@ describe('JobClaimService', () => {
       },
     };
     const svc = new JobClaimService(mkSurreal(db));
-    await svc.complete({ companyId: 'co_x', recordId: 'job_run:abc' });
-    await svc.cancelled({ companyId: 'co_x', recordId: 'job_run:abc' });
+    await svc.complete({ companyId: 'co_x', recordId: 'job_run:abc', claimEpoch: null });
+    await svc.cancelled({ companyId: 'co_x', recordId: 'job_run:abc', claimEpoch: null });
     expect(sqls).toHaveLength(2);
     expect(sqls[0]).toContain("status = 'succeeded'");
-    expect(sqls[0]).toContain("claimedBy = $me AND status = 'running'");
+    expect(sqls[0]).toContain("claimedBy = $me AND status = 'running' AND claimEpoch IS NONE");
     expect(sqls[1]).toContain("status = 'cancelled'");
-    expect(sqls[1]).toContain("claimedBy = $me AND status = 'running'");
+    expect(sqls[1]).toContain("claimedBy = $me AND status = 'running' AND claimEpoch IS NONE");
   });
 
   it('complete()/cancelled() no-op + warn when the guarded UPDATE matches no row', async () => {
     const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined as any);
     const db = { query: async () => [[]] }; // 0 rows ⇒ claim lost
     const svc = new JobClaimService(mkSurreal(db));
-    await svc.complete({ companyId: 'co_x', recordId: 'job_run:abc' });
-    await svc.cancelled({ companyId: 'co_x', recordId: 'job_run:abc' });
+    await svc.complete({ companyId: 'co_x', recordId: 'job_run:abc', claimEpoch: null });
+    await svc.cancelled({ companyId: 'co_x', recordId: 'job_run:abc', claimEpoch: null });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('no-op'));
     expect(warn.mock.calls.filter((c) => String(c[0]).includes('no-op')).length).toBe(2);
     warn.mockRestore();
@@ -304,9 +357,79 @@ describe('JobClaimService', () => {
     });
   });
 
-  it('identity is hostname#pid format', () => {
+  it('identity is the one process identity — hostname#pid#uuid', () => {
     const svc = new JobClaimService();
-    expect(svc.identity()).toMatch(/^.+#\d+$/);
+    expect(svc.identity()).toBe(PROCESS_IDENTITY);
+    expect(svc.identity()).toMatch(/^.+#\d+#[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
+  });
+
+  it('renew is fenced on the claim epoch, so a dispatch from a lapsed leadership loses its claim', async () => {
+    const { db, calls } = mkDbScript([() => [[]]]);
+    const svc = new JobClaimService(mkSurreal(db));
+    const out = await svc.renew({
+      companyId: 'co_x',
+      recordId: 'job_run:abc',
+      claimEpoch: 4,
+      ttlSeconds: 300,
+    });
+    expect(out.stillOwned).toBe(false);
+    expect(calls[0]!.sql).toContain(
+      "claimedBy = $me AND status = 'running' AND claimEpoch = $epoch",
+    );
+    expect(calls[0]!.params).toMatchObject({ me: PROCESS_IDENTITY, epoch: 4 });
+  });
+
+  it('terminal writes taken under an epoch require the row to still carry it — a stale epoch is a no-op', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined as any);
+    const { db, calls } = mkDbScript([() => [[]], () => [[]], () => [[]]]);
+    const svc = new JobClaimService(mkSurreal(db));
+    await svc.complete({ companyId: 'co_x', recordId: 'job_run:abc', claimEpoch: 5 });
+    const failed = await svc.fail({
+      companyId: 'co_x',
+      recordId: 'job_run:abc',
+      claimEpoch: 5,
+      attempts: 1,
+      error: { message: 'boom' },
+    });
+    await svc.cancelled({ companyId: 'co_x', recordId: 'job_run:abc', claimEpoch: 5 });
+    expect(failed.requeued).toBe(false);
+    for (const call of calls) {
+      expect(call.sql).toContain("claimedBy = $me AND status = 'running' AND claimEpoch = $epoch");
+      expect(call.params).toMatchObject({ me: PROCESS_IDENTITY, epoch: 5 });
+      // The row leaves the claim state clean for the next claimer.
+      expect(call.sql).toContain('claimEpoch = NONE');
+    }
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes('no-op')).length).toBe(3);
+    warn.mockRestore();
+  });
+
+  it('release hands the row back as pending, visible now, under the same ownership guard', async () => {
+    const { db, calls } = mkDbScript([() => [[{ id: 'job_run:abc' }]], () => [[]]]);
+    const svc = new JobClaimService(mkSurreal(db));
+    const released = await svc.release({
+      companyId: 'co_x',
+      recordId: 'job_run:abc',
+      claimEpoch: 2,
+      reason: 'pod shutdown',
+    });
+    expect(released).toBe(true);
+    expect(calls[0]!.sql).toContain("status = 'pending'");
+    expect(calls[0]!.sql).toContain('visibleAfter = time::now()');
+    expect(calls[0]!.sql).toContain(
+      "claimedBy = $me AND status = 'running' AND claimEpoch = $epoch",
+    );
+    expect(calls[0]!.params).toMatchObject({
+      err: { name: 'PodShutdown', message: 'pod shutdown' },
+    });
+    // A row we no longer own matches nothing — nothing to hand back.
+    expect(
+      await svc.release({
+        companyId: 'co_x',
+        recordId: 'job_run:abc',
+        claimEpoch: 2,
+        reason: 'pod shutdown',
+      }),
+    ).toBe(false);
   });
 
   it('listActiveClaims aggregates rows across tenants', async () => {

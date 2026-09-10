@@ -69,9 +69,9 @@ services:
     # worker_threads / native processes, and without an init the Node
     # PID-1 doesn't reap them. Also forwards signals correctly.
     init: true
-    # The app's graceful shutdown gives in-flight work up to 15s before a
-    # forced exit (main.ts). Docker's default 10s SIGKILLs mid-drain; give
-    # it headroom so SIGTERM handling actually completes.
+    # The app's shutdown budget (GracefulShutdownService): 6s readiness
+    # drain, then up to 12s for in-flight jobs, then a 25s hard stop.
+    # Docker's default 10s SIGKILLs mid-drain; give it headroom past that.
     stop_grace_period: 30s
     # Mirror the prod ceilings so local OOMs surface here, not in deploy.
     mem_limit: 2g

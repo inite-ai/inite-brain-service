@@ -15,6 +15,13 @@ import { envFlagNotDisabled } from '../common/env-validation';
 export type { JobContext, JobHandler } from './worker-loop.types';
 
 /**
+ * How long shutdown waits for in-flight dispatches before handing their
+ * claims back to the queue. Sits after the readiness drain and inside the
+ * hard stop (GracefulShutdownService), under compose's stop_grace_period.
+ */
+const DISPATCH_DRAIN_MS = 12_000;
+
+/**
  * WorkerLoopService — leader election + handler registry + lifecycle for
  * the job_run queue worker. Holds the @Cron-less lease loop: it acquires
  * the worker_loop lease, and while leader spins up one WorkerPollerService
@@ -38,7 +45,11 @@ export class WorkerLoopService implements OnModuleInit, BeforeApplicationShutdow
   private readonly abortController = new AbortController();
   private leaseTimer: NodeJS.Timeout | null = null;
   private isLeader = false;
+  /** Fencing epoch of the worker_loop lease we hold; null when not leader. */
+  private epoch: number | null = null;
   private loopsStarted = false;
+  /** The running poll loops; each settles after its own dispatches do. */
+  private loops: Promise<void>[] = [];
 
   constructor(
     private readonly poller: WorkerPollerService,
@@ -119,6 +130,7 @@ export class WorkerLoopService implements OnModuleInit, BeforeApplicationShutdow
     this.poller.stopDecay();
     this.abortController.abort();
     this.metrics?.setWorkerLeader(false);
+    await this.drainDispatches();
     if (this.isLeader && this.lease) {
       try {
         await this.lease.release('worker_loop');
@@ -129,45 +141,110 @@ export class WorkerLoopService implements OnModuleInit, BeforeApplicationShutdow
     this.logger.log('Worker loop shut down');
   }
 
+  /**
+   * Wait for the poll loops — and the dispatches they own — to settle.
+   * Past the budget, hand every still-running claim back to the queue so
+   * the next leader can take it now instead of waiting out a lease this
+   * dying pod will never renew. Runs BEFORE the lease release: the claims
+   * are ours until then.
+   */
+  private async drainDispatches(): Promise<void> {
+    if (this.loops.length === 0) return;
+    let timer: NodeJS.Timeout | undefined;
+    const budget = new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), DISPATCH_DRAIN_MS);
+      timer.unref();
+    });
+    const drained = await Promise.race([
+      Promise.allSettled(this.loops).then(() => true as const),
+      budget,
+    ]);
+    if (timer) clearTimeout(timer);
+    if (drained) return;
+    const stuck = this.poller.activeClaims().length;
+    const released = await this.poller.releaseActiveClaims(
+      'pod shutdown: handler did not stop within the drain budget',
+    );
+    this.logger.warn(
+      `${stuck} dispatch(es) still running after ${DISPATCH_DRAIN_MS} ms; ` +
+        `released ${released} claim(s) back to the queue`,
+    );
+  }
+
   private async tryBecomeLeader(): Promise<void> {
     if (this.abortController.signal.aborted) return;
     if (!this.lease) {
       // No lease service — assume single-pod dev/test. Start loops
       // immediately if we have handlers registered.
       this.isLeader = true;
+      this.epoch = null;
     } else {
       try {
-        const got = await this.lease.tryAcquire(
+        const epoch = await this.lease.acquire(
           'worker_loop',
           Math.ceil((this.leaseRenewIntervalMs * 3) / 1000),
         );
+        const got = epoch !== null;
         if (got !== this.isLeader) {
           this.logger.log(
             got
-              ? 'Acquired worker_loop lease — starting poll loops'
+              ? `Acquired worker_loop lease (epoch ${epoch}) — starting poll loops`
               : 'Lost worker_loop lease — pausing poll loops',
           );
         }
         this.isLeader = got;
+        this.epoch = epoch;
       } catch (e) {
         this.logger.warn(`worker_loop lease acquire failed: ${(e as Error).message}`);
         this.isLeader = false;
+        this.epoch = null;
       }
     }
     this.metrics?.setWorkerLeader(this.isLeader);
-    if (this.isLeader && !this.loopsStarted) {
-      this.loopsStarted = true;
-      const control: PollControl = {
-        isLeader: () => this.isLeader,
-        signal: this.abortController.signal,
-        onInFlight: (jobType, inFlight) => this.metrics?.setWorkerJobsInFlight(jobType, inFlight),
-      };
-      for (const reg of this.handlers.values()) {
-        void this.poller.runLoop(reg, control);
-      }
-    }
+    if (this.isLeader && !this.loopsStarted) this.startLoops();
     if (!this.abortController.signal.aborted) {
       this.leaseTimer = setTimeout(() => void this.tryBecomeLeader(), this.leaseRenewIntervalMs);
     }
+  }
+
+  /**
+   * Point-read the lease before a claim: a pod that lost it must stop
+   * claiming now, not at the next renew tick up to a full interval away.
+   */
+  private async confirmLeader(): Promise<boolean> {
+    if (!this.lease) return this.isLeader;
+    if (!this.isLeader) return false;
+    const held = await this.lease.isHeld('worker_loop', this.epoch ?? undefined);
+    if (!held) {
+      this.logger.log('worker_loop lease no longer ours — stopping poll loops');
+      this.isLeader = false;
+      this.epoch = null;
+      this.metrics?.setWorkerLeader(false);
+    }
+    return held;
+  }
+
+  /**
+   * One loop per registered jobType. Loops end when leadership is lost;
+   * the renew tick starts a fresh set once the lease is ours again. The
+   * promises are kept so shutdown can await the dispatches they own.
+   */
+  private startLoops(): void {
+    this.loopsStarted = true;
+    const control: PollControl = {
+      isLeader: () => this.isLeader,
+      confirmLeader: () => this.confirmLeader(),
+      epoch: () => this.epoch,
+      signal: this.abortController.signal,
+      onInFlight: (jobType, inFlight) => this.metrics?.setWorkerJobsInFlight(jobType, inFlight),
+    };
+    this.loops = [...this.handlers.values()].map((reg) =>
+      this.poller.runLoop(reg, control).catch((e: unknown) => {
+        this.logger.warn(`poll loop (${reg.jobType}) died: ${(e as Error).message}`);
+      }),
+    );
+    void Promise.allSettled(this.loops).then(() => {
+      this.loopsStarted = false;
+    });
   }
 }

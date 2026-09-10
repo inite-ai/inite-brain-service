@@ -5,7 +5,7 @@
 // `express`, or other auto-instrumented modules. The instrumentations
 // patch via require-hooks; late init silently misses every prior
 // require. No-op when OTEL_ENABLED!=1.
-import { initTracing, shutdownTracing } from './common/tracing';
+import { initTracing } from './common/tracing';
 initTracing();
 
 import { NestFactory } from '@nestjs/core';
@@ -53,6 +53,12 @@ async function bootstrap() {
   });
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // The ONLY signal handling in the process: Nest runs its shutdown
+  // lifecycle once per signal and re-raises the signal when it is done.
+  // GracefulShutdownService (root module) owns the readiness flip, the
+  // drain, the hard-stop deadline and the OTel flush inside that
+  // lifecycle — a second SIGTERM listener here ran app.close()
+  // concurrently with Nest's own run of the same hooks.
   app.enableShutdownHooks();
   const configService = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
@@ -117,33 +123,6 @@ async function bootstrap() {
 
   logger.log(`INITE Brain Service running on port ${port}`);
   logger.log(`SurrealDB: ${configService.get<string>('SURREALDB_URL')}`);
-
-  // Hard-stop guard: if a hung SurrealDB close blocks shutdown, force exit
-  // after 15s rather than have docker SIGKILL us with no log line.
-  const onTerm = async () => {
-    logger.log('SIGTERM received — closing app');
-    const t = setTimeout(() => {
-      logger.error('Graceful shutdown timed out; forcing exit');
-      process.exit(1);
-    }, 15_000).unref();
-    await app.close().catch((err) => {
-      logger.error(`Error during shutdown: ${(err as Error).message}`);
-    });
-    await shutdownTracing(); // flush OTel spans before exit
-    clearTimeout(t);
-    process.exit(0);
-  };
-  // process.on's listener type is (...args) => void, but onTerm is async.
-  // Wrap it so a rejection (e.g. shutdownTracing throwing) is logged and
-  // forces exit instead of surfacing as an unhandledRejection mid-shutdown.
-  const onTermListener = () => {
-    void onTerm().catch((err) => {
-      logger.error(`Shutdown handler failed: ${(err as Error).message}`);
-      process.exit(1);
-    });
-  };
-  process.on('SIGTERM', onTermListener);
-  process.on('SIGINT', onTermListener);
 }
 
 bootstrap().catch((err) => {

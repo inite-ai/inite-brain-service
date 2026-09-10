@@ -86,6 +86,7 @@ describe('JobClaimService — real Surreal end-to-end', () => {
     await claim.complete({
       companyId: TENANT,
       recordId: claimed!.recordId,
+      claimEpoch: claimed!.claimEpoch,
       result: { ok: true, summarized: 42 },
     });
     const afterComplete = await surreal.withCompany(TENANT, async (db) => {
@@ -125,6 +126,7 @@ describe('JobClaimService — real Surreal end-to-end', () => {
     const r1 = await claim.renew({
       companyId: TENANT,
       recordId: claimed!.recordId,
+      claimEpoch: claimed!.claimEpoch,
       ttlSeconds: 60,
     });
     expect(r1.stillOwned).toBe(true);
@@ -137,6 +139,7 @@ describe('JobClaimService — real Surreal end-to-end', () => {
     const r2 = await claim.renew({
       companyId: TENANT,
       recordId: claimed!.recordId,
+      claimEpoch: claimed!.claimEpoch,
       ttlSeconds: 60,
     });
     expect(r2.stillOwned).toBe(true);
@@ -145,6 +148,7 @@ describe('JobClaimService — real Surreal end-to-end', () => {
     await claim.cancelled({
       companyId: TENANT,
       recordId: claimed!.recordId,
+      claimEpoch: claimed!.claimEpoch,
     });
   }, 60_000);
 
@@ -183,6 +187,7 @@ describe('JobClaimService — real Surreal end-to-end', () => {
     const out = await claim.fail({
       companyId: TENANT,
       recordId: claimed!.recordId,
+      claimEpoch: claimed!.claimEpoch,
       attempts: 1,
       error: { message: 'transient boom' },
       maxAttempts: 3,
@@ -286,6 +291,150 @@ describe('JobClaimService — real Surreal end-to-end', () => {
     expect(row.errName).toBe('ZombieAbandoned');
     expect(row.finishedAt).toBeTruthy();
   }, 60_000);
+  it('claim race: eight concurrent claimers on one pending row — exactly one wins, attempts = 1', async () => {
+    const jobType = 'changefeed_drain';
+    const { runId } = await claim.enqueue({
+      jobType,
+      companyId: TENANT,
+      triggeredBy: 'cron',
+      dedupKey: 'race_one_row',
+    });
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        claim.claimNext({ companyId: TENANT, jobType, ttlSeconds: 60 }),
+      ),
+    );
+    const winners = results.filter((r) => r !== null);
+    expect(winners).toHaveLength(1);
+    expect(winners[0]!.runId).toBe(runId);
+
+    const row = await surreal.withCompany(TENANT, async (db) => {
+      const [rows] = await db.query<[any[]]>(
+        `SELECT status, attempts, claimedBy FROM job_run WHERE runId = $r`,
+        { r: runId },
+      );
+      return (rows as any[])[0];
+    });
+    expect(row.status).toBe('running');
+    expect(row.attempts).toBe(1);
+    expect(row.claimedBy).toBe(claim.identity());
+
+    await claim.complete({
+      companyId: TENANT,
+      recordId: winners[0]!.recordId,
+      claimEpoch: winners[0]!.claimEpoch,
+    });
+  }, 60_000);
+
+  it('claim epoch fence: a write under a stale epoch is refused, the current epoch goes through', async () => {
+    // A jobType of its own: the earlier tests leave pending rows behind, and
+    // claimNext takes the oldest visible one for the type, not ours.
+    const jobType = 'candidate_sweeper';
+    const { runId } = await claim.enqueue({
+      jobType,
+      companyId: TENANT,
+      triggeredBy: 'cron',
+      dedupKey: 'epoch_fence',
+    });
+    const claimed = await claim.claimNext({ companyId: TENANT, jobType, ttlSeconds: 60, epoch: 5 });
+    expect(claimed?.runId).toBe(runId);
+    expect(claimed?.claimEpoch).toBe(5);
+
+    // The row was claimed again under a later leadership epoch — by a pod
+    // that may even present the same identity (a restart that kept it).
+    await surreal.withCompany(TENANT, async (db) => {
+      await db.query(`UPDATE type::record($rid) SET claimEpoch = 6`, { rid: claimed!.recordId });
+    });
+
+    const stale = await claim.renew({
+      companyId: TENANT,
+      recordId: claimed!.recordId,
+      claimEpoch: 5,
+      ttlSeconds: 60,
+    });
+    expect(stale.stillOwned).toBe(false);
+    await claim.complete({
+      companyId: TENANT,
+      recordId: claimed!.recordId,
+      claimEpoch: 5,
+      result: { stale: true },
+    });
+    const after = await surreal.withCompany(TENANT, async (db) => {
+      const [rows] = await db.query<[any[]]>(
+        `SELECT status, claimEpoch, result FROM job_run WHERE runId = $r`,
+        { r: runId },
+      );
+      return (rows as any[])[0];
+    });
+    expect(after.status).toBe('running');
+    expect(after.claimEpoch).toBe(6);
+    expect(after.result).toBeFalsy();
+
+    await claim.complete({
+      companyId: TENANT,
+      recordId: claimed!.recordId,
+      claimEpoch: 6,
+      result: { current: true },
+    });
+    const done = await surreal.withCompany(TENANT, async (db) => {
+      const [rows] = await db.query<[any[]]>(
+        `SELECT status, claimEpoch, result FROM job_run WHERE runId = $r`,
+        { r: runId },
+      );
+      return (rows as any[])[0];
+    });
+    expect(done.status).toBe('succeeded');
+    expect(done.claimEpoch).toBeFalsy();
+    expect(done.result).toEqual({ current: true });
+  }, 60_000);
+
+  it('release hands a running claim back as pending and visible now', async () => {
+    const jobType = 'recompose';
+    const { runId } = await claim.enqueue({
+      jobType,
+      companyId: TENANT,
+      triggeredBy: 'cron',
+      dedupKey: 'release_on_shutdown',
+    });
+    const claimed = await claim.claimNext({ companyId: TENANT, jobType, ttlSeconds: 60, epoch: 2 });
+    expect(claimed?.runId).toBe(runId);
+
+    expect(
+      await claim.release({
+        companyId: TENANT,
+        recordId: claimed!.recordId,
+        claimEpoch: 2,
+        reason: 'pod shutdown',
+      }),
+    ).toBe(true);
+    const row = await surreal.withCompany(TENANT, async (db) => {
+      const [rows] = await db.query<[any[]]>(
+        `SELECT status, claimedBy, claimEpoch, attempts, error.name AS errName, visibleAfter FROM job_run WHERE runId = $r`,
+        { r: runId },
+      );
+      return (rows as any[])[0];
+    });
+    expect(row.status).toBe('pending');
+    expect(row.claimedBy).toBeFalsy();
+    expect(row.claimEpoch).toBeFalsy();
+    expect(row.attempts).toBe(1);
+    expect(row.errName).toBe('PodShutdown');
+    expect(Date.parse(row.visibleAfter)).toBeLessThanOrEqual(Date.now());
+
+    // Claimable again at once; a second release of a row we no longer hold is a no-op.
+    const again = await claim.claimNext({ companyId: TENANT, jobType, ttlSeconds: 60, epoch: 3 });
+    expect(again?.runId).toBe(runId);
+    expect(again?.attempts).toBe(2);
+    expect(
+      await claim.release({
+        companyId: TENANT,
+        recordId: claimed!.recordId,
+        claimEpoch: 2,
+        reason: 'stale',
+      }),
+    ).toBe(false);
+    await claim.complete({ companyId: TENANT, recordId: again!.recordId, claimEpoch: 3 });
+  }, 60_000);
 });
 
 describe('LeaderLeaseService — real Surreal end-to-end', () => {
@@ -345,5 +494,41 @@ describe('LeaderLeaseService — real Surreal end-to-end', () => {
         name: 'test_lease_b',
       });
     });
+  }, 60_000);
+  it('acquire returns the fencing epoch: kept while the same holder renews, bumped on a takeover', async () => {
+    const name = 'test_lease_epoch';
+    await surreal.withAdminDb(async (db) => {
+      await db.query(`DELETE FROM leader_lease WHERE name = $name`, { name });
+    });
+    expect(await leader.acquire(name, 60)).toBe(1);
+    expect(await leader.acquire(name, 60)).toBe(1);
+    expect(await leader.isHeld(name, 1)).toBe(true);
+    expect(await leader.isHeld(name, 2)).toBe(false);
+
+    // Another pod took the lease, and its own lease has since lapsed.
+    await surreal.withAdminDb(async (db) => {
+      await db.query(
+        `UPDATE leader_lease SET leaderId = 'other-pod#1#00000000-0000-0000-0000-000000000000',
+            leaseUntil = type::datetime($t)
+          WHERE name = $name`,
+        { name, t: new Date(Date.now() - 1_000).toISOString() },
+      );
+    });
+    expect(await leader.isHeld(name, 1)).toBe(false);
+    expect(await leader.tryAcquire(name, 60)).toBe(true);
+    expect(await leader.isHeld(name, 1)).toBe(false);
+    expect(await leader.isHeld(name, 2)).toBe(true);
+    const row = await surreal.withAdminDb(async (db) => {
+      const [rows] = await db.query<[any[]]>(
+        `SELECT epoch, leaderId FROM leader_lease WHERE name = $name`,
+        { name },
+      );
+      return (rows as any[])[0];
+    });
+    expect(row.epoch).toBe(2);
+    expect(row.leaderId).toBe(leader.identity());
+
+    await leader.release(name);
+    expect(await leader.isHeld(name, 2)).toBe(false);
   }, 60_000);
 });
