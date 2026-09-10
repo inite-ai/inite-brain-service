@@ -30,6 +30,7 @@ import { evaluateAction } from '../policy/policy-engine';
 import { ACTIONS } from '../policy/action-registry';
 import { ActionKind, PolicyContext } from '../policy/policy.types';
 import { envFlagEnabled } from '../common/env-validation';
+import { SERVICE_VERSION } from '../common/service-version';
 import { PACK_NAMESPACE_SEP } from '../ai/domain-packs';
 import { PackToolsReaderService, type PackToolBinding } from './pack-tools-reader.service';
 import { PackToolProxyService } from './pack-tool-proxy.service';
@@ -422,11 +423,23 @@ export class McpService {
    * endpoint is reachable BEFORE the operator pastes the API key.
    * Write- and admin-scoped tools are NOT listed; callers verify those
    * exist by hitting the authenticated endpoint with the right scope.
+   *
+   * Two version numbers, because there are two: `version` is the MCP
+   * server's own (what `initialize` reports to a client), while
+   * `serviceVersion` is the deployed brain release that /health names.
+   * They differ, and reading one as the other has cost debugging time.
    */
-  health(): { ok: boolean; version: string; tools: string[]; embedder: string } {
+  health(): {
+    ok: boolean;
+    version: string;
+    serviceVersion: string;
+    tools: string[];
+    embedder: string;
+  } {
     return {
       ok: true,
       version: MCP_SERVER_VERSION,
+      serviceVersion: SERVICE_VERSION,
       tools: HEALTH_TOOLS,
       embedder: this.embedderDescription(),
     };

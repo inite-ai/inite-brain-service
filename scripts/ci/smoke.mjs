@@ -49,6 +49,19 @@ const SURFACES = {
       expect: [400, 401, 405, 406],
       why: 'MCP transport is mounted and refuses an unauthenticated probe',
     },
+    {
+      // The 401 above names this document in WWW-Authenticate, so an MCP
+      // client following RFC 9728 lands here. brain.inite.ai also fronts
+      // the marketing site, and a Traefik rule that forgets this prefix
+      // sends the client to a 200-or-404 HTML page instead — discovery
+      // dead-ends with no error anyone sees. Assert the JSON body, not
+      // just the status: the landing app can answer 200 too.
+      path: '/.well-known/oauth-protected-resource',
+      method: 'GET',
+      expect: [200],
+      jsonHas: 'authorization_servers',
+      why: 'RFC 9728 discovery reaches the API (not the landing app)',
+    },
   ],
   landing: [
     { path: '/en', method: 'GET', expect: [200], why: 'the localized site renders' },
@@ -78,7 +91,13 @@ if (!checks) fail(`unknown SMOKE_SURFACE "${SURFACE}" (expected one of: ${Object
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function status(check) {
+/**
+ * Returns the status, plus — when the check asks for a JSON key — whether
+ * the body actually parsed and carried it. A shared host means the wrong
+ * backend can answer with the right status code, so some routes are only
+ * verified by what comes back in the body.
+ */
+async function probe(check) {
   const res = await fetch(`${BASE}${check.path}`, {
     method: check.method,
     redirect: 'manual',
@@ -86,7 +105,19 @@ async function status(check) {
     // A hung upstream must not hang the deploy.
     signal: AbortSignal.timeout(15_000),
   });
-  return res.status;
+  if (!check.jsonHas) return { status: res.status };
+  let body;
+  try {
+    body = await res.json();
+  } catch {
+    return { status: res.status, jsonOk: false, detail: 'body is not JSON' };
+  }
+  const jsonOk = body !== null && typeof body === 'object' && check.jsonHas in body;
+  return { status: res.status, jsonOk, detail: jsonOk ? undefined : `missing "${check.jsonHas}"` };
+}
+
+async function status(check) {
+  return (await probe(check)).status;
 }
 
 /**
@@ -120,17 +151,18 @@ async function main() {
   for (const check of checks) {
     let got;
     try {
-      got = await status(check);
+      got = await probe(check);
     } catch (err) {
       console.error(`[smoke] ERR ${check.method} ${check.path} — request failed: ${err.message}`);
       failed += 1;
       continue;
     }
-    const ok = check.expect.includes(got);
+    const ok = check.expect.includes(got.status) && (check.jsonHas ? got.jsonOk === true : true);
     if (!ok) failed += 1;
     console.log(
-      `[smoke] ${ok ? 'ok ' : 'ERR'} ${check.method} ${check.path} -> ${got} ` +
-        `(want ${check.expect.join('|')}) — ${check.why}`,
+      `[smoke] ${ok ? 'ok ' : 'ERR'} ${check.method} ${check.path} -> ${got.status} ` +
+        `(want ${check.expect.join('|')}${check.jsonHas ? ` + JSON.${check.jsonHas}` : ''}` +
+        `${got.detail ? `; ${got.detail}` : ''}) — ${check.why}`,
     );
   }
 
