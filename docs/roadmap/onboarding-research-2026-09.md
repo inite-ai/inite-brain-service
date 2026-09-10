@@ -254,7 +254,7 @@ not about the snippets.)*
 ### Wave 1 — the path from signup to first recall (days)
 
 7. ✅ **Self-serve keys.** Shipped: brain issues, verifies and revokes
-   its own keys from a system-DB store (migration 0141), exposed as
+   its own keys from a system-DB store (migration 0144), exposed as
    `POST /v1/keys` / `GET /v1/keys` / `POST /v1/keys/{id}/revoke` and as
    a real Keys screen — the tenant's `companyId`, its MCP URL, the key
    shown once, and *personalised* copy-paste configuration (no

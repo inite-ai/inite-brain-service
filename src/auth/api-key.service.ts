@@ -103,7 +103,7 @@ export class ApiKeyService implements OnModuleInit {
   }
 
   /**
-   * Keys brain issued itself (system-DB store, migration 0141).
+   * Keys brain issued itself (system-DB store, migration 0144).
    *
    * Routed through this service rather than injected into
    * CredentialResolverService because that constructor is at its

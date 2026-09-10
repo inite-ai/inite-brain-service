@@ -346,7 +346,7 @@ off). All endpoints require `brain:admin`; wire contracts live in
 | `POST /v1/admin/policy/preview-rule` | `{rule}` → approximate live match count + 3 sample facts (sampled over the most recent 5 000 active facts). |
 | `GET /v1/admin/policy/decisions` | Cursor-paginated decision feed (`policySet/decision/kind/action/before` filters). `GET …/stats?windowDays=` → series, top denied actions/rules/keys, report_only promotion candidates. |
 | `GET /v1/admin/keys` | Read-only static-key inventory: `keyId`, binding `subject`, scopes, attached policy sets. |
-| `GET/POST /v1/keys`, `POST /v1/keys/{id}/revoke` | Self-serve keys brain issues and verifies itself (system-DB store, migration 0141) — see § Self-serve keys. |
+| `GET/POST /v1/keys`, `POST /v1/keys/{id}/revoke` | Self-serve keys brain issues and verifies itself (system-DB store, migration 0144) — see § Self-serve keys. |
 
 A key acquires policies three ways, unioned and capped at 8: a
 `policy_binding` row (attachments above), a `"policies": [...]` field on its

@@ -89,7 +89,7 @@ function isoOrUndefined(value: unknown): string | undefined {
 }
 
 /**
- * Keys brain issues itself, stored in the system DB (migration 0141).
+ * Keys brain issues itself, stored in the system DB (migration 0144).
  *
  * The third credential source, alongside auth-service JWTs and ik_
  * introspection — and the only one that works identically on the hosted

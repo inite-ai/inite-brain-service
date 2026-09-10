@@ -1,4 +1,4 @@
--- 0142: tenant_registry.displayName — a workspace has a name.
+-- 0145: tenant_registry.displayName — a workspace has a name.
 --
 -- WHY. A tenant arrives as `co_u_9f2c…` (personal workspace provisioned
 -- on first OAuth) or as whatever identifier an operator chose, and that

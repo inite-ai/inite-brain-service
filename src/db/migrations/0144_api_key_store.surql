@@ -1,4 +1,4 @@
--- 0141: api_key — brain-issued API keys, so a tenant can mint its own.
+-- 0144: api_key — brain-issued API keys, so a tenant can mint its own.
 --
 -- WHY. Until now every credential brain accepts is issued somewhere else:
 -- JWTs and ik_ keys come from the auth-service, and BRAIN_API_KEYS is an
