@@ -73,6 +73,7 @@ export class OperatorActionService {
     const apiKeys = this.apiKeys;
     const tenants = resolvePlatformTenantScope(req, filter.actor, {
       knownTenants: () => apiKeys.knownCompanyIds(),
+      fanOutTenants: () => apiKeys.fanOutRoster(),
     });
     const limit = Math.min(Math.max(filter.limit ?? 200, 1), 1000);
     const where: string[] = [];

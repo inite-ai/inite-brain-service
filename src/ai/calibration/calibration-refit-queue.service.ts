@@ -47,7 +47,7 @@ export class CalibrationRefitQueueService {
    * tenant internally). Uses the first known tenant as the row's home.
    */
   async enqueueRefit(jobType: JobType): Promise<{ enqueued: boolean }> {
-    const hostTenant = this.apiKeys.knownCompanyIds()[0];
+    const hostTenant = this.apiKeys.hostTenant();
     if (!hostTenant) {
       this.logger.warn(`enqueue ${jobType} skipped — no known tenants`);
       return { enqueued: false };

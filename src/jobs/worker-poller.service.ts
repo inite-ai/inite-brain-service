@@ -124,7 +124,7 @@ export class WorkerPollerService {
       }
       let claimed: JobClaim | null = null;
       try {
-        const tenants = this.sampleByFairness(reg.jobType, this.apiKeys?.knownCompanyIds() ?? []);
+        const tenants = this.sampleByFairness(reg.jobType, this.apiKeys?.fanOutRoster() ?? []);
         for (const companyId of tenants) {
           if (control.signal.aborted || !control.isLeader()) break;
           claimed = await this.claim!.claimNext({
@@ -229,7 +229,7 @@ export class WorkerPollerService {
     limits: ConcurrencyLimits,
   ): Promise<JobClaim | null> {
     try {
-      const eligible = (this.apiKeys?.knownCompanyIds() ?? []).filter(
+      const eligible = (this.apiKeys?.fanOutRoster() ?? []).filter(
         (companyId) =>
           (this.inFlightByTenant.get(`${reg.jobType}::${companyId}`) ?? 0) < limits.tenantMax,
       );

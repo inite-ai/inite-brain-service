@@ -55,7 +55,7 @@ function mkSvc(state: FakeState): CalibrationService {
         },
       }),
   } as any;
-  const apiKeys = { knownCompanyIds: () => state.tenants } as any;
+  const apiKeys = { hostTenant: () => [...state.tenants].sort()[0] } as any;
   return new CalibrationService(config, surreal, apiKeys);
 }
 

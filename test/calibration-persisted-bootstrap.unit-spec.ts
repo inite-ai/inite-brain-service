@@ -45,7 +45,7 @@ function mkSvc(opts: {
           },
         } as any);
   const apiKeys = {
-    knownCompanyIds: () => opts.apiKeysReturn ?? ['co_a'],
+    hostTenant: () => (opts.apiKeysReturn ?? ['co_a'])[0],
   } as any;
   return new CalibrationService(config, surreal, apiKeys);
 }
@@ -97,7 +97,7 @@ describe('CalibrationService.onModuleInit — persisted bootstrap', () => {
     expect(out).toBe(0.75);
   });
 
-  it('stays synthetic when no tenants are registered (knownCompanyIds empty)', async () => {
+  it('stays synthetic when no tenants are registered (hostTenant undefined)', async () => {
     const svc = mkSvc({
       persistedRow: { thresholds: [1], values: [0.5], sampleCount: 50 },
       apiKeysReturn: [],

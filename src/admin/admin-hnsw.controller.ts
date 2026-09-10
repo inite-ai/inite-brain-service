@@ -107,6 +107,7 @@ export class AdminHnswController {
     const scope = new Set(
       resolvePlatformTenantScope(req, undefined, {
         knownTenants: () => this.apiKeys.knownCompanyIds(),
+        fanOutTenants: () => this.apiKeys.fanOutRoster(),
       }),
     );
     const tenants = (await this.provision.rosterState()).filter((r) => scope.has(r.companyId));
@@ -130,6 +131,7 @@ export class AdminHnswController {
   ): Promise<HnswProvisionRunResult> {
     const tenants = resolvePlatformTenantScope(req, body.tenant, {
       knownTenants: () => this.apiKeys.knownCompanyIds(),
+      fanOutTenants: () => this.apiKeys.fanOutRoster(),
     });
     return this.provision.reconcileAll({ dryRun: body.dryRun === true, tenants });
   }

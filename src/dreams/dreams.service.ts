@@ -194,7 +194,7 @@ export class DreamsService implements OnModuleInit {
    * first row instead of double-queueing.
    */
   private async enqueueDailyForAllTenants(): Promise<{ enqueued: number }> {
-    const tenants = this.apiKeys.knownCompanyIds();
+    const tenants = this.apiKeys.fanOutRoster();
     const today = new Date().toISOString().slice(0, 10);
     let enqueued = 0;
     for (const companyId of tenants) {
@@ -268,7 +268,7 @@ export class DreamsService implements OnModuleInit {
    * rest — errors are logged and folded into the per-tenant stats.
    */
   async runAll(operations?: DreamsOperation[]): Promise<DreamsTenantStats[]> {
-    const tenants = this.apiKeys.knownCompanyIds();
+    const tenants = this.apiKeys.fanOutRoster();
     const ops = operations ? new Set(operations) : this.defaultOps;
     this.logger.log(
       `Dreams starting — ${tenants.length} tenant(s), ops=${[...ops].join(',') || '(none)'}`,

@@ -8,7 +8,6 @@ import {
 } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
-import { TenantRegistryService } from '../auth/tenant-registry.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { MetricsService } from './metrics.service';
 import { envFlagNotDisabled } from '../common/env-validation';
@@ -132,9 +131,6 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
     // unit fixture) still gets the scoped-read probe; the embed probe then
     // reports `skipped` rather than pretending to have run.
     @Optional() private readonly embedder?: EmbedderService,
-    // The production roster. Optional for the same unit fixtures; without
-    // it the canary comes from the static key set alone.
-    @Optional() private readonly registry?: TenantRegistryService,
     // The blob-adapter registry (global EvidenceStorageModule). Optional
     // for the same fixtures; without it the store probe reports `skipped`.
     @Optional()
@@ -255,10 +251,9 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
   /**
    * The canary tenant, or why there is none.
    *
-   * The registry's ACTIVE roster is the source: it is what production
-   * provisions from and what a suspension removes a tenant from. The static
-   * key set (BRAIN_API_KEYS) only stands in where the registry knows nothing
-   * — dev, unit fixtures, a fresh install. Sorted, so the probe hits the
+   * The fan-out roster (ApiKeyService.fanOutRoster) is the source: the
+   * registry's ACTIVE tenants, with the static key set standing in only
+   * where the registry knows nothing. It is sorted, so the probe hits the
    * same database every tick and its cost is bounded.
    *
    * An explicit CAPABILITY_PROBE_TENANT must name a tenant the process
@@ -273,7 +268,7 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
    * load by the roster size to re-answer the same question.
    */
   private probeTenant(): { tenant: string } | { tenant?: undefined; reason: ProbeReport } {
-    const known = this.knownRoster();
+    const known = this.apiKeys.fanOutRoster();
     if (this.tenantOverride) {
       if (known.includes(this.tenantOverride)) return { tenant: this.tenantOverride };
       return {
@@ -296,13 +291,6 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
         detail: 'no tenant in the roster to probe (set CAPABILITY_PROBE_TENANT to pin one)',
       },
     };
-  }
-
-  /** Registry-active first, static keys only when the registry is silent. */
-  private knownRoster(): string[] {
-    const active = this.registry?.activeCompanyIds() ?? [];
-    const roster = active.length > 0 ? active : this.apiKeys.knownCompanyIds();
-    return [...new Set(roster)].sort();
   }
 
   private async probeScopedRead(): Promise<ProbeReport> {

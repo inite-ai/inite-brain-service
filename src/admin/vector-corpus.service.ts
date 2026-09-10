@@ -2,7 +2,6 @@ import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import type { Surreal } from 'surrealdb';
 import { ApiKeyService } from '../auth/api-key.service';
-import { TenantRegistryService } from '../auth/tenant-registry.service';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { VECTOR_COLUMNS } from '../ai/embedder/embedding-space';
@@ -114,7 +113,6 @@ export class VectorCorpusService implements OnModuleInit {
     private readonly reindex: ReindexEmbeddingsService,
     private readonly apiKeys: ApiKeyService,
     @Optional() private readonly jobs?: JobRunService,
-    @Optional() private readonly registry?: TenantRegistryService,
     @Optional() private readonly metrics?: MetricsService,
     @Optional() private readonly guard?: DistributedLeaseGuard,
   ) {}
@@ -192,7 +190,7 @@ export class VectorCorpusService implements OnModuleInit {
     const results: VectorCorpusRepairResult[] = [];
     const totals = new Map<string, number>();
     let tenantsNonConforming = 0;
-    for (const companyId of this.roster()) {
+    for (const companyId of this.apiKeys.fanOutRoster()) {
       try {
         const r = await this.reconcileTenant(companyId, trigger);
         results.push(r);
@@ -442,10 +440,5 @@ export class VectorCorpusService implements OnModuleInit {
         `until re-embedded; ${inv.repairable} repairable by the reindex sweep, ` +
         `${inv.producerOwned} producer-owned.`,
     );
-  }
-
-  private roster(): readonly string[] {
-    const active = this.registry?.activeCompanyIds() ?? [];
-    return active.length > 0 ? active : this.apiKeys.knownCompanyIds();
   }
 }

@@ -67,7 +67,7 @@ export class MemoryQualityService {
    * Compute the cross-tenant snapshot and publish it to the gauges.
    *
    * `tenantScope` overrides the roster: the nightly cron passes nothing and
-   * fans out over the full production roster (ApiKeyService.knownCompanyIds()),
+   * fans out over the full production roster (ApiKeyService.fanOutRoster()),
    * while a caller that needs a deterministic, self-contained measurement —
    * the e2e, where the shared test container's tenant_registry accumulates
    * every suite's tenants — passes an explicit tenant list. Production
@@ -82,7 +82,7 @@ export class MemoryQualityService {
       policySetsActive: 0,
     };
     let failed = 0;
-    const tenants = tenantScope ?? this.apiKeys.knownCompanyIds();
+    const tenants = tenantScope ?? this.apiKeys.fanOutRoster();
     for (const companyId of tenants) {
       try {
         this.mergeInto(snapshot, await this.collectTenant(companyId));

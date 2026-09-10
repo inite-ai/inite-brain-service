@@ -526,7 +526,7 @@ describe('OutcomePruneService', () => {
     delete process.env.OUTCOME_TELEMETRY_ENABLED;
   });
 
-  const apiKeys = (ids: string[]) => ({ knownCompanyIds: () => ids }) as unknown as ApiKeyService;
+  const apiKeys = (ids: string[]) => ({ fanOutRoster: () => ids }) as unknown as ApiKeyService;
 
   it('prune query is the bounded DELETE-subquery shape', () => {
     expect(OUTCOME_PRUNE_BATCH_QUERY).toBe(

@@ -89,7 +89,7 @@ export class CalibrationService implements OnModuleInit, OnModuleDestroy {
    */
   async refreshFromTable(): Promise<void> {
     if (this.refreshing || this.disabled || !this.surreal || !this.apiKeys) return;
-    const host = this.apiKeys.knownCompanyIds()[0];
+    const host = this.apiKeys.hostTenant();
     if (!host) return;
     this.refreshing = true;
     try {

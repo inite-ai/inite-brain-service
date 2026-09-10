@@ -255,7 +255,13 @@ describe('HNSW provisioning + roster (real SurrealDB)', () => {
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
 
   beforeAll(async () => {
-    process.env.HNSW_PROVISION_ENABLED = '1';
+    // The premise below is "a tenant that exists WITHOUT indexes", so the
+    // database is created (first ingest) while provisioning is still off:
+    // with the flag on, the schema-ready hook would provision it right
+    // here and `ensure` would have nothing left to create. (This used to
+    // pass by accident — a boot-time host-tenant read created the database
+    // before the hook was registered, which depended on BRAIN_API_KEYS
+    // order.)
     f = await createApp({ companyId: 'co_hnsw_prov_e2e' });
     await f.http
       .post('/v1/ingest/fact')
@@ -268,6 +274,7 @@ describe('HNSW provisioning + roster (real SurrealDB)', () => {
         confidence: 0.9,
         source: { vertical: 'rent', recorder: 'bot' },
       });
+    process.env.HNSW_PROVISION_ENABLED = '1';
   });
 
   afterAll(async () => {

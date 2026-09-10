@@ -99,31 +99,65 @@ export class ApiKeyService implements OnModuleInit {
   }
 
   /**
-   * Distinct companyIds the platform knows about — the roster every
-   * background fan-out (compaction, retention, dreams, calibration, reindex,
-   * changefeed drain, subscriptions) and the platform-operator cross-tenant
-   * scope enumerate through.
-   *
-   * The static BRAIN_API_KEYS set (byHash) is the dev/bootstrap seed and the
-   * fallback; the DB-backed tenant_registry (TenantRegistryService, R4) is
-   * the production source that fills as tenants authenticate/provision. We
-   * UNION the two, static-first, so:
-   *   - registry EMPTY (dev, single-tenant, bootstrap, or a remote verifier
-   *     that hasn't seen its first request yet) ⇒ return the static set
-   *     unchanged — byte-identical to pre-R4 behaviour, including order.
-   *   - static EMPTY (prod-JWKS, BRAIN_API_KEYS unset) ⇒ return the
-   *     registry roster, which is the whole point: fan-out is no longer [].
-   *   - both present (dev with registered tenants) ⇒ the deduped union;
-   *     where the registry only mirrors static keys the result equals the
-   *     static set byte-for-byte.
-   * knownCompanyIds() stays SYNCHRONOUS: the registry read is served from
-   * TenantRegistryService's in-memory cache, so no fan-out caller changes.
+   * The VALIDATION roster: every companyId the platform knows about — the
+   * static BRAIN_API_KEYS set UNIONED (static-first, deduped) with the
+   * registry's active roster. This answers "may an operator target tenant X"
+   * (resolvePlatformTenant's `knownTenants` closures): a static key whose
+   * tenant has never authenticated is a legitimate operator target, because
+   * targeting it is how it gets provisioned. It is NOT the roster for
+   * background fan-outs — a sweep over the union provisions `co_<id>` (with
+   * the full migration set) for every dormant static key; use fanOutRoster()
+   * there. A static tenant the registry knows to be suspended is absent from
+   * BOTH rosters. Synchronous: the registry read is served from the cache.
    */
   knownCompanyIds(): string[] {
-    const staticIds = [...new Set([...this.byHash.values()].map((r) => r.companyId))];
+    const staticIds = this.staticCompanyIds();
     const registryIds = this.tenantRegistry?.activeCompanyIds() ?? [];
     if (registryIds.length === 0) return staticIds; // fallback: byte-identical
     return [...new Set([...staticIds, ...registryIds])];
+  }
+
+  /**
+   * The FAN-OUT roster: the ONE tenant list every background loop (cron
+   * sweeps, the worker poller, the reaper, cross-tenant bookkeeping "host
+   * tenant" picks) iterates. Registry-active tenants (status='active') when
+   * the registry has any; otherwise — dev, bootstrap, a remote verifier that
+   * has not seen its first request — the static BRAIN_API_KEYS set, the same
+   * members knownCompanyIds() falls back to. Never the union: a static key
+   * whose tenant never authenticated must not be walked, because opening its
+   * scope creates and migrates its database. Deduped and SORTED, so `[0]` is
+   * the same host tenant on every pod and sweep order is stable. Synchronous.
+   */
+  fanOutRoster(): string[] {
+    const registryIds = this.tenantRegistry?.activeCompanyIds() ?? [];
+    const roster = registryIds.length > 0 ? registryIds : this.staticCompanyIds();
+    return [...new Set(roster)].sort();
+  }
+
+  /**
+   * The tenant that hosts a cross-tenant bookkeeping row (a refit or
+   * registry-mirror job_run, the operator-wide calibration table): the
+   * lexicographically smallest id of the fan-out roster. Deterministic across
+   * replicas — the registry cache fills from an unordered read plus
+   * request-path touch() inserts, so "first cached" differs per pod, and two
+   * pods hosting the same job under different tenants both enqueue it (the
+   * dedup index is per tenant database). Undefined when the roster is empty.
+   */
+  hostTenant(): string | undefined {
+    return this.fanOutRoster()[0];
+  }
+
+  /**
+   * The static BRAIN_API_KEYS tenants minus any the registry KNOWS to be
+   * non-active (suspended, provisioning): a key never lifts a recorded
+   * lifecycle, in either roster. Only an unknown lifecycle falls back to it.
+   */
+  private staticCompanyIds(): string[] {
+    const ids = [...new Set([...this.byHash.values()].map((r) => r.companyId))];
+    return ids.filter((id) => {
+      const status = this.tenantRegistry?.statusOf(id);
+      return status === undefined || status === 'active';
+    });
   }
 
   /**

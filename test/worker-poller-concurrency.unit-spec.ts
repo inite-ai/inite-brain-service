@@ -111,7 +111,7 @@ function makeQueue(jobs: Record<string, number>) {
 }
 
 function makeApiKeys(companyIds: string[]) {
-  return { knownCompanyIds: () => companyIds };
+  return { fanOutRoster: () => companyIds };
 }
 
 function makePoller(args: {

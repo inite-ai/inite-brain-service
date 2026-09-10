@@ -52,7 +52,7 @@ describe('RecomposeService', () => {
     const surreal = {
       withCompany: (_c: string, fn: (db: unknown) => Promise<unknown>) => fn(db),
     };
-    const apiKeys = { knownCompanyIds: () => ['co_x'] };
+    const apiKeys = { fanOutRoster: () => ['co_x'] };
     const generator = {
       generate: jest.fn(async (_group: any[]) => opts.summaryText ?? 'regenerated summary'),
     };

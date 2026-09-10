@@ -40,6 +40,7 @@ export class AdminInfraService {
     // operator (scope + gate) keeps the cross-tenant drift audit.
     const tenants = resolvePlatformTenantScope(req, undefined, {
       knownTenants: () => this.apiKeys.knownCompanyIds(),
+      fanOutTenants: () => this.apiKeys.fanOutRoster(),
     });
     const perTenant: Array<{
       companyId: string;

@@ -142,7 +142,7 @@ export class RecomposeService implements OnModuleInit {
     if (!this.claim) return { enqueued: 0 };
     const today = new Date().toISOString().slice(0, 10);
     let enqueued = 0;
-    for (const companyId of this.apiKeys.knownCompanyIds()) {
+    for (const companyId of this.apiKeys.fanOutRoster()) {
       try {
         const { created } = await this.claim.enqueue({
           jobType: 'recompose',

@@ -32,6 +32,7 @@ function makeController(): AdminInfraController {
   } as unknown as SurrealService;
   const apiKeys = {
     knownCompanyIds: () => ['tenant-a', 'tenant-b'],
+    fanOutRoster: () => ['tenant-a', 'tenant-b'],
   } as unknown as ApiKeyService;
   const adminInfra = new AdminInfraService(surreal, apiKeys);
   return makeAdminInfraController({ adminInfra });

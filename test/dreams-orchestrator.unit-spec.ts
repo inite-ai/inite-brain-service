@@ -26,7 +26,7 @@ describe('DreamsService', () => {
 
   function makeApiKeys(ids: string[]): ApiKeyService {
     return {
-      knownCompanyIds: () => ids,
+      fanOutRoster: () => ids,
     } as unknown as ApiKeyService;
   }
 

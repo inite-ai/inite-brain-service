@@ -42,7 +42,7 @@ describe('MemoryQualityService', () => {
         return fn(tenantDb);
       },
     };
-    const apiKeys = { knownCompanyIds: () => ['co_a', 'co_b', 'co_broken'] };
+    const apiKeys = { fanOutRoster: () => ['co_a', 'co_b', 'co_broken'] };
     const svc = new MemoryQualityService(surreal as never, apiKeys as never, metrics);
 
     const snapshot = await svc.collectNow();

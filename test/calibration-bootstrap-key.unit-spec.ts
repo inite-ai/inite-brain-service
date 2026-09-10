@@ -44,7 +44,7 @@ describe('calibration bootstrap promptHash — persist/load contract', () => {
   it('refit persist and loader read bind the identical hashed promptHash', async () => {
     const binds: Array<Record<string, any>> = [];
     const surreal = fakeSurreal(binds);
-    const apiKeys = { knownCompanyIds: () => ['co_a'] } as any;
+    const apiKeys = { hostTenant: () => 'co_a' } as any;
 
     // Write side.
     const refit = new CalibrationRefitRunnerService(surreal, {} as any, apiKeys);

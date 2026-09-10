@@ -197,7 +197,7 @@ export class SceneMaintenanceService {
     const startedAt = Date.now();
     const deadline = startedAt + sceneMaintenanceTimeBudgetMs();
     const maxConversations = sceneMaintenanceMaxConversations();
-    const roster = this.apiKeys.knownCompanyIds();
+    const roster = this.apiKeys.fanOutRoster();
     const result: SceneMaintenanceRunResult = {
       tenants: [],
       budgetExhausted: false,
