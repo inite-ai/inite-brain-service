@@ -1,6 +1,5 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { promises as fs } from 'node:fs';
-import { join, resolve, sep } from 'node:path';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { SurrealService, queryFirst, queryRows } from '../db/surreal.service';
 import type { ScenarioRunOutcome } from './scenario-runner.service';
 
 export interface BaselineEntry {
@@ -28,85 +27,88 @@ export interface BaselineDiffMetric {
 
 const TOLERANCE = 0.03; // 3 percentage points — matches scripts/eval-baseline-diff.ts
 
+/** admin_baseline row as SELECTed; `outcomes` is the JSON-encoded payload. */
+interface BaselineRow {
+  name: string;
+  savedAt: string | Date;
+  scenarios?: number;
+  meanRecallAt1?: number;
+  outcomes?: string;
+}
+
+/**
+ * Eval baselines, kept in the system database (`admin_baseline`, 0140)
+ * so every replica saves, lists and diffs the same set. A baseline is
+ * an operator artifact, not tenant data: any brain:admin sees all of
+ * them, as before. Nothing is migrated from the pre-0140 `var/`
+ * files — they were runtime artifacts of one process.
+ */
 @Injectable()
 export class BaselineService {
-  private readonly logger = new Logger(BaselineService.name);
-  private readonly dir = resolve(process.env.BRAIN_BASELINES_DIR ?? './var/admin/baselines');
-
-  async ensureDir(): Promise<void> {
-    await fs.mkdir(this.dir, { recursive: true });
-  }
+  constructor(private readonly surreal: SurrealService) {}
 
   async list(): Promise<BaselineEntry[]> {
-    await this.ensureDir();
-    const names = (await fs.readdir(this.dir)).filter((n) => n.endsWith('.json'));
-    const out: BaselineEntry[] = [];
-    for (const file of names) {
-      try {
-        const raw = await fs.readFile(join(this.dir, file), 'utf-8');
-        const data = JSON.parse(raw) as SavedBaseline;
-        const r1 = data.outcomes.length
-          ? data.outcomes.reduce((a, o) => a + (o.metrics?.recallAt1 ?? 0), 0) /
-            data.outcomes.length
-          : 0;
-        out.push({
-          name: data.name ?? file.replace(/\.json$/, ''),
-          savedAt: data.savedAt,
-          scenarios: data.outcomes.length,
-          meanRecallAt1: r1,
-        });
-      } catch (e) {
-        this.logger.warn(`Skipping baseline ${file}: ${(e as Error).message}`);
-      }
-    }
-    return out.sort((a, b) => (b.savedAt ?? '').localeCompare(a.savedAt ?? ''));
+    const rows = await this.surreal.withAdminDb((db) =>
+      queryRows<BaselineRow>(
+        db,
+        `SELECT name, savedAt, scenarios, meanRecallAt1
+           FROM admin_baseline ORDER BY savedAt DESC`,
+      ),
+    );
+    return rows.map((r) => ({
+      name: r.name,
+      savedAt: iso(r.savedAt),
+      scenarios: r.scenarios ?? 0,
+      meanRecallAt1: r.meanRecallAt1 ?? 0,
+    }));
   }
 
-  /**
-   * Resolve a baseline name to an absolute path *inside* {@link dir}.
-   * `name` is caller-supplied (admin HTTP query), so besides the char
-   * sanitiser we assert the resolved path can't escape the baselines dir —
-   * a recognised path-traversal barrier and defence-in-depth if the
-   * sanitiser ever regresses.
-   */
-  private pathFor(name: string): string {
-    const safe = sanitize(name);
-    const full = resolve(this.dir, `${safe}.json`);
-    if (full !== join(this.dir, `${safe}.json`) || !full.startsWith(this.dir + sep)) {
-      throw new BadRequestException(`Invalid baseline name`);
-    }
-    return full;
-  }
-
+  /** Upsert by name — saving the same name again replaces the baseline. */
   async save(name: string, outcomes: ScenarioRunOutcome[]): Promise<BaselineEntry> {
-    await this.ensureDir();
-    const safe = sanitize(name);
-    const target = this.pathFor(name);
-    const payload: SavedBaseline = {
+    const safe = safeName(name);
+    const savedAt = new Date();
+    const entry: BaselineEntry = {
       name: safe,
-      savedAt: new Date().toISOString(),
-      outcomes,
-    };
-    await fs.writeFile(target, JSON.stringify(payload, null, 2), 'utf-8');
-    return {
-      name: safe,
-      savedAt: payload.savedAt,
+      savedAt: savedAt.toISOString(),
       scenarios: outcomes.length,
-      meanRecallAt1: outcomes.length
-        ? outcomes.reduce((a, o) => a + (o.metrics?.recallAt1 ?? 0), 0) / outcomes.length
-        : 0,
+      meanRecallAt1: meanRecallAt1(outcomes),
     };
+    await this.surreal.withAdminDb((db) =>
+      db.query(
+        `UPSERT type::record('admin_baseline', $name) CONTENT {
+           name: $name,
+           savedAt: $savedAt,
+           scenarios: $scenarios,
+           meanRecallAt1: $meanRecallAt1,
+           outcomes: $outcomes
+         }`,
+        {
+          name: safe,
+          savedAt,
+          scenarios: entry.scenarios,
+          meanRecallAt1: entry.meanRecallAt1,
+          outcomes: JSON.stringify(outcomes),
+        },
+      ),
+    );
+    return entry;
   }
 
   async load(name: string): Promise<SavedBaseline> {
-    await this.ensureDir();
-    const path = this.pathFor(name);
-    try {
-      const raw = await fs.readFile(path, 'utf-8');
-      return JSON.parse(raw) as SavedBaseline;
-    } catch {
-      throw new NotFoundException(`Baseline ${sanitize(name)} not found`);
-    }
+    const safe = safeName(name);
+    const row = await this.surreal.withAdminDb((db) =>
+      queryFirst<BaselineRow>(
+        db,
+        `SELECT name, savedAt, outcomes FROM admin_baseline WHERE name = $name LIMIT 1`,
+        { name: safe },
+      ),
+    );
+    if (!row?.outcomes) throw new NotFoundException(`Baseline ${safe} not found`);
+    return {
+      name: row.name,
+      savedAt: iso(row.savedAt),
+      outcomes: JSON.parse(row.outcomes) as ScenarioRunOutcome[],
+    };
   }
 
   async diff(
@@ -142,6 +144,19 @@ export class BaselineService {
   }
 }
 
-function sanitize(name: string): string {
-  return name.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80);
+/** Caller-supplied (admin HTTP param): restrict to a plain identifier. */
+function safeName(name: string): string {
+  const safe = name.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80);
+  // A name that survives sanitising as separators alone identifies nothing.
+  if (!/[a-zA-Z0-9]/.test(safe)) throw new BadRequestException('Invalid baseline name');
+  return safe;
+}
+
+function meanRecallAt1(outcomes: ScenarioRunOutcome[]): number {
+  if (!outcomes.length) return 0;
+  return outcomes.reduce((a, o) => a + (o.metrics?.recallAt1 ?? 0), 0) / outcomes.length;
+}
+
+function iso(v: string | Date): string {
+  return typeof v === 'string' ? v : new Date(v).toISOString();
 }

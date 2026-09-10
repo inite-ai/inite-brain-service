@@ -1,7 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { MetricsService } from '../metrics/metrics.service';
+import { SurrealService } from '../db/surreal.service';
 import { plausibilityCheckEnabled } from '../common/fovea-flags';
 import { type PromMetricJson } from './metrics-reader';
 import { buildMriReport, type BuildMriReportOptions } from './mri-collectors';
@@ -22,13 +21,15 @@ import type { MriReport } from './mri.types';
 export class MriService {
   private readonly logger = new Logger(MriService.name);
   private readonly ledgerPath = DEFAULT_LEDGER_PATH;
-  private readonly snapshotPath = join('var', 'mri', 'latest.json');
   /** Rolling snapshot ring: deltas process-lifetime counters against a baseline
    *  so the LIVE rate cells cover a bounded recent window, not the whole process
    *  lifetime (R3 P1). Read-only — snapshots the registry the pipeline emits. */
   private readonly window = new SnapshotWindow(DEFAULT_MRI_WINDOW_MS);
 
-  constructor(private readonly metrics: MetricsService) {}
+  constructor(
+    private readonly metrics: MetricsService,
+    @Optional() private readonly surreal?: SurrealService,
+  ) {}
 
   /** Build a fresh report from live telemetry + the ledger, persist, and return.
    *  Windows the counters against a rolling baseline so "per query" rates are
@@ -47,15 +48,26 @@ export class MriService {
       plausibilityCheckEnabled: options.plausibilityCheckEnabled ?? plausibilityCheckEnabled(),
       window: { startedAt: win.startedAt, endedAt: win.endedAt, windowMs: win.windowMs },
     });
-    this.persist(report);
+    await this.persist(report);
     return report;
   }
 
-  /** Best-effort durable snapshot (var/ is a runtime artifact, like eval reports). */
-  private persist(report: MriReport): void {
+  /** Best-effort durable snapshot: one `mri_snapshot:latest` row in the system
+   *  database (0140), shared by every replica. Nothing reads it on the request
+   *  path; it is the operator's trail. A failed write is logged, never thrown. */
+  private async persist(report: MriReport): Promise<void> {
+    if (!this.surreal) return;
     try {
-      mkdirSync(dirname(this.snapshotPath), { recursive: true });
-      writeFileSync(this.snapshotPath, JSON.stringify(report, null, 2) + '\n', 'utf8');
+      await this.surreal.withAdminDb((db) =>
+        db.query(
+          `UPSERT mri_snapshot:latest CONTENT {
+             generatedAt: $generatedAt,
+             report: $report,
+             updatedAt: time::now()
+           }`,
+          { generatedAt: new Date(report.generatedAt), report: JSON.stringify(report) },
+        ),
+      );
     } catch (err) {
       this.logger.warn(`MRI snapshot persist failed: ${(err as Error).message}`);
     }

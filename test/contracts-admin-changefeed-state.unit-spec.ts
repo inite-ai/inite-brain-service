@@ -64,6 +64,7 @@ function makeController(changefeed: ChangefeedConsumerService): AdminJobsControl
     undef,
     undef,
     undef,
+    undef, // 14 jobStream
   );
 }
 

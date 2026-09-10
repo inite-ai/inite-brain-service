@@ -126,6 +126,7 @@ describe('write-side wire contracts', () => {
       undef,
       undef,
       undef,
+      undef, // 14 jobStream
     );
     const req = {
       brainAuth: { companyId: 'tenant-a' },
@@ -154,6 +155,7 @@ describe('write-side wire contracts', () => {
       undef,
       undef,
       undef,
+      undef, // 14 jobStream
     );
     const req = {
       brainAuth: { companyId: 'tenant-a' },
@@ -185,6 +187,7 @@ describe('write-side wire contracts', () => {
       undef,
       compaction,
       undef,
+      undef, // 14 jobStream
     );
     const req = {
       brainAuth: { companyId: 'tenant-a' },
@@ -214,6 +217,7 @@ describe('write-side wire contracts', () => {
       undef,
       undef,
       undef,
+      undef, // 14 jobStream
     );
     const req = {
       brainAuth: { companyId: 'tenant-a' },
@@ -246,6 +250,7 @@ describe('write-side wire contracts', () => {
       undef,
       undef,
       undef,
+      undef, // 14 jobStream
     );
     const payload = await ctl.drainChangefeed();
     assertParses(ChangefeedDrainResponseSchema, payload, 'changefeed/drain');

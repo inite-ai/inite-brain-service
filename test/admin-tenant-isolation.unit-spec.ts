@@ -357,6 +357,7 @@ describe('AdminJobsController — tenant isolation (P0)', () => {
       u, // 11 workerPool
       compaction as never, // 12 compaction
       u, // 13 config
+      u, // 14 jobStream
     );
     return { ctrl, seen };
   }

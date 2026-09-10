@@ -98,6 +98,7 @@ function makeController(jobs: JobRunService): AdminJobsController {
     undef, // 11 workerPool
     undef, // 12 compaction
     undef, // 13 config
+    undef, // 14 jobStream
   );
 }
 

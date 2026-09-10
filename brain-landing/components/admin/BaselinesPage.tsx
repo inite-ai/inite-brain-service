@@ -1,9 +1,9 @@
-'use client'
+'use client';
 
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: pre-Phase-J component, queued for separate pass. New code MUST go through getMessages(lang). */
 
-import { useCallback, useMemo, useState } from 'react'
-import { useLoader } from '../../hooks/useLoader'
+import { useCallback, useMemo, useState } from 'react';
+import { useLoader } from '../../hooks/useLoader';
 import {
   ArrowRight,
   CheckCircle2,
@@ -12,123 +12,113 @@ import {
   RefreshCw,
   TrendingDown,
   TrendingUp,
-} from 'lucide-react'
-import type { BaselineEntry } from '../../lib/contracts/admin-baselines'
+} from 'lucide-react';
+import type { BaselineEntry } from '../../lib/contracts/admin-baselines';
 
 interface DiffEntry {
-  scenarioId: string
-  metric: 'recallAt1' | 'recallAt5'
-  baseline: number
-  current: number
-  delta: number
-  verdict: 'regression' | 'improved' | 'stable'
+  scenarioId: string;
+  metric: 'recallAt1' | 'recallAt5';
+  baseline: number;
+  current: number;
+  delta: number;
+  verdict: 'regression' | 'improved' | 'stable';
 }
 
 interface DiffResult {
-  baseline: string
-  entries: DiffEntry[]
+  baseline: string;
+  entries: DiffEntry[];
 }
 
 interface ScenarioSummary {
-  id: string
-  vertical: string
-  description: string
+  id: string;
+  vertical: string;
+  description: string;
 }
 
 const VERDICT_TONE: Record<DiffEntry['verdict'], string> = {
   improved: 'text-[var(--success)]',
   regression: 'text-[var(--danger)]',
   stable: 'text-[var(--text-muted)]',
-}
+};
 
 const VERDICT_ICON: Record<DiffEntry['verdict'], typeof TrendingUp> = {
   improved: TrendingUp,
   regression: TrendingDown,
   stable: ArrowRight,
-}
+};
 
 export function BaselinesPage() {
-  const [items, setItems] = useState<BaselineEntry[]>([])
-  const [scenarios, setScenarios] = useState<ScenarioSummary[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const [diffName, setDiffName] = useState<string | null>(null)
-  const [diff, setDiff] = useState<DiffResult | null>(null)
-  const [diffing, setDiffing] = useState(false)
-  const [showCreate, setShowCreate] = useState(false)
+  const [items, setItems] = useState<BaselineEntry[]>([]);
+  const [scenarios, setScenarios] = useState<ScenarioSummary[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [diffName, setDiffName] = useState<string | null>(null);
+  const [diff, setDiff] = useState<DiffResult | null>(null);
+  const [diffing, setDiffing] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const [bRes, sRes] = await Promise.all([
         fetch('/api/admin/proxy/v1/admin/baselines', { cache: 'no-store' }),
         fetch('/api/admin/proxy/v1/admin/scenarios', { cache: 'no-store' }),
-      ])
-      const [bJson, sJson] = await Promise.all([bRes.json(), sRes.json()])
-      if (!bRes.ok) throw new Error(bJson.error ?? `Failed ${bRes.status}`)
-      setItems(Array.isArray(bJson) ? bJson : bJson.baselines ?? [])
-      setScenarios(sJson.scenarios ?? [])
-      setError(null)
+      ]);
+      const [bJson, sJson] = await Promise.all([bRes.json(), sRes.json()]);
+      if (!bRes.ok) throw new Error(bJson.error ?? `Failed ${bRes.status}`);
+      setItems(Array.isArray(bJson) ? bJson : (bJson.baselines ?? []));
+      setScenarios(sJson.scenarios ?? []);
+      setError(null);
     } catch (e) {
-      setError((e as Error).message)
+      setError((e as Error).message);
     }
-  }, [])
+  }, []);
 
-  const { loading, reload } = useLoader(load)
+  const { loading, reload } = useLoader(load);
 
-  const runDiff = useCallback(
-    async (name: string) => {
-      setDiffName(name)
-      setDiffing(true)
-      setDiff(null)
-      try {
-        const runOk = await fetch(
-          '/api/admin/proxy/v1/admin/scenarios/run-batch',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
-          },
-        )
-        const runJson = await runOk.json()
-        if (!runOk.ok)
-          throw new Error(runJson.error ?? `Run failed ${runOk.status}`)
-        const res = await fetch(
-          `/api/admin/proxy/v1/admin/baselines/${encodeURIComponent(name)}/diff`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ outcomes: runJson.outcomes ?? [] }),
-          },
-        )
-        const json = (await res.json()) as DiffResult
-        if (!res.ok)
-          throw new Error((json as { error?: string }).error ?? `Failed ${res.status}`)
-        setDiff(json)
-      } catch (e) {
-        setError((e as Error).message)
-      } finally {
-        setDiffing(false)
-      }
-    },
-    [],
-  )
+  const runDiff = useCallback(async (name: string) => {
+    setDiffName(name);
+    setDiffing(true);
+    setDiff(null);
+    try {
+      const runOk = await fetch('/api/admin/proxy/v1/admin/scenarios/run-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const runJson = await runOk.json();
+      if (!runOk.ok) throw new Error(runJson.error ?? `Run failed ${runOk.status}`);
+      const res = await fetch(
+        `/api/admin/proxy/v1/admin/baselines/${encodeURIComponent(name)}/diff`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ outcomes: runJson.outcomes ?? [] }),
+        },
+      );
+      const json = (await res.json()) as DiffResult;
+      if (!res.ok) throw new Error((json as { error?: string }).error ?? `Failed ${res.status}`);
+      setDiff(json);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setDiffing(false);
+    }
+  }, []);
 
   const summary = useMemo(() => {
-    if (!diff) return null
-    const out = { improved: 0, regression: 0, stable: 0 }
-    for (const e of diff.entries) out[e.verdict] += 1
-    return out
-  }, [diff])
+    if (!diff) return null;
+    const out = { improved: 0, regression: 0, stable: 0 };
+    for (const e of diff.entries) out[e.verdict] += 1;
+    return out;
+  }, [diff]);
 
   return (
     <div className="space-y-4">
       <header className="flex items-baseline justify-between gap-3">
         <div>
-          <h1 className="text-base font-semibold text-[var(--text)]">
-            Baselines
-          </h1>
+          <h1 className="text-base font-semibold text-[var(--text)]">Baselines</h1>
           <p className="text-xs text-[var(--text-muted)]">
-            Frozen scenario outcomes used for regression diff (3-pp tolerance).
-            Saved at <code>var/admin/baselines/</code>.
+            Frozen scenario outcomes used for regression diff (3-pp tolerance). Stored in the system
+            database, shared by every replica.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -150,9 +140,7 @@ export function BaselinesPage() {
         </div>
       </header>
 
-      {error && (
-        <div className="text-xs text-[var(--danger)] font-mono">{error}</div>
-      )}
+      {error && <div className="text-xs text-[var(--danger)] font-mono">{error}</div>}
 
       <div className="rounded-md border border-[var(--border)] overflow-hidden">
         <table className="w-full text-xs">
@@ -171,15 +159,11 @@ export function BaselinesPage() {
                 key={b.name}
                 className="border-t border-[var(--border)] hover:bg-[var(--bg-overlay)]/40"
               >
-                <td className="px-3 py-2 font-mono text-[var(--text)]">
-                  {b.name}
-                </td>
+                <td className="px-3 py-2 font-mono text-[var(--text)]">{b.name}</td>
                 <td className="px-3 py-2 font-mono text-[10px] text-[var(--text-muted)]">
                   {new Date(b.savedAt).toISOString().slice(0, 19).replace('T', ' ')}
                 </td>
-                <td className="px-3 py-2 text-right font-mono tabular-nums">
-                  {b.scenarios}
-                </td>
+                <td className="px-3 py-2 text-right font-mono tabular-nums">{b.scenarios}</td>
                 <td className="px-3 py-2 text-right font-mono tabular-nums">
                   {(b.meanRecallAt1 * 100).toFixed(1)}%
                 </td>
@@ -197,10 +181,7 @@ export function BaselinesPage() {
             ))}
             {items.length === 0 && !loading && (
               <tr>
-                <td
-                  colSpan={5}
-                  className="px-3 py-6 text-center text-[var(--text-muted)] italic"
-                >
+                <td colSpan={5} className="px-3 py-6 text-center text-[var(--text-muted)] italic">
                   No baselines yet. Snapshot one to start tracking regressions.
                 </td>
               </tr>
@@ -218,8 +199,8 @@ export function BaselinesPage() {
             <button
               type="button"
               onClick={() => {
-                setDiff(null)
-                setDiffName(null)
+                setDiff(null);
+                setDiffName(null);
               }}
               className="text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
             >
@@ -260,19 +241,16 @@ export function BaselinesPage() {
                 {diff.entries
                   .sort(
                     (a, b) =>
-                      (a.verdict === 'regression' ? -1 : 0) -
-                      (b.verdict === 'regression' ? -1 : 0),
+                      (a.verdict === 'regression' ? -1 : 0) - (b.verdict === 'regression' ? -1 : 0),
                   )
                   .map((e, i) => {
-                    const Icon = VERDICT_ICON[e.verdict]
+                    const Icon = VERDICT_ICON[e.verdict];
                     return (
                       <tr
                         key={`${e.scenarioId}-${e.metric}-${i}`}
                         className="border-t border-[var(--border)]"
                       >
-                        <td className="px-2 py-1 font-mono text-[10px]">
-                          {e.scenarioId}
-                        </td>
+                        <td className="px-2 py-1 font-mono text-[10px]">{e.scenarioId}</td>
                         <td className="px-2 py-1 font-mono text-[10px] text-[var(--text-muted)]">
                           {e.metric}
                         </td>
@@ -293,7 +271,7 @@ export function BaselinesPage() {
                           {e.verdict}
                         </td>
                       </tr>
-                    )
+                    );
                   })}
               </tbody>
             </table>
@@ -306,33 +284,29 @@ export function BaselinesPage() {
           scenarios={scenarios}
           onClose={() => setShowCreate(false)}
           onSaved={() => {
-            setShowCreate(false)
-            void reload()
+            setShowCreate(false);
+            void reload();
           }}
         />
       )}
     </div>
-  )
+  );
 }
 
 function Badge({
   tone,
   children,
 }: {
-  tone: 'success' | 'warn' | 'danger'
-  children: React.ReactNode
+  tone: 'success' | 'warn' | 'danger';
+  children: React.ReactNode;
 }) {
   const cls =
     tone === 'success'
       ? 'text-[var(--success)] bg-[var(--success)]/10'
       : tone === 'danger'
         ? 'text-[var(--danger)] bg-[var(--danger)]/10'
-        : 'text-[var(--text-muted)] bg-[var(--bg-overlay)]'
-  return (
-    <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${cls}`}>
-      {children}
-    </span>
-  )
+        : 'text-[var(--text-muted)] bg-[var(--bg-overlay)]';
+  return <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${cls}`}>{children}</span>;
 }
 
 function CreateBaselineModal({
@@ -340,43 +314,39 @@ function CreateBaselineModal({
   onClose,
   onSaved,
 }: {
-  scenarios: ScenarioSummary[]
-  onClose: () => void
-  onSaved: () => void
+  scenarios: ScenarioSummary[];
+  onClose: () => void;
+  onSaved: () => void;
 }) {
-  const [name, setName] = useState('')
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [phase, setPhase] = useState<'idle' | 'running' | 'saving'>('idle')
+  const [name, setName] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<'idle' | 'running' | 'saving'>('idle');
 
   const toggle = (id: string) => {
     setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const submit = async () => {
-    if (!name.trim() || selectedIds.size === 0) return
-    setBusy(true)
-    setError(null)
-    setPhase('running')
+    if (!name.trim() || selectedIds.size === 0) return;
+    setBusy(true);
+    setError(null);
+    setPhase('running');
     try {
-      const runRes = await fetch(
-        '/api/admin/proxy/v1/admin/scenarios/run-batch',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: [...selectedIds] }),
-        },
-      )
-      const runJson = await runRes.json()
-      if (!runRes.ok)
-        throw new Error(runJson.error ?? `Run failed ${runRes.status}`)
-      setPhase('saving')
+      const runRes = await fetch('/api/admin/proxy/v1/admin/scenarios/run-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [...selectedIds] }),
+      });
+      const runJson = await runRes.json();
+      if (!runRes.ok) throw new Error(runJson.error ?? `Run failed ${runRes.status}`);
+      setPhase('saving');
       const saveRes = await fetch(
         `/api/admin/proxy/v1/admin/baselines/${encodeURIComponent(name)}`,
         {
@@ -384,18 +354,17 @@ function CreateBaselineModal({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ outcomes: runJson.outcomes ?? [] }),
         },
-      )
-      const saveJson = await saveRes.json()
-      if (!saveRes.ok)
-        throw new Error(saveJson.error ?? `Save failed ${saveRes.status}`)
-      onSaved()
+      );
+      const saveJson = await saveRes.json();
+      if (!saveRes.ok) throw new Error(saveJson.error ?? `Save failed ${saveRes.status}`);
+      onSaved();
     } catch (e) {
-      setError((e as Error).message)
-      setPhase('idle')
+      setError((e as Error).message);
+      setPhase('idle');
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
-  }
+  };
 
   return (
     <div
@@ -406,12 +375,10 @@ function CreateBaselineModal({
         className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-md p-4 w-full max-w-xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="text-sm font-semibold text-[var(--text)] mb-3">
-          Snapshot baseline
-        </div>
+        <div className="text-sm font-semibold text-[var(--text)] mb-3">Snapshot baseline</div>
         <p className="text-xs text-[var(--text-muted)] mb-3">
-          Runs the selected scenarios (cap 10) and saves their outcomes under{' '}
-          <code>name</code>. Future runs compare against this snapshot.
+          Runs the selected scenarios (cap 10) and saves their outcomes under <code>name</code>.
+          Future runs compare against this snapshot.
         </p>
         <div className="space-y-3 text-xs">
           <div>
@@ -432,8 +399,8 @@ function CreateBaselineModal({
             </div>
             <div className="max-h-64 overflow-y-auto border border-[var(--border)] rounded-md divide-y divide-[var(--border)]">
               {scenarios.map((s) => {
-                const checked = selectedIds.has(s.id)
-                const disabled = !checked && selectedIds.size >= 10
+                const checked = selectedIds.has(s.id);
+                const disabled = !checked && selectedIds.size >= 10;
                 return (
                   <label
                     key={s.id}
@@ -446,32 +413,22 @@ function CreateBaselineModal({
                       onChange={() => toggle(s.id)}
                     />
                     <div className="min-w-0">
-                      <div className="font-mono text-[var(--text)] truncate">
-                        {s.id}
-                      </div>
+                      <div className="font-mono text-[var(--text)] truncate">{s.id}</div>
                       <div className="text-[10px] text-[var(--text-muted)] truncate">
                         {s.vertical} · {s.description}
                       </div>
                     </div>
                   </label>
-                )
+                );
               })}
             </div>
           </div>
-          {error && (
-            <div className="text-xs text-[var(--danger)] font-mono">
-              {error}
-            </div>
-          )}
+          {error && <div className="text-xs text-[var(--danger)] font-mono">{error}</div>}
           {phase === 'running' && (
-            <div className="text-xs text-[var(--text-muted)] italic">
-              Running scenarios…
-            </div>
+            <div className="text-xs text-[var(--text-muted)] italic">Running scenarios…</div>
           )}
           {phase === 'saving' && (
-            <div className="text-xs text-[var(--text-muted)] italic">
-              Saving baseline…
-            </div>
+            <div className="text-xs text-[var(--text-muted)] italic">Saving baseline…</div>
           )}
           <div className="flex items-center justify-end gap-2 pt-2">
             <button
@@ -493,5 +450,5 @@ function CreateBaselineModal({
         </div>
       </div>
     </div>
-  )
+  );
 }
