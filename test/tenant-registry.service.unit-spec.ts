@@ -51,12 +51,15 @@ function makeFakeSurreal() {
   let stateRows: Array<Record<string, unknown>> = [];
   /** What the registry row's status reads as when a touch() write echoes it. */
   const statusInDb = new Map<string, string>();
+  /** Set while a roster read is being held open, to interleave a write. */
+  let rosterGate: Promise<void> | undefined;
   const surreal = {
     async withAdminDb<T>(fn: (db: unknown) => Promise<T>): Promise<T> {
       const db = {
         async query<R>(sql: string, vars?: Record<string, unknown>): Promise<R> {
           queries.push({ sql, vars });
           if (sql.includes('SELECT companyId, status FROM tenant_registry')) {
+            if (rosterGate) await rosterGate;
             return [rosterRows] as unknown as R;
           }
           if (sql.includes('indexState')) return [stateRows] as unknown as R;
@@ -86,6 +89,17 @@ function makeFakeSurreal() {
     setStatusInDb(companyId: string, status: string) {
       statusInDb.set(companyId, status);
     },
+    /** Hold the next roster read open; the returned function releases it. */
+    holdRosterRead() {
+      let release = () => {};
+      rosterGate = new Promise<void>((resolve) => {
+        release = () => {
+          rosterGate = undefined;
+          resolve();
+        };
+      });
+      return release;
+    },
     setStateRows(rows: Array<Record<string, unknown>>) {
       stateRows = rows;
     },
@@ -102,6 +116,7 @@ describe('ApiKeyService.fanOutRoster() — registry-active only, static keys as 
     // opening its scope creates and migrates `co_<id>` (audit A-10 / V-5).
     const registry = {
       activeCompanyIds: () => ['co_live2', 'co_live1'],
+      statusOf: () => undefined,
     } as unknown as TenantRegistryService;
     const svc = makeApiKeys(['co_dormant', 'co_live1'], registry);
     expect(svc.fanOutRoster()).toEqual(['co_live1', 'co_live2']);
@@ -109,7 +124,10 @@ describe('ApiKeyService.fanOutRoster() — registry-active only, static keys as 
   });
 
   it('registry empty → the static set (bootstrap / dev fallback)', () => {
-    const registry = { activeCompanyIds: () => [] } as unknown as TenantRegistryService;
+    const registry = {
+      activeCompanyIds: () => [],
+      statusOf: () => undefined,
+    } as unknown as TenantRegistryService;
     expect(makeApiKeys(['co_b', 'co_a'], registry).fanOutRoster()).toEqual(['co_a', 'co_b']);
   });
 
@@ -120,6 +138,7 @@ describe('ApiKeyService.fanOutRoster() — registry-active only, static keys as 
   it('is never the union: a static-only tenant is absent whenever the registry has anyone', () => {
     const registry = {
       activeCompanyIds: () => ['co_prod'],
+      statusOf: () => undefined,
     } as unknown as TenantRegistryService;
     const svc = makeApiKeys(['co_static'], registry);
     expect(svc.fanOutRoster()).toEqual(['co_prod']);
@@ -130,6 +149,7 @@ describe('ApiKeyService.fanOutRoster() — registry-active only, static keys as 
   it('is sorted and deduped, so sweep order is stable across pods', () => {
     const registry = {
       activeCompanyIds: () => ['co_c', 'co_a', 'co_b', 'co_a'],
+      statusOf: () => undefined,
     } as unknown as TenantRegistryService;
     expect(makeApiKeys([], registry).fanOutRoster()).toEqual(['co_a', 'co_b', 'co_c']);
   });
@@ -140,8 +160,8 @@ describe('ApiKeyService.hostTenant() — deterministic across replicas', () => {
     // The cache fills from an unordered read plus request-path touch()
     // inserts, so "first cached" differs per pod; the dedup index on
     // (jobType, dedupKey) is per tenant DB and cannot collapse two hosts.
-    const podA = { activeCompanyIds: () => ['co_z', 'co_m', 'co_b'] };
-    const podB = { activeCompanyIds: () => ['co_b', 'co_z', 'co_m'] };
+    const podA = { activeCompanyIds: () => ['co_z', 'co_m', 'co_b'], statusOf: () => undefined };
+    const podB = { activeCompanyIds: () => ['co_b', 'co_z', 'co_m'], statusOf: () => undefined };
     const hostA = makeApiKeys([], podA as unknown as TenantRegistryService).hostTenant();
     const hostB = makeApiKeys([], podB as unknown as TenantRegistryService).hostTenant();
     expect(hostA).toBe('co_b');
@@ -151,6 +171,7 @@ describe('ApiKeyService.hostTenant() — deterministic across replicas', () => {
   it('is the lexicographically smallest id of the FAN-OUT roster, never a dormant static key', () => {
     const registry = {
       activeCompanyIds: () => ['co_live'],
+      statusOf: () => undefined,
     } as unknown as TenantRegistryService;
     // 'co_aaa' sorts first in the union but is static-only: not a host.
     expect(makeApiKeys(['co_aaa'], registry).hostTenant()).toBe('co_live');
@@ -162,6 +183,50 @@ describe('ApiKeyService.hostTenant() — deterministic across replicas', () => {
   });
 });
 
+// ── F5: a KNOWN non-active lifecycle is never lifted by a static key ─────
+// Real TenantRegistryService without a connection: register() is remembered
+// in memory, which is exactly the state the audit repro exercised.
+describe('static keys vs a recorded suspension (round2 F5)', () => {
+  it('empty active roster: the suspended static tenant is in NEITHER roster', async () => {
+    const registry = new TenantRegistryService();
+    const svc = makeApiKeys(['co_paused'], registry);
+    await registry.register('co_paused', { status: 'suspended' });
+    expect(registry.activeCompanyIds()).toEqual([]);
+    // Before: empty active roster ⇒ the static set, suspension and all.
+    expect(svc.fanOutRoster()).toEqual([]);
+    expect(svc.knownCompanyIds()).toEqual([]);
+    expect(svc.hostTenant()).toBeUndefined();
+  });
+
+  it('mixed roster: the suspended static tenant stays out while the active one is in', async () => {
+    const registry = new TenantRegistryService();
+    const svc = makeApiKeys(['co_paused'], registry);
+    await registry.register('co_paused', { status: 'suspended' });
+    await registry.register('co_other', { status: 'active' });
+    expect(registry.activeCompanyIds()).toEqual(['co_other']);
+    // Before: non-empty ⇒ the union, which re-admitted co_paused.
+    expect(svc.fanOutRoster()).toEqual(['co_other']);
+    expect(svc.knownCompanyIds()).toEqual(['co_other']);
+  });
+
+  it('any known non-active status is out; only an UNKNOWN lifecycle falls back to the key', async () => {
+    const registry = new TenantRegistryService();
+    const svc = makeApiKeys(['co_prov', 'co_fresh'], registry);
+    await registry.register('co_prov', { status: 'provisioning' });
+    expect(svc.fanOutRoster()).toEqual(['co_fresh']);
+    expect(svc.knownCompanyIds()).toEqual(['co_fresh']);
+  });
+
+  it('statusOf() reports what the pod recorded, undefined for a stranger', async () => {
+    const registry = new TenantRegistryService();
+    expect(registry.statusOf('co_x')).toBeUndefined();
+    await registry.register('co_x', { status: 'suspended' });
+    expect(registry.statusOf('co_x')).toBe('suspended');
+    await registry.register('co_x', { status: 'active' });
+    expect(registry.statusOf('co_x')).toBe('active');
+  });
+});
+
 // ── knownCompanyIds fallback / union ────────────────────────────────────
 describe('ApiKeyService.knownCompanyIds() — registry-backed with BRAIN_API_KEYS fallback', () => {
   it('no registry injected → static set (byte-identical to pre-R4)', () => {
@@ -170,7 +235,10 @@ describe('ApiKeyService.knownCompanyIds() — registry-backed with BRAIN_API_KEY
   });
 
   it('empty registry → static set unchanged, order preserved (byte-identical)', () => {
-    const registry = { activeCompanyIds: () => [] } as unknown as TenantRegistryService;
+    const registry = {
+      activeCompanyIds: () => [],
+      statusOf: () => undefined,
+    } as unknown as TenantRegistryService;
     const withReg = makeApiKeys(['co_a', 'co_b'], registry);
     const withoutReg = makeApiKeys(['co_a', 'co_b']);
     expect(withReg.knownCompanyIds()).toEqual(withoutReg.knownCompanyIds());
@@ -180,6 +248,7 @@ describe('ApiKeyService.knownCompanyIds() — registry-backed with BRAIN_API_KEY
   it('registry that only mirrors static keys → still byte-identical (static-first union)', () => {
     const registry = {
       activeCompanyIds: () => ['co_a', 'co_b'],
+      statusOf: () => undefined,
     } as unknown as TenantRegistryService;
     const svc = makeApiKeys(['co_a', 'co_b'], registry);
     expect(svc.knownCompanyIds()).toEqual(['co_a', 'co_b']);
@@ -188,6 +257,7 @@ describe('ApiKeyService.knownCompanyIds() — registry-backed with BRAIN_API_KEY
   it('registry adds new tenants → deduped union, static first', () => {
     const registry = {
       activeCompanyIds: () => ['co_b', 'co_c', 'co_d'],
+      statusOf: () => undefined,
     } as unknown as TenantRegistryService;
     const svc = makeApiKeys(['co_a', 'co_b'], registry);
     expect(svc.knownCompanyIds()).toEqual(['co_a', 'co_b', 'co_c', 'co_d']);
@@ -196,6 +266,7 @@ describe('ApiKeyService.knownCompanyIds() — registry-backed with BRAIN_API_KEY
   it('prod-JWKS: BRAIN_API_KEYS empty + registry populated → roster (fan-out no longer [])', () => {
     const registry = {
       activeCompanyIds: () => ['co_prod1', 'co_prod2'],
+      statusOf: () => undefined,
     } as unknown as TenantRegistryService;
     const svc = makeApiKeys([], registry); // static table disabled/empty in prod
     expect(svc.knownCompanyIds()).toEqual(['co_prod1', 'co_prod2']);
@@ -204,6 +275,7 @@ describe('ApiKeyService.knownCompanyIds() — registry-backed with BRAIN_API_KEY
   it('is the VALIDATION roster: a dormant static tenant stays targetable even once the registry is live', () => {
     const registry = {
       activeCompanyIds: () => ['co_live'],
+      statusOf: () => undefined,
     } as unknown as TenantRegistryService;
     const svc = makeApiKeys(['co_dormant'], registry);
     expect(svc.knownCompanyIds()).toContain('co_dormant');
@@ -214,6 +286,7 @@ describe('ApiKeyService.knownCompanyIds() — registry-backed with BRAIN_API_KEY
     const touched: string[] = [];
     const registry = {
       activeCompanyIds: () => [],
+      statusOf: () => undefined,
       touch: (id: string) => touched.push(id),
     } as unknown as TenantRegistryService;
     const svc = makeApiKeys([], registry);
@@ -357,6 +430,32 @@ describe('TenantRegistryService', () => {
     expect(svc.activeCompanyIds()).toEqual(['co_b']);
     // And the learned status governs the next touch.
     svc.touch('co_a');
+    expect(svc.activeCompanyIds()).toEqual(['co_b']);
+    svc.onModuleDestroy();
+  });
+
+  it('a suspension that lands mid-refresh survives the stale snapshot', async () => {
+    const { surreal, setRoster, holdRosterRead } = makeFakeSurreal();
+    setRoster([
+      { companyId: 'co_a', status: 'active' },
+      { companyId: 'co_b', status: 'active' },
+    ]);
+    const svc = new TenantRegistryService(surreal);
+    const release = holdRosterRead();
+    svc.onModuleInit(); // refresh starts and blocks inside the roster read
+    await flush();
+
+    // The offboarding write lands while the read is in flight, so the rows
+    // it returns still say 'active' for co_a.
+    await svc.register('co_a', { status: 'suspended' });
+    expect(svc.activeCompanyIds()).toEqual([]);
+
+    release();
+    await flush();
+    await flush();
+    // The snapshot may not lift what this pod wrote after the read began;
+    // every other tenant still loads from it.
+    expect(svc.statusOf('co_a')).toBe('suspended');
     expect(svc.activeCompanyIds()).toEqual(['co_b']);
     svc.onModuleDestroy();
   });

@@ -107,7 +107,8 @@ export class ApiKeyService implements OnModuleInit {
    * targeting it is how it gets provisioned. It is NOT the roster for
    * background fan-outs — a sweep over the union provisions `co_<id>` (with
    * the full migration set) for every dormant static key; use fanOutRoster()
-   * there. Synchronous: the registry read is served from the in-memory cache.
+   * there. A static tenant the registry knows to be suspended is absent from
+   * BOTH rosters. Synchronous: the registry read is served from the cache.
    */
   knownCompanyIds(): string[] {
     const staticIds = this.staticCompanyIds();
@@ -146,8 +147,17 @@ export class ApiKeyService implements OnModuleInit {
     return this.fanOutRoster()[0];
   }
 
+  /**
+   * The static BRAIN_API_KEYS tenants minus any the registry KNOWS to be
+   * non-active (suspended, provisioning): a key never lifts a recorded
+   * lifecycle, in either roster. Only an unknown lifecycle falls back to it.
+   */
   private staticCompanyIds(): string[] {
-    return [...new Set([...this.byHash.values()].map((r) => r.companyId))];
+    const ids = [...new Set([...this.byHash.values()].map((r) => r.companyId))];
+    return ids.filter((id) => {
+      const status = this.tenantRegistry?.statusOf(id);
+      return status === undefined || status === 'active';
+    });
   }
 
   /**
