@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { LRUCache } from '../common/lru-cache';
 import { envFlagEnabled } from '../common/env-validation';
+import { applyTransformersCacheDir } from './transformers-cache';
 
 /**
  * Local multilingual NER via @xenova/transformers token-classification.
@@ -162,6 +163,7 @@ export class LocalNerService implements OnModuleInit, OnApplicationShutdown {
 
   private async warmupInThread(): Promise<void> {
     const transformers = await import('@xenova/transformers');
+    applyTransformersCacheDir(transformers);
     this.classifier = (await transformers.pipeline(
       'token-classification',
       this.modelId,

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { LRUCache } from '../common/lru-cache';
 import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
 import type { WarmupStatus } from '../common/warmup-status';
+import { applyTransformersCacheDir } from '../ai/transformers-cache';
 
 /**
  * Zero-shot intent classifier — multilingual NLI without enumerated
@@ -325,11 +326,7 @@ export class IntentClassifierService implements OnModuleInit, OnApplicationShutd
       env: { cacheDir?: string };
       pipeline: (task: string, modelId: string) => Promise<unknown>;
     };
-    // transformers.js v2 ignores the python-style TRANSFORMERS_CACHE /
-    // HF_HOME env vars — honour them explicitly so the operator's cache
-    // mount actually works (same fix as cross-encoder.worker.ts).
-    const cacheDir = process.env.TRANSFORMERS_CACHE ?? process.env.HF_HOME;
-    if (cacheDir) t.env.cacheDir = cacheDir;
+    applyTransformersCacheDir(t);
     this.classifier = (await t.pipeline(
       'zero-shot-classification',
       this.modelId,
