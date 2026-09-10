@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { DistributedLeaseGuard, noteUnguarded } from '../common/distributed-lease.guard';
 import { MetricsService } from '../metrics/metrics.service';
 import { type JobContext } from '../jobs/worker-loop.service';
 import { CompactionRunnerService } from './compaction-runner.service';
@@ -9,6 +10,11 @@ import { CompactionStats } from './compaction.types';
 
 export { SUMMARY_GENERATOR } from './compaction.types';
 export type { CompactionStats } from './compaction.types';
+
+/** Lock key of the inline (non-queue) daily pass. */
+const INLINE_LOCK_KEY = 'compaction_all';
+/** The inline pass walks every tenant serially; well past queue mode's 15 min per tenant. */
+const INLINE_LEASE_TTL_SECONDS = 60 * 60;
 
 /**
  * CompactionService — daily retention pass per spec.
@@ -21,8 +27,10 @@ export type { CompactionStats } from './compaction.types';
  *   known tenant; WorkerLoopService dispatches each to the handler
  *   registered in onModuleInit. CAS handles multi-pod races.
  *
- *   Legacy fallback (no claim service — single-process tests): keep the
- *   original in-flight bool guard and run the tenant fan-out inline.
+ *   Inline fallback (queue mode off, or no claim service): run the tenant
+ *   fan-out inline under the distributed lease guard, with the in-flight
+ *   bool as the process-local reentrancy layer. Without the guard (unit
+ *   fixtures) the pass runs bare, which only a single replica may.
  *
  * Metrics (countCompacted) are emitted here per tenant; the runner stays
  * metrics-free so it's a pure engine. Splitting the runner (engine) and
@@ -42,6 +50,7 @@ export class CompactionService implements OnModuleInit {
     private readonly queue: CompactionQueueService,
     private readonly promotion: PromotionRunnerService,
     @Optional() private readonly metrics?: MetricsService,
+    @Optional() private readonly guard?: DistributedLeaseGuard,
   ) {}
 
   onModuleInit(): void {
@@ -83,6 +92,23 @@ export class CompactionService implements OnModuleInit {
       this.logger.warn('compaction cron skipped — previous run still in flight');
       return [];
     }
+    const run = this.guard
+      ? await this.guard.run(
+          INLINE_LOCK_KEY,
+          () => this.compactAllInline(),
+          INLINE_LEASE_TTL_SECONDS,
+        )
+      : await this.compactAllInline();
+    if (run === null) {
+      this.logger.warn('compaction cron skipped — another run holds the lease');
+      return [];
+    }
+    return run;
+  }
+
+  /** The inline pass under the process-local single-flight flag. */
+  private async compactAllInline(): Promise<CompactionStats[]> {
+    if (!this.guard) noteUnguarded(this.logger, 'compaction');
     this.compactionInFlight = true;
     try {
       return await this.compactAll();

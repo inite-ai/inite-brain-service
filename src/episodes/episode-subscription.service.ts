@@ -38,6 +38,12 @@ export interface EpisodesAvailableEvent {
 
 const BATCH_CAP = 200;
 const DELIVERY_TIMEOUT_MS = 5_000;
+/** One dispatcher per deployment; the walking pod holds and renews it. */
+const LEASE_NAME = 'episode_subscriptions';
+/** 3x the cron cadence, the changefeed consumer's headroom. */
+const LEASE_TTL_SECONDS = 180;
+/** Renew once less than half the TTL is left, so no tenant starts on a lease about to lapse. */
+const LEASE_RENEW_BELOW_MS = (LEASE_TTL_SECONDS * 1000) / 2;
 const BREAKER_MS = 5 * 60_000;
 /** Consecutive failures after which a subscription self-deactivates. */
 const MAX_FAILURES = 100;
@@ -53,11 +59,12 @@ const MAX_FAILURES = 100;
  * payload is METADATA ONLY, so no PII crosses this surface; subscribers
  * pull bodies through GET /v1/episodes under their own scopes.
  *
- * Delivery semantics: at-least-once. The watermark advances via CAS
- * only after a 2xx, so a crash between delivery and advance re-sends
- * the batch; concurrent pods double-send at worst (the CAS keeps the
- * watermark itself consistent). Signature mirrors the indexer webhook:
- * `X-Brain-Signature: sha256=<hex hmac>` over the raw JSON body.
+ * Delivery semantics: at-least-once. The watermark advances only after
+ * a 2xx and only forward (`watermark < new`), so a crash between
+ * delivery and advance re-sends the batch, and a dispatcher that finds
+ * another one already past its batch stops instead of rewinding.
+ * Signature mirrors the indexer webhook: `X-Brain-Signature:
+ * sha256=<hex hmac>` over the raw JSON body.
  */
 @Injectable()
 export class EpisodeSubscriptionService {
@@ -69,6 +76,8 @@ export class EpisodeSubscriptionService {
    * mute the other's pushes.
    */
   private readonly failedUntil = new Map<string, number>();
+  /** Epoch-ms horizon of the lease as of the last acquire/renew. */
+  private leaseUntil = 0;
 
   // eslint-disable-next-line max-params
   constructor(
@@ -124,23 +133,29 @@ export class EpisodeSubscriptionService {
 
   /**
    * One dispatch pass over every tenant. Runs each minute wherever the
-   * flag is on — enable it on ONE role (the worker) in prod; duplicate
-   * pods only risk duplicate pushes, never watermark corruption (CAS).
+   * flag is on; one dispatcher per deployment holds the lease and renews
+   * it across the walk. A lapsed lease, or a watermark another dispatcher
+   * has already moved past, stops the walk — the next tick resumes it.
+   * Absent lease service (single-process deploys) → run.
    */
   @Cron('* * * * *')
   async dispatchTick(): Promise<void> {
     if (!EpisodeSubscriptionService.enabled()) return;
-    // One dispatcher per deployment (audit W1): without this every pod
-    // scans every tenant each minute and double-pushes the same batch.
-    // ttl=180s = 3x the cron cadence, same headroom as the changefeed
-    // consumer. Absent lease service (single-process deploys) → run.
     if (this.lease) {
-      const got = await this.lease.tryAcquire('episode_subscriptions', 180);
-      if (!got) return;
+      if (!(await this.acquireLease())) return;
     }
     for (const companyId of this.apiKeys.knownCompanyIds()) {
       try {
-        await this.dispatchCompany(companyId);
+        if (!(await this.holdLease())) {
+          this.logger.warn('episode-subscription dispatch stopped — the lease lapsed mid-walk');
+          break;
+        }
+        if (!(await this.dispatchCompany(companyId))) {
+          this.logger.warn(
+            `episode-subscription dispatch stopped — another dispatcher is ahead (companyId=${companyId})`,
+          );
+          break;
+        }
       } catch (e) {
         this.logger.warn(
           `episode-subscription dispatch failed (companyId=${companyId}): ${(e as Error).message}`,
@@ -149,7 +164,27 @@ export class EpisodeSubscriptionService {
     }
   }
 
-  private async dispatchCompany(companyId: string): Promise<void> {
+  /** Take the lease (a same-identity re-acquire is its renew branch). */
+  private async acquireLease(): Promise<boolean> {
+    if (!this.lease) return true;
+    const got = await this.lease.tryAcquire(LEASE_NAME, LEASE_TTL_SECONDS);
+    if (got) this.leaseUntil = Date.now() + LEASE_TTL_SECONDS * 1000;
+    return got;
+  }
+
+  /**
+   * Keep the lease alive across a long walk: checked before every tenant,
+   * hits the database only once the horizon is inside the renew margin.
+   * False means the lease lapsed and another pod may be dispatching — stop.
+   */
+  private async holdLease(): Promise<boolean> {
+    if (!this.lease) return true;
+    if (Date.now() < this.leaseUntil - LEASE_RENEW_BELOW_MS) return true;
+    return this.acquireLease();
+  }
+
+  /** False when a watermark advance found another dispatcher ahead. */
+  private async dispatchCompany(companyId: string): Promise<boolean> {
     const subs = await this.surreal.withCompany(companyId, async (db) => {
       const [rows] = await db.query<
         [
@@ -200,14 +235,16 @@ export class EpisodeSubscriptionService {
         secret: sub.secret,
         event,
       });
-      await this.settle({
+      const settled = await this.settle({
         companyId,
         sub,
         ok,
         previousWatermarkIso: sinceIso,
         newWatermarkIso: watermark,
       });
+      if (!settled) return false;
     }
+    return true;
   }
 
   private async deliver({
@@ -245,6 +282,14 @@ export class EpisodeSubscriptionService {
     return false;
   }
 
+  /**
+   * Record the delivery outcome. A success advances the watermark only
+   * forward, by record id (`UPDATE $id … WHERE watermark < new`): zero rows
+   * means another dispatcher already moved past this batch, and the caller
+   * stops rather than rewind. A batch whose newest row floors to the stored
+   * millisecond watermark cannot move it; that is not a race, it is
+   * re-delivered next tick (at-least-once), so no advance is attempted.
+   */
   private async settle({
     companyId,
     sub,
@@ -257,21 +302,16 @@ export class EpisodeSubscriptionService {
     ok: boolean;
     previousWatermarkIso: string;
     newWatermarkIso: string;
-  }): Promise<void> {
-    await this.surreal.withCompany(companyId, async (db: Surreal) => {
+  }): Promise<boolean> {
+    return this.surreal.withCompany(companyId, async (db: Surreal) => {
       if (ok) {
-        // CAS: only advance from the watermark this batch was read at —
-        // a concurrent pod that already advanced wins, we no-op.
-        await db.query(
+        if (newWatermarkIso === previousWatermarkIso) return true;
+        const [rows] = await db.query<[unknown[]]>(
           `UPDATE $id SET watermark = <datetime> $new, failureCount = 0
-            WHERE watermark = <datetime> $old`,
-          {
-            id: new StringRecordId(String(sub.id)),
-            new: newWatermarkIso,
-            old: previousWatermarkIso,
-          },
+            WHERE watermark < <datetime> $new`,
+          { id: new StringRecordId(String(sub.id)), new: newWatermarkIso },
         );
-        return;
+        return ((rows as unknown[]) ?? []).length > 0;
       }
       const failures = sub.failureCount + 1;
       await db.query(
@@ -285,6 +325,7 @@ export class EpisodeSubscriptionService {
           `episode subscription ${String(sub.id)} deactivated after ${failures} failures`,
         );
       }
+      return true;
     });
   }
 }

@@ -10,7 +10,7 @@ import { ReindexEmbeddingsService } from '../ai/embedder/reindex-embeddings.serv
 import { REINDEX_SWEPT_COLUMNS } from '../ai/embedder/reindex-engine.service';
 import { JobRunService } from '../jobs/job-run.service';
 import { MetricsService } from '../metrics/metrics.service';
-import { DistributedLeaseGuard } from '../common/distributed-lease.guard';
+import { DistributedLeaseGuard, tenantLeaseKey } from '../common/distributed-lease.guard';
 import { InFlightGuard } from '../common/in-flight-guard';
 
 /** One vector column of one tenant, counted by stored width and space. */
@@ -58,6 +58,8 @@ interface CensusRow {
 }
 
 const LOCK_KEY = 'vector-corpus-reconcile';
+/** Per-tenant lease of the schema-ready hook's census and repair. */
+const STARTUP_LOCK_PREFIX = 'vector_corpus_startup_';
 const LEASE_TTL_SECONDS = 30 * 60;
 /** One operator-facing line per tenant per hour about a corpus that is still
  *  non-conforming; the metric carries the number continuously. */
@@ -135,13 +137,40 @@ export class VectorCorpusService implements OnModuleInit {
         this.pending.delete(companyId);
         this.seen.add(companyId);
         try {
-          await this.reconcileTenant(companyId, 'startup');
+          await this.reconcileAtStartup(companyId);
         } catch (e) {
           this.logger.warn(`vector corpus census failed for ${companyId}: ${(e as Error).message}`);
         }
       }
     } finally {
       this.draining = false;
+    }
+  }
+
+  /**
+   * The hook's census and repair for one tenant, under a per-tenant lease:
+   * the schema-ready hook fires on every replica that serves the tenant's
+   * first request, and the repair is a full re-embed of that tenant's
+   * corpus — N replicas meant N× the embedding spend and concurrent UPDATEs
+   * on the same rows. A replica that finds the lease held skips; the holder
+   * either repairs, or defers and polls the embedder itself (retryWhenReady),
+   * re-entering through the same lease once it is warm. Without a guard
+   * (JobsModule not wired) the hook runs bare, as a single process may.
+   */
+  private async reconcileAtStartup(companyId: string): Promise<void> {
+    if (!this.guard) {
+      await this.reconcileTenant(companyId, 'startup');
+      return;
+    }
+    const run = await this.guard.run(
+      tenantLeaseKey(STARTUP_LOCK_PREFIX, companyId),
+      () => this.reconcileTenant(companyId, 'startup'),
+      LEASE_TTL_SECONDS,
+    );
+    if (run === null) {
+      this.logger.log(
+        `vector corpus census for ${companyId} skipped — another replica holds the lease`,
+      );
     }
   }
 

@@ -254,4 +254,72 @@ describe('VectorCorpusService', () => {
     );
     expect(metrics.setVectorCorpusTenantsNonconforming).toHaveBeenCalledWith(1);
   });
+  describe('the schema-ready hook runs under a per-tenant lease', () => {
+    const flush = async () => {
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+    };
+    function guarded(opts: Parameters<typeof make>[0] & { held?: boolean }) {
+      const made = make(opts);
+      const calls: Array<{ key: string; ttl: number | undefined }> = [];
+      const guard = {
+        run: jest.fn(async (key: string, fn: () => Promise<unknown>, ttl?: number) => {
+          calls.push({ key, ttl });
+          return opts.held ? null : fn();
+        }),
+      };
+      Object.assign(made.svc, { guard });
+      return { ...made, calls };
+    }
+
+    it('one tenant, one lease: vector_corpus_startup_<tenant>, 30 min, and the repair runs under it', async () => {
+      const { svc, reindex, calls } = guarded({
+        census: { 'knowledge_fact.embedding': [{ width: 1536, count: 39 }] },
+        afterRepair: { 'knowledge_fact.embedding': [{ width: 1024, count: 39 }] },
+      });
+      svc.noteTenant('co_x');
+      await flush();
+      expect(calls).toEqual([{ key: 'vector_corpus_startup_co_x', ttl: 30 * 60 }]);
+      expect(reindex.run).toHaveBeenCalledTimes(1);
+    });
+
+    it('a replica that finds the lease held skips: no census, no sweep, no job run', async () => {
+      const { svc, reindex, jobs, queries } = guarded({
+        census: { 'knowledge_fact.embedding': [{ width: 1536, count: 39 }] },
+        held: true,
+      });
+      svc.noteTenant('co_x');
+      await flush();
+      expect(queries).toEqual([]);
+      expect(reindex.run).not.toHaveBeenCalled();
+      expect(jobs.start).not.toHaveBeenCalled();
+    });
+
+    it('a deferred repair re-enters through the same lease once the embedder is warm', async () => {
+      jest.useFakeTimers();
+      try {
+        let ready = false;
+        const { svc, reindex, calls } = guarded({
+          census: { 'knowledge_fact.embedding': [{ width: 1536, count: 39 }] },
+          afterRepair: { 'knowledge_fact.embedding': [{ width: 1024, count: 39 }] },
+        });
+        (svc as unknown as { embedder: { isReady: () => boolean } }).embedder.isReady = () => ready;
+        svc.noteTenant('co_x');
+        await jest.advanceTimersByTimeAsync(0);
+        // Deferred under the lease, and the lease was released with it.
+        expect(calls).toHaveLength(1);
+        expect(reindex.run).not.toHaveBeenCalled();
+        ready = true;
+        await jest.advanceTimersByTimeAsync(60_000);
+        await jest.advanceTimersByTimeAsync(0);
+        expect(calls).toEqual([
+          { key: 'vector_corpus_startup_co_x', ttl: 30 * 60 },
+          { key: 'vector_corpus_startup_co_x', ttl: 30 * 60 },
+        ]);
+        expect(reindex.run).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
 });

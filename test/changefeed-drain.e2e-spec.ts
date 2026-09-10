@@ -10,11 +10,14 @@
  *   - Idempotent re-drain: resetting the cursor and draining the same window
  *     again produces NO duplicate audit_event rows (deterministic record id +
  *     INSERT IGNORE).
+ *   - CAS on the cursor: a slower drain that commits after a faster one has
+ *     advanced past its batch writes nothing and does not rewind the cursor.
  *
  * This is the flag-independent path — consumeForTenant() runs regardless of
  * AUDIT_CHANGEFEED_ENABLED (only the cron tick is gated), so the drain logic
  * is exercised directly.
  */
+import { ConfigService } from '@nestjs/config';
 import { StringRecordId } from 'surrealdb';
 import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
@@ -126,5 +129,69 @@ describe('changefeed drain: create/update/delete + idempotent re-drain', () => {
     await drain.consumeForTenant(f.companyId);
     const after = await countAll();
     expect(after).toBe(before);
+  });
+
+  it('a slower drain cannot rewind the cursor past a faster one', async () => {
+    const surreal = f.app.get(SurrealService);
+    const fast = f.app.get(ChangefeedDrainService);
+    const slow = new ChangefeedDrainService(surreal, f.app.get(ConfigService));
+
+    const seed = () =>
+      surreal.withCompany(f.companyId, async (db) => {
+        await db.query(
+          `CREATE knowledge_entity SET type = 'other', canonicalName = 'Race', externalRefs = {}`,
+        );
+      });
+    const readCursor = () =>
+      surreal.withCompany(f.companyId, async (db) => {
+        const [rows] = await db.query<[Array<{ lastVersionstamp: number | bigint }>]>(
+          `SELECT lastVersionstamp FROM changefeed_state
+             WHERE source = 'knowledge_entity' LIMIT 1`,
+        );
+        return BigInt(
+          (rows as Array<{ lastVersionstamp: number | bigint }>)[0]?.lastVersionstamp ?? 0,
+        );
+      });
+    const countAll = () =>
+      surreal.withCompany(f.companyId, async (db) => {
+        const [rows] = await db.query<[Array<{ n: number }>]>(
+          `SELECT count() AS n FROM audit_event WHERE source = 'knowledge_entity' GROUP ALL`,
+        );
+        return (rows as Array<{ n: number }>)[0]?.n ?? 0;
+      });
+
+    // Both drains start behind the same one change. The slow drain reads its
+    // window, then — before it commits — the fast drain sees one MORE change
+    // and advances the cursor past the slow drain's batch.
+    await seed();
+    let fastCursor = 0n;
+    let fastCount = 0;
+    const original = (
+      slow as unknown as {
+        fetchChanges: (db: unknown, source: string, since: bigint) => Promise<unknown[]>;
+      }
+    ).fetchChanges.bind(slow);
+    let interposed = false;
+    jest
+      .spyOn(slow as unknown as { fetchChanges: typeof original }, 'fetchChanges')
+      .mockImplementation(async (db, source, since) => {
+        const rows = await original(db, source, since);
+        if (source === 'knowledge_entity' && !interposed) {
+          interposed = true;
+          await seed();
+          const r = await fast.consumeForTenant(f.companyId);
+          expect(r.cursorRaceLost).toBe(false);
+          fastCursor = await readCursor();
+          fastCount = await countAll();
+        }
+        return rows;
+      });
+
+    const r = await slow.consumeForTenant(f.companyId);
+    expect(r.cursorRaceLost).toBe(true);
+    expect(r.consumed.knowledge_entity).toBeUndefined();
+    // Not rewound, and nothing re-emitted.
+    expect(await readCursor()).toBe(fastCursor);
+    expect(await countAll()).toBe(fastCount);
   });
 });

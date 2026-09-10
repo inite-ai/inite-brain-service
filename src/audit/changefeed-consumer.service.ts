@@ -5,6 +5,13 @@ import { LeaderLeaseService } from '../jobs/leader-lease.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { ChangefeedDrainService } from './changefeed-drain.service';
 
+/** One lease per deployment; the walking pod holds and renews it. */
+const LEASE_NAME = 'changefeed_consumer';
+/** 3x the cron cadence: a GC pause cannot strand the lease past the next tick. */
+const LEASE_TTL_SECONDS = 180;
+/** Renew once less than half the TTL is left, so no tenant drain starts on a lease about to lapse. */
+const LEASE_RENEW_BELOW_MS = (LEASE_TTL_SECONDS * 1000) / 2;
+
 /**
  * Periodic SurrealDB CHANGEFEED reader.
  *
@@ -42,6 +49,8 @@ export class ChangefeedConsumerService {
   // could double-emit on a slow tenant. Each cron firing checks +
   // skips if a previous one is still running.
   private inFlight = false;
+  /** Epoch-ms horizon of the lease as of the last acquire/renew. */
+  private leaseUntil = 0;
 
   /** Last successful tick timestamp (ISO). Exposed for admin status. */
   private lastTickAt: string | null = null;
@@ -71,16 +80,15 @@ export class ChangefeedConsumerService {
   //
   // Multi-pod gate: take the `changefeed_consumer` leader_lease so
   // only one pod drains the per-tenant SHOW CHANGES SINCE cursor at
-  // a time. Two pods racing the cursor would double-emit audit_event
-  // rows AND clobber each other's UPSERT of changefeed_state.
+  // a time, and keep it renewed across the walk — a walk longer than
+  // the TTL used to let a second pod start mid-roster. The cursor
+  // advance is a CAS on top of that (ChangefeedDrainService), so even
+  // an overlap cannot rewind a cursor; it only stops the slower pod.
   @Cron(CronExpression.EVERY_MINUTE)
   async tick(): Promise<void> {
     if (!this.drain.enabled || this.inFlight) return;
     if (this.lease) {
-      // ttl=180s leaves 3x the 60s cron cadence as headroom — a GC pause
-      // can't strand the lease past the next tick attempt.
-      const got = await this.lease.tryAcquire('changefeed_consumer', 180);
-      if (!got) return;
+      if (!(await this.acquireLease())) return;
     }
     this.inFlight = true;
     let pendingThisTick = 0;
@@ -88,9 +96,19 @@ export class ChangefeedConsumerService {
     try {
       for (const companyId of this.apiKeys.knownCompanyIds()) {
         try {
+          if (!(await this.holdLease())) {
+            this.logger.warn('[changefeed] lease lost mid-walk — stopping this tick');
+            break;
+          }
           const r = await this.drain.consumeForTenant(companyId);
           pendingThisTick += r.pendingRemaining;
           consumedThisTick += Object.values(r.consumed).reduce((a, b) => a + b, 0);
+          if (r.cursorRaceLost) {
+            this.logger.warn(
+              `[changefeed] tenant=${companyId}: another drainer is ahead — stopping this tick`,
+            );
+            break;
+          }
         } catch (err) {
           this.logger.warn(`[changefeed] tenant=${companyId} failed: ${(err as Error).message}`);
           this.lastError = {
@@ -109,6 +127,25 @@ export class ChangefeedConsumerService {
     } finally {
       this.inFlight = false;
     }
+  }
+
+  /** Take the lease (a same-identity re-acquire is its renew branch). */
+  private async acquireLease(): Promise<boolean> {
+    if (!this.lease) return true;
+    const got = await this.lease.tryAcquire(LEASE_NAME, LEASE_TTL_SECONDS);
+    if (got) this.leaseUntil = Date.now() + LEASE_TTL_SECONDS * 1000;
+    return got;
+  }
+
+  /**
+   * Keep the lease alive across a long walk: checked before every tenant,
+   * hits the database only once the horizon is inside the renew margin.
+   * False means the lease lapsed and another pod may be draining — stop.
+   */
+  private async holdLease(): Promise<boolean> {
+    if (!this.lease) return true;
+    if (Date.now() < this.leaseUntil - LEASE_RENEW_BELOW_MS) return true;
+    return this.acquireLease();
   }
 
   /**
@@ -164,6 +201,7 @@ export class ChangefeedConsumerService {
             consumed[k] = (consumed[k] ?? 0) + v;
           }
           pending += r.pendingRemaining;
+          if (r.cursorRaceLost) break;
         } catch (e) {
           this.lastError = {
             message: (e as Error).message,

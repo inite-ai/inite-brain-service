@@ -1,13 +1,18 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { SurrealService } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
+import { DistributedLeaseGuard, noteUnguarded } from '../common/distributed-lease.guard';
 import {
   FACT_STATUSES,
   MetricsService,
   MemoryQualitySnapshot,
   STALE_BUCKETS_DAYS,
 } from './metrics.service';
+
+const LOCK_KEY = 'memory_quality';
+/** Eight COUNT aggregates per tenant; half an hour covers the roster. */
+const LEASE_TTL_SECONDS = 30 * 60;
 
 /**
  * MemoryQualityService — nightly snapshot of "is the memory rotting"
@@ -21,11 +26,12 @@ import {
  *
  * Before this, these signals lived only in per-tenant log lines and
  * job_run.stats rows — nothing an operator could alert on. The pass is
- * read-only COUNT aggregates, so unlike compaction/dreams it needs no
- * leader lease or job queue: every pod computes its own snapshot at
- * 03:35 UTC (between compaction 03:17 and the calibration refit 03:42)
- * and pods agree modulo timing. Aggregate across pods with max() in
- * dashboards, same as any per-pod gauge.
+ * read-only COUNT aggregates, but N replicas × every tenant × eight
+ * aggregates is N× the load for one answer, so the 03:35 UTC pass
+ * (between compaction 03:17 and the calibration refit 03:42) runs under
+ * the distributed lease guard: one pod computes and publishes. The gauges
+ * are per-pod, so aggregate across pods with max() in dashboards — a pod
+ * that never held the lease exports nothing for the labelled series.
  *
  * No companyId label (unbounded cardinality) — values are summed across
  * tenants; per-tenant drill-down stays in logs.
@@ -34,16 +40,24 @@ import {
 export class MemoryQualityService {
   private readonly logger = new Logger(MemoryQualityService.name);
 
+  // Fourth dep is the distributed lease guard for the nightly pass.
+  // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     private readonly apiKeys: ApiKeyService,
     private readonly metrics: MetricsService,
+    @Optional() private readonly guard?: DistributedLeaseGuard,
   ) {}
 
   @Cron('35 3 * * *', { timeZone: 'UTC' })
   async collectNightly(): Promise<void> {
     try {
-      await this.collectNow();
+      if (!this.guard) noteUnguarded(this.logger, 'memory-quality');
+      const run = this.guard
+        ? await this.guard.run(LOCK_KEY, () => this.collectNow(), LEASE_TTL_SECONDS)
+        : await this.collectNow();
+      if (run === null)
+        this.logger.log('memory-quality pass skipped — another run holds the lease');
     } catch (e) {
       this.logger.warn(`memory-quality pass failed: ${(e as Error).message}`);
     }
