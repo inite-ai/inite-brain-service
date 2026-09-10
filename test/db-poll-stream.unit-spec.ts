@@ -3,7 +3,7 @@
  * streams: fixed cadence, no overlapping ticks, errors retried, timer
  * released on unsubscribe.
  */
-import { pollingObservable, stableStringify } from '../src/admin/db-poll-stream';
+import { anchorAt, pollingObservable, stableStringify } from '../src/admin/db-poll-stream';
 
 describe('pollingObservable', () => {
   beforeEach(() => jest.useFakeTimers());
@@ -91,6 +91,57 @@ describe('pollingObservable', () => {
     expect(jest.getTimerCount()).toBe(0);
     await jest.advanceTimersByTimeAsync(500);
     expect(polls).toBe(before);
+  });
+});
+
+describe('anchorAt', () => {
+  beforeEach(() => jest.useFakeTimers({ now: new Date('2026-09-10T00:00:00.000Z') }));
+  afterEach(() => jest.useRealTimers());
+
+  it('anchors the first cursor where the subscription began, not where the blocking read ended', async () => {
+    const startedAt = Date.now();
+    let anchor: Date | undefined;
+    const sub = pollingObservable<string, Date>({
+      intervalMs: 100,
+      initialCursor: async (subscribedAt) => {
+        // Stands in for a cold tenant's schema bootstrap: the clock read
+        // only gets through seconds after the subscription started.
+        await new Promise<void>((r) => setTimeout(r, 3_000));
+        anchor = anchorAt(subscribedAt, new Date());
+        return anchor;
+      },
+      poll: async (cursor) => ({ rows: [], cursor }),
+    }).subscribe();
+
+    await jest.advanceTimersByTimeAsync(3_100);
+    expect(anchor!.getTime()).toBe(startedAt);
+    sub.unsubscribe();
+  });
+
+  it('hands every retry of the first read the same subscription mark', async () => {
+    const marks: bigint[] = [];
+    let attempts = 0;
+    const sub = pollingObservable<string, number>({
+      intervalMs: 100,
+      initialCursor: async (subscribedAt) => {
+        marks.push(subscribedAt);
+        attempts += 1;
+        if (attempts === 1) throw new Error('tenant not ready');
+        return 0;
+      },
+      poll: async (cursor) => ({ rows: [], cursor }),
+      onError: () => undefined,
+    }).subscribe();
+
+    await jest.advanceTimersByTimeAsync(250);
+    expect(marks).toHaveLength(2);
+    expect(marks[1]).toBe(marks[0]);
+    sub.unsubscribe();
+  });
+
+  it('never rewinds past the moment the subscription began', () => {
+    const now = new Date('2026-09-10T00:00:00.000Z');
+    expect(anchorAt(process.hrtime.bigint(), now)).toEqual(now);
   });
 });
 

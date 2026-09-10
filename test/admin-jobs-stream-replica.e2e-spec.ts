@@ -33,14 +33,12 @@ describe('/admin/jobs/stream across replicas', () => {
   beforeAll(async () => {
     f = await createApp();
     surreal = f.app.get(SurrealService);
-    // Touch the tenant database before any stream subscribes to it. The
-    // stream anchors its cursor on the database clock inside its FIRST
-    // poll tick, and that tick pays this tenant's schema bootstrap when it
-    // is the first caller through the door — over a second, during which
-    // this spec's write lands and ends up BEHIND the anchor, invisible for
-    // good. Whether boot warms it is incidental: CalibrationService warms
-    // `hostTenant()`, which is the roster's first entry, so in a long shard
-    // it is some earlier spec's tenant rather than this one's.
+    // Touch the tenant database before any stream subscribes to it, so
+    // this spec measures the cross-replica poll alone against a warm
+    // tenant. What a stream does when it is the first caller through a
+    // cold tenant's door — the schema bootstrap its first tick pays, and
+    // the writes that land inside it — is asserted in
+    // admin-jobs-stream-cold-tenant.e2e-spec.ts.
     await surreal.withCompany(f.companyId, (db) => db.query(`RETURN time::now()`));
   });
 
