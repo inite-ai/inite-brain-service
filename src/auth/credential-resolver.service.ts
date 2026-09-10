@@ -61,10 +61,17 @@ export class CredentialResolverService {
   /**
    * Resolve a bearer token to an authenticated record, or null when no
    * source recognises it. JWT-shaped tokens go to JWKS verification,
-   * ik_-prefixed keys to introspection, then the static-key table when
-   * still allowed. Pass the request as `memo` and the resolution is
-   * done once per request however many guards ask (the throttler asks
-   * first, for the verified tier; the auth guard asks next).
+   * ik_-prefixed keys to introspection, then brain's own issued keys
+   * (the system-DB store), then the static-key table when still allowed.
+   * Pass the request as `memo` and the resolution is done once per
+   * request however many guards ask (the throttler asks first, for the
+   * verified tier; the auth guard asks next).
+   *
+   * The store sits BEFORE the static table and outside the
+   * `staticAllowed` gate on purpose: env keys are a dev/bootstrap
+   * fallback that production disables, while brain-issued keys are a
+   * first-class production credential — the only self-serve one, and the
+   * only one a self-hosted deployment can mint without an auth-service.
    */
   async resolve(token: string, memo?: object): Promise<ApiKeyRecord | null> {
     const carrier = memo as MemoCarrier | undefined;
@@ -88,6 +95,9 @@ export class CredentialResolverService {
     }
     if (!record && this.introspection && token.startsWith(OPAQUE_KEY_PREFIX)) {
       record = await this.introspection.resolve(token);
+    }
+    if (!record) {
+      record = await this.apiKeys.resolveStored(token);
     }
     if (!record && this.staticAllowed) {
       record = this.apiKeys.resolve(token);

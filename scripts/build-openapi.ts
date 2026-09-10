@@ -220,6 +220,13 @@ import {
   BeliefsListResponseSchema,
 } from '../src/contracts/beliefs/beliefs.schema';
 import {
+  ApiKeySummarySchema,
+  IssueKeyRequestSchema,
+  IssuedKeyResponseSchema,
+  KeyListResponseSchema,
+  RevokeKeyResponseSchema,
+} from '../src/contracts/keys/keys.schema';
+import {
   ProfileFactSchema,
   ProfileSectionSchema,
   UserProfileResponseSchema,
@@ -393,6 +400,12 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   // --- belief reads (src/contracts/beliefs/beliefs.schema.ts)
   BeliefReadResponse: BeliefReadResponseSchema,
   BeliefsListResponse: BeliefsListResponseSchema,
+  // --- self-serve API keys (src/contracts/keys/keys.schema.ts)
+  ApiKeySummary: ApiKeySummarySchema,
+  IssueKeyRequest: IssueKeyRequestSchema,
+  IssuedKeyResponse: IssuedKeyResponseSchema,
+  KeyListResponse: KeyListResponseSchema,
+  RevokeKeyResponse: RevokeKeyResponseSchema,
   // --- rolling user profile (src/contracts/users/user-profile.schema.ts)
   ProfileFact: ProfileFactSchema,
   ProfileSection: ProfileSectionSchema,
@@ -1577,6 +1590,71 @@ function memoryReadPaths(): Json {
         },
       }),
     },
+    '/v1/keys': {
+      get: operation({
+        operationId: 'listApiKeys',
+        tag: 'Keys',
+        summary: 'List the API keys this credential can see',
+        description:
+          "The tenant's `companyId`, its MCP URL, and the keys visible " +
+          'to the caller — a user-bound credential sees the keys bound ' +
+          'to that user, a `brain:admin` (or M2M) credential sees every ' +
+          'key in the tenant. Secrets and hashes are never returned: a ' +
+          'row carries a display `prefix` only. `issuableScopes` is what ' +
+          'THIS credential may grant, and `issuingEnabled` is false on a ' +
+          'deployment with no database-backed key store. Source: ' +
+          'src/keys/keys.controller.ts.',
+        scope: 'brain:read',
+        responses: {
+          '200': jsonResponse('Visible keys plus the connection values.', ref('KeyListResponse')),
+          ...AUTH_ERRORS,
+        },
+      }),
+      post: operation({
+        operationId: 'issueApiKey',
+        tag: 'Keys',
+        summary: 'Issue an API key',
+        description:
+          'Mints a key brain verifies itself, returning the plaintext ' +
+          'ONCE — it is stored only as a SHA-256 hash and cannot be ' +
+          'recovered. The granted scopes are the requested ones ' +
+          'intersected with what the calling credential already holds, ' +
+          'so a key is never wider than its issuer; asking for none that ' +
+          'the caller holds is 403. Only the four delegable scopes are ' +
+          'accepted (`brain:read`, `brain:write`, `brain:admin`, ' +
+          '`brain:read_pii`) — operator scopes are not mintable. A ' +
+          'user-bound caller can only bind the key to itself. Tenants ' +
+          'are capped at 25 live keys.',
+        scope: 'brain:read',
+        requestBody: jsonBody(ref('IssueKeyRequest')),
+        responses: {
+          '201': jsonResponse('The key, shown once.', ref('IssuedKeyResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/keys/{id}/revoke': {
+      post: operation({
+        operationId: 'revokeApiKey',
+        tag: 'Keys',
+        summary: 'Revoke an API key',
+        description:
+          'Stops the key authenticating. The row is kept (revoked, not ' +
+          'deleted) so the history stays auditable. Returns ' +
+          '`{revoked:false}` when the id is unknown OR belongs to ' +
+          'another tenant or another user — deliberately ' +
+          'indistinguishable, so the endpoint cannot be used to probe ' +
+          'for key ids. Revocation is immediate on this pod and within ' +
+          '30s elsewhere (the resolution cache TTL).',
+        scope: 'brain:read',
+        parameters: [pathParam('id', 'Key id from the issuing response or a listing.')],
+        responses: {
+          '201': jsonResponse('Whether a key was revoked.', ref('RevokeKeyResponse')),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
     '/v1/beliefs': {
       get: operation({
         operationId: 'listBeliefs',
@@ -2341,6 +2419,14 @@ export function buildOpenApiDocument(): Json {
           'profile, bitemporal timeline and typed connections. The GDPR ' +
           'cascade on the same controller is an operator action and ' +
           'lives on the admin surface (docs/api.md).',
+      },
+      {
+        name: 'Keys',
+        description:
+          'Self-serve credentials: issue, list and revoke API keys brain ' +
+          'verifies itself. Bounded by the calling credential — a key is ' +
+          'never wider than its issuer — and available identically on ' +
+          'the hosted service and a self-hosted deployment.',
       },
       {
         name: 'Registry',

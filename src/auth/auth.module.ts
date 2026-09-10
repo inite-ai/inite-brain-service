@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { ApiKeyService } from './api-key.service';
+import { ApiKeyStoreService } from './api-key-store.service';
 import { ApiKeyGuard } from './api-key.guard';
 import { CredentialResolverService } from './credential-resolver.service';
 import { JwksService } from './jwks.service';
@@ -13,6 +14,7 @@ import { TenantRegistryService } from './tenant-registry.service';
   controllers: [ProtectedResourceController],
   providers: [
     ApiKeyService,
+    ApiKeyStoreService,
     JwksService,
     CredentialResolverService,
     ApiKeyGuard,
@@ -22,6 +24,7 @@ import { TenantRegistryService } from './tenant-registry.service';
   ],
   exports: [
     ApiKeyService,
+    ApiKeyStoreService,
     JwksService,
     CredentialResolverService,
     ApiKeyGuard,

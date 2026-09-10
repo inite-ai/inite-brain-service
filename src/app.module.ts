@@ -36,6 +36,7 @@ import { RegistryModule } from './registry/registry.module';
 import { SourcesModule } from './sources/sources.module';
 import { DocumentsModule } from './documents/documents.module';
 import { FeedbackModule } from './feedback/feedback.module';
+import { KeysModule } from './keys/keys.module';
 import { UsersModule } from './users/users.module';
 import { StrategyModule } from './strategy/strategy.module';
 import { MriModule } from './mri/mri.module';
@@ -98,6 +99,7 @@ import { MriModule } from './mri/mri.module';
     EntitiesModule,
     ArtifactsModule,
     FeedbackModule,
+    KeysModule,
     McpModule,
     CompactionModule,
     DreamsModule,
