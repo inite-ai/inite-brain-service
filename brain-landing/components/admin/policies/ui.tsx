@@ -1,7 +1,5 @@
 'use client'
 
-/* eslint-disable react/jsx-no-literals -- TODO i18n migration: queued with the admin-wide pass. */
-
 import { ReactNode } from 'react'
 import { X } from 'lucide-react'
 

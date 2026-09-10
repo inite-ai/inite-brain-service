@@ -3,6 +3,7 @@
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: pre-Phase-J component, queued for separate pass. New code MUST go through getMessages(lang). */
 
 import { useCallback, useEffect, useState } from 'react'
+import { useLoader } from '../../hooks/useLoader'
 import {
   ArrowRightLeft,
   Link as LinkIcon,
@@ -53,9 +54,14 @@ type Op = (typeof OPS)[number]
 
 export function DreamsPanel() {
   const [summary, setSummary] = useState<Summary | null>(null)
-  const [emits, setEmits] = useState<DreamEmit[] | null>(null)
+  // Emits are keyed by the run they belong to: selecting another run shows
+  // the drill-down as loading instead of the previous run's rows, and a
+  // late response for an old run is never displayed.
+  const [emitsFor, setEmitsFor] = useState<{
+    runId: string
+    emits: DreamEmit[]
+  } | null>(null)
   const [selectedRun, setSelectedRun] = useState<JobRow | null>(null)
-  const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pickedOps, setPickedOps] = useState<Set<Op>>(
@@ -63,7 +69,6 @@ export function DreamsPanel() {
   )
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const res = await fetch('/api/admin/proxy/v1/admin/dreams/summary', {
         cache: 'no-store',
@@ -75,30 +80,34 @@ export function DreamsPanel() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
   }, [])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { loading, reload } = useLoader(load)
 
   useEffect(() => {
-    if (!selectedRun) {
-      setEmits(null)
-      return
-    }
+    if (!selectedRun) return
+    const { runId, companyId } = selectedRun
+    let current = true
     const params = new URLSearchParams()
-    params.set('companyId', selectedRun.companyId)
+    params.set('companyId', companyId)
     fetch(
-      `/api/admin/proxy/v1/admin/dreams/runs/${encodeURIComponent(selectedRun.runId)}/emits?${params.toString()}`,
+      `/api/admin/proxy/v1/admin/dreams/runs/${encodeURIComponent(runId)}/emits?${params.toString()}`,
       { cache: 'no-store' },
     )
       .then((r) => r.json())
-      .then((data) => setEmits(data.emits ?? []))
-      .catch(() => setEmits([]))
+      .then((data) => {
+        if (current) setEmitsFor({ runId, emits: data.emits ?? [] })
+      })
+      .catch(() => {
+        if (current) setEmitsFor({ runId, emits: [] })
+      })
+    return () => {
+      current = false
+    }
   }, [selectedRun])
+  const emits =
+    selectedRun && emitsFor?.runId === selectedRun.runId ? emitsFor.emits : null
 
   const trigger = useCallback(async () => {
     if (pickedOps.size === 0) return
@@ -115,13 +124,13 @@ export function DreamsPanel() {
       )
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? `Failed ${res.status}`)
-      await load()
+      await reload()
     } catch (e) {
       setError((e as Error).message)
     } finally {
       setBusy(false)
     }
-  }, [pickedOps, load])
+  }, [pickedOps, reload])
 
   const toggleOp = (op: Op) => {
     setPickedOps((prev) => {
@@ -148,7 +157,7 @@ export function DreamsPanel() {
         </div>
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={() => void reload()}
           className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
         >
           <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />

@@ -1,8 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
+import { useLoader } from '../../hooks/useLoader'
 import {
   BadgeCheck,
   Download,
@@ -46,7 +47,6 @@ export function MarketplacePanel() {
 
   const [packs, setPacks] = useState<RegistryPackSummary[]>([])
   const [filter, setFilter] = useState({ q: '', publisher: '', tag: '' })
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<RegistryVersionsResponse | null>(null)
@@ -56,7 +56,6 @@ export function MarketplacePanel() {
   const [publisherOpen, setPublisherOpen] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const qp = new URLSearchParams()
       if (filter.q) qp.set('q', filter.q)
@@ -73,14 +72,10 @@ export function MarketplacePanel() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
   }, [filter])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { loading, reload } = useLoader(load)
 
   const loadDetail = useCallback(async (packId: string) => {
     try {
@@ -159,9 +154,9 @@ export function MarketplacePanel() {
         path: `v1/admin/registry/packs/${encodeURIComponent(pack.packId)}/${action}`,
         scope: 'registry:curate',
       })
-      if (ok) await load()
+      if (ok) await reload()
     },
-    [load, write],
+    [reload, write],
   )
 
   const clearPricing = useCallback(
@@ -172,9 +167,9 @@ export function MarketplacePanel() {
         path: `v1/admin/registry/packs/${encodeURIComponent(packId)}/pricing`,
         scope: 'registry:publish',
       })
-      if (ok) await load()
+      if (ok) await reload()
     },
-    [load, write],
+    [reload, write],
   )
 
   const yank = useCallback(
@@ -203,10 +198,10 @@ export function MarketplacePanel() {
         scope: 'registry:publish',
       })
       if (ok) {
-        await Promise.all([load(), loadDetail(v.packId)])
+        await Promise.all([reload(), loadDetail(v.packId)])
       }
     },
-    [load, loadDetail, m, write],
+    [reload, loadDetail, m, write],
   )
 
   return (
@@ -220,7 +215,7 @@ export function MarketplacePanel() {
         </div>
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={() => void reload()}
           className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
         >
           <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
@@ -369,7 +364,7 @@ export function MarketplacePanel() {
               body,
               scope: 'registry:publish',
             })
-            if (ok) await load()
+            if (ok) await reload()
             setPricingFor(null)
           }}
         />
@@ -724,9 +719,7 @@ function PublisherDrawer({
     }
   }, [publisher])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { reload } = useLoader(load)
 
   const save = async () => {
     setSaving(true)
@@ -754,7 +747,7 @@ function PublisherDrawer({
       }
       const json = await res.json()
       if (!res.ok) throw new Error(errorMessage(json, res.status))
-      await load()
+      await reload()
     } catch (e) {
       setError((e as Error).message)
     } finally {

@@ -2,7 +2,8 @@
 
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: pre-Phase-J component, queued for separate pass. New code MUST go through getMessages(lang). */
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useLoader } from '../../hooks/useLoader'
 import { CheckCircle2, Heart, Loader2, RefreshCw, XCircle, AlertTriangle } from 'lucide-react'
 import type {
   HealthComponentsResponse as HealthResponse,
@@ -29,12 +30,10 @@ const STATUS_ICON: Record<Component['status'], typeof CheckCircle2> = {
 
 export function HealthPanel() {
   const [data, setData] = useState<HealthResponse | null>(null)
-  const [loading, setLoading] = useState(true)
   const [auto, setAuto] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = async () => {
-    setLoading(true)
+  const load = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/proxy/v1/admin/health/components', {
         cache: 'no-store',
@@ -48,20 +47,16 @@ export function HealthPanel() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
-  }
-
-  useEffect(() => {
-    void load()
   }, [])
+
+  const { loading, reload } = useLoader(load)
 
   useEffect(() => {
     if (!auto) return
-    const t = setInterval(load, 10000)
+    const t = setInterval(() => void reload(), 10000)
     return () => clearInterval(t)
-  }, [auto])
+  }, [auto, reload])
 
   return (
     <div className="space-y-4">
@@ -79,7 +74,7 @@ export function HealthPanel() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => void reload()}
             className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
           >
             <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />

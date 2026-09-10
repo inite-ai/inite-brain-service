@@ -2,7 +2,13 @@
 
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: queued with the admin-wide pass. */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { useSearchParams } from 'next/navigation'
 import { KeyRound, Play, ScanEye } from 'lucide-react'
 import type {
@@ -21,6 +27,21 @@ import { ErrorLine, Segmented, inputCls } from './ui'
 type SubjectKind = 'key' | 'policySet' | 'draft'
 type Tab = 'data' | 'actions' | 'graph'
 
+const subscribeToNothing = () => () => {}
+const noDraft = (): string | null => null
+/**
+ * The editor hands unsaved drafts over through sessionStorage. Read as an
+ * external store: the server (and hydration) sees no draft, the client
+ * picks it up on its first post-hydration render.
+ */
+function readDraft(): string | null {
+  try {
+    return sessionStorage.getItem(DRAFT_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
 /**
  * Key Lens — simulate what a key (or a saved set, or an unsaved draft
  * handed over from the editor) can see and call. The data lens runs the
@@ -29,20 +50,57 @@ type Tab = 'data' | 'actions' | 'graph'
  */
 export function KeyLens() {
   const searchParams = useSearchParams()
-  const [subjectKind, setSubjectKind] = useState<SubjectKind>('policySet')
+  const presetSet = searchParams?.get('policySet') ?? null
+  const wantsDraft = searchParams?.get('draft') === '1'
+  const draftRaw = useSyncExternalStore(
+    subscribeToNothing,
+    wantsDraft ? readDraft : noDraft,
+    noDraft,
+  )
+  const draft = useMemo<Record<string, unknown> | null>(() => {
+    if (!draftRaw) return null
+    try {
+      return JSON.parse(draftRaw) as Record<string, unknown>
+    } catch {
+      return null /* stale/corrupt draft — ignore */
+    }
+  }, [draftRaw])
+
+  const [subjectKind, setSubjectKind] = useState<SubjectKind>(() =>
+    draft ? 'draft' : 'policySet',
+  )
   const [tab, setTab] = useState<Tab>('data')
   const [keys, setKeys] = useState<AdminKeysResponse['keys']>([])
   const [sets, setSets] = useState<PolicySetsListResponse['policySets']>([])
   const [keyId, setKeyId] = useState('')
-  const [setNames, setSetNames] = useState<string[]>([])
-  const [draft, setDraft] = useState<Record<string, unknown> | null>(null)
+  const [setNames, setSetNames] = useState<string[]>(() =>
+    presetSet ? [presetSet] : [],
+  )
   const [enforceOverride, setEnforceOverride] = useState(true)
   const [query, setQuery] = useState('')
   const [limit, setLimit] = useState(10)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [searchResult, setSearchResult] = useState<SimulateSearchResponse | null>(null)
-  const [actionsResult, setActionsResult] = useState<SimulateActionsResponse | null>(null)
+  const [actionsCache, setActionsCache] = useState<{
+    key: string
+    data: SimulateActionsResponse
+  } | null>(null)
+
+  // Deep links: ?policySet=name from the list page, ?draft=1 from the editor.
+  // The initial state above reads them; a *changed* link (client navigation,
+  // or the draft arriving after hydration) re-selects the subject during
+  // render, once per distinct link, leaving later manual changes alone.
+  const deepLink = JSON.stringify([presetSet, draftRaw])
+  const [appliedDeepLink, setAppliedDeepLink] = useState(deepLink)
+  if (deepLink !== appliedDeepLink) {
+    setAppliedDeepLink(deepLink)
+    if (presetSet) {
+      setSubjectKind('policySet')
+      setSetNames([presetSet])
+    }
+    if (draft) setSubjectKind('draft')
+  }
 
   useEffect(() => {
     void (async () => {
@@ -63,26 +121,6 @@ export function KeyLens() {
     })()
   }, [])
 
-  // Deep links: ?policySet=name from the list page, ?draft=1 from the editor.
-  useEffect(() => {
-    const preset = searchParams?.get('policySet')
-    if (preset) {
-      setSubjectKind('policySet')
-      setSetNames([preset])
-    }
-    if (searchParams?.get('draft') === '1') {
-      const raw = sessionStorage.getItem(DRAFT_STORAGE_KEY)
-      if (raw) {
-        try {
-          setDraft(JSON.parse(raw) as Record<string, unknown>)
-          setSubjectKind('draft')
-        } catch {
-          /* stale/corrupt draft — ignore */
-        }
-      }
-    }
-  }, [searchParams])
-
   const subject = useMemo(() => {
     const base: Record<string, unknown> = {}
     if (subjectKind === 'key' && keyId) base.keyId = keyId
@@ -99,26 +137,12 @@ export function KeyLens() {
     (subjectKind === 'policySet' && setNames.length > 0) ||
     (subjectKind === 'draft' && !!draft)
 
-  const runActions = useCallback(async () => {
-    setBusy(true)
-    try {
-      const res = await fetch('/api/admin/proxy/v1/admin/policy/simulate/actions', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ subject }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        throw new Error(data.message?.message ?? data.error ?? `Failed ${res.status}`)
-      }
-      setActionsResult(data as SimulateActionsResponse)
-      setError(null)
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setBusy(false)
-    }
-  }, [subject])
+  // The matrix belongs to the subject it was evaluated for: a changed
+  // subject reads "evaluating…" instead of the previous subject's verdicts,
+  // and a late response for an old subject is never displayed.
+  const subjectKey = useMemo(() => JSON.stringify(subject), [subject])
+  const actionsResult =
+    actionsCache?.key === subjectKey ? actionsCache.data : null
 
   const runSearch = useCallback(async () => {
     if (!query.trim()) return
@@ -145,9 +169,35 @@ export function KeyLens() {
   // The action matrix costs one cheap call — refresh it whenever the
   // subject changes and the tab is open.
   useEffect(() => {
-    if (tab === 'actions' && subjectReady) void runActions()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, subject, subjectReady])
+    if (tab !== 'actions' || !subjectReady) return
+    let current = true
+    void (async () => {
+      try {
+        const res = await fetch(
+          '/api/admin/proxy/v1/admin/policy/simulate/actions',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ subject }),
+          },
+        )
+        const data = await res.json()
+        if (!res.ok) {
+          throw new Error(
+            data.message?.message ?? data.error ?? `Failed ${res.status}`,
+          )
+        }
+        if (!current) return
+        setActionsCache({ key: subjectKey, data: data as SimulateActionsResponse })
+        setError(null)
+      } catch (e) {
+        if (current) setError((e as Error).message)
+      }
+    })()
+    return () => {
+      current = false
+    }
+  }, [tab, subject, subjectKey, subjectReady])
 
   return (
     <div className="p-6">
@@ -172,7 +222,7 @@ export function KeyLens() {
             onChange={(v) => {
               setSubjectKind(v)
               setSearchResult(null)
-              setActionsResult(null)
+              setActionsCache(null)
             }}
           />
           {subjectKind === 'key' ? (

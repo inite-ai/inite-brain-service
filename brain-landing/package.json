@@ -10,6 +10,7 @@
     "build": "next build",
     "start": "next start -p 3030",
     "lint": "eslint .",
+    "lint:ci": "eslint . --max-warnings 8",
     "lint:i18n": "eslint components/admin",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

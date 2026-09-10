@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import {
   forceCenter,
   forceCollide,
@@ -8,15 +8,14 @@ import {
   forceManyBody,
   forceSimulation,
   type Simulation,
-  type SimulationLinkDatum,
-  type SimulationNodeDatum,
 } from 'd3-force'
 import { useReactFlow, type Edge, type Node } from 'reactflow'
-
-interface SimNode extends SimulationNodeDatum {
-  id: string
-}
-type SimEdge = SimulationLinkDatum<SimNode>
+import {
+  graphStructureKey,
+  reconcileSimNodes,
+  type SimLink,
+  type SimNode,
+} from '../lib/force-layout'
 
 interface Options {
   /** When false, the simulation stops and positions are frozen. */
@@ -36,9 +35,10 @@ interface Options {
  * - reactflow owns rendering + user drag. When the user drags a node we
  *   pin it via `fx`/`fy` so the simulation respects the manual override;
  *   on drag-stop we release it back to the physics.
- * - The simulation auto-restarts whenever the node/edge set changes
- *   so freshly-expanded neighbours settle in alongside the existing
- *   network instead of teleporting.
+ * - The simulation is (re)built only when the node/edge *set* changes, so
+ *   freshly-expanded neighbours settle in alongside the existing network
+ *   instead of teleporting — and the per-tick position writes that flow
+ *   back through `nodes` never restart it, so it cools down and stops.
  *
  * Returns drag callbacks the caller should wire to ReactFlow's
  * `onNodeDragStart` / `onNodeDrag` / `onNodeDragStop`.
@@ -49,51 +49,41 @@ export function useForceLayout(
   opts: Options,
 ) {
   const { setNodes } = useReactFlow()
-  const simRef = useRef<Simulation<SimNode, SimEdge> | null>(null)
-  // Stable per-id ref so simulation node objects survive across renders.
-  const simNodesRef = useRef<Map<string, SimNode>>(new Map())
+  const { enabled, linkDistance = 180, charge = -500, collide = 70 } = opts
+  const simRef = useRef<Simulation<SimNode, SimLink> | null>(null)
+  // Body per node id; only touched from effects and drag handlers.
+  const poolRef = useRef<Map<string, SimNode>>(new Map())
+  // Latest props for the structure-keyed effect below, which must not
+  // re-run on position-only updates.
+  const latestRef = useRef({ nodes, edges })
+  useEffect(() => {
+    latestRef.current = { nodes, edges }
+  })
 
-  const { linkDistance = 180, charge = -500, collide = 70 } = opts
-
-  // Sync sim node set with the React node set. Preserve x/y/vx/vy for
-  // existing ids so neighbours that already settled don't jump.
-  const simNodes = useMemo<SimNode[]>(() => {
-    const next: SimNode[] = []
-    const seen = new Set<string>()
-    for (const n of nodes) {
-      const prev = simNodesRef.current.get(n.id)
-      const sn: SimNode = prev ?? {
-        id: n.id,
-        x: n.position?.x,
-        y: n.position?.y,
-      }
-      next.push(sn)
-      seen.add(n.id)
-    }
-    // Drop sim nodes for removed reactflow nodes
-    for (const id of simNodesRef.current.keys()) {
-      if (!seen.has(id)) simNodesRef.current.delete(id)
-    }
-    for (const sn of next) simNodesRef.current.set(sn.id, sn)
-    return next
-  }, [nodes])
-
-  const simEdges = useMemo<SimEdge[]>(
-    () => edges.map((e) => ({ source: e.source, target: e.target })),
-    [edges],
+  const structureKey = useMemo(
+    () => graphStructureKey(nodes, edges),
+    [nodes, edges],
   )
+  const empty = nodes.length === 0
 
   useEffect(() => {
-    if (!opts.enabled || simNodes.length === 0) {
+    if (!enabled || empty) {
       simRef.current?.stop()
       simRef.current = null
       return
     }
 
-    const sim = forceSimulation<SimNode, SimEdge>(simNodes)
+    const { nodes: currentNodes, edges: currentEdges } = latestRef.current
+    const bodies = reconcileSimNodes(poolRef.current, currentNodes)
+    const links: SimLink[] = currentEdges.map((e) => ({
+      source: e.source,
+      target: e.target,
+    }))
+
+    const sim = forceSimulation<SimNode, SimLink>(bodies)
       .force(
         'link',
-        forceLink<SimNode, SimEdge>(simEdges)
+        forceLink<SimNode, SimLink>(links)
           .id((d) => d.id)
           .distance(linkDistance)
           .strength(0.3),
@@ -105,15 +95,13 @@ export function useForceLayout(
       .alphaDecay(0.025)
 
     sim.on('tick', () => {
+      const pool = poolRef.current
       setNodes((prev) =>
         prev.map((node) => {
-          const sn = simNodesRef.current.get(node.id)
-          if (!sn || sn.x === undefined || sn.y === undefined) return node
-          // Pinned drag: caller set fx/fy — skip overwriting x/y from sim.
-          return {
-            ...node,
-            position: { x: sn.x, y: sn.y },
-          }
+          const body = pool.get(node.id)
+          if (!body || body.x === undefined || body.y === undefined) return node
+          // A pinned (dragged) body has fx/fy, which d3 copies into x/y.
+          return { ...node, position: { x: body.x, y: body.y } }
         }),
       )
     })
@@ -122,42 +110,37 @@ export function useForceLayout(
     return () => {
       sim.stop()
     }
-  }, [
-    simNodes,
-    simEdges,
-    opts.enabled,
-    setNodes,
-    linkDistance,
-    charge,
-    collide,
-  ])
+  }, [structureKey, empty, enabled, setNodes, linkDistance, charge, collide])
 
-  return {
-    onNodeDragStart: (_: unknown, node: Node) => {
-      const sn = simNodesRef.current.get(node.id)
-      if (sn) {
-        sn.fx = node.position.x
-        sn.fy = node.position.y
-      }
-      simRef.current?.alphaTarget(0.3).restart()
-    },
-    onNodeDrag: (_: unknown, node: Node) => {
-      const sn = simNodesRef.current.get(node.id)
-      if (sn) {
-        sn.fx = node.position.x
-        sn.fy = node.position.y
-      }
-    },
-    onNodeDragStop: (_: unknown, node: Node) => {
-      const sn = simNodesRef.current.get(node.id)
-      if (sn) {
-        sn.fx = null
-        sn.fy = null
-      }
-      simRef.current?.alphaTarget(0)
-    },
-    reheat: () => {
-      simRef.current?.alpha(0.7).restart()
-    },
-  }
+  const onNodeDragStart = useCallback((_: unknown, node: Node) => {
+    const body = poolRef.current.get(node.id)
+    if (body) {
+      body.fx = node.position.x
+      body.fy = node.position.y
+    }
+    simRef.current?.alphaTarget(0.3).restart()
+  }, [])
+  const onNodeDrag = useCallback((_: unknown, node: Node) => {
+    const body = poolRef.current.get(node.id)
+    if (body) {
+      body.fx = node.position.x
+      body.fy = node.position.y
+    }
+  }, [])
+  const onNodeDragStop = useCallback((_: unknown, node: Node) => {
+    const body = poolRef.current.get(node.id)
+    if (body) {
+      body.fx = null
+      body.fy = null
+    }
+    simRef.current?.alphaTarget(0)
+  }, [])
+  const reheat = useCallback(() => {
+    simRef.current?.alpha(0.7).restart()
+  }, [])
+
+  return useMemo(
+    () => ({ onNodeDragStart, onNodeDrag, onNodeDragStop, reheat }),
+    [onNodeDragStart, onNodeDrag, onNodeDragStop, reheat],
+  )
 }

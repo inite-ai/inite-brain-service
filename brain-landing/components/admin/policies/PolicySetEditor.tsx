@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { useLoader } from '../../../hooks/useLoader'
 import { ArrowLeft, KeyRound, Plus, ScanEye } from 'lucide-react'
 import type {
   PolicyRule,
@@ -79,9 +80,7 @@ export function PolicySetEditor({ name }: { name: string }) {
     }
   }, [name])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { reload } = useLoader(load)
 
   const dirty = useMemo(() => {
     if (!saved || !draft) return false
@@ -245,7 +244,7 @@ export function PolicySetEditor({ name }: { name: string }) {
           </span>
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => void reload()}
             className="rounded border border-[var(--warning)]/50 px-2 py-0.5 font-medium hover:bg-[var(--warning)]/20"
           >
             Reload
@@ -469,7 +468,7 @@ export function PolicySetEditor({ name }: { name: string }) {
         <AttachKeysDrawer
           policySet={saved}
           onClose={() => setAttachOpen(false)}
-          onApplied={() => void load()}
+          onApplied={() => void reload()}
         />
       ) : null}
 

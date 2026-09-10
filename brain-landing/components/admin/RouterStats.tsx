@@ -3,6 +3,7 @@
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: pre-Phase-J component, queued for separate pass. New code MUST go through getMessages(lang). */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useLoader } from '../../hooks/useLoader'
 import { RefreshCw } from 'lucide-react'
 import {
   CartesianGrid,
@@ -28,13 +29,11 @@ export function RouterStats() {
   const [data, setData] = useState<RouterStatsResponse | null>(null)
   const [tenant, setTenant] = useState('')
   const [auto, setAuto] = useState(false)
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const samplesRef = useRef<Sample[]>([])
   const [samples, setSamples] = useState<Sample[]>([])
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const url = new URL(
         '/api/admin/proxy/v1/admin/router/stats',
@@ -64,20 +63,16 @@ export function RouterStats() {
       setSamples(samplesRef.current)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
   }, [tenant])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { loading, reload } = useLoader(load)
 
   useEffect(() => {
     if (!auto) return
-    const t = setInterval(load, 5000)
+    const t = setInterval(() => void reload(), 5000)
     return () => clearInterval(t)
-  }, [auto, load])
+  }, [auto, reload])
 
   const formattedSamples = samples.map((s) => ({
     ...s,
@@ -106,7 +101,7 @@ export function RouterStats() {
           />
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => void reload()}
             className="text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
           >
             <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />

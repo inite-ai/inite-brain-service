@@ -33,11 +33,11 @@ const config = [
   },
   ...next,
   {
-    // react-hooks 7 (Next 16) added stricter rules that flag patterns which are
-    // widespread and intentional in this dashboard — fetch-in-effect + setState,
-    // d3-force refs mutated across renders. Kept as warnings (visible, tracked
-    // as tech debt) so the CI gate blocks on genuine errors without a mass
-    // hook-refactor. Burn these down file-by-file, then promote back to error.
+    // react-hooks 7 (Next 16) added stricter rules. Kept as warnings so the
+    // remaining hits stay visible without blocking on errors; `lint:ci`
+    // (CI's lint step) caps the total with `--max-warnings <current count>`,
+    // a ratchet that only goes down. When you fix one, lower the cap in
+    // package.json in the same change; at zero, promote the rule to error.
     rules: {
       'react-hooks/set-state-in-effect': 'warn',
       'react-hooks/refs': 'warn',

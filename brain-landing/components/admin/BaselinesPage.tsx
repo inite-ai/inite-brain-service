@@ -2,7 +2,8 @@
 
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: pre-Phase-J component, queued for separate pass. New code MUST go through getMessages(lang). */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { useLoader } from '../../hooks/useLoader'
 import {
   ArrowRight,
   CheckCircle2,
@@ -49,7 +50,6 @@ const VERDICT_ICON: Record<DiffEntry['verdict'], typeof TrendingUp> = {
 export function BaselinesPage() {
   const [items, setItems] = useState<BaselineEntry[]>([])
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>([])
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [diffName, setDiffName] = useState<string | null>(null)
   const [diff, setDiff] = useState<DiffResult | null>(null)
@@ -57,7 +57,6 @@ export function BaselinesPage() {
   const [showCreate, setShowCreate] = useState(false)
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const [bRes, sRes] = await Promise.all([
         fetch('/api/admin/proxy/v1/admin/baselines', { cache: 'no-store' }),
@@ -70,14 +69,10 @@ export function BaselinesPage() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
   }, [])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { loading, reload } = useLoader(load)
 
   const runDiff = useCallback(
     async (name: string) => {
@@ -139,7 +134,7 @@ export function BaselinesPage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => void reload()}
             className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
           >
             <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
@@ -312,7 +307,7 @@ export function BaselinesPage() {
           onClose={() => setShowCreate(false)}
           onSaved={() => {
             setShowCreate(false)
-            void load()
+            void reload()
           }}
         />
       )}

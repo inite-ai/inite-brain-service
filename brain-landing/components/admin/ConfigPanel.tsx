@@ -2,7 +2,8 @@
 
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: pre-Phase-J component, queued for separate pass. New code MUST go through getMessages(lang). */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { useLoader } from '../../hooks/useLoader'
 import { AlertTriangle, KeyRound, RefreshCw, Settings2 } from 'lucide-react'
 import { CONFIG_CATEGORIES } from '../../lib/contracts/admin-config'
 import type { ConfigEntry } from '../../lib/contracts/admin-config'
@@ -13,14 +14,12 @@ export const CATEGORY_ORDER: readonly string[] = CONFIG_CATEGORIES
 
 export function ConfigPanel() {
   const [entries, setEntries] = useState<ConfigEntry[]>([])
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [q, setQ] = useState('')
   const [category, setCategory] = useState<string>('')
   const [onlyOverridden, setOnlyOverridden] = useState(false)
 
-  const load = async () => {
-    setLoading(true)
+  const load = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/proxy/v1/admin/config', {
         cache: 'no-store',
@@ -31,14 +30,10 @@ export function ConfigPanel() {
       setError(null)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      setLoading(false)
     }
-  }
-
-  useEffect(() => {
-    void load()
   }, [])
+
+  const { loading, reload } = useLoader(load)
 
   const filtered = useMemo(() => {
     return entries.filter((e) => {
@@ -93,7 +88,7 @@ export function ConfigPanel() {
         </div>
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={() => void reload()}
           className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
         >
           <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />

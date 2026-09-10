@@ -2,7 +2,8 @@
 
  
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
+import { useLoader } from '../../../../hooks/useLoader'
 import {
   Boxes,
   CircleCheck,
@@ -46,28 +47,22 @@ const CARDS: Array<{
 export default function UsagePage() {
   const proxyBase = useProxyBase()
   const [stats, setStats] = useState<MemoryStats | null>(null)
-  const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true)
-    setErr(null)
     try {
       const res = await fetch(`${proxyBase}/v1/stats/overview`)
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? `Failed (${res.status})`)
       setStats(data as MemoryStats)
+      setErr(null)
     } catch (e) {
       setErr((e as Error).message)
       setStats(null)
-    } finally {
-      setLoading(false)
     }
   }, [proxyBase])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const { loading, reload } = useLoader(load)
 
   return (
     <div className="max-w-3xl space-y-4">
