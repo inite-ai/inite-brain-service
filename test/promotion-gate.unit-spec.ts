@@ -89,7 +89,7 @@ function makePromotionStack(
         // BEGIN, LET (create), UPDATE (compact), RETURN, COMMIT — the
         // 3.x slot shape runTransaction reads the RETURN from.
         created.push(params!.doc as Record<string, unknown>);
-        return [null, null, [], [{ id: 'knowledge_fact:summary1' }], null] as unknown as R;
+        return [null, [], null, [], [{ id: 'knowledge_fact:summary1' }], null] as unknown as R;
       }
       return [[]] as unknown as R;
     },

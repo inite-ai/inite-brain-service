@@ -9,6 +9,7 @@ import { AppFixture, createApp } from './app-fixture';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../src/db/surreal.service';
 import { PromotionRunnerService } from '../src/compaction/promotion-runner.service';
+import type { SummaryGenerator } from '../src/compaction/summary-generator';
 
 describe('episodic→semantic promotion (real SurrealDB)', () => {
   let f: AppFixture;
@@ -120,5 +121,69 @@ describe('episodic→semantic promotion (real SurrealDB)', () => {
     // Idempotent: the promoted tail is compacted now, nothing new to fold.
     const again = await svc.promoteCompany(f.companyId);
     expect(again.groupsPromoted).toBe(0);
+  });
+
+  it('a member retracted inside the summarise window skips the group instead of promoting it', async () => {
+    // The members are selected BEFORE the awaited summary + embedding
+    // window. The close used to be unconditional (`WHERE id INSIDE $ids`,
+    // no row-count check), so a member retracted in that window was
+    // flipped to 'compacted' with its content already inside the summary
+    // — and a second pass could add a second active summary over the
+    // same derivedFrom. The full predicate plus the count check makes the
+    // whole transaction abort.
+    const aged: string[] = [];
+    for (let i = 1; i <= 5; i++) {
+      aged.push(await ingest('complained_about', `race remark number ${i}`));
+    }
+    await backdate(aged, 365);
+    const victim = aged[0]!;
+
+    const svc = f.app.get(PromotionRunnerService);
+    const seam = svc as unknown as { summaryGenerator: SummaryGenerator };
+    const real = seam.summaryGenerator;
+    const surreal = f.app.get(SurrealService);
+    let retracted = false;
+    seam.summaryGenerator = {
+      generate: async (group) => {
+        if (!retracted) {
+          retracted = true;
+          await surreal.withCompany(f.companyId, async (db) => {
+            await db.query(
+              `UPDATE type::record('knowledge_fact', $tail)
+                 SET status = 'retracted', retractedAt = time::now()`,
+              { tail: victim.split(':')[1] },
+            );
+          });
+        }
+        return real.generate(group);
+      },
+    };
+    let stats;
+    try {
+      stats = await svc.promoteCompany(f.companyId);
+    } finally {
+      seam.summaryGenerator = real;
+    }
+    expect(retracted).toBe(true);
+    expect(stats.groupsPromoted).toBe(0);
+    expect(stats.factsPromoted).toBe(0);
+
+    await surreal.withCompany(f.companyId, async (db) => {
+      const [summaries] = await db.query<[Array<{ id: unknown }>]>(
+        `SELECT id FROM knowledge_fact WHERE predicate = 'summary_complained_about'`,
+      );
+      expect(summaries as Array<{ id: unknown }>).toHaveLength(0);
+      const [rows] = await db.query<[Array<{ id: unknown; status: string }>]>(
+        `SELECT id, status FROM knowledge_fact WHERE id INSIDE $ids`,
+        { ids: aged.map((id) => new StringRecordId(id)) },
+      );
+      const byId = new Map(
+        (rows as Array<{ id: unknown; status: string }>).map((r) => [String(r.id), r.status]),
+      );
+      // The retracted member stays retracted; the survivors stay active —
+      // nothing was closed under a summary that never landed.
+      expect(byId.get(victim)).toBe('retracted');
+      for (const id of aged.slice(1)) expect(byId.get(id)).toBe('active');
+    });
   });
 });

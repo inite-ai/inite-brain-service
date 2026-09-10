@@ -384,14 +384,28 @@ export class PromotionRunnerService {
     // their content, or a summary next to five still-active originals.
     // Record-id params — 3.x does not coerce string↔record (see
     // compaction-runner).
+    //
+    // Atomic is not enough: the members were selected BEFORE the awaited
+    // summary + embedding window, so the close carries the full member
+    // predicate and its row count is checked against what was
+    // summarised. A member retracted or already compacted inside the
+    // window (a second pass over the same group) makes the counts differ
+    // and THROWS — the group is skipped, not promoted over content that
+    // moved. Nothing is written, the CREATE included.
     const ids = members.map((m) => new StringRecordId(String(m.id)));
     const createdRows = await runTransaction<Array<{ id: unknown }> | undefined>(db, (tx) => {
-      tx.add(`LET $created = (CREATE knowledge_fact CONTENT $doc RETURN AFTER)`).bind('doc', doc);
+      tx.bind('doc', doc).bind('ids', ids).bind('expected', ids.length);
       tx.add(
-        `UPDATE knowledge_fact
+        `LET $closed = (UPDATE knowledge_fact
            SET status = 'compacted', embedding = NONE
-           WHERE id INSIDE $ids`,
-      ).bind('ids', ids);
+           WHERE id INSIDE $ids AND status = 'active' AND retractedAt IS NONE
+           RETURN AFTER)`,
+      );
+      tx.add(
+        `IF array::len($closed) != $expected ` +
+          `{ THROW 'promotion members moved under the summary' }`,
+      );
+      tx.add(`LET $created = (CREATE knowledge_fact CONTENT $doc RETURN AFTER)`);
       tx.add(`RETURN $created`);
     });
     const summary = createdRows?.[0];
