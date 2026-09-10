@@ -224,7 +224,7 @@ describe('ApiKeyGuard — JWKS verification', () => {
 
   it('rejects a valid JWT whose subject is CAEP deny-listed (401)', async () => {
     const token = await mintJwt({ sub: 'jwt_co_revoked' });
-    revocations.deny('jwt_co_revoked', 60_000);
+    await revocations.deny('jwt_co_revoked', 60_000);
     const { ctx } = makeMockContext({ authorization: `Bearer ${token}` });
     await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
   });

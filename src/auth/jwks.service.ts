@@ -87,9 +87,22 @@ export class JwksService implements OnModuleInit {
   }
 
   /**
+   * The auth-service's revocation signal (CAEP deny-list, fed by the SSF
+   * receiver): true when `subject` was revoked. Owned here next to the
+   * key material because CredentialResolverService applies it to every
+   * source — a signature is not the only thing the auth-service says
+   * about a token.
+   */
+  subjectDenied(subject: string): Promise<boolean> {
+    return this.revocations.isDenied(subject);
+  }
+
+  /**
    * Verify a Bearer token as a JWT and return an ApiKeyRecord shape if it
    * passes signature, expiry, issuer, and audience checks. Returns null on
    * any verification failure — the guard then falls back to static lookup.
+   * The CAEP deny-list is NOT applied here: CredentialResolverService
+   * applies it (subjectDenied) once, to every credential source.
    */
   async verify(token: string): Promise<ApiKeyRecord | null> {
     if (!this.jwks) return null;
@@ -103,14 +116,6 @@ export class JwksService implements OnModuleInit {
     } catch (e) {
       // Don't log token contents — only the error class/message
       this.logger.debug(`JWT verification failed: ${(e as Error).message}`);
-      return null;
-    }
-
-    // CAEP deny-list (fed by the SSF receiver): a session/account the
-    // auth-service revoked is rejected here even though the signature
-    // is still cryptographically valid until exp.
-    if (typeof payload.sub === 'string' && this.revocations.isDenied(payload.sub)) {
-      this.logger.debug('JWT rejected: subject is deny-listed (CAEP revocation)');
       return null;
     }
 

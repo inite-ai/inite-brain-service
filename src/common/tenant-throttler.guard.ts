@@ -1,7 +1,16 @@
-import { ExecutionContext, Injectable } from '@nestjs/common';
+import { ExecutionContext, Inject, Injectable, Optional } from '@nestjs/common';
 import { ThrottlerGuard, ThrottlerRequest } from '@nestjs/throttler';
 import { envFlagEnabled } from '../common/env-validation';
-import { tierMultiplier, tokenTrackerKey } from '../auth/tier-cache';
+import { CredentialResolverService } from '../auth/credential-resolver.service';
+import { tierMultiplierFor, tokenTrackerKey } from '../auth/tier-multiplier';
+
+/** The bearer token off a request, or null when the header is absent/malformed. */
+function bearerToken(req: Record<string, unknown>): string | null {
+  const headers = (req.headers as Record<string, string> | undefined) ?? {};
+  const auth = headers.authorization;
+  if (auth && auth.toLowerCase().startsWith('bearer ')) return auth.slice(7).trim();
+  return null;
+}
 
 /**
  * Per-credential rate limiter.
@@ -16,16 +25,21 @@ import { tierMultiplier, tokenTrackerKey } from '../auth/tier-cache';
  * the ApiKeyGuard anyway, but bucketing them by IP prevents an unauth
  * flood from spending one tenant's quota.
  *
- * Per-tier limits: the auth-service stamps plan entitlements on issued
- * tokens; after verification the resolver records the entitlement-derived
- * multiplier in the tier cache (keyed by the same tracker key), and
- * handleRequest scales the bucket limit by it. Claims are never read off
- * the raw token here — this guard runs before authentication, and an
- * unverified "enterprise" claim must not widen anyone's window.
- * Configure via THROTTLE_TIER_MULTIPLIERS (see tier-cache.ts).
+ * Per-tier limits: this guard runs before authentication, so it never
+ * reads claims off the raw token — an unverified "enterprise" claim must
+ * not widen anyone's window. Instead it resolves the credential through
+ * CredentialResolverService (memoised on the request, so the auth guard
+ * does not verify twice) and scales the bucket limit by the verified
+ * entitlements on every request, on every replica. The resolver is
+ * property-injected because ThrottlerGuard's constructor is already at
+ * the three-dependency cap. Configure via THROTTLE_TIER_MULTIPLIERS.
  */
 @Injectable()
 export class TenantThrottlerGuard extends ThrottlerGuard {
+  @Optional()
+  @Inject(CredentialResolverService)
+  protected credentials?: CredentialResolverService;
+
   /**
    * Global off-switch. Per-route @Throttle() decorators hardcode their
    * own limits, which the THROTTLE_*_LIMIT env knobs can't override, so
@@ -46,8 +60,7 @@ export class TenantThrottlerGuard extends ThrottlerGuard {
 
   protected override async handleRequest(requestProps: ThrottlerRequest): Promise<boolean> {
     const req = requestProps.context.switchToHttp().getRequest();
-    const tracker = await this.getTracker(req);
-    const multiplier = tierMultiplier(tracker);
+    const multiplier = await this.verifiedTierMultiplier(req);
     if (multiplier > 1) {
       return super.handleRequest({
         ...requestProps,
@@ -58,12 +71,23 @@ export class TenantThrottlerGuard extends ThrottlerGuard {
   }
 
   protected override async getTracker(req: Record<string, unknown>): Promise<string> {
-    const headers = (req.headers as Record<string, string> | undefined) ?? {};
-    const auth = headers.authorization;
-    if (auth && auth.toLowerCase().startsWith('bearer ')) {
-      return tokenTrackerKey(auth.slice(7).trim());
-    }
+    const token = bearerToken(req);
+    if (token) return tokenTrackerKey(token);
     const ip = (req.ip as string | undefined) ?? 'unknown';
     return `ip:${ip}`;
+  }
+
+  /** Multiplier from the VERIFIED credential; default tier when there is none. */
+  private async verifiedTierMultiplier(req: Record<string, unknown>): Promise<number> {
+    const token = bearerToken(req);
+    if (!token || !this.credentials) return 1;
+    try {
+      const record = await this.credentials.resolve(token, req);
+      return tierMultiplierFor(record?.entitlements);
+    } catch {
+      // A resolver failure is the auth guard's to report; here it only
+      // means the default tier.
+      return 1;
+    }
   }
 }

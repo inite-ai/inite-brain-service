@@ -15,6 +15,11 @@ import { RevocationCacheService } from './revocation-cache.service';
  * Enabled when AUTH_SSF_POLL_URL + the poll client credentials are set;
  * silent no-op otherwise (dev). Each SET is itself a signed JWT and is
  * verified against the same JWKS as access tokens before being trusted.
+ *
+ * Poll delivery is an acked queue, so the replica that polls consumes
+ * the SET for the whole fleet: a SET is acknowledged only once its
+ * denial is persisted to the shared deny-list (RevocationCacheService),
+ * otherwise it is redelivered and persisted on a later poll.
  */
 
 /** CAEP/RISC event URIs that translate to "deny this subject now". */
@@ -99,22 +104,33 @@ export class SsfReceiverService implements OnModuleInit, OnModuleDestroy {
   /** Verify one SET and deny-list its subject for revoking event types. */
   async applySet(jti: string, setJwt: string): Promise<void> {
     if (!this.jwks) return;
+    let claims: SetClaims;
     try {
       const issuer = this.config.get<string>('AUTH_SERVICE_ISSUER');
       const { payload } = await jwtVerify(setJwt, this.jwks, {
         ...(issuer !== undefined ? { issuer } : {}),
       });
-      const claims = payload as SetClaims;
-      const subject = claims.sub_id?.sub;
-      const revokes = Object.keys(claims.events ?? {}).some((e) => REVOKING_EVENTS.includes(e));
-      if (subject && revokes) this.revocations.deny(subject);
-      this.pendingAcks.push(jti);
+      claims = payload as SetClaims;
     } catch (e) {
       // A SET we can't verify is acked anyway — redelivering it forever
       // would wedge the stream; the failure is logged for the operator.
       this.logger.warn(`SET ${jti} rejected: ${(e as Error).message}`);
       this.pendingAcks.push(jti);
+      return;
     }
+    const subject = claims.sub_id?.sub;
+    const revoking = Object.keys(claims.events ?? {}).filter((e) => REVOKING_EVENTS.includes(e));
+    if (subject && revoking.length > 0) {
+      try {
+        await this.revocations.deny(subject, RevocationCacheService.DEFAULT_TTL_MS, revoking[0]);
+      } catch (e) {
+        // Denied locally, but the fleet has not learned it: leave the SET
+        // unacked so the next poll redelivers it to a replica that can write.
+        this.logger.warn(`SET ${jti} denial not persisted, will retry: ${(e as Error).message}`);
+        return;
+      }
+    }
+    this.pendingAcks.push(jti);
   }
 
   private pollCredentials(): { clientId: string; clientSecret: string } | null {

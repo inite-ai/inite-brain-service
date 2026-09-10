@@ -41,7 +41,18 @@ const INTROSPECTED_SCOPES: ReadonlySet<BrainScope> = new Set([
 
 const VALID_COMPANY_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_SCOPES = 64;
-/** Positive answers are safe to reuse briefly; revocation lag ≤ this. */
+/**
+ * Positive answers are reused for 60 s per process, deliberately not
+ * shorter. A cached answer is subordinate to the CAEP deny-list that
+ * CredentialResolverService applies to every source, so a user whose
+ * account is disabled or session revoked loses a still-cached key within
+ * the SSF poll interval, on every replica. What remains is the lag for a
+ * plain key revocation at the auth admin panel, and that is bounded at
+ * 60 s per process no matter how many replicas run — each cache expires
+ * on its own — while a 10 s TTL would multiply introspection traffic
+ * six-fold against the auth-service's 60/min throttle and brick keys for
+ * NEGATIVE_TTL_MS every time it answered 429.
+ */
 const POSITIVE_TTL_MS = 60_000;
 /** Negative answers retry sooner — a just-issued key must not be bricked. */
 const NEGATIVE_TTL_MS = 15_000;
