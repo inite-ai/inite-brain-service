@@ -1,3 +1,5 @@
+import { buildBaseWhere } from '../src/search/internals/where-builder';
+import type { SearchDto } from '../src/search/dto/search.dto';
 import {
   normalizeEntityId,
   blockedPredicates,
@@ -121,11 +123,15 @@ describe('activeFactWhere', () => {
     expect(params).toEqual({});
   });
 
-  it('with asOf, emits the four-axis bitemporal cutoff and binds $asOf', () => {
+  it('with asOf, emits the VALID-TIME cutoff only and binds $asOf', () => {
     const asOf = new Date('2026-01-02T03:04:05.000Z');
     const { clauses, params } = activeFactWhere(asOf);
     expect(clauses).toEqual([
-      'recordedAt <= $asOf',
+      // NO `recordedAt <= $asOf`: on this surface `asOf` is VALID time,
+      // exactly as docs/bitemporal-semantics.md and AGENTS.md promise.
+      // Bounding knowledge time here made a BACKDATED fact appear in
+      // search and vanish from the profile for the very same asOf.
+      // Knowledge time keeps its own parameter (`recordedAt`).
       '(retractedAt IS NONE OR retractedAt > $asOf)',
       'validFrom <= $asOf',
       '(validUntil IS NONE OR validUntil > $asOf)',
@@ -136,6 +142,28 @@ describe('activeFactWhere', () => {
       "status != 'corroborating'",
     ]);
     expect(params).toEqual({ asOf });
+  });
+
+  it('a BACKDATED fact is visible on the profile for the same asOf as on search', () => {
+    // The F11 case, pinned against the other surface rather than
+    // described: a January tier change reported in May. Search's asOf
+    // branch gates validity + retraction and never `recordedAt`; the
+    // profile must gate the same three axes and no more, or the two
+    // surfaces disagree about the same moment.
+    const asOf = new Date('2026-02-01T00:00:00.000Z');
+    const profile = activeFactWhere(asOf).clauses.join(' ');
+    const search = buildBaseWhere({
+      dto: { query: 'tier' } as unknown as SearchDto,
+      asOf,
+      includeRetracted: false,
+      includeContested: false,
+    }).sql;
+    expect(profile).not.toContain('recordedAt');
+    expect(search).not.toContain('recordedAt');
+    for (const axis of ['retractedAt > $asOf', 'validFrom <= $asOf', 'validUntil > $asOf']) {
+      expect(profile).toContain(axis);
+      expect(search).toContain(axis);
+    }
   });
 
   const TX_SUPERSEDE_CLAUSE =

@@ -35,6 +35,14 @@ export interface CitableFragment {
   excerpt: string;
   /** ISO event time of the observation, when known. */
   occurredAt?: string | undefined;
+  /**
+   * The lifecycle stamp OBSERVED AT RETRIEVAL (fragmentStamp — the parent
+   * asset's quarantine state). Internal only: the answer cache compares it
+   * with the live stamp at admission and refuses to cache an answer built
+   * from evidence that moved during generation (round-2 audit F4). Never
+   * copied into the wire EvidenceCitation.
+   */
+  stamp?: string | undefined;
 }
 
 /** Per-citation resolution outcomes (the metric label values). */

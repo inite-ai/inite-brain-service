@@ -349,6 +349,12 @@ export class SynthesizeService {
     // The other rendered sections stay on `collected` — the verify stage
     // (verifyAndZoom) and produceAnswer read them from there directly.
     const { fragmentsById, beliefsById, scenesById, updateStories, groundingQuotes } = collected;
+    // G1 answer cache, round-2 audit F4: the retrieval snapshot. The lanes
+    // stamped what they rendered; recording it HERE — before generation —
+    // is what lets admission notice a dependency that moved while the LLM
+    // ran. Both serving paths share this ctx object; absent ctx is a no-op.
+    const rendered = { belief: beliefsById, fragment: fragmentsById, scene: scenesById };
+    this.answerCache?.observeRendered(cache?.ctx, rendered);
     // 0107 belief arm (D7): the rendered belief lines were selected for
     // context — final here (the refine round never re-runs the lane).
     emitBeliefContext(this.outcomes, companyId, beliefsById?.keys() ?? []);

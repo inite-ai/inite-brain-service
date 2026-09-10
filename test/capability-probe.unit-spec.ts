@@ -503,6 +503,66 @@ describe('capability probe — armed series', () => {
     if (savedFlag === undefined) delete process.env.CAPABILITY_PROBE_ENABLED;
     else process.env.CAPABILITY_PROBE_ENABLED = savedFlag;
   });
+
+  /**
+   * Round-2 audit F6 — the SEQUENCE, not each outcome in isolation. The
+   * withdrawal above used to be permanent, so bootstrap → empty roster
+   * (skipped) → tenant appears → busy, busy, busy left `scoped_read` with
+   * neither last_success nor armed. `last_success or armed` then had no
+   * series at all and, with noDataState: OK, the staleness alert could
+   * never fire however long the read path stayed unmeasured.
+   */
+  it('a capability that goes skipped → busy is RE-ARMED, and later busy ticks do not reset the clock', async () => {
+    const savedFlag = process.env.CAPABILITY_PROBE_ENABLED;
+    process.env.CAPABILITY_PROBE_ENABLED = '1';
+    // The first tick has no tenant at all — an empty fan-out roster.
+    const stubs = makeStubs({ apiKeys: { fanOutRoster: jest.fn().mockReturnValue([]) } });
+    const { svc, metrics } = build(stubs);
+    const armed = () =>
+      series(metrics, 'brain_capability_probe_armed_timestamp_seconds', {
+        capability: 'scoped_read',
+      });
+    const lastSuccess = () =>
+      series(metrics, 'brain_capability_probe_last_success_timestamp_seconds', {
+        capability: 'scoped_read',
+      });
+
+    svc.onApplicationBootstrap();
+    const bootArm = await armed();
+    expect(bootArm).toBeDefined();
+
+    // Tick 1 — no tenant in the roster yet: legitimately `skipped`, and
+    // the armed series is withdrawn so it cannot read as "never worked".
+    const [skipped] = await svc.runOnce();
+    expect(skipped!.outcome).toBe('skipped');
+    expect(await armed()).toBeUndefined();
+
+    // The tenant appears, and the pool is saturated from here on.
+    stubs.apiKeys.fanOutRoster.mockReturnValue(['acme']);
+    stubs.surreal.withScopedCompany.mockRejectedValue(new Error(ACQUIRE_TIMEOUT));
+    const [firstBusy] = await svc.runOnce();
+    expect(firstBusy!.outcome).toBe('busy');
+    const reArmed = await armed();
+    expect(reArmed).toBeDefined();
+
+    // Two more busy ticks: still armed, and the arming time has NOT moved
+    // — otherwise sustained saturation would push the deadline out forever.
+    await svc.runOnce();
+    await svc.runOnce();
+    expect(await armed()).toBe(reArmed);
+    // Nothing ever succeeded, so the alert measures age from arming.
+    expect(await lastSuccess()).toBeUndefined();
+    expect(await ticks(metrics, 'scoped_read', 'busy')).toBe(3);
+
+    // And once it does serve, the success series takes over.
+    stubs.surreal.withScopedCompany.mockResolvedValue([[]]);
+    await svc.runOnce();
+    expect(await lastSuccess()).toBeDefined();
+
+    await svc.onApplicationShutdown();
+    if (savedFlag === undefined) delete process.env.CAPABILITY_PROBE_ENABLED;
+    else process.env.CAPABILITY_PROBE_ENABLED = savedFlag;
+  });
 });
 
 describe('capability coverage gate', () => {

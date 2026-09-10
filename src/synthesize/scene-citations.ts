@@ -53,6 +53,14 @@ export interface CitableScene {
   excerpt: string;
   /** ISO start of the scene's time span, when known. */
   occurredAt?: string | undefined;
+  /**
+   * The lifecycle stamp OBSERVED AT RETRIEVAL (sceneStamp over the fields
+   * this lane renders). Internal only: the answer cache compares it with
+   * the live stamp at admission and refuses to cache an answer built from
+   * a scene that moved during generation (round-2 audit F4). Never copied
+   * into the wire EvidenceCitation.
+   */
+  stamp?: string | undefined;
 }
 
 /** Per-citation resolution outcomes (the metric label values). */

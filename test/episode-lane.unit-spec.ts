@@ -66,6 +66,32 @@ describe('EpisodeLaneService (P2)', () => {
     const svc = new EpisodeLaneService(surreal, new EpisodeReadStoreService(surreal));
     expect(await svc.transcriptLines(base)).toEqual([]);
   });
+
+  /**
+   * Round-2 audit F1: the PII + user gates are re-checked in JS through the
+   * SAME predicate the answer cache runs on a cached serve. The double
+   * returns rows the WHERE would have dropped, so only the JS half can.
+   */
+  it('re-checks the PII and user gates in JS over the rows the WHERE returned', async () => {
+    const turn = (over: Record<string, unknown>) => ({
+      speaker: 'Melanie',
+      text: 'I painted a sunset',
+      occurredAt: '2023-06-01T10:00:00Z',
+      piiClass: null,
+      userId: null,
+      ...over,
+    });
+    const scoped = { ...base, callerScopes: ['brain:read'], userId: 'u1' };
+    const drop = async (over: Record<string, unknown>) =>
+      (await makeLane([turn(over)]).svc.transcriptLines(scoped)).length;
+    expect(await drop({})).toBe(1);
+    expect(await drop({ piiClass: ['person'] })).toBe(0);
+    expect(await drop({ userId: 'someone_else' })).toBe(0);
+    expect(await drop({ userId: 'u1' })).toBe(1);
+    // brain:read_pii opens the classified turn again.
+    const withPii = await makeLane([turn({ piiClass: ['person'] })]).svc.transcriptLines(base);
+    expect(withPii).toHaveLength(1);
+  });
 });
 
 describe('EpisodeLaneService.sourceExcerpts (A1 provenance lane)', () => {
