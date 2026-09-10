@@ -301,9 +301,17 @@ Clients with native remote MCP support can connect directly over
 **Streamable HTTP**:
 
 ```text
-URL: https://brain.inite.ai/mcp/<companyId>
+URL: https://brain.inite.ai/mcp          (tenant taken from the credential)
+     https://brain.inite.ai/mcp/<companyId>   (explicit, must match the key)
 Authorization: Bearer brain_<api-key>
 ```
+
+Both spellings serve the same endpoint. Use the tenant-less one when the
+client only knows a URL — that is every OAuth-discovered connector, where
+the tenant arrives in the token's `org` claim rather than from the person
+pasting the config. An unauthenticated probe answers at `/mcp/health` (and
+`/mcp/<companyId>/health`), so a setup script can check reachability before
+any credential exists.
 
 The key's scopes determine available tools; server flags and installed packs
 can extend the surface. The connector forwards tools and resources, and bridges

@@ -282,6 +282,59 @@ describe('ApiKeyGuard — JWKS verification', () => {
     await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
+  /**
+   * RFC 8707: a client that names the resource it wants a token for gets
+   * `aud = <that URL>`, not the vertical name. Every MCP client
+   * discovering brain through OAuth does this, so the URL forms must
+   * verify alongside the vertical name — and nothing else may.
+   */
+  it('accepts a resource-bound audience (the deployment URL and its MCP endpoint)', async () => {
+    const config = new StubConfig({
+      AUTH_SERVICE_JWKS_URL: jwksUrl,
+      AUTH_SERVICE_ISSUER: ISSUER,
+      AUTH_SERVICE_AUDIENCE: AUDIENCE,
+      BRAIN_PUBLIC_URL: 'https://brain.test',
+      NODE_ENV: 'test',
+    });
+    const resourceJwks = new JwksService(
+      config as unknown as ConfigService,
+      new RevocationCacheService(),
+    );
+    resourceJwks.onModuleInit();
+
+    for (const audience of [AUDIENCE, 'https://brain.test', 'https://brain.test/mcp']) {
+      const token = await mintJwt({ sub: 'jwt_co_x', audience });
+      expect(await resourceJwks.verify(token)).not.toBeNull();
+    }
+    // A URL we do not answer to is still refused.
+    const foreign = await mintJwt({ sub: 'jwt_co_x', audience: 'https://evil.test/mcp' });
+    expect(await resourceJwks.verify(foreign)).toBeNull();
+  });
+
+  it('AUTH_SERVICE_AUDIENCES replaces the derived list outright', async () => {
+    const config = new StubConfig({
+      AUTH_SERVICE_JWKS_URL: jwksUrl,
+      AUTH_SERVICE_ISSUER: ISSUER,
+      AUTH_SERVICE_AUDIENCES: 'memory-api, https://memory.example',
+      BRAIN_PUBLIC_URL: 'https://brain.test',
+      NODE_ENV: 'test',
+    });
+    const custom = new JwksService(
+      config as unknown as ConfigService,
+      new RevocationCacheService(),
+    );
+    custom.onModuleInit();
+
+    expect(
+      await custom.verify(await mintJwt({ sub: 'jwt_co_x', audience: 'memory-api' })),
+    ).not.toBeNull();
+    expect(
+      await custom.verify(await mintJwt({ sub: 'jwt_co_x', audience: 'https://memory.example' })),
+    ).not.toBeNull();
+    // The derived defaults are gone, including the vertical name.
+    expect(await custom.verify(await mintJwt({ sub: 'jwt_co_x', audience: AUDIENCE }))).toBeNull();
+  });
+
   it('rejects JWT with wrong issuer (401)', async () => {
     const token = await mintJwt({ sub: 'jwt_co_x', issuer: 'https://evil.test' });
     const { ctx } = makeMockContext({ authorization: `Bearer ${token}` });

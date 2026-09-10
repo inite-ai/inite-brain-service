@@ -1,6 +1,11 @@
 # MCP setup
 
-Brain ships a Streamable HTTP MCP endpoint at `/mcp/:companyId`. Each tenant has its own URL, scoped by API key.
+Brain ships a Streamable HTTP MCP endpoint in two spellings:
+
+- `https://brain.inite.ai/mcp` — the tenant comes from the credential. Use this when the client only knows a URL, which is every OAuth-discovered connector.
+- `https://brain.inite.ai/mcp/<companyId>` — explicit; the path must match the credential's tenant, or the call is a 400.
+
+Both serve the same surface. An unauthenticated probe answers at `/mcp/health` and `/mcp/<companyId>/health` — reachability without a key.
 
 ## What you need
 
