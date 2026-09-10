@@ -131,3 +131,54 @@ export function clientSnippets({ key, companyId, mcpUrl }: SnippetInput): Client
     },
   ];
 }
+
+/** A button that hands the config to the client instead of the clipboard. */
+export interface InstallLink {
+  id: string;
+  label: string;
+  href: string;
+}
+
+/**
+ * The two clients that can actually be configured in one click.
+ *
+ * Cursor and VS Code both register a URL protocol that takes an MCP
+ * server definition and opens their own install prompt, so a link is a
+ * real install rather than a copy-paste with extra steps. Everything
+ * else — Claude Code, Claude Desktop, Codex, Goose — has no such
+ * protocol, and inventing a button that silently does nothing would be
+ * worse than the snippet it replaced.
+ *
+ * The link carries the key, so these only exist at issue time: the plain
+ * text is gone the moment the page forgets it, exactly like the snippets.
+ */
+export function installLinks({ key, mcpUrl }: SnippetInput): InstallLink[] {
+  const cursorConfig = {
+    url: mcpUrl,
+    transport: 'http',
+    headers: { Authorization: `Bearer ${key}` },
+  };
+  const vscodeConfig = {
+    name: 'brain',
+    type: 'http',
+    url: mcpUrl,
+    headers: { Authorization: `Bearer ${key}` },
+  };
+  const base64 =
+    typeof btoa === 'function'
+      ? btoa(JSON.stringify(cursorConfig))
+      : Buffer.from(JSON.stringify(cursorConfig)).toString('base64');
+
+  return [
+    {
+      id: 'cursor',
+      label: 'Add to Cursor',
+      href: `cursor://anysphere.cursor-deeplink/mcp/install?name=brain&config=${encodeURIComponent(base64)}`,
+    },
+    {
+      id: 'vscode',
+      label: 'Add to VS Code',
+      href: `vscode:mcp/install?${encodeURIComponent(JSON.stringify(vscodeConfig))}`,
+    },
+  ];
+}

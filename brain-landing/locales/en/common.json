@@ -202,7 +202,8 @@
     "subtitle": "Native Streamable HTTP for remote MCP clients; @inite/brain-mcp bridges clients that launch a stdio server. Available tools depend on key scopes, enabled features and installed packs.",
     "toolsLabel": "MCP tool highlights",
     "clients": "For personal memory, pass userId. For longer material, prefer ingest_document over recording a paragraph as one fact.",
-    "linkLabel": "MCP setup guide"
+    "linkLabel": "MCP setup guide",
+    "connectLabel": "Get a key and connect"
   },
   "skillsBlock": {
     "eyebrow": "Agent skills",
@@ -881,6 +882,7 @@
     "loading": "Loading…",
     "issuingDisabled": "This deployment has no key store, so keys cannot be issued here.",
     "issuingForbidden": "Your account cannot issue keys on this workspace. Ask an admin, or write to info@inite.ai.",
-    "loadError": "Could not load keys."
+    "loadError": "Could not load keys.",
+    "oneClickHint": "Other clients: copy the config below."
   }
 }

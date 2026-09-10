@@ -5,7 +5,7 @@
  * placeholder text that made the old screen unusable survives.
  */
 import { describe, it, expect } from 'vitest'
-import { clientSnippets } from '@/lib/client-snippets'
+import { clientSnippets, installLinks } from '@/lib/client-snippets'
 
 const INPUT = {
   key: 'brain_' + 'a'.repeat(48),
@@ -66,5 +66,33 @@ describe('clientSnippets', () => {
       expect(() => JSON.parse(snippet.code)).not.toThrow()
       expect(snippet.target).toMatch(/\.json$/)
     }
+  })
+})
+
+describe('installLinks', () => {
+  const links = installLinks(INPUT)
+
+  it('offers a button only where the client has a real install protocol', () => {
+    expect(links.map((l) => l.id)).toEqual(['cursor', 'vscode'])
+  })
+
+  it('hands Cursor a base64 config it can act on', () => {
+    const href = links.find((l) => l.id === 'cursor')!.href
+    expect(href.startsWith('cursor://anysphere.cursor-deeplink/mcp/install?name=brain&config=')).toBe(true)
+    const encoded = decodeURIComponent(href.split('config=')[1]!)
+    const config = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'))
+    expect(config).toEqual({
+      url: INPUT.mcpUrl,
+      transport: 'http',
+      headers: { Authorization: `Bearer ${INPUT.key}` },
+    })
+  })
+
+  it('hands VS Code a url-encoded server definition', () => {
+    const href = links.find((l) => l.id === 'vscode')!.href
+    expect(href.startsWith('vscode:mcp/install?')).toBe(true)
+    const config = JSON.parse(decodeURIComponent(href.split('?')[1]!))
+    expect(config).toMatchObject({ name: 'brain', type: 'http', url: INPUT.mcpUrl })
+    expect(config.headers.Authorization).toBe(`Bearer ${INPUT.key}`)
   })
 })

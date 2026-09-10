@@ -11,9 +11,17 @@ export function McpInstall({ lang }: { lang: Lang }) {
       <div>
         <h2 className="text-xl font-semibold">{m.title}</h2>
         <p className="mt-3 text-sm leading-relaxed text-[var(--text-muted)]">{m.subtitle}</p>
-        <Link href={`/${lang}/docs/mcp/setup`} className="mt-3 min-h-11 inline-flex items-center gap-2 text-sm text-[var(--signal)] hover:underline">
-          {m.linkLabel}<ArrowRight className="size-4" aria-hidden="true" />
-        </Link>
+        <div className="mt-3 flex flex-wrap items-center gap-4">
+          {/* The page that can actually finish the job: it issues the key
+              and hands back configuration with real values in it. The docs
+              link stays for the clients it does not cover. */}
+          <Link href={`/${lang}/app/keys`} className="btn-signal min-h-11 px-4 inline-flex items-center gap-2 rounded-md text-sm">
+            {m.connectLabel}<ArrowRight className="size-4" aria-hidden="true" />
+          </Link>
+          <Link href={`/${lang}/docs/mcp/setup`} className="min-h-11 inline-flex items-center gap-2 text-sm text-[var(--signal)] hover:underline">
+            {m.linkLabel}
+          </Link>
+        </div>
       </div>
       <div>
         <h3 className="text-sm text-[var(--text-muted)]">{m.toolsLabel}</h3>

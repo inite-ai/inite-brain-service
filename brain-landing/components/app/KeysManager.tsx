@@ -1,9 +1,9 @@
 'use client'
 
 import { useCallback, useMemo, useState } from 'react'
-import { Check, Copy, KeyRound, Loader2 } from 'lucide-react'
+import { Check, Copy, KeyRound, Loader2, Plug } from 'lucide-react'
 import { getMessages, type Lang } from '../../lib/i18n'
-import { clientSnippets } from '../../lib/client-snippets'
+import { clientSnippets, installLinks } from '../../lib/client-snippets'
 import { useLoader } from '../../hooks/useLoader'
 
 /**
@@ -279,6 +279,10 @@ function IssuedKey({
     () => clientSnippets({ key: issued.key, companyId: issued.companyId, mcpUrl: issued.mcpUrl }),
     [issued],
   )
+  const links = useMemo(
+    () => installLinks({ key: issued.key, companyId: issued.companyId, mcpUrl: issued.mcpUrl }),
+    [issued],
+  )
   const [active, setActive] = useState(0)
   const current = snippets[active]!
 
@@ -286,6 +290,23 @@ function IssuedKey({
     <section className="border border-[var(--signal)] rounded-xl p-4 space-y-4">
       <h2 className="text-sm font-medium text-[var(--text)]">{t.issuedTitle}</h2>
       <CopyBox lang={lang} value={issued.key} mono />
+
+      {/* One click where a client actually supports it. The rest get a
+          snippet below — a button that silently did nothing would be
+          worse than the copy-paste it replaced. */}
+      <div className="flex flex-wrap gap-2">
+        {links.map((link) => (
+          <a
+            key={link.id}
+            href={link.href}
+            className="btn-signal min-h-11 px-4 inline-flex items-center gap-2 rounded-md text-sm"
+          >
+            <Plug className="size-4" aria-hidden="true" />
+            {link.label}
+          </a>
+        ))}
+        <span className="self-center text-xs text-[var(--text-faint)]">{t.oneClickHint}</span>
+      </div>
 
       <div>
         <h3 className="text-xs text-[var(--text-muted)] mb-2">{t.snippetsTitle}</h3>
