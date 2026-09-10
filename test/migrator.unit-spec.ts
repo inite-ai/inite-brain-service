@@ -298,21 +298,76 @@ describe('SchemaMigrator', () => {
       expect(calls.some((c) => c.sql.includes('DEFINE TABLE b'))).toBe(true);
     });
 
-    it('never reads the ledger before it owns the lock', async () => {
+    it('never touches the lease when the manifest is already complete', async () => {
+      // The steady state: every request after the first one for a tenant,
+      // and every boot of a tenant another replica already migrated. A
+      // lease round trip here would sit on the caller's request for no
+      // reason, and a lease a dead holder left would block it outright.
       dir = await makeMigrationsDir({ '0001_baseline.surql': 'DEFINE TABLE a;' });
-      const migrator = new SchemaMigrator(dir, { sleep: async () => undefined });
+      const migrator = new SchemaMigrator(dir);
+      const { conn } = makeFakeConn(['0001']);
+      const lock = makeFakeLock();
+      const result = await migrator.migrate(conn as never, { lock, lockName: 'l' });
+
+      expect(result.applied).toEqual([]);
+      expect(lock.events).toEqual([]);
+    });
+
+    it('reads the ledger before it reaches for the lease', async () => {
+      dir = await makeMigrationsDir({ '0001_baseline.surql': 'DEFINE TABLE a;' });
+      const migrator = new SchemaMigrator(dir);
       const { conn, calls } = makeFakeConn();
-      const lock = makeFakeLock({ heldByOther: 2 });
+      const lock = makeFakeLock();
       lock.tryAcquire = new Proxy(lock.tryAcquire, {
         apply(target, thisArg, args: [string, number]) {
-          // Anything the migrator queries before it holds the lock would
-          // be a decision taken on a schema another replica is changing.
-          expect(calls).toEqual([]);
+          // Read first, arbitrate second — but nothing may be APPLIED
+          // before the lease is held.
+          expect(calls.some((c) => c.sql.includes('SELECT migrationId'))).toBe(true);
+          expect(calls.some((c) => c.sql.includes('DEFINE TABLE a'))).toBe(false);
           return Reflect.apply(target, thisArg, args) as Promise<boolean>;
         },
       });
-      await migrator.migrate(conn as never, { lock, lockName: 'l' });
-      expect(calls.length).toBeGreaterThan(0);
+      const result = await migrator.migrate(conn as never, { lock, lockName: 'l' });
+      expect(result.applied).toEqual(['0001']);
+    });
+
+    it('stops waiting as soon as the holder has finished the work', async () => {
+      dir = await makeMigrationsDir({ '0001_baseline.surql': 'DEFINE TABLE a;' });
+      const migrator = new SchemaMigrator(dir, { sleep: async () => undefined });
+      const { conn, calls, applied } = makeFakeConn();
+      const lock = makeFakeLock({ heldByOther: Number.MAX_SAFE_INTEGER });
+      const busy = lock.tryAcquire.bind(lock);
+      lock.tryAcquire = async (name, ttl) => {
+        const refused = await busy(name, ttl);
+        // The holder commits the last pending file while we back off.
+        applied.push({ migrationId: '0001', name: '0001_baseline.surql' });
+        return refused;
+      };
+
+      const result = await migrator.migrate(conn as never, { lock, lockName: 'l' });
+      expect(result.applied).toEqual([]);
+      expect(calls.some((c) => c.sql.includes('DEFINE TABLE a'))).toBe(false);
+      // One refusal, then the ledger settled it — no second attempt, and
+      // nothing to release because nothing was ever held.
+      expect(lock.events).toEqual(['busy:l']);
+    });
+
+    it('does not fail a request when the lease store is unreachable but the schema is there', async () => {
+      // A lease store we cannot reach must never turn a request against an
+      // already-migrated database into a 500.
+      dir = await makeMigrationsDir({ '0001_baseline.surql': 'DEFINE TABLE a;' });
+      const migrator = new SchemaMigrator(dir, { sleep: async () => undefined });
+      const { conn, applied } = makeFakeConn();
+      const lock = makeFakeLock({ failAcquires: Number.MAX_SAFE_INTEGER });
+      const failing = lock.tryAcquire.bind(lock);
+      lock.tryAcquire = async (name, ttl) => {
+        applied.push({ migrationId: '0001', name: '0001_baseline.surql' });
+        return failing(name, ttl);
+      };
+
+      await expect(migrator.migrate(conn as never, { lock, lockName: 'l' })).resolves.toMatchObject(
+        { applied: [] },
+      );
     });
 
     it('fails closed when the holder never lets go', async () => {
@@ -333,7 +388,7 @@ describe('SchemaMigrator', () => {
         );
         // Fail closed: nothing was applied, so the caller cannot go on to
         // serve requests against a half-migrated database.
-        expect(calls).toEqual([]);
+        expect(calls.some((c) => c.sql.includes('DEFINE TABLE a'))).toBe(false);
       } finally {
         nowSpy.mockRestore();
       }
