@@ -79,6 +79,24 @@ override with `BRAIN_HOST_PORT`. The schema is reapplied per request
 via `DEFINE … IF NOT EXISTS` — restarts and version upgrades are
 idempotent.
 
+## Issue real keys
+
+The env-var key above is a bootstrap. Once the service is up, every
+further key comes from the API — no restart, no `.env` edit:
+
+```bash
+curl --fail-with-body -X POST http://localhost:3000/v1/keys \
+  -H "Authorization: Bearer local-dev-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "cursor", "scopes": ["brain:read", "brain:write"] }'
+```
+
+The response carries the plaintext **once** (only a SHA-256 hash is
+stored), plus the `companyId` and the `mcpUrl` a client config needs.
+A key can never be wider than the credential that issued it. `GET
+/v1/keys` lists what exists, `POST /v1/keys/{id}/revoke` retires one.
+The hosted service exposes the same thing as a screen at `/en/app/keys`.
+
 ## Next steps
 
 - Connect an MCP agent: point any MCP-capable harness at

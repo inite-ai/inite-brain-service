@@ -177,18 +177,22 @@ Full authoring, signing and installation commands:
 
 ### Use the hosted service
 
-Hosted brain is provisioned per company: a tenant (`companyId`) and a
-scoped API key. **Key issuance is operator-side today** — self-serve
-creation in the web app is not shipped yet, so ask for one at
-`mike@inite.ai` or through a GitHub issue. The
-[keys screen](https://brain.inite.ai/en/app/keys) shows the connection
-recipes for the key you were given. Everything below also runs against a
-local instance, which needs nobody's approval.
+Hosted brain is provisioned per company: a tenant (`companyId`) and
+scoped API keys. Sign in and issue one on the
+[keys screen](https://brain.inite.ai/en/app/keys) — it shows the key
+once, alongside ready-to-paste configuration for Claude Code, Claude
+Desktop, Cursor, VS Code, Codex CLI and Goose. If your workspace has not
+been provisioned yet, ask at `info@inite.ai`.
 
 ```bash
 export BRAIN_URL="https://brain.inite.ai"
 export BRAIN_KEY="brain_YOUR_API_KEY"
 ```
+
+Keys can also be issued over the API by any credential you already hold —
+`POST /v1/keys` mints one no wider than the caller's own scopes, and
+`POST /v1/keys/{id}/revoke` takes it back. The same endpoints work on a
+self-hosted deployment, so the env-var key below is only ever a bootstrap.
 
 ### Run locally
 
@@ -297,9 +301,17 @@ Clients with native remote MCP support can connect directly over
 **Streamable HTTP**:
 
 ```text
-URL: https://brain.inite.ai/mcp/<companyId>
+URL: https://brain.inite.ai/mcp          (tenant taken from the credential)
+     https://brain.inite.ai/mcp/<companyId>   (explicit, must match the key)
 Authorization: Bearer brain_<api-key>
 ```
+
+Both spellings serve the same endpoint. Use the tenant-less one when the
+client only knows a URL — that is every OAuth-discovered connector, where
+the tenant arrives in the token's `org` claim rather than from the person
+pasting the config. An unauthenticated probe answers at `/mcp/health` (and
+`/mcp/<companyId>/health`), so a setup script can check reachability before
+any credential exists.
 
 The key's scopes determine available tools; server flags and installed packs
 can extend the surface. The connector forwards tools and resources, and bridges
@@ -314,6 +326,7 @@ MCP sampling when the client supports it. See the
 | Record information | `record_fact` for one claim; `ingest_document` for longer material |
 | Inspect disagreement | `detect_contradiction`, `get_competing_facts` |
 | Remember engineering rationale | `record_decision`, `why`, `recall_decisions` |
+| Find out what you just connected to | `workspace_status` |
 
 Read [AGENTS.md](AGENTS.md) for memory semantics and the
 [skills guide](skills/README.md) for reusable agent workflows.

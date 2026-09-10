@@ -22,6 +22,8 @@ import { registerProceduralReadTools } from './procedural-tools';
 import { registerWriteTools, registerAdminTools } from './write-tools';
 import { registerCodeMemoryReadTools, registerCodeMemoryWriteTools } from './code-memory-tools';
 import { registerSourceReadTools } from './source-tools';
+import { registerOnboardingTools } from './onboarding-tools';
+import { WorkspaceStatusService } from './workspace-status.service';
 import { SourcesService } from '../sources/sources.service';
 import { DocumentIngestService } from '../documents/document-ingest.service';
 import { FeedbackService } from '../feedback/feedback.service';
@@ -71,6 +73,7 @@ const HEALTH_TOOLS = [
   'why',
   'recall_decisions',
   'get_source_reputation',
+  'workspace_status',
 ];
 
 /**
@@ -120,6 +123,9 @@ export class McpService {
     // @Optional so positionally-constructed unit fixtures stay valid
     // (the OutcomesModule injection discipline).
     @Optional() private readonly toolObservations?: ToolObservationService,
+    // @Optional for the same reason, and because a deployment without it
+    // simply serves no onboarding tools — nothing else changes.
+    @Optional() private readonly workspaceStatus?: WorkspaceStatusService,
   ) {}
 
   /**
@@ -487,6 +493,8 @@ export class McpService {
        * undefined = gate inactive; [] = granted nothing (all tools removed).
        */
       mcpGrantedActions?: string[] | undefined;
+      /** End-user behind a user-bound credential, for per-user status. */
+      userId?: string | undefined;
     },
   ): Promise<McpServer> {
     const actorKeyHash = caller?.actorKeyHash;
@@ -577,6 +585,21 @@ export class McpService {
       companyId,
       deps: { sources: this.sources },
     });
+    if (this.workspaceStatus) {
+      // `named` decides whether the rename tool is registered at all, so
+      // the onboarding surface shrinks as onboarding completes.
+      const named = await this.workspaceStatus.isNamed(companyId);
+      registerOnboardingTools({
+        server,
+        ctx: {
+          companyId,
+          scopes,
+          named,
+          ...(caller?.userId !== undefined ? { userId: caller.userId } : {}),
+        },
+        deps: { workspaceStatus: this.workspaceStatus },
+      });
+    }
     if (scopes.includes('brain:write')) {
       registerWriteTools({
         server,

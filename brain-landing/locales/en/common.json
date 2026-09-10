@@ -202,7 +202,8 @@
     "subtitle": "Native Streamable HTTP for remote MCP clients; @inite/brain-mcp bridges clients that launch a stdio server. Available tools depend on key scopes, enabled features and installed packs.",
     "toolsLabel": "MCP tool highlights",
     "clients": "For personal memory, pass userId. For longer material, prefer ingest_document over recording a paragraph as one fact.",
-    "linkLabel": "MCP setup guide"
+    "linkLabel": "MCP setup guide",
+    "connectLabel": "Get a key and connect"
   },
   "skillsBlock": {
     "eyebrow": "Agent skills",
@@ -846,5 +847,42 @@
     "note": "Industry packs ship in the repository and are installed per tenant. Memory-model and tool capabilities depend on the enabled server features.",
     "docsLink": "Build or install a pack",
     "libraryLink": "Explore the pack library"
+  },
+  "keys": {
+    "title": "Keys & integrations",
+    "subtitle": "Issue a key, then paste a ready configuration into your agent. Keys are shown once and stored only as a hash.",
+    "tenantLabel": "Company",
+    "mcpUrlLabel": "MCP endpoint",
+    "createTitle": "New key",
+    "nameLabel": "Name",
+    "namePlaceholder": "laptop, ci, cursor…",
+    "scopesLabel": "Scopes",
+    "expiryLabel": "Expires in (days)",
+    "expiryNever": "no expiry",
+    "createButton": "Issue key",
+    "creating": "Issuing…",
+    "issuedTitle": "Copy it now — it is not shown again",
+    "issuedDismiss": "Done, I saved it",
+    "listTitle": "Your keys",
+    "listEmpty": "No keys yet. Issue one above.",
+    "colName": "Name",
+    "colScopes": "Scopes",
+    "colCreated": "Created",
+    "colLastUsed": "Last used",
+    "colStatus": "Status",
+    "statusActive": "active",
+    "statusRevoked": "revoked",
+    "statusExpired": "expired",
+    "revoke": "Revoke",
+    "revokeConfirm": "Revoke this key? Anything using it stops working.",
+    "never": "never",
+    "snippetsTitle": "Connect your agent",
+    "copy": "Copy",
+    "copied": "Copied",
+    "loading": "Loading…",
+    "issuingDisabled": "This deployment has no key store, so keys cannot be issued here.",
+    "issuingForbidden": "Your account cannot issue keys on this workspace. Ask an admin, or write to info@inite.ai.",
+    "loadError": "Could not load keys.",
+    "oneClickHint": "Other clients: copy the config below."
   }
 }

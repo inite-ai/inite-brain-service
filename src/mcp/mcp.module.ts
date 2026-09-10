@@ -18,6 +18,8 @@ import { SourcesModule } from '../sources/sources.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { FeedbackModule } from '../feedback/feedback.module';
 import { OutcomesModule } from '../outcomes/outcomes.module';
+import { StatsModule } from '../stats/stats.module';
+import { WorkspaceStatusService } from './workspace-status.service';
 
 @Module({
   imports: [
@@ -36,9 +38,10 @@ import { OutcomesModule } from '../outcomes/outcomes.module';
     DocumentsModule,
     FeedbackModule,
     OutcomesModule,
+    StatsModule,
   ],
   controllers: [McpController],
-  providers: [McpService, PackToolsReaderService, PackToolProxyService],
+  providers: [McpService, PackToolsReaderService, PackToolProxyService, WorkspaceStatusService],
   // Exported for DomainPackInstallService's cache invalidation hook
   // (AdminModule imports McpModule).
   exports: [PackToolsReaderService],

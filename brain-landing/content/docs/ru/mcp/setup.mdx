@@ -1,12 +1,17 @@
 # Настройка MCP
 
-Brain отдаёт Streamable HTTP MCP-эндпоинт на `/mcp/:companyId`. У каждого тенанта свой URL, ограниченный API-ключом.
+Brain отдаёт Streamable HTTP MCP-эндпоинт в двух написаниях:
+
+- `https://brain.inite.ai/mcp` — тенант берётся из креда. Это форма для клиента, который знает только URL, — то есть для любого коннектора, найденного через OAuth.
+- `https://brain.inite.ai/mcp/<companyId>` — явная; путь обязан совпасть с тенантом креда, иначе 400.
+
+Поверхность одна и та же. Неаутентифицированная проба отвечает на `/mcp/health` и `/mcp/<companyId>/health` — проверить доступность можно без ключа.
 
 ## Что нужно
 
-1. **API-ключ** brain (формат `brain_<base64>`). На хостинге ключи выдаёт оператор — напиши на `mike@inite.ai`; самостоятельной генерации в приложении пока нет. Селф-хост? Сгенерируй ключ сам в `BRAIN_API_KEYS` — см. [getting started](/ru/docs/getting-started).
-2. **companyId**, на который выдан ключ — приходит вместе с ключом.
-3. **MCP-URL**: `https://brain.inite.ai/mcp/<companyId>`.
+1. **API-ключ** brain (формат `brain_<hex>`). Выпусти его на [экране ключей](/ru/app/keys) — ключ показывается один раз и хранится только хэшем — или через API: `POST /v1/keys` любым уже имеющимся кредом. Селф-хост? Первый ключ берётся из `BRAIN_API_KEYS`, все следующие выпускаются тем же эндпоинтом ([getting started](/ru/docs/getting-started)).
+2. **companyId**, на который выдан ключ — виден на экране ключей и в ответе на выпуск.
+3. **MCP-URL**: `https://brain.inite.ai/mcp/<companyId>` — тоже возвращается как `mcpUrl` при выпуске.
 
 Brain не принимает анонимный MCP-трафик. Режима общего секрета нет.
 
@@ -138,7 +143,7 @@ Hermes на старте обнаружит инструменты brain и за
 
 > Покажи доступные инструменты brain и вызови `search_knowledge` с query `"hello"` limit 1.
 
-Ты увидишь количество инструментов, соответствующее scope ключа (19 для read-only — 21 при `FACTS_API_ENABLED` — до 30 для read+write+admin), и результат `search_knowledge` — либо пустой (свежий тенант), либо одно попадание (seed-данные).
+Ты увидишь количество инструментов, соответствующее scope ключа (20 для read-only — 22 при `FACTS_API_ENABLED` — до 32 для read+write+admin), и результат `search_knowledge` — либо пустой (свежий тенант), либо одно попадание (seed-данные).
 
 Получил 401 — bearer-токен битый или ключ невалиден. Получил `400: MCP path companyId (...) does not match ApiKey companyId` — вставил не тот companyId для этого ключа.
 
@@ -146,15 +151,15 @@ Hermes на старте обнаружит инструменты brain и за
 
 | Scope | Видимые инструменты |
 | --- | --- |
-| `brain:read` (всегда) | **19 инструментов чтения** — поиск (`search_knowledge`, `search_multi_hop`, `synthesize`, `memory_diff`, `graph_retrieve`), чтение сущностей (`get_entity_profile`, `get_entity_timeline`, `summarize_entity`, `get_competing_facts`, `find_related_entities`, `detect_contradiction`), сообщества (`search_communities`, `list_communities`, `find_entity_communities`), процедурная память (`match_procedure`, `list_procedures`), репутация источников (`get_source_reputation`), code memory (`why`, `recall_decisions`) — **21** при `FACTS_API_ENABLED=1` на сервере (добавляются `get_fact`, `get_fact_provenance`) — плюс 2 ресурса (`brain://entity/{id}`, `brain://entity/{id}/timeline`) |
-| `brain:write` (дополнительно) | **+8 инструментов записи** — `record_fact`, `link_entities`, `retract_fact`, `record_procedure`, `retire_procedure`, `record_feedback`, `record_decision` и `ingest_document` (регистрируется только при `DOCUMENT_INGEST_ENABLED=1` у оператора) |
+| `brain:read` (всегда) | **20 инструментов чтения** — поиск (`search_knowledge`, `search_multi_hop`, `synthesize`, `memory_diff`, `graph_retrieve`), чтение сущностей (`get_entity_profile`, `get_entity_timeline`, `summarize_entity`, `get_competing_facts`, `find_related_entities`, `detect_contradiction`), сообщества (`search_communities`, `list_communities`, `find_entity_communities`), процедурная память (`match_procedure`, `list_procedures`), репутация источников (`get_source_reputation`), code memory (`why`, `recall_decisions`), онбординг (`workspace_status`) — **22** при `FACTS_API_ENABLED=1` на сервере (добавляются `get_fact`, `get_fact_provenance`) — плюс 2 ресурса (`brain://entity/{id}`, `brain://entity/{id}/timeline`) |
+| `brain:write` (дополнительно) | **+9 инструментов записи** — `record_fact`, `link_entities`, `retract_fact`, `record_procedure`, `retire_procedure`, `record_feedback`, `record_decision`, `ingest_document` (регистрируется только при `DOCUMENT_INGEST_ENABLED=1` у оператора) и `rename_workspace` — он регистрируется, только пока у воркспейса нет имени, и исчезает, как только имя появилось |
 | `brain:admin` (дополнительно) | **+1** — `forget_entity`, деструктивный GDPR-каскад |
 | `brain:read_pii` (дополнительно) | новых инструментов нет — открывает значения `email` / `phone` / `dob` / `address` в результатах |
 | `brain:read_media` (дополнительно) | новых инструментов нет — доступ к медиа/биометрическим уликам, более строгий режим, чем `brain:read_pii`; только для оператора хостинга (env-key конфиг, через токены не выдаётся) |
 
 Установленные [Domain Packs](/ru/docs/platform/domain-packs) с одобренной секцией `mcpTools` добавляют поверх этого свои инструменты (`<packId>__<tool>`) — см. [справочник инструментов](/ru/docs/mcp/tools).
 
-Ключ только с `brain:read` видит 19 инструментов (21 при `FACTS_API_ENABLED`), а не 30. Это инвариант безопасности, а не баг.
+Ключ только с `brain:read` видит 20 инструментов (22 при `FACTS_API_ENABLED`), а не 32. Это инвариант безопасности, а не баг.
 
 ## Stateless-режим
 

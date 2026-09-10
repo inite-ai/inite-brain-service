@@ -187,3 +187,66 @@ describe('end-user proxy — happy path unchanged', () => {
     expect(auth).toBe('Bearer EXCHANGED-TOKEN')
   })
 })
+
+describe('end-user proxy — self-serve keys', () => {
+  it('lists keys for any authenticated user, on the identity-preserving token', async () => {
+    const f = stubFetch({ exchangeOk: true })
+
+    const res = await route.GET(req('v1/keys'))
+
+    expect(res.status).toBe(200)
+    const [backendUrl, backendInit] = backendCalls(f)[0] as [string, RequestInit]
+    expect(backendUrl).toContain('/v1/keys')
+    // The backend decides visibility from the user in this token — a
+    // tenant-wide M2M credential would show it everyone's keys.
+    expect((backendInit.headers as Record<string, string>).Authorization).toBe(
+      'Bearer EXCHANGED-TOKEN',
+    )
+  })
+
+  it('holds issuing to the same bar as writing memory', async () => {
+    // Session is a non-admin (isAdminFromToken → false) and user writes
+    // are not enabled, so minting a key — which delegates brain:write —
+    // is refused before it reaches the backend.
+    const f = stubFetch({ exchangeOk: true })
+
+    const res = await route.POST(
+      req('v1/keys', { method: 'POST', body: { name: 'mine', scopes: ['brain:read'] } }),
+    )
+
+    expect(res.status).toBe(403)
+    expect(backendCalls(f)).toHaveLength(0)
+  })
+
+  it('forwards issuing once the deployment allows user writes', async () => {
+    process.env.BRAIN_APP_ALLOW_USER_WRITES = '1'
+    try {
+      const f = stubFetch({ exchangeOk: true })
+
+      const res = await route.POST(
+        req('v1/keys', { method: 'POST', body: { name: 'mine', scopes: ['brain:read'] } }),
+      )
+
+      expect(res.status).toBe(200)
+      const [backendUrl] = backendCalls(f)[0] as [string, RequestInit]
+      expect(backendUrl).toContain('/v1/keys')
+    } finally {
+      delete process.env.BRAIN_APP_ALLOW_USER_WRITES
+    }
+  })
+
+  it('reaches the revoke sub-path through the same allow-list entry', async () => {
+    process.env.BRAIN_APP_ALLOW_USER_WRITES = '1'
+    try {
+      const f = stubFetch({ exchangeOk: true })
+
+      const res = await route.POST(req('v1/keys/key-123/revoke', { method: 'POST' }))
+
+      expect(res.status).toBe(200)
+      const [backendUrl] = backendCalls(f)[0] as [string, RequestInit]
+      expect(backendUrl).toContain('/v1/keys/key-123/revoke')
+    } finally {
+      delete process.env.BRAIN_APP_ALLOW_USER_WRITES
+    }
+  })
+})

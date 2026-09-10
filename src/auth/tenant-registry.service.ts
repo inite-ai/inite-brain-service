@@ -275,6 +275,57 @@ export class TenantRegistryService implements OnModuleInit, OnModuleDestroy {
    * the active roster from it. Anything that is not 'active' (suspended,
    * provisioning, or an unexpected value) is out.
    */
+  /**
+   * What this workspace calls itself, or undefined when nobody has named
+   * it — in which case the companyId is the display value.
+   *
+   * Read straight from the registry rather than the roster cache: a name
+   * is read on demand (a status call, a rename), not on the hot auth
+   * path, and a 60s-stale name right after a rename would read as the
+   * rename having failed.
+   */
+  async displayName(companyId: string): Promise<string | undefined> {
+    if (!this.surreal || !COMPANY_ID.test(companyId)) return undefined;
+    try {
+      return await this.surreal.withAdminDb(async (db) => {
+        const rows = await queryRows<{ displayName?: string }>(
+          db,
+          `SELECT displayName FROM type::record('tenant_registry', $companyId)`,
+          { companyId },
+        );
+        const name = rows[0]?.displayName;
+        return typeof name === 'string' && name.length > 0 ? name : undefined;
+      });
+    } catch (e) {
+      this.logger.warn(`displayName(${companyId}) failed: ${(e as Error).message}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Name the workspace. UPSERT rather than UPDATE so a tenant that has
+   * not been registered yet (fresh install, first request still in
+   * flight) can still be named — the row it creates is the same one
+   * touch()/register() would.
+   */
+  async setDisplayName(companyId: string, displayName: string): Promise<void> {
+    if (!this.surreal) throw new Error('tenant registry unavailable: no database connection');
+    if (!COMPANY_ID.test(companyId)) throw new Error(`invalid companyId: ${companyId}`);
+    const trimmed = displayName.trim();
+    if (trimmed.length === 0 || trimmed.length > 80) {
+      throw new Error('displayName must be 1-80 characters');
+    }
+    await this.surreal.withAdminDb(async (db) => {
+      await db.query(
+        `UPSERT type::record('tenant_registry', $companyId) SET
+           companyId = $companyId,
+           displayName = $displayName,
+           updatedAt = time::now()`,
+        { companyId, displayName: trimmed },
+      );
+    });
+  }
+
   private noteStatus(companyId: string, status: string): void {
     const known: TenantStatus =
       status === 'active' || status === 'suspended' || status === 'provisioning'

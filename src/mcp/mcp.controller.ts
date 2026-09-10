@@ -36,9 +36,45 @@ export class McpController {
    * downstream operators can confirm those exist by hitting the
    * authenticated MCP endpoint with the right scope.
    */
+  // Both spellings answer: `/mcp/health` is what a client that only knows
+  // the tenant-less URL can reach, `/mcp/:companyId/health` what the
+  // per-tenant URL gives. Declared first so the single-segment form is
+  // not swallowed by `@All(':companyId')` below.
+  @Get('health')
+  healthRoot(): ReturnType<McpService['health']> {
+    return this.mcp.health();
+  }
+
   @Get(':companyId/health')
   health(): ReturnType<McpService['health']> {
     return this.mcp.health();
+  }
+
+  /**
+   * Tenant-less MCP endpoint: the tenant comes from the credential.
+   *
+   * The per-tenant URL below cannot be the only spelling. A client that
+   * discovers this server through OAuth knows one thing — the URL it was
+   * given — and learns the tenant only after the token is issued, from
+   * the `org` claim. Requiring the tenant in the path made every
+   * one-click connector flow (Claude custom connectors, ChatGPT) a
+   * non-starter, and made every copy-paste config need a value the
+   * product had no way to hand out at that moment.
+   *
+   * There is no weaker check here than on the path form: that route
+   * compares the path against the credential's tenant, and this one
+   * simply takes the credential's tenant. Neither lets a caller choose.
+   */
+  @Throttle({ expensive: { limit: 30, ttl: 60_000 } })
+  @All()
+  @UseGuards(ApiKeyGuard)
+  @RequireScopes('brain:read')
+  @PolicyAction(POLICY_ACTION_EXEMPT)
+  async handleForCredentialTenant(
+    @Req() req: AuthenticatedRequest & Request,
+    @Res() res: Response,
+  ) {
+    await this.serve(req, res);
   }
 
   /**
@@ -80,13 +116,19 @@ export class McpController {
         `MCP path companyId (${pathCompanyId}) does not match ApiKey companyId`,
       );
     }
+    await this.serve(req, res);
+  }
 
+  /** The transport, once, for both spellings of the endpoint. */
+  private async serve(req: AuthenticatedRequest & Request, res: Response): Promise<void> {
+    const auth = req.brainAuth;
     const server = await this.mcp.buildServer(auth.companyId, auth.scopes, {
       actorKeyHash: auth.keyHash,
       policy: auth.policy,
       packIds: auth.packIds,
       actorId: auth.actorId,
       mcpGrantedActions: auth.mcpGrantedActions,
+      userId: auth.userId,
     });
     // Stateless mode: omitting sessionIdGenerator entirely reads the same
     // as an explicit `undefined` (the SDK just stores whatever the key

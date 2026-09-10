@@ -79,6 +79,9 @@ export const ACTIONS: Record<string, ActionSpec> = {
 
   // Sources
   get_source_reputation: { kind: 'read', family: 'mcp_source', title: 'Source reputation' },
+  // Onboarding: what this connection is attached to, and naming it.
+  workspace_status: { kind: 'read', family: 'mcp_read', title: 'Workspace status' },
+  rename_workspace: { kind: 'write', family: 'mcp_write', title: 'Name the workspace' },
 
   // REST-only actions
   'rest.users.forget': { kind: 'write', family: 'rest', title: 'GDPR user forget' },
@@ -148,6 +151,13 @@ export const ACTIONS: Record<string, ActionSpec> = {
     title: 'Register an episode webhook',
   },
   'rest.episodes.subscriptions': { kind: 'read', family: 'rest', title: 'List episode webhooks' },
+  // Self-serve credentials. Issuing is `admin`-kind even though any
+  // authenticated caller may mint a key no wider than its own: the act
+  // creates a long-lived credential, which is an administrative event
+  // whether or not it escalates anything.
+  'rest.keys.issue': { kind: 'admin', family: 'rest', title: 'Issue an API key' },
+  'rest.keys.list': { kind: 'read', family: 'rest', title: 'List API keys' },
+  'rest.keys.revoke': { kind: 'admin', family: 'rest', title: 'Revoke an API key' },
   'rest.episodes.unsubscribe': {
     kind: 'admin',
     family: 'rest',

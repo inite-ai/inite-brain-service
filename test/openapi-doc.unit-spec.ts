@@ -30,6 +30,11 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   ['/v1/entities/{id}', 'get'],
   ['/v1/entities/{id}/timeline', 'get'],
   ['/v1/entities/{id}/connections', 'get'],
+  // Self-serve credentials: the first thing an integrator needs, and the
+  // only surface that hands out one.
+  ['/v1/keys', 'get'],
+  ['/v1/keys', 'post'],
+  ['/v1/keys/{id}/revoke', 'post'],
   ['/v1/registry/packs', 'get'],
   ['/v1/registry/packs/{packId}', 'get'],
   ['/v1/registry/packs/{packId}/{version}', 'get'],

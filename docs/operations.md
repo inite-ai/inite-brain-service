@@ -623,6 +623,51 @@ data loss. Staged candidates expire per `CANDIDATE_PENDING_TTL_DAYS`;
 stuck runs are reaped per the stale window; committed facts stay (they
 are ordinary memory — retract/forget applies as usual).
 
+## Letting clients connect over OAuth (no pasted key)
+
+An MCP client that supports remote servers can onboard itself: it hits
+`/mcp`, gets a 401 naming the RFC 9728 document, registers with the
+auth-service (public RFC 7591), runs PKCE, and comes back with a token
+whose `org` claim is the tenant. Nobody copies a key anywhere. Four
+things have to be true, and three of them are configuration.
+
+**On brain:**
+
+| Setting | Why |
+|---|---|
+| `BRAIN_PUBLIC_URL` | The `resource` identifier the discovery document advertises, and the source of the extra accepted audiences. A client asking with RFC 8707 `resource=` gets `aud = <that URL>`; unset, the accepted list is only the vertical name and every such token is refused. Set in the production deploy. |
+| `AUTH_SERVICE_AUDIENCES` | Optional. Replaces the derived list (vertical name + public URL + `<url>/mcp`) outright for a deployment that needs something else. |
+| Edge routing for `/.well-known/oauth-protected-resource` | The 401 points at it. On a host that also serves a marketing site, the proxy must route this prefix to the API — otherwise discovery dead-ends on an HTML 404 and the client shows nothing useful. The deploy workflow's Traefik rule covers it, and the post-deploy smoke asserts the JSON body. |
+
+**On the auth-service** (both are settings, not env):
+
+- `RBAC_TOKEN_CLAIMS_ENABLED` — puts `org` / `org_id` in issued tokens at
+  all. Without it no token carries a tenant, and brain refuses every one
+  of them.
+- `PERSONAL_WORKSPACE_PROVISIONING_ENABLED` — gives a user with no
+  organisation one (owner membership on `co_u_<hash>`) the first time
+  they ask for `brain:*` scopes. Without it a brand-new user completes
+  OAuth and still has no tenant, which reads to them as a broken login.
+
+**Check it end to end:**
+
+```bash
+# 1. discovery resolves, and is JSON from the API (not the landing app)
+curl -fsS https://brain.inite.ai/.well-known/oauth-protected-resource | jq .authorization_servers
+
+# 2. the 401 points at it
+curl -si -X POST https://brain.inite.ai/mcp -d '{}' | grep -i www-authenticate
+
+# 3. the auth-service offers registration and the memory scopes
+curl -fsS https://auth.inite.ai/.well-known/oauth-authorization-server \
+  | jq '{registration_endpoint, scopes_supported}'
+```
+
+Then add `https://brain.inite.ai/mcp` as a custom connector in a client
+that speaks OAuth and confirm `tools/list` comes back. A key remains the
+right answer for CI, scripts and self-hosted deployments — anywhere there
+is no browser to finish a flow in.
+
 ## Enabling MCP pack tools
 
 Pack-declared MCP tools ([mcp-pack-tools.md](mcp-pack-tools.md)) ship

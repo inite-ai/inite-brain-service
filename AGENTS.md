@@ -10,9 +10,14 @@ memory service on SurrealDB. Humans: start at
 Brain speaks MCP over **Streamable HTTP**, one endpoint per tenant:
 
 ```
-POST https://brain.inite.ai/mcp/<companyId>
+POST https://brain.inite.ai/mcp                  # tenant from the credential
+POST https://brain.inite.ai/mcp/<companyId>      # explicit; must match the credential
 Authorization: Bearer brain_<api-key>
 ```
+
+Reach for the tenant-less form when all you have is a URL — an
+OAuth-discovered connector learns its tenant from the token's `org`
+claim, not from the path. `GET /mcp/health` answers unauthenticated.
 
 Harnesses with native remote-MCP support connect by URL + header. Harnesses
 that can only spawn stdio servers use the first-party shim
@@ -57,6 +62,8 @@ Read (with `brain:read`):
 | `search_communities`, `list_communities`, `find_entity_communities` | Graph community summaries (thematic clusters) |
 | `why`, `recall_decisions` | Code-memory: why code is the way it is; past recorded decisions |
 | `get_source_reputation` | Learned trust profile of a source vertical |
+| `workspace_status` | Which tenant this connection writes to, what is already in its memory, and `nextSteps` — the setup actions that would change something. First call after connecting |
+| `rename_workspace` | Name the workspace (`brain:write`). Offered only while it has none, and gone once it does |
 | `get_fact` | One fact as stored: statement, validity, source attribution, lifecycle (`retracted: true` still resolves), and `groundingStatus` (`grounded`/`ungrounded`; absent = legacy row). Registered when the server runs `FACTS_API_ENABLED` |
 | `get_fact_provenance` | Why a fact is remembered: the verbatim grounding turns (with char-span quotes when stamped); plus `derivedFacts`/`closure`/`supportEdges` on servers running the closure/support-graph read flags. Same `FACTS_API_ENABLED` gate |
 

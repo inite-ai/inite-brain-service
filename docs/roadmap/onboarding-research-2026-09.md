@@ -96,15 +96,18 @@ has the same six-client list.
 
 We cover the harnesses of 2025 and miss most of the harnesses of 2026.
 
-### P1-5 — `companyId` in the URL blocks every one-click connector
+### P1-5 — `companyId` in the URL blocks every one-click connector ✅ fixed
 
-`/mcp` without a tenant is a 404 (verified); the tenant lives in the
-path and must equal the key's tenant
-(`src/mcp/mcp.controller.ts:52`). One-click connector UIs (Claude custom
-connectors, ChatGPT connectors) ask the user for *one URL* and run OAuth
-from there — the user has no tenant id at that moment, and after OAuth
-the tenant is knowable from the token anyway. Until `/mcp` resolves the
-tenant from the credential, we cannot be a one-click connector at all.
+`/mcp` without a tenant was a 404; the tenant lived in the path and had
+to equal the key's tenant. One-click connector UIs (Claude custom
+connectors, ChatGPT) ask the user for *one URL* and run OAuth from
+there — the user has no tenant id at that moment, and after OAuth the
+tenant is knowable from the token anyway.
+
+`/mcp` now serves with the tenant taken from the credential, and
+`/mcp/health` answers unauthenticated, so a client holding only the
+tenant-less URL can probe before it has a credential. The path form
+keeps its must-match check. See § 7 for what this unlocked.
 
 ### P1-6 — skills install only into Claude
 
@@ -250,11 +253,18 @@ not about the snippets.)*
 
 ### Wave 1 — the path from signup to first recall (days)
 
-7. **Self-serve keys.** `POST /v1/admin/keys` (create/rotate/revoke,
-   shown once) plus a real Keys screen: the tenant's `companyId`, the
-   key, and *personalised* copy-paste snippets — no placeholders — for
-   Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI,
-   Goose, n8n. This is the single highest-leverage item on the list.
+7. ✅ **Self-serve keys.** Shipped: brain issues, verifies and revokes
+   its own keys from a system-DB store (migration 0144), exposed as
+   `POST /v1/keys` / `GET /v1/keys` / `POST /v1/keys/{id}/revoke` and as
+   a real Keys screen — the tenant's `companyId`, its MCP URL, the key
+   shown once, and *personalised* copy-paste configuration (no
+   placeholders) for Claude Code, Claude Desktop, Cursor, VS Code, Codex
+   CLI, Goose and curl. A key is never wider than the credential that
+   minted it, and the same endpoints work self-hosted, where the env-var
+   key becomes a bootstrap rather than the only way in.
+   Gemini CLI and n8n snippets are deliberately absent until their
+   current config shape is verified — a wrong snippet costs more than a
+   missing one.
 8. **`/mcp` without a tenant path** — resolve tenancy from the
    credential, keep `/mcp/:companyId` as the explicit form. Unblocks
    every one-click connector surface. **P1-5.**
@@ -305,6 +315,63 @@ not about the snippets.)*
   MCP path is clean end to end.
 
 ---
+
+## 7. MCP-native onboarding — the OAuth path
+
+Asked after the first pass: can the whole onboarding run through MCP
+rather than through a key someone pastes? Yes — and most of it was
+already built, though not as "an MCP server at auth". The mechanism is
+the MCP client's own OAuth flow: 401 → RFC 9728 → the auth-service →
+dynamic registration → PKCE → a token carrying the tenant. No key, no
+copy-paste, revocation at the IdP.
+
+**Already there, on the auth side** (read in `inite-auth-service`):
+`POST /v1/oauth/register` is public RFC 7591 and its comment says "MCP
+clients self-register here"; a self-registered client may request
+`brain:read` / `brain:write` (`DCR_VERTICAL_SCOPES`), while admin, PII
+and registry scopes stay operator-provisioned; PKCE, PAR, device flow and
+RFC 8707 `resource` → audience all exist.
+
+**What was missing, and is now built:**
+
+| Gap | Where | State |
+|---|---|---|
+| Discovery document 404s | traefik rule (`deploy-brain.yml`) | ✅ Wave 0 |
+| Tenant required in the URL | `src/mcp/mcp.controller.ts` | ✅ `/mcp` serves from the credential |
+| `aud` could never match — auth stamps `clientId` or the RFC 8707 resource, brain checked the vertical name only | `src/auth/jwks.service.ts` | ✅ accepts the vertical name plus this deployment's URL and `<url>/mcp`; `AUTH_SERVICE_AUDIENCES` overrides |
+| `BRAIN_PUBLIC_URL` unset in production, so the derived audience list was just `brain` | `deploy-brain.yml` | ✅ set |
+| A new user has no organisation, so the token carries no `org` and brain has no tenant. `sub` is a DID — it cannot stand in (tenant charset) | `inite-auth-service` | ✅ behind `PERSONAL_WORKSPACE_PROVISIONING_ENABLED` — owner membership on `co_u_<hash>`, only for a request asking for `brain:*` scopes, never failing a login |
+
+**Still operator work, not code:** turn on `RBAC_TOKEN_CLAIMS_ENABLED`
+(what puts `org` in a token at all) and the provisioning flag, and check
+what the consent screen shows when a self-registered client asks for
+memory scopes.
+
+**After the connection works.** OAuth ends at "I can call brain" and
+leaves the product part undone: a workspace called `co_u_9f2c…`, empty
+memory, no domain. Two MCP tools close that inside the conversation the
+person is already having — `workspace_status` (tenant, memory counts,
+packs, and a derived `nextSteps` checklist) and `rename_workspace`, which
+is registered only while the workspace is unnamed and disappears once it
+is used. Onboarding tools that stay forever would be the same context tax
+§ P2-9 complains about; these shrink as setup completes.
+
+`invite_teammate` is NOT built. Membership lives in the auth-service, so
+it needs brain to hold an operator credential there — a real expansion of
+what brain can do, and a decision rather than a task. Until then
+`workspace_status` says a personal workspace is personal and leaves the
+invitation to a human.
+
+**Where issued keys still belong** (§ Wave 1 item 7): CI, scripts,
+self-hosted deployments — anywhere there is no browser to complete an
+OAuth flow. The two paths are complements, not alternatives.
+
+**Not built, and deliberately:** an MCP server in front of the
+auth-service (`signup` / `verify` / `create_workspace` / `issue_key` as
+tools). It is the right answer for harnesses that cannot do OAuth at all
+(n8n, stdio-only clients, scripts), and worth revisiting once the OAuth
+path is live — but it makes the agent walk a human through email codes,
+which is strictly worse wherever a browser is available.
 
 ## 6. Decided (2026-09-10)
 

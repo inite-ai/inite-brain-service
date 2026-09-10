@@ -41,6 +41,9 @@ function makeResolver(record: ApiKeyRecord | null) {
       resolves += 1;
       return record;
     },
+    // Brain-issued keys (the system-DB store) are consulted before the
+    // env table; this fixture has no store, which is the DB-less path.
+    resolveStored: async () => null,
     noteResolvedTenant: () => undefined,
   } as unknown as ApiKeyService;
   const jwks = {

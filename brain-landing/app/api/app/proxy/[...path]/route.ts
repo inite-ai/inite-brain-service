@@ -31,6 +31,9 @@ const ROUTE_PREFIX = '/api/app/proxy/'
 
 // Read paths every authenticated user may reach.
 const READ_PREFIXES = [
+  // Self-serve credentials. Listing is a read: the backend shows a
+  // user-bound caller only its own keys, and never a secret or a hash.
+  'v1/keys',
   'v1/search',
   'v1/synthesize',
   'v1/entities/',
@@ -43,6 +46,10 @@ const READ_PREFIXES = [
 // see canWrite() — so a read-only visitor can't mutate the company's
 // memory just by being logged in.
 const WRITE_PREFIXES = [
+  // Issuing and revoking. Held to the same bar as writing memory on
+  // purpose: a key carries `brain:write`, so handing one out delegates
+  // exactly the authority canWrite() governs.
+  'v1/keys',
   'v1/ingest/fact',
   'v1/ingest/mention',
   'v1/ingest/link',

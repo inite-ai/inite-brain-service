@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { ApiKeyRecord } from './api-key.types';
 import { TenantRegistryService } from './tenant-registry.service';
+import { ApiKeyStoreService } from './api-key-store.service';
 
 /**
  * In-memory ApiKey registry, sourced from BRAIN_API_KEYS env var (JSON).
@@ -24,6 +25,9 @@ export class ApiKeyService implements OnModuleInit {
     // ConfigService: absent → knownCompanyIds() computes from byHash exactly
     // as before (byte-identical). Present → the roster is registry-backed.
     @Optional() private readonly tenantRegistry?: TenantRegistryService,
+    // Same reason: absent → resolveStored() is a no-op and only the env
+    // table answers, which is every unit fixture's world.
+    @Optional() private readonly keyStore?: ApiKeyStoreService,
   ) {}
 
   onModuleInit() {
@@ -96,6 +100,20 @@ export class ApiKeyService implements OnModuleInit {
   resolve(plaintext: string): ApiKeyRecord | null {
     const hash = ApiKeyService.hash(plaintext);
     return this.byHash.get(hash.toLowerCase()) ?? null;
+  }
+
+  /**
+   * Keys brain issued itself (system-DB store, migration 0144).
+   *
+   * Routed through this service rather than injected into
+   * CredentialResolverService because that constructor is at its
+   * three-dependency ceiling — and because "credentials brain owns"
+   * (the env table and the issued store) is one responsibility with two
+   * backing stores. Returns null when no store is wired (unit fixtures,
+   * a DB-less boot), leaving resolution exactly as it was.
+   */
+  async resolveStored(plaintext: string): Promise<ApiKeyRecord | null> {
+    return (await this.keyStore?.resolve(plaintext)) ?? null;
   }
 
   /**
