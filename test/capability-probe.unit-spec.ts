@@ -539,7 +539,12 @@ describe('capability coverage gate', () => {
   }
 
   it('finds the readiness checks it is supposed to gate', () => {
-    expect(readinessChecks().sort()).toEqual(['dbOk', 'embedderReady', 'scopedOk']);
+    expect(readinessChecks().sort()).toEqual([
+      'dbOk',
+      'embedderReady',
+      'evidenceStoreOk',
+      'scopedOk',
+    ]);
   });
 
   it('every readiness check is continuously exercised by some probe', () => {

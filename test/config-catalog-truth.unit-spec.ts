@@ -154,9 +154,13 @@ describe('credential masking', () => {
    * is opt-in and forgetting it fails open.
    *
    * The rule is deliberately name-shaped rather than a hand-kept allowlist:
-   * an allowlist has the same failure mode as the flag it guards.
+   * an allowlist has the same failure mode as the flag it guards. It is
+   * therefore extended by SHAPE, never by key: `_SECRET_ACCESS_KEY` is the
+   * AWS-family name for a secret and does not end in any suffix above, so
+   * the anchored alternation alone would have let EVIDENCE_S3_SECRET_ACCESS_KEY
+   * ship unmasked — the exact failure this gate exists to catch.
    */
-  const CREDENTIAL_NAME = /(SECRET|_API_KEY|_TOKEN|PASSWORD|PRIVATE_KEY)$/;
+  const CREDENTIAL_NAME = /(SECRET|_API_KEY|_TOKEN|PASSWORD|PRIVATE_KEY|_SECRET_ACCESS_KEY)$/;
 
   it('every credential-shaped catalogue key is masked', () => {
     const unmasked = CONFIG_CATALOG.filter(

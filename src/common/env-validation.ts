@@ -1,5 +1,10 @@
 import { Logger } from '@nestjs/common';
 import { validateEvidenceOrphanGcEnv, validateOcrEnvValues } from './evidence-flags';
+// Its own statement, deliberately: this file sits at the 800-line
+// god-file ceiling, and folding a third name into the import above makes
+// prettier expand it to five lines. The blob-store family validates
+// beside its readers like every other EVIDENCE_ knob.
+import { validateEvidenceStorageEnv } from './evidence-flags';
 import { isProcessRole, normalizeProcessRole } from './process-role';
 
 const log = new Logger('EnvValidation');
@@ -274,6 +279,11 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // Local OCR processor knobs, same clamp contract (the validator lives
   // beside its readers in evidence-flags.ts — see the note there).
   validateOcrEnvValues(env, errors);
+  // Store selection + the S3 object store (multi-replica): a scheme
+  // outside fs/s3, s3 without a bucket, or half a credential pair is an
+  // upload path with nowhere to put bytes — errors, validated beside the
+  // readers in evidence-flags.ts.
+  validateEvidenceStorageEnv(env, errors);
 
   // ── Retrieval profile (per-tenant genre configuration) ─────────────
   validateRetrievalProfileEnv(env, errors);
@@ -1396,6 +1406,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   // warns on the inconsistent pair). EVIDENCE_ family sits off the
   // ENGINE flag budget by design (see above).
   'EVIDENCE_GRANTS_API_ENABLED',
+  // EVIDENCE_S3_FORCE_PATH_STYLE is deliberately NOT here: it is
+  // configuration for the object store, and validateEvidenceStorageEnv
+  // hard-ERRORS on a value outside 1/0/true/false alongside the rest of
+  // the EVIDENCE_S3_ family, rather than warning like an engine flag.
   // Outcome telemetry master (0107): writers append memory_outcome rows
   // + fold memory_outcome_stat counters; the nightly raw-log prune runs.
   // Default off = byte-identical (every writer is a guarded no-op).

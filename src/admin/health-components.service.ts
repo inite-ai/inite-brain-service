@@ -44,6 +44,7 @@ export class HealthComponentsService {
       this.database(readiness),
       this.scopedPool(readiness, last.scoped_read),
       this.embedderRow(readiness, last.embed),
+      this.evidenceStoreRow(readiness, last.evidence_store),
       this.intentRow(),
       this.openAiKeyRow(),
       this.changefeedRow(),
@@ -122,6 +123,48 @@ export class HealthComponentsService {
       name,
       status: probeFailed ? 'degraded' : 'ok',
       message: joinParts(`cache size ${stats.size}`, probeSummary(probe)),
+    };
+  }
+
+  /**
+   * The SELECTED blob store (EVIDENCE_STORAGE_SCHEME). `disabled` is the
+   * honest word for fs — local disk, nothing remote to probe, and correct
+   * only with one replica or a shared volume — not a green that proves
+   * nothing. For s3 the row is /ready's live HeadBucket plus the probe's
+   * last outcome; `unreachable` carries the probe's own message (which
+   * bucket, which endpoint, what the store said), and a selected scheme
+   * with no adapter registered reads the same way.
+   */
+  private evidenceStoreRow(
+    r: ReadinessReport,
+    probe: LastProbeReport | undefined,
+  ): HealthComponent {
+    const store = r.detail.evidenceStore;
+    const name = `evidence store (${store.scheme})`;
+    if (store.error !== null) {
+      return {
+        name,
+        status: 'unreachable',
+        ...(store.probed ? { latencyMs: store.latencyMs } : {}),
+        message: joinParts(store.error, probeSummary(probe)),
+      };
+    }
+    if (!store.probed) {
+      return {
+        name,
+        status: 'disabled',
+        message:
+          `EVIDENCE_STORAGE_SCHEME=${store.scheme}: local disk — correct only with one ` +
+          `replica or a shared volume; select s3 for a shared store`,
+      };
+    }
+    const probeFailed =
+      probe !== undefined && isConclusive(probe.outcome) && probe.outcome !== 'serving';
+    return {
+      name,
+      status: probeFailed ? 'degraded' : 'ok',
+      latencyMs: store.latencyMs,
+      message: joinParts('bucket answers', probeSummary(probe)),
     };
   }
 

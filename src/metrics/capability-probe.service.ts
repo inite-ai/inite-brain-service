@@ -1,4 +1,5 @@
 import {
+  Inject,
   Injectable,
   Logger,
   OnApplicationBootstrap,
@@ -11,6 +12,11 @@ import { TenantRegistryService } from '../auth/tenant-registry.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { MetricsService } from './metrics.service';
 import { envFlagNotDisabled } from '../common/env-validation';
+import { evidenceStorageScheme } from '../common/evidence-flags';
+import {
+  EVIDENCE_STORAGE_ADAPTERS,
+  type EvidenceStorageRegistry,
+} from '../evidence/storage/storage-adapter';
 import {
   CAPABILITY_NAMES,
   classifyProbeFailure,
@@ -91,8 +97,9 @@ const REMEDY =
  * `min by (capability)` — one bad pod is enough to page.
  *
  * ── Cost ─────────────────────────────────────────────────────────────────
- * Per pod per minute: one indexless `LIMIT 1` read, and one embed of a
- * four-word string. On `EMBEDDER_PROVIDER=bge-m3` the embed is local CPU;
+ * Per pod per minute: one indexless `LIMIT 1` read, one embed of a
+ * four-word string, and — with EVIDENCE_STORAGE_SCHEME=s3 — one HeadBucket.
+ * On `EMBEDDER_PROVIDER=bge-m3` the embed is local CPU;
  * on `openai` it is a real (tiny) API call that shows up in
  * `brain_openai_calls_total` — raise `CAPABILITY_PROBE_INTERVAL_MS` if that
  * matters more than a 60s detection floor.
@@ -128,6 +135,11 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
     // The production roster. Optional for the same unit fixtures; without
     // it the canary comes from the static key set alone.
     @Optional() private readonly registry?: TenantRegistryService,
+    // The blob-adapter registry (global EvidenceStorageModule). Optional
+    // for the same fixtures; without it the store probe reports `skipped`.
+    @Optional()
+    @Inject(EVIDENCE_STORAGE_ADAPTERS)
+    private readonly storage?: EvidenceStorageRegistry,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -189,7 +201,11 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
    * could disagree with the one being monitored.
    */
   async runOnce(): Promise<ProbeReport[]> {
-    const reports = [await this.probeScopedRead(), await this.probeEmbed()];
+    const reports = [
+      await this.probeScopedRead(),
+      await this.probeEmbed(),
+      await this.probeEvidenceStore(),
+    ];
     for (const report of reports) this.publish(report);
     return reports;
   }
@@ -372,6 +388,55 @@ export class CapabilityProbeService implements OnApplicationBootstrap, OnApplica
               `The primary is not warm (see its warmup status on /ready and the admin health ` +
               `grid); it retries on its own`
             : `embedder: ${probeErrorDetail(e)}`,
+      };
+    }
+  }
+
+  /**
+   * Exercise the SELECTED blob store (EVIDENCE_STORAGE_SCHEME): one
+   * HeadBucket against s3 under the probe deadline. The fs adapter has no
+   * remote dependency, so a local-disk deployment reports `skipped`, not
+   * a green that proves nothing. s3 selected with no adapter registered
+   * (bucket unset at boot) is a conclusive `error` — the verdict /ready
+   * gives — and a 403 from the store classifies `unauthorized`: alive,
+   * but the credentials no longer authorize, the scoped-pool incident's
+   * shape on a different component.
+   */
+  private async probeEvidenceStore(): Promise<ProbeReport> {
+    const scheme = evidenceStorageScheme();
+    if (!this.storage) {
+      return {
+        capability: 'evidence_store',
+        outcome: 'skipped',
+        detail: 'no evidence storage registry in this process',
+      };
+    }
+    const adapter = this.storage.get(scheme);
+    if (!adapter) {
+      return {
+        capability: 'evidence_store',
+        outcome: 'error',
+        detail:
+          `no '${scheme}' evidence storage adapter is registered — EVIDENCE_STORAGE_SCHEME=` +
+          `${scheme} needs its store configured at boot (EVIDENCE_S3_BUCKET); uploads answer ` +
+          `503 until then`,
+      };
+    }
+    if (!adapter.probe) {
+      return {
+        capability: 'evidence_store',
+        outcome: 'skipped',
+        detail: `EVIDENCE_STORAGE_SCHEME=${scheme}: local disk, nothing remote to exercise`,
+      };
+    }
+    try {
+      await withDeadline(adapter.probe(), PROBE_DEADLINE_MS);
+      return { capability: 'evidence_store', outcome: 'serving' };
+    } catch (e) {
+      return {
+        capability: 'evidence_store',
+        outcome: classifyProbeFailure(e),
+        detail: `evidence store (${scheme}): ${probeErrorDetail(e)}`,
       };
     }
   }

@@ -1,51 +1,50 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { createReadStream, type Stats } from 'node:fs';
 import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
-import { evidenceFsRoot } from '../../common/evidence-flags';
+import { evidenceFsRoot, evidenceStorageScheme } from '../../common/evidence-flags';
+import { normalizeProcessRole } from '../../common/process-role';
+import { HASH_RE, TENANT_RE, parseContentRef, type ParsedContentRef } from './content-ref';
 import { EvidenceStorageAdapter, StoredBlobEntry } from './storage-adapter';
 
-const HASH_RE = /^[0-9a-f]{64}$/;
 /** Prefix put() gives a blob mid-write, before the atomic rename. */
 const TMP_PREFIX = '.tmp-';
 /** The two-char fan-out directory a blob's content address lives under. */
 const SHARD_RE = /^[0-9a-f]{2}$/;
-// Tenant ids as the fixture/auth layer mints them (co_…): a conservative
-// shape that keeps every path segment traversal-free by construction.
-const TENANT_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 /** Parsed, validated pieces of an fs:// storageRef. */
-export interface ParsedFsRef {
-  companyId: string;
-  byteHash: string;
-}
+export type ParsedFsRef = ParsedContentRef;
 
 /**
- * Parse + validate an `fs://<companyId>/<byteHash>` storageRef. Pure and
- * unit-testable: hash must be 64 lowercase hex chars, the tenant id must
- * match the conservative shape above — both segments are therefore
+ * Parse + validate an `fs://<companyId>/<byteHash>` storageRef — the
+ * shared content-ref grammar (content-ref.ts): both segments are
  * incapable of path escape ('..', separators, drive letters all fail the
- * regexes). Returns null on ANY deviation; callers treat null as a
- * hard error, never a guess.
+ * regexes). Returns null on ANY deviation; callers treat null as a hard
+ * error, never a guess.
  */
 export function parseStorageRef(storageRef: string): ParsedFsRef | null {
-  const m = /^fs:\/\/([^/]+)\/([^/]+)$/.exec(storageRef);
-  if (!m) return null;
-  const companyId = m[1]!;
-  const byteHash = m[2]!;
-  if (!TENANT_RE.test(companyId) || !HASH_RE.test(byteHash)) return null;
-  return { companyId, byteHash };
+  return parseContentRef('fs', storageRef);
 }
 
 /**
- * FsEvidenceStorageAdapter — the v1 blob store: a local directory tree
+ * FsEvidenceStorageAdapter — the local-disk blob store: a directory tree
  * under EVIDENCE_FS_ROOT, layout `<root>/<companyId>/<hash[0..1]>/<hash>`
  * (two-char fan-out keeps per-directory entry counts sane at scale).
  * storageRef is `fs://<companyId>/<byteHash>` — the ROOT IS NOT part of
  * the ref, so an operator can relocate the tree by changing the env var
  * without rewriting rows.
+ *
+ * CORRECT ONLY FOR ONE REPLICA, OR A SHARED VOLUME. The tree lives on
+ * the disk of the process that wrote it: with N replicas and per-pod
+ * roots a blob uploaded through one pod is `head() → null` (a 404) on
+ * every other, and the orphan sweep — leader-elected — only ever sees
+ * the leader's disk. Either mount EVIDENCE_FS_ROOT as one volume every
+ * replica shares, or select the object store (EVIDENCE_STORAGE_SCHEME=s3,
+ * S3EvidenceStorageAdapter). onApplicationBootstrap warns once when a
+ * split-role deployment (PROCESS_ROLE=api|worker — more than one process
+ * by definition) is running on this adapter.
  *
  * put() is temp-file-then-rename atomic: a crash mid-write leaves a
  * `.tmp-…` straggler, never a half-written blob under its content
@@ -53,8 +52,28 @@ export function parseStorageRef(storageRef: string): ParsedFsRef | null {
  * (evidence-flags contract) — no silent default path.
  */
 @Injectable()
-export class FsEvidenceStorageAdapter implements EvidenceStorageAdapter {
+export class FsEvidenceStorageAdapter implements EvidenceStorageAdapter, OnApplicationBootstrap {
   readonly scheme = 'fs';
+  private readonly logger = new Logger(FsEvidenceStorageAdapter.name);
+
+  /**
+   * The one multi-replica warning, no knob: silent unless this adapter
+   * is actually in use (root set, scheme fs) on a split-role process.
+   */
+  onApplicationBootstrap(): void {
+    const root = evidenceFsRoot();
+    if (root === null || evidenceStorageScheme() !== 'fs') return;
+    const role = normalizeProcessRole(process.env.PROCESS_ROLE);
+    if (role !== 'api' && role !== 'worker') return;
+    this.logger.warn(
+      `EVIDENCE_STORAGE_SCHEME=fs with PROCESS_ROLE=${role}: the fs evidence adapter keeps ` +
+        `blobs on THIS process's local disk (${root}). A split-role deployment is more than ` +
+        `one process — unless EVIDENCE_FS_ROOT is a volume every replica mounts, a blob ` +
+        `uploaded through one replica is a 404 on the others and the orphan sweep only ` +
+        `sees the leader's disk. Select EVIDENCE_STORAGE_SCHEME=s3 for a shared store ` +
+        `(docs/operations.md § Evidence storage).`,
+    );
+  }
 
   /** Resolved root, or a loud error — never a default path. */
   private root(): string {

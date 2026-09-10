@@ -25,12 +25,14 @@ function makeController(): AdminInfraController {
       dbOk: true,
       scopedOk: true,
       embedderReady: true,
+      evidenceStoreOk: true,
       ready: true,
       detail: {
         dbLatencyMs: 1,
         scopedEnabled: true,
         scopedLatencyMs: 2,
         embedder: { ready: true, failures: 0, inFlight: false },
+        evidenceStore: { scheme: 'fs', probed: false, latencyMs: 0, error: null },
       },
     }),
   } as unknown as HealthService;
