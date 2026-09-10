@@ -135,7 +135,7 @@ describe('ReindexEmbeddingsService — roster fold', () => {
   function makeRoster(
     perTenant: Record<string, () => Promise<{ factsScanned: number; factsUpdated: number }>>,
   ) {
-    const apiKeys = { knownCompanyIds: () => Object.keys(perTenant) } as unknown as ApiKeyService;
+    const apiKeys = { fanOutRoster: () => Object.keys(perTenant) } as unknown as ApiKeyService;
     const engine = {
       providerId: () => 'stub',
       reindexTenant: async (companyId: string) => {

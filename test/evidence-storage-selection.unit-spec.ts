@@ -260,9 +260,8 @@ describe('the store is exercised continuously, not only at deploy time', () => {
   function probe(registry?: EvidenceStorageRegistry): CapabilityProbeService {
     return new CapabilityProbeService(
       { withScopedCompany: jest.fn().mockResolvedValue([[]]) } as never,
-      { knownCompanyIds: () => ['acme'] } as never,
+      { fanOutRoster: () => ['acme'] } as never,
       new MetricsService(),
-      undefined,
       undefined,
       registry,
     );

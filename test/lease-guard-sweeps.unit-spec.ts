@@ -96,7 +96,7 @@ function prune(guard?: DistributedLeaseGuard) {
         },
       }),
   };
-  const apiKeys = { knownCompanyIds: () => ['co_a', 'co_b'] };
+  const apiKeys = { fanOutRoster: () => ['co_a', 'co_b'] };
   return { svc: new OutcomePruneService(surreal as never, apiKeys as never, guard), queries };
 }
 
@@ -152,7 +152,7 @@ function sweep(guard?: DistributedLeaseGuard) {
     isEnabled: () => true,
     deprecateSweep: jest.fn(async () => ({ scanned: 4, deprecated: 1 })),
   };
-  const apiKeys = { knownCompanyIds: () => ['co_a', 'co_b'] };
+  const apiKeys = { fanOutRoster: () => ['co_a', 'co_b'] };
   const svc = new StrategyDistillService(
     strategies as never,
     apiKeys as never,
@@ -207,7 +207,7 @@ function quality(guard?: DistributedLeaseGuard) {
   const surreal = {
     withCompany: jest.fn(async (_c: string, fn: (d: typeof db) => Promise<unknown>) => fn(db)),
   };
-  const apiKeys = { knownCompanyIds: () => ['co_a'] };
+  const apiKeys = { fanOutRoster: () => ['co_a'] };
   const metrics = { setMemoryQuality: jest.fn() };
   const svc = new MemoryQualityService(surreal as never, apiKeys as never, metrics as never, guard);
   return { svc, surreal, metrics };
