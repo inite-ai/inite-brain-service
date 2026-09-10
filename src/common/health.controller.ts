@@ -1,7 +1,25 @@
 import { Controller, Get, HttpCode, HttpStatus, ServiceUnavailableException } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { HealthService } from './health.service';
 import { SERVICE_VERSION } from './service-version';
 
+/**
+ * Liveness and readiness, exempt from rate limiting.
+ *
+ * Anonymous requests are tracked by IP, and behind a reverse proxy every
+ * anonymous request in the world shares the proxy's IP — including the
+ * edge's own health probe, which runs every 3s. Under load the shared
+ * bucket fills, the probe gets a 429, the edge marks the only replica
+ * unhealthy and takes it out of rotation, and every caller gets a 503
+ * from a service that is perfectly fine. Observed in production: Traefik
+ * logging `Health check failed … received error status code: 429` in a
+ * loop while /ready answered 200 from inside the container.
+ *
+ * A probe must report the process's state, not the traffic's. These two
+ * routes do no work worth rationing — one reads a cached liveness flag,
+ * the other four readiness checks — so they are exempt.
+ */
+@SkipThrottle()
 @Controller()
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
