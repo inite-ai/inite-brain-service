@@ -1,3 +1,4 @@
+import type { BatchOutcome } from '../common/batch-outcome';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
@@ -47,6 +48,8 @@ export interface AggregateRunResult {
   entities: number;
   aggregatesWritten: number;
   skipped: Array<{ entityId: string; reason: string }>;
+  /** Units are entities (`failed[].key` is an entity id, retryable via `entityIds`). */
+  outcome: BatchOutcome;
 }
 
 interface AggregateProposal {
@@ -130,7 +133,11 @@ export class AggregateComposerService {
    */
   async run(
     companyId: string,
-    opts: { entities?: number | undefined; version?: string | undefined } = {},
+    opts: {
+      entities?: number | undefined;
+      version?: string | undefined;
+      entityIds?: string[] | undefined;
+    } = {},
   ): Promise<AggregateRunResult> {
     const r = await runInsightComposer(
       { surreal: this.surreal, embedding: this.embedding, logger: this.logger },
@@ -141,6 +148,7 @@ export class AggregateComposerService {
       entities: r.entities,
       aggregatesWritten: r.written,
       skipped: r.skipped,
+      outcome: r.outcome,
     };
   }
 

@@ -19,6 +19,7 @@ import type {
   BeliefPromotionResult,
 } from '../src/admin/belief-promotion.service';
 import type { MetricsService } from '../src/metrics/metrics.service';
+import { emptyBatchOutcome, foldBatchOutcome } from '../src/common/batch-outcome';
 
 const FLAGS = [
   'SCENES_SEGMENTATION_ENABLED',
@@ -112,12 +113,20 @@ function makeComposer(
   return { composer, calls };
 }
 
-const composed = (over: Partial<SceneRunResult> = {}): SceneRunResult => ({
-  conversations: 0,
-  scenes: 0,
-  skipped: [],
-  ...over,
-});
+/** A composer result whose outcome is folded from its counters, like the real one. */
+const composed = (over: Partial<SceneRunResult> = {}): SceneRunResult => {
+  const base = { conversations: 0, scenes: 0, skipped: [], ...over };
+  return {
+    ...base,
+    outcome:
+      over.outcome ??
+      foldBatchOutcome({
+        total: base.conversations + base.skipped.length,
+        succeeded: base.conversations,
+        failed: base.skipped.map((s) => ({ key: s.conversationId, error: s.reason })),
+      }),
+  };
+};
 
 function makeBeliefs(result?: Partial<BeliefPromotionResult>, throws?: string) {
   const calls: string[] = [];
@@ -171,6 +180,7 @@ describe('SceneMaintenanceService — flag gate', () => {
       tenants: [],
       budgetExhausted: false,
       skippedForBudget: 0,
+      outcome: emptyBatchOutcome(),
     });
     expect(roster).not.toHaveBeenCalled();
     expect(calls).toHaveLength(0);

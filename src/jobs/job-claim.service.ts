@@ -374,6 +374,8 @@ export class JobClaimService {
     requeue?: boolean;
     maxAttempts?: number;
     backoffBaseMs?: number;
+    /** Persisted on the TERMINAL arm only (a handler's failed batch outcome). */
+    result?: Record<string, unknown>;
   }): Promise<{ requeued: boolean }> {
     if (!this.surreal) return { requeued: false };
     const maxAttempts = input.maxAttempts ?? 3;
@@ -415,10 +417,16 @@ export class JobClaimService {
                 status = 'failed',
                 finishedAt = time::now(),
                 error = $err,
+                result = $result,
                 claimedBy = NONE, leaseUntil = NONE
               WHERE claimedBy = $me AND status = 'running'
               RETURN id`,
-          { rid: input.recordId, me: this.workerId, err: input.error },
+          {
+            rid: input.recordId,
+            me: this.workerId,
+            err: input.error,
+            result: input.result ?? null,
+          },
         );
         return rows.length;
       });

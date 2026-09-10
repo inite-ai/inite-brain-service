@@ -24,16 +24,21 @@ import {
   EvidenceProcessorBrokerService,
   type DispatchSweepResult,
 } from './processor-broker.service';
+import { parseBatchKeys } from '../common/batch-outcome';
 
 /** Param belt: a pack id is a short slug, not free text. */
 const PACK_ID_MAX_CHARS = 200;
 /** Param belt: an asset id is a `evidence_asset:<tail>` record id. */
 const ASSET_ID_MAX_CHARS = 256;
+/** Retry-selector belt: the sweep's own hard bound. */
+const KEYS_MAX = 1000;
 
 interface DispatchBody {
   tenant?: string;
   packId?: string;
   assetId?: string;
+  /** Retry selector: `outcome.failed[].key` of a previous sweep. */
+  keys?: string[];
   limit?: number;
 }
 
@@ -96,12 +101,21 @@ export class EvidenceAdminController {
       );
     }
     const assetId = this.assetId(body.assetId);
+    const assetIds = parseBatchKeys(body.keys, {
+      maxKeys: KEYS_MAX,
+      maxLength: ASSET_ID_MAX_CHARS,
+      accept: (key) => key.startsWith('evidence_asset:'),
+    });
+    if (assetIds !== undefined && assetId !== undefined) {
+      throw new BadRequestException('pass either assetId or keys, not both');
+    }
     const tenant = resolvePlatformTenant(req, body.tenant, {
       knownTenants: () => this.apiKeys.knownCompanyIds(),
     });
     return this.broker.dispatchSweep(tenant, {
       packId,
       assetId,
+      assetIds,
       limit: body.limit,
     });
   }

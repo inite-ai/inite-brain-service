@@ -164,6 +164,7 @@ import {
   RebuildProjectionRequestSchema,
   RebuildProjectionResponseSchema,
 } from '../src/contracts/episodes/driver.schema';
+import { BatchOutcomeSchema } from '../src/contracts/common/batch-outcome.schema';
 import {
   FactProvenanceEpisodeSchema,
   FactProvenanceResponseSchema,
@@ -337,6 +338,8 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   ProjectionsListResponse: ProjectionsListResponseSchema,
   RebuildProjectionRequest: RebuildProjectionRequestSchema,
   RebuildProjectionResponse: RebuildProjectionResponseSchema,
+  // --- shared batch terminal status (src/contracts/common/batch-outcome.schema.ts)
+  BatchOutcome: BatchOutcomeSchema,
   CreateEpisodeSubscriptionRequest: CreateEpisodeSubscriptionRequestSchema,
   CreateEpisodeSubscriptionResponse: CreateEpisodeSubscriptionResponseSchema,
   EpisodeSubscriptionRow: EpisodeSubscriptionRowSchema,

@@ -43,7 +43,12 @@ describe('VectorCorpusService', () => {
     const reindex = {
       run: jest.fn(async () => {
         if (opts.afterRepair) census = opts.afterRepair;
-        return { factsScanned: 40, factsUpdated: 39, tables: [] };
+        return {
+          factsScanned: 40,
+          factsUpdated: 39,
+          tables: [],
+          outcome: { status: 'complete', total: 7, succeeded: 7, failed: [], degradedBy: [] },
+        };
       }),
     };
     const jobs = {

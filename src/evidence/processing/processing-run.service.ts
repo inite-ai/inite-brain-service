@@ -46,6 +46,8 @@ export interface ExecuteRunResult {
   capability: DerivedRepresentationKind;
   status: 'succeeded' | 'failed' | 'replayed' | 'skipped_in_flight';
   representationIds: string[];
+  /** The persisted (capped, PII-redacted) error — present iff `failed`. */
+  error?: string;
 }
 
 /**
@@ -100,8 +102,14 @@ export class ProcessingRunService {
       outputs = await adapter.process(opts.input);
       this.assertOutputsWithinCap(outputs);
     } catch (e) {
-      await this.failRun(companyId, runId, e);
-      return { runId, capability: adapter.capability, status: 'failed', representationIds: [] };
+      const error = await this.failRun(companyId, runId, e);
+      return {
+        runId,
+        capability: adapter.capability,
+        status: 'failed',
+        representationIds: [],
+        error,
+      };
     }
     try {
       const written = await this.writeOutputs(companyId, { runId, opts, outputs });
@@ -113,8 +121,14 @@ export class ProcessingRunService {
         representationIds: written.representationIds,
       };
     } catch (e) {
-      await this.failRun(companyId, runId, e);
-      return { runId, capability: adapter.capability, status: 'failed', representationIds: [] };
+      const error = await this.failRun(companyId, runId, e);
+      return {
+        runId,
+        capability: adapter.capability,
+        status: 'failed',
+        representationIds: [],
+        error,
+      };
     }
   }
 
@@ -338,8 +352,8 @@ export class ProcessingRunService {
   }
 
   /** Error text is capped and PII-redacted — it can quote content
-   *  derived from personal observations. */
-  private async failRun(companyId: string, runId: string, err: unknown): Promise<void> {
+   *  derived from personal observations. Returns the persisted text. */
+  private async failRun(companyId: string, runId: string, err: unknown): Promise<string> {
     const raw = err instanceof Error ? err.message : String(err);
     const message = redactPiiWithReport(raw).text.slice(0, ERROR_MAX);
     this.logger.warn(`processing run ${runId} failed: ${message}`);
@@ -349,5 +363,6 @@ export class ProcessingRunService {
         e: message,
       }),
     );
+    return message;
   }
 }

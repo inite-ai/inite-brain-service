@@ -153,6 +153,75 @@
         ],
         "type": "object"
       },
+      "BatchOutcome": {
+        "additionalProperties": false,
+        "properties": {
+          "degradedBy": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "error"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "failed": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "error"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "complete",
+              "degraded",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "succeeded": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "total": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "total",
+          "succeeded",
+          "failed",
+          "degradedBy"
+        ],
+        "type": "object"
+      },
       "BeliefReadResponse": {
         "additionalProperties": false,
         "properties": {
@@ -3891,6 +3960,12 @@
           "force": {
             "type": "boolean"
           },
+          "keys": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "version": {
             "type": "string"
           }
@@ -3912,6 +3987,9 @@
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/BatchOutcome"
           },
           "previousVersion": {
             "type": [
@@ -3969,7 +4047,8 @@
           "unresolvedSubjects",
           "skipped",
           "status",
-          "failed"
+          "failed",
+          "outcome"
         ],
         "type": "object"
       },

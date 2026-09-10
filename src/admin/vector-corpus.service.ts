@@ -8,6 +8,7 @@ import { EmbedderService } from '../ai/embedder.service';
 import { VECTOR_COLUMNS } from '../ai/embedder/embedding-space';
 import { ReindexEmbeddingsService } from '../ai/embedder/reindex-embeddings.service';
 import { REINDEX_SWEPT_COLUMNS } from '../ai/embedder/reindex-engine.service';
+import { describeBatchOutcome } from '../common/batch-outcome';
 import { JobRunService } from '../jobs/job-run.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { DistributedLeaseGuard } from '../common/distributed-lease.guard';
@@ -237,16 +238,28 @@ export class VectorCorpusService implements OnModuleInit {
     });
     try {
       const sweep = await this.reindex.run({ tenant: companyId, allTables: true });
+      const swept = {
+        factsScanned: sweep.factsScanned,
+        factsUpdated: sweep.factsUpdated,
+        tables: sweep.tables ?? [],
+        outcome: sweep.outcome,
+        nonConformingBefore: before.nonConforming,
+      };
+      // A sweep that rewrote nothing is a failed repair, whatever its
+      // counters say; the outcome (failed table keys) is persisted with it.
+      if (sweep.outcome.status === 'failed') {
+        return this.failRepair({
+          run,
+          companyId,
+          before,
+          error: { message: describeBatchOutcome(sweep.outcome), name: 'BatchFailed' },
+          result: swept,
+        });
+      }
       const after = await this.inventory(companyId);
       await this.jobs?.finish(run!, {
         status: 'succeeded',
-        result: {
-          factsScanned: sweep.factsScanned,
-          factsUpdated: sweep.factsUpdated,
-          tables: sweep.tables ?? [],
-          nonConformingBefore: before.nonConforming,
-          nonConformingAfter: after.nonConforming,
-        },
+        result: { ...swept, nonConformingAfter: after.nonConforming },
       });
       this.metrics?.countVectorCorpusRepair(after.repairable === 0 ? 'repaired' : 'partial');
       this.logger.log(
@@ -256,15 +269,32 @@ export class VectorCorpusService implements OnModuleInit {
       );
       return { companyId, before, after, outcome: 'repaired' };
     } catch (e) {
-      const message = (e as Error).message;
-      await this.jobs?.finish(run!, {
-        status: 'failed',
-        error: { message, name: (e as Error).name },
+      return this.failRepair({
+        run,
+        companyId,
+        before,
+        error: { message: (e as Error).message, name: (e as Error).name },
       });
-      this.metrics?.countVectorCorpusRepair('failed');
-      this.logger.error(`vector corpus repair for ${companyId} failed: ${message}`);
-      return { companyId, before, after: null, outcome: 'failed', error: message };
     }
+  }
+
+  /** Terminal-fail the repair's job row and report it. */
+  private async failRepair(args: {
+    run: Awaited<ReturnType<JobRunService['start']>> | undefined;
+    companyId: string;
+    before: VectorCorpusInventory;
+    error: { message: string; name?: string };
+    result?: Record<string, unknown>;
+  }): Promise<VectorCorpusRepairResult> {
+    const { run, companyId, before, error } = args;
+    await this.jobs?.finish(run!, {
+      status: 'failed',
+      error,
+      ...(args.result !== undefined ? { result: args.result } : {}),
+    });
+    this.metrics?.countVectorCorpusRepair('failed');
+    this.logger.error(`vector corpus repair for ${companyId} failed: ${error.message}`);
+    return { companyId, before, after: null, outcome: 'failed', error: error.message };
   }
 
   /** Poll the embedder's readiness and re-queue the tenant the moment it is warm. */
