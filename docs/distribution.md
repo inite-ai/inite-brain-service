@@ -116,7 +116,7 @@ Brain owner `inite-ai` → insert between rows starting with `h...` and `j...`.
 ### Row to paste
 
 ```
-- [inite-ai/inite-brain-service](https://github.com/inite-ai/inite-brain-service) 📇 ☁️ - "Open-source memory layer for LLM agents — bitemporal knowledge graph (SurrealDB) with facts, episodes, procedural tiers; hybrid vector + BM25 + multi-hop retrieval; GDPR-grade forget_entity; LoCoMo-benchmarked."
+- [inite-ai/inite-brain-service](https://github.com/inite-ai/inite-brain-service) 📇 ☁️ - Memory for agents that knows WHEN things were true: a bitemporal knowledge graph, so "she moved to Berlin in June" supersedes the old address instead of contradicting it, and you can ask what was believed last Tuesday. Hybrid vector + BM25 + multi-hop retrieval, answers with citations, GDPR-grade forget. One command in Claude Code (`/plugin marketplace add inite-ai/inite-brain-service`), a ChatGPT connector, or `npx -y @inite/brain-mcp`.
 ```
 
 ### Badge legend

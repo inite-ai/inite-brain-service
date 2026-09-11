@@ -33,11 +33,17 @@ readonly BRANCH_NAME="add-inite-brain-service"
 # Keep the row text here as the single source of truth — same strings
 # live in docs/distribution.md for human reference. Tweak both when
 # brain's tool count, surface, or positioning changes.
-readonly ROW_PUNKPEYE='- [inite-ai/inite-brain-service](https://github.com/inite-ai/inite-brain-service) 📇 ☁️ - "Open-source memory layer for LLM agents — bitemporal knowledge graph (SurrealDB) with facts, episodes, procedural tiers; hybrid vector + BM25 + multi-hop retrieval; GDPR-grade forget_entity; LoCoMo-benchmarked."'
+#
+# These lists are read by people scanning fifty near-identical entries,
+# so the row leads with the one thing only brain does — knowing WHEN a
+# fact was true — rather than with the category noun everyone else also
+# claims. No wrapping quotes: neighbours do not have them, and a quoted
+# description reads like it was pasted from a press release.
+readonly ROW_PUNKPEYE='- [inite-ai/inite-brain-service](https://github.com/inite-ai/inite-brain-service) 📇 ☁️ - Memory for agents that knows WHEN things were true: a bitemporal knowledge graph, so "she moved to Berlin in June" supersedes the old address instead of contradicting it, and you can ask what was believed last Tuesday. Hybrid vector + BM25 + multi-hop retrieval, answers with citations, GDPR-grade forget. One command in Claude Code (`/plugin marketplace add inite-ai/inite-brain-service`), a ChatGPT connector, or `npx -y @inite/brain-mcp`.'
 
-readonly ROW_TOPOTERETES='| Inite Brain | Open-source memory layer for LLM agents — bitemporal knowledge graph with facts/episodes/procedural tiers, hybrid retrieval, multi-hop planner, GDPR forget. LoCoMo-benchmarked. | https://brain.inite.ai | Managed, Open source | https://github.com/inite-ai/inite-brain-service | Memory Tool | Graph, Vector |'
+readonly ROW_TOPOTERETES='| Inite Brain | Bitemporal memory for agents: facts carry both the window they are true for and when you learned them, so contradictions resolve into a timeline instead of a pile. Hybrid retrieval, multi-hop planner, answers with citations, GDPR forget. MCP, REST, Anthropic memory-tool backend, TypeScript SDK. | https://brain.inite.ai | Managed, Open source | https://github.com/inite-ai/inite-brain-service | Memory Tool | Graph, Vector |'
 
-readonly ROW_SURREALDB='- [Inite Brain](https://github.com/inite-ai/inite-brain-service) - Open-source memory layer for LLM agents built on SurrealDB. Bitemporal knowledge graph with facts/episodes/procedural tiers, hybrid vector + BM25 + multi-hop retrieval, conflict resolution, GDPR forget. MCP server, Streamable HTTP, AGPL-3.0.'
+readonly ROW_SURREALDB='- [Inite Brain](https://github.com/inite-ai/inite-brain-service) - Memory for AI agents, built on SurrealDB and leaning on it: bitemporal facts with graph edges, HNSW vectors and BM25 in one query, conflict resolution in stored functions, per-tenant databases. MCP over Streamable HTTP, REST, AGPL-3.0.'
 
 readonly ROW_WEBFUSE='- [inite-brain-service](https://github.com/inite-ai/inite-brain-service) — open-source memory layer for Claude (and any other MCP client). Bitemporal knowledge graph, 18 tools, three memory tiers (facts/episodes/procedural), conflict resolution, GDPR forget. AGPL-3.0.'
 
