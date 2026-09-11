@@ -393,6 +393,29 @@ Synthesis keeps fact references in `citations` and other evidence references
 (episodes, fragments, scenes and beliefs) in `evidenceCitations`; preserve both
 when presenting an answer.
 
+## Build with the SDK
+
+```bash
+npm install @inite/brain
+```
+
+```ts
+import { createBrain, brainTools } from '@inite/brain'
+
+const brain = createBrain({ apiKey: process.env.BRAIN_KEY!, userId: 'user_42' })
+await brain.remember('Maria moved to Berlin in June.')
+const { answer, citations } = await brain.answer('where does Maria live')
+```
+
+`brainTools(brain)` returns tool definitions the Vercel AI SDK takes
+directly, and `createBrainStore(brain)` is a LangGraph-shaped store over
+the same memory. One dependency (zod), no framework required:
+[`@inite/brain`](clients/brain-sdk/README.md).
+
+Using Anthropic's memory tool (`memory_20250818`)? Swap the filesystem
+backend for a tenant-fenced service without touching your agent loop:
+[`@inite/brain-memory-tool`](clients/brain-memory-tool/README.md).
+
 ## Feed it documents
 
 Enable `DOCUMENT_INGEST_ENABLED=1` on the server. Submit normalized text through
