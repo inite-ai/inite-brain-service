@@ -159,6 +159,19 @@ describe('config catalogue truth gates (W6)', () => {
       for (const text of SOURCES.values()) {
         if (text.includes(`envFlagEnabled(process.env.${entry.key})`)) offUnlessSet = true;
         if (text.includes(`envFlagNotDisabled(process.env.${entry.key})`)) onUnlessCleared = true;
+        // Same two idioms reached through Nest's ConfigService instead of
+        // process.env — the DREAMS_* family and the embedder read that way,
+        // and matching only `process.env.` let EMBEDDING_SPACE_STRICT sit
+        // catalogued `0` for a month after it was made default-on as a P1.
+        for (const m of text.matchAll(
+          new RegExp(
+            `envFlag(Enabled|NotDisabled)\\(\\s*(?:this\\.)?configService\\.get(?:<[^>]*>)?\\(\\s*'${entry.key}'`,
+            'g',
+          ),
+        )) {
+          if (m[1] === 'Enabled') offUnlessSet = true;
+          else onUnlessCleared = true;
+        }
         if (
           text.includes(`process.env.${entry.key} ==`) ||
           text.includes(`process.env.${entry.key} ??`)

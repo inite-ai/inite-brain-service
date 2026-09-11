@@ -1090,11 +1090,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     key: 'EMBEDDING_SPACE_STRICT',
     category: 'embedder',
     // Read per-call in EmbedderService.serveProvider(), not the constructor.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Strict-space serving guard: when on, EmbedderService refuses (503) to serve a query embedded in a space INCOMPATIBLE (different dim / model / norm) with the primary configured space — the warmup-window failover from bge-m3 (1024) to the OpenAI fallback (1536) is the canonical case — instead of silently cross-space-comparing against the target rows. Off (default) → the existing warmup failover is byte-identical.',
+      'Strict-space serving guard: when on, EmbedderService refuses (503) to serve a query embedded in a space INCOMPATIBLE (different dim / model / norm) with the primary configured space — the warmup-window failover from bge-m3 (1024) to the OpenAI fallback (1536) is the canonical case — instead of silently cross-space-comparing against the target rows. On by default since the 2026-09-08 runtime audit made it the P1 fix for search taking foreign vectors during warmup. Set `0` to restore the old unsafe read path; writes stay guarded either way.',
   },
   {
     key: 'EMBEDDING_SPACE_DUAL_WRITE',
