@@ -1,5 +1,8 @@
 import { Header } from '../../components/Header'
 import { Hero } from '../../components/Hero'
+import { Problem } from '../../components/Problem'
+import { SharedGraph } from '../../components/SharedGraph'
+import { PlainlyTrue } from '../../components/PlainlyTrue'
 import { BitemporalDemo } from '../../components/BitemporalDemo'
 import { Architecture } from '../../components/Architecture'
 import { DomainPacks } from '../../components/DomainPacks'
@@ -62,6 +65,8 @@ export default async function LandingPage({ params }: Props) {
       <Header lang={lang} landing />
       <main id="main-content" className="max-w-6xl mx-auto px-5 sm:px-6">
         <Hero lang={lang} />
+        <Problem lang={lang} />
+        <SharedGraph lang={lang} />
         <MemoryLayers lang={lang} />
         <Architecture lang={lang} />
         <DomainPacks lang={lang} />
@@ -73,6 +78,7 @@ export default async function LandingPage({ params }: Props) {
         <McpInstall lang={lang} />
         <ConnectTargets lang={lang} />
         <SkillsInstall lang={lang} />
+        <PlainlyTrue lang={lang} />
         <OpenSource lang={lang} />
         <Footer lang={lang} />
       </main>

@@ -142,7 +142,7 @@
   },
   "features": {
     "eyebrow": "The rest of the stack",
-    "title": "Built for memory that evolves.",
+    "title": "Facts change, and the memory has to change with them.",
     "subtitle": "From architecture decisions to customer conversations: the controls to keep memory useful as new information arrives.",
     "items": [
       {
@@ -230,7 +230,7 @@
   },
   "skillsBlock": {
     "eyebrow": "Agent skills",
-    "title": "Skills that teach the agent to use Brain.",
+    "title": "Having the tools is not knowing when to call them.",
     "subtitle": "Install workflows for search, recall, temporal queries, writes and conflict resolution. SKILL.md is a cross-agent format, so the same six work unchanged everywhere — the one-liner finds every agent on the machine and installs into each.",
     "linkLabel": "All skills",
     "installCmd": "curl -fsSL https://brain.inite.ai/install.sh | sh",
@@ -759,8 +759,8 @@
     }
   },
   "memoryLayers": {
-    "title": "The fact. The context. The source.",
-    "subtitle": "Useful memory preserves more than the latest answer. Brain separates what was recorded, what happened, and what the system derives from it.",
+    "title": "The latest answer is not the whole memory.",
+    "subtitle": "Brain keeps the fact, the context around it and the source it came from as separate things: what was recorded, what happened, and what the system derives from them.",
     "items": [
       {
         "label": "Facts & beliefs",
@@ -781,7 +781,7 @@
     "note": "Scene, belief and evidence capabilities depend on the enabled server configuration and domain packs. Media registration stores references and metadata; processing requires a configured processor."
   },
   "architecture": {
-    "title": "Architecture: from source to answer.",
+    "title": "Every answer can be walked back to where it came from.",
     "subtitle": "Brain separates source material, derived memory and retrieval. The graph gives memory structure; source links keep that structure inspectable.",
     "stages": [
       {
@@ -917,5 +917,86 @@
     "issuingForbidden": "Your account cannot issue keys on this workspace. Ask an admin, or write to info@inite.ai.",
     "loadError": "Could not load keys.",
     "oneClickHint": "Other clients: copy the config below."
+  },
+  "problem": {
+    "eyebrow": "The problem",
+    "title": "Every session starts from zero.",
+    "subtitle": "Not for lack of a capable model — nothing is keeping the record. The context that does survive is re-pasted by hand, locked inside one vendor's client, or arrives with no way to check it.",
+    "items": [
+      {
+        "label": "Re-explained",
+        "title": "Context you pay for twice",
+        "desc": "Decisions, constraints and prior work go back into the prompt every session, or they are lost. The work of establishing context is repeated on every run, at full token price."
+      },
+      {
+        "label": "Trapped",
+        "title": "Memory that stops at the client",
+        "desc": "Built-in memory belongs to the client holding it. What one assistant learned does not reach the next, and there is rarely a way to take it with you."
+      },
+      {
+        "label": "Unverifiable",
+        "title": "Recall you cannot check",
+        "desc": "A remembered claim with no source and no date cannot be verified. Nothing says whether it still holds, where it came from, or what it replaced."
+      }
+    ]
+  },
+  "sharedGraph": {
+    "eyebrow": "One graph",
+    "title": "The memory belongs to you, not to the client.",
+    "subtitle": "Connect Claude Code, ChatGPT, Cursor and your own code to the same graph. What one of them writes, the next one recalls — because the workspace comes from the key, not from the app that happens to be open.",
+    "hubLabel": "Your memory",
+    "hubTitle": "One graph",
+    "hubItems": ["Facts & beliefs", "Episodes & scenes", "Sources & evidence"],
+    "sdkLabel": "Your app",
+    "clientsLabel": "Clients you connect",
+    "surfaceLabel": "One surface",
+    "surface": "REST · MCP · TypeScript SDK",
+    "facts": [
+      {
+        "title": "Scope comes from the key",
+        "desc": "The workspace, the tools and the reach of every call are resolved from the API key. Nothing to configure per client, nothing to keep in sync."
+      },
+      {
+        "title": "The same graph either way",
+        "desc": "Self-hosted, it is a SurrealDB you run. Managed, it is the same schema and the same API behind brain.inite.ai."
+      },
+      {
+        "title": "The record is portable",
+        "desc": "Source episodes are retained, not just the conclusions drawn from them — and the derived memory can be rebuilt from those episodes."
+      }
+    ],
+    "note": "Which tools a client sees depends on the key's scopes, the enabled capabilities and installed packs. Streaming episodes out over the API requires the episodes surface to be enabled for the deployment.",
+    "cta": "See every client"
+  },
+  "plainly": {
+    "eyebrow": "Plainly",
+    "title": "What is true about Brain, stated flatly.",
+    "subtitle": "The claims worth checking before you connect anything, without the adjectives.",
+    "items": [
+      {
+        "title": "It sits between a vector store and a knowledge platform",
+        "desc": "More structure than embeddings in a table: typed facts, entities, time and provenance. Less ceremony than a platform that asks you to model the domain before it stores a sentence."
+      },
+      {
+        "title": "It is not an agent framework",
+        "desc": "Brain stores, resolves and retrieves. It does not run your loop, own your prompts or choose your model. The agent stays yours."
+      },
+      {
+        "title": "Self-hosted, the data is in a database you run",
+        "desc": "The memory is a SurrealDB you operate, and nothing has to be requested from us to read it. Traffic leaves your network only for the model providers you configure."
+      },
+      {
+        "title": "AGPL-3.0-or-later, hosted service included",
+        "desc": "Everything running brain.inite.ai is in the repository. Network copyleft is a real obligation, not a badge: changes you serve over a network stay open."
+      },
+      {
+        "title": "Published numbers come with their protocol",
+        "desc": "Every result names its dataset, model, baseline and run configuration, and describes those runs rather than your deployment. A number without a protocol is marketing."
+      },
+      {
+        "title": "Capabilities are per-tenant runtime configuration",
+        "desc": "What is on for one workspace is not silently on for another, and changes take effect without a redeploy. Several capabilities ship off until an operator turns them on."
+      }
+    ]
   }
 }
