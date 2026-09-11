@@ -26,7 +26,16 @@ import type { EvidenceStorageAdapter } from '../src/evidence/storage/storage-ada
 
 // Pinned: an object store's compatibility surface is exactly what this
 // suite is measuring, so `latest` would make a green run unrepeatable.
-const MINIO_IMAGE = 'minio/minio:RELEASE.2025-01-20T14-49-07Z';
+//
+// From quay.io, MinIO's own registry, and pinned BY DIGEST. The tag alone
+// on Docker Hub stopped resolving mid-2026-09 — `pull access denied for
+// minio/minio, repository does not exist` on a tag that had been pulling
+// for months, which failed every PR that touched this shard. quay.io
+// still serves the identical image; the digest means a tag that is moved
+// or withdrawn again fails loudly at pull time instead of silently
+// changing what this contract is measured against.
+const MINIO_IMAGE =
+  'quay.io/minio/minio:RELEASE.2025-01-20T14-49-07Z@sha256:ed9be66eb5f2636c18289c34c3b725ddf57815f2777c77b5938543b78a44f144';
 const ACCESS_KEY = 'minioadmin';
 const SECRET_KEY = 'minioadmin';
 const BUCKET = 'brain-evidence-contract';
