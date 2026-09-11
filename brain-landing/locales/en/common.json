@@ -190,16 +190,16 @@
   "quickstart": {
     "eyebrow": "Quickstart",
     "title": "Connect once. Recall across sessions.",
-    "subtitle": "Start with an API key and company ID. Use the first-party MCP connector, REST, or TypeScript with native fetch.",
+    "subtitle": "An API key is the only thing to paste — the workspace comes from the key. Connect an MCP client, call REST directly, or use the TypeScript SDK.",
     "copy": "Copy code",
     "copied": "Copied",
     "copyError": "Copy failed. Select and copy the code below.",
-    "prerequisite": "Get a key and configure access"
+    "prerequisite": "Get a key"
   },
   "mcpBlock": {
     "eyebrow": "Model Context Protocol",
     "title": "Your agent gets the right tools.",
-    "subtitle": "Native Streamable HTTP for remote MCP clients; @inite/brain-mcp bridges clients that launch a stdio server. Available tools depend on key scopes, enabled features and installed packs.",
+    "subtitle": "Native Streamable HTTP: one URL, one header, the workspace resolved from the key. One command in Claude Code or Gemini CLI, one click in Cursor and VS Code, and @inite/brain-mcp for harnesses that cannot send a header. Available tools depend on key scopes, enabled features and installed packs.",
     "toolsLabel": "MCP tool highlights",
     "clients": "For personal memory, pass userId. For longer material, prefer ingest_document over recording a paragraph as one fact.",
     "linkLabel": "MCP setup guide",
