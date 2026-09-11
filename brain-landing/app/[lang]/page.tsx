@@ -9,6 +9,7 @@ import { DualPath } from '../../components/DualPath'
 import { Stats } from '../../components/Stats'
 import { QuickstartTabs } from '../../components/QuickstartTabs'
 import { McpInstall } from '../../components/McpInstall'
+import { ConnectTargets } from '../../components/ConnectTargets'
 import { SkillsInstall } from '../../components/SkillsInstall'
 import { OpenSource } from '../../components/OpenSource'
 import { Footer } from '../../components/Footer'
@@ -70,6 +71,7 @@ export default async function LandingPage({ params }: Props) {
         <Stats lang={lang} />
         <QuickstartTabs lang={lang} />
         <McpInstall lang={lang} />
+        <ConnectTargets lang={lang} />
         <SkillsInstall lang={lang} />
         <OpenSource lang={lang} />
         <Footer lang={lang} />

@@ -40,6 +40,8 @@ For everything else (Tier 3 lists, mcpservers.org form, official Registry, Pulse
 | Claude Code plugin marketplace | ✅ **live in-repo** — `.claude-plugin/marketplace.json` at the root makes the repository itself a marketplace; `/plugin marketplace add inite-ai/inite-brain-service` then `/plugin install inite-brain@inite`. No third-party listing required (§9). | — |
 | npm `@inite/brain-memory-tool` | ⬜ **not published** — built and tested, waiting on `npm publish` (needs a logged-in account). Backs Anthropic's memory tool; the clearest "swap your backend" story we have. |  |
 | npm `@inite/brain` | ⬜ **not published** — the TypeScript SDK: client, AI-SDK-shaped tools, LangGraph-shaped store. Same blocker. |  |
+| Gemini CLI extensions | ✅ **live in-repo** — `gemini-extension.json` at the root makes the repository an installable extension: `gemini extensions install https://github.com/inite-ai/inite-brain-service` brings the MCP server, the skills and AGENTS.md as context. Listing it in Google's extension directory is a separate, unfiled step. |  |
+| Claude Desktop bundle (`.mcpb`) | ⬜ **not built** — the double-click install format for Claude Desktop (renamed from `.dxt`). It is a zip of `manifest.json` plus a local MCP server, which `clients/brain-mcp` already is; what is missing is the packaging step and its dependencies. The highest-value remaining one-click surface. |  |
 | PulseMCP | ⬜ unverified — their v0beta API is sunset and the server page 403s to scripted checks; confirm by hand in a browser | https://www.pulsemcp.com/servers/inite-brain |
 | punkpeye/awesome-mcp-servers | ⬜ not submitted — verified absent from the live README on 2026-09-10 | — |
 | topoteretes/awesome-ai-memory | ⬜ not submitted | — |

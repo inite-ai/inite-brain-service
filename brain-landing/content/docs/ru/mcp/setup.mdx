@@ -91,7 +91,16 @@ Codex читает `BRAIN_KEY` из окружения в момент подк�
 
 ## Gemini CLI
 
-`~/.gemini/settings.json` (пользовательский) или `.gemini/settings.json` (проектный). Поле называется `httpUrl`, а не `url`:
+Одна команда ставит расширение — MCP-сервер, шесть [скиллов](/ru/docs/skills) и гайд для агента, подгружаемый как контекст:
+
+```bash
+export BRAIN_API_KEY="brain_YOUR_API_KEY"
+gemini extensions install https://github.com/inite-ai/inite-brain-service
+```
+
+Ключ остаётся в окружении: манифест расширения ссылается на `${BRAIN_API_KEY}`, который Gemini раскрывает в момент подключения, так что в конфиг-файл секрет не попадает.
+
+Если нужен только MCP-сервер, правь `~/.gemini/settings.json` (пользовательский) или `.gemini/settings.json` (проектный). Поле называется `httpUrl`, а не `url`:
 
 ```json
 {

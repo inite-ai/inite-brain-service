@@ -205,12 +205,37 @@
     "linkLabel": "MCP setup guide",
     "connectLabel": "Get a key and connect"
   },
+  "connectBlock": {
+    "title": "One click where one click exists.",
+    "subtitle": "Cursor and VS Code publish an install URL, so those are buttons. The rest install from one command or one URL — handed over verbatim rather than behind a button that would only open a settings page.",
+    "addTo": "Add to {client}",
+    "copy": "Copy",
+    "copied": "Copied",
+    "keyHint": "Every path needs an API key —",
+    "keyLink": "issue one here",
+    "allClients": "every other client",
+    "kind": {
+      "deeplink": "one click",
+      "command": "one command",
+      "url": "paste the URL"
+    },
+    "notes": {
+      "claude-code": "Installs the MCP server, the six skills and the lifecycle hooks together. Claude Code asks for the key and keeps it in the OS keychain.",
+      "cursor": "Opens Cursor and adds the server. Replace the placeholder key in its MCP settings.",
+      "vscode": "Opens VS Code and adds the server to the workspace. Replace the placeholder key when prompted.",
+      "gemini": "Installs the extension: MCP server, skills, and the agent guide as context. Export BRAIN_API_KEY first.",
+      "claude": "Settings → Connectors → Add custom connector, paste this URL. OAuth runs itself; there is nothing else to fill in.",
+      "chatgpt": "Add as a custom connector. This URL serves exactly the search + fetch pair ChatGPT requires — the default surface would be refused."
+    }
+  },
   "skillsBlock": {
     "eyebrow": "Agent skills",
     "title": "Skills that teach the agent to use Brain.",
-    "subtitle": "Install workflows for search, recall, temporal queries, writes and conflict resolution. They teach the agent when and how to use Brain.",
+    "subtitle": "Install workflows for search, recall, temporal queries, writes and conflict resolution. SKILL.md is a cross-agent format, so the same six work unchanged everywhere — the one-liner finds every agent on the machine and installs into each.",
     "linkLabel": "All skills",
-    "installCmd": "curl -fsSL https://brain.inite.ai/install.sh | sh"
+    "installCmd": "curl -fsSL https://brain.inite.ai/install.sh | sh",
+    "targetLabel": "shell · installs into every agent it finds",
+    "targets": "Claude Code, Codex CLI, Gemini CLI, openclaw and opencode by autodetect; Cursor and the vendor-neutral .agents/skills with --scope project. Claude Code users can take the plugin instead and get the skills, the MCP server and the hooks in one command."
   },
   "openSource": {
     "eyebrow": "Open source",
