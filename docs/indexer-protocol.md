@@ -45,9 +45,10 @@ repository and derives `code_memory` candidates from it — see
    never write facts directly, and never read arbitrary memory.
 
 3. **Operator flags on** (see the enablement runbook in
-   [operations.md](operations.md)): `DOCUMENT_INGEST_ENABLED=1` and
-   `DOCUMENT_MULTI_INDEXER_ENABLED=1`. Every endpoint below answers
-   `503 {"error":"feature_disabled"}` until then.
+   [operations.md](operations.md)): `DOCUMENT_INGEST_ENABLED` is on by
+   default; `DOCUMENT_MULTI_INDEXER_ENABLED=1` still has to be set — the
+   dedicated per-pack runs are what the external seam needs. Every
+   endpoint below answers `503 {"error":"feature_disabled"}` until then.
 
 All endpoints: `Authorization: Bearer <api-key>`, JSON in/out.
 
@@ -445,9 +446,8 @@ BRAIN_API_KEY=<key> pnpm indexer:repo -- \
   --repo . --brain-url https://brain.inite.ai --since auto --submit
 ```
 
-Operator flags `DOCUMENT_INGEST_ENABLED=1` and
-`DOCUMENT_MULTI_INDEXER_ENABLED=1` must be on, as for every external
-indexer. Run 2 writes `.brain-indexer-state.json` in the repo root
+`DOCUMENT_MULTI_INDEXER_ENABLED=1` must be set, as for every external
+indexer (`DOCUMENT_INGEST_ENABLED` is on by default). Run 2 writes `.brain-indexer-state.json` in the repo root
 (override with `--state`); keep it — it is what makes run 3 cheap.
 
 Other flags: `--pack <id>`, `--vertical <name>`, `--modules <a,b>`,

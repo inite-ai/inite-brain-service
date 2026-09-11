@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
 import { detectLanguage } from '../ai/locale/language-detector';
 import { redactPiiWithReport } from './ingest-utils';
 import { scopeForUser } from '../auth/scope-tags';
@@ -21,7 +21,13 @@ import type { IngestMentionDto, KnownEntity } from './dto/ingest-mention.dto';
  *  - idempotent (INSERT IGNORE against the UNIQUE (conversationId,
  *    messageId) index — retries and replays are safe);
  *  - non-fatal (any failure is a warn; the fact pipeline must not depend on
- *    the substrate while it is flag-gated).
+ *    the substrate, whatever the flag says).
+ *
+ * EPISODE_SUBSTRATE_ENABLED is DEFAULT ON. Retaining the source turn is
+ * what makes a memory inspectable and the derived world rebuildable —
+ * the two things the product claims — so it cannot be something an
+ * operator has to discover. Set `EPISODE_SUBSTRATE_ENABLED=0` to stop
+ * storing turns; the cost of leaving it on is storage, not behavior.
  *
  * Also the scene staleness seam (migration 0130, SCENES_SCHEDULED_MAINTENANCE,
  * default off): the same call marks the turn's conversation dirty so the
@@ -35,7 +41,7 @@ export class EpisodeStoreService {
   constructor(private readonly surreal: SurrealService) {}
 
   isEnabled(): boolean {
-    return envFlagEnabled(process.env.EPISODE_SUBSTRATE_ENABLED);
+    return envFlagNotDisabled(process.env.EPISODE_SUBSTRATE_ENABLED);
   }
 
   /**

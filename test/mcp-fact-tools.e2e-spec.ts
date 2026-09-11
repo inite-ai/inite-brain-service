@@ -142,7 +142,7 @@ describe('MCP get_fact / get_fact_provenance (e2e)', () => {
   });
 
   it('FACTS_API_ENABLED off → tools vanish from tools/list and a blind call errors', async () => {
-    delete process.env.FACTS_API_ENABLED;
+    process.env.FACTS_API_ENABLED = '0';
     try {
       const names = await toolsList();
       expect(names).not.toContain('get_fact');

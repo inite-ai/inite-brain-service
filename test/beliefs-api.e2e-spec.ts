@@ -85,7 +85,7 @@ describe('beliefs read API (e2e)', () => {
   };
 
   beforeAll(async () => {
-    delete process.env.BELIEFS_API_ENABLED;
+    process.env.BELIEFS_API_ENABLED = '0';
     f = await createApp({
       companyId: 'co_beliefs_api_e2e',
       extraKeys: [{ scopes: ['brain:read'], userId: USER }],
@@ -274,7 +274,7 @@ describe('beliefs read API (e2e)', () => {
   });
 
   it('flag flip back off → 404 again (runtime-mutable, no restart)', async () => {
-    delete process.env.BELIEFS_API_ENABLED;
+    process.env.BELIEFS_API_ENABLED = '0';
     expect((await f.http.get('/v1/beliefs/b_city_r2').set(m2m())).status).toBe(404);
     expect((await f.http.get('/v1/beliefs').set(m2m())).status).toBe(404);
     process.env.BELIEFS_API_ENABLED = '1';

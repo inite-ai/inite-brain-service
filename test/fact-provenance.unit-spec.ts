@@ -919,8 +919,8 @@ describe('FACTS_API_ENABLED gate (controller)', () => {
     };
   }
 
-  it('flag off (default): both GET routes 404 before touching the service', async () => {
-    delete process.env.FACTS_API_ENABLED;
+  it('flag off: both GET routes 404 before touching the service', async () => {
+    process.env.FACTS_API_ENABLED = '0';
     const { ctl, facts, req } = makeController();
     await expect(ctl.get(req, 'f1')).rejects.toThrow(NotFoundException);
     await expect(ctl.provenance(req, 'f1')).rejects.toThrow(NotFoundException);
@@ -929,7 +929,7 @@ describe('FACTS_API_ENABLED gate (controller)', () => {
   });
 
   it('flag off: retract stays available (write/GDPR path is flag-independent)', async () => {
-    delete process.env.FACTS_API_ENABLED;
+    process.env.FACTS_API_ENABLED = '0';
     const { ctl, facts, req } = makeController();
     const dto = {
       reason: 'user request',

@@ -1,7 +1,7 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { isoDateTime } from './iso-datetime';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import type { SearchService } from '../search/search.service';
 import type { EntitiesService } from '../entities/entities.service';
 import type { FactsService } from '../facts/facts.service';
@@ -553,7 +553,7 @@ function registerEntityReadTools({
   // a blind tools/call gets the SDK's standard unknown-tool error).
   // buildServer runs per request, so a flag flip applies on the next
   // request — exactly like the REST gate.
-  if (envFlagEnabled(process.env.FACTS_API_ENABLED)) {
+  if (envFlagNotDisabled(process.env.FACTS_API_ENABLED)) {
     registerFactReadTools({ server, companyId, scopes, deps });
   }
 

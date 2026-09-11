@@ -176,7 +176,7 @@ describe('stats views (migration 0088, real SurrealDB)', () => {
       factsRetracted: live.retracted,
     });
 
-    delete process.env.STATS_VIEWS_ENABLED;
+    process.env.STATS_VIEWS_ENABLED = '0';
     const off = await f.http.get('/v1/stats/overview').set(auth());
     expect(off.status).toBe(200);
     // Same data state → identical numbers on the legacy live path.
@@ -191,7 +191,7 @@ describe('stats views (migration 0088, real SurrealDB)', () => {
     factIds.push(await ingestFact('stats_subject_c', 'claim_epsilon', 'fifth claim'));
     const after = await f.http.get('/v1/stats/overview').set(auth());
     expect(after.body.factsActive).toBe(before.body.factsActive + 1);
-    delete process.env.STATS_VIEWS_ENABLED;
+    process.env.STATS_VIEWS_ENABLED = '0';
   });
 
   it('admin fan-out reads the same counters from the views', async () => {
@@ -207,7 +207,7 @@ describe('stats views (migration 0088, real SurrealDB)', () => {
       factsActive: live.active,
       factsRetracted: live.retracted,
     });
-    delete process.env.STATS_VIEWS_ENABLED;
+    process.env.STATS_VIEWS_ENABLED = '0';
   });
 });
 
@@ -232,7 +232,7 @@ describe('stats overview per-user scope (audit F3, real SurrealDB)', () => {
   beforeAll(async () => {
     // Flag off: the M2M path uses the live tenant-wide counts. User
     // callers ignore the flag regardless (views are tenant-wide).
-    delete process.env.STATS_VIEWS_ENABLED;
+    process.env.STATS_VIEWS_ENABLED = '0';
     f = await createApp({
       companyId: 'co_stats_userscope_e2e',
       extraKeys: [

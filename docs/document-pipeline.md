@@ -2,9 +2,9 @@
 
 How whole documents become memory. The pipeline splits ingestion into
 four layers with deliberately hard boundaries: extraction PROPOSES,
-exactly one decision engine DISPOSES. Everything here is dark behind
-`DOCUMENT_INGEST_ENABLED` (default off); with the flag off the legacy
-mention/fact paths behave byte-identically.
+exactly one decision engine DISPOSES. The surface is governed by
+`DOCUMENT_INGEST_ENABLED`, **default on**; set it to `0` and every route
+answers 503 while the legacy mention/fact paths behave byte-identically.
 
 ```mermaid
 flowchart LR
@@ -178,8 +178,8 @@ the same resolver — originKey keeps a document from corroborating itself.
 
 A Domain Pack may ship `seedDocuments` — pre-populated domain knowledge
 ingested through THIS pipeline when the pack is installed (flag
-`PACK_SEED_INGEST_ENABLED`, default on; requires `DOCUMENT_INGEST_ENABLED`
-since seeds ride the normal path). Each seed becomes an ordinary document
+`PACK_SEED_INGEST_ENABLED`, default on; rides `DOCUMENT_INGEST_ENABLED`,
+also default on, since seeds take the normal path). Each seed becomes an ordinary document
 with `kind: 'pack_seed'` and provenance meta on every derived fact's
 `source.meta` (`pack_seed`, `pack_id`, `pack_version`, `pack_seed_doc`) —
 same chunking, staging, conflict resolution, and contentHash dedupe as any
@@ -261,7 +261,7 @@ only — polling remains the source of truth
 
 | Env | Default | Meaning |
 |---|---|---|
-| `DOCUMENT_INGEST_ENABLED` | `0` | Master switch for the whole surface. |
+| `DOCUMENT_INGEST_ENABLED` | `1` | Master switch for the whole surface. |
 | `DOCUMENT_MULTI_INDEXER_ENABLED` | `0` | Dedicated runs + router + async mode. |
 | `REINDEX_ON_PACK_INSTALL` | `0` | Backfill hook on pack install/upgrade. |
 | `INGEST_MENTION_VIA_DOCUMENT` | `0` | Route mentions through the pipeline (response shape preserved; a user-scoped mention's `userId` rides the stored document into fact commit and scene projection — 0127). |

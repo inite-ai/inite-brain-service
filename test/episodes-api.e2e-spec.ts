@@ -61,7 +61,7 @@ describe('episodes API (e2e)', () => {
   });
 
   it('answers 404 with the flag off', async () => {
-    delete process.env.EPISODES_API_ENABLED;
+    process.env.EPISODES_API_ENABLED = '0';
     const res = await f.http.get('/v1/episodes').set(auth());
     expect(res.status).toBe(404);
     process.env.EPISODES_API_ENABLED = '1';

@@ -124,7 +124,7 @@ describe('ProjectionsController gating', () => {
   }
 
   it('flag off → 404 on both routes', async () => {
-    delete process.env.PROJECTIONS_API_ENABLED;
+    process.env.PROJECTIONS_API_ENABLED = '0';
     const c = makeController();
     await expect(c.list(req)).rejects.toThrow(NotFoundException);
     await expect(c.rebuild(req, 'facts', {})).rejects.toThrow(NotFoundException);

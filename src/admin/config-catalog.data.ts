@@ -1416,20 +1416,20 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'EVIDENCE_SUBSTRATE_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Master switch for the multimodal evidence substrate writers (evidence_asset / evidence_fragment / derived_representation, migration 0109). Off = EvidenceStoreService refuses every write (503) and no row is ever written; GDPR cascade + retention sweep run regardless so rows written while on stay erasable.',
+      'Master switch for the multimodal evidence substrate writers (evidence_asset / evidence_fragment / derived_representation, migration 0109). On by default. Off = EvidenceStoreService refuses every write (503) and no row is ever written; GDPR cascade + retention sweep run regardless so rows written while on stay erasable.',
   },
   {
     key: 'EVIDENCE_INGEST_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Evidence ingest surface (Brain v2.1 M3): POST /v1/ingest/evidence-asset. Off (default) = the route answers a bare 404 (scenes-surface precedent), byte-identical prod. Metadata-only by design (MM-6 boundary): originUri required, storageRef rejected, no bytes accepted. Requires EVIDENCE_SUBSTRATE_ENABLED — ingest-on/substrate-off answers 503 from the write seam and env-validation warns at boot.',
+      'Evidence ingest surface (Brain v2.1 M3): POST /v1/ingest/evidence-asset. On by default — the surface needs no storage adapter and no other configuration. Off = the route answers a bare 404 (scenes-surface precedent). Metadata-only by design (MM-6 boundary): originUri required, storageRef rejected, no bytes accepted. Requires EVIDENCE_SUBSTRATE_ENABLED — ingest-on/substrate-off answers 503 from the write seam and env-validation warns at boot.',
   },
   {
     key: 'EVIDENCE_BLOB_UPLOAD_ENABLED',
@@ -1640,20 +1640,20 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'EVIDENCE_RAW_READ_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Raw-read gateway (MM-3, migration 0125): the ONE surface serving original evidence bytes — GET /v1/evidence/{assetId}/raw(-url), the fragment twins (whole parent-asset bytes under the STRICTEST fragment+asset piiClasses union), and the unauthenticated signed-URL redeem. Full deny-overrides gate ladder (scope → tenant/availability/quarantine → live grants → ABAC rest.evidence.raw → modality consent via a direct fail-closed domain_pack read → media-PII polarity → blob head), every attempt recorded content-free in evidence_access. Off (default) = every route answers a bare 404, indistinguishable from absent routes — byte-identical.',
+      'Raw-read gateway (MM-3, migration 0125): the ONE surface serving original evidence bytes — GET /v1/evidence/{assetId}/raw(-url), the fragment twins (whole parent-asset bytes under the STRICTEST fragment+asset piiClasses union), and the unauthenticated signed-URL redeem. Full deny-overrides gate ladder (scope → tenant/availability/quarantine → live grants → ABAC rest.evidence.raw → modality consent via a direct fail-closed domain_pack read → media-PII polarity → blob head), every attempt recorded content-free in evidence_access. On by default — the ladder, not the switch, is what protects the bytes. Off = every route answers a bare 404, indistinguishable from absent routes.',
   },
   {
     key: 'EVIDENCE_GRANTS_API_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "Sharing surface (MM-4, migration 0122): the three ownership verbs over an existing asset — POST /v1/evidence/{assetId}/grants (share with a user or a pack), GET /v1/evidence/{assetId}/grants (live owners) and DELETE /v1/evidence/grants/{grantId} (revoke, idempotent). Assets are addressed by RECORD ID only, never by byteHash — the surface is deliberately no existence oracle: unknown asset, foreign tenant, dead/quarantined asset, non-owner and media-PII-blocked all answer ONE bare 404 with the same body and the same two DB round-trips. Acting requires the caller to pass the raw-read gateway's own ownership fence (a user-bound key needs its OWN live user grant; an M2M key needs the asset to hold at least one live grant) plus the media-PII polarity (unclassified blocked, `[]` open, classified needs brain:read_media), so nobody can share what they cannot read. ownerKind 'system' is refused (400): system ownership would pin content past every user's GDPR erasure and belongs to the write seam, not to a client. Requires EVIDENCE_SUBSTRATE_ENABLED. Off (default) = every route answers a bare 404 raised in a guard, BEFORE the global ValidationPipe could turn a malformed body into a route-revealing 400 — byte-identical prod.",
+      "Sharing surface (MM-4, migration 0122): the three ownership verbs over an existing asset — POST /v1/evidence/{assetId}/grants (share with a user or a pack), GET /v1/evidence/{assetId}/grants (live owners) and DELETE /v1/evidence/grants/{grantId} (revoke, idempotent). Assets are addressed by RECORD ID only, never by byteHash — the surface is deliberately no existence oracle: unknown asset, foreign tenant, dead/quarantined asset, non-owner and media-PII-blocked all answer ONE bare 404 with the same body and the same two DB round-trips. Acting requires the caller to pass the raw-read gateway's own ownership fence (a user-bound key needs its OWN live user grant; an M2M key needs the asset to hold at least one live grant) plus the media-PII polarity (unclassified blocked, `[]` open, classified needs brain:read_media), so nobody can share what they cannot read. ownerKind 'system' is refused (400): system ownership would pin content past every user's GDPR erasure and belongs to the write seam, not to a client. Requires EVIDENCE_SUBSTRATE_ENABLED. On by default. Off = every route answers a bare 404 raised in a guard, BEFORE the global ValidationPipe could turn a malformed body into a route-revealing 400.",
   },
   {
     key: 'EVIDENCE_SIGNED_URL_SECRET',
@@ -1682,11 +1682,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'DOCUMENT_INGEST_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Master switch for POST /v1/ingest/document + the /v1/documents/* surface. Off = every route 503s.',
+      'Master switch for POST /v1/ingest/document + the /v1/documents/* surface, and the MCP ingest_document tool. On by default. Off = every route 503s and the tool is not registered.',
   },
   {
     key: 'DOCUMENT_MULTI_INDEXER_ENABLED',
@@ -1700,11 +1700,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'INDEXER_OPERATOR_VIEW_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Read-only operator view over the tenant’s installed indexers and their run health (GET /v1/admin/indexers + /v1/admin/indexers/{packId}/runs, scope brain:admin): mode, pack version, last run, window-bounded run/candidate tallies, and — for external packs — publisher poll liveness derived from the claim ledger. Off = both routes 404. No mutation verbs; nothing about extraction changes either way.',
+      'Read-only operator view over the tenant’s installed indexers and their run health (GET /v1/admin/indexers + /v1/admin/indexers/{packId}/runs, scope brain:admin): mode, pack version, last run, window-bounded run/candidate tallies, and — for external packs — publisher poll liveness derived from the claim ledger. On by default. Off = both routes 404. No mutation verbs; nothing about extraction changes either way.',
   },
   {
     key: 'PACK_SEED_INGEST_ENABLED',
@@ -2502,11 +2502,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'EPISODE_SUBSTRATE_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'L0 episode substrate (memory-substrate-redesign P1): store every ingested dialogue turn verbatim (P0-redacted, piiClass-tagged) BEFORE extraction — lossless, idempotent (INSERT IGNORE on conversationId+messageId), LLM- and embedder-free. Extraction failures stop losing turns; future derivers re-derive from here.',
+      'L0 episode substrate (memory-substrate-redesign P1): store every ingested dialogue turn verbatim (P0-redacted, piiClass-tagged) BEFORE extraction — lossless, idempotent (INSERT IGNORE on conversationId+messageId), LLM- and embedder-free. Extraction failures stop losing turns; future derivers re-derive from here. On by default: the retained turn is what makes a memory inspectable and the derived world rebuildable. Off = turns are not stored and those two properties are gone; the cost of on is storage, not behaviour.',
   },
   {
     key: 'SEARCH_EPISODIC_LANE_ENABLED',
@@ -2637,31 +2637,31 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'EPISODES_API_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Raw-substrate driver v1 (docs/roadmap/raw-substrate-driver-2026-08.md): public read API over the L0 episode substrate — GET /v1/episodes (keyset cursor over occurredAt+id, filters conversationId/speaker/since/until) and GET /v1/episodes/export (NDJSON stream, paged internally). Lets any consumer build its own projection without touching SurrealDB. PII fence follows the read-lane precedent: without brain:read_pii only rows with empty piiClass are visible. Off (default) → routes answer 404.',
+      'Raw-substrate driver v1 (docs/roadmap/raw-substrate-driver-2026-08.md): public read API over the L0 episode substrate — GET /v1/episodes (keyset cursor over occurredAt+id, filters conversationId/speaker/since/until) and GET /v1/episodes/export (NDJSON stream, paged internally). Lets any consumer build its own projection without touching SurrealDB. PII fence follows the read-lane precedent: without brain:read_pii only rows with empty piiClass are visible. On by default. Off → routes answer 404.',
   },
   {
     key: 'FACTS_API_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Fact read + provenance API ("show me why I remember this"): GET /v1/facts/:id serves the fact as stored (aspect/statement/confidence/validFrom, source attribution, retracted flag, derivedVersion) and GET /v1/facts/:id/provenance serves its verbatim grounding turns (source.episodeIds via the shared episode read port, text capped at 600 chars). Every miss is a 404 — tenant fence, fail-closed user scope (another user\'s fact is indistinguishable from absent), registry-backed row policy on scope-fenced predicates; episode text respects brain:read_pii. POST /v1/facts/:id/retract is deliberately NOT gated by this flag (write/GDPR path). Off (default) → read routes answer 404.',
+      'Fact read + provenance API ("show me why I remember this"): GET /v1/facts/:id serves the fact as stored (aspect/statement/confidence/validFrom, source attribution, retracted flag, derivedVersion) and GET /v1/facts/:id/provenance serves its verbatim grounding turns (source.episodeIds via the shared episode read port, text capped at 600 chars). Every miss is a 404 — tenant fence, fail-closed user scope (another user\'s fact is indistinguishable from absent), registry-backed row policy on scope-fenced predicates; episode text respects brain:read_pii. POST /v1/facts/:id/retract is deliberately NOT gated by this flag (write/GDPR path). On by default — it also governs whether the MCP fact-read tools are registered. Off → read routes answer 404 and the tools are absent.',
   },
   {
     key: 'BELIEFS_API_ENABLED',
     category: 'pipeline',
     // Read at call time (BeliefsController.assertEnabled) — never
     // captured in a constructor — so a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "Belief read API (Belief-B): GET /v1/beliefs/:id serves one semantic_belief revision as stored (free-text subject/field key, value/priorValue, statement, confidence, revision/status/supersededBy supersede chain, validFrom/validUntil, inline sourceSceneIds provenance, corroboration counters, promoterVersion) and GET /v1/beliefs lists by subject/field/status/userId with a capped page (default 25, max 100). Read-only — the Belief-A promotion pass (SCENES_BELIEF_PROMOTION) stays the only writer. Every miss is a 404 — tenant fence + fail-closed single-user scope (#387: a belief is always one user's; a user-bound token sees only its own, an unstamped row serves to no one); beliefs carry no piiClass and no registry predicate, so no PII/row-policy fence applies. Off (default) → routes answer 404.",
+      "Belief read API (Belief-B): GET /v1/beliefs/:id serves one semantic_belief revision as stored (free-text subject/field key, value/priorValue, statement, confidence, revision/status/supersededBy supersede chain, validFrom/validUntil, inline sourceSceneIds provenance, corroboration counters, promoterVersion) and GET /v1/beliefs lists by subject/field/status/userId with a capped page (default 25, max 100). Read-only — the Belief-A promotion pass (SCENES_BELIEF_PROMOTION) stays the only writer. Every miss is a 404 — tenant fence + fail-closed single-user scope (#387: a belief is always one user's; a user-bound token sees only its own, an unstamped row serves to no one); beliefs carry no piiClass and no registry predicate, so no PII/row-policy fence applies. On by default. Off → routes answer 404.",
   },
   {
     key: 'BELIEFS_SERVING_LANE',
@@ -2780,11 +2780,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'PROJECTIONS_API_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Raw-substrate driver v1, surface 3: derived surfaces as first-class records (migration 0076) — GET /v1/projections lists every derived world with status/watermark/builder/stats plus the live read pin; POST /v1/projections/:name/rebuild (brain:admin) is the public verb over the maintenance batch engine (v1 rebuilds "facts" via the session-window deriver). The registry observes builder lifecycles (building/built/live/residual/failed); gc deletes rows for reaped worlds. Off (default) → routes answer 404.',
+      'Raw-substrate driver v1, surface 3: derived surfaces as first-class records (migration 0076) — GET /v1/projections lists every derived world with status/watermark/builder/stats plus the live read pin; POST /v1/projections/:name/rebuild (brain:admin) is the public verb over the maintenance batch engine (v1 rebuilds "facts" via the session-window deriver). The registry observes builder lifecycles (building/built/live/residual/failed); gc deletes rows for reaped worlds. On by default. Off → routes answer 404.',
   },
   {
     key: 'EPISODE_SUBSCRIPTIONS_ENABLED',
@@ -2798,11 +2798,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'USER_PROFILE_API_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "Rolling user profile v1 (docs/user-profile-api.md): GET /v1/users/:userId/profile — a deterministic query-time assembly of the active facts visible in one end-user's scope (ingested user-stamped facts + the pinned derived world's typed atoms), grouped by predicate/aspect, persona_attr-first, capped per aspect and globally, rendered as prompt-injectable profileText. No LLM calls. User-bound tokens read only their own profile (403 on mismatch); PII-fenced predicates require brain:read_pii. Off (default) → routes answer 404.",
+      "Rolling user profile v1 (docs/user-profile-api.md): GET /v1/users/:userId/profile — a deterministic query-time assembly of the active facts visible in one end-user's scope (ingested user-stamped facts + the pinned derived world's typed atoms), grouped by predicate/aspect, persona_attr-first, capped per aspect and globally, rendered as prompt-injectable profileText. No LLM calls. User-bound tokens read only their own profile (403 on mismatch); PII-fenced predicates require brain:read_pii. On by default — no LLM calls, no configuration, nothing to set up. Off → routes answer 404.",
   },
   {
     key: 'SYNTHESIZE_INSTRUCTION_LANE',
@@ -3044,11 +3044,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'STATS_VIEWS_ENABLED',
     category: 'misc',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Tenant counter reads (StatsService.overview Usage page, admin dashboard per-tenant counters) come from the 0088 incrementally-maintained count() rollup tables (stats_entity_total / stats_fact_by_status / stats_community_total) instead of live GROUP aggregates. Counts only — SurrealDB incremental view maintenance is exact for count() but has known upstream bugs for median/stddev-class aggregates. The view path bypasses the 30s LRU (the view IS the cache); moving-window counts (facts last 7d, dead-letter/forgotten last 24h) stay live in both paths. A failing view read (pre-0088 tenant) logs once per tenant and falls back to live counting. Off (default) → byte-identical pre-0088 behavior.',
+      'Tenant counter reads (StatsService.overview Usage page, admin dashboard per-tenant counters) come from the 0088 incrementally-maintained count() rollup tables (stats_entity_total / stats_fact_by_status / stats_community_total) instead of live GROUP aggregates. Counts only — SurrealDB incremental view maintenance is exact for count() but has known upstream bugs for median/stddev-class aggregates. The view path bypasses the 30s LRU (the view IS the cache); moving-window counts (facts last 7d, dead-letter/forgotten last 24h) stay live in both paths. A failing view read (pre-0088 tenant) logs once per tenant and falls back to live counting. On by default — the fallback makes it safe on any tenant, so the switch was only costing the fast path. Off → byte-identical pre-0088 behavior.',
   },
   {
     key: 'LIVE_SUBSCRIPTIONS_ENABLED',

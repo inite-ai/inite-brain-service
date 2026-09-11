@@ -313,7 +313,7 @@ adopted — see [platform-gap-2026-07.md](roadmap/platform-gap-2026-07.md).)
 Every tenant gets a Streamable HTTP MCP endpoint (`ALL /mcp/:companyId`)
 serving the same knowledge over agent-native tools: 28 static tools
 across read / write / community / procedural / source families
-(`ingest_document` registers only under `DOCUMENT_INGEST_ENABLED`),
+(`ingest_document` registers unless `DOCUMENT_INGEST_ENABLED=0`),
 gated by the caller key's scopes (and, when enabled, per-key
 [ABAC policies](abac.md) — enforce-denied tools vanish from
 `tools/list`). Two MCP resources (`brain://entity/...`) and sampling

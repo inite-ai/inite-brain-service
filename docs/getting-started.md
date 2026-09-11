@@ -108,7 +108,7 @@ The hosted service exposes the same thing as a screen at `/en/app/keys`.
 - Connect an MCP agent: point any MCP-capable harness at
   `http://localhost:3000/mcp/co_demo` with the same Bearer key
   (per-client recipes in [README § Connect an agent](../README.md#connect-an-agent)).
-- Feed it documents: set `DOCUMENT_INGEST_ENABLED=1` and POST to
+- Feed it documents: POST to
   `/v1/ingest/document` — [Document pipeline](document-pipeline.md).
 - Install a Domain Pack (needs a `brain:admin`-scoped key):
   `BRAIN_API_KEY=... pnpm pack:install -- --brain-url http://localhost:3000

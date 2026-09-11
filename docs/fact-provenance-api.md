@@ -2,7 +2,7 @@
 
 "Show me why I remember this." Two read endpoints over `knowledge_fact`:
 the fact as stored, and the verbatim conversation turns it was derived
-from. Both are gated by `FACTS_API_ENABLED` (default off → the routes
+from. Both are gated by `FACTS_API_ENABLED` (default **on**; `=0` → the routes
 answer 404, indistinguishable from absent routes). The existing
 `POST /v1/facts/:id/retract` is deliberately **not** gated by this flag —
 it is a write/GDPR path and must always work.
@@ -132,7 +132,7 @@ the row exists.
 
 | Fence | Behavior |
 | --- | --- |
-| Flag | `FACTS_API_ENABLED` off (default) → 404 on both GET routes. Runtime-mutable. |
+| Flag | `FACTS_API_ENABLED`, default on. `=0` → 404 on both GET routes. Runtime-mutable. |
 | Tenant | The read runs inside the caller's per-tenant database (same fence as retract); a foreign tenant's fact id is simply not found. |
 | User scope (0055) | A user-bound access token reads tenant-global facts and its **own** user-scoped facts; another user's fact → 404. M2M credentials read all. |
 | Row policy | The registry-backed row-policy seam shared with the fact retrieval lanes: an operator scope-fenced predicate (`requiresScope`, e.g. `brain:read_pii`) is absent to callers without the scope; ABAC row verdicts apply when a policy context is attached. |

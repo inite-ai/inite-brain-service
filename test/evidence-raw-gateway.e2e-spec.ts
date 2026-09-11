@@ -75,7 +75,7 @@ describe('evidence raw-read gateway (e2e)', () => {
     process.env.EVIDENCE_FS_ROOT = fsRoot;
     process.env.EVIDENCE_SIGNED_URL_SECRET = SECRET;
     // The flag stays OFF until the 404 pin below runs (runtime-mutable).
-    delete process.env.EVIDENCE_RAW_READ_ENABLED;
+    process.env.EVIDENCE_RAW_READ_ENABLED = '0';
     delete process.env.EVIDENCE_SIGNED_URL_TTL_SECONDS;
     f = await createApp({
       companyId: COMPANY,

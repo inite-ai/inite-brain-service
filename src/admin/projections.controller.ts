@@ -13,7 +13,7 @@ import {
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
 import { AuthenticatedRequest } from '../auth/api-key.types';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import {
   ProjectionRegistryService,
   type ProjectionRow,
@@ -49,7 +49,7 @@ export class ProjectionsController {
   ) {}
 
   private gate(): void {
-    if (!envFlagEnabled(process.env.PROJECTIONS_API_ENABLED)) {
+    if (!envFlagNotDisabled(process.env.PROJECTIONS_API_ENABLED)) {
       throw new NotFoundException();
     }
   }

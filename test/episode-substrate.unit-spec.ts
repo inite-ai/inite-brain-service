@@ -104,7 +104,7 @@ describe('EpisodeStoreService (P1)', () => {
   });
 
   it('is a no-op when the flag is off (null, no query)', async () => {
-    delete process.env.EPISODE_SUBSTRATE_ENABLED;
+    process.env.EPISODE_SUBSTRATE_ENABLED = '0';
     const { svc, queries } = makeStore();
     expect(await svc.captureTurn('co_x', dto())).toBeNull();
     expect(queries).toHaveLength(0);

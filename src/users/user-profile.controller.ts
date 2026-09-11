@@ -11,7 +11,7 @@ import {
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
 import { AuthenticatedRequest } from '../auth/api-key.types';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { pinUserScope } from '../auth/user-scope';
 import { UserProfileService } from './user-profile.service';
 import { DEFAULT_MAX_FACTS, HARD_MAX_FACTS, type UserProfileWire } from './dto/user-profile.dto';
@@ -31,7 +31,7 @@ export class UserProfileController {
   constructor(private readonly profiles: UserProfileService) {}
 
   private assertEnabled(): void {
-    if (!envFlagEnabled(process.env.USER_PROFILE_API_ENABLED)) {
+    if (!envFlagNotDisabled(process.env.USER_PROFILE_API_ENABLED)) {
       throw new NotFoundException();
     }
   }

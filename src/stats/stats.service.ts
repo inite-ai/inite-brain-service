@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { LRUCache } from '../common/lru-cache';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 
 export interface MemoryStats {
   entities: number;
@@ -81,7 +81,7 @@ export class StatsService {
     // userId. A userId-pinned (end-user) caller always takes the live,
     // user-scoped path below — regardless of STATS_VIEWS_ENABLED — so it
     // never reads the tenant aggregate (audit F3).
-    if (userId === undefined && envFlagEnabled(process.env.STATS_VIEWS_ENABLED)) {
+    if (userId === undefined && envFlagNotDisabled(process.env.STATS_VIEWS_ENABLED)) {
       try {
         return await this.overviewFromViews(companyId, scopes, nowMs);
       } catch (err) {

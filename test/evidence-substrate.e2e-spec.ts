@@ -35,7 +35,7 @@ describe('evidence substrate (e2e)', () => {
     fsRoot = await mkdtemp(join(tmpdir(), 'evidence-e2e-'));
     saved.EVIDENCE_SUBSTRATE_ENABLED = process.env.EVIDENCE_SUBSTRATE_ENABLED;
     saved.EVIDENCE_FS_ROOT = process.env.EVIDENCE_FS_ROOT;
-    delete process.env.EVIDENCE_SUBSTRATE_ENABLED;
+    process.env.EVIDENCE_SUBSTRATE_ENABLED = '0';
     process.env.EVIDENCE_FS_ROOT = fsRoot;
     f = await createApp({ companyId: COMPANY });
     store = f.app.get(EvidenceStoreService);
