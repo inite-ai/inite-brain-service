@@ -182,6 +182,15 @@ import {
   SourceEvidenceSchema,
 } from '../src/contracts/ingest/ingest.schema';
 import {
+  MemoryFileDeleteResponseSchema,
+  MemoryFileListRequestSchema,
+  MemoryFileListResponseSchema,
+  MemoryFileReadRequestSchema,
+  MemoryFileRenameRequestSchema,
+  MemoryFileSchema,
+  MemoryFileWriteRequestSchema,
+} from '../src/contracts/memory-files/memory-files.schema';
+import {
   ScoreBreakdownSchema,
   SearchFactSchema,
   SearchHitSchema,
@@ -367,6 +376,14 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   IngestFactRequest: IngestFactRequestSchema,
   IngestFactResponse: IngestFactResponseSchema,
   ConflictExplanation: ConflictExplanationSchema,
+  // --- file-shaped memory (src/contracts/memory-files/memory-files.schema.ts)
+  MemoryFile: MemoryFileSchema,
+  MemoryFileReadRequest: MemoryFileReadRequestSchema,
+  MemoryFileListRequest: MemoryFileListRequestSchema,
+  MemoryFileListResponse: MemoryFileListResponseSchema,
+  MemoryFileWriteRequest: MemoryFileWriteRequestSchema,
+  MemoryFileRenameRequest: MemoryFileRenameRequestSchema,
+  MemoryFileDeleteResponse: MemoryFileDeleteResponseSchema,
   // --- search (src/contracts/search/search.schema.ts)
   SearchRequest: SearchRequestSchema,
   SearchFact: SearchFactSchema,
@@ -973,6 +990,107 @@ function memoryCorePaths(): Json {
         responses: {
           '201': jsonResponse("The resolver's decision.", ref('IngestFactResponse')),
           '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/memory-files': {
+      put: operation({
+        operationId: 'writeMemoryFile',
+        tag: 'Memory files',
+        summary: 'Create or replace a memory file',
+        description:
+          'Stores `content` verbatim at `path`. No normalisation of any ' +
+          'kind: the memory tool’s `str_replace` is a string operation ' +
+          'against exactly these bytes, so re-wrapping or trimming would ' +
+          'corrupt the model’s own notes in a way that reads as ' +
+          'hallucination. A second write to the same path replaces. ' +
+          '`userId` scopes the file to one end user — two people sharing ' +
+          'a workspace key get separate files at the same path, which is ' +
+          'deliberate. Source: src/memory-files/memory-file.controller.ts.',
+        scope: 'brain:write',
+        requestBody: jsonBody(ref('MemoryFileWriteRequest')),
+        responses: {
+          '200': jsonResponse('The stored file.', ref('MemoryFile')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/memory-files/read': {
+      post: operation({
+        operationId: 'readMemoryFile',
+        tag: 'Memory files',
+        summary: 'Read one memory file',
+        description:
+          'Returns the file verbatim, or 404. The path travels in the ' +
+          'body rather than the URL because it carries slashes, and ' +
+          'with the row fence keyed on (path, userId) an encoding ' +
+          'ambiguity would be an access-control question.',
+        scope: 'brain:read',
+        requestBody: jsonBody(ref('MemoryFileReadRequest')),
+        responses: {
+          '200': jsonResponse('The file.', ref('MemoryFile')),
+          '400': errorRef('BadRequest'),
+          '404': errorRef('NotFound'),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/memory-files/list': {
+      post: operation({
+        operationId: 'listMemoryFiles',
+        tag: 'Memory files',
+        summary: 'List memory files under a prefix',
+        description:
+          'Paths under `prefix` (default `/memories`), in path order, ' +
+          'capped at 1000. This is what the memory tool’s `view` on a ' +
+          'directory becomes.',
+        scope: 'brain:read',
+        requestBody: jsonBody(ref('MemoryFileListRequest')),
+        responses: {
+          '200': jsonResponse('Matching paths.', ref('MemoryFileListResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/memory-files/rename': {
+      post: operation({
+        operationId: 'renameMemoryFile',
+        tag: 'Memory files',
+        summary: 'Move a memory file',
+        description:
+          'Copies the content to `newPath` and removes the old row. The ' +
+          'destination is overwritten if it exists, matching the memory ' +
+          'tool’s own semantics. A destination that fails the path rules ' +
+          'leaves the source untouched — a rejected move is not a delete.',
+        scope: 'brain:write',
+        requestBody: jsonBody(ref('MemoryFileRenameRequest')),
+        responses: {
+          '200': jsonResponse('The file at its new path.', ref('MemoryFile')),
+          '400': errorRef('BadRequest'),
+          '404': errorRef('NotFound'),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/memory-files/delete': {
+      post: operation({
+        operationId: 'deleteMemoryFile',
+        tag: 'Memory files',
+        summary: 'Delete a memory file or directory',
+        description:
+          'Removes the file at `path` and everything beneath it, and ' +
+          'reports how many rows went. Only the asking scope’s copies: a ' +
+          'workspace-wide delete does not touch a user’s personal file ' +
+          'at the same path.',
+        scope: 'brain:write',
+        requestBody: jsonBody(ref('MemoryFileReadRequest')),
+        responses: {
+          '200': jsonResponse('How many rows were removed.', ref('MemoryFileDeleteResponse')),
+          '400': errorRef('BadRequest'),
+          '404': errorRef('NotFound'),
           ...AUTH_ERRORS,
         },
       }),
@@ -2427,6 +2545,17 @@ export function buildOpenApiDocument(): Json {
           'verifies itself. Bounded by the calling credential — a key is ' +
           'never wider than its issuer — and available identically on ' +
           'the hosted service and a self-hosted deployment.',
+      },
+      {
+        name: 'Memory files',
+        description:
+          'File-shaped memory — the storage behind Anthropic’s memory ' +
+          'tool (`memory_20250818`). A model’s own notes, kept in the ' +
+          'tenant’s database behind the same fences as every other ' +
+          'memory rather than in a directory on one machine. ' +
+          '`str_replace` and `insert` are absent by design: they are ' +
+          'read-modify-write on exact text, performed by the adapter ' +
+          'against what these routes return.',
       },
       {
         name: 'Registry',

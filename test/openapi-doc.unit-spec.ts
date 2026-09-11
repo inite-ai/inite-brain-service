@@ -21,6 +21,13 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   // The memory core — the README quick start's two calls plus the two
   // reasoning surfaces on the same retrieval stack. No feature flag.
   ['/v1/ingest/fact', 'post'],
+  // File-shaped memory — the storage behind Anthropic's memory tool, and
+  // the surface @inite/brain-memory-tool is written against.
+  ['/v1/memory-files', 'put'],
+  ['/v1/memory-files/read', 'post'],
+  ['/v1/memory-files/list', 'post'],
+  ['/v1/memory-files/rename', 'post'],
+  ['/v1/memory-files/delete', 'post'],
   ['/v1/search', 'post'],
   ['/v1/search/multi-hop', 'post'],
   ['/v1/synthesize', 'post'],

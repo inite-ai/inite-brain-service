@@ -1,0 +1,54 @@
+{
+  "name": "@inite/brain-memory-tool",
+  "version": "0.1.0",
+  "description": "Backs Anthropic's memory tool (memory_20250818) with INITE Brain instead of a local directory. Drop-in: the agent loop keeps its own shape, the notes stop living on one machine's disk and start living in a tenant-fenced memory service.",
+  "author": "INITE",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inite-ai/inite-brain-service.git",
+    "directory": "clients/brain-memory-tool"
+  },
+  "homepage": "https://brain.inite.ai",
+  "bugs": {
+    "url": "https://github.com/inite-ai/inite-brain-service/issues"
+  },
+  "keywords": [
+    "anthropic",
+    "claude",
+    "memory-tool",
+    "memory_20250818",
+    "brain",
+    "memory",
+    "context-editing",
+    "inite"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.5",
+    "typescript": "^7.0.2"
+  }
+}

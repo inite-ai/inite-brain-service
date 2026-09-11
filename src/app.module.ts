@@ -34,6 +34,7 @@ import { CommunityModule } from './communities/community.module';
 import { StatsModule } from './stats/stats.module';
 import { RegistryModule } from './registry/registry.module';
 import { SourcesModule } from './sources/sources.module';
+import { MemoryFileModule } from './memory-files/memory-file.module';
 import { DocumentsModule } from './documents/documents.module';
 import { FeedbackModule } from './feedback/feedback.module';
 import { KeysModule } from './keys/keys.module';
@@ -111,6 +112,7 @@ import { MriModule } from './mri/mri.module';
     StatsModule,
     RegistryModule,
     SourcesModule,
+    MemoryFileModule,
     DocumentsModule,
     EpisodesModule,
     UsersModule,
