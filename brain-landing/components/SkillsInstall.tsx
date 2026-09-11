@@ -18,13 +18,17 @@ export function SkillsInstall({ lang }: Props) {
 
       <div className="mt-8 lab-panel rounded-xl overflow-hidden">
         <div className="px-3 py-2 border-b border-[var(--border)] u-mono text-[11px] text-[var(--text-faint)]">
-          shell · ~/.claude/skills/
+          {t.skillsBlock.targetLabel}
         </div>
         <pre className="px-4 py-4 text-[12px] leading-relaxed u-mono text-[var(--text)] overflow-x-auto">
           <span className="text-[var(--text-faint)]">$ </span>
           {t.skillsBlock.installCmd}
         </pre>
       </div>
+
+      <p className="mt-4 text-xs leading-relaxed text-[var(--text-muted)]">
+        {t.skillsBlock.targets}
+      </p>
 
       <div className="mt-4">
         <Link

@@ -120,12 +120,12 @@ describe('hooks', () => {
   });
 });
 
-describe('bundled skills', () => {
-  const dirsIn = (p: string): string[] =>
-    readdirSync(p)
-      .filter((n) => statSync(join(p, n)).isDirectory())
-      .sort();
+const dirsIn = (p: string): string[] =>
+  readdirSync(p)
+    .filter((n) => statSync(join(p, n)).isDirectory())
+    .sort();
 
+describe('bundled skills', () => {
   it('matches skills/ exactly — pnpm plugin:sync regenerates it', () => {
     const source = dirsIn(join(ROOT, 'skills'));
     expect(dirsIn(join(PLUGIN, 'skills'))).toEqual(source);
@@ -140,5 +140,48 @@ describe('bundled skills', () => {
     expect(readFileSync(join(PLUGIN, 'skills/VERSION'), 'utf8')).toBe(
       readFileSync(join(ROOT, 'skills/VERSION'), 'utf8'),
     );
+  });
+});
+
+/**
+ * The Gemini CLI extension. Same class of artefact as the plugin above —
+ * `gemini extensions install <repo url>` reads this file and nothing in
+ * our build would notice it rotting.
+ */
+describe('gemini extension manifest', () => {
+  const gemini = readJson(join(ROOT, 'gemini-extension.json'));
+
+  it('has the three fields the loader requires', () => {
+    for (const key of ['name', 'version', 'description'] as const) {
+      expect(typeof gemini[key]).toBe('string');
+      expect((gemini[key] as string).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('points contextFileName at a file that exists', () => {
+    // A missing context file is a silent no-op: the extension installs,
+    // the guidance never loads, and the agent behaves as if the skills
+    // were never written.
+    expect(() => readFileSync(join(ROOT, gemini.contextFileName as string), 'utf8')).not.toThrow();
+  });
+
+  it('carries the key in a header the CLI expands from the environment', () => {
+    // Gemini expands ${VAR} inside headers. A literal key here would be
+    // a secret committed to a public repository.
+    const servers = gemini.mcpServers as Record<
+      string,
+      { httpUrl: string; headers: Record<string, string> }
+    >;
+    expect(servers.brain?.httpUrl).toBe('https://brain.inite.ai/mcp');
+    expect(servers.brain?.headers.Authorization).toBe('Bearer ${BRAIN_API_KEY}');
+    // The field is httpUrl, not url — Gemini ignores `url` for HTTP
+    // transports, and the failure is a server that never connects.
+    expect(servers.brain).not.toHaveProperty('url');
+  });
+
+  it('ships the skills the extension root already carries', () => {
+    // Unlike the Claude plugin, the extension root IS the repository
+    // root, so skills/ needs no copy — but it does need to be there.
+    expect(dirsIn(join(ROOT, 'skills')).length).toBeGreaterThan(0);
   });
 });

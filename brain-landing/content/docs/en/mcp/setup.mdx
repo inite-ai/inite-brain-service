@@ -91,7 +91,16 @@ Codex reads `BRAIN_KEY` from the environment at connect time and sends it as `Au
 
 ## Gemini CLI
 
-`~/.gemini/settings.json` (user) or `.gemini/settings.json` (project). Note the field is `httpUrl`, not `url`:
+One command installs the extension — MCP server, the six [skills](/en/docs/skills), and the agent guide loaded as context:
+
+```bash
+export BRAIN_API_KEY="brain_YOUR_API_KEY"
+gemini extensions install https://github.com/inite-ai/inite-brain-service
+```
+
+The key stays in your environment: the extension's manifest references `${BRAIN_API_KEY}`, which Gemini expands at connect time, so nothing secret lands in a config file.
+
+To wire only the MCP server, edit `~/.gemini/settings.json` (user) or `.gemini/settings.json` (project). Note the field is `httpUrl`, not `url`:
 
 ```json
 {

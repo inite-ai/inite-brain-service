@@ -321,6 +321,25 @@ claude mcp add --transport http brain https://brain.inite.ai/mcp \
   --header "Authorization: Bearer $BRAIN_KEY"
 ```
 
+### Gemini CLI — one command
+
+```bash
+export BRAIN_API_KEY="brain_..."
+gemini extensions install https://github.com/inite-ai/inite-brain-service
+```
+
+MCP server, the six skills, and [AGENTS.md](AGENTS.md) loaded as context.
+The key stays in your environment — the manifest references
+`${BRAIN_API_KEY}` and Gemini expands it at connect time.
+
+### Cursor and VS Code — one click
+
+Those two publish an install URL scheme, so the badges at the top of this
+file do the work; replace the placeholder key in the client's own MCP
+settings afterwards. Every other client takes the URL
+`https://brain.inite.ai/mcp` (or `?tools=chatgpt` for ChatGPT, whose
+connector contract is exactly `search` + `fetch`).
+
 ### Every other harness
 
 ```bash
