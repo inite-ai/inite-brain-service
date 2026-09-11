@@ -66,6 +66,11 @@ function run(
     env: { ...process.env, ...env },
     timeout: 20_000,
   });
+  // The harness writes the event payload to the hook's stdin. If the
+  // hook exits without reading it, this write lands on a closed pipe —
+  // which is why the dispatcher drains before exiting. Surfaced as a
+  // test failure rather than swallowed: EPIPE here means a real user
+  // would see an error from a hook that is supposed to be invisible.
   child.child.stdin?.end(JSON.stringify(stdin));
   return child;
 }
@@ -152,12 +157,18 @@ describe('brain-hook: recall (SessionStart)', () => {
     expect(stdout).toBe('');
   });
 
-  it('does nothing at all without a key', async () => {
+  it('does nothing at all without a key, and still drains the payload', async () => {
+    // Regression: the dispatcher used to exit before reading stdin, so
+    // the write above raced against process exit and the writer got
+    // EPIPE. It passed locally and failed on CI, which is the usual
+    // shape of a race.
     const brain = await stubBrain(SEARCH_REPLY);
     try {
       const { stdout } = await run(
         'recall',
-        { session_id: 's1' },
+        // A payload big enough not to fit in the pipe buffer, so a
+        // dispatcher that does not read it cannot pass by luck.
+        { session_id: 's1', padding: 'x'.repeat(200_000) },
         { CLAUDE_PLUGIN_OPTION_API_KEY: '', CLAUDE_PLUGIN_OPTION_BASE_URL: brain.url },
       );
       expect(stdout).toBe('');

@@ -10,7 +10,13 @@
 # Usage: brain-hook.sh recall | capture
 set -e
 
-[ -n "${CLAUDE_PLUGIN_OPTION_API_KEY:-}" ] || exit 0
-command -v node >/dev/null 2>&1 || exit 0
+if [ -z "${CLAUDE_PLUGIN_OPTION_API_KEY:-}" ] || ! command -v node >/dev/null 2>&1; then
+  # Drain the payload before leaving. The harness writes the event JSON
+  # to our stdin; exiting without reading it closes the pipe under the
+  # writer, which sees EPIPE — an error raised by the very hook whose
+  # whole contract is to be invisible when it has nothing to do.
+  cat >/dev/null 2>&1 || true
+  exit 0
+fi
 
 exec node "$(dirname "$0")/brain-hook.mjs" "$@"
