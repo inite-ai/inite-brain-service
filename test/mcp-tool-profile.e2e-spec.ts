@@ -9,6 +9,7 @@
  */
 import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
+import { countTokens } from '../src/common/token-counter';
 
 /** tools/list over Streamable HTTP, which may answer as SSE. */
 function toolNames(res: { headers: Record<string, string>; text?: string; body: unknown }) {
@@ -90,6 +91,45 @@ describe('MCP tool profiles over HTTP', () => {
     expect(core.body.profile).toBe('core');
     expect(core.body.tools).toContain('find_tool');
     expect(core.body.tools.length).toBeLessThan(full.body.tools.length);
+  });
+
+  /**
+   * What the profile is actually worth, in the unit that matters.
+   *
+   * `tools/list` is not a one-off: this server is stateless, the client
+   * re-sends the tool definitions with every turn, and they sit in the
+   * window whether or not a tool is called. Measuring it with the same
+   * tokeniser the models bill against turns "several thousand tokens"
+   * from an estimate into a number — and pins it, so a future tool with
+   * a generous description cannot quietly undo the saving.
+   */
+  it('costs a quarter of the full surface, measured on the real payload', async () => {
+    const cost = async (query: string) => {
+      const res = await list(query);
+      const payload = String(res.headers['content-type'] ?? '').includes('text/event-stream')
+        ? ((res.text ?? '')
+            .split('\n')
+            .filter((l) => l.startsWith('data: '))
+            .map((l) => l.slice(6))
+            .pop() ?? '{}')
+        : JSON.stringify(res.body);
+      return countTokens(payload);
+    };
+
+    const full = await cost('');
+    const core = await cost('?tools=core');
+    // Visible in CI output — the number is the point of this test.
+     
+    console.log(`[tools/list] full=${full} tokens, core=${core} tokens, saved=${full - core}`);
+
+    expect(core).toBeLessThan(full * 0.4);
+    // Regression ceilings, not targets — tripwires. Tool descriptions
+    // are prose and prose grows; a single `z.string().datetime()` adds
+    // 200 tokens of regex; nothing else in the build would notice
+    // either. Measured at the time of writing: full 7 078, core 2 052,
+    // down from 10 120 before the schema fix and the profile.
+    expect(full).toBeLessThan(8_500);
+    expect(core).toBeLessThan(2_600);
   });
 
   it('rejects a typo instead of quietly serving everything', async () => {

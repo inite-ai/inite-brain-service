@@ -163,7 +163,7 @@ A key with only `brain:read` sees 20 tools (22 with `FACTS_API_ENABLED`), not 32
 
 ## Tool profiles — paying less for tools you do not call
 
-Every tool in `tools/list` costs context for the whole session, called or not. Twenty tools with descriptions and JSON schemas is several thousand tokens spent before the user types anything.
+Every tool in `tools/list` costs context for the whole session, called or not — and this server is stateless, so the definitions are re-sent with every turn. Measured with the same tokeniser the models bill against, the full surface is **7 078 tokens**; `core` is **2 052**.
 
 Add `?tools=core` to the MCP URL:
 

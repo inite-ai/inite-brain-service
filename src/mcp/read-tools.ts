@@ -1,5 +1,6 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { isoDateTime } from './iso-datetime';
 import { envFlagEnabled } from '../common/env-validation';
 import type { SearchService } from '../search/search.service';
 import type { EntitiesService } from '../entities/entities.service';
@@ -110,9 +111,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
         query: z.string().describe('Natural-language query'),
         limit: z.number().int().min(1).max(100).optional().describe('Max results (default 10)'),
         predicates: z.array(z.string()).optional().describe('Filter to these predicates only'),
-        asOf: z
-          .string()
-          .datetime()
+        asOf: isoDateTime()
           .optional()
           .describe(
             'Valid-time as-of: facts true at this ISO 8601 moment (a retraction dated before it hides the fact; a fact learned after it still shows — not a knowledge snapshot)',
@@ -178,9 +177,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
           .describe(
             'Override guardrails when synthesize=true: strict closes to null on partial; lenient returns the answer with the verifier verdict; off skips the verifier',
           ),
-        asOf: z
-          .string()
-          .datetime()
+        asOf: isoDateTime()
           .optional()
           .describe(
             'Valid-time as-of: facts true at this ISO 8601 moment (a retraction dated before it hides the fact; a fact learned after it still shows — not a knowledge snapshot)',
@@ -242,9 +239,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
           .optional()
           .describe('Top-K facts fed to the generator (default 10)'),
         predicates: z.array(z.string()).optional(),
-        asOf: z
-          .string()
-          .datetime()
+        asOf: isoDateTime()
           .optional()
           .describe(
             'Valid-time as-of: facts true at this ISO 8601 moment (not a knowledge snapshot)',
@@ -306,8 +301,8 @@ function registerMemoryDiffTool({
       description:
         'Returns everything brain learned, unlearned, or replaced between two ISO 8601 cursors [from, to). createdFacts = new active facts; retractedFacts = facts marked retracted in-window with no successor; changedFacts = facts that were superseded by another (carries before+after); newEntities = entities created in-window; forgottenEntities = GDPR-erased tombstones. Driving use case: "what changed since the last conversation?" Scope with entityIds and/or predicates to narrow the diff to a feature surface. Window is half-open; consecutive diffs over adjacent windows never double-count.',
       inputSchema: {
-        from: z.string().datetime().describe('Inclusive lower bound (ISO 8601)'),
-        to: z.string().datetime().describe('Exclusive upper bound (ISO 8601)'),
+        from: isoDateTime().describe('Inclusive lower bound (ISO 8601)'),
+        to: isoDateTime().describe('Exclusive upper bound (ISO 8601)'),
         entityIds: z
           .array(z.string())
           .optional()
@@ -362,9 +357,7 @@ function registerGraphRetrieveTool({
           .describe(
             'Prefer facts with these predicates (non-matching neighbour facts are dropped, seed facts kept at lower score)',
           ),
-        asOf: z
-          .string()
-          .datetime()
+        asOf: isoDateTime()
           .optional()
           .describe(
             'Valid-time as-of: facts true at this ISO 8601 moment (a retraction dated before it hides the fact; a fact learned after it still shows — not a knowledge snapshot)',
@@ -403,9 +396,7 @@ function registerEntityReadTools({
         'Full profile of one entity: canonical name, type, externalRefs (cross-vertical ids), and active facts. Use externalRefs to rehydrate fresh state from the originating vertical via @inite/api-kit.',
       inputSchema: {
         entityId: z.string().describe('Brain entity id (knowledge_entity:...) or short id'),
-        asOf: z
-          .string()
-          .datetime()
+        asOf: isoDateTime()
           .optional()
           .describe(
             'Valid-time as-of: facts true at this ISO 8601 moment (not a knowledge snapshot)',
@@ -435,8 +426,8 @@ function registerEntityReadTools({
         'Chronological audit of all facts brain has learned about this entity, including retracted ones. Useful for "what did we know when" investigations.',
       inputSchema: {
         entityId: z.string(),
-        since: z.string().datetime().optional(),
-        until: z.string().datetime().optional(),
+        since: isoDateTime().optional(),
+        until: isoDateTime().optional(),
         userId: z
           .string()
           .max(200)
@@ -471,11 +462,7 @@ function registerEntityReadTools({
         "Returns a short one-line briefing about the entity — name, type, the most-confident active facts, external refs — suitable for dropping into an LLM context window. Caches in-process (per companyId / entityId / asOf / styleHint) so a hot entity touched across many turns doesn't reload the profile. styleHint='neutral' | 'sales' | 'support' are template-rendered (no LLM call). styleHint='client_llm' opts into MCP SAMPLING: brain asks the connected client (Claude Desktop / agent runtime) to write the one-liner with its own model — zero brain-side OpenAI cost, perfect for self-hosters who don't want brain holding an LLM key. Falls back to neutral template + sampledBy='local_template' when the client doesn't advertise sampling capability. Use INSTEAD of profile+timeline+competing when you only need a briefing.",
       inputSchema: {
         entityId: z.string().describe('Brain entity id (knowledge_entity:...) or short id'),
-        asOf: z
-          .string()
-          .datetime()
-          .optional()
-          .describe('Summarize what was known at this ISO 8601 moment'),
+        asOf: isoDateTime().optional().describe('Summarize what was known at this ISO 8601 moment'),
         styleHint: z
           .enum(['neutral', 'sales', 'support', 'client_llm'])
           .optional()
@@ -531,11 +518,7 @@ function registerEntityReadTools({
           .string()
           .optional()
           .describe('Filter to one predicate (e.g. "status", "address")'),
-        asOf: z
-          .string()
-          .datetime()
-          .optional()
-          .describe('Show what was competing at this ISO 8601 moment'),
+        asOf: isoDateTime().optional().describe('Show what was competing at this ISO 8601 moment'),
         userId: z
           .string()
           .max(200)
@@ -583,9 +566,7 @@ function registerEntityReadTools({
       inputSchema: {
         entityId: z.string(),
         kind: z.string().optional().describe('Edge kind filter (e.g. "paid_for", "mentioned_in")'),
-        asOf: z
-          .string()
-          .datetime()
+        asOf: isoDateTime()
           .optional()
           .describe(
             'Bitemporal edge cutoff — connections as they were believed at this ISO 8601 moment (mirrors GET /v1/entities/:id/connections?asOf=)',
@@ -696,8 +677,8 @@ function registerDetectContradictionTool({
         ]),
         predicate: z.string(),
         object: z.string(),
-        validFrom: z.string().datetime(),
-        validUntil: z.string().datetime().optional(),
+        validFrom: isoDateTime(),
+        validUntil: isoDateTime().optional(),
         confidence: z.number().min(0).max(1).optional(),
         sourceVertical: z.string().describe('Vertical attributed as source (matches record_fact)'),
         userId: z
