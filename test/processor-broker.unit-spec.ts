@@ -125,7 +125,7 @@ describe('EvidenceProcessorBrokerService', () => {
   });
 
   it('substrate off ⇒ 503 too (the broker writes through the substrate seam)', async () => {
-    delete process.env.EVIDENCE_SUBSTRATE_ENABLED;
+    process.env.EVIDENCE_SUBSTRATE_ENABLED = '0';
     const f = fixture({ adapters: [stubAdapter()] });
     await expect(
       f.broker.dispatchForPack('co_x', { packId: 'proc_pack', assetId: 'evidence_asset:a1' }),

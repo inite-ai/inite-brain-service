@@ -83,7 +83,7 @@ describe('indexer operator view (e2e)', () => {
   }
 
   it('404s both routes while the flag is off', async () => {
-    delete process.env.INDEXER_OPERATOR_VIEW_ENABLED;
+    process.env.INDEXER_OPERATOR_VIEW_ENABLED = '0';
     expect((await f.http.get('/v1/admin/indexers').set(auth())).status).toBe(404);
     expect((await f.http.get('/v1/admin/indexers/code_memory/runs').set(auth())).status).toBe(404);
   });

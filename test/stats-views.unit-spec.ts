@@ -58,7 +58,7 @@ describe('StatsService view gating (STATS_VIEWS_ENABLED)', () => {
   });
 
   it('flag off: runs the legacy GROUP queries and serves the 30s LRU', async () => {
-    delete process.env.STATS_VIEWS_ENABLED;
+    process.env.STATS_VIEWS_ENABLED = '0';
     const query = jest.fn(async (_sql: string) => legacyStatsResults());
     const { svc } = makeStatsService(query);
 
@@ -149,7 +149,7 @@ describe('StatsService per-user scope (audit F3)', () => {
   }
 
   it('scopes every count to own+global, omits the tenant-global community count, keys cache by user', async () => {
-    delete process.env.STATS_VIEWS_ENABLED;
+    process.env.STATS_VIEWS_ENABLED = '0';
     const query = jest.fn(async (_sql: string, _binds?: Record<string, unknown>) =>
       userScopedResults(),
     );
@@ -182,7 +182,7 @@ describe('StatsService per-user scope (audit F3)', () => {
   });
 
   it('cache key is per-user: user B is never served user A cached counts', async () => {
-    delete process.env.STATS_VIEWS_ENABLED;
+    process.env.STATS_VIEWS_ENABLED = '0';
     const perUser: Record<string, unknown[]> = {
       user_a: [[{ c: 4 }], [{ c: 3 }], [{ c: 1 }], [{ c: 0 }], [{ c: 2 }]],
       user_b: [[{ c: 9 }], [{ c: 8 }], [{ c: 0 }], [{ c: 1 }], [{ c: 5 }]],
@@ -217,7 +217,7 @@ describe('StatsService per-user scope (audit F3)', () => {
   });
 
   it('M2M and user callers use different cache keys AND different queries', async () => {
-    delete process.env.STATS_VIEWS_ENABLED;
+    process.env.STATS_VIEWS_ENABLED = '0';
     // One mock, two shapes: the user path is recognisable by its gate.
     const query = jest.fn(async (sql: string) =>
       sql.includes('userId = $userId') ? userScopedResults() : legacyStatsResults(),
@@ -306,7 +306,7 @@ describe('AdminService.collectTenant view gating (STATS_VIEWS_ENABLED)', () => {
   });
 
   it('flag off: runs the legacy GROUP queries', async () => {
-    delete process.env.STATS_VIEWS_ENABLED;
+    process.env.STATS_VIEWS_ENABLED = '0';
     const query = jest.fn(async (_sql: string) => legacyAdminResults());
     const { collect } = makeAdminService(query);
 

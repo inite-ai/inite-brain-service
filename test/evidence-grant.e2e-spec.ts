@@ -187,7 +187,7 @@ describe('evidence grants (e2e)', () => {
       }),
     ).rejects.toThrow(/no longer available/);
 
-    delete process.env.EVIDENCE_SUBSTRATE_ENABLED;
+    process.env.EVIDENCE_SUBSTRATE_ENABLED = '0';
     try {
       await expect(
         store.addGrant(COMPANY, {

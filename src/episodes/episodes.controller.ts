@@ -16,7 +16,7 @@ import type { Response } from 'express';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
 import { AuthenticatedRequest } from '../auth/api-key.types';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { EpisodeReadStoreService, type EpisodePageRow } from './episode-read-store.service';
 import {
   EpisodeSubscriptionService,
@@ -29,8 +29,11 @@ import {
  * contract, so any service can build its own projection without
  * speaking SurrealQL to our database.
  *
- * Gated by EPISODES_API_ENABLED (default off → 404, indistinguishable
- * from an absent route). PII fence follows the read-lane precedent:
+ * Gated by EPISODES_API_ENABLED, DEFAULT ON — the surface is finished
+ * and tested, and every access decision it makes is a per-request gate
+ * (scopes, tenant, PII), not the switch. Set `EPISODES_API_ENABLED=0`
+ * for a 404 indistinguishable from an absent route. PII fence follows
+ * the read-lane precedent:
  * callers without brain:read_pii see only rows whose piiClass is
  * empty — same predicate the episodic/segment lanes and agent-qa grep
  * apply, one implementation (the port's shared gate).
@@ -116,7 +119,7 @@ export class EpisodesController {
   ) {}
 
   private assertEnabled(): void {
-    if (!envFlagEnabled(process.env.EPISODES_API_ENABLED)) {
+    if (!envFlagNotDisabled(process.env.EPISODES_API_ENABLED)) {
       throw new NotFoundException();
     }
   }

@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { isoDateTime } from './iso-datetime';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import type { IngestService } from '../ingest/ingest.service';
 import type { FactsService } from '../facts/facts.service';
 import type { ProceduralMemoryService } from '../procedural/procedural-memory.service';
@@ -159,7 +159,7 @@ export function registerWriteTools({
   // ── ingest_document ────────────────────────────────────────────
   // Registered only when the documents pipeline is wired AND enabled —
   // agents shouldn't see a tool that answers 503.
-  if (deps.documents && envFlagEnabled(process.env.DOCUMENT_INGEST_ENABLED)) {
+  if (deps.documents && envFlagNotDisabled(process.env.DOCUMENT_INGEST_ENABLED)) {
     registerIngestDocumentTool({ server, companyId, documents: deps.documents, recorder });
   }
 

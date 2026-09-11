@@ -143,13 +143,21 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
     expect(names).toContain('entity-timeline');
   });
 
-  it('does NOT register get_fact / get_fact_provenance with FACTS_API_ENABLED off (default)', async () => {
+  it('does NOT register get_fact / get_fact_provenance with FACTS_API_ENABLED off', async () => {
     // Gating parity with REST: facts.controller 404s the GET routes when
     // the flag is off ("indistinguishable from an absent route"); the MCP
-    // twin of an absent route is an absent tool.
-    const names = toolNames(await buildWithScopes(['brain:read']));
-    expect(names).not.toContain('get_fact');
-    expect(names).not.toContain('get_fact_provenance');
+    // twin of an absent route is an absent tool. The flag defaults ON, so
+    // "off" has to be said out loud here.
+    const prev = process.env.FACTS_API_ENABLED;
+    process.env.FACTS_API_ENABLED = '0';
+    try {
+      const names = toolNames(await buildWithScopes(['brain:read']));
+      expect(names).not.toContain('get_fact');
+      expect(names).not.toContain('get_fact_provenance');
+    } finally {
+      if (prev === undefined) delete process.env.FACTS_API_ENABLED;
+      else process.env.FACTS_API_ENABLED = prev;
+    }
   });
 
   it('registers get_fact / get_fact_provenance under FACTS_API_ENABLED with a factId input', async () => {

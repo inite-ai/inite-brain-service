@@ -281,10 +281,13 @@ describe('validateEnv — evidence grounding pair (Drift-1, warn never throw)', 
   const warnSpy = () => jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   afterEach(() => jest.restoreAllMocks());
 
-  it('warns when EVIDENCE_FAIL_CLOSED_CAPTURE is set without EPISODE_SUBSTRATE_ENABLED', () => {
+  it('warns when EVIDENCE_FAIL_CLOSED_CAPTURE is set against a disabled EPISODE_SUBSTRATE_ENABLED', () => {
     const warn = warnSpy();
     const env = baseProdEnv();
     env.EVIDENCE_FAIL_CLOSED_CAPTURE = '1';
+    // The substrate defaults ON, so the broken pair has to be built
+    // explicitly — omitting the key now means the pair is consistent.
+    env.EPISODE_SUBSTRATE_ENABLED = '0';
     expect(() => validateEnv(env)).not.toThrow();
     expect(
       warn.mock.calls.some(([m]) =>
@@ -317,10 +320,13 @@ describe('validateEnv — evidence ingest pair (M3, warn never throw)', () => {
   const warnSpy = () => jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   afterEach(() => jest.restoreAllMocks());
 
-  it('warns when EVIDENCE_INGEST_ENABLED is set without EVIDENCE_SUBSTRATE_ENABLED', () => {
+  it('warns when EVIDENCE_INGEST_ENABLED is set against a disabled EVIDENCE_SUBSTRATE_ENABLED', () => {
     const warn = warnSpy();
     const env = baseProdEnv();
     env.EVIDENCE_INGEST_ENABLED = '1';
+    // Both default ON now; the inconsistent pair is only reachable by
+    // switching the substrate off underneath the surface.
+    env.EVIDENCE_SUBSTRATE_ENABLED = '0';
     expect(() => validateEnv(env)).not.toThrow();
     expect(
       warn.mock.calls.some(([m]) =>

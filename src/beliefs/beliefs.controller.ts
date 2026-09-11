@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { AuthenticatedRequest } from '../auth/api-key.types';
 import {
   BELIEF_STATUS_FILTERS,
@@ -58,13 +58,13 @@ export class BeliefsController {
   constructor(private readonly beliefs: BeliefsService) {}
 
   /**
-   * Read-surface gate (BELIEFS_API_ENABLED, default off → 404 —
-   * indistinguishable from an absent route; the FACTS_API_ENABLED /
+   * Read-surface gate (BELIEFS_API_ENABLED, DEFAULT ON; set `=0` for a
+   * 404 indistinguishable from an absent route — the FACTS_API_ENABLED /
    * EPISODES_API_ENABLED idiom). Read at call time so a flip is
    * runtime-mutable.
    */
   private assertEnabled(): void {
-    if (!envFlagEnabled(process.env.BELIEFS_API_ENABLED)) {
+    if (!envFlagNotDisabled(process.env.BELIEFS_API_ENABLED)) {
       throw new NotFoundException();
     }
   }

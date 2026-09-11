@@ -13,7 +13,7 @@ instead of being re-derived from scratch per request.
 
 ## Enabling
 
-Gated by `USER_PROFILE_API_ENABLED` (default off). While off, the routes
+Gated by `USER_PROFILE_API_ENABLED` (default on; set `0` to close it). While off, the routes
 answer 404 — indistinguishable from an absent route. Read per-request, so
 a flip needs no restart.
 

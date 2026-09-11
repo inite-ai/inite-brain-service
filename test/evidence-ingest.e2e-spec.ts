@@ -45,8 +45,8 @@ describe('evidence ingest surface (e2e)', () => {
   beforeAll(async () => {
     saved.EVIDENCE_SUBSTRATE_ENABLED = process.env.EVIDENCE_SUBSTRATE_ENABLED;
     saved.EVIDENCE_INGEST_ENABLED = process.env.EVIDENCE_INGEST_ENABLED;
-    delete process.env.EVIDENCE_SUBSTRATE_ENABLED;
-    delete process.env.EVIDENCE_INGEST_ENABLED;
+    process.env.EVIDENCE_SUBSTRATE_ENABLED = '0';
+    process.env.EVIDENCE_INGEST_ENABLED = '0';
     f = await createApp({
       companyId: COMPANY,
       extraKeys: [{ scopes: ['brain:read'] }],
@@ -79,7 +79,7 @@ describe('evidence ingest surface (e2e)', () => {
     await post(baseBody()).expect(404);
     process.env.EVIDENCE_SUBSTRATE_ENABLED = '1';
     await post(baseBody()).expect(404);
-    delete process.env.EVIDENCE_SUBSTRATE_ENABLED;
+    process.env.EVIDENCE_SUBSTRATE_ENABLED = '0';
     expect(await countRows('evidence_asset')).toBe(0);
   });
 
@@ -208,8 +208,8 @@ describe('evidence ingest surface (e2e)', () => {
   });
 
   it('flag flip back off returns the surface to a bare 404 (runtime-mutable)', async () => {
-    delete process.env.EVIDENCE_INGEST_ENABLED;
+    process.env.EVIDENCE_INGEST_ENABLED = '0';
     await post({ ...baseBody(), byteHash: HASH_D }).expect(404);
-    delete process.env.EVIDENCE_SUBSTRATE_ENABLED;
+    process.env.EVIDENCE_SUBSTRATE_ENABLED = '0';
   });
 });

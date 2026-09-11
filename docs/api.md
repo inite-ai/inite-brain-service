@@ -63,7 +63,8 @@ or containing `..` / `//` / a null byte, is a 400.
 
 ## Documents (Source → Indexer → Candidates → Brain)
 
-All routes answer `503 feature_disabled` until `DOCUMENT_INGEST_ENABLED=1`.
+`DOCUMENT_INGEST_ENABLED` defaults to `1`; set it to `0` and all routes
+answer `503 feature_disabled`.
 See [Document pipeline](document-pipeline.md) for the architecture.
 
 | Endpoint | Notes |

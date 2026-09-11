@@ -73,7 +73,7 @@ describe('evidence sharing surface (e2e)', () => {
     process.env.EVIDENCE_RAW_READ_ENABLED = '1';
     process.env.EVIDENCE_FS_ROOT = fsRoot;
     // The sharing flag stays OFF until the 404 pin below runs.
-    delete process.env.EVIDENCE_GRANTS_API_ENABLED;
+    process.env.EVIDENCE_GRANTS_API_ENABLED = '0';
     f = await createApp({
       companyId: COMPANY,
       extraKeys: [

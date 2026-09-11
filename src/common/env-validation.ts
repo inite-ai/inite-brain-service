@@ -468,7 +468,7 @@ function validateAbacEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
 function validateEvidenceGroundingEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
   if (
     envFlagEnabled(env.EVIDENCE_FAIL_CLOSED_CAPTURE) &&
-    !envFlagEnabled(env.EPISODE_SUBSTRATE_ENABLED)
+    !envFlagNotDisabled(env.EPISODE_SUBSTRATE_ENABLED)
   ) {
     warnings.push(
       'EVIDENCE_FAIL_CLOSED_CAPTURE is set while EPISODE_SUBSTRATE_ENABLED is not — ' +
@@ -489,7 +489,7 @@ function validateEvidenceGroundingEnv(env: NodeJS.ProcessEnv, warnings: string[]
 function validateEvidenceProcessingEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
   if (
     envFlagEnabled(env.EVIDENCE_PROCESSOR_BROKER) &&
-    !envFlagEnabled(env.EVIDENCE_SUBSTRATE_ENABLED)
+    !envFlagNotDisabled(env.EVIDENCE_SUBSTRATE_ENABLED)
   ) {
     warnings.push(
       'EVIDENCE_PROCESSOR_BROKER is set while EVIDENCE_SUBSTRATE_ENABLED is not — ' +
@@ -532,7 +532,7 @@ function validateEvidenceRawReadEnv(
   warnings: string[],
 ): void {
   positiveInt(env, 'EVIDENCE_SIGNED_URL_TTL_SECONDS', errors);
-  if (!envFlagEnabled(env.EVIDENCE_RAW_READ_ENABLED)) return;
+  if (!envFlagNotDisabled(env.EVIDENCE_RAW_READ_ENABLED)) return;
   const secret = env.EVIDENCE_SIGNED_URL_SECRET;
   if (secret === undefined || secret.trim() === '') {
     warnings.push(
@@ -561,8 +561,8 @@ function validateEvidenceRawReadEnv(
  */
 function validateEvidenceIngestEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
   if (
-    envFlagEnabled(env.EVIDENCE_INGEST_ENABLED) &&
-    !envFlagEnabled(env.EVIDENCE_SUBSTRATE_ENABLED)
+    envFlagNotDisabled(env.EVIDENCE_INGEST_ENABLED) &&
+    !envFlagNotDisabled(env.EVIDENCE_SUBSTRATE_ENABLED)
   ) {
     warnings.push(
       'EVIDENCE_INGEST_ENABLED is set while EVIDENCE_SUBSTRATE_ENABLED is not — ' +
@@ -584,8 +584,8 @@ function validateEvidenceIngestEnv(env: NodeJS.ProcessEnv, warnings: string[]): 
  */
 function validateEvidenceGrantsApiEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
   if (
-    envFlagEnabled(env.EVIDENCE_GRANTS_API_ENABLED) &&
-    !envFlagEnabled(env.EVIDENCE_SUBSTRATE_ENABLED)
+    envFlagNotDisabled(env.EVIDENCE_GRANTS_API_ENABLED) &&
+    !envFlagNotDisabled(env.EVIDENCE_SUBSTRATE_ENABLED)
   ) {
     warnings.push(
       'EVIDENCE_GRANTS_API_ENABLED is set while EVIDENCE_SUBSTRATE_ENABLED is not — ' +
@@ -609,7 +609,7 @@ function validateEvidenceGrantsApiEnv(env: NodeJS.ProcessEnv, warnings: string[]
  */
 function validateEvidenceUploadEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
   if (!envFlagEnabled(env.EVIDENCE_BLOB_UPLOAD_ENABLED)) return;
-  if (!envFlagEnabled(env.EVIDENCE_SUBSTRATE_ENABLED)) {
+  if (!envFlagNotDisabled(env.EVIDENCE_SUBSTRATE_ENABLED)) {
     warnings.push(
       'EVIDENCE_BLOB_UPLOAD_ENABLED is set while EVIDENCE_SUBSTRATE_ENABLED is not — ' +
         'the upload surface is exposed but the evidence write seam refuses every ' +

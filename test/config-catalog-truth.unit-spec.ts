@@ -130,6 +130,56 @@ describe('config catalogue truth gates (W6)', () => {
     ).map((e) => `${e.key}=${e.defaultValue}`);
     expect(bad).toEqual([]);
   });
+
+  /**
+   * The catalogue's `defaultValue` is what an operator reads to decide
+   * whether a surface is open. It was hand-maintained against a reader
+   * that decides the opposite, and the two drifted: entries claiming a
+   * default the code did not implement are how a finished, tested API
+   * ends up answering 404 with nobody able to see why.
+   *
+   * The reader itself says which default it implements — `envFlagEnabled`
+   * is off-unless-set, `envFlagNotDisabled` is on-unless-cleared — so
+   * derive it from the source rather than trusting the literal. Flags
+   * read through neither helper (parsed by hand, defaulted with `??`,
+   * validated only in env-validation.ts, which is excluded from SOURCES)
+   * are skipped: this gate is for the two idioms, and a wrong guess here
+   * would be worse than no gate. So is a reader that handles the unset
+   * case before it reaches a helper — CALIBRATION_NIGHTLY_REFIT is
+   * `env.X == null ? true : envFlagEnabled(env.X)`, default ON through a
+   * helper that on its own means off.
+   */
+  it('every catalogued boolean default matches the helper its reader uses', () => {
+    const drift: string[] = [];
+    for (const entry of CONFIG_CATALOG) {
+      if (!entry.isBooleanFlag || entry.defaultValue === null) continue;
+      let offUnlessSet = false;
+      let onUnlessCleared = false;
+      let decidesUnsetItself = false;
+      for (const text of SOURCES.values()) {
+        if (text.includes(`envFlagEnabled(process.env.${entry.key})`)) offUnlessSet = true;
+        if (text.includes(`envFlagNotDisabled(process.env.${entry.key})`)) onUnlessCleared = true;
+        if (
+          text.includes(`process.env.${entry.key} ==`) ||
+          text.includes(`process.env.${entry.key} ??`)
+        ) {
+          decidesUnsetItself = true;
+        }
+      }
+      if (decidesUnsetItself) continue;
+      // Neither idiom, or both (a flag whose two readers disagree is its
+      // own bug, reported by the sibling gates) — nothing to assert here.
+      if (offUnlessSet === onUnlessCleared) continue;
+      const expected = onUnlessCleared ? ['1', 'true'] : ['0', 'false'];
+      if (!expected.includes(entry.defaultValue)) {
+        drift.push(
+          `${entry.key}: catalogue says ${entry.defaultValue}, code reads it with ` +
+            `${onUnlessCleared ? 'envFlagNotDisabled (default on)' : 'envFlagEnabled (default off)'}`,
+        );
+      }
+    }
+    expect(drift).toEqual([]);
+  });
 });
 
 describe('source hygiene', () => {

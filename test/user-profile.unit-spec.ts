@@ -364,7 +364,7 @@ describe('UserProfileController — flag gate + user-scope pin', () => {
   } as unknown as AuthenticatedRequest;
 
   it('404s while the flag is off — indistinguishable from an absent route', async () => {
-    delete process.env[FLAG];
+    process.env[FLAG] = '0';
     const { controller } = makeController();
     await expect(controller.getProfile(req, 'u1')).rejects.toThrow(NotFoundException);
   });

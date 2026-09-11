@@ -10,7 +10,7 @@ import type { Surreal } from 'surrealdb';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import { retryOnUniqueViolation } from '../db/surreal-retry';
 import { JobClaimService } from '../jobs/job-claim.service';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
 import { EmbedderService } from '../ai/embedder.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { seedMissingPredicates } from '../ai/predicate-registry-internals/seed-predicates';
@@ -552,7 +552,7 @@ export class DomainPackInstallService {
     }
     // Seeds ride the document pipeline; with its master switch off the
     // ingest entry would 503-shape anyway — skip loudly in the response.
-    if (!envFlagEnabled(process.env.DOCUMENT_INGEST_ENABLED)) {
+    if (!envFlagNotDisabled(process.env.DOCUMENT_INGEST_ENABLED)) {
       return { count, status: 'skipped_ingest_disabled' };
     }
     if (!this.claim) return { count, status: 'skipped_no_queue' };

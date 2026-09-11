@@ -965,7 +965,7 @@
         "desc": "Source episodes are retained, not just the conclusions drawn from them — and the derived memory can be rebuilt from those episodes."
       }
     ],
-    "note": "Which tools a client sees depends on the key's scopes, the enabled capabilities and installed packs. Streaming episodes out over the API requires the episodes surface to be enabled for the deployment.",
+    "note": "Which tools a client sees depends on the key's scopes and installed packs. Episodes are retained and stream out as NDJSON over the API by default — a self-hosted deployment can switch either off.",
     "cta": "See every client"
   },
   "plainly": {

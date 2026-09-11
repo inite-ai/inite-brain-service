@@ -1,4 +1,4 @@
-import { envFlagEnabled } from './env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from './env-validation';
 
 /**
  * Evidence substrate (Brain v2.1 M1) master flag —
@@ -8,12 +8,19 @@ import { envFlagEnabled } from './env-validation';
  * (evidence_asset / evidence_fragment / derived_representation). The env
  * read lives here in the common layer, NOT inside the engine dirs
  * (engine-gates S5.2). Read at call time so a flip is runtime-mutable (no
- * restart). Default off ⇒ every writer refuses and NO row is ever written
- * — byte-identical prod (shadow substrate: nothing on the serving path
- * reads these tables even when on). The GDPR cascade and the retention
- * sweep run REGARDLESS of this flag — rows written while it was on must
- * stay erasable after it is turned off. EVIDENCE_ family sits off the
- * ENGINE flag budget by design (a substrate builder, not an engine fork).
+ * restart).
+ *
+ * DEFAULT ON. It shipped off while the substrate was being built, and
+ * stayed off long after it was finished — which meant the evidence
+ * surfaces had nothing to serve for reasons no operator could see. Set
+ * `EVIDENCE_SUBSTRATE_ENABLED=0` to stop the writers; nothing on the
+ * serving path reads these tables unless the serving flags are on too,
+ * so the cost of leaving it on is rows, not behavior.
+ *
+ * The GDPR cascade and the retention sweep run REGARDLESS of this flag —
+ * rows written while it was on must stay erasable after it is turned
+ * off. EVIDENCE_ family sits off the ENGINE flag budget by design (a
+ * substrate builder, not an engine fork).
  *
  * Formerly reserved here, all landed: EVIDENCE_FRAGMENT_CITATIONS
  * (MM-zoom PR2) and EVIDENCE_INGEST_ENABLED (PR-C ingest surface) live
@@ -22,26 +29,30 @@ import { envFlagEnabled } from './env-validation';
  * SCENES_ family naming (see scene-flags.ts).
  */
 export function evidenceSubstrateEnabled(): boolean {
-  return envFlagEnabled(process.env.EVIDENCE_SUBSTRATE_ENABLED);
+  return envFlagNotDisabled(process.env.EVIDENCE_SUBSTRATE_ENABLED);
 }
 
 /**
  * Evidence ingest surface (Brain v2.1 M3) — EVIDENCE_INGEST_ENABLED.
  *
- * When on, POST /v1/ingest/evidence-asset exists; off (default) the
- * route answers a bare 404 (the scenes-surface precedent — a dark route
- * does not advertise itself) and prod stays byte-identical. The surface
- * is METADATA-ONLY (MM-6 boundary): originUri required, no bytes, no
- * storageRef — blob-backed registration stays service-level until the
- * upload/quarantine design lands. Both this flag AND
- * EVIDENCE_SUBSTRATE_ENABLED must be on for a call to succeed: ingest-on
- * with substrate-off answers 503 from the write seam and env-validation
- * warns at boot about the inconsistent pair. Read at call time
- * (runtime-mutable). Env read lives here in the common layer, NOT inside
- * the engine dirs (engine-gates S5.2).
+ * When on, POST /v1/ingest/evidence-asset exists; off the route answers
+ * a bare 404 (the scenes-surface precedent — a dark route does not
+ * advertise itself). The surface is METADATA-ONLY (MM-6 boundary):
+ * originUri required, no bytes, no storageRef — so it needs no storage
+ * adapter and no other configuration to work.
+ *
+ * DEFAULT ON, for exactly that reason: nothing has to be set up first,
+ * so a 404 here was only ever hiding a finished route. Both this flag
+ * AND EVIDENCE_SUBSTRATE_ENABLED must be on for a call to succeed
+ * (ingest-on with substrate-off answers 503 from the write seam and
+ * env-validation warns at boot about the inconsistent pair) — both now
+ * default on, so the pair is consistent unless an operator splits it.
+ *
+ * Read at call time (runtime-mutable). Env read lives here in the common
+ * layer, NOT inside the engine dirs (engine-gates S5.2).
  */
 export function evidenceIngestEnabled(): boolean {
-  return envFlagEnabled(process.env.EVIDENCE_INGEST_ENABLED);
+  return envFlagNotDisabled(process.env.EVIDENCE_INGEST_ENABLED);
 }
 
 /**
@@ -79,7 +90,7 @@ export function evidenceBlobUploadEnabled(): boolean {
  * When on, EvidenceGrantsController exposes the three ownership verbs
  * over an existing asset: POST /v1/evidence/{assetId}/grants (share),
  * GET /v1/evidence/{assetId}/grants (list live owners) and DELETE
- * /v1/evidence/grants/{grantId} (revoke). Off (default) ⇒ every route
+ * /v1/evidence/grants/{grantId} (revoke). Off ⇒ every route
  * answers a bare 404 — raised in a GUARD, so it precedes the global
  * ValidationPipe and a malformed body cannot turn the dark route into a
  * route-revealing 400 (the EVIDENCE_BLOB_UPLOAD_ENABLED interceptor
@@ -94,15 +105,18 @@ export function evidenceBlobUploadEnabled(): boolean {
  * unknown asset, foreign tenant, dead asset, non-owner and PII-blocked
  * are indistinguishable in status, body and DB round-trips.
  *
- * Needs EVIDENCE_SUBSTRATE_ENABLED to write (the store's own 503 gate;
- * the controller double-gates to a 404 so a dark substrate advertises no
+ * DEFAULT ON. Every defence above is in the code, not in the switch —
+ * leaving the surface dark protected nobody it was not already
+ * protecting, and hid a finished feature. Needs
+ * EVIDENCE_SUBSTRATE_ENABLED to write (the store's own 503 gate; the
+ * controller double-gates to a 404 so a dark substrate advertises no
  * sharing surface at all) — env-validation warns at boot on the
  * inconsistent pair. Read at call time (runtime-mutable); the env read
  * lives here in the common layer, NOT in the controller (engine-gates
  * S5.2). EVIDENCE_ family sits off the ENGINE flag budget by design.
  */
 export function evidenceGrantsApiEnabled(): boolean {
-  return envFlagEnabled(process.env.EVIDENCE_GRANTS_API_ENABLED);
+  return envFlagNotDisabled(process.env.EVIDENCE_GRANTS_API_ENABLED);
 }
 
 /**
@@ -585,15 +599,19 @@ export function fragmentCitationsEnabled(): boolean {
  *
  * When on, EvidenceReadController serves the five raw-evidence routes
  * (asset/fragment stream + signed-URL mint, and the unauthenticated
- * redeem) behind the full gate ladder. Default off ⇒ every route answers
- * a bare 404, indistinguishable from an absent route (the
- * EPISODES_API_ENABLED idiom) — byte-identical prod. The env read lives
- * here in the common layer, NOT inside the controller (engine-gates
- * S5.2); read at call time so a flip is runtime-mutable. EVIDENCE_
- * family sits off the ENGINE flag budget by design.
+ * redeem) behind the full gate ladder. Off ⇒ every route answers a bare
+ * 404, indistinguishable from an absent route (the EPISODES_API_ENABLED
+ * idiom).
+ *
+ * DEFAULT ON. A deployment with no blobs serves 404s for a different and
+ * honest reason — the asset is not there — so the switch was buying
+ * nothing that the gate ladder does not already enforce per request. The
+ * env read lives here in the common layer, NOT inside the controller
+ * (engine-gates S5.2); read at call time so a flip is runtime-mutable.
+ * EVIDENCE_ family sits off the ENGINE flag budget by design.
  */
 export function evidenceRawReadEnabled(): boolean {
-  return envFlagEnabled(process.env.EVIDENCE_RAW_READ_ENABLED);
+  return envFlagNotDisabled(process.env.EVIDENCE_RAW_READ_ENABLED);
 }
 
 /**

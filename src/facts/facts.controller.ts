@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { FactsService } from './facts.service';
 import { RetractFactDto } from './dto/retract.dto';
 import { AuthenticatedRequest } from '../auth/api-key.types';
@@ -21,14 +21,16 @@ export class FactsController {
   constructor(private readonly facts: FactsService) {}
 
   /**
-   * Read-surface gate (FACTS_API_ENABLED, default off → 404 —
-   * indistinguishable from an absent route; same pattern as
-   * EPISODES_API_ENABLED). Applies ONLY to the GET routes: retract is a
-   * write/GDPR path and stays flag-independent — a tenant must always be
-   * able to remove a fact, whether or not the read API is switched on.
+   * Read-surface gate (FACTS_API_ENABLED, DEFAULT ON; set `=0` for a 404
+   * indistinguishable from an absent route — same pattern as
+   * EPISODES_API_ENABLED). "Show me why you remember this" is the thing
+   * the product is for; it has no business being off. Applies ONLY to
+   * the GET routes: retract is a write/GDPR path and stays
+   * flag-independent — a tenant must always be able to remove a fact,
+   * whether or not the read API is switched on.
    */
   private assertEnabled(): void {
-    if (!envFlagEnabled(process.env.FACTS_API_ENABLED)) {
+    if (!envFlagNotDisabled(process.env.FACTS_API_ENABLED)) {
       throw new NotFoundException();
     }
   }

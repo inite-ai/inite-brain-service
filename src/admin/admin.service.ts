@@ -5,7 +5,7 @@ import { resolvePlatformTenantScope } from '../auth/tenant-scope';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { mapWithLimit } from '../common/parallel';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 
 /** Per-tenant fan-out concurrency for admin cross-tenant reads. */
 const TENANT_FANOUT = 4;
@@ -775,7 +775,7 @@ export class AdminService {
     // writes) instead of re-aggregating live. The 24h moving windows and
     // the last-20 row reads stay live in both paths. A failing view read
     // (pre-0088 tenant) logs once per tenant and falls back live.
-    if (envFlagEnabled(process.env.STATS_VIEWS_ENABLED)) {
+    if (envFlagNotDisabled(process.env.STATS_VIEWS_ENABLED)) {
       try {
         return await this.collectTenantFromViews(companyId, dayAgoIso);
       } catch (err) {

@@ -98,13 +98,13 @@ describe('evidence grants: the flag guard', () => {
 
   it('404s while the surface flag is off, even with the substrate on', () => {
     process.env.EVIDENCE_SUBSTRATE_ENABLED = '1';
-    delete process.env.EVIDENCE_GRANTS_API_ENABLED;
+    process.env.EVIDENCE_GRANTS_API_ENABLED = '0';
     expect(() => new EvidenceGrantsEnabledGuard().canActivate()).toThrow(NotFoundException);
   });
 
   it('404s while the substrate is off (double gate — a dark seam advertises nothing)', () => {
     process.env.EVIDENCE_GRANTS_API_ENABLED = '1';
-    delete process.env.EVIDENCE_SUBSTRATE_ENABLED;
+    process.env.EVIDENCE_SUBSTRATE_ENABLED = '0';
     expect(() => new EvidenceGrantsEnabledGuard().canActivate()).toThrow(NotFoundException);
   });
 

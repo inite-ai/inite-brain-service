@@ -369,7 +369,7 @@ describe('IndexerAdminController — gate and tenant fence', () => {
   });
 
   it('404s both routes while the flag is off', async () => {
-    delete process.env[FLAG];
+    process.env[FLAG] = '0';
     const { svc } = makeService({});
     const c = makeController(svc);
     await expect(c.list(req())).rejects.toBeInstanceOf(NotFoundException);
