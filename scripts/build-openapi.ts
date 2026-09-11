@@ -179,6 +179,10 @@ import {
   FactSourceSchema,
   IngestFactRequestSchema,
   IngestFactResponseSchema,
+  IngestMentionRequestSchema,
+  IngestMentionResponseSchema,
+  KnownEntitySchema,
+  MentionContextRefSchema,
   SourceEvidenceSchema,
 } from '../src/contracts/ingest/ingest.schema';
 import {
@@ -367,6 +371,11 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   IngestFactRequest: IngestFactRequestSchema,
   IngestFactResponse: IngestFactResponseSchema,
   ConflictExplanation: ConflictExplanationSchema,
+  // --- free-text ingest (src/contracts/ingest/ingest.schema.ts)
+  MentionContextRef: MentionContextRefSchema,
+  KnownEntity: KnownEntitySchema,
+  IngestMentionRequest: IngestMentionRequestSchema,
+  IngestMentionResponse: IngestMentionResponseSchema,
   // --- search (src/contracts/search/search.schema.ts)
   SearchRequest: SearchRequestSchema,
   SearchFact: SearchFactSchema,
@@ -972,6 +981,37 @@ function memoryCorePaths(): Json {
         requestBody: jsonBody(ref('IngestFactRequest')),
         responses: {
           '201': jsonResponse("The resolver's decision.", ref('IngestFactResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/ingest/mention': {
+      post: operation({
+        operationId: 'ingestMention',
+        tag: 'Ingest',
+        summary: 'Record free text and let brain extract the facts',
+        description:
+          'The simplest write, and the one to reach for when the caller ' +
+          'has prose rather than a structured claim: a chat turn, a ' +
+          'meeting note, an email body. The text is captured as an ' +
+          'episode, an LLM extracts entities, facts and edges from it, ' +
+          'and each extracted fact goes through the same bitemporal ' +
+          'resolver as `POST /v1/ingest/fact` — so extraction is noisy ' +
+          'by design and conflict resolution cleans up at read time. ' +
+          'Only `text` is required: `contextRef` defaults to the `chat` ' +
+          'vertical and `emittedAt` to the moment the request arrives. ' +
+          '`userId` stamps the per-user memory scope on the episode and ' +
+          'every extracted fact. `skipped: true` means the extractor ' +
+          'found nothing worth recording (`reason` says which check ' +
+          'stopped it) — that is a normal outcome, not an error. ' +
+          'Prefer `POST /v1/ingest/document` for anything long enough ' +
+          'to need chunking. ' +
+          'Source: src/ingest/ingest.controller.ts.',
+        scope: 'brain:write',
+        requestBody: jsonBody(ref('IngestMentionRequest')),
+        responses: {
+          '201': jsonResponse('What the extractor wrote.', ref('IngestMentionResponse')),
           '400': errorRef('BadRequest'),
           ...AUTH_ERRORS,
         },

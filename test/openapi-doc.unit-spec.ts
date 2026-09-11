@@ -21,6 +21,10 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   // The memory core — the README quick start's two calls plus the two
   // reasoning surfaces on the same retrieval stack. No feature flag.
   ['/v1/ingest/fact', 'post'],
+  // The simplest write — free text in, extraction handled. The quick
+  // start's first call, so it belongs in the published contract next to
+  // the typed path it fronts.
+  ['/v1/ingest/mention', 'post'],
   ['/v1/search', 'post'],
   ['/v1/search/multi-hop', 'post'],
   ['/v1/synthesize', 'post'],

@@ -110,5 +110,66 @@ export const IngestFactResponseSchema = z.object({
   conflictExplanation: ConflictExplanationSchema.optional(),
 });
 
+/**
+ * Where a mention came from. Optional as a whole — a conversational
+ * capture has text and a user and nothing else it can honestly fill in
+ * — and defaulted to the `chat` vertical at the surface.
+ */
+export const MentionContextRefSchema = z.looseObject({
+  vertical: z.string(),
+  conversationId: z.string().optional(),
+  messageId: z.string().optional(),
+  eventId: z.string().optional(),
+  /**
+   * The producer of the mention, keyed into source trust as
+   * `vertical:recorder`. Absent defaults to the extraction model id, so
+   * LLM-extracted facts get a per-model trust bucket.
+   */
+  recorder: z.string().optional(),
+});
+
+/** A participant already known to the caller, for coreference anchoring. */
+export const KnownEntitySchema = z.looseObject({
+  vertical: z.string(),
+  id: z.string(),
+  /** `speaker` resolves first person, `addressee` resolves second. */
+  role: z.string().optional(),
+  name: z.string().optional(),
+});
+
+/**
+ * The simplest write: free text in, facts out. Only `text` is required —
+ * everything else has a surface default — which is what makes the
+ * two-line quickstart honest rather than a trimmed example.
+ */
+export const IngestMentionRequestSchema = z.strictObject({
+  /** ≤16 000 chars; the extractor truncates server-side as a backstop. */
+  text: z.string().max(16_000),
+  /** Defaults to `{ vertical: 'chat' }`. */
+  contextRef: MentionContextRefSchema.optional(),
+  knownEntities: z.array(KnownEntitySchema).optional(),
+  /**
+   * Per-user memory scope (migration 0055) — stamps the captured episode
+   * turn and every extracted fact. A user-bound token pins it to its own
+   * user; a mismatch is 403.
+   */
+  userId: z.string().max(200).optional(),
+  /** ISO-8601 event time. Defaults to the moment the request arrives. */
+  emittedAt: z.string().optional(),
+  /** IANA zone of the speaker's session, anchoring relative dates. */
+  timezone: z.string().max(64).optional(),
+});
+
+export const IngestMentionResponseSchema = z.object({
+  /** true when nothing was extracted — `reason` says why. */
+  skipped: z.boolean(),
+  reason: z.string().optional(),
+  extractedEntityIds: z.array(z.string()),
+  extractedFactIds: z.array(z.string()),
+  extractedEdgeIds: z.array(z.string()).optional(),
+});
+
 export type IngestFactRequest = z.infer<typeof IngestFactRequestSchema>;
 export type IngestFactResponse = z.infer<typeof IngestFactResponseSchema>;
+export type IngestMentionRequest = z.infer<typeof IngestMentionRequestSchema>;
+export type IngestMentionResponse = z.infer<typeof IngestMentionResponseSchema>;

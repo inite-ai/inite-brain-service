@@ -18,7 +18,39 @@ export BRAIN_URL="https://brain.inite.ai"
 
 Примеры используют личную память `user_42`. Передавайте свой постоянный ID пользователя при записи и чтении. Для общей памяти организации не передавайте `userId` в обоих запросах.
 
-## 1. Заингестить один факт
+## 1. Что-нибудь запомнить
+
+На вход — текст. Brain сохраняет реплику, извлекает сущности и утверждения
+и прогоняет каждое через conflict-resolver:
+
+```bash
+curl -X POST "$BRAIN_URL/v1/ingest/mention" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Мария переехала в Берлин в июне и предпочитает утренние слоты.",
+    "userId": "user_42"
+  }'
+```
+
+В ответе — что записано: `extractedEntityIds`, `extractedFactIds`. `skipped: true` значит, что экстрактор не нашёл ничего, что стоило бы записать — нормальный исход для приветствия, а не ошибка.
+
+## 2. Спросить про это
+
+```bash
+curl -X POST "$BRAIN_URL/v1/search" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "query": "где живёт Мария", "userId": "user_42", "limit": 5 }'
+```
+
+Вернёт ранжированные попадания по сущностям с подходящими фактами и разбивкой score по этапам.
+
+### Когда утверждение уже известно
+
+Извлечение нужно для прозы. Если запись идёт из поля CRM или потока
+событий — заявляй напрямую и не трать LLM: в ответе тогда придёт то, что
+**решил** resolver (`INSERTED`, `SUPERSEDED`, `COMPETING`…):
 
 ```bash
 curl -X POST "$BRAIN_URL/v1/ingest/fact" \
@@ -33,19 +65,6 @@ curl -X POST "$BRAIN_URL/v1/ingest/fact" \
     "source": { "vertical": "rent", "messageId": "msg_1" }
   }'
 ```
-
-В ответе придёт `factId` и исход работы conflict-resolver (`INSERTED` на первом ингесте).
-
-## 2. Найти его
-
-```bash
-curl -X POST "$BRAIN_URL/v1/search" \
-  -H "Authorization: Bearer $BRAIN_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{ "query": "maintenance issues", "userId": "user_42", "limit": 5 }'
-```
-
-Вернёт ранжированные попадания по сущностям с подходящими фактами и разбивкой score по этапам.
 
 ## 3. Поднять MCP-клиент
 
