@@ -119,7 +119,7 @@ describe('MCP tool profiles over HTTP', () => {
     const full = await cost('');
     const core = await cost('?tools=core');
     // Visible in CI output — the number is the point of this test.
-     
+
     console.log(`[tools/list] full=${full} tokens, core=${core} tokens, saved=${full - core}`);
 
     expect(core).toBeLessThan(full * 0.4);
