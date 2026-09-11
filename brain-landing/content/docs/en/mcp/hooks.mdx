@@ -1,0 +1,120 @@
+# Lifecycle hooks
+
+A tool surface only remembers when the model chooses to call it. In
+practice models rarely call `record_fact` unprompted, which is the
+single most common reason a memory integration feels dead: everything is
+wired correctly and nothing is ever written.
+
+Hooks fix that by moving the decision out of the model. The harness
+fires an event — a session starts, a context window is about to be
+compacted, a session ends — and a small script reads from or writes to
+brain regardless of what the model felt like doing.
+
+Two events carry almost all the value:
+
+| Moment | What to do | Why there |
+|---|---|---|
+| **Session start** | Search brain for this project and inject the result | The one point where context is free — before the first token of the conversation |
+| **Before compaction / at session end** | Send the session's human turns to `/v1/ingest/mention` | The last moment the full session still exists |
+
+## Claude Code
+
+The [plugin](https://github.com/inite-ai/inite-brain-service/tree/main/plugins/inite-brain) ships both, wired and tested:
+
+```
+/plugin marketplace add inite-ai/inite-brain-service
+/plugin install inite-brain@inite
+```
+
+`SessionStart` → recall, `PreCompact` + `SessionEnd` → capture. Both are
+switches in the plugin's settings, on by default.
+
+### What capture actually sends
+
+Your messages, never the model's output. Feeding an assistant's own text
+back in as remembered fact is how memory layers poison themselves — the
+model's summary of what it did becomes tomorrow's "fact" about what is
+true — and the intent worth remembering (what you asked for, and why)
+lives on your side of the conversation anyway.
+
+The text goes to `POST /v1/ingest/mention`, so brain's extractor turns it
+into facts and keeps the raw turn as the episode behind them. Every fact
+stays traceable to the message it came from.
+
+A per-session watermark means `PreCompact` and `SessionEnd` never write
+the same turn twice, and the watermark only advances on a **confirmed**
+write — a brain that was briefly unreachable is retried at the next hook
+rather than skipped.
+
+### Failure behaviour
+
+Both hooks fail silent and fail open. No key configured, no `node` on
+`PATH`, brain down, a malformed payload: exit 0, print nothing. A memory
+layer that can break a coding session is worse than no memory layer, so
+that rule has no exceptions.
+
+## Rolling your own
+
+The scripts are ~200 lines and worth reading before adapting:
+[`hooks/brain-hook.mjs`](https://github.com/inite-ai/inite-brain-service/blob/main/plugins/inite-brain/hooks/brain-hook.mjs).
+The shape is the same in any harness that can run a command on an event
+(Codex CLI lifecycle hooks, Gemini CLI extensions, a git hook, a wrapper
+script):
+
+**Recall** — one POST, render, print:
+
+```bash
+curl -s -X POST "$BRAIN_URL/v1/search" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"query\": \"$PROJECT\", \"limit\": 8}"
+```
+
+Whatever the harness accepts as injected context takes it from there.
+Claude Code wants JSON on stdout:
+
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "What brain remembers about …"
+  }
+}
+```
+
+**Capture** — one POST, extraction handled server-side:
+
+```bash
+curl -s -X POST "$BRAIN_URL/v1/ingest/mention" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"text\": \"$SESSION_TEXT\",
+    \"contextRef\": { \"vertical\": \"chat\", \"recorder\": \"my-harness\" },
+    \"emittedAt\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+  }"
+```
+
+Three rules worth copying:
+
+1. **Cap the payload.** `text` is capped at 16 000 characters server-side;
+   trim from the front so the newest turns survive.
+2. **Keep a watermark.** Any harness that fires both a
+   "before compaction" and an "at end" event will otherwise write the
+   same turns twice.
+3. **Never fail loudly.** Swallow every error. The user did not ask the
+   memory layer for an opinion about its own availability.
+
+## Per-user scope
+
+If several people share one workspace key, set a stable `userId` on both
+the search and the ingest call. Reads then return tenant-global memory
+plus that person's own rows; writes are fenced to them. Omitting it on
+both sides is the tenant-global mode — that is the fail-closed default,
+not an accident.
+
+## Related
+
+- [MCP setup](/en/docs/mcp/setup) — connecting each harness
+- [Skills bundle](/en/docs/skills) — teaching the model *when* to reach for memory
+- [MCP tools reference](/en/docs/mcp/tools) — what the model can call directly

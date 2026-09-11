@@ -48,7 +48,19 @@ BRAIN_API_KEYS=[{"keyHash":"sha256:abc...","companyId":"co_demo","scopes":["brai
 ## Smoke test
 
 ```bash
-# Ingest one fact
+# Remember something — text in, extraction handled
+curl -X POST http://localhost:3000/v1/ingest/mention \
+  -H "Authorization: Bearer local-dev-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "text": "Maria moved to Berlin in June and prefers morning appointments." }'
+
+# Ask about it
+curl -X POST http://localhost:3000/v1/search \
+  -H "Authorization: Bearer local-dev-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "query": "where does Maria live", "limit": 5 }'
+
+# Or state a claim you already know, and read the resolver's decision
 curl -X POST http://localhost:3000/v1/ingest/fact \
   -H "Authorization: Bearer local-dev-key" \
   -H "Content-Type: application/json" \
@@ -59,12 +71,6 @@ curl -X POST http://localhost:3000/v1/ingest/fact \
     "validFrom": "2026-05-05T10:00:00Z",
     "source": { "vertical": "rent", "messageId": "msg_1" }
   }'
-
-# Search
-curl -X POST http://localhost:3000/v1/search \
-  -H "Authorization: Bearer local-dev-key" \
-  -H "Content-Type: application/json" \
-  -d '{ "query": "maintenance issues", "limit": 5 }'
 ```
 
 ## Docker (compose)

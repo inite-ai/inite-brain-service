@@ -1,0 +1,26 @@
+{
+  "name": "inite",
+  "owner": {
+    "name": "INITE",
+    "email": "info@inite.ai",
+    "url": "https://inite.ai"
+  },
+  "plugins": [
+    {
+      "name": "inite-brain",
+      "source": "./plugins/inite-brain",
+      "displayName": "INITE Brain — persistent memory",
+      "description": "Persistent, bitemporal memory for Claude Code: MCP tools, six skills, recall at session start and capture before compaction.",
+      "version": "0.1.0",
+      "category": "memory",
+      "keywords": ["memory", "knowledge-graph", "mcp", "recall", "bitemporal", "rag"],
+      "homepage": "https://brain.inite.ai/en/docs/mcp/setup",
+      "repository": "https://github.com/inite-ai/inite-brain-service",
+      "license": "AGPL-3.0-only",
+      "author": {
+        "name": "INITE",
+        "email": "info@inite.ai"
+      }
+    }
+  ]
+}

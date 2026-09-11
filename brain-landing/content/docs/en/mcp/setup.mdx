@@ -15,6 +15,97 @@ Both serve the same surface. An unauthenticated probe answers at `/mcp/health` a
 
 Brain refuses anonymous MCP traffic. There is no shared-secret mode.
 
+## Claude Code
+
+One command installs the whole integration — MCP server, the six [skills](/en/docs/skills), and the [lifecycle hooks](/en/docs/mcp/hooks) that make memory happen without the model having to remember to write:
+
+```
+/plugin marketplace add inite-ai/inite-brain-service
+/plugin install inite-brain@inite
+```
+
+Claude Code prompts for the API key at enable time and stores it in the OS keychain rather than in a config file. Nothing else to paste: the tenant comes from the key.
+
+To wire only the MCP server, by hand:
+
+```bash
+claude mcp add --transport http brain https://brain.inite.ai/mcp \
+  --header "Authorization: Bearer $BRAIN_KEY"
+```
+
+Or commit it to the repo as `.mcp.json`, so everyone working in it gets the same memory:
+
+```json
+{
+  "mcpServers": {
+    "brain": {
+      "type": "http",
+      "url": "https://brain.inite.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer ${BRAIN_KEY}"
+      }
+    }
+  }
+}
+```
+
+`${BRAIN_KEY}` expands from the environment, so the committed file carries no secret.
+
+## VS Code / GitHub Copilot
+
+`.vscode/mcp.json` in the workspace. The `inputs` block makes VS Code prompt for the key once and keep it out of the file:
+
+```json
+{
+  "inputs": [
+    {
+      "id": "brainKey",
+      "type": "promptString",
+      "description": "Brain API key",
+      "password": true
+    }
+  ],
+  "servers": {
+    "brain": {
+      "type": "http",
+      "url": "https://brain.inite.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:brainKey}"
+      }
+    }
+  }
+}
+```
+
+## Codex CLI
+
+`~/.codex/config.toml` (or `.codex/config.toml` in the project, which wins):
+
+```toml
+[mcp_servers.brain]
+url = "https://brain.inite.ai/mcp"
+bearer_token_env_var = "BRAIN_KEY"
+```
+
+Codex reads `BRAIN_KEY` from the environment at connect time and sends it as `Authorization: Bearer` — the token never lands in the config file.
+
+## Gemini CLI
+
+`~/.gemini/settings.json` (user) or `.gemini/settings.json` (project). Note the field is `httpUrl`, not `url`:
+
+```json
+{
+  "mcpServers": {
+    "brain": {
+      "httpUrl": "https://brain.inite.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer brain_YOUR_API_KEY"
+      }
+    }
+  }
+}
+```
+
 ## Claude Desktop
 
 Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
@@ -161,12 +252,45 @@ Installed [Domain Packs](/en/docs/platform/domain-packs) with consented `mcpTool
 
 A key with only `brain:read` sees 20 tools (22 with `FACTS_API_ENABLED`), not 32. That's the security invariant, not a bug.
 
+## Tool profiles — paying less for tools you do not call
+
+Every tool in `tools/list` costs context for the whole session, called or not — and this server is stateless, so the definitions are re-sent with every turn. Measured with the same tokeniser the models bill against, the full surface is **7 078 tokens**; `core` is **2 052**.
+
+Add `?tools=core` to the MCP URL:
+
+```text
+https://brain.inite.ai/mcp?tools=core
+```
+
+| Profile | Lists | For |
+| --- | --- | --- |
+| `full` (default) | everything the key unlocks — 20 read-only, up to 32 with write + admin | Agents that use the whole surface; unchanged from before profiles existed |
+| `core` | `search_knowledge`, `synthesize`, `memory_diff`, `get_entity_timeline`, `record_fact`, `workspace_status`, plus `find_tool` and `run_tool` | Long-running coding agents, anything where context is the scarce resource |
+
+**`core` is a narrowing, not a loss.** The other tools stay reachable:
+
+- `find_tool({ query: "who disagrees about this" })` searches the unlisted tools by intent and returns their real JSON-Schema arguments.
+- `run_tool({ name, args })` executes any of them.
+
+Permissions are identical either way. `run_tool` dispatches to the same handler a direct call reaches — scope checks, ABAC policy, RFC 9396 grants and PII fencing all apply — and a tool a gate removed answers exactly like a tool that never existed.
+
+Operators set the deployment default with `MCP_TOOL_PROFILE_DEFAULT=core`, and a single workspace with `MCP_TOOL_PROFILE_OVERRIDES={"co_acme":"core"}` — read on every call, so a change needs no restart. Precedence is URL → workspace → deployment default. An unrecognised value is a `400`, never a silent fall back to the full surface — getting 32 tools when you asked for 8 should not be something you have to notice from a token bill.
+
+The health probe answers for the profile too: `GET /mcp/health?tools=core` reports `profile` and the tools that URL would serve.
+
 ## Stateless mode
 
 Brain runs MCP stateless: one McpServer per request, no session id. MCP clients that need long-running sessions should call once per tool use — there's no setup cost on brain's side. Stateful sessions can be added via `sessionIdGenerator` if a use case appears.
 
+## Any other client
+
+Everything above is the same two facts in different syntax: the URL `https://brain.inite.ai/mcp` and the header `Authorization: Bearer <api-key>`. A client that speaks remote MCP over Streamable HTTP needs nothing else — check its own docs for where those two go. A client that can only launch stdio subprocesses needs the [connector](#stdio-only-harnesses--the-initebrain-mcp-connector) below.
+
+Clients that run OAuth themselves (Claude custom connectors, ChatGPT connectors) need only the URL: a 401 advertises the [protected-resource metadata](https://brain.inite.ai/.well-known/oauth-protected-resource), the client registers itself, and the tenant arrives in the token. See [connecting over OAuth](https://github.com/inite-ai/inite-brain-service/blob/main/docs/operations.md).
+
 ## Related
 
+- [Lifecycle hooks](/en/docs/mcp/hooks) — recall at session start, capture before compaction
 - [MCP tools reference](/en/docs/mcp/tools) — full schemas for the brain tools
 - [Skills bundle](/en/docs/skills) — agent how-to-use briefs (Anthropic Skills format)
 - [`@inite/brain-mcp`](https://www.npmjs.com/package/@inite/brain-mcp) — stdio↔HTTP connector for stdio-only harnesses (source in [`clients/brain-mcp`](https://github.com/inite-ai/inite-brain-service/tree/main/clients/brain-mcp))

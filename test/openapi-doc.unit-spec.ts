@@ -28,6 +28,10 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   ['/v1/memory-files/list', 'post'],
   ['/v1/memory-files/rename', 'post'],
   ['/v1/memory-files/delete', 'post'],
+  // The simplest write — free text in, extraction handled. The quick
+  // start's first call, so it belongs in the published contract next to
+  // the typed path it fronts.
+  ['/v1/ingest/mention', 'post'],
   ['/v1/search', 'post'],
   ['/v1/search/multi-hop', 'post'],
   ['/v1/synthesize', 'post'],

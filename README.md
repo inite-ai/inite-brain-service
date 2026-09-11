@@ -22,6 +22,13 @@
 </p>
 
 <p align="center">
+  <a href="https://brain.inite.ai/en/app/keys"><img src="https://img.shields.io/badge/Claude%20Code-%2Fplugin%20install-d97757.svg" alt="Install in Claude Code"></a>
+  <a href="cursor://anysphere.cursor-deeplink/mcp/install?name=brain&config=eyJ1cmwiOiJodHRwczovL2JyYWluLmluaXRlLmFpL21jcCIsInRyYW5zcG9ydCI6Imh0dHAiLCJoZWFkZXJzIjp7IkF1dGhvcml6YXRpb24iOiJCZWFyZXIgYnJhaW5fWU9VUl9BUElfS0VZIn19"><img src="https://img.shields.io/badge/Add%20to-Cursor-000000.svg" alt="Add to Cursor"></a>
+  <a href="vscode:mcp/install?%7B%22name%22%3A%22brain%22%2C%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fbrain.inite.ai%2Fmcp%22%2C%22headers%22%3A%7B%22Authorization%22%3A%22Bearer%20brain_YOUR_API_KEY%22%7D%7D"><img src="https://img.shields.io/badge/Add%20to-VS%20Code-0098ff.svg" alt="Add to VS Code"></a>
+  <a href="https://registry.modelcontextprotocol.io/v0/servers?search=inite-brain"><img src="https://img.shields.io/badge/MCP%20Registry-io.github.inite--ai-ffb938.svg" alt="MCP Registry"></a>
+</p>
+
+<p align="center">
   <a href="https://brain.inite.ai">Website</a> ·
   <a href="#architecture">Architecture</a> ·
   <a href="#domain-packs">Domain Packs</a> ·
@@ -244,9 +251,35 @@ it maps host **3030**, and `BRAIN_URL=http://localhost:3030` then works for the
 requests below. The Compose defaults are for local development; production
 credentials and topology are covered in [deployment](docs/DEPLOY.md).
 
-### Write and retrieve a fact
+### Remember something, then ask about it
 
-The same requests work with either `BRAIN_URL` above:
+Text in, facts out. Brain captures the turn, extracts entities and claims,
+and runs each one through bitemporal conflict resolution:
+
+```bash
+curl --fail-with-body -X POST "$BRAIN_URL/v1/ingest/mention" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Maria moved to Berlin in June and prefers morning appointments.",
+    "userId": "user_42"
+  }'
+
+curl --fail-with-body -X POST "$BRAIN_URL/v1/search" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "query": "where does Maria live", "userId": "user_42", "limit": 5 }'
+```
+
+Use your application's stable user ID on **both** writes and reads. Omit
+`userId` on both only for tenant-global memory.
+
+### Record a fact you already know
+
+When the claim is already structured — a CRM field changed, an event
+fired — skip the extractor and state it. The response says what the
+resolver *decided* (`INSERTED`, `SUPERSEDED`, `COMPETING`…), not just
+that the write happened:
 
 ```bash
 curl --fail-with-body -X POST "$BRAIN_URL/v1/ingest/fact" \
@@ -260,19 +293,45 @@ curl --fail-with-body -X POST "$BRAIN_URL/v1/ingest/fact" \
     "userId": "user_42",
     "source": { "vertical": "rent", "messageId": "msg_1" }
   }'
-
-curl --fail-with-body -X POST "$BRAIN_URL/v1/search" \
-  -H "Authorization: Bearer $BRAIN_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{ "query": "maintenance issues", "userId": "user_42", "limit": 5 }'
 ```
 
-Use your application's stable user ID on **both** writes and reads. Omit
-`userId` on both only for tenant-global memory. The local key above has no
-administrative scope; pack installation and forgetting require an appropriately
-scoped operator key. More: [getting started](docs/getting-started.md).
+The local key above has no administrative scope; pack installation and
+forgetting require an appropriately scoped operator key. More:
+[getting started](docs/getting-started.md).
 
 ## Connect an agent
+
+### Claude Code — one command
+
+```bash
+/plugin marketplace add inite-ai/inite-brain-service
+/plugin install inite-brain@inite
+```
+
+That installs the MCP server, the six skills, and the lifecycle hooks
+together: `SessionStart` injects what Brain already knows about the repo
+you are in, `PreCompact` and `SessionEnd` write the session back. Claude
+Code prompts for your API key at enable time and keeps it in the OS
+keychain. Details and switches: [plugin README](plugins/inite-brain/README.md).
+
+Prefer to wire it by hand?
+
+```bash
+claude mcp add --transport http brain https://brain.inite.ai/mcp \
+  --header "Authorization: Bearer $BRAIN_KEY"
+```
+
+### Every other harness
+
+```bash
+curl -fsSL https://brain.inite.ai/install.sh | sh
+```
+
+Installs the skills into every agent it finds on the machine — Claude
+Code, Codex CLI, Gemini CLI, openclaw, opencode — and takes
+`--target cursor,agents --scope project` for the project-local ones.
+`SKILL.md` is a cross-agent format, so the same six skills work unchanged
+everywhere.
 
 For clients that launch a stdio MCP server, use the first-party
 [`@inite/brain-mcp`](clients/brain-mcp/README.md) connector. This configuration

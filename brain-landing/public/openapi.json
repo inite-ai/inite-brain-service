@@ -3125,6 +3125,74 @@
         ],
         "type": "object"
       },
+      "IngestMentionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "contextRef": {
+            "$ref": "#/components/schemas/MentionContextRef"
+          },
+          "emittedAt": {
+            "type": "string"
+          },
+          "knownEntities": {
+            "items": {
+              "$ref": "#/components/schemas/KnownEntity"
+            },
+            "type": "array"
+          },
+          "text": {
+            "maxLength": 16000,
+            "type": "string"
+          },
+          "timezone": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "userId": {
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "IngestMentionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "extractedEdgeIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "extractedEntityIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "extractedFactIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "skipped": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "skipped",
+          "extractedEntityIds",
+          "extractedFactIds"
+        ],
+        "type": "object"
+      },
       "InstallFromRegistryRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3366,6 +3434,28 @@
         ],
         "type": "object"
       },
+      "KnownEntity": {
+        "additionalProperties": {},
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "vertical": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "vertical",
+          "id"
+        ],
+        "type": "object"
+      },
       "MemoryFile": {
         "additionalProperties": false,
         "properties": {
@@ -3495,6 +3585,30 @@
         "required": [
           "path",
           "content"
+        ],
+        "type": "object"
+      },
+      "MentionContextRef": {
+        "additionalProperties": {},
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "messageId": {
+            "type": "string"
+          },
+          "recorder": {
+            "type": "string"
+          },
+          "vertical": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "vertical"
         ],
         "type": "object"
       },
@@ -8457,6 +8571,47 @@
           }
         },
         "summary": "Record a declared structured fact",
+        "tags": [
+          "Ingest"
+        ]
+      }
+    },
+    "/v1/ingest/mention": {
+      "post": {
+        "description": "The simplest write, and the one to reach for when the caller has prose rather than a structured claim: a chat turn, a meeting note, an email body. The text is captured as an episode, an LLM extracts entities, facts and edges from it, and each extracted fact goes through the same bitemporal resolver as `POST /v1/ingest/fact` — so extraction is noisy by design and conflict resolution cleans up at read time. Only `text` is required: `contextRef` defaults to the `chat` vertical and `emittedAt` to the moment the request arrives. `userId` stamps the per-user memory scope on the episode and every extracted fact. `skipped: true` means the extractor found nothing worth recording (`reason` says which check stopped it) — that is a normal outcome, not an error. Prefer `POST /v1/ingest/document` for anything long enough to need chunking. Source: src/ingest/ingest.controller.ts.\n\nRequired scope: `brain:write`.",
+        "operationId": "ingestMention",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestMentionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestMentionResponse"
+                }
+              }
+            },
+            "description": "What the extractor wrote."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Record free text and let brain extract the facts",
         "tags": [
           "Ingest"
         ]

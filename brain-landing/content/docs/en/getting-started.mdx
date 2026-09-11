@@ -18,7 +18,39 @@ export BRAIN_URL="https://brain.inite.ai"
 
 These examples store personal memory for `user_42`. Use your own stable user ID on both writes and reads. Omit `userId` on both only for tenant-global memory.
 
-## 1. Ingest one fact
+## 1. Remember something
+
+Text in. Brain captures the turn, extracts the entities and claims, and
+runs each one through the conflict resolver:
+
+```bash
+curl -X POST "$BRAIN_URL/v1/ingest/mention" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Maria moved to Berlin in June and prefers morning appointments.",
+    "userId": "user_42"
+  }'
+```
+
+The response lists what was written: `extractedEntityIds`, `extractedFactIds`. `skipped: true` means the extractor found nothing worth recording — a normal outcome for a greeting, not an error.
+
+## 2. Ask about it
+
+```bash
+curl -X POST "$BRAIN_URL/v1/search" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "query": "where does Maria live", "userId": "user_42", "limit": 5 }'
+```
+
+Returns ranked entity-hits with their matching facts and per-leg score breakdown.
+
+### When you already know the claim
+
+Extraction is for prose. If the write comes from a CRM field or an event
+stream, state it directly and skip the LLM — the response then names what
+the resolver *decided* (`INSERTED`, `SUPERSEDED`, `COMPETING`…):
 
 ```bash
 curl -X POST "$BRAIN_URL/v1/ingest/fact" \
@@ -33,19 +65,6 @@ curl -X POST "$BRAIN_URL/v1/ingest/fact" \
     "source": { "vertical": "rent", "messageId": "msg_1" }
   }'
 ```
-
-Response carries the `factId` and the conflict-resolver outcome (`INSERTED` on first ingest).
-
-## 2. Search for it
-
-```bash
-curl -X POST "$BRAIN_URL/v1/search" \
-  -H "Authorization: Bearer $BRAIN_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{ "query": "maintenance issues", "userId": "user_42", "limit": 5 }'
-```
-
-Returns ranked entity-hits with their matching facts and per-leg score breakdown.
 
 ## 3. Stand up an MCP client
 

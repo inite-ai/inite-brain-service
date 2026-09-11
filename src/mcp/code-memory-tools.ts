@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { isoDateTime } from './iso-datetime';
 import type { IngestService } from '../ingest/ingest.service';
 import type { EntitiesService } from '../entities/entities.service';
 import type { CodeMemorySearchService } from '../code-memory/code-memory-search.service';
@@ -53,9 +54,7 @@ export function registerCodeMemoryReadTools(opts: {
         'Return the design decisions, rationale, invariants and gotchas recorded against a code anchor — the non-derivable engineering "why" a parser cannot recover from source. The anchor is a SCIP-style symbol string ("pkg/namespace/symbol") or a file path ("repo/path/file.ts"). Pass asOf to recall what was known at a past instant (bitemporal). Returns found:0 with empty memory when nothing is recorded.',
       inputSchema: {
         symbol: z.string().describe('Code anchor — SCIP-style symbol or file path'),
-        asOf: z
-          .string()
-          .datetime()
+        asOf: isoDateTime()
           .optional()
           .describe('Bitemporal cursor — recall what was known as of this instant'),
       },
@@ -146,9 +145,7 @@ export function registerCodeMemoryWriteTools(opts: {
           .describe('The decision / rationale / invariant / gotcha text'),
         commit: z.string().optional().describe('Commit SHA this was decided in (provenance)'),
         location: z.string().optional().describe('file:line provenance, e.g. src/x.ts:42'),
-        validFrom: z
-          .string()
-          .datetime()
+        validFrom: isoDateTime()
           .optional()
           .describe('When the decision took effect — defaults to now'),
         confidence: z.number().min(0).max(1).optional(),

@@ -8,11 +8,35 @@ Brain поставляет шесть Anthropic Skills, которые учат 
 curl -fsSL https://brain.inite.ai/install.sh | sh
 ```
 
-Опциональные флаги:
+По умолчанию ставит **во все агенты, которые найдёт на машине**. `SKILL.md` стал кросс-агентным форматом в 2026-м, поэтому одни и те же шесть скиллов работают в каждом из них без изменений — отличался всегда только каталог назначения.
 
-- `--target project` — ставить в `$PWD/.claude/skills/`, а не в `$HOME`
+| Цель | Пользовательский | Проектный |
+| --- | --- | --- |
+| `claude` | `~/.claude/skills/` | `.claude/skills/` |
+| `codex` | `$CODEX_HOME/skills/` (по умолчанию `~/.codex`) | `.codex/skills/` |
+| `gemini` | `~/.gemini/skills/` | `.gemini/skills/` |
+| `openclaw` | `$OPENCLAW_STATE_DIR/skills/` (по умолчанию `~/.openclaw`) | `.openclaw/skills/` |
+| `opencode` | `~/.config/opencode/skills/` | `.opencode/skills/` |
+| `cursor` | — (только проект) | `.cursor/skills/` |
+| `agents` | — (только проект) | `.agents/skills/` — вендор-нейтральный путь |
 
-Инсталлятор скачивает `skills.tar.gz`, распаковывает каждый скилл в `~/.claude/skills/<name>/SKILL.md` и кладёт рядом файл `VERSION.brain`, чтобы проверке свежести было с чем сравнивать одно число.
+Флаги:
+
+- `--target auto` (по умолчанию) — все агенты, уже установленные здесь. Проектные цели пропускаются, если их не попросили явно: однострочник из пайпа не должен писать в тот каталог, где ты случайно оказался.
+- `--target all` — все цели из таблицы
+- `--target codex,gemini` — подмножество через запятую
+- `--scope project` — ставить в `$PWD`, а не в домашний каталог
+- `--list` / `--dry-run` — посчитать назначения и ничего не писать
+- `--target project` и `--target user` по-прежнему означают Claude Code
+
+Инсталлятор скачивает `skills.tar.gz`, распаковывает каждый скилл в `<цель>/<name>/SKILL.md` и кладёт рядом файл `VERSION.brain`, чтобы проверке свежести было с чем сравнивать одно число.
+
+Пользователи Claude Code могут поставить скиллы, MCP-сервер и [хуки жизненного цикла](/ru/docs/mcp/hooks) одной командой:
+
+```
+/plugin marketplace add inite-ai/inite-brain-service
+/plugin install inite-brain@inite
+```
 
 ## Шесть скиллов
 
