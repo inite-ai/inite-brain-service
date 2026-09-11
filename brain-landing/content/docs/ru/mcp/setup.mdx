@@ -15,6 +15,97 @@ Brain отдаёт Streamable HTTP MCP-эндпоинт в двух написа
 
 Brain не принимает анонимный MCP-трафик. Режима общего секрета нет.
 
+## Claude Code
+
+Одна команда ставит всю интеграцию — MCP-сервер, шесть [скиллов](/ru/docs/skills) и [хуки жизненного цикла](/ru/docs/mcp/hooks), благодаря которым память работает, даже если модель не вспомнила про запись:
+
+```
+/plugin marketplace add inite-ai/inite-brain-service
+/plugin install inite-brain@inite
+```
+
+Claude Code спросит API-ключ при включении и положит его в системный keychain, а не в конфиг-файл. Больше вставлять нечего: тенант берётся из ключа.
+
+Если нужен только MCP-сервер, руками:
+
+```bash
+claude mcp add --transport http brain https://brain.inite.ai/mcp \
+  --header "Authorization: Bearer $BRAIN_KEY"
+```
+
+Или закоммить в репозиторий как `.mcp.json`, чтобы у всех, кто в нём работает, была та же память:
+
+```json
+{
+  "mcpServers": {
+    "brain": {
+      "type": "http",
+      "url": "https://brain.inite.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer ${BRAIN_KEY}"
+      }
+    }
+  }
+}
+```
+
+`${BRAIN_KEY}` раскрывается из окружения — в закоммиченном файле секрета нет.
+
+## VS Code / GitHub Copilot
+
+`.vscode/mcp.json` в воркспейсе. Блок `inputs` заставляет VS Code спросить ключ один раз и не хранить его в файле:
+
+```json
+{
+  "inputs": [
+    {
+      "id": "brainKey",
+      "type": "promptString",
+      "description": "Brain API key",
+      "password": true
+    }
+  ],
+  "servers": {
+    "brain": {
+      "type": "http",
+      "url": "https://brain.inite.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:brainKey}"
+      }
+    }
+  }
+}
+```
+
+## Codex CLI
+
+`~/.codex/config.toml` (или `.codex/config.toml` в проекте — он приоритетнее):
+
+```toml
+[mcp_servers.brain]
+url = "https://brain.inite.ai/mcp"
+bearer_token_env_var = "BRAIN_KEY"
+```
+
+Codex читает `BRAIN_KEY` из окружения в момент подключения и отправляет как `Authorization: Bearer` — токен не попадает в конфиг.
+
+## Gemini CLI
+
+`~/.gemini/settings.json` (пользовательский) или `.gemini/settings.json` (проектный). Поле называется `httpUrl`, а не `url`:
+
+```json
+{
+  "mcpServers": {
+    "brain": {
+      "httpUrl": "https://brain.inite.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer brain_YOUR_API_KEY"
+      }
+    }
+  }
+}
+```
+
 ## Claude Desktop
 
 Правь `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) или `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
@@ -165,8 +256,15 @@ Hermes на старте обнаружит инструменты brain и за
 
 Brain держит MCP без состояния: один McpServer на запрос, без session id. MCP-клиентам, которым нужны долгие сессии, стоит звать по разу на использование инструмента — на стороне brain нет стоимости установки. Сессии с состоянием можно добавить через `sessionIdGenerator`, если появится кейс.
 
+## Любой другой клиент
+
+Всё выше — это два одних и тех же факта в разном синтаксисе: URL `https://brain.inite.ai/mcp` и заголовок `Authorization: Bearer <api-key>`. Клиенту, который умеет удалённый MCP по Streamable HTTP, больше ничего не нужно — смотри в его документации, куда эти двое кладутся. Клиенту, который умеет только запускать stdio-подпроцессы, нужен [коннектор](#харнесы-только-с-stdio--коннектор-initebrain-mcp) ниже.
+
+Клиентам, которые сами ходят по OAuth (кастомные коннекторы Claude, коннекторы ChatGPT), хватает одного URL: 401 сообщает адрес [метаданных защищённого ресурса](https://brain.inite.ai/.well-known/oauth-protected-resource), клиент регистрируется сам, тенант приезжает в токене. См. [подключение по OAuth](https://github.com/inite-ai/inite-brain-service/blob/main/docs/operations.md).
+
 ## Связанное
 
+- [Хуки жизненного цикла](/ru/docs/mcp/hooks) — recall на старте сессии, capture перед компактификацией
 - [Справочник MCP-инструментов](/ru/docs/mcp/tools) — полные схемы инструментов brain
 - [Набор скиллов](/ru/docs/skills) — инструкции для агента (формат Anthropic Skills)
 - [`@inite/brain-mcp`](https://www.npmjs.com/package/@inite/brain-mcp) — коннектор stdio↔HTTP для харнесов только с stdio (исходники в [`clients/brain-mcp`](https://github.com/inite-ai/inite-brain-service/tree/main/clients/brain-mcp))

@@ -22,6 +22,13 @@
 </p>
 
 <p align="center">
+  <a href="https://brain.inite.ai/en/app/keys"><img src="https://img.shields.io/badge/Claude%20Code-%2Fplugin%20install-d97757.svg" alt="Install in Claude Code"></a>
+  <a href="cursor://anysphere.cursor-deeplink/mcp/install?name=brain&config=eyJ1cmwiOiJodHRwczovL2JyYWluLmluaXRlLmFpL21jcCIsInRyYW5zcG9ydCI6Imh0dHAiLCJoZWFkZXJzIjp7IkF1dGhvcml6YXRpb24iOiJCZWFyZXIgYnJhaW5fWU9VUl9BUElfS0VZIn19"><img src="https://img.shields.io/badge/Add%20to-Cursor-000000.svg" alt="Add to Cursor"></a>
+  <a href="vscode:mcp/install?%7B%22name%22%3A%22brain%22%2C%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fbrain.inite.ai%2Fmcp%22%2C%22headers%22%3A%7B%22Authorization%22%3A%22Bearer%20brain_YOUR_API_KEY%22%7D%7D"><img src="https://img.shields.io/badge/Add%20to-VS%20Code-0098ff.svg" alt="Add to VS Code"></a>
+  <a href="https://registry.modelcontextprotocol.io/v0/servers?search=inite-brain"><img src="https://img.shields.io/badge/MCP%20Registry-io.github.inite--ai-ffb938.svg" alt="MCP Registry"></a>
+</p>
+
+<p align="center">
   <a href="https://brain.inite.ai">Website</a> ·
   <a href="#architecture">Architecture</a> ·
   <a href="#domain-packs">Domain Packs</a> ·
@@ -273,6 +280,38 @@ administrative scope; pack installation and forgetting require an appropriately
 scoped operator key. More: [getting started](docs/getting-started.md).
 
 ## Connect an agent
+
+### Claude Code — one command
+
+```bash
+/plugin marketplace add inite-ai/inite-brain-service
+/plugin install inite-brain@inite
+```
+
+That installs the MCP server, the six skills, and the lifecycle hooks
+together: `SessionStart` injects what Brain already knows about the repo
+you are in, `PreCompact` and `SessionEnd` write the session back. Claude
+Code prompts for your API key at enable time and keeps it in the OS
+keychain. Details and switches: [plugin README](plugins/inite-brain/README.md).
+
+Prefer to wire it by hand?
+
+```bash
+claude mcp add --transport http brain https://brain.inite.ai/mcp \
+  --header "Authorization: Bearer $BRAIN_KEY"
+```
+
+### Every other harness
+
+```bash
+curl -fsSL https://brain.inite.ai/install.sh | sh
+```
+
+Installs the skills into every agent it finds on the machine — Claude
+Code, Codex CLI, Gemini CLI, openclaw, opencode — and takes
+`--target cursor,agents --scope project` for the project-local ones.
+`SKILL.md` is a cross-agent format, so the same six skills work unchanged
+everywhere.
 
 For clients that launch a stdio MCP server, use the first-party
 [`@inite/brain-mcp`](clients/brain-mcp/README.md) connector. This configuration

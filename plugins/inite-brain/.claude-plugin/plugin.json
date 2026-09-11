@@ -1,0 +1,49 @@
+{
+  "name": "inite-brain",
+  "displayName": "INITE Brain — persistent memory",
+  "version": "0.1.0",
+  "description": "Persistent, bitemporal memory for Claude Code: the MCP tool surface, six skills that teach the model to use it, recall injected at session start, and capture before compaction.",
+  "author": {
+    "name": "INITE",
+    "email": "info@inite.ai",
+    "url": "https://inite.ai"
+  },
+  "homepage": "https://brain.inite.ai/en/docs/mcp/setup",
+  "repository": "https://github.com/inite-ai/inite-brain-service",
+  "license": "AGPL-3.0-only",
+  "keywords": ["memory", "knowledge-graph", "mcp", "recall", "bitemporal", "rag"],
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json",
+  "userConfig": {
+    "api_key": {
+      "type": "string",
+      "title": "Brain API key",
+      "description": "Issue one at https://brain.inite.ai/en/app/keys — it starts with brain_ and is shown once.",
+      "sensitive": true,
+      "required": true
+    },
+    "base_url": {
+      "type": "string",
+      "title": "Brain base URL",
+      "description": "Change only for a self-hosted deployment.",
+      "default": "https://brain.inite.ai"
+    },
+    "user_id": {
+      "type": "string",
+      "title": "Personal memory scope (optional)",
+      "description": "Tags what the hooks write and read with this end-user id, so a shared workspace key still keeps your memory yours. Leave empty to use the workspace-wide scope."
+    },
+    "recall_on_start": {
+      "type": "boolean",
+      "title": "Recall at session start",
+      "description": "Inject what brain already knows about this project into the first turn.",
+      "default": true
+    },
+    "capture_sessions": {
+      "type": "boolean",
+      "title": "Capture sessions into memory",
+      "description": "Send what you asked for (your messages, never the model's own output) to brain before compaction and at session end, so the next session starts informed.",
+      "default": true
+    }
+  }
+}

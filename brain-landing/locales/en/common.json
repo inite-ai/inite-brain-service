@@ -329,7 +329,11 @@
       },
       "mcp-setup": {
         "title": "MCP setup",
-        "description": "Claude Desktop, Cursor, Goose, n8n configs."
+        "description": "Claude Code, VS Code, Codex, Gemini CLI, Cursor, Goose, n8n configs."
+      },
+      "mcp-hooks": {
+        "title": "Lifecycle hooks",
+        "description": "Recall at session start, capture before compaction — memory without asking the model."
       },
       "mcp-tools": {
         "title": "MCP tools reference",
