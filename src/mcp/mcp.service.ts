@@ -25,7 +25,8 @@ import { registerCodeMemoryReadTools, registerCodeMemoryWriteTools } from './cod
 import { registerSourceReadTools } from './source-tools';
 import { registerOnboardingTools } from './onboarding-tools';
 import { registerMetaTools, type CatalogueEntry } from './meta-tools';
-import { META_TOOLS, resolveToolProfile, type ToolProfile } from './tool-profiles';
+import { registerChatGptTools } from './chatgpt-tools';
+import { CHATGPT_TOOLS, META_TOOLS, resolveToolProfile, type ToolProfile } from './tool-profiles';
 import { WorkspaceStatusService } from './workspace-status.service';
 import { SourcesService } from '../sources/sources.service';
 import { DocumentIngestService } from '../documents/document-ingest.service';
@@ -511,12 +512,17 @@ export class McpService {
     // all: a setup script checking reachability should see the surface
     // it is about to get, not the one it would have got by default.
     const listed = active.listed;
-    const tools = listed
-      ? [
-          ...HEALTH_TOOLS.filter((t) => listed.includes(t)),
-          ...listed.filter((t) => META_TOOLS.includes(t as (typeof META_TOOLS)[number])),
-        ]
-      : [...HEALTH_TOOLS];
+    // The ChatGPT facade replaces the surface rather than narrowing it,
+    // so its two tools are the answer outright — filtering the read
+    // baseline would report an empty list for a perfectly working URL.
+    const tools = active.chatgpt
+      ? [...CHATGPT_TOOLS]
+      : listed
+        ? [
+            ...HEALTH_TOOLS.filter((t) => listed.includes(t)),
+            ...listed.filter((t) => META_TOOLS.includes(t as (typeof META_TOOLS)[number])),
+          ]
+        : [...HEALTH_TOOLS];
     return {
       ok: true,
       version: MCP_SERVER_VERSION,
@@ -734,6 +740,18 @@ export class McpService {
         proxy: this.packToolProxy,
       },
     });
+    // The ChatGPT facade is additive: the profile gate above already
+    // removed every brain tool from the listing (none of them is named
+    // `search` or `fetch`), so what a chatgpt connection sees is exactly
+    // the two tools that product's contract allows.
+    if (profile.chatgpt) {
+      registerChatGptTools({
+        server,
+        companyId,
+        scopes,
+        deps: { search: this.search, entities: this.entities },
+      });
+    }
     // Last, so the catalogue it searches is complete — including the
     // pack-declared tools, which is where a narrow profile pays off most.
     if (profile.meta && profile.listed) {

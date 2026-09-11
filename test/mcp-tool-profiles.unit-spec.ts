@@ -146,6 +146,7 @@ describe('resolveToolProfile', () => {
     // way to tell, and would pay the context cost they were avoiding.
     expect(() => resolveToolProfile('smol')).toThrow(BadRequestException);
     expect(() => resolveToolProfile('smol')).toThrow(/core/);
+    expect(() => resolveToolProfile('smol')).toThrow(/chatgpt/);
   });
 
   it('is case- and whitespace-insensitive', () => {
@@ -153,7 +154,7 @@ describe('resolveToolProfile', () => {
   });
 
   it('names every profile it accepts', () => {
-    expect(TOOL_PROFILE_NAMES.sort()).toEqual(['core', 'full']);
+    expect(TOOL_PROFILE_NAMES.sort()).toEqual(['chatgpt', 'core', 'full']);
   });
 });
 

@@ -1741,7 +1741,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      'How much of the MCP tool surface a connection lists when its URL does not say. `full` (default) lists everything the credential unlocks — 20 tools read-only, up to 32 with write and admin. `core` lists six plus find_tool / run_tool, which reach the rest on demand: the same capability at roughly a quarter of the tools/list context cost. A `?tools=` parameter on the MCP URL overrides this per connection.',
+      'How much of the MCP tool surface a connection lists when its URL does not say. `full` (default) lists everything the credential unlocks — 20 tools read-only, up to 32 with write and admin. `core` lists six plus find_tool / run_tool, which reach the rest on demand: the same capability at roughly a quarter of the tools/list context cost. `chatgpt` serves exactly the search + fetch pair ChatGPT connectors require. A `?tools=` parameter on the MCP URL overrides this per connection.',
   },
   {
     key: 'MCP_TOOL_PROFILE_OVERRIDES',
