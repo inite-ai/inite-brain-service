@@ -226,6 +226,13 @@ not about the snippets.)*
 
 ## 5. Recommended work
 
+> **Status, 2026-09-11.** Waves 0 and 1 are shipped, and Wave 2 with
+> them apart from a Python client and the awesome-list submissions.
+> Ticked items below carry what was actually built, including two things
+> the research did not predict: the ingest docs page described an API
+> that does not exist, and the biggest single context cost on the MCP
+> surface turned out to be a validation regex rather than prose.
+
 ### Wave 0 — truthfulness (hours, no design decisions)
 
 *Shipped in the PR that carries this document, except where noted.*
@@ -268,43 +275,71 @@ not about the snippets.)*
 8. **`/mcp` without a tenant path** — resolve tenancy from the
    credential, keep `/mcp/:companyId` as the explicit form. Unblocks
    every one-click connector surface. **P1-5.**
-9. **Multi-target installer**: `install.sh --target claude|codex|gemini|
-   cursor|agents|all`, defaulting to autodetect + the vendor-neutral
-   `.agents/skills/`. **P1-6.**
-10. **Claude Code plugin** — `.claude-plugin/marketplace.json` +
-    `plugin.json` bundling the six skills, `.mcp.json`, and hook
-    recipes, so the whole integration is one command.
-11. **Hook recipes** (pattern 6): `SessionStart` → `memory_diff` +
-    `search_knowledge` injection; `PreCompact` / `SessionEnd` →
-    `record_fact` / `ingest_document`. Ship them in the plugin and as a
-    docs page. Without this, "the agent has memory" depends on the model
-    remembering to write, which is the number-one reason memory
-    integrations feel dead.
-12. **A two-line quickstart** built on `/v1/ingest/mention` (text +
-    userId in, extraction handled) with the typed `ingest/fact` path
-    presented as the precision route, not the first step. **P2-8.**
-13. Install badges / deeplinks in the README.
+9. ✅ **Multi-target installer** — shipped. `install.sh` resolves a
+   target table (Claude Code, Codex CLI, Gemini CLI, openclaw, opencode,
+   Cursor, `.agents/skills`), defaults to autodetect, and honours
+   `CODEX_HOME` / `OPENCLAW_STATE_DIR`. Project-only targets are skipped
+   by autodetect under the default user scope, so a piped one-liner
+   never writes into whatever directory the terminal happened to be in.
+   **P1-6.**
+10. ✅ **Claude Code plugin** — shipped. The repository is its own
+    marketplace (`/plugin marketplace add inite-ai/inite-brain-service`);
+    `plugins/inite-brain` carries the MCP server, the six skills and the
+    hooks. The API key is a declared `userConfig`, so Claude Code prompts
+    for it and keeps it in the OS keychain rather than a config file.
+11. ✅ **Hook recipes** — shipped, wired and tested end to end against a
+    stub brain. `SessionStart` injects what brain knows about the repo;
+    `PreCompact` and `SessionEnd` send the session's HUMAN turns (never
+    the model's own output — that is how memory layers poison
+    themselves) through `/v1/ingest/mention`. A per-session watermark
+    that advances only on a confirmed write stops double-writes without
+    losing a turn to a brain that was briefly down, and every failure
+    path exits 0 silently. Docs page in both locales.
+12. ✅ **Two-line quickstart** — shipped. `contextRef` and `emittedAt`
+    are defaulted at the surface, so the whole body is
+    `{ text, userId }`; `/v1/ingest/mention` joined the published
+    OpenAPI contract; README, both getting-started pages and the landing
+    Quickstart tabs lead with it. The ingest docs page turned out to
+    document an API that does not exist (`sourceVertical`, `entityHints`,
+    an `Idempotency-Key` header implemented nowhere) — corrected in both
+    locales. **P2-8.**
+13. ✅ Install badges / deeplinks in the README — shipped.
 
 ### Wave 2 — new channels (weeks)
 
 14. **OAuth one-click end to end**: DCR (and/or CIMD) on
     `auth.inite.ai`, consent screen, scope mapping to `brain:*`,
     tested against Claude custom connectors. Depends on 1 + 8.
-15. **Tool budget control**: a `core` profile (≈5 tools:
-    `search_knowledge`, `synthesize`, `record_fact`, `memory_diff`,
-    `get_entity_timeline`) as the default, full surface opt-in, and/or
-    a tool-search meta-tool. Pair it with the skills, which already
-    carry the knowledge the schemas are currently paying for. **P2-9.**
-16. **ChatGPT connector facade**: `search` + `fetch` tools with the
-    shapes that product expects.
-17. **Anthropic memory-tool adapter** (`@inite/brain-memory-tool`) —
-    implement the `memory_20250818` command surface over brain, so any
-    team already using the memory tool can swap the filesystem backend
-    for a bitemporal graph without touching their agent loop. Strategic:
-    it is the one pattern where our differentiator (temporal history,
-    conflicts, provenance) is invisible to integrate and obvious in use.
-18. **Framework adapters + a real SDK package** (`@inite/brain` for TS,
-    a Python client): LangGraph store, Vercel AI SDK, OpenAI Agents SDK.
+15. ✅ **Tool budget control** — shipped, and measured rather than
+    estimated. `?tools=core` lists six tools plus `find_tool` /
+    `run_tool`, which reach the rest on demand through the SAME wrapped
+    handler a direct call reaches (policy, RFC 9396 grants, scopes and
+    error masking all still apply; a gate-removed tool answers as a name
+    that never existed). Per-tenant via `MCP_TOOL_PROFILE_OVERRIDES`.
+
+    Measuring it found something bigger: `z.string().datetime()` publishes
+    its calendar-aware regex into every tool schema — 19 fields × ~200
+    tokens. On a real `tools/list`, with the tokeniser the models bill
+    against: **10 120 → 7 078 tokens on `full`** (−30%, nobody opts in)
+    and **2 052 on `core`** (−80%). **P2-9.**
+16. ✅ **ChatGPT connector facade** — shipped. `?tools=chatgpt` serves
+    exactly `search` and `fetch` in the prescribed shapes (structured
+    plus JSON-in-text). The app's entity screen now reads `?entity=`, so
+    the `url` on every result is a real link — which is what turns a
+    result into a citation; without a public URL the field is empty
+    rather than broken.
+17. ✅ **Anthropic memory-tool adapter** — shipped. Migration 0146 plus
+    five routes give file-shaped memory under `/memories`, fenced per
+    tenant and per user; `@inite/brain-memory-tool` speaks the tool's
+    six commands to them. `str_replace` and `insert` stay in the adapter
+    on purpose — read-modify-write on exact text is not a merge policy a
+    server should own — and content is stored verbatim, because those
+    two are string operations against exactly those bytes.
+18. ◐ **SDK + framework adapters** — `@inite/brain` shipped for
+    TypeScript: the typed client, `brainTools()` in the shape the Vercel
+    AI SDK and the OpenAI Agents SDK both take, and `createBrainStore()`
+    in LangGraph's store shape. One dependency (zod), no framework
+    required. A Python client is still unwritten.
 
 ### Deliberately not recommended
 
