@@ -38,8 +38,8 @@ at the discovery document below.
 
 | Endpoint | Notes |
 |---|---|
-| `POST /v1/ingest/fact` | Declared structured fact ingest. Optional `userId` stamps a per-user memory scope (0055): scope-local conflict resolution, invisible outside that user. |
-| `POST /v1/ingest/mention` | NLU extraction → entities + facts. With `INGEST_MENTION_VIA_DOCUMENT=1`, routed through the document pipeline (same response shape; `userId` scope preserved end-to-end — 0127). |
+| `POST /v1/ingest/mention` | The simplest write: free text → entities + facts. `text` is the only required field — `contextRef` defaults to the `chat` vertical, `emittedAt` to request time. With `INGEST_MENTION_VIA_DOCUMENT=1`, routed through the document pipeline (same response shape; `userId` scope preserved end-to-end — 0127). |
+| `POST /v1/ingest/fact` | Declared structured fact ingest — the precision route when the claim is already known. Optional `userId` stamps a per-user memory scope (0055): scope-local conflict resolution, invisible outside that user. |
 | `POST /v1/ingest/link` | Typed edge between entities (incl. `identity_of` for cross-vertical merge). |
 
 ## Documents (Source → Indexer → Candidates → Brain)

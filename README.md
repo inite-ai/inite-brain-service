@@ -244,9 +244,35 @@ it maps host **3030**, and `BRAIN_URL=http://localhost:3030` then works for the
 requests below. The Compose defaults are for local development; production
 credentials and topology are covered in [deployment](docs/DEPLOY.md).
 
-### Write and retrieve a fact
+### Remember something, then ask about it
 
-The same requests work with either `BRAIN_URL` above:
+Text in, facts out. Brain captures the turn, extracts entities and claims,
+and runs each one through bitemporal conflict resolution:
+
+```bash
+curl --fail-with-body -X POST "$BRAIN_URL/v1/ingest/mention" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Maria moved to Berlin in June and prefers morning appointments.",
+    "userId": "user_42"
+  }'
+
+curl --fail-with-body -X POST "$BRAIN_URL/v1/search" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "query": "where does Maria live", "userId": "user_42", "limit": 5 }'
+```
+
+Use your application's stable user ID on **both** writes and reads. Omit
+`userId` on both only for tenant-global memory.
+
+### Record a fact you already know
+
+When the claim is already structured — a CRM field changed, an event
+fired — skip the extractor and state it. The response says what the
+resolver *decided* (`INSERTED`, `SUPERSEDED`, `COMPETING`…), not just
+that the write happened:
 
 ```bash
 curl --fail-with-body -X POST "$BRAIN_URL/v1/ingest/fact" \
@@ -260,17 +286,11 @@ curl --fail-with-body -X POST "$BRAIN_URL/v1/ingest/fact" \
     "userId": "user_42",
     "source": { "vertical": "rent", "messageId": "msg_1" }
   }'
-
-curl --fail-with-body -X POST "$BRAIN_URL/v1/search" \
-  -H "Authorization: Bearer $BRAIN_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{ "query": "maintenance issues", "userId": "user_42", "limit": 5 }'
 ```
 
-Use your application's stable user ID on **both** writes and reads. Omit
-`userId` on both only for tenant-global memory. The local key above has no
-administrative scope; pack installation and forgetting require an appropriately
-scoped operator key. More: [getting started](docs/getting-started.md).
+The local key above has no administrative scope; pack installation and
+forgetting require an appropriately scoped operator key. More:
+[getting started](docs/getting-started.md).
 
 ## Connect an agent
 

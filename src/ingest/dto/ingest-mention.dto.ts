@@ -43,8 +43,21 @@ export class IngestMentionDto {
   @MaxLength(16_000)
   text!: string;
 
+  /**
+   * Where the text came from. Optional since the two-line quickstart:
+   * an agent capturing a conversation has a `text` and a user, and
+   * nothing else it can honestly fill in. Absent means the `chat`
+   * vertical, which is what a conversational mention is.
+   *
+   * The default is a property initializer rather than a service-side
+   * `??`: the global ValidationPipe runs with `transform: true`, so
+   * class-transformer constructs the DTO (running initializers) and
+   * then assigns the supplied keys over it. An absent key keeps the
+   * default, a supplied one wins, and every downstream reader still
+   * sees a required field — no optionality leaks past the surface.
+   */
   @IsObject()
-  contextRef!: MentionContextRef;
+  contextRef: MentionContextRef = { vertical: 'chat' };
 
   @IsOptional()
   @IsArray()
@@ -66,8 +79,14 @@ export class IngestMentionDto {
   @MaxLength(200)
   userId?: string | undefined;
 
+  /**
+   * Event time of the mention. Optional: "now" is right for anything
+   * captured live, and a caller replaying history — the case where this
+   * genuinely matters — always knows the timestamp and passes it.
+   * Evaluated per request, at DTO construction.
+   */
   @IsISO8601()
-  emittedAt!: string;
+  emittedAt: string = new Date().toISOString();
 
   /**
    * IANA timezone of the speaker's session (e.g. 'Asia/Tokyo'). Multilingual
