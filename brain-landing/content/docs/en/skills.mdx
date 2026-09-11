@@ -8,11 +8,35 @@ Brain ships six Anthropic Skills that teach an AI agent how to use the MCP surfa
 curl -fsSL https://brain.inite.ai/install.sh | sh
 ```
 
-Optional flags:
+By default it installs into **every agent it finds on the machine**. `SKILL.md` became a cross-agent format in 2026, so the same six skills work unchanged in each of them — only the destination directory ever differed.
 
-- `--target project` — install into `$PWD/.claude/skills/` instead of `$HOME`
+| Target | User-global | Project |
+| --- | --- | --- |
+| `claude` | `~/.claude/skills/` | `.claude/skills/` |
+| `codex` | `$CODEX_HOME/skills/` (default `~/.codex`) | `.codex/skills/` |
+| `gemini` | `~/.gemini/skills/` | `.gemini/skills/` |
+| `openclaw` | `$OPENCLAW_STATE_DIR/skills/` (default `~/.openclaw`) | `.openclaw/skills/` |
+| `opencode` | `~/.config/opencode/skills/` | `.opencode/skills/` |
+| `cursor` | — (project only) | `.cursor/skills/` |
+| `agents` | — (project only) | `.agents/skills/` — the vendor-neutral path |
 
-The installer downloads `skills.tar.gz`, unpacks each skill into `~/.claude/skills/<name>/SKILL.md`, and drops a `VERSION.brain` file alongside so the staleness check has a single number to compare against.
+Flags:
+
+- `--target auto` (default) — every agent already installed here. Project-only targets are skipped unless you ask for them, so a piped one-liner never writes into whatever directory you happened to be in.
+- `--target all` — every target in the table
+- `--target codex,gemini` — a comma-separated subset
+- `--scope project` — install into `$PWD` instead of the home directory
+- `--list` / `--dry-run` — resolve destinations, write nothing
+- `--target project` and `--target user` still mean Claude Code, as they always did
+
+The installer downloads `skills.tar.gz`, unpacks each skill into `<target>/<name>/SKILL.md`, and drops a `VERSION.brain` file alongside so the staleness check has a single number to compare against.
+
+Claude Code users can install the skills, the MCP server and the [lifecycle hooks](/en/docs/mcp/hooks) together instead:
+
+```
+/plugin marketplace add inite-ai/inite-brain-service
+/plugin install inite-brain@inite
+```
 
 ## The six skills
 

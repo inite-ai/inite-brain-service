@@ -60,6 +60,7 @@ export const DOCS_GROUPS: DocGroup[] = [
     headingKey: 'mcp',
     pages: [
       { slug: 'mcp/setup', key: 'mcp-setup' },
+      { slug: 'mcp/hooks', key: 'mcp-hooks' },
       { slug: 'mcp/tools', key: 'mcp-tools' },
       { slug: 'skills', key: 'skills' },
     ],

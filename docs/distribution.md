@@ -37,6 +37,7 @@ For everything else (Tier 3 lists, mcpservers.org form, official Registry, Pulse
 | Target | Status | URL when live |
 |---|---|---|
 | Official MCP Registry | ✅ **v2.2.0 live** (published 2026-09-10, `isLatest: true`); the older v0.1.0 record from 2026-06-24 stays in the version history. Re-publish on every meaningful surface change (§1). Note the search API matches on the full name: `?search=inite-brain` finds it, `?search=inite` does not. | https://registry.modelcontextprotocol.io/v0/servers?search=inite-brain |
+| Claude Code plugin marketplace | ✅ **live in-repo** — `.claude-plugin/marketplace.json` at the root makes the repository itself a marketplace; `/plugin marketplace add inite-ai/inite-brain-service` then `/plugin install inite-brain@inite`. No third-party listing required (§9). | — |
 | PulseMCP | ⬜ unverified — their v0beta API is sunset and the server page 403s to scripted checks; confirm by hand in a browser | https://www.pulsemcp.com/servers/inite-brain |
 | punkpeye/awesome-mcp-servers | ⬜ not submitted — verified absent from the live README on 2026-09-10 | — |
 | topoteretes/awesome-ai-memory | ⬜ not submitted | — |
@@ -250,6 +251,38 @@ Same row format as #9 unless a specific list uses a table. Each PR is ~5 minutes
 - **Jenqyang/Awesome-AI-Agents** — section: Memory-augmented agents.
 - **kaushikb11/awesome-llm-agents** — section: Frameworks / Memory.
 - **totogo/awesome-knowledge-graph** — section: Tools. Emphasise bitemporal + conflict resolution (rare in KG land).
+
+---
+
+## 9. Claude Code plugin marketplace — self-hosted, no submission
+
+Claude Code marketplaces are just a `marketplace.json` at a git URL, so
+brain is its own distribution channel. `.claude-plugin/marketplace.json`
+lives at the repository root and points at `plugins/inite-brain/`:
+
+```
+/plugin marketplace add inite-ai/inite-brain-service
+/plugin install inite-brain@inite
+```
+
+This is the highest-leverage channel we have and the only one nobody
+else gatekeeps. It bundles what would otherwise be three separate setup
+steps — MCP server, skills, hooks — behind one command, and Claude Code
+prompts for the API key itself and keeps it in the OS keychain.
+
+**Maintenance rules:**
+
+- `version` appears in *both* manifests and pins the install. The
+  `plugin-bundle` spec fails the build if they diverge.
+- `plugins/inite-brain/skills/` is generated: run `pnpm plugin:sync`
+  after touching `skills/`, or `pnpm skills:pack`, which does it.
+- Bump `version` on any change to the MCP config, hooks, or the skills
+  bundle — an unbumped marketplace entry means installed users never see
+  the change.
+
+Third-party plugin directories (`webfuse-com/awesome-claude` and the
+plugin-specific lists that appeared in 2026) are worth a row once the
+plugin has been exercised by people who are not us.
 
 ---
 

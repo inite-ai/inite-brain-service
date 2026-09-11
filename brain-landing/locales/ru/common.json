@@ -329,7 +329,11 @@
       },
       "mcp-setup": {
         "title": "Настройка MCP",
-        "description": "Конфиги для Claude Desktop, Cursor, Goose, n8n."
+        "description": "Конфиги для Claude Code, VS Code, Codex, Gemini CLI, Cursor, Goose, n8n."
+      },
+      "mcp-hooks": {
+        "title": "Хуки жизненного цикла",
+        "description": "Recall на старте сессии, capture перед компактификацией — память без просьб к модели."
       },
       "mcp-tools": {
         "title": "MCP инструменты",
