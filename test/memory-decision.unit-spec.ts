@@ -159,7 +159,7 @@ describe('MemoryDecisionService.record', () => {
   });
 
   it('is a no-op returning undefined with the flag off', async () => {
-    delete process.env.OUTCOME_DECISION_CAPTURE;
+    process.env.OUTCOME_DECISION_CAPTURE = '0';
     const captured: CapturedQuery[] = [];
     const svc = new MemoryDecisionService(makeSurreal(captured));
     expect(svc.record('co_x', baseInput)).toBeUndefined();

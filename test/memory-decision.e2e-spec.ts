@@ -277,7 +277,7 @@ describe('memory_decision — decision-context capture, joins and cascade', () =
   });
 
   it('(e) capture off ⇒ zero decision rows (byte-identical)', async () => {
-    delete process.env.OUTCOME_DECISION_CAPTURE;
+    process.env.OUTCOME_DECISION_CAPTURE = '0';
     process.env.RETRIEVAL_ABSTENTION_CALIBRATION = 'coverage';
     try {
       await purgeDecisions();

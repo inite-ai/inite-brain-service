@@ -188,9 +188,16 @@ describe('ToolObservationService.verifyRef', () => {
 describe('OutcomePruneService — tool_observation leg', () => {
   const apiKeys = (ids: string[]) => ({ fanOutRoster: () => ids }) as unknown as ApiKeyService;
 
+  beforeEach(() => {
+    // The decision leg (0119) is default-on; this suite isolates the
+    // other legs, so it says so rather than relying on a default.
+    process.env.OUTCOME_DECISION_CAPTURE = '0';
+  });
+
   afterEach(() => {
     delete process.env.TOOL_OBSERVATIONS_ENABLED;
     delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    delete process.env.OUTCOME_DECISION_CAPTURE;
     delete process.env.TOOL_OBSERVATION_RETENTION_DAYS;
   });
 

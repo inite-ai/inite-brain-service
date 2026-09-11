@@ -103,9 +103,13 @@ function prune(guard?: DistributedLeaseGuard) {
 describe('OutcomePruneService — nightly prune under the distributed lease', () => {
   beforeEach(() => {
     process.env.OUTCOME_TELEMETRY_ENABLED = '1';
+    // The decision leg (0119) is default-on; this suite isolates the
+    // other legs, so it says so rather than relying on a default.
+    process.env.OUTCOME_DECISION_CAPTURE = '0';
   });
   afterEach(() => {
     delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    delete process.env.OUTCOME_DECISION_CAPTURE;
   });
 
   it('walks the roster under outcome_prune with an hour of TTL', async () => {
