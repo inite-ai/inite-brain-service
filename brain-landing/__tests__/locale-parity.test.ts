@@ -46,6 +46,10 @@ describe('locale parity (en ↔ ru)', () => {
       ['dualPath.selfHost.bullets', en.dualPath.selfHost.bullets, ru.dualPath.selfHost.bullets],
       ['dualPath.managed.bullets', en.dualPath.managed.bullets, ru.dualPath.managed.bullets],
       ['stats.items', en.stats.items, ru.stats.items],
+      ['problem.items', en.problem.items, ru.problem.items],
+      ['sharedGraph.hubItems', en.sharedGraph.hubItems, ru.sharedGraph.hubItems],
+      ['sharedGraph.facts', en.sharedGraph.facts, ru.sharedGraph.facts],
+      ['plainly.items', en.plainly.items, ru.plainly.items],
     ]
     for (const [name, a, b] of pairs) {
       expect(b.length, `${name} length mismatch`).toBe(a.length)
