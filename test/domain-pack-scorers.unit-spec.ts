@@ -18,6 +18,7 @@ import {
   CHECKS,
   FIN,
   FIN_DOMAIN,
+  BATTERY_PACKS,
   FINTECH_PACK,
   MED,
   MED_DOMAIN,
@@ -289,16 +290,20 @@ describe('domain-pack corpus integrity', () => {
   });
 
   it('targets only predicates that exist in the installed manifests', () => {
+    // Derived from BATTERY_PACKS, not a hand-kept pair: the battery grew
+    // from two packs to six, and a hardcoded list here would have to be
+    // remembered on every growth — which is exactly how a gate stops
+    // gating.
     const known = new Set(
-      [FINTECH_PACK, MEDICAL_PACK].flatMap((pack) =>
-        pack.predicates.map((p) => `${pack.id}__${p.localId}`),
-      ),
+      BATTERY_PACKS.flatMap((pack) => pack.predicates.map((p) => `${pack.id}__${p.localId}`)),
     );
+    const unknown: string[] = [];
     for (const check of CHECKS) {
-      if (check.kind === 'pack-vocab') {
-        expect(known.has(check.predicate)).toBe(true);
+      if (check.kind === 'pack-vocab' && !known.has(check.predicate)) {
+        unknown.push(`${check.id} -> ${check.predicate}`);
       }
     }
+    expect(unknown).toEqual([]);
   });
 
   it('seeds every provenance fragment verbatim in exactly one turn', () => {

@@ -3,7 +3,7 @@
  * wire, mirroring the memory-fitness / state-transitions siblings:
  *
  *  - REST  GET/POST /v1/admin/packs[.../from-registry]
- *          (phase 0: install fintech + medical into the tenant; a
+ *          (phase 0: install every first-party pack into the tenant; a
  *          missing registry entry is republished from the local
  *          manifest when the key can, else the runner FAILS with the
  *          registry:seed instructions — setup is never silently skipped)
@@ -30,10 +30,9 @@ import { walkProvenance } from '../memory-fitness/scorers';
 import { checkHistorySequence, scoreServe, type HistoryEvent } from '../state-transitions/scorers';
 import {
   ALL_TURNS,
+  BATTERY_PACKS,
   CHECKS,
   CORPUS_VERTICAL,
-  FINTECH_PACK,
-  MEDICAL_PACK,
   MERIDIAN_NAME,
   MERIDIAN_REF,
   VEGA_NAME,
@@ -348,7 +347,7 @@ async function ensurePackSetup(cfg: Config): Promise<Record<string, string>> {
     process.exit(1);
   }
   const installed = list.json?.installed ?? [];
-  for (const pack of [FINTECH_PACK, MEDICAL_PACK]) {
+  for (const pack of BATTERY_PACKS) {
     const already = installed.find((p) => p.packId === pack.id);
     // Skip only on an exact version match: the install check (corpus
     // wantsPacksInstalled) pins the LOCAL manifest version, so a stand
