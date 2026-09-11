@@ -1,6 +1,7 @@
 import { HttpException, Injectable, Logger, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { ZodRawShape } from 'zod';
 import { SearchService } from '../search/search.service';
 import { EntitiesService } from '../entities/entities.service';
 import { IngestService } from '../ingest/ingest.service';
@@ -23,6 +24,8 @@ import { registerWriteTools, registerAdminTools } from './write-tools';
 import { registerCodeMemoryReadTools, registerCodeMemoryWriteTools } from './code-memory-tools';
 import { registerSourceReadTools } from './source-tools';
 import { registerOnboardingTools } from './onboarding-tools';
+import { registerMetaTools, type CatalogueEntry } from './meta-tools';
+import { META_TOOLS, resolveToolProfile, type ToolProfile } from './tool-profiles';
 import { WorkspaceStatusService } from './workspace-status.service';
 import { SourcesService } from '../sources/sources.service';
 import { DocumentIngestService } from '../documents/document-ingest.service';
@@ -183,14 +186,63 @@ export class McpService {
       );
   }
 
+  /**
+   * Tool-profile gate — applied FIRST in buildServer, which makes it the
+   * innermost registration wrapper and therefore the one that sees each
+   * handler already wrapped by every other gate (error masking, policy,
+   * grant, observation). That ordering is the whole point: the closure
+   * captured here is byte-for-byte the one a direct `tools/call` would
+   * reach, so `run_tool` dispatching to it cannot skip a check.
+   *
+   * A `full` profile never calls this — no gate, no capture, no change.
+   */
+  private applyToolProfile(
+    server: McpServer,
+    listed: ReadonlySet<string>,
+    catalogue: CatalogueEntry[],
+  ): void {
+    const raw = server.registerTool.bind(server);
+    (server as unknown as { registerTool: unknown }).registerTool = (
+      name: string,
+      config: { title?: string; description?: string; inputSchema?: ZodRawShape },
+      handler: (...args: unknown[]) => unknown,
+    ) => {
+      const tool = raw(name as never, config as never, handler as never);
+      catalogue.push({
+        name,
+        title: config?.title,
+        description: config?.description,
+        inputShape: config?.inputSchema,
+        handler,
+      });
+      // Unlisted tools leave tools/list but stay reachable through
+      // run_tool — that is what makes a narrow profile a narrowing
+      // rather than a loss of capability.
+      if (!listed.has(name)) tool.remove();
+      return tool;
+    };
+  }
+
   // `kinds` carries the explicit read/write classification for tool
   // names OUTSIDE the static action registry (pack-declared tools:
   // query=read, external=write); registry names resolve as before.
-  private applyPolicyToolGate(
-    server: McpServer,
-    policy: PolicyContext,
-    kinds?: ReadonlyMap<string, ActionKind>,
-  ): void {
+  private applyPolicyToolGate({
+    server,
+    policy,
+    kinds,
+    removed,
+  }: {
+    server: McpServer;
+    policy: PolicyContext;
+    kinds?: ReadonlyMap<string, ActionKind> | undefined;
+    /**
+     * Names this gate removed. run_tool consults it so a policy-denied
+     * tool is as unreachable through dispatch as it is through
+     * tools/list — the dispatch path must not become the way around the
+     * gate that removed it.
+     */
+    removed?: Set<string> | undefined;
+  }): void {
     const raw = server.registerTool.bind(server);
     (server as unknown as { registerTool: unknown }).registerTool = (
       name: string,
@@ -198,6 +250,7 @@ export class McpService {
       handler: (...args: unknown[]) => unknown,
     ) => {
       const denied = evaluateAction(policy, name, kinds?.get(name)).decision === 'deny';
+      if (denied) removed?.add(name);
       const tool = raw(
         name as never,
         config as never,
@@ -229,11 +282,18 @@ export class McpService {
    * (./raw-evidence-gate.ts) per served fragment — same deny-overrides
    * discipline, applied per call rather than per registration.
    */
-  private applyGrantToolGate(
-    server: McpServer,
-    granted: readonly string[],
-    kinds?: ReadonlyMap<string, ActionKind>,
-  ): void {
+  private applyGrantToolGate({
+    server,
+    granted,
+    kinds,
+    removed,
+  }: {
+    server: McpServer;
+    granted: readonly string[];
+    kinds?: ReadonlyMap<string, ActionKind> | undefined;
+    /** See applyPolicyToolGate — same reason, same consumer. */
+    removed?: Set<string> | undefined;
+  }): void {
     const grantSet = new Set(granted);
     const allows = (name: string): boolean => {
       if (grantSet.has(name)) return true;
@@ -247,7 +307,10 @@ export class McpService {
       handler: (...args: unknown[]) => unknown,
     ) => {
       const tool = raw(name as never, config as never, handler as never);
-      if (!allows(name)) tool.remove();
+      if (!allows(name)) {
+        removed?.add(name);
+        tool.remove();
+      }
       return tool;
     };
   }
@@ -435,18 +498,31 @@ export class McpService {
    * `serviceVersion` is the deployed brain release that /health names.
    * They differ, and reading one as the other has cost debugging time.
    */
-  health(): {
+  health(profile?: ToolProfile): {
     ok: boolean;
     version: string;
     serviceVersion: string;
+    profile: string;
     tools: string[];
     embedder: string;
   } {
+    const active = profile ?? resolveToolProfile();
+    // The probe has to answer for the URL it was given, `?tools=` and
+    // all: a setup script checking reachability should see the surface
+    // it is about to get, not the one it would have got by default.
+    const listed = active.listed;
+    const tools = listed
+      ? [
+          ...HEALTH_TOOLS.filter((t) => listed.includes(t)),
+          ...listed.filter((t) => META_TOOLS.includes(t as (typeof META_TOOLS)[number])),
+        ]
+      : [...HEALTH_TOOLS];
     return {
       ok: true,
       version: MCP_SERVER_VERSION,
       serviceVersion: SERVICE_VERSION,
-      tools: HEALTH_TOOLS,
+      profile: active.name,
+      tools,
       embedder: this.embedderDescription(),
     };
   }
@@ -495,10 +571,16 @@ export class McpService {
       mcpGrantedActions?: string[] | undefined;
       /** End-user behind a user-bound credential, for per-user status. */
       userId?: string | undefined;
+      /**
+       * How much of the surface to list. Absent = the operator default,
+       * which is `full` unless MCP_TOOL_PROFILE_DEFAULT says otherwise.
+       */
+      toolProfile?: ToolProfile | undefined;
     },
   ): Promise<McpServer> {
     const actorKeyHash = caller?.actorKeyHash;
     const policy = caller?.policy;
+    const profile = caller?.toolProfile ?? resolveToolProfile();
     // Bindings are fetched BEFORE the wrappers so the ABAC gate knows
     // each pack tool's read/write kind at registration time.
     const packBindings = await this.packToolBindings(companyId, caller?.packIds);
@@ -520,6 +602,14 @@ export class McpService {
     // resource identically. An unmapped resource name falls through to
     // itself → write-kind → fail-closed under any restriction.
     const resourceActionOf = (name: string): string => READ_RESOURCE_ACTIONS.get(name) ?? name;
+    // Applied BEFORE every other patch = innermost at registration =
+    // it captures each handler with all the other gates already wrapped
+    // around it. run_tool depends on exactly that; see applyToolProfile.
+    const catalogue: CatalogueEntry[] = [];
+    const removedByGates = new Set<string>();
+    if (profile.listed) {
+      this.applyToolProfile(server, new Set(profile.listed), catalogue);
+    }
     this.wrapToolErrors(server);
     // Resources have no isError result channel; gate + error-wrap them
     // with the SAME machinery as tools so a grant/policy that strips the
@@ -527,7 +617,7 @@ export class McpService {
     // error never leaks through a resource read.
     this.wrapRegistrationErrors({ server, method: 'registerResource' });
     if (policy) {
-      this.applyPolicyToolGate(server, policy, packToolKinds);
+      this.applyPolicyToolGate({ server, policy, kinds: packToolKinds, removed: removedByGates });
       this.applyPolicyRegistrationGate({
         server,
         method: 'registerResource',
@@ -536,7 +626,12 @@ export class McpService {
       });
     }
     if (caller?.mcpGrantedActions !== undefined) {
-      this.applyGrantToolGate(server, caller.mcpGrantedActions, packToolKinds);
+      this.applyGrantToolGate({
+        server,
+        granted: caller.mcpGrantedActions,
+        kinds: packToolKinds,
+        removed: removedByGates,
+      });
       this.applyGrantRegistrationGate({
         server,
         method: 'registerResource',
@@ -639,6 +734,16 @@ export class McpService {
         proxy: this.packToolProxy,
       },
     });
+    // Last, so the catalogue it searches is complete — including the
+    // pack-declared tools, which is where a narrow profile pays off most.
+    if (profile.meta && profile.listed) {
+      registerMetaTools({
+        server,
+        catalogue,
+        removed: removedByGates,
+        listed: new Set(profile.listed),
+      });
+    }
     return server;
   }
 

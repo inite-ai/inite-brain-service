@@ -161,6 +161,32 @@ Installed [Domain Packs](/en/docs/platform/domain-packs) with consented `mcpTool
 
 A key with only `brain:read` sees 20 tools (22 with `FACTS_API_ENABLED`), not 32. That's the security invariant, not a bug.
 
+## Tool profiles — paying less for tools you do not call
+
+Every tool in `tools/list` costs context for the whole session, called or not. Twenty tools with descriptions and JSON schemas is several thousand tokens spent before the user types anything.
+
+Add `?tools=core` to the MCP URL:
+
+```text
+https://brain.inite.ai/mcp?tools=core
+```
+
+| Profile | Lists | For |
+| --- | --- | --- |
+| `full` (default) | everything the key unlocks — 20 read-only, up to 32 with write + admin | Agents that use the whole surface; unchanged from before profiles existed |
+| `core` | `search_knowledge`, `synthesize`, `memory_diff`, `get_entity_timeline`, `record_fact`, `workspace_status`, plus `find_tool` and `run_tool` | Long-running coding agents, anything where context is the scarce resource |
+
+**`core` is a narrowing, not a loss.** The other tools stay reachable:
+
+- `find_tool({ query: "who disagrees about this" })` searches the unlisted tools by intent and returns their real JSON-Schema arguments.
+- `run_tool({ name, args })` executes any of them.
+
+Permissions are identical either way. `run_tool` dispatches to the same handler a direct call reaches — scope checks, ABAC policy, RFC 9396 grants and PII fencing all apply — and a tool a gate removed answers exactly like a tool that never existed.
+
+Operators can set the default with `MCP_TOOL_PROFILE_DEFAULT=core`; the URL parameter wins over it. An unrecognised value is a `400`, never a silent fall back to the full surface — getting 32 tools when you asked for 8 should not be something you have to notice from a token bill.
+
+The health probe answers for the profile too: `GET /mcp/health?tools=core` reports `profile` and the tools that URL would serve.
+
 ## Stateless mode
 
 Brain runs MCP stateless: one McpServer per request, no session id. MCP clients that need long-running sessions should call once per tool use — there's no setup cost on brain's side. Stateful sessions can be added via `sessionIdGenerator` if a use case appears.
