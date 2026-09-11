@@ -106,6 +106,25 @@ Codex reads `BRAIN_KEY` from the environment at connect time and sends it as `Au
 }
 ```
 
+## ChatGPT connectors
+
+ChatGPT's deep-research and company-knowledge connectors accept exactly two read-only tools, named `search` and `fetch`, with prescribed result shapes — a connector that exposes anything else is refused. Brain serves that shape on its own URL:
+
+```text
+https://brain.inite.ai/mcp?tools=chatgpt
+```
+
+Add it as a custom connector. ChatGPT runs OAuth itself: the 401 advertises the [protected-resource metadata](https://brain.inite.ai/.well-known/oauth-protected-resource), the client registers itself, and the workspace arrives in the token — nothing to paste beyond the URL.
+
+| Tool | Returns |
+| --- | --- |
+| `search(query)` | `{ results: [{ id, title, text, url }] }` — one entry per memory record, with a short summary of what is known |
+| `fetch(id)` | `{ id, title, text, url, metadata }` — every fact held about that record, each with the window it is true for |
+
+`url` points at the entity screen in the web app, which is what turns a result into a **citation**: ChatGPT builds citation metadata only when the link is a non-empty string, and this one opens the record it cites. On a self-hosted deployment with no `BRAIN_PUBLIC_URL`, the field is empty and results stay ordinary tool output.
+
+The facade is read-only by construction — there is no write tool in it — and it is a projection of the same memory, not a copy: what `fetch` returns includes the validity window on every fact, which is the part a document store cannot tell you.
+
 ## Claude Desktop
 
 Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
@@ -265,6 +284,7 @@ https://brain.inite.ai/mcp?tools=core
 | Profile | Lists | For |
 | --- | --- | --- |
 | `full` (default) | everything the key unlocks — 20 read-only, up to 32 with write + admin | Agents that use the whole surface; unchanged from before profiles existed |
+| `chatgpt` | exactly `search` and `fetch` | ChatGPT connectors — see above |
 | `core` | `search_knowledge`, `synthesize`, `memory_diff`, `get_entity_timeline`, `record_fact`, `workspace_status`, plus `find_tool` and `run_tool` | Long-running coding agents, anything where context is the scarce resource |
 
 **`core` is a narrowing, not a loss.** The other tools stay reachable:

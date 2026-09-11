@@ -45,7 +45,15 @@ const CORE_TOOLS = [
  */
 export const META_TOOLS = ['find_tool', 'run_tool'] as const;
 
-export type ToolProfileName = 'full' | 'core';
+/**
+ * The ChatGPT connector contract: exactly `search` and `fetch`, with
+ * prescribed result shapes. A connector that exposes anything else is
+ * rejected, so this profile is a hard two — no meta tools, no core
+ * surface alongside. See chatgpt-tools.ts.
+ */
+export const CHATGPT_TOOLS = ['search', 'fetch'] as const;
+
+export type ToolProfileName = 'full' | 'core' | 'chatgpt';
 
 export interface ToolProfile {
   name: ToolProfileName;
@@ -53,11 +61,14 @@ export interface ToolProfile {
   listed: readonly string[] | null;
   /** Whether find_tool / run_tool are registered. */
   meta: boolean;
+  /** Whether the ChatGPT facade is registered instead of the normal surface. */
+  chatgpt: boolean;
 }
 
 const PROFILES: Record<ToolProfileName, ToolProfile> = {
-  full: { name: 'full', listed: null, meta: false },
-  core: { name: 'core', listed: [...CORE_TOOLS, ...META_TOOLS], meta: true },
+  full: { name: 'full', listed: null, meta: false, chatgpt: false },
+  core: { name: 'core', listed: [...CORE_TOOLS, ...META_TOOLS], meta: true, chatgpt: false },
+  chatgpt: { name: 'chatgpt', listed: CHATGPT_TOOLS, meta: false, chatgpt: true },
 };
 
 export const TOOL_PROFILE_NAMES = Object.keys(PROFILES) as ToolProfileName[];
