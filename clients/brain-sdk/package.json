@@ -1,0 +1,58 @@
+{
+  "name": "@inite/brain",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for INITE Brain — a typed client, framework-shaped tools for the Vercel AI SDK and friends, and a LangGraph-shaped store. Long-term memory for agents: bitemporal facts, hybrid retrieval, citations.",
+  "author": "INITE",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inite-ai/inite-brain-service.git",
+    "directory": "clients/brain-sdk"
+  },
+  "homepage": "https://brain.inite.ai",
+  "bugs": {
+    "url": "https://github.com/inite-ai/inite-brain-service/issues"
+  },
+  "keywords": [
+    "memory",
+    "agent-memory",
+    "knowledge-graph",
+    "bitemporal",
+    "rag",
+    "ai-sdk",
+    "langgraph",
+    "brain",
+    "inite"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.5",
+    "typescript": "^7.0.2"
+  }
+}
