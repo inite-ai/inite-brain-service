@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { MCP_CONFIG, QUICKSTART_EXAMPLES } from '../lib/quickstart'
+import { MCP_CONFIG, MCP_STDIO_CONFIG, QUICKSTART_EXAMPLES } from '../lib/quickstart'
 
 const example = (id: string) => QUICKSTART_EXAMPLES.find((item) => item.id === id)!
 const curlBodies = (code: string) =>
@@ -16,11 +16,31 @@ async function runExample(
 }
 
 describe('copyable quickstart examples', () => {
-  it('configures the first-party stdio bridge with the required environment', () => {
+  it('leads with the remote config, and asks for nothing but a key', () => {
+    // The headline used to be the stdio bridge — the fallback for
+    // harnesses that cannot send a header — and it asked for a tenant id
+    // the endpoint stopped needing. A URL and a key is the whole thing.
     const server = JSON.parse(MCP_CONFIG).mcpServers.brain
+    expect(server.type).toBe('http')
+    expect(server.url).toBe('https://brain.inite.ai/mcp')
+    expect(server.headers.Authorization).toMatch(/^Bearer brain_/)
+    expect(JSON.stringify(server)).not.toContain('COMPANY_ID')
+  })
+
+  it('keeps the stdio bridge available, without the tenant it no longer needs', () => {
+    const server = JSON.parse(MCP_STDIO_CONFIG).mcpServers.brain
     expect(server.command).toBe('npx')
     expect(server.args).toEqual(['-y', '@inite/brain-mcp'])
-    expect(Object.keys(server.env).sort()).toEqual(['BRAIN_API_KEY', 'BRAIN_COMPANY_ID'])
+    expect(Object.keys(server.env)).toEqual(['BRAIN_API_KEY'])
+  })
+
+  it('shows the SDK by name, so the TypeScript path is not just fetch', () => {
+    const sdk = example('brain-sdk').code
+    expect(sdk).toContain("from '@inite/brain'")
+    expect(sdk).toContain('createBrain(')
+    // The per-user scope is the thing people get wrong; the snippet has
+    // to show it rather than leave it to the docs.
+    expect(sdk).toContain('userId')
   })
 
   it('leads with the smallest write that works — text and a user, nothing else', () => {
