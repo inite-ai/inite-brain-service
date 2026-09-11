@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { isoDateTime } from './iso-datetime';
 import { envFlagEnabled } from '../common/env-validation';
 import type { IngestService } from '../ingest/ingest.service';
 import type { FactsService } from '../facts/facts.service';
@@ -46,8 +47,8 @@ const RECORD_FACT_INPUT = {
   ]),
   predicate: z.string(),
   object: z.string(),
-  validFrom: z.string().datetime(),
-  validUntil: z.string().datetime().optional(),
+  validFrom: isoDateTime(),
+  validUntil: isoDateTime().optional(),
   confidence: z.number().min(0).max(1).optional(),
   sourceVertical: z.string().describe('Vertical name attributed as source (e.g. "rent")'),
   userId: z
@@ -430,10 +431,9 @@ function registerIngestDocumentTool({
         text: z.string().max(DOC_TEXT_HARD_CAP).describe('Normalized document text'),
         title: z.string().max(512).optional(),
         originUri: z.string().max(512).optional().describe('Pointer back to the raw container'),
-        occurredAt: z
-          .string()
-          .datetime()
-          .describe("The document's own timestamp — becomes facts' validFrom"),
+        occurredAt: isoDateTime().describe(
+          "The document's own timestamp — becomes facts' validFrom",
+        ),
         vertical: z.string().describe('Vertical attributed as source'),
         storeContent: z
           .boolean()

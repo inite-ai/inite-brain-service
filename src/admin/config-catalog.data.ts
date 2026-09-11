@@ -1733,6 +1733,25 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Signed work_available webhook hints to external packs declaring indexer.external.callbackUrl. Best-effort (retries + per-URL breaker); polling stays the source of truth.',
   },
+  // ── MCP tool profiles ─────────────────────────────────────
+  {
+    key: 'MCP_TOOL_PROFILE_DEFAULT',
+    category: 'misc',
+    defaultValue: 'full',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'How much of the MCP tool surface a connection lists when its URL does not say. `full` (default) lists everything the credential unlocks — 20 tools read-only, up to 32 with write and admin. `core` lists six plus find_tool / run_tool, which reach the rest on demand: the same capability at roughly a quarter of the tools/list context cost. A `?tools=` parameter on the MCP URL overrides this per connection.',
+  },
+  {
+    key: 'MCP_TOOL_PROFILE_OVERRIDES',
+    category: 'misc',
+    defaultValue: null,
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Per-tenant MCP tool profile — JSON object mapping companyId → profile name (`full` | `core` | `chatgpt`), the RETRIEVAL_PROFILE_OVERRIDES idiom: read at call time so a change needs no restart, and a malformed or unknown entry falls open to MCP_TOOL_PROFILE_DEFAULT for that tenant instead of failing its requests. "Which tools does my agent see" is a per-workspace decision, so a shared deployment must not force one answer on every tenant. A `?tools=` parameter on the MCP URL still wins over this.',
+  },
   // ── MCP pack tools (migration 0068) ───────────────────────
   {
     key: 'MCP_PACK_TOOLS_ENABLED',

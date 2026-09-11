@@ -16,6 +16,7 @@ import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
 import { POLICY_ACTION_EXEMPT } from '../policy/policy-gate.service';
 import { McpService } from './mcp.service';
+import { profileParam, resolveToolProfile } from './tool-profiles';
 import { AuthenticatedRequest } from '../auth/api-key.types';
 
 @Controller('mcp')
@@ -41,13 +42,23 @@ export class McpController {
   // per-tenant URL gives. Declared first so the single-segment form is
   // not swallowed by `@All(':companyId')` below.
   @Get('health')
-  healthRoot(): ReturnType<McpService['health']> {
-    return this.mcp.health();
+  healthRoot(@Req() req: Request): ReturnType<McpService['health']> {
+    // No tenant on this spelling, so no per-tenant overlay to apply —
+    // the probe answers for the URL parameter and the process default.
+    return this.mcp.health(resolveToolProfile(profileParam(req.query as Record<string, unknown>)));
   }
 
   @Get(':companyId/health')
-  health(): ReturnType<McpService['health']> {
-    return this.mcp.health();
+  health(
+    @Req() req: Request,
+    @Param('companyId') pathCompanyId: string,
+  ): ReturnType<McpService['health']> {
+    // Unauthenticated, so the tenant here is whatever the caller typed.
+    // It selects a PROFILE and nothing else — no data is read — so an
+    // invented companyId can only mis-report a tool list to its author.
+    return this.mcp.health(
+      resolveToolProfile(profileParam(req.query as Record<string, unknown>), pathCompanyId),
+    );
   }
 
   /**
@@ -129,6 +140,14 @@ export class McpController {
       actorId: auth.actorId,
       mcpGrantedActions: auth.mcpGrantedActions,
       userId: auth.userId,
+      // `?tools=core` on the URL. The URL is the only field a one-click
+      // connector ever hands the user, so it is where this has to live;
+      // an unknown value is a 400 from resolveToolProfile rather than a
+      // silent fall back to the full surface.
+      toolProfile: resolveToolProfile(
+        profileParam(req.query as Record<string, unknown>),
+        auth.companyId,
+      ),
     });
     // Stateless mode: omitting sessionIdGenerator entirely reads the same
     // as an explicit `undefined` (the SDK just stores whatever the key

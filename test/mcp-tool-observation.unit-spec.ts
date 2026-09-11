@@ -80,17 +80,20 @@ function buildPatched(handler: Handler): Record<string, Handler> {
   const server = fakeServer(handlers);
   const svc = svcWith(stubRecorder) as unknown as {
     wrapToolErrors(s: McpServer): void;
-    applyPolicyToolGate(s: McpServer, policy: unknown): void;
+    applyPolicyToolGate(opts: { server: McpServer; policy: unknown }): void;
     applyToolObservation(s: McpServer, companyId: string): void;
   };
   svc.wrapToolErrors(server);
-  svc.applyPolicyToolGate(server, {
-    companyId: 'co_obs',
-    keyHash: 'sha256:test',
-    sets: [],
-    forceReportOnly: false,
-    resolutionError: false,
-  } as never);
+  svc.applyPolicyToolGate({
+    server,
+    policy: {
+      companyId: 'co_obs',
+      keyHash: 'sha256:test',
+      sets: [],
+      forceReportOnly: false,
+      resolutionError: false,
+    } as never,
+  });
   svc.applyToolObservation(server, 'co_obs');
   server.registerTool('probe_tool' as never, {} as never, handler as never);
   return handlers;
