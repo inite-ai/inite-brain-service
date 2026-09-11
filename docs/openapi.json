@@ -3456,6 +3456,138 @@
         ],
         "type": "object"
       },
+      "MemoryFile": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "content",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "MemoryFileDeleteResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "type": "object"
+      },
+      "MemoryFileListRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "prefix": {
+            "description": "Absolute path under /memories, e.g. /memories/user_prefs.md",
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "userId": {
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "MemoryFileListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "paths"
+        ],
+        "type": "object"
+      },
+      "MemoryFileReadRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "Absolute path under /memories, e.g. /memories/user_prefs.md",
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "userId": {
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "MemoryFileRenameRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "newPath": {
+            "description": "Absolute path under /memories, e.g. /memories/user_prefs.md",
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "path": {
+            "description": "Absolute path under /memories, e.g. /memories/user_prefs.md",
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "userId": {
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "newPath"
+        ],
+        "type": "object"
+      },
+      "MemoryFileWriteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 100000,
+            "type": "string"
+          },
+          "path": {
+            "description": "Absolute path under /memories, e.g. /memories/user_prefs.md",
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "userId": {
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ],
+        "type": "object"
+      },
       "MentionContextRef": {
         "additionalProperties": {},
         "properties": {
@@ -8591,6 +8723,220 @@
         ]
       }
     },
+    "/v1/memory-files": {
+      "put": {
+        "description": "Stores `content` verbatim at `path`. No normalisation of any kind: the memory tool’s `str_replace` is a string operation against exactly these bytes, so re-wrapping or trimming would corrupt the model’s own notes in a way that reads as hallucination. A second write to the same path replaces. `userId` scopes the file to one end user — two people sharing a workspace key get separate files at the same path, which is deliberate. Source: src/memory-files/memory-file.controller.ts.\n\nRequired scope: `brain:write`.",
+        "operationId": "writeMemoryFile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryFileWriteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryFile"
+                }
+              }
+            },
+            "description": "The stored file."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Create or replace a memory file",
+        "tags": [
+          "Memory files"
+        ]
+      }
+    },
+    "/v1/memory-files/delete": {
+      "post": {
+        "description": "Removes the file at `path` and everything beneath it, and reports how many rows went. Only the asking scope’s copies: a workspace-wide delete does not touch a user’s personal file at the same path.\n\nRequired scope: `brain:write`.",
+        "operationId": "deleteMemoryFile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryFileReadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryFileDeleteResponse"
+                }
+              }
+            },
+            "description": "How many rows were removed."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Delete a memory file or directory",
+        "tags": [
+          "Memory files"
+        ]
+      }
+    },
+    "/v1/memory-files/list": {
+      "post": {
+        "description": "Paths under `prefix` (default `/memories`), in path order, capped at 1000. This is what the memory tool’s `view` on a directory becomes.\n\nRequired scope: `brain:read`.",
+        "operationId": "listMemoryFiles",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryFileListRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryFileListResponse"
+                }
+              }
+            },
+            "description": "Matching paths."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "List memory files under a prefix",
+        "tags": [
+          "Memory files"
+        ]
+      }
+    },
+    "/v1/memory-files/read": {
+      "post": {
+        "description": "Returns the file verbatim, or 404. The path travels in the body rather than the URL because it carries slashes, and with the row fence keyed on (path, userId) an encoding ambiguity would be an access-control question.\n\nRequired scope: `brain:read`.",
+        "operationId": "readMemoryFile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryFileReadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryFile"
+                }
+              }
+            },
+            "description": "The file."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read one memory file",
+        "tags": [
+          "Memory files"
+        ]
+      }
+    },
+    "/v1/memory-files/rename": {
+      "post": {
+        "description": "Copies the content to `newPath` and removes the old row. The destination is overwritten if it exists, matching the memory tool’s own semantics. A destination that fails the path rules leaves the source untouched — a rejected move is not a delete.\n\nRequired scope: `brain:write`.",
+        "operationId": "renameMemoryFile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryFileRenameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryFile"
+                }
+              }
+            },
+            "description": "The file at its new path."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Move a memory file",
+        "tags": [
+          "Memory files"
+        ]
+      }
+    },
     "/v1/projections": {
       "get": {
         "description": "Every derived world (facts@version, …) with its lifecycle status (building/built/live/residual/failed), watermark, builder identity and stats, plus the process-local read pin (RETRIEVAL_DERIVED_VERSION). A registry row promises a queryable world. 404 until PROJECTIONS_API_ENABLED=1. Source: src/admin/projections.controller.ts.\n\nRequired scope: `brain:read`.",
@@ -9236,6 +9582,10 @@
     {
       "description": "Self-serve credentials: issue, list and revoke API keys brain verifies itself. Bounded by the calling credential — a key is never wider than its issuer — and available identically on the hosted service and a self-hosted deployment.",
       "name": "Keys"
+    },
+    {
+      "description": "File-shaped memory — the storage behind Anthropic’s memory tool (`memory_20250818`). A model’s own notes, kept in the tenant’s database behind the same fences as every other memory rather than in a directory on one machine. `str_replace` and `insert` are absent by design: they are read-modify-write on exact text, performed by the adapter against what these routes return.",
+      "name": "Memory files"
     },
     {
       "description": "Discovery reads over the global Domain Pack registry (shared across all tenants).",

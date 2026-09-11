@@ -155,6 +155,12 @@ export const ACTIONS: Record<string, ActionSpec> = {
   // authenticated caller may mint a key no wider than its own: the act
   // creates a long-lived credential, which is an administrative event
   // whether or not it escalates anything.
+  // File-shaped memory (the Anthropic memory tool backend). Read and
+  // write, not admin: a model editing its own notes is ordinary memory
+  // traffic, and gating it behind admin would make the tool unusable
+  // with the scoped keys everyone actually issues.
+  'rest.memory_files.read': { kind: 'read', family: 'rest', title: 'Read file-shaped memory' },
+  'rest.memory_files.write': { kind: 'write', family: 'rest', title: 'Write file-shaped memory' },
   'rest.keys.issue': { kind: 'admin', family: 'rest', title: 'Issue an API key' },
   'rest.keys.list': { kind: 'read', family: 'rest', title: 'List API keys' },
   'rest.keys.revoke': { kind: 'admin', family: 'rest', title: 'Revoke an API key' },

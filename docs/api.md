@@ -42,6 +42,25 @@ at the discovery document below.
 | `POST /v1/ingest/fact` | Declared structured fact ingest — the precision route when the claim is already known. Optional `userId` stamps a per-user memory scope (0055): scope-local conflict resolution, invisible outside that user. |
 | `POST /v1/ingest/link` | Typed edge between entities (incl. `identity_of` for cross-vertical merge). |
 
+## Memory files (Anthropic memory-tool backend)
+
+File-shaped memory under `/memories` — a model's own notes, stored in the
+tenant's database instead of a directory on one machine. The adapter is
+[`@inite/brain-memory-tool`](../clients/brain-memory-tool/README.md).
+
+| Endpoint | Notes |
+|---|---|
+| `PUT /v1/memory-files` | Create or replace `{path, content}`. Content is stored VERBATIM — `str_replace` is a string operation against exactly these bytes. `userId` fences the file to one end user; the workspace-wide file at the same path is a different row. |
+| `POST /v1/memory-files/read` | One file or 404. Path in the body, not the URL: with the row fence on `(path, userId)`, an encoding ambiguity would be an access-control question. |
+| `POST /v1/memory-files/list` | Paths under `{prefix}` (default `/memories`), path order, capped at 1000. |
+| `POST /v1/memory-files/rename` | Move; the destination is overwritten. A destination that fails the path rules leaves the source untouched. |
+| `POST /v1/memory-files/delete` | Removes the path and everything beneath it, reporting `{deleted}`. Only the asking scope's rows. |
+
+`str_replace` and `insert` are deliberately NOT routes — read-modify-write
+on exact text belongs in the adapter, not in a server guessing at the
+model's intent. Path namespace is closed: anything outside `/memories/`,
+or containing `..` / `//` / a null byte, is a 400.
+
 ## Documents (Source → Indexer → Candidates → Brain)
 
 All routes answer `503 feature_disabled` until `DOCUMENT_INGEST_ENABLED=1`.

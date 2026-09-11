@@ -1,0 +1,83 @@
+# Memory files
+
+File-shaped memory: a model's own notes, stored at paths under
+`/memories`, kept in the tenant's database behind the same fences as
+every other memory.
+
+This exists for one reason. Anthropic's memory tool (`memory_20250818`)
+hands a model a filesystem it owns — `view`, `create`, `str_replace`,
+`insert`, `delete`, `rename` — and leaves the storage to the developer.
+Every reference implementation uses a local directory, which forgets on
+redeploy, is invisible to every other surface, and belongs to whichever
+container handled the request. These routes are the alternative, and
+[`@inite/brain-memory-tool`](https://www.npmjs.com/package/@inite/brain-memory-tool)
+is the adapter that speaks the tool's command surface to them.
+
+## The routes
+
+| Route | Scope | Does |
+| --- | --- | --- |
+| `PUT /v1/memory-files` | `brain:write` | Create or replace `{ path, content }` |
+| `POST /v1/memory-files/read` | `brain:read` | One file, or 404 |
+| `POST /v1/memory-files/list` | `brain:read` | Paths under `{ prefix }`, path order, capped at 1000 |
+| `POST /v1/memory-files/rename` | `brain:write` | Move `{ path → newPath }` |
+| `POST /v1/memory-files/delete` | `brain:write` | Remove a file, or a directory and everything under it |
+
+```bash
+curl -X PUT "$BRAIN_URL/v1/memory-files" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "path": "/memories/user_prefs.md", "content": "- prefers tabs\n- ships on Fridays" }'
+
+curl -X POST "$BRAIN_URL/v1/memory-files/read" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "path": "/memories/user_prefs.md" }'
+```
+
+## Decisions you will notice
+
+**The path travels in the body, on reads too.** Paths carry slashes, and
+a path in the URL means `/memories/a%2Fb` and `/memories/a/b` can
+disagree about identity. With the row fence keyed on `(path, userId)`,
+that is an access-control question, not a cosmetic one.
+
+**Content is stored verbatim.** No trimming, no re-wrapping, no
+normalising line endings. `str_replace` is a string operation against
+exactly these bytes, so any tidying would corrupt the model's own notes
+in a way that reads as the model hallucinating.
+
+**There is no `str_replace` or `insert` route.** They are
+read-modify-write on exact text, and a server owning that merge policy
+would be a server guessing at the model's intent. The adapter performs
+them against what `read` returns.
+
+**`userId` is a real fence, not a prefix convention.** Two people sharing
+one workspace key get separate files at the same path, and neither sees
+the other's — including in `list`. Omitting `userId` addresses the
+workspace-wide file, which is a *different row* from any user's file at
+that path. That is deliberate: the alternative is one person's notes
+silently overwriting another's.
+
+**The path namespace is closed.** Anything that does not start with
+`/memories/`, anything containing `..`, `//` or a null byte, and
+`/memoriesevil.md` — which starts with the root but is not inside it —
+are all `400`.
+
+**Deleting a directory is recursive and reports a count.** `delete` on
+`/memories/tmp` removes everything beneath it and answers
+`{ "deleted": 4 }`.
+
+## Not versioned
+
+Last write wins on a path, matching the memory tool's own semantics. A
+model that edits a file twenty times in a session would otherwise leave
+twenty revisions nobody reads. History that matters belongs in the fact
+timeline, which is bitemporal for real — see
+[bitemporal](/en/docs/concepts/bitemporal).
+
+## Related
+
+- [`@inite/brain-memory-tool`](https://www.npmjs.com/package/@inite/brain-memory-tool) — the adapter
+- [OpenAPI](https://brain.inite.ai/openapi.json) — full schemas, under **Memory files**
+- [Security model](/en/docs/security) — scopes and the per-user fence

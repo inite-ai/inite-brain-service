@@ -46,6 +46,7 @@ export const DOCS_GROUPS: DocGroup[] = [
       { slug: 'api/multi-hop', key: 'multi-hop' },
       { slug: 'api/entities', key: 'entities' },
       { slug: 'api/retract', key: 'retract' },
+      { slug: 'api/memory-files', key: 'memory-files' },
     ],
   },
   {

@@ -327,6 +327,10 @@
         "title": "External indexers",
         "description": "The pull work API — poll, claim, read, submit. HMAC push hints, per-pack keys."
       },
+      "memory-files": {
+        "title": "Memory files",
+        "description": "File-shaped memory — the storage behind Anthropic's memory tool."
+      },
       "mcp-setup": {
         "title": "MCP setup",
         "description": "Claude Code, VS Code, Codex, Gemini CLI, Cursor, Goose, n8n configs."

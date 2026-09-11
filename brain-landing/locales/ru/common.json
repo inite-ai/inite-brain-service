@@ -327,6 +327,10 @@
         "title": "Внешние индексеры",
         "description": "Pull-API работы: poll, claim, read, submit. HMAC-пуши, ключи на пак."
       },
+      "memory-files": {
+        "title": "Файлы памяти",
+        "description": "Память в форме файлов — хранилище под memory tool от Anthropic."
+      },
       "mcp-setup": {
         "title": "Настройка MCP",
         "description": "Конфиги для Claude Code, VS Code, Codex, Gemini CLI, Cursor, Goose, n8n."
