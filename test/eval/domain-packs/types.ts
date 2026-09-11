@@ -4,9 +4,10 @@
  * fitness) and test/eval/state-transitions (mutable world-state).
  * This battery isolates ONE claim: memory behaves correctly WITH
  * industry Domain Packs installed — the install→vocabulary→trace
- * chain works end to end, and ONE entity living in TWO domain
- * ontologies (fintech + medical) stays a single entity whose facts,
- * timeline and provenance keep their per-domain identity.
+ * chain works end to end, and ONE entity living in SIX domain
+ * ontologies (fintech, medical, legal, hr, insurance, real-estate)
+ * stays a single entity whose facts, timeline and provenance keep
+ * their per-domain identity.
  *
  * Every check is mechanical — no LLM judge (see scorers.ts).
  */
@@ -80,15 +81,23 @@ export interface PackTransitionCheck extends BaseCheck {
   stages: string[][];
 }
 
+/** Two or more domains, with the minimum kept in the type: a
+ *  single-domain "cross-domain" check would pass vacuously. */
+export type MultiDomain = readonly [DomainSpec, DomainSpec, ...DomainSpec[]];
+
 /** `cross-entity` — search returns ONE entity (no per-domain
- *  duplication) carrying facts from BOTH domains plus generic ones. */
+ *  duplication) carrying facts from EVERY listed domain plus generic
+ *  ones. */
 export interface CrossEntityCheck extends BaseCheck {
   kind: 'cross-entity';
   searchQuery: string;
   /** The subject entity's canonicalName must contain this token; hits
    *  are deduped on it (2+ matching hits = per-domain duplication). */
   entityNameToken: string;
-  domains: [DomainSpec, DomainSpec];
+  /** Two or more: the battery grew from two ontologies over the shared
+   *  entity to six, and the pair this once pinned made that a type
+   *  error rather than a stronger check. */
+  domains: MultiDomain;
   /** Markers of the domain-free corpus turns about the same entity. */
   genericMarkers: string[];
 }
@@ -107,13 +116,13 @@ export interface TraceProvenanceCheck extends BaseCheck {
 }
 
 /** `trace-interleave` — the shared entity's timeline holds
- *  fact.recorded events from BOTH domains and neither domain sits
- *  entirely before the other in time (a genuine interleave). */
+ *  fact.recorded events from EVERY listed domain and no domain sits
+ *  entirely before another in time (a genuine interleave). */
 export interface TraceInterleaveCheck extends BaseCheck {
   kind: 'trace-interleave';
   searchQuery: string;
   entityNameToken: string;
-  domains: [DomainSpec, DomainSpec];
+  domains: MultiDomain;
 }
 
 /** `serve-cross` — synthesize over the shared entity cites BOTH
