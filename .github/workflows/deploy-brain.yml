@@ -748,6 +748,16 @@ jobs:
                 # the derived audience list is just "brain" and every such
                 # token is rejected.
                 - BRAIN_PUBLIC_URL=https://brain.inite.ai
+                # Exactly one proxy sits in front of this container:
+                # Traefik, on the same docker network. Without this, every
+                # request arrives from Traefik's address and every
+                # anonymous caller in the world shares one rate-limit
+                # bucket — the mechanism behind the 2026-09-10 outage,
+                # where the health probe and the internet were counted
+                # together until the edge pulled the only replica out of
+                # rotation. `1` believes exactly the address Traefik
+                # appended and nothing a client can set.
+                - TRUST_PROXY=1
                 # Required: JwksService refuses to boot in production when JWKS
                 # is enabled without an issuer (else the \`iss\` claim is not
                 # validated). Must match the \`iss\` auth-service signs with —

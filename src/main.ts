@@ -20,6 +20,7 @@ import { requestLogger } from './common/request-logger';
 import { debugTraceMiddleware } from './common/debug-trace';
 import { correlationIdMiddleware } from './common/correlation-id.middleware';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
+import { applyProxyTrust } from './common/proxy-trust';
 
 async function bootstrap() {
   // Fail fast on missing/invalid env before NestJS or Surreal even start.
@@ -53,6 +54,19 @@ async function bootstrap() {
   });
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Rate limits on unauthenticated callers key on the client IP, and
+  // behind a reverse proxy every request arrives from the proxy's
+  // address — so without this, every anonymous caller in the world
+  // shares one bucket. That is the mechanism behind the 2026-09-10
+  // outage, where the health probe and the internet were counted
+  // together until the edge pulled the only replica out of rotation.
+  //
+  // Off by default: trusting X-Forwarded-For wrongly turns a
+  // client-settable header into the rate-limit key, which is worse than
+  // the shared bucket. TRUST_PROXY is the operator saying how many
+  // proxies are actually in front of this deployment.
+  new Logger('Http').log(applyProxyTrust(app));
   // The ONLY signal handling in the process: Nest runs its shutdown
   // lifecycle once per signal and re-raises the signal when it is done.
   // GracefulShutdownService (root module) owns the readiness flip, the

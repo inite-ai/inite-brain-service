@@ -1733,6 +1733,16 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Signed work_available webhook hints to external packs declaring indexer.external.callbackUrl. Best-effort (retries + per-URL breaker); polling stays the source of truth.',
   },
+  // ── HTTP edge ─────────────────────────────────────────────
+  {
+    key: 'TRUST_PROXY',
+    category: 'misc',
+    defaultValue: null,
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      "How much of X-Forwarded-For to believe, in Express's `trust proxy` form. Unset/0 = off (the default): every request is attributed to the socket address, so behind a reverse proxy EVERY anonymous caller shares one rate-limit bucket — the mechanism behind the 2026-09-10 outage. `1` = trust one hop (one Traefik/nginx in front of the app), `2` = two, `loopback` or a CIDR list = trust those addresses, `true` = trust the whole chain (only on a closed network; the leftmost entry is client-controlled). Read once at boot: it configures the Express app.",
+  },
   // ── MCP tool profiles ─────────────────────────────────────
   {
     key: 'MCP_TOOL_PROFILE_DEFAULT',
