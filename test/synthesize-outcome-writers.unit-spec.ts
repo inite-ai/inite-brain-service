@@ -452,7 +452,7 @@ describe('SynthesizeService — OUTCOME_DECISION_CAPTURE abstain seam', () => {
   });
 
   it('capture flag off: no decision rows, no decisionId on events (byte-identical)', async () => {
-    delete process.env.OUTCOME_DECISION_CAPTURE;
+    process.env.OUTCOME_DECISION_CAPTURE = '0';
     const decisionCalls: DecisionCall[] = [];
     const { svc, calls } = makeSvc('supported', { decisionCalls });
     await svc.synthesize({

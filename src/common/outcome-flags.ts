@@ -1,4 +1,4 @@
-import { envFlagEnabled } from './env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from './env-validation';
 
 /**
  * Outcome telemetry (0107) master flag — OUTCOME_TELEMETRY_ENABLED.
@@ -63,11 +63,19 @@ export function outcomeTxWritesEnabled(): boolean {
  * or without the outcome stream. The env read lives here in the common
  * layer, NOT inside the engine dirs (engine-gates S5.2); engine callers
  * reach it via the MemoryDecisionService static. Read at call time so a
- * flip is runtime-mutable. Default off ⇒ no decision row is ever
- * written and no join column is ever stamped — serving byte-identical.
+ * flip is runtime-mutable.
+ *
+ * DEFAULT ON, now that there is somewhere to read it
+ * (GET /v1/admin/memory/decisions). It shipped off and stayed off, which
+ * meant the only record of WHY the engine abstained or escalated was
+ * written nowhere — and the flags that would be judged by that record
+ * had to be judged by a benchmark instead. The rows are content-free by
+ * contract, one per decision seam per request, bounded by the nightly
+ * prune. Set `OUTCOME_DECISION_CAPTURE=0` and no decision row is written
+ * and no join column is stamped — serving byte-identical.
  */
 export function outcomeDecisionCaptureEnabled(): boolean {
-  return envFlagEnabled(process.env.OUTCOME_DECISION_CAPTURE);
+  return envFlagNotDisabled(process.env.OUTCOME_DECISION_CAPTURE);
 }
 
 /** Default raw-event retention window for the nightly prune (days). */

@@ -521,9 +521,13 @@ describe('OUTCOME_TX_WRITES', () => {
 describe('OutcomePruneService', () => {
   beforeEach(() => {
     process.env.OUTCOME_TELEMETRY_ENABLED = '1';
+    // The decision leg (0119) is default-on; this suite isolates the
+    // other legs, so it says so rather than relying on a default.
+    process.env.OUTCOME_DECISION_CAPTURE = '0';
   });
   afterAll(() => {
     delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    delete process.env.OUTCOME_DECISION_CAPTURE;
   });
 
   const apiKeys = (ids: string[]) => ({ fanOutRoster: () => ids }) as unknown as ApiKeyService;

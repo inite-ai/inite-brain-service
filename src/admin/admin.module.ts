@@ -31,6 +31,8 @@ import { AdminPacksController } from './admin-packs.controller';
 import { AdminPoliciesController } from './admin-policies.controller';
 import { AdminPolicyController } from './admin-policy.controller';
 import { AdminPolicyDecisionsController } from './admin-policy-decisions.controller';
+import { AdminMemoryDecisionsController } from './admin-memory-decisions.controller';
+import { MemoryDecisionsReadService } from '../outcomes/memory-decisions-read.service';
 import { AdminKeysController } from './admin-keys.controller';
 import { AdminCodeMemoryController } from './admin-code-memory.controller';
 import { AdminHnswController } from './admin-hnsw.controller';
@@ -116,6 +118,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     AdminPoliciesController,
     AdminPolicyController,
     AdminPolicyDecisionsController,
+    AdminMemoryDecisionsController,
     AdminKeysController,
     AdminCodeMemoryController,
     AdminHnswController,
@@ -128,6 +131,7 @@ import { ConfigInspectorService } from './config-inspector.service';
   ],
   providers: [
     AdminService,
+    MemoryDecisionsReadService,
     HnswMaintenanceService,
     HnswProvisionService,
     VectorCorpusService,

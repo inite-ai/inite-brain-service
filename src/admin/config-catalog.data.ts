@@ -265,11 +265,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'OUTCOME_DECISION_CAPTURE',
     category: 'audit',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Decision-context telemetry (0119): content-free memory_decision rows at the abstain gate and the L3 escalation trigger, plus the decisionId join columns on memory_outcome / focus_signal_sample and the nightly decision prune leg. Independent master — not coupled to OUTCOME_TELEMETRY_ENABLED.',
+      'Decision-context telemetry (0119): content-free memory_decision rows at the abstain gate and the L3 escalation trigger, plus the decisionId join columns on memory_outcome / focus_signal_sample and the nightly decision prune leg. Independent master — not coupled to OUTCOME_TELEMETRY_ENABLED. On by default since the read side landed (GET /v1/admin/memory/decisions + /stats); rows are content-free, one per decision seam per request, bounded by the nightly prune.',
   },
   {
     key: 'OUTCOME_DECISION_RETENTION_DAYS',
