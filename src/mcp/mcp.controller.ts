@@ -43,12 +43,22 @@ export class McpController {
   // not swallowed by `@All(':companyId')` below.
   @Get('health')
   healthRoot(@Req() req: Request): ReturnType<McpService['health']> {
+    // No tenant on this spelling, so no per-tenant overlay to apply —
+    // the probe answers for the URL parameter and the process default.
     return this.mcp.health(resolveToolProfile(profileParam(req.query as Record<string, unknown>)));
   }
 
   @Get(':companyId/health')
-  health(@Req() req: Request): ReturnType<McpService['health']> {
-    return this.mcp.health(resolveToolProfile(profileParam(req.query as Record<string, unknown>)));
+  health(
+    @Req() req: Request,
+    @Param('companyId') pathCompanyId: string,
+  ): ReturnType<McpService['health']> {
+    // Unauthenticated, so the tenant here is whatever the caller typed.
+    // It selects a PROFILE and nothing else — no data is read — so an
+    // invented companyId can only mis-report a tool list to its author.
+    return this.mcp.health(
+      resolveToolProfile(profileParam(req.query as Record<string, unknown>), pathCompanyId),
+    );
   }
 
   /**
@@ -134,7 +144,10 @@ export class McpController {
       // connector ever hands the user, so it is where this has to live;
       // an unknown value is a 400 from resolveToolProfile rather than a
       // silent fall back to the full surface.
-      toolProfile: resolveToolProfile(profileParam(req.query as Record<string, unknown>)),
+      toolProfile: resolveToolProfile(
+        profileParam(req.query as Record<string, unknown>),
+        auth.companyId,
+      ),
     });
     // Stateless mode: omitting sessionIdGenerator entirely reads the same
     // as an explicit `undefined` (the SDK just stores whatever the key

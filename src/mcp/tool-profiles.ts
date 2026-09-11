@@ -66,19 +66,65 @@ const isProfileName = (value: string): value is ToolProfileName =>
   Object.prototype.hasOwnProperty.call(PROFILES, value);
 
 /**
+ * This tenant's profile from `MCP_TOOL_PROFILE_OVERRIDES`, following the
+ * RETRIEVAL_PROFILE_OVERRIDES idiom: a JSON object mapping companyId →
+ * profile name, read at CALL time so a change takes effect without a
+ * restart, malformed entries failing open to the process default PER
+ * TENANT rather than discarding the whole map.
+ *
+ * A tenant-level knob is the point: "which tools does my agent see" is a
+ * per-workspace decision, and a process-global env would force every
+ * tenant on a shared deployment onto one answer.
+ */
+export function toolProfileOverrideFor(
+  companyId: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  if (!companyId) return undefined;
+  const raw = env.MCP_TOOL_PROFILE_OVERRIDES;
+  if (!raw || !raw.trim()) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+  const entry = (parsed as Record<string, unknown>)[companyId];
+  if (typeof entry !== 'string') return undefined;
+  const name = entry.trim().toLowerCase();
+  // An unknown name in the overlay falls open to the process default:
+  // one typo in one tenant's entry must not 400 that tenant's every
+  // request, which is what throwing here would do.
+  return isProfileName(name) ? name : undefined;
+}
+
+/**
  * Resolve the profile for one request.
  *
- * Precedence: the URL parameter the caller chose, then the operator's
- * `MCP_TOOL_PROFILE_DEFAULT`, then `full`. The URL is the only knob a
- * one-click connector user ever controls — the whole flow hands them a
- * single field to paste — so it has to win over server configuration.
+ * Precedence: the URL parameter the caller chose, then this tenant's
+ * overlay, then the process default, then `full`. The URL is the only
+ * knob a one-click connector user ever controls — the whole flow hands
+ * them a single field to paste — so it has to win over configuration.
  *
- * An unrecognised name is a 400 rather than a silent fallback: someone
- * who asked for six tools and got thirty-two would have no way to tell,
- * and would pay the context cost they were trying to avoid.
+ * An unrecognised name in the URL is a 400 rather than a silent
+ * fallback: someone who asked for six tools and got thirty-two would
+ * have no way to tell, and would pay the context cost they were trying
+ * to avoid. An unrecognised name in the OVERLAY is not, because that
+ * one is the operator's typo and the caller cannot fix it — see above.
  */
-export function resolveToolProfile(requested?: string | undefined): ToolProfile {
-  const raw = (requested ?? process.env.MCP_TOOL_PROFILE_DEFAULT ?? 'full').trim().toLowerCase();
+export function resolveToolProfile(
+  requested?: string | undefined,
+  companyId?: string | undefined,
+): ToolProfile {
+  const raw = (
+    requested ??
+    toolProfileOverrideFor(companyId) ??
+    process.env.MCP_TOOL_PROFILE_DEFAULT ??
+    'full'
+  )
+    .trim()
+    .toLowerCase();
   if (!isProfileName(raw)) {
     throw new BadRequestException(
       `unknown tool profile '${raw}' (expected one of: ${TOOL_PROFILE_NAMES.join(', ')})`,

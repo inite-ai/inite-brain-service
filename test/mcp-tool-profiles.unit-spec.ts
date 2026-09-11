@@ -157,6 +157,67 @@ describe('resolveToolProfile', () => {
   });
 });
 
+describe('per-tenant overrides', () => {
+  const savedDefault = process.env.MCP_TOOL_PROFILE_DEFAULT;
+  const savedOverrides = process.env.MCP_TOOL_PROFILE_OVERRIDES;
+  afterEach(() => {
+    for (const [key, value] of [
+      ['MCP_TOOL_PROFILE_DEFAULT', savedDefault],
+      ['MCP_TOOL_PROFILE_OVERRIDES', savedOverrides],
+    ] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  it('gives one tenant a different surface from the rest of the deployment', () => {
+    // "Which tools does my agent see" is a per-workspace decision; a
+    // process-global env would force every tenant onto one answer.
+    delete process.env.MCP_TOOL_PROFILE_DEFAULT;
+    process.env.MCP_TOOL_PROFILE_OVERRIDES = JSON.stringify({ co_acme: 'core' });
+    expect(resolveToolProfile(undefined, 'co_acme').name).toBe('core');
+    expect(resolveToolProfile(undefined, 'co_other').name).toBe('full');
+  });
+
+  it('is read on every call, so a change needs no restart', () => {
+    process.env.MCP_TOOL_PROFILE_OVERRIDES = JSON.stringify({ co_acme: 'core' });
+    expect(resolveToolProfile(undefined, 'co_acme').name).toBe('core');
+    process.env.MCP_TOOL_PROFILE_OVERRIDES = JSON.stringify({ co_acme: 'full' });
+    expect(resolveToolProfile(undefined, 'co_acme').name).toBe('full');
+  });
+
+  it('still lets the URL win', () => {
+    process.env.MCP_TOOL_PROFILE_OVERRIDES = JSON.stringify({ co_acme: 'core' });
+    expect(resolveToolProfile('full', 'co_acme').name).toBe('full');
+  });
+
+  it('beats the process default', () => {
+    process.env.MCP_TOOL_PROFILE_DEFAULT = 'full';
+    process.env.MCP_TOOL_PROFILE_OVERRIDES = JSON.stringify({ co_acme: 'core' });
+    expect(resolveToolProfile(undefined, 'co_acme').name).toBe('core');
+  });
+
+  it.each([
+    ['not json at all', 'core'],
+    ['{"co_acme":"smol"}', 'core'],
+    ['{"co_acme":42}', 'core'],
+    ['["co_acme"]', 'core'],
+    ['null', 'core'],
+  ])('falls open to the process default when the overlay says %s', (overrides) => {
+    // An operator typo in one tenant's entry must not 400 every request
+    // that tenant makes — the caller has no way to fix it.
+    process.env.MCP_TOOL_PROFILE_DEFAULT = 'core';
+    process.env.MCP_TOOL_PROFILE_OVERRIDES = overrides;
+    expect(resolveToolProfile(undefined, 'co_acme').name).toBe('core');
+  });
+
+  it('ignores the overlay entirely without a tenant', () => {
+    delete process.env.MCP_TOOL_PROFILE_DEFAULT;
+    process.env.MCP_TOOL_PROFILE_OVERRIDES = JSON.stringify({ co_acme: 'core' });
+    expect(resolveToolProfile().name).toBe('full');
+  });
+});
+
 describe('profileParam', () => {
   it('reads either spelling', () => {
     expect(profileParam({ tools: 'core' })).toBe('core');

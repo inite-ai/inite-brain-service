@@ -183,7 +183,7 @@ https://brain.inite.ai/mcp?tools=core
 
 Permissions are identical either way. `run_tool` dispatches to the same handler a direct call reaches — scope checks, ABAC policy, RFC 9396 grants and PII fencing all apply — and a tool a gate removed answers exactly like a tool that never existed.
 
-Operators can set the default with `MCP_TOOL_PROFILE_DEFAULT=core`; the URL parameter wins over it. An unrecognised value is a `400`, never a silent fall back to the full surface — getting 32 tools when you asked for 8 should not be something you have to notice from a token bill.
+Operators set the deployment default with `MCP_TOOL_PROFILE_DEFAULT=core`, and a single workspace with `MCP_TOOL_PROFILE_OVERRIDES={"co_acme":"core"}` — read on every call, so a change needs no restart. Precedence is URL → workspace → deployment default. An unrecognised value is a `400`, never a silent fall back to the full surface — getting 32 tools when you asked for 8 should not be something you have to notice from a token bill.
 
 The health probe answers for the profile too: `GET /mcp/health?tools=core` reports `profile` and the tools that URL would serve.
 
