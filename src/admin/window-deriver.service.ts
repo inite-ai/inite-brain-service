@@ -53,7 +53,7 @@ import {
   type ComposedProposition,
   type DerivedProposition,
 } from './deriver-client';
-import { composeAspectRollups, majorityEntityId, type RollupMember } from './aspect-rollups';
+import { majorityEntityId, type RollupMember } from './derive-pool';
 import {
   STAGING_SUFFIX,
   acquireDeriveLease,
@@ -81,7 +81,7 @@ export interface DeriveRunResult {
   /**
    * Terminal status. Units are conversations (`failed[].key` is a
    * conversation id, retryable via `conversationIds`); a per-conversation
-   * post-pass (digest fold, aspect rollups, compose) that failed lands in
+   * post-pass (digest fold, compose) that failed lands in
    * `degradedBy` under `post-pass:<name>`. `status` below stays the
    * UNIT-level verdict that governs promotion — a failed post-pass
    * degrades the outcome but never withholds the atomic facts.
@@ -90,12 +90,9 @@ export interface DeriveRunResult {
   conversations: number;
   sessions: number;
   propositions: number;
-  /** Composed aspect-rollup rows (V13 A2) — separate from
-   *  `propositions` so volume-parity gates keep comparing pure
+  /** Cross-session composed rows (V13 DERIVER_COMPOSE_PASS), separate
+   *  from `propositions` so volume-parity gates keep comparing pure
    *  extraction volume across flag pairs. */
-  rollups?: number;
-  /** Cross-session composed rows (V13 DERIVER_COMPOSE_PASS) — same
-   *  volume-parity reasoning as `rollups`. */
   composed?: number;
   unresolvedSubjects: number;
   skipped: Array<{ conversationId: string; reason: string }>;
@@ -620,14 +617,8 @@ export class WindowDeriverService {
     // under the flag; null = off, zero extra calls.
     let digest = resolveExtractionProfile().deriveDigest ? '' : null;
     let digestEventAt: Date | null = null;
-    // V13 A2: landed rows accumulate per conversation for the aspect
-    // rollup pass ([] only under the flag — zero cost off).
-    const rollupPool: RollupMember[] | null = resolveExtractionProfile().deriveAspectRollups
-      ? []
-      : null;
-    // V13 compose pass: same landed-row pool shape, separate flag —
-    // the LLM composition and the mechanical rollups are independent
-    // legs and must be measurable apart.
+    // V13 compose pass: landed rows accumulate per conversation so one
+    // LLM call can compose multi-atom facts over them.
     const composePool: RollupMember[] | null = resolveExtractionProfile().deriveComposePass
       ? []
       : null;
@@ -735,9 +726,6 @@ export class WindowDeriverService {
         (o) => o.outcome === 'SKIPPED' || o.outcome === 'REJECTED',
       ).length;
       result.propositions += rows.length - unlandedRows;
-      if (rollupPool) {
-        collectRollupPool({ rollupPool, resolved: keptResolved, rows, outcomes });
-      }
       if (composePool) {
         collectRollupPool({
           rollupPool: composePool,
@@ -761,38 +749,26 @@ export class WindowDeriverService {
       db,
       conversationId,
       ns,
-      rollupPool,
       composePool,
       result,
     });
   }
 
-  /** Post-session composition writes (rollups + compose pass), split
-   *  from deriveConversation for the complexity gate. */
+  /** Post-session composition writes, split from deriveConversation
+   *  for the complexity gate. */
   private async writeCompositionPasses({
     db,
     conversationId,
     ns,
-    rollupPool,
     composePool,
     result,
   }: {
     db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> };
     conversationId: string;
     ns: DeriveNamespace;
-    rollupPool: RollupMember[] | null;
     composePool: RollupMember[] | null;
     result: DeriveRunResult;
   }): Promise<void> {
-    if (rollupPool && rollupPool.length > 0) {
-      await this.writeAspectRollups({
-        db,
-        conversationId,
-        ns,
-        pool: rollupPool,
-        result,
-      });
-    }
     if (composePool && composePool.length >= 2) {
       await this.writeComposedFacts({
         db,
@@ -803,77 +779,6 @@ export class WindowDeriverService {
       });
     }
   }
-
-  /**
-   * V13 A2 aspect rollups: mechanical per-(entity, aspect) list-facts
-   * over this conversation's landed rows (see aspect-rollups.ts for
-   * the composition contract). Written through the same resolver
-   * batch as every derived row; failure degrades to a warning — the
-   * atomic facts already landed.
-   */
-  private async writeAspectRollups({
-    db,
-    conversationId,
-    ns,
-    pool,
-    result,
-  }: {
-    db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> };
-    conversationId: string;
-    ns: DeriveNamespace;
-    pool: RollupMember[];
-    result: DeriveRunResult;
-  }): Promise<void> {
-    try {
-      const rollups = composeAspectRollups(pool);
-      if (rollups.length === 0) return;
-      const vectors = await this.embedding.embedMany(rollups.map((r) => r.object));
-      const rows = rollups.map((r, i) => ({
-        entityId: r.entityId,
-        predicate: r.predicate,
-        object: r.object,
-        confidence: 0.85,
-        validFrom: r.validFrom,
-        source: {
-          vertical: 'derived',
-          recorder: ns.final,
-          conversationId,
-          rollup: true,
-          memberCount: r.memberCount,
-          // Union of member grounding turns — the provenance/excerpt
-          // lane filters on episodeIds IS NOT NONE; without it a
-          // winning rollup silently yields zero quote lines.
-          ...(r.episodeIds.length > 0 ? { episodeIds: r.episodeIds } : {}),
-        },
-        sourceTrust: sourceTrustFor({
-          vertical: 'derived',
-          recorder: ns.final,
-        }),
-        embedding: vectors[i]!, // vectors is 1:1 with rollups ⇒ in-bounds
-        derivedVersion: ns.staging,
-      }));
-      const outcomes = await this.factResolver.resolveDerivedBatch(db, rows, {
-        slotSemantics: false,
-      });
-      const landed = outcomes.filter(
-        (o) => o.outcome !== 'SKIPPED' && o.outcome !== 'REJECTED',
-      ).length;
-      // Separate counter: result.propositions feeds the volume-parity
-      // gates (percent-level comparisons across flag pairs) — folding
-      // composed rows in would report inflated EXTRACTION volume.
-      result.rollups = (result.rollups ?? 0) + landed;
-      this.logger.log(`aspect rollups: ${landed}/${rollups.length} landed (${conversationId})`);
-    } catch (e) {
-      this.logger.warn(
-        `aspect rollup pass failed (${(e as Error).message}) — atomic facts unaffected`,
-      );
-      result.outcome.degradedBy.push({
-        key: `${POST_PASS_KEY}aspect-rollups`,
-        error: `${conversationId}: ${errorMessage(e)}`,
-      });
-    }
-  }
-
   /**
    * V13 cross-session composition (DERIVER_COMPOSE_PASS, the PREMem
    * shape): one LLM call over this conversation's landed atoms emits
@@ -951,7 +856,7 @@ export class WindowDeriverService {
       const landed = outcomes.filter(
         (o) => o.outcome !== 'SKIPPED' && o.outcome !== 'REJECTED',
       ).length;
-      // Separate counter — same volume-parity reasoning as rollups.
+      // Separate counter: composed rows are not extraction volume.
       result.composed = (result.composed ?? 0) + landed;
       this.logger.log(`compose pass: ${landed}/${compositions.length} landed (${conversationId})`);
     } catch (e) {
