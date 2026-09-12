@@ -48,7 +48,7 @@ export interface DirectFact {
   evidence?: DirectFactEvidence[];
 }
 
-export type Dimension = 'D1' | 'D2' | 'D3' | 'D4' | 'D5' | 'D6' | 'D7' | 'D8';
+export type Dimension = 'D1' | 'D2' | 'D3' | 'D4' | 'D5' | 'D6' | 'D7' | 'D8' | 'D9' | 'D10';
 
 interface QuestionBase {
   id: string;
@@ -107,6 +107,20 @@ export interface TemporalQuestion extends QuestionBase {
   expectDate: string;
 }
 
+/**
+ * D10 — per-user scope at serve time. The SAME question is asked twice:
+ * as the user who owns the fact (must answer it) and as the battery's
+ * own user (must not). Both halves, because a fence that answers nobody
+ * would pass the negative half for entirely the wrong reason.
+ */
+export interface ScopeFenceQuestion extends QuestionBase {
+  kind: 'scope-fence';
+  /** The owner's answer must contain ≥1 of these. */
+  expectAnyOf: string[];
+  /** The battery user's answer must contain NONE of these. */
+  forbidForOthers: string[];
+}
+
 /** D5 — absence honesty: never-written topic must yield abstention. */
 export interface AbsenceQuestion extends QuestionBase {
   kind: 'absence';
@@ -154,6 +168,7 @@ export type Question =
   | ConflictApiQuestion
   | ConflictAnswerQuestion
   | IntegrationQuestion
+  | ScopeFenceQuestion
   | ReplayQuestion;
 
 /** Per-question outcome in the scorecard / JSON report. */

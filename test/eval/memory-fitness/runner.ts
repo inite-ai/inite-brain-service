@@ -29,6 +29,8 @@ import {
   DIRECT_FACTS,
   LEDGER_SYNC_REF,
   MERIDIAN_REF,
+  OTHER_USER_SUFFIX,
+  SCOPED_FACTS,
   SPEAKER,
 } from './corpus';
 import { interleaveRoundRobin } from './interleave';
@@ -298,6 +300,30 @@ async function ingestCorpus(cfg: Config, brain: HttpBrainClient): Promise<void> 
   }
 }
 
+/**
+ * The other user's facts (D10). Same write path, different userId —
+ * that single argument is the entire fence under test, so the battery
+ * writes it exactly the way a caller would.
+ */
+async function recordScopedFacts(cfg: Config, mcp: McpClient): Promise<void> {
+  const owner = otherUserId(cfg);
+  // The suffix, never the resolved id: cfg.userId comes from the
+  // environment (MEMFIT_USER_ID), and a run log is not the place to
+  // reprint an identity the operator supplied.
+  console.error(`[record] ${SCOPED_FACTS.length} fact(s) scoped to <user>-${OTHER_USER_SUFFIX}…`);
+  for (const fact of SCOPED_FACTS) {
+    await callTool(mcp, 'record_fact', {
+      entityRef: fact.entityRef,
+      predicate: fact.predicate,
+      object: fact.object,
+      validFrom: fact.validFrom,
+      sourceVertical: CORPUS_VERTICAL,
+      userId: owner,
+      ...(fact.confidence !== undefined ? { confidence: fact.confidence } : {}),
+    });
+  }
+}
+
 async function recordDirectFacts(cfg: Config, mcp: McpClient): Promise<void> {
   console.error(`[record] ${DIRECT_FACTS.length} direct record_fact calls…`);
   for (const fact of DIRECT_FACTS) {
@@ -358,13 +384,25 @@ interface AskContext {
   builds: Record<string, string>;
 }
 
-async function synthesizeAnswer(ctx: AskContext, query: string): Promise<SynthOut> {
+async function synthesizeAnswer(
+  ctx: AskContext,
+  query: string,
+  /** Ask AS someone else — the serve-time scope fence (D10) is the
+   *  only caller; everything else is the battery's own user. */
+  asUserId?: string,
+): Promise<SynthOut> {
   return callTool<SynthOut>(ctx.mcp, 'synthesize', {
     query,
     limit: 15,
     synthesisGuardrails: ctx.cfg.guardrails,
-    userId: ctx.cfg.userId,
+    userId: asUserId ?? ctx.cfg.userId,
   });
+}
+
+/** The user who owns SCOPED_FACTS — run-scoped so concurrent runs of
+ *  the battery never share a fence subject. */
+export function otherUserId(cfg: { userId: string }): string {
+  return `${cfg.userId}-${OTHER_USER_SUFFIX}`;
 }
 
 async function searchHits(ctx: AskContext, query: string, limit: number): Promise<SearchHit[]> {
@@ -502,6 +540,34 @@ async function askOne(ctx: AskContext, q: Question): Promise<Verdict> {
         ? { status: 'pass', detail: 'honest abstention on never-written topic', answer: out.answer }
         : { status: 'fail', detail: 'confabulated an answer', answer: out.answer };
     }
+    case 'scope-fence': {
+      // Positive half first: if the owner cannot get its own fact, the
+      // negative half would pass for the wrong reason.
+      const owner = otherUserId(ctx.cfg);
+      const mine = await synthesizeAnswer(ctx, q.prompt, owner);
+      if (!containsAnyOf(mine.answer ?? '', q.expectAnyOf)) {
+        return {
+          status: 'fail',
+          detail:
+            `the owning user (${owner}) did not get its own scoped fact — ` +
+            'the fence cannot be read from the negative half alone',
+          answer: mine.answer,
+        };
+      }
+      const theirs = await synthesizeAnswer(ctx, q.prompt);
+      const leaked = findForbidden(theirs.answer ?? '', q.forbidForOthers);
+      return leaked === null
+        ? {
+            status: 'pass',
+            detail: `owner sees it, the battery user does not`,
+            answer: theirs.answer,
+          }
+        : {
+            status: 'fail',
+            detail: `another user's scoped fact leaked: "${leaked}"`,
+            answer: theirs.answer,
+          };
+    }
     case 'conflict-api': {
       const entityId = await resolveEntityId(ctx, q.entityQuery, q.predicate);
       if (entityId === null) return { status: 'fail', detail: 'entity not found via search' };
@@ -625,6 +691,8 @@ const DIMENSION_LABELS: Record<Dimension, string> = {
   D6: 'conflict surfacing',
   D7: 'cross-session integration',
   D8: 'self-utility replay',
+  D9: 'out-of-order arrival',
+  D10: 'per-user scope at serve time',
 };
 
 function buildScorecard(
@@ -709,6 +777,7 @@ async function main(): Promise<void> {
     if (!cfg.skipIngest) {
       await ingestCorpus(cfg, brain);
       await recordDirectFacts(cfg, mcp);
+      await recordScopedFacts(cfg, mcp);
       builds = await runBuilds(cfg);
     }
 

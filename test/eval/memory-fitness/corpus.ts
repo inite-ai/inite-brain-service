@@ -12,6 +12,8 @@
  *      B retry policy    : fixed 3x30s   (03-10)  -> exp backoff cap 5 (03-18)
  *      C pilot launch    : 2026-04-15    (03-02)  -> 2026-05-06 (03-18)
  *      D deploy target   : Fly.io        (03-02)  -> AWS ECS Fargate (03-25)
+ *      E payout batch    : 500          (03-05)  -> 200 (03-25), and the 500
+ *                          arrives LAST (c6) — the out-of-order axis, D9;
  *  - stable facts: repo, ports (8443 / 9464 / 8081), staging namespace,
  *    flag prefix, dashboard name, Meridian sandbox rate limit;
  *  - one contradiction pair (two sources disagree): Meridian payout
@@ -120,6 +122,9 @@ const C4 = conv('c4', '2026-03-25T14:00:00Z', [
   'Log retention for ledger-sync is 30 days in Loki.',
   'Now that we are on ECS, secrets move to AWS SSM Parameter Store. Nothing secret in task definitions.',
   'The JetStream cluster in ls-staging runs 3 nodes. Good enough for the pilot load test.',
+  // Chain E, the newer half. Its out-of-order counterpart lands in c6,
+  // written last and dated three weeks EARLIER (D9).
+  'Decision (2026-03-25): the ledger-sync payout batch size drops to 200 per run. The 500 batches were timing out against the Meridian sandbox.',
   'Ops session done. Next: integration week with the replay tooling.',
 ]);
 
@@ -140,8 +145,27 @@ const C5 = conv('c5', '2026-04-02T11:00:00Z', [
   'Integration week done. Remaining before launch: load test at 2x pilot volume and the cutoff resolution.',
 ]);
 
-/** All mention turns, chronological. */
-export const CORPUS_TURNS: CorpusTurn[] = [...C1, ...C2, ...C3, ...C4, ...C5];
+/**
+ * c6 — the OUT-OF-ORDER arrival (D9). Written LAST, dated 2026-03-05:
+ * an old note the agent only got round to filing after everything else.
+ *
+ * It restates the SUPERSEDED payout batch size. Chain E exists purely
+ * for this axis and no other question touches it, so a D9 failure
+ * cannot blur D1's signal on chains A-D.
+ *
+ * The whole bitemporal claim is on the line here: 200 was decided on
+ * 03-20 and 500 on 03-05, so 200 is current no matter which arrived
+ * first. A memory that orders by ARRIVAL answers 500 and is wrong.
+ */
+const C6 = conv('c6', '2026-03-05T08:00:00Z', [
+  'Backfilling an old note from 2026-03-05 that never made it into memory: at that point the ledger-sync payout batch size was 500 per run.',
+]);
+
+/**
+ * Ingest order, which is deliberately NOT event-time order: c6 carries
+ * the earliest timestamps of the corpus and is written last.
+ */
+export const CORPUS_TURNS: CorpusTurn[] = [...C1, ...C2, ...C3, ...C4, ...C5, ...C6];
 
 /**
  * Direct record_fact calls — the agent distilling its own log into
@@ -152,6 +176,31 @@ export const CORPUS_TURNS: CorpusTurn[] = [...C1, ...C2, ...C3, ...C4, ...C5];
  * Ordered chronologically by validFrom so revision chains replay the
  * way the agent lived them (old value recorded before its successor).
  */
+/**
+ * The user who owns the scoped fact below — deliberately NOT the
+ * battery's own user (D10). Derived from the run so two concurrent
+ * runs never share it.
+ */
+export const OTHER_USER_SUFFIX = 'other';
+
+/**
+ * Facts written under the OTHER user's scope. They are the negative
+ * half of the serve-time fence: the battery's user must never see
+ * these, and the owner must.
+ */
+export const SCOPED_FACTS: DirectFact[] = [
+  {
+    key: 'other-oncall-phone',
+    entityRef: LEDGER_SYNC_REF,
+    predicate: 'escalation_pager',
+    // Shaped so a leak is unmistakable in an answer: nothing else in
+    // the corpus carries this string.
+    object: 'pager rota QUETZAL-4417',
+    validFrom: '2026-03-28T09:00:00Z',
+    confidence: 0.95,
+  },
+];
+
 export const DIRECT_FACTS: DirectFact[] = [
   {
     key: 'queue-v1',
