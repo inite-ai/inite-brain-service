@@ -5907,7 +5907,7 @@
     },
     "summary": "The community-facing platform surface: the memory core (fact ingest, search, multi-hop, synthesize, entity and fact reads), the Domain Pack registry and tenant pack admin, the document pipeline, the external-indexer work protocol, the raw-substrate driver, the evidence substrate, and source reputation reads.",
     "title": "INITE Brain — Platform API",
-    "version": "2.2.0"
+    "version": "2.3.0"
   },
   "openapi": "3.1.0",
   "paths": {
