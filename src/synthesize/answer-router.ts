@@ -405,6 +405,36 @@ export function routeLane(profile: RetrievalProfile, query: string): LaneId | nu
   return null;
 }
 
+/**
+ * The FULL candidate set `routeLane` short-circuits out of: every
+ * routable lane whose lexicon fires for this query, with its precedence
+ * rank among the profile's routable lanes, plus how many lanes were
+ * routable at all.
+ *
+ * Exists for the 0119 `lane_route` decision row. Storing only the
+ * winner makes an unambiguous route indistinguishable from one that
+ * beat three other matches on registry order, which is exactly the
+ * question a misroute investigation asks. Runs every remaining lexicon
+ * instead of stopping at the first hit, so callers gate it on decision
+ * capture rather than putting it on the serving path.
+ */
+export function laneRouteCandidates(
+  profile: RetrievalProfile,
+  query: string,
+): { matched: Array<{ lane: LaneId; precedence: number }>; routable: number } {
+  const matched: Array<{ lane: LaneId; precedence: number }> = [];
+  let routable = 0;
+  for (const lane of LANE_REGISTRY) {
+    if (!lane.detect || !profile.lanes.has(lane.id)) continue;
+    // Precedence is the rank among ROUTABLE lanes, not the registry
+    // index: a lane the profile disabled is not a rank this query lost.
+    const precedence = routable;
+    routable += 1;
+    if (lane.detect(query ?? '')) matched.push({ lane: lane.id, precedence });
+  }
+  return { matched, routable };
+}
+
 /** Detection over every registry lexicon, ignoring the profile — for
  *  tests and offline tooling that ask "what WOULD this route to". */
 export function detectLane(query: string): LaneId | null {

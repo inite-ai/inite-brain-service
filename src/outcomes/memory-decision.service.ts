@@ -37,8 +37,10 @@ import {
 
 /** The decision seams 0119 reserves. 'l3_escalation'/'abstain' got their
  *  writers with 0119, 'zoom' with MM-zoom PR3 (decision-emit.ts
- *  captureZoomDecision); 'lane_route' still reserves its seam. */
-export type DecisionKind = 'l3_escalation' | 'abstain' | 'lane_route' | 'zoom';
+ *  captureZoomDecision), 'lane_route' and 'verdict' (0147) with the seam
+ *  pass that found the plane empty on a default deployment — every
+ *  earlier writer sat behind a flag that is off out of the box. */
+export type DecisionKind = 'l3_escalation' | 'abstain' | 'lane_route' | 'zoom' | 'verdict';
 
 /** Cap on the alternatives array (contract-bounded row size). */
 export const DECISION_ALTERNATIVES_CAP = 8;

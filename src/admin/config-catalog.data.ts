@@ -1998,7 +1998,10 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_VERBATIM_EVIDENCE',
     category: 'pipeline',
-    defaultValue: null,
+    // Genre-dependent: this is what the DEFAULT genre (assistant_chat)
+    // resolves. `dialogue` presets 'always'. Pinned by the
+    // resolved-default gate in config-catalog-truth.unit-spec.
+    defaultValue: 'shape_conditioned',
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
@@ -2007,7 +2010,9 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_DATE_ANCHORING',
     category: 'pipeline',
-    defaultValue: null,
+    // Genre-dependent: the DEFAULT genre (assistant_chat) resolves
+    // 'absolute'; `dialogue` presets 'none'.
+    defaultValue: 'absolute',
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
@@ -2124,7 +2129,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_ABSTENTION_CALIBRATION',
     category: 'pipeline',
-    defaultValue: 'off',
+    // 'verifier' out of the box: the assistant_chat preset (the DEFAULT
+    // genre) sets it. The entry said 'off', which is how a live stand
+    // reported its abstention mode as off while it was running the
+    // verifier gate. `dialogue`/`documents` resolve 'off'.
+    defaultValue: 'verifier',
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
@@ -2196,7 +2205,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_SCENE_TRACES',
     category: 'pipeline',
-    defaultValue: '0',
+    // ON out of the box: the assistant_chat preset (the DEFAULT genre)
+    // sets it, and this entry said '0' for as long as the preset has
+    // existed — the admin screen reported a lever off while every stock
+    // deployment ran it. `dialogue`/`documents` resolve '0'.
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:

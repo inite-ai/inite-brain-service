@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { CONFIG_CATALOG } from '../src/admin/config-catalog.data';
+import { resolveRetrievalProfile } from '../src/search/retrieval-profile';
 
 /**
  * Audit W6 (engine-architecture-audit-2026-08.md #28-#31): the operator
@@ -240,5 +241,53 @@ describe('credential masking', () => {
       (e) => e.secret === true && !CREDENTIAL_NAME.test(e.key),
     ).map((e) => e.key);
     expect(surprising).toEqual([]);
+  });
+});
+
+describe('retrieval-profile defaults the catalogue claims', () => {
+  /**
+   * The genre-preset trap. A retrieval-profile field resolves
+   * `env key > genre preset > code default`, and the default genre is
+   * assistant_chat — which presets two levers ON. The catalogue was
+   * written against the CODE default, so GET /v1/admin/config told an
+   * operator "RETRIEVAL_ABSTENTION_CALIBRATION: off" and
+   * "RETRIEVAL_SCENE_TRACES: 0" on a stock install that in fact runs
+   * verifier-abstention and scene traces. Found while tracing why the
+   * decision plane recorded nothing: the stand reported the abstention
+   * mode as 'off' and it was not off.
+   *
+   * The binding key → profile field is derived from the resolver itself,
+   * so a new preset-backed lever is covered the day it is added.
+   */
+  const PROFILE_SRC = readFileSync(join(SRC, 'search', 'retrieval-profile.ts'), 'utf8');
+  const bindings = new Map<string, string>();
+  for (const m of PROFILE_SRC.matchAll(/(\w+):\s*presetFlag\(\s*env,\s*'([A-Z0-9_]+)'/g)) {
+    bindings.set(m[2]!, m[1]!);
+  }
+  for (const m of PROFILE_SRC.matchAll(/(\w+):\s*enumEnv\(\s*env,\s*'([A-Z0-9_]+)'/g)) {
+    bindings.set(m[2]!, m[1]!);
+  }
+
+  it('binds a non-trivial number of keys (the matcher still matches)', () => {
+    expect(bindings.size).toBeGreaterThan(10);
+  });
+
+  it('every bound key documents the value a stock deployment resolves', () => {
+    const stock = resolveRetrievalProfile({} as NodeJS.ProcessEnv) as unknown as Record<
+      string,
+      unknown
+    >;
+    const byKey = new Map(CONFIG_CATALOG.map((e) => [e.key, e]));
+    const drift: string[] = [];
+    for (const [key, field] of bindings) {
+      const entry = byKey.get(key);
+      if (!entry) continue; // catalogue coverage is a separate gate
+      const v = stock[field];
+      const resolved = typeof v === 'boolean' ? (v ? '1' : '0') : String(v);
+      if (entry.defaultValue !== resolved) {
+        drift.push(`${key}: catalogue '${entry.defaultValue}' vs resolved '${resolved}'`);
+      }
+    }
+    expect(drift).toEqual([]);
   });
 });

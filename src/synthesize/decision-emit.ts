@@ -1,6 +1,8 @@
 import { MemoryDecisionService } from '../outcomes/memory-decision.service';
 import type { SearchHit } from '../search/search.service';
-import type { LaneId } from './answer-router';
+import type { RetrievalProfile } from '../search/retrieval-profile';
+import type { SynthesizeResult } from './synthesize.types';
+import { laneRouteCandidates, type LaneId } from './answer-router';
 import type { AbstainAdaptiveGate } from './verdict';
 import type { L3DecisionDraft } from './l3-escalation.service';
 import { FRAGMENT_ZOOM_MAX_FRAGMENTS, type FragmentZoomResult } from './fragment-zoom';
@@ -34,6 +36,126 @@ import {
 export interface DecisionContext {
   t0: number;
   primaryDecisionId?: string | undefined;
+  /**
+   * Terminal-verdict row inputs, stamped by synthesizeGrounded at the
+   * point each becomes known, because the verdict writer fires OUTSIDE
+   * it (synthesize(), so that every exit — including the cache hit and
+   * the early no_results return — is covered by one seam).
+   * `policy` is `<guardrails>/<abstentionCalibration>`, `queryClass` the
+   * routed lane. Both absent ⇒ the row simply omits them.
+   */
+  policy?: string | undefined;
+  queryClass?: string | undefined;
+}
+
+/**
+ * The 'verdict' decision writer (0147) — one row per ANSWERED request,
+ * recording what the request terminated on.
+ *
+ * This is the decision the plane was missing. 0119's writers (abstain,
+ * l3_escalation) and the later zoom writer all sit behind flags that are
+ * off in a default deployment, so with OUTCOME_DECISION_CAPTURE
+ * default-on the table still took no rows at all — /stats answered
+ * `sampled 0` against a live service. The terminal verdict always
+ * happens, and its distribution (ok vs the declines) is the statistic
+ * the read side exists to serve.
+ *
+ * Called from synthesize(), not synthesizeGrounded, so ONE seam covers
+ * every non-throwing exit: the served answer, the early no_results
+ * return, the coverage abstain, the grounding/capability declines, and
+ * the answer-cache hit (which returns before retrieval — it has no lane,
+ * and the absent queryClass is exactly how a cache serve reads).
+ *
+ * Does not claim the primary-decision slot: it fires after the outcome
+ * rows have already been written with whatever policy decision explained
+ * the answer.
+ */
+export function captureVerdictDecision(
+  decisions: MemoryDecisionService | undefined,
+  companyId: string,
+  args: { result: SynthesizeResult; decisionCtx: DecisionContext },
+): void {
+  if (!decisions || !MemoryDecisionService.enabled()) return;
+  const { result, decisionCtx } = args;
+  let topScore = 0;
+  let factCount = 0;
+  for (const hit of result.results) {
+    for (const f of hit.facts) {
+      factCount += 1;
+      if (typeof f.score === 'number' && f.score > topScore) topScore = f.score;
+    }
+  }
+  decisions.record(companyId, {
+    decisionKind: 'verdict',
+    // The guardrails mode and the abstention mode ARE the policy at this
+    // seam — a decline under 'strict'/'verifier' and the same decline
+    // under 'lenient'/'off' are different decisions with the same name.
+    policyVersion: decisionCtx.policy ? `verdict@${decisionCtx.policy}` : 'verdict',
+    // `reason` is absent on the served path; 'ok' names it so byAction
+    // reads as a distribution instead of a pile of declines beside a gap.
+    chosenAction: result.reason ?? 'ok',
+    observedState: {
+      topScore,
+      candidateCount: factCount,
+      ...(decisionCtx.queryClass !== undefined ? { queryClass: decisionCtx.queryClass } : {}),
+    },
+    costs: { latencyMs: Date.now() - decisionCtx.t0 },
+  });
+}
+
+/**
+ * The 'lane_route' decision writer — the seam 0119 reserved and left
+ * unwritten, called once per uncached request.
+ *
+ * It is the only decision on the read path that ALWAYS happens. The
+ * abstain writer fires only under abstentionCalibration='coverage' and
+ * the L3 writer only under RETRIEVAL_L3_ESCALATION; the zoom writer
+ * needs FOVEA_FRAGMENT_ZOOM. All three are off by default, so a default
+ * deployment with OUTCOME_DECISION_CAPTURE on wrote NOTHING — the read
+ * side shipped with 0119 answered `[]` against a live, answering
+ * service, and its /stats said `sampled 0` with the master flag on.
+ *
+ * Deliberately does NOT claim the primary-decision slot. The id
+ * threaded onto the outcome rows has to stay the policy decision that
+ * explains the ANSWER (abstain / L3 / zoom), and routing runs before
+ * all of them — claiming it here would silently re-point every
+ * memory_outcome.decisionId join at a row that says nothing about why
+ * the answer came out the way it did.
+ */
+export function captureLaneRouteDecision(
+  decisions: MemoryDecisionService | undefined,
+  companyId: string,
+  args: { profile: RetrievalProfile; query: string; lane: LaneId | null },
+): void {
+  if (!decisions || !MemoryDecisionService.enabled()) return;
+  const { matched, routable } = laneRouteCandidates(args.profile, args.query);
+  // resolveRoutedLane is lexical-first: the lexicon's own winner IS the
+  // route unless the lexicon matched nothing and the multilingual
+  // classifier (MULTILINGUAL_LANE_ROUTING) supplied one.
+  const lexical = matched[0]?.lane ?? null;
+  decisions.record(companyId, {
+    decisionKind: 'lane_route',
+    policyVersion: lexical === args.lane ? 'lexical' : 'classifier',
+    chosenAction: args.lane ?? 'generic',
+    observedState: {
+      queryClass: queryClassOf(args.lane),
+      // The size of the CHOICE set (routable lanes under this profile),
+      // not of the match set — the lens governor subtracts lanes per
+      // query class, so this number moves and the row must say so.
+      candidateCount: routable,
+    },
+    // Registry order resolves ties, so precedence IS the score here —
+    // normalized to keep the field's higher-is-better meaning, which a
+    // raw rank index would read exactly backwards.
+    alternatives: matched.map((m) => ({
+      action: m.lane,
+      score: routable > 0 ? 1 - m.precedence / routable : 1,
+    })),
+    // No costs: routing is a synchronous lexicon pass, so the only
+    // number this seam could report is the time SOMETHING ELSE spent
+    // before it — and the read side averages costs per kind, where that
+    // would read as the cost of routing.
+  });
 }
 
 /**

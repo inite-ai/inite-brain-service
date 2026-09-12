@@ -1,0 +1,32 @@
+-- 0147_decision_verdict_kind — widen the memory_decision kind enum with
+-- 'verdict', the seam that makes the decision plane non-empty by default.
+--
+-- WHY. 0119 built the decision plane and wired two writers: the abstain
+-- gate and the L3 escalation trigger. Both are behind flags that are OFF
+-- in a default deployment (abstentionCalibration='coverage',
+-- RETRIEVAL_L3_ESCALATION), and so is the 'zoom' writer that followed
+-- (FOVEA_FRAGMENT_ZOOM). When OUTCOME_DECISION_CAPTURE became default-on
+-- the plane therefore stayed EMPTY: a live service answering questions,
+-- master flag on, and GET /v1/admin/memory/decisions/stats reporting
+-- `sampled 0`. Measured on a running stand, not reasoned about.
+--
+-- The missing row is the one decision EVERY answered request makes: what
+-- the request terminated on — an answer, or one of the declines
+-- (no_results / low_coverage / no_grounded_evidence / the capability and
+-- grounding gates). That is the decision the read side exists to
+-- aggregate, and it is the only one whose distribution is informative on
+-- a stock install.
+--
+-- 'verdict' is a separate kind rather than a second 'abstain' row on
+-- purpose. The abstain kind means "the coverage gate ran and chose"; the
+-- verdict kind means "the request ended here, under these guardrails".
+-- Folding them would make byAction on the read side count two different
+-- questions in one bucket on any tenant that runs coverage abstention.
+--
+-- ASSERT is not additive (the 0120/0123 precedent): DEFINE FIELD
+-- OVERWRITE restates the full list. Purely additive — every existing row
+-- carries a value inside the widened list, so no backfill and no
+-- rewrite. Same table, same indexes, same GDPR and prune paths.
+
+DEFINE FIELD OVERWRITE decisionKind ON memory_decision TYPE string
+  ASSERT $value INSIDE ['l3_escalation', 'abstain', 'lane_route', 'zoom', 'verdict'];

@@ -120,7 +120,13 @@ function makeSvc(
     ? ({
         record: (companyId: string, input: DecisionInput) => {
           opts.decisionCalls!.push({ companyId, input });
-          return 'deadbeefdeadbeefdeadbeefdeadbeef';
+          // Distinct per kind so the primary-decision slot is checkable:
+          // the id threaded onto the outcome rows must be the decision
+          // that explains the ANSWER, never the lane_route row that fires
+          // before it or the verdict row that fires after.
+          return input.decisionKind === 'abstain' || input.decisionKind === 'l3_escalation'
+            ? 'deadbeefdeadbeefdeadbeefdeadbeef'
+            : `0119${input.decisionKind.padEnd(28, '0').slice(0, 28)}`;
         },
       } as unknown as MemoryDecisionService)
     : undefined;
@@ -416,15 +422,22 @@ describe('SynthesizeService — OUTCOME_DECISION_CAPTURE abstain seam', () => {
       profile: coverageProfile({ abstentionMinEvidence: 2 }),
     });
     expect(out.reason).toBe('low_coverage');
-    expect(decisionCalls).toHaveLength(1);
-    const d = decisionCalls[0]!;
+    // Three rows, in flow order: route → abstain → verdict.
+    expect(decisionCalls.map((c) => c.input.decisionKind)).toEqual([
+      'lane_route',
+      'abstain',
+      'verdict',
+    ]);
+    const d = decisionCalls[1]!;
     expect(d.companyId).toBe('co_x');
-    expect(d.input.decisionKind).toBe('abstain');
     expect(d.input.chosenAction).toBe('abstain');
     expect(d.input.policyVersion).toBe('static');
     expect(d.input.actionScore).toBeUndefined();
     expect(d.input.observedState).toMatchObject({ candidateCount: 1 });
     expect(typeof d.input.costs?.latencyMs).toBe('number');
+    // The verdict row names the exit the caller saw, under its policy.
+    expect(decisionCalls[2]!.input.chosenAction).toBe('low_coverage');
+    expect(decisionCalls[2]!.input.policyVersion).toBe('verdict@strict/coverage');
     // Abstained pre-generation → no used_in_answer/verifier events.
     expect(calls.flatMap((c) => c.events)).toEqual([]);
   });
@@ -440,8 +453,13 @@ describe('SynthesizeService — OUTCOME_DECISION_CAPTURE abstain seam', () => {
       profile: coverageProfile({ abstentionMinEvidence: 1, abstentionMinTopScore: 0 }),
     });
     expect(out.answer).toBe('Maya [f1].');
-    expect(decisionCalls).toHaveLength(1);
-    expect(decisionCalls[0]!.input.chosenAction).toBe('proceed');
+    expect(decisionCalls.map((c) => c.input.decisionKind)).toEqual([
+      'lane_route',
+      'abstain',
+      'verdict',
+    ]);
+    expect(decisionCalls[1]!.input.chosenAction).toBe('proceed');
+    expect(decisionCalls[2]!.input.chosenAction).toBe('ok');
     const used = named(calls, 'used_in_answer');
     expect(used).toHaveLength(1);
     expect(used[0]!.decisionId).toBe('deadbeefdeadbeefdeadbeefdeadbeef');
@@ -449,6 +467,65 @@ describe('SynthesizeService — OUTCOME_DECISION_CAPTURE abstain seam', () => {
     expect(verified[0]!.decisionId).toBe('deadbeefdeadbeefdeadbeefdeadbeef');
     // selected_for_context deliberately carries no decision join.
     expect(named(calls, 'selected_for_context')[0]!.decisionId).toBeUndefined();
+  });
+
+  // ── 0147: the plane must not be empty on a DEFAULT deployment ──────
+  //
+  // The regression this pins is the one that shipped: every 0119-era
+  // decision writer sits behind a flag that is off out of the box
+  // (abstentionCalibration='coverage', RETRIEVAL_L3_ESCALATION,
+  // FOVEA_FRAGMENT_ZOOM), so with OUTCOME_DECISION_CAPTURE default-on a
+  // live, answering service recorded NOTHING and /stats said
+  // `sampled 0`. Note the profile here: the stock one, no overrides.
+  it('stock profile (no coverage gate): still records route + verdict', async () => {
+    const decisionCalls: DecisionCall[] = [];
+    const { svc } = makeSvc('supported', { decisionCalls });
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesisGuardrails: 'strict' },
+      callerScopes: ['brain:read'],
+    });
+    expect(out.answer).toBe('Maya [f1].');
+    expect(decisionCalls.map((c) => c.input.decisionKind)).toEqual(['lane_route', 'verdict']);
+    const verdict = decisionCalls[1]!.input;
+    expect(verdict.chosenAction).toBe('ok');
+    // 'verifier' is what the DEFAULT genre resolves — the abstention
+    // mode a stock deployment actually runs, which is NOT the coverage
+    // regime the only 0119 abstain writer needs.
+    expect(verdict.policyVersion).toBe('verdict@strict/verifier');
+    expect(verdict.observedState).toMatchObject({ candidateCount: 1, topScore: 0.5 });
+  });
+
+  it('a decline is named by the verdict row, not inferred from its absence', async () => {
+    const decisionCalls: DecisionCall[] = [];
+    const { svc } = makeSvc('supported', {
+      decisionCalls,
+      searchImpl: async () => ({ results: [] }),
+    });
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesisGuardrails: 'strict' },
+      callerScopes: ['brain:read'],
+    });
+    expect(out.reason).toBe('no_results');
+    // The no_results exit returns BEFORE the abstain seam — it is only
+    // covered because the verdict writer sits at the serving boundary.
+    expect(decisionCalls.map((c) => c.input.chosenAction)).toEqual(['generic', 'no_results']);
+    expect(decisionCalls[1]!.input.observedState).toMatchObject({ candidateCount: 0 });
+  });
+
+  it('the lane_route row never claims the primary-decision slot', async () => {
+    const decisionCalls: DecisionCall[] = [];
+    const { svc, calls } = makeSvc('supported', { decisionCalls });
+    await svc.synthesize({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesisGuardrails: 'strict' },
+      callerScopes: ['brain:read'],
+      profile: coverageProfile({ abstentionMinEvidence: 1, abstentionMinTopScore: 0 }),
+    });
+    // Routing fires first; if it claimed the slot, every outcome row
+    // would join to a decision that says nothing about the answer.
+    expect(named(calls, 'used_in_answer')[0]!.decisionId).toBe('deadbeefdeadbeefdeadbeefdeadbeef');
   });
 
   it('capture flag off: no decision rows, no decisionId on events (byte-identical)', async () => {
