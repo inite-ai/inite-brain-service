@@ -3250,6 +3250,25 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
     description: 'Cap on in-flight dispatches across all jobTypes in this process; 0 = uncapped.',
   },
+  {
+    key: 'PREDICATE_SEMANTICS_MODEL',
+    category: 'registry',
+    // Captured in the judge's constructor — a live flip needs a restart.
+    defaultValue: null,
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Model for the predicate CARDINALITY judge: when the extractor coins a predicate the registry has never seen, one small strict-JSON call decides whether it is `single_active` (a state with one true value at a time — deploy_target, pilot_launch_date, payout_cutoff: a new value RETIRES the old one) or `append_only` (an event / preference / multi-valued field, where history is the point). Before this pass existed every coined predicate was append_only, which means no conflict is possible at ingest — the prior value stayed active forever beside the new one, so supersession and the competing-facts surface only ever worked for the ~15 seeded single_active predicates. Ambiguity, a missing OPENAI_API_KEY, a throw or an unparseable answer all resolve to append_only (the historical behaviour), so the pass only ever ADDS supersession where the judge is confident. Runs ONCE per novel predicate per tenant — the row is then cached in the registry — and never re-classifies an aliased, seeded or operator-edited predicate. Empty (default) = OPENAI_CHAT_MODEL, else gpt-4o-mini.',
+  },
+  {
+    key: 'PREDICATE_SEMANTICS_CONCURRENCY',
+    category: 'registry',
+    defaultValue: '4',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Max concurrent predicate-cardinality judge calls (PREDICATE_SEMANTICS_MODEL). The calls sit on the ingest write path, so this bounds how much a cold tenant — which coins most of its vocabulary in the first few documents — can fan out.',
+  },
   // ── Registry mirroring (pull-only, migration 0064) ───────
   {
     key: 'REGISTRY_UPSTREAM_URL',
