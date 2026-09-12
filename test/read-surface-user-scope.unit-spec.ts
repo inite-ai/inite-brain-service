@@ -24,7 +24,7 @@ describe('READ_SURFACE_USER_SCOPE read fence', () => {
   type Captured = { sql: string; params: Record<string, unknown> };
 
   afterEach(() => {
-    delete process.env.READ_SURFACE_USER_SCOPE;
+    process.env.READ_SURFACE_USER_SCOPE = '0';
   });
 
   // ── EntitiesService.getTimeline ───────────────────────────────────
@@ -60,6 +60,9 @@ describe('READ_SURFACE_USER_SCOPE read fence', () => {
     });
 
   it('timeline, flag off: historical clause byte-identical, userId ignored', async () => {
+    // Explicit now the default is ON: "off" is a cleared flag, not an
+    // absent one.
+    process.env.READ_SURFACE_USER_SCOPE = '0';
     const { svc, captured } = makeEntities();
     await timeline(svc, 'user-42');
     expect(captured).toHaveLength(1);
@@ -102,6 +105,7 @@ describe('READ_SURFACE_USER_SCOPE read fence', () => {
   });
 
   it('timeline, flag off + user-bound token mismatch: no new 403 path', async () => {
+    process.env.READ_SURFACE_USER_SCOPE = '0';
     await runWithRequestContext({ correlationId: 't', authUserId: 'user-42' }, async () => {
       const { svc, captured } = makeEntities();
       await timeline(svc, 'user-OTHER'); // ignored, not rejected
@@ -135,6 +139,7 @@ describe('READ_SURFACE_USER_SCOPE read fence', () => {
   }
 
   it('competing, flag off: historical clause byte-identical, userId ignored', async () => {
+    process.env.READ_SURFACE_USER_SCOPE = '0';
     const { svc, captured } = makeFacts();
     await svc.listCompeting('co_x', 'e1', { userId: 'user-42' });
     expect(captured).toHaveLength(1);
