@@ -5,7 +5,7 @@ import {
   langStampConfidenceGateEnabled,
 } from '../ai/locale/language-detector';
 import { sourceTrustFor } from '../ingest/ingest-utils';
-import { accumulateLanded, type RollupMember } from './aspect-rollups';
+import { accumulateLanded, type RollupMember } from './derive-pool';
 import { typedAtomKind, type DerivedProposition } from './deriver-client';
 import { computeCharSpans } from './span-anchor';
 import type { DeriveNamespace } from './derive-staging';

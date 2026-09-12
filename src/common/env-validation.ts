@@ -849,10 +849,8 @@ const KNOWN_BOOLEAN_FLAGS = [
   'DERIVER_DATE_RESOLVE',
   // V13: dedicated after-emission date audit turn (the post-pass shape
   // of the failed prompt rules). Default off; fresh derivedVersion.
-  'DERIVER_DATE_AUDIT',
   // V13 A2: mechanical per-(entity, aspect) rollup facts at write time
   // (the MH-enumeration lever). Default off; fresh derivedVersion.
-  'DERIVER_ASPECT_ROLLUPS',
   // V13: cross-session LLM composition pass (PREMem shape) — one call
   // per conversation over landed atoms. Default off; fresh
   // derivedVersion.

@@ -1,7 +1,7 @@
 /**
  * Digest persistence (V12 §2 write side), split out of
  * window-deriver.service.ts for the max-lines budget — the same
- * collaborator pattern as aspect-rollups.ts. Body moved verbatim from
+ * collaborator pattern as derive-pool.ts. Body moved verbatim from
  * the service's private persistDigest (0087 added userScopes).
  */
 

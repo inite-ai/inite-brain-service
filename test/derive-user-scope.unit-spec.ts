@@ -5,7 +5,7 @@
  * rollup-pool exclusion of user-scoped rows in accumulateLanded.
  */
 import { buildDerivedRows } from '../src/admin/derive-row-builder';
-import { accumulateLanded, type RollupMember } from '../src/admin/aspect-rollups';
+import { accumulateLanded, type RollupMember } from '../src/admin/derive-pool';
 import type { EpisodeRow } from '../src/episodes/session-window';
 import type { DerivedProposition } from '../src/admin/deriver-client';
 

@@ -11,7 +11,6 @@ import {
   WINDOW_DERIVER_VERSION,
   type EpisodeRow,
 } from '../src/admin/window-deriver.service';
-import { DATE_AUDIT_SYSTEM } from '../src/admin/deriver-client';
 import { chatCallParams, isReasoningModel } from '../src/ai/openai-client';
 import { buildBaseWhere } from '../src/search/internals/where-builder';
 import type { SurrealService } from '../src/db/surreal.service';
@@ -826,11 +825,5 @@ describe('chatCallParams (the ONE reasoning-model guard)', () => {
     });
     expect(isReasoningModel('gpt-5-mini')).toBe(true);
     expect(isReasoningModel('gpt-5')).toBe(true);
-  });
-
-  it('date-audit system prompt states the null-over-default contract', () => {
-    expect(DATE_AUDIT_SYSTEM).toContain('null');
-    expect(DATE_AUDIT_SYSTEM).toContain('calendar arithmetic');
-    expect(DATE_AUDIT_SYSTEM).toContain('same day');
   });
 });

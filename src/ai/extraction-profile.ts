@@ -144,24 +144,6 @@ export interface ExtractionPipelineProfile {
    */
   deriveDateResolve: boolean;
   /**
-   * DERIVER_DATE_AUDIT (V13): a dedicated after-emission turn
-   * re-deriving occurred_on for every proposition against the
-   * transcript + session date. The post-pass shape of the failed
-   * in-prompt rules (armH null; the salience-v2 lesson: grading after
-   * emission works where prompt sections do not). One extra call per
-   * session; failure degrades to un-audited dates.
-   */
-  deriveDateAudit: boolean;
-  /**
-   * DERIVER_ASPECT_ROLLUPS (V13, July A2): mechanical per-(entity,
-   * aspect) list-facts composed from the conversation's landed rows —
-   * write-time composition for the MH-enumeration miss class (every
-   * item exists atomically, no atom holds the list). LLM-free and
-   * deterministic; rollups write as `<aspect>_rollup` so they never
-   * compete in member slots. Fresh derivedVersion required.
-   */
-  deriveAspectRollups: boolean;
-  /**
    * DERIVER_COMPOSE_PASS (V13, the PREMem write-time composition
    * shape): after a conversation's sessions derive, ONE extra LLM call
    * over its landed atoms emits multi-atom compositions —
@@ -245,8 +227,6 @@ export function resolveExtractionProfile(
     deriveMentionStamp: envFlagEnabled(env.DERIVER_MENTION_STAMP),
     deriveTurnHeaders: envFlagEnabled(env.DERIVER_TURN_HEADERS),
     deriveDateResolve: envFlagEnabled(env.DERIVER_DATE_RESOLVE),
-    deriveDateAudit: envFlagEnabled(env.DERIVER_DATE_AUDIT),
-    deriveAspectRollups: envFlagEnabled(env.DERIVER_ASPECT_ROLLUPS),
     deriveComposePass: envFlagEnabled(env.DERIVER_COMPOSE_PASS),
     deriveSceneTrace: envFlagEnabled(env.DERIVER_SCENE_TRACE),
     deriveSpans: envFlagEnabled(env.DERIVER_SPANS),

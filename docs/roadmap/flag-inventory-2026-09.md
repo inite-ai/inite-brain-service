@@ -11,12 +11,18 @@ second part wrong, and the correction is the most useful thing on it.
 
 ## What is already measured, and lost
 
-Recorded verdicts that were never acted on:
+Two verdicts were recorded and never acted on. **Both are now deleted**
+— flag, code, prompt, tests and catalogue row:
 
-| flag | result | verdict as written |
-| --- | --- | --- |
-| `DERIVER_DATE_AUDIT` | 73.0 vs 77.8, p=0.0008, temporal −10.3pp | "NEGATIVE, **retire**" ([v11 §13](v11-session-2026-08.md)) |
-| `DERIVER_ASPECT_ROLLUPS` | 76.0 (p=0.23), multi-hop −6.3 wrong-way | "NULL/neg — rollups displace atoms" |
+| flag | result | verdict as written | state |
+| --- | --- | --- | --- |
+| `DERIVER_DATE_AUDIT` | 73.0 vs 77.8, p=0.0008, temporal −10.3pp | "NEGATIVE, **retire**" ([v11 §13](v11-session-2026-08.md)) | retired |
+| `DERIVER_ASPECT_ROLLUPS` | 76.0 (p=0.23), multi-hop −6.3 wrong-way | "NULL/neg — rollups displace atoms" | retired |
+
+The rollup file survives as `derive-pool.ts`: its landed-row pool is
+shared with `DERIVER_COMPOSE_PASS`, a separate leg that has not been
+measured. Deleting the composer without the pool is the whole point of
+retiring a leg rather than a directory.
 
 Measured null, still carried: `SEARCH_FACT_RERANK` (+0.8pp, p=0.52),
 `RETRIEVAL_MENTION_DATES` (+0.5pp, p=0.57), `RETRIEVAL_ENUM_STRICT`
@@ -102,9 +108,9 @@ That is the finding, and it reorders everything below.
    that changes the kind of evidence available.
 2. **Extend the domain battery from 2 packs to 6**, then add the
    situation axes above. Mechanical scoring, no judge — cheap.
-3. **Retire what is already measured lost** (`DERIVER_DATE_AUDIT`,
-   `DERIVER_ASPECT_ROLLUPS`): the verdict is recorded, the decision was
-   made in August, only the deletion is missing.
+3. ~~**Retire what is already measured lost**~~ — done. Both legs are
+   gone; the nulls stay pending a decision on whether any measurement is
+   scheduled for them at all.
 4. **LoCoMo demoted to a regression guard.** Keep it green; stop
    expecting it to discriminate.
 
