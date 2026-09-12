@@ -22,6 +22,7 @@ import {
   resolveCitations,
   resolveRoutedLane,
   serveCacheHit,
+  servingBoundary,
 } from './synthesize.helpers';
 import { applyEvidenceUnion } from './evidence-union';
 import type { LaneId } from './answer-router';
@@ -57,11 +58,12 @@ import {
 } from './evidence-collector.service';
 import { L3EscalationService } from './l3-escalation.service';
 import { FocusSignalService } from './focus-signal.service';
-import type { FocusVerdict } from './focus-signal';
+import { queryClassOf, type FocusVerdict } from './focus-signal';
 import { resolveAdaptiveAbstain, resolveAdaptiveL3 } from './adaptive-gates';
 import {
   buildL3DecisionCallback,
   captureAbstainDecision,
+  captureLaneRouteDecision,
   type DecisionContext,
 } from './decision-emit';
 import { LensSuppressionService } from './lens-suppression.service';
@@ -217,12 +219,11 @@ export class SynthesizeService {
    * observation per request, including error/abstain/cache-hit exits.
    */
   async synthesize(opts: SynthesizeOptions): Promise<SynthesizeResult> {
-    const t0 = Date.now();
-    try {
-      return await this.synthesizeGrounded(opts, { t0 });
-    } finally {
-      this.metrics?.observeSearchDuration((Date.now() - t0) / 1000);
-    }
+    return servingBoundary(
+      { metrics: this.metrics, decisions: this.decisions },
+      opts.companyId,
+      (ctx) => this.synthesizeGrounded(opts, ctx),
+    );
   }
 
   private async synthesizeGrounded(
@@ -263,6 +264,9 @@ export class SynthesizeService {
     // lanes. Flag off / deps absent / no-model / low-confidence → the SAME
     // profile object (byte-identical, same cache key). See LensSuppressionService.
     profile = (await this.lensSuppression?.effectiveProfile(companyId, profile, dto)) ?? profile;
+    // 0147: the verdict row's policy tag, stamped before the cache check
+    // below can return — a cache hit terminated under a policy too.
+    decisionCtx.policy = `${guardrails}/${profile.abstentionCalibration}`;
 
     // G1 answer cache (SYNTHESIZE_ANSWER_CACHE): exact-key serve with
     // check-on-read fact-lifecycle gating, BEFORE retrieval; a miss
@@ -280,6 +284,10 @@ export class SynthesizeService {
     // classifier when MULTILINGUAL_LANE_ROUTING is on (abstain-safe, off =
     // byte-identical). See resolveRoutedLane.
     const lane: LaneId | null = await resolveRoutedLane(profile, dto.query, this.laneClassifier);
+    decisionCtx.queryClass = queryClassOf(lane);
+    // 0119 lane_route: the routing decision WITH the candidate set it
+    // chose among (captureLaneRouteDecision). Never claims the primary slot.
+    captureLaneRouteDecision(this.decisions, companyId, { profile, lane, query: dto.query });
 
     onProgress({ stage: 'search', message: 'hybrid retrieval' });
     const searchResult = await withSpan(

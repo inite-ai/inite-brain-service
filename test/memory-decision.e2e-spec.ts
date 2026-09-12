@@ -8,7 +8,9 @@
  *   (c) GDPR entity-forget purges the decision rows THROUGH the outcome
  *       join (decisions carry no subject linkage by design);
  *   (d) user-forget leg — same join purge on the user-scoped slice;
- *   (e) capture off ⇒ zero decision rows (byte-identical).
+ *   (e) capture off ⇒ zero decision rows (byte-identical);
+ *   (f) 0147: a STOCK deployment (no abstention override) still records
+ *       the chain — the regression that made the whole plane empty.
  */
 import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
@@ -130,11 +132,14 @@ describe('memory_decision — decision-context capture, joins and cascade', () =
 
       const rows = await waitFor(
         () => decisionRows(),
-        (r) => r.length >= 1,
+        (r) => r.some((x) => x.decisionKind === 'abstain'),
       );
-      expect(rows).toHaveLength(1);
-      const d = rows[0]!;
-      expect(d.decisionKind).toBe('abstain');
+      // The request's full decision chain (0147): the routing decision,
+      // the gate that abstained, the exit it produced. Compared as a SET
+      // — the writers are fire-and-forget, so two detached inserts can
+      // land in either order and createdAt does not recover flow order.
+      expect(rows.map((r) => r.decisionKind).sort()).toEqual(['abstain', 'lane_route', 'verdict']);
+      const d = rows.find((r) => r.decisionKind === 'abstain')!;
       expect(d.chosenAction).toBe('abstain');
       expect(d.policyVersion).toBe('static');
       expect(d.decisionId).toMatch(/^[0-9a-f]{32}$/);
@@ -294,5 +299,38 @@ describe('memory_decision — decision-context capture, joins and cascade', () =
       process.env.OUTCOME_DECISION_CAPTURE = '1';
       delete process.env.RETRIEVAL_ABSTENTION_CALIBRATION;
     }
+  });
+
+  it('(f) a STOCK deployment still records the chain — no abstention override', async () => {
+    // The regression. Every leg above sets RETRIEVAL_ABSTENTION_CALIBRATION
+    // to reach a writer; without it — i.e. the way the service actually
+    // ships — 0119's two writers never fired, so the master flag was on,
+    // the table was empty, and /stats reported `sampled 0` against a live
+    // service. Note what this leg does NOT set.
+    await purgeDecisions();
+    const { factId } = await ingestFact('decision_stock_subj', 'Decision Stock Subject');
+    mockSynthesizeOpenAi(f.app, [
+      JSON.stringify({ answer: `Stock [${factId}].`, citedFactIds: [factId] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+    ]);
+    const res = await f.http
+      .post('/v1/synthesize')
+      .set(auth())
+      .send({ query: 'Decision Stock Subject', limit: 5 });
+    expect(res.status).toBe(201);
+
+    const rows = await waitFor(
+      () => decisionRows(),
+      (r) => r.some((x) => x.decisionKind === 'verdict'),
+    );
+    expect(rows.map((r) => r.decisionKind).sort()).toEqual(['lane_route', 'verdict']);
+    const verdict = rows.find((r) => r.decisionKind === 'verdict')!;
+    expect(verdict.chosenAction).toBe('ok');
+    // The policy tag names the modes the request actually ran under, so a
+    // decline can be read against the guardrails that produced it.
+    expect(verdict.policyVersion).toMatch(/^verdict@\w+\/\w+$/);
+    expect(Number.isInteger(verdict.costs?.latencyMs)).toBe(true);
+    expect(verdict.observedState).toMatchObject({ candidateCount: expect.any(Number) });
+    await purgeDecisions();
   });
 });
