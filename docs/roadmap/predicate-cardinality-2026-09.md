@@ -125,3 +125,87 @@ everything the conflict machinery can do.
 for a fact whose turn is dated 2026-03-25, and `2025-04-15` for
 `pilot_launch_date`. The extractor is reading the date VALUE into the
 validity stamp with the wrong year. Separate defect, separate fix.
+
+---
+
+# The wave, four arms
+
+Each arm adds one change to the one before it. Same corpus, same stand,
+fresh tenant each time.
+
+| arm | change added | score |
+|---|---|---|
+| base | `CONFLICT_*` on | 20/32 |
+| +judge | predicate cardinality (#592) | 21/32 |
+| +ent | entityRef adoption (#593) | 20/32 |
+| +scope | per-user read fence on (#594) | 20/32 |
+
+**The score did not move.** One arm reads +1 and the rest read 0, which
+at this sample size means nothing at all — see the noise section below.
+What DID move is three mechanisms, each with evidence that is not a
+score:
+
+| mechanism | evidence |
+|---|---|
+| predicate cardinality | `llm_auto` `single_active` 0/186 → 52/147; `superseded` 0 → 1; `competing` 2 → 6 |
+| entity adoption | the lowercase `meridian` twin is gone; both cutoff values now sit `competing` on ONE `Meridian` |
+| read fence | the timeline's WHERE clause widened; `d2-queue` and `d2-launch` flipped to pass with the history in the right order |
+
+The read fence is the only one that also produced score movement, and it
+is the one whose mechanism is closest to the check.
+
+## ⚠ The battery is too noisy to read single-check deltas
+
+Across the four arms, **7 of 32 checks flip-flop** with no mechanism
+behind the change:
+
+```
+d1-queue           fail pass fail fail
+d1-retry           pass fail pass pass
+d5-mobile          fail pass fail fail
+d8-enqueue-idiom   fail fail pass fail
+d4-rootcause-date  pass pass fail fail
+d9-batch-size      pass pass pass fail
+d7-port            pass fail fail fail
+```
+
+That is **~22% of the battery unstable run-to-run**, which puts the
+noise floor at roughly ±3 checks — larger than any effect measured in
+this wave. Every "+1" and "−1" above is inside it.
+
+Consequences, and they are not optional:
+
+* **A single run cannot validate a change on this instrument.** An arm
+  needs repeats (3+ runs) before its headline number means anything, or
+  the battery needs enough checks that one flip does not move it.
+* **Read the mechanism, not the scorecard.** Every real finding in this
+  wave came from querying rows and traces — the registry table, the
+  fact statuses, the entity list, the WHERE clause — and NONE of them
+  would have been visible in the number.
+* The dimensions that never move (D3, D4, D8, D10) are the mechanical
+  ones; the ones that flip are the ones whose verdict goes through a
+  generator. That is where the variance lives.
+
+## D6 is now a single, identified defect
+
+No longer "impossible by construction". The conflict is recorded and
+visible: both `payout_cutoff` values sit `competing` on `Meridian`, and
+the read fence can see them. The check still fails because the eval
+resolves the entity by searching, and:
+
+```
+0 Priya    | payout_cutoff: False
+1 Argus    | payout_cutoff: True     ← picked
+2 Meridian | payout_cutoff: True     ← where the competing pair is
+```
+
+`Argus` carries `payout_cutoff = 16:30` because extraction attached the
+relayed statement to **the person who reported it** rather than to the
+thing it is about. Same for `Priya`, who holds
+`informed_about = "the Meridian payout cutoff is 17:00 UTC"`.
+
+**Subject attribution is the next defect**: a relayed statement's
+subject should be what the statement is about, with the reporter kept as
+provenance. It is an extraction-prompt change (fresh `derivedVersion`,
+whole-corpus blast radius), so it wants its own pass — and, given the
+noise floor above, its own repeated measurement.
