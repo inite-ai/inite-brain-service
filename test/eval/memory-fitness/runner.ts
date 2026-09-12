@@ -307,7 +307,10 @@ async function ingestCorpus(cfg: Config, brain: HttpBrainClient): Promise<void> 
  */
 async function recordScopedFacts(cfg: Config, mcp: McpClient): Promise<void> {
   const owner = otherUserId(cfg);
-  console.error(`[record] ${SCOPED_FACTS.length} fact(s) scoped to ${owner}…`);
+  // The suffix, never the resolved id: cfg.userId comes from the
+  // environment (MEMFIT_USER_ID), and a run log is not the place to
+  // reprint an identity the operator supplied.
+  console.error(`[record] ${SCOPED_FACTS.length} fact(s) scoped to <user>-${OTHER_USER_SUFFIX}…`);
   for (const fact of SCOPED_FACTS) {
     await callTool(mcp, 'record_fact', {
       entityRef: fact.entityRef,
