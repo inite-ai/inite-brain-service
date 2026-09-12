@@ -108,6 +108,27 @@ export interface TemporalQuestion extends QuestionBase {
 }
 
 /**
+ * D9 — event-time ordering in the served answer.
+ *
+ * NOT a currency check. The first run of this axis failed a D1-shaped
+ * `forbidAnyOf: ['500']` against the answer "batch size is 200 as of
+ * 2026-03-25; prior to that it was 500 as of 2026-03-05" — which is the
+ * behaviour under test, stated correctly. Mentioning the superseded
+ * value as history is right; LEADING with it is what a memory ordered
+ * by arrival would do.
+ *
+ * So the discriminator is order, not presence: whichever value the
+ * answer presents first is the one the memory holds to be current.
+ */
+export interface OrderingQuestion extends QuestionBase {
+  kind: 'ordering';
+  /** The value that is current by event time. Must be present. */
+  currentMarkers: string[];
+  /** The superseded value. May appear — but only after the current one. */
+  priorMarkers: string[];
+}
+
+/**
  * D10 — per-user scope at serve time. The SAME question is asked twice:
  * as the user who owns the fact (must answer it) and as the battery's
  * own user (must not). Both halves, because a fence that answers nobody
@@ -168,6 +189,7 @@ export type Question =
   | ConflictApiQuestion
   | ConflictAnswerQuestion
   | IntegrationQuestion
+  | OrderingQuestion
   | ScopeFenceQuestion
   | ReplayQuestion;
 

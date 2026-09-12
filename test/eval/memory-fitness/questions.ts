@@ -263,10 +263,10 @@ export const QUESTIONS: Question[] = [
   {
     id: 'd9-batch-size-out-of-order',
     dimension: 'D9',
-    kind: 'currency',
+    kind: 'ordering',
     prompt: 'What payout batch size does ledger-sync use per run?',
-    expectAnyOf: ['200'],
-    forbidAnyOf: ['500'],
+    currentMarkers: ['200'],
+    priorMarkers: ['500'],
   },
 
   // ── D10: per-user scope at serve time ─────────────────────────────

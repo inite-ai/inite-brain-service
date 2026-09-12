@@ -37,6 +37,7 @@ import { interleaveRoundRobin } from './interleave';
 import { QUESTIONS } from './questions';
 import {
   checkEvolution,
+  checkOrdering,
   classifyConflictAnswer,
   containsAnyOf,
   findForbidden,
@@ -539,6 +540,11 @@ async function askOne(ctx: AskContext, q: Question): Promise<Verdict> {
       return isAbstention(out.answer, out.reason)
         ? { status: 'pass', detail: 'honest abstention on never-written topic', answer: out.answer }
         : { status: 'fail', detail: 'confabulated an answer', answer: out.answer };
+    }
+    case 'ordering': {
+      const { answer } = await synthesizeAnswer(ctx, q.prompt);
+      const verdict = checkOrdering(answer ?? '', q.currentMarkers, q.priorMarkers);
+      return { status: verdict.pass ? 'pass' : 'fail', detail: verdict.detail, answer };
     }
     case 'scope-fence': {
       // Positive half first: if the owner cannot get its own fact, the

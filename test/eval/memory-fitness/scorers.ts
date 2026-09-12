@@ -156,6 +156,41 @@ export function checkEvolution(
 }
 
 /**
+ * Event-time ordering in a served answer (D9).
+ *
+ * Passes when the current value is present and the superseded value,
+ * if mentioned at all, comes after it. A memory that ordered by arrival
+ * rather than by event time leads with the stale value, and that is the
+ * only thing this separates.
+ */
+export function checkOrdering(
+  answer: string,
+  currentMarkers: readonly string[],
+  priorMarkers: readonly string[],
+): { pass: boolean; detail: string } {
+  const firstIndex = (markers: readonly string[]): number => {
+    const hits = markers
+      .map((m) => answer.toLowerCase().indexOf(m.toLowerCase()))
+      .filter((i) => i >= 0);
+    return hits.length === 0 ? -1 : Math.min(...hits);
+  };
+  const current = firstIndex(currentMarkers);
+  if (current === -1) {
+    return { pass: false, detail: 'the current value is absent from the answer' };
+  }
+  const prior = firstIndex(priorMarkers);
+  if (prior === -1) {
+    return { pass: true, detail: 'current value served, superseded value not mentioned' };
+  }
+  return prior > current
+    ? { pass: true, detail: 'current value leads; the superseded value follows it as history' }
+    : {
+        pass: false,
+        detail: 'the answer leads with the superseded value — ordered by arrival, not event time',
+      };
+}
+
+/**
  * Key-phrase scorer (D8): every group must be satisfied; a plain string
  * is a required substring, an array is an any-of group. Returns the
  * missing groups (empty = pass).
