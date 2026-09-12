@@ -8,6 +8,7 @@
 import {
   detectLane,
   routeLane,
+  laneRouteCandidates,
   laneProbeDto,
   buildWideProbeQuery,
   extractStandingInstructions,
@@ -468,6 +469,36 @@ describe('routeLane respects the profile lane set', () => {
     expect(routeLane(profileWith(), q)).toBe('temporal');
     expect(routeLane(profileWith({ lanes: new Set() }), q)).toBeNull();
     expect(routeLane(profileWith({ lanes: new Set(['enumeration']) }), q)).toBeNull();
+  });
+});
+
+describe('laneRouteCandidates (the 0119 lane_route row)', () => {
+  // Matches BOTH the temporal lexicon ("how long ago") and the
+  // enumeration one ("list all"); temporal wins on registry order.
+  const q = 'How long ago did I list all my plants?';
+
+  it('agrees with routeLane on the winner, and says what it beat', () => {
+    // The row is only worth storing if the FIRST candidate is the route:
+    // that is what makes "chosen among" mean anything.
+    const { matched, routable } = laneRouteCandidates(profileWith(), q);
+    expect(matched[0]?.lane).toBe(routeLane(profileWith(), q));
+    expect(matched.map((m) => m.lane)).toEqual(['temporal', 'enumeration']);
+    expect(routable).toBeGreaterThan(matched.length);
+  });
+
+  it('ranks precedence among ROUTABLE lanes, not registry position', () => {
+    // With temporal removed from the profile, enumeration is no longer
+    // rank 1 — it is rank 0, because the lane it lost to cannot run.
+    const without = profileWith({ lanes: new Set(ALL_LANES.filter((l) => l !== 'temporal')) });
+    const { matched } = laneRouteCandidates(without, q);
+    expect(matched[0]).toEqual({ lane: 'enumeration', precedence: 0 });
+  });
+
+  it('matches nothing, and counts nothing routable, on an empty lane set', () => {
+    expect(laneRouteCandidates(profileWith({ lanes: new Set() }), q)).toEqual({
+      matched: [],
+      routable: 0,
+    });
   });
 });
 

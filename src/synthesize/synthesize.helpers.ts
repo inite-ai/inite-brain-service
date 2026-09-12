@@ -14,6 +14,8 @@ import { detectAnswerShape, shapeInstructionFor } from './answer-shape';
 import { resolvePromptFrames } from './evidence-gates';
 import type { GenerateRequest } from './generator-client';
 import type { MetricsService } from '../metrics/metrics.service';
+import type { MemoryDecisionService } from '../outcomes/memory-decision.service';
+import { captureVerdictDecision, type DecisionContext } from './decision-emit';
 
 /**
  * Pure helpers of the synthesize orchestrator, split out of
@@ -48,6 +50,32 @@ function evidenceConflicts(
   profile: RetrievalProfile,
 ): Array<{ factIds: string[]; label: string }> {
   return detectEvidenceConflicts(results, profile.lanes, profile.multilingualConflict);
+}
+
+/**
+ * The serving boundary of synthesize(): ONE latency observation and ONE
+ * terminal-verdict decision row per call, wrapped around the grounded
+ * flow.
+ *
+ * Both are boundary concerns and both must see EVERY exit — the served
+ * answer, each decline, the coverage abstain, the answer-cache hit that
+ * returns before retrieval, and (for the histogram alone) a thrown
+ * error. They share the one DecisionContext, whose `t0` anchors the
+ * histogram sample and the decision row's latency alike.
+ */
+export async function servingBoundary(
+  deps: { metrics?: MetricsService | undefined; decisions?: MemoryDecisionService | undefined },
+  companyId: string,
+  run: (ctx: DecisionContext) => Promise<SynthesizeResult>,
+): Promise<SynthesizeResult> {
+  const ctx: DecisionContext = { t0: Date.now() };
+  try {
+    const result = await run(ctx);
+    captureVerdictDecision(deps.decisions, companyId, { result, decisionCtx: ctx });
+    return result;
+  } finally {
+    deps.metrics?.observeSearchDuration((Date.now() - ctx.t0) / 1000);
+  }
 }
 
 /**
