@@ -170,10 +170,13 @@ describe('FactsService.listCompeting — groups competing pairs by predicate', (
 
   describe('READ_SURFACE_USER_SCOPE (per-user competing visibility)', () => {
     afterEach(() => {
-      delete process.env.READ_SURFACE_USER_SCOPE;
+      process.env.READ_SURFACE_USER_SCOPE = '0';
     });
 
     it('flag off: user-scoped rows stay invisible even when a userId is passed', async () => {
+      // Explicit now the default is ON: "off" is a CLEARED flag, not an
+      // absent one (the afterEach restores the same).
+      process.env.READ_SURFACE_USER_SCOPE = '0';
       const facts = f.app.get(FactsService);
       const out = await facts.listCompeting(f.companyId, ENT_ID, { userId: 'u_lc' });
       // Byte-identical pre-flag behavior — only the tenant-global group.
