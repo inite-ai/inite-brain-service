@@ -1379,11 +1379,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'READ_SURFACE_USER_SCOPE',
     category: 'auth',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Per-user read scope on the two read surfaces that predate migration 0055 and hardcode `userId IS NONE`: the entity timeline (GET /v1/entities/:id/timeline, get_entity_timeline) and the competing-facts listing (get_competing_facts). When on and the caller supplies a userId (pinned to a user-bound token’s end-user via pinUserScope — 403 on mismatch), the fence widens to the search-lane union `(userId IS NONE OR userId = $scopeUserId)`: tenant-global rows plus that one user’s personal ones, never a third user’s. Off (default) — or on with no userId — keeps the exact historical tenant-global-only clause, byte-identical.',
+      'Per-user read scope on the two read surfaces that predate migration 0055 and hardcode `userId IS NONE`: the entity timeline (GET /v1/entities/:id/timeline, get_entity_timeline) and the competing-facts listing (get_competing_facts). When on and the caller supplies a userId (pinned to a user-bound token’s end-user via pinUserScope — 403 on mismatch), the fence widens to the search-lane union `(userId IS NONE OR userId = $scopeUserId)`: tenant-global rows plus that one user’s personal ones, never a third user’s. On by default since 2026-09-12: off, both surfaces answer EMPTY for any deployment that writes per-user memory — the memory-fitness battery scored 0/3 on evolution history (\u201cno events matched either value\u201d) and could not see a `competing` pair that was sitting on the entity, because the rows were user-scoped and the fence was not. Clearing it (=0) — or calling with no userId — keeps the exact historical tenant-global-only clause, byte-identical.',
   },
   {
     key: 'PRIVACY_COMPOSER_USER_SCOPE',
