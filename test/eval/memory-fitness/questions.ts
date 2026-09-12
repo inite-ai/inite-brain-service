@@ -254,4 +254,31 @@ export const QUESTIONS: Question[] = [
     prompt: 'What Meridian sandbox rate limit do I need to respect?',
     keyPhrases: ['50'],
   },
+
+  // ── D9: out-of-order arrival ──────────────────────────────────────
+  // Chain E only. The 500 was written LAST and dated three weeks
+  // EARLIER than the 200, so answering 500 means the memory ordered by
+  // arrival rather than by when the decision was made. Same shape as a
+  // D1 currency question; what makes it D9 is how the corpus arrived.
+  {
+    id: 'd9-batch-size-out-of-order',
+    dimension: 'D9',
+    kind: 'currency',
+    prompt: 'What payout batch size does ledger-sync use per run?',
+    expectAnyOf: ['200'],
+    forbidAnyOf: ['500'],
+  },
+
+  // ── D10: per-user scope at serve time ─────────────────────────────
+  // Both halves in one question: the owner must get the pager rota, the
+  // battery's user must not. A fence that answers nobody fails the
+  // positive half, so passing cannot mean "retrieval is simply broken".
+  {
+    id: 'd10-scoped-pager',
+    dimension: 'D10',
+    kind: 'scope-fence',
+    prompt: 'What is the escalation pager rota for ledger-sync?',
+    expectAnyOf: ['QUETZAL-4417', 'QUETZAL'],
+    forbidForOthers: ['QUETZAL'],
+  },
 ];
