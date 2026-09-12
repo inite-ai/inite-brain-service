@@ -280,11 +280,28 @@ describe('MentionIngestService — fail-closed capture (EVIDENCE_FAIL_CLOSED_CAP
     expect(prepSource).toEqual({ vertical: 'locomo', recorder: 'stub-model' });
   });
 
-  it('flag OFF (default) → the capture result is discarded and persistAll receives the IDENTICAL source', async () => {
+  it('a captured episode is linked whatever the fail-closed flag says', async () => {
+    // These are two different questions and used to be one flag. Whether
+    // ingest REFUSES an uncapturable turn is the fail-closed decision;
+    // whether a turn we DID capture is worth pointing at is not. While
+    // they were coupled, a default deployment stored every episode,
+    // stored every fact, and linked none of them — provenance answered
+    // `[]` for the whole mention path.
     delete process.env.EVIDENCE_FAIL_CLOSED_CAPTURE;
-    const { svc, persisted, prepSource } = makeMentionStack('episode:cap1');
+    const { svc, persisted } = makeMentionStack('episode:cap1');
     const out = await svc.ingestMention('co_x', dto());
     expect(out.skipped).toBe(false);
+    expect(persisted[0]!.source).toEqual({
+      vertical: 'locomo',
+      recorder: 'stub-model',
+      episodeIds: ['episode:cap1'],
+    });
+  });
+
+  it('no captured episode → the source object rides through untouched', async () => {
+    delete process.env.EVIDENCE_FAIL_CLOSED_CAPTURE;
+    const { svc, persisted, prepSource } = makeMentionStack(null);
+    await svc.ingestMention('co_x', dto());
     // Byte-identity: the very same object reference, no episodeIds key.
     expect(persisted[0]!.source).toBe(prepSource);
     expect(persisted[0]!.source).toEqual({ vertical: 'locomo', recorder: 'stub-model' });

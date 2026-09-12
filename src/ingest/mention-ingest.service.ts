@@ -101,14 +101,23 @@ export class MentionIngestService {
         };
       }
 
-      // Drift-1: with fail-closed capture on, the captured episode id is
-      // stamped into every extracted fact's source — the grounding stamp
-      // (EVIDENCE_GROUNDING_STAMP) then reads it as observational. Flag
-      // off ⇒ the SAME source object rides through — byte-identical.
-      const source =
-        failClosedCaptureEnabled() && episodeId
-          ? { ...prep.source, episodeIds: [episodeId] }
-          : prep.source;
+      // The captured episode id is stamped into every extracted fact's
+      // source, so the fact can be walked back to the turn it came from
+      // (the grounding stamp, EVIDENCE_GROUNDING_STAMP, then reads it as
+      // observational).
+      //
+      // This used to require EVIDENCE_FAIL_CLOSED_CAPTURE, which is a
+      // different question: that flag decides whether ingest REFUSES a
+      // turn it could not capture, not whether a captured turn is worth
+      // linking. Coupling them meant that on a default deployment every
+      // episode was stored, every fact was stored, and no fact pointed
+      // at its episode — GET /v1/facts/:id/provenance answered `[]` for
+      // the entire mention path. Found by the memory-fitness battery,
+      // D3 at 0/3 with 12 facts walked and not one episode behind them.
+      //
+      // No episode id (substrate off, or a failed write) ⇒ the same
+      // source object rides through untouched, as before.
+      const source = episodeId ? { ...prep.source, episodeIds: [episodeId] } : prep.source;
 
       const out = await this.persist.persistAll({
         companyId,
