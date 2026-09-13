@@ -39,7 +39,14 @@ interface ChronoLike {
     text: string,
     ref?: Date,
     opt?: { forwardDate?: boolean },
-  ): Array<{ text: string; start: { date(): Date } }>;
+  ): Array<{
+    text: string;
+    /** `isCertain` distinguishes a component the TEXT stated from one
+     *  chrono inferred from the reference instant — the difference
+     *  between "2026-03-10" and a bare "12 September". Optional so the
+     *  structural type still matches a stub parser in tests. */
+    start: { date(): Date; isCertain?(component: string): boolean };
+  }>;
 }
 
 /** chrono locale parsers keyed by ISO-639-1 code. Languages chrono covers
@@ -67,6 +74,11 @@ const PARSERS: Record<string, ChronoLike> = {
  *  "room 2015") is never mistaken for a date. EN + RU prepositions. */
 // NB: JS `\b` is ASCII-only, so it never sits before a Cyrillic letter — the
 // RU prepositions в/с are anchored on start-or-whitespace instead.
+/** Components whose certainty means "the text stated a DATE". `hour` /
+ *  `minute` are deliberately absent: a time of day borrows its calendar
+ *  day from the reference instant and carries no event date of its own. */
+const DATE_COMPONENTS = ['year', 'month', 'day', 'weekday'] as const;
+
 const YEAR_FALLBACK =
   /(?:\b(?:in|since|back in|around|during|from|of)\s+|(?:^|\s)[вс]\s+)((?:19|20)\d{2})\b/i;
 
@@ -340,7 +352,7 @@ function parseWith(
   clause: string,
   ref: Date,
 ): { date: Date; expr: string } | null {
-  let results: Array<{ text: string; start: { date(): Date } }>;
+  let results: ReturnType<ChronoLike['parse']>;
   try {
     // forwardDate:false — default past bias for weekdays ("last Friday" → the
     // previous one), matching the "already happened" semantics.
@@ -351,7 +363,53 @@ function parseWith(
   for (const r of results) {
     let d = r.start.date();
     if (Number.isNaN(d.getTime())) continue;
-    if (d.getTime() > ref.getTime()) {
+    const certain = (c: string): boolean => r.start.isCertain?.(c) === true;
+    // A TIME OF DAY is not an event date. "the payout cutoff is 16:30
+    // UTC" states a property of a schedule and says nothing about when
+    // anything happened, but chrono answers with a full instant: the
+    // time from the text, the date silently borrowed from the reference.
+    // Stamping validFrom from that is a category error, and it compounds
+    // — 16:30 is later in the day than a 14:35 message, so the result
+    // reads as "future" and the rollback below aged it a year. Four
+    // facts on a battery tenant carried 2025 stamps from exactly this:
+    // two payout-cutoff turns whose text contains no date at all.
+    //
+    // chrono marks a component certain when the TEXT determined it and
+    // implied when it came from the reference, so "no certain date
+    // component" is precisely "this expression carries no date".
+    // Verified against chrono directly — certain components per shape:
+    //   "16:30 UTC"          hour                  <- no date at all
+    //   "2026-03-10"         year, month, day
+    //   "yesterday"          year, month, day
+    //   "three weeks ago"    year, month, day
+    //   "December 20"        month, day
+    //   "last Friday"        weekday               <- a date, relatively
+    //   "last month"         year, month
+    //   "last year"          year
+    // `weekday` earns its place in the list: "last Friday" names a day
+    // without naming any calendar component, and dropping it silently
+    // retired the weekday cases this module was built for.
+    if (!DATE_COMPONENTS.some(certain)) continue;
+    // A STATED year is an assertion, not an inference, and must never be
+    // rewritten. The rollback below exists for the bare-date case ("12
+    // September"), where chrono picks a nearest occurrence that may land
+    // forward; applied to "2026-03-10" it invents a date the text never
+    // contained. Measured on a battery tenant: 6 facts stamped a year
+    // early — `identified_root_cause` at 2025-03-10 from a turn whose
+    // text reads "Root cause found (2026-03-10)", and the same for every
+    // stated date at or after its own message instant. Note "at": chrono
+    // resolves a date-only expression to midday, so a date on the SAME
+    // day as the message already compares as future and was rolled back
+    // a full year.
+    //
+    // With the year stated we simply hand the date on. clampPast then
+    // decides honestly: same-day or earlier is kept, a genuinely future
+    // date is refused (null), and the caller keeps the message time —
+    // which is the right validFrom for "the launch is 2026-04-15" said
+    // in March anyway. The date named there is the VALUE, not the moment
+    // the statement became true.
+    const yearStated = certain('year');
+    if (!yearStated && d.getTime() > ref.getTime()) {
       // Future → roll back one year (bare-date nearest-occurrence case).
       const rolled = new Date(d);
       rolled.setUTCFullYear(rolled.getUTCFullYear() - 1);
