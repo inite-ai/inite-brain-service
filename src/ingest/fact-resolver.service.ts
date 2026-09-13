@@ -140,8 +140,26 @@ export function conflictSlotResolution(
     // standing sources are the common case — so it earns the margin
     // doctrine instead.
     const proposedGuess = policy.semantics === 'single_active' && policy.status === 'proposed';
-    return conflictDirectFactSlotEnabled() &&
-      (policy.predicateId === DEFAULT_FALLBACK.predicateId || proposedGuess)
+    if (!conflictDirectFactSlotEnabled()) return { semantics: policy.semantics };
+    // The floor is the load-bearing half of a SLOT promotion, and the
+    // mention branch below has always carried it. Promoting without it
+    // moved nothing: the 'bitemporal' pool still gates on cosine ≥
+    // CONFLICT_SIMILARITY_THRESHOLD (0.85), and two values of one slot
+    // are contradictory, not similar — "Redis Streams" vs "NATS
+    // JetStream" is nowhere near 0.85, so the pool emptied and both
+    // landed plainly 'active'. Measured: `queue-v2: INSERTED` across
+    // three runs with the policy correctly single_active.
+    //
+    // A declared single-value slot needs no cosine to establish claim
+    // identity — fn::resolve_fact's candidate SELECT already matches
+    // entity, canonical predicate, userId and world, and the semantics
+    // say AT MOST ONE active value, so any two values there collide BY
+    // DEFINITION. The '__default__' case keeps the gate: those slots are
+    // open-vocabulary, where cosine IS the claim-identity signal.
+    if (proposedGuess) {
+      return { semantics: 'bitemporal', similarityFloor: SLOT_EXACT_SIMILARITY_FLOOR };
+    }
+    return policy.predicateId === DEFAULT_FALLBACK.predicateId
       ? { semantics: 'bitemporal' }
       : { semantics: policy.semantics };
   }

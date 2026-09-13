@@ -244,6 +244,23 @@ describe('FactResolverService — CONFLICT_MENTION_FACT_SLOT promotion', () => {
       expect(conflictSlotSemantics(slot, 'direct')).toBe('single_active');
     });
 
+    it('the proposed-slot promotion CARRIES the slot-exact floor', () => {
+      // Without it the promotion moved nothing: the bitemporal pool still
+      // gates on cosine >= 0.85, and two values of one slot are
+      // contradictory rather than similar ("Redis Streams" vs "NATS
+      // JetStream"), so the pool emptied and both stayed active. Measured
+      // as `queue-v2: INSERTED` across three runs with the policy
+      // correctly single_active.
+      process.env.CONFLICT_DIRECT_FACT_SLOT = '1';
+      expect(conflictSlotResolution(guess, 'direct')).toEqual({
+        semantics: 'bitemporal',
+        similarityFloor: SLOT_EXACT_SIMILARITY_FLOOR,
+      });
+      // The open-vocabulary fallback KEEPS the gate — there cosine is the
+      // claim-identity signal, not noise.
+      expect(conflictSlotResolution(fallback, 'direct')).toEqual({ semantics: 'bitemporal' });
+    });
+
     it('direct flag OFF: an auto-proposed single_active is still passthrough', () => {
       expect(conflictSlotSemantics(guess, 'direct')).toBe('single_active');
     });

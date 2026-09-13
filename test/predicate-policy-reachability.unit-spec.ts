@@ -81,3 +81,69 @@ describe('policyFor — proposed predicates carry their own policy', () => {
     expect(s.policyFor('co_x', 'status').semantics).toBe('single_active');
   });
 });
+
+/**
+ * The TTL race that made the battery disagree with itself.
+ *
+ * `canonicalize()` patches the cached snapshot after an auto-insert so a
+ * repeat coinage short-circuits instead of re-embedding — but it patched
+ * `aliasMap` and `knownIds` ONLY. The row it had just written stayed
+ * invisible to `policyFor` until the snapshot TTL expired, so whether a
+ * coined predicate's semantics was in effect for the NEXT write of the
+ * same slot depended on whether a reload happened in between.
+ *
+ * Measured across three battery runs on identical corpora: `queue_backend`
+ * — first seen on a direct write — kept BOTH values `active` in all three,
+ * while `retry_policy`, coined earlier during turn ingest so a reload
+ * intervened, superseded correctly. Same code, same input, different
+ * stored worlds. That is a write-path race, not generator noise, and it
+ * is what "11 of 32 checks unstable" was actually made of.
+ */
+describe('noteAutoInsert — the freshly written policy is readable at once', () => {
+  const svc = () =>
+    new PredicateRegistryService(undefined as never, undefined as never, makeConfig());
+
+  function note(
+    s: PredicateRegistryService,
+    companyId: string,
+    novelId: string,
+    landed: { canonicalId: string; def?: PredicateDefinition },
+  ): void {
+    (
+      s as unknown as {
+        noteAutoInsert: (c: string, n: string, l: unknown) => void;
+      }
+    ).noteAutoInsert(companyId, novelId, landed);
+  }
+
+  it('a proposed predicate answers with its OWN semantics before any reload', () => {
+    const s = svc();
+    withSnapshot(s, 'co_x', { byId: new Map(), policyById: new Map(), aliasMap: new Map() });
+    // Pre-condition: the race — unknown until the row is noted.
+    expect(s.policyFor('co_x', 'queue_backend').predicateId).toBe(DEFAULT_FALLBACK.predicateId);
+    note(s, 'co_x', 'queue_backend', {
+      canonicalId: 'queue_backend',
+      def: def({ predicateId: 'queue_backend', semantics: 'single_active', status: 'proposed' }),
+    });
+    expect(s.policyFor('co_x', 'queue_backend').semantics).toBe('single_active');
+  });
+
+  it('an aliased coinage answers with the CANON’s policy', () => {
+    const s = svc();
+    const canon = def({ predicateId: 'status', semantics: 'single_active' });
+    withSnapshot(s, 'co_x', {
+      byId: new Map([['status', canon]]),
+      policyById: new Map([['status', canon]]),
+      aliasMap: new Map(),
+    });
+    note(s, 'co_x', 'lifecycle_status', { canonicalId: 'status', def: canon });
+    expect(s.policyFor('co_x', 'lifecycle_status').semantics).toBe('single_active');
+  });
+
+  it('without a definition it still records the alias (legacy call shape)', () => {
+    const s = svc();
+    withSnapshot(s, 'co_x', { byId: new Map(), policyById: new Map(), aliasMap: new Map() });
+    note(s, 'co_x', 'coined', { canonicalId: 'coined' });
+    expect(s.policyFor('co_x', 'coined').predicateId).toBe(DEFAULT_FALLBACK.predicateId);
+  });
+});

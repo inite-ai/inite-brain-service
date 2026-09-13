@@ -303,13 +303,29 @@ export class PredicateRegistryService {
    * active row-set is untouched, so versionHash stays valid; other pods
    * converge via the snapshot TTL.
    */
-  private noteAutoInsert(companyId: string, novelId: string, canonicalId: string): void {
+  private noteAutoInsert(
+    companyId: string,
+    novelId: string,
+    landed: { canonicalId: string; def?: PredicateDefinition | undefined },
+  ): void {
+    const { canonicalId, def } = landed;
     const cached = this.cache.get(companyId);
     if (!cached) return;
     const s = cached.snapshot;
     s.aliasMap.set(novelId, canonicalId);
     if (!s.knownIds) s.knownIds = new Set();
     s.knownIds.add(novelId);
+    // ...and into the POLICY map, or the row we just wrote stays
+    // unreadable until the snapshot TTL expires. That window was a race
+    // with a visible cost: whether a coined predicate's semantics was in
+    // effect for the NEXT write of the same slot depended on whether a
+    // reload happened in between. `queue_backend`, first seen on a
+    // direct write, kept both values active across three battery runs
+    // while `retry_policy` — coined earlier, during turn ingest, so a
+    // reload intervened — superseded correctly. Same corpus, same code,
+    // different worlds: that is what made the battery disagree with
+    // itself run to run.
+    if (def) s.policyById = new Map(s.policyById ?? s.byId).set(novelId, def);
   }
 
   // ── Admin CRUD ────────────────────────────────────────────────────────
@@ -672,7 +688,12 @@ export class PredicateRegistryService {
             },
           });
         });
-        this.noteAutoInsert(companyId, predicate, best!.predicateId);
+        // Aliased: the novel id answers with the CANON's policy, which
+        // is what `predicateAlias ?? predicate` resolves to downstream.
+        this.noteAutoInsert(companyId, predicate, {
+          canonicalId: best!.predicateId,
+          def: canonical,
+        });
       } catch (e) {
         this.logger.warn(
           `canonicalize: auto-alias insert failed for '${predicate}' → '${best!.predicateId}': ${(e as Error).message}`,
@@ -725,7 +746,19 @@ export class PredicateRegistryService {
           },
         });
       });
-      this.noteAutoInsert(companyId, predicate, predicate);
+      // The definition the row just took, so the classification is in
+      // effect for the very next write of this slot rather than after
+      // the next snapshot reload.
+      this.noteAutoInsert(companyId, predicate, {
+        canonicalId: predicate,
+        def: {
+          ...DEFAULT_FALLBACK,
+          predicateId: predicate,
+          displayLabel: predicate.replace(/_/g, ' '),
+          semantics,
+          status: 'proposed',
+        },
+      });
     } catch (e) {
       this.logger.warn(
         `canonicalize: proposed insert failed for '${predicate}': ${(e as Error).message}`,
