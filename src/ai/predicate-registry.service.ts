@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from './embedder.service';
+import { PredicateSemanticsJudgeService } from './predicate-semantics-judge.service';
 import { cosineSimilarity } from '../common/vector-math';
 import { LRUCache } from '../common/lru-cache';
 
@@ -81,10 +82,15 @@ export class PredicateRegistryService {
 
   private readonly canonicalizeThreshold: number;
 
+  // The cardinality judge is the LAST dep and @Optional() so the
+  // positionally-constructed unit tests stay three-argument; absent ⇒
+  // a proposed predicate keeps DEFAULT_FALLBACK, exactly as before.
+  // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     private readonly embedder: EmbedderService,
     private readonly config: ConfigService,
+    @Optional() private readonly semanticsJudge?: PredicateSemanticsJudgeService,
   ) {
     const parsedThreshold = parseFloat(
       this.config.get<string>(
@@ -244,7 +250,15 @@ export class PredicateRegistryService {
   policyFor(companyId: string, predicate: string): PredicateDefinition {
     const cached = this.cache.get(companyId);
     if (cached) {
-      const hit = cached.snapshot.byId.get(predicate);
+      // policyById (active ∪ proposed) rather than byId (active only).
+      // Reading byId here is what made the whole open-vocabulary half of
+      // a tenant's registry inert: canonicalize inserts a novel
+      // predicate as 'proposed', byId excludes it, so its row's policy —
+      // semantics above all — was written and never read, and every such
+      // fact resolved on DEFAULT_FALLBACK's append_only. Measured on a
+      // live tenant: 143 of 143 `llm_auto` rows were 'proposed'.
+      // Falls back to byId for legacy snapshot literals without the map.
+      const hit = (cached.snapshot.policyById ?? cached.snapshot.byId).get(predicate);
       if (hit) return hit;
     }
     // Fallback: CORE seed table by predicate id. Covers the case where the
@@ -473,6 +487,17 @@ export class PredicateRegistryService {
       }));
       const active = all.filter(({ def }) => def.status === 'active').map(({ def }) => def);
       const byId = new Map(active.map((p) => [p.predicateId, p]));
+      // Write-path policy lookup: proposed rows FIRST so an active row
+      // of the same id always wins the overwrite. See PredicateSnapshot
+      // .policyById — without it a proposed predicate's own policy was
+      // unreachable and every open-vocabulary fact resolved on
+      // DEFAULT_FALLBACK.
+      const policyById = new Map(
+        all
+          .filter(({ def }) => def.status === 'proposed')
+          .map(({ def }) => [def.predicateId, def] as const),
+      );
+      for (const [id, def] of byId) policyById.set(id, def);
 
       // Build aliasMap: for each row, follow aliasedTo chains until we
       // land on an active predicate (or give up). Length-capped to defend
@@ -546,6 +571,7 @@ export class PredicateRegistryService {
         versionHash,
         active,
         byId,
+        policyById,
         aliasMap,
         embeddings,
         extractionProfiles,
@@ -660,19 +686,34 @@ export class PredicateRegistryService {
       };
     }
 
-    // Below threshold — propose. Inherits DEFAULT policy until an
-    // operator (or a future LLM-classify pass) sets the proper one.
+    // Below threshold — propose. The policy used to be DEFAULT_FALLBACK
+    // unconditionally, "until an operator (or a future LLM-classify
+    // pass) sets the proper one" — and that pass is this one. Leaving it
+    // unbuilt meant every coined predicate was append_only, i.e. one for
+    // which no conflict is possible at ingest: on a live tenant 186 of
+    // 223 predicates were auto-coined and all 186 append_only, so
+    // `deploy_target`, `queue_backend` and friends kept every superseded
+    // value active forever and "what is it NOW" had nothing to answer
+    // with. Ambiguity still resolves to append_only, and so does every
+    // failure — no key, throw, bad parse — so this only ever ADDS
+    // supersession where the judge is confident.
+    const semantics = await this.classifyProposedSemantics({
+      predicate,
+      contextText,
+      best,
+      snapshot,
+    });
     try {
       await this.surreal.withCompany(companyId, async (db) => {
         await db.query(`CREATE knowledge_predicate CONTENT $content`, {
           content: {
             predicateId: predicate,
             displayLabel: predicate.replace(/_/g, ' '),
-            description: `(auto-proposed; awaiting review. Closest existing: ${
+            description: `(auto-proposed as ${semantics}; awaiting review. Closest existing: ${
               best ? `${best.predicateId} @ cosine ${best.similarity.toFixed(3)}` : 'none'
             })`,
             datatype: 'string',
-            semantics: DEFAULT_FALLBACK.semantics,
+            semantics,
             // option<int> — omit when null so SurrealDB stores NONE
             ...(DEFAULT_FALLBACK.decayHalfLifeDays !== null
               ? { decayHalfLifeDays: DEFAULT_FALLBACK.decayHalfLifeDays }
@@ -696,5 +737,33 @@ export class PredicateRegistryService {
       novelPredicateId: predicate,
       ...(best && best.similarity >= CANONICALIZE_REPORT_FLOOR ? { bestMatch: best } : {}),
     };
+  }
+
+  /**
+   * Cardinality classification for a newly proposed predicate. The
+   * judge is @Optional(), so an unwired graph (and every positional
+   * unit construction) keeps the historical DEFAULT_FALLBACK — which is
+   * also what the judge itself returns on any failure.
+   *
+   * `best` is passed through as a hint only: it scored BELOW the alias
+   * threshold, so it is related enough to inform the judgment and too
+   * far to inherit from.
+   */
+  private async classifyProposedSemantics(args: {
+    predicate: string;
+    contextText: string;
+    best: { predicateId: string; similarity: number } | undefined;
+    snapshot: PredicateSnapshot;
+  }): Promise<Semantics> {
+    if (!this.semanticsJudge) return DEFAULT_FALLBACK.semantics;
+    const { predicate, contextText, best, snapshot } = args;
+    const canon = best ? snapshot.byId.get(best.predicateId) : undefined;
+    return this.semanticsJudge.classify(
+      predicate,
+      contextText,
+      best && canon
+        ? { predicateId: best.predicateId, semantics: canon.semantics, similarity: best.similarity }
+        : undefined,
+    );
   }
 }

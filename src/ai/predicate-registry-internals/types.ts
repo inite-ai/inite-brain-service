@@ -105,6 +105,22 @@ export interface PredicateSnapshot {
    * literals in tests omit it; consumers treat absent as empty.
    */
   knownIds?: Set<string>;
+  /**
+   * Policy lookup for the WRITE path: active rows PLUS 'proposed' ones.
+   *
+   * `byId` is the ACTIVE set and drives candidate/embedding work, so
+   * policyFor reading it meant a proposed predicate always resolved to
+   * DEFAULT_FALLBACK — and under an open vocabulary that is almost the
+   * whole registry (measured on a live tenant: 143 of 143 `llm_auto`
+   * rows were 'proposed'). Every per-predicate policy those rows carry —
+   * semantics above all — was stored and never read, so classifying
+   * them was inert until this map existed.
+   *
+   * A proposed row NEVER shadows an active one. Optional: legacy
+   * snapshot literals in tests omit it, and consumers fall back to
+   * `byId`.
+   */
+  policyById?: Map<string, PredicateDefinition>;
 }
 
 export type CanonicalizeDecision =
