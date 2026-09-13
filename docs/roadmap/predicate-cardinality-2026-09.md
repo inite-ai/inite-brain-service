@@ -160,9 +160,15 @@ direct-ingest `entityRef` and the extraction-coined name never merge, not
 even across case. That is the next defect, and it is upstream of
 everything the conflict machinery can do.
 
-**Extraction year drift** — the one DETERMINISTIC failure left, and the
-cause of the only stable regression above (`d4-rootcause-date`). Narrowed
-to a precise repro:
+**Extraction year drift — FIXED** (was the cause of the only stable
+regression above). Two defects in `parseWith`, and the first version of
+this section stopped one step short of both by concluding "something
+after `factValidFrom` rewrites it". It did not: the rewrite is inside
+the parse, and `INGEST_EVENT_TIME_EXTRACTION` was ON — I had checked an
+env FILE instead of asking the running service, which is the same
+short-chain error this page keeps recording.
+
+The repro:
 
 ```
 turn d6a-c2-t03, emittedAt 2026-03-10T10:10:00Z
@@ -180,10 +186,38 @@ parse against a same-day reference ("March 10" is not strictly before
 2026-03-10, so it walks back a year). The answer it produces is
 "identified on 2025-03-10", which is why the temporal check fails.
 
-Not caused by this wave — the same drift is visible in the first tenant
-of the day (`payout_cutoff` at `2025-03-25`, `pilot_launch_date` at
-`2025-04-15`). Open, deterministic, and worth more than a half-chased
-fix: it is the only failure here that a single run can prove.
+Two causes, one function:
+
+1. **A stated year is an assertion.** The year rollback exists for a bare
+   "12 September", where chrono picks a nearest occurrence that can land
+   forward. Applied to `2026-03-10` it invents a year the text never
+   contained — and chrono resolves a date-only expression to MIDDAY, so a
+   date on the SAME DAY as its message already compared as future.
+2. **A time of day is not an event date.** "the payout cutoff is 16:30
+   UTC" contains no date; chrono answers with the time from the text and
+   the calendar day borrowed from the reference. That accounted for the
+   last 4 drifted facts, and compounded — 16:30 is later than a 14:35
+   message, so it read as future and took the rollback too.
+
+Component certainty is the exact discriminator, and this was verified
+against chrono directly instead of assumed:
+
+```
+"16:30 UTC"        hour                 <- no date
+"2026-03-10"       year, month, day
+"yesterday"        year, month, day
+"three weeks ago"  year, month, day
+"December 20"      month, day
+"last Friday"      weekday              <- a date, relatively
+"last month"       year, month
+```
+
+`weekday` earns its place in the accepted set: leaving it out silently
+retired the weekday cases the module was built for — caught by the
+existing specs, not by the battery.
+
+Facts stamped before 2026 on a fresh tenant: **11 → 0**. D4 temporal
+anchors: 4/4 in three consecutive runs.
 
 ---
 
@@ -212,6 +246,30 @@ score:
 
 The read fence is the only one that also produced score movement, and it
 is the one whose mechanism is closest to the check.
+
+## The measurement that finally means something
+
+Three runs of the finished pipeline, fresh tenant each, against the base
+arm's single 20/32:
+
+|                           | stable pass | stable fail | unstable | scores           |
+| ------------------------- | ----------- | ----------- | -------- | ---------------- |
+| before the year-drift fix | 16          | 5           | **11**   | 21 / 20 / 22     |
+| after                     | **18**      | 5           | **9**    | **22 / 23 / 24** |
+
+Two checks moved fail → pass in **all three** runs, each with a mechanism
+behind it, and **nothing regressed stably**:
+
+- `d2-queue` — evolution history, from the read fence (#594)
+- `d6-competing-api` — conflict surfacing, from the cardinality chain
+
+`d4-rootcause-date`, the one stable regression of the earlier round, is
+now a stable pass: it was the year drift, exposed rather than caused.
+
+Note what moved the needle: not the score-chasing, but tracing ONE fact
+from its turn to its stored row and following each branch to a root.
+Every earlier round of this wave stopped at the first plausible cause and
+shipped a patch that measured as noise.
 
 ## The run that finally had all three pieces
 
