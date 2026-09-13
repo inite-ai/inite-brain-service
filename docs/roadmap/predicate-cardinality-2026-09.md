@@ -247,6 +247,86 @@ score:
 The read fence is the only one that also produced score movement, and it
 is the one whose mechanism is closest to the check.
 
+## Where the instability actually lives
+
+The earlier rounds of this page called the battery noisy and moved on.
+That was the short chain again: "noisy" is a symptom, not a cause. Taking
+one unstable check (`d1-queue`) and asking WHY, on a finished tenant:
+
+```
+/v1/search    x6  -> 10 hits, 39 facts, identical signature 6/6
+/v1/synthesize x8 -> identical answer, identical citation 8/8
+```
+
+**Neither retrieval nor synthesis varies.** The read path is
+deterministic. So the variance is in what gets WRITTEN — and comparing
+the three runs' stored worlds found it twice over.
+
+### 1. A TTL race in the registry cache
+
+`canonicalize()` patches the cached snapshot after an auto-insert so a
+repeat coinage short-circuits instead of re-embedding — but it patched
+`aliasMap` and `knownIds` ONLY. The row it had just written stayed
+invisible to `policyFor` until the snapshot TTL expired. So whether a
+coined predicate's semantics was in effect for the NEXT write of the
+same slot depended on whether a reload happened in between:
+
+| predicate       | first coined                    | result across 3 runs        |
+| --------------- | ------------------------------- | --------------------------- |
+| `retry_policy`  | turn ingest (reload intervened) | superseded correctly        |
+| `queue_backend` | a direct write                  | **both values active, 3/3** |
+
+Same corpus, same code, different stored worlds.
+
+### 2. The promotion without its floor
+
+Closing the race was not enough — `queue-v2: INSERTED` persisted with the
+policy correctly `single_active`. The direct-path promotion had copied
+the mention path's promotion without its load-bearing half: the
+`bitemporal` pool still gates on cosine ≥ 0.85, and two values of one
+slot are **contradictory, not similar** — "Redis Streams" vs "NATS
+JetStream" is nowhere near it — so the pool emptied and both landed
+plainly active.
+
+A declared single-value slot needs no cosine to establish claim identity;
+`fn::resolve_fact` already matches entity, predicate, user and world. The
+promotion now carries `SLOT_EXACT_SIMILARITY_FLOOR`, as the mention path
+always has. `__default__` keeps the gate — open-vocabulary slots are
+where cosine IS the signal.
+
+After both: `queue-v2`, `retry-v2`, `launch-v2`, `deploy-v2` **all
+SUPERSEDED** and `cutoff-docs` **COMPETING**, in 3/3 runs.
+
+### What is left, and it is not "noise" either
+
+`d1-queue` still flips — and the slot is now identical in all three
+tenants (Redis superseded, NATS active). The difference is elsewhere:
+
+```
+run 0  pass   ... job_queue_backend = Redis Streams   (present)
+run 1  fail   "abstained on a known value"            (ABSENT)
+run 2  pass   ... job_queue_backend = Redis Streams   (present)
+```
+
+**Extraction coins different predicates on different runs**, the evidence
+set changes with it, and the abstention gate flips. That is the residual
+variance, located rather than named — and it is the same defect as the
+engine citing a `code_memory__decided` sentence over a typed slot:
+extraction emits redundant parallel representations of one fact, and
+non-deterministically.
+
+## Stage by stage
+
+| stage               | stable pass | stable fail | unstable  | scores           |
+| ------------------- | ----------- | ----------- | --------- | ---------------- |
+| base                | 20          | 12          | — (1 run) | 20               |
+| + cardinality chain | 16          | 5           | 11        | 21 / 20 / 22     |
+| + year-drift fix    | 18          | 5           | 9         | 22 / 23 / 24     |
+| + race and floor    | **21**      | **3**       | **8**     | **25 / 24 / 27** |
+
+Two checks are stable gains against base across all three runs
+(`d2-queue`, `d2-retry`); nothing regressed stably.
+
 ## The measurement that finally means something
 
 Three runs of the finished pipeline, fresh tenant each, against the base
