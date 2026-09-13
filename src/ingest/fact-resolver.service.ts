@@ -4,7 +4,10 @@ import { queryRows, retryOnUniqueViolation } from '../db/surreal.service';
 import { scopeForUser } from '../auth/scope-tags';
 import { MetricsService } from '../metrics/metrics.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
-import { DEFAULT_FALLBACK } from '../ai/predicate-registry-internals/types';
+import {
+  DEFAULT_FALLBACK,
+  type PredicateDefinition,
+} from '../ai/predicate-registry-internals/types';
 import {
   detectLanguage,
   LANG_HIGH_CONFIDENCE,
@@ -114,11 +117,31 @@ export const SLOT_EXACT_SIMILARITY_FLOOR = -1;
  * src/common/conflict-flags.ts); exported for tests.
  */
 export function conflictSlotResolution(
-  policy: { predicateId: string; semantics: string },
+  policy: { predicateId: string; semantics: string; status?: string | undefined },
   path: 'direct' | 'mention',
 ): { semantics: string; similarityFloor?: number | undefined } {
   if (path === 'direct') {
-    return conflictDirectFactSlotEnabled() && policy.predicateId === DEFAULT_FALLBACK.predicateId
+    // Two blind spots, one promotion. The '__default__' case is the
+    // original: an unknown predicate short-circuits the conflict pool to
+    // []. The 'single_active' case appeared the moment coined predicates
+    // started being CLASSIFIED rather than all landing on the fallback —
+    // a real single_active slot supersedes UNCONDITIONALLY, so the
+    // margin doctrine (and with it CONFLICT_TEMPORAL_TIEBREAKER, which
+    // only arms for 'bitemporal') never runs, and two independent
+    // sources disagreeing about one slot silently became "the later one
+    // wins". Measured: the payout-cutoff pair went COMPETING → SUPERSEDED
+    // on the run the classification first became reachable.
+    //
+    // Restricted to PROPOSED rows, and that restriction is the point: a
+    // seeded or operator-promoted single_active (address, status, tier)
+    // is a deliberate statement that a typed re-write IS the new truth,
+    // and it keeps unconditional supersede exactly as before. An
+    // auto-proposed one is a GUESS about a coined predicate, where two
+    // standing sources are the common case — so it earns the margin
+    // doctrine instead.
+    const proposedGuess = policy.semantics === 'single_active' && policy.status === 'proposed';
+    return conflictDirectFactSlotEnabled() &&
+      (policy.predicateId === DEFAULT_FALLBACK.predicateId || proposedGuess)
       ? { semantics: 'bitemporal' }
       : { semantics: policy.semantics };
   }
@@ -129,7 +152,7 @@ export function conflictSlotResolution(
 
 /** Semantics-only view of conflictSlotResolution (kept for tests/callers). */
 export function conflictSlotSemantics(
-  policy: { predicateId: string; semantics: string },
+  policy: { predicateId: string; semantics: string; status?: string | undefined },
   path: 'direct' | 'mention',
 ): string {
   return conflictSlotResolution(policy, path).semantics;
@@ -544,6 +567,53 @@ export class FactResolverService {
    * turns a public resolve input into the positional `resolveFactCall` params.
    * One place so the per-fact and batched paths can never bind the wrong slot.
    */
+  /**
+   * The predicate policy that decides this fact's fate — registering the
+   * predicate first when the registry has never seen it.
+   *
+   * Only the EXTRACTION path ever called canonicalize(), so a predicate
+   * that arrives solely through `POST /v1/ingest/fact` was never coined,
+   * never classified, and resolved on DEFAULT_FALLBACK's `append_only`
+   * forever — i.e. "no conflict possible at ingest" for the entire
+   * vocabulary of a structured-ingest tenant. It also produced an
+   * ordering race in mixed corpora: whichever path touched a predicate
+   * first decided whether the other path's facts could ever supersede.
+   *
+   * Registering here closes both. The cost is one canonicalize per NOVEL
+   * predicate per tenant — an embed plus, below the alias threshold, one
+   * small cardinality call — after which the row is in the snapshot and
+   * this is a cache read. A known predicate costs nothing extra.
+   *
+   * NEVER throws and never rewrites `p.predicate`: a failure, or a
+   * registry that is simply unreachable, falls through to exactly the
+   * policy this call would have returned before.
+   */
+  private async policyForPredicate(
+    p: Parameters<FactResolverService['resolve']>[1],
+    predicate: string,
+  ): Promise<PredicateDefinition> {
+    // An alias the caller already resolved wins — the mention path
+    // stamps predicateAlias precisely so resolution keys on the canon.
+    const keyed = p.predicateAlias ?? predicate;
+    const first = this.predicateRegistry.policyFor(p.companyId, keyed);
+    if (first.predicateId !== DEFAULT_FALLBACK.predicateId) return first;
+    try {
+      const decision = await this.predicateRegistry.canonicalize(
+        p.companyId,
+        keyed,
+        `${keyed}: ${p.object}`,
+      );
+      await this.predicateRegistry.getSnapshot(p.companyId);
+      return this.predicateRegistry.policyFor(p.companyId, decision.canonicalId);
+    } catch (e) {
+      this.logger.warn(
+        `ingest: predicate registration failed for '${keyed}' ` +
+          `(${(e as Error).message}); using the fallback policy`,
+      );
+      return first;
+    }
+  }
+
   private async buildResolveCall(
     p: Parameters<FactResolverService['resolve']>[1],
   ): Promise<Parameters<FactResolverService['resolveFactCall']>[1]> {
@@ -559,7 +629,7 @@ export class FactResolverService {
     // passthrough, byte-identical.
     const canonicalSlot = canonicalSlotFor(p, path);
     const predicate = canonicalSlot ?? p.predicate;
-    const policy = this.predicateRegistry.policyFor(p.companyId, predicate);
+    const policy = await this.policyForPredicate(p, predicate);
     // Conflict-slot promotion (CONFLICT_DIRECT_FACT_SLOT /
     // CONFLICT_MENTION_FACT_SLOT, both default off): the shared helper
     // routes each path's blind spot into fn::resolve_fact's 'bitemporal'

@@ -103,21 +103,56 @@ export class EntityUpsertService {
     // input needed). externalRefKey only ever produces [word]/`__`, never
     // a colon, so "::u::" cannot be forged from the (vertical, id) side.
     const refKey = userId ? `${baseKey}::u::${userId}` : baseKey;
-    return this.upsertEntityByExternalRef(db, refKey, () => ({
-      type: 'other',
-      canonicalName: ref.id,
-      externalRefs: { [refKey]: ref.id },
-      // G6 step 1: mirror the per-user scope as a scope tag (0093) next
-      // to the userId stamp. The named-entity path stays tenant-global
-      // (no userId → the scope field DEFAULT [] holds).
-      ...(userId ? { userId, scope: scopeForUser(userId) } : {}),
-    }));
+    return this.upsertEntityByExternalRef(db, refKey, {
+      factory: () => ({
+        type: 'other',
+        canonicalName: ref.id,
+        externalRefs: { [refKey]: ref.id },
+        // G6 step 1: mirror the per-user scope as a scope tag (0093) next
+        // to the userId stamp. The named-entity path stays tenant-global
+        // (no userId → the scope field DEFAULT [] holds).
+        ...(userId ? { userId, scope: scopeForUser(userId) } : {}),
+      }),
+      // The ref id IS a name the caller chose for this thing; if the
+      // graph already knows exactly that name, it is the same thing.
+      //
+      // TENANT-GLOBAL REFS ONLY, and this is load-bearing. 0055 gives a
+      // user-scoped ref its OWN entity rather than hanging personal
+      // facts off the shared node, and user-forget deletes that entity
+      // (`entitiesDeleted`) — so adopting the tenant-global node for a
+      // scoped ref would either orphan the erasure or point it at a
+      // shared entity. `resolveExistingByName`'s fence is the search-lane
+      // union (`userId IS NONE OR userId = $scopeUserId`), which is
+      // correct for READING and too wide for MINTING, so the scoped case
+      // keeps the historical mint instead of borrowing that fence.
+      ...(userId === undefined
+        ? { adopt: () => this.resolveExistingByName(db, { name: ref.id }) }
+        : {}),
+    });
   }
 
+  /**
+   * `adopt` is the identity check that used to be missing here. The
+   * external-ref key is the ONLY thing this path consulted, so a
+   * structured `entityRef {vertical, id}` minted a brand-new entity even
+   * when the tenant already knew that exact name — the two ingest paths
+   * used different identity keys and never met. Measured: one tenant
+   * holding `Meridian` (coined by extraction) AND `meridian` (minted by
+   * `/v1/ingest/fact` with `id: 'meridian'`) as separate entities, with
+   * the payout-cutoff facts split across both, which is why the
+   * competing-facts surface could not find the disagreement it was
+   * holding.
+   *
+   * On a miss, an adopted id gets ONLY the ref row — the existing entity
+   * is left exactly as it is (its canonicalName is never rewritten, the
+   * `resolveExistingByName` rule). Returning null keeps the historical
+   * mint. The lookup itself is unique-match-only and scope-fenced, so an
+   * ambiguous or cross-scope name adopts nothing.
+   */
   async upsertEntityByExternalRef(
     db: Surreal,
     key: string,
-    factory: () => Record<string, unknown>,
+    opts: { factory: () => Record<string, unknown>; adopt?: () => Promise<string | null> },
   ): Promise<string> {
     // SurrealDB v2.2.8 surfaces concurrent UNIQUE-key CREATEs as either
     // a unique-index violation or a commit-time read/write conflict;
@@ -127,7 +162,15 @@ export class EntityUpsertService {
       const fast = await this.lookupExternalRef(db, key);
       if (fast) return fast;
 
-      const content = factory();
+      const adopted = opts.adopt ? await opts.adopt() : null;
+      if (adopted) {
+        // Ref row only. A UNIQUE violation here means a concurrent caller
+        // claimed the same key — retryOnUniqueViolation re-reads it.
+        await dbCreate(db, 'entity_external_ref', { key, entity: new StringRecordId(adopted) });
+        return adopted;
+      }
+
+      const content = opts.factory();
       const result = await runTransaction<{ id: unknown } | null>(db, (tx) => {
         tx.bind('content', content);
         tx.bind('key', key);
@@ -174,12 +217,19 @@ export class EntityUpsertService {
       // complete. Existence is pre-checked ONLY under the flag (off ⇒ no
       // extra query, byte-identical).
       await this.auditExternalRefReuse(db, hintKey, e);
-      return this.upsertEntityByExternalRef(db, hintKey, () => ({
-        type: this.normalizeEntityType(e.type),
-        canonicalName: e.canonical ?? e.name,
-        aliases: [e.name],
-        externalRefs: { [hintKey]: hint.id },
-      }));
+      return this.upsertEntityByExternalRef(db, hintKey, {
+        factory: () => ({
+          type: this.normalizeEntityType(e.type),
+          canonicalName: e.canonical ?? e.name,
+          aliases: [e.name],
+          externalRefs: { [hintKey]: hint.id },
+        }),
+        // Same identity check as the structured path: a hint says WHICH
+        // key to file this under, not that the name is new. Without it
+        // step 2's canonical-name match — the thing that would have found
+        // the existing entity — is skipped whenever a hint is present.
+        adopt: () => this.resolveExistingByName(db, { name: e.canonical ?? e.name }),
+      });
     }
 
     // 2. Canonical-name match. Hits `entity_canonical_lc_idx` directly
@@ -460,11 +510,17 @@ export class EntityUpsertService {
     }
     const r = ref as { vertical: string; id: string };
     const refKey = externalRefKey(r.vertical, r.id);
-    return this.upsertEntityByExternalRef(db, refKey, () => ({
-      type: 'other',
-      canonicalName: r.id,
-      externalRefs: { [refKey]: r.id },
-    }));
+    return this.upsertEntityByExternalRef(db, refKey, {
+      factory: () => ({
+        type: 'other',
+        canonicalName: r.id,
+        externalRefs: { [refKey]: r.id },
+      }),
+      // Link endpoints get the same identity check: a relation drawn to
+      // "meridian" must land on the Meridian the graph already has, or
+      // the edge points at a node nothing else references.
+      adopt: () => this.resolveExistingByName(db, { name: r.id }),
+    });
   }
 
   private normalizeEntityType(t: string): string {
