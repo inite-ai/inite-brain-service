@@ -15,22 +15,22 @@ names its own gap:
 
 The pass was never built, and there is no operator step in a stock
 deployment. `DEFAULT_FALLBACK.semantics` is `append_only`, which the
-resolver documents as *"No conflict possible at ingest"*. So every
+resolver documents as _"No conflict possible at ingest"_. So every
 predicate the extractor coins is, permanently:
 
-* never superseded — the prior value stays `active` with no `validTo`;
-* never `competing` — two sources disagreeing never meet;
-* only ever accumulating.
+- never superseded — the prior value stays `active` with no `validTo`;
+- never `competing` — two sources disagreeing never meet;
+- only ever accumulating.
 
 Measured on a live tenant before the fix:
 
-| | count |
-|---|---|
-| predicates registered by `llm_auto` | **186** |
-| …of those, `single_active` | **0** |
+|                                        | count                     |
+| -------------------------------------- | ------------------------- |
+| predicates registered by `llm_auto`    | **186**                   |
+| …of those, `single_active`             | **0**                     |
 | predicates that could supersede at all | 15 (the hand-seeded ones) |
-| facts with `validTo` | 0 |
-| facts `superseded` | 0 |
+| facts with `validTo`                   | 0                         |
+| facts `superseded`                     | 0                         |
 
 Every evolution pair in the corpus sat as `active` + `active`:
 
@@ -56,8 +56,8 @@ resolver branch for an `append_only` predicate never reaches them).
 ## The fix
 
 `PredicateSemanticsJudgeService` — one small strict-JSON call per NOVEL
-predicate, per tenant, asking the only question that matters: *when the
-subject gets a new value, does the previous value stop being true?*
+predicate, per tenant, asking the only question that matters: _when the
+subject gets a new value, does the previous value stop being true?_
 
 Conservative by construction. Ambiguity → `append_only`. No API key,
 a throw, an unparseable answer, an off-enum value → `append_only`. The
@@ -69,6 +69,45 @@ disagreement standing for the competing-facts surface to show.
 Runs once per predicate per tenant (the row is then in the registry) and
 never touches aliased, seeded or operator-edited predicates.
 
+## ⚠ The first version of this fix was inert — and the doc said otherwise
+
+Writing `semantics` onto the registry row changed nothing, because
+nothing read it. `canonicalize()` inserts a novel predicate with
+`status: 'proposed'`, and `policyFor()` read `snapshot.byId`, which is
+built from `status === 'active'` rows ONLY. Measured on a live tenant:
+**143 of 143 `llm_auto` rows were 'proposed'** — the entire coined
+vocabulary — so every one of those facts kept resolving on
+`DEFAULT_FALLBACK`'s `append_only`.
+
+Which means the table below, in its first form, was reporting a WRITE
+and calling it a fix. The `SUPERSEDED` / `COMPETING` outcomes in that run
+came from `CONFLICT_DIRECT_FACT_SLOT`, which promotes on the
+`__default__` fallback — not from the classification.
+
+Three things had to land before any of it was real:
+
+1. **`policyById` = active ∪ proposed**, and `policyFor` reads it. A
+   proposed row's policy is now reachable; an active row of the same id
+   still wins.
+2. **Register on first sight.** Only the EXTRACTION path called
+   `canonicalize()`, so a predicate arriving solely through
+   `POST /v1/ingest/fact` was never coined or classified at all — and in
+   a mixed corpus, whichever path touched a predicate first decided
+   whether the other path's facts could ever supersede.
+3. **Let an auto-proposed slot compete.** Once classification reached the
+   resolver, the payout-cutoff pair went `COMPETING` → `SUPERSEDED`: a
+   `single_active` slot supersedes UNCONDITIONALLY, so the margin
+   doctrine — and `CONFLICT_TEMPORAL_TIEBREAKER`, which only arms for
+   `bitemporal` — never ran. The direct-path promotion now covers
+   `single_active` **on proposed rows only**: a seeded `address`/`status`
+   keeps unconditional supersede (a typed re-write IS the new truth); a
+   guess about a coined predicate earns the margin doctrine, because two
+   standing sources are the common case there.
+
+The lesson is the one this whole wave keeps teaching: **verifying the
+write is not verifying the behaviour.** Read the value back through the
+code that consumes it.
+
 ## Measured
 
 Same corpus, same stand, same flags (`CONFLICT_*` arm), fresh tenant —
@@ -76,12 +115,12 @@ the only difference is the judge.
 
 **Mechanism** (deterministic):
 
-| | before | after |
-|---|---|---|
-| `llm_auto` predicates classified `single_active` | 0 / 186 | **52 / 147** |
-| facts `superseded` at ingest | 0 | 1 |
-| facts `competing` | 2 | 6 |
-| direct-ingest outcomes | all `INSERTED` | `launch-v2: SUPERSEDED`, `cutoff-docs: COMPETING` |
+|                                                  | before         | after                                             |
+| ------------------------------------------------ | -------------- | ------------------------------------------------- |
+| `llm_auto` predicates classified `single_active` | 0 / 186        | **52 / 147**                                      |
+| facts `superseded` at ingest                     | 0              | 1                                                 |
+| facts `competing`                                | 2              | 6                                                 |
+| direct-ingest outcomes                           | all `INSERTED` | `launch-v2: SUPERSEDED`, `cutoff-docs: COMPETING` |
 
 Classification reads correctly by eye. `single_active`: `payout_cutoff`,
 `pilot_launch_date`, `retry_policy`, `job_queue_backend`, `deployed_to`,
@@ -114,17 +153,37 @@ re-resolve of their facts — is the follow-up.
 
 **D6 is still 0/2, but for a new reason.** The conflict is now recorded:
 both payout-cutoff values sit `competing` on entity `meridian`. The check
-fails at *entity resolution* — the tenant holds **eight** Meridian
+fails at _entity resolution_ — the tenant holds **eight** Meridian
 entities (`Meridian`, `meridian`, `Meridian API`, `Meridian payouts
 API`, `Meridian integration`, `Meridian sandbox`, …), because the
 direct-ingest `entityRef` and the extraction-coined name never merge, not
 even across case. That is the next defect, and it is upstream of
 everything the conflict machinery can do.
 
-**Extraction year drift**, seen in the same trace: `validFrom=2025-03-25`
-for a fact whose turn is dated 2026-03-25, and `2025-04-15` for
-`pilot_launch_date`. The extractor is reading the date VALUE into the
-validity stamp with the wrong year. Separate defect, separate fix.
+**Extraction year drift** — the one DETERMINISTIC failure left, and the
+cause of the only stable regression above (`d4-rootcause-date`). Narrowed
+to a precise repro:
+
+```
+turn d6a-c2-t03, emittedAt 2026-03-10T10:10:00Z
+  "Root cause found (2026-03-10): the retry handler re-enqueued …"
+
+  clarified_duplicate_payout   validFrom 2026-03-10T10:10:00Z   ✓
+  identified_root_cause        validFrom 2025-03-10T00:00:00Z   ✗
+```
+
+Two facts, ONE turn, one `emittedAt` — and one of them lands at midnight
+a year early. `INGEST_EVENT_TIME_EXTRACTION` is OFF on this stand, so
+`factValidFrom` returned `emittedAt` for both; something after it
+rewrites one. Midnight + year−1 is the signature of a past-biased date
+parse against a same-day reference ("March 10" is not strictly before
+2026-03-10, so it walks back a year). The answer it produces is
+"identified on 2025-03-10", which is why the temporal check fails.
+
+Not caused by this wave — the same drift is visible in the first tenant
+of the day (`payout_cutoff` at `2025-03-25`, `pilot_launch_date` at
+`2025-04-15`). Open, deterministic, and worth more than a half-chased
+fix: it is the only failure here that a single run can prove.
 
 ---
 
@@ -133,11 +192,11 @@ validity stamp with the wrong year. Separate defect, separate fix.
 Each arm adds one change to the one before it. Same corpus, same stand,
 fresh tenant each time.
 
-| arm | change added | score |
-|---|---|---|
-| base | `CONFLICT_*` on | 20/32 |
-| +judge | predicate cardinality (#592) | 21/32 |
-| +ent | entityRef adoption (#593) | 20/32 |
+| arm    | change added                  | score |
+| ------ | ----------------------------- | ----- |
+| base   | `CONFLICT_*` on               | 20/32 |
+| +judge | predicate cardinality (#592)  | 21/32 |
+| +ent   | entityRef adoption (#593)     | 20/32 |
 | +scope | per-user read fence on (#594) | 20/32 |
 
 **The score did not move.** One arm reads +1 and the rest read 0, which
@@ -145,19 +204,62 @@ at this sample size means nothing at all — see the noise section below.
 What DID move is three mechanisms, each with evidence that is not a
 score:
 
-| mechanism | evidence |
-|---|---|
-| predicate cardinality | `llm_auto` `single_active` 0/186 → 52/147; `superseded` 0 → 1; `competing` 2 → 6 |
-| entity adoption | the lowercase `meridian` twin is gone; both cutoff values now sit `competing` on ONE `Meridian` |
-| read fence | the timeline's WHERE clause widened; `d2-queue` and `d2-launch` flipped to pass with the history in the right order |
+| mechanism             | evidence                                                                                                            |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| predicate cardinality | `llm_auto` `single_active` 0/186 → 52/147; `superseded` 0 → 1; `competing` 2 → 6                                    |
+| entity adoption       | the lowercase `meridian` twin is gone; both cutoff values now sit `competing` on ONE `Meridian`                     |
+| read fence            | the timeline's WHERE clause widened; `d2-queue` and `d2-launch` flipped to pass with the history in the right order |
 
 The read fence is the only one that also produced score movement, and it
 is the one whose mechanism is closest to the check.
 
+## The run that finally had all three pieces
+
+Three runs, same build, fresh tenant each:
+
+| run | score |
+| --- | ----- |
+| 1   | 21/32 |
+| 2   | 20/32 |
+| 3   | 22/32 |
+
+Deterministic in **3/3**: `retry-v2: SUPERSEDED` (INSERTED in every
+earlier arm), `cutoff-docs: COMPETING`, `launch-v2: SUPERSEDED`.
+
+**D6 scored for the first time in the wave** — 1/2 in each of the three
+runs, having been 0/2 in all four earlier arms. Which of its two checks
+passes flips between runs (the entity-ranking noise below), but the
+write side that makes either possible is now deterministic.
+
+The headline score — 20/21/22 against a base of 20 — says nothing. See
+below.
+
 ## ⚠ The battery is too noisy to read single-check deltas
 
-Across the four arms, **7 of 32 checks flip-flop** with no mechanism
-behind the change:
+Three runs of the SAME build, same corpus, same config, fresh tenant
+each: **11 of 32 checks are unstable** — 16 stable pass, 5 stable fail,
+11 that disagree with themselves.
+
+```
+d1-launch          pass fail fail      d5-warehouse       fail pass pass
+d1-queue           pass fail pass      d6-answer          fail pass fail
+d1-retry           pass fail fail      d6-competing-api   pass fail pass
+d2-launch          fail fail pass      d7-port            fail fail pass
+d5-mobile          fail pass fail      d8-enqueue-idiom   pass fail fail
+d9-batch-size      pass pass fail
+```
+
+Only TWO checks changed stably against the base across all three runs:
+`d2-queue` (gain) and `d4-rootcause-date` (loss — see the year drift
+below, which this exposed rather than caused).
+
+So the noise floor is **±5, not ±3**, and every headline number in this
+document — including the +1 the first version of this page reported as a
+result — sits inside it. The earlier four-arm table is kept below as the
+record of what was measured, not as evidence of anything.
+
+Across those four arms the same instability shows as **7 of 32**
+flip-flopping with no mechanism behind the change:
 
 ```
 d1-queue           fail pass fail fail
@@ -175,14 +277,14 @@ this wave. Every "+1" and "−1" above is inside it.
 
 Consequences, and they are not optional:
 
-* **A single run cannot validate a change on this instrument.** An arm
+- **A single run cannot validate a change on this instrument.** An arm
   needs repeats (3+ runs) before its headline number means anything, or
   the battery needs enough checks that one flip does not move it.
-* **Read the mechanism, not the scorecard.** Every real finding in this
+- **Read the mechanism, not the scorecard.** Every real finding in this
   wave came from querying rows and traces — the registry table, the
   fact statuses, the entity list, the WHERE clause — and NONE of them
   would have been visible in the number.
-* The dimensions that never move (D3, D4, D8, D10) are the mechanical
+- The dimensions that never move (D3, D4, D8, D10) are the mechanical
   ones; the ones that flip are the ones whose verdict goes through a
   generator. That is where the variance lives.
 
