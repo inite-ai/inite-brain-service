@@ -2,6 +2,28 @@ import { Surreal, StringRecordId } from 'surrealdb';
 import type { EntityBucket } from './types';
 import { buildEdgeFence } from './edge-fence';
 
+/**
+ * PROVENANCE OF THESE THREE NUMBERS, because two of them have none.
+ *
+ * This whole lane is SEARCH_PPR_ENABLED, default OFF, and off for a
+ * measured reason: the 2026-08 graph audit found that on per-tenant
+ * graphs this small, PPR amplifies hub effects pathologically. The
+ * catalog claimed the flag defaulted to '1' until that audit corrected
+ * it. So none of these constants has ever shaped a production ranking,
+ * and tuning them is not the open question — whether the lane earns its
+ * place at this graph size is.
+ *
+ * ALPHA is the textbook PageRank damping (Brin & Page), the one number
+ * here with a source; the teleport below is the standard
+ * personalization vector, corrected once already (see the dangling-node
+ * comment).
+ *
+ * ITERATIONS and PPR_BOOST_BETA are UNMEASURED. Three iterations is a
+ * truncation of a power method that has no convergence check, and 0.5
+ * is a boost weight nobody swept. They are recorded as unmeasured
+ * rather than quietly tuned: a swept constant in a lane that is off
+ * would be a measurement of nothing.
+ */
 const ALPHA = 0.85;
 const ITERATIONS = 3;
 const PPR_BOOST_BETA = 0.5;
