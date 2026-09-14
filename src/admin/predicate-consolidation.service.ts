@@ -313,10 +313,23 @@ export class PredicateConsolidationService {
       let retired = 0;
       for (const group of bySlot.values()) {
         if (group.length < 2) continue;
-        // Highest revision wins; the id breaks a tie so a replay over the
-        // same data picks the same survivor.
+        // LATEST validFrom wins — the same rule reresolveSlots applies to
+        // facts, and the only one that is meaningful here.
+        //
+        // Revision looked like the obvious discriminator and is the wrong
+        // one: it numbers a revision WITHIN one chain, and these rows are
+        // two chains that only just became one slot, so both sit at
+        // revision 1 and the comparison falls through to an arbitrary id
+        // tie-break. Measured: a tenant's `queue_backend` kept
+        // `job queue backend` = Redis Streams (validFrom 2026-03-02) and
+        // superseded `queue backend` = NATS JetStream (2026-03-18) — the
+        // stale value surviving as current, which is the exact failure
+        // this sweep exists to prevent. Revision still breaks a validFrom
+        // tie (within one chain it is the right order), and the id breaks
+        // that, so a replay over the same data picks the same survivor.
         const ordered = [...group].sort(
           (a, b) =>
+            epochOf(b.validFrom) - epochOf(a.validFrom) ||
             (typeof b.revision === 'number' ? b.revision : 0) -
               (typeof a.revision === 'number' ? a.revision : 0) ||
             String(b.id).localeCompare(String(a.id)),
@@ -460,6 +473,12 @@ export interface ConsolidationResult {
   factsRetired: number;
   /** Beliefs the merges co-located into one slot, closed to one active. */
   beliefDuplicatesRetired: number;
+}
+
+/** Epoch ms of a stored datetime; unparsable sorts oldest. */
+function epochOf(v: unknown): number {
+  const ms = Date.parse(String(v));
+  return Number.isNaN(ms) ? 0 : ms;
 }
 
 interface ContestedSlot {

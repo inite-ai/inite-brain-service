@@ -446,6 +446,39 @@ describe('PredicateConsolidationService — closing duplicate beliefs', () => {
     });
   });
 
+  it('keeps the LATEST value, not the higher revision — two chains, one slot', async () => {
+    // The measured failure. Two beliefs written under two names are two
+    // CHAINS, so both sit at revision 1 and a revision-first ordering
+    // falls through to an arbitrary id tie-break. On a live tenant that
+    // kept `job queue backend` = Redis Streams (2026-03-02) and
+    // superseded `queue backend` = NATS JetStream (2026-03-18) — the
+    // stale value surviving as the current one, which is the exact
+    // failure this sweep exists to prevent.
+    const h = slotHarness([], {}, [
+      // The stale row sorts FIRST by id, so an id tie-break picks it.
+      belief('semantic_belief:zz_stale', 'queue_backend', 1, '2026-03-02T10:00:00Z'),
+      belief('semantic_belief:aa_current', 'queue_backend', 1, '2026-03-18T10:30:00Z'),
+    ]);
+    const r = await h.svc.run('co_x');
+    expect(r.beliefDuplicatesRetired).toBe(1);
+    expect(h.beliefUpdates[0]).toMatchObject({
+      ids: ['semantic_belief:zz_stale'],
+      winner: 'semantic_belief:aa_current',
+    });
+  });
+
+  it('breaks a validFrom tie on revision — within ONE chain that is the right order', async () => {
+    const h = slotHarness([], {}, [
+      belief('semantic_belief:r1', 'retry_policy', 1, '2026-03-02T10:00:00Z'),
+      belief('semantic_belief:r2', 'retry_policy', 2, '2026-03-02T10:00:00Z'),
+    ]);
+    await h.svc.run('co_x');
+    expect(h.beliefUpdates[0]).toMatchObject({
+      ids: ['semantic_belief:r1'],
+      winner: 'semantic_belief:r2',
+    });
+  });
+
   it('leaves a slot holding one row alone', async () => {
     const h = slotHarness([], {}, [belief('semantic_belief:a', 'queue_backend', 1)]);
     const r = await h.svc.run('co_x');
