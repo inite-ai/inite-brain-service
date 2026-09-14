@@ -670,3 +670,55 @@ word with what it renames, and every merge worth having on that run does
 with the coinage is dropped before the judge sees it: all 19 renames
 keep, both bad merges cut, pinned as a spec against that run's own
 decision list.
+
+### Correction: the scan was wasteful, but it did not cause the OOM
+
+The commit that added the name pre-filter said measuring the unfiltered
+scan "OOM-killed the eval stand's SurrealDB". Timing both forms against a
+finished tenant says that claim is too strong:
+
+```
+unfiltered scan  33.3 ms → 12 rows   retry_strategy(0.75) fixed_retry_policy(0.73)
+                                     retry_delay(0.59) updated(0.57) … repository(0.50)
+name-prefiltered 16.0 ms →  4 rows   retry_strategy(0.75) fixed_retry_policy(0.73)
+                                     retry_delay(0.59) retry_attempts(0.56)
+```
+
+Half the time and a shortlist with no subject-matter filler in it — but
+33 ms × ~150 novel predicates is about five seconds across a whole run,
+not a memory event. What actually exhausted the VM was 28 accumulated
+eval databases beside three node processes in a 7.7 GB Docker VM; the
+same unfiltered query had already run two full arms without incident.
+
+The pre-filter is still right — it halves the work and, more usefully,
+hands the judge four real candidates instead of twelve — but it is a
+better query, not an OOM fix. Worth writing down because the wrong
+attribution would have justified the wrong follow-up (an HNSW index on a
+196-row table) instead of the right one (stop keeping every eval tenant).
+
+### What else was doing math in the wrong place
+
+Auditing the same question across the repo — what is computed in Node
+over rows the DB already has — turned up three read paths of the same
+shape, all now server-side:
+
+| path                            | was                                                             |
+| ------------------------------- | --------------------------------------------------------------- |
+| `CommunityService.search`       | every community's summary vector, no LIMIT, to return five      |
+| `ProceduralMemoryService.match` | every unretired procedure's trigger vector, to return five      |
+| `PredicateRegistry.doBootstrap` | every row's embedding, to compute two booleans (~1.2 MB/tenant) |
+
+The procedural one is worth quoting, because its comment explained
+exactly why it could not be moved: server-side _"would require
+maintaining a dimension-pinned vector index, which the embedder can swap
+at runtime"_. That is true of HNSW/KNN and false of
+`vector::similarity::cosine`, which needs no index — and the runtime swap
+is precisely what `sameWidthGate` was later built to answer. The blocker
+had been solved elsewhere in the repo and the comment outlived it.
+
+Deliberately left in Node: everything that scores the CACHED registry
+snapshot (local predicate selector, chat-router prepass, canonicalize's
+active-seed leg). Those are 37 curated vectors already in memory, so a
+query per clause on the ingest path would be strictly slower. "Push it to
+the database" is about not shipping rows you already stored — not about
+moving arithmetic off the process that already holds the operands.
