@@ -15,13 +15,12 @@ import {
   BeliefPromotionService,
   beliefIdTail,
   beliefPromoterVersion,
-  fieldsFold,
   foldBeliefGroups,
   renderBeliefStatement,
-  resolveFieldFold,
   sceneSingleUser,
   type PromotableSceneHead,
 } from '../src/admin/belief-promotion.service';
+import { predicateIdFromFieldName } from '../src/common/attribute-names';
 import {
   SUPPORT_EDGE_WRITERS,
   assertEdgeShape,
@@ -287,64 +286,85 @@ describe('foldBeliefGroups', () => {
   });
 });
 
-describe('field fold rule (SCENES_BELIEF_FIELD_FOLD, #135 seam 2)', () => {
+/**
+ * The attribute-name normalizer that replaced the lexical fold rule.
+ *
+ * What was here: `fieldsFold`, a token-subset test over a hand-written
+ * six-word stoplist of "generic modifiers", and `resolveFieldFold`, the
+ * incoming-name router built on it. Both are gone. Measured against the
+ * twelve field names a live tenant held, that rule folded ZERO pairs and
+ * missed all three it existed to catch — `deployment target` ~
+ * `deployment platform`, `job queue backend` ~ `queue backend`, `pilot
+ * launch date` ~ `date` — two of which its own doc conceded as accepted
+ * limitations. Attribute identity is the predicate registry's job on
+ * both planes now (0147); what remains here is only the free-text →
+ * predicate-id normalization that lets a belief field enter it.
+ */
+describe('predicateIdFromFieldName — free text into the registry', () => {
   it.each([
-    // [a, b, folds?] — the #135 decision table, verbatim.
-    ['car', 'car ownership', true], // extra token 'ownership' is generic
-    ['queue backend', 'queue', false], // 'backend' not in the stoplist — conservative
-    ['car', 'career', false], // different tokens entirely
-    ['deploy target', 'deployment target', false], // no stemming: 'deploy' ≠ 'deployment'
-    ['car registration', 'car', false], // registration is a DIFFERENT attribute
-    ['car', 'car', true], // identity
-    ['Car', 'car', true], // normalization: case
-    ['car.status', 'car', true], // normalization: punctuation + generic extra
-  ])('fieldsFold(%p, %p) === %p (symmetric)', (a, b, expected) => {
-    expect(fieldsFold(a as string, b as string)).toBe(expected);
-    expect(fieldsFold(b as string, a as string)).toBe(expected);
+    ['deployment target', 'deployment_target'],
+    ['job queue backend', 'job_queue_backend'],
+    ['HTTP service port', 'http_service_port'],
+    ['pilot launch date', 'pilot_launch_date'],
+    // Already an id: idempotent, so a re-run resolves to the same slot.
+    ['retry_policy', 'retry_policy'],
+    // Dotted paths the enricher emits.
+    ['home.city', 'home_city'],
+    ['car.status', 'car_status'],
+    // The three-character floor drops tokens that carry no naming
+    // signal — the SAME floor contentTokens applies on the fact plane,
+    // deliberately shared so the two planes cannot drift apart.
+    ['id of car', 'car'],
+    // Nothing survives the floor: no slot, and the caller keeps the
+    // written name rather than inventing one.
+    ['id', ''],
+    ['', ''],
+  ])('predicateIdFromFieldName(%p) === %p', (input, expected) => {
+    expect(predicateIdFromFieldName(input as string)).toBe(expected);
   });
 
-  it('resolveFieldFold: exactly one candidate folds — the EXISTING name wins', () => {
-    expect(resolveFieldFold('car ownership', ['car', 'home.city'])).toEqual({
-      field: 'car',
-      folded: true,
-      ambiguous: false,
-      candidates: ['car'],
-    });
-    // Stability holds in the other direction too: incoming shorter name
-    // folds onto the longer EXISTING one.
-    expect(resolveFieldFold('car', ['car ownership'])).toMatchObject({
-      field: 'car ownership',
-      folded: true,
-    });
+  it('is NOT a morphology table — naming variants stay distinct here', () => {
+    // `deployment_target` and `deploy_target` are different coinages and
+    // this function says so. Deciding they are one attribute needs the
+    // whole vocabulary and the freedom to revisit an earlier answer,
+    // which is PredicateConsolidationService's job — it made exactly
+    // that merge on the live tenant this normalizer was measured on.
+    expect(predicateIdFromFieldName('deployment target')).not.toBe(
+      predicateIdFromFieldName('deploy target'),
+    );
   });
 
-  it('resolveFieldFold: no candidate keeps the incoming name', () => {
-    expect(resolveFieldFold('car registration', ['car'])).toEqual({
-      field: 'car registration',
-      folded: false,
-      ambiguous: false,
-      candidates: [],
-    });
-  });
-
-  it('resolveFieldFold: an exact existing match short-circuits (never re-folded)', () => {
-    // 'car' exists verbatim next to a foldable variant — the exact name
-    // is already canonical; folding it would flip-flop parallel chains.
-    expect(resolveFieldFold('car', ['car', 'car ownership'])).toEqual({
-      field: 'car',
-      folded: false,
-      ambiguous: false,
-      candidates: [],
-    });
-  });
-
-  it('resolveFieldFold: MORE than one match is ambiguous — fold nothing', () => {
-    expect(resolveFieldFold('car', ['car ownership', 'car status'])).toEqual({
-      field: 'car',
-      folded: false,
-      ambiguous: true,
-      candidates: ['car ownership', 'car status'],
-    });
+  it('gives the live tenant its cross-plane join back', () => {
+    // The four field names that, normalized, land on a predicate the
+    // fact plane had already coined for the SAME subject. Under the
+    // lexical rule none of the twelve did.
+    const factPredicates = new Set([
+      'pilot_launch_date',
+      'retry_policy',
+      'queue_backend',
+      'staging_namespace',
+    ]);
+    const beliefFields = [
+      'idempotency key',
+      'date',
+      'deployment target',
+      'pilot launch date',
+      'verification status',
+      'retry policy',
+      'job queue backend',
+      'queue backend',
+      'HTTP service port',
+      'payout batch size',
+      'staging namespace',
+      'deployment platform',
+    ];
+    const joined = beliefFields.filter((f) => factPredicates.has(predicateIdFromFieldName(f)));
+    expect(joined).toEqual([
+      'pilot launch date',
+      'retry policy',
+      'queue backend',
+      'staging namespace',
+    ]);
   });
 });
 
@@ -394,7 +414,7 @@ describe('foldBeliefGroups: negation deltas (#135 seam 1)', () => {
   });
 });
 
-describe('foldBeliefGroups: field fold (#135 seam 2)', () => {
+describe('foldBeliefGroups: grouping on the registry slot (0147)', () => {
   const compassScenes = [
     {
       userId: 'u1',
@@ -415,26 +435,32 @@ describe('foldBeliefGroups: field fold (#135 seam 2)', () => {
     },
   ];
 
-  it('flag(s) off: the Compass fixture is byte-identical to today (one group, negation dropped)', () => {
+  it('no slots: exact-string grouping, byte-identical to the historical fold', () => {
     const fold = foldBeliefGroups(compassScenes);
     expect(fold.folded).toHaveLength(1);
     expect(fold.folded[0]).toMatchObject({ field: 'car', value: 'Jeep Compass' });
     expect(fold.fieldFolds).toEqual([]);
-    expect(fold.fieldFoldAmbiguities).toEqual([]);
   });
 
-  it('both flags on: the two-scene Compass batch converges to ONE group with the negation winner', () => {
+  it('two names that resolve to ONE slot become one group, latest wins', () => {
+    // What the registry says is the whole input. Here `car ownership`
+    // was coined earlier and aliased onto `car`, so canonicalize returns
+    // `car` for both — the promoter never re-decides that.
     const { folded, conflicts, fieldFolds } = foldBeliefGroups(compassScenes, {
       negationDeltas: true,
-      existingFields: new Map(),
+      fieldSlots: new Map([
+        ['car', 'car'],
+        ['car ownership', 'car'],
+      ]),
     });
     expect(conflicts).toEqual([]);
     expect(folded).toHaveLength(1);
-    // 'car ownership' folded onto the batch-seen 'car'; latest wins.
     expect(folded[0]).toMatchObject({
       userId: 'u1',
       subject: 'Mikhail',
+      // Display keeps the FIRST written name; identity is the slot.
       field: 'car',
+      predicateId: 'car',
       value: BELIEF_NEGATION_VALUE,
       // The chain's ACTUAL displaced value ('Jeep Compass', from s1) beats
       // the negation delta's own claimed `from` ('Compass') — the same
@@ -447,55 +473,79 @@ describe('foldBeliefGroups: field fold (#135 seam 2)', () => {
     ]);
   });
 
-  it('folds onto an EXISTING belief field from the map (the live two-run shape)', () => {
+  it('a single later scene lands in the slot an earlier run already used', () => {
     const { folded, fieldFolds } = foldBeliefGroups([compassScenes[1]!], {
       negationDeltas: true,
-      existingFields: new Map([['u1\x00Mikhail', ['car']]]),
+      fieldSlots: new Map([['car ownership', 'car']]),
     });
     expect(folded).toHaveLength(1);
-    expect(folded[0]).toMatchObject({ field: 'car', value: BELIEF_NEGATION_VALUE });
+    expect(folded[0]).toMatchObject({
+      field: 'car ownership',
+      predicateId: 'car',
+      value: BELIEF_NEGATION_VALUE,
+    });
     expect(fieldFolds).toEqual([
       { userId: 'u1', subject: 'Mikhail', from: 'car ownership', to: 'car' },
     ]);
   });
 
-  it('ambiguity: two existing fields both matching — no fold, reported loudly', () => {
-    const { folded, fieldFolds, fieldFoldAmbiguities } = foldBeliefGroups(
+  it('names the registry keeps APART stay two groups', () => {
+    // The replaced lexical rule had an ambiguity branch for "matches
+    // several existing names at once" and had to refuse the whole fold.
+    // A registry lookup returns one canon or none, so the case is gone:
+    // two slots are simply two groups, which is what parallel attributes
+    // are.
+    const { folded, fieldFolds } = foldBeliefGroups(
       [
         {
           userId: 'u1',
           scene: scene({
             id: 'memory_episode:s1',
-            stateDeltas: [{ subject: 'Mikhail', field: 'car', from: '', to: 'Jeep Compass' }],
+            stateDeltas: [
+              { subject: 'Mikhail', field: 'car ownership', from: '', to: 'Jeep Compass' },
+              { subject: 'Mikhail', field: 'car status', from: '', to: 'in service' },
+            ],
           }),
         },
       ],
       {
-        existingFields: new Map([['u1\x00Mikhail', ['car ownership', 'car status']]]),
+        fieldSlots: new Map([
+          ['car ownership', 'car_ownership'],
+          ['car status', 'car_status'],
+        ]),
       },
     );
-    // The incoming name is KEPT — a parallel group beats a wrong merge.
+    expect(folded).toHaveLength(2);
+    expect(folded.map((f) => f.predicateId).sort()).toEqual(['car_ownership', 'car_status']);
+    expect(fieldFolds).toHaveLength(2);
+  });
+
+  it('an unresolvable field keeps its written name and joins nothing', () => {
+    // Registry unreachable, or nothing survived the token floor. The
+    // group still forms — a promotion pass must not stop for it — and
+    // the belief simply has no cross-plane identity, which is exactly
+    // what every pre-0147 row has.
+    const { folded, fieldFolds } = foldBeliefGroups([compassScenes[0]!], {
+      fieldSlots: new Map(),
+    });
     expect(folded).toHaveLength(1);
-    expect(folded[0]).toMatchObject({ field: 'car' });
+    expect(folded[0]).toMatchObject({ field: 'car', predicateId: 'car' });
     expect(fieldFolds).toEqual([]);
-    expect(fieldFoldAmbiguities).toEqual([
-      {
-        userId: 'u1',
-        subject: 'Mikhail',
-        field: 'car',
-        candidates: ['car ownership', 'car status'],
-      },
-    ]);
   });
 });
 
-describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', () => {
+describe('one slot, one active row (run()-level, fake db)', () => {
   /** One semantic_belief row as the fake store holds it. */
   interface FakeBeliefRow {
     id: string;
     userId: string;
     subject: string;
+    /** The written name — display only since 0147. */
     field: string;
+    /** The registry slot; absent models a row written before 0147. */
+    predicateId?: string;
+    /** The canon the slot was later aliased onto. */
+    predicateAlias?: string;
     value: string;
     priorValue?: string;
     revision: number;
@@ -539,12 +589,19 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
             .map(({ userId, subject, field }) => ({ userId, subject, field })),
         ];
       }
-      if (sqlText.includes('field = $f')) {
+      // The chain head, keyed on the SLOT (0147): a row's own
+      // predicateAlias ?? predicateId, falling back to its written name
+      // for a row that predates the column — which is what the real
+      // `(predicateAlias ?? predicateId ?? field)` expression does.
+      if (sqlText.includes('(predicateAlias ?? predicateId ?? field) = $slot')) {
         return [
           this.rows
             .filter(
               (r) =>
-                r.status === 'active' && r.userId === p.u && r.subject === p.s && r.field === p.f,
+                r.status === 'active' &&
+                r.userId === p.u &&
+                r.subject === p.s &&
+                (r.predicateAlias ?? r.predicateId ?? r.field) === p.slot,
             )
             .sort((a, b) => b.revision - a.revision)
             .map((r) => ({ ...r })),
@@ -554,7 +611,7 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
         return [
           this.rows
             .filter((r) => r.status === 'active' && r.userId === p.u && r.subject === p.s)
-            .map((r) => ({ ...r })),
+            .map((r) => ({ ...r, slot: r.predicateAlias ?? r.predicateId })),
         ];
       }
       // commitRevision: the compare-and-set transaction (BEGIN … COMMIT).
@@ -663,7 +720,16 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
     }
   }
 
-  function makeRunService(db: FakeBeliefDb): BeliefPromotionService {
+  function makeRunService(
+    db: FakeBeliefDb,
+    /**
+     * What the registry answers, by predicate id. Empty = identity, the
+     * shape of a registry that has coined each name separately. Supply an
+     * entry to model a name the registry has ALIASED onto a canon — which
+     * is the only way two written names share a slot (0147).
+     */
+    aliases: Record<string, string> = {},
+  ): BeliefPromotionService {
     const surreal = {
       withCompany: async <T>(_c: string, fn: (d: unknown) => Promise<T>) => fn(db),
     } as unknown as SurrealService;
@@ -671,7 +737,13 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
       resolve: () => ({ version: 'scene-segmenter-v1' }),
     } as unknown as SceneVersionService;
     const config = { get: (_key: string, def?: string) => def } as unknown as ConfigService;
-    return new BeliefPromotionService(surreal, config, versions);
+    const predicates = {
+      canonicalize: async (_c: string, id: string) => ({
+        kind: 'matched',
+        canonicalId: aliases[id] ?? id,
+      }),
+    };
+    return new BeliefPromotionService(surreal, config, versions, predicates as never);
   }
 
   /** The s08 measured end-state: canonical + foldable-variant orphan. */
@@ -691,6 +763,7 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
     belief({
       id: 'semantic_belief:canon1',
       field: 'location',
+      predicateId: 'location',
       value: 'Porto',
       priorValue: 'Lisbon',
       validFrom: '2026-08-18T19:00:00.000Z',
@@ -699,8 +772,20 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
       ...over,
     });
 
+  /**
+   * The leftover an earlier batch wrote under a different NAME in the
+   * SAME slot — the registry had resolved `current_location` onto
+   * `location` by the time that run happened, so the row carries the
+   * canonical slot and a stale display name. Absorption is now this
+   * exact test and nothing lexical: same slot, not the head.
+   */
   const orphanRow = (over: Partial<FakeBeliefRow> = {}): FakeBeliefRow =>
-    belief({ id: 'semantic_belief:orphan1', field: 'current location', ...over });
+    belief({
+      id: 'semantic_belief:orphan1',
+      field: 'current location',
+      predicateId: 'location',
+      ...over,
+    });
 
   /** Re-promotion of the canonical scene (the repair-on-next-run shape). */
   const canonicalScene = (): PromotableSceneHead =>
@@ -735,167 +820,97 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
     }
   });
 
-  it('absorbs a foldable-variant orphan: superseded into the canonical belief, which keeps its own value', async () => {
+  it('retires a second active row in the slot, into the head, which keeps its own value', async () => {
     const db = new FakeBeliefDb();
     db.rows = [canonicalRow(), orphanRow()];
     db.sceneHeads = [canonicalScene()];
 
     const res = await makeRunService(db).run('co_test');
-    expect(res.fieldOrphansAbsorbed).toBe(1);
-    expect(res.fieldOrphanAmbiguous).toBe(0);
+    expect(res.slotDuplicatesRetired).toBe(1);
 
     const orphan = db.rows.find((r) => r.id === 'semantic_belief:orphan1')!;
     expect(orphan.status).toBe('superseded');
-    expect(orphan.supersededBy).toBe('semantic_belief:canon1');
-    expect(orphan.validUntil).toBe('2026-08-18T19:00:00.000Z'); // canonical validFrom
     expect(orphan.value).toBe('Lisbon'); // value untouched — mark, never rewrite
 
     const canonical = db.rows.find((r) => r.id === 'semantic_belief:canon1')!;
     expect(canonical).toMatchObject({
       status: 'active',
       field: 'location',
-      value: 'Porto', // the canonical belief wins with its OWN value
-      priorValue: 'Lisbon',
-      revision: 1,
+      value: 'Porto', // the surviving row wins with its OWN value
     });
-    // The orphan can no longer serve: no active row under the variant name.
-    expect(db.active('current location')).toBeUndefined();
-    // priorValue already present — the backfill UPDATE never fires.
-    expect(db.sql.some((s) => s.includes('SET priorValue'))).toBe(false);
+    // One active row in the slot, whatever name it was written under.
+    expect(db.rows.filter((r) => r.status === 'active' && r.subject === 'Sasha')).toHaveLength(1);
   });
 
-  it('backfills priorValue from the absorbed orphan ONLY when the canonical belief has none', async () => {
+  it('donates priorValue to the head ONLY when the head records none', async () => {
     const db = new FakeBeliefDb();
-    const canonical = canonicalRow();
-    delete canonical.priorValue;
-    db.rows = [canonical, orphanRow()];
-    db.sceneHeads = [
-      scene({
-        id: 'memory_episode:sb',
-        conversationIds: ['conv:b'],
-        occurredTo: '2026-08-18T19:00:00.000Z',
-        // No `from` on the delta — the canonical belief lands prior-less.
-        stateDeltas: [{ subject: 'Sasha', field: 'location', from: '', to: 'Porto' }],
-      }),
-    ];
-
-    const res = await makeRunService(db).run('co_test');
-    expect(res.fieldOrphansAbsorbed).toBe(1);
-    expect(db.rows.find((r) => r.id === 'semantic_belief:canon1')).toMatchObject({
-      value: 'Porto', // own value always wins…
-      priorValue: 'Lisbon', // …the orphan contributes ONLY the prior
-      status: 'active',
-    });
-  });
-
-  it('no backfill when the orphan value equals the canonical value (a self-prior is meaningless)', async () => {
-    const db = new FakeBeliefDb();
-    const canonical = canonicalRow();
-    delete canonical.priorValue;
-    db.rows = [canonical, orphanRow({ value: 'Porto' })];
+    const head = canonicalRow();
+    delete head.priorValue;
+    db.rows = [head, orphanRow({ value: 'Lisbon' })];
     db.sceneHeads = [canonicalScene()];
 
-    const res = await makeRunService(db).run('co_test');
-    expect(res.fieldOrphansAbsorbed).toBe(1);
-    const head = db.rows.find((r) => r.id === 'semantic_belief:canon1')!;
-    expect(head.priorValue).toBeUndefined();
-    expect(db.sql.some((s) => s.includes('SET priorValue'))).toBe(false);
+    await makeRunService(db).run('co_test');
+    expect(db.rows.find((r) => r.id === 'semantic_belief:canon1')!.priorValue).toBe('Lisbon');
   });
 
-  it('re-run is idempotent: the absorbed orphan stays superseded and nothing flip-flops', async () => {
+  it('no donation when the retired value equals the head value (a self-prior is meaningless)', async () => {
+    const db = new FakeBeliefDb();
+    const head = canonicalRow();
+    delete head.priorValue;
+    db.rows = [head, orphanRow({ value: 'Porto' })];
+    db.sceneHeads = [canonicalScene()];
+
+    await makeRunService(db).run('co_test');
+    expect(db.rows.find((r) => r.id === 'semantic_belief:canon1')!.priorValue).toBeUndefined();
+  });
+
+  it('is idempotent — a second run finds one active row and retires nothing', async () => {
     const db = new FakeBeliefDb();
     db.rows = [canonicalRow(), orphanRow()];
     db.sceneHeads = [canonicalScene()];
-    const svc = makeRunService(db);
 
-    const first = await svc.run('co_test');
-    expect(first.fieldOrphansAbsorbed).toBe(1);
-    // structuredClone, not a JSON round-trip: the 0137 watermark is a Date.
-    const after = structuredClone(db.rows);
-
-    const second = await svc.run('co_test');
-    expect(second.fieldOrphansAbsorbed).toBe(0);
-    expect(second.fieldOrphanAmbiguous).toBe(0);
-    expect(second).toMatchObject({ beliefsCreated: 0, beliefsRevised: 0 });
-    expect(db.rows).toEqual(after); // byte-identical world — converged
+    const first = await makeRunService(db).run('co_test');
+    expect(first.slotDuplicatesRetired).toBe(1);
+    const second = await makeRunService(db).run('co_test');
+    expect(second.slotDuplicatesRetired).toBe(0);
+    expect(db.rows.find((r) => r.id === 'semantic_belief:orphan1')!.status).toBe('superseded');
   });
 
-  it('never absorbs across a different subject or a different user', async () => {
+  it('never reaches across a different subject or a different user', async () => {
     const db = new FakeBeliefDb();
     db.rows = [
       canonicalRow(),
-      orphanRow(),
-      belief({ id: 'semantic_belief:boris1', field: 'current location', subject: 'Boris' }),
-      belief({ id: 'semantic_belief:u2row1', field: 'current location', userId: 'u2' }),
+      // Same slot, different subject — a different attribute instance.
+      orphanRow({ id: 'semantic_belief:other_subj', subject: 'Dmitri' }),
+      // Same slot and subject, different user — the #387 fence.
+      orphanRow({ id: 'semantic_belief:other_user', userId: 'u2' }),
     ];
     db.sceneHeads = [canonicalScene()];
 
     const res = await makeRunService(db).run('co_test');
-    expect(res.fieldOrphansAbsorbed).toBe(1); // ONLY (u1, Sasha)'s variant
-    expect(db.active('current location', 'Boris')).toBeDefined();
-    expect(db.active('current location', 'Sasha', 'u2')).toBeDefined();
+    expect(res.slotDuplicatesRetired).toBe(0);
+    expect(db.rows.find((r) => r.id === 'semantic_belief:other_subj')!.status).toBe('active');
+    expect(db.rows.find((r) => r.id === 'semantic_belief:other_user')!.status).toBe('active');
   });
 
-  it('flag off: no sweep query, the orphan keeps serving, counters stay zero (byte-identical)', async () => {
-    delete process.env.SCENES_BELIEF_FIELD_FOLD;
-    const db = new FakeBeliefDb();
-    db.rows = [canonicalRow(), orphanRow()];
-    db.sceneHeads = [canonicalScene()];
-
-    const res = await makeRunService(db).run('co_test');
-    expect(res.fieldOrphansAbsorbed).toBe(0);
-    expect(res.fieldOrphanAmbiguous).toBe(0);
-    expect(db.active('current location')).toBeDefined(); // untouched
-    // Zero fold/sweep queries — the historical query set exactly.
-    expect(db.sql.some((s) => s.includes('SELECT userId, subject, field'))).toBe(false);
-    expect(db.sql.some((s) => s.includes('priorValue, revision, validFrom'))).toBe(false);
-  });
-
-  it('ambiguity guard: two distinct foldable variant fields absorb NOTHING, loudly', async () => {
+  it('two names the registry keeps APART are two slots and never touch each other', async () => {
+    // What the same-run fence used to guard, guarded now by construction:
+    // parallel attributes have different slots, so neither is ever a
+    // candidate for the other's sweep — there is nothing to fence.
     const db = new FakeBeliefDb();
     db.rows = [
+      belief({
+        id: 'semantic_belief:car1',
+        subject: 'Mikhail',
+        field: 'car',
+        predicateId: 'car',
+        value: 'BMW',
+      }),
       belief({
         id: 'semantic_belief:own1',
         subject: 'Mikhail',
         field: 'car ownership',
-        value: 'Jeep',
-      }),
-      belief({
-        id: 'semantic_belief:stat1',
-        subject: 'Mikhail',
-        field: 'car status',
-        value: 'broken',
-      }),
-    ];
-    db.sceneHeads = [
-      scene({
-        id: 'memory_episode:sc',
-        conversationIds: ['conv:c'],
-        occurredTo: '2026-08-20T10:00:00.000Z',
-        stateDeltas: [{ subject: 'Mikhail', field: 'car', from: '', to: 'BMW' }],
-      }),
-    ];
-
-    const res = await makeRunService(db).run('co_test');
-    // Fold-time ambiguity kept the incoming name as a parallel group…
-    expect(res.fieldFoldAmbiguous).toBe(1);
-    expect(res.beliefsCreated).toBe(1);
-    // …and the sweep refuses to merge fields the rule holds distinct.
-    expect(res.fieldOrphanAmbiguous).toBe(1);
-    expect(res.fieldOrphansAbsorbed).toBe(0);
-    expect(db.active('car ownership', 'Mikhail')).toBeDefined();
-    expect(db.active('car status', 'Mikhail')).toBeDefined();
-    expect(db.active('car', 'Mikhail')).toMatchObject({ value: 'BMW' });
-  });
-
-  it('same-run parallel groups never eat each other (the run-group fence)', async () => {
-    const db = new FakeBeliefDb();
-    db.rows = [
-      belief({ id: 'semantic_belief:car1', subject: 'Mikhail', field: 'car', value: 'BMW' }),
-      belief({
-        id: 'semantic_belief:own1',
-        subject: 'Mikhail',
-        field: 'car ownership',
+        predicateId: 'car_ownership',
         value: 'Jeep',
       }),
     ];
@@ -915,12 +930,52 @@ describe('orphan absorb (SCENES_BELIEF_FIELD_FOLD — run()-level, fake db)', ()
     ];
 
     const res = await makeRunService(db).run('co_test');
-    // Both incoming names exact-match their existing chains: two live
-    // groups this run — each is fenced from the other's sweep.
-    expect(res.fieldOrphansAbsorbed).toBe(0);
-    expect(res.fieldOrphanAmbiguous).toBe(0);
+    expect(res.slotDuplicatesRetired).toBe(0);
     expect(db.active('car', 'Mikhail')).toBeDefined();
     expect(db.active('car ownership', 'Mikhail')).toBeDefined();
+  });
+
+  it('two names the registry MERGES land in one slot and one survives', async () => {
+    // The live shape this whole change exists for: `deployment target`
+    // and `deployment platform` held AWS ECS Fargate and Fly.io side by
+    // side as two current settings. Aliased onto one predicate, they are
+    // one slot, and the second row stops serving.
+    const db = new FakeBeliefDb();
+    db.rows = [
+      belief({
+        id: 'semantic_belief:dep1',
+        subject: 'ledger-sync',
+        field: 'deployment target',
+        predicateId: 'deploy_target',
+        value: 'AWS ECS Fargate',
+        revision: 2,
+      }),
+      belief({
+        id: 'semantic_belief:dep2',
+        subject: 'ledger-sync',
+        field: 'deployment platform',
+        predicateId: 'deploy_target',
+        value: 'Fly.io',
+        revision: 1,
+      }),
+    ];
+    db.sceneHeads = [
+      scene({
+        id: 'memory_episode:sd',
+        conversationIds: ['conv:e'],
+        occurredTo: '2026-08-20T10:00:00.000Z',
+        stateDeltas: [
+          { subject: 'ledger-sync', field: 'deployment target', from: '', to: 'AWS ECS Fargate' },
+        ],
+      }),
+    ];
+
+    const res = await makeRunService(db, { deployment_target: 'deploy_target' }).run('co_test');
+    expect(res.slotDuplicatesRetired).toBe(1);
+    expect(db.rows.find((r) => r.id === 'semantic_belief:dep2')!.status).toBe('superseded');
+    const serving = db.rows.filter((r) => r.status === 'active' && r.subject === 'ledger-sync');
+    expect(serving).toHaveLength(1);
+    expect(serving[0]!.value).toBe('AWS ECS Fargate');
   });
   describe('two clocks + compare-and-set (audit 2026-09-06 F6, fake db)', () => {
     const at = (day: string) => `2026-${day}T00:00:00.000Z`;
@@ -1254,7 +1309,10 @@ describe('OFF-state hard guarantee (byte-identical prod)', () => {
     const config = {
       get: (_key: string, def?: string) => def,
     } as unknown as ConfigService;
-    return new BeliefPromotionService(surreal, config, versions);
+    const predicates = {
+      canonicalize: async (_c: string, id: string) => ({ kind: 'matched', canonicalId: id }),
+    };
+    return new BeliefPromotionService(surreal, config, versions, predicates as never);
   }
 
   it('flag off ⇒ zero queries, zero version resolution, all-zero result', async () => {
@@ -1267,9 +1325,7 @@ describe('OFF-state hard guarantee (byte-identical prod)', () => {
       skippedLowValue: 0,
       skippedConflict: 0,
       fieldFolds: 0,
-      fieldFoldAmbiguous: 0,
-      fieldOrphansAbsorbed: 0,
-      fieldOrphanAmbiguous: 0,
+      slotDuplicatesRetired: 0,
       skippedFloor: 0,
       skippedStale: 0,
       beliefsCreated: 0,

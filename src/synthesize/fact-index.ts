@@ -10,7 +10,18 @@ export interface Citation {
   factId: string;
   entityId: string;
   canonicalName: string;
+  /** As written — the name rendered into the fact line. */
   predicate: string;
+  /**
+   * The SLOT — `predicateAlias ?? predicate`, the 0083 identity every
+   * other consumer keys on. Separate from `predicate` because the line
+   * shows what was written while a comparison needs the canon: a fact
+   * coined `deploys_to` and aliased onto `deploy_target` must compare
+   * equal to one coined `deploy_target`, and reads identically to the
+   * belief plane's own slot (0147), which is what makes the two planes
+   * joinable.
+   */
+  slot: string;
   object: string;
   /** Who claimed it — the write-time sourceKey (trustSnapshot). Lets a
    *  caller chase the citation to get_source_reputation. Absent on
@@ -45,7 +56,9 @@ export function buildFactIndex(
      */
     chronological?: boolean | undefined;
     /**
-     * T5 update arbitration: on slots (entity+predicate) holding ≥2
+     * T5 update arbitration: on slots (entity + `predicateAlias ??
+     * predicate`, the 0083 identity — two coinages of one attribute
+     * arbitrate against each other, as they must) holding ≥2
      * dated, disagreeing statements, tag the max(validFrom) one with
      * "[most recent for this slot]" — knowledge-update misses answer
      * STALE values; the marker makes recency selection a read-off.
@@ -77,6 +90,7 @@ export function buildFactIndex(
         entityId: r.entityId,
         canonicalName: r.canonicalName,
         predicate: f.predicate,
+        slot: f.predicateAlias ?? f.predicate,
         object: f.object,
         ...(f.sourceKey ? { sourceKey: f.sourceKey } : {}),
       });
@@ -85,7 +99,7 @@ export function buildFactIndex(
       entries.push({
         line: `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${factLineSuffixes(f, opts)}`,
         t: validT,
-        slot: `${r.entityId}::${f.predicate}`,
+        slot: `${r.entityId}::${f.predicateAlias ?? f.predicate}`,
         obj: f.object,
       });
     }

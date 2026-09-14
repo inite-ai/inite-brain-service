@@ -888,27 +888,41 @@ export class PredicateRegistryService {
   ): Promise<number> {
     try {
       const updated = await this.surreal.withCompany(companyId, async (db) => {
-        const [ids] = await db.query<[unknown[]]>(
-          `SELECT VALUE id FROM knowledge_fact
-            WHERE predicate = $novel AND predicateAlias IS NONE`,
-          { novel: novelPredicate },
-        );
-        const rows = (ids as unknown[]) ?? [];
-        if (rows.length === 0) return 0;
-        // No `updatedAt`: knowledge_fact is SCHEMAFULL and has no such
-        // field, so writing one makes the whole statement throw. It did,
-        // 66 times in one pass, swallowed by the catch below — which is
-        // why this method reports a COUNT instead of returning void.
-        await db.query(`UPDATE $ids SET predicateAlias = $canon`, {
-          ids: rows,
-          canon: canonicalId,
-        });
-        return rows.length;
+        // BOTH planes. A belief carries the same slot identity a fact
+        // does — `(predicateAlias ?? predicateId)`, 0147 — precisely so
+        // one vocabulary serves both and the damping join is id to id.
+        // An alias that stopped at knowledge_fact would re-open the gap
+        // it was introduced to close: the fact moves to the canon, the
+        // belief stays behind under the coinage, and the join misses
+        // again.
+        let total = 0;
+        for (const [table, column] of [
+          ['knowledge_fact', 'predicate'],
+          ['semantic_belief', 'predicateId'],
+        ] as const) {
+          const [ids] = await db.query<[unknown[]]>(
+            `SELECT VALUE id FROM ${table}
+              WHERE ${column} = $novel AND predicateAlias IS NONE`,
+            { novel: novelPredicate },
+          );
+          const rows = (ids as unknown[]) ?? [];
+          if (rows.length === 0) continue;
+          // No `updatedAt` on knowledge_fact: it is SCHEMAFULL and has no
+          // such field, so writing one makes the whole statement throw.
+          // It did, 66 times in one pass, swallowed by the catch below —
+          // which is why this method reports a COUNT, not void.
+          await db.query(`UPDATE $ids SET predicateAlias = $canon`, {
+            ids: rows,
+            canon: canonicalId,
+          });
+          total += rows.length;
+        }
+        return total;
       });
       if (updated > 0) {
         this.logger.log(
           `canonicalize: carried alias '${novelPredicate}' → '${canonicalId}' back onto ` +
-            `${updated} already-written fact(s) in ${companyId}`,
+            `${updated} already-written row(s) in ${companyId}`,
         );
       }
       return updated;

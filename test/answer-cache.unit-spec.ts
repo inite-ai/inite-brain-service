@@ -442,6 +442,9 @@ describe('AnswerCacheService.begin — serving', () => {
         entityId: 'knowledge_entity:e1',
         canonicalName: 'Acme',
         predicate: 'tier',
+        // Identity, not presentation (0083): unaliased, the slot IS the
+        // predicate — a re-served citation compares on the canon.
+        slot: 'tier',
         object: 'gold',
       },
     ]);

@@ -18,7 +18,15 @@ export interface SearchHit {
   externalRefs: Record<string, string>;
   facts: Array<{
     factId: string;
+    /** As written — the coinage this fact was stored under. */
     predicate: string;
+    /**
+     * The canon this predicate was aliased onto (0083), when it was.
+     * Identity is `predicateAlias ?? predicate` everywhere downstream:
+     * ranking, diversity, the T5 recency slot, and the cross-plane join
+     * with the belief plane's own slot (0147). Absent = its own canon.
+     */
+    predicateAlias?: string | undefined;
     object: string;
     confidence: number;
     validFrom: string;

@@ -472,6 +472,8 @@ interface ReadFences {
 interface CitedFactRow {
   id: unknown;
   predicate: string;
+  /** The canon this predicate was aliased onto (0083), when it was. */
+  predicateAlias?: string | undefined;
   object: string;
   entityId?: unknown;
   status: string;
@@ -979,7 +981,7 @@ export class AnswerCacheService {
         const [factRows, entityRows, newerRows] = await db.query<
           [CitedFactRow[], Array<{ id: unknown; canonicalName: string }>, CitedFactRow[]]
         >(
-          `SELECT id, predicate, object, entityId, status, validUntil,
+          `SELECT id, predicate, predicateAlias, object, entityId, status, validUntil,
                   retractedAt, userId, source, trustSnapshot, corroboration
              FROM knowledge_fact WHERE id INSIDE $ids;
            SELECT id, canonicalName FROM knowledge_entity
@@ -1221,6 +1223,9 @@ export class AnswerCacheService {
         entityId: String(fact.entityId ?? ''),
         canonicalName: nameById.get(String(fact.entityId ?? '')) ?? '',
         predicate: fact.predicate,
+        // Identity, not presentation (0083): a re-served citation must
+        // compare on the canon the rest of the pipeline keys on.
+        slot: fact.predicateAlias ?? fact.predicate,
         object: fact.object,
       });
     }

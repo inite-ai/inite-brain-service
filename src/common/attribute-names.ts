@@ -146,8 +146,6 @@ function tokensAlike(a: string, b: string): boolean {
  * This is a GATE, not a decision — the judge decides. So it compares
  * loosely on purpose: a generous match only costs one question the
  * model will answer "no" to, while a miss silently drops a real rename.
- * `fieldsFold` on the belief plane wants the opposite and compares
- * these same tokens exactly, because there the answer IS the decision.
  */
 export function sharesContentToken(predicate: string, candidate: string): boolean {
   const a = contentTokens(predicate);
@@ -156,4 +154,37 @@ export function sharesContentToken(predicate: string, candidate: string): boolea
     for (const u of a) if (tokensAlike(t, u)) return true;
   }
   return false;
+}
+
+/**
+ * Free-text attribute name → predicate id, so a belief field enters the
+ * SAME registry a fact predicate does.
+ *
+ * The two planes used to name attributes in two different languages: the
+ * fact plane in registry ids (`deploy_target`), the belief plane in
+ * whatever the scene enricher wrote (`deployment target`, `HTTP service
+ * port`). Measured on a live tenant, ZERO of 12 beliefs matched any of
+ * 163 distinct fact (subject, predicate) keys, which is why the
+ * belief-aware damping pass could not fire once.
+ *
+ * This is presentation-to-identity, not morphology: lowercase, drop the
+ * dotted path segments the enricher sometimes emits (`home.city`), and
+ * join the content tokens with `_`. It deliberately shares
+ * `contentTokens` with everything else here, so the three-character
+ * floor and the pack-namespace rule apply identically on both planes.
+ *
+ * Token ORDER is the written order, not sorted: `launch_date` and
+ * `date_launch` are different coinages, and deciding they are the same
+ * attribute is the registry's job (cosine, then the pass), not a
+ * normalizer's. Returns '' when nothing survives the floor — the caller
+ * then keeps the raw field and simply does not join across planes,
+ * which is the behaviour every pre-0147 row already has.
+ */
+export function predicateIdFromFieldName(field: string): string {
+  const bare = field.toLowerCase().replace(/^[a-z0-9]+(?:_[a-z0-9]+)*__/, '');
+  const tokens: string[] = [];
+  for (const raw of bare.split(/[^\p{L}\p{N}]+/u)) {
+    if (raw.length >= 3) tokens.push(raw);
+  }
+  return tokens.join('_');
 }

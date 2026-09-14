@@ -66,6 +66,10 @@ export function assembleHits({
       const matchedRender = matchedSorted.map(({ row, score, breakdown }) => ({
         factId: String(row.id),
         predicate: row.predicate,
+        // The canon, when this coinage was aliased onto one (0083).
+        // Surfaced rather than collapsed into `predicate`: the line
+        // shows what was written, comparisons use the slot.
+        ...(row.predicateAlias ? { predicateAlias: row.predicateAlias } : {}),
         object: row.object,
         confidence: row.confidence,
         validFrom: row.validFrom,
