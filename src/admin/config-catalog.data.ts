@@ -1379,11 +1379,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'READ_SURFACE_USER_SCOPE',
     category: 'auth',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Per-user read scope on the two read surfaces that predate migration 0055 and hardcode `userId IS NONE`: the entity timeline (GET /v1/entities/:id/timeline, get_entity_timeline) and the competing-facts listing (get_competing_facts). When on and the caller supplies a userId (pinned to a user-bound token’s end-user via pinUserScope — 403 on mismatch), the fence widens to the search-lane union `(userId IS NONE OR userId = $scopeUserId)`: tenant-global rows plus that one user’s personal ones, never a third user’s. Off (default) — or on with no userId — keeps the exact historical tenant-global-only clause, byte-identical.',
+      'Per-user read scope on the two read surfaces that predate migration 0055 and hardcode `userId IS NONE`: the entity timeline (GET /v1/entities/:id/timeline, get_entity_timeline) and the competing-facts listing (get_competing_facts). When on and the caller supplies a userId (pinned to a user-bound token’s end-user via pinUserScope — 403 on mismatch), the fence widens to the search-lane union `(userId IS NONE OR userId = $scopeUserId)`: tenant-global rows plus that one user’s personal ones, never a third user’s. On by default since 2026-09-12: off, both surfaces answer EMPTY for any deployment that writes per-user memory — the memory-fitness battery scored 0/3 on evolution history (\u201cno events matched either value\u201d) and could not see a `competing` pair that was sitting on the entity, because the rows were user-scoped and the fence was not. Clearing it (=0) — or calling with no userId — keeps the exact historical tenant-global-only clause, byte-identical.',
   },
   {
     key: 'PRIVACY_COMPOSER_USER_SCOPE',
@@ -3249,6 +3249,25 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: false,
     isBooleanFlag: false,
     description: 'Cap on in-flight dispatches across all jobTypes in this process; 0 = uncapped.',
+  },
+  {
+    key: 'PREDICATE_SEMANTICS_MODEL',
+    category: 'registry',
+    // Captured in the judge's constructor — a live flip needs a restart.
+    defaultValue: null,
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Model for the predicate CARDINALITY judge: when the extractor coins a predicate the registry has never seen, one small strict-JSON call decides whether it is `single_active` (a state with one true value at a time — deploy_target, pilot_launch_date, payout_cutoff: a new value RETIRES the old one) or `append_only` (an event / preference / multi-valued field, where history is the point). Before this pass existed every coined predicate was append_only, which means no conflict is possible at ingest — the prior value stayed active forever beside the new one, so supersession and the competing-facts surface only ever worked for the ~15 seeded single_active predicates. Ambiguity, a missing OPENAI_API_KEY, a throw or an unparseable answer all resolve to append_only (the historical behaviour), so the pass only ever ADDS supersession where the judge is confident. Runs ONCE per novel predicate per tenant — the row is then cached in the registry — and never re-classifies an aliased, seeded or operator-edited predicate. Empty (default) = OPENAI_CHAT_MODEL, else gpt-4o-mini.',
+  },
+  {
+    key: 'PREDICATE_SEMANTICS_CONCURRENCY',
+    category: 'registry',
+    defaultValue: '4',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Max concurrent predicate-cardinality judge calls (PREDICATE_SEMANTICS_MODEL). The calls sit on the ingest write path, so this bounds how much a cold tenant — which coins most of its vocabulary in the first few documents — can fan out.',
   },
   // ── Registry mirroring (pull-only, migration 0064) ───────
   {

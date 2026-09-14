@@ -1689,9 +1689,11 @@ const KNOWN_BOOLEAN_FLAGS = [
   // timeline + competing facts): on + userId, the hardcoded
   // `userId IS NONE` fence widens to `(userId IS NONE OR userId =
   // $scopeUserId)` with the caller-asserted id pinned to a user-bound
-  // token's end-user (pinUserScope). Off (default) ⇒ the historical
-  // clause, byte-identical. READ_ sits off the ENGINE flag budget by
-  // design (an authz read fence, not an engine fork).
+  // token's end-user (pinUserScope). ON by default since 2026-09-12 —
+  // off, both surfaces answer EMPTY to any deployment that writes
+  // per-user memory. Cleared (=0) ⇒ the historical clause,
+  // byte-identical. READ_ sits off the ENGINE flag budget by design
+  // (an authz read fence, not an engine fork).
   'READ_SURFACE_USER_SCOPE',
   // Direct-fact conflict semantics: the typed ingest path promotes an
   // unknown-predicate (registry '__default__' fallback) fact from

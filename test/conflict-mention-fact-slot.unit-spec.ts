@@ -204,6 +204,9 @@ describe('FactResolverService — CONFLICT_MENTION_FACT_SLOT promotion', () => {
   describe('conflictSlotSemantics — the shared pure decision', () => {
     const slot = { predicateId: 'address', semantics: 'single_active' };
     const fallback = { predicateId: '__default__', semantics: 'append_only' };
+    // An auto-proposed coined predicate: the SAME semantics as `slot`,
+    // but a guess rather than a deliberate ontology statement.
+    const guess = { predicateId: 'payout_cutoff', semantics: 'single_active', status: 'proposed' };
 
     it('both flags off: registry passthrough on both paths', () => {
       expect(conflictSlotSemantics(slot, 'mention')).toBe('single_active');
@@ -226,6 +229,40 @@ describe('FactResolverService — CONFLICT_MENTION_FACT_SLOT promotion', () => {
       expect(conflictSlotSemantics(slot, 'direct')).toBe('single_active');
       expect(conflictSlotSemantics(slot, 'mention')).toBe('single_active');
       expect(conflictSlotSemantics(fallback, 'mention')).toBe('append_only');
+    });
+
+    it('direct flag on: an AUTO-PROPOSED single_active earns the margin doctrine', () => {
+      // The seeded slot keeps unconditional supersede — a typed re-write
+      // of `address` IS the new truth. The coined one is a guess about a
+      // predicate two independent sources may both be asserting, so it
+      // goes through the margin doctrine (and with it the temporal
+      // tiebreaker, which only arms for 'bitemporal'). Without this the
+      // payout-cutoff pair went COMPETING -> SUPERSEDED the moment the
+      // classification became reachable.
+      process.env.CONFLICT_DIRECT_FACT_SLOT = '1';
+      expect(conflictSlotSemantics(guess, 'direct')).toBe('bitemporal');
+      expect(conflictSlotSemantics(slot, 'direct')).toBe('single_active');
+    });
+
+    it('the proposed-slot promotion CARRIES the slot-exact floor', () => {
+      // Without it the promotion moved nothing: the bitemporal pool still
+      // gates on cosine >= 0.85, and two values of one slot are
+      // contradictory rather than similar ("Redis Streams" vs "NATS
+      // JetStream"), so the pool emptied and both stayed active. Measured
+      // as `queue-v2: INSERTED` across three runs with the policy
+      // correctly single_active.
+      process.env.CONFLICT_DIRECT_FACT_SLOT = '1';
+      expect(conflictSlotResolution(guess, 'direct')).toEqual({
+        semantics: 'bitemporal',
+        similarityFloor: SLOT_EXACT_SIMILARITY_FLOOR,
+      });
+      // The open-vocabulary fallback KEEPS the gate — there cosine is the
+      // claim-identity signal, not noise.
+      expect(conflictSlotResolution(fallback, 'direct')).toEqual({ semantics: 'bitemporal' });
+    });
+
+    it('direct flag OFF: an auto-proposed single_active is still passthrough', () => {
+      expect(conflictSlotSemantics(guess, 'direct')).toBe('single_active');
     });
 
     it('both flags on: each path keeps its own promotion rule', () => {
