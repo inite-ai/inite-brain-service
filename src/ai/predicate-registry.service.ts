@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SurrealService } from '../db/surreal.service';
+import { sameWidthGate } from '../db/vector-width';
 import { EmbedderService } from './embedder.service';
 import { PredicateSemanticsJudgeService } from './predicate-semantics-judge.service';
 import { PredicateIdentityJudgeService } from './predicate-identity-judge.service';
@@ -137,13 +138,24 @@ export class PredicateRegistryService {
 
   private async doBootstrap(companyId: string): Promise<void> {
     await this.surreal.withCompany(companyId, async (db) => {
+      // The two things bootstrap needs from this table are booleans —
+      // "which seeds are missing" and "which rows lack an embedding" —
+      // so let the DB answer them. Selecting the vectors shipped every
+      // coined row's 1536 floats (≈1.2 MB at 196 predicates, 30 MB at
+      // 5k) across the wire to compute `array.length === 0`: the same
+      // waste `loadFresh` fixed with `OMIT embedding` in 0082, left
+      // standing in the sibling call on the colder path.
       const [existingRows] = await db.query<
-        [Array<{ predicateId: string; embedding?: number[] | null }>]
-      >(`SELECT predicateId, embedding FROM knowledge_predicate`);
+        [Array<{ predicateId: string; hasEmbedding: boolean }>]
+      >(
+        `SELECT predicateId,
+                (embedding != NONE AND array::len(embedding) > 0) AS hasEmbedding
+           FROM knowledge_predicate`,
+      );
       const existing =
         (existingRows as Array<{
           predicateId: string;
-          embedding?: number[] | null;
+          hasEmbedding: boolean;
         }>) ?? [];
       const existingIds = new Set(existing.map((r) => r.predicateId));
       const missing = SEED_PREDICATES.filter((p) => !existingIds.has(p.predicateId));
@@ -182,9 +194,7 @@ export class PredicateRegistryService {
 
       // Backfill embeddings for any pre-existing row that's missing one
       // (rows seeded before migration 0012 landed).
-      const needBackfill = existing.filter(
-        (r) => !Array.isArray(r.embedding) || (r.embedding as number[]).length === 0,
-      );
+      const needBackfill = existing.filter((r) => r.hasEmbedding !== true);
       if (needBackfill.length > 0) {
         this.logger.log(
           `Backfilling embeddings for ${needBackfill.length} predicate(s) in ${companyId}`,
@@ -921,8 +931,7 @@ export class PredicateRegistryService {
              FROM knowledge_predicate
             WHERE status = 'proposed'
               AND (${nameFilter})
-              AND embedding != NONE
-              AND array::len(embedding) = array::len($q)
+              AND ${sameWidthGate('embedding')}
               AND predicateId != $self
             ORDER BY score DESC
             LIMIT $k`,
