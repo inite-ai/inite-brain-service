@@ -17,16 +17,19 @@ import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
 import { PredicateRegistryService } from '../src/ai/predicate-registry.service';
+import { PredicateConsolidationService } from '../src/admin/predicate-consolidation.service';
 
 describe('predicate consolidation — the writes, against a real schemafull table', () => {
   let f: AppFixture;
   let surreal: SurrealService;
   let registry: PredicateRegistryService;
+  let consolidation: PredicateConsolidationService;
 
   beforeAll(async () => {
     f = await createApp({ companyId: 'co_predcons_e2e' });
     surreal = f.app.get(SurrealService);
     registry = f.app.get(PredicateRegistryService);
+    consolidation = f.app.get(PredicateConsolidationService);
     await registry.getSnapshot(f.companyId); // bootstrap the seed rows
 
     await surreal.withCompany(f.companyId, async (db) => {
@@ -76,31 +79,76 @@ describe('predicate consolidation — the writes, against a real schemafull tabl
     expect(factsRepointed).toBe(0);
   }, 60_000);
 
-  it('the re-resolve stamp is a statement knowledge_fact accepts', async () => {
-    // Every field here comes from fn::resolve_fact's own supersede write,
-    // so a retroactively resolved fact is indistinguishable from one
-    // resolved at ingest — and, like the backfill, it is only a real
-    // schemafull table that can confirm the statement is legal.
-    const updated = await surreal.withCompany(f.companyId, async (db) => {
-      const [ids] = await db.query<[unknown[]]>(
-        `SELECT VALUE id FROM knowledge_fact
-          WHERE predicate = 'deploy_target' AND object = 'Fly.io'`,
-      );
-      await db.query(
-        `UPDATE $ids SET
-           status = 'superseded', retractedAt = time::now(),
-           retractionReason = 'superseded', retractedBy = 'system',
-           supersededBy = type::record('knowledge_fact', 'pc_b'),
-           validUntil = type::datetime('2026-03-25T00:00:00Z')`,
-        { ids: ids ?? [] },
-      );
-      const [after] = await db.query<[Array<{ status?: unknown; supersededBy?: unknown }>]>(
-        `SELECT status, supersededBy FROM knowledge_fact WHERE object = 'Fly.io'`,
-      );
+  /**
+   * The re-resolve half, driven through the SERVICE.
+   *
+   * The first version of this test wrote the supersede statement by hand
+   * and asserted the table accepted it. It passed, and the statement the
+   * service actually sends still failed in production:
+   *
+   *   Couldn't coerce value for field `validUntil`: expected
+   *   `none | datetime` but found `'2026-03-25T14:15:00.000Z'`
+   *
+   * — because the service binds an ISO STRING and 3.x does not coerce one
+   * into a `datetime` field, while the hand-written literal was wrapped
+   * in `type::datetime()`. A test that rewrites the statement it is
+   * meant to pin cannot catch that, so this one calls the method.
+   */
+  it('re-resolves a contested single_active slot — cold cache and all', async () => {
+    // The slot is the ALIAS the tests above stamped — `(predicateAlias ??
+    // predicate)` — so the policy that decides this slot is the CANON's.
+    // Registered the way tenants actually hold it: PROPOSED, which is the
+    // status every coined predicate has, and single_active.
+    await registry.create(f.companyId, {
+      predicateId: 'deployed_to',
+      semantics: 'single_active',
+      piiClass: 'none',
+      status: 'proposed',
+    });
+    // create() ends in invalidate(), which is precisely the state
+    // alias() leaves the cache in — so a pass that does not re-warm
+    // reads `deploy_target` off SEED_PREDICATES, misses, and declines
+    // the slot as append_only. Asserted here rather than assumed:
+    (registry as unknown as { cache: Map<string, unknown> }).cache.delete(f.companyId);
+
+    const result = {
+      slotsContested: 0,
+      slotsResolved: 0,
+      factsRetired: 0,
+    } as unknown as Record<string, number>;
+    const out = await (
+      consolidation as unknown as {
+        reresolveSlots: (c: string, r: unknown) => Promise<Record<string, number>>;
+      }
+    ).reresolveSlots(f.companyId, result);
+
+    expect(out.slotsResolved).toBe(1);
+    expect(out.factsRetired).toBe(1);
+
+    const rows = await surreal.withCompany(f.companyId, async (db) => {
+      const [after] = await db.query<
+        [Array<{ object?: unknown; status?: unknown; supersededBy?: unknown; validUntil?: unknown }>]
+      >(`SELECT object, status, supersededBy, validUntil FROM knowledge_fact ORDER BY object`);
       return after ?? [];
     });
-    expect(updated).toHaveLength(1);
-    expect(updated[0]!.status).toBe('superseded');
-    expect(String(updated[0]!.supersededBy)).toContain('pc_b');
+    const byObject = new Map(rows.map((r) => [String(r.object), r]));
+    // The later validFrom wins; the earlier becomes history, stamped the
+    // way fn::resolve_fact stamps it — validUntil set to the winner's
+    // validFrom, which is the datetime the coercion rejected.
+    expect(byObject.get('AWS ECS Fargate')!.status).toBe('active');
+    const loser = byObject.get('Fly.io')!;
+    expect(loser.status).toBe('superseded');
+    expect(String(loser.supersededBy)).toContain('pc_b');
+    expect(String(loser.validUntil)).toContain('2026-03-25');
+  }, 60_000);
+
+  it('is idempotent — a second pass finds one active value and stops', async () => {
+    const out = await (
+      consolidation as unknown as {
+        reresolveSlots: (c: string, r: unknown) => Promise<Record<string, number>>;
+      }
+    ).reresolveSlots(f.companyId, {} as unknown);
+    expect(out.slotsResolved).toBe(0);
+    expect(out.factsRetired).toBe(0);
   }, 60_000);
 });

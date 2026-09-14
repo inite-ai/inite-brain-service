@@ -50,6 +50,8 @@ function harness(rows: Row[], pick: (c: string, cands: readonly string[]) => str
       }),
   };
   const registry = {
+    getSnapshot: () => Promise.resolve({}),
+    policyFor: (_c: string, id: string) => ({ predicateId: id, semantics: 'append_only' }),
     alias: (_c: string, from: string, to: string) => {
       aliased.push({ from, to });
       return Promise.resolve({
@@ -245,11 +247,24 @@ function slotHarness(
         },
       }),
   };
+  // The order matters, so it is recorded: `policyFor` is a SYNC read of
+  // a cache that every registry write invalidates, and `alias()` is a
+  // registry write. A pass that reads the policy without re-warming gets
+  // SEED_PREDICATES — append_only for every coined predicate — and
+  // declines slots it should have settled.
+  const calls: string[] = [];
   const registry = {
-    policyFor: (_c: string, id: string) => ({
-      predicateId: id,
-      semantics: semantics[id] ?? 'append_only',
-    }),
+    getSnapshot: () => {
+      calls.push('getSnapshot');
+      return Promise.resolve({});
+    },
+    policyFor: (_c: string, id: string) => {
+      calls.push(`policyFor:${id}`);
+      return {
+        predicateId: id,
+        semantics: semantics[id] ?? 'append_only',
+      };
+    },
     alias: () => Promise.resolve({ def: null, factsRepointed: 0 }),
   };
   const judge = { isAvailable: () => true, sameAttributeAs: () => Promise.resolve(null) };
@@ -258,7 +273,7 @@ function slotHarness(
     registry as never,
     judge as never,
   );
-  return { svc, updates };
+  return { svc, updates, calls };
 }
 
 describe('PredicateConsolidationService — re-resolving contested slots', () => {
@@ -286,6 +301,29 @@ describe('PredicateConsolidationService — re-resolving contested slots', () =>
       winnerTail: 'b',
       until: '2026-03-25T00:00:00.000Z',
     });
+  });
+
+  it('re-warms the registry snapshot BEFORE reading any policy', async () => {
+    // Not a style assertion. `alias()` ends in invalidate(), so by the
+    // time the merges are done the tenant's snapshot is gone, and
+    // `policyFor` answers a cold cache from SEED_PREDICATES: correct for
+    // seeds, `append_only` for every 'proposed' predicate — which is
+    // every predicate the extractor coined. Measured on three tenants
+    // that held 6 / 8 / 4 contested single_active slots, the pass
+    // attempted exactly ONE re-resolve between them, on the single slot
+    // whose predicate happened to be a pack seed.
+    const h = slotHarness(
+      [
+        slot('knowledge_fact:a', '2026-03-02T00:00:00Z'),
+        slot('knowledge_fact:b', '2026-03-25T00:00:00Z'),
+      ],
+      { deployed_to: 'single_active' },
+    );
+    await h.svc.run('co_x');
+    expect(h.calls.indexOf('getSnapshot')).toBeGreaterThanOrEqual(0);
+    expect(h.calls.indexOf('getSnapshot')).toBeLessThan(
+      h.calls.findIndex((c) => c.startsWith('policyFor:')),
+    );
   });
 
   it('leaves append_only and bitemporal slots alone', async () => {

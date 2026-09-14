@@ -182,11 +182,29 @@ export class PredicateConsolidationService {
    * deleted, with the same stamp `fn::resolve_fact` writes, so a
    * retroactively resolved slot is indistinguishable from one resolved
    * at ingest. Idempotent: a second run finds one active per slot.
+   *
+   * THE SNAPSHOT MUST BE RE-WARMED FIRST, and that is not a micro-
+   * optimisation. `alias()` goes through `update()`, which ends in
+   * `invalidate(companyId)` — so by the time the merges are done the
+   * tenant's cache entry is GONE, and `policyFor` is a SYNC lookup that
+   * silently answers from `SEED_PREDICATES` (core ∪ builtin packs) when
+   * the cache is cold. Every `proposed` predicate — which is every
+   * predicate the extractor coined — then reads back as the
+   * `append_only` DEFAULT_FALLBACK and this loop declines it.
+   *
+   * Measured: three tenants held 6 / 8 / 4 contested `single_active`
+   * slots (`deploy_target`, `retry_policy`, `pilot_launch_date`,
+   * `queue_backend`, `payout_cutoff` …) and the pass attempted exactly
+   * ONE re-resolve between them — on `code_memory__owns`, the single
+   * contested slot whose predicate happens to be a PACK SEED and so
+   * survives a cold cache. The other eighteen looked like a policy
+   * decision in the counters and were a cache miss.
    */
   private async reresolveSlots(
     companyId: string,
     result: ConsolidationResult,
   ): Promise<Partial<ConsolidationResult>> {
+    await this.registry.getSnapshot(companyId);
     const slots = await this.loadContestedSlots(companyId);
     let resolved = 0;
     let retired = 0;
@@ -210,7 +228,7 @@ export class PredicateConsolidationService {
                retractionReason = 'superseded',
                retractedBy = 'system',
                supersededBy = type::record('knowledge_fact', $winnerTail),
-               validUntil = $until`,
+               validUntil = type::datetime($until)`,
             {
               ids: losers.map((l) => l.raw),
               winnerTail: winner.id.replace(/^knowledge_fact:/, ''),
@@ -253,7 +271,7 @@ export class PredicateConsolidationService {
       const byKey = new Map<string, ContestedSlot>();
       for (const r of (rows as Array<Record<string, unknown>>) ?? []) {
         if (typeof r.slot !== 'string' || r.id === undefined) continue;
-        const key = `${String(r.entityId)} ${r.slot}`;
+        const key = `${String(r.entityId)}\u0000${r.slot}`;
         let entry = byKey.get(key);
         if (entry === undefined) {
           entry = { slot: r.slot, facts: [] };

@@ -71,6 +71,13 @@ export class PredicateRegistryService {
    * next time it touches the registry.
    */
   private readonly bootstrapped: LRUCache<string, true>;
+  /**
+   * Tenants already warned about a cold synchronous policyFor read.
+   * Cleared when the snapshot lands, so each cold STREAK gets one line
+   * rather than one per predicate per pass. Bounded for the same reason
+   * as `bootstrapped`.
+   */
+  private readonly coldWarned = new Set<string>();
   // In-flight bootstrap per tenant — dedupes concurrent first-requests so
   // two cold reads don't both run the seed (which would CREATE duplicate
   // knowledge_predicate rows; no unique constraint protects against it).
@@ -242,6 +249,7 @@ export class PredicateRegistryService {
     const load = this.loadFresh(companyId)
       .then((snapshot) => {
         this.cache.set(companyId, { snapshot, loadedAt: Date.now() });
+        this.coldWarned.delete(companyId);
         return snapshot;
       })
       .finally(() => this.snapshotInFlight.delete(companyId));
@@ -255,9 +263,32 @@ export class PredicateRegistryService {
    * getSnapshot call has populated the cache for this tenant — avoids
    * threading async through every consumer (e.g. policyFor in tight
    * loops). Falls back to a sensible DEFAULT when the cache is cold.
+   *
+   * A COLD CACHE IS A CALLER BUG, and it used to be an invisible one.
+   * Every write mutation — create, update, alias, deprecate, promote —
+   * ends in `invalidate(companyId)`, so a pass that edits the registry
+   * and then reads it back synchronously is reading SEED_PREDICATES:
+   * the code-side core ∪ builtin packs. That answers correctly for
+   * seeded predicates and returns the `append_only` DEFAULT_FALLBACK for
+   * every `proposed` one — which is every predicate the extractor ever
+   * coined. The result is not an error, it is a plausible wrong policy,
+   * and it cost a full consolidation pass: 18 contested `single_active`
+   * slots read back as append_only and were declined, leaving the
+   * counters looking like a policy decision. So the cold read is warned
+   * ONCE per tenant per cold streak — enough to name the caller,
+   * silent again as soon as a getSnapshot lands.
    */
   policyFor(companyId: string, predicate: string): PredicateDefinition {
     const cached = this.cache.get(companyId);
+    if (!cached && !this.coldWarned.has(companyId)) {
+      this.coldWarned.add(companyId);
+      this.logger.warn(
+        `policyFor('${companyId}', '${predicate}') read a COLD registry cache and is ` +
+          `answering from the code seed: every 'proposed' predicate will read back as ` +
+          `append_only. Call getSnapshot(companyId) first — note that create/update/alias ` +
+          `all invalidate.`,
+      );
+    }
     if (cached) {
       // policyById (active ∪ proposed) rather than byId (active only).
       // Reading byId here is what made the whole open-vocabulary half of
