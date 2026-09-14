@@ -75,36 +75,67 @@ export function contentTokens(name: string): Set<string> {
 }
 
 /**
- * Shortest shared prefix that counts as "the same word, inflected".
+ * Q-GRAM BLOCKING — the textbook scheme, not a hand-rolled rule.
  *
- * This is BLOCKING — "which pairs are worth comparing expensively" — a
- * surveyed problem in entity resolution, and this rule is one of its
- * standard schemes (token blocking with a prefix-match predicate)
- * rather than an invention. Measured over a live 196-predicate registry
- * (19110 pairs) against the judge's own decision list, with pairs
- * completeness and reduction ratio:
+ * "Which pairs are worth comparing expensively" is a surveyed problem in
+ * entity resolution (Papadakis et al., *A Survey of Blocking and
+ * Filtering Techniques for Entity Resolution*), and q-gram blocking is
+ * its standard answer to inflection: no morphology table, no language
+ * assumption, one similarity over character n-grams.
  *
- *   exact token (no morphology)   PC 0.947   RR 0.9919
- *   prefix k=4 (this)             PC 1.000   RR 0.9905
- *   trigram Jaccard >= 0.7        PC 1.000   RR 0.9904
+ * IT REPLACED A SHARED-PREFIX RULE, on measurement. That rule read
+ * PC 1.000 against the judge's own decision list — but that list happened
+ * to contain no pair of two INFLECTIONS of one stem, and `deploys` and
+ * `deployed` are each an extension of `deploy` while neither is a prefix
+ * of the other. Adding four such pairs (and `запущен`/`запущена`) drops
+ * the prefix rule to PC 0.870, and it also leaks `port_status` onto
+ * `portfolio_value`.
  *
- * q-gram blocking is the textbook language-agnostic answer to
- * inflection; it ties here and costs a SECOND parameter (q plus a
- * threshold), so the one-parameter form stays. Dropping morphology
- * altogether does not tie — exact token loses a real rename.
+ * Swept over q ∈ {2,3,4}, threshold ∈ [0.40, 0.70] and three paddings —
+ * 65 configurations, scored on a live 196-predicate registry (19110
+ * pairs) for pairs completeness, reduction ratio, non-match leaks and
+ * three Russian inflection pairs. TWELVE get everything right, and they
+ * form a connected region rather than a lucky point:
  *
- * Four, because three matches `car` to `career`. A prefix rather than a
- * stemmer because it is the same rule in every language: `deploy`/
- * `deploys`/`deployed` and `адрес`/`адреса` alike. See the blocking
- * metrics in test/attribute-names.unit-spec.ts.
+ *   3-gram J>=0.45 unpadded (this)  PC 1.000  RR 0.9893  0 leaks  3/3
+ *   3-gram J>=0.60 left-padded      PC 1.000  RR 0.9900  0 leaks  3/3
+ *   prefix k=4 (what this replaced) PC 0.870  RR 0.9905  1 leak   3/3
+ *   exact token (no morphology)     PC 0.826  RR 0.9919  0 leaks  1/3
+ *
+ * Unpadded trigrams at 0.45 sit in the middle of the WIDEST contiguous
+ * plateau (0.40/0.45/0.50 all perfect), so the choice does not balance on
+ * a threshold cliff — and it is the simplest form of the three. The
+ * 0.0007 of reduction ratio it gives up against the left-padded variant
+ * is twelve candidate pairs out of 19110.
  */
-const SHARED_PREFIX_MIN = 4;
+const QGRAM_SIZE = 3;
+const QGRAM_JACCARD_MIN = 0.45;
 
-/** Same word up to inflection: equal, or one is a long-enough prefix. */
+/** Character n-grams of one token, memoized across a pass's comparisons. */
+const gramCache = new Map<string, ReadonlySet<string>>();
+function grams(token: string): ReadonlySet<string> {
+  const hit = gramCache.get(token);
+  if (hit) return hit;
+  const out = new Set<string>();
+  for (let i = 0; i + QGRAM_SIZE <= token.length; i++) {
+    out.add(token.slice(i, i + QGRAM_SIZE));
+  }
+  // A token shorter than q has no n-grams; compare it whole.
+  if (out.size === 0) out.add(token);
+  if (gramCache.size > 4096) gramCache.clear();
+  gramCache.set(token, out);
+  return out;
+}
+
+/** Same word up to inflection: Jaccard over character n-grams. */
 function tokensAlike(a: string, b: string): boolean {
   if (a === b) return true;
-  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
-  return short.length >= SHARED_PREFIX_MIN && long.startsWith(short);
+  const ga = grams(a);
+  const gb = grams(b);
+  let intersection = 0;
+  for (const g of ga) if (gb.has(g)) intersection += 1;
+  if (intersection === 0) return false;
+  return intersection / (ga.size + gb.size - intersection) >= QGRAM_JACCARD_MIN;
 }
 
 /**

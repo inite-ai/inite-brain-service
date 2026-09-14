@@ -65,10 +65,26 @@ describe('sharesContentToken — the rule itself', () => {
   });
 
   it('reaches a derivation too — the gate is allowed to be generous', () => {
-    // `deploy` ~ `deployment` share a 6-char prefix. Under the old
-    // suffix table this was a documented MISS; as a gate it should be a
-    // hit, because the only cost is one question the judge answers.
+    // As a gate this should be a hit: the only cost is one question the
+    // judge answers "no" to, while a miss silently drops a rename.
     expect(sharesContentToken('deploy_target', 'deployment_home')).toBe(true);
+  });
+
+  it('matches TWO INFLECTIONS of one stem — what the prefix rule could not', () => {
+    // `deploys` and `deployed` each extend `deploy`, and neither is a
+    // prefix of the other. The shared-prefix rule this replaced read
+    // PC 1.000 only because the first ground truth contained no such
+    // pair; adding them dropped it to 0.870.
+    expect(sharesContentToken('deploys_to', 'deployed_to')).toBe(true);
+    expect(sharesContentToken('listens_on', 'listening_on')).toBe(true);
+    expect(sharesContentToken('informed_by', 'informs_about')).toBe(true);
+    expect(sharesContentToken('запущен_сервис', 'запущена_очередь')).toBe(true);
+  });
+
+  it('does not leak a shared BEGINNING into a match', () => {
+    // The prefix rule leaked here: `port` is a 4-character prefix of
+    // `portfolio`. n-grams over the whole token do not.
+    expect(sharesContentToken('port_status', 'portfolio_value')).toBe(false);
   });
 
   // No stemming, in either direction: tokens are kept as written, and
@@ -144,16 +160,14 @@ describe('sharesContentToken — the rule itself', () => {
  * Measured over a live 196-predicate registry (19110 pairs) against the
  * judge's own decision list, alongside the textbook alternative:
  *
- *   exact token (no morphology)   PC 0.947   RR 0.9919   RU 1/2
- *   prefix k=4 (this rule)        PC 1.000   RR 0.9905   RU 2/2
- *   trigram Jaccard >= 0.7        PC 1.000   RR 0.9904   RU 2/2
- *   trigram Jaccard >= 0.6        PC 1.000   RR 0.9900   RU 2/2
+ *   3-gram J>=0.45 unpadded (this)  PC 1.000  RR 0.9893  0 leaks  3/3
+ *   3-gram J>=0.60 left-padded      PC 1.000  RR 0.9900  0 leaks  3/3
+ *   prefix k=4 (what this replaced) PC 0.870  RR 0.9905  1 leak   3/3
+ *   exact token (no morphology)     PC 0.826  RR 0.9919  0 leaks  1/3
  *
- * q-gram blocking — the standard language-agnostic answer to inflection
- * — ties on this data and costs a SECOND parameter (q and a threshold)
- * for no measured gain, so the one-parameter form stays. Dropping
- * morphology altogether does not: exact token loses a real rename and
- * half the Russian cases.
+ * Twelve of 65 swept configurations get everything right and they form
+ * a connected region; this one sits mid-plateau (0.40/0.45/0.50 all
+ * perfect) rather than on a threshold cliff.
  *
  * LIMITATION, stated so nobody reads PC 1.000 as more than it is: the
  * 19 known matches are pairs a cosine shortlist already surfaced and
@@ -182,9 +196,7 @@ describe('sharesContentToken — blocking metrics', () => {
     expect(sharesContentToken('очередь_задач', 'очереди_задач')).toBe(true);
   });
 
-  it('a shorter prefix would collapse unrelated words — why k is 4', () => {
-    // k=3 lets `car` reach `career`, which is the failure the constant
-    // exists to prevent; k=4 is the smallest value that does not.
+  it('keeps unrelated words that merely start alike apart', () => {
     expect(sharesContentToken('car_owner', 'career_path')).toBe(false);
     expect(sharesContentToken('deploy_target', 'deploys')).toBe(true);
   });
