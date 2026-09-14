@@ -62,54 +62,63 @@ const PACK_NAMESPACE = /^[a-z0-9]+(?:_[a-z0-9]+)*__/;
 
 /**
  * Lowercase, drop any pack namespace, split on anything that is not a
- * letter or digit, drop stop tokens, and strip one plural/participle
- * ending. Tokens shorter than three characters after stemming are
- * dropped — 'id', 'to', 'v2' carry no naming signal and would match far
- * too much.
+ * letter or digit, drop stop tokens. Tokens shorter than three
+ * characters are dropped — 'id', 'to', 'v2' carry no naming signal and
+ * would match far too much.
+ *
+ * NO STEMMING. An earlier version carried a hand-written English
+ * suffix table here (-ing/-ed/-es/-s with invented length cutoffs, and
+ * then -ss/-us/-is/-as exceptions bolted on after it turned `status`
+ * into `statu` and broke the belief plane's stoplist). That was wrong
+ * twice over: it is dead weight on any tenant whose enricher names
+ * fields in another language, and it hand-codes morphology inside the
+ * one component whose whole premise is that lexical rules cannot settle
+ * attribute identity. Tokens stay as written; the two callers below
+ * differ in how strictly they compare them, which is the real
+ * distinction.
  */
 export function contentTokens(name: string): Set<string> {
   const out = new Set<string>();
   const bare = name.toLowerCase().replace(PACK_NAMESPACE, '');
   for (const raw of bare.split(/[^\p{L}\p{N}]+/u)) {
     if (raw === '' || STOP_TOKENS.has(raw)) continue;
-    const stem = stemOne(raw);
-    if (stem.length >= 3 && !STOP_TOKENS.has(stem)) out.add(stem);
+    if (raw.length >= 3) out.add(raw);
   }
   return out;
 }
 
 /**
- * One pass of plural/participle stripping. Deliberately narrow: this
- * produces a token that is COMPARED FOR EQUALITY, so an over-eager strip
- * invents a match. A naive "drop a trailing s" turns `status` into
- * `statu` and `address` into `addres` — the first of which silently
- * broke the belief plane's generic-modifier rule, since its stoplist
- * says `status`.
- *
- * What it must carry: deploy ~ deploys ~ deployed, inform ~ informed.
- * What it must not touch: -ss / -us / -is / -as endings, and anything
- * short enough that a suffix is probably part of the word.
+ * Shortest shared prefix that counts as "the same word, inflected".
+ * ONE number, and it is deliberately crude: a prefix is the only form
+ * of morphological tolerance that costs no language-specific table, so
+ * it works the same on `deploy`/`deploys`/`deployed` and on
+ * `адрес`/`адреса`. Four, because three matches `car` to `career`.
  */
-function stemOne(token: string): string {
-  if (token.length <= 3) return token;
-  if (/(?:ss|us|is|as)$/.test(token)) return token;
-  if (token.endsWith('ing') && token.length >= 6) return token.slice(0, -3);
-  if (token.endsWith('ed') && token.length >= 5) return token.slice(0, -2);
-  // `-es` only where English actually adds it (boxes, dishes, matches);
-  // elsewhere the plural is a bare `-s` (notes → note, not `not`).
-  if (/(?:s|x|z|ch|sh)es$/.test(token)) return token.slice(0, -2);
-  if (token.endsWith('s')) return token.slice(0, -1);
-  return token;
+const SHARED_PREFIX_MIN = 4;
+
+/** Same word up to inflection: equal, or one is a long-enough prefix. */
+function tokensAlike(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  return short.length >= SHARED_PREFIX_MIN && long.startsWith(short);
 }
 
 /**
- * Could `candidate` be another name for `predicate`? True only when the
- * two share at least one content token. A candidate that fails this is
- * not a rename under any reading, so it never reaches the judge.
+ * Could `candidate` be another name for `predicate`? True when the two
+ * share a content token up to inflection. A candidate that fails this
+ * is not a rename under any reading, so it never reaches the judge.
+ *
+ * This is a GATE, not a decision — the judge decides. So it compares
+ * loosely on purpose: a generous match only costs one question the
+ * model will answer "no" to, while a miss silently drops a real rename.
+ * `fieldsFold` on the belief plane wants the opposite and compares
+ * these same tokens exactly, because there the answer IS the decision.
  */
 export function sharesContentToken(predicate: string, candidate: string): boolean {
   const a = contentTokens(predicate);
   if (a.size === 0) return false;
-  for (const t of contentTokens(candidate)) if (a.has(t)) return true;
+  for (const t of contentTokens(candidate)) {
+    for (const u of a) if (tokensAlike(t, u)) return true;
+  }
   return false;
 }

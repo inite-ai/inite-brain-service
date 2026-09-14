@@ -64,38 +64,37 @@ describe('sharesContentToken — the rule itself', () => {
     );
   });
 
-  it('stems plurals and participles, which is what carries deploy ~ deployed', () => {
-    expect(sharesContentToken('deploy_target', 'deployed_to')).toBe(true);
-    expect(sharesContentToken('deploys', 'deploying_to')).toBe(true);
+  it('reaches a derivation too — the gate is allowed to be generous', () => {
+    // `deploy` ~ `deployment` share a 6-char prefix. Under the old
+    // suffix table this was a documented MISS; as a gate it should be a
+    // hit, because the only cost is one question the judge answers.
+    expect(sharesContentToken('deploy_target', 'deployment_home')).toBe(true);
   });
 
-  it('does NOT stem derivations — the documented field-fold limitation', () => {
-    // 'deployment' is not reachable from 'deploy' by stripping a
-    // plural/participle ending, and inventing a stemmer that does would
-    // start matching things that merely rhyme.
-    expect(sharesContentToken('deploy_target', 'deployment_home')).toBe(false);
-  });
-
-  // These tokens are compared for EQUALITY, so an over-eager strip
-  // invents a match. A naive "drop a trailing s" made `status` into
-  // `statu`, which silently broke the belief plane's generic-modifier
-  // rule the moment both planes started sharing this tokenizer — its
-  // stoplist says `status`.
+  // No stemming, in either direction: tokens are kept as written, and
+  // the GATE tolerates inflection by shared prefix instead. A hand-
+  // written English suffix table used to live here; it mangled `status`
+  // into `statu`, and it did nothing at all for a tenant whose enricher
+  // names fields in another language.
   it.each([
-    ['status', 'status'],
-    ['address', 'address'],
-    ['process', 'process'],
-    ['basis', 'basis'],
-    ['alias', 'alias'],
-    ['deploys', 'deploy'],
-    ['deployed', 'deploy'],
-    ['deploying', 'deploy'],
-    ['boxes', 'box'],
-    ['matches', 'match'],
-    ['notes', 'note'],
-    ['gas', 'gas'],
-  ])('tokenizes %p to %p', (input, stem) => {
-    expect([...contentTokens(input)]).toEqual([stem]);
+    ['status', ['status']],
+    ['address', ['address']],
+    ['deploys_to', ['deploys']],
+    ['payout_cutoff_time', ['payout', 'cutoff', 'time']],
+    ['адрес_офиса', ['адрес', 'офиса']],
+  ])('tokenizes %p to %p, unstemmed', (input, tokens) => {
+    expect([...contentTokens(input as string)]).toEqual(tokens);
+  });
+
+  it('matches across inflection by shared prefix, in any language', () => {
+    expect(sharesContentToken('deploy_target', 'deploys')).toBe(true);
+    expect(sharesContentToken('deploy_target', 'deployed_to')).toBe(true);
+    expect(sharesContentToken('deploy_target', 'deploying_to')).toBe(true);
+    expect(sharesContentToken('адрес_офиса', 'адреса_компании')).toBe(true);
+  });
+
+  it('a three-letter prefix is NOT enough — car must not reach career', () => {
+    expect(sharesContentToken('car_owner', 'career_path')).toBe(false);
   });
 
   it('never matches on structural words alone', () => {
