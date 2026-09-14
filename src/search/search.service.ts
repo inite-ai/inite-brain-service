@@ -12,7 +12,7 @@ import { SearchDto, SearchMode } from './dto/search.dto';
 import { withSpan } from '../common/tracing';
 import { clampLlmInputText } from '../common/input-limits';
 import { traceArtifact } from '../common/debug-trace';
-import { RETRIEVAL_CONVEYOR } from './conveyor';
+import { RETRIEVAL_CONVEYOR } from '../conveyor';
 
 import type { SearchHit } from './search.types';
 import type { EntityBucket, FactRow, NeighbourEdge } from './internals/types';
@@ -557,11 +557,11 @@ export class SearchService {
       asOf: ctx.dto.asOf,
       langFilter,
       // The assembly this query is about to pass through, from the
-      // declaration next to it (conveyor.ts): each stage and what can
+      // declaration in src/conveyor: each stage and what can
       // switch it off. A trace that names its own stages is readable
       // without the source open, and consuming the declaration is what
       // keeps it honest — a conveyor nothing reads is a diagram.
-      conveyor: RETRIEVAL_CONVEYOR.map((st) => ({
+      conveyor: RETRIEVAL_CONVEYOR.stages.map((st) => ({
         step: st.step,
         gate: st.gate === 'always' ? 'always' : Object.values(st.gate)[0],
       })),
