@@ -63,6 +63,14 @@ import { sharesContentToken } from '../common/attribute-names';
  *
  * SEEDS ARE NEVER ALIASED AWAY. An `active` predicate is curated
  * ontology; it can only ever be a leader.
+ *
+ * THE SECOND HALF IS THE ONE THAT CHANGES ANSWERS. Merging names is
+ * bookkeeping: a fact keeps the status it was written with, so a slot
+ * can hold several active values whatever its name. The pass therefore
+ * ends by RE-RESOLVING contested slots under today's policy — see
+ * reresolveSlots. Measured on a battery tenant, 20 slots held more than
+ * one active value; the merges above had increased that count, because
+ * co-locating facts is not the same as adjudicating them.
  */
 @Injectable()
 export class PredicateConsolidationService {
@@ -85,6 +93,9 @@ export class PredicateConsolidationService {
       judged: 0,
       dryRun,
       merges: [],
+      slotsContested: 0,
+      slotsResolved: 0,
+      factsRetired: 0,
     };
     if (!this.judge.isAvailable()) {
       this.logger.warn(
@@ -127,14 +138,136 @@ export class PredicateConsolidationService {
       result.factsRepointed += factsRepointed;
     }
     result.leaders = leaders.length;
+    if (!dryRun) Object.assign(result, await this.reresolveSlots(companyId, result));
 
     this.logger.log(
       `predicate consolidation${dryRun ? ' (dry run)' : ''} for ${companyId}: ` +
         `${result.examined} coined predicate(s) examined, ${result.blocked} blocked into a ` +
         `candidate set, ${result.merged} merged onto ${result.leaders} leader(s), ` +
-        `${result.factsRepointed} fact(s) re-pointed`,
+        `${result.factsRepointed} fact(s) re-pointed; ` +
+        `${result.slotsResolved}/${result.slotsContested} contested slot(s) re-resolved, ` +
+        `${result.factsRetired} stale value(s) retired`,
     );
     return result;
+  }
+
+  /**
+   * Apply TODAY's policy to facts that are already co-located in a slot.
+   *
+   * Merging names is bookkeeping on its own. A fact keeps the status it
+   * was given when it was written, and resolution runs at ingest — so a
+   * slot can hold several active values for reasons that have nothing to
+   * do with naming:
+   *
+   *  - the INGEST-ORDERING RACE. The policy that applied is the one in
+   *    the registry at write time, and a predicate is classified when it
+   *    is coined. A fact written before its own predicate was classified
+   *    took `append_only`, which means "no conflict possible", and
+   *    stayed active beside everything that followed.
+   *  - a MISCLASSIFICATION since corrected. Measured on six tenants from
+   *    one corpus, the whole deploy family was `append_only`; correcting
+   *    the prompt fixes new writes and does nothing for what is stored.
+   *  - the merge this pass just made, which co-locates facts that were
+   *    never resolved against each other in the first place.
+   *
+   * Measured on a battery tenant: grouping active facts on the
+   * alias-resolved slot found 20 slots holding more than one active
+   * value — `service_port` with five, `deployed_to` with two.
+   *
+   * CONSERVATIVE BY CONSTRUCTION. Only `single_active` slots are
+   * touched, because that policy alone settles the outcome without a
+   * similarity margin: the latest value wins, the rest become history.
+   * `bitemporal` needs the resolver's cosine and margin and is left to
+   * it; `append_only` is nothing to resolve. Losers are MARKED, never
+   * deleted, with the same stamp `fn::resolve_fact` writes, so a
+   * retroactively resolved slot is indistinguishable from one resolved
+   * at ingest. Idempotent: a second run finds one active per slot.
+   */
+  private async reresolveSlots(
+    companyId: string,
+    result: ConsolidationResult,
+  ): Promise<Partial<ConsolidationResult>> {
+    const slots = await this.loadContestedSlots(companyId);
+    let resolved = 0;
+    let retired = 0;
+    for (const slot of slots) {
+      const policy = this.registry.policyFor(companyId, slot.slot);
+      if (policy.semantics !== 'single_active') continue;
+      // Latest valid-from wins; the id breaks a tie so a replay over the
+      // same data picks the same winner.
+      const ordered = [...slot.facts].sort(
+        (a, b) => b.validFrom - a.validFrom || b.id.localeCompare(a.id),
+      );
+      const winner = ordered[0];
+      const losers = ordered.slice(1);
+      if (winner === undefined || losers.length === 0) continue;
+      try {
+        await this.surreal.withCompany(companyId, async (db) => {
+          await db.query(
+            `UPDATE $ids SET
+               status = 'superseded',
+               retractedAt = time::now(),
+               retractionReason = 'superseded',
+               retractedBy = 'system',
+               supersededBy = type::record('knowledge_fact', $winnerTail),
+               validUntil = $until`,
+            {
+              ids: losers.map((l) => l.raw),
+              winnerTail: winner.id.replace(/^knowledge_fact:/, ''),
+              until: new Date(winner.validFrom).toISOString(),
+            },
+          );
+        });
+        resolved += 1;
+        retired += losers.length;
+      } catch (e) {
+        this.logger.warn(
+          `predicate consolidation: re-resolve failed for slot '${slot.slot}': ${(e as Error).message}`,
+        );
+      }
+    }
+    if (resolved > 0) {
+      this.logger.log(
+        `predicate consolidation: re-resolved ${resolved} single_active slot(s) in ${companyId}, ` +
+          `retiring ${retired} stale value(s) that ingest-time policy had left active`,
+      );
+    }
+    result.slotsContested = slots.length;
+    return { slotsResolved: resolved, factsRetired: retired };
+  }
+
+  /**
+   * Slots — keyed on `(entityId, predicateAlias ?? predicate)`, the same
+   * key resolution and retrieval use — holding more than one ACTIVE
+   * fact. Grouped in the DB; only the handful that are contested come
+   * back with their facts.
+   */
+  private async loadContestedSlots(companyId: string): Promise<ContestedSlot[]> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      const [rows] = await db.query<
+        [Array<{ id?: unknown; entityId?: unknown; slot?: unknown; validFrom?: unknown }>]
+      >(
+        `SELECT id, entityId, (predicateAlias ?? predicate) AS slot, validFrom
+           FROM knowledge_fact WHERE status = 'active'`,
+      );
+      const byKey = new Map<string, ContestedSlot>();
+      for (const r of (rows as Array<Record<string, unknown>>) ?? []) {
+        if (typeof r.slot !== 'string' || r.id === undefined) continue;
+        const key = `${String(r.entityId)} ${r.slot}`;
+        let entry = byKey.get(key);
+        if (entry === undefined) {
+          entry = { slot: r.slot, facts: [] };
+          byKey.set(key, entry);
+        }
+        const ms = Date.parse(String(r.validFrom));
+        entry.facts.push({
+          id: String(r.id),
+          raw: r.id,
+          validFrom: Number.isNaN(ms) ? 0 : ms,
+        });
+      }
+      return [...byKey.values()].filter((s) => s.facts.length > 1);
+    });
   }
 
   /**
@@ -204,4 +337,15 @@ export interface ConsolidationResult {
   judged: number;
   dryRun: boolean;
   merges: Array<{ from: string; to: string; facts: number }>;
+  /** Slots holding more than one ACTIVE value before the re-resolve. */
+  slotsContested: number;
+  /** Of those, the single_active ones this pass settled. */
+  slotsResolved: number;
+  /** Stale values retired by that — `superseded`, never deleted. */
+  factsRetired: number;
+}
+
+interface ContestedSlot {
+  slot: string;
+  facts: Array<{ id: string; raw: unknown; validFrom: number }>;
 }

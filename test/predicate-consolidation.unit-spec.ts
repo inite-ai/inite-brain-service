@@ -52,7 +52,10 @@ function harness(rows: Row[], pick: (c: string, cands: readonly string[]) => str
   const registry = {
     alias: (_c: string, from: string, to: string) => {
       aliased.push({ from, to });
-      return Promise.resolve({ def: null, factsRepointed: rows.find((r) => r.predicateId === from)?.facts ?? 0 });
+      return Promise.resolve({
+        def: null,
+        factsRepointed: rows.find((r) => r.predicateId === from)?.facts ?? 0,
+      });
     },
   };
   const judge = {
@@ -117,7 +120,10 @@ describe('PredicateConsolidationService', () => {
     const r = await h.svc.run('co_x');
     expect(r.merged).toBe(0);
     // Each later candidate is offered the leaders, never a merged member.
-    expect(h.asked.map((a) => a.block)).toEqual([['retry_policy'], ['retry_policy', 'retry_delay']]);
+    expect(h.asked.map((a) => a.block)).toEqual([
+      ['retry_policy'],
+      ['retry_policy', 'retry_delay'],
+    ]);
   });
 
   it('never asks about a pair the blocking gate rejects', async () => {
@@ -174,9 +180,7 @@ describe('PredicateConsolidationService', () => {
     );
     const r = await h.svc.run('co_x', { dryRun: true });
     expect(r.merged).toBe(1);
-    expect(r.merges).toEqual([
-      { from: 'changed_launch_date', to: 'pilot_launch_date', facts: 1 },
-    ]);
+    expect(r.merges).toEqual([{ from: 'changed_launch_date', to: 'pilot_launch_date', facts: 1 }]);
     expect(h.aliased).toEqual([]);
     expect(r.factsRepointed).toBe(0);
   });
@@ -200,5 +204,154 @@ describe('PredicateConsolidationService', () => {
     );
     await h.svc.run('co_x');
     expect(h.asked.map((a) => a.candidate)).toEqual(['alpha_launch_date', 'zeta_launch_date']);
+  });
+});
+
+/**
+ * Re-resolution — the half that changes answers.
+ *
+ * Merging names is bookkeeping: a fact keeps the status it was written
+ * with, so a slot holds several active values whatever it is called.
+ * Measured on a battery tenant, grouping active facts on the
+ * alias-resolved slot found 20 contested slots — and the merges had
+ * INCREASED that count, because co-locating facts is not adjudicating
+ * them.
+ */
+function slotHarness(
+  facts: Array<{ id: string; slot: string; entity: string; validFrom: string }>,
+  semantics: Record<string, 'single_active' | 'append_only' | 'bitemporal'>,
+) {
+  const updates: Array<{ ids: unknown; winnerTail: string; until: string }> = [];
+  const surreal = {
+    withCompany: async (_c: string, fn: (db: unknown) => Promise<unknown>) =>
+      fn({
+        query: (q: string, vars?: Record<string, unknown>) => {
+          if (q.includes('(predicateAlias ?? predicate) AS slot')) {
+            return Promise.resolve([
+              facts.map((f) => ({
+                id: f.id,
+                entityId: f.entity,
+                slot: f.slot,
+                validFrom: f.validFrom,
+              })),
+            ]);
+          }
+          if (q.includes("status = 'superseded'")) {
+            updates.push(vars as never);
+            return Promise.resolve([[]]);
+          }
+          if (q.includes('FROM knowledge_predicate')) return Promise.resolve([[]]);
+          return Promise.resolve([[]]);
+        },
+      }),
+  };
+  const registry = {
+    policyFor: (_c: string, id: string) => ({
+      predicateId: id,
+      semantics: semantics[id] ?? 'append_only',
+    }),
+    alias: () => Promise.resolve({ def: null, factsRepointed: 0 }),
+  };
+  const judge = { isAvailable: () => true, sameAttributeAs: () => Promise.resolve(null) };
+  const svc = new PredicateConsolidationService(
+    surreal as never,
+    registry as never,
+    judge as never,
+  );
+  return { svc, updates };
+}
+
+describe('PredicateConsolidationService — re-resolving contested slots', () => {
+  const slot = (id: string, validFrom: string, s = 'deployed_to', e = 'e1') => ({
+    id,
+    slot: s,
+    entity: e,
+    validFrom,
+  });
+
+  it('retires the older values of a single_active slot, keeping the latest', async () => {
+    const h = slotHarness(
+      [
+        slot('knowledge_fact:a', '2026-03-02T00:00:00Z'),
+        slot('knowledge_fact:b', '2026-03-25T00:00:00Z'),
+      ],
+      { deployed_to: 'single_active' },
+    );
+    const r = await h.svc.run('co_x');
+    expect(r.slotsContested).toBe(1);
+    expect(r.slotsResolved).toBe(1);
+    expect(r.factsRetired).toBe(1);
+    expect(h.updates[0]).toMatchObject({
+      ids: ['knowledge_fact:a'],
+      winnerTail: 'b',
+      until: '2026-03-25T00:00:00.000Z',
+    });
+  });
+
+  it('leaves append_only and bitemporal slots alone', async () => {
+    // append_only has nothing to resolve; bitemporal needs the
+    // resolver's cosine and margin, which a retroactive pass cannot
+    // reconstruct — so it stays the resolver's job.
+    const h = slotHarness(
+      [
+        slot('knowledge_fact:a', '2026-03-02T00:00:00Z', 'owns'),
+        slot('knowledge_fact:b', '2026-03-25T00:00:00Z', 'owns'),
+        slot('knowledge_fact:c', '2026-03-02T00:00:00Z', 'payout_cutoff'),
+        slot('knowledge_fact:d', '2026-03-25T00:00:00Z', 'payout_cutoff'),
+      ],
+      { owns: 'append_only', payout_cutoff: 'bitemporal' },
+    );
+    const r = await h.svc.run('co_x');
+    expect(r.slotsContested).toBe(2);
+    expect(r.slotsResolved).toBe(0);
+    expect(h.updates).toEqual([]);
+  });
+
+  it('never touches a slot that already holds one active value', async () => {
+    const h = slotHarness([slot('knowledge_fact:a', '2026-03-02T00:00:00Z')], {
+      deployed_to: 'single_active',
+    });
+    const r = await h.svc.run('co_x');
+    expect(r.slotsContested).toBe(0);
+    expect(h.updates).toEqual([]);
+  });
+
+  it('keys the slot on entity too — one predicate on two entities is two slots', async () => {
+    const h = slotHarness(
+      [
+        slot('knowledge_fact:a', '2026-03-02T00:00:00Z', 'deployed_to', 'e1'),
+        slot('knowledge_fact:b', '2026-03-25T00:00:00Z', 'deployed_to', 'e2'),
+      ],
+      { deployed_to: 'single_active' },
+    );
+    const r = await h.svc.run('co_x');
+    expect(r.slotsContested).toBe(0);
+    expect(h.updates).toEqual([]);
+  });
+
+  it('breaks a validFrom tie deterministically, so a replay picks the same winner', async () => {
+    const same = '2026-03-02T00:00:00Z';
+    const first = slotHarness([slot('knowledge_fact:a', same), slot('knowledge_fact:b', same)], {
+      deployed_to: 'single_active',
+    });
+    const second = slotHarness([slot('knowledge_fact:b', same), slot('knowledge_fact:a', same)], {
+      deployed_to: 'single_active',
+    });
+    await first.svc.run('co_x');
+    await second.svc.run('co_x');
+    expect(first.updates[0]!.winnerTail).toBe(second.updates[0]!.winnerTail);
+  });
+
+  it('a dry run resolves nothing', async () => {
+    const h = slotHarness(
+      [
+        slot('knowledge_fact:a', '2026-03-02T00:00:00Z'),
+        slot('knowledge_fact:b', '2026-03-25T00:00:00Z'),
+      ],
+      { deployed_to: 'single_active' },
+    );
+    const r = await h.svc.run('co_x', { dryRun: true });
+    expect(r.slotsResolved).toBe(0);
+    expect(h.updates).toEqual([]);
   });
 });

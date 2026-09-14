@@ -864,7 +864,11 @@ export class PredicateRegistryService {
         );
         const rows = (ids as unknown[]) ?? [];
         if (rows.length === 0) return 0;
-        await db.query(`UPDATE $ids SET predicateAlias = $canon, updatedAt = time::now()`, {
+        // No `updatedAt`: knowledge_fact is SCHEMAFULL and has no such
+        // field, so writing one makes the whole statement throw. It did,
+        // 66 times in one pass, swallowed by the catch below — which is
+        // why this method reports a COUNT instead of returning void.
+        await db.query(`UPDATE $ids SET predicateAlias = $canon`, {
           ids: rows,
           canon: canonicalId,
         });
