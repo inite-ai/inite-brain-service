@@ -30,28 +30,6 @@
  * field-fold rule already documents.
  */
 
-/** Structural words that carry no attribute meaning on their own. */
-const STOP_TOKENS: ReadonlySet<string> = new Set([
-  'a',
-  'an',
-  'the',
-  'to',
-  'of',
-  'in',
-  'on',
-  'at',
-  'by',
-  'for',
-  'with',
-  'from',
-  'as',
-  'is',
-  'was',
-  'be',
-  'new',
-  'current',
-]);
-
 /**
  * A Domain Pack namespaces its predicates `<packId>__<name>`, so two
  * unrelated pack predicates share every prefix token. Strip the prefix
@@ -62,9 +40,19 @@ const PACK_NAMESPACE = /^[a-z0-9]+(?:_[a-z0-9]+)*__/;
 
 /**
  * Lowercase, drop any pack namespace, split on anything that is not a
- * letter or digit, drop stop tokens. Tokens shorter than three
- * characters are dropped — 'id', 'to', 'v2' carry no naming signal and
- * would match far too much.
+ * letter or digit, keep tokens of three characters or more — 'id', 'to',
+ * 'v2' carry no naming signal and would match far too much.
+ *
+ * NO STOPLIST either. There was an 18-word English one here, and
+ * measuring it against a live 196-predicate registry (19110 pairs)
+ * settled it: ELEVEN of the eighteen entries were dead — the length
+ * floor already dropped `a an to of in on at by as is be` — and the
+ * seven that did anything (`the for with from was new current`)
+ * prevented 28 gate passes, 0.15% of the pairs. For that the system
+ * carried an English word list it could never apply to a tenant whose
+ * fields are named in another language, where `для`/`с`/`от` sail
+ * through regardless. The gate is generous by contract, so each of
+ * those 28 costs one question the judge answers "no" to.
  *
  * NO STEMMING. An earlier version carried a hand-written English
  * suffix table here (-ing/-ed/-es/-s with invented length cutoffs, and
@@ -81,7 +69,6 @@ export function contentTokens(name: string): Set<string> {
   const out = new Set<string>();
   const bare = name.toLowerCase().replace(PACK_NAMESPACE, '');
   for (const raw of bare.split(/[^\p{L}\p{N}]+/u)) {
-    if (raw === '' || STOP_TOKENS.has(raw)) continue;
     if (raw.length >= 3) out.add(raw);
   }
   return out;
