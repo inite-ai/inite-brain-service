@@ -247,6 +247,63 @@ score:
 The read fence is the only one that also produced score movement, and it
 is the one whose mechanism is closest to the check.
 
+## ⚠ The bigger question: this whole page is about the FACT plane
+
+Everything above repairs `knowledge_fact` conflict semantics — predicate
+cardinality, supersede, the cosine floor on the bitemporal pool — to
+reconstruct "what is the value NOW". The architecture moved away from
+that. The belief plane (0120) already states it outright, and on the same
+tenant that FAILED `d1-queue` on the fact path:
+
+```
+ledger-sync — deployment target: AWS ECS Fargate (was: Fly.io)
+ledger-sync — pilot launch date: 2026-05-06  (was: 2026-04-15)
+ledger-sync — retry policy: exponential backoff capped at 5 attempts
+                            (was: 3 retries with a 30s delay)
+ledger-sync — queue backend: NATS JetStream  (was: Redis Streams)
+ledger-sync — payout batch size: 200         (was: 500)
+```
+
+Value AND prior value, one row per slot, for every D1/D2 question plus
+`d7-port` and `d9`. `d2-beliefs` is the one D2 check that passes stably
+across the whole wave — because it is the only one that reads this table.
+
+And both ends are off:
+
+|                           | default                                                |
+| ------------------------- | ------------------------------------------------------ |
+| `BELIEFS_API_ENABLED`     | 1 — readable                                           |
+| `BELIEFS_SERVING_LANE`    | **0** — the answer path never consults it              |
+| `BELIEFS_FACT_DAMPING`    | **0**                                                  |
+| `SCENES_BELIEF_PROMOTION` | **0** — on a stock install the rows are never produced |
+
+The lane's own docblock: _"REPEALS the 0120 shadow doctrine ('nothing on
+the serving path reads this table') behind the default-off master flag."_
+
+### Measured, not assumed
+
+Turning the lane on (+ damping), three runs, same corpus:
+
+| arm                   | stable pass | stable fail | unstable | scores       |
+| --------------------- | ----------- | ----------- | -------- | ------------ |
+| repaired fact plane   | **21**      | 3           | **8**    | 25 / 24 / 27 |
+| + belief serving lane | 19          | 3           | 10       | 24 / 23 / 23 |
+
+**The lane as built is worse.** Two stable gains (`d5-warehouse`,
+`d6-competing-api`) against `d1-deploy` and `d6-answer` going stably
+fail and four checks falling out of stable-pass.
+
+The data is right and the rendered statements are right — verified row by
+row. What is wrong is how the lane COMPETES: it appends top-3 belief
+lines beside the full fact evidence, and the damping does not displace
+the stale fact lines those beliefs supersede. So the prompt carries both
+the belief and the fact it was promoted from, and the generator picks.
+
+That is the real shape of "we moved away from facts": the substrate did,
+the serving path did not, and the one lane that bridges them was built to
+ADD evidence rather than to REPLACE it. Fixing the fact plane — this
+whole page — was treating the symptom of that.
+
 ## Where the instability actually lives
 
 The earlier rounds of this page called the battery noisy and moved on.
