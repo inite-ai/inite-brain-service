@@ -660,6 +660,49 @@ describe('buildFactIndex recency marker (T5)', () => {
     expect(factLines.find((l) => l.includes(':new'))).toContain('[most recent for this slot]');
     expect(factLines.find((l) => l.includes(':old'))).not.toContain('most recent');
   });
+  it('arbitrates ACROSS coinages of one attribute — the slot is the canon', async () => {
+    // Two facts about one setting, written under two names, the older
+    // one aliased onto the canon. Keyed on the written predicate they
+    // sat in two slots and neither was ever "most recent for this
+    // slot" — which is the whole condition the marker exists to
+    // surface. `predicateAlias ?? predicate` (0083) puts them in one.
+    const hit = {
+      entityId: 'e1',
+      entityType: 'service',
+      canonicalName: 'ledger-sync',
+      externalRefs: {},
+      score: 1,
+      facts: [
+        {
+          factId: 'knowledge_fact:old',
+          predicate: 'deploys_to',
+          predicateAlias: 'deploy_target',
+          object: 'Fly.io',
+          confidence: 0.7,
+          score: 1,
+          validFrom: '2026-03-02T00:00:00.000Z',
+        },
+        {
+          factId: 'knowledge_fact:new',
+          predicate: 'deploy_target',
+          object: 'AWS ECS Fargate',
+          confidence: 0.7,
+          score: 1,
+          validFrom: '2026-03-25T00:00:00.000Z',
+        },
+      ],
+    } as unknown as SearchHit;
+    const { factLines, factIndex } = buildFactIndex([hit], { markRecency: true });
+    expect(factLines.find((l) => l.includes(':new'))).toContain('[most recent for this slot]');
+    expect(factLines.find((l) => l.includes(':old'))).not.toContain('most recent');
+    // The LINE still shows what was written; only the comparison canonizes.
+    expect(factLines.find((l) => l.includes(':old'))).toContain('deploys_to');
+    expect(factIndex.get('knowledge_fact:old')).toMatchObject({
+      predicate: 'deploys_to',
+      slot: 'deploy_target',
+    });
+  });
+
   it('never tags agreeing or single-dated slots', () => {
     const { factLines } = buildFactIndex(
       [
