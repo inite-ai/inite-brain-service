@@ -734,6 +734,7 @@ export class PredicateRegistryService {
           canonicalId: adjudicated.predicateId,
           def: canonical,
         });
+        await this.backfillPredicateAlias(companyId, predicate, adjudicated.predicateId);
       } catch (e) {
         this.logger.warn(
           `canonicalize: auto-alias insert failed for '${predicate}' → '${adjudicated.predicateId}': ${(e as Error).message}`,
@@ -882,6 +883,68 @@ export class PredicateRegistryService {
         `(cosine ${hit.similarity.toFixed(3)}, below the ${this.canonicalizeThreshold} auto-alias threshold)`,
     );
     return { predicateId: picked, similarity: hit.similarity, adjudicated: true };
+  }
+
+  /**
+   * Carry a fresh alias back to the facts that were written BEFORE it.
+   *
+   * Without this the whole alias mechanism is forward-only and therefore
+   * inert on the case it exists for. Measured on a battery tenant: the
+   * judge correctly merged `deploy_target` and `deploys_to` into
+   * `deployed_to`, and the corpus still held TWO active `Fly.io` facts —
+   * one under `deploy_target`, one under `deployed_to` — because a fact
+   * keeps the predicate string it was written with. Slot identity runs
+   * on `(predicateAlias ?? predicate)` everywhere that matters — the
+   * 0083 resolver's supersede/compete key, the search dedupe and
+   * diversity keys, scoring — so those rows were in a slot the canon
+   * could never reach, and the vocabulary merge bought nothing.
+   *
+   * NOT a rewrite: `predicate` keeps the original coinage as provenance
+   * and only the option<string> alias column is filled, and only where
+   * it is empty — a fact that already carries an alias (its own coinage
+   * was canonicalized at write time) is never re-pointed.
+   *
+   * 3.2.4 PLANNER DISCIPLINE (the 0093/0120 idiom): `predicate` is
+   * indexed, and an `UPDATE … WHERE` over an indexed field is the silent
+   * no-op class — it reports success having changed nothing. Select the
+   * ids first, then update by id. Verified against a live 3.2.4 with the
+   * index present: the unaliased rows take the canon, an already-aliased
+   * row and a different predicate are untouched.
+   *
+   * Best-effort by design: a failure leaves the alias in place for
+   * future writes (today's behaviour) and never fails the coinage.
+   */
+  private async backfillPredicateAlias(
+    companyId: string,
+    novelPredicate: string,
+    canonicalId: string,
+  ): Promise<void> {
+    try {
+      const updated = await this.surreal.withCompany(companyId, async (db) => {
+        const [ids] = await db.query<[unknown[]]>(
+          `SELECT VALUE id FROM knowledge_fact
+            WHERE predicate = $novel AND predicateAlias IS NONE`,
+          { novel: novelPredicate },
+        );
+        const rows = (ids as unknown[]) ?? [];
+        if (rows.length === 0) return 0;
+        await db.query(`UPDATE $ids SET predicateAlias = $canon, updatedAt = time::now()`, {
+          ids: rows,
+          canon: canonicalId,
+        });
+        return rows.length;
+      });
+      if (updated > 0) {
+        this.logger.log(
+          `canonicalize: carried alias '${novelPredicate}' → '${canonicalId}' back onto ` +
+            `${updated} already-written fact(s) in ${companyId}`,
+        );
+      }
+    } catch (e) {
+      this.logger.warn(
+        `canonicalize: alias backfill failed for '${novelPredicate}' → '${canonicalId}': ${(e as Error).message}`,
+      );
+    }
   }
 
   /**

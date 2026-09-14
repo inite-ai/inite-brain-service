@@ -59,6 +59,8 @@ interface Harness {
   svc: PredicateRegistryService;
   shortlists: string[][];
   created: Array<Record<string, unknown>>;
+  /** Every (query, vars) pair the service sent to the DB. */
+  queries: Array<{ q: string; vars?: Record<string, unknown> }>;
 }
 
 function harness(opts: {
@@ -69,9 +71,14 @@ function harness(opts: {
   pick?: (candidates: readonly string[]) => string | null;
   onQuery?: (q: string) => void;
   failSearch?: boolean;
+  /** Record ids of already-written facts still carrying the raw coinage. */
+  factsUnderNovel?: string[];
+  /** Make the backfill's own query throw, and nothing else. */
+  failBackfill?: boolean;
 }): Harness {
   const shortlists: string[][] = [];
   const created: Array<Record<string, unknown>> = [];
+  const queries: Array<{ q: string; vars?: Record<string, unknown> }> = [];
   const identityJudge = {
     sameAttributeAs: (_p: string, _c: string, candidates: readonly string[]) => {
       shortlists.push([...candidates]);
@@ -86,10 +93,21 @@ function harness(opts: {
       fn({
         query: (
           q: string,
-          vars?: { content?: Record<string, unknown>; q?: number[]; self?: string; k?: number },
+          vars?: {
+            content?: Record<string, unknown>;
+            q?: number[];
+            self?: string;
+            k?: number;
+            novel?: string;
+          },
         ) => {
           opts.onQuery?.(q);
+          queries.push({ q, ...(vars ? { vars: vars as Record<string, unknown> } : {}) });
           if (vars?.content) created.push(vars.content);
+          if (q.includes('FROM knowledge_fact') && q.includes('predicateAlias IS NONE')) {
+            if (opts.failBackfill) return Promise.reject(new Error('planner exploded'));
+            return Promise.resolve([opts.factsUnderNovel ?? []]);
+          }
           if (q.includes(`status = 'proposed'`) && vars?.q) {
             if (opts.failSearch) return Promise.reject(new Error('planner exploded'));
             const rows = [...(opts.proposedEmbeddings ?? new Map<string, number[]>())]
@@ -124,7 +142,7 @@ function harness(opts: {
     },
     loadedAt: Date.now(),
   });
-  return { svc, shortlists, created };
+  return { svc, shortlists, created, queries };
 }
 
 describe('canonicalize — identity adjudication', () => {
@@ -335,5 +353,78 @@ describe('canonicalize — identity adjudication', () => {
     } finally {
       delete process.env.PREDICATE_IDENTITY_JUDGE;
     }
+  });
+});
+
+/**
+ * The alias backfill — without it the merge is forward-only and buys
+ * nothing on the case it exists for.
+ *
+ * Measured on a battery tenant: the judge correctly merged
+ * `deploy_target` and `deploys_to` into `deployed_to`, and the corpus
+ * still held TWO active `Fly.io` facts, one under `deploy_target` and
+ * one under `deployed_to` — because a fact keeps the predicate string it
+ * was written with. Slot identity runs on `(predicateAlias ?? predicate)`
+ * in the 0083 resolver's supersede/compete key and in the search dedupe
+ * and diversity keys, so those rows sat in a slot the canon could never
+ * reach. The vocabulary shrank 150 → 133 and `d1-deploy` failed all
+ * three runs anyway.
+ */
+describe('canonicalize — carrying an alias back to already-written facts', () => {
+  const aliasedHarness = (factsUnderNovel: string[]) =>
+    harness({
+      proposed: new Map([['deployed_to', def({ predicateId: 'deployed_to', status: 'proposed' })]]),
+      proposedEmbeddings: new Map([['deployed_to', vec(60)]]),
+      pick: () => 'deployed_to',
+      factsUnderNovel,
+    });
+
+  it('points the pre-existing facts at the canon', async () => {
+    const h = aliasedHarness(['knowledge_fact:a', 'knowledge_fact:b']);
+    await h.svc.canonicalize('co_x', 'deploy_target', 'deploy_target: Fly.io');
+    const update = h.queries.find((x) => x.q.includes('SET predicateAlias'));
+    expect(update).toBeDefined();
+    expect(update!.vars).toMatchObject({
+      ids: ['knowledge_fact:a', 'knowledge_fact:b'],
+      canon: 'deployed_to',
+    });
+  });
+
+  it('selects the ids first and updates BY ID — the indexed-WHERE trap', async () => {
+    // `predicate` is indexed, and on 3.2.4 an `UPDATE … WHERE` over an
+    // indexed field is the silent no-op class: it reports success having
+    // changed nothing. A backfill that hit it would look like it worked.
+    const h = aliasedHarness(['knowledge_fact:a']);
+    await h.svc.canonicalize('co_x', 'deploy_target', 'deploy_target: Fly.io');
+    const update = h.queries.find((x) => x.q.includes('SET predicateAlias'))!;
+    expect(update.q).toContain('UPDATE $ids');
+    expect(update.q).not.toMatch(/UPDATE\s+knowledge_fact\s+SET/);
+    const select = h.queries.find((x) => x.q.includes('FROM knowledge_fact'))!;
+    expect(select.q).toContain('SELECT VALUE id');
+  });
+
+  it('only fills an EMPTY alias — never re-points a fact that has one', async () => {
+    const h = aliasedHarness(['knowledge_fact:a']);
+    await h.svc.canonicalize('co_x', 'deploy_target', 'deploy_target: Fly.io');
+    const select = h.queries.find((x) => x.q.includes('FROM knowledge_fact'))!;
+    expect(select.q).toContain('predicateAlias IS NONE');
+  });
+
+  it('writes nothing when no earlier fact carries the coinage', async () => {
+    const h = aliasedHarness([]);
+    await h.svc.canonicalize('co_x', 'deploy_target', 'deploy_target: Fly.io');
+    expect(h.queries.some((x) => x.q.includes('SET predicateAlias'))).toBe(false);
+  });
+
+  it('a failed backfill never fails the coinage', async () => {
+    const h = harness({
+      proposed: new Map([['deployed_to', def({ predicateId: 'deployed_to', status: 'proposed' })]]),
+      proposedEmbeddings: new Map([['deployed_to', vec(60)]]),
+      pick: () => 'deployed_to',
+      factsUnderNovel: ['knowledge_fact:a'],
+      failBackfill: true,
+    });
+    const d = await h.svc.canonicalize('co_x', 'deploy_target', 'deploy_target: Fly.io');
+    expect(d).toMatchObject({ kind: 'aliased', canonicalId: 'deployed_to' });
   });
 });
