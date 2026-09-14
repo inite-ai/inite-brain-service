@@ -84,11 +84,19 @@ describe('sharesContentToken — the rule itself', () => {
     expect(sharesContentToken('is_a_thing', 'is_the_other')).toBe(false);
   });
 
-  it('never matches on a namespace prefix alone', () => {
+  it('never matches on a pack namespace alone', () => {
     // `code_memory__owns` ~ `code_memory__gotcha` share the pack
     // namespace and nothing else; that must not read as a rename.
     expect(sharesContentToken('code_memory__owns', 'code_memory__gotcha')).toBe(false);
     expect(sharesContentToken('code_memory__owns', 'owns')).toBe(true);
+  });
+
+  it('strips the namespace without blanking its words elsewhere', () => {
+    // The prefix is dropped as a PREFIX, not stoplisted — a predicate
+    // that genuinely talks about memory or code keeps that word.
+    expect(sharesContentToken('memory_limit', 'memory_budget')).toBe(true);
+    expect(sharesContentToken('code_owner', 'code_reviewer')).toBe(true);
+    expect(sharesContentToken('code_memory__decided', 'memory_limit')).toBe(false);
   });
 
   it('drops tokens under three characters', () => {

@@ -293,16 +293,53 @@ Turning the lane on (+ damping), three runs, same corpus:
 `d6-competing-api`) against `d1-deploy` and `d6-answer` going stably
 fail and four checks falling out of stable-pass.
 
-The data is right and the rendered statements are right — verified row by
-row. What is wrong is how the lane COMPETES: it appends top-3 belief
-lines beside the full fact evidence, and the damping does not displace
-the stale fact lines those beliefs supersede. So the prompt carries both
-the belief and the fact it was promoted from, and the generator picks.
+The first reading of that was "the lane appends rather than replaces —
+the damping does not displace the stale fact lines". Going back and
+actually reading the instrument says something sharper. The stand's own
+counters, over the three runs:
+
+```
+brain_belief_citation_total{outcome="cited"}   34
+brain_belief_damping_total{outcome="clean"}    69
+brain_belief_damping_total{outcome="damped"}   — absent. zero.
+```
+
+The damping did not fail to displace. **It never fired once.** Its
+contradiction test keys a fact line by `(canonicalName, predicate)`
+against a belief's `(subject, field)` under trim + lowercase — and the
+two planes name things differently: the belief plane stores human field
+labels (`deployment target`, `queue backend`), the fact plane stores
+snake_case predicate ids (`deploy_target`, `queue_backend`). Those keys
+can never meet. 69 evaluations, 0 contradictions found.
+
+And the lane's own rows are worse than that. Listing the ACTIVE beliefs
+of the tenant that failed `d1-deploy`:
+
+```
+ledger-sync | deployment target  = AWS ECS Fargate   ← current
+ledger-sync | deployment         = Fly.io            ← STALE, also active
+ledger-sync | queue backend      = NATS JetStream    ← current
+ledger-sync | job queue backend  = Redis Streams     ← STALE, also active
+```
+
+The supersede chain guarantees one active row per `(userId, subject,
+field)` — and `deployment` and `deployment target` are different fields,
+so both serve. A live probe confirms the generator used it:
+
+```
+"…deploys to AWS ECS Fargate [knowledge_fact:…] and was previously
+ deployed to Fly.io [knowledge_fact:…] [semantic_belief:60c62b25…]"
+```
+
+A belief line cited in support of the stale value, from a section whose
+header says each line _"states what is CURRENTLY true for its
+subject/field"_. The lane did not merely fail to displace a stale fact —
+it served one.
 
 That is the real shape of "we moved away from facts": the substrate did,
-the serving path did not, and the one lane that bridges them was built to
-ADD evidence rather than to REPLACE it. Fixing the fact plane — this
-whole page — was treating the symptom of that.
+the serving path did not, and the bridge between them inherited the fact
+plane's fragmentation instead of repairing it. Which points one level
+further up, at where the fragmentation is made — see below.
 
 ## Where the instability actually lives
 
@@ -506,3 +543,130 @@ subject should be what the statement is about, with the reporter kept as
 provenance. It is an extraction-prompt change (fresh `derivedVersion`,
 whole-corpus blast radius), so it wants its own pass — and, given the
 noise floor above, its own repeated measurement.
+
+---
+
+## One level up: the attribute was never one slot
+
+Everything above repairs what happens INSIDE a predicate: give a coined
+slot the right cardinality, let it compete, give it a similarity floor.
+None of it can help when the same attribute is not one slot.
+
+Pulling the registry of a finished tenant, for the one attribute "where
+does ledger-sync deploy":
+
+```
+deploys_to        proposed  append_only
+deploy_target     proposed  single_active
+deploys           proposed  append_only
+```
+
+and for the queue backend:
+
+```
+queue_backend      proposed  single_active
+job_queue_backend  proposed  single_active
+```
+
+Supersession is per-predicate. `queue_backend` correctly retires its own
+older values, while `job_queue_backend` holds `Redis Streams` active
+forever in a parallel universe — and the same attribute has contradictory
+cardinality depending on which name extraction happened to coin that
+turn. Fourteen predicates where there should be about four.
+
+`aliasOf` was **null on every row**.
+
+### Why the canonicalizer could not have merged them
+
+`canonicalize()` builds its similarity search like this:
+
+```ts
+for (const { row, def } of all) {
+  if (def.status !== 'active') continue;   // ← the coined set is 'proposed'
+  ...
+}
+```
+
+Every coinage lands `proposed`. Measured: **159 of 196 rows were
+proposed, and all 159 carried a 1536-dim embedding no search could
+reach.** A coinage could alias onto one of the 37 curated seeds and never
+onto another coinage. This is the same defect class as the policy lookup
+earlier on this page — same table, same `status` filter, same blind spot
+— found only because this time the read was traced instead of the write.
+
+### And why "include them" is not the fix
+
+The obvious patch — put proposed rows in the embeddings map — is a
+catastrophe waiting on the auto-alias branch. On the same tenant:
+
+```
+retry_policy ~ decided   cosine 0.90   ← over the 0.85 auto-alias threshold
+```
+
+`decided` is a sentence predicate. That merge would pour every
+"X decided Y" fact into the retry slot. Proposed rows must never feed an
+unadjudicated threshold.
+
+### There is no threshold to move
+
+Three embedding texts, measured over the same vocabulary against a
+hand-labelled set of same-attribute and different-attribute pairs:
+
+| embedding text                        | same-attr min | diff-attr max | separable |
+| ------------------------------------- | ------------- | ------------- | --------- |
+| coinage context (`predicate: object`) | 0.471         | 0.565         | no        |
+| bare predicate name                   | 0.471         | 0.565         | no        |
+| `attribute name: <name>`              | 0.721         | **0.790**     | no        |
+
+Under the best variant, `retry_policy`~~`retry_attempts` — two different
+fields — outranks `pilot_launch_date`~~`changed_launch_date`, which is one
+field. **No threshold separates them.** Lowering it to catch
+`queue_backend`~`job_queue_backend` (0.699) false-merges distinct
+attributes first.
+
+What cosine IS good at here is recall. Over the full 196-predicate
+vocabulary the true partner ranked:
+
+```
+deploy_target     → deploys_to           rank 3  (0.534)
+deploys_to        → deploys              rank 2  (0.722)
+queue_backend     → job_queue_backend    rank 1  (0.699)
+pilot_launch_date → changed_launch_date  rank 1  (0.863)
+retry_policy      → fixed_retry_policy   rank 2  (0.729)
+```
+
+So embeddings **retrieve** and an LLM **decides** — the same division of
+labour the cardinality judge already uses one level down. Probed on
+those pairs: 9/9 substantively correct, **zero** false merges, twice
+rejecting the top cosine candidate (`retry_attempts` at 0.84).
+
+### Two things the first build got wrong
+
+**The candidates were not there to be found.** `loadFresh` selects
+non-active rows `OMIT embedding` — a deliberate 0082 memory fix (pulling
+the coined set's vectors made every reload O(registry) MB and OOM'd the
+eval stand's SurrealDB). So the new map was always empty and the first
+measured arm merged 2 predicates, both onto active seeds. The fix is not
+to pull the vectors but to go to them: one bounded top-k query in the DB
+per novel predicate. That also closes a TTL race for free — a predicate
+coined moments ago is a candidate at once, instead of after the next
+reload.
+
+**A judge reading the example use judges the statement.** With the DB
+search in place the arm merged 21 predicates. Nineteen were real renames.
+Two were not:
+
+```
+'decided'  judged the same attribute as 'fixed_retry_policy'
+'replaces' judged the same attribute as 'superseded_by'
+```
+
+Neither pair shares a word. The first is the dangerous one —
+`fixed_retry_policy` is `single_active`, so every later "X decided Y"
+fact would land there and supersede the one before it. A rename shares a
+word with what it renames, and every merge worth having on that run does
+(`deploy`, `queue`+`backend`, `launch`+`date`, `retry`+`policy`,
+`payout`+`cutoff`, `owns`). So a candidate that shares no content token
+with the coinage is dropped before the judge sees it: all 19 renames
+keep, both bad merges cut, pinned as a spec against that run's own
+decision list.

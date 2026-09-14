@@ -50,19 +50,27 @@ const STOP_TOKENS: ReadonlySet<string> = new Set([
   'be',
   'new',
   'current',
-  'code',
-  'memory',
 ]);
 
 /**
- * Lowercase, split on anything that is not a letter or digit, drop stop
- * tokens, and strip one plural/participle ending. Tokens shorter than
- * three characters after stemming are dropped — 'id', 'to', 'v2' carry
- * no naming signal and would match far too much.
+ * A Domain Pack namespaces its predicates `<packId>__<name>`, so two
+ * unrelated pack predicates share every prefix token. Strip the prefix
+ * rather than stoplisting its words, which would blank out a genuine
+ * `memory_limit` or `code_owner`.
+ */
+const PACK_NAMESPACE = /^[a-z0-9]+(?:_[a-z0-9]+)*__/;
+
+/**
+ * Lowercase, drop any pack namespace, split on anything that is not a
+ * letter or digit, drop stop tokens, and strip one plural/participle
+ * ending. Tokens shorter than three characters after stemming are
+ * dropped — 'id', 'to', 'v2' carry no naming signal and would match far
+ * too much.
  */
 export function contentTokens(name: string): Set<string> {
   const out = new Set<string>();
-  for (const raw of name.toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
+  const bare = name.toLowerCase().replace(PACK_NAMESPACE, '');
+  for (const raw of bare.split(/[^\p{L}\p{N}]+/u)) {
     if (raw === '' || STOP_TOKENS.has(raw)) continue;
     const stem = stemOne(raw);
     if (stem.length >= 3 && !STOP_TOKENS.has(stem)) out.add(stem);
