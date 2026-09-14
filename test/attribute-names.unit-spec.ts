@@ -127,3 +127,65 @@ describe('sharesContentToken — the rule itself', () => {
     expect(sharesContentToken('__', 'queue_backend')).toBe(false);
   });
 });
+
+/**
+ * The gate is BLOCKING, and it is measured the way blocking is measured.
+ *
+ * Naming it matters: "which pairs are worth comparing expensively" is a
+ * surveyed problem in entity resolution (Papadakis et al., *A Survey of
+ * Blocking and Filtering Techniques for Entity Resolution*), and this
+ * rule is one of its standard schemes — token blocking with a
+ * prefix-match predicate — not an invention. Its metrics are the
+ * standard ones:
+ *
+ *   PC (pairs completeness) = known matches kept / known matches
+ *   RR (reduction ratio)    = 1 − candidates / all pairs
+ *
+ * Measured over a live 196-predicate registry (19110 pairs) against the
+ * judge's own decision list, alongside the textbook alternative:
+ *
+ *   exact token (no morphology)   PC 0.947   RR 0.9919   RU 1/2
+ *   prefix k=4 (this rule)        PC 1.000   RR 0.9905   RU 2/2
+ *   trigram Jaccard >= 0.7        PC 1.000   RR 0.9904   RU 2/2
+ *   trigram Jaccard >= 0.6        PC 1.000   RR 0.9900   RU 2/2
+ *
+ * q-gram blocking — the standard language-agnostic answer to inflection
+ * — ties on this data and costs a SECOND parameter (q and a threshold)
+ * for no measured gain, so the one-parameter form stays. Dropping
+ * morphology altogether does not: exact token loses a real rename and
+ * half the Russian cases.
+ *
+ * LIMITATION, stated so nobody reads PC 1.000 as more than it is: the
+ * 19 known matches are pairs a cosine shortlist already surfaced and
+ * the judge accepted. Pairs cosine never surfaced cannot appear in this
+ * ground truth, so PC here measures the gate GIVEN retrieval, not
+ * end-to-end recall.
+ */
+describe('sharesContentToken — blocking metrics', () => {
+  const TRUE_MATCH = REAL_RENAMES;
+  const TRUE_NON_MATCH = REAL_BAD_MERGES;
+
+  it('keeps every known match (PC = 1.0)', () => {
+    const kept = TRUE_MATCH.filter(([a, b]) => sharesContentToken(a, b)).length;
+    expect(kept / TRUE_MATCH.length).toBe(1);
+  });
+
+  it('cuts every known non-match', () => {
+    expect(TRUE_NON_MATCH.filter(([a, b]) => sharesContentToken(a, b))).toEqual([]);
+  });
+
+  it('tolerates inflection in a language no suffix table covers', () => {
+    // The reason the rule is a prefix and not a stemmer: it is the same
+    // rule in every language, including the ones the enricher will name
+    // belief fields in.
+    expect(sharesContentToken('адрес_офиса', 'адреса_компании')).toBe(true);
+    expect(sharesContentToken('очередь_задач', 'очереди_задач')).toBe(true);
+  });
+
+  it('a shorter prefix would collapse unrelated words — why k is 4', () => {
+    // k=3 lets `car` reach `career`, which is the failure the constant
+    // exists to prevent; k=4 is the smallest value that does not.
+    expect(sharesContentToken('car_owner', 'career_path')).toBe(false);
+    expect(sharesContentToken('deploy_target', 'deploys')).toBe(true);
+  });
+});

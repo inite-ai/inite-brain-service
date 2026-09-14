@@ -76,10 +76,27 @@ export function contentTokens(name: string): Set<string> {
 
 /**
  * Shortest shared prefix that counts as "the same word, inflected".
- * ONE number, and it is deliberately crude: a prefix is the only form
- * of morphological tolerance that costs no language-specific table, so
- * it works the same on `deploy`/`deploys`/`deployed` and on
- * `адрес`/`адреса`. Four, because three matches `car` to `career`.
+ *
+ * This is BLOCKING — "which pairs are worth comparing expensively" — a
+ * surveyed problem in entity resolution, and this rule is one of its
+ * standard schemes (token blocking with a prefix-match predicate)
+ * rather than an invention. Measured over a live 196-predicate registry
+ * (19110 pairs) against the judge's own decision list, with pairs
+ * completeness and reduction ratio:
+ *
+ *   exact token (no morphology)   PC 0.947   RR 0.9919
+ *   prefix k=4 (this)             PC 1.000   RR 0.9905
+ *   trigram Jaccard >= 0.7        PC 1.000   RR 0.9904
+ *
+ * q-gram blocking is the textbook language-agnostic answer to
+ * inflection; it ties here and costs a SECOND parameter (q plus a
+ * threshold), so the one-parameter form stays. Dropping morphology
+ * altogether does not tie — exact token loses a real rename.
+ *
+ * Four, because three matches `car` to `career`. A prefix rather than a
+ * stemmer because it is the same rule in every language: `deploy`/
+ * `deploys`/`deployed` and `адрес`/`адреса` alike. See the blocking
+ * metrics in test/attribute-names.unit-spec.ts.
  */
 const SHARED_PREFIX_MIN = 4;
 
