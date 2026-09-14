@@ -1,7 +1,4 @@
-import {
-  contentTokens,
-  sharesContentToken,
-} from '../src/ai/predicate-registry-internals/predicate-name-overlap';
+import { contentTokens, sharesContentToken } from '../src/common/attribute-names';
 
 /**
  * The shared-content-token guard, pinned against what the identity judge
@@ -77,6 +74,28 @@ describe('sharesContentToken — the rule itself', () => {
     // plural/participle ending, and inventing a stemmer that does would
     // start matching things that merely rhyme.
     expect(sharesContentToken('deploy_target', 'deployment_home')).toBe(false);
+  });
+
+  // These tokens are compared for EQUALITY, so an over-eager strip
+  // invents a match. A naive "drop a trailing s" made `status` into
+  // `statu`, which silently broke the belief plane's generic-modifier
+  // rule the moment both planes started sharing this tokenizer — its
+  // stoplist says `status`.
+  it.each([
+    ['status', 'status'],
+    ['address', 'address'],
+    ['process', 'process'],
+    ['basis', 'basis'],
+    ['alias', 'alias'],
+    ['deploys', 'deploy'],
+    ['deployed', 'deploy'],
+    ['deploying', 'deploy'],
+    ['boxes', 'box'],
+    ['matches', 'match'],
+    ['notes', 'note'],
+    ['gas', 'gas'],
+  ])('tokenizes %p to %p', (input, stem) => {
+    expect([...contentTokens(input)]).toEqual([stem]);
   });
 
   it('never matches on structural words alone', () => {

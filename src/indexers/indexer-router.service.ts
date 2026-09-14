@@ -4,8 +4,8 @@ import { EmbedderService } from '../ai/embedder.service';
 import { BUILTIN_PACKS } from '../ai/domain-packs';
 import type { DomainPackManifest } from '../ai/domain-packs/manifest';
 import { traceArtifact } from '../common/debug-trace';
+import { cosineSimilarity } from '../common/vector-math';
 import {
-  cosineSimilarity,
   DEFAULT_RELEVANCE_THRESHOLD,
   IndexerBinding,
   ROUTER_HEAD_CHARS,

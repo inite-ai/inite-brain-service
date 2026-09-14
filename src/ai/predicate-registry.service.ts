@@ -8,10 +8,7 @@ import { PredicateIdentityJudgeService } from './predicate-identity-judge.servic
 import { cosineSimilarity } from '../common/vector-math';
 import { LRUCache } from '../common/lru-cache';
 import { predicateIdentityJudgeEnabled } from '../common/predicate-flags';
-import {
-  contentTokens,
-  sharesContentToken,
-} from './predicate-registry-internals/predicate-name-overlap';
+import { contentTokens, sharesContentToken } from '../common/attribute-names';
 
 import {
   type CanonicalizeDecision,
@@ -826,7 +823,7 @@ export class PredicateRegistryService {
    * sub-threshold seeds it does carry. Floored at
    * CANONICALIZE_IDENTITY_FLOOR, filtered to candidates that share a
    * content token with the coinage (a rename shares a word with what it
-   * renames — predicate-name-overlap.ts), then capped at
+   * renames — attribute-names.ts), then capped at
    * CANONICALIZE_IDENTITY_TOP_N, best first with an id tiebreak so the
    * shortlist — and therefore the prompt — is deterministic for a given
    * registry. Decision: the judge.
@@ -857,7 +854,7 @@ export class PredicateRegistryService {
       // judge, reading the coinage's example use, merged `decided` into
       // `fixed_retry_policy` — pouring every "X decided Y" fact into a
       // single_active retry slot to supersede itself. See
-      // predicate-name-overlap.ts.
+      // attribute-names.ts.
       if (!sharesContentToken(predicate, pid)) return;
       scored.push({ predicateId: pid, similarity });
     };
@@ -909,7 +906,7 @@ export class PredicateRegistryService {
    * paid per CALL rather than per reload, which is worse during the cold
    * start that coins most of the vocabulary. (The eval stand's SurrealDB
    * was OOM-killed, exit 137, running exactly that.) Since a rename must
-   * share a content token anyway (predicate-name-overlap.ts), requiring
+   * share a content token anyway (attribute-names.ts), requiring
    * it in the WHERE cuts the scan to plausible candidates and changes no
    * outcome: a stem is a prefix of the word it came from, so
    * `string::contains` is a superset of the JS check that follows. No

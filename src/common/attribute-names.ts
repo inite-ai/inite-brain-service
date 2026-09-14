@@ -78,13 +78,27 @@ export function contentTokens(name: string): Set<string> {
   return out;
 }
 
-/** One pass of plural/participle stripping; never shortens below 3. */
+/**
+ * One pass of plural/participle stripping. Deliberately narrow: this
+ * produces a token that is COMPARED FOR EQUALITY, so an over-eager strip
+ * invents a match. A naive "drop a trailing s" turns `status` into
+ * `statu` and `address` into `addres` — the first of which silently
+ * broke the belief plane's generic-modifier rule, since its stoplist
+ * says `status`.
+ *
+ * What it must carry: deploy ~ deploys ~ deployed, inform ~ informed.
+ * What it must not touch: -ss / -us / -is / -as endings, and anything
+ * short enough that a suffix is probably part of the word.
+ */
 function stemOne(token: string): string {
-  for (const suffix of ['ing', 'ed', 'es', 's']) {
-    if (token.endsWith(suffix) && token.length - suffix.length >= 3) {
-      return token.slice(0, -suffix.length);
-    }
-  }
+  if (token.length <= 3) return token;
+  if (/(?:ss|us|is|as)$/.test(token)) return token;
+  if (token.endsWith('ing') && token.length >= 6) return token.slice(0, -3);
+  if (token.endsWith('ed') && token.length >= 5) return token.slice(0, -2);
+  // `-es` only where English actually adds it (boxes, dishes, matches);
+  // elsewhere the plural is a bare `-s` (notes → note, not `not`).
+  if (/(?:s|x|z|ch|sh)es$/.test(token)) return token.slice(0, -2);
+  if (token.endsWith('s')) return token.slice(0, -1);
   return token;
 }
 

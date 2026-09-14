@@ -1,5 +1,6 @@
 import type { Logger } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
+import { contentTokens } from '../common/attribute-names';
 import type { BeliefDb, BeliefPromotionResult, FoldedBelief } from './belief-promotion.service';
 
 /**
@@ -33,16 +34,15 @@ export const FIELD_FOLD_GENERIC_TOKENS: ReadonlySet<string> = new Set([
   'the',
 ]);
 
-/** Normalize a free-text field name: lowercase, strip punctuation, tokenize. */
-function fieldTokens(field: string): Set<string> {
-  return new Set(
-    field
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
-      .split(/\s+/)
-      .filter((t) => t !== ''),
-  );
-}
+/**
+ * Attribute-name tokens. This used to be a second, weaker tokenizer
+ * living here — no stoplist (so `reports to` and `belongs to` shared
+ * `to`), no length floor (so `id` matched `id`), no plural/participle
+ * stemming. The predicate plane grew its own for the same job; there is
+ * now ONE, in `common/attribute-names`, and both planes name attributes
+ * the same way.
+ */
+const fieldTokens = contentTokens;
 
 /**
  * Pure (#135 seam 2): may these two free-text field names denote the
