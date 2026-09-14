@@ -107,8 +107,7 @@ export async function collectLivePredictions(
       const res = await client.ingest.mention({
         text,
         userId: scope,
-        conversationId: `${scope}-conv`,
-        occurredAt: new Date().toISOString(),
+        contextRef: { vertical: 'chat', conversationId: `${scope}-conv` },
       });
       for (const id of res.extractedEntityIds ?? []) byEntity.set(String(id), ref);
     }
@@ -163,8 +162,7 @@ export async function collectLivePredictions(
       await client.ingest.mention({
         text,
         userId: scope,
-        conversationId: `${scope}-conv`,
-        occurredAt: new Date().toISOString(),
+        contextRef: { vertical: 'chat', conversationId: `${scope}-conv` },
       });
       const hits = await client.search({
         query: c.gold.temporal.expression,
@@ -185,8 +183,7 @@ export async function collectLivePredictions(
         const res = await client.ingest.mention({
           text: fragmentationSentence(s.surface, s.lang),
           userId: scope,
-          conversationId: `${scope}-conv`,
-          occurredAt: new Date().toISOString(),
+          contextRef: { vertical: 'chat', conversationId: `${scope}-conv` },
         });
         nodeIds.push(String((res.extractedEntityIds ?? [])[0] ?? `unlinked:${s.surface}`));
       }
@@ -210,8 +207,7 @@ export async function collectLivePredictions(
         await client.ingest.mention({
           text: input.text,
           userId: scope,
-          conversationId: `${scope}-conv`,
-          occurredAt: new Date().toISOString(),
+          contextRef: { vertical: 'chat', conversationId: `${scope}-conv` },
         });
         const hits = await client.search({ query: input.text, limit: 10, userId: scope });
         p.extraction = { facts: matchedGoldKeys(c.gold.extraction.goldFacts, hits.results ?? []) };
