@@ -12,6 +12,7 @@ import { CrossEncoderService } from './cross-encoder.service';
 import { LocalCrossEncoderProvider } from './cross-encoder/local-cross-encoder.provider';
 import { PredicateRegistryService } from './predicate-registry.service';
 import { PredicateSemanticsJudgeService } from './predicate-semantics-judge.service';
+import { PredicateIdentityJudgeService } from './predicate-identity-judge.service';
 import { LocalPredicateSelectorService } from './local-predicate-selector.service';
 import { ExtractorCacheService } from './extractor-cache.service';
 import { LocalNerService } from './local-ner.service';
@@ -42,6 +43,7 @@ import { MemoryModelReaderService } from './memory-model-reader.service';
     CrossEncoderService,
     PredicateRegistryService,
     PredicateSemanticsJudgeService,
+    PredicateIdentityJudgeService,
     LocalPredicateSelectorService,
     ExtractorCacheService,
     LocalNerService,
@@ -98,6 +100,7 @@ import { MemoryModelReaderService } from './memory-model-reader.service';
     CrossEncoderService,
     PredicateRegistryService,
     PredicateSemanticsJudgeService,
+    PredicateIdentityJudgeService,
     LocalPredicateSelectorService,
     ExtractorCacheService,
     LocalNerService,

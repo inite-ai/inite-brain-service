@@ -1695,6 +1695,14 @@ const KNOWN_BOOLEAN_FLAGS = [
   // byte-identical. READ_ sits off the ENGINE flag budget by design
   // (an authz read fence, not an engine fork).
   'READ_SURFACE_USER_SCOPE',
+  // Predicate identity adjudication: a coined predicate that misses the
+  // cosine auto-alias threshold is shortlisted against the COINED
+  // vocabulary too (proposed rows were invisible to the similarity
+  // search) and an LLM decides whether one of the candidates names the
+  // same attribute — because no cosine threshold separates
+  // same-attribute pairs from different-attribute ones. ON by default;
+  // cleared (=0) ⇒ cosine-only canonicalization, byte-identical.
+  'PREDICATE_IDENTITY_JUDGE',
   // Direct-fact conflict semantics: the typed ingest path promotes an
   // unknown-predicate (registry '__default__' fallback) fact from
   // append_only to 'bitemporal' in FactResolverService so same-slot

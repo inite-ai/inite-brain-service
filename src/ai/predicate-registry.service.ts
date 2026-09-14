@@ -3,11 +3,16 @@ import { ConfigService } from '@nestjs/config';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from './embedder.service';
 import { PredicateSemanticsJudgeService } from './predicate-semantics-judge.service';
+import { PredicateIdentityJudgeService } from './predicate-identity-judge.service';
 import { cosineSimilarity } from '../common/vector-math';
 import { LRUCache } from '../common/lru-cache';
+import { predicateIdentityJudgeEnabled } from '../common/predicate-flags';
+import { sharesContentToken } from './predicate-registry-internals/predicate-name-overlap';
 
 import {
   type CanonicalizeDecision,
+  CANONICALIZE_IDENTITY_FLOOR,
+  CANONICALIZE_IDENTITY_TOP_N,
   CANONICALIZE_REPORT_FLOOR,
   DEFAULT_CANONICALIZE_AUTO_ALIAS_THRESHOLD,
   DEFAULT_FALLBACK,
@@ -82,15 +87,17 @@ export class PredicateRegistryService {
 
   private readonly canonicalizeThreshold: number;
 
-  // The cardinality judge is the LAST dep and @Optional() so the
-  // positionally-constructed unit tests stay three-argument; absent ⇒
-  // a proposed predicate keeps DEFAULT_FALLBACK, exactly as before.
+  // Both judges are trailing and @Optional() so the positionally-
+  // constructed unit tests stay three-argument; absent ⇒ a proposed
+  // predicate keeps DEFAULT_FALLBACK and coined-to-coined aliasing
+  // never happens, exactly as before.
   // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     private readonly embedder: EmbedderService,
     private readonly config: ConfigService,
     @Optional() private readonly semanticsJudge?: PredicateSemanticsJudgeService,
+    @Optional() private readonly identityJudge?: PredicateIdentityJudgeService,
   ) {
     const parsedThreshold = parseFloat(
       this.config.get<string>(
@@ -539,10 +546,19 @@ export class PredicateRegistryService {
         all.filter(({ def }) => def.status !== 'deprecated').map(({ def }) => def.predicateId),
       );
 
-      // Embedding lookup for active predicates only (no point matching
-      // against deprecated rows). Skip any active row whose embedding
-      // never got populated — they're harmless but invisible to
-      // similarity search.
+      // Embedding lookup for ACTIVE rows only — and it STAYS that way.
+      // The `OMIT embedding` above is a memory fix, not an oversight
+      // (0082: pulling the coined set's vectors made every reload
+      // O(registry) MB and OOM'd the eval stand's SurrealDB), so the
+      // identity judge reaches those vectors where they LIVE instead:
+      // one bounded top-k query in the DB (proposedCandidates), on the
+      // rare novel-predicate path. `embeddings` also feeds the
+      // unadjudicated auto-alias branch, where a cosine over the
+      // threshold is taken as proof of identity — defensible against
+      // the small curated seed set, and never against the coined one
+      // (measured: `retry_policy` sits at cosine 0.90 to the proposed
+      // sentence-predicate `decided`). Proposed rows are therefore
+      // candidates for the identity judge, never for auto-alias.
       const embeddings = new Map<string, number[]>();
       for (const { row, def } of all) {
         if (def.status !== 'active') continue;
@@ -660,20 +676,34 @@ export class PredicateRegistryService {
       }
     }
 
-    if (best && best.similarity >= this.canonicalizeThreshold) {
+    // Cosine settled it against the curated seed set, or the identity
+    // judge settled it against the coined vocabulary — both land here as
+    // one canonical id to alias onto. The judge runs ONLY when cosine
+    // did not, so a warm tenant pays nothing extra on the common path.
+    const adjudicated: { predicateId: string; similarity: number; adjudicated?: true } | undefined =
+      best && best.similarity >= this.canonicalizeThreshold
+        ? best
+        : await this.adjudicateIdentity({ companyId, predicate, contextText, queryEmb, snapshot });
+
+    if (adjudicated) {
       // Insert as aliased — next time the same novel predicate appears,
       // the snapshot's aliasMap returns the canonical without an LLM
       // round-trip. Defensive: a concurrent canonicalize on the same
       // novel predicate races on UNIQUE(predicateId); the loser logs +
       // returns matched (next read will see the canonical anyway).
       try {
-        const canonical = snapshot.byId.get(best!.predicateId)!;
+        // policyById, not byId: an adjudicated canon is usually a
+        // PROPOSED row, which byId (active-only) does not hold — the
+        // old non-null assertion would have thrown on it.
+        const canonical = (snapshot.policyById ?? snapshot.byId).get(adjudicated.predicateId)!;
         await this.surreal.withCompany(companyId, async (db) => {
           await db.query(`CREATE knowledge_predicate CONTENT $content`, {
             content: {
               predicateId: predicate,
               displayLabel: predicate.replace(/_/g, ' '),
-              description: `(auto-aliased to ${best!.predicateId} at cosine ${best!.similarity.toFixed(3)})`,
+              description: adjudicated.adjudicated
+                ? `(judge-aliased to ${adjudicated.predicateId}; same attribute, cosine ${adjudicated.similarity.toFixed(3)})`
+                : `(auto-aliased to ${adjudicated.predicateId} at cosine ${adjudicated.similarity.toFixed(3)})`,
               datatype: 'string',
               semantics: canonical.semantics,
               // option<int> — omit when null so SurrealDB stores NONE
@@ -683,7 +713,7 @@ export class PredicateRegistryService {
               piiClass: canonical.piiClass,
               ...(queryEmb ? { embedding: queryEmb } : {}),
               status: 'aliased',
-              aliasedTo: best!.predicateId,
+              aliasedTo: adjudicated.predicateId,
               createdBy: 'llm_auto',
             },
           });
@@ -691,18 +721,18 @@ export class PredicateRegistryService {
         // Aliased: the novel id answers with the CANON's policy, which
         // is what `predicateAlias ?? predicate` resolves to downstream.
         this.noteAutoInsert(companyId, predicate, {
-          canonicalId: best!.predicateId,
+          canonicalId: adjudicated.predicateId,
           def: canonical,
         });
       } catch (e) {
         this.logger.warn(
-          `canonicalize: auto-alias insert failed for '${predicate}' → '${best!.predicateId}': ${(e as Error).message}`,
+          `canonicalize: auto-alias insert failed for '${predicate}' → '${adjudicated.predicateId}': ${(e as Error).message}`,
         );
       }
       return {
         kind: 'aliased',
-        canonicalId: best.predicateId,
-        similarity: best.similarity,
+        canonicalId: adjudicated.predicateId,
+        similarity: adjudicated.similarity,
         novelPredicateId: predicate,
       };
     }
@@ -770,6 +800,129 @@ export class PredicateRegistryService {
       novelPredicateId: predicate,
       ...(best && best.similarity >= CANONICALIZE_REPORT_FLOOR ? { bestMatch: best } : {}),
     };
+  }
+
+  /**
+   * Does this coinage name an attribute the graph already has under a
+   * different name? Runs only when cosine did NOT clear the auto-alias
+   * threshold — i.e. exactly where the old code proposed a fresh slot.
+   *
+   * Shortlist (cosine, a RETRIEVER here): the coined vocabulary — read
+   * top-k straight out of the DB, because the snapshot deliberately does
+   * NOT carry those vectors (see loadFresh's OMIT) — plus the
+   * sub-threshold seeds it does carry. Floored at
+   * CANONICALIZE_IDENTITY_FLOOR, filtered to candidates that share a
+   * content token with the coinage (a rename shares a word with what it
+   * renames — predicate-name-overlap.ts), then capped at
+   * CANONICALIZE_IDENTITY_TOP_N, best first with an id tiebreak so the
+   * shortlist — and therefore the prompt — is deterministic for a given
+   * registry. Decision: the judge.
+   *
+   * Reading the candidates from the DB rather than the snapshot also
+   * closes a TTL race for free: a predicate coined moments ago is a
+   * candidate immediately, instead of only after the next reload.
+   *
+   * Returns undefined (today's behaviour — propose a new predicate) when
+   * the judge is unwired, the flag is off, nothing clears the floor, the
+   * judge declines, or the id it names has since vanished.
+   */
+  private async adjudicateIdentity(args: {
+    companyId: string;
+    predicate: string;
+    contextText: string;
+    queryEmb: number[] | null;
+    snapshot: PredicateSnapshot;
+  }): Promise<{ predicateId: string; similarity: number; adjudicated: true } | undefined> {
+    const { companyId, predicate, contextText, queryEmb, snapshot } = args;
+    if (!this.identityJudge || !queryEmb || !predicateIdentityJudgeEnabled()) return undefined;
+
+    const scored: Array<{ predicateId: string; similarity: number }> = [];
+    const consider = (pid: string, similarity: number): void => {
+      if (pid === predicate) return;
+      if (similarity < CANONICALIZE_IDENTITY_FLOOR) return;
+      // A rename shares a word with what it renames. Without this the
+      // judge, reading the coinage's example use, merged `decided` into
+      // `fixed_retry_policy` — pouring every "X decided Y" fact into a
+      // single_active retry slot to supersede itself. See
+      // predicate-name-overlap.ts.
+      if (!sharesContentToken(predicate, pid)) return;
+      scored.push({ predicateId: pid, similarity });
+    };
+    for (const c of await this.proposedCandidates(companyId, predicate, queryEmb)) {
+      consider(c.predicateId, c.similarity);
+    }
+    for (const [pid, emb] of snapshot.embeddings) consider(pid, cosineSimilarity(queryEmb, emb));
+    if (scored.length === 0) return undefined;
+    const shortlist = scored
+      .sort((a, b) => b.similarity - a.similarity || a.predicateId.localeCompare(b.predicateId))
+      .slice(0, CANONICALIZE_IDENTITY_TOP_N);
+
+    const picked = await this.identityJudge.sameAttributeAs(
+      predicate,
+      contextText,
+      shortlist.map((c) => c.predicateId),
+    );
+    if (picked === null) return undefined;
+    const hit = shortlist.find((c) => c.predicateId === picked);
+    // The canon must still carry a policy to inherit — a row that
+    // vanished between snapshot and decision aliases onto nothing.
+    if (!hit || !(snapshot.policyById ?? snapshot.byId).has(picked)) return undefined;
+    this.logger.log(
+      `canonicalize: '${predicate}' judged the same attribute as '${picked}' ` +
+        `(cosine ${hit.similarity.toFixed(3)}, below the ${this.canonicalizeThreshold} auto-alias threshold)`,
+    );
+    return { predicateId: picked, similarity: hit.similarity, adjudicated: true };
+  }
+
+  /**
+   * Top-k 'proposed' predicates by cosine — computed IN the database.
+   *
+   * The coined set's vectors are deliberately absent from the snapshot
+   * (loadFresh's `OMIT embedding`: 0082 found that hauling them in made
+   * every reload O(registry) MB and OOM'd the eval stand's SurrealDB),
+   * and that constraint is worth keeping — so the search goes to the
+   * vectors instead of the vectors coming to the search. One bounded
+   * query, ≤ k rows back, only on the novel-predicate path.
+   *
+   * The `array::len` guard is the vector-corpus idiom: a tenant that has
+   * lived through an embedding-space change holds rows of two different
+   * dimensionalities, and cosine over mismatched lengths throws.
+   * Any failure degrades to an empty candidate set — a coinage then
+   * proposes a new predicate exactly as it did before.
+   */
+  private async proposedCandidates(
+    companyId: string,
+    predicate: string,
+    queryEmb: number[],
+  ): Promise<Array<{ predicateId: string; similarity: number }>> {
+    try {
+      return await this.surreal.withCompany(companyId, async (db) => {
+        const [rows] = await db.query<[Array<{ predicateId?: unknown; score?: unknown }>]>(
+          `SELECT predicateId, vector::similarity::cosine(embedding, $q) AS score
+             FROM knowledge_predicate
+            WHERE status = 'proposed'
+              AND embedding != NONE
+              AND array::len(embedding) = array::len($q)
+              AND predicateId != $self
+            ORDER BY score DESC
+            LIMIT $k`,
+          // Over-fetch: the shared-token guard runs AFTER this, so
+          // asking for exactly TOP_N would let three subject-matter
+          // neighbours crowd out the actual rename sitting at rank 4.
+          { q: queryEmb, self: predicate, k: CANONICALIZE_IDENTITY_TOP_N * 4 },
+        );
+        return (rows ?? []).flatMap((r) =>
+          typeof r.predicateId === 'string' && typeof r.score === 'number'
+            ? [{ predicateId: r.predicateId, similarity: r.score }]
+            : [],
+        );
+      });
+    } catch (e) {
+      this.logger.warn(
+        `canonicalize: proposed-candidate search failed for '${predicate}': ${(e as Error).message}`,
+      );
+      return [];
+    }
   }
 
   /**

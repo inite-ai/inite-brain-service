@@ -3269,6 +3269,34 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Max concurrent predicate-cardinality judge calls (PREDICATE_SEMANTICS_MODEL). The calls sit on the ingest write path, so this bounds how much a cold tenant — which coins most of its vocabulary in the first few documents — can fan out.',
   },
+  {
+    key: 'PREDICATE_IDENTITY_JUDGE',
+    category: 'registry',
+    defaultValue: '1',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Predicate IDENTITY adjudication: does a coined predicate name a NEW attribute, or a new NAME for one the graph already has? canonicalize() answered that by cosine alone and searched ACTIVE rows ONLY — so a coinage could alias onto a seeded predicate and never onto another coinage (measured on a live tenant: 159 of 196 rows were `proposed` and every one of their embeddings was unreachable). One attribute therefore scattered across many slots — `deploy_target`, `deploys_to` and `deploys` for where a service deploys; `queue_backend` beside `job_queue_backend`; `pilot_launch_date` beside `changed_launch_date` — and since supersession is per-predicate, each fragment kept its own value active forever and "what is it NOW" had nothing to answer with. Moving the threshold cannot fix it: over the coinage context, the bare name and a templated attribute phrase alike, cosine ranks `retry_policy`~`retry_attempts` (two different fields) ABOVE `pilot_launch_date`~`changed_launch_date` (one field) — no separating threshold exists. What cosine IS good at is recall (the true partner ranked in the top 3 every time), so when on, a sub-threshold coinage is shortlisted by cosine over the coined vocabulary AND the seeds (floor 0.45, top 3, deterministic order) and ONE strict-JSON call decides which — if any — names the same attribute; the winner is aliased and inherits its policy. Measured on that registry: 9/9 substantively correct with zero false merges, twice rejecting the TOP cosine candidate. Proposed rows stay OUT of the unadjudicated auto-alias branch by construction (`retry_policy` sits at cosine 0.90 to the proposed sentence-predicate `decided`, which would have silently destroyed the retry slot). A missing OPENAI_API_KEY, a throw, an unparseable reply, an id that was not offered and any ambiguity all resolve to today’s behaviour — propose a new predicate — so the pass only ever ADDS an alias where the judge is confident. Cleared (=0) ⇒ cosine-only canonicalization, byte-identical.',
+  },
+  {
+    key: 'PREDICATE_IDENTITY_MODEL',
+    category: 'registry',
+    // Captured in the judge's constructor — a live flip needs a restart.
+    defaultValue: null,
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Model for the predicate IDENTITY judge (PREDICATE_IDENTITY_JUDGE). Empty (default) = OPENAI_CHAT_MODEL, else gpt-4o-mini.',
+  },
+  {
+    key: 'PREDICATE_IDENTITY_CONCURRENCY',
+    category: 'registry',
+    defaultValue: '4',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Max concurrent predicate-identity judge calls (PREDICATE_IDENTITY_JUDGE). The calls sit on the ingest write path beside the cardinality judge, and only ever fire for a coinage that missed the cosine auto-alias threshold.',
+  },
   // ── Registry mirroring (pull-only, migration 0064) ───────
   {
     key: 'REGISTRY_UPSTREAM_URL',
