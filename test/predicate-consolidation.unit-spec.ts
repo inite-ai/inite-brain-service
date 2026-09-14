@@ -222,8 +222,17 @@ describe('PredicateConsolidationService', () => {
 function slotHarness(
   facts: Array<{ id: string; slot: string; entity: string; validFrom: string }>,
   semantics: Record<string, 'single_active' | 'append_only' | 'bitemporal'>,
+  beliefs: Array<{
+    id: string;
+    userId: string;
+    subject: string;
+    slot: string;
+    revision: number;
+    validFrom: string;
+  }> = [],
 ) {
   const updates: Array<{ ids: unknown; winnerTail: string; until: string }> = [];
+  const beliefUpdates: Array<{ ids: unknown; winner: unknown; until: string }> = [];
   const surreal = {
     withCompany: async (_c: string, fn: (db: unknown) => Promise<unknown>) =>
       fn({
@@ -237,6 +246,13 @@ function slotHarness(
                 validFrom: f.validFrom,
               })),
             ]);
+          }
+          if (q.includes('(predicateAlias ?? predicateId) AS slot')) {
+            return Promise.resolve([beliefs.map((b) => ({ ...b }))]);
+          }
+          if (q.includes("status = 'superseded'") && q.includes('supersededBy = $winner')) {
+            beliefUpdates.push(vars as never);
+            return Promise.resolve([[]]);
           }
           if (q.includes("status = 'superseded'")) {
             updates.push(vars as never);
@@ -273,7 +289,7 @@ function slotHarness(
     registry as never,
     judge as never,
   );
-  return { svc, updates, calls };
+  return { svc, updates, beliefUpdates, calls };
 }
 
 describe('PredicateConsolidationService — re-resolving contested slots', () => {
@@ -391,5 +407,69 @@ describe('PredicateConsolidationService — re-resolving contested slots', () =>
     const r = await h.svc.run('co_x', { dryRun: true });
     expect(r.slotsResolved).toBe(0);
     expect(h.updates).toEqual([]);
+  });
+});
+/**
+ * The belief half of the pass.
+ *
+ * Merging the vocabulary puts two beliefs written under two names into
+ * ONE slot; it does not close either. Measured on a live tenant right
+ * after a merge: `ledger-sync` held `job queue backend` = Redis Streams
+ * beside `queue backend` = NATS JetStream, and `deployment` = Fly.io
+ * beside `deployment target` = AWS ECS Fargate — correctly in one slot
+ * each, and both rows still active. The promoter closes such a
+ * duplicate only when it next writes that slot, and the serving lane
+ * picks per slot by relevance, so the stale value could win the render.
+ */
+describe('PredicateConsolidationService — closing duplicate beliefs', () => {
+  const belief = (
+    id: string,
+    slot: string,
+    revision: number,
+    validFrom = '2026-03-02T00:00:00Z',
+    subject = 'ledger-sync',
+    userId = 'u1',
+  ) => ({ id, userId, subject, slot, revision, validFrom });
+
+  it('closes every row but the highest revision in a slot', async () => {
+    const h = slotHarness([], {}, [
+      belief('semantic_belief:a', 'queue_backend', 1),
+      belief('semantic_belief:b', 'queue_backend', 2, '2026-03-25T00:00:00Z'),
+    ]);
+    const r = await h.svc.run('co_x');
+    expect(r.beliefDuplicatesRetired).toBe(1);
+    expect(h.beliefUpdates).toHaveLength(1);
+    expect(h.beliefUpdates[0]).toMatchObject({
+      ids: ['semantic_belief:a'],
+      winner: 'semantic_belief:b',
+      until: '2026-03-25T00:00:00.000Z',
+    });
+  });
+
+  it('leaves a slot holding one row alone', async () => {
+    const h = slotHarness([], {}, [belief('semantic_belief:a', 'queue_backend', 1)]);
+    const r = await h.svc.run('co_x');
+    expect(r.beliefDuplicatesRetired).toBe(0);
+    expect(h.beliefUpdates).toEqual([]);
+  });
+
+  it('keys on user AND subject — one slot name is many slots', async () => {
+    const h = slotHarness([], {}, [
+      belief('semantic_belief:a', 'deploy_target', 1),
+      belief('semantic_belief:b', 'deploy_target', 1, '2026-03-02T00:00:00Z', 'billing-api'),
+      belief('semantic_belief:c', 'deploy_target', 1, '2026-03-02T00:00:00Z', 'ledger-sync', 'u2'),
+    ]);
+    const r = await h.svc.run('co_x');
+    expect(r.beliefDuplicatesRetired).toBe(0);
+  });
+
+  it('never touches a row with no slot — a pre-0147 belief has no identity to compare', async () => {
+    const h = slotHarness([], {}, [
+      belief('semantic_belief:a', '', 1),
+      belief('semantic_belief:b', '', 2),
+    ]);
+    const r = await h.svc.run('co_x');
+    expect(r.beliefDuplicatesRetired).toBe(0);
+    expect(h.beliefUpdates).toEqual([]);
   });
 });

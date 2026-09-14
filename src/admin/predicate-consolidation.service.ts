@@ -96,6 +96,7 @@ export class PredicateConsolidationService {
       slotsContested: 0,
       slotsResolved: 0,
       factsRetired: 0,
+      beliefDuplicatesRetired: 0,
     };
     if (!this.judge.isAvailable()) {
       this.logger.warn(
@@ -138,7 +139,10 @@ export class PredicateConsolidationService {
       result.factsRepointed += factsRepointed;
     }
     result.leaders = leaders.length;
-    if (!dryRun) Object.assign(result, await this.reresolveSlots(companyId, result));
+    if (!dryRun) {
+      Object.assign(result, await this.reresolveSlots(companyId, result));
+      result.beliefDuplicatesRetired = await this.retireBeliefSlotDuplicates(companyId);
+    }
 
     this.logger.log(
       `predicate consolidation${dryRun ? ' (dry run)' : ''} for ${companyId}: ` +
@@ -146,7 +150,8 @@ export class PredicateConsolidationService {
         `candidate set, ${result.merged} merged onto ${result.leaders} leader(s), ` +
         `${result.factsRepointed} fact(s) re-pointed; ` +
         `${result.slotsResolved}/${result.slotsContested} contested slot(s) re-resolved, ` +
-        `${result.factsRetired} stale value(s) retired`,
+        `${result.factsRetired} stale value(s) retired, ` +
+        `${result.beliefDuplicatesRetired} duplicate belief(s) closed`,
     );
     return result;
   }
@@ -252,6 +257,98 @@ export class PredicateConsolidationService {
     }
     result.slotsContested = slots.length;
     return { slotsResolved: resolved, factsRetired: retired };
+  }
+
+  /**
+   * One active belief per slot, after the merges.
+   *
+   * A belief IS the current state of one attribute, so unlike a fact it
+   * needs no semantics lookup: two active rows in one
+   * `(userId, subject, predicateAlias ?? predicateId)` are a
+   * contradiction by definition, and the higher revision is the one that
+   * survives.
+   *
+   * THIS EXISTS BECAUSE THE ALIAS ALONE IS NOT ENOUGH, which a live run
+   * showed: after the merges, one tenant's `ledger-sync` held
+   * `job queue backend` = Redis Streams beside `queue backend` = NATS
+   * JetStream, and `deployment` = Fly.io beside `deployment target` =
+   * AWS ECS Fargate — now correctly in ONE slot each, and both still
+   * active. The promoter retires such a duplicate the next time it
+   * writes that slot, which may be never, and the serving lane picks per
+   * slot by relevance — so the stale value could win the render, in the
+   * section whose whole job is to say what is true now.
+   *
+   * MARK, NEVER DELETE, and the same stamp the promoter uses, so a
+   * retroactively retired duplicate is indistinguishable from one
+   * retired at write time. Idempotent: a second run finds one row per
+   * slot and writes nothing.
+   */
+  private async retireBeliefSlotDuplicates(companyId: string): Promise<number> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      const [rows] = await db.query<
+        [
+          Array<{
+            id?: unknown;
+            userId?: unknown;
+            subject?: unknown;
+            slot?: unknown;
+            revision?: unknown;
+            validFrom?: unknown;
+          }>,
+        ]
+      >(
+        `SELECT id, userId, subject, (predicateAlias ?? predicateId) AS slot, revision, validFrom
+           FROM semantic_belief WHERE status = 'active'`,
+      );
+      const bySlot = new Map<string, Array<Record<string, unknown>>>();
+      for (const r of (rows as Array<Record<string, unknown>>) ?? []) {
+        // A row with no slot predates 0147 and has no cross-row identity;
+        // leaving it alone is the behaviour it already has.
+        if (typeof r.slot !== 'string' || r.slot === '' || r.id === undefined) continue;
+        const key = `${String(r.userId)}\u0000${String(r.subject)}\u0000${r.slot}`;
+        const list = bySlot.get(key);
+        if (list === undefined) bySlot.set(key, [r]);
+        else list.push(r);
+      }
+      let retired = 0;
+      for (const group of bySlot.values()) {
+        if (group.length < 2) continue;
+        // Highest revision wins; the id breaks a tie so a replay over the
+        // same data picks the same survivor.
+        const ordered = [...group].sort(
+          (a, b) =>
+            (typeof b.revision === 'number' ? b.revision : 0) -
+              (typeof a.revision === 'number' ? a.revision : 0) ||
+            String(b.id).localeCompare(String(a.id)),
+        );
+        const winner = ordered[0]!;
+        const losers = ordered.slice(1);
+        try {
+          await db.query(
+            `UPDATE $ids SET status = 'superseded', supersededBy = $winner,
+                             validUntil = type::datetime($until), updatedAt = time::now()`,
+            {
+              ids: losers.map((l) => l.id),
+              winner: winner.id,
+              until: new Date(String(winner.validFrom)).toISOString(),
+            },
+          );
+          retired += losers.length;
+        } catch (e) {
+          this.logger.warn(
+            `predicate consolidation: could not retire belief duplicates in slot ` +
+              `'${String(winner.slot)}': ${(e as Error).message}`,
+          );
+        }
+      }
+      if (retired > 0) {
+        this.logger.log(
+          `predicate consolidation: retired ${retired} duplicate belief(s) in ${companyId} — ` +
+            `rows the merges just put into one slot and nothing else would have closed`,
+        );
+      }
+      return retired;
+    });
   }
 
   /**
@@ -361,6 +458,8 @@ export interface ConsolidationResult {
   slotsResolved: number;
   /** Stale values retired by that — `superseded`, never deleted. */
   factsRetired: number;
+  /** Beliefs the merges co-located into one slot, closed to one active. */
+  beliefDuplicatesRetired: number;
 }
 
 interface ContestedSlot {
