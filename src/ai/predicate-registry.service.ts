@@ -7,7 +7,10 @@ import { PredicateIdentityJudgeService } from './predicate-identity-judge.servic
 import { cosineSimilarity } from '../common/vector-math';
 import { LRUCache } from '../common/lru-cache';
 import { predicateIdentityJudgeEnabled } from '../common/predicate-flags';
-import { sharesContentToken } from './predicate-registry-internals/predicate-name-overlap';
+import {
+  contentTokens,
+  sharesContentToken,
+} from './predicate-registry-internals/predicate-name-overlap';
 
 import {
   type CanonicalizeDecision,
@@ -889,27 +892,44 @@ export class PredicateRegistryService {
    * dimensionalities, and cosine over mismatched lengths throws.
    * Any failure degrades to an empty candidate set — a coinage then
    * proposes a new predicate exactly as it did before.
+   *
+   * THE NAME FILTER IS NOT AN OPTIMIZATION DETAIL. Without it this is a
+   * brute scan that materializes every coined row's 1536-dim vector, per
+   * novel predicate — i.e. 0082's O(registry) MB moved server-side and
+   * paid per CALL rather than per reload, which is worse during the cold
+   * start that coins most of the vocabulary. (The eval stand's SurrealDB
+   * was OOM-killed, exit 137, running exactly that.) Since a rename must
+   * share a content token anyway (predicate-name-overlap.ts), requiring
+   * it in the WHERE cuts the scan to plausible candidates and changes no
+   * outcome: a stem is a prefix of the word it came from, so
+   * `string::contains` is a superset of the JS check that follows. No
+   * tokens ⇒ no candidates, and no query at all.
    */
   private async proposedCandidates(
     companyId: string,
     predicate: string,
     queryEmb: number[],
   ): Promise<Array<{ predicateId: string; similarity: number }>> {
+    const stems = [...contentTokens(predicate)].sort();
+    if (stems.length === 0) return [];
+    const nameFilter = stems.map((_, i) => `string::contains(predicateId, $t${i})`).join(' OR ');
+    const stemParams = Object.fromEntries(stems.map((t, i) => [`t${i}`, t]));
     try {
       return await this.surreal.withCompany(companyId, async (db) => {
         const [rows] = await db.query<[Array<{ predicateId?: unknown; score?: unknown }>]>(
           `SELECT predicateId, vector::similarity::cosine(embedding, $q) AS score
              FROM knowledge_predicate
             WHERE status = 'proposed'
+              AND (${nameFilter})
               AND embedding != NONE
               AND array::len(embedding) = array::len($q)
               AND predicateId != $self
             ORDER BY score DESC
             LIMIT $k`,
-          // Over-fetch: the shared-token guard runs AFTER this, so
+          // Over-fetch: the exact shared-token guard runs AFTER this, so
           // asking for exactly TOP_N would let three subject-matter
           // neighbours crowd out the actual rename sitting at rank 4.
-          { q: queryEmb, self: predicate, k: CANONICALIZE_IDENTITY_TOP_N * 4 },
+          { ...stemParams, q: queryEmb, self: predicate, k: CANONICALIZE_IDENTITY_TOP_N * 4 },
         );
         return (rows ?? []).flatMap((r) =>
           typeof r.predicateId === 'string' && typeof r.score === 'number'

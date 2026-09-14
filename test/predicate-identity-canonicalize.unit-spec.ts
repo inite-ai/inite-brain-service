@@ -226,6 +226,11 @@ describe('canonicalize — identity adjudication', () => {
     expect(search).toContain('vector::similarity::cosine');
     expect(search).toContain('array::len(embedding) = array::len($q)');
     expect(search).toContain('LIMIT $k');
+    // The name filter is part of the contract, not a tuning detail:
+    // without it the query materializes every coined row's 1536-dim
+    // vector per novel predicate, which is what OOM-killed the stand's
+    // SurrealDB (exit 137) while measuring this very change.
+    expect(search).toContain('string::contains(predicateId, $t0)');
     const snapshot = (
       h.svc as unknown as { cache: { get: (k: string) => { snapshot: Record<string, unknown> } } }
     ).cache.get('co_x').snapshot;
@@ -280,6 +285,22 @@ describe('canonicalize — identity adjudication', () => {
     });
     const d = await h.svc.canonicalize('co_x', 'decided', 'decided: switch to exponential backoff');
     expect(h.shortlists).toHaveLength(0);
+    expect(d.kind).toBe('proposed');
+  });
+
+  it('a coinage with no content tokens issues no candidate query at all', async () => {
+    const seen: string[] = [];
+    const h = harness({
+      proposed: new Map([
+        ['queue_backend', def({ predicateId: 'queue_backend', status: 'proposed' })],
+      ]),
+      proposedEmbeddings: new Map([['queue_backend', vec(60)]]),
+      pick: () => 'queue_backend',
+      onQuery: (q) => seen.push(q),
+    });
+    // 'v2' and 'id' are both under the three-character floor.
+    const d = await h.svc.canonicalize('co_x', 'v2_id', 'v2_id: 7');
+    expect(seen.some((q) => q.includes(`status = 'proposed'`))).toBe(false);
     expect(d.kind).toBe('proposed');
   });
 
