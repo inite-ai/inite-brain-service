@@ -118,7 +118,12 @@ export const CODE_SWITCH_QUERIES: Record<string, string> = {
  */
 const TEMPORAL_CARRIER: Record<LanguageCode, (expression: string) => string> = {
   en: (e) => `The pilot launch is scheduled for ${e}.`,
-  ru: (e) => `Запуск пилота назначен на ${e}.`,
+  // "Пилотный запуск", not "Запуск пилота": the latter is "the launch of
+  // the pilot" — a person — and the extractor, reading it that way,
+  // returned no entity and no fact for it in every run while the same
+  // sentence in German and Spanish yielded `pilot launch — scheduled_for`.
+  // That was the whole of the ml.temp.ru miss; chrono reads the date fine.
+  ru: (e) => `Пилотный запуск запланирован на ${e}.`,
   de: (e) => `Der Pilotstart ist für ${e} geplant.`,
   es: (e) => `El lanzamiento piloto está previsto para ${e}.`,
   zh: (e) => `试点发布定于 ${e}。`,
