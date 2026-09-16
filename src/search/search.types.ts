@@ -16,6 +16,16 @@ export interface SearchHit {
   entityType: string;
   canonicalName: string;
   externalRefs: Record<string, string>;
+  /**
+   * The entity's 1-hop graph relations — `knowledge_edge` rows the
+   * extractor wrote instead of, or as well as, a fact. Absent when none
+   * were fetched. They are EVIDENCE: the extractor files "works at
+   * Orbital Dynamics" as a fact in one language and as an edge in
+   * another, and an answer plane that saw only facts had the generator
+   * asserting an employer the verifier could not find, and dropping the
+   * answer.
+   */
+  relations?: Array<{ kind: string; peer: string; peerType: string }>;
   facts: Array<{
     factId: string;
     /** As written — the coinage this fact was stored under. */

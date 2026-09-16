@@ -103,6 +103,22 @@ export function buildFactIndex(
         obj: f.object,
       });
     }
+    // The entity's graph relations, as evidence lines beside its facts.
+    // The extractor files the same statement as a fact in one language
+    // and as an edge in another ("works at Orbital Dynamics" became a
+    // fact for Thomas and an edge for Maria in the same corpus), and an
+    // answer plane that read only facts had the generator asserting an
+    // employer the verifier could not find — and dropping the answer.
+    // Tagged `[relation]` rather than a fact id: a relation is support,
+    // not a citation, and the cite resolver ignores an unknown tag.
+    for (const rel of r.relations ?? []) {
+      entries.push({
+        line: `[relation] ${r.canonicalName} (${r.entityType}) — ${rel.kind}: ${rel.peer} (${rel.peerType})`,
+        t: Number.POSITIVE_INFINITY,
+        slot: `${r.entityId}::relation::${rel.kind}::${rel.peer}`,
+        obj: rel.peer,
+      });
+    }
   }
   if (opts?.markRecency) {
     const bySlot = new Map<string, typeof entries>();

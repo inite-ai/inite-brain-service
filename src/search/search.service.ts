@@ -788,6 +788,7 @@ export class SearchService {
       entityTypes: ctx.dto.entityTypes,
       requireProvenance: ctx.dto.requireProvenance === true,
       factsPerEntity: factCentricBudget,
+      neighboursByEntity,
     });
     rowPolicy.finish();
     const results = await applyOutputShaping(hits, ctx.dto, this.workerPool, ctx.tuning);

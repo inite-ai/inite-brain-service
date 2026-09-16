@@ -838,3 +838,35 @@ describe('enumeration strict clause (§8 item 3, profile.enumStrict)', () => {
     expect(other).not.toContain('Match the asked scope LITERALLY');
   });
 });
+
+describe('buildFactIndex renders graph relations as evidence', () => {
+  it('adds an uncitable [relation] line per relation, beside the facts', () => {
+    const hit: SearchHit = {
+      entityId: 'e1',
+      entityType: 'staff',
+      canonicalName: 'Мария Альварес',
+      externalRefs: {},
+      score: 1,
+      relations: [{ kind: 'works_at', peer: 'Orbital Dynamics', peerType: 'org' }],
+      facts: [
+        {
+          factId: 'knowledge_fact:aaa',
+          predicate: 'works_as',
+          object: 'руководитель инженерного отдела',
+          confidence: 0.9,
+          score: 1,
+          validFrom: '2026-09-16T00:00:00.000Z',
+          status: 'active',
+        },
+      ],
+    };
+    const { factIndex, factLines } = buildFactIndex([hit]);
+    expect(factLines).toHaveLength(2);
+    expect(factLines[1]).toBe(
+      '[relation] Мария Альварес (staff) — works_at: Orbital Dynamics (org)',
+    );
+    // A relation is support, never a citation: it is not in the index.
+    expect(factIndex.has('relation')).toBe(false);
+    expect(factIndex.size).toBe(1);
+  });
+});
