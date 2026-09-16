@@ -183,10 +183,17 @@ export class TraceBufferService {
   private async persist(snapshot: DebugTraceSnapshot): Promise<void> {
     if (!this.surreal || !snapshot.companyId) return;
     await this.surreal.withCompany(snapshot.companyId, async (db) => {
+      // SurrealDB 3.x coerces nothing: `ts` is a `datetime` field and an
+      // ISO string is refused, and `errored` is `option<object>` where
+      // NULL is not NONE. Both refusals were logged as "persist failed"
+      // on every single trace, so DEBUG_TRACE_PERSIST wrote zero rows
+      // since the 3.x move — found by a full-chain trace run, not by the
+      // unit suite, which fakes the store. The datetime is cast in the
+      // statement; an absent error is an absent key.
       await db.query(
         `CREATE debug_trace CONTENT {
            requestId: $requestId,
-           ts: $ts,
+           ts: <datetime>$ts,
            method: $method,
            path: $path,
            status: $status,
@@ -206,7 +213,7 @@ export class TraceBufferService {
           companyId: snapshot.companyId,
           spans: snapshot.spans,
           artifacts: snapshot.artifacts,
-          errored: snapshot.errored ?? null,
+          errored: snapshot.errored,
         },
       );
       await db.query(

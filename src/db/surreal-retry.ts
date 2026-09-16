@@ -110,17 +110,43 @@ const defaultBackoffSleep = (ms: number): Promise<void> => new Promise((r) => se
  * `sleep` injection point keeps the schedule real in production while
  * letting unit tests run the loop without wall-clock delay.
  */
-export async function retryOnUniqueViolation<T>(
+export function retryOnUniqueViolation<T>(
   fn: () => Promise<T>,
   attempts = 7,
   sleep: (ms: number) => Promise<void> = defaultBackoffSleep,
+): Promise<T> {
+  return retryWhen((err) => isUniqueViolation(err) || isReadConflict(err), fn, { attempts, sleep });
+}
+
+/**
+ * Retry a body on optimistic-concurrency conflicts ONLY. For a plain
+ * CREATE with no read-then-write, a unique violation is an answer, not a
+ * race — the row exists and the caller has a dedupe branch for exactly
+ * that — so looping on it would burn the whole backoff schedule before
+ * the caller's own handling runs. A commit-time conflict, on the other
+ * hand, is the store saying "again": a fresh tenant's first document
+ * write raced its own schema provisioning and surfaced as a 500 from
+ * `dbCreate(source_document)` — one retry converges.
+ */
+export function retryOnReadConflict<T>(
+  fn: () => Promise<T>,
+  attempts = 7,
+  sleep: (ms: number) => Promise<void> = defaultBackoffSleep,
+): Promise<T> {
+  return retryWhen(isReadConflict, fn, { attempts, sleep });
+}
+
+async function retryWhen<T>(
+  retriable: (err: unknown) => boolean,
+  fn: () => Promise<T>,
+  { attempts, sleep }: { attempts: number; sleep: (ms: number) => Promise<void> },
 ): Promise<T> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     try {
       return await fn();
     } catch (err) {
-      if (!isUniqueViolation(err) && !isReadConflict(err)) throw err;
+      if (!retriable(err)) throw err;
       lastErr = err;
       if (i < attempts - 1) {
         // Exponential backoff with full jitter: 10..20, 20..40, 40..80,

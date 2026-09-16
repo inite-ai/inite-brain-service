@@ -2,6 +2,7 @@ import {
   isUniqueViolation,
   isReadConflict,
   enrichTransactionError,
+  retryOnReadConflict,
   retryOnUniqueViolation,
 } from '../src/db/surreal-retry';
 
@@ -153,5 +154,41 @@ describe('retryOnUniqueViolation', () => {
       ),
     ).rejects.toThrow('Write conflict #3');
     expect(calls).toBe(3);
+  });
+});
+
+describe('retryOnReadConflict', () => {
+  it("retries the 3.x 'Transaction conflict: Resource busy' abort a fresh tenant's first write hits", async () => {
+    let calls = 0;
+    const out = await retryOnReadConflict(
+      async () => {
+        calls++;
+        if (calls < 2) {
+          throw new Error(
+            'There was a problem with the key-value store: Transaction conflict: Resource busy. This transaction can be retried',
+          );
+        }
+        return 'stored';
+      },
+      7,
+      noSleep,
+    );
+    expect(out).toBe('stored');
+    expect(calls).toBe(2);
+  });
+
+  it('does NOT retry a unique violation — for a bare CREATE that is an answer, and the caller dedupes', async () => {
+    let calls = 0;
+    await expect(
+      retryOnReadConflict(
+        async () => {
+          calls++;
+          throw new Error('Database index `source_document_hash_idx` already contains 1');
+        },
+        7,
+        noSleep,
+      ),
+    ).rejects.toThrow('already contains');
+    expect(calls).toBe(1);
   });
 });
