@@ -164,8 +164,18 @@ export async function collectLivePredictions(
         userId: scope,
         contextRef: { vertical: 'chat', conversationId: `${scope}-conv` },
       });
+      // Query with the WHOLE carrier, not the date expression alone. The
+      // scope is unique to this case, so anything it returns belongs to
+      // this sentence and nothing else — the query is only there to fetch
+      // the row, and searching for the bare date made the metric partly a
+      // lexical-recall test: `ml.temp.de` passed because the extractor
+      // happened to coin an entity literally named "3. März 2026" for the
+      // search to hit, while `ml.temp.ru` returned nothing at all and was
+      // scored as a temporal miss when chrono parses "3 марта 2026"
+      // perfectly. What this case is for is whether the resolved day is
+      // right, not whether a date string is findable.
       const hits = await client.search({
-        query: c.gold.temporal.expression,
+        query: text,
         limit: 10,
         userId: scope,
       });
@@ -179,9 +189,12 @@ export async function collectLivePredictions(
     if (c.gold.linking !== undefined) {
       const scope = `${runId}-frag-${c.id}`;
       const nodeIds: string[] = [];
+      // The gold ref says what kind of thing this is; the carrier has to
+      // state an attribute that kind can actually have.
+      const kind = c.gold.linking.goldEntity.includes('company') ? 'company' : 'person';
       for (const s of c.gold.linking.surfaces) {
         const res = await client.ingest.mention({
-          text: fragmentationSentence(s.surface, s.lang),
+          text: fragmentationSentence(s.surface, s.lang, kind),
           userId: scope,
           contextRef: { vertical: 'chat', conversationId: `${scope}-conv` },
         });
@@ -222,18 +235,56 @@ export async function collectLivePredictions(
   return out;
 }
 
-/** A neutral carrier so the surface reaches the extractor as a mention. */
-function fragmentationSentence(surface: string, lang: LanguageCode): string {
-  const frames: Partial<Record<LanguageCode, string>> = {
-    en: `${surface} joined the project.`,
-    ru: `${surface} присоединился к проекту.`,
-    de: `${surface} ist dem Projekt beigetreten.`,
-    es: `${surface} se unió al proyecto.`,
-    zh: `${surface} 加入了这个项目。`,
-    ar: `${surface} انضم إلى المشروع.`,
-    hi: `${surface} परियोजना में शामिल हुए।`,
+/**
+ * A carrier that gives the resolver something to resolve ON.
+ *
+ * This used to be a bare "{surface} joined the project." in each language,
+ * and no correct system could ever have linked those. Entity resolution
+ * ends at an LLM judge that decides on FACTS, and the only fact those
+ * sentences produced was `joined: the project` — which two DIFFERENT
+ * people also share. The judge is documented to prefer "different" when
+ * the facts do not disambiguate, so the case was asking it to confirm an
+ * identity on no evidence and then scoring it for declining.
+ *
+ * Measured on the 2026-09-14 run: entity-linking came out at exactly 4/9,
+ * which is precisely what transliteration alone can reach on this corpus
+ * (Latin↔Cyrillic meets, Han and Arabic renderings do not) — the judge
+ * contributed nothing because it had nothing.
+ *
+ * So each surface now carries the SAME distinguishing attribute, stated in
+ * its own language, the way a real corpus would mention the same person
+ * twice. That is what the case claims to measure: whether one person
+ * written in several scripts collapses to one node. The surfaces still
+ * share no characters across scripts, so nothing here makes the name
+ * comparison easier.
+ */
+function fragmentationSentence(
+  surface: string,
+  lang: LanguageCode,
+  kind: 'person' | 'company',
+): string {
+  const person: Partial<Record<LanguageCode, string>> = {
+    en: `${surface}, the lead architect at Orbital Dynamics, joined the project.`,
+    ru: `${surface}, ведущий архитектор в Orbital Dynamics, присоединился к проекту.`,
+    de: `${surface}, leitender Architekt bei Orbital Dynamics, ist dem Projekt beigetreten.`,
+    es: `${surface}, arquitecto principal en Orbital Dynamics, se unió al proyecto.`,
+    zh: `${surface}，Orbital Dynamics 的首席架构师，加入了这个项目。`,
+    ar: `${surface}، كبير المهندسين المعماريين في Orbital Dynamics، انضم إلى المشروع.`,
+    hi: `${surface}, Orbital Dynamics में मुख्य आर्किटेक्ट, परियोजना में शामिल हुए।`,
   };
-  return frames[lang] ?? `${surface} joined the project.`;
+  // A company is not a lead architect. Same idea, different attribute:
+  // one shared, checkable property stated in each language.
+  const company: Partial<Record<LanguageCode, string>> = {
+    en: `${surface}, the satellite manufacturer headquartered in Lisbon, signed the contract.`,
+    ru: `${surface}, производитель спутников со штаб-квартирой в Лиссабоне, подписал контракт.`,
+    de: `${surface}, der Satellitenhersteller mit Sitz in Lissabon, hat den Vertrag unterzeichnet.`,
+    es: `${surface}, el fabricante de satélites con sede en Lisboa, firmó el contrato.`,
+    zh: `${surface}，总部位于里斯本的卫星制造商，签署了合同。`,
+    ar: `${surface}، شركة تصنيع الأقمار الصناعية ومقرها لشبونة، وقّعت العقد.`,
+    hi: `${surface}, लिस्बन में मुख्यालय वाली उपग्रह निर्माता कंपनी, ने अनुबंध पर हस्ताक्षर किए।`,
+  };
+  const frames = kind === 'company' ? company : person;
+  return frames[lang] ?? frames.en!;
 }
 
 /** Earliest event day any returned fact carries, as YYYY-MM-DD. */
