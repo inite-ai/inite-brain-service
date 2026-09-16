@@ -4,11 +4,8 @@ import { Surreal } from 'surrealdb';
 import { EmbedderService } from '../ai/embedder.service';
 import { EntityJudgeService, EntityVerdict } from '../ai/entity-judge.service';
 import { envFlagEnabled } from '../common/env-validation';
+import { nameKey } from '../common/name-key';
 import { dbCreate } from '../db/surreal.service';
-import { knnIndexKnownUnusable, knnOperatorDropped, noteKnnOperatorDropped } from '../db/knn-index';
-
-/** The index the name-candidate KNN scan rides — for the diagnostic. */
-const NAME_HNSW = { table: 'knowledge_fact', index: 'fact_embedding_hnsw' } as const;
 
 /** One auditable reuse/candidate decision (migration 0102 entity_merge_log). */
 export interface MergeLogEntry {
@@ -50,6 +47,16 @@ export interface MergeLogEntry {
  * flag is off by default (operators wanting reversible merges keep it off
  * and rely on dreams).
  */
+/** A candidate for the judge, and which scan found it. */
+interface NameCandidate {
+  entityId: string;
+  /** The stored entity's canonical name, for the judge's prompt. */
+  canonicalName?: string | undefined;
+  /** Similarity on the scan's own scale — see findKeyNeighbour on why. */
+  cosine: number;
+  matchKind: 'translit' | 'embedding';
+}
+
 export interface ResolveByNameOptions {
   db: Surreal;
   name: string;
@@ -63,9 +70,7 @@ export class EntityResolverService {
   private readonly enabled: boolean;
   private readonly cosineFloor: number;
   private readonly candidateK: number;
-  private readonly hnswEnabled: boolean;
-  private readonly hnswEf: number;
-  private readonly hnswOverfetch: number;
+  private readonly keyNeighbourCeiling: number;
 
   constructor(
     private readonly config: ConfigService,
@@ -73,25 +78,47 @@ export class EntityResolverService {
     private readonly judge: EntityJudgeService,
   ) {
     this.enabled = envFlagEnabled(this.config.get<string>('INGEST_INLINE_RESOLUTION_ENABLED'));
+    // A RECALL floor, not a precision one. Everything above it is handed to
+    // the judge, which decides on FACTS; a candidate below it is never seen
+    // by anything. 0.85 was set as though the cosine were the decision, and
+    // it silenced the judge on every name written in a different script from
+    // the one already stored. Measured on bge-m3 (the provider prod runs),
+    // `name: <surface>` against `name: <surface>`, 2026-09-14:
+    //
+    //   SAME person / company            cos        DIFFERENT things      cos
+    //   Ivan Petrov ~ Иван Петров       0.865       Ivan ~ Maria         0.445
+    //   伊万·彼得罗夫 ~ إيفان بيتروف      0.825       Ivan ~ Thomas        0.484
+    //   Ivan Petrov ~ 伊万·彼得罗夫       0.767       Ivan ~ 李伟           0.449
+    //   Aarav Sharma ~ आरव शर्मा         0.748       Ivan Petrov ~
+    //   Ivan Petrov ~ إيفان بيتروف       0.739         Иван Сидоров       0.712
+    //   Иван Петров ~ إيفان بيتروف       0.695
+    //   Orbital Dynamics ~ … GmbH       0.880
+    //
+    // Read it honestly: the bands OVERLAP. A different person who shares a
+    // given name (0.712) scores above four of the six true pairs, so NO
+    // threshold separates them and no amount of tuning will produce one.
+    // That is the argument for the judge, not against it — and the argument
+    // for putting this floor below the true band (0.695) rather than above
+    // it. False candidates are what the judge is for; candidates it never
+    // receives are decided by a number that provably cannot decide them.
     this.cosineFloor = parseFloat(
-      this.config.get<string>('INGEST_INLINE_RESOLUTION_COSINE_FLOOR', '0.85'),
+      this.config.get<string>('INGEST_INLINE_RESOLUTION_COSINE_FLOOR', '0.65'),
     );
     this.candidateK = parseInt(
       this.config.get<string>('INGEST_INLINE_RESOLUTION_CANDIDATES', '5'),
       10,
     );
-    // HNSW approximate KNN for the name-candidate scan (default off). The
-    // KNN operator picks the nearest embeddings BEFORE the WHERE narrows to
-    // name facts, so we over-fetch (candidateK × overfetch, capped 1000) to
-    // keep filtered recall up. A name query embeds like other name facts,
-    // so the nearest neighbours are predominantly name facts — but that's
-    // an empirical property, so this is gated and eval-verified before
-    // enable (a missed candidate here creates a DUPLICATE entity).
-    this.hnswEnabled = envFlagEnabled(this.config.get<string>('INGEST_INLINE_RESOLUTION_HNSW'));
-    this.hnswEf = positiveIntCfg(this.config.get<string>('INGEST_INLINE_RESOLUTION_HNSW_EF'), 100);
-    this.hnswOverfetch = positiveIntCfg(
-      this.config.get<string>('INGEST_INLINE_RESOLUTION_HNSW_OVERFETCH'),
-      8,
+    // How far out, in normalised edit distance over transliterated name
+    // keys, a candidate is still worth a judge call. See findKeyNeighbour.
+    this.keyNeighbourCeiling = parseFloat(
+      this.config.get<string>('INGEST_INLINE_RESOLUTION_KEY_DISTANCE', '0.35'),
+    );
+    // Said once at boot, because "is it even on" was the first hour of
+    // every linking investigation so far.
+    this.logger.log(
+      `[ingest.inline_resolution] ${this.enabled ? 'enabled' : 'disabled'}; ` +
+        `judge ${this.judge.isAvailable() ? 'available' : 'unavailable'}; ` +
+        `key-distance ceiling ${this.keyNeighbourCeiling}, cosine floor ${this.cosineFloor}`,
     );
   }
 
@@ -156,13 +183,23 @@ export class EntityResolverService {
     if (!this.isEnabled()) return null;
     try {
       const candidate = await this.findBestNameCandidate(db, name, type);
-      if (!candidate) return null;
+      if (!candidate) {
+        this.logger.debug(`[ingest.inline_resolution] no candidate for "${name}" (${type})`);
+        return null;
+      }
 
       const existingFacts = await this.judge.fetchTopFacts(db, candidate.entityId);
       const incoming =
         incomingFacts.length > 0 ? incomingFacts.map((f) => `- ${f}`).join('\n') : '(no facts)';
+      // The judge gets both NAMES and is told which scan found the
+      // candidate. Two spellings of one person in two scripts carry the
+      // same facts in two languages, and without the names that reads as
+      // no shared evidence at all — measured: "Фёдор Волков" was judged
+      // different from "Fyodor Volkov" with the same employer and role.
       const verdict = await this.judge.judge(existingFacts, incoming, {
         cosine: candidate.cosine,
+        similarity: candidate.matchKind === 'translit' ? 'transliteration' : 'embedding',
+        names: { a: candidate.canonicalName, b: name },
       });
       if (verdict === 'same') {
         if (this.isReversible()) {
@@ -179,7 +216,7 @@ export class EntityResolverService {
             targetEntity: candidate.entityId,
             verdict,
             cosine: candidate.cosine,
-            matchKind: 'embedding',
+            matchKind: candidate.matchKind,
             decision: 'candidate',
           });
           this.logger.log(
@@ -194,6 +231,12 @@ export class EntityResolverService {
         );
         return candidate.entityId;
       }
+      // Logged, because a silent null here is indistinguishable from "no
+      // candidate" and that is the question every linking miss asks first.
+      this.logger.log(
+        `[ingest.inline_resolution] judge said ${verdict} for "${name}" vs ` +
+          `${candidate.entityId} (${candidate.matchKind}=${candidate.cosine.toFixed(3)}) — creating new`,
+      );
       return null;
     } catch (err) {
       // Never block ingest — fall back to "create new".
@@ -205,126 +248,172 @@ export class EntityResolverService {
   }
 
   /**
-   * Cosine k-NN over existing `name` fact embeddings; returns the closest
-   * candidate of the SAME type at or above the floor, else null. Mirrors
-   * the dreams dedup candidate scan, scoped to one query.
+   * The best candidate for the judge: first by transliterated-key edit
+   * distance, then by cosine over the entities' own name embeddings.
    *
-   * When INGEST_INLINE_RESOLUTION_HNSW is on, candidates come from the
-   * native HNSW index (`<|k,ef|>`); any failure — most commonly "no index
-   * on this tenant yet" — falls back to the exact full scan, so the flag
-   * can be flipped globally while tenants are indexed one by one.
+   * THE EMBEDDING SCAN IS OVER `knowledge_entity.embedding`,
+   * NOT over `name` facts. It used to be the latter — a cosine k-NN over
+   * `knowledge_fact WHERE predicate = 'name'` — and measured on a live
+   * tenant on 2026-09-16 that table held ZERO such rows against 33
+   * entities: nothing on the free-text mention path writes a `name`
+   * fact, and the mention path is the only path this resolver serves.
+   * So the scan had always searched an empty set, and with prod carrying
+   * INGEST_INLINE_RESOLUTION_ENABLED=1 the "embedding + judge" step had
+   * never once produced a candidate.
    *
-   * "No index on this tenant yet" is NOT a failure the statement reports:
-   * SurrealDB drops the KNN operator and answers with table-order rows
-   * carrying a NULL distance, which this path read as `sim = 0`. Since the
-   * rows are sorted DESC and the loop `break`s below `cosineFloor`, an
-   * un-indexed tenant resolved nothing at all. Detected from the rows
-   * (src/db/knn-index.ts), which returns null and falls through.
+   * Entities are one to two orders of magnitude fewer than facts, so this
+   * is a plain cosine scan with no HNSW leg. The fact-table KNN variant
+   * that lived here (INGEST_INLINE_RESOLUTION_HNSW) went with the fact
+   * scan it accelerated; the flag is retired.
+   *
+   * THE SCOPE FENCE IS ON THE ENTITY. The old fact scan read `userId IS
+   * NONE` on knowledge_fact, where `userId` means "who said it" — mention
+   * ingest stamps the speaker onto every fact — so on a per-user tenant
+   * it excluded everything even before the table turned out to be empty.
+   * On knowledge_entity `userId` means "private to one user", which is
+   * the fence that was meant: a private entity never matches, a global
+   * one is reachable through whoever named it.
    */
   private async findBestNameCandidate(
     db: Surreal,
     name: string,
     type: string,
-  ): Promise<{ entityId: string; cosine: number } | null> {
-    const q = await this.embedder.embed(`name: ${name}`);
-    let rows: Array<{ entityId: unknown; etype: string; sim: number }> | null = null;
-    if (this.hnswEnabled) {
-      try {
-        rows = await this.queryNameCandidatesKnn(db, q);
-      } catch (err) {
-        this.logger.warn(
-          `[ingest.inline_resolution] hnsw name-candidate scan fell back ` +
-            `to full scan: ${(err as Error).message}`,
-        );
-        rows = null;
-      }
-    }
-    if (rows === null) rows = await this.queryNameCandidatesFullScan(db, q);
-    for (const r of rows) {
-      if (r.sim < this.cosineFloor) break; // rows are sorted DESC
-      if (r.etype !== type) continue;
-      return { entityId: String(r.entityId), cosine: r.sim };
-    }
-    return null;
-  }
+  ): Promise<NameCandidate | null> {
+    // Cheapest, sharpest signal first: the nearest entity by edit distance
+    // over the TRANSLITERATED name keys (0148). An embedding cannot tell
+    // "Ivan Petrov" from "Иван Сидоров" (0.712, above most true pairs);
+    // the key distance can, and it ranks every spelling of one name
+    // correctly — measured on the Tier-0 corpus, "thomas brandt" against
+    // the whole tenant:
+    //
+    //   0  Thomas Brandt     1  Томас Брандт (tomas brandt)
+    //   3  थॉमस ब्रांट (thoms bramt)   4  توماس براندت (twms brndt)
+    //   6  托马斯·勃兰特 (tuomasi bolante)
+    //
+    // Only CANDIDATE GENERATION, exactly like the cosine scan it runs
+    // ahead of — the judge still decides on facts, so no threshold here
+    // ever merges anything. `keyNeighbourCeiling` only bounds how far out
+    // we are willing to spend a judge call.
+    const neighbour = await this.findKeyNeighbour(db, name, type);
+    if (neighbour) return neighbour;
 
-  /** Exact full-scan cosine over every active `name` fact. */
-  private async queryNameCandidatesFullScan(
-    db: Surreal,
-    q: number[],
-  ): Promise<Array<{ entityId: unknown; etype: string; sim: number }>> {
-    const [rows] = await db.query<[Array<{ entityId: unknown; etype: string; sim: number }>]>(
-      `SELECT entityId, entityId.type AS etype,
-              vector::similarity::cosine(embedding, $q) AS sim
-         FROM knowledge_fact
-         WHERE predicate = 'name'
-           AND status = 'active'
-           AND retractedAt IS NONE
-           AND embedding != NONE AND array::len(embedding) = array::len($q)
-           AND userId IS NONE
-           AND entityId.mergedInto IS NONE
-         ORDER BY sim DESC
-         LIMIT $k`,
-      { q, k: this.candidateK },
-    );
-    return (rows as Array<{ entityId: unknown; etype: string; sim: number }>) ?? [];
+    // What the key cannot reach: a name rendered by SOUND in another
+    // script sits far away by edits ("ivan petrov" vs "yfn bytrwf" is
+    // 0.64) and close by meaning (bge-m3 cosine 0.739).
+    const q = await this.embedder.embed(`name: ${name}`);
+    const rows = await this.queryNameCandidates(db, q, type);
+    const best = rows[0];
+    if (!best || best.sim < this.cosineFloor) return null;
+    return {
+      entityId: String(best.entityId),
+      canonicalName: best.ename,
+      cosine: best.sim,
+      matchKind: 'embedding',
+    };
   }
 
   /**
-   * Approximate KNN variant over the per-tenant `fact_embedding_hnsw` index.
-   * The `<|kOver,ef|>` operator picks candidates before the WHERE filters,
-   * so we over-fetch (kOver = candidateK × overfetch, capped 1000) and let
-   * the same predicate/status/type fences narrow the result, then LIMIT to
-   * candidateK. Returns NULL — not a throw — when the tenant has no usable
-   * HNSW index, so the caller falls back to the exact scan.
+   * Nearest entity by edit distance over the transliterated name keys.
+   *
+   * Returns the closest candidate of the SAME type whose NORMALISED
+   * distance (edits ÷ longer key) is within the ceiling, else null so the
+   * caller falls through to the embedding scan — which still earns its
+   * place on the cases a string comparison cannot reach: a script that
+   * writes a foreign name by sound lands far away by edits
+   * ("ivan petrov" vs "yfn bytrwf" is 0.64) and close by meaning.
+   *
+   * The ceiling is a RECALL bound on judge cost, not a merge rule.
+   * Measured on the Tier-0 corpus: true pairs run 0.08-0.24 (thomas ~
+   * tomas 0.08, maria ~ mariya alvarez 0.14, nadia ~ nadiya khaddad
+   * 0.14), the nearest genuinely-different pair is "ivan petrov" ~ "ivan
+   * sidorov" at 0.33, and aarav ~ arv srma is also 0.33. So the bands
+   * touch here too — 0.35 deliberately admits BOTH, because the whole
+   * point is that the judge, looking at facts, decides which is which.
+   *
+   * Reported as a `cosine` so the judge's hint keeps one scale: a
+   * normalised distance is turned into a similarity (1 − d). It is not a
+   * cosine and the two are not comparable, which is why `matchKind` on the
+   * merge-log row records which scan produced the candidate.
+   *
+   * Never throws: on any failure (a tenant migrated before 0148, an older
+   * SurrealDB without the string-distance function) it returns null and
+   * the embedding scan runs, which is what ran before this existed.
    */
-  private async queryNameCandidatesKnn(
+  private async findKeyNeighbour(
     db: Surreal,
-    q: number[],
-  ): Promise<Array<{ entityId: unknown; etype: string; sim: number }> | null> {
-    // Observed un-indexed within the memo TTL: let the caller run its exact
-    // scan without paying for a KNN statement that comes back unranked.
-    if (knnIndexKnownUnusable(db, NAME_HNSW)) return null;
-    const kOver = Math.min(this.candidateK * this.hnswOverfetch, 1000);
-    // `<|K,EF|>` takes literals, not params — kOver/ef are validated ints.
-    // vector::distance::knn() reuses the walk's distance — projecting a
-    // fresh cosine next to the KNN operator drops the planner off the
-    // KnnScan (V11 audit A4). sim = 1 − cosine distance, so the caller's
-    // cosineFloor comparison keeps exact sim semantics.
-    const [rows] = await db.query<[Array<{ entityId: unknown; etype: string; dist: number }>]>(
-      `SELECT entityId, entityId.type AS etype,
-              vector::distance::knn() AS dist
-         FROM knowledge_fact
-         WHERE embedding <|${kOver},${this.hnswEf}|> $q
-           AND predicate = 'name'
-           AND status = 'active'
-           AND retractedAt IS NONE
-           AND userId IS NONE
-           AND entityId.mergedInto IS NONE
-         ORDER BY dist ASC
-         LIMIT $k`,
-      { q, k: this.candidateK },
-    );
-    const knnRows = (rows as Array<{ entityId: unknown; etype: string; dist: number }>) ?? [];
-    if (knnOperatorDropped(knnRows, 'dist')) {
-      await noteKnnOperatorDropped(db, NAME_HNSW, {
-        logger: {
-          warn: (m) => this.logger.warn(`[ingest.inline_resolution] ${m}`),
-          error: (m) => this.logger.error(`[ingest.inline_resolution] ${m}`),
-          debug: (m) => this.logger.debug(`[ingest.inline_resolution] ${m}`),
-        },
-      });
+    name: string,
+    type: string,
+  ): Promise<NameCandidate | null> {
+    const key = nameKey(name);
+    if (key === '') return null;
+    try {
+      const [rows] = await db.query<
+        [Array<{ entityId: unknown; canonicalName?: string; dist: number; matched: string }>]
+      >(
+        `SELECT id AS entityId, canonicalName,
+                math::min(nameKeys.map(|$k| string::distance::levenshtein($key, $k))) AS dist,
+                nameKeys[0] AS matched
+           FROM knowledge_entity
+          WHERE type = $type
+            AND userId IS NONE
+            AND mergedInto IS NONE
+            AND nameKeys != NONE
+            AND array::len(nameKeys) > 0
+          ORDER BY dist ASC
+          LIMIT 1`,
+        { key, type },
+      );
+      const best = (rows ?? [])[0];
+      if (!best || typeof best.dist !== 'number') return null;
+      // Normalise by the longer of the two keys, so a one-edit difference
+      // means something different on "bp" than on "orbital dynamics".
+      const span = Math.max(key.length, String(best.matched ?? '').length, 1);
+      const normalized = best.dist / span;
+      // 0 is the exact-key case, which the deterministic ladder in
+      // entity-upsert already reused before reaching here — seeing it
+      // means that step declined (two entities shared the key), and
+      // guessing between them is precisely what it refused to do.
+      if (normalized <= 0 || normalized > this.keyNeighbourCeiling) return null;
+      return {
+        entityId: String(best.entityId),
+        canonicalName: best.canonicalName,
+        cosine: 1 - normalized,
+        matchKind: 'translit',
+      };
+    } catch (err) {
+      // WARN, not debug: a tenant where this scan cannot run is a tenant
+      // where cross-script linking silently regressed to the embedding
+      // path, and that has to be visible the first time it happens.
+      this.logger.warn(
+        `[ingest.inline_resolution] key-neighbour scan unavailable: ${(err as Error).message}`,
+      );
       return null;
     }
-    return knnRows.map(({ dist, ...rest }) => ({
-      ...rest,
-      sim: typeof dist === 'number' ? 1 - dist : 0,
-    }));
   }
-}
 
-/** Parse a positive-int config value, falling back on absent/invalid input. */
-function positiveIntCfg(raw: string | undefined, fallback: number): number {
-  const v = parseInt(raw ?? '', 10);
-  return Number.isFinite(v) && v > 0 ? v : fallback;
+  /**
+   * Nearest entities of `type` by cosine over their name embeddings.
+   * `array::len(embedding) = array::len($q)` is the same width gate
+   * the fact scans use: a row embedded in another space is skipped rather
+   * than allowed to raise for the whole statement.
+   */
+  private async queryNameCandidates(
+    db: Surreal,
+    q: number[],
+    type: string,
+  ): Promise<Array<{ entityId: unknown; ename?: string; sim: number }>> {
+    const [rows] = await db.query<[Array<{ entityId: unknown; ename?: string; sim: number }>]>(
+      `SELECT id AS entityId, canonicalName AS ename,
+              vector::similarity::cosine(embedding, $q) AS sim
+         FROM knowledge_entity
+        WHERE type = $type
+          AND embedding != NONE AND array::len(embedding) = array::len($q)
+          AND userId IS NONE
+          AND mergedInto IS NONE
+        ORDER BY sim DESC
+        LIMIT $k`,
+      { q, type, k: this.candidateK },
+    );
+    return (rows as Array<{ entityId: unknown; ename?: string; sim: number }>) ?? [];
+  }
 }

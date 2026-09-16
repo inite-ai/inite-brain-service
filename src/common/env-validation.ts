@@ -192,8 +192,6 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   nonNegativeInt(env, 'HNSW_PROVISION_MAX_BUILDS_PER_RUN', errors);
 
   // ── HNSW on the inline entity-resolution name-candidate scan ───────
-  positiveInt(env, 'INGEST_INLINE_RESOLUTION_HNSW_EF', errors);
-  positiveInt(env, 'INGEST_INLINE_RESOLUTION_HNSW_OVERFETCH', errors);
 
   // ── HNSW on the coverage scan lanes (mention-scan / query_arc) ─────
   positiveInt(env, 'RETRIEVAL_SCAN_HNSW_EF', errors);
@@ -998,7 +996,6 @@ const KNOWN_BOOLEAN_FLAGS = [
   // the conflict engine to settle. Default off = byte-identical.
   'COMPACTION_PROMOTION_CONFLICT_GUARD',
   'INGEST_INLINE_RESOLUTION_ENABLED',
-  'INGEST_INLINE_RESOLUTION_HNSW',
   'EXTRACTOR_DROP_SAID',
   // Dialogue memory mode — Phase 4. On → open/normalized extraction profile:
   // normalized values (not verbatim spans, grounding-drop bypassed), specific

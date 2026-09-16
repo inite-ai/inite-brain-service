@@ -54,7 +54,7 @@ describe('EntityJudgeService', () => {
     expect(await svc.judge('a', 'b')).toBe('unsure');
   });
 
-  it('fetchTopFacts renders lines, with the empty sentinel', async () => {
+  it('fetchTopFacts renders facts AND edges, with the empty sentinel', async () => {
     const { svc } = make({ OPENAI_API_KEY: 'sk-test' });
     const db = {
       query: jest
@@ -64,10 +64,28 @@ describe('EntityJudgeService', () => {
             { predicate: 'dob', object: '1990' },
             { predicate: 'city', object: 'NYC' },
           ],
+          // The extractor files "works at Acme" as an EDGE in one language
+          // and a fact in another; the judge has to see both shapes.
+          [{ kind: 'works_at', other: 'Acme' }, { kind: 'knows' /* dangling: no other */ }],
         ])
-        .mockResolvedValueOnce([[]]),
+        .mockResolvedValueOnce([[], []]),
     } as any;
-    expect(await svc.fetchTopFacts(db, 'knowledge_entity:x')).toBe('- dob: 1990\n- city: NYC');
+    expect(await svc.fetchTopFacts(db, 'knowledge_entity:x')).toBe(
+      '- dob: 1990\n- city: NYC\n- works_at: Acme',
+    );
     expect(await svc.fetchTopFacts(db, 'knowledge_entity:y')).toBe('(no facts)');
+  });
+
+  it('fetchTopFacts does not fence facts on who said them', async () => {
+    // knowledge_fact.userId is the SPEAKER, stamped on every fact a
+    // per-user-scoped mention writes. Fencing on it left the judge with
+    // "(no facts)" for every entity on such a tenant. The entity was
+    // already fenced as tenant-global by the caller.
+    const { svc } = make({ OPENAI_API_KEY: 'sk-test' });
+    const db = { query: jest.fn().mockResolvedValueOnce([[], []]) } as any;
+    await svc.fetchTopFacts(db, 'knowledge_entity:x');
+    const sql = String(db.query.mock.calls[0][0]);
+    expect(sql).not.toContain('userId IS NONE');
+    expect(sql).toContain('FROM knowledge_edge');
   });
 });

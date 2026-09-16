@@ -2089,7 +2089,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      "Overfetch multiplier for the coverage scan legs' approximate KNN: SurrealDB applies WHERE gates AFTER the neighbor walk, so the walk requests k×overfetch candidates to survive gate filtering (pii/user scope on both lanes; the query_arc lane doubles the multiplier internally for its heavier gate stack — atomic/status/world gates — matching the ×8 precedent of INGEST_INLINE_RESOLUTION_HNSW_OVERFETCH). Capped at 4000 candidates per leg.",
+      "Overfetch multiplier for the coverage scan legs' approximate KNN: SurrealDB applies WHERE gates AFTER the neighbor walk, so the walk requests k×overfetch candidates to survive gate filtering (pii/user scope on both lanes; the query_arc lane doubles the multiplier internally for its heavier gate stack — atomic/status/world gates). Capped at 4000 candidates per leg.",
   },
   {
     key: 'RETRIEVAL_UPDATE_STORY',
@@ -3037,15 +3037,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: true,
     description:
       'Batched edge persistence: collapse the per-edge RELATE round-trips of a mention into TWO queries (one multi-statement existence check, then one multi-statement RELATE for only the missing edges); re-ingest with all edges present is a single round-trip. Same observable outcome as the per-edge loop (idempotent RELATE on UNIQUE(in,out,kind)); a concurrent-writer race falls back to the per-edge primitive. Read at boot.',
-  },
-  {
-    key: 'INGEST_INLINE_RESOLUTION_HNSW',
-    category: 'extractor',
-    defaultValue: '0',
-    runtimeMutable: false,
-    isBooleanFlag: true,
-    description:
-      "Route the inline entity-resolution name-candidate scan through the native HNSW index (<|k,ef|>) instead of a per-ingest full cosine scan of every 'name' fact. Over-fetches (candidateK × INGEST_INLINE_RESOLUTION_HNSW_OVERFETCH, default 8, capped 1000) since KNN pre-filters before the name/type WHERE. Tenants without a built index fall back to the full scan (build via POST /v1/admin/maintenance/hnsw). CORRECTNESS-SENSITIVE — a missed approximate candidate creates a DUPLICATE entity; run the dedup recall eval and verify parity vs full scan before enabling. Only active when INGEST_INLINE_RESOLUTION_ENABLED is also on. Read at boot.",
   },
   {
     key: 'SEARCH_COMBINED_VECTOR_GRAPH',
