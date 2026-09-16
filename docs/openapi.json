@@ -479,6 +479,9 @@
           "predicate": {
             "type": "string"
           },
+          "slot": {
+            "type": "string"
+          },
           "sourceKey": {
             "type": "string"
           }
@@ -488,6 +491,7 @@
           "entityId",
           "canonicalName",
           "predicate",
+          "slot",
           "object"
         ],
         "type": "object"
@@ -4781,6 +4785,9 @@
             "type": "string"
           },
           "predicate": {
+            "type": "string"
+          },
+          "predicateAlias": {
             "type": "string"
           },
           "scene": {

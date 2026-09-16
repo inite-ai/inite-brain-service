@@ -73,7 +73,10 @@ export const SearchRequestSchema = z.strictObject({
 
 export const SearchFactSchema = z.object({
   factId: z.string(),
+  /** As written — the coinage the fact was stored under. */
   predicate: z.string(),
+  /** The canon it was aliased onto (0083); identity is `predicateAlias ?? predicate`. Absent = its own canon. */
+  predicateAlias: z.string().optional(),
   object: z.string(),
   confidence: z.number(),
   validFrom: z.string(),

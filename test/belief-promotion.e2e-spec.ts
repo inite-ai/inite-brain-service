@@ -284,7 +284,7 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
       promoterVersion: 'belief-promotion-v1|scene-segmenter-v1',
     });
     expect(String(rows[0]!.id)).toContain(
-      beliefIdTail({ userId: USER, subject: 'mika', field: 'home.city' }, 1),
+      beliefIdTail({ userId: USER, subject: 'mika', predicateId: 'home.city' }, 1),
     );
     expect((rows[0]!.sourceSceneIds ?? []).map(String).sort()).toEqual([
       'memory_episode:sa1',

@@ -23,7 +23,7 @@ function makeController(): AdminPredicatesController {
       },
     ],
   } as unknown as PredicateRegistryService;
-  return new AdminPredicatesController(registry);
+  return new AdminPredicatesController(registry, {} as never);
 }
 
 describe('AdminPredicatesController.list() — wire contract', () => {

@@ -1182,8 +1182,8 @@ describe('deterministic helpers', () => {
     ).toBe('Mikhail — car: none (was: Jeep Compass)');
   });
 
-  it('beliefIdTail is deterministic per (user, subject, field, revision)', () => {
-    const key = { userId: 'u1', subject: 'mika', field: 'home.city' };
+  it('beliefIdTail is deterministic per (user, subject, predicateId, revision)', () => {
+    const key = { userId: 'u1', subject: 'mika', predicateId: 'home.city' };
     const a = beliefIdTail(key, 1);
     expect(a).toBe(beliefIdTail(key, 1));
     expect(a).toHaveLength(24);
