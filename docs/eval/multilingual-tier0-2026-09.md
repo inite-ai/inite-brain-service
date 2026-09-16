@@ -247,16 +247,17 @@ paying the scan and the call again.
 
 ## After the fixes
 
-Same matrix, prod-parity flags, bge-m3, `ENTITY_JUDGE_MODEL=gpt-4o`:
+Same matrix, prod-parity flags, bge-m3, judge `gpt-5.6-luna`:
 
-| metric                      | first run   | after    | what moved it                                   |
-| --------------------------- | ----------- | -------- | ----------------------------------------------- |
-| entity-linking-accuracy     | 0.33 (n=9)  | **0.89** | name key + live embedding scan + judge evidence |
-| fragmentation-rate          | 0.67 (n=3)  | **0.25** | same                                            |
-| temporal-exact-day          | 0.57 (n=7)  | **0.86** | ICU-derived absolute dates                      |
-| extraction-f1               | 0.20 (n=5)  | **0.70** | gold corrected to the native surfaces           |
-| answer-language-correctness | 0.75 (n=12) | 0.92     | run-to-run LLM variance; not claimed            |
-| recall@1 / @3 / ndcg@10     | 1.00        | 1.00     | —                                               |
+| metric                      | first run   | after    | what moved it                                                              |
+| --------------------------- | ----------- | -------- | -------------------------------------------------------------------------- |
+| entity-linking-accuracy     | 0.33 (n=9)  | **1.00** | name key + live embedding scan + judge evidence + judge model              |
+| fragmentation-rate          | 0.67 (n=3)  | **0.00** | same                                                                       |
+| temporal-exact-day          | 0.57 (n=7)  | **1.00** | ICU-derived absolute dates; the Russian carrier said "launch of the pilot" |
+| extraction-f1               | 0.20 (n=5)  | **0.70** | gold corrected to the native surfaces                                      |
+| answer-language-correctness | 0.75 (n=12) | **0.92** | the detector counted characters; the verifier dropped translations         |
+| over-reject-rate            | 0.00 (n=11) | 0.00     | —                                                                          |
+| recall@1 / @3 / ndcg@10     | 1.00        | 1.00     | —                                                                          |
 
 Ivan Petrov, written in Latin, Cyrillic, Han and Arabic, is **one node**:
 Latin↔Cyrillic met on the transliterated key, Han and Arabic came in
@@ -267,37 +268,54 @@ and Nadia Haddad into one entity apiece); 8 refusals, all correct
 (Пётр ≠ سمير, Ivan Petrov ≠ Пётр, Aarav Sharma ≠ سمير). Ten staff
 entities for the ten distinct people the corpus names.
 
-The remaining temporal miss, `ml.temp.ru`, is the harness's own search
-returning nothing for the Russian carrier — chrono parses "3 марта 2026"
-correctly, and the probe was changed to query with the whole sentence so
-the metric stops measuring lexical recall of a date string.
+### 5. The language detector counted characters
 
-### 4. The extraction gold was asking for translations
+Every answer the brain produces ends in a citation, and on a Chinese
+answer that citation alone is 34 Latin letters against 15 Han ones. The
+detector called it English with confidence 0 — the matrix's own copy
+of the detector agreed — and `answer-language-correctness` reported 0.00
+for zh/mono on an answer that read "Orbital Dynamics 的工程负责人是玛丽亚·
+阿尔瓦雷斯". A Han character is a word; an alphabetic script spends five
+or six letters on one.
 
-`extraction-f1 = 0.20` was mostly the ruler. The gold asked for
-`name=Li Wei` from 李伟 (a romanization) and `role=cto` from 首席技术官 (a
-translation), and the extractor's grounding gate drops any value that is
-not a verbatim span of the input — deliberately, so the model cannot
-invent one. Those pairs could not be produced by a correctly-behaving
-system.
+**Fixed**: words, not characters, by ICU segmentation (UAX #29 via
+`Intl.Segmenter`), with citations, URLs and bare identifiers stripped
+first — they are text in no language. The matrix's second detector is
+gone; it wraps the brain's. Known limit, pinned: an English sentence
+quoting a Han-scripted name verbatim reads as Chinese.
 
-The matrix's usual rule ("gold is never a surface string") is right for
-cross-lingual retrieval, where the script is incidental, and wrong here,
-where the script is the subject. **Fixed**: the short-string gold now
-names the native surfaces. What it measures is the real failure mode —
-a length assumption that is invisible in English and makes the brain
-unable to remember anyone whose whole personal name is two glyphs.
+### 6. The verifier treated a translation as a hallucination
+
+Reproduced three of three: English question over Russian facts, the
+generator answered correctly with the right citation, and the verifier
+returned "unsupported" because the evidence said "руководитель
+инженерного отдела" and the answer said "leads engineering". The answer
+was dropped; the caller got nothing. **Fixed**: the verifier is told
+that a faithful translation of evidence is supported by it, and that
+wording repeated from the query ("at Orbital Dynamics") is framing, not
+a claim. The false-premise query is still refused.
+
+The one answer-language miss left is es/cross, where the generator wrote
+"María Álvarez leads engineering at Orbital Dynamics as directora de
+ingeniería" — English with the Spanish title quoted verbatim — and the
+stopword vote on twelve mixed words landed on Portuguese. n=1, and the
+answer is defensible.
 
 ## Still open
 
-- `ml.temp.ru` still returns no rows for the Russian carrier even when
-  the whole sentence is the query. That is a retrieval question on the
-  Russian ingest, not a temporal one, and it is not chased here.
-- `answer-language-correctness` moves between 0.67 and 0.92 across runs
-  with nothing changed. `MULTILINGUAL_ANSWER_GUARD`'s fallback order
-  (explicit → session locale → confidently detected → none) is plainly
-  better reasoning than the default's "detect and force at any
-  confidence", but n=12 with that much variance cannot show it.
+- Graph EDGES are not evidence to the answer plane: `SearchHit` carries
+  facts only, so a relation the extractor filed as an edge ("works at
+  Orbital Dynamics" for Maria, in Russian) is invisible to both the
+  generator and the verifier. The verifier's query-framing rule covers
+  the measured case; the gap itself is a retrieval change.
+- The judge flips on "Orbital Dynamics GmbH" vs "Orbital Dynamics"
+  between runs. A legal suffix is a defensible "different"; the gold
+  says "same". n=1.
+- `MULTILINGUAL_ANSWER_GUARD`'s fallback order (explicit → session
+  locale → confidently detected → none) is plainly better reasoning than
+  the default's "detect and force at any confidence", but with the
+  detector fixed the metric sits at 0.92 either way and n=12 cannot
+  separate them.
 - The corpus is small: three role candidates, n = 1…12 per metric. Before
   anything is deleted on the strength of these numbers, it needs widening.
 - Existing tenants need the backfill once:
