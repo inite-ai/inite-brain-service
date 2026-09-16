@@ -65,7 +65,7 @@ async function call(name: string, method: string, path: string, body?: unknown):
       'Content-Type': 'application/json',
       'X-Brain-Debug': '1',
     },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const text = await res.text();
   let json: Record<string, unknown>;

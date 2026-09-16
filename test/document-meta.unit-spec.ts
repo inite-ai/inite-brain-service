@@ -325,7 +325,7 @@ describe('MentionViaDocumentService routes contextRef ids off the caller channel
     await runWithRequestContext({ correlationId: 'm1' }, () =>
       svc.ingest('co_x', mentionDto({ vertical: 'crm', conversationId: 'c1' })),
     );
-    expect(calls[0]!.origin.internal).toEqual({ conversationId: 'c1' });
+    expect(calls[0]!.origin).toEqual({ channel: 'mention', internal: { conversationId: 'c1' } });
   });
 
   it('a bare contextRef produces no internal bag at all', async () => {
