@@ -11,6 +11,7 @@ import {
 import { DocumentStoreService } from '../src/documents/document-store.service';
 import type { SurrealService } from '../src/db/surreal.service';
 import { MentionViaDocumentService } from '../src/documents/mention-via-document.service';
+import type { EpisodeStoreService } from '../src/ingest/episode-store.service';
 import type { DocumentIngestService } from '../src/documents/document-ingest.service';
 import type { IngestDocumentDto } from '../src/documents/dto/ingest-document.dto';
 import type { IngestMentionDto } from '../src/ingest/dto/ingest-mention.dto';
@@ -129,6 +130,8 @@ describe('mergeDocumentMeta', () => {
       'conversationId',
       'messageId',
       'eventId',
+      'episodeId',
+      'timezone',
       'toolObservationRef',
       'toolObservationNote',
     ]);
@@ -232,14 +235,15 @@ function makeWrapper() {
       };
     },
   } as unknown as DocumentIngestService;
-  return { svc: new MentionViaDocumentService(documents), calls };
+  return { svc: new MentionViaDocumentService(documents), calls, documents };
 }
 
-const mentionDto = (contextRef: Record<string, unknown>): IngestMentionDto =>
+const mentionDto = (contextRef: Record<string, unknown>, timezone?: string): IngestMentionDto =>
   ({
     text: 'Acme moved to the gold tier',
     contextRef,
     emittedAt: '2026-09-02T10:00:00.000Z',
+    ...(timezone ? { timezone } : {}),
   }) as unknown as IngestMentionDto;
 
 describe('MentionViaDocumentService routes contextRef ids off the caller channel', () => {
@@ -275,6 +279,53 @@ describe('MentionViaDocumentService routes contextRef ids off the caller channel
       svc.ingest('co_x', mentionDto({ vertical: 'crm', conversationId: 'c1' })),
     );
     expect(calls[0]!.origin).toEqual({ channel: 'mention', internal: { conversationId: 'c1' } });
+  });
+
+  it('captures the L0 episode BEFORE staging the document, and the id rides the internal bag', async () => {
+    const { calls, documents } = makeWrapper();
+    const order: string[] = [];
+    const episodes = {
+      captureTurn: jest.fn(async (_c: string, dto: IngestMentionDto) => {
+        order.push('capture');
+        expect(dto.userId).toBeUndefined();
+        return 'episode:turn1';
+      }),
+    } as unknown as EpisodeStoreService;
+    const wrapped = {
+      ingestDocument: async (...args: unknown[]) => {
+        order.push('document');
+        return (documents.ingestDocument as (...a: unknown[]) => unknown)(...args);
+      },
+    } as unknown as DocumentIngestService;
+    const svc = new MentionViaDocumentService(wrapped, episodes);
+    await runWithRequestContext({ correlationId: 'm1' }, () =>
+      svc.ingest(
+        'co_x',
+        mentionDto({ vertical: 'crm', conversationId: 'c1', messageId: 'm1' }, 'Asia/Tokyo'),
+      ),
+    );
+    expect(order).toEqual(['capture', 'document']);
+    expect(calls[0]!.origin).toEqual({
+      channel: 'mention',
+      internal: {
+        conversationId: 'c1',
+        messageId: 'm1',
+        episodeId: 'episode:turn1',
+        timezone: 'Asia/Tokyo',
+      },
+    });
+  });
+
+  it('a failed capture is advisory: the document still stages, with no episode on the bag', async () => {
+    const { calls, documents } = makeWrapper();
+    const episodes = {
+      captureTurn: jest.fn(async () => null),
+    } as unknown as EpisodeStoreService;
+    const svc = new MentionViaDocumentService(documents, episodes);
+    await runWithRequestContext({ correlationId: 'm1' }, () =>
+      svc.ingest('co_x', mentionDto({ vertical: 'crm', conversationId: 'c1' })),
+    );
+    expect(calls[0]!.origin.internal).toEqual({ conversationId: 'c1' });
   });
 
   it('a bare contextRef produces no internal bag at all', async () => {

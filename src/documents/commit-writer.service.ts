@@ -4,6 +4,7 @@ import { SurrealService } from '../db/surreal.service';
 import { EntityUpsertService } from '../ingest/entity-upsert.service';
 import { FactResolverService } from '../ingest/fact-resolver.service';
 import { createEdgeBetween } from '../ingest/edge-writer';
+import { factValidFrom, resolveEventTimeOpts } from '../ingest/event-time';
 import { traceSpan } from '../common/debug-trace';
 import { originKeyOf, StoredDocument } from './document-store.service';
 import { sanitizeSourceMeta } from '../policy/source-meta';
@@ -100,6 +101,9 @@ export class CommitWriterService {
     },
   ): Promise<FactWriteOutcome[]> {
     const outcomes: FactWriteOutcome[] = [];
+    // The speaker's session timezone rides the internal document channel
+    // (mention-via-document); a document posted directly has none.
+    const timeOpts = resolveEventTimeOpts(internalString(p.doc, 'timezone'));
     for (const [i, mf] of p.factsToWrite.entries()) {
       const entityId = p.entityIds.get(mf.entityKey);
       if (!entityId) {
@@ -123,7 +127,12 @@ export class CommitWriterService {
               predicate: mf.predicate,
               object: mf.object,
               confidence: mf.confidence,
-              validFrom: p.doc.occurredAt,
+              // The occurrence date the clause names, else the document's
+              // time — the same rule, from the same function, as the
+              // direct mention path. This used to be `p.doc.occurredAt`
+              // unconditionally, which stamped every fact a stock
+              // deployment ingests with the day it was SAID.
+              validFrom: factValidFrom(mf, p.doc.occurredAt, timeOpts),
               source: this.factSource(p.doc, mf),
               entropy: mf.entropy,
               precomputedEmbedding: p.embeddings[i],
@@ -204,11 +213,16 @@ export class CommitWriterService {
    */
   private factSource(doc: StoredDocument, mf: MergedFact): Record<string, unknown> {
     const { meta } = sanitizeSourceMeta(doc.meta);
+    // The L0 turn the mention wrapper captured for this document. Stamped
+    // exactly as the direct path stamps it, so GET /v1/facts/:id/provenance
+    // walks a document-path fact back to its episode too.
+    const episodeId = internalString(doc, 'episodeId');
     return {
       vertical: doc.vertical,
       recorder: mf.recorder,
       documentId: doc.id,
       originKey: originKeyOf(doc.contentHash),
+      ...(episodeId ? { episodeIds: [episodeId] } : {}),
       ...(meta ? { meta } : {}),
       ...sourceVersionOf(mf),
       indexers: mf.contributors.map((c) => ({
@@ -274,4 +288,14 @@ export function sourceVersionOf(mf: MergedFact): Record<string, unknown> {
     leader?.sourceVersion ??
     mf.contributors.find((c) => c.sourceVersion !== undefined)?.sourceVersion;
   return stamp ? { sourceVersion: stamp } : {};
+}
+
+/**
+ * A brain-owned string off the RAW document header (document-meta.ts:
+ * the internal channel never passes the caller gate, so it is read
+ * here, not from the sanitized projection).
+ */
+function internalString(doc: StoredDocument, key: 'episodeId' | 'timezone'): string | undefined {
+  const v = (doc.meta as Record<string, unknown> | undefined)?.[key];
+  return typeof v === 'string' && v.length > 0 ? v : undefined;
 }

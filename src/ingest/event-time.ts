@@ -25,6 +25,8 @@
  */
 import * as chrono from 'chrono-node';
 import { detectLanguage } from '../ai/locale/language-detector';
+import { traceArtifact } from '../common/debug-trace';
+import { envFlagEnabled } from '../common/env-validation';
 import { normalizeDigits } from '../common/locale-digits';
 import { parseLocaleAbsoluteDate } from './locale-date';
 
@@ -432,4 +434,65 @@ function clampPast(d: Date, anchor: Date): Date | null {
   min.setUTCFullYear(min.getUTCFullYear() - MAX_LOOKBACK_YEARS);
   if (day.getTime() < min.getTime()) return null;
   return day;
+}
+
+/** Resolved event-time knobs for one ingest, computed once per persist. */
+export interface EventTimeResolveOpts {
+  /** INGEST_EVENT_TIME_EXTRACTION — resolve occurrence dates at all. */
+  on: boolean;
+  /** IANA session timezone — anchors the speaker's local day. */
+  timeZone?: string;
+}
+
+/**
+ * Read the event-time knobs for an ingest. There is no second flag: the
+ * locale half of the resolver is keyed by the clause's own language and
+ * the speaker's own timezone, both of which are inputs, not switches.
+ */
+export function resolveEventTimeOpts(timeZone: string | undefined): EventTimeResolveOpts {
+  return {
+    on: envFlagEnabled(process.env.INGEST_EVENT_TIME_EXTRACTION),
+    ...(timeZone ? { timeZone } : {}),
+  };
+}
+
+/**
+ * The fact's occurrence time. A clause often refers to when something
+ * HAPPENED ("went yesterday", "painted last year", "3 марта 2026") — with
+ * INGEST_EVENT_TIME_EXTRACTION on and a resolvable expression, that is
+ * the date; else the message time.
+ *
+ * ONE function for both ingest paths. It lived inside the mention
+ * persister, and the document commit — the path a stock deployment
+ * actually runs mentions through (INGEST_MENTION_VIA_DOCUMENT) — stamped
+ * `doc.occurredAt` on every fact. Measured with a full-chain trace on the
+ * prod assembly: "Пилотный запуск запланирован на 3 марта 2026" landed as
+ * validFrom = the day it was said, on the path that ships, while the
+ * flag that promises otherwise was on. The temporal fixes measured on the
+ * mention path were not on the conveyor.
+ *
+ * PROD CAVEAT (docs/operations.md): a backdated validFrom on a BITEMPORAL
+ * supersede can stamp the incumbent's validUntil earlier than its own
+ * validFrom (inverted interval, fact hidden from asOf). single_active is
+ * guarded (INSERTED_HISTORICAL); bitemporal is not.
+ */
+export function factValidFrom(
+  f: { predicate: string; clause?: string | undefined },
+  emittedAt: string | Date,
+  opts: EventTimeResolveOpts,
+): Date {
+  const event = opts.on
+    ? resolveEventTime(f.clause, emittedAt, opts.timeZone ? { timeZone: opts.timeZone } : {})
+    : null;
+  if (!event) return emittedAt instanceof Date ? emittedAt : new Date(emittedAt);
+  traceArtifact('ingest.fact.event_time', {
+    predicate: f.predicate,
+    expr: event.expr,
+    resolved: event.date.toISOString().slice(0, 10),
+    emittedAt: (emittedAt instanceof Date ? emittedAt.toISOString() : String(emittedAt)).slice(
+      0,
+      10,
+    ),
+  });
+  return event.date;
 }

@@ -17,30 +17,12 @@ import {
 } from '../common/coreference';
 import type { KnownEntity } from './dto/ingest-mention.dto';
 import { envFlagEnabled } from '../common/env-validation';
-import { resolveEventTime } from './event-time';
+import { factValidFrom, resolveEventTimeOpts, type EventTimeResolveOpts } from './event-time';
 
 export interface MentionPersistResult {
   extractedEntityIds: string[];
   extractedFactIds: string[];
   extractedEdgeIds: string[];
-}
-
-/** Resolved event-time knobs for a mention, computed once per persist. */
-interface EventTimeResolveOpts {
-  /** INGEST_EVENT_TIME_EXTRACTION — resolve occurrence dates at all. */
-  on: boolean;
-  /** IANA session timezone (dto.timezone) — anchors the speaker's local day. */
-  timeZone?: string;
-}
-
-/** Read the event-time knobs for this mention. There is no second flag: the
- *  locale half of the resolver is keyed by the clause's own language and the
- *  speaker's own timezone, both of which are inputs, not switches. */
-function resolveEventTimeOpts(dto: IngestMentionDto): EventTimeResolveOpts {
-  return {
-    on: envFlagEnabled(process.env.INGEST_EVENT_TIME_EXTRACTION),
-    ...(dto.timezone ? { timeZone: dto.timezone } : {}),
-  };
 }
 
 /**
@@ -185,7 +167,7 @@ export class MentionPersistService {
   ): Promise<string[]> {
     const { companyId, dto, extraction, source, factEmbeddings, entityIds } = p;
     const factIds: string[] = [];
-    const timeOpts = resolveEventTimeOpts(dto);
+    const timeOpts = resolveEventTimeOpts(dto.timezone);
     if (envFlagEnabled(process.env.INGEST_BATCH_FACTS)) {
       return this.persistFactsBatched(db, p, timeOpts);
     }
@@ -193,7 +175,7 @@ export class MentionPersistService {
       const f = extraction.facts[i]!;
       const eid = entityIds[f.entityIndex];
       if (!eid) continue;
-      const validFrom = this.factValidFrom(f, dto, timeOpts);
+      const validFrom = factValidFrom(f, dto.emittedAt, timeOpts);
       const factId = await traceSpan(
         'ingest.fact.upsert',
         () =>
@@ -214,40 +196,6 @@ export class MentionPersistService {
       if (factId) factIds.push(factId);
     }
     return factIds;
-  }
-
-  /**
-   * The fact's occurrence time. A clause often refers to when something
-   * HAPPENED in the past ("went yesterday", "painted last year") — with
-   * INGEST_EVENT_TIME_EXTRACTION on and a resolvable relative expression, use
-   * the resolved event date; else the message time. Shared by the per-fact
-   * and batched persist paths.
-   *
-   * PROD CAVEAT (docs/operations.md): a backdated validFrom on a BITEMPORAL
-   * supersede can stamp the incumbent's validUntil earlier than its own
-   * validFrom (inverted interval, fact hidden from asOf). single_active is
-   * guarded (INSERTED_HISTORICAL); bitemporal is not.
-   */
-  private factValidFrom(
-    f: { predicate: string; clause?: string | undefined },
-    dto: IngestMentionDto,
-    timeOpts: EventTimeResolveOpts,
-  ): Date {
-    const event = timeOpts.on
-      ? resolveEventTime(
-          f.clause,
-          dto.emittedAt,
-          timeOpts.timeZone ? { timeZone: timeOpts.timeZone } : {},
-        )
-      : null;
-    if (!event) return new Date(dto.emittedAt);
-    traceArtifact('ingest.fact.event_time', {
-      predicate: f.predicate,
-      expr: event.expr,
-      resolved: event.date.toISOString().slice(0, 10),
-      emittedAt: String(dto.emittedAt).slice(0, 10),
-    });
-    return event.date;
   }
 
   /**
@@ -287,7 +235,7 @@ export class MentionPersistService {
           predicateAlias: f.predicateAlias,
           object: f.object,
           confidence: f.confidence,
-          validFrom: this.factValidFrom(f, dto, timeOpts),
+          validFrom: factValidFrom(f, dto.emittedAt, timeOpts),
           source,
           entropy: typeof f.extractionEntropy === 'number' ? f.extractionEntropy : undefined,
           precomputedEmbedding: factEmbeddings[i],
