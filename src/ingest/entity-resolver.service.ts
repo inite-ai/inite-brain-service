@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Surreal } from 'surrealdb';
 import { EmbedderService } from '../ai/embedder.service';
 import { EntityJudgeService, EntityVerdict } from '../ai/entity-judge.service';
+import { traceArtifact } from '../common/debug-trace';
 import { envFlagEnabled } from '../common/env-validation';
 import { nameKey } from '../common/name-key';
 import { dbCreate } from '../db/surreal.service';
@@ -200,6 +201,23 @@ export class EntityResolverService {
         cosine: candidate.cosine,
         similarity: candidate.matchKind === 'translit' ? 'transliteration' : 'embedding',
         names: { a: candidate.canonicalName, b: name },
+      });
+      // The whole question and the whole answer, on the trace: which
+      // candidate, found how, what each side's evidence was, and what the
+      // judge said. The span around the LLM call carries none of this.
+      traceArtifact('ingest.entity.judge', {
+        name,
+        type,
+        candidate: {
+          entityId: candidate.entityId,
+          canonicalName: candidate.canonicalName,
+          matchKind: candidate.matchKind,
+          cosine: candidate.cosine,
+        },
+        existingFacts,
+        incoming,
+        verdict,
+        decision: verdict !== 'same' ? 'create' : this.isReversible() ? 'candidate' : 'reuse',
       });
       if (verdict === 'same') {
         if (this.isReversible()) {

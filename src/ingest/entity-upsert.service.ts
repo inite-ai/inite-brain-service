@@ -17,6 +17,7 @@ import { scopeFenceSql } from '../auth/scope-visibility';
 import { envFlagEnabled } from '../common/env-validation';
 import { analyzeConfusables } from '../common/text-sanitizer';
 import { nameKey, nameKeysFor } from '../common/name-key';
+import { traceArtifact } from '../common/debug-trace';
 
 /**
  * Leading English articles the extractor inconsistently keeps on coined
@@ -68,6 +69,11 @@ export function articleNameVariants(nameLc: string): string[] {
  * naming conventions (exact canonical/alias, leading articles, code
  * path↔symbol) are interpreted, instead of a second, drifting copy.
  */
+/** The rung of the naming ladder that settled an entity — see the trace
+ *  artifact `ingest.entity.resolution`. */
+type ResolutionStep =
+  'hint' | 'exact' | 'article-variant' | 'translit' | 'code-alias' | 'judge' | 'created';
+
 @Injectable()
 export class EntityUpsertService {
   private readonly logger = new Logger(EntityUpsertService.name);
@@ -215,6 +221,20 @@ export class EntityUpsertService {
     // blocks resolution and NEVER auto-merges — off ⇒ nothing computed.
     this.flagConfusables(e.name);
 
+    // Every exit of the ladder names the rung it took. A trace that shows
+    // "Артём Соколов → knowledge_entity:x" without saying whether that was
+    // an exact hit, a transliteration key or a judge's verdict cannot be
+    // audited, and this ladder is where cross-script identity is decided.
+    const resolved = (step: ResolutionStep, entityId: string): string => {
+      traceArtifact('ingest.entity.resolution', {
+        name: e.name,
+        type: this.normalizeEntityType(e.type),
+        step,
+        entityId,
+      });
+      return entityId;
+    };
+
     // 1. Caller hint wins — same atomic upsert as fact ingest.
     if (hint) {
       const hintKey = externalRefKey(hint.vertical, hint.id);
@@ -223,20 +243,23 @@ export class EntityUpsertService {
       // complete. Existence is pre-checked ONLY under the flag (off ⇒ no
       // extra query, byte-identical).
       await this.auditExternalRefReuse(db, hintKey, e);
-      return this.upsertEntityByExternalRef(db, hintKey, {
-        factory: () => ({
-          type: this.normalizeEntityType(e.type),
-          canonicalName: e.canonical ?? e.name,
-          aliases: [e.name],
-          nameKeys: nameKeysFor([e.name, e.canonical]),
-          externalRefs: { [hintKey]: hint.id },
+      return resolved(
+        'hint',
+        await this.upsertEntityByExternalRef(db, hintKey, {
+          factory: () => ({
+            type: this.normalizeEntityType(e.type),
+            canonicalName: e.canonical ?? e.name,
+            aliases: [e.name],
+            nameKeys: nameKeysFor([e.name, e.canonical]),
+            externalRefs: { [hintKey]: hint.id },
+          }),
+          // Same identity check as the structured path: a hint says WHICH
+          // key to file this under, not that the name is new. Without it
+          // step 2's canonical-name match — the thing that would have found
+          // the existing entity — is skipped whenever a hint is present.
+          adopt: () => this.resolveExistingByName(db, { name: e.canonical ?? e.name }),
         }),
-        // Same identity check as the structured path: a hint says WHICH
-        // key to file this under, not that the name is new. Without it
-        // step 2's canonical-name match — the thing that would have found
-        // the existing entity — is skipped whenever a hint is present.
-        adopt: () => this.resolveExistingByName(db, { name: e.canonical ?? e.name }),
-      });
+      );
     }
 
     // 2. Canonical-name match. Hits `entity_canonical_lc_idx` directly
@@ -271,7 +294,7 @@ export class EntityUpsertService {
         type: this.normalizeEntityType(e.type),
         matchKind: 'exact',
       });
-      return String(nRow.id);
+      return resolved('exact', String(nRow.id));
     }
 
     // 2a. Article-insensitive reuse (INGEST_ARTICLE_NORMALIZATION, default
@@ -301,7 +324,7 @@ export class EntityUpsertService {
             type: this.normalizeEntityType(e.type),
             matchKind: 'article-variant',
           });
-          return String(vRows[0].id);
+          return resolved('article-variant', String(vRows[0].id));
         }
       }
     }
@@ -341,7 +364,7 @@ export class EntityUpsertService {
           type: this.normalizeEntityType(e.type),
           matchKind: 'translit',
         });
-        return id;
+        return resolved('translit', id);
       }
     }
 
@@ -354,7 +377,7 @@ export class EntityUpsertService {
     // aliases); anything ambiguous or not clearly code-shaped falls
     // through to create-new. Same tenant-global fence as step 2.
     const viaCodeAlias = await this.resolveByCodeAlias(db, e);
-    if (viaCodeAlias) return viaCodeAlias;
+    if (viaCodeAlias) return resolved('code-alias', viaCodeAlias);
 
     // 3. Inline entity resolution (graphiti-style, opt-in). Before minting
     // a new entity, look for a near-duplicate that already exists and let
@@ -362,20 +385,20 @@ export class EntityUpsertService {
     // match reuses the existing entity, so the duplicate is never created.
     // Falls through to create-new when disabled, no match, or any error.
     if (this.entityResolver?.isEnabled()) {
-      const resolved = await this.entityResolver.resolveByName({
+      const judged = await this.entityResolver.resolveByName({
         db,
         name: e.name,
         type: this.normalizeEntityType(e.type),
         incomingFacts,
       });
-      if (resolved) {
+      if (judged) {
         // A verdict the judge has given is a verdict the ladder should
         // not ask for twice. Stamping the new spelling's key means the
         // next mention of it resolves at step 2a-bis, deterministically,
         // instead of paying another candidate scan and LLM call for a
         // question already answered.
-        await this.stampNameKeys(db, resolved, [e.name, e.canonical]);
-        return resolved;
+        await this.stampNameKeys(db, judged, [e.name, e.canonical]);
+        return resolved('judge', judged);
       }
     }
 
@@ -392,7 +415,7 @@ export class EntityUpsertService {
       ...(await this.embeddingFor(e.canonical ?? e.name)),
       externalRefs: {},
     });
-    return String(created?.id);
+    return resolved('created', String(created?.id));
   }
 
   /**

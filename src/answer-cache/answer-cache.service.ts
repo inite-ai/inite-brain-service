@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { StringRecordId, type Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
+import { traceArtifact } from '../common/debug-trace';
 import { envFlagEnabled } from '../common/env-validation';
 import { pinUserScope } from '../auth/user-scope';
 import { makeRowPolicyFilter, type RowPolicyFilter } from '../policy/row-filter';
@@ -599,6 +600,7 @@ export class AnswerCacheService {
     const normalizedQuery = normalizeQuery(opts.dto.query ?? '');
     if (opts.dto.explain === true || normalizedQuery.length === 0) {
       this.metrics?.countAnswerCache('bypass');
+      traceArtifact('synthesize.answer_cache', { decision: 'bypass' });
       return undefined;
     }
     try {
@@ -606,6 +608,7 @@ export class AnswerCacheService {
       const hit = await this.tryServe(ctx, opts.callerScopes);
       if (hit) {
         this.metrics?.countAnswerCache('hit');
+        traceArtifact('synthesize.answer_cache', { decision: 'hit' });
         return { hit };
       }
       return { ctx };
@@ -616,6 +619,7 @@ export class AnswerCacheService {
         `answer-cache serve failed (companyId=${opts.companyId}): ${(e as Error).message}`,
       );
       this.metrics?.countAnswerCache('miss');
+      traceArtifact('synthesize.answer_cache', { decision: 'miss' });
       return undefined;
     }
   }
@@ -659,6 +663,7 @@ export class AnswerCacheService {
       // A citation with no trackable arm — the cache cannot promise to
       // notice when it dies, so the answer is served fresh every time.
       this.metrics?.countAnswerCache('not_admitted');
+      traceArtifact('synthesize.answer_cache', { decision: 'not_admitted' });
       return;
     }
     const answer = result.answer;
@@ -733,6 +738,7 @@ export class AnswerCacheService {
         return true;
       });
       this.metrics?.countAnswerCache(stored ? 'stored' : 'not_admitted');
+      traceArtifact('synthesize.answer_cache', { decision: stored ? 'stored' : 'not_admitted' });
     } catch (e) {
       this.logger.warn(
         `answer-cache store failed (companyId=${ctx.companyId}): ${(e as Error).message}`,
@@ -901,12 +907,14 @@ export class AnswerCacheService {
     });
     if (!row || row.invalidatedAt || toMs(row.expiresAt) <= Date.now()) {
       this.metrics?.countAnswerCache('miss');
+      traceArtifact('synthesize.answer_cache', { decision: 'miss' });
       return null;
     }
     const verdict = await this.checkOnRead(ctx, row, callerScopes);
     if ('cause' in verdict) {
       await this.invalidate(ctx, verdict.cause);
       this.metrics?.countAnswerCache('rejected_stale');
+      traceArtifact('synthesize.answer_cache', { decision: 'rejected_stale' });
       return null;
     }
     await this.recordServe(ctx);

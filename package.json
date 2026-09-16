@@ -42,6 +42,7 @@
     "eval:evidence": "ts-node -T test/eval/evidence/runner.ts",
     "eval:transition-calibration": "ts-node -T test/eval/transition-calibration/runner.ts",
     "eval:multilingual": "ts-node -T test/eval/multilingual/runner.ts",
+    "eval:conveyor": "ts-node -T test/eval/conveyor/runner.ts",
     "openapi:build": "ts-node -T scripts/build-openapi.ts",
     "migrations:flexible": "ts-node -T scripts/generate-flexible-reconcile.ts",
     "mri:report": "ts-node -T scripts/mri-report.ts",
