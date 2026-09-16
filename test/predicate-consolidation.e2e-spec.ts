@@ -127,7 +127,14 @@ describe('predicate consolidation — the writes, against a real schemafull tabl
 
     const rows = await surreal.withCompany(f.companyId, async (db) => {
       const [after] = await db.query<
-        [Array<{ object?: unknown; status?: unknown; supersededBy?: unknown; validUntil?: unknown }>]
+        [
+          Array<{
+            object?: unknown;
+            status?: unknown;
+            supersededBy?: unknown;
+            validUntil?: unknown;
+          }>,
+        ]
       >(`SELECT object, status, supersededBy, validUntil FROM knowledge_fact ORDER BY object`);
       return after ?? [];
     });
