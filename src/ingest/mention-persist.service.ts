@@ -29,19 +29,16 @@ export interface MentionPersistResult {
 interface EventTimeResolveOpts {
   /** INGEST_EVENT_TIME_EXTRACTION — resolve occurrence dates at all. */
   on: boolean;
-  /** MULTILINGUAL_TEMPORAL — ar/hi/ko relative expressions + day-shift fix. */
-  localeTime: boolean;
-  /** IANA session timezone (dto.timezone), only used when localeTime. */
+  /** IANA session timezone (dto.timezone) — anchors the speaker's local day. */
   timeZone?: string;
 }
 
-/** Read the event-time flags for this mention. The MULTILINGUAL_TEMPORAL
- *  branch is a separable concern (locale-time decomposition); when off, the
- *  resolver is called exactly as before (byte-identical). */
+/** Read the event-time knobs for this mention. There is no second flag: the
+ *  locale half of the resolver is keyed by the clause's own language and the
+ *  speaker's own timezone, both of which are inputs, not switches. */
 function resolveEventTimeOpts(dto: IngestMentionDto): EventTimeResolveOpts {
   return {
     on: envFlagEnabled(process.env.INGEST_EVENT_TIME_EXTRACTION),
-    localeTime: envFlagEnabled(process.env.MULTILINGUAL_TEMPORAL),
     ...(dto.timezone ? { timeZone: dto.timezone } : {}),
   };
 }
@@ -143,10 +140,21 @@ export class MentionPersistService {
       const e = extraction.entities[i]!;
       const knownHint = this.hintFor(e, speakerHint, addresseeHint);
       // The entity's freshly-extracted facts feed the inline-resolution judge
-      // (the "new" side — these aren't written yet).
+      // (the "new" side — these aren't written yet). Its EDGES go too, as
+      // `kind: <other entity's name>` lines: the extractor files "works at
+      // Orbital Dynamics" as an edge in one language and as a fact in
+      // another, and a judge that only saw facts was comparing a full
+      // profile against an empty one — measured: "Семён Белов" arrived with
+      // a role and nothing else while "Semyon Belov" carried the employer
+      // as a fact, and the judge, seeing no common ground, said different.
       const incomingFacts = extraction.facts
         .filter((f: { entityIndex: number }) => f.entityIndex === i)
         .map((f: { predicate: string; object: string }) => `${f.predicate}: ${f.object}`);
+      for (const edge of extraction.edges) {
+        if (edge.fromEntityIndex !== i) continue;
+        const other = extraction.entities[edge.toEntityIndex];
+        if (other) incomingFacts.push(`${edge.kind}: ${other.name}`);
+      }
       const eid = await traceSpan(
         'ingest.entity.resolve',
         () =>
@@ -229,12 +237,7 @@ export class MentionPersistService {
       ? resolveEventTime(
           f.clause,
           dto.emittedAt,
-          // MULTILINGUAL_TEMPORAL off ⇒ no options object at all (byte-identical
-          // to the historical no-opts call). On ⇒ locale-time decomposition
-          // (ar/hi/ko relative expressions + the session-timezone day-shift fix).
-          timeOpts.localeTime
-            ? { localeTime: true, ...(timeOpts.timeZone ? { timeZone: timeOpts.timeZone } : {}) }
-            : {},
+          timeOpts.timeZone ? { timeZone: timeOpts.timeZone } : {},
         )
       : null;
     if (!event) return new Date(dto.emittedAt);

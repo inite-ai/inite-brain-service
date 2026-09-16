@@ -1631,13 +1631,6 @@ const KNOWN_BOOLEAN_FLAGS = [
   // off ⇒ the regex router is byte-identical. MULTILINGUAL_ family, off the
   // ENGINE flag budget.
   'MULTILINGUAL_LANE_ROUTING',
-  // Multilingual Tier 4. Locale-time decomposition: ar/hi/ko relative-
-  // expression recognition (chrono has no parser for them), locale-aware digit
-  // parsing, and the atUtcMidnight day-shift fix (anchors a relative event to
-  // the speaker's LOCAL calendar day via dto.timezone). Read on the ingest
-  // path (mention-persist); re-ingest to apply. Default off ⇒ byte-identical
-  // UTC-day chrono behavior. MULTILINGUAL_ family, off the ENGINE flag budget.
-  'MULTILINGUAL_TEMPORAL',
   // Multilingual Tier 4. Typed conflict detection: detectEvidenceConflicts
   // compares normalized TYPED values (numbers/booleans, digit-script/case
   // folded) instead of surface strings, catching cross-lingual value conflicts
