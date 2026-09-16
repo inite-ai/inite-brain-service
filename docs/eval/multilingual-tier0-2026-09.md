@@ -219,14 +219,31 @@ the same thing are matching facts, and a residual spelling difference
 after transliteration (a surname that differs by an ending) still marks
 a possible different person unless a fact beyond the employer agrees.
 
-Judge model matters. Identical inputs, English "Thomas Brandt" against
-the Russian "Томас Брандт" already stored with the same role and
-employer: `gpt-4o-mini` answered _different_ on three of nine such pairs
-in one run and _same_ on the same shapes in another; `gpt-4o` answered
-_same_ on all nine, consistently, across two runs. The resolver's judge
-is one call per new entity that has a neighbour, so the cost of
-`ENTITY_JUDGE_MODEL=gpt-4o` is small and the difference is the whole
-metric.
+Judge model matters, and it was measured three ways on the same matrix:
+
+| judge                                     | entity-linking | fragmentation | notes                                                                                           |
+| ----------------------------------------- | -------------- | ------------- | ----------------------------------------------------------------------------------------------- |
+| `gpt-4o-mini` (what prod's chat model is) | 0.56           | 0.57          | "different" on 3 of 9 same-role-same-employer cross-script pairs; changes its mind between runs |
+| `gpt-4o`                                  | 0.89           | 0.25          | consistent, 9/9, two runs                                                                       |
+| **`gpt-5.6-luna`**                        | **1.00**       | **0.00**      | every merge audited correct, every refusal correct; 0 reasoning tokens at `low` effort          |
+
+`gpt-5.6-luna` is the cost tier of the newest generation ($0.20 / $1.20
+per 1M, July 2026; `gpt-5.4-nano` is the same price a generation older,
+`gpt-5-nano` is a quarter of it and eighteen months older). It is now the
+judge's own default (`ENTITY_JUDGE_MODEL` overrides), and the judge no
+longer inherits `OPENAI_CHAT_MODEL`.
+
+Calling it needed a fix of its own: the judge hand-rolled
+`temperature: 0, max_completion_tokens: 64`, which a gpt-5.x model
+answers with **400** ("'temperature' does not support 0 with this
+model") — and a model that accepted it would spend the 64 tokens on
+hidden reasoning and return an empty message. Both parse as "unsure".
+The judge now goes through the shared reasoning guard (`chatCallParams`)
+at `low` effort, which for this one-token verdict costs nothing extra.
+
+A spelling the judge has confirmed is stamped into `nameKeys` on the
+way out, so the next mention of it resolves deterministically instead of
+paying the scan and the call again.
 
 ## After the fixes
 
@@ -244,10 +261,11 @@ Same matrix, prod-parity flags, bge-m3, `ENTITY_JUDGE_MODEL=gpt-4o`:
 Ivan Petrov, written in Latin, Cyrillic, Han and Arabic, is **one node**:
 Latin↔Cyrillic met on the transliterated key, Han and Arabic came in
 through the embedding scan at cosine 0.767 and 0.739 — the same numbers
-the isolated measurement predicted. The one surface still apart is
-"Orbital Dynamics GmbH", which the judge holds separate from "Orbital
-Dynamics"; that is a defensible reading of a legal suffix and the case's
-gold disagrees with it.
+the isolated measurement predicted. Across the whole run: 27 merges, all
+audited correct (seven spellings each of Maria Alvarez, Thomas Brandt
+and Nadia Haddad into one entity apiece); 8 refusals, all correct
+(Пётр ≠ سمير, Ivan Petrov ≠ Пётр, Aarav Sharma ≠ سمير). Ten staff
+entities for the ten distinct people the corpus names.
 
 The remaining temporal miss, `ml.temp.ru`, is the harness's own search
 returning nothing for the Russian carrier — chrono parses "3 марта 2026"

@@ -2,12 +2,15 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Surreal, StringRecordId } from 'surrealdb';
 import OpenAI from 'openai';
-import { createOpenAiClient } from './openai-client';
+import { chatCallParams, createOpenAiClient } from './openai-client';
 import { MetricsService } from '../metrics/metrics.service';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 
 export type EntityVerdict = 'same' | 'different' | 'unsure';
+
+/** See the constructor on why the judge does not inherit OPENAI_CHAT_MODEL. */
+export const DEFAULT_JUDGE_MODEL = 'gpt-5.6-luna';
 
 /**
  * What the judge is told beside the two fact lists.
@@ -95,10 +98,17 @@ export class EntityJudgeService {
     @Optional() private readonly metrics?: MetricsService,
   ) {
     this.openai = createOpenAiClient(this.config) ?? (undefined as unknown as OpenAI);
-    this.model = this.config.get<string>(
-      'ENTITY_JUDGE_MODEL',
-      this.config.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
-    );
+    // The judge's own default, not the tenant's chat model. Measured on
+    // identical inputs (2026-09-16, nine cross-script pairs with matching
+    // role and employer): gpt-4o-mini answered "different" on three and
+    // changed its mind between runs; gpt-4o answered "same" on all nine,
+    // twice. The judge is one call per new entity that has a neighbour,
+    // and the difference is the whole entity-linking metric, so it gets
+    // the cheapest CURRENT model rather than whatever the chat model is:
+    // gpt-5.6-luna is the cost tier of the newest generation ($0.20 /
+    // $1.20 per 1M, structured outputs, reasoning effort selectable).
+    // ENTITY_JUDGE_MODEL still overrides.
+    this.model = this.config.get<string>('ENTITY_JUDGE_MODEL', DEFAULT_JUDGE_MODEL);
     // Shared judge concurrency. Falls back to the legacy DREAMS_DEDUP knob
     // so existing operator tuning keeps working after the consolidation.
     this.limiter = new Semaphore(
@@ -223,8 +233,19 @@ Output strictly the JSON shape requested. No preamble.`;
               },
             },
           },
-          max_completion_tokens: 64,
-          temperature: 0,
+          // Through the shared reasoning guard: a gpt-5.x model rejects
+          // `temperature` outright and bills hidden reasoning against the
+          // cap, so a hand-rolled `temperature: 0, max_completion_tokens:
+          // 64` — which is what sat here — answered 400 on the one class
+          // of model and an EMPTY message on the other, and both parsed
+          // as "unsure". The verdict is one token; `low` effort is the
+          // most thinking a same/different call should ever need.
+          ...chatCallParams(this.model, {
+            temperature: 0,
+            visibleCap: 64,
+            reasoningCap: 512,
+            reasoningEffort: 'low',
+          }),
         }),
     );
     const content = res.choices[0]?.message?.content;

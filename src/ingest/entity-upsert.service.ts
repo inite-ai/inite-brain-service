@@ -368,7 +368,15 @@ export class EntityUpsertService {
         type: this.normalizeEntityType(e.type),
         incomingFacts,
       });
-      if (resolved) return resolved;
+      if (resolved) {
+        // A verdict the judge has given is a verdict the ladder should
+        // not ask for twice. Stamping the new spelling's key means the
+        // next mention of it resolves at step 2a-bis, deterministically,
+        // instead of paying another candidate scan and LLM call for a
+        // question already answered.
+        await this.stampNameKeys(db, resolved, [e.name, e.canonical]);
+        return resolved;
+      }
     }
 
     const aliases = this.seedAliases(e);

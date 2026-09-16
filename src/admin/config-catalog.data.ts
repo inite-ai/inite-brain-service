@@ -1203,6 +1203,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
   },
   {
+    key: 'ENTITY_JUDGE_MODEL',
+    category: 'auth',
+    defaultValue: 'gpt-5.6-luna',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'The model behind the same-entity judge (inline entity resolution at ingest and the dreams dedup). Its own default, not OPENAI_CHAT_MODEL: measured on identical cross-script pairs gpt-4o-mini flip-flopped between runs while a current model answered consistently, and the judge is one call per new entity with a neighbour, so it gets the cheapest current-generation model. Reasoning models are called through the shared guard at low effort.',
+  },
+  {
     key: 'OPENAI_TIMEOUT_MS',
     category: 'auth',
     defaultValue: '30000',
