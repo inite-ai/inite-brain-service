@@ -4847,6 +4847,29 @@
             },
             "type": "array"
           },
+          "relations": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "peer": {
+                  "type": "string"
+                },
+                "peerType": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "peer",
+                "peerType"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "score": {
             "type": "number"
           }

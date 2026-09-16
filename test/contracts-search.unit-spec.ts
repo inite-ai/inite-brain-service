@@ -64,6 +64,7 @@ const fullSearchHit: Required<SearchHit> = {
   entityType: 'person',
   canonicalName: 'Customer 42',
   externalRefs: { rent: 'cust_42' },
+  relations: [{ kind: 'works_at', peer: 'Acme', peerType: 'company' }],
   facts: [fullFact],
   score: 0.71,
 };
