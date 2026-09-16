@@ -295,19 +295,21 @@ that a faithful translation of evidence is supported by it, and that
 wording repeated from the query ("at Orbital Dynamics") is framing, not
 a claim. The false-premise query is still refused.
 
-The one answer-language miss left is es/cross, where the generator wrote
-"María Álvarez leads engineering at Orbital Dynamics as directora de
-ingeniería" — English with the Spanish title quoted verbatim — and the
-stopword vote on twelve mixed words landed on Portuguese. n=1, and the
-answer is defensible.
+### 7. Graph relations were not evidence
+
+`SearchHit` carried facts only. The 1-hop neighbourhoods were already
+prefetched for the LLM reranker's "Connected to" lines and then
+dropped, so a relation the extractor filed as an edge ("works at
+Orbital Dynamics" for Maria, in Russian — a fact for Thomas in the same
+corpus) reached neither the generator nor the verifier. **Fixed**: hits
+carry `relations`, and `buildFactIndex` renders them as `[relation]`
+evidence lines beside the facts (uncitable — support, not a citation).
+With that context the generator also started rendering names in the
+query's language on its own: answer-language-correctness 0.92 → **1.00**
+(12/12), the es/cross code-mixed answer included.
 
 ## Still open
 
-- Graph EDGES are not evidence to the answer plane: `SearchHit` carries
-  facts only, so a relation the extractor filed as an edge ("works at
-  Orbital Dynamics" for Maria, in Russian) is invisible to both the
-  generator and the verifier. The verifier's query-framing rule covers
-  the measured case; the gap itself is a retrieval change.
 - The judge flips on "Orbital Dynamics GmbH" vs "Orbital Dynamics"
   between runs. A legal suffix is a defensible "different"; the gold
   says "same". n=1.
