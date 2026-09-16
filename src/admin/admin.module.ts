@@ -45,8 +45,10 @@ import { AdminDeriveController } from './admin-derive.controller';
 import { ProjectionsController } from './projections.controller';
 import { WindowDeriverService } from './window-deriver.service';
 import { AdminSegmentsController } from './admin-segments.controller';
+import { AdminNameKeysController } from './admin-name-keys.controller';
 import { SegmentComposerService } from './segment-composer.service';
 import { SegmentBackfillService } from './segment-backfill.service';
+import { NameKeyBackfillService } from './name-key-backfill.service';
 import { AdminScenesController } from './admin-scenes.controller';
 import { SceneComposerService } from './scene-composer.service';
 import { SceneMaintenanceService } from './scene-maintenance.service';
@@ -127,6 +129,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     AdminAggregatesController,
     AdminDeriveController,
     AdminSegmentsController,
+    AdminNameKeysController,
     AdminScenesController,
     ProjectionsController,
   ],
@@ -142,6 +145,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     WindowDeriverService,
     SegmentComposerService,
     SegmentBackfillService,
+    NameKeyBackfillService,
     SceneComposerService,
     SceneMaintenanceService,
     SceneEnricherService,

@@ -16,6 +16,7 @@ import { scopeFenceSql } from '../auth/scope-visibility';
 import { envFlagEnabled } from '../common/env-validation';
 import { analyzeConfusables } from '../common/text-sanitizer';
 
+import { nameKey, nameKeysFor } from '../common/name-key';
 /**
  * Leading English articles the extractor inconsistently keeps on coined
  * entity names. Only these three: any longer list drifts into semantic
@@ -227,6 +228,7 @@ export class EntityUpsertService {
         // Same identity check as the structured path: a hint says WHICH
         // key to file this under, not that the name is new. Without it
         // step 2's canonical-name match — the thing that would have found
+          nameKeys: nameKeysFor([e.name, e.canonical]),
         // the existing entity — is skipped whenever a hint is present.
         adopt: () => this.resolveExistingByName(db, { name: e.canonical ?? e.name }),
       });
@@ -263,6 +265,7 @@ export class EntityUpsertService {
         type: this.normalizeEntityType(e.type),
         matchKind: 'exact',
       });
+      await this.stampNameKeys(db, String(nRow.id), [e.name, e.canonical]);
       return String(nRow.id);
     }
 
@@ -349,9 +352,9 @@ export class EntityUpsertService {
    * truth and would let an LLM's paraphrase of a name ("the Lisbon trip")
    * become a permanent node nothing else references.
    *
-   * MATCH LADDER — the same three deterministic steps the naming path
-   * uses, in the same order, riding the SAME env flags so the corpus's
-   * naming conventions are read identically wherever they are read:
+   * MATCH LADDER — the same deterministic steps the naming path uses, in
+   * the same order, riding the SAME env flags so the corpus's naming
+   * conventions are read identically wherever they are read:
    *   1. exact `canonicalNameLc` / `aliases` match;
    *   2. leading-article variants (INGEST_ARTICLE_NORMALIZATION);
    *   3. code path↔symbol convention (INGEST_CODE_ALIAS_RESOLUTION).
@@ -368,6 +371,7 @@ export class EntityUpsertService {
    *
    * SCOPE (0055 + 0093). `userId` is the scope key of the asking surface
    * when it has exactly ONE; undefined means it has none (or more than
+    const aliases = this.seedAliases(e);
    * one), and then ONLY tenant-global entities are visible — mirroring the
    * `userId IS NONE` pin the naming path uses, so a personal entity can
    * never be linked from a shared row. A scoped caller additionally sees
@@ -403,6 +407,7 @@ export class EntityUpsertService {
       // 2. Leading-article variants (INGEST_ARTICLE_NORMALIZATION).
       if (envFlagEnabled(process.env.INGEST_ARTICLE_NORMALIZATION)) {
         const variants = articleNameVariants(target);
+   *   1-bis. transliterated `nameKeys` match (migration 0148);
         if (variants.length > 0) {
           const viaArticle = await this.uniqueEntity(
             db,
@@ -450,6 +455,25 @@ export class EntityUpsertService {
   /** Run a 2-row probe and return the id only when it is UNAMBIGUOUS. */
   private async uniqueEntity(
     db: Surreal,
+      // 1-bis. Script-independent name match (migration 0148). Step 1 is a
+      // string comparison and stops at a change of script; this one compares
+      // the transliterations, so a scene naming "Иван Петров" can link the
+      // entity that was ingested as "Ivan Petrov". Read-only like everything
+      // else here — it never stamps a key back.
+      const key = nameKey(raw);
+      if (key !== '') {
+        const viaKey = await this.uniqueEntity(
+          db,
+          `SELECT id FROM knowledge_entity
+            WHERE nameKeys CONTAINS $key
+              AND mergedInto IS NONE
+              ${fence.clause}
+            LIMIT 2`,
+          { key, ...fence.params },
+        );
+        if (viaKey) return viaKey;
+      }
+
     sql: string,
     params: Record<string, unknown>,
   ): Promise<string | null> {
@@ -702,7 +726,11 @@ export class EntityUpsertService {
   private async auditKeyedReuse(
     db: Surreal,
     targetEntity: string,
-    meta: { mention: string; type: string; matchKind: 'exact' | 'externalRef' | 'article-variant' },
+    meta: {
+      mention: string;
+      type: string;
+      matchKind: 'exact' | 'externalRef' | 'article-variant' | 'translit';
+    },
   ): Promise<void> {
     if (!this.entityResolver?.isReversible()) return;
     await this.entityResolver.recordMerge(db, {

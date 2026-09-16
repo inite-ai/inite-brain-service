@@ -226,12 +226,15 @@ describe('EntityUpsertService with the flag OFF (pinned: byte-identical today-be
     ]);
     const out = await resolve(new EntityUpsertService(), db, PATH);
     expect(out).toBe('knowledge_entity:new1'); // the twin forms, as before
-    // Exactly two queries: the step-2 canonical match and the CREATE —
-    // no alias lookup, no stamp, nothing extra computed.
-    expect(db.query).toHaveBeenCalledTimes(2);
+    // Three queries and no more: the step-2 canonical match, the 0148
+    // transliterated-key probe (unflagged, and a MISS here), and the
+    // CREATE. No code-alias lookup, no stamp, nothing else computed.
+    expect(db.query).toHaveBeenCalledTimes(3);
     expect(sqlCalls(db)[0]).toContain(STEP2);
-    expect(sqlCalls(db)[1]).toContain(CREATE);
-    const create = db.query.mock.calls[1]!;
+    expect(sqlCalls(db)[1]).toContain('nameKeys CONTAINS $key');
+    expect(sqlCalls(db)[2]).toContain(CREATE);
+    expect(sqlCalls(db).some((q) => q.includes('$sym'))).toBe(false);
+    const create = db.query.mock.calls[2]!;
     expect((create[1] as { d: { aliases: string[] } }).d.aliases).toEqual([PATH]); // no symbol seeded
   });
 });
