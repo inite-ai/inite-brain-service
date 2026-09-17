@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import {
   BUILTIN_PACKS,
@@ -21,7 +27,12 @@ import {
   type UpdateSourceConnectionRequest,
 } from '../contracts/source-plane/source-plane.schema';
 import type { Connector, ConnectorConnectionView, ConnectorRegistry } from './connector';
-import { connectorState, connectorUnavailableMessage, findConnector, SOURCE_CONNECTORS } from './connector';
+import {
+  connectorState,
+  connectorUnavailableMessage,
+  findConnector,
+  SOURCE_CONNECTORS,
+} from './connector';
 import { Inject } from '@nestjs/common';
 
 /** Raw `source_connection` row (SurrealDB record id in `id`). */
@@ -242,10 +253,9 @@ export class SourceConnectionService {
     await this.load(companyId, connectionId);
     const tail = idTailOf(connectionId);
     return this.surreal.withCompany(companyId, async (db) => {
-      await db.query(
-        `UPDATE type::record('source_connection', $tail) SET status = 'deleting'`,
-        { tail },
-      );
+      await db.query(`UPDATE type::record('source_connection', $tail) SET status = 'deleting'`, {
+        tail,
+      });
       let items = 0;
       for (;;) {
         const ids = await queryRows<{ id: unknown }>(
@@ -363,7 +373,10 @@ export class SourceConnectionService {
   ): Promise<{ source: PackSourceSpec | null; installSecret: string | null }> {
     const builtin = BUILTIN_PACKS.find((p) => p.id === row.packId);
     if (builtin) {
-      return { source: builtin.sources?.find((s) => s.id === row.sourceId) ?? null, installSecret: null };
+      return {
+        source: builtin.sources?.find((s) => s.id === row.sourceId) ?? null,
+        installSecret: null,
+      };
     }
     const pack = await this.surreal.withCompany(companyId, (db) =>
       queryFirst<{ manifest?: DomainPackManifest; webhookSecret?: unknown }>(
@@ -381,7 +394,10 @@ export class SourceConnectionService {
   /** The connector-facing projection of a row (credential resolved). */
   toConnectorView(
     row: SourceConnectionRow,
-    context: { source: PackSourceSpec | null; installSecret: string | null } = { source: null, installSecret: null },
+    context: { source: PackSourceSpec | null; installSecret: string | null } = {
+      source: null,
+      installSecret: null,
+    },
   ): ConnectorConnectionView {
     const source = context.source;
     // An `install_secret` MCP source authenticates with the pack's own
@@ -542,7 +558,10 @@ export function connectionRef(connectionId: string): unknown {
  * pinned url, a `config.url` is refused — the consented server is the
  * one the pack named. Private hosts follow the double opt-in.
  */
-async function assertOperatorUrl(entry: PackMcpHttpSourceSpec, config: Record<string, unknown>): Promise<void> {
+async function assertOperatorUrl(
+  entry: PackMcpHttpSourceSpec,
+  config: Record<string, unknown>,
+): Promise<void> {
   const named = config.url;
   if (entry.url !== undefined) {
     if (named !== undefined) {

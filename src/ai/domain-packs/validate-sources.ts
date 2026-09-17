@@ -62,7 +62,9 @@ export function validateSources(pack: DomainPackManifest, sources: unknown): voi
     const s = raw as SourceShape;
     const id = s.id;
     if (typeof id !== 'string' || !SOURCE_ID.test(id)) {
-      throw new DomainPackError(`pack "${pack.id}" source id "${String(id)}" must match ${SOURCE_ID}`);
+      throw new DomainPackError(
+        `pack "${pack.id}" source id "${String(id)}" must match ${SOURCE_ID}`,
+      );
     }
     if (seen.has(id)) {
       throw new DomainPackError(`pack "${pack.id}" declares duplicate source id "${id}"`);
@@ -133,7 +135,9 @@ function validateMcpSource(packId: string, id: string, s: SourceShape): void {
         parsed = null;
       }
       if (!parsed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
-        throw new DomainPackError(`pack "${packId}" source "${id}" url must be a valid http(s) URL`);
+        throw new DomainPackError(
+          `pack "${packId}" source "${id}" url must be a valid http(s) URL`,
+        );
       }
     }
     if (!MCP_AUTH.has(s.auth as string)) {

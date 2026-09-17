@@ -151,7 +151,9 @@ export type DocumentIngestOrigin =
  *  connection, catalogue row and revision stamp); wire-facing channels
  *  carry none. */
 export function originInternalMeta(origin: DocumentIngestOrigin): InternalDocumentMeta | undefined {
-  return origin.channel === 'mention' || origin.channel === 'evidence' || origin.channel === 'source'
+  return origin.channel === 'mention' ||
+    origin.channel === 'evidence' ||
+    origin.channel === 'source'
     ? origin.internal
     : undefined;
 }

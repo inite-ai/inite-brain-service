@@ -50,10 +50,16 @@ const FACT: MergedFact = {
 } as MergedFact;
 
 async function commitOne(meta: Record<string, unknown> | undefined) {
-  const resolve = jest.fn(async () => ({ result: { factId: 'knowledge_fact:f1', outcome: 'INSERTED' } }));
+  const resolve = jest.fn(async () => ({
+    result: { factId: 'knowledge_fact:f1', outcome: 'INSERTED' },
+  }));
   const svc = new CommitWriterService(
-    { withCompany: (_c: string, fn: (db: unknown) => unknown) => fn({}) } as unknown as SurrealService,
-    { resolveOrCreateNamedEntity: async () => 'knowledge_entity:e1' } as unknown as EntityUpsertService,
+    {
+      withCompany: (_c: string, fn: (db: unknown) => unknown) => fn({}),
+    } as unknown as SurrealService,
+    {
+      resolveOrCreateNamedEntity: async () => 'knowledge_entity:e1',
+    } as unknown as EntityUpsertService,
     { resolve } as unknown as FactResolverService,
   );
   const merge: MergeResult = {
@@ -77,7 +83,9 @@ async function commitOne(meta: Record<string, unknown> | undefined) {
 describe('CommitWriterService — evidence[] provenance hops', () => {
   it('a plain document carries only the document entry', async () => {
     const source = await commitOne({ data_class: 'contract' });
-    expect(source.evidence).toEqual([{ kind: 'document', ref: 'source_document:d1', note: 'chunk 0' }]);
+    expect(source.evidence).toEqual([
+      { kind: 'document', ref: 'source_document:d1', note: 'chunk 0' },
+    ]);
     expect(source.meta).toEqual({ data_class: 'contract' });
   });
 

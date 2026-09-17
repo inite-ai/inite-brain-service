@@ -7,7 +7,12 @@ import { EvidenceUploadService } from '../evidence/evidence-upload.service';
 import { idTailOf } from '../ingest/ingest-utils';
 import { IngestService } from '../ingest/ingest.service';
 import type { IngestMentionDto } from '../ingest/dto/ingest-mention.dto';
-import type { ConnectorConnectionView, FetchedItem, ItemDescriptor, RecordEnvelope } from './connector';
+import type {
+  ConnectorConnectionView,
+  FetchedItem,
+  ItemDescriptor,
+  RecordEnvelope,
+} from './connector';
 
 /** What a door wrote — the catalogue links to it. */
 export interface DoorOutcome {
@@ -157,7 +162,10 @@ export class SourceDoorsService {
           }
         : {}),
     });
-    const r = await this.documents.ingestDocument(p.companyId, dto, { channel: 'source', internal });
+    const r = await this.documents.ingestDocument(p.companyId, dto, {
+      channel: 'source',
+      internal,
+    });
     return { documentId: r.documentId, deduplicated: r.deduplicated === true };
   }
 
@@ -219,7 +227,8 @@ export class SourceDoorsService {
 
 /** `originUri` fallback: a stable, brain-owned pointer per catalogue row. */
 export function originUriOf(connection: ConnectorConnectionView, item: ItemDescriptor): string {
-  const uri = item.originUri ?? `source://${idTailOf(connection.id)}/${encodeURIComponent(item.externalId)}`;
+  const uri =
+    item.originUri ?? `source://${idTailOf(connection.id)}/${encodeURIComponent(item.externalId)}`;
   return uri.slice(0, 512);
 }
 

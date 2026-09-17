@@ -339,9 +339,7 @@ export class DomainPackInstallService {
           manifest,
           acceptSources: opts.acceptSources,
           priorAccepted: row?.acceptedSources === true,
-          priorChecksum: row?.acceptedSourcesChecksum
-            ? String(row.acceptedSourcesChecksum)
-            : null,
+          priorChecksum: row?.acceptedSourcesChecksum ? String(row.acceptedSourcesChecksum) : null,
         });
         if (sourcesMessage) throw new BadRequestException(sourcesMessage);
         // installId (0068) — the opaque per-install identity external tool

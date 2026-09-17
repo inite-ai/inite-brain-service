@@ -23,7 +23,10 @@ export function htmlToText(html: string): { title: string | undefined; body: str
     .replace(/\s*\n\s*/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-  return { title: title ? decodeHtmlEntities(title).replace(/\s+/g, ' ').trim() : undefined, body: s };
+  return {
+    title: title ? decodeHtmlEntities(title).replace(/\s+/g, ' ').trim() : undefined,
+    body: s,
+  };
 }
 
 export function decodeHtmlEntities(s: string): string {

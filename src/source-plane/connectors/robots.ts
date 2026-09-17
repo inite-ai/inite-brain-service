@@ -6,7 +6,11 @@ const UA_TOKEN = 'inite-brain-source';
 export class RobotsCache {
   private readonly rules = new Map<string, string[]>();
   constructor(
-    private readonly opts: { allowPrivate: boolean | undefined; signal: AbortSignal; headers: Record<string, string> },
+    private readonly opts: {
+      allowPrivate: boolean | undefined;
+      signal: AbortSignal;
+      headers: Record<string, string>;
+    },
     private readonly ignore: boolean,
   ) {}
 
@@ -24,7 +28,11 @@ export class RobotsCache {
 
   private async load(u: URL): Promise<string[]> {
     try {
-      const res = await safeFetch(`${u.protocol}//${u.host}/robots.txt`, { ...this.opts, headers: {}, maxBytes: 256 * 1024 });
+      const res = await safeFetch(`${u.protocol}//${u.host}/robots.txt`, {
+        ...this.opts,
+        headers: {},
+        maxBytes: 256 * 1024,
+      });
       if (res.status !== 200) return [];
       return parseRobots(res.body.toString('utf8'));
     } catch {
@@ -50,4 +58,3 @@ export function parseRobots(text: string): string[] {
   }
   return out;
 }
-

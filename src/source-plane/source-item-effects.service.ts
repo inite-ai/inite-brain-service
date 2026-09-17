@@ -38,7 +38,11 @@ export class SourceItemEffectsService {
   }
 
   /** The delete policy for items the source reports gone. */
-  applyGone(companyId: string, connection: SourceConnectionRow, rows: SourceItemRow[]): Promise<number> {
+  applyGone(
+    companyId: string,
+    connection: SourceConnectionRow,
+    rows: SourceItemRow[],
+  ): Promise<number> {
     return this.gone.apply(companyId, connection, rows);
   }
 }

@@ -179,7 +179,13 @@ export type SyncNowResponse = z.infer<typeof SyncNowResponseSchema>;
  *   external — the publisher pushes through the doors; a connection is
  *              only the registry identity the pushes are attributed to.
  */
-export const SourceAvailabilitySchema = z.enum(['ready', 'disabled', 'missing', 'agent', 'external']);
+export const SourceAvailabilitySchema = z.enum([
+  'ready',
+  'disabled',
+  'missing',
+  'agent',
+  'external',
+]);
 export type SourceAvailability = z.infer<typeof SourceAvailabilitySchema>;
 
 /** One connectable `sources[]` entry of an installed (or builtin) pack. */

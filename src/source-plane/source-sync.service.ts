@@ -53,7 +53,11 @@ export class SourceSyncService {
     return this.connections.due(companyId, now);
   }
 
-  async sync(companyId: string, connectionId: string, opts: SyncOptions = {}): Promise<SourceSyncSummary> {
+  async sync(
+    companyId: string,
+    connectionId: string,
+    opts: SyncOptions = {},
+  ): Promise<SourceSyncSummary> {
     const started = Date.now();
     const base = (mode: SourceSyncSummary['mode']): SourceSyncSummary => ({
       connectionId,
@@ -86,7 +90,10 @@ export class SourceSyncService {
     const runStartedAt = new Date();
     const ctx: ConnectorCtx = {
       companyId,
-      connection: this.connections.toConnectorView(row, await this.connections.sourceContext(companyId, row)),
+      connection: this.connections.toConnectorView(
+        row,
+        await this.connections.sourceContext(companyId, row),
+      ),
       signal: opts.signal ?? new AbortController().signal,
       log: (line) => this.logger.log(`[${connectionId}] ${line}`),
     };
@@ -94,7 +101,17 @@ export class SourceSyncService {
     const toFetch: SourceItemRow[] = [];
     const goneRows: SourceItemRow[] = [];
     try {
-      const walk = await this.enumerate({ companyId, ctx, connector, row, full, summary, toFetch, goneRows, runStartedAt });
+      const walk = await this.enumerate({
+        companyId,
+        ctx,
+        connector,
+        row,
+        full,
+        summary,
+        toFetch,
+        goneRows,
+        runStartedAt,
+      });
       if (walk.checkpoint !== undefined) checkpoint = walk.checkpoint;
       if (full) {
         for (;;) {
@@ -152,9 +169,13 @@ export class SourceSyncService {
     let checkpoint: Record<string, unknown> | undefined;
     const startingPoint = p.full ? null : (p.row.checkpoint ?? null);
     let count = 0;
-    for await (const delta of p.connector.enumerate(p.ctx, { checkpoint: startingPoint, full: p.full })) {
+    for await (const delta of p.connector.enumerate(p.ctx, {
+      checkpoint: startingPoint,
+      full: p.full,
+    })) {
       if (p.ctx.signal.aborted) throw new Error('aborted');
-      if (++count > ENUMERATE_HARD_CAP) throw new Error(`enumerate exceeded ${ENUMERATE_HARD_CAP} deltas`);
+      if (++count > ENUMERATE_HARD_CAP)
+        throw new Error(`enumerate exceeded ${ENUMERATE_HARD_CAP} deltas`);
       await this.applyDelta({ ...p, delta, onCheckpoint: (c) => (checkpoint = c) });
     }
     return checkpoint === undefined ? {} : { checkpoint };
@@ -234,4 +255,3 @@ export class SourceSyncService {
     return this.effects.applyGone(companyId, row, gone);
   }
 }
-

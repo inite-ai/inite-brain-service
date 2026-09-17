@@ -73,10 +73,14 @@ const TABLE_MARK = '\u0001';
 function wordParagraphs(xml: string): string[] {
   const out: string[] = [];
   for (const para of xml.split(/<\/w:p>/)) {
-    const line = runsOf(para, /<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>|<w:tab\s*\/>|<w:br\s*\/>|<w:cr\s*\/>/g, {
-      tab: /^<w:tab/,
-      newline: /^<w:br|^<w:cr/,
-    });
+    const line = runsOf(
+      para,
+      /<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>|<w:tab\s*\/>|<w:br\s*\/>|<w:cr\s*\/>/g,
+      {
+        tab: /^<w:tab/,
+        newline: /^<w:br|^<w:cr/,
+      },
+    );
     if (line.trim().length > 0) out.push(line.trimEnd());
   }
   return out;
@@ -175,16 +179,22 @@ export function pptxText(zip: Buffer, limits: OoxmlLimits): string {
     select: (n) => /^ppt\/slides\/slide\d+\.xml$/.test(n),
     maxPartBytes: limits.maxPartBytes,
   });
-  const slides = [...parts.keys()].sort((a, b) => partNumber(a) - partNumber(b)).slice(0, maxSections);
+  const slides = [...parts.keys()]
+    .sort((a, b) => partNumber(a) - partNumber(b))
+    .slice(0, maxSections);
   if (slides.length === 0) throw new Error('pptx carries no slide parts');
   const out: string[] = [];
   slides.forEach((part, i) => {
     out.push(`[slide ${String(i + 1)} of ${String(slides.length)}]`);
     const xml = parts.get(part)?.toString('utf8') ?? '';
     for (const para of xml.split(/<\/a:p>/)) {
-      const line = runsOf(para, /<a:t(?:\s[^>]*)?>([^<]*)<\/a:t>|<a:br\s*\/>|<a:br>[\s\S]*?<\/a:br>/g, {
-        newline: /^<a:br/,
-      });
+      const line = runsOf(
+        para,
+        /<a:t(?:\s[^>]*)?>([^<]*)<\/a:t>|<a:br\s*\/>|<a:br>[\s\S]*?<\/a:br>/g,
+        {
+          newline: /^<a:br/,
+        },
+      );
       if (line.trim().length > 0) out.push(line.trimEnd());
     }
   });
