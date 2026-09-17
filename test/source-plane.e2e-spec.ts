@@ -165,7 +165,10 @@ describe('source plane (e2e)', () => {
     const r = await f.http.get('/v1/admin/source-connections/catalog').set(auth());
     expect(r.status).toBe(200);
     const byId = new Map<string, Record<string, unknown>>(
-      (r.body.sources as Array<Record<string, unknown>>).map((e) => [`${e.packId}/${e.sourceId}`, e]),
+      (r.body.sources as Array<Record<string, unknown>>).map((e) => [
+        `${e.packId}/${e.sourceId}`,
+        e,
+      ]),
     );
     // The installed pack's two entries, consented, on the test connector
     // (pushed into the registry, no switch ⇒ ready).
@@ -182,7 +185,11 @@ describe('source plane (e2e)', () => {
     });
     expect(byId.get('wiki_pack/files')?.availability).toBe('ready');
     // The builtin code_memory repository entry: external ⇒ the publisher pushes.
-    expect(byId.get('code_memory/repository')).toMatchObject({ builtin: true, accepted: true, availability: 'external' });
+    expect(byId.get('code_memory/repository')).toMatchObject({
+      builtin: true,
+      accepted: true,
+      availability: 'external',
+    });
     // Shipped natives are present and switched off in this run.
     const connectors = new Map<string, Record<string, unknown>>(
       (r.body.connectors as Array<Record<string, unknown>>).map((c) => [String(c.kind), c]),

@@ -70,7 +70,8 @@ export class UrlConnector implements Connector {
     maxPages: DEFAULT_MAX_PAGES,
     sameHostOnly: true,
   };
-  readonly credentialHint = 'optional bearer token (config.authScheme: bearer | basic | header:<Name>)';
+  readonly credentialHint =
+    'optional bearer token (config.authScheme: bearer | basic | header:<Name>)';
 
   enabled(): boolean {
     return sourceKindEnabled('url');
