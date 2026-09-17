@@ -85,6 +85,7 @@ import { EvidenceDocumentBridgeQueueService } from './evidence-document-bridge-q
     CandidateStoreService,
     MentionViaDocumentService,
     PackSeedIngestService,
+    SourceDriftStalenessService,
   ],
 })
 export class DocumentsModule {}

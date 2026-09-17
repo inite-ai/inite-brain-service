@@ -1549,6 +1549,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       "Evidence → document bridge: when a processor run leaves a `document` asset with an asset-level `text` representation (PDF text extraction today), the broker enqueues one `evidence_document_bridge` job per (asset, representation) and the documents module ingests that text through the ordinary document pipeline (kind 'evidence_text', the asset's own vertical/recorder/occurredAt/userId, `source.meta.evidence_bridge = true`, an `evidenceAssetId` provenance hop onto every committed fact's evidence[]). Replayed runs enqueue too, so the operator dispatch sweep doubles as the backfill; the job dedupKey, the document contentHash UNIQUE and the indexer_run ledger keep it idempotent. Requires EVIDENCE_PROCESSOR_BROKER, DOCUMENT_INGEST_ENABLED and the jobs queue. Off (default) = no job is ever enqueued — byte-identical; without it an uploaded PDF yields fragments for retrieval but never a single fact.",
   },
   {
+    key: 'SOURCE_PLANE_ENABLED',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Source plane master switch (docs/roadmap/raw-evidence-sources-2026-09.md, W0): the operator surface /v1/admin/source-connections (create a connection for a pack's declared `sources` entry, list its catalogue, sync now), the sync engine's `source_sync` job handler and the 5-minute scheduler that enqueues due connections. A connection runs a platform connector (`native`), harvests an MCP server (`mcp`, W2) or is a catalogue a publisher fills (`external`); what it fetches enters the existing door for its shape (document → ingest/document, conversation → ingest/mention, binary → evidence-blob, structure → the record envelope). Off (default) = the routes answer a bare 404, no handler is registered, nothing is ever enqueued and no connector ever runs — byte-identical. The handler registration is read at boot; the admin verbs and sync-now read the flag per call.",
+  },
+  {
     key: 'EVIDENCE_QUARANTINE',
     category: 'pipeline',
     defaultValue: '0',

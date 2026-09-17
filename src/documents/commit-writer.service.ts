@@ -8,6 +8,7 @@ import { factValidFrom, resolveEventTimeOpts } from '../ingest/event-time';
 import { traceSpan } from '../common/debug-trace';
 import { originKeyOf, StoredDocument } from './document-store.service';
 import { sanitizeSourceMeta } from '../policy/source-meta';
+import { sourceVersionFromHeader } from './document-meta';
 import { incomingFactsFor, MergedFact, MergedRelation, MergeResult } from './candidate-merge';
 
 export interface FactWriteOutcome {
@@ -224,7 +225,7 @@ export class CommitWriterService {
       originKey: originKeyOf(doc.contentHash),
       ...(episodeId ? { episodeIds: [episodeId] } : {}),
       ...(meta ? { meta } : {}),
-      ...sourceVersionOf(mf),
+      ...sourceVersionOf(mf, doc),
       indexers: mf.contributors.map((c) => ({
         packId: c.indexerId,
         packVersion: c.packVersion,
@@ -306,11 +307,16 @@ export class CommitWriterService {
  * none. Returns `{}` — not a null key — when nothing carries a stamp, so
  * the flag-off `source` object is byte-identical.
  */
-export function sourceVersionOf(mf: MergedFact): Record<string, unknown> {
+export function sourceVersionOf(mf: MergedFact, doc?: StoredDocument): Record<string, unknown> {
   const leader = mf.contributors.find((c) => c.candidateId === mf.leaderId);
   const stamp =
     leader?.sourceVersion ??
-    mf.contributors.find((c) => c.sourceVersion !== undefined)?.sourceVersion;
+    mf.contributors.find((c) => c.sourceVersion !== undefined)?.sourceVersion ??
+    // Source plane: an in-process extraction has no candidate stamp, but
+    // the document header carries the revision the connector read the
+    // item at — every fact derived from it is bound to that revision.
+    sourceVersionFromHeader(doc?.meta as Record<string, unknown> | undefined) ??
+    undefined;
   return stamp ? { sourceVersion: stamp } : {};
 }
 

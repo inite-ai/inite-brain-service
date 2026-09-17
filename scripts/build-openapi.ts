@@ -112,6 +112,17 @@ import {
   TrustScopeRowSchema,
 } from '../src/contracts/sources/sources.schema';
 import {
+  CreateSourceConnectionRequestSchema,
+  SourceConnectionSchema,
+  SourceConnectionsListResponseSchema,
+  SourceItemSchema,
+  SourceItemsListResponseSchema,
+  SourceSyncSummarySchema,
+  SyncNowRequestSchema,
+  SyncNowResponseSchema,
+  UpdateSourceConnectionRequestSchema,
+} from '../src/contracts/source-plane/source-plane.schema';
+import {
   ClaimWorkResponseSchema,
   FailWorkResponseSchema,
   HeartbeatWorkResponseSchema,
@@ -331,6 +342,16 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   PublicSourcesListResponse: PublicSourcesListResponseSchema,
   SourceHistoryRow: SourceHistoryRowSchema,
   TrustScopeRow: TrustScopeRowSchema,
+  // --- source plane operator surface (src/contracts/source-plane/…)
+  SourceConnection: SourceConnectionSchema,
+  SourceConnectionsListResponse: SourceConnectionsListResponseSchema,
+  CreateSourceConnectionRequest: CreateSourceConnectionRequestSchema,
+  UpdateSourceConnectionRequest: UpdateSourceConnectionRequestSchema,
+  SourceItem: SourceItemSchema,
+  SourceItemsListResponse: SourceItemsListResponseSchema,
+  SourceSyncSummary: SourceSyncSummarySchema,
+  SyncNowRequest: SyncNowRequestSchema,
+  SyncNowResponse: SyncNowResponseSchema,
   // --- external-indexer work discovery (src/contracts/indexer/…)
   ClaimWorkResponse: ClaimWorkResponseSchema,
   FailWorkRequest: FailWorkRequestSchema,
@@ -1495,6 +1516,179 @@ function sourcesPaths(): Json {
   };
 }
 
+const SOURCE_PLANE_NOTE =
+  'Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — ' +
+  'answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.';
+
+function sourcePlanePaths(): Json {
+  const idParam = pathParam(
+    'id',
+    'Connection id (`source_connection:<tail>`; the bare tail is accepted).',
+  );
+  return {
+    '/v1/admin/source-connections': {
+      get: operation({
+        operationId: 'listSourceConnections',
+        tag: 'Source Plane',
+        summary: 'List this tenant’s source connections',
+        description:
+          'Every connection the tenant has created for a pack’s declared ' +
+          '`sources` entry, newest first, with its schedule, policies, ' +
+          'checkpoint and last-sync bookkeeping. Credentials are never ' +
+          'serialised — only `hasCredential`. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        responses: {
+          '200': jsonResponse('The connections.', ref('SourceConnectionsListResponse')),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+      post: operation({
+        operationId: 'createSourceConnection',
+        tag: 'Source Plane',
+        summary: 'Connect a pack’s declared source',
+        description:
+          'Instantiates one `sources[]` entry of an installed (and ' +
+          'consented — `acceptSources`) or builtin pack: a `native` entry ' +
+          'must name a connector this brain ships, `mcp` is harvested by ' +
+          'brain, `external` is a catalogue the publisher fills. The ' +
+          'connection becomes a `source_registry` recorder ' +
+          '(`vertical:recorder`) so per-connection trust is learned; ' +
+          '`ownerUserId` makes it personal (every row it writes is ' +
+          'user-fenced). Defaults for schedule / policies come from the ' +
+          'entry. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        requestBody: jsonBody(ref('CreateSourceConnectionRequest')),
+        responses: {
+          '201': jsonResponse('Created.', ref('SourceConnection')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/source-connections/{id}': {
+      get: operation({
+        operationId: 'getSourceConnection',
+        tag: 'Source Plane',
+        summary: 'One source connection',
+        description: 'The connection as listed. ' + SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        parameters: [idParam],
+        responses: {
+          '200': jsonResponse('The connection.', ref('SourceConnection')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+      patch: operation({
+        operationId: 'updateSourceConnection',
+        tag: 'Source Plane',
+        summary: 'Change a connection’s label, config, credential, schedule, policies or status',
+        description:
+          'Partial update; `null` clears an optional field. `status` takes ' +
+          '`active` | `paused` — a paused connection is skipped by the ' +
+          'scheduler and by sync-now. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        parameters: [idParam],
+        requestBody: jsonBody(ref('UpdateSourceConnectionRequest')),
+        responses: {
+          '200': jsonResponse('Updated.', ref('SourceConnection')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+      delete: operation({
+        operationId: 'deleteSourceConnection',
+        tag: 'Source Plane',
+        summary: 'Disconnect a source',
+        description:
+          'Deletes the connection and its catalogue rows. The documents, ' +
+          'assets and facts they produced STAY (the facts-survive ' +
+          'philosophy of pack uninstall): `deletePolicy` governs a source ' +
+          'deleting an item, not an operator disconnecting a source. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        parameters: [idParam],
+        responses: {
+          '200': jsonResponse('Deleted.', {
+            type: 'object',
+            properties: {
+              deleted: { type: 'boolean', const: true },
+              items: { type: 'integer', description: 'Catalogue rows removed.' },
+            },
+            required: ['deleted', 'items'],
+          }),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/source-connections/{id}/items': {
+      get: operation({
+        operationId: 'listSourceItems',
+        tag: 'Source Plane',
+        summary: 'The connection’s catalogue',
+        description:
+          'One row per external item the connection has seen — identity by ' +
+          'location (`externalId`), the revision last enumerated vs the ' +
+          'one the stored content was fetched at, the document / asset / ' +
+          'episode it produced, and its state (`seen` | `fetched` | ' +
+          '`indexed` | `gone`). ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        parameters: [
+          idParam,
+          queryParam('state', 'Only items in this state.', {
+            type: 'string',
+            enum: ['seen', 'fetched', 'indexed', 'gone'],
+          }),
+          queryParam('limit', 'Page size (default 50, max 500).', { type: 'integer' }),
+          queryParam('offset', 'Page offset.', { type: 'integer' }),
+        ],
+        responses: {
+          '200': jsonResponse('The catalogue page.', ref('SourceItemsListResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/source-connections/{id}/sync': {
+      post: operation({
+        operationId: 'syncSourceConnection',
+        tag: 'Source Plane',
+        summary: 'Sync now',
+        description:
+          'Runs the engine over the connection: enumerate from the ' +
+          'checkpoint (`full: true` re-walks everything and marks what is ' +
+          'missing gone), diff against the catalogue, fetch every changed ' +
+          'item by `contentPolicy` through the door for its shape, stamp ' +
+          'the revision for the drift sweep, apply `deletePolicy` to what ' +
+          'is gone. Default enqueues a `source_sync` job and returns its ' +
+          'run id; `inline: true` runs it in the request and returns the ' +
+          'summary. A re-run over an unchanged source is 0 fetches. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        parameters: [idParam],
+        requestBody: jsonBody(ref('SyncNowRequest')),
+        responses: {
+          '201': jsonResponse('Enqueued, or the inline summary.', ref('SyncNowResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+  };
+}
+
 /**
  * Raw-substrate driver v1 (docs/roadmap/raw-substrate-driver-2026-08.md).
  * Flag-gated with 404 (not 503): an absent surface is indistinguishable
@@ -2650,6 +2844,14 @@ export function buildOpenApiDocument(): Json {
           'annotations (owner/note) stay on the admin surface.',
       },
       {
+        name: 'Source Plane',
+        description:
+          'Where brain READS raw evidence from (scope `brain:admin`): ' +
+          'connections that instantiate a pack’s declared `sources` ' +
+          'entry, the per-connection catalogue of external items, and ' +
+          'the sync engine. Flag: `SOURCE_PLANE_ENABLED`.',
+      },
+      {
         name: 'Episodes',
         description:
           'The raw-substrate driver: verbatim pre-extraction dialogue ' +
@@ -2723,6 +2925,7 @@ export function buildOpenApiDocument(): Json {
       ...indexerWorkPaths(),
       ...indexerOperatorPaths(),
       ...sourcesPaths(),
+      ...sourcePlanePaths(),
       ...driverPaths(),
       ...memoryReadPaths(),
       ...evidencePaths(),

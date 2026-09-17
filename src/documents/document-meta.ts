@@ -67,6 +67,16 @@ export const INTERNAL_DOCUMENT_META_KEYS = [
   // derived_representation row the text was read from.
   'evidenceAssetId',
   'evidenceRepresentationId',
+  // Source plane (SOURCE_PLANE_ENABLED): the connection + catalogue row
+  // an item came through, and the SourceVersionStamp it was read at —
+  // four bounded strings the commit writer folds back into one
+  // `source.sourceVersion` so the drift sweep can compare it.
+  'sourceConnectionId',
+  'sourceItemId',
+  'sourceVersionSystem',
+  'sourceVersionRef',
+  'sourceVersionValue',
+  'sourceVersionReadAt',
 ] as const;
 
 export type InternalDocumentMetaKey = (typeof INTERNAL_DOCUMENT_META_KEYS)[number];
@@ -129,8 +139,9 @@ export interface DocumentWriteOrigin {
 
 /**
  * Who is calling document ingest. Only the in-process writers may attach
- * an internal bag — the mention wrapper (its typed contextRef ids) and
- * the evidence bridge (the asset it read the text from); a wire-facing
+ * an internal bag — the mention wrapper (its typed contextRef ids), the
+ * evidence bridge (the asset it read the text from) and the source plane
+ * (the connection, catalogue row and revision stamp); a wire-facing
  * writer hands over a validated DTO and nothing else, so the channel can
  * never become a way for a client to assert brain's keys. The verified
  * tool-observation hop is threaded by the ingest services themselves,
@@ -138,15 +149,42 @@ export interface DocumentWriteOrigin {
  */
 export type DocumentIngestOrigin =
   | { channel: 'api' | 'mcp' | 'pack_seed' }
-  | { channel: 'mention' | 'evidence'; internal: InternalDocumentMeta | undefined };
+  | { channel: 'mention' | 'evidence' | 'source'; internal: InternalDocumentMeta | undefined };
 
 /** The internal bag an ingest origin contributes — the mention wrapper
- *  (its typed contextRef ids) and the evidence bridge (the asset +
- *  representation it read the text from); wire-facing channels carry none. */
+ *  (its typed contextRef ids), the evidence bridge (the asset +
+ *  representation it read the text from) and the source plane (the
+ *  connection, catalogue row and revision stamp); wire-facing channels
+ *  carry none. */
 export function originInternalMeta(origin: DocumentIngestOrigin): InternalDocumentMeta | undefined {
-  return origin.channel === 'mention' || origin.channel === 'evidence'
+  return origin.channel === 'mention' ||
+    origin.channel === 'evidence' ||
+    origin.channel === 'source'
     ? origin.internal
     : undefined;
+}
+
+/**
+ * Fold the four source-version header keys back into one stamp (null
+ * when the header carries none, or an incomplete set — a half-stamp
+ * must never look bound to a version it cannot be swept against).
+ */
+export function sourceVersionFromHeader(
+  meta: Record<string, unknown> | undefined,
+): { system: string; ref: string; version: string; readAt: string } | null {
+  const system = meta?.['sourceVersionSystem'];
+  const ref = meta?.['sourceVersionRef'];
+  const version = meta?.['sourceVersionValue'];
+  const readAt = meta?.['sourceVersionReadAt'];
+  if (
+    typeof system !== 'string' ||
+    typeof ref !== 'string' ||
+    typeof version !== 'string' ||
+    typeof readAt !== 'string'
+  ) {
+    return null;
+  }
+  return { system, ref, version, readAt };
 }
 
 /**

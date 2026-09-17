@@ -1,0 +1,456 @@
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
+import { StringRecordId } from 'surrealdb';
+import {
+  BUILTIN_PACKS,
+  sourcesChecksum,
+  type DomainPackManifest,
+  type PackSourceSpec,
+} from '../ai/domain-packs';
+import { scopeForUser } from '../auth/scope-tags';
+import { SurrealService, queryFirst, queryRows } from '../db/surreal.service';
+import { idTailOf } from '../ingest/ingest-utils';
+import { SourcesService } from '../sources/sources.service';
+import type { SourceType } from '../contracts/sources/sources.schema';
+import type {
+  CreateSourceConnectionRequest,
+  SourceConnection,
+  UpdateSourceConnectionRequest,
+} from '../contracts/source-plane/source-plane.schema';
+import type { Connector, ConnectorConnectionView, ConnectorRegistry } from './connector';
+import { findConnector, SOURCE_CONNECTORS } from './connector';
+import { Inject } from '@nestjs/common';
+
+/** Raw `source_connection` row (SurrealDB record id in `id`). */
+export interface SourceConnectionRow {
+  id: unknown;
+  packId: string;
+  sourceId: string;
+  kind: string;
+  connector: string;
+  shape: SourceConnection['shape'];
+  host: string;
+  label?: string | null;
+  config?: Record<string, unknown> | null;
+  credential?: string | null;
+  mode: SourceConnection['mode'];
+  schedule: SourceConnection['schedule'];
+  contentPolicy: SourceConnection['contentPolicy'];
+  deletePolicy: SourceConnection['deletePolicy'];
+  fetchBudget?: number | null;
+  status: SourceConnection['status'];
+  checkpoint?: Record<string, unknown> | null;
+  vertical: string;
+  recorder: string;
+  sourceKey: string;
+  lastSyncAt?: unknown;
+  lastSyncStatus?: string | null;
+  lastError?: string | null;
+  userId?: string | null;
+  scope?: string[];
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+const VERTICAL = /^[a-z][a-z0-9_]{0,63}$/;
+const LABEL_MAX = 120;
+
+/**
+ * SourceConnectionService — the connector–credential pair of an installed
+ * source pack (raw-evidence-sources-2026-09.md § 5.2). Creating one is the
+ * operator's explicit decision to READ one external system; the pack's
+ * `sources` entry says what may be connected, the connection says what IS.
+ *
+ * Identity: every connection is a `source_registry` recorder
+ * (`vertical:recorder`, sources.schema.ts), declared on create — the
+ * nightly trust refit learns a per-connection agreement rate for free.
+ *
+ * Scope: `ownerUserId` makes the connection personal — every row it
+ * produces is written `userId`-fenced (0055) with the matching 0093 tag;
+ * absent = an org connection (G6 steps 3–5 carry its ACLs).
+ *
+ * Secrets: `credential` is stored as-is in the tenant DB (the
+ * domain_pack.webhookSecret posture); W4 encrypts the column. It is never
+ * serialised outward — `toView` strips it.
+ */
+@Injectable()
+export class SourceConnectionService {
+  private readonly logger = new Logger(SourceConnectionService.name);
+
+  constructor(
+    private readonly surreal: SurrealService,
+    private readonly sources: SourcesService,
+    @Optional() @Inject(SOURCE_CONNECTORS) private readonly connectors?: ConnectorRegistry,
+  ) {}
+
+  async create(companyId: string, dto: CreateSourceConnectionRequest): Promise<SourceConnection> {
+    const { manifest, entry } = await this.resolveSourceEntry(companyId, dto.packId, dto.sourceId);
+    if (!VERTICAL.test(dto.vertical)) {
+      throw new BadRequestException(`vertical must match ${VERTICAL}`);
+    }
+    const connector = connectorKindOf(entry);
+    if (entry.kind === 'native' && !findConnector(this.connectors ?? [], connector)) {
+      throw new BadRequestException(
+        `source "${entry.id}" names connector "${connector}" but no such connector is installed on this brain`,
+      );
+    }
+    if (dto.label !== undefined && dto.label.length > LABEL_MAX) {
+      throw new BadRequestException(`label must be at most ${LABEL_MAX} characters`);
+    }
+    const userId = dto.ownerUserId ?? undefined;
+    const content = {
+      packId: manifest.id,
+      sourceId: entry.id,
+      kind: entry.kind,
+      connector,
+      shape: entry.shape,
+      host: dto.host ?? 'server',
+      ...(dto.label !== undefined ? { label: dto.label } : {}),
+      config: dto.config ?? {},
+      ...(dto.credential !== undefined ? { credential: dto.credential } : {}),
+      mode: dto.mode ?? 'synced',
+      schedule: dto.schedule ?? entry.defaults?.schedule ?? 'manual',
+      contentPolicy: dto.contentPolicy ?? entry.defaults?.contentPolicy ?? 'text',
+      deletePolicy: dto.deletePolicy ?? entry.defaults?.deletePolicy ?? 'close',
+      ...(dto.fetchBudget !== undefined ? { fetchBudget: dto.fetchBudget } : {}),
+      status: 'active',
+      vertical: dto.vertical,
+      // Filled after CREATE: the recorder is derived from the row id.
+      recorder: 'pending',
+      sourceKey: 'pending',
+      ...(userId ? { userId } : {}),
+      scope: scopeForUser(userId),
+    };
+    const row = await this.surreal.withCompany(companyId, async (db) => {
+      const [created] = await queryRows<SourceConnectionRow>(
+        db,
+        `CREATE source_connection CONTENT $content`,
+        { content },
+      );
+      if (!created) throw new Error('source_connection create returned no row');
+      const tail = idTailOf(String(created.id));
+      const recorder = `srcconn_${tail}`;
+      const sourceKey = `${dto.vertical}:${recorder}`;
+      const [updated] = await queryRows<SourceConnectionRow>(
+        db,
+        `UPDATE type::record('source_connection', $tail) SET recorder = $recorder, sourceKey = $sourceKey`,
+        { tail, recorder, sourceKey },
+      );
+      return updated ?? { ...created, recorder, sourceKey };
+    });
+    // The registry identity: declared type from the source's kind, a
+    // neutral authority, the pack as owner. Best-effort — a registry
+    // hiccup must not orphan the connection.
+    try {
+      await this.sources.declare(companyId, row.sourceKey, {
+        type: registryTypeOf(entry),
+        authLevel: 0.5,
+        owner: `pack:${manifest.id}`,
+        note: `source connection ${idTailOf(String(row.id))} (${entry.id})`,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `source_registry declare failed for ${row.sourceKey}: ${(err as Error).message}`,
+      );
+    }
+    return toView(row);
+  }
+
+  async list(companyId: string): Promise<SourceConnection[]> {
+    const rows = await this.surreal.withCompany(companyId, (db) =>
+      queryRows<SourceConnectionRow>(
+        db,
+        `SELECT * FROM source_connection ORDER BY createdAt DESC LIMIT 500`,
+      ),
+    );
+    return rows.map(toView);
+  }
+
+  async get(companyId: string, connectionId: string): Promise<SourceConnection> {
+    return toView(await this.load(companyId, connectionId));
+  }
+
+  /** The raw row, credential included — the engine's read. */
+  async load(companyId: string, connectionId: string): Promise<SourceConnectionRow> {
+    const row = await this.surreal.withCompany(companyId, (db) =>
+      queryFirst<SourceConnectionRow>(
+        db,
+        `SELECT * FROM type::record('source_connection', $tail) LIMIT 1`,
+        { tail: idTailOf(connectionId) },
+      ),
+    );
+    if (!row) throw new NotFoundException('source connection not found');
+    return row;
+  }
+
+  async update(
+    companyId: string,
+    connectionId: string,
+    patch: UpdateSourceConnectionRequest,
+  ): Promise<SourceConnection> {
+    await this.load(companyId, connectionId);
+    if (patch.label !== undefined && patch.label !== null && patch.label.length > LABEL_MAX) {
+      throw new BadRequestException(`label must be at most ${LABEL_MAX} characters`);
+    }
+    const sets: string[] = [];
+    const vars: Record<string, unknown> = { tail: idTailOf(connectionId) };
+    const assign = (field: string, value: unknown) => {
+      sets.push(`${field} = $${field}`);
+      vars[field] = value;
+    };
+    if (patch.label !== undefined) {
+      if (patch.label === null) sets.push('label = NONE');
+      else assign('label', patch.label);
+    }
+    if (patch.config !== undefined) assign('config', patch.config);
+    if (patch.credential !== undefined) {
+      if (patch.credential === null) sets.push('credential = NONE');
+      else assign('credential', patch.credential);
+    }
+    if (patch.schedule !== undefined) assign('schedule', patch.schedule);
+    if (patch.contentPolicy !== undefined) assign('contentPolicy', patch.contentPolicy);
+    if (patch.deletePolicy !== undefined) assign('deletePolicy', patch.deletePolicy);
+    if (patch.fetchBudget !== undefined) {
+      if (patch.fetchBudget === null) sets.push('fetchBudget = NONE');
+      else assign('fetchBudget', patch.fetchBudget);
+    }
+    if (patch.status !== undefined) assign('status', patch.status);
+    if (sets.length === 0) return this.get(companyId, connectionId);
+    const row = await this.surreal.withCompany(companyId, async (db) => {
+      const [updated] = await queryRows<SourceConnectionRow>(
+        db,
+        `UPDATE type::record('source_connection', $tail) SET ${sets.join(', ')}`,
+        vars,
+      );
+      return updated;
+    });
+    if (!row) throw new NotFoundException('source connection not found');
+    return toView(row);
+  }
+
+  /**
+   * Delete the connection and its catalogue. The items are catalogue
+   * rows only — the documents / assets / facts they produced stay (the
+   * facts-survive philosophy of pack uninstall); `deletePolicy` governs
+   * a source that DELETES an item, not an operator who disconnects a
+   * source. SELECT-ids-then-DELETE (the 3.2.4 planner discipline).
+   */
+  async remove(companyId: string, connectionId: string): Promise<{ items: number }> {
+    await this.load(companyId, connectionId);
+    const tail = idTailOf(connectionId);
+    return this.surreal.withCompany(companyId, async (db) => {
+      await db.query(`UPDATE type::record('source_connection', $tail) SET status = 'deleting'`, {
+        tail,
+      });
+      let items = 0;
+      for (;;) {
+        const ids = await queryRows<{ id: unknown }>(
+          db,
+          `SELECT id FROM source_item WHERE connectionId = type::record('source_connection', $tail) LIMIT 500`,
+          { tail },
+        );
+        if (ids.length === 0) break;
+        await db.query(`DELETE $ids`, { ids: ids.map((r) => r.id) });
+        items += ids.length;
+      }
+      await db.query(`DELETE type::record('source_connection', $tail)`, { tail });
+      return { items };
+    });
+  }
+
+  /** The engine's bookkeeping after a run. */
+  async recordSync(
+    companyId: string,
+    connectionId: string,
+    p: {
+      status: 'succeeded' | 'failed' | 'skipped';
+      checkpoint?: Record<string, unknown> | null | undefined;
+      error?: string | undefined;
+    },
+  ): Promise<void> {
+    const sets = ['lastSyncAt = time::now()', 'lastSyncStatus = $status'];
+    const vars: Record<string, unknown> = { tail: idTailOf(connectionId), status: p.status };
+    if (p.checkpoint !== undefined) {
+      if (p.checkpoint === null) sets.push('checkpoint = NONE');
+      else {
+        sets.push('checkpoint = $checkpoint');
+        vars.checkpoint = p.checkpoint;
+      }
+    }
+    if (p.error !== undefined) {
+      sets.push('lastError = $error');
+      vars.error = p.error.slice(0, 500);
+    } else {
+      sets.push('lastError = NONE');
+    }
+    await this.surreal.withCompany(companyId, (db) =>
+      db.query(`UPDATE type::record('source_connection', $tail) SET ${sets.join(', ')}`, vars),
+    );
+  }
+
+  /** Active, schedule-bearing connections whose next run is due. */
+  async due(companyId: string, now: Date): Promise<SourceConnectionRow[]> {
+    const rows = await this.surreal.withCompany(companyId, (db) =>
+      queryRows<SourceConnectionRow>(
+        db,
+        `SELECT * FROM source_connection WHERE status = 'active' AND schedule != 'manual' AND host = 'server'`,
+      ),
+    );
+    return rows.filter((r) => isDue(r, now));
+  }
+
+  /** The platform connector that runs this connection, if installed. */
+  resolveConnector(row: SourceConnectionRow): Connector | null {
+    return findConnector(this.connectors ?? [], row.connector);
+  }
+
+  /** The connector-facing projection of a row (credential resolved). */
+  toConnectorView(row: SourceConnectionRow): ConnectorConnectionView {
+    return {
+      id: String(row.id),
+      packId: row.packId,
+      sourceId: row.sourceId,
+      kind: row.kind,
+      connector: row.connector,
+      shape: row.shape,
+      host: row.host,
+      config: row.config ?? {},
+      credential: row.credential ?? null,
+      contentPolicy: row.contentPolicy,
+      vertical: row.vertical,
+      recorder: row.recorder,
+      userId: row.userId ?? null,
+    };
+  }
+
+  /**
+   * The pack's `sources` entry this connection instantiates: from the
+   * tenant's installed row (consented — the checksum must match the
+   * installed section, else the operator re-accepts first) or from a
+   * builtin pack (globally seeded, no install row, no consent needed).
+   */
+  private async resolveSourceEntry(
+    companyId: string,
+    packId: string,
+    sourceId: string,
+  ): Promise<{ manifest: DomainPackManifest; entry: PackSourceSpec }> {
+    const builtin = BUILTIN_PACKS.find((p) => p.id === packId);
+    let manifest: DomainPackManifest | undefined = builtin;
+    if (!manifest) {
+      const row = await this.surreal.withCompany(companyId, (db) =>
+        queryFirst<{
+          manifest?: DomainPackManifest;
+          acceptedSources?: unknown;
+          acceptedSourcesChecksum?: unknown;
+        }>(
+          db,
+          `SELECT manifest, acceptedSources, acceptedSourcesChecksum FROM domain_pack WHERE packId = $packId AND status = 'active' LIMIT 1`,
+          { packId },
+        ),
+      );
+      if (!row?.manifest) throw new NotFoundException(`pack "${packId}" is not installed`);
+      manifest = row.manifest;
+      const checksum = sourcesChecksum(manifest);
+      if (
+        checksum &&
+        (row.acceptedSources !== true || String(row.acceptedSourcesChecksum ?? '') !== checksum)
+      ) {
+        throw new BadRequestException(
+          `pack "${packId}" declares sources that were not accepted at install — reinstall with acceptSources: true`,
+        );
+      }
+    }
+    const entry = (manifest.sources ?? []).find((s) => s.id === sourceId);
+    if (!entry) {
+      throw new NotFoundException(`pack "${packId}" declares no source "${sourceId}"`);
+    }
+    return { manifest, entry };
+  }
+}
+
+/** Which Connector.kind runs a pack's source entry. */
+export function connectorKindOf(entry: PackSourceSpec): string {
+  if (entry.kind === 'native') return entry.connector;
+  return entry.kind; // 'mcp' | 'external'
+}
+
+function registryTypeOf(entry: PackSourceSpec): SourceType {
+  if (entry.kind === 'native') return entry.connector === 'url' ? 'website' : 'document';
+  return 'api';
+}
+
+const SCHEDULE_MS: Record<string, number> = {
+  '15m': 15 * 60_000,
+  '1h': 60 * 60_000,
+  '4h': 4 * 60 * 60_000,
+  '24h': 24 * 60 * 60_000,
+};
+
+export function isDue(row: SourceConnectionRow, now: Date): boolean {
+  const every = SCHEDULE_MS[row.schedule];
+  if (every === undefined) return false;
+  const last = toDate(row.lastSyncAt);
+  if (!last) return true;
+  return now.getTime() - last.getTime() >= every;
+}
+
+/**
+ * SurrealDB datetimes reach the SDK as Date, ISO string or epoch number
+ * — and, under jest's vm realm, as a Date from ANOTHER realm that fails
+ * `instanceof`; `new Date(value)` accepts all of them.
+ */
+function toDate(v: unknown): Date | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'object') {
+    const d = new Date(v as string | number | Date);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+function toIso(v: unknown): string | null {
+  const d = toDate(v);
+  return d ? d.toISOString() : null;
+}
+
+/** The wire projection — never the credential. */
+export function toView(row: SourceConnectionRow): SourceConnection {
+  return {
+    id: String(row.id),
+    packId: row.packId,
+    sourceId: row.sourceId,
+    kind: row.kind as SourceConnection['kind'],
+    connector: row.connector,
+    shape: row.shape,
+    host: row.host,
+    label: row.label ?? null,
+    config: row.config ?? {},
+    hasCredential: typeof row.credential === 'string' && row.credential.length > 0,
+    mode: row.mode,
+    schedule: row.schedule,
+    contentPolicy: row.contentPolicy,
+    deletePolicy: row.deletePolicy,
+    fetchBudget: row.fetchBudget ?? null,
+    status: row.status,
+    checkpoint: row.checkpoint ?? null,
+    vertical: row.vertical,
+    recorder: row.recorder,
+    sourceKey: row.sourceKey,
+    ownerUserId: row.userId ?? null,
+    lastSyncAt: toIso(row.lastSyncAt),
+    lastSyncStatus: row.lastSyncStatus ?? null,
+    lastError: row.lastError ?? null,
+    createdAt: toIso(row.createdAt) ?? new Date(0).toISOString(),
+    updatedAt: toIso(row.updatedAt),
+  };
+}
+
+/** Bound-var-safe record link (the candidate-store idiom). */
+export function connectionRef(connectionId: string): unknown {
+  return new StringRecordId(`source_connection:${idTailOf(connectionId)}`);
+}

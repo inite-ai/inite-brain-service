@@ -22,6 +22,21 @@ function fixtureDir(files: Record<string, string>): string {
 }
 
 describe('collectFlexibleFields', () => {
+  it('stops at the reconcile migration — a FLEXIBLE field declared AFTER it is not restated', () => {
+    // Restating a later field would DEFINE FIELD on a table that does not
+    // exist at 0135's ledger position; SurrealDB creates it implicitly and
+    // SCHEMALESS, and the later DEFINE TABLE IF NOT EXISTS … SCHEMAFULL
+    // silently becomes a no-op.
+    const dir = fixtureDir({
+      '0001_a.surql': `DEFINE FIELD IF NOT EXISTS meta ON t TYPE option<object> FLEXIBLE;`,
+      '0135_flexible_reconcile.surql': `DEFINE FIELD OVERWRITE meta ON t TYPE option<object> FLEXIBLE;`,
+      '0149_later.surql': `
+        DEFINE TABLE IF NOT EXISTS later SCHEMAFULL;
+        DEFINE FIELD IF NOT EXISTS config ON later TYPE option<object> FLEXIBLE;`,
+    });
+    expect(collectFlexibleFields(dir).map((d) => `${d.table}.${d.field}`)).toEqual(['t.meta']);
+  });
+
   it('keeps the LATEST declaration per field, carries its clauses verbatim, and drops fields later redefined without FLEXIBLE', () => {
     const dir = fixtureDir({
       '0001_a.surql': `

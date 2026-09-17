@@ -44,6 +44,13 @@ export const InstallPackRequestSchema = z.object({
    *  processing, unless a prior install already accepted the identical
    *  media section — an upgrade that CHANGES it re-requires the flag. */
   acceptModalities: z.boolean().optional(),
+  /** Explicit consent to the manifest's declared `sources` section (the
+   *  source plane — where the pack wants to read from). Required (400
+   *  otherwise) whenever the manifest declares sources, unless a prior
+   *  install already accepted the identical section — an upgrade that
+   *  CHANGES it re-requires the flag. Nothing is live until a connection
+   *  is created. */
+  acceptSources: z.boolean().optional(),
 });
 
 export const InstallFromRegistryRequestSchema = z.object({
@@ -54,6 +61,8 @@ export const InstallFromRegistryRequestSchema = z.object({
   acceptMcpTools: z.boolean().optional(),
   /** See InstallPackRequest.acceptModalities — same consent gate. */
   acceptModalities: z.boolean().optional(),
+  /** See InstallPackRequest.acceptSources — same consent gate. */
+  acceptSources: z.boolean().optional(),
 });
 
 export const InstallPackResponseSchema = z.object({

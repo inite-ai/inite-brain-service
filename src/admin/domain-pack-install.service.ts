@@ -28,14 +28,19 @@ import {
   DomainPackError,
   declaredModalitySection,
   externalMcpTools,
+  httpMcpSources,
   mcpConsentRequired,
   mcpToolsChecksum,
   modalitiesChecksum,
   modalityConsentRequired,
   packChecksum,
+  sourcesChecksum,
+  sourcesConsentRequired,
   validatePack,
+  wantsInstallSecret,
   type DomainPackManifest,
   type PackExternalToolSpec,
+  type PackMcpHttpSourceSpec,
 } from '../ai/domain-packs';
 import { assertPublicHttpUrl, EgressDeniedError } from '../common/egress-guard';
 import { PackToolsReaderService } from '../mcp/pack-tools-reader.service';
@@ -73,6 +78,8 @@ interface DomainPackRow {
   acceptedMcpToolsChecksum?: unknown;
   acceptedModalities?: unknown;
   acceptedModalitiesChecksum?: unknown;
+  acceptedSources?: unknown;
+  acceptedSourcesChecksum?: unknown;
 }
 
 /** `listInstalled` projection of `domain_pack`. */
@@ -186,6 +193,9 @@ export class DomainPackInstallService {
       /** Consent to the manifest's declared non-text modalities /
        *  raw-evidence capability (0112) — see modality-consent.ts. */
       acceptModalities?: boolean | undefined;
+      /** Consent to the manifest's declared sources (source plane) —
+       *  see sources-consent.ts. */
+      acceptSources?: boolean | undefined;
     } = {},
   ): Promise<{
     packId: string;
@@ -250,12 +260,19 @@ export class DomainPackInstallService {
     const externalTools = externalMcpTools(manifest);
     await this.assertToolEndpoints(externalTools);
     const mcpChecksum = mcpToolsChecksum(manifest);
-    // A callback-bearing pack — or one declaring external MCP tools —
-    // gets an HMAC secret for signed pushes/calls (0065/0068). Minted on
-    // first install; upgrades preserve the existing secret so the
-    // integration doesn't have to rotate on every bump.
+    // Sources (source plane): egress-check every http MCP source URL up
+    // front, same fence as external tool endpoints; consent below.
+    await this.assertSourceUrls(httpMcpSources(manifest));
+    const srcChecksum = sourcesChecksum(manifest);
+    // A callback-bearing pack — or one declaring external MCP tools, or
+    // an MCP source that authenticates with the install secret — gets an
+    // HMAC secret for signed pushes/calls (0065/0068). Minted on first
+    // install; upgrades preserve the existing secret so the integration
+    // doesn't have to rotate on every bump.
     const wantsWebhook =
-      Boolean(manifest.indexer?.external?.callbackUrl) || externalTools.length > 0;
+      Boolean(manifest.indexer?.external?.callbackUrl) ||
+      externalTools.length > 0 ||
+      wantsInstallSecret(manifest);
     let mintedSecret: string | undefined;
     // Consent/upgrade SET fragment for the 0068 fields: stamped when the
     // manifest declares tools (the consent gate has passed by then),
@@ -273,6 +290,10 @@ export class DomainPackInstallService {
     const modalitySet = modalityChecksum
       ? `, acceptedModalities = true, acceptedModalitiesChecksum = $modalityChecksum`
       : `, acceptedModalities = NONE, acceptedModalitiesChecksum = NONE`;
+    // Sources consent (source plane) — the same mold once more.
+    const sourcesSet = srcChecksum
+      ? `, acceptedSources = true, acceptedSourcesChecksum = $srcChecksum`
+      : `, acceptedSources = NONE, acceptedSourcesChecksum = NONE`;
     let mintedInstallId: string | undefined;
     // Concurrent installs of the same pack both pass the SELECT (no prior
     // row) and race to CREATE; on the rocksdb backend the loser surfaces
@@ -290,7 +311,7 @@ export class DomainPackInstallService {
         mintedInstallId = undefined;
         const existing = await queryRows<DomainPackRow>(
           db,
-          `SELECT id, version, manifest, webhookSecret, installId, acceptedMcpTools, acceptedMcpToolsChecksum, acceptedModalities, acceptedModalitiesChecksum FROM domain_pack WHERE packId = $packId LIMIT 1`,
+          `SELECT id, version, manifest, webhookSecret, installId, acceptedMcpTools, acceptedMcpToolsChecksum, acceptedModalities, acceptedModalitiesChecksum, acceptedSources, acceptedSourcesChecksum FROM domain_pack WHERE packId = $packId LIMIT 1`,
           { packId: manifest.id },
         );
         const row = existing[0];
@@ -314,6 +335,13 @@ export class DomainPackInstallService {
             : null,
         });
         if (modalityMessage) throw new BadRequestException(modalityMessage);
+        const sourcesMessage = sourcesConsentRequired({
+          manifest,
+          acceptSources: opts.acceptSources,
+          priorAccepted: row?.acceptedSources === true,
+          priorChecksum: row?.acceptedSourcesChecksum ? String(row.acceptedSourcesChecksum) : null,
+        });
+        if (sourcesMessage) throw new BadRequestException(sourcesMessage);
         // installId (0068) — the opaque per-install identity external tool
         // endpoints see instead of companyId. Minted once, kept forever.
         if (externalTools.length > 0 && !row?.installId) {
@@ -333,6 +361,8 @@ export class DomainPackInstallService {
               mcpSet,
               modalityChecksum,
               modalitySet,
+              srcChecksum,
+              sourcesSet,
             },
           });
         } else {
@@ -358,6 +388,12 @@ export class DomainPackInstallService {
                 ? {
                     acceptedModalities: true,
                     acceptedModalitiesChecksum: modalityChecksum,
+                  }
+                : {}),
+              ...(srcChecksum
+                ? {
+                    acceptedSources: true,
+                    acceptedSourcesChecksum: srcChecksum,
                   }
                 : {}),
             },
@@ -413,6 +449,8 @@ export class DomainPackInstallService {
       mcpSet: string;
       modalityChecksum: string | null;
       modalitySet: string;
+      srcChecksum: string | null;
+      sourcesSet: string;
     };
   }): Promise<string | undefined> {
     const { db, row, manifest, checksum, newIds, mint } = opts;
@@ -435,7 +473,7 @@ export class DomainPackInstallService {
     await db.query(
       `UPDATE $id SET version = $version, manifest = $manifest, checksum = $checksum, status = 'active', updatedAt = time::now()${
         mintedSecret ? ', webhookSecret = $webhookSecret' : ''
-      }${mint.mintedInstallId ? ', installId = $installId' : ''}${mint.mcpSet}${mint.modalitySet}`,
+      }${mint.mintedInstallId ? ', installId = $installId' : ''}${mint.mcpSet}${mint.modalitySet}${mint.sourcesSet}`,
       {
         id: row.id,
         version: manifest.version,
@@ -445,6 +483,7 @@ export class DomainPackInstallService {
         ...(mint.mintedInstallId ? { installId: mint.mintedInstallId } : {}),
         ...(mint.mcpChecksum ? { mcpChecksum: mint.mcpChecksum } : {}),
         ...(mint.modalityChecksum ? { modalityChecksum: mint.modalityChecksum } : {}),
+        ...(mint.srcChecksum ? { srcChecksum: mint.srcChecksum } : {}),
       },
     );
     // Reinstall/upgrade: uninstall DEPRECATED this pack's predicates and
@@ -498,6 +537,21 @@ export class DomainPackInstallService {
       } catch (e) {
         if (e instanceof EgressDeniedError) {
           throw new BadRequestException(`mcpTool "${tool.name}": ${e.message}`);
+        }
+        throw e;
+      }
+    }
+  }
+
+  /** The sources-section twin of assertToolEndpoints: same guard, same flag. */
+  private async assertSourceUrls(sources: PackMcpHttpSourceSpec[]): Promise<void> {
+    const allowHttp = envFlagEnabled(process.env.MCP_PACK_TOOLS_ALLOW_HTTP);
+    for (const source of sources) {
+      try {
+        await assertPublicHttpUrl(source.url, { allowHttp });
+      } catch (e) {
+        if (e instanceof EgressDeniedError) {
+          throw new BadRequestException(`source "${source.id}": ${e.message}`);
         }
         throw e;
       }

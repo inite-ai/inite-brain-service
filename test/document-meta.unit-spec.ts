@@ -136,6 +136,12 @@ describe('mergeDocumentMeta', () => {
       'toolObservationNote',
       'evidenceAssetId',
       'evidenceRepresentationId',
+      'sourceConnectionId',
+      'sourceItemId',
+      'sourceVersionSystem',
+      'sourceVersionRef',
+      'sourceVersionValue',
+      'sourceVersionReadAt',
     ]);
   });
 });

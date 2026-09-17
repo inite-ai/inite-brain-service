@@ -669,6 +669,53 @@ facts-survive philosophy as predicate deprecation. The provenance meta keys
 above make them queryable (`source.meta.pack_id`) for manual cleanup or an
 ABAC deny rule.
 
+## Sources (consumed)
+
+A pack MAY declare WHERE its documents come from — the `sources` section
+([source-plane.md](source-plane.md), roadmap
+[raw-evidence-sources-2026-09](roadmap/raw-evidence-sources-2026-09.md)).
+A source is a pack: the entry names an external system the pack knows how
+to read and the SHAPE its items take, and the shape decides which ingest
+door an item enters (`document` → `ingest/document`, `conversation` →
+`ingest/mention`, `binary` → evidence-blob, `structure` → the record
+envelope). Declarative data inside the signed manifest, like every other
+section:
+
+```jsonc
+"sources": [
+  { "id": "wiki",   "kind": "mcp",      "transport": "http", "url": "https://mcp.publisher.example/wiki",
+    "auth": "install_secret", "shape": "document",
+    "defaults": { "contentPolicy": "text", "deletePolicy": "close", "schedule": "1h" } },
+  { "id": "vault",  "kind": "mcp",      "transport": "stdio", "command": "npx obsidian-mcp", "shape": "document" },
+  { "id": "folder", "kind": "native",   "connector": "fs", "shape": "binary" },
+  { "id": "ci",     "kind": "external", "shape": "structure" }
+]
+```
+
+- **`mcp`** — an MCP server exposing resources; brain harvests it (`http`:
+  the server host, egress-guarded at install and per sync; `stdio`: the
+  local agent spawns it). `auth` is `install_secret` (the per-install
+  webhook secret as bearer — a publisher-operated server), `oauth` (W4)
+  or `none`.
+- **`native`** — a platform-shipped connector, NAMED by the pack and never
+  supplied by it (the anti-DSL doctrine: exactly like `processors`, a
+  kind with no installed connector fails every sync, never runs foreign
+  code). None ship in W0; `fs` / `s3` / `url` arrive in W1.
+- **`external`** — the publisher pushes items itself through the existing
+  doors; the connection is a catalogue it fills. `indexer.mode: 'external'`
+  seen from the source side — the builtin `code_memory` declares its
+  repository this way.
+
+Caps: ≤ 8 sources, ids snake_case and unique, `title` ≤ 80, `description`
+≤ 500 (`pnpm pack:validate`, again at install). **Consent**: a manifest
+with sources needs `acceptSources: true` at install (`--accept-sources` on
+the CLI); the flag is recorded with a checksum of the section, so an
+upgrade that changes it re-asks and one that leaves it untouched carries
+the consent over — the `acceptMcpTools` / `acceptModalities` mold.
+Nothing is live until an operator creates a **connection** for an entry
+(`POST /v1/admin/source-connections`, `SOURCE_PLANE_ENABLED`); consent is
+the review of what MAY be connected.
+
 ## First-party pack library (industries)
 
 Beyond the builtin `code_memory`, brain ships a library of DISTRIBUTABLE

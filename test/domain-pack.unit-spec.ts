@@ -628,9 +628,11 @@ const MEDIA_CONTRACT: MediaExpectation[] = [
     // after 0.6.0, which carried TWO independent changes of its own in
     // one bump rather than two stacked — the `invariant` semantics
     // correction (single_active → append_only) and the `ocr` media
-    // declaration. The media contract itself is unchanged from 0.6.0 —
-    // this pin just has to move deliberately on every version bump.
-    version: '0.7.0',
+    // declaration. 0.8.0: the `sources` entry (the repository as the
+    // pack's declared source — the first source pack, retrofitted). The
+    // media contract itself is unchanged since 0.6.0 — this pin just has
+    // to move deliberately on every version bump.
+    version: '0.8.0',
     modalities: ['text', 'image', 'document'],
     processors: [IMAGE_METADATA, DOCUMENT_TEXT, IMAGE_OCR],
     rawEvidence: undefined, // a builtin seeds into every tenant unasked
