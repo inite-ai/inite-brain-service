@@ -5,6 +5,7 @@ import { EvidenceModule } from '../evidence/evidence.module';
 import { IngestModule } from '../ingest/ingest.module';
 import { SourcesModule } from '../sources/sources.module';
 import { AdminSourceConnectionsController } from './admin-source-connections.controller';
+import { AdminSourceInspectController } from './admin-source-inspect.controller';
 import { AgentRunService } from './agent-run.service';
 import { AgentSourceConnectionsController } from './agent-source-connections.controller';
 import { AgentSyncService } from './agent-sync.service';
@@ -13,13 +14,16 @@ import { FsConnector } from './connectors/fs.connector';
 import { McpConnector } from './connectors/mcp.connector';
 import { S3Connector } from './connectors/s3.connector';
 import { UrlConnector } from './connectors/url.connector';
+import { SourceAgentService } from './source-agent.service';
 import { SourceCatalogService } from './source-catalog.service';
 import { SourceConnectionService } from './source-connection.service';
 import { SourceDoorsService } from './source-doors.service';
 import { SourceGonePolicyService } from './source-gone-policy.service';
+import { SourceInspectService } from './source-inspect.service';
 import { SourceItemEffectsService } from './source-item-effects.service';
 import { SourceItemIngestService } from './source-item-ingest.service';
 import { SourceItemService } from './source-item.service';
+import { SourceRunHistoryService } from './source-run-history.service';
 import { SourceSyncQueueService } from './source-sync-queue.service';
 import { SourceSyncService } from './source-sync.service';
 
@@ -40,7 +44,11 @@ import { SourceSyncService } from './source-sync.service';
  */
 @Module({
   imports: [AuthModule, DocumentsModule, EvidenceModule, IngestModule, SourcesModule],
-  controllers: [AdminSourceConnectionsController, AgentSourceConnectionsController],
+  controllers: [
+    AdminSourceConnectionsController,
+    AdminSourceInspectController,
+    AgentSourceConnectionsController,
+  ],
   providers: [
     FsConnector,
     UrlConnector,
@@ -52,6 +60,7 @@ import { SourceSyncService } from './source-sync.service';
       inject: [FsConnector, UrlConnector, S3Connector, McpConnector],
     },
     SourceCatalogService,
+    SourceAgentService,
     SourceConnectionService,
     SourceItemService,
     SourceDoorsService,
@@ -60,6 +69,8 @@ import { SourceSyncService } from './source-sync.service';
     SourceItemEffectsService,
     SourceSyncService,
     SourceSyncQueueService,
+    SourceRunHistoryService,
+    SourceInspectService,
     AgentSyncService,
     AgentRunService,
   ],

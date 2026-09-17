@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { lstat, opendir, readFile, realpath } from 'node:fs/promises';
+import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
 import { basename, extname, join, posix, relative, resolve, sep } from 'node:path';
 import { htmlToText } from '../../common/html-text';
+import { DEFAULT_IGNORE_FILES, PathFilter } from './path-rules';
 import { sourceFsRoots, sourceKindEnabled } from '../../common/source-plane-flags';
 import type {
   Connector,
@@ -56,6 +57,12 @@ export interface FsConnectorConfig {
   excludeDirs?: string[] | undefined;
   /** Hidden entries (leading dot) are skipped unless this is true. */
   includeHidden?: boolean | undefined;
+  /** Only paths matching one of these (gitignore-style globs relative to root); empty = everything. */
+  include?: string[] | undefined;
+  /** Paths (files or directories) matching one of these are skipped. */
+  exclude?: string[] | undefined;
+  /** gitignore-style files honoured in the tree (default `.brainignore`; add `.gitignore` to skip what git skips). */
+  ignoreFiles?: string[] | undefined;
   maxFiles?: number | undefined;
   maxFileBytes?: number | undefined;
 }
@@ -104,6 +111,8 @@ export class FsConnector implements Connector {
       exclude: new Set((cfg.excludeDirs ?? DEFAULT_EXCLUDE_DIRS).map((d) => d.toLowerCase())),
       extensions: new Set(extensionsFor(ctx, cfg)),
       includeHidden: cfg.includeHidden === true,
+      filter: new PathFilter({ include: cfg.include, exclude: cfg.exclude }),
+      ignoreFiles: cfg.ignoreFiles ?? DEFAULT_IGNORE_FILES,
       maxBytes: fileByteCap(cfg),
       signal: ctx.signal,
     };
@@ -166,6 +175,9 @@ interface WalkOptions {
   exclude: Set<string>;
   extensions: Set<string>;
   includeHidden: boolean;
+  /** include / exclude globs and the ignore files met on the way. */
+  filter: PathFilter;
+  ignoreFiles: string[];
   maxBytes: number;
   signal: AbortSignal;
 }
@@ -186,13 +198,18 @@ async function* walkFiles(
   while (stack.length > 0) {
     if (w.signal.aborted) throw new Error('aborted');
     const dir = stack.pop()!;
-    for await (const entry of await opendir(dir)) {
+    const rel = toPosix(relative(w.root, dir));
+    const entries = await readdir(dir, { withFileTypes: true });
+    await readIgnoreFiles(w, { dir, rel, entries });
+    for (const entry of entries) {
       const admitted = admitEntry(w, entry);
+      if (admitted === 'skip') continue;
+      const relPath = rel ? `${rel}/${entry.name}` : entry.name;
       if (admitted === 'descend') {
-        stack.push(join(dir, entry.name));
+        if (w.filter.admitsDir(relPath)) stack.push(join(dir, entry.name));
         continue;
       }
-      if (admitted !== 'file') continue;
+      if (!w.filter.admitsFile(relPath)) continue;
       const full = join(dir, entry.name);
       const st = await lstat(full);
       if (!st.isFile()) continue;
@@ -202,6 +219,18 @@ async function* walkFiles(
       }
       tally.emitted++;
       yield describeFile(w.root, full, st);
+    }
+  }
+}
+
+/** The directory's own ignore files apply to its entries, so they are read before any entry is judged. */
+async function readIgnoreFiles(
+  w: WalkOptions,
+  at: { dir: string; rel: string; entries: Array<{ name: string; isFile(): boolean }> },
+): Promise<void> {
+  for (const name of w.ignoreFiles) {
+    if (at.entries.some((e) => e.name === name && e.isFile())) {
+      w.filter.addIgnoreFile(at.rel, await readFile(join(at.dir, name), 'utf8'));
     }
   }
 }

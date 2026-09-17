@@ -659,8 +659,8 @@
         "subtitle": "Connections in this tenant. Sync enqueues a job; Full re-walks everything and marks what is missing gone.",
         "headers": {
           "label": "connection",
-          "source": "pack / source",
-          "connector": "connector · shape",
+          "source": "what",
+          "connector": "where",
           "host": "host",
           "schedule": "schedule",
           "status": "status",
@@ -721,7 +721,13 @@
           "duration": "{ms} ms",
           "skipped": "skipped: {reason}"
         },
-        "close": "Close"
+        "close": "Close",
+        "host": "runs on",
+        "hostServer": "brain",
+        "hostAgent": "local agent {agentId}",
+        "source": "source entry",
+        "sourceUnknown": "the pack no longer declares this source",
+        "openJobs": "all source_sync jobs"
       },
       "items": {
         "title": "Catalogue",
@@ -747,7 +753,7 @@
       },
       "catalog": {
         "title": "Connect a source",
-        "subtitle": "Every `sources` entry declared by a pack this tenant has. A native entry needs its connector switched on; an installed pack's sources must have been accepted at install.",
+        "subtitle": "What the packs installed here can read. Pick what you have; the brain asks the rest.",
         "headers": {
           "pack": "pack",
           "source": "source",
@@ -776,34 +782,569 @@
         }
       },
       "create": {
-        "title": "Connect {packId} / {sourceId}",
-        "host": "runs on",
-        "hostHint": "the brain (a mounted volume, a bucket, a site) or a local agent",
-        "hostAgentOnly": "this source runs on a local agent only",
-        "hostServer": "brain",
-        "hostAgent": "local agent",
-        "agentId": "agent id",
-        "agentIdHint": "the id the agent runs with (brain-agent --agent <id>, default: its hostname)",
-        "label": "label",
-        "labelHint": "free text for the operator; defaults to pack/source",
-        "vertical": "vertical",
-        "verticalHint": "contextRef.vertical on every fact this connection writes",
-        "config": "config (JSON)",
-        "configHint": "pre-filled from the connector's example — never put secrets here",
-        "credential": "credential",
-        "credentialNone": "this connector takes no credential",
-        "schedule": "schedule",
-        "contentPolicy": "content policy",
-        "deletePolicy": "on delete",
-        "fetchBudget": "fetch budget",
-        "fetchBudgetHint": "max items fetched per sync (blank = connector default)",
-        "ownerUserId": "owner user id",
-        "ownerUserIdHint": "set = personal connection: every row it writes is user-fenced",
-        "invalidJson": "config is not valid JSON.",
+        "title": "Connect: {title}",
         "submit": "Connect",
         "submitting": "connecting…",
         "cancel": "Cancel",
-        "created": "Connected {label}. Run Sync to catalogue it."
+        "created": "Connected {label}. Run Sync to catalogue it.",
+        "createdBoth": "Connected {label} — documents and files."
+      },
+      "stats": {
+        "title": "Produced",
+        "hint": "Catalogue rows by state and the facts this connection grounds (source.meta.source_connection). Stale = the source moved past the revision a fact was read at; closed = the delete policy ended it.",
+        "items": "catalogue",
+        "facts": "facts",
+        "active": "active",
+        "stale": "stale",
+        "closed": "closed",
+        "factsUnknown": "too many to count in time",
+        "loading": "counting…"
+      },
+      "runs": {
+        "title": "Runs",
+        "subtitle": "Every sync of this connection — queued, inline and agent runs alike, each a source_sync job.",
+        "headers": {
+          "started": "started",
+          "ranBy": "ran by",
+          "trigger": "trigger",
+          "mode": "mode",
+          "status": "status",
+          "counters": "seen · new · changed · gone · fetched · ingested · failed · closed",
+          "duration": "duration",
+          "job": "job"
+        },
+        "empty": "No runs yet.",
+        "notPersisted": "JOB_RUN_PERSIST is off — runs leave no history.",
+        "server": "brain",
+        "openJob": "open",
+        "skipped": "skipped: {reason}",
+        "more": "showing the latest {n}"
+      },
+      "item": {
+        "title": "Item",
+        "openHint": "click a row to follow it to its document, asset and facts",
+        "close": "Close",
+        "identity": "at the source",
+        "externalId": "external id",
+        "origin": "origin",
+        "path": "path",
+        "mediaType": "media type",
+        "size": "size",
+        "revision": "revision (enumerated)",
+        "fetchedRevision": "revision (fetched)",
+        "modifiedAt": "modified at source",
+        "firstSeen": "first seen",
+        "lastSeen": "last seen",
+        "goneAt": "gone at",
+        "error": "last error",
+        "episode": "episode",
+        "documents": "documents",
+        "documentsNone": "no document yet — the item was not fetched, or a processor still has to extract its text",
+        "document": {
+          "kind": "kind",
+          "status": "status",
+          "created": "created"
+        },
+        "asset": "evidence asset",
+        "assetNone": "—",
+        "assetFields": {
+          "mediaType": "media type",
+          "modality": "modality",
+          "bytes": "bytes",
+          "availability": "availability",
+          "quarantine": "quarantine"
+        },
+        "representations": "extracted representations",
+        "representationsNone": "none yet — no processor has run over this asset (EVIDENCE_PROCESSOR_BROKER, and a pack that names the modality)",
+        "representation": {
+          "kind": "kind",
+          "producer": "producer",
+          "chars": "chars",
+          "created": "created"
+        },
+        "facts": "facts this item grounds",
+        "factsEmpty": "No facts cite this item.",
+        "factsTruncated": "more facts than shown — open the entity to see the rest",
+        "factHeaders": {
+          "predicate": "predicate",
+          "object": "object",
+          "version": "read at revision",
+          "state": "state"
+        },
+        "factState": {
+          "current": "current",
+          "drifted": "drifted",
+          "stale": "stale",
+          "closed": "closed",
+          "retracted": "{status}"
+        },
+        "driftHint": "read at an older revision than the catalogue now holds — the drift sweep marks it stale on its next pass"
+      },
+      "agents": {
+        "title": "Local agents",
+        "subtitle": "Connections that run on an agent — a laptop, a CI runner, a machine in the LAN. The brain keeps the books; the agent walks the source and posts what changed.",
+        "headers": {
+          "agent": "agent",
+          "connections": "connections",
+          "lastSync": "last activity",
+          "status": "last status",
+          "seen": "checked in"
+        },
+        "never": "never checked in",
+        "setup": "Run the agent on that machine",
+        "setupHint": "Install once; the service syncs every 5 minutes and survives reboots. Needs Node 20+ and, for repositories, git.",
+        "copy": "copy",
+        "copied": "copied",
+        "none": "No agent-host connections. Pick a source with availability \"local agent\" in the catalogue, or choose \"local agent\" when connecting.",
+        "setupNew": "Set up an agent",
+        "issueKey": "New key",
+        "installHint": "Install with a key: press \"New key\" — the command comes back with the key filled in.",
+        "modal": {
+          "title": "Agent {agentId}",
+          "agentId": "Agent id",
+          "agentIdHint": "How the brain will know this machine; the connections you point at it use this id.",
+          "roots": "Folders it may read",
+          "rootsHint": "Optional ':'-separated allowlist for the folder connector on that machine (BRAIN_AGENT_ROOTS); empty = anything the user can read.",
+          "keyExplain": "Issues a brain:write key of this tenant labelled agent:<id> — a write key, never an admin one. You will see it once.",
+          "issue": "Issue a key",
+          "issuing": "Issuing…",
+          "keyOnce": "This key is shown once. Run the command on the agent's machine now, or copy it somewhere safe.",
+          "install": "On a laptop or a server — as a service",
+          "installHint": "Saves the config (owner-only) and registers a launchd agent on macOS / a systemd user unit on Linux; it syncs every 5 minutes. brain-agent status / doctor / uninstall afterwards.",
+          "ci": "One-shot (CI, cron)",
+          "ciHint": "No file is written; the key rides in the environment. Exit 2 when a connection failed.",
+          "keyRecord": "Key {name} ({prefix}…) — revoke it under Key Lens if the machine is gone.",
+          "done": "Done"
+        },
+        "seenNever": "never checked in",
+        "seenAt": "{at} · {hostname} · {platform} · v{version}",
+        "roots": "can see"
+      },
+      "form": {
+        "steps": {
+          "where": "Where it runs",
+          "source": "The source",
+          "sync": "How it syncs"
+        },
+        "next": "Next",
+        "back": "Back",
+        "connect": "Connect",
+        "connecting": "Connecting…",
+        "advanced": "Advanced",
+        "advancedHide": "Hide advanced",
+        "editJson": "Edit as JSON",
+        "editForm": "Back to the form",
+        "jsonHint": "The exact config the brain receives. Editing here overrides the form.",
+        "invalidJson": "config is not valid JSON.",
+        "noForm": "This build has no form for the \"{connector}\" connector yet — fill the config as JSON.",
+        "host": {
+          "serverTitle": "On the brain",
+          "serverBody": "The brain reads the source itself: a mounted volume, a bucket, a site, an MCP server it can reach.",
+          "agentTitle": "On a local agent",
+          "agentBody": "A brain-agent on a laptop, a CI runner or a machine in the LAN walks the source there and posts what changed; the brain keeps the books.",
+          "serverOnly": "This source runs on the brain.",
+          "agentOnly": "This source runs on a local agent only."
+        },
+        "agentId": "Agent id",
+        "agentIdHint": "The id the agent runs with (BRAIN_AGENT_ID / --agent; default: its hostname). You get the run command after connecting.",
+        "label": "Name",
+        "labelHint": "How this connection shows up here; defaults to pack/source.",
+        "external": "The publisher pushes through the doors; this connection is only the identity pushes are attributed to. Nothing to configure.",
+        "stdio": "The agent spawns the pack's server:",
+        "pinnedUrl": "Server",
+        "pinnedUrlHint": "pinned by the pack — the brain reads it, the operator cannot change it",
+        "installSecret": "The brain authenticates with the pack's install secret; nothing to enter.",
+        "oauth": "This server needs an OAuth sign-in — not available yet.",
+        "credential": {
+          "title": "Credential",
+          "single": "Token",
+          "singleHint": "Stored write-only; never shown again.",
+          "keyId": "Access key id",
+          "keySecret": "Secret access key",
+          "pairHint": "Leave both empty to use the brain's own credential chain (env / instance role)."
+        },
+        "errors": {
+          "required": "required",
+          "path": "an absolute path",
+          "url": "an http(s) URL",
+          "number": "a number ≥ {min}",
+          "credential": "a credential is needed for this auth",
+          "header": "name the header",
+          "jail": "must be under one of: {roots}"
+        },
+        "fields": {
+          "fs": {
+            "root": {
+              "label": "Folder",
+              "hint": "Absolute path on the brain host."
+            },
+            "rootAgent": {
+              "label": "Folder",
+              "hint": "Absolute path on the agent's machine (inside BRAIN_AGENT_ROOTS if the agent sets it)."
+            },
+            "include": {
+              "label": "Only these paths",
+              "hint": "gitignore-style, one per line, relative to the folder: docs/** — everything under docs; notes/2026 — that folder; *.md — every markdown file at any depth; /README.md — the root's only. Empty = the whole folder."
+            },
+            "exclude": {
+              "label": "Skip these paths",
+              "hint": "Same dialect: docs/archive — that folder; drafts/ — any folder named drafts; *.log — every log file. Applied after \"only these\"."
+            },
+            "extensions": {
+              "label": "Extensions",
+              "hint": "Comma-separated, no dots; empty = the shape's defaults."
+            },
+            "ignoreFiles": {
+              "label": "Ignore files honoured in the tree",
+              "hint": "The machine's owner can leave a .brainignore (gitignore syntax, nested files allowed) anywhere under the folder to keep things out without touching this connection. Add .gitignore to also skip what git skips."
+            },
+            "excludeDirs": {
+              "label": "Skip directories",
+              "hint": "Directory names skipped anywhere in the tree."
+            },
+            "includeHidden": {
+              "label": "Include hidden entries",
+              "hint": "Leading-dot files and folders."
+            },
+            "maxFiles": {
+              "label": "Max files",
+              "hint": "Walk stops here."
+            },
+            "maxFileBytes": {
+              "label": "Max file size (bytes)",
+              "hint": "Larger files are skipped."
+            }
+          },
+          "url": {
+            "urls": {
+              "label": "Pages",
+              "hint": "One URL per line — read as they are."
+            },
+            "sitemaps": {
+              "label": "Sitemaps",
+              "hint": "One per line; every page they list is read (indexes followed one level)."
+            },
+            "sameHostOnly": {
+              "label": "Same host only",
+              "hint": "Ignore sitemap entries on other hosts."
+            },
+            "maxPages": {
+              "label": "Max pages",
+              "hint": "Per sync."
+            },
+            "authScheme": {
+              "label": "Authentication",
+              "hint": ""
+            },
+            "authHeader": {
+              "label": "Header name",
+              "hint": "The header the token is sent in."
+            },
+            "refetchHours": {
+              "label": "Re-read every (hours)",
+              "hint": "For pages without ETag / Last-Modified."
+            },
+            "delayMs": {
+              "label": "Delay between requests (ms)",
+              "hint": ""
+            },
+            "maxBytes": {
+              "label": "Max page size (bytes)",
+              "hint": ""
+            },
+            "ignoreRobots": {
+              "label": "Ignore robots.txt",
+              "hint": "Only for a site you operate."
+            },
+            "allowPrivate": {
+              "label": "Allow private hosts",
+              "hint": "Loopback / LAN addresses — the deployment already opted in."
+            }
+          },
+          "s3": {
+            "bucket": {
+              "label": "Bucket",
+              "hint": ""
+            },
+            "prefix": {
+              "label": "Prefix",
+              "hint": "Only keys under it."
+            },
+            "region": {
+              "label": "Region",
+              "hint": ""
+            },
+            "endpoint": {
+              "label": "Endpoint",
+              "hint": "For MinIO / R2 / B2; empty = AWS."
+            },
+            "forcePathStyle": {
+              "label": "Path-style addressing",
+              "hint": "Most self-hosted S3 need it."
+            },
+            "extensions": {
+              "label": "Extensions",
+              "hint": "Comma-separated, no dots."
+            },
+            "maxObjects": {
+              "label": "Max objects",
+              "hint": ""
+            },
+            "maxObjectBytes": {
+              "label": "Max object size (bytes)",
+              "hint": ""
+            },
+            "allowPrivate": {
+              "label": "Allow a private endpoint",
+              "hint": "Loopback / LAN addresses — the deployment already opted in."
+            }
+          },
+          "mcp": {
+            "url": {
+              "label": "Server URL",
+              "hint": "The MCP endpoint (https)."
+            },
+            "authScheme": {
+              "label": "Authentication",
+              "hint": ""
+            },
+            "authHeader": {
+              "label": "Header name",
+              "hint": ""
+            },
+            "uriPrefixes": {
+              "label": "Resource URI prefixes",
+              "hint": "Keep only resources whose URI starts with one of these; empty = all."
+            },
+            "mimeTypes": {
+              "label": "MIME types",
+              "hint": "Prefix match (text/); empty = all."
+            },
+            "maxResources": {
+              "label": "Max resources",
+              "hint": ""
+            },
+            "maxBytes": {
+              "label": "Max text per resource (bytes)",
+              "hint": ""
+            },
+            "refetchHours": {
+              "label": "Re-read every (hours)",
+              "hint": "For resources without lastModified."
+            },
+            "allowPrivate": {
+              "label": "Allow a private host",
+              "hint": "Loopback / LAN addresses — the deployment already opted in."
+            }
+          },
+          "git": {
+            "repo": {
+              "label": "Repository",
+              "hint": "Absolute path on the agent's machine (a clone, or the CI checkout)."
+            },
+            "ref": {
+              "label": "Ref",
+              "hint": "Branch, tag or commit; empty = HEAD."
+            },
+            "include": {
+              "label": "Include",
+              "hint": "One prefix or glob per line (docs/**, README.md, adr/????-*.md); empty = everything."
+            },
+            "extensions": {
+              "label": "Extensions",
+              "hint": "Empty = the docs extensions."
+            },
+            "maxFiles": {
+              "label": "Max files",
+              "hint": ""
+            },
+            "maxFileBytes": {
+              "label": "Max file size (bytes)",
+              "hint": ""
+            }
+          }
+        },
+        "authOptions": {
+          "none": "none",
+          "bearer": "bearer token",
+          "basic": "basic (user:password)",
+          "header": "custom header"
+        },
+        "schedule": {
+          "title": "Schedule",
+          "manual": {
+            "title": "Manual",
+            "body": "Only when you press Sync."
+          },
+          "15m": {
+            "title": "Every 15 minutes",
+            "body": "For sources that change all day."
+          },
+          "1h": {
+            "title": "Hourly",
+            "body": ""
+          },
+          "4h": {
+            "title": "Every 4 hours",
+            "body": ""
+          },
+          "24h": {
+            "title": "Daily",
+            "body": "Docs, sites, archives."
+          }
+        },
+        "content": {
+          "title": "What to take",
+          "text": {
+            "title": "Content",
+            "body": "Fetch every changed item and commit it through the doors — facts, documents, evidence."
+          },
+          "bytes": {
+            "title": "Content",
+            "body": "Fetch the bytes into the evidence plane; processors extract the text."
+          },
+          "manifest": {
+            "title": "Catalogue only",
+            "body": "Record what exists and when it changed; fetch nothing."
+          }
+        },
+        "onDelete": {
+          "title": "When an item disappears",
+          "close": {
+            "title": "Close",
+            "body": "Its facts stay as history with an end date (recommended)."
+          },
+          "keep": {
+            "title": "Keep",
+            "body": "Nothing changes; the facts stay current."
+          },
+          "retract": {
+            "title": "Retract",
+            "body": "Like close today; a full retraction cascade comes later."
+          }
+        },
+        "fetchBudget": "Fetch budget",
+        "fetchBudgetHint": "Max items fetched per sync; empty = no cap.",
+        "ownerUserId": "Owner user id",
+        "ownerUserIdHint": "Set = a personal connection: every row it writes is fenced to that user.",
+        "vertical": "Vertical",
+        "verticalHint": "contextRef.vertical on every fact this connection writes; defaults to the pack.",
+        "shape": {
+          "document": "documents",
+          "binary": "files"
+        }
+      },
+      "kinds": {
+        "folder": {
+          "title": "Folder",
+          "body": "A directory of documents — markdown, text, code, PDFs, Word / Excel / PowerPoint, mail. On the brain's host, or on a laptop through the local agent.",
+          "shapes": {
+            "document": "Text documents",
+            "documentHint": "markdown, text, csv, json, yaml, html, code",
+            "binary": "Files",
+            "binaryHint": "PDFs, Word / Excel / PowerPoint, .eml mail, images"
+          }
+        },
+        "site": {
+          "title": "Website",
+          "body": "Pages and sitemaps of a docs portal, a wiki, a company site — read as text; PDFs and office documents handed to the evidence plane.",
+          "shapes": {
+            "document": "Pages",
+            "documentHint": "HTML reduced to text, plain text, JSON",
+            "binary": "Files",
+            "binaryHint": "PDFs and office documents the sitemap lists"
+          }
+        },
+        "bucket": {
+          "title": "S3 bucket",
+          "body": "Objects under a prefix of an S3 or S3-compatible bucket (AWS, MinIO, R2, B2).",
+          "shapes": {
+            "document": "Text documents",
+            "documentHint": "markdown, text, csv, json, yaml, html",
+            "binary": "Files",
+            "binaryHint": "PDFs, office documents, mail, images"
+          }
+        },
+        "mcp": {
+          "title": "MCP server",
+          "body": "The resources an MCP server exposes — a wiki, a knowledge base, a CMS behind an MCP endpoint.",
+          "shapes": {
+            "document": "Text resources",
+            "documentHint": "text and JSON resources",
+            "binary": "Blob resources",
+            "binaryHint": "PDFs, office documents, images"
+          }
+        },
+        "repo": {
+          "title": "Git repository",
+          "body": "The committed docs of a repository — README, docs/**, ADRs, changelogs — read on the machine that has the clone, with the commit as the revision.",
+          "shapes": {
+            "document": "Documents",
+            "documentHint": "",
+            "binary": "Files",
+            "binaryHint": ""
+          }
+        },
+        "external": {
+          "title": "Pushed by a publisher",
+          "body": "An indexer or tool pushes here through the doors; connecting only creates the identity its writes are attributed to.",
+          "shapes": {
+            "document": "Documents",
+            "documentHint": "",
+            "binary": "Files",
+            "binaryHint": ""
+          }
+        },
+        "other": {
+          "title": "{connector}",
+          "body": "",
+          "shapes": {
+            "document": "Documents",
+            "documentHint": "",
+            "binary": "Files",
+            "binaryHint": ""
+          }
+        },
+        "both": "Both",
+        "bothHint": "two connections over the same place — one for documents, one for files",
+        "whatsInside": "What's in it?",
+        "viaPack": "via {packId}",
+        "status": {
+          "ready": "Ready",
+          "agent": "Through the local agent",
+          "external": "Publisher pushes",
+          "disabled": "Switched off",
+          "missing": "Not in this build",
+          "notAccepted": "Sources not accepted"
+        },
+        "statusHint": {
+          "ready": "",
+          "agent": "Runs on a brain-agent on the machine that has it; you get the command after connecting.",
+          "external": "",
+          "disabled": "Set {flag}=1 on the brain and restart.",
+          "missing": "This build ships no such connector.",
+          "notAccepted": "Reinstall the pack with acceptSources."
+        },
+        "connect": "Connect",
+        "deployment": "Deployment fences"
+      },
+      "picker": {
+        "browse": "Browse…",
+        "title": "Pick the folder",
+        "serverHint": "The brain's own disk, inside SOURCE_FS_ROOTS. Open a folder to look inside; \"use this\" makes it the connection's folder; tick subfolders to read only those.",
+        "agentHint": "What agent {agentId} reported on its last check-in — the folders under its roots, names only. \"Use this\" makes one the connection's folder; tick subfolders to read only those.",
+        "agentMissing": "Agent {agentId} has not checked in yet. Install it on that machine (Local agents → Set up an agent) and wait one pass, or type the path.",
+        "reportedAt": "reported {at} by {hostname}",
+        "up": "↑ up",
+        "jailRoots": "allowed roots",
+        "useThis": "use this",
+        "isRoot": "✓ this folder",
+        "noFolders": "no subfolders here ({files} files)",
+        "truncated": "Only the first 500 subfolders are shown.",
+        "tickHint": "read only this subfolder (adds it to \"only these paths\")",
+        "tickedCount": "{n} subfolder(s) ticked",
+        "nothingYet": "nothing chosen yet",
+        "use": "Use"
       }
     },
     "marketplace": {

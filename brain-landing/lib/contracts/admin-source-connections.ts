@@ -148,6 +148,16 @@ export const SourceCatalogEntrySchema = z.object({
   availability: AvailabilitySchema,
   configExample: OpenRecord.nullable(),
   credentialHint: z.string().nullable(),
+  hosts: z.array(z.enum(['server', 'agent'])),
+  mcp: z
+    .object({
+      transport: z.enum(['http', 'stdio']),
+      url: z.string().nullable(),
+      auth: z.enum(['none', 'install_secret', 'oauth']).nullable(),
+      command: z.string().nullable(),
+      args: z.array(z.string()),
+    })
+    .nullable(),
 })
 
 export const SourceConnectorStateSchema = z.object({
@@ -161,6 +171,129 @@ export const SourceCatalogResponseSchema = z.object({
   connectors: z.array(SourceConnectorStateSchema),
   fsRoots: z.array(z.string()),
   egressAllowPrivate: z.boolean(),
+})
+
+// ── Inspection (the operator's drill-down) ─────────────────────────────
+
+export const SourceConnectionStatsSchema = z.object({
+  connectionId: z.string(),
+  items: z.object({
+    seen: z.number().int(),
+    fetched: z.number().int(),
+    indexed: z.number().int(),
+    gone: z.number().int(),
+    total: z.number().int(),
+  }),
+  facts: z
+    .object({
+      active: z.number().int(),
+      stale: z.number().int(),
+      closed: z.number().int(),
+    })
+    .nullable(),
+})
+
+export const SourceRunCountersSchema = z.object({
+  seen: z.number().int(),
+  new: z.number().int(),
+  changed: z.number().int(),
+  unchanged: z.number().int(),
+  gone: z.number().int(),
+  fetched: z.number().int(),
+  ingested: z.number().int(),
+  deduplicated: z.number().int(),
+  failed: z.number().int(),
+  closed: z.number().int(),
+})
+
+export const SourceRunSchema = z.object({
+  runId: z.string(),
+  status: z.enum(['running', 'succeeded', 'failed', 'cancelled', 'pending']),
+  ranBy: z.string(),
+  triggeredBy: z.enum(['cron', 'manual', 'startup']),
+  startedAt: z.string(),
+  finishedAt: z.string().nullable(),
+  durationMs: z.number().int().nullable(),
+  mode: z.enum(['full', 'incremental']).nullable(),
+  counters: SourceRunCountersSchema.nullable(),
+  skipped: z.string().nullable(),
+  error: z.string().nullable(),
+})
+
+export const SourceRunsResponseSchema = z.object({
+  connectionId: z.string(),
+  persisted: z.boolean(),
+  runs: z.array(SourceRunSchema),
+})
+
+export const SourceItemFactSchema = z.object({
+  id: z.string(),
+  entityId: z.string(),
+  predicate: z.string(),
+  object: z.string(),
+  confidence: z.number(),
+  version: z.string().nullable(),
+  staleAt: z.string().nullable(),
+  staleReason: z.string().nullable(),
+  validUntil: z.string().nullable(),
+  status: z.string(),
+})
+
+export const SourceItemDocumentSchema = z.object({
+  id: z.string(),
+  title: z.string().nullable(),
+  kind: z.string().nullable(),
+  status: z.string().nullable(),
+  originUri: z.string().nullable(),
+  createdAt: z.string().nullable(),
+})
+
+export const SourceItemAssetSchema = z.object({
+  id: z.string(),
+  mediaType: z.string(),
+  modality: z.string(),
+  byteLength: z.number().int(),
+  availability: z.string(),
+  quarantineStatus: z.string().nullable(),
+  representations: z.array(
+    z.object({
+      id: z.string(),
+      kind: z.string(),
+      producerVersion: z.string(),
+      chars: z.number().int(),
+      createdAt: z.string().nullable(),
+    }),
+  ),
+})
+
+export const SourceItemInspectResponseSchema = z.object({
+  item: SourceItemSchema,
+  documents: z.array(SourceItemDocumentSchema),
+  asset: SourceItemAssetSchema.nullable(),
+  facts: z.array(SourceItemFactSchema),
+  factsTruncated: z.boolean(),
+})
+
+// ── Agents' presence and the folder picker ────────────────────────────
+
+export const SourceAgentSchema = z.object({
+  agentId: z.string(),
+  firstSeenAt: z.string(),
+  lastSeenAt: z.string(),
+  version: z.string().nullable(),
+  hostname: z.string().nullable(),
+  platform: z.string().nullable(),
+  roots: z.array(z.object({ path: z.string(), folders: z.array(z.string()) })),
+})
+export const SourceAgentsResponseSchema = z.object({ agents: z.array(SourceAgentSchema) })
+
+export const BrowseResponseSchema = z.object({
+  path: z.string(),
+  parent: z.string().nullable(),
+  roots: z.array(z.string()),
+  folders: z.array(z.object({ name: z.string(), path: z.string() })),
+  files: z.number().int(),
+  truncated: z.boolean(),
 })
 
 export type SourceConnection = z.infer<typeof SourceConnectionSchema>
@@ -180,3 +313,15 @@ export type SourceContentPolicy = z.infer<typeof ContentPolicySchema>
 export type SourceDeletePolicy = z.infer<typeof DeletePolicySchema>
 export type SourceItemState = z.infer<typeof ItemStateSchema>
 export type SourceAvailability = z.infer<typeof AvailabilitySchema>
+export type SourceConnectionStats = z.infer<typeof SourceConnectionStatsSchema>
+export type SourceRun = z.infer<typeof SourceRunSchema>
+export type SourceRunsResponse = z.infer<typeof SourceRunsResponseSchema>
+export type SourceItemFact = z.infer<typeof SourceItemFactSchema>
+export type SourceItemDocument = z.infer<typeof SourceItemDocumentSchema>
+export type SourceItemAsset = z.infer<typeof SourceItemAssetSchema>
+export type SourceItemInspectResponse = z.infer<
+  typeof SourceItemInspectResponseSchema
+>
+export type SourceAgent = z.infer<typeof SourceAgentSchema>
+export type SourceAgentsResponse = z.infer<typeof SourceAgentsResponseSchema>
+export type BrowseResponse = z.infer<typeof BrowseResponseSchema>

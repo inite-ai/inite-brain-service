@@ -215,6 +215,39 @@ describe('FsConnector', () => {
     ]);
   });
 
+  it('include / exclude globs and .brainignore files decide which paths are the source’s', async () => {
+    const c = new FsConnector();
+    await mkdir(join(root, 'notes', 'private'), { recursive: true });
+    await writeFile(join(root, 'notes', 'a.md'), 'a');
+    await writeFile(join(root, 'notes', 'draft.md'), 'd');
+    await writeFile(join(root, 'notes', 'private', 'p.md'), 'p');
+    await writeFile(join(root, 'notes', '.brainignore'), 'private/\ndraft.md\n');
+    // Only docs/** and notes/** — the ignore file inside notes prunes private/ and drops draft.md.
+    const only = await walk(c, ctx({ config: { include: ['docs/**', 'notes/**'] } }));
+    expect(ids(only)).toEqual([
+      'docs/fake.md',
+      'docs/notes.txt',
+      'docs/page.html',
+      'docs/runbooks/oncall.md',
+      'notes/a.md',
+    ]);
+    // exclude by path and by name; the ignore file can be switched off.
+    const minus = await walk(
+      c,
+      ctx({ config: { exclude: ['docs/runbooks', 'big.*'], ignoreFiles: [] } }),
+    );
+    expect(ids(minus)).toEqual([
+      'README.md',
+      'docs/fake.md',
+      'docs/notes.txt',
+      'docs/page.html',
+      'notes/a.md',
+      'notes/draft.md',
+      'notes/private/p.md',
+    ]);
+    await rm(join(root, 'notes'), { recursive: true, force: true });
+  });
+
   it('fetch reads a text file, refuses binary content in a text item, and re-checks containment', async () => {
     const c = new FsConnector();
     const x = ctx();

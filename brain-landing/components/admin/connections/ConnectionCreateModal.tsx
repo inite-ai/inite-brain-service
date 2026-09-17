@@ -1,94 +1,169 @@
 'use client'
 
-import { useCallback, useState } from 'react'
-import { Loader2, Plug } from 'lucide-react'
-import { Field, Modal, Segmented, inputCls } from '../policies/ui'
+import { useCallback, useMemo, useState } from 'react'
+import { Check, ChevronLeft, ChevronRight, Laptop, Loader2, Plug, Server } from 'lucide-react'
+import { Field, Modal, inputCls } from '../policies/ui'
 import {
-  SOURCE_CONTENT_POLICIES,
   SOURCE_DELETE_POLICIES,
   SOURCE_SCHEDULES,
   type SourceCatalogEntry,
+  type SourceCatalogResponse,
   type SourceConnection,
+  type SourceContentPolicy,
+  type SourceDeletePolicy,
+  type SourceSchedule,
 } from '../../../lib/contracts/admin-source-connections'
 import { PROXY, errorMessage, fill, type ConnectionsT } from './shared'
+import { ConnectorFields } from './create/ConnectorFields'
+import { FolderPicker } from './create/FolderPicker'
+import { entriesFor, shapeChoices, type ShapeChoice, type SourceCard } from './kinds'
+import {
+  AGENT_ID,
+  configFrom,
+  credentialFrom,
+  formFor,
+  initialValues,
+  validate,
+  visibleFields,
+  type FieldError,
+  type FormContext,
+  type FormValues,
+} from './create/specs'
+
+type Step = 'where' | 'source' | 'sync'
+const STEPS: Step[] = ['where', 'source', 'sync']
 
 /**
- * The create form for one catalogue entry. Everything an operator can
- * set at creation is here; `config` is a JSON editor pre-filled from
- * the connector's own example so the keys are never guessed, and the
- * credential is a separate write-only field (the backend never returns
- * it). Defaults for schedule / policies come from the pack entry.
+ * Connecting a source is three questions, asked in order: where it runs
+ * (the brain, or an agent on the machine that has it), what exactly to
+ * read (the connector's own fields — a folder, a site, a bucket, a
+ * server), and how to sync it (schedule, what to take, what to do when
+ * an item disappears). Every field is typed and validated; the JSON the
+ * brain receives is one click away under Advanced, never the default.
  */
 export function ConnectionCreateModal({
-  entry,
+  card,
+  catalog,
   t,
   onClose,
   onCreated,
 }: {
-  entry: SourceCatalogEntry
+  card: SourceCard
+  catalog: SourceCatalogResponse
   t: ConnectionsT
   onClose: () => void
-  onCreated: (created: SourceConnection) => void
+  /** One connection, or two when the operator wanted documents AND files. */
+  onCreated: (created: SourceConnection[]) => void
 }) {
-  const c = t.create
-  const [label, setLabel] = useState('')
-  // An agent-only entry (git, stdio MCP) runs on a local agent: the host
-  // is `agent:<id>` and the operator names the agent. A server-run entry
-  // may also be pointed at an agent — the same folder on a laptop instead
-  // of a mounted volume.
-  const agentOnly = entry.availability === 'agent'
-  const [onAgent, setOnAgent] = useState(agentOnly)
+  const f = t.form
+  const choices = useMemo(() => shapeChoices(card), [card])
+  const [shape, setShape] = useState<ShapeChoice | null>(choices.length > 0 ? 'document' : null)
+  // The entry the form is built on: same connector for every shape, so the
+  // fields are the same; policies are read per entry at submit.
+  const entry = useMemo(() => entriesFor(card, shape)[0] ?? card.entries[0]!, [card, shape])
+  const form = useMemo(() => formFor(entry), [entry])
+  const canChoose = entry.hosts.length > 1
+  const [step, setStep] = useState<Step>('where')
+  const [host, setHost] = useState<'server' | 'agent'>(entry.hosts[0] ?? 'server')
   const [agentId, setAgentId] = useState('')
-  const [vertical, setVertical] = useState(entry.packId)
-  const [config, setConfig] = useState(
-    JSON.stringify(entry.configExample ?? {}, null, 2),
+  const [label, setLabel] = useState('')
+  const [values, setValues] = useState<FormValues>(() => (form ? initialValues(form, entry) : {}))
+  const [secret, setSecret] = useState({ single: '', keyId: '', keySecret: '' })
+  const [advanced, setAdvanced] = useState(false)
+  const [json, setJson] = useState<string | null>(null)
+  const [touched, setTouched] = useState(false)
+  const [schedule, setSchedule] = useState<SourceSchedule>(entry.defaults.schedule)
+  // "Content" is text for a document entry and bytes for a binary one —
+  // the operator chooses between taking content and cataloguing only.
+  const [take, setTake] = useState<'content' | 'manifest'>(
+    entry.defaults.contentPolicy === 'manifest' ? 'manifest' : 'content',
   )
-  const [credential, setCredential] = useState('')
-  const [schedule, setSchedule] = useState<string>(entry.defaults.schedule)
-  const [contentPolicy, setContentPolicy] = useState<string>(
-    entry.defaults.contentPolicy,
-  )
-  const [deletePolicy, setDeletePolicy] = useState<string>(
-    entry.defaults.deletePolicy,
-  )
+  const [deletePolicy, setDeletePolicy] = useState<SourceDeletePolicy>(entry.defaults.deletePolicy)
   const [fetchBudget, setFetchBudget] = useState('')
   const [ownerUserId, setOwnerUserId] = useState('')
+  const [vertical, setVertical] = useState(entry.packId)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [picking, setPicking] = useState(false)
+
+  const ctx: FormContext = useMemo(
+    () => ({ host, entry, fsRoots: catalog.fsRoots, egressAllowPrivate: catalog.egressAllowPrivate }),
+    [host, entry, catalog],
+  )
+  const errors: Record<string, FieldError> = useMemo(
+    () => (form && json === null ? validate(form, values, ctx, secret) : {}),
+    [form, values, ctx, secret, json],
+  )
+  const whereOk = host === 'server' || AGENT_ID.test(agentId.trim())
+  const sourceOk = Object.keys(errors).length === 0
+  const shownErrors = touched ? errors : {}
+
+  const assembledConfig = useCallback((): Record<string, unknown> => {
+    if (json !== null) return JSON.parse(json) as Record<string, unknown>
+    return form ? configFrom(form, values, ctx) : {}
+  }, [form, values, ctx, json])
+
+  const next = useCallback(() => {
+    if (step === 'where' && !whereOk) return
+    if (step === 'source' && !sourceOk) {
+      setTouched(true)
+      return
+    }
+    setError(null)
+    setStep(STEPS[Math.min(STEPS.indexOf(step) + 1, STEPS.length - 1)] ?? 'sync')
+  }, [step, whereOk, sourceOk])
+
+  const back = useCallback(() => {
+    setError(null)
+    setStep(STEPS[Math.max(STEPS.indexOf(step) - 1, 0)] ?? 'where')
+  }, [step])
 
   const submit = useCallback(async () => {
-    let parsedConfig: unknown
+    let config: Record<string, unknown>
     try {
-      parsedConfig = config.trim() ? JSON.parse(config) : {}
+      config = assembledConfig()
     } catch {
-      setError(c.invalidJson)
+      setError(f.invalidJson)
       return
     }
     setBusy(true)
     setError(null)
     try {
-      const body: Record<string, unknown> = {
-        packId: entry.packId,
-        sourceId: entry.sourceId,
-        vertical: vertical.trim(),
-        config: parsedConfig,
-        schedule,
-        contentPolicy,
-        deletePolicy,
-        ...(onAgent ? { host: `agent:${agentId.trim()}` } : {}),
+      const targets = entriesFor(card, shape)
+      const created: SourceConnection[] = []
+      for (const target of targets) {
+        const body: Record<string, unknown> = {
+          packId: target.packId,
+          sourceId: target.sourceId,
+          vertical: vertical.trim() || target.packId,
+          config,
+          schedule,
+          // "Content" means text for a document entry and bytes for a
+          // binary one; "catalogue only" is manifest for both.
+          contentPolicy: take === 'manifest' ? 'manifest' : target.shape === 'binary' ? 'bytes' : 'text',
+          deletePolicy,
+          ...(host === 'agent' ? { host: `agent:${agentId.trim()}` } : {}),
+        }
+        if (label.trim()) {
+          body.label =
+            targets.length > 1
+              ? `${label.trim()} · ${target.shape === 'binary' ? f.shape.binary : f.shape.document}`
+              : label.trim()
+        }
+        const credential = form ? credentialFrom(form, secret) : undefined
+        if (credential) body.credential = credential
+        if (fetchBudget.trim()) body.fetchBudget = Number(fetchBudget)
+        if (ownerUserId.trim()) body.ownerUserId = ownerUserId.trim()
+        const res = await fetch(PROXY, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        const out = await res.json()
+        if (!res.ok) throw new Error(errorMessage(out, res.status))
+        created.push(out as SourceConnection)
       }
-      if (label.trim()) body.label = label.trim()
-      if (credential) body.credential = credential
-      if (fetchBudget.trim()) body.fetchBudget = Number(fetchBudget)
-      if (ownerUserId.trim()) body.ownerUserId = ownerUserId.trim()
-      const res = await fetch(PROXY, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(errorMessage(json, res.status))
-      onCreated(json as SourceConnection)
+      onCreated(created)
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -96,179 +171,541 @@ export function ConnectionCreateModal({
     }
   }, [
     agentId,
-    c,
-    config,
-    contentPolicy,
-    credential,
+    assembledConfig,
+    card,
     deletePolicy,
-    entry,
+    f,
     fetchBudget,
+    form,
+    host,
     label,
-    onAgent,
     onCreated,
     ownerUserId,
     schedule,
+    secret,
+    shape,
+    take,
     vertical,
   ])
 
+  const kind = t.kinds[card.family]
+  const title = fill(kind.title, { connector: card.connector })
   return (
-    <Modal
-      title={fill(c.title, { packId: entry.packId, sourceId: entry.sourceId })}
-      onClose={onClose}
-      wide
-    >
-      {entry.description && (
-        <p className="mb-3 text-[11px] text-[var(--text-muted)]">
-          {entry.description}
-        </p>
-      )}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <Field label={c.host} hint={agentOnly ? c.hostAgentOnly : c.hostHint}>
-          <Segmented<'server' | 'agent'>
-            value={onAgent ? 'agent' : 'server'}
-            options={[
-              { value: 'server', label: c.hostServer },
-              { value: 'agent', label: c.hostAgent },
-            ]}
-            onChange={(v) => {
-              if (agentOnly) return
-              setOnAgent(v === 'agent')
-            }}
-          />
-        </Field>
-        {onAgent ? (
-          <Field label={c.agentId} hint={c.agentIdHint}>
-            <input
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              placeholder="laptop-1"
-              className={`${inputCls} font-mono`}
-            />
-          </Field>
-        ) : (
-          <div className="hidden md:block" />
-        )}
-        <Field label={c.label} hint={c.labelHint}>
-          <input
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            className={inputCls}
-          />
-        </Field>
-        <Field label={c.vertical} hint={c.verticalHint}>
-          <input
-            value={vertical}
-            onChange={(e) => setVertical(e.target.value)}
-            className={`${inputCls} font-mono`}
-          />
-        </Field>
-        <div className="md:col-span-2">
-          <Field label={c.config} hint={c.configHint}>
-            <textarea
-              value={config}
-              onChange={(e) => setConfig(e.target.value)}
-              rows={6}
-              className={`${inputCls} font-mono`}
-            />
-          </Field>
-        </div>
-        <div className="md:col-span-2">
-          <Field
-            label={c.credential}
-            hint={entry.credentialHint ?? c.credentialNone}
-          >
-            <input
-              type="password"
-              autoComplete="off"
-              value={credential}
-              onChange={(e) => setCredential(e.target.value)}
-              className={`${inputCls} font-mono`}
-            />
-          </Field>
-        </div>
-        <Field label={c.schedule}>
-          <select
-            value={schedule}
-            onChange={(e) => setSchedule(e.target.value)}
-            className={inputCls}
-          >
-            {SOURCE_SCHEDULES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label={c.contentPolicy}>
-          <select
-            value={contentPolicy}
-            onChange={(e) => setContentPolicy(e.target.value)}
-            className={inputCls}
-          >
-            {SOURCE_CONTENT_POLICIES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label={c.deletePolicy}>
-          <select
-            value={deletePolicy}
-            onChange={(e) => setDeletePolicy(e.target.value)}
-            className={inputCls}
-          >
-            {SOURCE_DELETE_POLICIES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label={c.fetchBudget} hint={c.fetchBudgetHint}>
-          <input
-            type="number"
-            min={1}
-            value={fetchBudget}
-            onChange={(e) => setFetchBudget(e.target.value)}
-            className={`${inputCls} font-mono`}
-          />
-        </Field>
-        <div className="md:col-span-2">
-          <Field label={c.ownerUserId} hint={c.ownerUserIdHint}>
-            <input
-              value={ownerUserId}
-              onChange={(e) => setOwnerUserId(e.target.value)}
-              className={`${inputCls} font-mono`}
-            />
-          </Field>
+    <Modal title={fill(t.create.title, { title })} onClose={onClose} wide>
+      <div className="mb-3 text-[11px] text-[var(--text-muted)]">
+        {kind.body || entry.description}
+        <div className="mt-1 font-mono text-[10px] text-[var(--text-faint)]">
+          {card.packId}
+          {' '}
+          {card.packVersion}
         </div>
       </div>
-      {error && (
-        <div className="mt-3 font-mono text-xs text-[var(--danger)]">{error}</div>
+
+      <Stepper step={step} t={t} />
+
+      <div className="mt-3 max-h-[60vh] overflow-y-auto pr-1">
+        {step === 'where' && (
+          <div className="space-y-3">
+            {canChoose ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <HostCard
+                  icon={<Server className="w-4 h-4" />}
+                  title={f.host.serverTitle}
+                  body={f.host.serverBody}
+                  selected={host === 'server'}
+                  onSelect={() => setHost('server')}
+                />
+                <HostCard
+                  icon={<Laptop className="w-4 h-4" />}
+                  title={f.host.agentTitle}
+                  body={f.host.agentBody}
+                  selected={host === 'agent'}
+                  onSelect={() => setHost('agent')}
+                />
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--bg)] p-3 text-xs text-[var(--text)]">
+                {host === 'agent' ? <Laptop className="w-4 h-4 text-[var(--accent)]" /> : <Server className="w-4 h-4 text-[var(--accent)]" />}
+                <span>{host === 'agent' ? f.host.agentOnly : f.host.serverOnly}</span>
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {host === 'agent' && (
+                <Field label={`${f.agentId} *`} hint={f.agentIdHint}>
+                  <input
+                    value={agentId}
+                    onChange={(e) => setAgentId(e.target.value)}
+                    placeholder="laptop-1"
+                    autoComplete="off"
+                    className={`${inputCls} font-mono`}
+                  />
+                </Field>
+              )}
+              <Field label={f.label} hint={f.labelHint}>
+                <input value={label} onChange={(e) => setLabel(e.target.value)} className={inputCls} />
+              </Field>
+            </div>
+          </div>
+        )}
+
+        {step === 'source' && choices.length > 0 && (
+          <div className="mb-4">
+            <Cards<ShapeChoice>
+              title={t.kinds.whatsInside}
+              value={shape ?? 'document'}
+              options={choices.map((c) => ({
+                value: c,
+                title: c === 'both' ? t.kinds.both : kind.shapes[c],
+                body: c === 'both' ? t.kinds.bothHint : kind.shapes[c === 'binary' ? 'binaryHint' : 'documentHint'],
+              }))}
+              onChange={setShape}
+              columns={3}
+            />
+          </div>
+        )}
+        {step === 'source' && (
+          <SourceStep
+            entry={entry}
+            ctx={ctx}
+            form={form}
+            values={values}
+            errors={shownErrors}
+            secret={secret}
+            advanced={advanced}
+            json={json}
+            t={t}
+            onValue={(k, v) => setValues((prev) => ({ ...prev, [k]: v }))}
+            onBrowse={() => setPicking(true)}
+            onSecret={setSecret}
+            onAdvanced={setAdvanced}
+            onJson={setJson}
+            assembledConfig={assembledConfig}
+          />
+        )}
+
+        {step === 'sync' && (
+          <div className="space-y-4">
+            <Cards<SourceSchedule>
+              title={f.schedule.title}
+              value={schedule}
+              options={SOURCE_SCHEDULES.map((s) => ({ value: s, title: f.schedule[s].title, body: f.schedule[s].body }))}
+              onChange={setSchedule}
+              columns={5}
+            />
+            <Cards<'content' | 'manifest'>
+              title={f.content.title}
+              value={take}
+              options={[
+                {
+                  value: 'content',
+                  title: f.content[contentOf(entry)].title,
+                  body:
+                    shape === 'both'
+                      ? `${f.content.text.body} ${f.content.bytes.body}`
+                      : f.content[contentOf(entry)].body,
+                },
+                { value: 'manifest', title: f.content.manifest.title, body: f.content.manifest.body },
+              ]}
+              onChange={setTake}
+              columns={2}
+            />
+            <Cards<SourceDeletePolicy>
+              title={f.onDelete.title}
+              value={deletePolicy}
+              options={SOURCE_DELETE_POLICIES.map((p) => ({ value: p, title: f.onDelete[p].title, body: f.onDelete[p].body }))}
+              onChange={setDeletePolicy}
+              columns={3}
+            />
+            <details className="text-xs">
+              <summary className="cursor-pointer text-[var(--text-muted)]">{f.advanced}</summary>
+              <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Field label={f.fetchBudget} hint={f.fetchBudgetHint}>
+                  <input
+                    type="number"
+                    min={1}
+                    value={fetchBudget}
+                    onChange={(e) => setFetchBudget(e.target.value)}
+                    className={`${inputCls} font-mono`}
+                  />
+                </Field>
+                <Field label={f.ownerUserId} hint={f.ownerUserIdHint}>
+                  <input
+                    value={ownerUserId}
+                    onChange={(e) => setOwnerUserId(e.target.value)}
+                    className={`${inputCls} font-mono`}
+                  />
+                </Field>
+                <Field label={f.vertical} hint={f.verticalHint}>
+                  <input
+                    value={vertical}
+                    onChange={(e) => setVertical(e.target.value)}
+                    className={`${inputCls} font-mono`}
+                  />
+                </Field>
+              </div>
+            </details>
+          </div>
+        )}
+      </div>
+
+      {picking && (
+        <FolderPicker
+          host={host}
+          agentId={agentId.trim()}
+          initialRoot={String(values['root'] ?? '')}
+          initialInclude={String(values['include'] ?? '')
+            .split('\n')
+            .map((x) => x.trim())
+            .filter(Boolean)}
+          t={t}
+          onClose={() => setPicking(false)}
+          onPick={(root, include) => {
+            setValues((prev) => ({ ...prev, root, include: include.join('\n') }))
+            setPicking(false)
+          }}
+        />
       )}
-      <div className="mt-4 flex justify-end gap-2">
+
+      {error && <div className="mt-3 font-mono text-xs text-[var(--danger)]">{error}</div>}
+
+      <div className="mt-4 flex items-center justify-between gap-2">
         <button
           type="button"
           onClick={onClose}
           className="rounded border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-muted)]"
         >
-          {c.cancel}
+          {t.create.cancel}
+        </button>
+        <div className="flex gap-2">
+          {step !== 'where' && (
+            <button
+              type="button"
+              onClick={back}
+              className="rounded border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text)] inline-flex items-center gap-1"
+            >
+              <ChevronLeft className="w-3 h-3" /> {f.back}
+            </button>
+          )}
+          {step !== 'sync' ? (
+            <button
+              type="button"
+              disabled={step === 'where' ? !whereOk : false}
+              onClick={next}
+              className="rounded bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white inline-flex items-center gap-1 disabled:opacity-40"
+            >
+              {f.next} <ChevronRight className="w-3 h-3" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={busy || !whereOk || !sourceOk}
+              onClick={() => void submit()}
+              className="rounded bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white inline-flex items-center gap-1 disabled:opacity-40"
+            >
+              {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plug className="w-3 h-3" />}
+              {busy ? f.connecting : f.connect}
+            </button>
+          )}
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+/** What "content" means for the entry's shape: text for documents, bytes for files. */
+function contentOf(entry: SourceCatalogEntry): SourceContentPolicy {
+  return entry.shape === 'binary' ? 'bytes' : 'text'
+}
+
+function Stepper({ step, t }: { step: Step; t: ConnectionsT }) {
+  const idx = STEPS.indexOf(step)
+  return (
+    <ol className="flex items-center gap-2 text-[11px]">
+      {STEPS.map((s, i) => {
+        const done = i < idx
+        const active = i === idx
+        return (
+          <li key={s} className="flex items-center gap-2">
+            <span
+              className={`inline-flex h-5 w-5 items-center justify-center rounded-full font-mono text-[10px] ${
+                active
+                  ? 'bg-[var(--accent)] text-white'
+                  : done
+                    ? 'bg-[var(--success)]/20 text-[var(--success)]'
+                    : 'bg-[var(--bg-overlay)] text-[var(--text-faint)]'
+              }`}
+            >
+              {done ? <Check className="w-3 h-3" /> : i + 1}
+            </span>
+            <span className={active ? 'text-[var(--text)]' : 'text-[var(--text-muted)]'}>{t.form.steps[s]}</span>
+            {i < STEPS.length - 1 && <span className="w-6 border-t border-[var(--border)]" />}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+function HostCard({
+  icon,
+  title,
+  body,
+  selected,
+  onSelect,
+}: {
+  icon: React.ReactNode
+  title: string
+  body: string
+  selected: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`text-left rounded border p-3 transition-colors ${
+        selected
+          ? 'border-[var(--accent)] bg-[var(--accent)]/5'
+          : 'border-[var(--border)] bg-[var(--bg)] hover:border-[var(--text-faint)]'
+      }`}
+    >
+      <div className="flex items-center gap-2 text-xs font-medium text-[var(--text)]">
+        <span className={selected ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'}>{icon}</span>
+        {title}
+      </div>
+      <p className="mt-1 text-[10px] text-[var(--text-muted)]">{body}</p>
+    </button>
+  )
+}
+
+function Cards<T extends string>({
+  title,
+  value,
+  options,
+  onChange,
+  columns,
+}: {
+  title: string
+  value: T
+  options: Array<{ value: T; title: string; body: string }>
+  onChange: (v: T) => void
+  columns: number
+}) {
+  const cols = columns >= 5 ? 'md:grid-cols-5' : columns === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'
+  return (
+    <div>
+      <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)]">{title}</div>
+      <div className={`grid grid-cols-1 ${cols} gap-2`}>
+        {options.map((o) => {
+          const selected = o.value === value
+          return (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => onChange(o.value)}
+              className={`text-left rounded border p-2 transition-colors ${
+                selected
+                  ? 'border-[var(--accent)] bg-[var(--accent)]/5'
+                  : 'border-[var(--border)] bg-[var(--bg)] hover:border-[var(--text-faint)]'
+              }`}
+            >
+              <div className="text-xs text-[var(--text)]">{o.title}</div>
+              {o.body && <div className="mt-0.5 text-[10px] text-[var(--text-muted)]">{o.body}</div>}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function SourceStep({
+  entry,
+  ctx,
+  form,
+  values,
+  errors,
+  secret,
+  advanced,
+  json,
+  t,
+  onValue,
+  onBrowse,
+  onSecret,
+  onAdvanced,
+  onJson,
+  assembledConfig,
+}: {
+  entry: SourceCatalogEntry
+  ctx: FormContext
+  form: ReturnType<typeof formFor>
+  values: FormValues
+  errors: Record<string, FieldError>
+  secret: { single: string; keyId: string; keySecret: string }
+  advanced: boolean
+  json: string | null
+  t: ConnectionsT
+  onValue: (key: string, value: string | boolean) => void
+  onBrowse: () => void
+  onSecret: (s: { single: string; keyId: string; keySecret: string }) => void
+  onAdvanced: (v: boolean) => void
+  onJson: (v: string | null) => void
+  assembledConfig: () => Record<string, unknown>
+}) {
+  const f = t.form
+  if (entry.kind === 'external') {
+    return <p className="text-xs text-[var(--text-muted)]">{f.external}</p>
+  }
+  if (entry.mcp?.transport === 'stdio') {
+    return (
+      <div className="text-xs text-[var(--text-muted)]">
+        {f.stdio}
+        <pre className="mt-1 rounded bg-[var(--bg)] p-2 font-mono text-[11px] text-[var(--text)]">
+          {[entry.mcp.command, ...entry.mcp.args].join(' ')}
+        </pre>
+      </div>
+    )
+  }
+  if (!form) {
+    return (
+      <JsonEditor
+        hint={fill(f.noForm, { connector: entry.connector })}
+        value={json ?? JSON.stringify(entry.configExample ?? {}, null, 2)}
+        onChange={onJson}
+        t={t}
+      />
+    )
+  }
+  if (json !== null) {
+    return (
+      <div className="space-y-2">
+        <JsonEditor hint={f.jsonHint} value={json} onChange={onJson} t={t} />
+        <button type="button" onClick={() => onJson(null)} className="text-[11px] text-[var(--accent)]">
+          {f.editForm}
+        </button>
+      </div>
+    )
+  }
+  const fields = visibleFields(form, values, ctx, advanced)
+  return (
+    <div className="space-y-3">
+      {entry.mcp?.transport === 'http' && entry.mcp.url && (
+        <Field label={f.pinnedUrl} hint={f.pinnedUrlHint}>
+          <input value={entry.mcp.url} readOnly className={`${inputCls} font-mono opacity-70`} />
+        </Field>
+      )}
+      {entry.mcp?.auth === 'install_secret' && (
+        <p className="text-[11px] text-[var(--text-muted)]">{f.installSecret}</p>
+      )}
+      {entry.mcp?.auth === 'oauth' && <p className="text-[11px] text-[var(--warning)]">{f.oauth}</p>}
+      <ConnectorFields fields={fields} values={values} errors={errors} ctx={ctx} t={t} onChange={onValue} onBrowse={onBrowse} />
+      {form.credential && form.credential.shown(values) && (
+        <CredentialFields
+          kind={form.credential.kind}
+          secret={secret}
+          error={errors['credential'] ? f.errors.credential : null}
+          t={t}
+          onChange={onSecret}
+        />
+      )}
+      <div className="flex items-center gap-3 text-[11px]">
+        <button type="button" onClick={() => onAdvanced(!advanced)} className="text-[var(--accent)]">
+          {advanced ? f.advancedHide : f.advanced}
         </button>
         <button
           type="button"
-          disabled={busy || !vertical.trim() || (onAgent && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(agentId.trim()))}
-          onClick={() => void submit()}
-          className="rounded bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white inline-flex items-center gap-1 disabled:opacity-40"
+          onClick={() => {
+            try {
+              onJson(JSON.stringify(assembledConfig(), null, 2))
+            } catch {
+              onJson('{}')
+            }
+          }}
+          className="text-[var(--text-muted)] hover:text-[var(--text)]"
         >
-          {busy ? (
-            <Loader2 className="w-3 h-3 animate-spin" />
-          ) : (
-            <Plug className="w-3 h-3" />
-          )}
-          {busy ? c.submitting : c.submit}
+          {f.editJson}
         </button>
       </div>
-    </Modal>
+    </div>
+  )
+}
+
+function CredentialFields({
+  kind,
+  secret,
+  error,
+  t,
+  onChange,
+}: {
+  kind: 'single' | 'pair'
+  secret: { single: string; keyId: string; keySecret: string }
+  error: string | null
+  t: ConnectionsT
+  onChange: (s: { single: string; keyId: string; keySecret: string }) => void
+}) {
+  const c = t.form.credential
+  if (kind === 'pair') {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <Field label={c.keyId} hint={error ?? c.pairHint} error={!!error}>
+          <input
+            value={secret.keyId}
+            onChange={(e) => onChange({ ...secret, keyId: e.target.value })}
+            autoComplete="off"
+            className={`${inputCls} font-mono`}
+          />
+        </Field>
+        <Field label={c.keySecret} hint={c.singleHint}>
+          <input
+            type="password"
+            value={secret.keySecret}
+            onChange={(e) => onChange({ ...secret, keySecret: e.target.value })}
+            autoComplete="new-password"
+            className={`${inputCls} font-mono`}
+          />
+        </Field>
+      </div>
+    )
+  }
+  return (
+    <Field label={c.single} hint={error ?? c.singleHint} error={!!error}>
+      <input
+        type="password"
+        value={secret.single}
+        onChange={(e) => onChange({ ...secret, single: e.target.value })}
+        autoComplete="new-password"
+        className={`${inputCls} font-mono`}
+      />
+    </Field>
+  )
+}
+
+function JsonEditor({
+  hint,
+  value,
+  onChange,
+  t,
+}: {
+  hint: string
+  value: string
+  onChange: (v: string) => void
+  t: ConnectionsT
+}) {
+  let invalid = false
+  try {
+    JSON.parse(value)
+  } catch {
+    invalid = true
+  }
+  return (
+    <Field label="config" hint={invalid ? t.form.invalidJson : hint} error={invalid}>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={8}
+        spellCheck={false}
+        className={`${inputCls} font-mono`}
+      />
+    </Field>
   )
 }

@@ -31,7 +31,7 @@ import type { DomainPackManifest } from './manifest';
  */
 export const FILE_MEMORY_PACK: DomainPackManifest = {
   id: 'file_memory',
-  version: '0.3.0',
+  version: '0.3.1',
   description:
     'Files as memory — what a folder of documents describes, defines and references, bound to the file revision it was read at; the source pack that connects local and mounted folders.',
   predicates: [
@@ -175,7 +175,7 @@ explicitly. Copy names, terms, paths and URLs VERBATIM.`,
       shape: 'document',
       title: 'Folder (text documents)',
       description:
-        'Text-like files under a directory (markdown, text, csv, json, yaml, html, code) read as documents. config: { root, extensions?, excludeDirs?, maxFiles?, maxFileBytes? }.',
+        'Text-like files under a directory (markdown, text, csv, json, yaml, html, code) read as documents. config: { root, include?, exclude?, ignoreFiles?, extensions?, excludeDirs?, maxFiles?, maxFileBytes? }.',
       defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: 'manual' },
     },
     {
@@ -185,7 +185,7 @@ explicitly. Copy names, terms, paths and URLs VERBATIM.`,
       shape: 'binary',
       title: 'Folder (PDFs, office documents, mail, images)',
       description:
-        'PDFs, Word / Excel / PowerPoint (docx, xlsx, pptx), .eml mail and images under a directory handed to the evidence plane (needs the evidence substrate + broker; the bridge carries the extracted text into facts). config: { root, extensions?, excludeDirs?, maxFiles?, maxFileBytes? }.',
+        'PDFs, Word / Excel / PowerPoint (docx, xlsx, pptx), .eml mail and images under a directory handed to the evidence plane (needs the evidence substrate + broker; the bridge carries the extracted text into facts). config: { root, include?, exclude?, ignoreFiles?, extensions?, excludeDirs?, maxFiles?, maxFileBytes? }.',
       defaults: { contentPolicy: 'bytes', deletePolicy: 'close', schedule: 'manual' },
     },
     {

@@ -329,6 +329,54 @@
         ],
         "type": "object"
       },
+      "AgentInventory": {
+        "additionalProperties": false,
+        "properties": {
+          "hostname": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "platform": {
+            "maxLength": 40,
+            "type": "string"
+          },
+          "roots": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "folders": {
+                  "items": {
+                    "maxLength": 1000,
+                    "type": "string"
+                  },
+                  "maxItems": 2000,
+                  "type": "array"
+                },
+                "path": {
+                  "maxLength": 1000,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "folders"
+              ],
+              "type": "object"
+            },
+            "maxItems": 32,
+            "type": "array"
+          },
+          "version": {
+            "maxLength": 40,
+            "type": "string"
+          }
+        },
+        "required": [
+          "roots"
+        ],
+        "type": "object"
+      },
       "AgentItemResponse": {
         "additionalProperties": false,
         "properties": {
@@ -669,6 +717,62 @@
         "required": [
           "beliefs",
           "found"
+        ],
+        "type": "object"
+      },
+      "BrowseResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "files": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "folders": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "path"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "parent": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "roots": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "parent",
+          "roots",
+          "folders",
+          "files",
+          "truncated"
         ],
         "type": "object"
       },
@@ -5655,6 +5759,82 @@
         ],
         "type": "object"
       },
+      "SourceAgentsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "agents": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "agentId": {
+                  "type": "string"
+                },
+                "firstSeenAt": {
+                  "type": "string"
+                },
+                "hostname": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "lastSeenAt": {
+                  "type": "string"
+                },
+                "platform": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "roots": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "folders": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "folders"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "version": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "agentId",
+                "firstSeenAt",
+                "lastSeenAt",
+                "version",
+                "hostname",
+                "platform",
+                "roots"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "agents"
+        ],
+        "type": "object"
+      },
       "SourceCatalogResponse": {
         "additionalProperties": false,
         "properties": {
@@ -5780,6 +5960,16 @@
                     "null"
                   ]
                 },
+                "hosts": {
+                  "items": {
+                    "enum": [
+                      "server",
+                      "agent"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
                 "kind": {
                   "enum": [
                     "mcp",
@@ -5787,6 +5977,66 @@
                     "external"
                   ],
                   "type": "string"
+                },
+                "mcp": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "args": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "auth": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "none",
+                                "install_secret",
+                                "oauth"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "command": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "transport": {
+                          "enum": [
+                            "http",
+                            "stdio"
+                          ],
+                          "type": "string"
+                        },
+                        "url": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "transport",
+                        "url",
+                        "auth",
+                        "command",
+                        "args"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "packId": {
                   "type": "string"
@@ -5827,7 +6077,9 @@
                 "defaults",
                 "availability",
                 "configExample",
-                "credentialHint"
+                "credentialHint",
+                "hosts",
+                "mcp"
               ],
               "type": "object"
             },
@@ -6031,6 +6283,91 @@
           "lastError",
           "createdAt",
           "updatedAt"
+        ],
+        "type": "object"
+      },
+      "SourceConnectionStats": {
+        "additionalProperties": false,
+        "properties": {
+          "connectionId": {
+            "type": "string"
+          },
+          "facts": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "active": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  },
+                  "closed": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  },
+                  "stale": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "active",
+                  "stale",
+                  "closed"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "fetched": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "gone": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "indexed": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "seen": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "total": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "seen",
+              "fetched",
+              "indexed",
+              "gone",
+              "total"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "connectionId",
+          "items",
+          "facts"
         ],
         "type": "object"
       },
@@ -6241,6 +6578,219 @@
         ],
         "type": "object"
       },
+      "SourceItemInspectResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "asset": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "availability": {
+                    "type": "string"
+                  },
+                  "byteLength": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "mediaType": {
+                    "type": "string"
+                  },
+                  "modality": {
+                    "type": "string"
+                  },
+                  "quarantineStatus": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "representations": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "chars": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "createdAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "type": "string"
+                        },
+                        "producerVersion": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "kind",
+                        "producerVersion",
+                        "chars",
+                        "createdAt"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "id",
+                  "mediaType",
+                  "modality",
+                  "byteLength",
+                  "availability",
+                  "quarantineStatus",
+                  "representations"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "documents": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "createdAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "originUri": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "kind",
+                "status",
+                "originUri",
+                "createdAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "facts": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "confidence": {
+                  "type": "number"
+                },
+                "entityId": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "predicate": {
+                  "type": "string"
+                },
+                "staleAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "staleReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string"
+                },
+                "validUntil": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "entityId",
+                "predicate",
+                "object",
+                "confidence",
+                "version",
+                "staleAt",
+                "staleReason",
+                "validUntil",
+                "status"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "factsTruncated": {
+            "type": "boolean"
+          },
+          "item": {
+            "$ref": "#/components/schemas/SourceItem"
+          }
+        },
+        "required": [
+          "item",
+          "documents",
+          "asset",
+          "facts",
+          "factsTruncated"
+        ],
+        "type": "object"
+      },
       "SourceItemsListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -6271,6 +6821,191 @@
           "total",
           "limit",
           "offset"
+        ],
+        "type": "object"
+      },
+      "SourceRunsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "connectionId": {
+            "type": "string"
+          },
+          "persisted": {
+            "type": "boolean"
+          },
+          "runs": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "counters": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "changed": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "closed": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "deduplicated": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "failed": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "fetched": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "gone": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "ingested": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "new": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "seen": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "unchanged": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "seen",
+                        "new",
+                        "changed",
+                        "unchanged",
+                        "gone",
+                        "fetched",
+                        "ingested",
+                        "deduplicated",
+                        "failed",
+                        "closed"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "durationMs": {
+                  "anyOf": [
+                    {
+                      "maximum": 9007199254740991,
+                      "minimum": -9007199254740991,
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "finishedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mode": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "full",
+                        "incremental"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "ranBy": {
+                  "type": "string"
+                },
+                "runId": {
+                  "type": "string"
+                },
+                "skipped": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "startedAt": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "running",
+                    "succeeded",
+                    "failed",
+                    "cancelled",
+                    "pending"
+                  ],
+                  "type": "string"
+                },
+                "triggeredBy": {
+                  "enum": [
+                    "cron",
+                    "manual",
+                    "startup"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "runId",
+                "status",
+                "ranBy",
+                "triggeredBy",
+                "startedAt",
+                "finishedAt",
+                "durationMs",
+                "mode",
+                "counters",
+                "skipped",
+                "error"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "connectionId",
+          "persisted",
+          "runs"
         ],
         "type": "object"
       },
@@ -8257,6 +8992,82 @@
         ]
       }
     },
+    "/v1/admin/source-connections/agents": {
+      "get": {
+        "description": "Every agent that checked in: when, from which host and version, and the folders it reported under its roots (names only) — the folder picker for agent-host connections. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
+        "operationId": "listSourceAgents",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceAgentsResponse"
+                }
+              }
+            },
+            "description": "The agents."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The local agents this tenant has heard from",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/admin/source-connections/browse": {
+      "get": {
+        "description": "The folder picker for server-host connections: without `path`, the jail roots; with one, its subfolders (hidden, VCS and build directories left out, symlinks never followed) and a count of files. A path outside the jail, or any path when no jail is set, is refused. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
+        "operationId": "browseSourceFolders",
+        "parameters": [
+          {
+            "description": "The directory to list; empty = the jail roots.",
+            "in": "query",
+            "name": "path",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrowseResponse"
+                }
+              }
+            },
+            "description": "The level."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "One level of the brain host’s disk, inside SOURCE_FS_ROOTS",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
     "/v1/admin/source-connections/catalog": {
       "get": {
         "description": "The connectable catalogue: every `sources[]` entry of every pack the tenant has (builtin and installed, with its consent state), each with an `availability` — `ready`, `disabled` (the connector’s SOURCE_KIND switch is off), `missing` (this build ships no such connector), `agent` (stdio MCP, local-agent host) or `external` (the publisher pushes) — and the connector’s static `configExample` / `credentialHint`; plus the shipped connectors with their switches and the two operator fences (`fsRoots`, `egressAllowPrivate`). Read-only; never runs a connector, never reveals a credential. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
@@ -8516,6 +9327,159 @@
           }
         },
         "summary": "The connection’s catalogue",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/admin/source-connections/{id}/items/{itemId}": {
+      "get": {
+        "description": "The item, the document it became (or the asset it was stored as and the parts the bridge made of it), the representations the processors extracted, and the facts that cite it with the revision each was read at, its stale mark and its close. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
+        "operationId": "inspectSourceItem",
+        "parameters": [
+          {
+            "description": "Connection id (`source_connection:<tail>`; the bare tail is accepted).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The catalogue row id (`source_item:…`).",
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceItemInspectResponse"
+                }
+              }
+            },
+            "description": "The item and what it grounds."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "One catalogue row, followed to its facts",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/admin/source-connections/{id}/runs": {
+      "get": {
+        "description": "Every sync of the connection, newest first — queued, inline and agent runs alike, each a `source_sync` job_run projected to who ran it, its mode, counters, duration and error. `persisted: false` when JOB_RUN_PERSIST is off. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
+        "operationId": "listSourceConnectionRuns",
+        "parameters": [
+          {
+            "description": "Connection id (`source_connection:<tail>`; the bare tail is accepted).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size (default 20, max 200).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceRunsResponse"
+                }
+              }
+            },
+            "description": "The runs."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The connection’s runs",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/admin/source-connections/{id}/stats": {
+      "get": {
+        "description": "Catalogue rows by state and the facts the connection grounds (active / stale per the drift sweep / closed by the delete policy). The fact count is a bounded scan; `facts` is null when the tenant was too large to count in time. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
+        "operationId": "getSourceConnectionStats",
+        "parameters": [
+          {
+            "description": "Connection id (`source_connection:<tail>`; the bare tail is accepted).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceConnectionStats"
+                }
+              }
+            },
+            "description": "The counts."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "What the connection produced",
         "tags": [
           "Source Plane"
         ]
@@ -11213,6 +12177,63 @@
           }
         },
         "summary": "The connections pointed at this agent host",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/source-connections/agents/{agentId}": {
+      "put": {
+        "description": "Sent by the agent on every pass: its version, hostname, platform and the directories under its roots (names only, depth-bounded). Presence for the operator, an inventory for the folder picker. The local agent’s wire (docs/source-plane.md § Agent): the connector runs on the agent’s machine, the engine keeps the books here. Scope brain:write — a tenant write key, never an admin one; it reaches only the connections an operator pointed at its host (`host: agent:<id>`). Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:write`.",
+        "operationId": "agentCheckIn",
+        "parameters": [
+          {
+            "description": "The agent id (`agent:<id>` without the prefix).",
+            "in": "path",
+            "name": "agentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentInventory"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Recorded."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Agent check-in: presence and the folders it can see",
         "tags": [
           "Source Plane"
         ]

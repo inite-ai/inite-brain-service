@@ -181,7 +181,8 @@ export class JobRunService {
   // which isCancelRequested() also consults, so an evicted hint never loses
   // a cancel in persist mode.
   private readonly inProcessCancelHints = new LRUCache<string, true>(10_000);
-  private readonly persistEnabled: boolean;
+  /** Whether rows are written at all (JOB_RUN_PERSIST) — readers of history ask before querying. */
+  readonly persistEnabled: boolean;
 
   constructor(
     @Optional() private readonly surreal?: SurrealService,

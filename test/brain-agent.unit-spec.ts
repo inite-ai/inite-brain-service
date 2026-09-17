@@ -16,7 +16,11 @@ import { mkdtemp, mkdir, rm, symlink, utimes, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FsAgentConnector, containedPath } from '../clients/brain-agent/src/connectors/fs';
-import { GitAgentConnector, normaliseRemote } from '../clients/brain-agent/src/connectors/git';
+import {
+  GitAgentConnector,
+  includeMatcher,
+  normaliseRemote,
+} from '../clients/brain-agent/src/connectors/git';
 import { BrainAgentClient, BrainApiError } from '../clients/brain-agent/src/protocol';
 import { redactSecrets } from '../clients/brain-agent/src/redact';
 import { connectorFor, runConnection } from '../clients/brain-agent/src/runner';
@@ -153,6 +157,16 @@ describe('FsAgentConnector', () => {
     );
   });
 
+  it('include / exclude and a .brainignore in the tree narrow the walk the brain’s way', async () => {
+    const c = new FsAgentConnector();
+    await writeFile(join(root, 'docs', '.brainignore'), 'plan.md\n');
+    const x = ctx(connection({ config: { root, include: ['docs/**'], maxFileBytes: 4000 } }));
+    expect(ids(await walk(c, x))).toEqual(['docs/bin.md']);
+    const y = ctx(connection({ config: { root, exclude: ['docs/'], maxFileBytes: 4000 } }));
+    expect(ids(await walk(c, y))).toEqual(['README.md']);
+    await rm(join(root, 'docs', '.brainignore'), { force: true });
+  });
+
   it('BRAIN_AGENT_ROOTS fences the root when set', async () => {
     const fenced = new FsAgentConnector([join(base, 'outside')]);
     await expect(walk(fenced, ctx(connection({ config: { root } })))).rejects.toThrow(
@@ -226,6 +240,19 @@ describe('GitAgentConnector', () => {
     // include narrows by prefix.
     const narrowed = ctx(connection({ connector: 'git', config: { repo, include: ['docs/'] } }));
     expect(ids(await walk(c, narrowed))).toEqual(['docs/adr/0001-surreal.md']);
+  });
+
+  it('include takes prefixes and globs', () => {
+    const m = (p: string, path: string) => includeMatcher(p)(path);
+    expect(m('docs/', 'docs/a.md')).toBe(true);
+    expect(m('docs/', 'src/docs/a.md')).toBe(false);
+    expect(m('docs/**', 'docs/roadmap/x.md')).toBe(true);
+    expect(m('docs/**', 'doc/x.md')).toBe(false);
+    expect(m('*.md', 'README.md')).toBe(true);
+    expect(m('*.md', 'docs/a.md')).toBe(true); // a bare name pattern matches at any depth (gitignore's rule)
+    expect(m('/*.md', 'docs/a.md')).toBe(false); // anchored: the root only
+    expect(m('adr/????-*.md', 'adr/0001-surreal.md')).toBe(true);
+    expect(m('a.b/**', 'aXb/c')).toBe(false);
   });
 
   it('normalises remotes without leaking credentials', () => {
@@ -324,7 +351,10 @@ class MemoryConnector implements AgentConnector {
       yield { type: 'upsert', item: { externalId: id, revision: 'r1' } };
     yield { type: 'checkpoint', checkpoint: { files: Object.keys(this.docs).length } };
   }
+  /** The descriptors fetch was called with — the runner must hand back what enumerate said. */
+  fetched: ItemDescriptor[] = [];
   async fetch(_ctx: ConnectorCtx, item: ItemDescriptor): Promise<FetchedItem> {
+    this.fetched.push(item);
     if (this.failOn.includes(item.externalId)) throw new Error('unreadable');
     return { shape: 'document', text: this.docs[item.externalId]!, title: item.externalId };
   }
@@ -359,6 +389,9 @@ describe('runConnection', () => {
     );
     expect(brain.finished).toEqual({ status: 'succeeded', checkpoint: { files: 4 } });
     expect(connector.ended).toBe(1);
+    // Fetch gets the enumerated descriptor, not a bare id — git reads by
+    // the blob sha the descriptor carries as its revision.
+    expect(connector.fetched.map((d) => d.revision)).toEqual(['r1', 'r1']);
   });
 
   it('a manifest policy posts nothing; --no-redact sends the text as read; a walk failure finishes the run as failed', async () => {

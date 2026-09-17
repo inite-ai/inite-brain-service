@@ -121,6 +121,12 @@ import {
   SourceSyncSummarySchema,
   SyncNowRequestSchema,
   SyncNowResponseSchema,
+  SourceConnectionStatsSchema,
+  SourceRunsResponseSchema,
+  SourceItemInspectResponseSchema,
+  SourceAgentsResponseSchema,
+  BrowseResponseSchema,
+  AgentInventorySchema,
   AgentConnectionsListResponseSchema,
   AgentDeltasRequestSchema,
   AgentDeltasResponseSchema,
@@ -362,6 +368,12 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   SourceSyncSummary: SourceSyncSummarySchema,
   SyncNowRequest: SyncNowRequestSchema,
   SyncNowResponse: SyncNowResponseSchema,
+  SourceConnectionStats: SourceConnectionStatsSchema,
+  SourceRunsResponse: SourceRunsResponseSchema,
+  SourceItemInspectResponse: SourceItemInspectResponseSchema,
+  SourceAgentsResponse: SourceAgentsResponseSchema,
+  BrowseResponse: BrowseResponseSchema,
+  AgentInventory: AgentInventorySchema,
   AgentConnectionsListResponse: AgentConnectionsListResponseSchema,
   AgentDeltasRequest: AgentDeltasRequestSchema,
   AgentDeltasResponse: AgentDeltasResponseSchema,
@@ -1729,7 +1741,110 @@ function sourcePlanePaths(): Json {
         },
       }),
     },
+    ...inspectPaths(idParam),
     ...agentProtocolPaths(idParam),
+  };
+}
+
+/** The operator's read-only drill-down (docs/source-plane.md § Admin UI). */
+function inspectPaths(idParam: Json): Json {
+  return {
+    '/v1/admin/source-connections/agents': {
+      get: operation({
+        operationId: 'listSourceAgents',
+        tag: 'Source Plane',
+        summary: 'The local agents this tenant has heard from',
+        description:
+          'Every agent that checked in: when, from which host and version, and the ' +
+          'folders it reported under its roots (names only) — the folder picker for ' +
+          'agent-host connections. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        responses: { '200': jsonResponse('The agents.', ref('SourceAgentsResponse')), ...AUTH_ERRORS, '404': errorRef('NotFound') },
+      }),
+    },
+    '/v1/admin/source-connections/browse': {
+      get: operation({
+        operationId: 'browseSourceFolders',
+        tag: 'Source Plane',
+        summary: 'One level of the brain host’s disk, inside SOURCE_FS_ROOTS',
+        description:
+          'The folder picker for server-host connections: without `path`, the jail roots; ' +
+          'with one, its subfolders (hidden, VCS and build directories left out, symlinks ' +
+          'never followed) and a count of files. A path outside the jail, or any path ' +
+          'when no jail is set, is refused. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        parameters: [queryParam('path', 'The directory to list; empty = the jail roots.', { type: 'string' })],
+        responses: { '200': jsonResponse('The level.', ref('BrowseResponse')), '400': errorRef('BadRequest'), ...AUTH_ERRORS, '404': errorRef('NotFound') },
+      }),
+    },
+    '/v1/admin/source-connections/{id}/stats': {
+      get: operation({
+        operationId: 'getSourceConnectionStats',
+        tag: 'Source Plane',
+        summary: 'What the connection produced',
+        description:
+          'Catalogue rows by state and the facts the connection grounds ' +
+          '(active / stale per the drift sweep / closed by the delete ' +
+          'policy). The fact count is a bounded scan; `facts` is null when ' +
+          'the tenant was too large to count in time. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        parameters: [idParam],
+        responses: {
+          '200': jsonResponse('The counts.', ref('SourceConnectionStats')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/source-connections/{id}/runs': {
+      get: operation({
+        operationId: 'listSourceConnectionRuns',
+        tag: 'Source Plane',
+        summary: 'The connection’s runs',
+        description:
+          'Every sync of the connection, newest first — queued, inline and ' +
+          'agent runs alike, each a `source_sync` job_run projected to who ' +
+          'ran it, its mode, counters, duration and error. `persisted: ' +
+          'false` when JOB_RUN_PERSIST is off. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        parameters: [
+          idParam,
+          queryParam('limit', 'Page size (default 20, max 200).', { type: 'integer' }),
+        ],
+        responses: {
+          '200': jsonResponse('The runs.', ref('SourceRunsResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/source-connections/{id}/items/{itemId}': {
+      get: operation({
+        operationId: 'inspectSourceItem',
+        tag: 'Source Plane',
+        summary: 'One catalogue row, followed to its facts',
+        description:
+          'The item, the document it became (or the asset it was stored as ' +
+          'and the parts the bridge made of it), the representations the ' +
+          'processors extracted, and the facts that cite it with the ' +
+          'revision each was read at, its stale mark and its close. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        parameters: [idParam, pathParam('itemId', 'The catalogue row id (`source_item:…`).')],
+        responses: {
+          '200': jsonResponse('The item and what it grounds.', ref('SourceItemInspectResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
   };
 }
 
@@ -1743,6 +1858,22 @@ const AGENT_NOTE =
 function agentProtocolPaths(idParam: Json): Json {
   const runParam = pathParam('runId', 'The run id `begin` returned (a `source_sync` job_run).');
   return {
+    '/v1/source-connections/agents/{agentId}': {
+      put: operation({
+        operationId: 'agentCheckIn',
+        tag: 'Source Plane',
+        summary: 'Agent check-in: presence and the folders it can see',
+        description:
+          'Sent by the agent on every pass: its version, hostname, platform and the ' +
+          'directories under its roots (names only, depth-bounded). Presence for the ' +
+          'operator, an inventory for the folder picker. ' +
+          AGENT_NOTE,
+        scope: 'brain:write',
+        parameters: [pathParam('agentId', 'The agent id (`agent:<id>` without the prefix).')],
+        requestBody: jsonBody(ref('AgentInventory')),
+        responses: { '200': jsonResponse('Recorded.', { type: 'object', properties: { ok: { type: 'boolean' } } }), '400': errorRef('BadRequest'), ...AUTH_ERRORS },
+      }),
+    },
     '/v1/source-connections': {
       get: operation({
         operationId: 'listAgentSourceConnections',

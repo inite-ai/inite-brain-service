@@ -67,7 +67,7 @@ failed run, never a crash.
 |---|---|---|
 | `document` | `DocumentIngestService.ingestDocument` (kind `source_document` unless the connector names one) | `originUri` (the item's, else `source://<connection>/<externalId>`), `occurredAt` = the source's clock, `contextRef` = the connection's vertical + recorder, `userId` = the owner, `source.meta.{source_connection, source_pack, source_id}`, internal header `sourceConnectionId` / `sourceItemId` / the four `sourceVersion*` keys |
 | `structure` | the record envelope rendered deterministically (sorted attributes, relations, `updated_at`) → the document door, kind `source_record`, `source.meta.record_type` | as above — an unchanged record dedupes on `contentHash`, a changed attribute is a new document. The attribute → predicate candidate path (no LLM) lands with the first structure-shaped native (W4) |
-| `binary` | `EvidenceUploadService.upload` (content-addressed, quarantine scan, processor dispatch for the pack) — the [evidence → document bridge](document-pipeline.md#the-evidence-bridge--bytes-become-a-document) carries text onward | recorder, vertical, owner, occurredAt |
+| `binary` | `EvidenceUploadService.upload` (content-addressed, quarantine scan, processor dispatch for the pack) — the [evidence → document bridge](document-pipeline.md#the-evidence-bridge--bytes-become-a-document) carries text onward | recorder, vertical, owner, occurredAt, and the same header as the document door on the asset's `meta` (`sourceConnectionId`, `sourceItemId`, the four `sourceVersion*` keys, the three `source_*` labels) — the bridge folds it into every document it makes of the asset, so bridged facts are stamped for the drift sweep and `deletePolicy: close` finds them (by `meta.evidenceAssetId`) when the item goes |
 | `conversation` | `IngestService.ingestMention` per turn (`speaker: text`, `conversationId`, `messageId`) → the episode substrate | recorder, vertical, owner, `emittedAt` |
 
 ## Operator surface (`brain:admin`)
@@ -75,13 +75,16 @@ failed run, never a crash.
 | Route | Does |
 |---|---|
 | `GET /v1/admin/source-connections` | list |
-| `GET /v1/admin/source-connections/catalog` | what this tenant can connect here: every `sources[]` entry of every pack it has (builtin + installed, with `accepted` = the sources section was consented at install) and its `availability` — `ready` / `disabled` (`SOURCE_KIND_<KIND>` off) / `missing` (not shipped in this build) / `agent` (stdio MCP) / `external` (the publisher pushes) — plus the connector's static `configExample` / `credentialHint`, the shipped connectors with their switches, `fsRoots` and `egressAllowPrivate`. Read-only, never runs a connector |
+| `GET /v1/admin/source-connections/catalog` | what this tenant can connect here: every `sources[]` entry of every pack it has (builtin + installed, with `accepted` = the sources section was consented at install) and its `availability` — `ready` / `disabled` (`SOURCE_KIND_<KIND>` off) / `missing` (not shipped in this build) / `agent` (stdio MCP) / `external` (the publisher pushes) — plus the connector's static `configExample` / `credentialHint`, `hosts` (where a connection may run: `server` and/or `agent`), the MCP entry's declared transport (`mcp.{transport, url, auth, command, args}` — a pinned url is read-only, null = the operator names it), the shipped connectors with their switches, `fsRoots` and `egressAllowPrivate`. Read-only, never runs a connector |
 | `POST /v1/admin/source-connections` | `{ packId, sourceId, vertical, label?, host?, config?, credential?, mode?, schedule?, contentPolicy?, deletePolicy?, fetchBudget?, ownerUserId? }` — the pack must be installed with `acceptSources` (or builtin); a `native` entry must name an installed connector; defaults come from the entry; the recorder is declared in `source_registry` |
 | `GET /v1/admin/source-connections/:id` | one (never the credential — `hasCredential`) |
 | `PATCH /v1/admin/source-connections/:id` | label / config / credential / schedule / policies / `status: active \| paused` |
 | `DELETE /v1/admin/source-connections/:id` | removes the connection and its catalogue; documents, assets and facts stay |
 | `GET /v1/admin/source-connections/:id/items?state=&limit=&offset=` | the catalogue |
-| `POST /v1/admin/source-connections/:id/sync` | `{ full?, inline? }` — enqueue a `source_sync` job (default) or run inline and return the summary |
+| `POST /v1/admin/source-connections/:id/sync` | `{ full?, inline? }` — enqueue a `source_sync` job (default) or run inline and return the summary; an inline run is a `source_sync` job_run of its own (actor = the caller), so it shows in the Jobs cockpit and the history like a queued one |
+| `GET /v1/admin/source-connections/:id/stats` | what the connection produced: catalogue rows by state, and the facts it grounds (`source.meta.source_connection`) as active / stale / closed — a bounded scan, `facts: null` when the tenant is too large to count in 5 s |
+| `GET /v1/admin/source-connections/:id/runs?limit=` | every run, newest first — queued (`payload.connectionId`), inline and agent (`progress.connectionId`) runs alike, projected to `ranBy` (`server` / `agent:<id>`), mode, counters, duration, error; `persisted: false` under `JOB_RUN_PERSIST=0` |
+| `GET /v1/admin/source-connections/:id/items/:itemId` | one catalogue row followed to its facts: the document it became (or the asset it was stored as, its current derived representations, and the documents the bridge made of it) and up to 50 facts that cite those documents with the revision each was read at, its stale mark and its close. 404 when the row belongs to another connection |
 
 The scheduler ticks every 5 minutes (`2-59/5 * * * *` UTC) and enqueues
 one job per due connection per tenant, deduped per 5-minute slot;
@@ -100,13 +103,55 @@ Connections; `brain-landing/components/admin/ConnectionsPanel.tsx`):
   **Sync** / **Full** enqueue a `source_sync` job (the notice names the
   run), **Pause** / **Resume** PATCH the status, **Delete** asks for the
   label back.
-- **Inspect** opens the connection under the table: identity, config,
-  checkpoint, last error, a **Run inline** that shows the run's counters,
-  and the catalogue (`source_item`) paged and filterable by state.
-- **Connect a source** — the catalogue of declarable entries; **Connect**
-  opens a form pre-filled from the connector's `configExample` and the
-  entry's defaults; the credential is a write-only field. A source whose
-  pack was installed without `acceptSources` links back to Packs.
+- **Inspect** opens the connection under the table: the pack's source
+  entry it instantiates, where it runs (brain / `local agent <id>`),
+  identity, config, checkpoint, last error; **Produced** (`/stats`:
+  catalogue rows by state, facts active / stale / closed); **Runs**
+  (`/runs`: every sync with who ran it, mode, counters, duration, a link
+  into the Jobs cockpit); a **Run inline** that shows the run's
+  counters; and the catalogue (`source_item`) paged and filterable by
+  state — every row opens (`/items/:itemId`) to the item at the source,
+  the document(s) it became, the evidence asset and what the processors
+  extracted, and the facts it grounds with the revision each was read
+  at (`current` / `drifted` / `stale` / `closed`).
+- **Folder picker** — the Folder field's *Browse…* opens a tree instead
+  of a path box: on the brain, the host's disk inside `SOURCE_FS_ROOTS`
+  one level per request (`GET /browse?path=`; outside the jail, or with
+  no jail, refused); on an agent, what that agent reported on its last
+  check-in (`PUT /v1/source-connections/agents/:agentId` — version,
+  host, platform and the directories under its roots, names only,
+  depth-bounded; `source_agent`, 0151). "Use this" sets the folder;
+  ticked subfolders become `include`.
+- **Local agents** — every agent that has checked in (when, host,
+  version, the roots it can see) merged with agent-host connections by
+  agent id, with
+  their last activity and the command to run the agent on that machine
+  (a `brain:write` key of the tenant, never an admin key). Sync / Full
+  are disabled on agent-host rows: the agent runs them.
+- **Connect a source** — one card per KIND of thing the packs here can
+  read (Folder, Website, S3 bucket, MCP server, Git repository, pushed
+  by a publisher), in plain words, with whether it can be connected now
+  and what to do if not (the switch to set, the agent to run, the pack
+  to reinstall); a pack's per-shape entries (text documents vs. files)
+  fold into one card and become the flow's "what's in it" question
+  (`components/admin/connections/kinds.ts`). **Connect** opens a
+  three-step flow: *where it runs* (the brain or a local agent —
+  offered only when the entry's `hosts` allows both; agent id when on an
+  agent), *the source* (the connector's own typed fields — a folder and
+  its extensions, pages / sitemaps and their auth, a bucket and its
+  endpoint, an MCP server's URL and resource filters, a repository's
+  path and include globs — validated as the brain would: absolute paths,
+  "what's in it" (documents / files / both — both creates two
+  connections over the same place, one per shape),
+  the `fs` root jail with the allowed roots named, http(s) URLs, a token
+  once an auth is chosen; rarely-set keys under *Advanced*, the exact
+  JSON the brain receives one click away, and the JSON editor as the
+  default only for a connector this build has no form for), *how it
+  syncs* (schedule, what to take, what to do when an item disappears, as
+  cards with the pack's defaults preselected). Specs live in
+  `components/admin/connections/create/specs.ts` and are unit-tested
+  without React. A source whose pack was installed without
+  `acceptSources` links back to Packs.
 
 While `SOURCE_PLANE_ENABLED` is off the page shows the off-state with the
 flag to set, nothing else. The Packs page's install flow asks for each
@@ -117,7 +162,7 @@ accepted flags into the retry.
 
 | Kind | Flag | Reads | Revision | Config |
 |---|---|---|---|---|
-| **`fs`** (W1) | `SOURCE_KIND_FS` + the `SOURCE_FS_ROOTS` jail | a directory on the brain host — a mounted volume, an OS-mounted network share (SMB/NFS), the laptop a fully-local brain runs on. Every run is a full walk (`walksEverything`: no change feed exists for a directory), so what the walk did not see is gone. Symlinks are never followed; hidden entries and VCS/build directories are skipped; `maxFiles` / `maxFileBytes` bound the walk | `mtime:size` — polling, hashing only what the store hashes on write | `{ root, extensions?, excludeDirs?, includeHidden?, maxFiles?, maxFileBytes? }` |
+| **`fs`** (W1) | `SOURCE_KIND_FS` + the `SOURCE_FS_ROOTS` jail | a directory on the brain host — a mounted volume, an OS-mounted network share (SMB/NFS), the laptop a fully-local brain runs on. Every run is a full walk (`walksEverything`: no change feed exists for a directory), so what the walk did not see is gone. Symlinks are never followed; hidden entries and VCS/build directories are skipped; `maxFiles` / `maxFileBytes` bound the walk | `mtime:size` — polling, hashing only what the store hashes on write | `{ root, include?, exclude?, ignoreFiles?, extensions?, excludeDirs?, includeHidden?, maxFiles?, maxFileBytes? }` — `include` / `exclude` are gitignore-style globs relative to the root (`docs/**`, `notes/2026`, `*.md`, `/README.md`; a trailing `/` = directories only); `ignoreFiles` (default `.brainignore`) names gitignore-style files honoured anywhere in the tree, nested ones relative to their directory, `!` re-admits — the machine's owner keeps things out without touching the connection (`connectors/path-rules.ts`; the agent walks by the same rules) |
 | **`url`** (W1) | `SOURCE_KIND_URL` | pages named outright and every page a sitemap lists (indexes followed one level) — a public site, a docs portal, a self-hosted wiki. HTML is reduced to text (title kept, scripts/styles/chrome stripped); `text/*` and JSON pass through; PDFs, office documents and rfc822 go to the binary shape. Every request and every redirect hop passes the SSRF egress guard; robots.txt `Disallow` for `*` and `inite-brain-source` is honoured per host; `sameHostOnly` (default) keeps a sitemap from enumerating another host; the credential rides as `Authorization: Bearer` (or `Basic`, or `header:<Name>`) | sitemap `<lastmod>`, else the server's ETag / Last-Modified (one HEAD per URL per run), else a `refetchHours` time bucket | `{ urls?, sitemaps?, maxPages?, sameHostOnly?, allowPrivate?, authScheme?, refetchHours?, delayMs?, maxBytes?, ignoreRobots? }` |
 | **`s3`** (W1) | `SOURCE_KIND_S3` | objects under a prefix of an S3 or S3-compatible bucket (MinIO, R2, B2, GCS interop) through the SDK the evidence adapter already uses; the same extension rules as `fs` decide text vs binary items | the object ETag | `{ bucket, prefix?, region?, endpoint?, forcePathStyle?, allowPrivate?, extensions?, maxObjects?, maxObjectBytes? }`; credential `accessKeyId:secretAccessKey`, else the SDK chain |
 
@@ -157,11 +202,11 @@ curl -X POST $BRAIN/v1/admin/source-connections -H "Authorization: Bearer $KEY" 
 ### The local agent (W3) — `@inite/brain-agent`
 
 The connector's other host. An operator points a connection at an agent
-(**Admin → Connections → Connect → runs on: local agent**, host
-`agent:<id>`); the agent (`clients/brain-agent`, `npm i -g
-@inite/brain-agent`) asks the brain which connections are its, walks the
-folders / repositories / stdio MCP servers on its own machine, and
-speaks the **agent protocol** — the engine's bookkeeping over HTTP:
+(**Admin → Connections → Connect → where it runs: on a local agent**,
+host `agent:<id>`); the agent (`clients/brain-agent`) asks the brain
+which connections are its, walks the folders / repositories / stdio MCP
+servers on its own machine, and speaks the **agent protocol** — the
+engine's bookkeeping over HTTP:
 
 | Route (`brain:write`) | Does |
 |---|---|
@@ -181,6 +226,23 @@ leaves (cloud keys, tokens, private keys, bearer headers, `secret=value`)
 — `--no-redact` opts out. The key is a tenant write key; an agent reaches
 only the connections an operator pointed at its host. A CI recipe (the
 repo's docs after every push) is in the package README.
+
+**Installing one.** **Admin → Connections → Local agents → Set up an
+agent** names the machine and issues a `brain:write` key labelled
+`agent:<id>` (the self-serve `POST /v1/keys`, narrowed to what the admin
+credential holds), shown once with the command filled in:
+`npx @inite/brain-agent install --url … --key … --agent <id>`. `install`
+writes the config (`~/.config/brain-agent/config.json`, mode 0600 — the
+only place the key lives; the environment overrides it field by field)
+and registers a service that syncs every few minutes and survives
+reboots — a launchd user agent on macOS, a systemd user unit on Linux;
+neither file carries the key. `brain-agent status` / `doctor` /
+`uninstall` afterwards; `doctor` names the fix for each failure (a
+refused key, the source plane off on the brain, a missing root, no git).
+The CI shape needs no file: the key rides in the environment,
+`brain-agent sync` exits 2 when a connection failed. Publishing the
+package is `.github/workflows/publish-clients.yml` (workflow_dispatch;
+npm trusted publishing or the `NPM_TOKEN` secret).
 
 An agent-host connection needs no server connector: `SOURCE_KIND_FS`
 may stay off, `git` has no server connector at all (the catalogue says

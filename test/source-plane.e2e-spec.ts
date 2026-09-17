@@ -192,13 +192,18 @@ describe('source plane (e2e)', () => {
       builtin: true,
       accepted: true,
       availability: 'external',
+      hosts: ['server'],
+      mcp: null,
     });
     // git is agent-only: never a server connector, always 'agent'.
     expect(byId.get('code_memory/repo_docs')).toMatchObject({
       builtin: true,
       connector: 'git',
       availability: 'agent',
+      hosts: ['agent'],
     });
+    // The form's host choice comes from the entry: fs runs on either.
+    expect(byId.get('wiki_pack/wiki')?.hosts).toEqual(['server']);
     // Shipped natives are present and switched off in this run.
     const connectors = new Map<string, Record<string, unknown>>(
       (r.body.connectors as Array<Record<string, unknown>>).map((c) => [String(c.kind), c]),
@@ -244,6 +249,22 @@ describe('source plane (e2e)', () => {
         .post('/v1/admin/source-connections')
         .set(auth())
         .send({ packId: 'mcp_pack', vertical: 'mcp', ...body });
+
+    // The catalogue tells the form which of the two it is.
+    const cat = await f.http.get('/v1/admin/source-connections/catalog').set(auth());
+    const mcpEntries = new Map<string, Record<string, unknown>>(
+      (cat.body.sources as Array<Record<string, unknown>>)
+        .filter((e) => e.packId === 'mcp_pack')
+        .map((e) => [String(e.sourceId), e]),
+    );
+    expect(mcpEntries.get('pinned')).toMatchObject({
+      hosts: ['server'],
+      mcp: { transport: 'http', url: 'https://mcp.example.com/mcp', auth: 'none' },
+    });
+    expect(mcpEntries.get('named')).toMatchObject({
+      hosts: ['server'],
+      mcp: { transport: 'http', url: null, auth: 'none' },
+    });
 
     // Switch off ⇒ "installed but switched off", by name.
     delete process.env.SOURCE_KIND_MCP;

@@ -39,11 +39,12 @@ export function JobsPanel() {
   const t = getMessages(lang).admin
   const searchParams = useSearchParams()
   const initialRunId = searchParams?.get('runId') ?? null
+  const initialJobType = searchParams?.get('jobType') ?? ''
   const [jobs, setJobs] = useState<JobRow[]>([])
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(initialRunId)
   const [filter, setFilter] = useState({
-    jobType: '',
+    jobType: initialJobType,
     status: '',
     companyId: '',
   })

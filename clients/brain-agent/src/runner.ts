@@ -1,6 +1,15 @@
 import type { BrainAgentClient } from './protocol.js';
 import { redactSecrets } from './redact.js';
-import type { AgentConnection, AgentConnector, ConnectorCtx, FetchedItem, ItemDelta, SourceEntry, SyncSummary } from './types.js';
+import type {
+  AgentConnection,
+  AgentConnector,
+  ConnectorCtx,
+  FetchedItem,
+  ItemDelta,
+  ItemDescriptor,
+  SourceEntry,
+  SyncSummary,
+} from './types.js';
 
 /**
  * One run of one connection, end to end: begin on the brain (it says
@@ -40,6 +49,10 @@ export async function runConnection(
   const begun = await client.begin(target.connection.id, { agentId: opts.agentId, ...(full ? { full: true } : {}) });
   const runId = begun.runId;
   const toFetch: string[] = [];
+  // The brain names what to fetch by externalId; the connector fetches
+  // by the descriptor it enumerated (git is content-addressed: the blob
+  // sha IS the revision), so every upsert's descriptor is kept by id.
+  const descriptors = new Map<string, ItemDescriptor>();
   let checkpoint: Record<string, unknown> | undefined;
   let batch: ItemDelta[] = [];
   const flush = async () => {
@@ -51,6 +64,7 @@ export async function runConnection(
   try {
     for await (const delta of connector.enumerate(ctx, { checkpoint: begun.checkpoint, full: begun.full })) {
       if (delta.type === 'checkpoint') checkpoint = delta.checkpoint;
+      if (delta.type === 'upsert') descriptors.set(delta.item.externalId, delta.item);
       batch.push(delta);
       if (batch.length >= (opts.batchSize ?? DEFAULT_BATCH)) await flush();
     }
@@ -64,7 +78,7 @@ export async function runConnection(
         sent++;
         let item: FetchedItem;
         try {
-          item = await connector.fetch(ctx, { externalId });
+          item = await connector.fetch(ctx, descriptors.get(externalId) ?? { externalId });
         } catch (err) {
           // A poison item is the brain's to count: post nothing, log, go on.
           ctx.log(`fetch ${externalId} failed: ${(err as Error).message}`);

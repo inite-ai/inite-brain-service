@@ -35,6 +35,39 @@ interface AssetRow {
   occurredAt: unknown;
   originUri?: string | null;
   userId?: string | null;
+  /** Row-level provenance the uploader left (the source plane's header). */
+  meta?: Record<string, unknown> | null;
+}
+
+/** The source-plane header keys an asset may carry, copied onto every document made of it. */
+const SOURCE_HEADER_KEYS = [
+  'sourceConnectionId',
+  'sourceItemId',
+  'sourceVersionSystem',
+  'sourceVersionRef',
+  'sourceVersionValue',
+  'sourceVersionReadAt',
+] as const;
+/** The flat ABAC labels the text door writes, mirrored on bridged documents. */
+const SOURCE_LABEL_KEYS = ['source_connection', 'source_pack', 'source_id'] as const;
+
+/** The header a source-plane asset carries, or nothing for any other asset. */
+function sourceHeaderOf(asset: AssetRow): {
+  internal: Partial<Record<(typeof SOURCE_HEADER_KEYS)[number], string>>;
+  labels: Record<string, string>;
+} {
+  const meta = asset.meta ?? {};
+  const internal: Partial<Record<(typeof SOURCE_HEADER_KEYS)[number], string>> = {};
+  for (const k of SOURCE_HEADER_KEYS) {
+    const v = meta[k];
+    if (typeof v === 'string' && v.length > 0) internal[k] = v;
+  }
+  const labels: Record<string, string> = {};
+  for (const k of SOURCE_LABEL_KEYS) {
+    const v = meta[k];
+    if (typeof v === 'string' && v.length > 0) labels[k] = v;
+  }
+  return { internal, labels };
 }
 
 /** `kind` on the source_document rows the bridge writes. */
@@ -119,9 +152,14 @@ export class EvidenceDocumentBridgeService {
 
     const parts = splitForDocuments(text, DOC_TEXT_HARD_CAP);
     const result: EvidenceBridgeResult = { ...zero, parts: parts.length };
+    // A source-plane asset's header rides through: the documents made of
+    // it are stamped and labelled exactly like a text item's, so the
+    // drift sweep and the gone policy treat both shapes the same.
+    const header = sourceHeaderOf(asset);
     const internal = internalDocumentMeta({
       evidenceAssetId: String(asset.id),
       evidenceRepresentationId: p.representationId,
+      ...header.internal,
     });
     for (let i = 0; i < parts.length; i++) {
       if (abortSignal?.aborted) {
@@ -129,7 +167,13 @@ export class EvidenceDocumentBridgeService {
         // requeues; already-ingested parts dedup on the re-run.
         throw new Error('aborted');
       }
-      const dto = this.partDto({ asset, packId: p.packId, text: parts[i] ?? '', index: i });
+      const dto = this.partDto({
+        asset,
+        packId: p.packId,
+        text: parts[i] ?? '',
+        index: i,
+        labels: header.labels,
+      });
       try {
         const r = await this.ingest.ingestDocument(companyId, dto, {
           channel: 'evidence',
@@ -170,6 +214,7 @@ export class EvidenceDocumentBridgeService {
     packId: string;
     text: string;
     index: number;
+    labels: Record<string, string>;
   }): IngestDocumentDto {
     const assetId = String(p.asset.id);
     const base = p.asset.originUri ?? `evidence://asset/${idTailOf(assetId)}`;
@@ -193,7 +238,7 @@ export class EvidenceDocumentBridgeService {
       },
       // Flat scalar, snake_case — survives sanitizeSourceMeta verbatim, so
       // an ABAC rule can match `source.meta.evidence_bridge`.
-      meta: { evidence_bridge: true },
+      meta: { evidence_bridge: true, ...p.labels },
       // Stored content keeps the document re-indexable and span-groundable.
       storeContent: true,
       mode: 'sync',

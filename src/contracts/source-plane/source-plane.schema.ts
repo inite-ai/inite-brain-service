@@ -211,6 +211,24 @@ export const SourceCatalogEntrySchema = z.object({
   /** Pre-fill for the connection `config`; never secrets. */
   configExample: z.record(z.string(), z.unknown()).nullable(),
   credentialHint: z.string().nullable(),
+  /**
+   * Where a connection of this entry may run: the brain (`server`) and/or
+   * a local agent (`agent`). fs runs on both; url / s3 / http MCP on the
+   * brain; git / stdio MCP on an agent only; an external entry is an
+   * identity, not a runner.
+   */
+  hosts: z.array(z.enum(['server', 'agent'])),
+  /** The MCP entry's declared transport, so the form knows what to ask for. */
+  mcp: z
+    .object({
+      transport: z.enum(['http', 'stdio']),
+      /** Pinned by the pack (read-only) or null = the operator names it. */
+      url: z.string().nullable(),
+      auth: z.enum(['none', 'install_secret', 'oauth']).nullable(),
+      command: z.string().nullable(),
+      args: z.array(z.string()),
+    })
+    .nullable(),
 });
 export type SourceCatalogEntry = z.infer<typeof SourceCatalogEntrySchema>;
 
@@ -385,6 +403,179 @@ export const AgentConnectionsListResponseSchema = z.object({
   connections: z.array(AgentConnectionSchema),
 });
 export type AgentConnectionsListResponse = z.infer<typeof AgentConnectionsListResponseSchema>;
+
+// ── Inspection (the operator's drill-down) ─────────────────────────────
+
+/** What a connection has produced: catalogue rows by state, facts it grounds. */
+export const SourceConnectionStatsSchema = z.object({
+  connectionId: z.string(),
+  items: z.object({
+    seen: z.number().int(),
+    fetched: z.number().int(),
+    indexed: z.number().int(),
+    gone: z.number().int(),
+    total: z.number().int(),
+  }),
+  /**
+   * Facts whose `source.meta.source_connection` is this connection —
+   * null when the tenant's fact table was too large to count in time
+   * (the count is a scan; the answer is "many", not an error).
+   */
+  facts: z
+    .object({
+      active: z.number().int(),
+      stale: z.number().int(),
+      closed: z.number().int(),
+    })
+    .nullable(),
+});
+export type SourceConnectionStats = z.infer<typeof SourceConnectionStatsSchema>;
+
+export const SourceRunCountersSchema = z.object({
+  seen: z.number().int(),
+  new: z.number().int(),
+  changed: z.number().int(),
+  unchanged: z.number().int(),
+  gone: z.number().int(),
+  fetched: z.number().int(),
+  ingested: z.number().int(),
+  deduplicated: z.number().int(),
+  failed: z.number().int(),
+  closed: z.number().int(),
+});
+export type SourceRunCounters = z.infer<typeof SourceRunCountersSchema>;
+
+/** One sync run of a connection — a `source_sync` job_run, whoever ran it. */
+export const SourceRunSchema = z.object({
+  runId: z.string(),
+  status: z.enum(['running', 'succeeded', 'failed', 'cancelled', 'pending']),
+  /** 'server' (queue or inline) or 'agent:<id>'. */
+  ranBy: z.string(),
+  triggeredBy: z.enum(['cron', 'manual', 'startup']),
+  startedAt: z.string(),
+  finishedAt: z.string().nullable(),
+  durationMs: z.number().int().nullable(),
+  mode: z.enum(['full', 'incremental']).nullable(),
+  /** Final counters (from the result) or the live ones (from progress) — null before the first delta. */
+  counters: SourceRunCountersSchema.nullable(),
+  skipped: z.string().nullable(),
+  error: z.string().nullable(),
+});
+export type SourceRun = z.infer<typeof SourceRunSchema>;
+
+export const SourceRunsResponseSchema = z.object({
+  connectionId: z.string(),
+  /** False ⇒ JOB_RUN_PERSIST is off and no history is kept. */
+  persisted: z.boolean(),
+  runs: z.array(SourceRunSchema),
+});
+export type SourceRunsResponse = z.infer<typeof SourceRunsResponseSchema>;
+
+/** A fact this item grounds, with what the drift sweep sees. */
+export const SourceItemFactSchema = z.object({
+  id: z.string(),
+  entityId: z.string(),
+  predicate: z.string(),
+  object: z.string(),
+  confidence: z.number(),
+  /** The revision the fact was read at (its SourceVersionStamp), if stamped. */
+  version: z.string().nullable(),
+  staleAt: z.string().nullable(),
+  staleReason: z.string().nullable(),
+  validUntil: z.string().nullable(),
+  status: z.string(),
+});
+export type SourceItemFact = z.infer<typeof SourceItemFactSchema>;
+
+export const SourceItemDocumentSchema = z.object({
+  id: z.string(),
+  title: z.string().nullable(),
+  kind: z.string().nullable(),
+  status: z.string().nullable(),
+  originUri: z.string().nullable(),
+  createdAt: z.string().nullable(),
+});
+export type SourceItemDocument = z.infer<typeof SourceItemDocumentSchema>;
+
+export const SourceItemAssetSchema = z.object({
+  id: z.string(),
+  mediaType: z.string(),
+  modality: z.string(),
+  byteLength: z.number().int(),
+  availability: z.string(),
+  quarantineStatus: z.string().nullable(),
+  /** Current (not superseded) derived representations: what the processors extracted. */
+  representations: z.array(
+    z.object({
+      id: z.string(),
+      kind: z.string(),
+      producerVersion: z.string(),
+      chars: z.number().int(),
+      createdAt: z.string().nullable(),
+    }),
+  ),
+});
+export type SourceItemAsset = z.infer<typeof SourceItemAssetSchema>;
+
+/** One catalogue row opened: what the item became on the way to facts. */
+export const SourceItemInspectResponseSchema = z.object({
+  item: SourceItemSchema,
+  /** The document(s) the item became — one for text, the bridge's parts for binary. */
+  documents: z.array(SourceItemDocumentSchema),
+  asset: SourceItemAssetSchema.nullable(),
+  facts: z.array(SourceItemFactSchema),
+  /** True ⇒ more facts than the page shows. */
+  factsTruncated: z.boolean(),
+});
+export type SourceItemInspectResponse = z.infer<typeof SourceItemInspectResponseSchema>;
+
+// ── Agents: presence + the folders they can see ────────────────────────
+
+export const AGENT_INVENTORY_MAX_FOLDERS = 2000;
+
+/** What an agent reports on every pass: its identity and the folders under its roots. */
+export const AgentInventorySchema = z.object({
+  version: z.string().max(40).optional(),
+  hostname: z.string().max(200).optional(),
+  platform: z.string().max(40).optional(),
+  roots: z
+    .array(
+      z.object({
+        path: z.string().min(1).max(1000),
+        /** Directories under the root as relative posix paths, depth-bounded, sorted. */
+        folders: z.array(z.string().max(1000)).max(AGENT_INVENTORY_MAX_FOLDERS),
+      }),
+    )
+    .max(32),
+});
+export type AgentInventory = z.infer<typeof AgentInventorySchema>;
+
+export const SourceAgentSchema = z.object({
+  agentId: z.string(),
+  firstSeenAt: z.string(),
+  lastSeenAt: z.string(),
+  version: z.string().nullable(),
+  hostname: z.string().nullable(),
+  platform: z.string().nullable(),
+  roots: z.array(z.object({ path: z.string(), folders: z.array(z.string()) })),
+});
+export type SourceAgent = z.infer<typeof SourceAgentSchema>;
+
+export const SourceAgentsResponseSchema = z.object({ agents: z.array(SourceAgentSchema) });
+export type SourceAgentsResponse = z.infer<typeof SourceAgentsResponseSchema>;
+
+/** One level of the brain host's own disk, inside the SOURCE_FS_ROOTS jail. */
+export const BrowseResponseSchema = z.object({
+  path: z.string(),
+  parent: z.string().nullable(),
+  /** The jail roots — the picker's top level. */
+  roots: z.array(z.string()),
+  folders: z.array(z.object({ name: z.string(), path: z.string() })),
+  /** Regular files in this directory (count only — the picker picks folders). */
+  files: z.number().int(),
+  truncated: z.boolean(),
+});
+export type BrowseResponse = z.infer<typeof BrowseResponseSchema>;
 
 export function isConnectionId(v: string): boolean {
   return CONNECTION_ID.test(v);
