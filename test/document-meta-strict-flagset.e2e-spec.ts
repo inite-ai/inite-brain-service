@@ -139,9 +139,11 @@ describe('document meta under the production flag set', () => {
   });
 
   it('the identifiers still land on the stored header, absent ones omitted', async () => {
-    // The stored shape is UNCHANGED by the fix — the same three keys in
-    // the same column — so the rows written between 2026-07-09 and
-    // 2026-09-02 stay readable and nothing is orphaned.
+    // The stored shape keeps the same keys in the same column — so the
+    // rows written between 2026-07-09 and 2026-09-02 stay readable and
+    // nothing is orphaned — plus the L0 episode the wrapper captures for
+    // the turn (EPISODE_SUBSTRATE_ENABLED is default-on), which is how a
+    // document-path fact walks back to its turn.
     f.extractor.setScript(TIER_GOLD);
     const res = await postMention({
       text: 'Acme confirmed the gold tier in writing.',
@@ -155,7 +157,11 @@ describe('document meta under the production flag set', () => {
       );
       return ((rows as DocRow[]) ?? [])[0]?.meta;
     });
-    expect(stored).toEqual({ conversationId: 'conv-3', messageId: 'msg-3' });
+    expect(stored).toEqual({
+      conversationId: 'conv-3',
+      messageId: 'msg-3',
+      episodeId: expect.stringMatching(/^episode:/),
+    });
     expect(Object.prototype.hasOwnProperty.call(stored ?? {}, 'eventId')).toBe(false);
   });
 
