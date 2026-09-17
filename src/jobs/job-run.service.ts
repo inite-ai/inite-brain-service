@@ -20,7 +20,8 @@ export type JobType =
   | 'reindex_documents'
   | 'pack_seed_ingest'
   | 'scenarios_batch'
-  | 'registry_mirror';
+  | 'registry_mirror'
+  | 'evidence_document_bridge';
 
 export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 

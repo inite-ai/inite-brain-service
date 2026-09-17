@@ -1540,6 +1540,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Trusted processor broker (migration 0121): dispatch platform-owned processor adapters over registered evidence assets, each execution recorded as an idempotent processing_run row (deterministic id + INSERT IGNORE — replay collides and no-ops). Requires EVIDENCE_SUBSTRATE_ENABLED. Off (default) = dispatch 503s before any query is issued and no row is ever written — byte-identical.',
   },
   {
+    key: 'EVIDENCE_DOCUMENT_BRIDGE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Evidence → document bridge: when a processor run leaves a `document` asset with an asset-level `text` representation (PDF text extraction today), the broker enqueues one `evidence_document_bridge` job per (asset, representation) and the documents module ingests that text through the ordinary document pipeline (kind 'evidence_text', the asset's own vertical/recorder/occurredAt/userId, `source.meta.evidence_bridge = true`, an `evidenceAssetId` provenance hop onto every committed fact's evidence[]). Replayed runs enqueue too, so the operator dispatch sweep doubles as the backfill; the job dedupKey, the document contentHash UNIQUE and the indexer_run ledger keep it idempotent. Requires EVIDENCE_PROCESSOR_BROKER, DOCUMENT_INGEST_ENABLED and the jobs queue. Off (default) = no job is ever enqueued — byte-identical; without it an uploaded PDF yields fragments for retrieval but never a single fact.",
+  },
+  {
     key: 'EVIDENCE_QUARANTINE',
     category: 'pipeline',
     defaultValue: '0',

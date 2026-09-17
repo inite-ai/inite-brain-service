@@ -62,6 +62,11 @@ export const INTERNAL_DOCUMENT_META_KEYS = [
   // 0111 tool-observation provenance hop (DocumentIngestService).
   'toolObservationRef',
   'toolObservationNote',
+  // Evidence → document bridge (EVIDENCE_DOCUMENT_BRIDGE): the asset
+  // whose processor-extracted text this document IS, and the
+  // derived_representation row the text was read from.
+  'evidenceAssetId',
+  'evidenceRepresentationId',
 ] as const;
 
 export type InternalDocumentMetaKey = (typeof INTERNAL_DOCUMENT_META_KEYS)[number];
@@ -123,8 +128,9 @@ export interface DocumentWriteOrigin {
 }
 
 /**
- * Who is calling document ingest. Only the in-process mention wrapper
- * may attach an internal bag (its typed contextRef ids); a wire-facing
+ * Who is calling document ingest. Only the in-process writers may attach
+ * an internal bag — the mention wrapper (its typed contextRef ids) and
+ * the evidence bridge (the asset it read the text from); a wire-facing
  * writer hands over a validated DTO and nothing else, so the channel can
  * never become a way for a client to assert brain's keys. The verified
  * tool-observation hop is threaded by the ingest services themselves,
@@ -132,11 +138,15 @@ export interface DocumentWriteOrigin {
  */
 export type DocumentIngestOrigin =
   | { channel: 'api' | 'mcp' | 'pack_seed' }
-  | { channel: 'mention'; internal: InternalDocumentMeta | undefined };
+  | { channel: 'mention' | 'evidence'; internal: InternalDocumentMeta | undefined };
 
-/** The internal bag an ingest origin contributes (only the mention wrapper has one). */
+/** The internal bag an ingest origin contributes — the mention wrapper
+ *  (its typed contextRef ids) and the evidence bridge (the asset +
+ *  representation it read the text from); wire-facing channels carry none. */
 export function originInternalMeta(origin: DocumentIngestOrigin): InternalDocumentMeta | undefined {
-  return origin.channel === 'mention' ? origin.internal : undefined;
+  return origin.channel === 'mention' || origin.channel === 'evidence'
+    ? origin.internal
+    : undefined;
 }
 
 /**

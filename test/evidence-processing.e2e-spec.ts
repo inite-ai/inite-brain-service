@@ -17,6 +17,7 @@ import { createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
 import { EvidenceStoreService } from '../src/evidence/evidence-store.service';
 import { EvidenceProcessorBrokerService } from '../src/evidence/processor-broker.service';
+import { EvidenceDocumentBridgeService } from '../src/documents/evidence-document-bridge.service';
 import { EvidenceQuarantineService } from '../src/evidence/quarantine.service';
 import { TextExtractionPassthroughAdapter } from '../src/evidence/processing/adapters/text-extraction-passthrough.adapter';
 import type { EvidenceScanHook } from '../src/evidence/processing/scan-hook';
@@ -69,6 +70,8 @@ describe('evidence processing lifecycle (e2e)', () => {
       'EVIDENCE_DERIVED_MAX_BYTES',
       'EVIDENCE_FRAGMENT_EMBEDDINGS',
       'EVIDENCE_FS_ROOT',
+      'EVIDENCE_DOCUMENT_BRIDGE',
+      'DOCUMENT_INGEST_ENABLED',
     ]) {
       saved[k] = process.env[k];
       delete process.env[k];
@@ -193,6 +196,95 @@ describe('evidence processing lifecycle (e2e)', () => {
     expect(again.runs[0]!.representationIds).toEqual([firstReprId]);
     expect(await countRows('processing_run')).toBe(1);
     expect(await countRows('derived_representation')).toBe(1);
+  });
+
+  it('bridges the extracted text into the document pipeline (EVIDENCE_DOCUMENT_BRIDGE)', async () => {
+    process.env.EVIDENCE_PROCESSOR_BROKER = '1';
+    process.env.EVIDENCE_DOCUMENT_BRIDGE = '1';
+    process.env.DOCUMENT_INGEST_ENABLED = '1';
+    const surreal = f.app.get(SurrealService);
+    const assetTail = firstAssetId.slice(firstAssetId.indexOf(':') + 1);
+    const reprTail = firstReprId.slice(firstReprId.indexOf(':') + 1);
+
+    // A REPLAYED dispatch enqueues the bridge — the operator sweep over
+    // an existing corpus is the backfill, by construction.
+    const again = await broker.dispatchForPack(COMPANY, {
+      packId: 'proc_lifecycle',
+      assetId: firstAssetId,
+    });
+    expect(again.runs[0]).toMatchObject({ status: 'replayed' });
+    const jobs = await surreal.withCompany(COMPANY, async (db) => {
+      const [rows] = await db.query<
+        [Array<{ dedupKey: string; payload: Record<string, unknown> }>]
+      >(`SELECT dedupKey, payload FROM job_run WHERE jobType = 'evidence_document_bridge'`);
+      return rows as Array<{ dedupKey: string; payload: Record<string, unknown> }>;
+    });
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({
+      dedupKey: `evbridge_${assetTail}_${reprTail}`,
+      payload: { assetId: firstAssetId, representationId: firstReprId, packId: 'proc_lifecycle' },
+    });
+
+    // Run the bridge itself. The worker loop may or may not have raced
+    // us to the queued job; either way the text becomes exactly ONE
+    // document, so the assertions are on the outcome, not the actor.
+    const runner = f.app.get(EvidenceDocumentBridgeService);
+    const r = await runner.bridge(COMPANY, {
+      assetId: firstAssetId,
+      representationId: firstReprId,
+      packId: 'proc_lifecycle',
+    });
+    expect(r.parts).toBe(1);
+    expect(r.failed).toBe(0);
+    expect(r.ingested + r.deduplicated).toBe(1);
+
+    const docs = await surreal.withCompany(COMPANY, async (db) => {
+      const [rows] = await db.query<[Array<Record<string, unknown>>]>(
+        `SELECT id, kind, vertical, userId, originUri, meta FROM source_document WHERE kind = 'evidence_text'`,
+      );
+      return rows as Array<Record<string, unknown>>;
+    });
+    expect(docs).toHaveLength(1);
+    expect(docs[0]).toMatchObject({
+      kind: 'evidence_text',
+      vertical: 'proj',
+      userId: USER,
+      originUri: `evidence://asset/${assetTail}`,
+      meta: {
+        evidence_bridge: true,
+        evidenceAssetId: firstAssetId,
+        evidenceRepresentationId: firstReprId,
+      },
+    });
+
+    // The stub extractor commits one 'said' fact per document; its source
+    // walks back to the asset and never leaks the header keys into meta.
+    const docId = String(docs[0]!.id);
+    const facts = await surreal.withCompany(COMPANY, async (db) => {
+      const [rows] = await db.query<[Array<{ source: Record<string, unknown> }>]>(
+        `SELECT source FROM knowledge_fact WHERE source.documentId = $docId`,
+        { docId },
+      );
+      return rows as Array<{ source: Record<string, unknown> }>;
+    });
+    expect(facts.length).toBeGreaterThanOrEqual(1);
+    expect(facts[0]!.source.evidence).toContainEqual({
+      kind: 'asset',
+      ref: firstAssetId,
+      note: `text via ${firstReprId}`,
+    });
+    expect(facts[0]!.source.meta).toEqual({ evidence_bridge: true });
+
+    // Idempotent at the store: bridging the same text again dedups.
+    const r2 = await runner.bridge(COMPANY, {
+      assetId: firstAssetId,
+      representationId: firstReprId,
+      packId: 'proc_lifecycle',
+    });
+    expect(r2).toEqual({ parts: 1, ingested: 0, deduplicated: 1, failed: 0 });
+
+    delete process.env.EVIDENCE_DOCUMENT_BRIDGE;
+    delete process.env.DOCUMENT_INGEST_ENABLED;
   });
 
   it('reprocesses under a bumped version: supersede pass, then sweeper GC', async () => {
