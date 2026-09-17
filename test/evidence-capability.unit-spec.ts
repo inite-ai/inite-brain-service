@@ -35,6 +35,7 @@ const cite = (predicate: string, factId = `knowledge_fact:${predicate}`): Citati
   entityId: 'knowledge_entity:e',
   canonicalName: 'ops room',
   predicate,
+  slot: predicate,
   object: 'the evacuation plan is pinned on the whiteboard',
 });
 const RESULTS: SearchHit[] = [];

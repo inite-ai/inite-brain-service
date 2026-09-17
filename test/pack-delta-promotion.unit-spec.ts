@@ -227,7 +227,10 @@ describe('SCENES_PACK_DELTA_PROMOTION resolver + service seam', () => {
       resolve: () => ({ version: 'scene-segmenter-v1' }),
     } as unknown as SceneVersionService;
     const config = { get: (_k: string, def?: string) => def } as unknown as ConfigService;
-    return { svc: new BeliefPromotionService(surreal, config, versions), sql };
+    const predicates = {
+      canonicalize: async (_c: string, id: string) => ({ kind: 'matched', canonicalId: id }),
+    };
+    return { svc: new BeliefPromotionService(surreal, config, versions, predicates as never), sql };
   }
 
   it('flag off ⇒ the pass issues exactly the historical selection', async () => {

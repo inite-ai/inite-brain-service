@@ -1,0 +1,80 @@
+name: Deprecate an MCP Registry version
+
+# A published registry version stays `active` forever unless something
+# says otherwise: publishing 2.2.0 did not retire 0.1.0, and with no
+# publish automation at all nobody ran the call that would have. The
+# registry therefore lists two active versions of
+# io.github.inite-ai/inite-brain-service, and a client that pins rather
+# than follows `latest` can still install an eight-month-old contract.
+#
+# Manual by design. Deprecation is not a release step — a release
+# publishes a NEW version, and deciding that an OLD one should stop being
+# offered is a separate judgement about who is still on it. Wiring it
+# into release-please would retire versions on a schedule nobody chose.
+#
+# Runs here rather than from a laptop because the credential is the
+# point: GitHub OIDC proves the io.github.inite-ai namespace from this
+# repository's identity, so no long-lived registry token has to exist.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The published version to deprecate (e.g. 0.1.0).
+        required: true
+        type: string
+      message:
+        description: Why, shown to anyone looking at that version.
+        required: true
+        type: string
+        default: Superseded — install the latest version.
+
+permissions:
+  contents: read
+
+jobs:
+  deprecate:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Refuse to deprecate the version we currently ship
+        uses: actions/checkout@v5
+      - name: Guard
+        run: |
+          CURRENT="$(jq -r .version server.json)"
+          if [ "$CURRENT" = "$VERSION" ]; then
+            echo "::error::$VERSION is the version server.json publishes — deprecating it would retire what we ship"
+            exit 1
+          fi
+          echo "deprecating $VERSION (current is $CURRENT)"
+        env:
+          VERSION: ${{ inputs.version }}
+
+      - name: Exchange the OIDC token for a registry token
+        id: auth
+        run: |
+          OIDC="$(curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=mcp-registry" | jq -r .value)"
+          TOKEN="$(curl -fsSL -X POST https://registry.modelcontextprotocol.io/v0.1/auth/github-oidc \
+            -H 'Content-Type: application/json' \
+            -d "$(jq -n --arg t "$OIDC" '{oidc_token: $t}')" | jq -r '.token // .registry_token')"
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "::error::registry did not return a token"
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Mark the version deprecated
+        run: |
+          SERVER="io.github.inite-ai/inite-brain-service"
+          curl -fsSL -X PATCH \
+            "https://registry.modelcontextprotocol.io/v0.1/servers/$SERVER/versions/$VERSION/status" \
+            -H "Authorization: Bearer ${{ steps.auth.outputs.token }}" \
+            -H 'Content-Type: application/json' \
+            -d "$(jq -n --arg m "$MESSAGE" '{status: "deprecated", statusMessage: $m}')"
+        env:
+          VERSION: ${{ inputs.version }}
+          MESSAGE: ${{ inputs.message }}

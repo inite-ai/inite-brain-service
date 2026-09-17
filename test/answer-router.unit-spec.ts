@@ -8,6 +8,7 @@
 import {
   detectLane,
   routeLane,
+  laneRouteCandidates,
   laneProbeDto,
   buildWideProbeQuery,
   extractStandingInstructions,
@@ -37,6 +38,17 @@ function profileWith(over: Partial<RetrievalProfile> = {}): RetrievalProfile {
 import { buildGeneratorUserMessage, buildFactIndex } from '../src/synthesize/synthesize.service';
 import { CONTRADICTION_NOTE_INSTRUCTION } from '../src/synthesize/answer-router';
 import type { SearchHit } from '../src/search/search.types';
+import { handlesOf, type Citation } from '../src/synthesize/fact-index';
+
+/** The rendered line of a fact, found through its handle (lines open with
+ *  `[f<n>]`, not the id — fact-index.ts, factHandle). */
+function lineOf(
+  res: { factIndex: Map<string, Citation>; factLines: string[] },
+  factId: string,
+): string {
+  const handle = [...handlesOf(res.factIndex).entries()].find(([, id]) => id === factId)?.[0];
+  return res.factLines.find((l) => handle !== undefined && l.startsWith(`[${handle}] `)) ?? '';
+}
 
 describe('detectLane (temporal lexicon)', () => {
   const temporal = [
@@ -379,15 +391,21 @@ describe('buildFactIndex chronological ordering (T2)', () => {
       mk('earlier', '2023-01-15T00:00:00.000Z'),
       mk('undated2'),
     ];
-    const { factLines } = buildFactIndex(hits, { chronological: true });
-    const order = factLines.map((l) => /knowledge_fact:(\w+)/.exec(l)![1]);
+    const res = buildFactIndex(hits, { chronological: true });
+    const order = res.factLines.map((_, i) =>
+      handlesOf(res.factIndex)
+        .get(`f${i + 1}`)!
+        .replace('knowledge_fact:', ''),
+    );
     expect(order).toEqual(['earlier', 'later', 'undated1', 'undated2']);
+    // The handle numbers the rendered order, and the line opens with it.
+    expect(res.factLines[0]!.startsWith('[f1] ')).toBe(true);
   });
   it('without the flag retrieval order is preserved byte-identically', () => {
     const hits = [mk('b', '2023-05-01T00:00:00.000Z'), mk('a', '2023-01-15T00:00:00.000Z')];
-    const { factLines } = buildFactIndex(hits);
-    expect(factLines[0]).toContain(':b');
-    expect(factLines[1]).toContain(':a');
+    const res = buildFactIndex(hits);
+    expect(handlesOf(res.factIndex).get('f1')).toBe('knowledge_fact:b');
+    expect(handlesOf(res.factIndex).get('f2')).toBe('knowledge_fact:a');
   });
 });
 
@@ -468,6 +486,36 @@ describe('routeLane respects the profile lane set', () => {
     expect(routeLane(profileWith(), q)).toBe('temporal');
     expect(routeLane(profileWith({ lanes: new Set() }), q)).toBeNull();
     expect(routeLane(profileWith({ lanes: new Set(['enumeration']) }), q)).toBeNull();
+  });
+});
+
+describe('laneRouteCandidates (the 0119 lane_route row)', () => {
+  // Matches BOTH the temporal lexicon ("how long ago") and the
+  // enumeration one ("list all"); temporal wins on registry order.
+  const q = 'How long ago did I list all my plants?';
+
+  it('agrees with routeLane on the winner, and says what it beat', () => {
+    // The row is only worth storing if the FIRST candidate is the route:
+    // that is what makes "chosen among" mean anything.
+    const { matched, routable } = laneRouteCandidates(profileWith(), q);
+    expect(matched[0]?.lane).toBe(routeLane(profileWith(), q));
+    expect(matched.map((m) => m.lane)).toEqual(['temporal', 'enumeration']);
+    expect(routable).toBeGreaterThan(matched.length);
+  });
+
+  it('ranks precedence among ROUTABLE lanes, not registry position', () => {
+    // With temporal removed from the profile, enumeration is no longer
+    // rank 1 — it is rank 0, because the lane it lost to cannot run.
+    const without = profileWith({ lanes: new Set(ALL_LANES.filter((l) => l !== 'temporal')) });
+    const { matched } = laneRouteCandidates(without, q);
+    expect(matched[0]).toEqual({ lane: 'enumeration', precedence: 0 });
+  });
+
+  it('matches nothing, and counts nothing routable, on an empty lane set', () => {
+    expect(laneRouteCandidates(profileWith({ lanes: new Set() }), q)).toEqual({
+      matched: [],
+      routable: 0,
+    });
   });
 });
 
@@ -648,7 +696,7 @@ describe('buildFactIndex recency marker (T5)', () => {
     }) as unknown as SearchHit;
 
   it('tags max(validFrom) on disagreeing dated slots', () => {
-    const { factLines } = buildFactIndex(
+    const res = buildFactIndex(
       [
         slotHit([
           ['old', '65%', '2024-03-20T00:00:00.000Z'],
@@ -657,9 +705,53 @@ describe('buildFactIndex recency marker (T5)', () => {
       ],
       { markRecency: true },
     );
-    expect(factLines.find((l) => l.includes(':new'))).toContain('[most recent for this slot]');
-    expect(factLines.find((l) => l.includes(':old'))).not.toContain('most recent');
+    expect(lineOf(res, 'knowledge_fact:new')).toContain('[most recent for this slot]');
+    expect(lineOf(res, 'knowledge_fact:old')).not.toContain('most recent');
   });
+  it('arbitrates ACROSS coinages of one attribute — the slot is the canon', async () => {
+    // Two facts about one setting, written under two names, the older
+    // one aliased onto the canon. Keyed on the written predicate they
+    // sat in two slots and neither was ever "most recent for this
+    // slot" — which is the whole condition the marker exists to
+    // surface. `predicateAlias ?? predicate` (0083) puts them in one.
+    const hit = {
+      entityId: 'e1',
+      entityType: 'service',
+      canonicalName: 'ledger-sync',
+      externalRefs: {},
+      score: 1,
+      facts: [
+        {
+          factId: 'knowledge_fact:old',
+          predicate: 'deploys_to',
+          predicateAlias: 'deploy_target',
+          object: 'Fly.io',
+          confidence: 0.7,
+          score: 1,
+          validFrom: '2026-03-02T00:00:00.000Z',
+        },
+        {
+          factId: 'knowledge_fact:new',
+          predicate: 'deploy_target',
+          object: 'AWS ECS Fargate',
+          confidence: 0.7,
+          score: 1,
+          validFrom: '2026-03-25T00:00:00.000Z',
+        },
+      ],
+    } as unknown as SearchHit;
+    const res = buildFactIndex([hit], { markRecency: true });
+    const { factIndex } = res;
+    expect(lineOf(res, 'knowledge_fact:new')).toContain('[most recent for this slot]');
+    expect(lineOf(res, 'knowledge_fact:old')).not.toContain('most recent');
+    // The LINE still shows what was written; only the comparison canonizes.
+    expect(lineOf(res, 'knowledge_fact:old')).toContain('deploys_to');
+    expect(factIndex.get('knowledge_fact:old')).toMatchObject({
+      predicate: 'deploys_to',
+      slot: 'deploy_target',
+    });
+  });
+
   it('never tags agreeing or single-dated slots', () => {
     const { factLines } = buildFactIndex(
       [
@@ -793,5 +885,39 @@ describe('enumeration strict clause (§8 item 3, profile.enumStrict)', () => {
       enumStrict: true,
     });
     expect(other).not.toContain('Match the asked scope LITERALLY');
+  });
+});
+
+describe('buildFactIndex renders graph relations as evidence', () => {
+  it('adds an uncitable (relation) line per relation, beside the facts', () => {
+    const hit: SearchHit = {
+      entityId: 'e1',
+      entityType: 'staff',
+      canonicalName: 'Мария Альварес',
+      externalRefs: {},
+      score: 1,
+      relations: [{ kind: 'works_at', peer: 'Orbital Dynamics', peerType: 'org' }],
+      facts: [
+        {
+          factId: 'knowledge_fact:aaa',
+          predicate: 'works_as',
+          object: 'руководитель инженерного отдела',
+          confidence: 0.9,
+          score: 1,
+          validFrom: '2026-09-16T00:00:00.000Z',
+          status: 'active',
+        },
+      ],
+    };
+    const { factIndex, factLines } = buildFactIndex([hit]);
+    expect(factLines).toHaveLength(2);
+    expect(factLines[0]!.startsWith('[f1] ')).toBe(true);
+    expect(handlesOf(factIndex).get('f1')).toBe('knowledge_fact:aaa');
+    expect(factLines[1]).toBe(
+      '(relation) Мария Альварес (staff) — works_at: Orbital Dynamics (org)',
+    );
+    // A relation is support, never a citation: it is not in the index.
+    expect(factIndex.has('relation')).toBe(false);
+    expect(factIndex.size).toBe(1);
   });
 });

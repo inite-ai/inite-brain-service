@@ -321,22 +321,40 @@ describe('scorePredictionError (deterministic, no model call)', () => {
     expect(out.contradiction).toBe(0);
   });
 
-  it('matches a re-coined field through the belief layer’s own fold rule', () => {
+  it('matches a re-coined field through the belief layer’s own slot rule (0147)', () => {
+    // The two names normalize to the SAME registry slot, so they are the
+    // same attribute and the disagreement counts. Under the lexical rule
+    // this replaced, `car ownership` folded onto `car` because
+    // 'ownership' was one of six hand-listed generic modifiers; here they
+    // match because `home.city` and `home city` name one slot, not
+    // because a word list says so.
     const out = scorePredictionError({
-      baseline: [belief('mika', 'car', 'Volvo')],
-      stateDeltas: [delta('mika', 'car ownership', 'Saab')],
+      baseline: [belief('mika', 'home city', 'Riga')],
+      stateDeltas: [delta('mika', 'home.city', 'Lisbon')],
       memberTurnCount: 2,
       selfSubjects,
     });
     expect(out.contradiction).toBe(1);
   });
 
-  it('refuses to measure an AMBIGUOUS field match (fail-closed)', () => {
-    // Both stored names fold onto the incoming 'car'; fieldsFold is not
-    // transitive, so measuring against either would be a coin flip.
+  it('two baseline beliefs in ONE slot refuse to be measured (fail-closed)', () => {
+    // A promotion-side defect, not a measurement: scoring against either
+    // would be a coin flip. It should not happen once the promoter keeps
+    // one active row per slot — which is why this fails closed rather
+    // than picking one.
     const out = scorePredictionError({
-      baseline: [belief('mika', 'car ownership', 'Volvo'), belief('mika', 'car status', 'sold')],
-      stateDeltas: [delta('mika', 'car', 'Saab')],
+      baseline: [belief('mika', 'home city', 'Riga'), belief('mika', 'home.city', 'Porto')],
+      stateDeltas: [delta('mika', 'home_city', 'Lisbon')],
+      memberTurnCount: 2,
+      selfSubjects,
+    });
+    expect(out.contradiction).toBeUndefined();
+  });
+
+  it('names that do NOT share a slot are not matched at all', () => {
+    const out = scorePredictionError({
+      baseline: [belief('mika', 'car', 'Volvo')],
+      stateDeltas: [delta('mika', 'car ownership', 'Saab')],
       memberTurnCount: 2,
       selfSubjects,
     });

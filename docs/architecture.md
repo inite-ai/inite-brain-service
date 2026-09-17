@@ -20,7 +20,7 @@ impact without redeploying. Production defaults in
 > **Graph-first, with vector as the door.** The unit of retrieval is a
 > typed fact on the knowledge graph — never a text chunk. The vector and
 > BM25 legs exist for one job: mapping a free-text query onto candidate
-> facts (you need *some* way into the graph from natural language).
+> facts (you need _some_ way into the graph from natural language).
 > Everything downstream is graph-native — the router works over the
 > predicate ontology, candidates bucket per entity with a degree boost,
 > edge expansion and PPR are literal graph walks, and the bitemporal
@@ -30,21 +30,26 @@ impact without redeploying. Production defaults in
 > multi-hop planner (entity anchoring → chained hops), and the
 > profile/timeline reads, which never touch a vector at all.
 
+> [!IMPORTANT]
+> This diagram is checked against the code by
+> `test/conveyor.unit-spec.ts`, which compares it to the numbered stages
+> of `SearchService.runPipeline` and to the stage declaration in
+> `src/search/conveyor.ts`. It used to describe two links that had been
+> deleted — a predicate + type router as the first stage (removed in the
+> S1 "delete measurement-killed forks" refactor, which is why the stage
+> numbering skips 3) and a HyPE alt-embedding leg (retired by migration
+> 0143). A specification of how the memory works is load-bearing; it
+> does not get to drift.
+
 ```
                  query
                    │
-                   ▼
-     ┌─────────────────────────────┐
-     │ predicate + type router     │  joint LLM call → soft
-     │ (LRU-cached per query hash) │  distribution over predicates +
-     └─────────────────────────────┘  entity types
-                   │
-     ┌─────────────┼─────────────┐
-     ▼             ▼             ▼
-vector leg   lexical leg   (HyPE alt-emb leg)
-(HNSW cos)   (BM25)        max(cos_main, cos_alt)
-     │             │             │
-     └─────────────┼─────────────┘
+     ┌─────────────┴─────────────┐
+     ▼                           ▼
+vector leg                  lexical leg
+(HNSW cos)                  (BM25)
+     │                           │
+     └─────────────┬─────────────┘
                    ▼
      convex-fusion (CombMNZ-flavoured, w=0.5)
                    │
@@ -172,7 +177,7 @@ For continuous quality measurement, score synthesize outputs against
 the retrieved context with `computeFaithfulness` (RAGAS convention —
 see `test/eval/metrics/faithfulness.ts`). It decomposes the answer into
 atomic claims and returns a 0..1 score plus the per-claim verdicts, so
-a regression report points at *which* sentence hallucinated, not just
+a regression report points at _which_ sentence hallucinated, not just
 "this answer was wrong".
 
 ## Dreams (off-hours self-improvement)
@@ -182,11 +187,11 @@ tenant and runs three optional sub-passes over the post-compaction
 state. Each is independently env-gated; `DREAMS_ENABLED=1` is the
 master switch.
 
-| Sub-op | Env flag | What it does |
-|---|---|---|
-| `summarize` | `DREAMS_LLM_SUMMARY_ENABLED=1` | Replaces the no-LLM concat summarizer in compaction with an LLM-backed version. Produces 1-2 sentence summaries that capture the trajectory ("upgraded from gold to platinum in April") instead of a verbatim concat. Falls back to concat on any LLM error — compaction never breaks. |
-| `dedup` | `DREAMS_DEDUP_ENABLED=1` | Two-stage dedup: (1) cosine-similarity over name embeddings finds suspect pairs (threshold `DREAMS_DEDUP_COSINE_THRESHOLD`, default 0.92); (2) LLM judge with both entities' top facts as context decides `same` / `different` / `unsure`. `same` → emits `identity_of` edge automatically. Bounded by `DREAMS_DEDUP_MAX_PAIRS` per tenant per run. |
-| `resolve` | `DREAMS_RESOLVE_ENABLED=1` | Auto-resolves `competing` fact pairs aged past `DREAMS_RESOLVE_MIN_AGE_DAYS` (default 7). LLM judge picks a winner using surrounding entity context; loser marked `superseded` with `retractionReason='dreams_resolution'`. Conservative — `unsure` verdict leaves both for human review. |
+| Sub-op      | Env flag                       | What it does                                                                                                                                                                                                                                                                                                                                        |
+| ----------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `summarize` | `DREAMS_LLM_SUMMARY_ENABLED=1` | Replaces the no-LLM concat summarizer in compaction with an LLM-backed version. Produces 1-2 sentence summaries that capture the trajectory ("upgraded from gold to platinum in April") instead of a verbatim concat. Falls back to concat on any LLM error — compaction never breaks.                                                              |
+| `dedup`     | `DREAMS_DEDUP_ENABLED=1`       | Two-stage dedup: (1) cosine-similarity over name embeddings finds suspect pairs (threshold `DREAMS_DEDUP_COSINE_THRESHOLD`, default 0.92); (2) LLM judge with both entities' top facts as context decides `same` / `different` / `unsure`. `same` → emits `identity_of` edge automatically. Bounded by `DREAMS_DEDUP_MAX_PAIRS` per tenant per run. |
+| `resolve`   | `DREAMS_RESOLVE_ENABLED=1`     | Auto-resolves `competing` fact pairs aged past `DREAMS_RESOLVE_MIN_AGE_DAYS` (default 7). LLM judge picks a winner using surrounding entity context; loser marked `superseded` with `retractionReason='dreams_resolution'`. Conservative — `unsure` verdict leaves both for human review.                                                           |
 
 Manual trigger (scope `brain:admin`):
 
@@ -257,7 +262,7 @@ SurrealDB:
   cycle; quiet neighbours get tried first. Counter decays by 50%
   every 30s. Phase K2.
 - **CPU-bound dispatch** — handlers can opt in via `register(jobType,
-  handler, { cpuBound: true, workerModule: '…' })` to be routed
+handler, { cpuBound: true, workerModule: '…' })` to be routed
   through `JobWorkerPool` — a fixed-size `node:worker_threads` pool.
   Code default `JOB_WORKER_POOL_SIZE=2`; the prod compose and
   `PROCESS_ROLE=api` pin it to `0` (no current handler is cpuBound;

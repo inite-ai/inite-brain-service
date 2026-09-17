@@ -53,6 +53,10 @@ Definitions:
 
 Be strict on "supported" — a paraphrase that adds detail beyond the evidence is "partial" at best. Cite each unsupported / partially-supported claim by quoting the offending span verbatim.
 
+Two things are NOT unsupported claims:
+- The graph is multilingual, and the answer is written in the language of the query, not of the evidence. A claim that is a faithful translation of a piece of evidence is directly supported by it: "leads engineering" is supported by "works_as: руководитель инженерного отдела", "CTO" by "职位: 首席技术官". Judge the meaning, not the script.
+- Wording the answer repeats from the query itself is framing, not a claim. If the query asks "who leads engineering at Orbital Dynamics?", then "at Orbital Dynamics" in the answer restates the question; the claim to check is who. Only information the answer ADDS beyond the query needs evidence.
+
 Output strictly the JSON shape requested by the schema.`;
 
 /**

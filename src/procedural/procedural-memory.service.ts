@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { SurrealService, queryRows, queryFirst } from '../db/surreal.service';
+import { sameWidthGate } from '../db/vector-width';
 import { EmbedderService } from '../ai/embedder.service';
 
 /**
@@ -88,42 +89,35 @@ export class ProceduralMemoryService {
     return this.run(companyId, args.callerScopes, async (db) => {
       const queryEmbedding = await this.embedder.embed(args.query);
 
-      // Read all unretired procedures. With small N (procedural memory
-      // is by design a curated layer, not a fact firehose) the JS-side
-      // cosine pass is cheap; if a tenant goes past a few thousand
-      // rows we revisit and push it into SurrealDB's vector::similarity
-      // call. Doing it server-side today would require maintaining a
-      // dimension-pinned vector index, which the embedder can swap at
-      // runtime.
-      const rows = await queryRows<ProcedureRowDb>(
-        db,
-        `SELECT id, trigger, triggerEmbedding, action, priority,
-                decayHalfLifeDays, source, createdAt
-           FROM procedural_memory
-           WHERE retiredAt IS NONE
-           ORDER BY priority ASC`,
-      );
-
-      const qNorm = vectorNorm(queryEmbedding);
+      // Score, order and cap in the DB. The old JS-side pass read EVERY
+      // unretired procedure's trigger vector to return five, and the
+      // comment justifying it said doing this server-side "would require
+      // maintaining a dimension-pinned vector index, which the embedder
+      // can swap at runtime". That is true of HNSW/KNN and not of
+      // `vector::similarity::cosine`, which needs no index — and the
+      // runtime swap is exactly what `sameWidthGate` answers: rows of a
+      // foreign width are excluded rather than raising for the whole
+      // query. The similarity floor stays in JS: applying it after a
+      // similarity-ordered LIMIT selects the same set (anything below a
+      // cut row is below the floor too) without asking the engine to
+      // evaluate the projection alias inside WHERE.
       const minSim = args.minSimilarity ?? 0.4;
       const limit = args.limit ?? 5;
-
-      const scored: MatchedProcedure[] = [];
-      for (const p of rows) {
-        const emb = Array.isArray(p.triggerEmbedding) ? (p.triggerEmbedding as number[]) : null;
-        if (!emb) continue;
-        const sim = cosineSimilarity(queryEmbedding, emb, qNorm);
-        if (sim < minSim) continue;
-        scored.push({
-          ...mapRow(p),
-          similarity: sim,
-        });
-      }
-      scored.sort((a, b) => {
-        if (b.similarity !== a.similarity) return b.similarity - a.similarity;
-        return a.priority - b.priority;
-      });
-      return scored.slice(0, limit);
+      const rows = await queryRows<ProcedureRowDb & { similarity: number }>(
+        db,
+        `SELECT id, trigger, action, priority,
+                decayHalfLifeDays, source, createdAt,
+                vector::similarity::cosine(triggerEmbedding, $q) AS similarity
+           FROM procedural_memory
+          WHERE retiredAt IS NONE
+            AND ${sameWidthGate('triggerEmbedding')}
+          ORDER BY similarity DESC, priority ASC
+          LIMIT $limit`,
+        { q: queryEmbedding, limit },
+      );
+      return rows
+        .filter((p) => typeof p.similarity === 'number' && p.similarity >= minSim)
+        .map((p) => ({ ...mapRow(p), similarity: p.similarity }));
     });
   }
 
@@ -187,7 +181,8 @@ export class ProceduralMemoryService {
 
 // Columns the procedural_memory SELECTs return. Every value funnels
 // through String()/typeof/toIso in mapRow, so `unknown` is the honest
-// type; triggerEmbedding is present only on the match() SELECT.
+// type. No SELECT returns triggerEmbedding any more — match()
+// scores it server-side, so the vector never crosses the wire.
 interface ProcedureRowDb {
   id: unknown;
   trigger?: unknown;
@@ -197,7 +192,6 @@ interface ProcedureRowDb {
   source?: unknown;
   createdAt?: unknown;
   retiredAt?: unknown;
-  triggerEmbedding?: unknown;
 }
 
 function mapRow(row: ProcedureRowDb): ProcedureRecord {
@@ -226,28 +220,6 @@ function toIso(v: unknown): string {
   }
   if (v) return String(v);
   return '';
-}
-
-function vectorNorm(v: number[]): number {
-  let s = 0;
-  for (const x of v) s += x * x;
-  return Math.sqrt(s);
-}
-
-function cosineSimilarity(a: number[], b: number[], aNorm: number): number {
-  if (a.length !== b.length || aNorm === 0) return 0;
-  let dot = 0;
-  let bNorm = 0;
-  for (let i = 0; i < a.length; i++) {
-    // a.length === b.length (checked above) ⇒ both indices are in-bounds.
-    const ai = a[i]!;
-    const bi = b[i]!;
-    dot += ai * bi;
-    bNorm += bi * bi;
-  }
-  bNorm = Math.sqrt(bNorm);
-  if (bNorm === 0) return 0;
-  return dot / (aNorm * bNorm);
 }
 
 export interface RecordProcedureArgs {
