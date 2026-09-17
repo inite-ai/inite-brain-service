@@ -29,21 +29,37 @@ const seen: Array<{ method: string; url: string; headers: IncomingMessage['heade
 function route(req: IncomingMessage, res: ServerResponse): void {
   seen.push({ method: req.method ?? '', url: req.url ?? '', headers: req.headers });
   const url = new URL(req.url ?? '/', base);
-  const send = (status: number, type: string, body: string | Buffer, extra: Record<string, string> = {}) => {
+  const send = (
+    status: number,
+    type: string,
+    body: string | Buffer,
+    extra: Record<string, string> = {},
+  ) => {
     res.writeHead(status, { 'content-type': type, ...extra });
     res.end(req.method === 'HEAD' ? undefined : body);
   };
   switch (url.pathname) {
     case '/robots.txt':
-      return send(200, 'text/plain', 'User-agent: *\nDisallow: /private/\nUser-agent: inite-brain-source\nDisallow: /nobrain\n');
+      return send(
+        200,
+        'text/plain',
+        'User-agent: *\nDisallow: /private/\nUser-agent: inite-brain-source\nDisallow: /nobrain\n',
+      );
     case '/sitemap.xml':
-      return send(200, 'application/xml', `<?xml version="1.0"?>
+      return send(
+        200,
+        'application/xml',
+        `<?xml version="1.0"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <sitemap><loc>${base}/sitemap-a.xml</loc></sitemap>
   <sitemap><loc>${base}/missing.xml</loc></sitemap>
-</sitemapindex>`);
+</sitemapindex>`,
+      );
     case '/sitemap-a.xml':
-      return send(200, 'application/xml', `<urlset>
+      return send(
+        200,
+        'application/xml',
+        `<urlset>
   <url><loc>${base}/docs/intro</loc><lastmod>2026-03-01</lastmod></url>
   <url><loc>${base}/docs/etag</loc></url>
   <url><loc>${base}/docs/plain.txt</loc><lastmod>2026-03-02T10:00:00Z</lastmod></url>
@@ -51,9 +67,15 @@ function route(req: IncomingMessage, res: ServerResponse): void {
   <url><loc>${base}/nobrain</loc></url>
   <url><loc>https://elsewhere.example/page</loc></url>
   <url><loc>${base}/docs/no-hints</loc></url>
-</urlset>`);
+</urlset>`,
+      );
     case '/docs/intro':
-      return send(200, 'text/html; charset=utf-8', '<html><head><title>Intro &amp; more</title><style>x{}</style></head><body><h1>Welcome</h1><script>bad()</script><p>Read <a href="/docs/etag">the etag page</a>.</p></body></html>', { 'last-modified': 'Mon, 02 Mar 2026 10:00:00 GMT' });
+      return send(
+        200,
+        'text/html; charset=utf-8',
+        '<html><head><title>Intro &amp; more</title><style>x{}</style></head><body><h1>Welcome</h1><script>bad()</script><p>Read <a href="/docs/etag">the etag page</a>.</p></body></html>',
+        { 'last-modified': 'Mon, 02 Mar 2026 10:00:00 GMT' },
+      );
     case '/docs/etag':
       return send(200, 'text/html', '<p>etag page</p>', { etag: 'W/"abc123"' });
     case '/docs/plain.txt':
@@ -75,7 +97,10 @@ function route(req: IncomingMessage, res: ServerResponse): void {
   }
 }
 
-function ctx(config: Record<string, unknown>, over: { shape?: 'document' | 'binary'; credential?: string } = {}): ConnectorCtx {
+function ctx(
+  config: Record<string, unknown>,
+  over: { shape?: 'document' | 'binary'; credential?: string } = {},
+): ConnectorCtx {
   return {
     companyId: 'co',
     connection: {
@@ -130,9 +155,13 @@ describe('UrlConnector', () => {
   it('refuses a private host without the double opt-in — either half alone', async () => {
     const c = new UrlConnector();
     delete process.env.SOURCE_EGRESS_ALLOW_PRIVATE;
-    await expect(walk(c, ctx({ sitemaps: [`${base}/sitemap.xml`] }))).rejects.toThrow(EgressDeniedError);
+    await expect(walk(c, ctx({ sitemaps: [`${base}/sitemap.xml`] }))).rejects.toThrow(
+      EgressDeniedError,
+    );
     process.env.SOURCE_EGRESS_ALLOW_PRIVATE = '1';
-    await expect(walk(c, ctx({ sitemaps: [`${base}/sitemap.xml`], allowPrivate: false }))).rejects.toThrow(EgressDeniedError);
+    await expect(
+      walk(c, ctx({ sitemaps: [`${base}/sitemap.xml`], allowPrivate: false })),
+    ).rejects.toThrow(EgressDeniedError);
     expect(seen).toHaveLength(0);
   });
 
@@ -140,21 +169,51 @@ describe('UrlConnector', () => {
     const c = new UrlConnector();
     const deltas = await walk(c, ctx({ sitemaps: [`${base}/sitemap.xml`] }));
     const items = upserts(deltas).map((d) => d.item);
-    expect(items.map((i) => i.path)).toEqual(['/docs/intro', '/docs/etag', '/docs/plain.txt', '/docs/no-hints']);
-    expect(items[0]).toMatchObject({ externalId: `${base}/docs/intro`, revision: '2026-03-01', modifiedAt: '2026-03-01T00:00:00.000Z' });
+    expect(items.map((i) => i.path)).toEqual([
+      '/docs/intro',
+      '/docs/etag',
+      '/docs/plain.txt',
+      '/docs/no-hints',
+    ]);
+    expect(items[0]).toMatchObject({
+      externalId: `${base}/docs/intro`,
+      revision: '2026-03-01',
+      modifiedAt: '2026-03-01T00:00:00.000Z',
+    });
     expect(items[1]!.revision).toBe('etag:abc123');
     expect(items[3]!.revision).toMatch(/^t:\d+$/);
     expect(deltas.at(-1)).toMatchObject({ type: 'checkpoint', checkpoint: { pages: 4 } });
     // robots.txt fetched once; HEADs only for pages without lastmod
     expect(seen.filter((r) => r.url === '/robots.txt')).toHaveLength(1);
-    expect(seen.filter((r) => r.method === 'HEAD').map((r) => r.url)).toEqual(['/docs/etag', '/docs/no-hints']);
+    expect(seen.filter((r) => r.method === 'HEAD').map((r) => r.url)).toEqual([
+      '/docs/etag',
+      '/docs/no-hints',
+    ]);
   });
 
   it('maxPages bounds the walk; explicit urls join the sitemap set; ignoreRobots opens /private', async () => {
     const c = new UrlConnector();
-    expect(upserts(await walk(c, ctx({ sitemaps: [`${base}/sitemap-a.xml`], maxPages: 2 })))).toHaveLength(2);
-    const items = upserts(await walk(c, ctx({ urls: [`${base}/docs/plain.txt#frag`], sitemaps: [`${base}/sitemap-a.xml`], ignoreRobots: true }))).map((d) => d.item.path);
-    expect(items).toEqual(['/docs/plain.txt', '/docs/intro', '/docs/etag', '/private/secret', '/nobrain', '/docs/no-hints']);
+    expect(
+      upserts(await walk(c, ctx({ sitemaps: [`${base}/sitemap-a.xml`], maxPages: 2 }))),
+    ).toHaveLength(2);
+    const items = upserts(
+      await walk(
+        c,
+        ctx({
+          urls: [`${base}/docs/plain.txt#frag`],
+          sitemaps: [`${base}/sitemap-a.xml`],
+          ignoreRobots: true,
+        }),
+      ),
+    ).map((d) => d.item.path);
+    expect(items).toEqual([
+      '/docs/plain.txt',
+      '/docs/intro',
+      '/docs/etag',
+      '/private/secret',
+      '/nobrain',
+      '/docs/no-hints',
+    ]);
   });
 
   it('fetch reduces HTML to text with the title; passes text; PDFs need the binary shape', async () => {
@@ -168,39 +227,73 @@ describe('UrlConnector', () => {
       occurredAt: '2026-03-02T10:00:00.000Z',
       kind: 'web_page',
     });
-    expect(await c.fetch(x, { externalId: `${base}/docs/plain.txt` })).toMatchObject({ shape: 'document', text: 'plain text page' });
-    await expect(c.fetch(x, { externalId: `${base}/docs/file.pdf` })).rejects.toThrow('binary-shaped');
-    const pdf = await c.fetch(ctx({ urls: [] , sitemaps: [`${base}/sitemap-a.xml`] }, { shape: 'binary' }), { externalId: `${base}/docs/file.pdf` });
-    expect(pdf).toMatchObject({ shape: 'binary', mediaType: 'application/pdf', modality: 'document' });
-    await expect(c.fetch(x, { externalId: `${base}/docs/blob` })).rejects.toThrow('unsupported content-type');
+    expect(await c.fetch(x, { externalId: `${base}/docs/plain.txt` })).toMatchObject({
+      shape: 'document',
+      text: 'plain text page',
+    });
+    await expect(c.fetch(x, { externalId: `${base}/docs/file.pdf` })).rejects.toThrow(
+      'binary-shaped',
+    );
+    const pdf = await c.fetch(
+      ctx({ urls: [], sitemaps: [`${base}/sitemap-a.xml`] }, { shape: 'binary' }),
+      { externalId: `${base}/docs/file.pdf` },
+    );
+    expect(pdf).toMatchObject({
+      shape: 'binary',
+      mediaType: 'application/pdf',
+      modality: 'document',
+    });
+    await expect(c.fetch(x, { externalId: `${base}/docs/blob` })).rejects.toThrow(
+      'unsupported content-type',
+    );
     await expect(c.fetch(x, { externalId: `${base}/missing` })).rejects.toThrow('HTTP 404');
   });
 
   it('a redirect into a refused host is caught at the hop; a same-host redirect is followed; size caps hold', async () => {
-    await expect(safeFetch(`${base}/bounce`, { allowPrivate: true })).rejects.toThrow(EgressDeniedError);
+    await expect(safeFetch(`${base}/bounce`, { allowPrivate: true })).rejects.toThrow(
+      EgressDeniedError,
+    );
     const hop = await safeFetch(`${base}/hop`, { allowPrivate: true });
     expect(hop.url).toBe(`${base}/docs/plain.txt`);
     expect(hop.body.toString()).toBe('plain text page');
-    await expect(safeFetch(`${base}/big`, { allowPrivate: true, maxBytes: 1024 })).rejects.toThrow('over 1024 bytes');
+    await expect(safeFetch(`${base}/big`, { allowPrivate: true, maxBytes: 1024 })).rejects.toThrow(
+      'over 1024 bytes',
+    );
   });
 
   it('the credential rides as Authorization (bearer / basic / header:)', async () => {
     const c = new UrlConnector();
-    await c.fetch(ctx({ urls: [base] }, { credential: 'tok' }), { externalId: `${base}/docs/plain.txt` });
+    await c.fetch(ctx({ urls: [base] }, { credential: 'tok' }), {
+      externalId: `${base}/docs/plain.txt`,
+    });
     expect(seen.at(-1)!.headers.authorization).toBe('Bearer tok');
-    await c.fetch(ctx({ urls: [base], authScheme: 'basic' }, { credential: 'u:p' }), { externalId: `${base}/docs/plain.txt` });
-    expect(seen.at(-1)!.headers.authorization).toBe(`Basic ${Buffer.from('u:p').toString('base64')}`);
-    await c.fetch(ctx({ urls: [base], authScheme: 'header:X-Api-Key' }, { credential: 'k' }), { externalId: `${base}/docs/plain.txt` });
+    await c.fetch(ctx({ urls: [base], authScheme: 'basic' }, { credential: 'u:p' }), {
+      externalId: `${base}/docs/plain.txt`,
+    });
+    expect(seen.at(-1)!.headers.authorization).toBe(
+      `Basic ${Buffer.from('u:p').toString('base64')}`,
+    );
+    await c.fetch(ctx({ urls: [base], authScheme: 'header:X-Api-Key' }, { credential: 'k' }), {
+      externalId: `${base}/docs/plain.txt`,
+    });
     expect(seen.at(-1)!.headers['x-api-key']).toBe('k');
     expect(seen.at(-1)!.headers['user-agent']).toBe('inite-brain-source/1.0');
   });
 
   it('pure helpers: locs, parseRobots, htmlToText', () => {
-    expect(locs('<urlset><url><loc> https://a/x </loc><lastmod>2026-01-01</lastmod></url><url><loc>https://a/y&amp;z</loc></url></urlset>')).toEqual([
-      { loc: 'https://a/x', lastmod: '2026-01-01' },
-      { loc: 'https://a/y&z' },
-    ]);
-    expect(parseRobots('User-agent: other\nDisallow: /x\nUser-agent: *\nDisallow: /a\nDisallow:\n# c\nUser-agent: inite-brain-source/1.0\nDisallow: /b')).toEqual(['/a', '', '/b']);
-    expect(htmlToText('<title>T</title><p>a&nbsp;b</p><br><div>c</div>')).toEqual({ title: 'T', body: 'a b\nc' });
+    expect(
+      locs(
+        '<urlset><url><loc> https://a/x </loc><lastmod>2026-01-01</lastmod></url><url><loc>https://a/y&amp;z</loc></url></urlset>',
+      ),
+    ).toEqual([{ loc: 'https://a/x', lastmod: '2026-01-01' }, { loc: 'https://a/y&z' }]);
+    expect(
+      parseRobots(
+        'User-agent: other\nDisallow: /x\nUser-agent: *\nDisallow: /a\nDisallow:\n# c\nUser-agent: inite-brain-source/1.0\nDisallow: /b',
+      ),
+    ).toEqual(['/a', '', '/b']);
+    expect(htmlToText('<title>T</title><p>a&nbsp;b</p><br><div>c</div>')).toEqual({
+      title: 'T',
+      body: 'a b\nc',
+    });
   });
 });
