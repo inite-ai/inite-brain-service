@@ -1,5 +1,10 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { BUILTIN_PACKS, sourcesChecksum, type DomainPackManifest, type PackSourceSpec } from '../ai/domain-packs';
+import {
+  BUILTIN_PACKS,
+  sourcesChecksum,
+  type DomainPackManifest,
+  type PackSourceSpec,
+} from '../ai/domain-packs';
 import { sourceEgressAllowPrivate, sourceFsRoots } from '../common/source-plane-flags';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import type {
@@ -8,7 +13,12 @@ import type {
   SourceCatalogResponse,
   SourceConnectorState,
 } from '../contracts/source-plane/source-plane.schema';
-import { SOURCE_CONNECTORS, connectorState, type Connector, type ConnectorRegistry } from './connector';
+import {
+  SOURCE_CONNECTORS,
+  connectorState,
+  type Connector,
+  type ConnectorRegistry,
+} from './connector';
 import { connectorKindOf } from './source-connection.service';
 
 /** The domain_pack columns the catalogue reads. */

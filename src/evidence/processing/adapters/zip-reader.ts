@@ -48,7 +48,9 @@ export function readZipParts(zip: Buffer, opts: ZipReadOptions): Map<string, Buf
   if (diskNumber !== 0) throw new Error('multi-disk ZIP archives are not supported');
   const maxEntries = opts.maxEntries ?? DEFAULT_MAX_ENTRIES;
   if (entryCount > maxEntries) {
-    throw new Error(`ZIP central directory has ${String(entryCount)} entries (cap ${String(maxEntries)})`);
+    throw new Error(
+      `ZIP central directory has ${String(entryCount)} entries (cap ${String(maxEntries)})`,
+    );
   }
   const out = new Map<string, Buffer>();
   let p = cenOffset;
@@ -73,7 +75,10 @@ export function readZipParts(zip: Buffer, opts: ZipReadOptions): Map<string, Buf
         `ZIP part "${name}" declares ${String(uncompressedSize)} bytes (cap ${String(opts.maxPartBytes)})`,
       );
     }
-    out.set(name, readLocalEntry(zip, { name, localOffset, method, compressedSize, maxOut: opts.maxPartBytes }));
+    out.set(
+      name,
+      readLocalEntry(zip, { name, localOffset, method, compressedSize, maxOut: opts.maxPartBytes }),
+    );
   }
   return out;
 }

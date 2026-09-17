@@ -49,7 +49,10 @@ export class OfficeTextAdapter implements ProcessorAdapter {
     // The inflate cap is the derived cap: a part that cannot fit the
     // output cannot be output, so it never needs to be in memory.
     const limits = { maxPartBytes: cap };
-    const content = (kind === 'docx' ? docxText : kind === 'xlsx' ? xlsxText : pptxText)(bytes, limits);
+    const content = (kind === 'docx' ? docxText : kind === 'xlsx' ? xlsxText : pptxText)(
+      bytes,
+      limits,
+    );
     if (content.trim().length === 0) {
       throw new Error(`${kind} carries no text — a document of images needs an OCR processor`);
     }

@@ -62,7 +62,9 @@ export function validateSources(pack: DomainPackManifest, sources: unknown): voi
     const s = raw as SourceShape;
     const id = s.id;
     if (typeof id !== 'string' || !SOURCE_ID.test(id)) {
-      throw new DomainPackError(`pack "${pack.id}" source id "${String(id)}" must match ${SOURCE_ID}`);
+      throw new DomainPackError(
+        `pack "${pack.id}" source id "${String(id)}" must match ${SOURCE_ID}`,
+      );
     }
     if (seen.has(id)) {
       throw new DomainPackError(`pack "${pack.id}" declares duplicate source id "${id}"`);

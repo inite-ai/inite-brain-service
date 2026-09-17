@@ -96,7 +96,9 @@ export function docxBytes(paragraphs: Array<string | string[]>): Buffer {
 }
 
 /** A workbook: sheets in order, each a grid of cells (strings via sharedStrings, numbers inline). */
-export function xlsxBytes(sheets: Array<{ name: string; rows: Array<Array<string | number>> }>): Buffer {
+export function xlsxBytes(
+  sheets: Array<{ name: string; rows: Array<Array<string | number>> }>,
+): Buffer {
   const shared: string[] = [];
   const sst = (s: string) => {
     const i = shared.indexOf(s);

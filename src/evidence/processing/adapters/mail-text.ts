@@ -66,15 +66,22 @@ export function mailText(raw: Buffer, limits: MailLimits = {}): string {
   const body = found.plain ?? (found.html !== undefined ? htmlToText(found.html).body : '');
   const out = [lines.join('\n')];
   if (body.trim().length > 0) out.push(body.trim());
-  if (found.attachments.length > 0) out.push(found.attachments.map((a) => `[attachment: ${a}]`).join('\n'));
+  if (found.attachments.length > 0)
+    out.push(found.attachments.map((a) => `[attachment: ${a}]`).join('\n'));
   return out.filter((s) => s.length > 0).join('\n\n');
 }
 
-function walk(part: Part, found: Found, w: { depth: number; maxParts: number; maxDepth: number }): void {
+function walk(
+  part: Part,
+  found: Found,
+  w: { depth: number; maxParts: number; maxDepth: number },
+): void {
   if (++found.parts > w.maxParts) return;
   const ct = contentType(part.headers.get('Content-Type'));
   const disposition = (part.headers.get('Content-Disposition') ?? '').toLowerCase();
-  const filename = paramOf(part.headers.get('Content-Disposition') ?? '', 'filename') ?? paramOf(part.headers.get('Content-Type') ?? '', 'name');
+  const filename =
+    paramOf(part.headers.get('Content-Disposition') ?? '', 'filename') ??
+    paramOf(part.headers.get('Content-Type') ?? '', 'name');
   if (ct.type === 'multipart' && w.depth < w.maxDepth) {
     const boundary = ct.params.boundary;
     if (!boundary) return;
@@ -87,7 +94,8 @@ function walk(part: Part, found: Found, w: { depth: number; maxParts: number; ma
     walk(splitMessage(decodeTransfer(part)), found, { ...w, depth: w.depth + 1 });
     return;
   }
-  const isAttachment = disposition.startsWith('attachment') || (filename !== undefined && ct.type !== 'text');
+  const isAttachment =
+    disposition.startsWith('attachment') || (filename !== undefined && ct.type !== 'text');
   if (isAttachment) {
     found.attachments.push(
       `${decodeWords(filename ?? 'unnamed')} (${ct.type}/${ct.subtype}, ${String(part.body.length)} bytes)`,
@@ -144,7 +152,11 @@ function splitMultipart(body: Buffer, boundary: string): Buffer[] {
 
 // ── content-type / parameters ─────────────────────────────────────────
 
-function contentType(v: string | undefined): { type: string; subtype: string; params: Record<string, string> } {
+function contentType(v: string | undefined): {
+  type: string;
+  subtype: string;
+  params: Record<string, string>;
+} {
   const header = v ?? 'text/plain';
   const [mime = 'text/plain'] = header.split(';');
   const [type = 'text', subtype = 'plain'] = mime.trim().toLowerCase().split('/');
@@ -177,7 +189,8 @@ function paramOf(header: string, key: string): string | undefined {
 
 function decodeTransfer(part: Part): Buffer {
   const enc = (part.headers.get('Content-Transfer-Encoding') ?? '7bit').trim().toLowerCase();
-  if (enc === 'base64') return Buffer.from(part.body.toString('latin1').replace(/[^A-Za-z0-9+/=]/g, ''), 'base64');
+  if (enc === 'base64')
+    return Buffer.from(part.body.toString('latin1').replace(/[^A-Za-z0-9+/=]/g, ''), 'base64');
   if (enc === 'quoted-printable') return decodeQuotedPrintable(part.body.toString('latin1'));
   return part.body;
 }
