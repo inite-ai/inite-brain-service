@@ -527,10 +527,24 @@ export const multilingualMatrix: MultilingualCase[] = [
   },
 
   // ── Short-string mislabeling ────────────────────────────────────────
-  // A 1-3 glyph token (name, ticker, status abbrev) must be extracted
-  // with the RIGHT predicate/type. Gold is the normalized fact set;
-  // extraction F1 measures the overlap. These stress the lexical helpers
-  // that guess entity type from token shape.
+  // A 1-3 glyph token (name, ticker, status abbrev) must SURVIVE
+  // extraction and land on the right entity type. The failure mode is a
+  // length assumption: a helper that decides "a token this short is not a
+  // name" is invisible in English and makes the brain unable to remember
+  // anyone Chinese or Japanese, where a whole personal name is two glyphs.
+  //
+  // THE GOLD HERE CARRIES SURFACE STRINGS, against this matrix's usual
+  // rule, and on purpose. Everywhere else gold is script-neutral so one
+  // case scores identically in seven languages — right for cross-lingual
+  // retrieval, where the script is incidental. Here the script IS the
+  // subject, and the script-neutral version of this gold was
+  // unsatisfiable: it asked for `name=Li Wei` from 李伟 (a romanization)
+  // and `role=cto` from 首席技术官 (a translation), neither of which
+  // appears in the input. The extractor's grounding gate drops any value
+  // that is not a verbatim span of the text — deliberately, so the model
+  // cannot invent one — so those pairs could never be produced by a
+  // correctly-behaving system, and the 0.20 extraction-f1 the first
+  // Tier-0 run reported was mostly the ruler, not the thing measured.
   {
     id: 'ml.short.zh-name',
     failureMode: 'short_string_mislabel',
@@ -539,7 +553,7 @@ export const multilingualMatrix: MultilingualCase[] = [
     direction: 'mono',
     description: 'Two-glyph Chinese name "李伟" must extract as a person, not an org.',
     gold: {
-      extraction: { goldFacts: ['entity_type=person', 'name=Li Wei', 'role=cto'] },
+      extraction: { goldFacts: ['entity_type=person', 'name=李伟', 'role=首席技术官'] },
       telemetry: [tele('zh', 'fact', 0.86)],
     },
   },
@@ -549,9 +563,9 @@ export const multilingualMatrix: MultilingualCase[] = [
     storeLang: 'ar',
     queryLang: 'ar',
     direction: 'mono',
-    description: 'Abbreviated Arabic status must resolve to the manager role.',
+    description: 'A short Arabic name keeps its role fact.',
     gold: {
-      extraction: { goldFacts: ['status=manager'] },
+      extraction: { goldFacts: ['entity_type=person', 'name=سمير', 'status=المدير'] },
       telemetry: [tele('ar', 'fact', 0.82)],
     },
   },
@@ -563,7 +577,7 @@ export const multilingualMatrix: MultilingualCase[] = [
     direction: 'mono',
     description: 'Short Devanagari given name must extract as a person.',
     gold: {
-      extraction: { goldFacts: ['entity_type=person', 'name=Aarav'] },
+      extraction: { goldFacts: ['entity_type=person', 'name=आरव'] },
       telemetry: [tele('hi', 'fact', 0.83)],
     },
   },
@@ -585,9 +599,9 @@ export const multilingualMatrix: MultilingualCase[] = [
     storeLang: 'ru',
     queryLang: 'ru',
     direction: 'mono',
-    description: 'Russian role abbreviation "ФД" must resolve to CFO status.',
+    description: 'A Russian role abbreviation "ФД" must survive as a role fact.',
     gold: {
-      extraction: { goldFacts: ['status=cfo'] },
+      extraction: { goldFacts: ['entity_type=person', 'name=Пётр', 'status=ФД'] },
       telemetry: [tele('ru', 'fact', 0.85)],
     },
   },

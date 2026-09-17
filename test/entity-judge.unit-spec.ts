@@ -54,7 +54,37 @@ describe('EntityJudgeService', () => {
     expect(await svc.judge('a', 'b')).toBe('unsure');
   });
 
-  it('fetchTopFacts renders lines, with the empty sentinel', async () => {
+  it('calls a reasoning model without temperature and at low effort', async () => {
+    // gpt-5.x rejects `temperature` with a 400 and bills hidden reasoning
+    // against max_completion_tokens; the hand-rolled call that sat here
+    // (temperature: 0, max_completion_tokens: 64) produced a 400 on one
+    // model class and an empty message on the other — both "unsure".
+    const { svc, openai } = make({ OPENAI_API_KEY: 'sk-test', ENTITY_JUDGE_MODEL: 'gpt-5.6-luna' });
+    openai.chat.completions.create.mockResolvedValue(verdict('same'));
+    expect(await svc.judge('a', 'b')).toBe('same');
+    const params = openai.chat.completions.create.mock.calls[0][0];
+    expect(params.model).toBe('gpt-5.6-luna');
+    expect(params).not.toHaveProperty('temperature');
+    expect(params.reasoning_effort).toBe('low');
+    expect(params.max_completion_tokens).toBeGreaterThanOrEqual(512);
+  });
+
+  it('calls a deterministic model with temperature 0 and no effort field', async () => {
+    const { svc, openai } = make({ OPENAI_API_KEY: 'sk-test', ENTITY_JUDGE_MODEL: 'gpt-4o' });
+    openai.chat.completions.create.mockResolvedValue(verdict('same'));
+    await svc.judge('a', 'b');
+    const params = openai.chat.completions.create.mock.calls[0][0];
+    expect(params.temperature).toBe(0);
+    expect(params).not.toHaveProperty('reasoning_effort');
+    expect(params.max_completion_tokens).toBe(64);
+  });
+
+  it('defaults to the cheapest current-generation model, not the chat model', () => {
+    const { svc } = make({ OPENAI_API_KEY: 'sk-test', OPENAI_CHAT_MODEL: 'gpt-4o-mini' });
+    expect((svc as any).model).toBe('gpt-5.6-luna');
+  });
+
+  it('fetchTopFacts renders facts AND edges, with the empty sentinel', async () => {
     const { svc } = make({ OPENAI_API_KEY: 'sk-test' });
     const db = {
       query: jest
@@ -64,10 +94,28 @@ describe('EntityJudgeService', () => {
             { predicate: 'dob', object: '1990' },
             { predicate: 'city', object: 'NYC' },
           ],
+          // The extractor files "works at Acme" as an EDGE in one language
+          // and a fact in another; the judge has to see both shapes.
+          [{ kind: 'works_at', other: 'Acme' }, { kind: 'knows' /* dangling: no other */ }],
         ])
-        .mockResolvedValueOnce([[]]),
+        .mockResolvedValueOnce([[], []]),
     } as any;
-    expect(await svc.fetchTopFacts(db, 'knowledge_entity:x')).toBe('- dob: 1990\n- city: NYC');
+    expect(await svc.fetchTopFacts(db, 'knowledge_entity:x')).toBe(
+      '- dob: 1990\n- city: NYC\n- works_at: Acme',
+    );
     expect(await svc.fetchTopFacts(db, 'knowledge_entity:y')).toBe('(no facts)');
+  });
+
+  it('fetchTopFacts does not fence facts on who said them', async () => {
+    // knowledge_fact.userId is the SPEAKER, stamped on every fact a
+    // per-user-scoped mention writes. Fencing on it left the judge with
+    // "(no facts)" for every entity on such a tenant. The entity was
+    // already fenced as tenant-global by the caller.
+    const { svc } = make({ OPENAI_API_KEY: 'sk-test' });
+    const db = { query: jest.fn().mockResolvedValueOnce([[], []]) } as any;
+    await svc.fetchTopFacts(db, 'knowledge_entity:x');
+    const sql = String(db.query.mock.calls[0][0]);
+    expect(sql).not.toContain('userId IS NONE');
+    expect(sql).toContain('FROM knowledge_edge');
   });
 });

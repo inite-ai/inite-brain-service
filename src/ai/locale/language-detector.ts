@@ -333,10 +333,14 @@ export function detectLanguage(
     return det('und', 'Zyyy', 0);
   }
 
-  // Non-Latin scripts triage. Threshold 0.4 of letters in the script —
-  // covers mixed-script input where the substantive content is in the
-  // target script and the rest is whitespace, punctuation, or digits.
-  if (blocks.cyrillic / total > 0.4) {
+  // Non-Latin scripts triage, on WORD shares (see countUnicodeBlocks).
+  // The thresholds are well below one half so mixed-script input where
+  // the substantive content is in the target script still triages there
+  // when the rest is Latin brand names, code or numbers.
+  // 0.3 like every other script. It was 0.4 with no reason recorded, and
+  // on word shares that refused "Acme Corp — Мария работает CTO" (two
+  // Russian words against three Latin proper nouns, exactly 0.4).
+  if (blocks.cyrillic / total > 0.3) {
     return det('ru', 'Cyrl', blocks.cyrillic / total);
   }
   if (blocks.hangul / total > 0.3) {
@@ -451,6 +455,34 @@ function classifyCodePoint(code: number): keyof Omit<UnicodeBlockCounts, 'total'
   return null;
 }
 
+/**
+ * Machine tokens that are text in no language: citations the answer
+ * plane appends (`[knowledge_fact:392mtme48rfejfl1jpd]`), URLs, and
+ * bare hex/base-36 identifiers. Removed before any counting — a
+ * citation id alone is 34 Latin letters, more than the whole Chinese
+ * sentence it was appended to.
+ */
+const MACHINE_TOKEN_RE = /\[[a-z_]+:[a-z0-9]+\]|https?:\/\/\S+|\b[a-z0-9]{20,}\b/giu;
+
+/** One segmenter, word granularity, language-neutral: ICU decides where
+ *  words start and end, including in scripts that write no spaces. */
+const WORDS = new Intl.Segmenter(undefined, { granularity: 'word' });
+
+/**
+ * WORDS per script, not characters. A Han character is a morpheme —
+ * usually a word — while an alphabetic script spends five or six letters
+ * on one, so a character count under-weighs logographic text by that
+ * factor. Measured on the answer plane: "Orbital Dynamics 的工程负责人是
+ * 玛丽亚·阿尔瓦雷斯 [knowledge_fact:…]。" is 15 Han letters against 48
+ * Latin ones, and a character count called it English with confidence
+ * 0; by ICU's word boundaries it is 12 Han words against 2 Latin ones.
+ *
+ * The unit comes from the platform (UAX #29 via Intl.Segmenter, which
+ * carries ICU's dictionary segmentation for Chinese, Japanese and Thai),
+ * not from a per-script weight chosen here. A word is bucketed by the
+ * script of its first letter; `total` is the count of words that landed
+ * in any bucket, so the shares below are word shares.
+ */
 function countUnicodeBlocks(text: string): UnicodeBlockCounts {
   const c: UnicodeBlockCounts = {
     total: 0,
@@ -463,15 +495,26 @@ function countUnicodeBlocks(text: string): UnicodeBlockCounts {
     arabic: 0,
     devanagari: 0,
   };
-  for (const ch of text) {
-    const code = ch.codePointAt(0) ?? 0;
-    if (!isLetter(code)) continue;
-    const bucket = classifyCodePoint(code);
+  const cleaned = text.replace(MACHINE_TOKEN_RE, ' ');
+  for (const seg of WORDS.segment(cleaned)) {
+    if (!seg.isWordLike) continue;
+    const bucket = firstLetterBucket(seg.segment);
     if (bucket === null) continue;
     c.total++;
     c[bucket]++;
   }
   return c;
+}
+
+/** The script bucket of a word's first letter, or null for a word with
+ *  no letter we classify (digits, symbols, an unlisted script). */
+function firstLetterBucket(word: string): keyof Omit<UnicodeBlockCounts, 'total'> | null {
+  for (const ch of word) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (!isLetter(code)) continue;
+    return classifyCodePoint(code);
+  }
+  return null;
 }
 
 function isLetter(code: number): boolean {

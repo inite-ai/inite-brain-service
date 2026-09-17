@@ -49,9 +49,12 @@ import { probeHnswIndex, resetKnnIndexMemo } from '../db/knn-index';
  * segment legs, the segment lane and the coverage-scan lane
  * (episode_segment.embedding). fact_alt_embedding_hnsw (a column with no
  * writer since the HyPE experiment was reverted) and entity_embedding_hnsw
- * (knowledge_entity.embedding has no KNN and no cosine consumer — entity
- * resolution reads fact vectors) were retired by migration 0139: they were
- * built, waited for and counted in readiness for nothing.
+ * (knowledge_entity.embedding had no KNN consumer — entity resolution read
+ * fact vectors at the time) were retired by migration 0139: they were
+ * built, waited for and counted in readiness for nothing. Entity
+ * resolution and the dreams dedup now read knowledge_entity.embedding
+ * directly, as a plain cosine scan: entities are one to two orders of
+ * magnitude fewer than facts, so the index stays retired.
  *
  * segment_embedding_hnsw has a swap caveat: the reindex sweep re-embeds
  * episode_segment along with the other swept tables (reindex-engine

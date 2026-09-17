@@ -479,6 +479,9 @@
           "predicate": {
             "type": "string"
           },
+          "slot": {
+            "type": "string"
+          },
           "sourceKey": {
             "type": "string"
           }
@@ -488,6 +491,7 @@
           "entityId",
           "canonicalName",
           "predicate",
+          "slot",
           "object"
         ],
         "type": "object"
@@ -4783,6 +4787,9 @@
           "predicate": {
             "type": "string"
           },
+          "predicateAlias": {
+            "type": "string"
+          },
           "scene": {
             "type": "string"
           },
@@ -4837,6 +4844,29 @@
           "facts": {
             "items": {
               "$ref": "#/components/schemas/SearchFact"
+            },
+            "type": "array"
+          },
+          "relations": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "peer": {
+                  "type": "string"
+                },
+                "peerType": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "peer",
+                "peerType"
+              ],
+              "type": "object"
             },
             "type": "array"
           },

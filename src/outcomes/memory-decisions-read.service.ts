@@ -48,7 +48,7 @@ const FEED_DEFAULT_LIMIT = 50;
  */
 const STATS_ROW_CAP = 20_000;
 
-const KINDS = ['l3_escalation', 'abstain', 'lane_route', 'zoom'] as const;
+const KINDS = ['l3_escalation', 'abstain', 'lane_route', 'zoom', 'verdict'] as const;
 
 function isoOf(value: RawDateTime): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();

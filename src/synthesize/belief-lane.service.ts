@@ -20,6 +20,8 @@ interface BeliefLaneRow {
   userId?: unknown;
   subject?: unknown;
   field?: unknown;
+  /** `(predicateAlias ?? predicateId)` — NONE on a pre-0147 row. */
+  slot?: unknown;
   value?: unknown;
   statement?: unknown;
   revision?: unknown;
@@ -130,7 +132,12 @@ export class BeliefLaneService {
 
       // Fences 2/3 compose in the WHERE, in the design order.
       const where = `userId = $u AND status = 'active'`;
-      const select = `id, userId, subject, field, value, statement, revision, validFrom`;
+      // `slot` is the cross-plane identity (0147) — the belief-side
+      // twin of a fact's `predicateAlias ?? predicate`. Without it the
+      // damping pass cannot tell which fact a belief contradicts.
+      const select =
+        `id, userId, subject, field, (predicateAlias ?? predicateId) AS slot, ` +
+        `value, statement, revision, validFrom`;
       const fused = await this.surreal.withCompany(opts.companyId, async (db) => {
         const [dense] = queryVector
           ? await db.query<[BeliefLaneRow[]]>(
@@ -201,7 +208,17 @@ export class BeliefLaneService {
       const beliefId = row.id === undefined ? '' : String(row.id);
       const statement = typeof row.statement === 'string' ? row.statement : '';
       if (!beliefId || !statement.trim()) continue;
-      const key = `${String(row.subject ?? '')}|${String(row.field ?? '')}`;
+      // Dedupe on the SLOT (0147), not the written name. Keyed on free
+      // text, this let one attribute render twice as two current
+      // settings: a live tenant's prompt carried `deployment target =
+      // AWS ECS Fargate` beside `deployment platform = Fly.io`, and
+      // `job queue backend = Redis Streams` beside `queue backend =
+      // NATS JetStream` — the stale value presented as current, in the
+      // section whose whole job is to say what is true now. A row with
+      // no slot falls back to its name, which is what it did before.
+      const slot =
+        typeof row.slot === 'string' && row.slot !== '' ? row.slot : String(row.field ?? '');
+      const key = `${String(row.subject ?? '')}|${slot}`;
       if (!byKey.has(key)) byKey.set(key, row);
       if (byKey.size >= BELIEF_LANE_TOP_K) break;
     }
@@ -226,6 +243,7 @@ export class BeliefLaneService {
         beliefId,
         subject: String(row.subject ?? ''),
         field: String(row.field ?? ''),
+        ...(typeof row.slot === 'string' && row.slot !== '' ? { predicateId: row.slot } : {}),
         value: String(row.value ?? ''),
         excerpt,
         ...(day ? { occurredAt: isoInstant(row.validFrom) } : {}),

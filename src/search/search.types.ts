@@ -16,9 +16,27 @@ export interface SearchHit {
   entityType: string;
   canonicalName: string;
   externalRefs: Record<string, string>;
+  /**
+   * The entity's 1-hop graph relations — `knowledge_edge` rows the
+   * extractor wrote instead of, or as well as, a fact. Absent when none
+   * were fetched. They are EVIDENCE: the extractor files "works at
+   * Orbital Dynamics" as a fact in one language and as an edge in
+   * another, and an answer plane that saw only facts had the generator
+   * asserting an employer the verifier could not find, and dropping the
+   * answer.
+   */
+  relations?: Array<{ kind: string; peer: string; peerType: string }>;
   facts: Array<{
     factId: string;
+    /** As written — the coinage this fact was stored under. */
     predicate: string;
+    /**
+     * The canon this predicate was aliased onto (0083), when it was.
+     * Identity is `predicateAlias ?? predicate` everywhere downstream:
+     * ranking, diversity, the T5 recency slot, and the cross-plane join
+     * with the belief plane's own slot (0147). Absent = its own canon.
+     */
+    predicateAlias?: string | undefined;
     object: string;
     confidence: number;
     validFrom: string;

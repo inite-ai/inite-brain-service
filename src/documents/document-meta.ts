@@ -53,6 +53,12 @@ export const INTERNAL_DOCUMENT_META_KEYS = [
   'conversationId',
   'messageId',
   'eventId',
+  // Mention-via-document: the L0 episode captured for the turn, so the
+  // committed facts walk back to it exactly as the direct path's do
+  // (source.episodeIds), and the speaker's session timezone, which the
+  // event-time resolver anchors the local calendar day on.
+  'episodeId',
+  'timezone',
   // 0111 tool-observation provenance hop (DocumentIngestService).
   'toolObservationRef',
   'toolObservationNote',

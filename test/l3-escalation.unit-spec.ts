@@ -649,6 +649,7 @@ function factIndexOf(): Map<string, Citation> {
         entityId: 'knowledge_entity:e1',
         canonicalName: 'tier',
         predicate: 'tier',
+        slot: 'tier',
         object: 'sapphire',
       },
     ],

@@ -45,6 +45,7 @@ const fullSearchRequest: Required<SearchDto> = {
 const fullFact: Required<SearchHit['facts'][number]> = {
   factId: 'knowledge_fact:abc',
   predicate: 'complained_about',
+  predicateAlias: 'complained_about',
   object: 'late maintenance',
   confidence: 0.85,
   validFrom: '2026-09-01T10:00:00.000Z',
@@ -63,6 +64,7 @@ const fullSearchHit: Required<SearchHit> = {
   entityType: 'person',
   canonicalName: 'Customer 42',
   externalRefs: { rent: 'cust_42' },
+  relations: [{ kind: 'works_at', peer: 'Acme', peerType: 'company' }],
   facts: [fullFact],
   score: 0.71,
 };
