@@ -8,6 +8,7 @@ import {
   runTransaction,
 } from '../db/surreal.service';
 import { EntityResolverService } from './entity-resolver.service';
+import { EmbedderService } from '../ai/embedder.service';
 import { EntityRef, IngestFactDto } from './dto/ingest-fact.dto';
 import { externalRefKey, idTailOf } from './ingest-utils';
 import { isCodeSymbolShaped, pathNeedlesForSymbol, symbolAliasForPath } from './code-alias';
@@ -15,6 +16,8 @@ import { scopeForUser } from '../auth/scope-tags';
 import { scopeFenceSql } from '../auth/scope-visibility';
 import { envFlagEnabled } from '../common/env-validation';
 import { analyzeConfusables } from '../common/text-sanitizer';
+import { nameKey, nameKeysFor } from '../common/name-key';
+import { traceArtifact } from '../common/debug-trace';
 
 /**
  * Leading English articles the extractor inconsistently keeps on coined
@@ -66,6 +69,11 @@ export function articleNameVariants(nameLc: string): string[] {
  * naming conventions (exact canonical/alias, leading articles, code
  * path↔symbol) are interpreted, instead of a second, drifting copy.
  */
+/** The rung of the naming ladder that settled an entity — see the trace
+ *  artifact `ingest.entity.resolution`. */
+type ResolutionStep =
+  'hint' | 'exact' | 'article-variant' | 'translit' | 'code-alias' | 'judge' | 'created';
+
 @Injectable()
 export class EntityUpsertService {
   private readonly logger = new Logger(EntityUpsertService.name);
@@ -74,6 +82,10 @@ export class EntityUpsertService {
     // @Optional: when the resolver isn't wired (or its flag is off), the
     // mention path simply skips inline resolution and creates new as before.
     @Optional() private readonly entityResolver?: EntityResolverService,
+    // @Optional for the same reason: a caller without an embedder still
+    // mints entities, they just carry no name embedding and are not
+    // candidates for the embedding scans until the backfill runs.
+    @Optional() private readonly embedder?: EmbedderService,
   ) {}
 
   /**
@@ -209,6 +221,20 @@ export class EntityUpsertService {
     // blocks resolution and NEVER auto-merges — off ⇒ nothing computed.
     this.flagConfusables(e.name);
 
+    // Every exit of the ladder names the rung it took. A trace that shows
+    // "Артём Соколов → knowledge_entity:x" without saying whether that was
+    // an exact hit, a transliteration key or a judge's verdict cannot be
+    // audited, and this ladder is where cross-script identity is decided.
+    const resolved = (step: ResolutionStep, entityId: string): string => {
+      traceArtifact('ingest.entity.resolution', {
+        name: e.name,
+        type: this.normalizeEntityType(e.type),
+        step,
+        entityId,
+      });
+      return entityId;
+    };
+
     // 1. Caller hint wins — same atomic upsert as fact ingest.
     if (hint) {
       const hintKey = externalRefKey(hint.vertical, hint.id);
@@ -217,19 +243,23 @@ export class EntityUpsertService {
       // complete. Existence is pre-checked ONLY under the flag (off ⇒ no
       // extra query, byte-identical).
       await this.auditExternalRefReuse(db, hintKey, e);
-      return this.upsertEntityByExternalRef(db, hintKey, {
-        factory: () => ({
-          type: this.normalizeEntityType(e.type),
-          canonicalName: e.canonical ?? e.name,
-          aliases: [e.name],
-          externalRefs: { [hintKey]: hint.id },
+      return resolved(
+        'hint',
+        await this.upsertEntityByExternalRef(db, hintKey, {
+          factory: () => ({
+            type: this.normalizeEntityType(e.type),
+            canonicalName: e.canonical ?? e.name,
+            aliases: [e.name],
+            nameKeys: nameKeysFor([e.name, e.canonical]),
+            externalRefs: { [hintKey]: hint.id },
+          }),
+          // Same identity check as the structured path: a hint says WHICH
+          // key to file this under, not that the name is new. Without it
+          // step 2's canonical-name match — the thing that would have found
+          // the existing entity — is skipped whenever a hint is present.
+          adopt: () => this.resolveExistingByName(db, { name: e.canonical ?? e.name }),
         }),
-        // Same identity check as the structured path: a hint says WHICH
-        // key to file this under, not that the name is new. Without it
-        // step 2's canonical-name match — the thing that would have found
-        // the existing entity — is skipped whenever a hint is present.
-        adopt: () => this.resolveExistingByName(db, { name: e.canonical ?? e.name }),
-      });
+      );
     }
 
     // 2. Canonical-name match. Hits `entity_canonical_lc_idx` directly
@@ -258,12 +288,13 @@ export class EntityUpsertService {
     if (nRow) {
       // Tier 3 reversible audit: an exact canonical/alias reuse is
       // deterministic, but logged so every reuse is traceable/reversible.
+      await this.stampNameKeys(db, String(nRow.id), [e.name, e.canonical]);
       await this.auditKeyedReuse(db, String(nRow.id), {
         mention: e.name,
         type: this.normalizeEntityType(e.type),
         matchKind: 'exact',
       });
-      return String(nRow.id);
+      return resolved('exact', String(nRow.id));
     }
 
     // 2a. Article-insensitive reuse (INGEST_ARTICLE_NORMALIZATION, default
@@ -293,8 +324,47 @@ export class EntityUpsertService {
             type: this.normalizeEntityType(e.type),
             matchKind: 'article-variant',
           });
-          return String(vRows[0].id);
+          return resolved('article-variant', String(vRows[0].id));
         }
+      }
+    }
+
+    // 2a-bis. Script-independent name match (migration 0148). Step 2 compares
+    // surfaces as strings, so it unifies "ACME" with "Acme" and stops at the
+    // first change of script: "Иван Петров" shares no character with "Ivan
+    // Petrov" and reads as a new entity. Everything past this point used to
+    // be the embedding + LLM judge, and measurement says that signal cannot
+    // decide a NAME — a different person who shares a given name scores
+    // ABOVE most true cross-script pairs, because an embedding measures
+    // meaning and a name has none (see common/name-key.ts for the table).
+    //
+    // So the comparison happens where it belongs: both spellings are
+    // transliterated into one script and compared as strings. Deterministic,
+    // free, reversible, and right on the exact pair the embedding gets
+    // wrong. UNIQUE match only — two entities sharing a key (a person and
+    // the company named after them; two real Ivan Petrovs) is an ambiguity,
+    // and guessing at it is what this whole ladder refuses to do.
+    const key = nameKey(e.canonical ?? e.name);
+    if (key !== '') {
+      const kRows = await queryRows<{ id: unknown }>(
+        db,
+        `SELECT id FROM knowledge_entity
+         WHERE nameKeys CONTAINS $key
+           AND userId IS NONE
+         LIMIT 2`,
+        { key },
+      );
+      if (kRows.length === 1 && kRows[0]) {
+        const id = String(kRows[0].id);
+        // The new spelling joins the entity's keys, so the NEXT one resolves
+        // on the index rather than re-deriving it.
+        await this.stampNameKeys(db, id, [e.name, e.canonical]);
+        await this.auditKeyedReuse(db, id, {
+          mention: e.name,
+          type: this.normalizeEntityType(e.type),
+          matchKind: 'translit',
+        });
+        return resolved('translit', id);
       }
     }
 
@@ -307,7 +377,7 @@ export class EntityUpsertService {
     // aliases); anything ambiguous or not clearly code-shaped falls
     // through to create-new. Same tenant-global fence as step 2.
     const viaCodeAlias = await this.resolveByCodeAlias(db, e);
-    if (viaCodeAlias) return viaCodeAlias;
+    if (viaCodeAlias) return resolved('code-alias', viaCodeAlias);
 
     // 3. Inline entity resolution (graphiti-style, opt-in). Before minting
     // a new entity, look for a near-duplicate that already exists and let
@@ -315,22 +385,37 @@ export class EntityUpsertService {
     // match reuses the existing entity, so the duplicate is never created.
     // Falls through to create-new when disabled, no match, or any error.
     if (this.entityResolver?.isEnabled()) {
-      const resolved = await this.entityResolver.resolveByName({
+      const judged = await this.entityResolver.resolveByName({
         db,
         name: e.name,
         type: this.normalizeEntityType(e.type),
         incomingFacts,
       });
-      if (resolved) return resolved;
+      if (judged) {
+        // A verdict the judge has given is a verdict the ladder should
+        // not ask for twice. Stamping the new spelling's key means the
+        // next mention of it resolves at step 2a-bis, deterministically,
+        // instead of paying another candidate scan and LLM call for a
+        // question already answered.
+        await this.stampNameKeys(db, judged, [e.name, e.canonical]);
+        return resolved('judge', judged);
+      }
     }
 
+    const aliases = this.seedAliases(e);
     const created = await dbCreate<{ id: unknown }>(db, 'knowledge_entity', {
       type: this.normalizeEntityType(e.type),
       canonicalName: e.canonical ?? e.name,
-      aliases: this.seedAliases(e),
+      aliases,
+      // Every spelling this entity is born knowing, keyed by script-folded
+      // transliteration so the next script finds it (migration 0148).
+      nameKeys: nameKeysFor([e.canonical, ...aliases]),
+      // And its name by meaning, for the scans that catch what a string
+      // comparison cannot — a name rendered by sound in another script.
+      ...(await this.embeddingFor(e.canonical ?? e.name)),
       externalRefs: {},
     });
-    return String(created?.id);
+    return resolved('created', String(created?.id));
   }
 
   /**
@@ -349,10 +434,11 @@ export class EntityUpsertService {
    * truth and would let an LLM's paraphrase of a name ("the Lisbon trip")
    * become a permanent node nothing else references.
    *
-   * MATCH LADDER — the same three deterministic steps the naming path
-   * uses, in the same order, riding the SAME env flags so the corpus's
-   * naming conventions are read identically wherever they are read:
+   * MATCH LADDER — the same deterministic steps the naming path uses, in
+   * the same order, riding the SAME env flags so the corpus's naming
+   * conventions are read identically wherever they are read:
    *   1. exact `canonicalNameLc` / `aliases` match;
+   *   1-bis. transliterated `nameKeys` match (migration 0148);
    *   2. leading-article variants (INGEST_ARTICLE_NORMALIZATION);
    *   3. code path↔symbol convention (INGEST_CODE_ALIAS_RESOLUTION).
    * The probabilistic step 3 of the naming path (the embedding + LLM judge
@@ -399,6 +485,25 @@ export class EntityUpsertService {
         { name: target, rawName: raw, ...fence.params },
       );
       if (exact) return exact;
+
+      // 1-bis. Script-independent name match (migration 0148). Step 1 is a
+      // string comparison and stops at a change of script; this one compares
+      // the transliterations, so a scene naming "Иван Петров" can link the
+      // entity that was ingested as "Ivan Petrov". Read-only like everything
+      // else here — it never stamps a key back.
+      const key = nameKey(raw);
+      if (key !== '') {
+        const viaKey = await this.uniqueEntity(
+          db,
+          `SELECT id FROM knowledge_entity
+            WHERE nameKeys CONTAINS $key
+              AND mergedInto IS NONE
+              ${fence.clause}
+            LIMIT 2`,
+          { key, ...fence.params },
+        );
+        if (viaKey) return viaKey;
+      }
 
       // 2. Leading-article variants (INGEST_ARTICLE_NORMALIZATION).
       if (envFlagEnabled(process.env.INGEST_ARTICLE_NORMALIZATION)) {
@@ -673,6 +778,69 @@ export class EntityUpsertService {
    *  a path-named entity is born carrying its derived symbol alias, so the
    *  later symbol phrasing resolves via the step-2 exact alias match. Flag
    *  off ⇒ exactly the pre-flag `[e.name]`. */
+  /**
+   * Add the transliteration keys of `names` to an entity, keeping what is
+   * already there. Called on every deterministic reuse, which makes the
+   * index self-healing: an entity written before migration 0148 gains its
+   * keys the first time any of its spellings is seen again, and a brand-new
+   * spelling of a known entity is indexed the moment it resolves.
+   *
+   * NEVER THROWS. This is an index refresh, not the reuse decision — the
+   * caller has already chosen the entity, and failing the ingest over a
+   * bookkeeping write would trade a working memory for a tidy one.
+   */
+  private async stampNameKeys(
+    db: Surreal,
+    entityId: string,
+    names: ReadonlyArray<string | undefined>,
+  ): Promise<void> {
+    const keys = nameKeysFor(names);
+    if (keys.length === 0) return;
+    try {
+      await db.query(
+        `UPDATE $id SET nameKeys = array::distinct(array::concat(nameKeys ?? [], $keys))`,
+        { id: new StringRecordId(entityId), keys },
+      );
+    } catch (err) {
+      this.logger.warn(
+        `[ingest.name_keys] failed to stamp ${keys.join(', ')} on ${entityId}: ` +
+          `${(err as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * `{ embedding, embeddingSpaceId }` for a new entity, or `{}` when it
+   * cannot be had. The column has existed since the 0001 baseline as "the
+   * entity-name/description vector" (0101) and never had a writer; the
+   * resolvers that should have read it read `name` facts instead, which
+   * the mention path never writes either. This is the writer.
+   *
+   * Goes through `embedForWrite` so the embedding-space guard applies —
+   * a vector from the fallback provider must never land next to vectors
+   * from the primary. When that guard refuses (primary still warming up)
+   * or there is no embedder at all, the entity is created WITHOUT one:
+   * a missing candidate is the failure mode this field existed to fix,
+   * and it is strictly better than a failed ingest. The backfill fills
+   * the gap later.
+   */
+  private async embeddingFor(
+    name: string,
+  ): Promise<{ embedding?: number[]; embeddingSpaceId?: string }> {
+    if (!this.embedder) return {};
+    try {
+      return {
+        embedding: await this.embedder.embedForWrite(`name: ${name}`),
+        embeddingSpaceId: this.embedder.activeSpaceId(),
+      };
+    } catch (err) {
+      this.logger.warn(
+        `[ingest.name_embedding] entity "${name}" created without one: ${(err as Error).message}`,
+      );
+      return {};
+    }
+  }
+
   private seedAliases(e: { name: string; canonical?: string | undefined }): string[] {
     const aliases = [e.name];
     if (envFlagEnabled(process.env.INGEST_CODE_ALIAS_RESOLUTION)) {
@@ -702,7 +870,11 @@ export class EntityUpsertService {
   private async auditKeyedReuse(
     db: Surreal,
     targetEntity: string,
-    meta: { mention: string; type: string; matchKind: 'exact' | 'externalRef' | 'article-variant' },
+    meta: {
+      mention: string;
+      type: string;
+      matchKind: 'exact' | 'externalRef' | 'article-variant' | 'translit';
+    },
   ): Promise<void> {
     if (!this.entityResolver?.isReversible()) return;
     await this.entityResolver.recordMerge(db, {

@@ -161,23 +161,46 @@ describe('EntityUpsertService.resolveExistingByName — resolve-only, never mint
     expect(captured.queries[0]!.params).toHaveProperty('entityScopeTag');
   });
 
+  it('probes the transliterated name key right after the exact miss', async () => {
+    // Step 1 compares surfaces as strings and so stops at a change of
+    // script; 1-bis (migration 0148) compares the transliterations, which
+    // is what lets a scene naming "Иван Петров" link the entity ingested
+    // as "Ivan Petrov". Unflagged — it is a lookup, not a behaviour.
+    const { db, captured } = resolverDb([]);
+    await svc().resolveExistingByName(db, { name: 'Иван Петров' });
+    expect(captured.queries).toHaveLength(2);
+    expect(captured.queries[1]!.sql).toContain('nameKeys CONTAINS $key');
+    expect(captured.queries[1]!.params!.key).toBe('ivan petrov');
+  });
+
+  it('skips the key probe for a name too short to key safely', async () => {
+    // "C", "C++" and "C#" all fold to "c"; that key is refused, so the
+    // ladder must not spend a query asking for it.
+    const { db, captured } = resolverDb([]);
+    await svc().resolveExistingByName(db, { name: 'C++' });
+    expect(captured.queries).toHaveLength(1);
+  });
+
   it('falls through to the article variants only under INGEST_ARTICLE_NORMALIZATION', async () => {
     const { db, captured } = resolverDb([]);
     await svc().resolveExistingByName(db, { name: 'the office lease' });
-    expect(captured.queries).toHaveLength(1); // flag off ⇒ no second probe
+    // exact miss + the unflagged key probe, and no article probe.
+    expect(captured.queries).toHaveLength(2);
+    expect(captured.queries.some((q) => q.sql.includes('IN $variants'))).toBe(false);
 
     process.env.INGEST_ARTICLE_NORMALIZATION = '1';
     const withFlag = resolverDb([]);
     await svc().resolveExistingByName(withFlag.db, { name: 'the office lease' });
-    expect(withFlag.captured.queries).toHaveLength(2);
-    expect(withFlag.captured.queries[1]!.sql).toContain('canonicalNameLc IN $variants');
-    expect(withFlag.captured.queries[1]!.params!.variants).toContain('office lease');
+    expect(withFlag.captured.queries).toHaveLength(3);
+    expect(withFlag.captured.queries[2]!.sql).toContain('canonicalNameLc IN $variants');
+    expect(withFlag.captured.queries[2]!.params!.variants).toContain('office lease');
   });
 
   it('falls through to the code path↔symbol convention only under its own flag', async () => {
-    // The exact probe must MISS for the ladder to reach step 3, so the
-    // double answers miss-then-hit.
-    const pages: Array<Array<{ id: string }>> = [[], [{ id: 'knowledge_entity:dispatcher' }]];
+    // Every probe above step 3 must MISS for the ladder to reach it: the
+    // exact match, then the 0148 transliterated key. Only the third
+    // answers.
+    const pages: Array<Array<{ id: string }>> = [[], [], [{ id: 'knowledge_entity:dispatcher' }]];
     const captured: ResolverCapture = { queries: [] };
     let call = 0;
     const scripted = {
@@ -187,12 +210,13 @@ describe('EntityUpsertService.resolveExistingByName — resolve-only, never mint
       },
     } as unknown as Surreal;
 
-    // Flag off: the ladder stops after the exact miss.
+    // Flag off: the ladder stops after the exact miss and the key miss.
     delete process.env.INGEST_CODE_ALIAS_RESOLUTION;
     await expect(
       svc().resolveExistingByName(scripted, { name: 'src/gateway/webhook-dispatcher.ts' }),
     ).resolves.toBeNull();
-    expect(captured.queries).toHaveLength(1);
+    expect(captured.queries).toHaveLength(2);
+    expect(captured.queries.some((q) => q.params?.sym !== undefined)).toBe(false);
 
     process.env.INGEST_CODE_ALIAS_RESOLUTION = '1';
     call = 0;

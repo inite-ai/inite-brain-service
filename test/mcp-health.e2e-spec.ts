@@ -89,14 +89,40 @@ describe('MCP endpoint without a tenant in the path', () => {
     expect(names).toContain('search_knowledge');
   });
 
-  it('still refuses an unauthenticated call', async () => {
-    const res = await f.http
-      .post('/mcp')
-      .send({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
+  it('still refuses an unauthenticated call that reaches memory', async () => {
+    // `tools/list` is one of the messages an anonymous caller MAY send
+    // (public-tools.ts); a tool that reads a tenant is not, and its
+    // refusal keeps the challenge an OAuth client starts from.
+    const res = await f.http.post('/mcp').send({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'search_knowledge', arguments: { query: 'anything' } },
+    });
     expect(res.status).toBe(401);
     // The 401 names the discovery document, so a client can self-onboard.
     expect(String(res.headers['www-authenticate'] ?? '')).toContain(
       '/.well-known/oauth-protected-resource',
     );
+  });
+
+  it('lists only the public tools to an anonymous caller', async () => {
+    const res = await f.http
+      .post('/mcp')
+      .set({ Accept: 'application/json, text/event-stream' })
+      .send({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
+    expect(res.status).toBe(200);
+    const body = String(res.headers['content-type'] ?? '').includes('text/event-stream')
+      ? JSON.parse(
+          (res.text ?? '')
+            .split('\n')
+            .filter((l: string) => l.startsWith('data: '))
+            .map((l: string) => l.slice(6))
+            .pop() ?? '{}',
+        )
+      : res.body;
+    const names = (body.result?.tools ?? []).map((t: { name: string }) => t.name).sort();
+    expect(names).toEqual(['about_brain', 'how_to_connect']);
+    expect(names).not.toContain('search_knowledge');
   });
 });

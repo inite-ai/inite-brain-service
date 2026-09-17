@@ -27,7 +27,32 @@ import type { Semantics } from './predicate-registry-internals/types';
  *
  * THE QUESTION is cardinality over time, and it is a judgment about
  * language, which is what makes it an LLM's job rather than a suffix
- * table: does a new value RETIRE the old one?
+ * table: can one subject hold several of these at once?
+ *
+ * THE QUESTION USED TO BE ASKED AS "does a new value RETIRE the old
+ * one", with a rule that a predicate whose VALUE IS ANOTHER ENTITY is
+ * append_only. Both were proxies, and both misfired on the same family.
+ * Extraction passes the clause with the coinage, and a clause narrates
+ * an action — `deployed_to: Fly.io (clause: we deploy ledger-sync to
+ * Fly.io for the pilot)` reads as an event, and its value is a thing, so
+ * the old prompt answered append_only. Measured on six live tenants
+ * built from one corpus, `deployed_to` came out append_only on all of
+ * them; `deploy_target` and `deploys_to` alias onto it and inherit that,
+ * so NOTHING in the deploy family could supersede, by policy. That, and
+ * not name fragmentation, is why "where does ledger-sync deploy to"
+ * answered "Fly.io and AWS ECS Fargate" in every measured arm.
+ *
+ * Re-measured against a labelled set, three repetitions each, in the
+ * production call shape (context, clause, nearest-predicate hint):
+ *
+ *                          single_active   append_only   unstable
+ *   old prompt, no clause      10/12          10/10        0/22
+ *   old prompt, with clause     3/5            3/3         0/8
+ *   this prompt, no clause     12/12          10/10        0/22
+ *   this prompt, with clause    5/5            3/3         0/8
+ *
+ * The append_only column is the one that must never drop: a false
+ * single_active retires facts that should coexist. It did not move.
  *
  * CONSERVATIVE BY CONSTRUCTION. Ambiguity resolves to `append_only`,
  * today's behaviour — so this pass only ever ADDS supersession where the
@@ -104,17 +129,21 @@ export class PredicateSemanticsJudgeService {
   ): Promise<Semantics> {
     const sys = `You classify a new knowledge-graph predicate by its CARDINALITY OVER TIME.
 
-Answer exactly one question: when the subject gets a NEW value for this predicate, does the PREVIOUS value stop being true?
+Answer exactly one question: CAN ONE SUBJECT HOLD SEVERAL OF THESE AT THE SAME TIME?
 
-- "single_active" — yes. The predicate names a STATE that has one true value at a time: a current setting, a status, a chosen option, a scheduled date, a version, a limit, a target, a rate. A later value REPLACES the earlier one, which becomes history.
-  e.g. deploy_target, queue_backend, retry_policy, pilot_launch_date, payout_cutoff, dependency_version, subscription_tier, office_address, employment_status
+- "single_active" — no, only one at a time. The predicate names a SETTING, or a STATE the subject is IN: where it deploys, which backend it uses, its retry policy, its launch date, its cutoff, its batch size, its port, its address, its tier, its status. A later value REPLACES the earlier one, which becomes history.
+  e.g. deploy_target, deploys_to, queue_backend, retry_policy, pilot_launch_date, payout_cutoff, http_port, staging_namespace, office_address, employment_status
 
-- "append_only" — no. The predicate names an EVENT, an observation, a preference, a capability, or anything naturally multi-valued, where the earlier value REMAINS true and the history is the point.
-  e.g. mentioned_topic, attended_event, complained_about, favorite_cuisine, speaks_language, skill, purchased_item, reported_symptom
+- "append_only" — yes, several coexist. The predicate records an EVENT, an observation, a preference, a capability, or an EDGE to another entity that does not exclude other edges.
+  e.g. mentioned_topic, attended_event, complained_about, identified_bug, favorite_cuisine, speaks_language, purchased_item, calls, depends_on, owns, replaces, superseded_by
+
+Two things do NOT decide it:
+- The VALUE being a thing rather than a number or a date. A service deploys to one target at a time whether that target is called "AWS ECS Fargate" or "eu-west-1".
+- The example being phrased as something that HAPPENED. "We deployed ledger-sync to Fly.io" is how people state a current setting; it does not make the deploy target multi-valued.
+
+The sharpest test is the plural: "the service's deploy targets" is wrong — it has one. "The service's dependencies" is right — it has many. If the plural reads naturally, it is append_only.
 
 Judge the predicate, not the one example: "purchased_item" is append_only even though someone can buy the same thing twice, and "office_address" is single_active even if the example shows only one address.
-
-A predicate that names a RELATION between two things — the value is another entity, not a value the subject holds — is "append_only" even when it sounds like a replacement: "replaces", "superseded_by", "alternative_to", "depends_on", "calls", "owns". A second such statement is a second edge in the graph, not a correction of the first, and retiring the first would delete a relationship that is still true.
 
 When the two readings are genuinely equally plausible, answer "append_only". Wrongly marking a multi-valued predicate single_active silently retires facts that should coexist; the reverse only leaves a disagreement standing for a later pass to adjudicate.
 

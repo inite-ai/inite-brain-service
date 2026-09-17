@@ -10,7 +10,7 @@
   "transform": {
     "^.+\\.(t|j)s$": ["ts-jest", { "tsconfig": { "allowJs": true } }]
   },
-  "transformIgnorePatterns": ["node_modules/(?!\\.pnpm|jose)", "node_modules/\\.pnpm/(?!jose@)"],
+  "transformIgnorePatterns": ["node_modules/(?!\\.pnpm|jose|any-ascii)", "node_modules/\\.pnpm/(?!jose@|any-ascii@)"],
   "testTimeout": 180000,
   "cacheDirectory": "<rootDir>/.jest-cache",
   "forceExit": true,

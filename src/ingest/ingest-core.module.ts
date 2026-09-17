@@ -4,6 +4,7 @@ import { EntityResolverService } from './entity-resolver.service';
 import { EntityUpsertService } from './entity-upsert.service';
 import { FactEmbeddingService } from './fact-embedding.service';
 import { FactResolverService } from './fact-resolver.service';
+import { EpisodeStoreService } from './episode-store.service';
 
 /**
  * The graph WRITE PRIMITIVES, module-separated from the ingest routes:
@@ -22,7 +23,17 @@ import { FactResolverService } from './fact-resolver.service';
     EntityUpsertService,
     FactEmbeddingService,
     FactResolverService,
+    // L0 episode capture is a write primitive too: both ingest paths — the
+    // direct mention persister and the document commit a stock deployment
+    // routes mentions through — capture the turn before extraction.
+    EpisodeStoreService,
   ],
-  exports: [EntityResolverService, EntityUpsertService, FactEmbeddingService, FactResolverService],
+  exports: [
+    EntityResolverService,
+    EntityUpsertService,
+    FactEmbeddingService,
+    FactResolverService,
+    EpisodeStoreService,
+  ],
 })
 export class IngestCoreModule {}

@@ -14,6 +14,10 @@ import {
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { PredicateRegistryService, PredicateDefinition } from '../ai/predicate-registry.service';
+import {
+  PredicateConsolidationService,
+  type ConsolidationResult,
+} from './predicate-consolidation.service';
 import type { PredicatesListResponse } from '../contracts/admin/predicates.schema';
 import type {
   PredicateMutationResponse,
@@ -30,7 +34,10 @@ import type {
 @Controller('v1/admin/predicates')
 @UseGuards(ApiKeyGuard)
 export class AdminPredicatesController {
-  constructor(private readonly predicateRegistry: PredicateRegistryService) {}
+  constructor(
+    private readonly predicateRegistry: PredicateRegistryService,
+    private readonly consolidation: PredicateConsolidationService,
+  ) {}
 
   @Get()
   @RequireScopes('brain:admin')
@@ -117,14 +124,38 @@ export class AdminPredicatesController {
     if (!body?.canonicalId?.trim()) {
       throw new BadRequestException('canonicalId is required');
     }
-    const result = await this.predicateRegistry.alias(
+    const { def } = await this.predicateRegistry.alias(
       req.brainAuth.companyId,
       predicateId,
       body.canonicalId,
     );
-    if (!result) {
+    if (!def) {
       throw new NotFoundException(`Predicate ${predicateId} not found`);
     }
-    return { predicate: result } satisfies PredicateMutationResponse;
+    return { predicate: def } satisfies PredicateMutationResponse;
+  }
+
+  /**
+   * Fold the tenant's accumulated vocabulary onto its canonical names —
+   * the pass that replaced a per-coinage decision.
+   *
+   * Deciding "is this coinage a rename of one we already have" at write
+   * time is order-dependent, retroactively blind and local: it sees three
+   * candidates, never the vocabulary, and never revisits an answer. This
+   * runs over the whole registry, reconsiders what is already stored, and
+   * carries each merge onto the facts written under the old name.
+   *
+   * `dryRun` reports the merges it would make and writes nothing — the
+   * intended way to look before consolidating a live tenant.
+   */
+  @Post('consolidate')
+  @RequireScopes('brain:admin')
+  async consolidate(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { dryRun?: boolean } = {},
+  ): Promise<ConsolidationResult> {
+    return this.consolidation.run(req.brainAuth.companyId, {
+      dryRun: body?.dryRun === true,
+    });
   }
 }
