@@ -961,7 +961,19 @@
           "singleHint": "Stored write-only; never shown again.",
           "keyId": "Access key id",
           "keySecret": "Secret access key",
-          "pairHint": "Leave both empty to use the brain's own credential chain (env / instance role)."
+          "pairHint": "Leave both empty to use the brain's own credential chain (env / instance role).",
+          "account": "Account",
+          "accountHint": "The brain reads the source as this account; its tokens stay encrypted on the brain.",
+          "pickAccount": "Use a connected account",
+          "connectNew": "Connect a {provider} account",
+          "connectAnother": "Connect another account",
+          "connecting": "Waiting for {provider}…",
+          "popupBlocked": "The sign-in window was blocked — allow popups for this site and try again.",
+          "noAccounts": "No {provider} account connected yet.",
+          "notConfigured": "This brain has no {provider} app registered — set {flag} (and the redirect URI below) on the brain.",
+          "redirectUri": "Redirect URI to register at {provider}: {uri}",
+          "keyMissing": "The brain has no SOURCE_CREDENTIAL_ENCRYPTION_KEY — tokens are never stored in the clear, so no account can be connected until it is set.",
+          "scopesShort": "This account was connected with narrower permissions; connect it again."
         },
         "errors": {
           "required": "required",
@@ -970,7 +982,8 @@
           "number": "a number ≥ {min}",
           "credential": "a credential is needed for this auth",
           "header": "name the header",
-          "jail": "must be under one of: {roots}"
+          "jail": "must be under one of: {roots}",
+          "account": "connect an account first"
         },
         "fields": {
           "fs": {
@@ -1162,6 +1175,76 @@
               "label": "Max file size (bytes)",
               "hint": ""
             }
+          },
+          "gdrive": {
+            "folderId": {
+              "label": "Folder",
+              "hint": "A folder id from its URL, or root — My Drive. Everything beneath it."
+            },
+            "includeShared": {
+              "label": "Also what is shared with me",
+              "hint": ""
+            },
+            "driveId": {
+              "label": "Shared drive id",
+              "hint": "Read a shared drive instead of My Drive."
+            },
+            "extensions": {
+              "label": "Extensions",
+              "hint": "Comma-separated, no dots; empty = the shape's defaults. Google Docs / Sheets / Slides are always taken."
+            },
+            "maxFiles": {
+              "label": "Max files",
+              "hint": ""
+            },
+            "maxFileBytes": {
+              "label": "Max file size (bytes)",
+              "hint": ""
+            }
+          },
+          "onedrive": {
+            "folderPath": {
+              "label": "Folder",
+              "hint": "Path under the drive root, e.g. /Documents/Team; empty = the whole drive."
+            },
+            "siteId": {
+              "label": "SharePoint site id",
+              "hint": "Read a site's default document library instead of the account's OneDrive."
+            },
+            "driveId": {
+              "label": "Drive id",
+              "hint": "A specific drive (a group's, a colleague's)."
+            },
+            "extensions": {
+              "label": "Extensions",
+              "hint": "Comma-separated, no dots; empty = the shape's defaults."
+            },
+            "maxFiles": {
+              "label": "Max files",
+              "hint": ""
+            },
+            "maxFileBytes": {
+              "label": "Max file size (bytes)",
+              "hint": ""
+            }
+          },
+          "dropbox": {
+            "path": {
+              "label": "Folder",
+              "hint": "/Folder/Sub; empty = the whole Dropbox."
+            },
+            "extensions": {
+              "label": "Extensions",
+              "hint": "Comma-separated, no dots; empty = the shape's defaults."
+            },
+            "maxFiles": {
+              "label": "Max files",
+              "hint": ""
+            },
+            "maxFileBytes": {
+              "label": "Max file size (bytes)",
+              "hint": ""
+            }
           }
         },
         "authOptions": {
@@ -1285,6 +1368,36 @@
             "binaryHint": ""
           }
         },
+        "gdrive": {
+          "title": "Google Drive",
+          "body": "My Drive, a folder or a shared drive of a Google account you connect — read as documents, incrementally through the Drive changes feed.",
+          "shapes": {
+            "document": "Text documents",
+            "documentHint": "markdown, text, csv, json, html; Docs / Sheets / Slides as text",
+            "binary": "Files",
+            "binaryHint": "PDFs, Word / Excel / PowerPoint, images"
+          }
+        },
+        "onedrive": {
+          "title": "OneDrive / SharePoint",
+          "body": "A OneDrive folder or a SharePoint document library of a Microsoft account you connect — incrementally through the Graph delta.",
+          "shapes": {
+            "document": "Text documents",
+            "documentHint": "markdown, text, csv, json, html",
+            "binary": "Files",
+            "binaryHint": "PDFs, Word / Excel / PowerPoint, mail, images"
+          }
+        },
+        "dropbox": {
+          "title": "Dropbox",
+          "body": "A Dropbox folder of an account you connect — incrementally through the folder cursor.",
+          "shapes": {
+            "document": "Text documents",
+            "documentHint": "markdown, text, csv, json, html",
+            "binary": "Files",
+            "binaryHint": "PDFs, Word / Excel / PowerPoint, mail, images"
+          }
+        },
         "external": {
           "title": "Pushed by a publisher",
           "body": "An indexer or tool pushes here through the doors; connecting only creates the identity its writes are attributed to.",
@@ -1323,7 +1436,8 @@
           "external": "",
           "disabled": "Set {flag}=1 on the brain and restart.",
           "missing": "This build ships no such connector.",
-          "notAccepted": "Reinstall the pack with acceptSources."
+          "notAccepted": "Reinstall the pack with acceptSources.",
+          "oauthUnconfigured": "Register a {provider} app on the brain first ({flag}); the connect button then signs in."
         },
         "connect": "Connect",
         "deployment": "Deployment fences"
@@ -1345,6 +1459,39 @@
         "tickedCount": "{n} subfolder(s) ticked",
         "nothingYet": "nothing chosen yet",
         "use": "Use"
+      },
+      "accounts": {
+        "title": "Connected accounts",
+        "subtitle": "Accounts the brain reads cloud sources as — connected once, tokens encrypted on the brain, refreshed before every sync.",
+        "headers": {
+          "provider": "provider",
+          "account": "account",
+          "status": "status",
+          "usedBy": "used by",
+          "expires": "token",
+          "actions": "actions"
+        },
+        "none": "No accounts connected. You connect one while adding a Google Drive, OneDrive or Dropbox source.",
+        "status": {
+          "active": "active",
+          "revoked": "disconnected",
+          "broken": "needs reconnecting"
+        },
+        "refreshable": "refreshes itself",
+        "notRefreshable": "no refresh token — dies with the access token",
+        "expiresAt": "until {at}",
+        "usedBy": "{n} connection(s)",
+        "unused": "unused",
+        "disconnect": "Disconnect",
+        "disconnectPrompt": "Disconnect {account}? Connections that run as it will fail their next sync until reconnected.",
+        "disconnected": "Disconnected{provider}.",
+        "providerRevoked": " (revoked at the provider too)",
+        "providerNotRevoked": " — the provider did not confirm; revoke it in the account's settings as well",
+        "providers": "Providers",
+        "configured": "app registered",
+        "notConfigured": "not configured — set {flag}",
+        "redirect": "redirect URI",
+        "notReady": "Connected accounts are off (SOURCE_OAUTH_CLIENT) or the brain has no SOURCE_CREDENTIAL_ENCRYPTION_KEY."
       }
     },
     "marketplace": {

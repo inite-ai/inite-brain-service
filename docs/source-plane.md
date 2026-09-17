@@ -85,6 +85,10 @@ failed run, never a crash.
 | `GET /v1/admin/source-connections/:id/stats` | what the connection produced: catalogue rows by state, and the facts it grounds (`source.meta.source_connection`) as active / stale / closed — a bounded scan, `facts: null` when the tenant is too large to count in 5 s |
 | `GET /v1/admin/source-connections/:id/runs?limit=` | every run, newest first — queued (`payload.connectionId`), inline and agent (`progress.connectionId`) runs alike, projected to `ranBy` (`server` / `agent:<id>`), mode, counters, duration, error; `persisted: false` under `JOB_RUN_PERSIST=0` |
 | `GET /v1/admin/source-connections/:id/items/:itemId` | one catalogue row followed to its facts: the document it became (or the asset it was stored as, its current derived representations, and the documents the bridge made of it) and up to 50 facts that cite those documents with the revision each was read at, its stale mark and its close. 404 when the row belongs to another connection |
+| `POST /v1/admin/source-connections/oauth/start` | `{ provider, connector, origin?, ownerUserId? }` — begin connecting an account: the provider's consent URL with the connector's scopes and a signed state (W4, § Connected accounts). 404 until `SOURCE_OAUTH_CLIENT` |
+| `GET /v1/admin/source-connections/oauth/grants` | the accounts connected (never a token), each provider's readiness and the redirect URI to register, `ready` (the client on + the key set) |
+| `DELETE /v1/admin/source-connections/oauth/grants/:id` | disconnect: revoked at the provider (best effort), the grant marked revoked |
+| `GET /v1/source-connections/oauth/callback` | **public** — the provider's return leg; the signed state authenticates it. Answers the HTML page that hands the result to the admin window |
 
 The scheduler ticks every 5 minutes (`2-59/5 * * * *` UTC) and enqueues
 one job per due connection per tenant, deduped per 5-minute slot;
@@ -165,6 +169,9 @@ accepted flags into the retry.
 | **`fs`** (W1) | `SOURCE_KIND_FS` + the `SOURCE_FS_ROOTS` jail | a directory on the brain host — a mounted volume, an OS-mounted network share (SMB/NFS), the laptop a fully-local brain runs on. Every run is a full walk (`walksEverything`: no change feed exists for a directory), so what the walk did not see is gone. Symlinks are never followed; hidden entries and VCS/build directories are skipped; `maxFiles` / `maxFileBytes` bound the walk | `mtime:size` — polling, hashing only what the store hashes on write | `{ root, include?, exclude?, ignoreFiles?, extensions?, excludeDirs?, includeHidden?, maxFiles?, maxFileBytes? }` — `include` / `exclude` are gitignore-style globs relative to the root (`docs/**`, `notes/2026`, `*.md`, `/README.md`; a trailing `/` = directories only); `ignoreFiles` (default `.brainignore`) names gitignore-style files honoured anywhere in the tree, nested ones relative to their directory, `!` re-admits — the machine's owner keeps things out without touching the connection (`connectors/path-rules.ts`; the agent walks by the same rules) |
 | **`url`** (W1) | `SOURCE_KIND_URL` | pages named outright and every page a sitemap lists (indexes followed one level) — a public site, a docs portal, a self-hosted wiki. HTML is reduced to text (title kept, scripts/styles/chrome stripped); `text/*` and JSON pass through; PDFs, office documents and rfc822 go to the binary shape. Every request and every redirect hop passes the SSRF egress guard; robots.txt `Disallow` for `*` and `inite-brain-source` is honoured per host; `sameHostOnly` (default) keeps a sitemap from enumerating another host; the credential rides as `Authorization: Bearer` (or `Basic`, or `header:<Name>`) | sitemap `<lastmod>`, else the server's ETag / Last-Modified (one HEAD per URL per run), else a `refetchHours` time bucket | `{ urls?, sitemaps?, maxPages?, sameHostOnly?, allowPrivate?, authScheme?, refetchHours?, delayMs?, maxBytes?, ignoreRobots? }` |
 | **`s3`** (W1) | `SOURCE_KIND_S3` | objects under a prefix of an S3 or S3-compatible bucket (MinIO, R2, B2, GCS interop) through the SDK the evidence adapter already uses; the same extension rules as `fs` decide text vs binary items | the object ETag | `{ bucket, prefix?, region?, endpoint?, forcePathStyle?, allowPrivate?, extensions?, maxObjects?, maxObjectBytes? }`; credential `accessKeyId:secretAccessKey`, else the SDK chain |
+| **`gdrive`** (W4) | `SOURCE_KIND_GDRIVE` + `SOURCE_OAUTH_CLIENT` | a Google Drive folder — My Drive (`root`), a folder id, a shared drive (`driveId`), optionally what is shared with the account (`includeShared`) — through the Drive v3 REST API as the connected account. A full run walks folders breadth-first (`files.list`) and ends with `changes.getStartPageToken`; later runs read `changes.list` from that token (an upsert in scope, a removal / trashing / move out of scope as gone, a new subfolder joins the checkpointed folder set). Docs / Sheets / Slides have no bytes: a document-shaped entry exports them as text / CSV / text, a binary-shaped one as docx / xlsx / pptx for the evidence plane's processors; every other file is judged by the `fs` media table on its name and reported type | `md5:<md5Checksum>`, else `v:<version>` (native documents), else modifiedTime | `{ folderId?, driveId?, includeShared?, extensions?, maxFiles?, maxFileBytes? }`; credential `oauth:<grant id>` |
+| **`onedrive`** (W4) | `SOURCE_KIND_ONEDRIVE` + `SOURCE_OAUTH_CLIENT` | a OneDrive folder or a SharePoint document library — the account's own drive, a drive by id, a site's default library (`siteId`) — and one folder in it (`folderPath`), through Microsoft Graph as the connected account. Graph's delta query is both the first walk and the change feed: the `@odata.deltaLink` is the checkpoint, a `deleted` facet is gone, an expired link (410) restarts the walk in the same run. Bytes come from the item's pre-authenticated `@microsoft.graph.downloadUrl`, fetched WITHOUT the bearer | `xor:<quickXorHash>`, else `etag:<eTag>` | `{ folderPath?, driveId?, siteId?, extensions?, maxFiles?, maxFileBytes? }`; credential `oauth:<grant id>` |
+| **`dropbox`** (W4) | `SOURCE_KIND_DROPBOX` + `SOURCE_OAUTH_CLIENT` | a Dropbox folder (`path`, `''` = everything) read recursively through API v2 as the connected account. The cursor IS the change feed: `files/list_folder` walks and hands back a cursor, `list_folder/continue` from the checkpointed cursor returns only what changed (files as upserts, `deleted` entries as gone — the path is the identity, since a deletion names only its path); a cursor Dropbox reset (409) restarts the walk. Bytes by `files/download` | `rev:<rev>` (content_hash beside it) | `{ path?, extensions?, maxFiles?, maxFileBytes? }`; credential `oauth:<grant id>` |
 
 ### `mcp` — the harvester (W2)
 
@@ -303,6 +310,67 @@ capability an operator grants by name. A network share is connected by
 mounting it into that root; a laptop's folders by running the brain
 there (the local agent, W3, is the no-mount alternative).
 
+## Connected accounts (W4) — the brain as an OAuth client
+
+The cloud natives run as an **account an admin connected once**, not as
+a token pasted into a form. The brain is an outbound OAuth 2.1 client
+(`src/source-plane/oauth/`): authorization code + PKCE (S256) against a
+platform provider — Google, Microsoft, Dropbox (`oauth-providers.ts`,
+platform code like the connectors: a pack names a connector, the
+connector names its provider and scopes, nothing else knows an
+authorize URL).
+
+```
+admin UI ──POST /v1/admin/source-connections/oauth/start {provider, connector, origin}──▶ brain
+        ◀── { authorizeUrl (PKCE challenge, the connector's scopes, a SIGNED state) } ──
+popup ──▶ provider consent ──▶ GET /v1/source-connections/oauth/callback?code&state (public)
+        brain: verify the state (HMAC under the credential key — a forged one opens
+        no tenant), spend it, exchange the code with the verifier, read the account
+        label (e-mail / login), keep the GRANT with its token set ENCRYPTED, answer a
+        page that postMessages { type: 'brain-source-oauth', grantId, account } to the
+        origin the start named — and to that origin only — then closes.
+connection.credential = 'oauth:<grant id>'   (a pointer, not a secret — stored in the clear)
+run time: CredentialProvider.resolve → the grant's access token, REFRESHED before the
+        run when it is within 90 s of expiring (single-flight per grant); a refresh the
+        provider refuses marks the grant `broken` and the run fails by name.
+```
+
+- **Grants** (`source_oauth_grant`, migration 0152): provider, account
+  label, scopes, status (`active` / `revoked` / `broken`), whether a
+  refresh token was granted, when the access token expires, the last
+  refresh, the last error. Tokens never appear on the wire.
+  `GET …/oauth/grants` lists them with each provider's readiness (an app
+  registered or not) and the redirect URI to register at the provider;
+  `DELETE …/oauth/grants/:id` revokes at the provider (best effort —
+  `providerRevoked` says whether it accepted) and marks the grant
+  revoked; connections that run as it fail their next sync by name.
+- **Encryption at rest** (`credential-cipher.ts`): with
+  `SOURCE_CREDENTIAL_ENCRYPTION_KEY` set (32 bytes; `openssl rand -base64 32`)
+  a connection's `credential` and every grant's token set are AES-256-GCM
+  ciphertext — `enc:v1:<kid>:<iv>:<tag>:<ct>` — decrypted only on the
+  engine's read. A legacy clear value stays readable and is re-encrypted
+  on its next write; rotate by moving the old key to
+  `SOURCE_CREDENTIAL_ENCRYPTION_KEY_PREVIOUS` (each ciphertext names its
+  key). OAuth **requires** the key: a refresh token is never written in
+  the clear, so without it the client refuses to start.
+- **Setting up a provider**: register an app (Google Cloud — Drive API
+  enabled; Entra ID — multi-tenant + personal, delegated
+  `Files.Read.All Sites.Read.All User.Read offline_access`; Dropbox —
+  scoped access `files.metadata.read files.content.read account_info.read`)
+  with the brain's callback URL (`<BRAIN_PUBLIC_URL>/v1/source-connections/oauth/callback`,
+  or `SOURCE_OAUTH_REDIRECT_URL`) as its redirect URI, and put its client
+  id / secret in `SOURCE_OAUTH_<PROVIDER>_CLIENT_ID` / `_CLIENT_SECRET`.
+  The catalogue marks an unconfigured provider so the card says which
+  variable to set. `SOURCE_OAUTH_<PROVIDER>_BASE_URL` is a dev/test
+  override that points every URL of the provider at one fake origin
+  (`test/fixtures/fake-cloud.ts` plays all three) — honoured only with
+  the private-egress opt-in, unset in production.
+- **Doctrine** (raw-evidence-sources-2026-09.md § 8.3–8.4): the seam is
+  `CredentialProvider` (`oauth/credential-provider.ts`) — the own client
+  today, a broker (Nango) as a second implementation later; a personal
+  connection's grant may be a user's (`ownerUserId`) and its rows stay
+  user-fenced like every personal connection's.
+
 ## Writing a connector (platform code)
 
 ```ts
@@ -316,6 +384,7 @@ interface Connector {
   endRun?(ctx): Promise<void>;             // release a session held across enumerate + fetch (the engine calls it in finally)
   readonly configExample?: Record<string, unknown>;  // what the admin form pre-fills — keys with example values, never secrets
   readonly credentialHint?: string;                  // one line on what `credential` is, when the connector takes one
+  readonly oauth?: { provider; scopes };             // runs as a connected account (W4): `credential` arrives as a fresh access token
 }
 ```
 
@@ -337,6 +406,11 @@ pack may only name it.
 | `SOURCE_KIND_FS` / `SOURCE_FS_ROOTS` | `0` / unset | the `fs` native and its root jail (W1) |
 | `SOURCE_KIND_URL`, `SOURCE_KIND_S3` | `0` | the `url` and `s3` natives (W1) |
 | `SOURCE_KIND_MCP` | `0` | the `mcp` harvester (W2) |
+| `SOURCE_KIND_GDRIVE`, `SOURCE_KIND_ONEDRIVE`, `SOURCE_KIND_DROPBOX` | `0` | the cloud-drive natives (W4) — each also needs `SOURCE_OAUTH_CLIENT` |
+| `SOURCE_OAUTH_CLIENT` | `0` | the brain as an outbound OAuth client: connected accounts, the public callback, refresh (W4) |
+| `SOURCE_CREDENTIAL_ENCRYPTION_KEY` (+ `_PREVIOUS`) | unset | credentials and grants encrypted at rest; required for OAuth |
+| `SOURCE_OAUTH_<P>_CLIENT_ID` / `_CLIENT_SECRET` / `_BASE_URL` | unset | the operator's app per provider; the dev override |
+| `SOURCE_OAUTH_REDIRECT_URL` | unset | the callback URL when it is not derivable from the request |
 | `JOB_RUN_PERSIST` | `1` | agent runs are job_run rows — the protocol needs persistence on |
 | `SOURCE_EGRESS_ALLOW_PRIVATE` | `0` | operator half of the private-host double opt-in |
 | `DOCUMENT_INGEST_ENABLED` | `1` | the document door (default on) |

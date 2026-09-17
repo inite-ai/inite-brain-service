@@ -43,6 +43,8 @@ export const SourceConnectionSchema = z.object({
   config: ConfigSchema,
   /** Whether a credential is stored; the value never leaves the server. */
   hasCredential: z.boolean(),
+  /** The connected account it runs as (`credential = oauth:<grant>`), else null. */
+  grantId: z.string().nullable(),
   mode: SourceConnectionModeSchema,
   schedule: SourceScheduleSchema,
   contentPolicy: SourceContentPolicySchema,
@@ -227,6 +229,19 @@ export const SourceCatalogEntrySchema = z.object({
       auth: z.enum(['none', 'install_secret', 'oauth']).nullable(),
       command: z.string().nullable(),
       args: z.array(z.string()),
+    })
+    .nullable(),
+  /**
+   * Set when the connector authenticates through a connected account
+   * (W4): which provider, the scopes a grant needs, and whether this
+   * deployment has an app registered for it (SOURCE_OAUTH_<P>_CLIENT_ID).
+   */
+  oauth: z
+    .object({
+      provider: z.string(),
+      title: z.string(),
+      scopes: z.array(z.string()),
+      configured: z.boolean(),
     })
     .nullable(),
 });
@@ -576,6 +591,98 @@ export const BrowseResponseSchema = z.object({
   truncated: z.boolean(),
 });
 export type BrowseResponse = z.infer<typeof BrowseResponseSchema>;
+
+// ── Connected accounts (W4: the brain as an outbound OAuth client) ─────
+//
+// An admin connects an account once (`POST …/oauth/start` → the
+// provider's consent page → the brain's callback) and gets a GRANT: the
+// provider, an account label, the scopes, and a token set the brain
+// keeps encrypted. A connection then names its grant as
+// `credential: 'oauth:<grant id>'` and the engine resolves a fresh
+// access token at run time. Tokens never appear on the wire.
+
+const GRANT_ID = /^source_oauth_grant:[A-Za-z0-9_]+$/;
+
+export const SourceOAuthProviderIdSchema = z.enum(['google', 'microsoft', 'dropbox']);
+export type SourceOAuthProviderId = z.infer<typeof SourceOAuthProviderIdSchema>;
+
+export const SourceOAuthStartRequestSchema = z.object({
+  provider: SourceOAuthProviderIdSchema,
+  /** The connector the grant is for — its declared scopes are what is asked. */
+  connector: z.string().min(1).max(32),
+  /** The admin UI's origin: the callback page posts the result to it and nowhere else. */
+  origin: z.string().url().max(256).optional(),
+  /** Make the grant a user's (a personal connection's account). */
+  ownerUserId: z.string().max(200).optional(),
+});
+export type SourceOAuthStartRequest = z.infer<typeof SourceOAuthStartRequestSchema>;
+
+export const SourceOAuthStartResponseSchema = z.object({
+  authorizeUrl: z.string(),
+  state: z.string(),
+  expiresAt: z.string(),
+});
+export type SourceOAuthStartResponse = z.infer<typeof SourceOAuthStartResponseSchema>;
+
+export const SourceOAuthGrantStatusSchema = z.enum(['active', 'revoked', 'broken']);
+
+export const SourceOAuthGrantSchema = z.object({
+  id: z.string(),
+  provider: z.string(),
+  /** E-mail / login / workspace — what the admin sees; never a secret. */
+  account: z.string().nullable(),
+  scopes: z.array(z.string()),
+  status: SourceOAuthGrantStatusSchema,
+  actor: z.string(),
+  ownerUserId: z.string().nullable(),
+  /** When the current access token expires (the grant refreshes itself before). */
+  accessExpiresAt: z.string().nullable(),
+  /** Whether a refresh token was granted — without one the grant dies with its access token. */
+  refreshable: z.boolean(),
+  lastRefreshAt: z.string().nullable(),
+  lastError: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type SourceOAuthGrant = z.infer<typeof SourceOAuthGrantSchema>;
+
+export const SourceOAuthProviderStateSchema = z.object({
+  id: SourceOAuthProviderIdSchema,
+  title: z.string(),
+  /** SOURCE_OAUTH_<P>_CLIENT_ID is set on this deployment. */
+  configured: z.boolean(),
+  /** The redirect URI to register at the provider. */
+  redirectUri: z.string(),
+});
+export type SourceOAuthProviderState = z.infer<typeof SourceOAuthProviderStateSchema>;
+
+export const SourceOAuthGrantsResponseSchema = z.object({
+  grants: z.array(SourceOAuthGrantSchema),
+  providers: z.array(SourceOAuthProviderStateSchema),
+  /** SOURCE_OAUTH_CLIENT is on and SOURCE_CREDENTIAL_ENCRYPTION_KEY is set. */
+  ready: z.boolean(),
+});
+export type SourceOAuthGrantsResponse = z.infer<typeof SourceOAuthGrantsResponseSchema>;
+
+export const RevokeGrantResponseSchema = z.object({
+  revoked: z.boolean(),
+  /** The provider accepted the revocation (best effort; false = revoke at the provider too). */
+  providerRevoked: z.boolean(),
+});
+export type RevokeGrantResponse = z.infer<typeof RevokeGrantResponseSchema>;
+
+export function isGrantId(v: string): boolean {
+  return GRANT_ID.test(v);
+}
+
+/** The credential form that names a grant. */
+export const OAUTH_CREDENTIAL_PREFIX = 'oauth:';
+
+export function grantIdOfCredential(credential: string | null | undefined): string | null {
+  if (typeof credential !== 'string' || !credential.startsWith(OAUTH_CREDENTIAL_PREFIX))
+    return null;
+  const id = credential.slice(OAUTH_CREDENTIAL_PREFIX.length);
+  return GRANT_ID.test(id) ? id : null;
+}
 
 export function isConnectionId(v: string): boolean {
   return CONNECTION_ID.test(v);

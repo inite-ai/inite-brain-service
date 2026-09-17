@@ -35,11 +35,12 @@ function entry(over: Partial<SourceCatalogEntry>): SourceCatalogEntry {
     credentialHint: null,
     hosts: ['server', 'agent'],
     mcp: null,
+    oauth: null,
     ...over,
   }
 }
 
-const noSecret = { single: '', keyId: '', keySecret: '' }
+const noSecret = { single: '', keyId: '', keySecret: '', grantId: '' }
 
 function ctxFor(e: SourceCatalogEntry, over: Partial<FormContext> = {}): FormContext {
   return { host: 'server', entry: e, fsRoots: [], egressAllowPrivate: false, ...over }
@@ -111,8 +112,10 @@ describe('connect form specs', () => {
     expect(configFrom(form, values, ctxFor(e))['authScheme']).toBeUndefined() // the connector's default
     expect(credentialFrom(form, { ...noSecret, single: 'tok' })).toBe('tok')
     // The token field is only offered once an auth is chosen.
-    expect(form.credential!.shown({ ...values, authScheme: 'none' })).toBe(false)
-    expect(form.credential!.shown(values)).toBe(true)
+    const cred = form.credential!
+    if (cred.kind === 'oauth') throw new Error('url takes a token, not an account')
+    expect(cred.shown({ ...values, authScheme: 'none' })).toBe(false)
+    expect(cred.shown(values)).toBe(true)
   })
 
   it('url: allowPrivate is offered only when the deployment opted in, and only under Advanced', () => {
@@ -140,6 +143,45 @@ describe('connect form specs', () => {
     expect(validate(form, values, ctxFor(e), { ...noSecret, keyId: 'AKIA' })).toEqual({ credential: 'credential' })
     expect(credentialFrom(form, noSecret)).toBeUndefined()
     expect(credentialFrom(form, { ...noSecret, keyId: 'AKIA', keySecret: 's3cr3t' })).toBe('AKIA:s3cr3t')
+  })
+
+  it('cloud drives: the credential is a connected account — required on the brain, oauth:<grant> on the wire', () => {
+    const gdrive = entry({
+      sourceId: 'gdrive',
+      connector: 'gdrive',
+      configExample: { folderId: 'root' },
+      hosts: ['server'],
+      oauth: { provider: 'google', title: 'Google', scopes: ['https://www.googleapis.com/auth/drive.readonly'], configured: true },
+    })
+    const form = formFor(gdrive)!
+    expect(form.credential).toEqual({ kind: 'oauth' })
+    const values = initialValues(form, gdrive)
+    expect(visibleFields(form, values, ctxFor(gdrive), false).map((f) => f.key)).toEqual([
+      'folderId',
+      'includeShared',
+      'extensions',
+    ])
+    expect(validate(form, values, ctxFor(gdrive), noSecret)).toEqual({ credential: 'account' })
+    expect(credentialFrom(form, noSecret)).toBeUndefined()
+    const picked = { ...noSecret, grantId: 'source_oauth_grant:g1' }
+    expect(validate(form, values, ctxFor(gdrive), picked)).toEqual({})
+    expect(credentialFrom(form, picked)).toBe('oauth:source_oauth_grant:g1')
+    values['folderId'] = '1AbC'
+    values['includeShared'] = true
+    expect(configFrom(form, values, ctxFor(gdrive))).toEqual({ folderId: '1AbC', includeShared: true })
+
+    const onedrive = entry({ sourceId: 'onedrive', connector: 'onedrive', hosts: ['server'], oauth: { provider: 'microsoft', title: 'Microsoft', scopes: [], configured: false } })
+    const of = formFor(onedrive)!
+    const ov: FormValues = { ...initialValues(of, onedrive), folderPath: '/Documents/Team' }
+    expect(configFrom(of, ov, ctxFor(onedrive))).toEqual({ folderPath: '/Documents/Team' })
+    const dropbox = entry({ sourceId: 'dropbox', connector: 'dropbox', hosts: ['server'], oauth: { provider: 'dropbox', title: 'Dropbox', scopes: [], configured: true } })
+    const df = formFor(dropbox)!
+    expect(visibleFields(df, initialValues(df, dropbox), ctxFor(dropbox), true).map((f) => f.key)).toEqual([
+      'path',
+      'extensions',
+      'maxFiles',
+      'maxFileBytes',
+    ])
   })
 
   it('mcp over http: a named server asks for the url, a pinned one does not; install_secret hides auth', () => {

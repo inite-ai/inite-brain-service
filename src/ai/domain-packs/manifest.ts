@@ -273,8 +273,8 @@ export type PackSourceSchedule = (typeof PACK_SOURCE_SCHEDULES)[number];
 export const PACK_SOURCE_MCP_AUTH = ['none', 'install_secret', 'oauth'] as const;
 export type PackSourceMcpAuth = (typeof PACK_SOURCE_MCP_AUTH)[number];
 
-/** ≤ 8 sources per pack — a pack reads a domain, not the internet. */
-export const MAX_PACK_SOURCES = 8;
+/** ≤ 16 sources per pack — a pack reads a domain, not the internet (file_memory: 5 places × 2 shapes). */
+export const MAX_PACK_SOURCES = 16;
 
 /** Connection defaults an operator may override per connection. */
 export interface PackSourceDefaults {

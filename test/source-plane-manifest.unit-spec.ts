@@ -114,7 +114,7 @@ describe('validatePack — sources section', () => {
     ['bad default schedule', [{ ...mcpHttp, defaults: { schedule: '5m' } }]],
     ['bad default policy', [{ ...mcpHttp, defaults: { contentPolicy: 'all' } }]],
     ['title too long', [{ ...mcpHttp, title: 'x'.repeat(81) }]],
-    ['too many', new Array(9).fill(0).map((_, i) => ({ ...mcpHttp, id: `s${i}` }))],
+    ['too many', new Array(17).fill(0).map((_, i) => ({ ...mcpHttp, id: `s${i}` }))],
   ])('rejects: %s', (_label, sources) => {
     expect(() => validatePack(base(sources))).toThrow(DomainPackError);
   });

@@ -1,6 +1,6 @@
 {
   "id": "file_memory",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Files as memory — what a folder of documents describes, defines and references, bound to the file revision it was read at; the source pack that connects local and mounted folders.",
   "predicates": [
     {
@@ -231,6 +231,84 @@
         "contentPolicy": "bytes",
         "deletePolicy": "close",
         "schedule": "4h"
+      }
+    },
+    {
+      "id": "gdrive",
+      "kind": "native",
+      "connector": "gdrive",
+      "shape": "document",
+      "title": "Google Drive (text documents)",
+      "description": "A Google Drive folder (My Drive, a folder, a shared drive) read as documents: text-like files, and Google Docs / Sheets / Slides exported as text. Incremental through the Drive changes feed. config: { folderId?, driveId?, includeShared?, extensions?, maxFiles?, maxFileBytes? }; credential: a connected Google account.",
+      "defaults": {
+        "contentPolicy": "text",
+        "deletePolicy": "close",
+        "schedule": "1h"
+      }
+    },
+    {
+      "id": "gdrive_media",
+      "kind": "native",
+      "connector": "gdrive",
+      "shape": "binary",
+      "title": "Google Drive (PDFs, office documents, images)",
+      "description": "PDFs, office documents and images in a Google Drive folder handed to the evidence plane; Google Docs / Sheets / Slides exported as Word / Excel / PowerPoint. Same config and account as `gdrive`.",
+      "defaults": {
+        "contentPolicy": "bytes",
+        "deletePolicy": "close",
+        "schedule": "1h"
+      }
+    },
+    {
+      "id": "onedrive",
+      "kind": "native",
+      "connector": "onedrive",
+      "shape": "document",
+      "title": "OneDrive / SharePoint (text documents)",
+      "description": "A OneDrive folder or a SharePoint document library read as documents (text-like files). Incremental through the Graph delta query. config: { folderPath?, driveId?, siteId?, extensions?, maxFiles?, maxFileBytes? }; credential: a connected Microsoft account.",
+      "defaults": {
+        "contentPolicy": "text",
+        "deletePolicy": "close",
+        "schedule": "1h"
+      }
+    },
+    {
+      "id": "onedrive_media",
+      "kind": "native",
+      "connector": "onedrive",
+      "shape": "binary",
+      "title": "OneDrive / SharePoint (PDFs, office documents, images)",
+      "description": "PDFs, office documents (docx, xlsx, pptx), mail and images in a OneDrive folder or SharePoint library handed to the evidence plane. Same config and account as `onedrive`.",
+      "defaults": {
+        "contentPolicy": "bytes",
+        "deletePolicy": "close",
+        "schedule": "1h"
+      }
+    },
+    {
+      "id": "dropbox",
+      "kind": "native",
+      "connector": "dropbox",
+      "shape": "document",
+      "title": "Dropbox (text documents)",
+      "description": "A Dropbox folder read as documents (text-like files). Incremental through the folder cursor. config: { path?, extensions?, maxFiles?, maxFileBytes? }; credential: a connected Dropbox account.",
+      "defaults": {
+        "contentPolicy": "text",
+        "deletePolicy": "close",
+        "schedule": "1h"
+      }
+    },
+    {
+      "id": "dropbox_media",
+      "kind": "native",
+      "connector": "dropbox",
+      "shape": "binary",
+      "title": "Dropbox (PDFs, office documents, images)",
+      "description": "PDFs, office documents, mail and images in a Dropbox folder handed to the evidence plane. Same config and account as `dropbox`.",
+      "defaults": {
+        "contentPolicy": "bytes",
+        "deletePolicy": "close",
+        "schedule": "1h"
       }
     }
   ],

@@ -95,6 +95,9 @@ import {
   SourceItemsListResponseSchema,
   SourceRunsResponseSchema,
   SyncNowResponseSchema,
+  SourceOAuthGrantsResponseSchema,
+  SourceOAuthStartResponseSchema,
+  RevokeGrantResponseSchema,
 } from '@/lib/contracts/admin-source-connections'
 import {
   IssuedKeyResponseSchema,
@@ -157,6 +160,7 @@ const RESPONSE_SCHEMAS: Partial<
     'v1/admin/source-connections/catalog': SourceCatalogResponseSchema,
     'v1/admin/source-connections/agents': SourceAgentsResponseSchema,
     'v1/admin/source-connections/browse': BrowseResponseSchema,
+    'v1/admin/source-connections/oauth/grants': SourceOAuthGrantsResponseSchema,
   },
   POST: {
     'v1/keys': IssuedKeyResponseSchema,
@@ -180,6 +184,7 @@ const RESPONSE_SCHEMAS: Partial<
     'v1/admin/packs': InstallPackResponseSchema,
     'v1/admin/packs/from-registry': InstallPackResponseSchema,
     'v1/admin/source-connections': SourceConnectionSchema,
+    'v1/admin/source-connections/oauth/start': SourceOAuthStartResponseSchema,
   },
   PATCH: {},
   DELETE: {},
@@ -330,6 +335,10 @@ const DYNAMIC_RESPONSE_SCHEMAS: Partial<
       schema: PackPricingResponseSchema,
     },
     { pattern: 'v1/admin/packs/:packId', schema: UninstallPackResponseSchema },
+    {
+      pattern: 'v1/admin/source-connections/oauth/grants/:id',
+      schema: RevokeGrantResponseSchema,
+    },
     {
       pattern: 'v1/admin/source-connections/:id',
       schema: DeleteConnectionResponseSchema,

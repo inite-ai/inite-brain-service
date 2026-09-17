@@ -45,6 +45,8 @@ export const SourceConnectionSchema = z.object({
   label: z.string().nullable(),
   config: OpenRecord,
   hasCredential: z.boolean(),
+  /** The connected account it runs as (`credential = oauth:<grant>`), else null. */
+  grantId: z.string().nullable(),
   mode: ModeSchema,
   schedule: ScheduleSchema,
   contentPolicy: ContentPolicySchema,
@@ -156,6 +158,15 @@ export const SourceCatalogEntrySchema = z.object({
       auth: z.enum(['none', 'install_secret', 'oauth']).nullable(),
       command: z.string().nullable(),
       args: z.array(z.string()),
+    })
+    .nullable(),
+  /** The connector runs as a connected account: which provider, the scopes, whether an app is registered here. */
+  oauth: z
+    .object({
+      provider: z.string(),
+      title: z.string(),
+      scopes: z.array(z.string()),
+      configured: z.boolean(),
     })
     .nullable(),
 })
@@ -287,6 +298,68 @@ export const SourceAgentSchema = z.object({
 })
 export const SourceAgentsResponseSchema = z.object({ agents: z.array(SourceAgentSchema) })
 
+// ── Connected accounts (W4) ──────────────────────────────────────────
+
+export const SourceOAuthProviderIdSchema = z.enum(['google', 'microsoft', 'dropbox'])
+
+export const SourceOAuthStartRequestSchema = z.object({
+  provider: SourceOAuthProviderIdSchema,
+  connector: z.string(),
+  origin: z.string().optional(),
+  ownerUserId: z.string().optional(),
+})
+
+export const SourceOAuthStartResponseSchema = z.object({
+  authorizeUrl: z.string(),
+  state: z.string(),
+  expiresAt: z.string(),
+})
+
+export const SourceOAuthGrantSchema = z.object({
+  id: z.string(),
+  provider: z.string(),
+  account: z.string().nullable(),
+  scopes: z.array(z.string()),
+  status: z.enum(['active', 'revoked', 'broken']),
+  actor: z.string(),
+  ownerUserId: z.string().nullable(),
+  accessExpiresAt: z.string().nullable(),
+  refreshable: z.boolean(),
+  lastRefreshAt: z.string().nullable(),
+  lastError: z.string().nullable(),
+  createdAt: z.string(),
+})
+
+export const SourceOAuthProviderStateSchema = z.object({
+  id: SourceOAuthProviderIdSchema,
+  title: z.string(),
+  configured: z.boolean(),
+  redirectUri: z.string(),
+})
+
+export const SourceOAuthGrantsResponseSchema = z.object({
+  grants: z.array(SourceOAuthGrantSchema),
+  providers: z.array(SourceOAuthProviderStateSchema),
+  ready: z.boolean(),
+})
+
+export const RevokeGrantResponseSchema = z.object({
+  revoked: z.boolean(),
+  providerRevoked: z.boolean(),
+})
+
+/** The message the brain's callback page posts to the window that opened it. */
+export const OAuthPopupMessageSchema = z.discriminatedUnion('ok', [
+  z.object({
+    type: z.literal('brain-source-oauth'),
+    ok: z.literal(true),
+    grantId: z.string(),
+    provider: z.string(),
+    account: z.string().nullable(),
+  }),
+  z.object({ type: z.literal('brain-source-oauth'), ok: z.literal(false), error: z.string() }),
+])
+
 export const BrowseResponseSchema = z.object({
   path: z.string(),
   parent: z.string().nullable(),
@@ -325,3 +398,11 @@ export type SourceItemInspectResponse = z.infer<
 export type SourceAgent = z.infer<typeof SourceAgentSchema>
 export type SourceAgentsResponse = z.infer<typeof SourceAgentsResponseSchema>
 export type BrowseResponse = z.infer<typeof BrowseResponseSchema>
+export type SourceOAuthProviderId = z.infer<typeof SourceOAuthProviderIdSchema>
+export type SourceOAuthStartRequest = z.infer<typeof SourceOAuthStartRequestSchema>
+export type SourceOAuthStartResponse = z.infer<typeof SourceOAuthStartResponseSchema>
+export type SourceOAuthGrant = z.infer<typeof SourceOAuthGrantSchema>
+export type SourceOAuthProviderState = z.infer<typeof SourceOAuthProviderStateSchema>
+export type SourceOAuthGrantsResponse = z.infer<typeof SourceOAuthGrantsResponseSchema>
+export type RevokeGrantResponse = z.infer<typeof RevokeGrantResponseSchema>
+export type OAuthPopupMessage = z.infer<typeof OAuthPopupMessageSchema>

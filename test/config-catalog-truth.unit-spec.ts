@@ -27,7 +27,10 @@ function walk(dir: string): string[] {
 }
 
 const FILES = walk(SRC).filter(
-  (f) => !f.endsWith('config-catalog.data.ts') && !f.endsWith('env-validation.ts'),
+  (f) =>
+    !f.endsWith('config-catalog.data.ts') &&
+    !f.endsWith('env-validation.ts') &&
+    !f.endsWith('known-boolean-flags.ts'),
 );
 const SOURCES = new Map(FILES.map((f) => [f, readFileSync(f, 'utf8')]));
 
@@ -223,8 +226,12 @@ describe('credential masking', () => {
    * AWS-family name for a secret and does not end in any suffix above, so
    * the anchored alternation alone would have let EVIDENCE_S3_SECRET_ACCESS_KEY
    * ship unmasked — the exact failure this gate exists to catch.
+   * `_ENCRYPTION_KEY` (+ `_PREVIOUS` during a rotation) is the at-rest
+   * key family (SOURCE_CREDENTIAL_ENCRYPTION_KEY): holding it IS the
+   * capability to read every stored source credential and OAuth token.
    */
-  const CREDENTIAL_NAME = /(SECRET|_API_KEY|_TOKEN|PASSWORD|PRIVATE_KEY|_SECRET_ACCESS_KEY)$/;
+  const CREDENTIAL_NAME =
+    /(SECRET|_API_KEY|_TOKEN|PASSWORD|PRIVATE_KEY|_SECRET_ACCESS_KEY|_ENCRYPTION_KEY(?:_PREVIOUS)?)$/;
 
   it('every credential-shaped catalogue key is masked', () => {
     const unmasked = CONFIG_CATALOG.filter(

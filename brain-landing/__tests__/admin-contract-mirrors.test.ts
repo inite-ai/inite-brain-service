@@ -390,6 +390,7 @@ describe('admin-source-connections mirrors', () => {
     label: 'Handbook',
     config: { root: '/srv/docs', excludeDirs: ['node_modules'] },
     hasCredential: false,
+    grantId: null,
     mode: 'synced',
     schedule: 'manual',
     contentPolicy: 'text',
@@ -510,6 +511,7 @@ describe('admin-source-connections mirrors', () => {
           credentialHint: null,
           hosts: ['server', 'agent'],
           mcp: null,
+          oauth: null,
         },
         {
           packId: 'code_memory',
@@ -532,6 +534,7 @@ describe('admin-source-connections mirrors', () => {
           credentialHint: null,
           hosts: ['server'],
           mcp: null,
+          oauth: null,
         },
         {
           packId: 'web_memory',
@@ -560,6 +563,7 @@ describe('admin-source-connections mirrors', () => {
             command: null,
             args: [],
           },
+          oauth: null,
         },
       ],
       connectors: [

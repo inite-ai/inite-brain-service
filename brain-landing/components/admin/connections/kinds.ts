@@ -11,7 +11,17 @@ import type {
  * same thing; the catalogue shows one card per (pack, kind) and the
  * flow asks "what's in it" instead of listing the entries twice.
  */
-export type SourceFamily = 'folder' | 'bucket' | 'site' | 'mcp' | 'repo' | 'external' | 'other'
+export type SourceFamily =
+  | 'folder'
+  | 'bucket'
+  | 'site'
+  | 'mcp'
+  | 'repo'
+  | 'gdrive'
+  | 'onedrive'
+  | 'dropbox'
+  | 'external'
+  | 'other'
 
 export function familyOf(e: { kind: string; connector: string }): SourceFamily {
   if (e.kind === 'external') return 'external'
@@ -25,6 +35,10 @@ export function familyOf(e: { kind: string; connector: string }): SourceFamily {
       return 'site'
     case 'git':
       return 'repo'
+    case 'gdrive':
+    case 'onedrive':
+    case 'dropbox':
+      return e.connector
     default:
       return 'other'
   }

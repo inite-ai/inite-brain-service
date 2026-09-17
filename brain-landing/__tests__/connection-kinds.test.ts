@@ -25,6 +25,7 @@ function e(over: Partial<SourceCatalogEntry>): SourceCatalogEntry {
     credentialHint: null,
     hosts: ['server', 'agent'],
     mcp: null,
+    oauth: null,
     ...over,
   }
 }
@@ -76,5 +77,21 @@ describe('source kinds', () => {
     expect(cards.filter((c) => c.family === 'folder').every((c) => c.ambiguous)).toBe(true)
     expect(cards.filter((c) => c.family === 'mcp')).toHaveLength(2)
     expect(cards.filter((c) => c.family === 'mcp').every((c) => !c.ambiguous)).toBe(true)
+  })
+})
+
+describe('cloud drives', () => {
+  it('each provider is its own kind, two shapes folding into one card', () => {
+    const cards = cardsOf([
+      e({ sourceId: 'gdrive', connector: 'gdrive', shape: 'document', hosts: ['server'] }),
+      e({ sourceId: 'gdrive_media', connector: 'gdrive', shape: 'binary', hosts: ['server'] }),
+      e({ sourceId: 'dropbox', connector: 'dropbox', shape: 'document', hosts: ['server'], availability: 'disabled' }),
+      e({ sourceId: 'onedrive', connector: 'onedrive', shape: 'document', hosts: ['server'] }),
+    ])
+    expect(cards.map((c) => c.family)).toEqual(['gdrive', 'onedrive', 'dropbox'])
+    expect(familyOf({ kind: 'native', connector: 'onedrive' })).toBe('onedrive')
+    const gdrive = cards.find((c) => c.family === 'gdrive')!
+    expect(shapeChoices(gdrive)).toEqual(['document', 'binary', 'both'])
+    expect(entriesFor(gdrive, 'both').map((x) => x.sourceId)).toEqual(['gdrive', 'gdrive_media'])
   })
 })

@@ -961,7 +961,19 @@
           "singleHint": "Хранится write-only; больше не показывается.",
           "keyId": "Access key id",
           "keySecret": "Secret access key",
-          "pairHint": "Оставьте оба пустыми, чтобы использовать собственную цепочку учётных данных мозга (env / роль инстанса)."
+          "pairHint": "Оставьте оба пустыми, чтобы использовать собственную цепочку учётных данных мозга (env / роль инстанса).",
+          "account": "Аккаунт",
+          "accountHint": "Мозг читает источник от имени этого аккаунта; его токены хранятся зашифрованными на мозге.",
+          "pickAccount": "Использовать подключённый аккаунт",
+          "connectNew": "Подключить аккаунт {provider}",
+          "connectAnother": "Подключить другой аккаунт",
+          "connecting": "Ждём {provider}…",
+          "popupBlocked": "Окно входа заблокировано — разрешите всплывающие окна для этого сайта и попробуйте снова.",
+          "noAccounts": "Аккаунт {provider} ещё не подключён.",
+          "notConfigured": "На этом мозге не зарегистрировано приложение {provider} — задайте {flag} (и redirect URI ниже) на мозге.",
+          "redirectUri": "Redirect URI для регистрации у {provider}: {uri}",
+          "keyMissing": "На мозге нет SOURCE_CREDENTIAL_ENCRYPTION_KEY — токены никогда не хранятся открыто, поэтому подключить аккаунт нельзя, пока ключ не задан.",
+          "scopesShort": "Этот аккаунт подключён с более узкими правами; подключите его заново."
         },
         "errors": {
           "required": "обязательно",
@@ -970,7 +982,8 @@
           "number": "число ≥ {min}",
           "credential": "для этой аутентификации нужны учётные данные",
           "header": "укажите имя заголовка",
-          "jail": "должен быть внутри: {roots}"
+          "jail": "должен быть внутри: {roots}",
+          "account": "сначала подключите аккаунт"
         },
         "fields": {
           "fs": {
@@ -1162,6 +1175,76 @@
               "label": "Макс. размер файла (байт)",
               "hint": ""
             }
+          },
+          "gdrive": {
+            "folderId": {
+              "label": "Папка",
+              "hint": "id папки из её URL или root — «Мой диск». Всё, что под ней."
+            },
+            "includeShared": {
+              "label": "И то, чем со мной поделились",
+              "hint": ""
+            },
+            "driveId": {
+              "label": "id общего диска",
+              "hint": "Читать общий диск вместо «Моего диска»."
+            },
+            "extensions": {
+              "label": "Расширения",
+              "hint": "Через запятую, без точек; пусто = по умолчанию для формы. Google Docs / Sheets / Slides берутся всегда."
+            },
+            "maxFiles": {
+              "label": "Макс. файлов",
+              "hint": ""
+            },
+            "maxFileBytes": {
+              "label": "Макс. размер файла (байт)",
+              "hint": ""
+            }
+          },
+          "onedrive": {
+            "folderPath": {
+              "label": "Папка",
+              "hint": "Путь от корня диска, напр. /Documents/Team; пусто = весь диск."
+            },
+            "siteId": {
+              "label": "id сайта SharePoint",
+              "hint": "Читать библиотеку документов сайта вместо OneDrive аккаунта."
+            },
+            "driveId": {
+              "label": "id диска",
+              "hint": "Конкретный диск (группы, коллеги)."
+            },
+            "extensions": {
+              "label": "Расширения",
+              "hint": "Через запятую, без точек; пусто = по умолчанию для формы."
+            },
+            "maxFiles": {
+              "label": "Макс. файлов",
+              "hint": ""
+            },
+            "maxFileBytes": {
+              "label": "Макс. размер файла (байт)",
+              "hint": ""
+            }
+          },
+          "dropbox": {
+            "path": {
+              "label": "Папка",
+              "hint": "/Папка/Подпапка; пусто = весь Dropbox."
+            },
+            "extensions": {
+              "label": "Расширения",
+              "hint": "Через запятую, без точек; пусто = по умолчанию для формы."
+            },
+            "maxFiles": {
+              "label": "Макс. файлов",
+              "hint": ""
+            },
+            "maxFileBytes": {
+              "label": "Макс. размер файла (байт)",
+              "hint": ""
+            }
           }
         },
         "authOptions": {
@@ -1285,6 +1368,36 @@
             "binaryHint": ""
           }
         },
+        "gdrive": {
+          "title": "Google Drive",
+          "body": "Мой диск, папка или общий диск подключённого аккаунта Google — читается как документы, инкрементально через ленту изменений Drive.",
+          "shapes": {
+            "document": "Текстовые документы",
+            "documentHint": "markdown, text, csv, json, html; Docs / Sheets / Slides как текст",
+            "binary": "Файлы",
+            "binaryHint": "PDF, Word / Excel / PowerPoint, изображения"
+          }
+        },
+        "onedrive": {
+          "title": "OneDrive / SharePoint",
+          "body": "Папка OneDrive или библиотека документов SharePoint подключённого аккаунта Microsoft — инкрементально через Graph delta.",
+          "shapes": {
+            "document": "Текстовые документы",
+            "documentHint": "markdown, text, csv, json, html",
+            "binary": "Файлы",
+            "binaryHint": "PDF, Word / Excel / PowerPoint, почта, изображения"
+          }
+        },
+        "dropbox": {
+          "title": "Dropbox",
+          "body": "Папка Dropbox подключённого аккаунта — инкрементально через курсор папки.",
+          "shapes": {
+            "document": "Текстовые документы",
+            "documentHint": "markdown, text, csv, json, html",
+            "binary": "Файлы",
+            "binaryHint": "PDF, Word / Excel / PowerPoint, почта, изображения"
+          }
+        },
         "external": {
           "title": "Пишет публикатор",
           "body": "Индексер или инструмент пишет сюда сам через двери; подключение лишь создаёт идентичность, которой приписываются записи.",
@@ -1323,7 +1436,8 @@
           "external": "",
           "disabled": "Задайте {flag}=1 на мозге и перезапустите.",
           "missing": "В этой сборке нет такого коннектора.",
-          "notAccepted": "Переустановите пак с acceptSources."
+          "notAccepted": "Переустановите пак с acceptSources.",
+          "oauthUnconfigured": "Сначала зарегистрируйте приложение {provider} на мозге ({flag}); кнопка подключения затем откроет вход."
         },
         "connect": "Подключить",
         "deployment": "Ограничения деплоя"
@@ -1345,6 +1459,39 @@
         "tickedCount": "отмечено подпапок: {n}",
         "nothingYet": "пока ничего не выбрано",
         "use": "Взять"
+      },
+      "accounts": {
+        "title": "Подключённые аккаунты",
+        "subtitle": "Аккаунты, от имени которых мозг читает облачные источники — подключаются один раз, токены зашифрованы на мозге, обновляются перед каждой синхронизацией.",
+        "headers": {
+          "provider": "провайдер",
+          "account": "аккаунт",
+          "status": "статус",
+          "usedBy": "используют",
+          "expires": "токен",
+          "actions": "действия"
+        },
+        "none": "Аккаунтов нет. Аккаунт подключается при добавлении источника Google Drive, OneDrive или Dropbox.",
+        "status": {
+          "active": "активен",
+          "revoked": "отключён",
+          "broken": "нужно переподключить"
+        },
+        "refreshable": "обновляется сам",
+        "notRefreshable": "без refresh-токена — умрёт вместе с access-токеном",
+        "expiresAt": "до {at}",
+        "usedBy": "{n} подключ.",
+        "unused": "не используется",
+        "disconnect": "Отключить",
+        "disconnectPrompt": "Отключить {account}? Подключения от его имени будут падать на следующей синхронизации, пока не переподключите.",
+        "disconnected": "Отключён{provider}.",
+        "providerRevoked": " (отозван и у провайдера)",
+        "providerNotRevoked": " — провайдер не подтвердил; отзовите и в настройках аккаунта",
+        "providers": "Провайдеры",
+        "configured": "приложение зарегистрировано",
+        "notConfigured": "не настроен — задайте {flag}",
+        "redirect": "redirect URI",
+        "notReady": "Подключённые аккаунты выключены (SOURCE_OAUTH_CLIENT) или на мозге нет SOURCE_CREDENTIAL_ENCRYPTION_KEY."
       }
     },
     "marketplace": {

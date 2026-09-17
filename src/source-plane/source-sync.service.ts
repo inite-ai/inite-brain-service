@@ -88,12 +88,23 @@ export class SourceSyncService {
     const full = opts.full === true || row.checkpoint == null || connector.walksEverything === true;
     const summary = base(full ? 'full' : 'incremental');
     const runStartedAt = new Date();
+    // The credential is resolved before the run — a revoked account, a
+    // refresh the provider refused, a missing key — is the run's named
+    // failure, not an exception out of the job.
+    let credential: string | null;
+    try {
+      credential = await this.connections.credentialFor(companyId, row);
+    } catch (err) {
+      const error = (err as Error).message ?? String(err);
+      await this.connections.recordSync(companyId, connectionId, { status: 'failed', error });
+      return { ...summary, status: 'failed', error };
+    }
     const ctx: ConnectorCtx = {
       companyId,
-      connection: this.connections.toConnectorView(
-        row,
-        await this.connections.sourceContext(companyId, row),
-      ),
+      connection: this.connections.toConnectorView(row, {
+        ...(await this.connections.sourceContext(companyId, row)),
+        credential,
+      }),
       signal: opts.signal ?? new AbortController().signal,
       log: (line) => this.logger.log(`[${connectionId}] ${line}`),
     };

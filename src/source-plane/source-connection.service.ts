@@ -22,10 +22,14 @@ import { SourcesService } from '../sources/sources.service';
 import type { SourceType } from '../contracts/sources/sources.schema';
 import {
   AGENT_HOST,
+  grantIdOfCredential,
   type CreateSourceConnectionRequest,
   type SourceConnection,
   type UpdateSourceConnectionRequest,
 } from '../contracts/source-plane/source-plane.schema';
+import { encryptSecret } from './credential-cipher';
+import { CredentialProvider } from './oauth/credential-provider';
+import { SourceOAuthService } from './oauth/source-oauth.service';
 import type { Connector, ConnectorConnectionView, ConnectorRegistry } from './connector';
 import {
   connectorState,
@@ -83,18 +87,24 @@ const LABEL_MAX = 120;
  * produces is written `userId`-fenced (0055) with the matching 0093 tag;
  * absent = an org connection (G6 steps 3–5 carry its ACLs).
  *
- * Secrets: `credential` is stored as-is in the tenant DB (the
- * domain_pack.webhookSecret posture); W4 encrypts the column. It is never
- * serialised outward — `toView` strips it.
+ * Secrets: `credential` is encrypted at rest when SOURCE_CREDENTIAL_ENCRYPTION_KEY
+ * is set (credential-cipher.ts; a legacy clear value stays readable and
+ * is re-encrypted on its next write); an `oauth:<grant id>` value is a
+ * POINTER to a connected account — not a secret, stored in the clear —
+ * and the grant holds the encrypted tokens. Never serialised outward:
+ * `toView` strips it. The engine reads it through CredentialProvider.
  */
 @Injectable()
 export class SourceConnectionService {
   private readonly logger = new Logger(SourceConnectionService.name);
 
+  // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     private readonly sources: SourcesService,
     @Optional() @Inject(SOURCE_CONNECTORS) private readonly connectors?: ConnectorRegistry,
+    @Optional() private readonly credentials?: CredentialProvider,
+    @Optional() private readonly oauth?: SourceOAuthService,
   ) {}
 
   async create(companyId: string, dto: CreateSourceConnectionRequest): Promise<SourceConnection> {
@@ -104,6 +114,11 @@ export class SourceConnectionService {
     }
     const connector = connectorKindOf(entry);
     await this.assertConnectable(entry, connector, dto);
+    await this.assertCredential(companyId, {
+      connector,
+      host: dto.host ?? 'server',
+      credential: dto.credential,
+    });
     const userId = dto.ownerUserId ?? undefined;
     const content = {
       packId: manifest.id,
@@ -114,7 +129,7 @@ export class SourceConnectionService {
       host: dto.host ?? 'server',
       ...(dto.label !== undefined ? { label: dto.label } : {}),
       config: dto.config ?? {},
-      ...(dto.credential !== undefined ? { credential: dto.credential } : {}),
+      ...(dto.credential !== undefined ? { credential: storedCredential(dto.credential) } : {}),
       mode: dto.mode ?? 'synced',
       schedule: dto.schedule ?? entry.defaults?.schedule ?? 'manual',
       contentPolicy: dto.contentPolicy ?? entry.defaults?.contentPolicy ?? 'text',
@@ -205,9 +220,16 @@ export class SourceConnectionService {
     connectionId: string,
     patch: UpdateSourceConnectionRequest,
   ): Promise<SourceConnection> {
-    await this.load(companyId, connectionId);
+    const current = await this.load(companyId, connectionId);
     if (patch.label !== undefined && patch.label !== null && patch.label.length > LABEL_MAX) {
       throw new BadRequestException(`label must be at most ${LABEL_MAX} characters`);
+    }
+    if (patch.credential !== undefined) {
+      await this.assertCredential(companyId, {
+        connector: current.connector,
+        host: current.host,
+        credential: patch.credential ?? undefined,
+      });
     }
     const sets: string[] = [];
     const vars: Record<string, unknown> = { tail: idTailOf(connectionId) };
@@ -222,7 +244,7 @@ export class SourceConnectionService {
     if (patch.config !== undefined) assign('config', patch.config);
     if (patch.credential !== undefined) {
       if (patch.credential === null) sets.push('credential = NONE');
-      else assign('credential', patch.credential);
+      else assign('credential', storedCredential(patch.credential));
     }
     if (patch.schedule !== undefined) assign('schedule', patch.schedule);
     if (patch.contentPolicy !== undefined) assign('contentPolicy', patch.contentPolicy);
@@ -395,13 +417,72 @@ export class SourceConnectionService {
     };
   }
 
+  /**
+   * The secret the connector runs with — through CredentialProvider: a
+   * connected account's fresh access token, an operator secret
+   * decrypted, a legacy clear value as-is. Throws by name when a grant
+   * is revoked / broken or a key is missing; the caller records it as
+   * the run's failure.
+   */
+  async credentialFor(companyId: string, row: SourceConnectionRow): Promise<string | null> {
+    if (!this.credentials) return row.credential ?? null;
+    return this.credentials.resolve(companyId, row.credential);
+  }
+
+  /**
+   * A connector that speaks through a connected account needs one on a
+   * server-host connection — `oauth:<grant id>` naming an ACTIVE grant
+   * of the connector's provider in this tenant. Any other connector
+   * refuses an `oauth:` value: a grant is not a bearer for a URL.
+   */
+  private async assertCredential(
+    companyId: string,
+    p: { connector: string; host: string; credential: string | undefined },
+  ): Promise<void> {
+    const { connector, host, credential } = p;
+    const spec = findConnector(this.connectors ?? [], connector);
+    const grantId = grantIdOfCredential(credential);
+    if (credential?.startsWith('oauth:') && !grantId) {
+      throw new BadRequestException('credential: "oauth:" must name a grant id');
+    }
+    if (!spec?.oauth) {
+      if (grantId) {
+        throw new BadRequestException(
+          `connector "${connector}" takes a secret, not a connected account`,
+        );
+      }
+      return;
+    }
+    if (host !== 'server') return;
+    if (!grantId) {
+      throw new BadRequestException(
+        `connector "${connector}" runs as a connected ${spec.oauth.provider} account — connect one first and pass credential "oauth:<grant id>"`,
+      );
+    }
+    if (!this.oauth) return;
+    const grant = await this.oauth.get(companyId, grantId).catch(() => null);
+    if (!grant) throw new BadRequestException(`no connected account ${grantId} in this tenant`);
+    if (grant.provider !== spec.oauth.provider) {
+      throw new BadRequestException(
+        `connected account ${grantId} is a ${grant.provider} account; "${connector}" needs ${spec.oauth.provider}`,
+      );
+    }
+    if (grant.status !== 'active') {
+      throw new BadRequestException(
+        `connected account ${grantId} is ${grant.status} — reconnect it`,
+      );
+    }
+  }
+
   /** The connector-facing projection of a row (credential resolved). */
   toConnectorView(
     row: SourceConnectionRow,
-    context: { source: PackSourceSpec | null; installSecret: string | null } = {
-      source: null,
-      installSecret: null,
-    },
+    context: {
+      source: PackSourceSpec | null;
+      installSecret: string | null;
+      /** From `credentialFor` — the row's stored value is never handed over raw. */
+      credential?: string | null | undefined;
+    } = { source: null, installSecret: null },
   ): ConnectorConnectionView {
     const source = context.source;
     // An `install_secret` MCP source authenticates with the pack's own
@@ -419,7 +500,7 @@ export class SourceConnectionService {
       shape: row.shape,
       host: row.host,
       config: row.config ?? {},
-      credential: row.credential ?? installBearer,
+      credential: context.credential ?? installBearer,
       contentPolicy: row.contentPolicy,
       vertical: row.vertical,
       recorder: row.recorder,
@@ -531,6 +612,7 @@ export function toView(row: SourceConnectionRow): SourceConnection {
     label: row.label ?? null,
     config: row.config ?? {},
     hasCredential: typeof row.credential === 'string' && row.credential.length > 0,
+    grantId: grantIdOfCredential(row.credential),
     mode: row.mode,
     schedule: row.schedule,
     contentPolicy: row.contentPolicy,
@@ -585,4 +667,9 @@ async function assertOperatorUrl(
     if (e instanceof EgressDeniedError) throw new BadRequestException(`config.url: ${e.message}`);
     throw e;
   }
+}
+
+/** What the column holds: a grant pointer in the clear, anything else encrypted (when a key is set). */
+function storedCredential(credential: string): string {
+  return grantIdOfCredential(credential) ? credential : encryptSecret(credential);
 }
