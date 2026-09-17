@@ -71,10 +71,43 @@ export function isGroundedSpan(normalizedInput: string, normalizedSpan: string):
 }
 
 /**
+ * Inflection-tolerant grounding for ENTITY NAMES in spaced scripts. The
+ * extractor files an entity under its dictionary form — "Мария Петрова"
+ * for the mention "Марией Петровой", "Лиссабон" for "Лиссабона" — and the
+ * verbatim gate then dropped the entity as a hallucination, with its facts.
+ * On the prod tenant the interviewee vanished from her own interview. A
+ * fusional language inflects by SUFFIX, so a name token is present when an
+ * input token shares its stem: a common prefix of at least four letters
+ * (three on a three-letter token) covering 70% of the shorter token
+ * ("мария"/"марией" → "мари", 4 of 5; "петрова"/"петровой" → "петров", 6
+ * of 7; "bern"/"berlin" → "ber", 3 of 4: no). Every token of the name must
+ * find one; short tokens (initials, "de", "of") are skipped rather than
+ * matched loosely. Unspaced scripts keep the verbatim gate (no suffixes to
+ * tolerate), and so does every fact valueSpan — a citation must quote.
+ */
+export function isGroundedInflected(normalizedInput: string, normalizedName: string): boolean {
+  const inputTokens = normalizedInput.split(/[^\p{L}\p{N}]+/u).filter((t) => t.length >= 3);
+  if (inputTokens.length === 0) return false;
+  const nameTokens = normalizedName.split(/[^\p{L}\p{N}]+/u).filter((t) => t.length >= 3);
+  if (nameTokens.length === 0) return false;
+  return nameTokens.every((nt) => {
+    if (!SPACED_WORD_CHAR.test(nt[0]!)) return false;
+    return inputTokens.some((it) => {
+      const shorter = Math.min(nt.length, it.length);
+      const need = Math.max(Math.min(4, shorter), Math.ceil(0.7 * shorter));
+      let i = 0;
+      while (i < nt.length && i < it.length && nt[i] === it[i]) i++;
+      return i >= need;
+    });
+  });
+}
+
+/**
  * Span-grounding gate for ENTITY NAMES — the parser accepts whatever name
  * the model emits, so a hallucinated entity (name never in the source) would
  * otherwise be created with full downstream effect. Returns a parallel
- * boolean mask: true = the entity's name is grounded in the input.
+ * boolean mask: true = the entity's name is grounded in the input, verbatim
+ * or as an inflected form of it (isGroundedInflected).
  */
 export function groundEntities(
   trimmedInput: string,
@@ -93,7 +126,11 @@ export function groundEntities(
   const allowed = new Set(allowedNames.map((n) => normalizeForGrounding(n)).filter(Boolean));
   return entities.map((e) => {
     const normName = normalizeForGrounding(e.name);
-    return allowed.has(normName) || isGroundedSpan(normalizedInput, normName);
+    return (
+      allowed.has(normName) ||
+      isGroundedSpan(normalizedInput, normName) ||
+      isGroundedInflected(normalizedInput, normName)
+    );
   });
 }
 

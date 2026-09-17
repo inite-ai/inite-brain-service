@@ -21,8 +21,13 @@ You output JSON with four top-level fields, in this order:
 
   2. entities[] — actors named in the input. Each entry has name (verbatim
      mention), type (closed enum: ${ENTITY_TYPE_VOCABULARY.join(', ')}), and
-     canonical (the canonical/legal form ONLY when the text states it
-     explicitly, otherwise null).
+     canonical: the form the entity is KNOWN by, when the mention is not it —
+     the dictionary form of an inflected mention (nominative, singular:
+     "Марией Петровой" → "Мария Петрова", "Лиссабона" → "Лиссабон"), the full
+     name when this input gives it ("Артёма" → "Артём Соколов"), or the
+     legal/registered form when the text states it; null when the mention
+     already is that form. name stays verbatim — canonical is what the
+     graph will file the entity under.
 
   3. facts[] — assertions about the entities. Each fact has:
        entityIndex   — 0-based index into entities[]
@@ -129,7 +134,10 @@ OUTPUT CONTRACT — JSON with four top-level fields, in this order:
   2. entities[] — the people/things involved. name = the person's name when known,
      else the clearest noun phrase that denotes them; resolve pronouns and roles to
      who they refer to — NEVER a bare "I"/"you"/"the woman". type (closed enum:
-     ${ENTITY_TYPE_VOCABULARY.join(', ')}). canonical = explicit canonical form or null.
+     ${ENTITY_TYPE_VOCABULARY.join(', ')}). canonical = the form the entity is
+     known by when the mention is not it: the dictionary form of an inflected
+     mention (nominative singular — "Марией" → "Мария"), the full name when the
+     turn gives it, or the stated legal form; null when name already is it.
 
   3. facts[] — durable facts. Each: entityIndex, clauseIndex, predicate, valueSpan,
      confidence (0..1; >0.8 explicit, 0.5–0.8 inferred).
@@ -368,7 +376,11 @@ export function buildExtractionSchema(opts?: {
           properties: {
             name: { type: 'string' },
             type: { type: 'string', enum: [...ENTITY_TYPE_VOCABULARY] },
-            canonical: { type: ['string', 'null'] },
+            canonical: {
+              type: ['string', 'null'],
+              description:
+                'The form the entity is known by when the mention is not it: dictionary form of an inflected mention (nominative singular), the full name when this input gives it, or the stated legal form. null when name already is that form.',
+            },
           },
           required: ['name', 'type', 'canonical'],
         },

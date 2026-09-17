@@ -1,5 +1,6 @@
 import {
   isGroundedSpan,
+  isGroundedInflected,
   groundEntities,
   normalizeForGrounding,
   applyGroundingGate,
@@ -41,7 +42,40 @@ describe('isGroundedSpan word-boundary', () => {
   });
 });
 
+describe('isGroundedInflected', () => {
+  const norm = normalizeForGrounding;
+  it('grounds a dictionary-form name on its inflected mention', () => {
+    const input = norm('Собеседование с кандидатом Марией Петровой назначено на 22 сентября');
+    expect(isGroundedInflected(input, norm('Мария Петрова'))).toBe(true);
+    expect(isGroundedInflected(norm('Команда работает из Лиссабона'), norm('Лиссабон'))).toBe(true);
+    expect(isGroundedInflected(norm('удалённо из Португалии'), norm('Португалия'))).toBe(true);
+  });
+
+  it('every token of the name must have a stem in the input', () => {
+    const input = norm('Собеседование с кандидатом Марией Петровой');
+    expect(isGroundedInflected(input, norm('Мария Иванова'))).toBe(false);
+    expect(isGroundedInflected(input, norm('Hannibal'))).toBe(false);
+  });
+
+  it('a short common prefix is not a stem', () => {
+    expect(isGroundedInflected(norm('we met Marcus'), norm('Maria'))).toBe(false);
+    expect(isGroundedInflected(norm('Berlin office'), norm('Bern'))).toBe(false);
+  });
+
+  it('unspaced scripts keep the verbatim gate', () => {
+    expect(isGroundedInflected(norm('阿尔乔姆搬到波尔图'), norm('波尔图市'))).toBe(false);
+  });
+});
+
 describe('groundEntities', () => {
+  it('keeps an entity filed under the dictionary form of an inflected mention', () => {
+    const mask = groundEntities('Собеседование с кандидатом Марией Петровой', [
+      { name: 'Мария Петрова', type: 'customer' },
+      { name: 'Пётр Иванов', type: 'customer' }, // absent
+    ]);
+    expect(mask).toEqual([true, false]);
+  });
+
   it('masks entities whose name is absent from the source', () => {
     const mask = groundEntities('Maria is the new CTO', [
       { name: 'Maria', type: 'customer' },

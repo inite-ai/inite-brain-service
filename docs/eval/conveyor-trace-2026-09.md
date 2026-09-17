@@ -130,3 +130,82 @@ queries has the shape).
 - `knownEntities` hints still do not reach the document path's resolver.
 - The stand runs without the NLI router and local NER (laptop memory);
   the prod run covers those.
+
+## 2026-09-17 — the prod tenant had no scenes, no beliefs, and a local NER minting wordpieces
+
+Three findings from running the same probe on prod itself, and the run
+that followed (`report-Y`, prod assembly, local NER on, `gpt-5.6-luna`):
+
+**Scenes and beliefs were dark on prod** with every `SCENES_*` /
+`BELIEFS_*` flag on. The scene chain had two triggers — the admin
+maintenance routes, and a nightly 04:20 UTC cron behind
+`SCENES_SCHEDULED_MAINTENANCE`, which shipped off and was not in the
+deploy env — so the runner's "composed 1 scene" only ever happened
+because the runner calls the admin route. Nothing read `memory_episode`
+outside the answer lane, and nothing showed a scene or a belief in the
+product. Now: the pass runs every ten minutes over dirty conversations
+that have settled (`SCENES_MAINTENANCE_SETTLE_MS`), the flag ships on,
+`GET /v1/scenes` / `GET /v1/scenes/:id` serve the current world, and
+`/app/memory` shows scenes beside the beliefs they promoted.
+
+**Local NER (`EXTRACTOR_LOCAL_NER_ENABLED=true`, prod only) minted
+wordpieces.** transformers.js 2.x returns one IOB row per wordpiece and
+ignores `aggregation_strategy`; on the second identical ingest the
+cached-pattern local path turned every row into an entity — `He`,
+`##lio`, `Robot`, `##ics`, and one row per CJK character. Twelve junk
+entities per four turns. `aggregateNerTokens` merges IOB runs, glues
+`##` pieces, keeps punctuation inside a run and completes cut words in
+spaced scripts only; verified on the real model (EN/ZH/RU: exact
+spans). The stand never showed it because the laptop ran without NER;
+the stand env now loads the model from `TRANSFORMERS_CACHE`.
+
+**The chat model.** The judge had moved to `gpt-5.6-luna`; the other
+twenty-two readers of `OPENAI_CHAT_MODEL` still fell back to
+`gpt-4o-mini`, and thirteen call sites hand-rolled `temperature: 0`,
+which the new model rejects with a 400. One default now, every call
+through `chatCallParams` (`low` effort by default, `none` for one-token
+classifiers).
+
+Run `report-Y` on the stand with all three changes: every `always`
+stage has a footprint, **13/13** joins — the ladder reads
+`Артём Соколов→created / Artem Sokolov→translit / 阿尔乔姆·索科洛夫→judge
+(same) / 波尔图→judge (same)`, event time `2026-03-03` then
+`2026-04-09`, «9 апреля 2026» cited with a real id, Porto cited,
+salary abstains, verifier `supported`, cache `hit` on the repeat, and
+the entity roster is clean (`Helio Robotics`, `Porto`, `Артём Соколов`,
+`Пилотный запуск`, `pilot launch` — no fragments). The scene pass
+composed one scene per conversation and promoted three beliefs, each
+opening through `/v1/scenes/:id`.
+
+Not re-measured on the new model: the memory-fitness, transitions and
+domain-pack batteries (calibrated on gpt-4o-mini). `RETRIEVAL_SCENE_LANE`
+(scenes as answer evidence) stays off — never measured.
+
+### Same day, the prod tenant after the deploy
+
+Six turns (two conversations, one user) through the admin BFF; the
+scheduled pass composed both conversations at its 14:40 tick on its own
+— 2 scenes, 7 beliefs, marks cleared, 25 s — and `/app/memory` showed
+them. Three things the trace exposed, all fixed in the follow-up PR:
+
+- **Inflected mentions became their own entities.** `Артёма`,
+  `Лиссабона`, `Марией Петровой` — the extractor was told `name` is the
+  verbatim mention and `canonical` only a stated legal form, so a
+  Russian oblique case filed a new entity beside the nominative one, and
+  "Who is interviewing Maria Petrova?" found nobody. Now `canonical` is
+  the dictionary form (the full name when the input gives it), the
+  upsert already keys on it, and entity grounding tolerates an inflected
+  mention (stem match, spaced scripts only; fact spans stay verbatim) —
+  the model files the nominative under `name` at times and the verbatim
+  gate had dropped her from her own interview.
+- **A bare scheduled date was filed a year in the past.** "назначено на
+  22 сентября", said on 16 September, stamped `validFrom 2025-09-22`: a
+  bare date landing forward was rolled back a year on the past-tense
+  reading. chrono cannot read tense; the rollback is gone and a forward
+  bare date falls to the message time like a stated future year does.
+- **Answer variance.** The same question answered fully three times and
+  `verifier_partial` (no answer) once — the gpt-5.x line takes no
+  temperature, so generator and verifier sample at 1.0. Measured, not
+  fixed: the abstention is the design working on an imprecise sample;
+  effort `medium` on generator + verifier is the lever if the rate is
+  too high in use.
