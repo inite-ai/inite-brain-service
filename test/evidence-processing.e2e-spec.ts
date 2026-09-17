@@ -24,6 +24,7 @@ import type { EvidenceScanHook } from '../src/evidence/processing/scan-hook';
 import { FsEvidenceStorageAdapter } from '../src/evidence/storage/fs-storage.adapter';
 import { FragmentLaneService } from '../src/synthesize/fragment-lane.service';
 import type { ProcessorInput, ProcessorOutput } from '../src/evidence/processing/processor-adapter';
+import { docxBytes, xlsxBytes } from './fixtures/ooxml';
 
 const COMPANY = 'co_evidence_processing_e2e';
 const USER = 'processing_user';
@@ -552,5 +553,51 @@ describe('evidence processing lifecycle (e2e)', () => {
     expect(await countRows('evidence_fragment')).toBe(0);
     expect(await countRows('evidence_asset')).toBe(0);
     expect(await countRows('evidence_blob_gc')).toBe(0);
+  });
+  it('dispatches the office and mail processors over the widened document media types', async () => {
+    process.env.EVIDENCE_PROCESSOR_BROKER = '1';
+    const registerBytes = async (data: Buffer, mediaType: string) => {
+      const byteHash = sha256(data);
+      const { storageRef } = await adapter.put(COMPANY, byteHash, data);
+      return store.registerAsset(COMPANY, {
+        modality: 'document',
+        mediaType,
+        byteHash,
+        byteLength: data.byteLength,
+        occurredAt: new Date('2026-04-02T10:00:00.000Z'),
+        storageRef,
+        userId: USER,
+        vertical: 'proj',
+      });
+    };
+    const cases: Array<[Buffer, string, string, string]> = [
+      [
+        docxBytes(['Acme Robotics was founded in 2019.', ['CTO', 'Maria Lind']]),
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'document-office-text-v1',
+        'Acme Robotics was founded in 2019.\nCTO\tMaria Lind',
+      ],
+      [
+        xlsxBytes([{ name: 'Vendors', rows: [['vendor', 'part'], ['Nidec', 'motor']] }]),
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'document-office-text-v1',
+        '[sheet: Vendors]\nvendor\tpart\nNidec\tmotor',
+      ],
+      [
+        Buffer.from('From: a@x.example\r\nSubject: Motors\r\nContent-Type: text/plain\r\n\r\nPreferred vendor: Nidec.\r\n'),
+        'message/rfc822',
+        'document-mail-text-v1',
+        'From: a@x.example\nSubject: Motors\n\nPreferred vendor: Nidec.',
+      ],
+    ];
+    for (const [bytes, mediaType, producer, expected] of cases) {
+      const asset = await registerBytes(bytes, mediaType);
+      const r = await broker.dispatchForPack(COMPANY, { packId: 'proc_lifecycle', assetId: asset.assetId });
+      expect(r.denied).toHaveLength(0);
+      expect(r.runs[0]).toMatchObject({ capability: 'text', status: 'succeeded' });
+      const repr = await rawRow(r.runs[0]!.representationIds[0]!);
+      expect(repr.producerVersion).toBe(producer);
+      expect(repr.content).toBe(expected);
+    }
   });
 });

@@ -17,7 +17,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { EgressDeniedError } from '../src/common/egress-guard';
-import { UrlConnector, htmlToText, locs } from '../src/source-plane/connectors/url.connector';
+import { htmlToText } from '../src/common/html-text';
+import { UrlConnector, locs } from '../src/source-plane/connectors/url.connector';
 import { parseRobots } from '../src/source-plane/connectors/robots';
 import { safeFetch } from '../src/source-plane/connectors/safe-fetch';
 import type { ConnectorCtx, ItemDelta } from '../src/source-plane/connector';

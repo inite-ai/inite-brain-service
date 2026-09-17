@@ -13,6 +13,8 @@ import { EvidenceOrphanBlobGcService } from './orphan-blob-gc.service';
 import { EvidenceProcessorBrokerService } from './processor-broker.service';
 import { EvidenceQuarantineService } from './quarantine.service';
 import { DocumentTextAdapter } from './processing/adapters/document-text.adapter';
+import { MailTextAdapter } from './processing/adapters/mail-text.adapter';
+import { OfficeTextAdapter } from './processing/adapters/office-text.adapter';
 import { ImageMetadataAdapter } from './processing/adapters/image-metadata.adapter';
 import { OcrAdapter } from './processing/adapters/ocr.adapter';
 import { TextExtractionPassthroughAdapter } from './processing/adapters/text-extraction-passthrough.adapter';
@@ -108,6 +110,8 @@ import { EvidenceStorageModule } from './storage/evidence-storage.module';
     EvidenceReadService,
     TextExtractionPassthroughAdapter,
     DocumentTextAdapter,
+    OfficeTextAdapter,
+    MailTextAdapter,
     ImageMetadataAdapter,
     OcrAdapter,
     {
@@ -120,6 +124,8 @@ import { EvidenceStorageModule } from './storage/evidence-storage.module';
       inject: [
         TextExtractionPassthroughAdapter,
         DocumentTextAdapter,
+        OfficeTextAdapter,
+        MailTextAdapter,
         ImageMetadataAdapter,
         OcrAdapter,
       ],

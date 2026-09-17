@@ -145,6 +145,16 @@ describe('upload media-type allowlist', () => {
     // text/csv is allowlisted for BOTH document and sensor — deliberate.
     expect(uploadMediaTypeError('document', 'text/csv')).toBeNull();
     expect(uploadMediaTypeError('sensor', 'text/csv')).toBeNull();
+    // The macro-free OOXML containers and rfc822 (office-text / mail-text
+    // adapters open them under caps).
+    for (const t of [
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'message/rfc822',
+    ]) {
+      expect(uploadMediaTypeError('document', t)).toBeNull();
+    }
     // Allowlisted overall, wrong modality: named as a pairing failure.
     const paired = uploadMediaTypeError('document', 'image/png');
     expect(paired).toContain("not accepted for modality 'document'");
@@ -157,6 +167,9 @@ describe('upload media-type allowlist', () => {
       ['document', 'application/octet-stream'],
       ['document', 'application/zip'],
       ['document', 'application/vnd.ms-excel'],
+      // Macro-enabled OOXML: a container with code in it stays out.
+      ['document', 'application/vnd.ms-word.document.macroenabled.12'],
+      ['document', 'application/vnd.ms-excel.sheet.macroenabled.12'],
     ] as const) {
       expect(uploadMediaTypeError(modality, type)).toContain('not accepted');
     }

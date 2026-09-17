@@ -10,7 +10,8 @@ import type {
   ItemDelta,
   ItemDescriptor,
 } from '../connector';
-import { FS_BINARY_EXTENSIONS, FS_TEXT_EXTENSIONS, looksBinary } from './fs.connector';
+import { looksBinary } from './fs.connector';
+import { BINARY_EXTENSIONS, TEXT_EXTENSIONS, mediaTypeOf, modalityOf } from './media';
 
 /**
  * `s3` — an object bucket (raw-evidence-sources-2026-09.md W1): AWS S3
@@ -43,13 +44,8 @@ export interface S3ConnectorConfig {
 const DEFAULT_MAX_OBJECTS = 20_000;
 const DEFAULT_MAX_OBJECT_BYTES = 2 * 1024 * 1024;
 const HARD_MAX_OBJECT_BYTES = 64 * 1024 * 1024;
-
-const MEDIA_TYPES: Record<string, string> = {
-  md: 'text/markdown', txt: 'text/plain', csv: 'text/csv', json: 'application/json',
-  yaml: 'text/plain', yml: 'text/plain', html: 'text/html', htm: 'text/html', xml: 'text/xml',
-  pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-  gif: 'image/gif', webp: 'image/webp', avif: 'image/avif',
-};
+/** Extensions whose media type we state ourselves over the object's ContentType. */
+const MEDIA_TYPES_KNOWN = new Set([...TEXT_EXTENSIONS, ...BINARY_EXTENSIONS]);
 
 /** The subset of the SDK client the connector uses — injectable for tests. */
 export interface S3ClientLike {
@@ -121,10 +117,10 @@ export class S3Connector implements Connector {
     const bytes = Buffer.from(await res.Body.transformToByteArray());
     if (bytes.byteLength > byteCap(cfg)) throw new Error(`object over maxObjectBytes: ${item.externalId}`);
     const ext = extOf(item.externalId);
-    const mediaType = MEDIA_TYPES[ext] ?? res.ContentType ?? 'application/octet-stream';
+    const mediaType = MEDIA_TYPES_KNOWN.has(ext) ? mediaTypeOf(ext) : (res.ContentType ?? 'application/octet-stream');
     const occurredAt = res.LastModified?.toISOString() ?? item.modifiedAt;
     if (ctx.connection.shape === 'binary') {
-      return { shape: 'binary', bytes, mediaType, modality: ext === 'pdf' ? 'document' : 'image', occurredAt };
+      return { shape: 'binary', bytes, mediaType, modality: modalityOf(ext), occurredAt };
     }
     if (looksBinary(bytes)) throw new Error(`binary content in a text-shaped item: ${item.externalId}`);
     return {
@@ -154,7 +150,7 @@ function describeObject(bucket: string, obj: S3Object): ItemDescriptor {
     path: key,
     title: key.slice(key.lastIndexOf('/') + 1),
     originUri: `s3://${bucket}/${key}`,
-    mediaType: MEDIA_TYPES[ext] ?? 'application/octet-stream',
+    mediaType: mediaTypeOf(ext),
     size: obj.Size,
     ...(obj.ETag ? { revision: `etag:${obj.ETag.replace(/"/g, '')}` } : {}),
     ...(obj.LastModified ? { modifiedAt: obj.LastModified.toISOString() } : {}),
@@ -191,7 +187,7 @@ function defaultClient(cfg: S3ConnectorConfig, credential: string | null): S3Cli
 function extensionsFor(ctx: ConnectorCtx, cfg: S3ConnectorConfig): string[] {
   const declared = cfg.extensions?.map((e) => e.toLowerCase().replace(/^\./, ''));
   if (declared && declared.length > 0) return declared;
-  return ctx.connection.shape === 'binary' ? FS_BINARY_EXTENSIONS : FS_TEXT_EXTENSIONS;
+  return ctx.connection.shape === 'binary' ? BINARY_EXTENSIONS : TEXT_EXTENSIONS;
 }
 
 function byteCap(cfg: S3ConnectorConfig): number {

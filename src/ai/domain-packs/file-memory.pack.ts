@@ -8,14 +8,16 @@ import type { DomainPackManifest } from './manifest';
  * the `fs` source entries — without a pack declaring `native: fs` no
  * folder can be connected — plus the vocabulary a folder of documents
  * yields, the derivable class the drift sweep re-verifies, and the media
- * contract that lets the binary door process PDFs and images.
+ * contract that lets the binary door process PDFs, office documents,
+ * mail and images.
  *
  * Four source entries, two roots, two shapes: `folder` / `folder_media`
  * over a directory (the `fs` connector) and `bucket` / `bucket_media`
  * over an object-store prefix (the `s3` connector) — text-like files as
- * documents (markdown, text, csv, json, yaml, html, code); PDFs and
- * images to the evidence door (the evidence → document bridge carries a
- * PDF's text on). An operator connects the shapes they need.
+ * documents (markdown, text, csv, json, yaml, html, code); PDFs, office
+ * documents (docx / xlsx / pptx), mail (.eml) and images to the evidence
+ * door (the evidence → document bridge carries the extracted text on).
+ * An operator connects the shapes they need.
  *
  * The derivable class: `located_in` and `last_modified` are statements
  * the filesystem re-derives exactly, so they are bound to the revision
@@ -29,7 +31,7 @@ import type { DomainPackManifest } from './manifest';
  */
 export const FILE_MEMORY_PACK: DomainPackManifest = {
   id: 'file_memory',
-  version: '0.2.0',
+  version: '0.3.0',
   description:
     'Files as memory — what a folder of documents describes, defines and references, bound to the file revision it was read at; the source pack that connects local and mounted folders.',
   predicates: [
@@ -149,9 +151,10 @@ explicitly. Copy names, terms, paths and URLs VERBATIM.`,
       { predicateOrScene: 'document_review', hint: 'ephemeral' },
     ],
     // ── Media contract (Evidence Plane) ─────────────────────────────────
-    // A folder holds PDFs and images next to its text. Document text
-    // extraction turns a PDF into a document (through the evidence →
-    // document bridge); image metadata is a header read. OCR is not
+    // A folder holds PDFs, office documents, mail and images next to its
+    // text. Document text extraction (PDF, OOXML, rfc822 processors) turns
+    // them into documents through the evidence → document bridge; image
+    // metadata is a header read. OCR is not
     // requested here — it is CPU-heavy and an operator opt-in elsewhere.
     // rawEvidence is DELIBERATELY ABSENT (omission = deny): a folder can
     // hold anything, so raw bytes never serve through this pack.
@@ -179,9 +182,9 @@ explicitly. Copy names, terms, paths and URLs VERBATIM.`,
       kind: 'native',
       connector: 'fs',
       shape: 'binary',
-      title: 'Folder (PDFs and images)',
+      title: 'Folder (PDFs, office documents, mail, images)',
       description:
-        'PDFs and images under a directory handed to the evidence plane (needs the evidence substrate + broker; the bridge carries a PDF’s text into facts). config: { root, extensions?, excludeDirs?, maxFiles?, maxFileBytes? }.',
+        'PDFs, Word / Excel / PowerPoint (docx, xlsx, pptx), .eml mail and images under a directory handed to the evidence plane (needs the evidence substrate + broker; the bridge carries the extracted text into facts). config: { root, extensions?, excludeDirs?, maxFiles?, maxFileBytes? }.',
       defaults: { contentPolicy: 'bytes', deletePolicy: 'close', schedule: 'manual' },
     },
     {
@@ -199,9 +202,9 @@ explicitly. Copy names, terms, paths and URLs VERBATIM.`,
       kind: 'native',
       connector: 's3',
       shape: 'binary',
-      title: 'Object bucket (PDFs and images)',
+      title: 'Object bucket (PDFs, office documents, mail, images)',
       description:
-        'PDFs and images under a prefix of an S3 / S3-compatible bucket handed to the evidence plane. Same config and credential as `bucket`.',
+        'PDFs, office documents (docx, xlsx, pptx), .eml mail and images under a prefix of an S3 / S3-compatible bucket handed to the evidence plane. Same config and credential as `bucket`.',
       defaults: { contentPolicy: 'bytes', deletePolicy: 'close', schedule: '4h' },
     },
   ],

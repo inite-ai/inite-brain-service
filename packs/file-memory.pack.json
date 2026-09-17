@@ -1,6 +1,6 @@
 {
   "id": "file_memory",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Files as memory — what a folder of documents describes, defines and references, bound to the file revision it was read at; the source pack that connects local and mounted folders.",
   "predicates": [
     {
@@ -199,8 +199,8 @@
       "kind": "native",
       "connector": "fs",
       "shape": "binary",
-      "title": "Folder (PDFs and images)",
-      "description": "PDFs and images under a directory handed to the evidence plane (needs the evidence substrate + broker; the bridge carries a PDF’s text into facts). config: { root, extensions?, excludeDirs?, maxFiles?, maxFileBytes? }.",
+      "title": "Folder (PDFs, office documents, mail, images)",
+      "description": "PDFs, Word / Excel / PowerPoint (docx, xlsx, pptx), .eml mail and images under a directory handed to the evidence plane (needs the evidence substrate + broker; the bridge carries the extracted text into facts). config: { root, extensions?, excludeDirs?, maxFiles?, maxFileBytes? }.",
       "defaults": {
         "contentPolicy": "bytes",
         "deletePolicy": "close",
@@ -225,8 +225,8 @@
       "kind": "native",
       "connector": "s3",
       "shape": "binary",
-      "title": "Object bucket (PDFs and images)",
-      "description": "PDFs and images under a prefix of an S3 / S3-compatible bucket handed to the evidence plane. Same config and credential as `bucket`.",
+      "title": "Object bucket (PDFs, office documents, mail, images)",
+      "description": "PDFs, office documents (docx, xlsx, pptx), .eml mail and images under a prefix of an S3 / S3-compatible bucket handed to the evidence plane. Same config and credential as `bucket`.",
       "defaults": {
         "contentPolicy": "bytes",
         "deletePolicy": "close",

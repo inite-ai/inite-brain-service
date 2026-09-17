@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { lstat, opendir, readFile, realpath } from 'node:fs/promises';
 import { basename, extname, join, posix, relative, resolve, sep } from 'node:path';
+import { htmlToText } from '../../common/html-text';
 import { sourceFsRoots, sourceKindEnabled } from '../../common/source-plane-flags';
 import type {
   Connector,
@@ -10,6 +11,13 @@ import type {
   ItemDelta,
   ItemDescriptor,
 } from '../connector';
+import {
+  BINARY_EXTENSIONS,
+  HTML_EXTENSIONS,
+  TEXT_EXTENSIONS,
+  mediaTypeOf,
+  modalityOf,
+} from './media';
 
 /**
  * `fs` — the first native (raw-evidence-sources-2026-09.md W1): a
@@ -52,14 +60,9 @@ export interface FsConnectorConfig {
   maxFileBytes?: number | undefined;
 }
 
-export const FS_TEXT_EXTENSIONS = [
-  'md', 'markdown', 'txt', 'text', 'rst', 'adoc', 'csv', 'tsv', 'json', 'yaml', 'yml',
-  'toml', 'ini', 'cfg', 'conf', 'html', 'htm', 'xml', 'log',
-  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'py', 'go', 'rs', 'java', 'kt', 'rb', 'php',
-  'c', 'h', 'cpp', 'hpp', 'cs', 'swift', 'sh', 'sql', 'graphql', 'proto',
-];
-
-export const FS_BINARY_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif'];
+/** Kept as the fs names of the shared tables (media.ts) — s3 reads the same. */
+export const FS_TEXT_EXTENSIONS = TEXT_EXTENSIONS;
+export const FS_BINARY_EXTENSIONS = BINARY_EXTENSIONS;
 
 const DEFAULT_EXCLUDE_DIRS = [
   '.git', 'node_modules', 'dist', 'build', 'target', '.venv', 'venv', '__pycache__',
@@ -69,15 +72,6 @@ const DEFAULT_MAX_FILES = 20_000;
 const DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024;
 const HARD_MAX_FILE_BYTES = 64 * 1024 * 1024;
 
-const MEDIA_TYPES: Record<string, string> = {
-  md: 'text/markdown', markdown: 'text/markdown', txt: 'text/plain', text: 'text/plain',
-  rst: 'text/plain', adoc: 'text/plain', csv: 'text/csv', tsv: 'text/tab-separated-values',
-  json: 'application/json', yaml: 'text/plain', yml: 'text/plain', toml: 'text/plain',
-  ini: 'text/plain', cfg: 'text/plain', conf: 'text/plain', html: 'text/html', htm: 'text/html',
-  xml: 'text/xml', log: 'text/plain',
-  pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-  gif: 'image/gif', webp: 'image/webp', avif: 'image/avif',
-};
 
 @Injectable()
 export class FsConnector implements Connector {
@@ -129,23 +123,27 @@ export class FsConnector implements Connector {
     if (!st.isFile()) throw new Error(`not a regular file: ${item.externalId}`);
     if (st.size > fileByteCap(cfg)) throw new Error(`file over maxFileBytes: ${item.externalId}`);
     const ext = extOf(basename(full));
-    const mediaType = MEDIA_TYPES[ext] ?? 'application/octet-stream';
+    const mediaType = mediaTypeOf(ext);
     if (ctx.connection.shape === 'binary') {
       const bytes = await readFile(full);
       return {
         shape: 'binary',
         bytes,
         mediaType,
-        modality: ext === 'pdf' ? 'document' : 'image',
+        modality: modalityOf(ext),
         occurredAt: st.mtime.toISOString(),
       };
     }
     const bytes = await readFile(full);
     if (looksBinary(bytes)) throw new Error(`binary content in a text-shaped item: ${item.externalId}`);
+    // An HTML file is markup around a document: the shared reduction
+    // hands the extractor the prose, not the tags.
+    const raw = bytes.toString('utf8');
+    const html = HTML_EXTENSIONS.has(ext) ? htmlToText(raw) : null;
     return {
       shape: 'document',
-      text: bytes.toString('utf8'),
-      title: basename(full),
+      text: html ? html.body : raw,
+      title: html?.title ?? basename(full),
       occurredAt: st.mtime.toISOString(),
       kind: 'file',
     };
@@ -222,7 +220,7 @@ function describeFile(
     path: externalId,
     title: name,
     originUri: `file://${full}`,
-    mediaType: MEDIA_TYPES[ext] ?? 'application/octet-stream',
+    mediaType: mediaTypeOf(ext),
     size: st.size,
     revision: `${Math.trunc(st.mtimeMs)}:${st.size}`,
     modifiedAt: st.mtime.toISOString(),
@@ -240,7 +238,7 @@ function configOf(ctx: ConnectorCtx): FsConnectorConfig {
 function extensionsFor(ctx: ConnectorCtx, cfg: FsConnectorConfig): string[] {
   const declared = cfg.extensions?.map((e) => e.toLowerCase().replace(/^\./, ''));
   if (declared && declared.length > 0) return declared;
-  return ctx.connection.shape === 'binary' ? FS_BINARY_EXTENSIONS : FS_TEXT_EXTENSIONS;
+  return ctx.connection.shape === 'binary' ? BINARY_EXTENSIONS : TEXT_EXTENSIONS;
 }
 
 function fileByteCap(cfg: FsConnectorConfig): number {

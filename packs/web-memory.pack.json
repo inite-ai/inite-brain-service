@@ -1,6 +1,6 @@
 {
   "id": "web_memory",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Web pages as memory — what a page describes, links to and who wrote it, bound to the revision it was fetched at; the source pack that connects sites, sitemaps and self-hosted wikis.",
   "predicates": [
     {
@@ -160,8 +160,8 @@
       "kind": "native",
       "connector": "url",
       "shape": "binary",
-      "title": "Site (PDFs)",
-      "description": "PDFs a sitemap lists or that are named outright, handed to the evidence plane. Same config and credential as `site`.",
+      "title": "Site (PDFs and office documents)",
+      "description": "PDFs and office documents (docx, xlsx, pptx) a sitemap lists or that are named outright, handed to the evidence plane. Same config and credential as `site`.",
       "defaults": {
         "contentPolicy": "bytes",
         "deletePolicy": "close",
