@@ -15,7 +15,13 @@ import { z } from 'zod';
  * can widen that.
  */
 
-export const DecisionKindSchema = z.enum(['l3_escalation', 'abstain', 'lane_route', 'zoom']);
+export const DecisionKindSchema = z.enum([
+  'l3_escalation',
+  'abstain',
+  'lane_route',
+  'zoom',
+  'verdict',
+]);
 
 /** One decision as served. Optional fields are absent, never null. */
 export const MemoryDecisionSchema = z.object({

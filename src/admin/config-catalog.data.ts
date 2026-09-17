@@ -847,7 +847,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Belief promotion field fold (#135 seam 2): deterministically fold an enricher-re-coined field name onto an existing one for the same (userId, subject) — token-set subset whose extra tokens are all generic modifiers (ownership/status/state/current/of/the); the EXISTING name wins, and more than one match folds nothing and warns loudly (skip loudly, never flip-flop). NO embeddings, NO LLM. Also absorbs orphans: after each canonical upsert, ACTIVE beliefs of the same (userId, subject) stored under a foldable VARIANT of the canonical field (earlier-batch leftovers the incoming-name fold can never retire) are stamped superseded so they stop serving stale values; the canonical belief keeps its own value, the orphan value backfills priorValue only when the canonical has none, and more than one distinct variant field skips loudly. Off = exact-string (subject, field) grouping and zero extra queries — byte-identical fold output.',
+      'Belief promotion slot resolution (0147): resolve each enricher-written field name through the SAME predicate registry the fact plane uses, and group beliefs on the resulting slot rather than on the free-text name. A belief then carries predicateId/predicateAlias and its identity is `(predicateAlias ?? predicateId)` — the same expression a fact resolves through — so one vocabulary serves both planes, PredicateConsolidationService folds both, and the BELIEFS_FACT_DAMPING join becomes id-to-id. It also keeps ONE active row per slot: a second one (a belief written under a different name for the same attribute) is stamped superseded into the head, which keeps its own value, and donates priorValue only when the head records none. REPLACED a lexical token-subset rule over a hand-written six-word stoplist of generic modifiers, which on a live tenant folded 0 of its 12 field names and missed all three pairs it existed to catch. Off = exact-string (subject, field) grouping and no registry calls — the pre-0147 behaviour, under which a belief simply has no cross-plane identity.',
   },
   {
     key: 'SCENES_VALUE_GATE_ENABLED',
@@ -993,18 +993,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: true,
     description:
       'Language-agnostic lane classifier: a nearest-centroid classifier over a small in-repo multilingual exemplar set (reusing the shared cosine primitive) AUGMENTS the English-regex answer router for queries it returns null/generic for, so a non-English temporal/enumeration/preference/summary question can still reach its typed lane. Abstain-safe (a low-confidence or ambiguous match declines to the generic path) and only ever ADDS a route where the regex router found none. Resolved into the RetrievalProfile and threaded to the synthesize boundary. Off (default) → the regex router is byte-identical.',
-  },
-  {
-    key: 'MULTILINGUAL_TEMPORAL',
-    category: 'pipeline',
-    // Read per-call on the ingest path (MentionPersistService.persistFacts via
-    // process.env), never constructor-captured — a flip takes effect on the
-    // next ingest without restart (re-ingest to backfill).
-    defaultValue: '0',
-    runtimeMutable: true,
-    isBooleanFlag: true,
-    description:
-      'Locale-time decomposition for event-time extraction: (1) ar/hi/ko relative-expression recognition (chrono has no parser for those scripts — they otherwise fall to the English parser and silently miss), (2) locale-aware digit parsing (native ٣/५ digits), and (3) the atUtcMidnight day-shift fix — a relative event ("yesterday", "3 days ago") near a UTC day boundary is anchored to the speaker’s LOCAL calendar day via the session timezone (dto.timezone), then stored as language-neutral ISO-8601. An unknown timezone degrades to UTC-day behavior (never rejects the ingest). Off (default) → byte-identical UTC-day chrono behavior.',
   },
   {
     key: 'MULTILINGUAL_CONFLICT',
@@ -1213,6 +1201,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     defaultValue: 'gpt-4o-mini',
     runtimeMutable: false,
     isBooleanFlag: false,
+  },
+  {
+    key: 'ENTITY_JUDGE_MODEL',
+    category: 'auth',
+    defaultValue: 'gpt-5.6-luna',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'The model behind the same-entity judge (inline entity resolution at ingest and the dreams dedup). Its own default, not OPENAI_CHAT_MODEL: measured on identical cross-script pairs gpt-4o-mini flip-flopped between runs while a current model answered consistently, and the judge is one call per new entity with a neighbour, so it gets the cheapest current-generation model. Reasoning models are called through the shared guard at low effort.',
   },
   {
     key: 'OPENAI_TIMEOUT_MS',
@@ -2061,7 +2058,10 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_VERBATIM_EVIDENCE',
     category: 'pipeline',
-    defaultValue: null,
+    // Genre-dependent: this is what the DEFAULT genre (assistant_chat)
+    // resolves. `dialogue` presets 'always'. Pinned by the
+    // resolved-default gate in config-catalog-truth.unit-spec.
+    defaultValue: 'shape_conditioned',
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
@@ -2070,7 +2070,9 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_DATE_ANCHORING',
     category: 'pipeline',
-    defaultValue: null,
+    // Genre-dependent: the DEFAULT genre (assistant_chat) resolves
+    // 'absolute'; `dialogue` presets 'none'.
+    defaultValue: 'absolute',
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
@@ -2164,7 +2166,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      "Overfetch multiplier for the coverage scan legs' approximate KNN: SurrealDB applies WHERE gates AFTER the neighbor walk, so the walk requests k×overfetch candidates to survive gate filtering (pii/user scope on both lanes; the query_arc lane doubles the multiplier internally for its heavier gate stack — atomic/status/world gates — matching the ×8 precedent of INGEST_INLINE_RESOLUTION_HNSW_OVERFETCH). Capped at 4000 candidates per leg.",
+      "Overfetch multiplier for the coverage scan legs' approximate KNN: SurrealDB applies WHERE gates AFTER the neighbor walk, so the walk requests k×overfetch candidates to survive gate filtering (pii/user scope on both lanes; the query_arc lane doubles the multiplier internally for its heavier gate stack — atomic/status/world gates). Capped at 4000 candidates per leg.",
   },
   {
     key: 'RETRIEVAL_UPDATE_STORY',
@@ -2187,7 +2189,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_ABSTENTION_CALIBRATION',
     category: 'pipeline',
-    defaultValue: 'off',
+    // 'verifier' out of the box: the assistant_chat preset (the DEFAULT
+    // genre) sets it. The entry said 'off', which is how a live stand
+    // reported its abstention mode as off while it was running the
+    // verifier gate. `dialogue`/`documents` resolve 'off'.
+    defaultValue: 'verifier',
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
@@ -2259,7 +2265,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_SCENE_TRACES',
     category: 'pipeline',
-    defaultValue: '0',
+    // ON out of the box: the assistant_chat preset (the DEFAULT genre)
+    // sets it, and this entry said '0' for as long as the preset has
+    // existed — the admin screen reported a lever off while every stock
+    // deployment ran it. `dialogue`/`documents` resolve '0'.
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -3114,15 +3124,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Batched edge persistence: collapse the per-edge RELATE round-trips of a mention into TWO queries (one multi-statement existence check, then one multi-statement RELATE for only the missing edges); re-ingest with all edges present is a single round-trip. Same observable outcome as the per-edge loop (idempotent RELATE on UNIQUE(in,out,kind)); a concurrent-writer race falls back to the per-edge primitive. Read at boot.',
   },
   {
-    key: 'INGEST_INLINE_RESOLUTION_HNSW',
-    category: 'extractor',
-    defaultValue: '0',
-    runtimeMutable: false,
-    isBooleanFlag: true,
-    description:
-      "Route the inline entity-resolution name-candidate scan through the native HNSW index (<|k,ef|>) instead of a per-ingest full cosine scan of every 'name' fact. Over-fetches (candidateK × INGEST_INLINE_RESOLUTION_HNSW_OVERFETCH, default 8, capped 1000) since KNN pre-filters before the name/type WHERE. Tenants without a built index fall back to the full scan (build via POST /v1/admin/maintenance/hnsw). CORRECTNESS-SENSITIVE — a missed approximate candidate creates a DUPLICATE entity; run the dedup recall eval and verify parity vs full scan before enabling. Only active when INGEST_INLINE_RESOLUTION_ENABLED is also on. Read at boot.",
-  },
-  {
     key: 'SEARCH_COMBINED_VECTOR_GRAPH',
     category: 'search',
     defaultValue: '0',
@@ -3331,6 +3332,25 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
     description:
       'Max concurrent predicate-cardinality judge calls (PREDICATE_SEMANTICS_MODEL). The calls sit on the ingest write path, so this bounds how much a cold tenant — which coins most of its vocabulary in the first few documents — can fan out.',
+  },
+  {
+    key: 'PREDICATE_IDENTITY_MODEL',
+    category: 'registry',
+    // Captured in the judge's constructor — a live flip needs a restart.
+    defaultValue: null,
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Model for the predicate IDENTITY judge, used by the consolidation pass (POST /v1/admin/predicates/consolidate) to decide whether two names in a tenant\u2019s vocabulary denote the same attribute. Empty (default) = OPENAI_CHAT_MODEL, else gpt-4o-mini.',
+  },
+  {
+    key: 'PREDICATE_IDENTITY_CONCURRENCY',
+    category: 'registry',
+    defaultValue: '4',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Max concurrent predicate-identity judge calls. These run inside the consolidation PASS (POST /v1/admin/predicates/consolidate), never on the ingest write path \u2014 one call per coined predicate whose blocking set is non-empty.',
   },
   // ── Registry mirroring (pull-only, migration 0064) ───────
   {

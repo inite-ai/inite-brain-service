@@ -1,6 +1,8 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { Injectable, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { MetricsService } from '../metrics/metrics.service';
 import { IngestMentionDto } from '../ingest/dto/ingest-mention.dto';
+import { EpisodeStoreService } from '../ingest/episode-store.service';
+import { failClosedCaptureEnabled } from '../common/evidence-flags';
 import { DocumentIngestService } from './document-ingest.service';
 import { internalDocumentMeta } from './document-meta';
 import { pinUserScope } from '../auth/user-scope';
@@ -28,16 +30,29 @@ export interface MentionCompatResult {
  * fn::resolve_fact/userId machinery). Entities minted by extraction stay
  * tenant-global on both paths (name/type nodes only).
  *
- * Known (flag-gated) differences vs the legacy path: `knownEntities`
- * hints are not threaded into entity resolution, skip detection for
- * 'no_entities' happens AFTER the document + candidates are staged (the
- * document is the audit trail of the empty read), and no L0 episode turn
- * is captured — the stored document is the raw observation instead.
+ * The L0 episode is captured here exactly as the direct path captures
+ * it, BEFORE the document is staged, and its id rides the internal
+ * document channel onto every committed fact's `source.episodeIds`. It
+ * did not use to be: the wrapper stored the document as "the raw
+ * observation instead", which is true for the evidence plane and false
+ * for every plane that reads EPISODES — scene segmentation, belief
+ * promotion, the transcript sections of an answer, the L3 anchors. A
+ * full-chain trace on the prod assembly (INGEST_MENTION_VIA_DOCUMENT=1,
+ * SCENES_SEGMENTATION_ENABLED=1, SCENES_BELIEF_PROMOTION=1) read
+ * `episode = 0` after four turns: the episodic plane was switched on and
+ * had nothing to segment, because the only writer of its input lived on
+ * the path the deployment does not run.
+ *
+ * Known difference that remains: `knownEntities` hints are not threaded
+ * into entity resolution, and skip detection for 'no_entities' happens
+ * AFTER the document + candidates are staged (the document is the audit
+ * trail of the empty read).
  */
 @Injectable()
 export class MentionViaDocumentService {
   constructor(
     private readonly documents: DocumentIngestService,
+    @Optional() private readonly episodes?: EpisodeStoreService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
@@ -57,12 +72,27 @@ export class MentionViaDocumentService {
         extractedFactIds: [],
       };
     }
+    // L0 episode capture (EPISODE_SUBSTRATE_ENABLED) runs BEFORE the
+    // document is staged, so an indexer failure or an empty read no
+    // longer loses the turn. Non-fatal by contract; idempotent on retry.
+    // Same seam as the direct path, same fail-closed rule.
+    const scoped = { ...dto, ...(userId !== undefined ? { userId } : {}) };
+    const episodeId = (await this.episodes?.captureTurn(companyId, scoped)) ?? null;
+    if (failClosedCaptureEnabled() && !episodeId) {
+      this.metrics?.countIngestMention('failed');
+      throw new ServiceUnavailableException(
+        'episode capture unavailable — fail-closed ingest (EVIDENCE_FAIL_CLOSED_CAPTURE ' +
+          'requires EPISODE_SUBSTRATE_ENABLED and a successful L0 episode write)',
+      );
+    }
     // Bounded BEFORE the pipeline runs: an over-long or non-string id is a
     // 400 at the door, not a failed extraction.
     const internal = internalDocumentMeta({
       conversationId: dto.contextRef.conversationId,
       messageId: dto.contextRef.messageId,
       eventId: dto.contextRef.eventId,
+      episodeId,
+      timezone: dto.timezone,
     });
     try {
       const res = await this.documents.ingestDocument(

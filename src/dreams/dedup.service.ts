@@ -4,12 +4,9 @@ import { Surreal, StringRecordId } from 'surrealdb';
 import { EntityJudgeService } from '../ai/entity-judge.service';
 import { withSpan } from '../common/tracing';
 import { envFlagEnabled } from '../common/env-validation';
-import { derivedVersionFence } from '../episodes/read-pin.service';
-import { knnIndexKnownUnusable, knnOperatorDropped, noteKnnOperatorDropped } from '../db/knn-index';
 import { sameWidthGate } from '../db/vector-width';
 
 /** The index the entity-dedup seed KNN rides — for the diagnostic. */
-const DEDUP_HNSW = { table: 'knowledge_fact', index: 'fact_embedding_hnsw' } as const;
 
 /**
  * DreamsDedupService — find near-duplicate ENTITIES inside a tenant
@@ -17,10 +14,10 @@ const DEDUP_HNSW = { table: 'knowledge_fact', index: 'fact_embedding_hnsw' } as 
  * search-side record.
  *
  * Two-stage filter:
- *   1. CHEAP: vector similarity over the entity's `name` fact embedding.
- *      For each candidate entity, fetch the K nearest neighbours by
- *      name-embedding cosine; consider any pair with cos ≥ threshold
- *      a SUSPECT.
+ *   1. CHEAP: vector similarity over the entity's OWN name embedding
+ *      (knowledge_entity.embedding — a column the 0001 baseline defined and nothing ever wrote). For each seed entity,
+ *      fetch the K nearest same-type neighbours by cosine; consider any
+ *      pair with cos ≥ threshold a SUSPECT.
  *   2. EXPENSIVE: LLM judge with both entities' top-3 facts as context.
  *      Verdict ∈ {same, different, unsure}. Only `same` triggers a
  *      RELATE knowledge_edge (kind='identity_of'); `unsure` is logged
@@ -138,42 +135,43 @@ export class DreamsDedupService {
   }
 
   /**
-   * Find suspect pairs. Strategy:
-   *   - Pull every entity that has a `name` fact (the dedup signal).
-   *     Limited to entities owning at least ONE fact whose embedding
-   *     is non-NONE (post-compaction warm tier is excluded — those
-   *     entities can't be embedding-matched cheaply).
-   *   - For each, take its newest active `name` fact's embedding.
-   *   - Run a Surreal HNSW-cosine k-NN over the name embedding,
-   *     keep only pairs with cos ≥ threshold AND aId < bId (canonical
-   *     ordering so each pair is counted once).
-   *   - Cap at maxPairs to bound the LLM cost.
+   * Find suspect pairs: for each entity carrying a name embedding, its
+   * nearest same-type neighbours by cosine, kept when cos ≥ threshold and
+   * ordered aId < bId so each pair is counted once. Capped at maxPairs to
+   * bound the LLM cost.
+   *
+   * OVER ENTITIES, NOT `name` FACTS. This pass used to
+   * seed from `knowledge_fact WHERE predicate = 'name'` and walk that
+   * fact's embedding, and measured on a live tenant on 2026-09-16 that
+   * predicate had ZERO rows against 33 entities: nothing on the mention
+   * path writes a `name` fact. Every off-hours dedup sweep on a
+   * mention-ingested corpus had found zero seeds, logged nothing, and
+   * merged nothing — not "rarely", structurally.
+   *
+   * Entities are one to two orders of magnitude fewer than facts, so the
+   * seed set and each neighbour query are plain cosine scans; the HNSW
+   * leg that rode `fact_embedding_hnsw` went with the fact scan. The
+   * embedding still never leaves the DB — each neighbour query reads the
+   * seed vector by entity id.
+   *
+   * `derivedVersion` is accepted for the caller's contract and not used
+   * to fence candidates: it is a FACT field (0074), an entity is the same
+   * node in every derived world, and the judge's evidence
+   * (`fetchTopFacts`) was never world-fenced either.
    */
   private async findCandidates(
     db: Surreal,
-    derivedVersion: string | null,
+    _derivedVersion: string | null,
   ): Promise<DedupCandidate[]> {
-    // Seed pass: fact id + entity id ONLY. The old shape selected every
-    // name embedding into process memory (1536 float64s × N entities —
-    // hundreds of MB at scale) and then looped over ALL of them. The
-    // embedding never leaves the DB now: each neighbour query resolves
-    // its seed vector by fact id, and the seed set is capped
-    // newest-first. recordedAt rides in the projection for the 3.x
-    // ORDER BY idiom.
-    const fence = derivedVersionFence(derivedVersion);
-    type SeedRow = { id: unknown; entityId: unknown; recordedAt: unknown };
+    type SeedRow = { id: unknown; type: string; recordedAt: unknown };
     const [seedRows] = await db.query<[SeedRow[]]>(
-      `SELECT id, entityId, recordedAt FROM knowledge_fact
-       WHERE predicate = 'name'
-         AND status = 'active'
-         AND retractedAt IS NONE
-         AND embedding != NONE
+      `SELECT id, type, recordedAt FROM knowledge_entity
+       WHERE embedding != NONE
          AND userId IS NONE
-         AND entityId.mergedInto IS NONE
-         ${fence.clause}
+         AND mergedInto IS NONE
        ORDER BY recordedAt DESC
        LIMIT $maxSeeds`,
-      { maxSeeds: this.maxSeeds, ...fence.params },
+      { maxSeeds: this.maxSeeds },
     );
     const seeds = (seedRows as SeedRow[]) ?? [];
     if (seeds.length < 2) return [];
@@ -181,8 +179,8 @@ export class DreamsDedupService {
     const out: DedupCandidate[] = [];
     const seen = new Set<string>();
     for (const seed of seeds) {
-      const aId = String(seed.entityId);
-      const neighbours = await this.nearestNames(db, String(seed.id), derivedVersion);
+      const aId = String(seed.id);
+      const neighbours = await this.nearestNames(db, aId, seed.type);
       for (const n of neighbours) {
         const bId = String(n.entityId);
         if (bId === aId) continue;
@@ -202,82 +200,28 @@ export class DreamsDedupService {
   }
 
   /**
-   * K nearest name facts to a seed name fact, seed vector resolved
-   * DB-side by fact id. With SEARCH_HNSW_ENABLED the KNN operator rides
-   * the HNSW index (same literal-K idiom + overfetch as the search
-   * vector leg). Without it, a scan ordered by cosine — still zero
-   * vectors shipped to JS in both directions.
-   *
-   * The KNN statement does NOT throw when the tenant has no (or a
-   * still-building) index: SurrealDB drops the operator and answers with
-   * table-order rows carrying a NULL distance, which this pass then read
-   * as `sim = 0` — below every threshold, so the whole dedup sweep went
-   * silently inert on un-indexed tenants. Detected from the rows
-   * (src/db/knn-index.ts) and routed to the exact scan below.
+   * K nearest entities of the same type to a seed entity, by cosine over
+   * their name embeddings; the seed vector is resolved DB-side by id so
+   * no vector is shipped to JS in either direction.
    */
   private async nearestNames(
     db: Surreal,
-    seedFactId: string,
-    derivedVersion: string | null,
+    seedEntityId: string,
+    type: string,
   ): Promise<Array<{ entityId: unknown; sim: number }>> {
-    const fence = derivedVersionFence(derivedVersion);
-    const filters = `predicate = 'name'
-          AND status = 'active'
-          AND retractedAt IS NONE
-          AND embedding != NONE
-          AND userId IS NONE
-          AND entityId.mergedInto IS NONE
-          ${fence.clause}`;
     type Row = { entityId: unknown; sim: number };
-    if (envFlagEnabled(process.env.SEARCH_HNSW_ENABLED) && !knnIndexKnownUnusable(db, DEDUP_HNSW)) {
-      const ef = parseInt(process.env.SEARCH_HNSW_EF ?? '100', 10);
-      const overfetch = parseInt(process.env.SEARCH_HNSW_OVERFETCH ?? '4', 10);
-      const kOver = Math.min(5 * overfetch, 1000);
-      try {
-        // vector::distance::knn() reuses the walk's distance — a fresh
-        // cosine projection next to the KNN operator drops the planner
-        // off the KnnScan (V11 audit A4). sim = 1 − cosine distance;
-        // works with the LET-var query vector (stand-verified).
-        const res = await db.query<[unknown, Array<{ entityId: unknown; dist: number }>]>(
-          `LET $q = (SELECT VALUE embedding FROM ONLY type::record($fid));
-           SELECT entityId, vector::distance::knn() AS dist
-             FROM knowledge_fact
-            WHERE embedding <|${kOver},${ef}|> $q
-              AND ${filters}
-            ORDER BY dist ASC
-            LIMIT 5;`,
-          { fid: seedFactId, ...fence.params },
-        );
-        const knnRows = (res[1] as Array<{ entityId: unknown; dist: number }>) ?? [];
-        if (knnOperatorDropped(knnRows, 'dist')) {
-          await noteKnnOperatorDropped(db, DEDUP_HNSW, {
-            logger: {
-              warn: (m) => this.logger.warn(`[dreams.dedup] ${m}`),
-              error: (m) => this.logger.error(`[dreams.dedup] ${m}`),
-              debug: (m) => this.logger.debug(`[dreams.dedup] ${m}`),
-            },
-          });
-        } else {
-          return knnRows.map(({ entityId, dist }) => ({
-            entityId,
-            sim: typeof dist === 'number' ? 1 - dist : 0,
-          }));
-        }
-      } catch (e) {
-        this.logger.warn(
-          `[dreams.dedup] KNN leg failed (${(e as Error).message}); falling back to scan`,
-        );
-      }
-    }
     const res = await db.query<[unknown, Row[]]>(
-      `LET $q = (SELECT VALUE embedding FROM ONLY type::record($fid));
-       SELECT entityId, vector::similarity::cosine(embedding, $q) AS sim
-         FROM knowledge_fact
+      `LET $q = (SELECT VALUE embedding FROM ONLY type::record($eid));
+       SELECT id AS entityId, vector::similarity::cosine(embedding, $q) AS sim
+         FROM knowledge_entity
         WHERE ${sameWidthGate('embedding')}
-          AND ${filters}
+          AND type = $type
+          AND userId IS NONE
+          AND mergedInto IS NONE
+          AND id != type::record($eid)
         ORDER BY sim DESC
         LIMIT 5;`,
-      { fid: seedFactId, ...fence.params },
+      { eid: seedEntityId, type },
     );
     return (res[1] as Row[]) ?? [];
   }

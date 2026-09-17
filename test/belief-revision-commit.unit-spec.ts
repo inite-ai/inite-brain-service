@@ -19,6 +19,7 @@ const belief = (): FoldedBelief => ({
   userId: 'u1',
   subject: 'alice',
   field: 'city',
+  predicateId: 'city',
   value: 'Porto',
   priorValue: 'Lisbon',
   displacedValue: 'Lisbon',

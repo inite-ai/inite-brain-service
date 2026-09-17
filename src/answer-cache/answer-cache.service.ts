@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { StringRecordId, type Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
+import { traceArtifact } from '../common/debug-trace';
 import { envFlagEnabled } from '../common/env-validation';
 import { pinUserScope } from '../auth/user-scope';
 import { makeRowPolicyFilter, type RowPolicyFilter } from '../policy/row-filter';
@@ -472,6 +473,8 @@ interface ReadFences {
 interface CitedFactRow {
   id: unknown;
   predicate: string;
+  /** The canon this predicate was aliased onto (0083), when it was. */
+  predicateAlias?: string | undefined;
   object: string;
   entityId?: unknown;
   status: string;
@@ -597,6 +600,7 @@ export class AnswerCacheService {
     const normalizedQuery = normalizeQuery(opts.dto.query ?? '');
     if (opts.dto.explain === true || normalizedQuery.length === 0) {
       this.metrics?.countAnswerCache('bypass');
+      traceArtifact('synthesize.answer_cache', { decision: 'bypass' });
       return undefined;
     }
     try {
@@ -604,6 +608,7 @@ export class AnswerCacheService {
       const hit = await this.tryServe(ctx, opts.callerScopes);
       if (hit) {
         this.metrics?.countAnswerCache('hit');
+        traceArtifact('synthesize.answer_cache', { decision: 'hit' });
         return { hit };
       }
       return { ctx };
@@ -614,6 +619,7 @@ export class AnswerCacheService {
         `answer-cache serve failed (companyId=${opts.companyId}): ${(e as Error).message}`,
       );
       this.metrics?.countAnswerCache('miss');
+      traceArtifact('synthesize.answer_cache', { decision: 'miss' });
       return undefined;
     }
   }
@@ -657,6 +663,7 @@ export class AnswerCacheService {
       // A citation with no trackable arm — the cache cannot promise to
       // notice when it dies, so the answer is served fresh every time.
       this.metrics?.countAnswerCache('not_admitted');
+      traceArtifact('synthesize.answer_cache', { decision: 'not_admitted' });
       return;
     }
     const answer = result.answer;
@@ -731,6 +738,7 @@ export class AnswerCacheService {
         return true;
       });
       this.metrics?.countAnswerCache(stored ? 'stored' : 'not_admitted');
+      traceArtifact('synthesize.answer_cache', { decision: stored ? 'stored' : 'not_admitted' });
     } catch (e) {
       this.logger.warn(
         `answer-cache store failed (companyId=${ctx.companyId}): ${(e as Error).message}`,
@@ -899,12 +907,14 @@ export class AnswerCacheService {
     });
     if (!row || row.invalidatedAt || toMs(row.expiresAt) <= Date.now()) {
       this.metrics?.countAnswerCache('miss');
+      traceArtifact('synthesize.answer_cache', { decision: 'miss' });
       return null;
     }
     const verdict = await this.checkOnRead(ctx, row, callerScopes);
     if ('cause' in verdict) {
       await this.invalidate(ctx, verdict.cause);
       this.metrics?.countAnswerCache('rejected_stale');
+      traceArtifact('synthesize.answer_cache', { decision: 'rejected_stale' });
       return null;
     }
     await this.recordServe(ctx);
@@ -979,7 +989,7 @@ export class AnswerCacheService {
         const [factRows, entityRows, newerRows] = await db.query<
           [CitedFactRow[], Array<{ id: unknown; canonicalName: string }>, CitedFactRow[]]
         >(
-          `SELECT id, predicate, object, entityId, status, validUntil,
+          `SELECT id, predicate, predicateAlias, object, entityId, status, validUntil,
                   retractedAt, userId, source, trustSnapshot, corroboration
              FROM knowledge_fact WHERE id INSIDE $ids;
            SELECT id, canonicalName FROM knowledge_entity
@@ -1221,6 +1231,9 @@ export class AnswerCacheService {
         entityId: String(fact.entityId ?? ''),
         canonicalName: nameById.get(String(fact.entityId ?? '')) ?? '',
         predicate: fact.predicate,
+        // Identity, not presentation (0083): a re-served citation must
+        // compare on the canon the rest of the pipeline keys on.
+        slot: fact.predicateAlias ?? fact.predicate,
         object: fact.object,
       });
     }

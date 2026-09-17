@@ -17,7 +17,8 @@ import {
 } from '../common/scene-flags';
 import { supportEdgesEnabled } from '../common/provenance-flags';
 import { buildSupportEdgeBatches } from '../common/support-edges';
-import { absorbFoldableOrphans, resolveFieldFold } from './belief-field-fold';
+import { predicateIdFromFieldName } from '../common/attribute-names';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import {
   admitScenes,
   beliefPromoterVersion,
@@ -42,7 +43,6 @@ import {
 // scene-baseline-ref.ts (god-file split, 800-line ceiling); the first two
 // are re-exported here so the historical import surface — the enricher,
 // the prediction baseline, every spec — is unchanged.
-export { FIELD_FOLD_GENERIC_TOKENS, fieldsFold, resolveFieldFold } from './belief-field-fold';
 export {
   BELIEF_PROMOTER_VERSION,
   PACK_SCENE_WORLD_PREFIX,
@@ -287,7 +287,15 @@ export interface BeliefContribution {
 export interface FoldedBelief {
   userId: string;
   subject: string;
+  /** The written attribute name — what the prompt and the read API show. */
   field: string;
+  /**
+   * The registry slot this belief occupies (0147) — the SAME identity a
+   * fact carries as `(predicateAlias ?? predicate)`. Equal to `field`
+   * when the service could not resolve one, which is how a pre-0147 row
+   * behaves: no cross-plane join, never a wrong one.
+   */
+  predicateId: string;
   value: string;
   /**
    * The value the current state displaced: the chain's previous distinct
@@ -357,15 +365,16 @@ export interface BeliefFold {
     /** Every contributing scene — the targeted-run touch test. */
     allSceneIds: string[];
   }>;
-  /** SCENES_BELIEF_FIELD_FOLD: incoming names folded onto existing ones. */
+  /**
+   * Field names that resolved to a DIFFERENT registry slot (0147) — the
+   * belief-side half of the one vocabulary both planes share.
+   *
+   * There is no ambiguity list any more. The lexical rule this replaced
+   * could match a name against several existing ones at once and had to
+   * refuse the whole fold and warn; a registry lookup returns exactly one
+   * canon, or nothing.
+   */
   fieldFolds: Array<{ userId: string; subject: string; from: string; to: string }>;
-  /** Field-fold ambiguity guard: >1 existing candidates — NOT folded. */
-  fieldFoldAmbiguities: Array<{
-    userId: string;
-    subject: string;
-    field: string;
-    candidates: string[];
-  }>;
 }
 
 /** Fold behavior knobs, resolved ONCE per run (the Drift-3 contract). */
@@ -373,11 +382,27 @@ export interface BeliefFoldOptions {
   /** SCENES_BELIEF_NEGATION_DELTAS: admit empty-`to` removal deltas. */
   negationDeltas?: boolean;
   /**
-   * SCENES_BELIEF_FIELD_FOLD: existing ACTIVE belief field names per
-   * (userId, subject) — key `${userId}\x00${subject}`. Undefined (flag
-   * off) ⇒ exact-string grouping, byte-identical to the historical fold.
+   * Raw field name → the registry slot it resolved to (0147). Built by
+   * the service, which owns the IO, so this module stays pure.
+   *
+   * This REPLACED a lexical token-subset rule over a hand-written
+   * six-word stoplist of "generic modifiers", which decided on its own
+   * whether two free-text field names denoted one attribute. Measured
+   * against the twelve field names a live tenant actually held, that
+   * rule folded ZERO pairs and missed all three it existed to catch —
+   * `deployment target` ~ `deployment platform` (AWS ECS Fargate beside
+   * Fly.io), `job queue backend` ~ `queue backend` (Redis Streams beside
+   * NATS JetStream), `pilot launch date` ~ `date`. Its own doc admitted
+   * two of those as accepted limitations.
+   *
+   * The registry answers the same question for the fact plane, with
+   * cosine over the seed ontology at coinage and the consolidation pass
+   * over the whole vocabulary afterwards. Routing belief fields through
+   * it gives both planes ONE vocabulary and one slot identity, which is
+   * also what makes the damping join possible at all. Undefined ⇒
+   * exact-string grouping on the raw field, the historical behaviour.
    */
-  existingFields?: ReadonlyMap<string, readonly string[]>;
+  fieldSlots?: ReadonlyMap<string, string>;
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
@@ -402,58 +427,48 @@ function admitDeltaValue(
 
 /** Mutable fold-state threaded through the per-delta field resolution. */
 interface FieldFoldState {
-  /** Fields already admitted this batch, per (userId, subject) — the
-   *  intra-batch fold candidates (first-seen order, deterministic for a
-   *  given scene order). */
-  batchFields: Map<string, string[]>;
   fieldFolds: Map<string, BeliefFold['fieldFolds'][number]>;
-  fieldFoldAmbiguities: Map<string, BeliefFold['fieldFoldAmbiguities'][number]>;
 }
 
 /**
- * #135 seam 2: fold one delta's field BEFORE the group key is built, so
- * negation + fold compose. Candidates: existing ACTIVE belief fields of
- * this (userId, subject) ∪ fields already admitted earlier in this
- * batch (so a two-scene create+negate batch converges to ONE group).
- * Returns the group field name and records folds/ambiguities in state.
+ * The registry slot one delta's field resolved to (0147), looked up
+ * BEFORE the group key is built so negation and slot resolution compose.
+ * Records a fold whenever the slot differs from the written name, which
+ * is what the log reports.
+ *
+ * A field the service could not resolve — nothing survived the token
+ * floor, or the registry was unreachable — is absent from the map and
+ * keeps its written name as the group key. That is exactly the
+ * pre-0147 behaviour, and it degrades to "this belief does not join the
+ * fact plane", never to a wrong join.
  */
-function foldDeltaField(
+function slotForField(
   { userId, subject, field }: { userId: string; subject: string; field: string },
-  existingFields: ReadonlyMap<string, readonly string[]>,
+  fieldSlots: ReadonlyMap<string, string>,
   state: FieldFoldState,
 ): string {
-  const subjectKey = `${userId}\x00${subject}`;
-  const known = [
-    ...(existingFields.get(subjectKey) ?? []),
-    ...(state.batchFields.get(subjectKey) ?? []),
-  ];
-  const resolved = resolveFieldFold(field, known);
-  let groupField = field;
-  if (resolved.ambiguous) {
-    state.fieldFoldAmbiguities.set(`${subjectKey}\x00${field}`, {
-      userId,
-      subject,
-      field,
-      candidates: resolved.candidates,
-    });
-  } else if (resolved.folded) {
-    state.fieldFolds.set(`${subjectKey}\x00${field}`, {
-      userId,
-      subject,
-      from: field,
-      to: resolved.field,
-    });
-    groupField = resolved.field;
-  }
-  const seen = state.batchFields.get(subjectKey);
-  if (seen === undefined) state.batchFields.set(subjectKey, [groupField]);
-  else if (!seen.includes(groupField)) seen.push(groupField);
-  return groupField;
+  const slot = fieldSlots.get(field);
+  if (slot === undefined || slot === '' || slot === field) return field;
+  state.fieldFolds.set(`${userId}\u0000${subject}\u0000${field}`, {
+    userId,
+    subject,
+    from: field,
+    to: slot,
+  });
+  return slot;
 }
 
 type BeliefGroups = Map<
   string,
-  { userId: string; subject: string; field: string; contributions: BeliefContribution[] }
+  {
+    userId: string;
+    subject: string;
+    /** The written name, first contribution's — display only. */
+    field: string;
+    /** The registry slot this group keys on (0147). */
+    predicateId: string;
+    contributions: BeliefContribution[];
+  }
 >;
 
 /** Scene-head fields the fold consumes, parsed defensively. */
@@ -514,14 +529,19 @@ function collectSceneDeltas({
     if (subject === '' || rawField === '') continue;
     const admitted = admitDeltaValue(d, opts.negationDeltas === true);
     if (admitted === null) continue;
-    const field =
-      opts.existingFields !== undefined
-        ? foldDeltaField({ userId, subject, field: rawField }, opts.existingFields, foldState)
+    const slot =
+      opts.fieldSlots !== undefined
+        ? slotForField({ userId, subject, field: rawField }, opts.fieldSlots, foldState)
         : rawField;
-    const key = `${userId}\x00${subject}\x00${field}`;
+    // The group key is the SLOT; `field` stays the written name, and the
+    // first contribution's wins. Identity and presentation are separate
+    // for a reason: the prompt reads better as "deployment target = AWS
+    // ECS Fargate" than as "deploy_target = ...", while only the slot can
+    // be compared with a fact.
+    const key = `${userId}\u0000${subject}\u0000${slot}`;
     let group = groups.get(key);
     if (!group) {
-      group = { userId, subject, field, contributions: [] };
+      group = { userId, subject, field: rawField, predicateId: slot, contributions: [] };
       groups.set(key, group);
     }
     group.contributions.push({
@@ -547,6 +567,7 @@ function foldGroupVerdict(group: {
   userId: string;
   subject: string;
   field: string;
+  predicateId: string;
   contributions: BeliefContribution[];
 }): { conflict: BeliefFold['conflicts'][number] } | { folded: FoldedBelief } {
   const ordered = [...group.contributions].sort(
@@ -598,6 +619,7 @@ function foldGroupVerdict(group: {
       userId: group.userId,
       subject: group.subject,
       field: group.field,
+      predicateId: group.predicateId,
       value: winner.value,
       priorValue,
       displacedValue: displaced,
@@ -634,11 +656,7 @@ export function foldBeliefGroups(
   opts: BeliefFoldOptions = {},
 ): BeliefFold {
   const groups: BeliefGroups = new Map();
-  const foldState: FieldFoldState = {
-    batchFields: new Map(),
-    fieldFolds: new Map(),
-    fieldFoldAmbiguities: new Map(),
-  };
+  const foldState: FieldFoldState = { fieldFolds: new Map() };
   for (const { scene, userId } of scenes) {
     const head = sceneFoldContext(scene);
     if (head === null) continue; // unordered scene: unusable
@@ -649,7 +667,6 @@ export function foldBeliefGroups(
     folded: [],
     conflicts: [],
     fieldFolds: [...foldState.fieldFolds.values()],
-    fieldFoldAmbiguities: [...foldState.fieldFoldAmbiguities.values()],
   };
   for (const group of groups.values()) {
     const verdict = foldGroupVerdict(group);
@@ -695,11 +712,10 @@ export interface BeliefPromotionResult {
   /** Field names folded onto an existing one (SCENES_BELIEF_FIELD_FOLD). */
   fieldFolds: number;
   /** Field names left UNfolded because >1 existing field matched. */
-  fieldFoldAmbiguous: number;
   /** Foldable-variant orphan beliefs superseded into the canonical one. */
-  fieldOrphansAbsorbed: number;
+  /** Second active rows retired out of a slot (0147). */
+  slotDuplicatesRetired: number;
   /** Orphan sweeps skipped: >1 distinct foldable field (never merged). */
-  fieldOrphanAmbiguous: number;
   /** Groups below the SCENES_BELIEF_MIN_SCENES conversation floor. */
   skippedFloor: number;
   /** Groups whose winner was not newer than the active belief (stale). */
@@ -743,16 +759,76 @@ export class BeliefPromotionService {
   private readonly openai: ChatCompletionsClient | null;
   private readonly model: string;
 
+  // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token and cannot be folded into an options object without breaking DI
   constructor(
     private readonly surreal: SurrealService,
     configService: ConfigService,
     private readonly versions: SceneVersionService,
+    private readonly predicates: PredicateRegistryService,
   ) {
     this.openai = createOpenAiClient(configService);
     this.model = configService.get<string>(
       'SCENES_BELIEF_MODEL',
       configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
     );
+  }
+
+  /**
+   * Every DISTINCT field name this batch mentions → the registry slot it
+   * resolves to (0147). Built here, where the IO lives, and handed to the
+   * pure fold as a plain map.
+   *
+   * Free text becomes a predicate id first (predicateIdFromFieldName:
+   * `deployment target` → `deployment_target`), then the registry decides
+   * identity exactly as it does for a fact predicate — an existing name
+   * or a known alias answers from the cached snapshot with no model call,
+   * and a genuinely novel one is coined `proposed` and folded later by
+   * PredicateConsolidationService. That is the whole point: ONE
+   * vocabulary, one pass maintaining it, both planes.
+   *
+   * FAIL-OPEN, PER NAME. A field that survives nothing of the token
+   * floor, or one whose canonicalize throws, is simply absent from the
+   * map and keeps its written name as the group key — the pre-0147
+   * behaviour, which costs the cross-plane join for that one attribute
+   * and never produces a wrong join. A registry outage must not stop a
+   * promotion pass.
+   */
+  private async resolveFieldSlots(
+    companyId: string,
+    input: ReadonlyArray<{ scene: PromotableSceneHead; userId: string }>,
+  ): Promise<Map<string, string>> {
+    // One entry per distinct written name, with a sample value for the
+    // embedding context — the same `<predicate>: <object>` shape the fact
+    // plane embeds, so both planes land in one vector space.
+    const samples = new Map<string, string>();
+    for (const { scene } of input) {
+      for (const delta of Array.isArray(scene.stateDeltas) ? scene.stateDeltas : []) {
+        if (typeof delta !== 'object' || delta === null) continue;
+        const d = delta as Record<string, unknown>;
+        const field = str(d.field);
+        if (field === '' || samples.has(field)) continue;
+        samples.set(field, str(d.to) || str(d.from));
+      }
+    }
+    const slots = new Map<string, string>();
+    for (const [field, sample] of samples) {
+      const id = predicateIdFromFieldName(field);
+      if (id === '') continue;
+      try {
+        const decision = await this.predicates.canonicalize(
+          companyId,
+          id,
+          sample === '' ? id : `${id}: ${sample}`,
+        );
+        slots.set(field, decision.canonicalId);
+      } catch (e) {
+        this.logger.warn(
+          `belief promotion: could not resolve field '${field}' to a registry slot ` +
+            `(${(e as Error).message}); keeping the written name`,
+        );
+      }
+    }
+    return slots;
   }
 
   /**
@@ -771,9 +847,7 @@ export class BeliefPromotionService {
       skippedLowValue: 0,
       skippedConflict: 0,
       fieldFolds: 0,
-      fieldFoldAmbiguous: 0,
-      fieldOrphansAbsorbed: 0,
-      fieldOrphanAmbiguous: 0,
+      slotDuplicatesRetired: 0,
       skippedFloor: 0,
       skippedStale: 0,
       beliefsCreated: 0,
@@ -859,36 +933,27 @@ export class BeliefPromotionService {
         }
       }
 
-      // #135 seam 2: fold candidates are the existing ACTIVE belief
-      // field names per (userId, subject) — one plain SELECT (safe on
-      // the 3.2.4 planner; the DELETE-WHERE trap does not apply to
-      // reads). Flag off ⇒ zero extra queries.
-      let existingFields: Map<string, string[]> | undefined;
-      if (fieldFoldOn && foldInput.length > 0) {
-        const userIds = [...new Set(foldInput.map((e) => e.userId))];
-        const [rows] = await db.query<
-          [Array<{ userId: unknown; subject: unknown; field: unknown }>]
-        >(
-          `SELECT userId, subject, field FROM semantic_belief
-            WHERE status = 'active' AND userId INSIDE $userIds`,
-          { userIds },
-        );
-        existingFields = new Map();
-        for (const row of rows ?? []) {
-          const u = str(row.userId);
-          const s = str(row.subject);
-          const fieldName = str(row.field);
-          if (u === '' || s === '' || fieldName === '') continue;
-          const key = `${u}\x00${s}`;
-          const list = existingFields.get(key);
-          if (list === undefined) existingFields.set(key, [fieldName]);
-          else if (!list.includes(fieldName)) list.push(fieldName);
-        }
-      }
+      // 0147: resolve every distinct field name this batch mentions to a
+      // registry slot BEFORE the pure fold runs — the fold stays pure and
+      // the IO stays here.
+      //
+      // One call per DISTINCT name, not per delta, and canonicalize
+      // answers a name the registry already knows straight from the
+      // cached snapshot with no model call. Measured on a live tenant, 6
+      // of its 12 belief field names resolved to a predicate the fact
+      // plane had already coined and 4 landed on a slot a fact was
+      // already sitting in — against 0 of 12 under the lexical rule this
+      // replaced. The rest are novel coinages the consolidation pass
+      // folds afterwards, exactly as it folded `deployment_target` onto
+      // `deploy_target` and `job_queue_backend` onto `queue_backend` on
+      // that same tenant's fact plane.
+      const fieldSlots = fieldFoldOn
+        ? await this.resolveFieldSlots(companyId, foldInput)
+        : undefined;
 
       const chainFold = foldBeliefGroups(foldInput, {
         negationDeltas,
-        ...(existingFields !== undefined ? { existingFields } : {}),
+        ...(fieldSlots !== undefined ? { fieldSlots } : {}),
       });
       // A targeted run promotes only the keys its own scenes touch — the
       // rest of the users' chain was context for the fold, not this run's
@@ -897,10 +962,9 @@ export class BeliefPromotionService {
         foldInput === eligible || g.allSceneIds.some((s) => batchSceneIds.has(s));
       const folded = chainFold.folded.filter(touched);
       const conflicts = chainFold.conflicts.filter(touched);
-      const { fieldFolds, fieldFoldAmbiguities } = chainFold;
+      const { fieldFolds } = chainFold;
       result.skippedConflict = conflicts.length;
       result.fieldFolds = fieldFolds.length;
-      result.fieldFoldAmbiguous = fieldFoldAmbiguities.length;
       for (const c of conflicts) {
         this.logger.warn(
           `belief promotion conflict guard: (${c.subject}, ${c.field}) for user ${c.userId} ` +
@@ -909,26 +973,11 @@ export class BeliefPromotionService {
       }
       for (const ff of fieldFolds) {
         this.logger.log(
-          `belief promotion field fold: '${ff.from}' folded onto existing field '${ff.to}' ` +
-            `for subject ${ff.subject} (user ${ff.userId}) — SCENES_BELIEF_FIELD_FOLD`,
+          `belief promotion slot: field '${ff.from}' resolved to registry predicate ` +
+            `'${ff.to}' for subject ${ff.subject} (user ${ff.userId}) — the same slot a ` +
+            `fact under that predicate occupies`,
         );
       }
-      for (const amb of fieldFoldAmbiguities) {
-        this.logger.warn(
-          `belief promotion field-fold ambiguity: '${amb.field}' for subject ${amb.subject} ` +
-            `(user ${amb.userId}) matches ${amb.candidates.length} existing fields ` +
-            `[${amb.candidates.join(' | ')}] — NOT folded (skip loudly, never flip-flop)`,
-        );
-      }
-
-      // ORPHAN ABSORB fence: every (userId, subject, field) the CURRENT
-      // run still folds to — including conflict-skipped groups — is a
-      // live attribute name; the sweep must never eat a parallel group
-      // the fold deliberately kept (upsert order would otherwise decide
-      // which sibling survives).
-      const runGroupKeys = new Set<string>(
-        [...folded, ...conflicts].map((g) => `${g.userId}\x00${g.subject}\x00${g.field}`),
-      );
 
       for (const belief of folded) {
         if (floor > 0 && belief.conversationIds.length < floor) {
@@ -940,9 +989,6 @@ export class BeliefPromotionService {
           continue;
         }
         await this.upsertBelief({ db, belief, promoterVersion, edgesOn, result });
-        if (fieldFoldOn) {
-          await absorbFoldableOrphans({ db, belief, runGroupKeys, result, logger: this.logger });
-        }
       }
     });
     this.logger.log(
@@ -951,9 +997,8 @@ export class BeliefPromotionService {
         `over ${result.eligibleScenes}/${result.scenes} scene(s) ` +
         `(mixedUser=${result.skippedMixedUser} lowValue=${result.skippedLowValue} ` +
         `conflict=${result.skippedConflict} ` +
-        `fieldFolds=${result.fieldFolds} foldAmbiguous=${result.fieldFoldAmbiguous} ` +
-        `orphansAbsorbed=${result.fieldOrphansAbsorbed} ` +
-        `orphanAmbiguous=${result.fieldOrphanAmbiguous} ` +
+        `fieldFolds=${result.fieldFolds} ` +
+        `slotDupes=${result.slotDuplicatesRetired} ` +
         `floor=${result.skippedFloor} stale=${result.skippedStale} ` +
         `realigned=${result.beliefsRealigned} contended=${result.skippedContended} ` +
         `edges=${result.supportEdges})`,
@@ -1017,22 +1062,36 @@ export class BeliefPromotionService {
     // came wholly out of ONE pack world (promoterVersionFor).
     const promoterVersion = promoterVersionFor(belief, runPromoterVersion);
     const [actives] = await db.query<[ActiveBeliefRow[]]>(
-      `SELECT id, revision, value, priorValue, validFrom, latestEvidenceAt,
+      `SELECT id, revision, value, priorValue, field, validFrom, latestEvidenceAt,
               sourceSceneIds, conversationIds
          FROM semantic_belief
-        WHERE userId = $u AND subject = $s AND field = $f AND status = 'active'
+        WHERE userId = $u AND subject = $s AND status = 'active'
+          AND (predicateAlias ?? predicateId ?? field) = $slot
         ORDER BY revision DESC`,
-      { u: belief.userId, s: belief.subject, f: belief.field },
+      { u: belief.userId, s: belief.subject, slot: belief.predicateId },
     );
     const head = (actives ?? [])[0];
-    // Self-heal a pre-0137 crash window (revision created, supersede
-    // stamp lost — impossible since the two became one transaction, but
-    // rows written before that can still carry it): every active row
-    // below the highest revision is stamped superseded.
+    // ONE SLOT, ONE ACTIVE ROW. Every active row below the highest
+    // revision is stamped superseded into the head.
+    //
+    // This used to be a narrow self-heal for a pre-0137 crash window
+    // (revision created, supersede stamp lost), and a SECOND mechanism —
+    // an "orphan absorb" sweep in its own file — handled the other way a
+    // slot ends up with two active rows: a belief written under a
+    // different NAME for the same attribute. Since identity moved to the
+    // slot (0147) those are the same condition, so they have one fix.
+    // The sweep is gone, along with its lexical fold rule, its
+    // same-run fence and its ambiguity branch.
+    //
+    // MARK, NEVER DELETE: serving and the read API only read
+    // status='active', the row keeps its provenance (sourceSceneIds),
+    // the scenes' consolidatedInto refs stay resolvable, and the GDPR
+    // cascades erase by userId regardless of status.
     for (const dangling of (actives ?? []).slice(1)) {
       this.logger.warn(
-        `belief promotion: repairing dangling active revision ${dangling.revision} ` +
-          `of (${belief.subject}, ${belief.field})`,
+        `belief promotion: slot '${belief.predicateId}' of (${belief.subject}) held a second ` +
+          `active row (revision ${dangling.revision}, written as '${String(dangling.field ?? '')}') ` +
+          `— superseded into revision ${head!.revision}`,
       );
       await db.query(
         `UPDATE $id SET status = 'superseded', supersededBy = $winner,
@@ -1043,6 +1102,22 @@ export class BeliefPromotionService {
           until: head!.validFrom,
         },
       );
+      result.slotDuplicatesRetired += 1;
+      // priorValue backfill — the ONLY way a retired row's value
+      // survives: when the head records no prior of its own, the
+      // retired row's value becomes it (never when equal to the head's
+      // value — a self-prior is meaningless). The statement is NOT
+      // rewritten (the 0120 doctrine: never in-place for value/statement).
+      const headPrior = typeof head!.priorValue === 'string' ? head!.priorValue.trim() : '';
+      const donor = typeof dangling.value === 'string' ? dangling.value.trim() : '';
+      const headValue = typeof head!.value === 'string' ? head!.value.trim() : '';
+      if (headPrior === '' && donor !== '' && donor !== headValue) {
+        await db.query(`UPDATE $id SET priorValue = $prior, updatedAt = time::now()`, {
+          id: new StringRecordId(String(head!.id)),
+          prior: donor,
+        });
+        head!.priorValue = donor;
+      }
     }
 
     if (!head) {

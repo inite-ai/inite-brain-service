@@ -226,12 +226,40 @@ describe('EntityUpsertService with the flag OFF (pinned: byte-identical today-be
     ]);
     const out = await resolve(new EntityUpsertService(), db, PATH);
     expect(out).toBe('knowledge_entity:new1'); // the twin forms, as before
-    // Exactly two queries: the step-2 canonical match and the CREATE —
-    // no alias lookup, no stamp, nothing extra computed.
-    expect(db.query).toHaveBeenCalledTimes(2);
+    // Three queries and no more: the step-2 canonical match, the 0148
+    // transliterated-key probe (unflagged, and a MISS here), and the
+    // CREATE. No code-alias lookup, no stamp, nothing else computed.
+    expect(db.query).toHaveBeenCalledTimes(3);
     expect(sqlCalls(db)[0]).toContain(STEP2);
-    expect(sqlCalls(db)[1]).toContain(CREATE);
-    const create = db.query.mock.calls[1]!;
+    expect(sqlCalls(db)[1]).toContain('nameKeys CONTAINS $key');
+    expect(sqlCalls(db)[2]).toContain(CREATE);
+    expect(sqlCalls(db).some((q) => q.includes('$sym'))).toBe(false);
+    const create = db.query.mock.calls[2]!;
     expect((create[1] as { d: { aliases: string[] } }).d.aliases).toEqual([PATH]); // no symbol seeded
+  });
+});
+
+describe('EntityUpsertService after a judge-confirmed reuse', () => {
+  it('stamps the new spelling into nameKeys so the next mention is deterministic', async () => {
+    // A verdict the judge has given must not be asked for twice: once
+    // "Thomas Brandt" has been judged the same as "Томас Брандт", the
+    // next "Thomas Brandt" should meet it on the 0148 key at step
+    // 2a-bis, not pay another candidate scan and LLM call.
+    const db = fakeDb([]);
+    const resolver = {
+      isEnabled: () => true,
+      resolveByName: jest.fn().mockResolvedValue('knowledge_entity:existing'),
+      isReversible: () => false,
+    };
+    const svc = new EntityUpsertService(resolver as never);
+    const out = await resolve(svc, db, 'Thomas Brandt');
+    expect(out).toBe('knowledge_entity:existing');
+    const stamp = sqlCalls(db).find((q) => q.includes('nameKeys = array::distinct'));
+    expect(stamp).toBeDefined();
+    const params = db.query.mock.calls.find((c: unknown[]) =>
+      String(c[0]).includes('nameKeys = array::distinct'),
+    )![1] as { keys: string[] };
+    expect(params.keys).toEqual(['thomas brandt']);
+    expect(sqlCalls(db).some((q) => q.includes(CREATE))).toBe(false);
   });
 });

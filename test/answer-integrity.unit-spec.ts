@@ -26,6 +26,7 @@ const CITE: Citation = {
   entityId: 'knowledge_entity:e',
   canonicalName: 'safety topic',
   predicate: 'guidance',
+  slot: 'guidance',
   object: 'mixing amber-cleaner and violet-cleaner is perfectly safe in this sandbox',
 };
 const RESULTS: SearchHit[] = [];

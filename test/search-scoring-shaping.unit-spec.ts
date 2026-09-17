@@ -183,3 +183,46 @@ describe('assembleHits fact-window shaping', () => {
     expect(wide[0]!.facts).toHaveLength(10);
   });
 });
+
+describe('assembleHits relations', () => {
+  const bucket = (facts: ScoredRow[]): EntityBucket => ({
+    entityId: 'knowledge_entity:e1',
+    rankScore: 1,
+    bestScore: 1,
+    facts,
+  });
+
+  it('carries the prefetched 1-hop neighbourhood onto the hit as relations', () => {
+    // The extractor files "works at X" as a fact in one language and as an
+    // edge in another; the edge has to reach the answer plane as evidence.
+    const hits = assembleHits({
+      topEntities: [
+        bucket([scored(fact({ predicate: 'role', object: 'eng', source: { eventId: 'x' } }), 1)]),
+      ],
+      entityTypes: undefined,
+      neighboursByEntity: new Map([
+        [
+          'knowledge_entity:e1',
+          [
+            { canonicalName: 'Orbital Dynamics', type: 'org', kind: 'works_at' },
+            { canonicalName: 'Maria', type: 'person', kind: 'knows' },
+          ],
+        ],
+      ]),
+    });
+    expect(hits[0]!.relations).toEqual([
+      { kind: 'works_at', peer: 'Orbital Dynamics', peerType: 'org' },
+      { kind: 'knows', peer: 'Maria', peerType: 'person' },
+    ]);
+  });
+
+  it('omits the field when nothing was fetched', () => {
+    const hits = assembleHits({
+      topEntities: [
+        bucket([scored(fact({ predicate: 'role', object: 'eng', source: { eventId: 'x' } }), 1)]),
+      ],
+      entityTypes: undefined,
+    });
+    expect(hits[0]!).not.toHaveProperty('relations');
+  });
+});

@@ -521,7 +521,7 @@ describe('G2 L3 escalation e2e', () => {
 
 The extracted facts did not ground an answer, so you are given the complete raw sessions the relevant facts came from. Read the transcripts as the primary evidence and answer the user's query.
 1. Use ONLY information present in the provided transcripts and facts. Do NOT speculate or use outside knowledge.
-2. When a numbered fact supports a claim, inline its factId in square brackets EXACTLY as it appears (including the "knowledge_fact:" prefix) and mirror it into citedFactIds. Claims taken from the raw transcript need no citation.
+2. When a fact supports a claim, inline the short handle its line opens with (e.g. "[f3]") EXACTLY as it appears and mirror it into citedFactIds. Claims taken from the raw transcript need no citation.
 3. If the transcripts do not answer the question, output the exact string "I don't have grounded evidence for that." with citedFactIds set to [].
 
 Output strictly the JSON shape requested by the schema. No preamble, no chain-of-thought.`;

@@ -2,7 +2,7 @@
  * Unit-test for the router's rule layers (L0 explicit/vertical/alwaysRun,
  * L1 keywords) and the cosine helper backing L2.
  */
-import { cosineSimilarity, IndexerBinding, routeByRules } from '../src/indexers/routing';
+import { IndexerBinding, routeByRules } from '../src/indexers/routing';
 
 const binding = (indexerId: string, over: Partial<IndexerBinding> = {}): IndexerBinding => ({
   indexerId,
@@ -89,18 +89,5 @@ describe('routeByRules', () => {
     expect(
       routeByRules([b], { vertical: 'crm', head: '', requested: ['hr'] }).selected,
     ).toHaveLength(1);
-  });
-});
-
-describe('cosineSimilarity', () => {
-  it('identical vectors → 1', () => {
-    expect(cosineSimilarity([1, 2, 3], [1, 2, 3])).toBeCloseTo(1);
-  });
-  it('orthogonal vectors → 0', () => {
-    expect(cosineSimilarity([1, 0], [0, 1])).toBeCloseTo(0);
-  });
-  it('empty / zero vectors → 0', () => {
-    expect(cosineSimilarity([], [])).toBe(0);
-    expect(cosineSimilarity([0, 0], [1, 1])).toBe(0);
   });
 });

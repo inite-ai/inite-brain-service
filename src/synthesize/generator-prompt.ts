@@ -219,15 +219,15 @@ export function buildGeneratorUserMessage({
           .join('\n')}\n${conflictNote}`
       : '';
   const transcriptHeader = timelineEvidence
-    ? 'Transcript excerpts (verbatim, chronological — this is the MENTION RECORD: derive the order in which topics were raised from the sequence of excerpts and their dates, preferring it over fact date stamps; cite factIds only):'
-    : 'Transcript excerpts (verbatim, chronological — use them to answer, but cite factIds only):';
+    ? 'Transcript excerpts (verbatim, chronological — this is the MENTION RECORD: derive the order in which topics were raised from the sequence of excerpts and their dates, preferring it over fact date stamps; cite fact handles only):'
+    : 'Transcript excerpts (verbatim, chronological — use them to answer, but cite fact handles only):';
   const transcriptSection =
     transcriptLines && transcriptLines.length > 0
       ? `\n\n${transcriptHeader}\n${transcriptLines.join('\n')}`
       : '';
   const insightHeader = arcInsights
-    ? 'Topic record (dated beats retrieved for the asked topic, chronological — use them to structure the narrative/overview, prefer the atomic facts for specifics, cite factIds only):'
-    : 'Derived insights (summaries composed from the facts — use them for overview/enumeration structure, prefer the atomic facts for specifics, cite factIds only):';
+    ? 'Topic record (dated beats retrieved for the asked topic, chronological — use them to structure the narrative/overview, prefer the atomic facts for specifics, cite fact handles only):'
+    : 'Derived insights (summaries composed from the facts — use them for overview/enumeration structure, prefer the atomic facts for specifics, cite fact handles only):';
   const insightSection =
     insightLines && insightLines.length > 0
       ? `\n\n${insightHeader}\n${insightLines.join('\n')}`
@@ -275,7 +275,7 @@ function renderBeliefSection(
   const dateClause = beliefDateDisambiguation ? BELIEF_DATE_DISAMBIGUATION_CLAUSE : '';
   const header = beliefCitations
     ? `Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any older or conflicting fact above; each line is headed by its [semantic_belief:...] id. For questions asking the CURRENT state, prefer these lines ONLY when one covers the asked subject/field; when a claim rests on one, copy its id EXACTLY into citedBeliefIds. For questions about history, sequence, or why something changed, use the facts and transcript instead; cite factIds for fact-grounded claims as before.${BELIEF_EVIDENCE_ONLY_CLAUSE}${dateClause}):`
-    : `Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any older or conflicting fact above. For questions asking the CURRENT state, prefer these lines ONLY when one covers the asked subject/field; for questions about history, sequence, or why something changed, use the facts and transcript instead; cite factIds only.${BELIEF_EVIDENCE_ONLY_CLAUSE}${dateClause}):`;
+    : `Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any older or conflicting fact above. For questions asking the CURRENT state, prefer these lines ONLY when one covers the asked subject/field; for questions about history, sequence, or why something changed, use the facts and transcript instead; cite fact handles only.${BELIEF_EVIDENCE_ONLY_CLAUSE}${dateClause}):`;
   return `\n\n${header}\n${beliefLines.join('\n')}`;
 }
 
@@ -302,7 +302,7 @@ function renderSceneSection(sceneLines?: string[], sceneCitations?: boolean): st
   if (!sceneLines || sceneLines.length === 0) return '';
   const header = sceneCitations
     ? `Episodic record (scenes — each line summarizes ONE coherent stretch of conversation over the UTC time span in its parentheses, and is headed by its [memory_episode:...] id. Use them for what-happened / when / context questions, and for grounding a claim in the situation it arose in; when a claim rests on one, copy its id EXACTLY into citedSceneIds; cite factIds for fact-grounded claims as before.${SCENE_EVIDENCE_ONLY_CLAUSE}):`
-    : `Episodic record (scenes — each line summarizes ONE coherent stretch of conversation over the UTC time span in its parentheses. Use them for what-happened / when / context questions, and for grounding a claim in the situation it arose in; cite factIds only.${SCENE_EVIDENCE_ONLY_CLAUSE}):`;
+    : `Episodic record (scenes — each line summarizes ONE coherent stretch of conversation over the UTC time span in its parentheses. Use them for what-happened / when / context questions, and for grounding a claim in the situation it arose in; cite fact handles only.${SCENE_EVIDENCE_ONLY_CLAUSE}):`;
   return `\n\n${header}\n${sceneLines.join('\n')}`;
 }
 
@@ -316,7 +316,7 @@ function renderFragmentSection(fragmentLines?: string[], fragmentCitations?: boo
   if (!fragmentLines || fragmentLines.length === 0) return '';
   const header = fragmentCitations
     ? 'Media evidence (derived from registered observations — captions/OCR/transcripts; each line is tagged [capability:...] and headed by its [evidence_fragment:...] id — use them to answer; when a claim rests on one, copy its id EXACTLY into citedFragmentIds; cite factIds for fact-grounded claims as before):'
-    : 'Media evidence (derived from registered observations — captions/OCR/transcripts; use them to answer, but cite factIds only):';
+    : 'Media evidence (derived from registered observations — captions/OCR/transcripts; use them to answer, but cite fact handles only):';
   return `\n\n${header}\n${fragmentLines.join('\n')}`;
 }
 

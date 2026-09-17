@@ -23,6 +23,7 @@ const cite = (factId: string): Citation => ({
   entityId: 'knowledge_entity:e',
   canonicalName: 'subject',
   predicate: 'preference',
+  slot: 'preference',
   object: 'likes hiking',
 });
 const RESULTS: SearchHit[] = [];
