@@ -25,6 +25,7 @@
  */
 
 import type { SearchHit } from '../search/search.types';
+import { traceArtifact } from '../common/debug-trace';
 
 export interface ConformalGuardrailConfig {
   /**
@@ -59,6 +60,23 @@ export interface ConformalGuardrailResult {
  * [0,1] confidence space) so an unscored fact can't slip past the floor.
  */
 export function applyConformalGuardrail(
+  hits: readonly SearchHit[],
+  cfg: ConformalGuardrailConfig,
+): ConformalGuardrailResult {
+  const result = filterByFloors(hits, cfg);
+  // The conveyor's `guardrail` stage on the trace, including the run that
+  // dropped nothing: a floor that never fires and a floor that is switched
+  // off look identical without the numbers.
+  traceArtifact('synthesize.guardrail', {
+    minCalibratedConfidence: cfg.minCalibratedConfidence,
+    minFactTrust: cfg.minFactTrust ?? 0,
+    kept: result.kept.length,
+    dropped: result.droppedCount,
+  });
+  return result;
+}
+
+function filterByFloors(
   hits: readonly SearchHit[],
   cfg: ConformalGuardrailConfig,
 ): ConformalGuardrailResult {

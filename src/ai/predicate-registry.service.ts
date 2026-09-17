@@ -71,6 +71,13 @@ export class PredicateRegistryService {
    * next time it touches the registry.
    */
   private readonly bootstrapped: LRUCache<string, true>;
+  /**
+   * Tenants already warned about a cold synchronous policyFor read.
+   * Cleared when the snapshot lands, so each cold STREAK gets one line
+   * rather than one per predicate per pass. Bounded for the same reason
+   * as `bootstrapped`.
+   */
+  private readonly coldWarned = new Set<string>();
   // In-flight bootstrap per tenant — dedupes concurrent first-requests so
   // two cold reads don't both run the seed (which would CREATE duplicate
   // knowledge_predicate rows; no unique constraint protects against it).
@@ -84,7 +91,7 @@ export class PredicateRegistryService {
 
   // The cardinality judge is the LAST dep and @Optional() so the
   // positionally-constructed unit tests stay three-argument; absent ⇒
-  // a proposed predicate keeps DEFAULT_FALLBACK, exactly as before.
+  // a proposed predicate keeps DEFAULT_FALLBACK.
   // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
@@ -127,13 +134,24 @@ export class PredicateRegistryService {
 
   private async doBootstrap(companyId: string): Promise<void> {
     await this.surreal.withCompany(companyId, async (db) => {
+      // The two things bootstrap needs from this table are booleans —
+      // "which seeds are missing" and "which rows lack an embedding" —
+      // so let the DB answer them. Selecting the vectors shipped every
+      // coined row's 1536 floats (≈1.2 MB at 196 predicates, 30 MB at
+      // 5k) across the wire to compute `array.length === 0`: the same
+      // waste `loadFresh` fixed with `OMIT embedding` in 0082, left
+      // standing in the sibling call on the colder path.
       const [existingRows] = await db.query<
-        [Array<{ predicateId: string; embedding?: number[] | null }>]
-      >(`SELECT predicateId, embedding FROM knowledge_predicate`);
+        [Array<{ predicateId: string; hasEmbedding: boolean }>]
+      >(
+        `SELECT predicateId,
+                (embedding != NONE AND array::len(embedding) > 0) AS hasEmbedding
+           FROM knowledge_predicate`,
+      );
       const existing =
         (existingRows as Array<{
           predicateId: string;
-          embedding?: number[] | null;
+          hasEmbedding: boolean;
         }>) ?? [];
       const existingIds = new Set(existing.map((r) => r.predicateId));
       const missing = SEED_PREDICATES.filter((p) => !existingIds.has(p.predicateId));
@@ -172,9 +190,7 @@ export class PredicateRegistryService {
 
       // Backfill embeddings for any pre-existing row that's missing one
       // (rows seeded before migration 0012 landed).
-      const needBackfill = existing.filter(
-        (r) => !Array.isArray(r.embedding) || (r.embedding as number[]).length === 0,
-      );
+      const needBackfill = existing.filter((r) => r.hasEmbedding !== true);
       if (needBackfill.length > 0) {
         this.logger.log(
           `Backfilling embeddings for ${needBackfill.length} predicate(s) in ${companyId}`,
@@ -233,6 +249,7 @@ export class PredicateRegistryService {
     const load = this.loadFresh(companyId)
       .then((snapshot) => {
         this.cache.set(companyId, { snapshot, loadedAt: Date.now() });
+        this.coldWarned.delete(companyId);
         return snapshot;
       })
       .finally(() => this.snapshotInFlight.delete(companyId));
@@ -246,9 +263,32 @@ export class PredicateRegistryService {
    * getSnapshot call has populated the cache for this tenant — avoids
    * threading async through every consumer (e.g. policyFor in tight
    * loops). Falls back to a sensible DEFAULT when the cache is cold.
+   *
+   * A COLD CACHE IS A CALLER BUG, and it used to be an invisible one.
+   * Every write mutation — create, update, alias, deprecate, promote —
+   * ends in `invalidate(companyId)`, so a pass that edits the registry
+   * and then reads it back synchronously is reading SEED_PREDICATES:
+   * the code-side core ∪ builtin packs. That answers correctly for
+   * seeded predicates and returns the `append_only` DEFAULT_FALLBACK for
+   * every `proposed` one — which is every predicate the extractor ever
+   * coined. The result is not an error, it is a plausible wrong policy,
+   * and it cost a full consolidation pass: 18 contested `single_active`
+   * slots read back as append_only and were declined, leaving the
+   * counters looking like a policy decision. So the cold read is warned
+   * ONCE per tenant per cold streak — enough to name the caller,
+   * silent again as soon as a getSnapshot lands.
    */
   policyFor(companyId: string, predicate: string): PredicateDefinition {
     const cached = this.cache.get(companyId);
+    if (!cached && !this.coldWarned.has(companyId)) {
+      this.coldWarned.add(companyId);
+      this.logger.warn(
+        `policyFor('${companyId}', '${predicate}') read a COLD registry cache and is ` +
+          `answering from the code seed: every 'proposed' predicate will read back as ` +
+          `append_only. Call getSnapshot(companyId) first — note that create/update/alias ` +
+          `all invalidate.`,
+      );
+    }
     if (cached) {
       // policyById (active ∪ proposed) rather than byId (active only).
       // Reading byId here is what made the whole open-vocabulary half of
@@ -470,15 +510,31 @@ export class PredicateRegistryService {
     return this.update(companyId, predicateId, { status: 'active' });
   }
 
+  /**
+   * Point one predicate at another — the row AND the facts already
+   * written under it.
+   *
+   * The fact half is not optional politeness: slot identity runs on
+   * `(predicateAlias ?? predicate)` in the 0083 resolver's
+   * supersede/compete key and in the search dedupe and diversity keys,
+   * so an alias that stops at the registry row leaves every stored fact
+   * in a slot the canon cannot reach. Measured that way: a tenant whose
+   * vocabulary correctly merged `deploy_target` and `deploys_to` into
+   * `deployed_to` still served two active `Fly.io` facts.
+   *
+   * Returns the number of facts re-pointed alongside the row.
+   */
   async alias(
     companyId: string,
     predicateId: string,
     canonicalId: string,
-  ): Promise<PredicateDefinition | null> {
-    return this.update(companyId, predicateId, {
+  ): Promise<{ def: PredicateDefinition | null; factsRepointed: number }> {
+    const def = await this.update(companyId, predicateId, {
       status: 'aliased',
       aliasedTo: canonicalId,
     });
+    const factsRepointed = await this.backfillPredicateAlias(companyId, predicateId, canonicalId);
+    return { def, factsRepointed };
   }
 
   private async loadFresh(companyId: string): Promise<PredicateSnapshot> {
@@ -539,10 +595,19 @@ export class PredicateRegistryService {
         all.filter(({ def }) => def.status !== 'deprecated').map(({ def }) => def.predicateId),
       );
 
-      // Embedding lookup for active predicates only (no point matching
-      // against deprecated rows). Skip any active row whose embedding
-      // never got populated — they're harmless but invisible to
-      // similarity search.
+      // Embedding lookup for ACTIVE rows only — and it STAYS that way.
+      // The `OMIT embedding` above is a memory fix, not an oversight
+      // (0082: pulling the coined set's vectors made every reload
+      // O(registry) MB and OOM'd the eval stand's SurrealDB), so the
+      // identity judge reaches those vectors where they LIVE instead:
+      // one bounded top-k query in the DB (proposedCandidates), on the
+      // rare novel-predicate path. `embeddings` also feeds the
+      // unadjudicated auto-alias branch, where a cosine over the
+      // threshold is taken as proof of identity — defensible against
+      // the small curated seed set, and never against the coined one
+      // (measured: `retry_policy` sits at cosine 0.90 to the proposed
+      // sentence-predicate `decided`). Proposed rows are therefore
+      // candidates for the identity judge, never for auto-alias.
       const embeddings = new Map<string, number[]>();
       for (const { row, def } of all) {
         if (def.status !== 'active') continue;
@@ -660,20 +725,34 @@ export class PredicateRegistryService {
       }
     }
 
-    if (best && best.similarity >= this.canonicalizeThreshold) {
+    // Cosine against the CURATED seed set is the whole write-path
+    // decision — cheap, deterministic, no model call. Deciding whether
+    // a coinage renames another COINAGE is not attempted here: that
+    // question needs the whole vocabulary and the freedom to revisit an
+    // earlier answer, neither of which a per-coinage decision has. It
+    // belongs to PredicateConsolidationService, which runs as a pass.
+    const adjudicated: { predicateId: string; similarity: number; adjudicated?: true } | undefined =
+      best && best.similarity >= this.canonicalizeThreshold ? best : undefined;
+
+    if (adjudicated) {
       // Insert as aliased — next time the same novel predicate appears,
       // the snapshot's aliasMap returns the canonical without an LLM
       // round-trip. Defensive: a concurrent canonicalize on the same
       // novel predicate races on UNIQUE(predicateId); the loser logs +
       // returns matched (next read will see the canonical anyway).
       try {
-        const canonical = snapshot.byId.get(best!.predicateId)!;
+        // policyById, not byId: an adjudicated canon is usually a
+        // PROPOSED row, which byId (active-only) does not hold — the
+        // old non-null assertion would have thrown on it.
+        const canonical = (snapshot.policyById ?? snapshot.byId).get(adjudicated.predicateId)!;
         await this.surreal.withCompany(companyId, async (db) => {
           await db.query(`CREATE knowledge_predicate CONTENT $content`, {
             content: {
               predicateId: predicate,
               displayLabel: predicate.replace(/_/g, ' '),
-              description: `(auto-aliased to ${best!.predicateId} at cosine ${best!.similarity.toFixed(3)})`,
+              description: adjudicated.adjudicated
+                ? `(judge-aliased to ${adjudicated.predicateId}; same attribute, cosine ${adjudicated.similarity.toFixed(3)})`
+                : `(auto-aliased to ${adjudicated.predicateId} at cosine ${adjudicated.similarity.toFixed(3)})`,
               datatype: 'string',
               semantics: canonical.semantics,
               // option<int> — omit when null so SurrealDB stores NONE
@@ -683,7 +762,7 @@ export class PredicateRegistryService {
               piiClass: canonical.piiClass,
               ...(queryEmb ? { embedding: queryEmb } : {}),
               status: 'aliased',
-              aliasedTo: best!.predicateId,
+              aliasedTo: adjudicated.predicateId,
               createdBy: 'llm_auto',
             },
           });
@@ -691,18 +770,19 @@ export class PredicateRegistryService {
         // Aliased: the novel id answers with the CANON's policy, which
         // is what `predicateAlias ?? predicate` resolves to downstream.
         this.noteAutoInsert(companyId, predicate, {
-          canonicalId: best!.predicateId,
+          canonicalId: adjudicated.predicateId,
           def: canonical,
         });
+        await this.backfillPredicateAlias(companyId, predicate, adjudicated.predicateId);
       } catch (e) {
         this.logger.warn(
-          `canonicalize: auto-alias insert failed for '${predicate}' → '${best!.predicateId}': ${(e as Error).message}`,
+          `canonicalize: auto-alias insert failed for '${predicate}' → '${adjudicated.predicateId}': ${(e as Error).message}`,
         );
       }
       return {
         kind: 'aliased',
-        canonicalId: best.predicateId,
-        similarity: best.similarity,
+        canonicalId: adjudicated.predicateId,
+        similarity: adjudicated.similarity,
         novelPredicateId: predicate,
       };
     }
@@ -770,6 +850,88 @@ export class PredicateRegistryService {
       novelPredicateId: predicate,
       ...(best && best.similarity >= CANONICALIZE_REPORT_FLOOR ? { bestMatch: best } : {}),
     };
+  }
+
+  /**
+   * Carry a fresh alias back to the facts that were written BEFORE it.
+   *
+   * Without this the whole alias mechanism is forward-only and therefore
+   * inert on the case it exists for. Measured on a battery tenant: the
+   * judge correctly merged `deploy_target` and `deploys_to` into
+   * `deployed_to`, and the corpus still held TWO active `Fly.io` facts —
+   * one under `deploy_target`, one under `deployed_to` — because a fact
+   * keeps the predicate string it was written with. Slot identity runs
+   * on `(predicateAlias ?? predicate)` everywhere that matters — the
+   * 0083 resolver's supersede/compete key, the search dedupe and
+   * diversity keys, scoring — so those rows were in a slot the canon
+   * could never reach, and the vocabulary merge bought nothing.
+   *
+   * NOT a rewrite: `predicate` keeps the original coinage as provenance
+   * and only the option<string> alias column is filled, and only where
+   * it is empty — a fact that already carries an alias (its own coinage
+   * was canonicalized at write time) is never re-pointed.
+   *
+   * 3.2.4 PLANNER DISCIPLINE (the 0093/0120 idiom): `predicate` is
+   * indexed, and an `UPDATE … WHERE` over an indexed field is the silent
+   * no-op class — it reports success having changed nothing. Select the
+   * ids first, then update by id. Verified against a live 3.2.4 with the
+   * index present: the unaliased rows take the canon, an already-aliased
+   * row and a different predicate are untouched.
+   *
+   * Best-effort by design: a failure leaves the alias in place for
+   * future writes (today's behaviour) and never fails the coinage.
+   */
+  private async backfillPredicateAlias(
+    companyId: string,
+    novelPredicate: string,
+    canonicalId: string,
+  ): Promise<number> {
+    try {
+      const updated = await this.surreal.withCompany(companyId, async (db) => {
+        // BOTH planes. A belief carries the same slot identity a fact
+        // does — `(predicateAlias ?? predicateId)`, 0147 — precisely so
+        // one vocabulary serves both and the damping join is id to id.
+        // An alias that stopped at knowledge_fact would re-open the gap
+        // it was introduced to close: the fact moves to the canon, the
+        // belief stays behind under the coinage, and the join misses
+        // again.
+        let total = 0;
+        for (const [table, column] of [
+          ['knowledge_fact', 'predicate'],
+          ['semantic_belief', 'predicateId'],
+        ] as const) {
+          const [ids] = await db.query<[unknown[]]>(
+            `SELECT VALUE id FROM ${table}
+              WHERE ${column} = $novel AND predicateAlias IS NONE`,
+            { novel: novelPredicate },
+          );
+          const rows = (ids as unknown[]) ?? [];
+          if (rows.length === 0) continue;
+          // No `updatedAt` on knowledge_fact: it is SCHEMAFULL and has no
+          // such field, so writing one makes the whole statement throw.
+          // It did, 66 times in one pass, swallowed by the catch below —
+          // which is why this method reports a COUNT, not void.
+          await db.query(`UPDATE $ids SET predicateAlias = $canon`, {
+            ids: rows,
+            canon: canonicalId,
+          });
+          total += rows.length;
+        }
+        return total;
+      });
+      if (updated > 0) {
+        this.logger.log(
+          `canonicalize: carried alias '${novelPredicate}' → '${canonicalId}' back onto ` +
+            `${updated} already-written row(s) in ${companyId}`,
+        );
+      }
+      return updated;
+    } catch (e) {
+      this.logger.warn(
+        `canonicalize: alias backfill failed for '${novelPredicate}' → '${canonicalId}': ${(e as Error).message}`,
+      );
+      return 0;
+    }
   }
 
   /**

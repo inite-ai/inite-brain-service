@@ -31,8 +31,15 @@ export interface CitableBelief {
   beliefId: string;
   /** Free-text subject key (0120 — deliberately not entity-resolved). */
   subject: string;
-  /** Free-text field key. */
+  /** Free-text field key — the DISPLAY name (0120). */
   field: string;
+  /**
+   * The registry slot this belief occupies (0147) —
+   * `(predicateAlias ?? predicateId)`, the same identity a fact carries.
+   * Undefined on a row written before 0147, which simply does not
+   * participate in the cross-plane join.
+   */
+  predicateId?: string | undefined;
   /** The held current value. */
   value: string;
   /** The RENDERED statement excerpt — the only citable text. */

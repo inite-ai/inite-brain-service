@@ -39,7 +39,10 @@ export const CitationSchema = z.object({
   factId: z.string(),
   entityId: z.string(),
   canonicalName: z.string(),
+  /** As written — the name rendered into the fact line. */
   predicate: z.string(),
+  /** The slot — `predicateAlias ?? predicate`, the identity every other consumer keys on (0083/0147). */
+  slot: z.string(),
   object: z.string(),
   /** Write-time sourceKey (trustSnapshot) — absent on pre-0044 facts. */
   sourceKey: z.string().optional(),

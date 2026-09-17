@@ -584,7 +584,7 @@ describe('buildGeneratorUserMessage — belief section (BELIEFS_SERVING_LANE sea
       beliefLines: ['[semantic_belief:b1] (s — f, rev 1) s'],
     });
     expect(out).toContain('Current-state record');
-    expect(out).toContain('cite factIds only');
+    expect(out).toContain('cite fact handles only');
     expect(out).not.toContain('citedBeliefIds');
   });
 

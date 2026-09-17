@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
+import { traceArtifact } from '../common/debug-trace';
 import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
 import { detectLanguage } from '../ai/locale/language-detector';
 import { redactPiiWithReport } from './ingest-utils';
@@ -126,7 +127,17 @@ export class EpisodeStoreService {
         // the normal case), and a redundant recompose is idempotent.
         await this.markSceneDirty(db, row.conversationId);
         const created = rows?.[0]?.id;
-        if (created !== undefined && created !== null) return String(created);
+        if (created !== undefined && created !== null) {
+          // The conveyor's `capture` stage, on the trace: the one place a
+          // full-chain run can see that the episodic plane received its
+          // input (it did not, on the document path, for months).
+          traceArtifact('ingest.episode.captured', {
+            episodeId: String(created),
+            conversationId: row.conversationId,
+            messageId: row.messageId,
+          });
+          return String(created);
+        }
         // Duplicate (INSERT IGNORE returned no row): recover the existing
         // row via the unique (conversationId, messageId) key. contextRef
         // .conversationId is OPTIONAL — an absent value is stored as NONE,

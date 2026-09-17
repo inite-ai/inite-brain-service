@@ -53,11 +53,30 @@ export function isReasoningModel(model: string): boolean {
   return REASONING_MODEL_RE.test(model);
 }
 
+/** The effort levels a reasoning model accepts on chat completions. */
+export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high';
+
 export function chatCallParams(
   model: string,
-  opts: { temperature: number; visibleCap: number; reasoningCap?: number },
-): { temperature?: number; max_completion_tokens: number } {
+  opts: {
+    temperature: number;
+    visibleCap: number;
+    reasoningCap?: number;
+    /**
+     * How much a reasoning model may think before answering. Emitted
+     * ONLY on the reasoning branch — a deterministic model rejects the
+     * field. Left unset, the model's own default applies (`medium` on
+     * the gpt-5.x line), which for a one-token classification bills
+     * hidden reasoning that outweighs the visible answer many times
+     * over; a judge or classifier should ask for `low` or `none`.
+     */
+    reasoningEffort?: ReasoningEffort;
+  },
+): { temperature?: number; max_completion_tokens: number; reasoning_effort?: ReasoningEffort } {
   return isReasoningModel(model)
-    ? { max_completion_tokens: opts.reasoningCap ?? opts.visibleCap * 4 }
+    ? {
+        max_completion_tokens: opts.reasoningCap ?? opts.visibleCap * 4,
+        ...(opts.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}),
+      }
     : { temperature: opts.temperature, max_completion_tokens: opts.visibleCap };
 }

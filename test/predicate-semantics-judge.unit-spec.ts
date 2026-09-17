@@ -160,3 +160,64 @@ describe('PredicateRegistryService — judge wiring', () => {
     ).resolves.toBe('single_active');
   });
 });
+
+/**
+ * The prompt's contract, pinned as text.
+ *
+ * These are not style assertions. Each line is there because its absence
+ * produced a measured failure: extraction passes the CLAUSE with the
+ * coinage, and a clause narrates an action, so `deployed_to: Fly.io
+ * (clause: we deploy ledger-sync to Fly.io for the pilot)` read as an
+ * event and came back append_only on all six live tenants built from one
+ * corpus — with `deploy_target` and `deploys_to` aliasing onto it and
+ * inheriting that, so nothing in the deploy family could supersede at
+ * all. The whole "what does it deploy to NOW" failure was that, not the
+ * name fragmentation it was blamed on.
+ */
+describe('the cardinality prompt states what it must', () => {
+  const sys = async (): Promise<string> => {
+    let captured = '';
+    const judge = new PredicateSemanticsJudgeService(makeConfig());
+    (judge as unknown as { openai: unknown }).openai = {
+      chat: {
+        completions: {
+          create: async (req: { messages: Array<{ content: string }> }) => {
+            captured = req.messages[0]!.content;
+            return {
+              choices: [{ message: { content: JSON.stringify({ semantics: 'append_only' }) } }],
+            };
+          },
+        },
+      },
+    };
+    await judge.classify('x', 'x: 1');
+    return captured;
+  };
+
+  it('asks the plural question, not "does it retire the old value"', async () => {
+    expect(await sys()).toContain('CAN ONE SUBJECT HOLD SEVERAL OF THESE AT THE SAME TIME');
+  });
+
+  it('says a narrated action does not make a setting multi-valued', async () => {
+    const s = await sys();
+    expect(s).toContain('phrased as something that HAPPENED');
+    expect(s).toContain('does not make the deploy target multi-valued');
+  });
+
+  it('says the value being a thing decides nothing', async () => {
+    expect(await sys()).toContain('being a thing rather than a number or a date');
+  });
+
+  it('keeps graph edges append_only without a value-shape rule', async () => {
+    // The old prompt reached this with "the value is another entity";
+    // that proxy is what misfired, so the edges are now named outright.
+    const s = await sys();
+    expect(s).toMatch(/append_only[\s\S]*calls, depends_on, owns, replaces, superseded_by/);
+  });
+
+  it('keeps the conservative tie-break — ambiguity is append_only', async () => {
+    const s = await sys();
+    expect(s).toContain('equally plausible, answer "append_only"');
+    expect(s).toContain('silently retires facts that should coexist');
+  });
+});

@@ -7,6 +7,7 @@ import { EmbedderService } from '../src/ai/embedder.service';
 import { ExtractorService } from '../src/ai/extractor.service';
 import { LocalCrossEncoderProvider } from '../src/ai/cross-encoder/local-cross-encoder.provider';
 import { correlationIdMiddleware } from '../src/common/correlation-id.middleware';
+import { debugTraceMiddleware } from '../src/common/debug-trace';
 import { TenantRegistryService } from '../src/auth/tenant-registry.service';
 import { StubEmbedder, StubExtractor, StubLocalCrossEncoder } from './test-doubles';
 
@@ -133,6 +134,10 @@ export async function createApp(
   // (getPolicyContext) — without it the row gate is silently inactive
   // and the abac e2e suites would pass vacuously.
   app.use(correlationIdMiddleware());
+  // Mirror main.ts again: X-Brain-Debug opens the per-request trace
+  // context. Without it no e2e could exercise a trace, which is how the
+  // debug_trace write-through stayed broken on 3.x unobserved.
+  app.use(debugTraceMiddleware());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
