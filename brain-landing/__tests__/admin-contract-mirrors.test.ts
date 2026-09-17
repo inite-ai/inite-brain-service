@@ -40,6 +40,11 @@ import {
   SourceRunsResponseSchema,
   SyncNowResponseSchema,
 } from '@/lib/contracts/admin-source-connections'
+import {
+  IssuedKeyResponseSchema,
+  KeyListResponseSchema,
+} from '@/lib/contracts/admin-keys'
+import { brainUrlOf } from '@/components/admin/connections/AgentSetupModal'
 
 describe('admin-packs mirrors', () => {
   it('parses GET /v1/admin/packs', () => {
@@ -692,6 +697,36 @@ describe('admin-source-connections mirrors', () => {
           },
         ],
         factsTruncated: false,
+      }).success,
+    ).toBe(true)
+  })
+})
+
+describe('admin-keys mirrors', () => {
+  const record = {
+    id: 'api_key:abc',
+    name: 'agent:laptop-1',
+    prefix: 'key_ab12',
+    scopes: ['brain:write'],
+    createdAt: '2026-09-17T10:00:00.000Z',
+  }
+  it('parses GET / POST /v1/keys and derives the brain url from the MCP url', () => {
+    const issued = {
+      key: 'key_ab12cd34ef56',
+      companyId: 'co_x',
+      mcpUrl: 'https://brain.example/mcp/co_x',
+      keyRecord: record,
+    }
+    expect(IssuedKeyResponseSchema.safeParse(issued).success).toBe(true)
+    expect(brainUrlOf(issued)).toBe('https://brain.example')
+    expect(brainUrlOf({ ...issued, mcpUrl: 'https://brain.example/other' })).toBe('https://brain.example/other')
+    expect(
+      KeyListResponseSchema.safeParse({
+        companyId: 'co_x',
+        mcpUrl: 'https://brain.example/mcp/co_x',
+        keys: [record],
+        issuingEnabled: true,
+        issuableScopes: ['brain:read', 'brain:write'],
       }).success,
     ).toBe(true)
   })

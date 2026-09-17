@@ -192,11 +192,11 @@ curl -X POST $BRAIN/v1/admin/source-connections -H "Authorization: Bearer $KEY" 
 ### The local agent (W3) — `@inite/brain-agent`
 
 The connector's other host. An operator points a connection at an agent
-(**Admin → Connections → Connect → runs on: local agent**, host
-`agent:<id>`); the agent (`clients/brain-agent`, `npm i -g
-@inite/brain-agent`) asks the brain which connections are its, walks the
-folders / repositories / stdio MCP servers on its own machine, and
-speaks the **agent protocol** — the engine's bookkeeping over HTTP:
+(**Admin → Connections → Connect → where it runs: on a local agent**,
+host `agent:<id>`); the agent (`clients/brain-agent`) asks the brain
+which connections are its, walks the folders / repositories / stdio MCP
+servers on its own machine, and speaks the **agent protocol** — the
+engine's bookkeeping over HTTP:
 
 | Route (`brain:write`) | Does |
 |---|---|
@@ -216,6 +216,23 @@ leaves (cloud keys, tokens, private keys, bearer headers, `secret=value`)
 — `--no-redact` opts out. The key is a tenant write key; an agent reaches
 only the connections an operator pointed at its host. A CI recipe (the
 repo's docs after every push) is in the package README.
+
+**Installing one.** **Admin → Connections → Local agents → Set up an
+agent** names the machine and issues a `brain:write` key labelled
+`agent:<id>` (the self-serve `POST /v1/keys`, narrowed to what the admin
+credential holds), shown once with the command filled in:
+`npx @inite/brain-agent install --url … --key … --agent <id>`. `install`
+writes the config (`~/.config/brain-agent/config.json`, mode 0600 — the
+only place the key lives; the environment overrides it field by field)
+and registers a service that syncs every few minutes and survives
+reboots — a launchd user agent on macOS, a systemd user unit on Linux;
+neither file carries the key. `brain-agent status` / `doctor` /
+`uninstall` afterwards; `doctor` names the fix for each failure (a
+refused key, the source plane off on the brain, a missing root, no git).
+The CI shape needs no file: the key rides in the environment,
+`brain-agent sync` exits 2 when a connection failed. Publishing the
+package is `.github/workflows/publish-clients.yml` (workflow_dispatch;
+npm trusted publishing or the `NPM_TOKEN` secret).
 
 An agent-host connection needs no server connector: `SOURCE_KIND_FS`
 may stay off, `git` has no server connector at all (the catalogue says

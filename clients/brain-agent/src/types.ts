@@ -60,6 +60,10 @@ export interface AgentConnection {
   contentPolicy: 'manifest' | 'text' | 'bytes';
   schedule: string;
   status: string;
+  /** The brain's bookkeeping of the last run — what `status` shows. */
+  lastSyncAt?: string | null;
+  lastSyncStatus?: string | null;
+  lastError?: string | null;
 }
 
 /** The pack's `sources[]` entry the connection instantiates. */

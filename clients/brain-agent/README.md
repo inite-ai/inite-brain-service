@@ -6,17 +6,40 @@ and fetches here; the brain keeps the books (catalogue, revisions, deletes,
 facts) there. Nothing has to be mounted into the server, no server-side
 egress fence applies — this host *is* the LAN, the laptop, the CI runner.
 
+## Install — on a laptop, a server, a box on the LAN
+
+In **Admin → Connections → Local agents → Set up an agent** name the
+machine and press *Issue a key*: the brain mints a `brain:write` key
+labelled `agent:<id>` (a write key of the tenant — never an admin one)
+and hands back the command with everything filled in:
+
 ```bash
-npm i -g @inite/brain-agent
-
-export BRAIN_URL=https://brain.example.com
-export BRAIN_API_KEY=brain_…            # a tenant WRITE key (brain:write) — never an admin key
-
-brain-agent list                        # what this agent is asked to sync
-brain-agent sync                        # one pass over every connection pointed at agent:<hostname>
-brain-agent sync --agent laptop-1 --every 15   # keep syncing every 15 minutes
-brain-agent sync --connection source_connection:… --full
+npx @inite/brain-agent install --url https://brain.example.com --key brain_… --agent laptop-1
+#   optional: --roots /Users/me/Documents:/srv/docs   (BRAIN_AGENT_ROOTS)
+#             --every 15                               (minutes; default 5)
 ```
+
+`install` writes `~/.config/brain-agent/config.json` (mode 0600 — the
+only place the key lives) and registers a service that syncs every few
+minutes and survives reboots: a **launchd** user agent on macOS
+(`~/Library/LaunchAgents/ai.inite.brain-agent.plist`, log in
+`~/Library/Logs/brain-agent/`) or a **systemd** user unit on Linux
+(`~/.config/systemd/user/brain-agent.service`, `journalctl --user -u
+brain-agent`; on a headless box `loginctl enable-linger $USER`). Neither
+file carries the key. Windows has no service manager yet — run `sync
+--every` under Task Scheduler.
+
+```bash
+brain-agent status        # is the service running, what it syncs, the last log lines
+brain-agent doctor        # config, key, brain, roots, git — each with a verdict; exit 2 on a failure
+brain-agent sync          # one pass now (what the service runs)
+brain-agent uninstall     # stop and remove the service; --purge removes the config too
+```
+
+Needs Node 20+ and, for repositories, git on PATH. The environment
+(`BRAIN_URL`, `BRAIN_API_KEY`, `BRAIN_AGENT_ID`, `BRAIN_AGENT_ROOTS`)
+overrides the config file field by field — a CI job passes the key that
+way and never writes a file; `BRAIN_AGENT_HOME` moves the config dir.
 
 ## How it fits
 
@@ -52,6 +75,7 @@ markers. `--no-redact` turns that off for a source you know is clean.
 | `BRAIN_API_KEY` | a `brain:write` key of the tenant |
 | `BRAIN_AGENT_ID` | this agent's id (default: the hostname); `--agent` overrides |
 | `BRAIN_AGENT_ROOTS` | optional `:`-separated allowlist of directories `fs` roots must be under — set it when the agent runs for others (a CI box, a shared server); unset on your own laptop |
+| `BRAIN_AGENT_HOME` | where the config file lives (default `$XDG_CONFIG_HOME/brain-agent`, else `~/.config/brain-agent`) |
 
 ## In CI — a repository's docs after every push
 

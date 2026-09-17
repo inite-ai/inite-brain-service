@@ -891,10 +891,30 @@
         },
         "never": "never checked in",
         "setup": "Run the agent on that machine",
-        "setupHint": "A brain:write key of this tenant (never an admin key); BRAIN_AGENT_ROOTS fences what the fs connector may read. --every polls; omit it for a one-shot (CI).",
+        "setupHint": "Install once; the service syncs every 5 minutes and survives reboots. Needs Node 20+ and, for repositories, git.",
         "copy": "copy",
         "copied": "copied",
-        "none": "No agent-host connections. Pick a source with availability \"local agent\" in the catalogue, or choose \"local agent\" when connecting."
+        "none": "No agent-host connections. Pick a source with availability \"local agent\" in the catalogue, or choose \"local agent\" when connecting.",
+        "setupNew": "Set up an agent",
+        "issueKey": "New key",
+        "installHint": "Install with a key: press \"New key\" — the command comes back with the key filled in.",
+        "modal": {
+          "title": "Agent {agentId}",
+          "agentId": "Agent id",
+          "agentIdHint": "How the brain will know this machine; the connections you point at it use this id.",
+          "roots": "Folders it may read",
+          "rootsHint": "Optional ':'-separated allowlist for the folder connector on that machine (BRAIN_AGENT_ROOTS); empty = anything the user can read.",
+          "keyExplain": "Issues a brain:write key of this tenant labelled agent:<id> — a write key, never an admin one. You will see it once.",
+          "issue": "Issue a key",
+          "issuing": "Issuing…",
+          "keyOnce": "This key is shown once. Run the command on the agent's machine now, or copy it somewhere safe.",
+          "install": "On a laptop or a server — as a service",
+          "installHint": "Saves the config (owner-only) and registers a launchd agent on macOS / a systemd user unit on Linux; it syncs every 5 minutes. brain-agent status / doctor / uninstall afterwards.",
+          "ci": "One-shot (CI, cron)",
+          "ciHint": "No file is written; the key rides in the environment. Exit 2 when a connection failed.",
+          "keyRecord": "Key {name} ({prefix}…) — revoke it under Key Lens if the machine is gone.",
+          "done": "Done"
+        }
       },
       "form": {
         "steps": {

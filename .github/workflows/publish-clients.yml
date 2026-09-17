@@ -1,0 +1,100 @@
+name: Publish a client package to npm
+
+# WHY THIS EXISTS. `clients/*` are the standalone packages an operator
+# installs — `@inite/brain-agent` (the local agent), `@inite/brain` (the
+# SDK), `@inite/brain-memory-tool`, `@inite/brain-mcp` — and nothing
+# published them: `@inite/brain-mcp` reached npm by hand, the other three
+# never did, so the install commands the admin UI prints
+# (`npx @inite/brain-agent install …`) had nothing behind them.
+#
+# One workflow, one package per run, picked from the dropdown. The
+# version is whatever the package.json on the chosen ref says; it is
+# refused when npm already has it (a re-run must bump the version, never
+# overwrite). Publishing uses npm trusted publishing (OIDC — the token
+# names this repository and workflow, nothing long-lived to leak) once
+# the package is configured for it on npmjs.com; until then, the
+# `NPM_TOKEN` repository secret (an automation token) is the fallback.
+# Provenance is attached either way.
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Which client package to publish.
+        required: true
+        type: choice
+        options:
+          - brain-agent
+          - brain-sdk
+          - brain-memory-tool
+          - brain-mcp
+      ref:
+        description: Branch, tag or commit to publish from (default: the default branch).
+        required: false
+        type: string
+      dry_run:
+        description: Build, pack and show what would be published without publishing.
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # OIDC for npm trusted publishing + provenance attestation.
+      id-token: write
+    defaults:
+      run:
+        working-directory: clients/${{ inputs.package }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # The package is standalone (own package.json, ESM, tsc build) but
+      # its dependencies are the repo's — install those once at the root
+      # and let the package resolve them, exactly as CI's unit tests do.
+      - name: Install the repository's dependencies
+        working-directory: .
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
+      - name: Build
+        run: |
+          ln -sfn ../../node_modules node_modules
+          ../../node_modules/.bin/tsc -p tsconfig.json
+          rm node_modules
+
+      - name: Refuse a version npm already has
+        run: |
+          NAME="$(node -p "require('./package.json').name")"
+          VERSION="$(node -p "require('./package.json').version")"
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "::error::$NAME@$VERSION is already on npm — bump the version in clients/${{ inputs.package }}/package.json"
+            exit 1
+          fi
+          echo "publishing $NAME@$VERSION"
+
+      - name: Pack (what would ship)
+        run: npm pack --dry-run
+
+      - name: Publish
+        if: ${{ !inputs.dry_run }}
+        env:
+          # Ignored by npm when trusted publishing is configured for the
+          # package (OIDC wins); required until it is.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance

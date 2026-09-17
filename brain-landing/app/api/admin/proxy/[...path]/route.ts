@@ -94,6 +94,11 @@ import {
   SourceRunsResponseSchema,
   SyncNowResponseSchema,
 } from '@/lib/contracts/admin-source-connections'
+import {
+  IssuedKeyResponseSchema,
+  KeyListResponseSchema,
+  RevokeKeyResponseSchema,
+} from '@/lib/contracts/admin-keys'
 import type { ZodType } from 'zod'
 
 /**
@@ -113,6 +118,7 @@ const RESPONSE_SCHEMAS: Partial<
   Record<HttpMethod, Record<string, ZodType>>
 > = {
   GET: {
+    'v1/keys': KeyListResponseSchema,
     'v1/admin/leases': LeasesResponseSchema,
     'v1/admin/scheduler': SchedulerResponseSchema,
     'v1/admin/changefeed/state': ChangefeedStateResponseSchema,
@@ -149,6 +155,7 @@ const RESPONSE_SCHEMAS: Partial<
     'v1/admin/source-connections/catalog': SourceCatalogResponseSchema,
   },
   POST: {
+    'v1/keys': IssuedKeyResponseSchema,
     'v1/admin/dreams/run': DreamsRunResponseSchema,
     'v1/admin/reindex/embeddings': ReindexRunResponseSchema,
     'v1/admin/maintenance/dreams/run': AcceptedDreamsResponseSchema,
@@ -229,6 +236,7 @@ const DYNAMIC_RESPONSE_SCHEMAS: Partial<
     },
   ],
   POST: [
+    { pattern: 'v1/keys/:id/revoke', schema: RevokeKeyResponseSchema },
     { pattern: 'v1/admin/jobs/:runId/cancel', schema: JobCancelResponseSchema },
     {
       pattern: 'v1/admin/policy-sets/:name/attachments',
@@ -406,6 +414,9 @@ const ALLOWED_PREFIXES = [
   'v1/admin/sources',
   // Source plane — connections the brain reads existing evidence through
   'v1/admin/source-connections',
+  // Self-serve keys: the Local agents section issues a brain:write key
+  // for an agent. Narrowed server-side to what the admin credential holds.
+  'v1/keys',
   // ABAC (policy editor + Key Lens + decisions feed)
   'v1/admin/policy-sets',
   'v1/admin/policy/',
