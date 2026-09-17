@@ -10,11 +10,12 @@ import type { DomainPackManifest } from './manifest';
  * yields, the derivable class the drift sweep re-verifies, and the media
  * contract that lets the binary door process PDFs and images.
  *
- * Two source entries, one root, two shapes: `folder` reads text-like
- * files as documents (markdown, text, csv, json, yaml, html, code);
- * `folder_media` hands PDFs and images to the evidence door (the
- * evidence → document bridge carries a PDF's text on). An operator
- * connects one or both to the same directory.
+ * Four source entries, two roots, two shapes: `folder` / `folder_media`
+ * over a directory (the `fs` connector) and `bucket` / `bucket_media`
+ * over an object-store prefix (the `s3` connector) — text-like files as
+ * documents (markdown, text, csv, json, yaml, html, code); PDFs and
+ * images to the evidence door (the evidence → document bridge carries a
+ * PDF's text on). An operator connects the shapes they need.
  *
  * The derivable class: `located_in` and `last_modified` are statements
  * the filesystem re-derives exactly, so they are bound to the revision
@@ -28,7 +29,7 @@ import type { DomainPackManifest } from './manifest';
  */
 export const FILE_MEMORY_PACK: DomainPackManifest = {
   id: 'file_memory',
-  version: '0.1.0',
+  version: '0.2.0',
   description:
     'Files as memory — what a folder of documents describes, defines and references, bound to the file revision it was read at; the source pack that connects local and mounted folders.',
   predicates: [
@@ -183,6 +184,26 @@ explicitly. Copy names, terms, paths and URLs VERBATIM.`,
       description:
         'PDFs and images under a directory handed to the evidence plane (needs the evidence substrate + broker; the bridge carries a PDF’s text into facts). config: { root, extensions?, excludeDirs?, maxFiles?, maxFileBytes? }.',
       defaults: { contentPolicy: 'bytes', deletePolicy: 'close', schedule: 'manual' },
+    },
+    {
+      id: 'bucket',
+      kind: 'native',
+      connector: 's3',
+      shape: 'document',
+      title: 'Object bucket (text documents)',
+      description:
+        'Text-like objects under a prefix of an S3 / S3-compatible bucket (MinIO, R2, B2) read as documents. config: { bucket, prefix?, region?, endpoint?, forcePathStyle?, extensions?, maxObjects?, maxObjectBytes? }; credential: accessKeyId:secretAccessKey.',
+      defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '4h' },
+    },
+    {
+      id: 'bucket_media',
+      kind: 'native',
+      connector: 's3',
+      shape: 'binary',
+      title: 'Object bucket (PDFs and images)',
+      description:
+        'PDFs and images under a prefix of an S3 / S3-compatible bucket handed to the evidence plane. Same config and credential as `bucket`.',
+      defaults: { contentPolicy: 'bytes', deletePolicy: 'close', schedule: '4h' },
     },
   ],
   evalFixtures: [

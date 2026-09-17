@@ -1,6 +1,6 @@
 {
   "id": "file_memory",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Files as memory — what a folder of documents describes, defines and references, bound to the file revision it was read at; the source pack that connects local and mounted folders.",
   "predicates": [
     {
@@ -205,6 +205,32 @@
         "contentPolicy": "bytes",
         "deletePolicy": "close",
         "schedule": "manual"
+      }
+    },
+    {
+      "id": "bucket",
+      "kind": "native",
+      "connector": "s3",
+      "shape": "document",
+      "title": "Object bucket (text documents)",
+      "description": "Text-like objects under a prefix of an S3 / S3-compatible bucket (MinIO, R2, B2) read as documents. config: { bucket, prefix?, region?, endpoint?, forcePathStyle?, extensions?, maxObjects?, maxObjectBytes? }; credential: accessKeyId:secretAccessKey.",
+      "defaults": {
+        "contentPolicy": "text",
+        "deletePolicy": "close",
+        "schedule": "4h"
+      }
+    },
+    {
+      "id": "bucket_media",
+      "kind": "native",
+      "connector": "s3",
+      "shape": "binary",
+      "title": "Object bucket (PDFs and images)",
+      "description": "PDFs and images under a prefix of an S3 / S3-compatible bucket handed to the evidence plane. Same config and credential as `bucket`.",
+      "defaults": {
+        "contentPolicy": "bytes",
+        "deletePolicy": "close",
+        "schedule": "4h"
       }
     }
   ],

@@ -44,3 +44,17 @@ export function sourceFsRoots(): string[] {
     .map((r) => r.trim())
     .filter((r) => r.length > 0);
 }
+
+/**
+ * SOURCE_EGRESS_ALLOW_PRIVATE — the operator half of a DOUBLE opt-in for
+ * reaching loopback / private / link-local hosts from the network
+ * connectors (url, s3 endpoint, webdav, mcp/http). The other half is the
+ * connection's own `config.allowPrivate: true`. Either alone changes
+ * nothing: a self-hosted wiki on the LAN is a legitimate source, but the
+ * SSRF fence must be lowered by the operator who owns the network AND
+ * named on the connection that needs it — never by a pack, never by a
+ * caller.
+ */
+export function sourceEgressAllowPrivate(): boolean {
+  return envFlagEnabled(process.env.SOURCE_EGRESS_ALLOW_PRIVATE);
+}

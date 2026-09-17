@@ -64,6 +64,7 @@ describe('first-party pack library', () => {
       'legal',
       'medical',
       'real_estate',
+      'web_memory',
     ]);
   });
 

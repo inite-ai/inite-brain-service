@@ -1364,6 +1364,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   'SOURCE_PLANE_ENABLED',
   // Per-connector switches (W1+): a kind that is off is "not installed".
   'SOURCE_KIND_FS',
+  'SOURCE_KIND_URL',
+  'SOURCE_KIND_S3',
+  // The operator half of the private-host double opt-in for network connectors.
+  'SOURCE_EGRESS_ALLOW_PRIVATE',
   // Orphan-blob GC (MM-7 follow-up): the delete-side sweep that reclaims
   // blobs no evidence_asset row references — the leak the upload path
   // creates by design (bytes are stored before their row exists, and a
