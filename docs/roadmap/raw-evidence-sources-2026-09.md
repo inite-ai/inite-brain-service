@@ -219,7 +219,7 @@ line. Consent: `acceptSources` at install, checksum over the section,
 re-asked only when it changes. `code_memory`'s `indexer.external`
 descriptor stays as is; the `sources` entry is additive.
 
-### 5.2 Tables (`0149_source_plane.surql`)
+### 5.2 Tables (`0150_source_plane.surql`)
 
 **`source_connection`** — Onyx's CC-pair, homed on an install:
 `packId`, `sourceId` (manifest entry), `ownerUserId` (null = org),
@@ -369,7 +369,7 @@ Two rules fall out of the table and are now doctrine:
 
 | Wave | Delivers | Flag | Closes |
 |---|---|---|---|
-| **W0 Source plane** | manifest `sources` section + `sourcesChecksum` + `acceptSources`; `0149` (`source_connection`, `source_item`); `Connector` registry; `SourceSyncService` on the jobs mold; the **record envelope** (`shape: 'structure'` → candidates, ungrounded flow); `/v1/admin/sources/connections`; `code_memory` retrofit (`kind: 'external'`); the **G3 bridge** on its own switch | `SOURCE_PLANE_ENABLED`, `EVIDENCE_DOCUMENT_BRIDGE` | G1 G2 G3 G7 G9 |
+| **W0 Source plane** | manifest `sources` section + `sourcesChecksum` + `acceptSources`; `0150` (`source_connection`, `source_item`); `Connector` registry; `SourceSyncService` on the jobs mold; the **record envelope** (`shape: 'structure'` → candidates, ungrounded flow); `/v1/admin/sources/connections`; `code_memory` retrofit (`kind: 'external'`); the **G3 bridge** on its own switch | `SOURCE_PLANE_ENABLED`, `EVIDENCE_DOCUMENT_BRIDGE` | G1 G2 G3 G7 G9 |
 | **W1 First natives + first source pack** | `fs` (server path, ignore rules, **polling mode** for mounts, bounded first walk), `s3` (list + ETag), `url` (sitemap / page, egress-guarded, robots-aware, auth header, **per-connection `egress.allowPrivate`** for intranet hosts), **`webdav`** (PROPFIND + ETag); **office text adapters** (docx / xlsx / pptx / html / eml) + widened `document` allowlist; `file_memory` pack (vocabulary + `source_version_match` rules + media contracts); full / incremental / prune; drift from non-git stamps proven | `SOURCE_KIND_FS` / `_S3` / `_URL` / `_WEBDAV`, `EVIDENCE_OFFICE_TEXT` | G1 |
 | **W2 MCP harvester** | shared MCP client module; `kind: 'mcp'` over HTTP (install-secret bearer) and stdio; templates, pagination, `lastModified`, `subscriptions/listen`; `brain://source/…` resources; conformance run | `SOURCE_KIND_MCP` | G5 |
 | **W3 Local agent** | `@inite/brain-agent` from the repo-indexer runner; `fs` + `git` (now also emitting the repo's docs as documents) + `mcp(stdio)` + `db` (DSN stays local); local redaction; `.mcpb`, plugin skill + hook, installer target, CLI, a CI recipe (GitHub Action / GitLab job); docs both locales | agent config | G6 |
