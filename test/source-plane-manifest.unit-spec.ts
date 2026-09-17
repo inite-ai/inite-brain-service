@@ -49,9 +49,20 @@ describe('validatePack — sources section', () => {
       validatePack(
         base([
           mcpHttp,
-          { id: 'vault', kind: 'mcp', transport: 'stdio', command: 'npx obsidian-mcp', shape: 'document' },
+          {
+            id: 'vault',
+            kind: 'mcp',
+            transport: 'stdio',
+            command: 'npx obsidian-mcp',
+            shape: 'document',
+          },
           { id: 'folder', kind: 'native', connector: 'fs', shape: 'binary' },
-          { id: 'push', kind: 'external', shape: 'structure', defaults: { schedule: '1h', deletePolicy: 'close' } },
+          {
+            id: 'push',
+            kind: 'external',
+            shape: 'structure',
+            defaults: { schedule: '1h', deletePolicy: 'close' },
+          },
         ]),
       ),
     ).not.toThrow();
@@ -67,9 +78,24 @@ describe('validatePack — sources section', () => {
     ['http without url', [{ ...mcpHttp, url: 'not a url' }]],
     ['http bad auth', [{ ...mcpHttp, auth: 'basic' }]],
     ['stdio without command', [{ id: 'v', kind: 'mcp', transport: 'stdio', shape: 'document' }]],
-    ['stdio too many args', [{ id: 'v', kind: 'mcp', transport: 'stdio', command: 'x', args: new Array(17).fill('a'), shape: 'document' }]],
+    [
+      'stdio too many args',
+      [
+        {
+          id: 'v',
+          kind: 'mcp',
+          transport: 'stdio',
+          command: 'x',
+          args: new Array(17).fill('a'),
+          shape: 'document',
+        },
+      ],
+    ],
     ['unknown transport', [{ id: 'v', kind: 'mcp', transport: 'ws', shape: 'document' }]],
-    ['native bad connector name', [{ id: 'f', kind: 'native', connector: 'FS', shape: 'document' }]],
+    [
+      'native bad connector name',
+      [{ id: 'f', kind: 'native', connector: 'FS', shape: 'document' }],
+    ],
     ['bad default schedule', [{ ...mcpHttp, defaults: { schedule: '5m' } }]],
     ['bad default policy', [{ ...mcpHttp, defaults: { contentPolicy: 'all' } }]],
     ['title too long', [{ ...mcpHttp, title: 'x'.repeat(81) }]],
@@ -84,7 +110,12 @@ describe('sources consent', () => {
     const m = base(undefined);
     expect(sourcesChecksum(m)).toBeNull();
     expect(
-      sourcesConsentRequired({ manifest: m, acceptSources: undefined, priorAccepted: false, priorChecksum: null }),
+      sourcesConsentRequired({
+        manifest: m,
+        acceptSources: undefined,
+        priorAccepted: false,
+        priorChecksum: null,
+      }),
     ).toBeNull();
   });
 
@@ -102,14 +133,29 @@ describe('sources consent', () => {
     expect(refused).toContain('native "folder" (fs, binary)');
     expect(refused).toContain('acceptSources: true');
     expect(
-      sourcesConsentRequired({ manifest: m, acceptSources: true, priorAccepted: false, priorChecksum: null }),
+      sourcesConsentRequired({
+        manifest: m,
+        acceptSources: true,
+        priorAccepted: false,
+        priorChecksum: null,
+      }),
     ).toBeNull();
     expect(
-      sourcesConsentRequired({ manifest: m, acceptSources: undefined, priorAccepted: true, priorChecksum: checksum }),
+      sourcesConsentRequired({
+        manifest: m,
+        acceptSources: undefined,
+        priorAccepted: true,
+        priorChecksum: checksum,
+      }),
     ).toBeNull();
     // A changed section re-requires the flag.
     expect(
-      sourcesConsentRequired({ manifest: m, acceptSources: undefined, priorAccepted: true, priorChecksum: 'stale' }),
+      sourcesConsentRequired({
+        manifest: m,
+        acceptSources: undefined,
+        priorAccepted: true,
+        priorChecksum: 'stale',
+      }),
     ).not.toBeNull();
   });
 

@@ -131,7 +131,10 @@ export class EvidenceDocumentBridgeService {
       }
       const dto = this.partDto({ asset, packId: p.packId, text: parts[i] ?? '', index: i });
       try {
-        const r = await this.ingest.ingestDocument(companyId, dto, { channel: 'evidence', internal });
+        const r = await this.ingest.ingestDocument(companyId, dto, {
+          channel: 'evidence',
+          internal,
+        });
         if (r.deduplicated) result.deduplicated++;
         else result.ingested++;
       } catch (err) {
