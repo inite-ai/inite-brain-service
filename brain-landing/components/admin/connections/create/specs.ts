@@ -79,7 +79,16 @@ const allowPrivate: FieldSpec = {
 const FS: ConnectorForm = {
   fields: [
     { key: 'root', type: 'path', required: true, mono: true, placeholder: '/srv/docs' },
+    { key: 'include', type: 'list', mono: true, placeholder: 'docs/**\nnotes/2026\n*.md' },
+    { key: 'exclude', type: 'list', mono: true, placeholder: 'docs/archive\n*.log\ndrafts/' },
     { key: 'extensions', type: 'list', mono: true, placeholder: 'md, txt, csv, json, html' },
+    {
+      key: 'ignoreFiles',
+      type: 'list',
+      mono: true,
+      advanced: true,
+      placeholder: '.brainignore\n.gitignore',
+    },
     {
       key: 'excludeDirs',
       type: 'list',

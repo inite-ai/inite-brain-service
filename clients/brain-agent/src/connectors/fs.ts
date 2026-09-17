@@ -1,6 +1,7 @@
-import { lstat, opendir, readFile } from 'node:fs/promises';
+import { lstat, readdir, readFile } from 'node:fs/promises';
 import { basename, extname, join, posix, relative, resolve, sep } from 'node:path';
 import type { AgentConnector, ConnectorCtx, EnumerateOptions, FetchedItem, ItemDelta, ItemDescriptor, Modality } from '../types.js';
+import { DEFAULT_IGNORE_FILES, PathFilter } from './path-rules.js';
 
 /**
  * `fs` on the agent host — a folder on THIS machine: the laptop's notes,
@@ -20,6 +21,12 @@ export interface FsConfig {
   extensions?: string[];
   excludeDirs?: string[];
   includeHidden?: boolean;
+  /** Only paths matching one of these (gitignore-style globs relative to root); empty = everything. */
+  include?: string[];
+  /** Paths (files or directories) matching one of these are skipped. */
+  exclude?: string[];
+  /** gitignore-style files honoured in the tree (default `.brainignore`). */
+  ignoreFiles?: string[];
   maxFiles?: number;
   maxFileBytes?: number;
 }
@@ -68,23 +75,34 @@ export class FsAgentConnector implements AgentConnector {
     const exclude = new Set(cfg.excludeDirs ?? DEFAULT_EXCLUDE_DIRS);
     const maxFiles = Math.max(1, cfg.maxFiles ?? DEFAULT_MAX_FILES);
     const maxBytes = fileByteCap(cfg);
+    const filter = new PathFilter({ include: cfg.include, exclude: cfg.exclude });
+    const ignoreFiles = cfg.ignoreFiles ?? DEFAULT_IGNORE_FILES;
     let emitted = 0;
     const stack = [root];
     while (stack.length > 0) {
       const dir = stack.pop()!;
-      const handle = await opendir(dir);
-      for await (const entry of handle) {
+      const rel = toPosix(relative(root, dir));
+      // The directory's own ignore files apply to its entries: read first.
+      const entries = await readdir(dir, { withFileTypes: true });
+      for (const name of ignoreFiles) {
+        if (entries.some((e) => e.name === name && e.isFile())) {
+          filter.addIgnoreFile(rel, await readFile(join(dir, name), 'utf8'));
+        }
+      }
+      for (const entry of entries) {
         if (ctx.signal.aborted) throw new Error('aborted');
         const full = join(dir, entry.name);
         if (entry.isSymbolicLink()) continue;
         if (!cfg.includeHidden && entry.name.startsWith('.')) continue;
+        const relPath = rel ? `${rel}/${entry.name}` : entry.name;
         if (entry.isDirectory()) {
-          if (!exclude.has(entry.name)) stack.push(full);
+          if (!exclude.has(entry.name) && filter.admitsDir(relPath)) stack.push(full);
           continue;
         }
         if (!entry.isFile()) continue;
         const ext = extOf(entry.name);
         if (!extensions.has(ext)) continue;
+        if (!filter.admitsFile(relPath)) continue;
         const st = await lstat(full);
         if (st.size > maxBytes) continue;
         if (++emitted > maxFiles) {

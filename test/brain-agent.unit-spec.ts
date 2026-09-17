@@ -157,6 +157,16 @@ describe('FsAgentConnector', () => {
     );
   });
 
+  it('include / exclude and a .brainignore in the tree narrow the walk the brain’s way', async () => {
+    const c = new FsAgentConnector();
+    await writeFile(join(root, 'docs', '.brainignore'), 'plan.md\n');
+    const x = ctx(connection({ config: { root, include: ['docs/**'], maxFileBytes: 4000 } }));
+    expect(ids(await walk(c, x))).toEqual(['docs/bin.md']);
+    const y = ctx(connection({ config: { root, exclude: ['docs/'], maxFileBytes: 4000 } }));
+    expect(ids(await walk(c, y))).toEqual(['README.md']);
+    await rm(join(root, 'docs', '.brainignore'), { force: true });
+  });
+
   it('BRAIN_AGENT_ROOTS fences the root when set', async () => {
     const fenced = new FsAgentConnector([join(base, 'outside')]);
     await expect(walk(fenced, ctx(connection({ config: { root } })))).rejects.toThrow(
@@ -239,7 +249,8 @@ describe('GitAgentConnector', () => {
     expect(m('docs/**', 'docs/roadmap/x.md')).toBe(true);
     expect(m('docs/**', 'doc/x.md')).toBe(false);
     expect(m('*.md', 'README.md')).toBe(true);
-    expect(m('*.md', 'docs/a.md')).toBe(false);
+    expect(m('*.md', 'docs/a.md')).toBe(true); // a bare name pattern matches at any depth (gitignore's rule)
+    expect(m('/*.md', 'docs/a.md')).toBe(false); // anchored: the root only
     expect(m('adr/????-*.md', 'adr/0001-surreal.md')).toBe(true);
     expect(m('a.b/**', 'aXb/c')).toBe(false);
   });

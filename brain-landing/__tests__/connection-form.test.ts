@@ -54,13 +54,19 @@ describe('connect form specs', () => {
     expect(values['excludeDirs']).toBe('')
     expect(configFrom(form, values, ctxFor(e))).toEqual({})
     values['root'] = '/srv/handbook'
+    values['include'] = 'docs/**\n/README.md'
+    values['exclude'] = 'docs/archive'
     values['extensions'] = 'md, txt'
+    values['ignoreFiles'] = '.brainignore\n.gitignore'
     values['excludeDirs'] = '.git\nnode_modules'
     values['includeHidden'] = false
     values['maxFiles'] = '200'
     expect(configFrom(form, values, ctxFor(e))).toEqual({
       root: '/srv/handbook',
+      include: ['docs/**', '/README.md'],
+      exclude: ['docs/archive'],
       extensions: ['md', 'txt'],
+      ignoreFiles: ['.brainignore', '.gitignore'],
       excludeDirs: ['.git', 'node_modules'],
       maxFiles: 200,
     })

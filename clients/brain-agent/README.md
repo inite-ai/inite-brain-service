@@ -67,6 +67,24 @@ What leaves the machine is text (or the bytes of a binary-shaped item),
 headers and `secret=value` assignments are replaced by `[redacted:<kind>]`
 markers. `--no-redact` turns that off for a source you know is clean.
 
+## Which folders — and which not
+
+One connection = one folder (its `root`); several folders are several
+connections. Inside a folder, three things narrow the walk, all set on
+the connection in **Admin → Connections → Connect → The source**:
+
+| | |
+|---|---|
+| **Only these paths** (`include`) | gitignore-style globs relative to the folder: `docs/**`, `notes/2026`, `*.md` (any depth), `/README.md` (root only). Empty = everything. |
+| **Skip these paths** (`exclude`) | same dialect: `docs/archive`, `drafts/` (any folder so named), `*.log`. Applied after include. |
+| **Ignore files** (`ignoreFiles`, default `.brainignore`) | the machine's owner drops a `.brainignore` (gitignore syntax — `#` comments, `!` re-admits, nested files relative to their directory) anywhere under the folder and the agent honours it on the next pass, no admin needed. Add `.gitignore` to also skip what git skips. |
+
+Plus the defaults: hidden entries and VCS / build directories skipped
+(`excludeDirs`, `includeHidden`), extensions by shape, `maxFiles`,
+`maxFileBytes`. And the outer fence: `--roots` / `BRAIN_AGENT_ROOTS`
+is the list of directories any connection's root must be under — set
+it when the agent runs for others.
+
 ## Environment
 
 | Variable | Meaning |

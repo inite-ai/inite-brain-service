@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { basename, extname, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { AgentConnector, ConnectorCtx, EnumerateOptions, FetchedItem, ItemDelta, ItemDescriptor } from '../types.js';
+import { compileRule } from './path-rules.js';
 
 const run = promisify(execFile);
 
@@ -140,16 +141,10 @@ function configOf(ctx: ConnectorCtx): GitConfig {
   return cfg as GitConfig;
 }
 
-/** A prefix or a glob (`*` within a segment, `**` across segments, `?` one char) → predicate. */
+/** A prefix (`docs/`, `README`) or a gitignore-style glob (`docs/**`, `*.md`, `adr/????-*.md`) → predicate on a repo path. */
 export function includeMatcher(pattern: string): (path: string) => boolean {
   if (!/[*?]/.test(pattern)) return (path) => path.startsWith(pattern);
-  const re = new RegExp(
-    '^' +
-      pattern
-        .split('**')
-        .map((part) => part.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]'))
-        .join('.*') +
-      '$',
-  );
-  return (path) => re.test(path);
+  const rule = compileRule(pattern);
+  if (!rule) return () => false;
+  return (path) => rule.re.test(rule.byName ? path.slice(path.lastIndexOf('/') + 1) : path);
 }

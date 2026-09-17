@@ -978,9 +978,21 @@
               "label": "Folder",
               "hint": "Absolute path on the agent's machine (inside BRAIN_AGENT_ROOTS if the agent sets it)."
             },
+            "include": {
+              "label": "Only these paths",
+              "hint": "gitignore-style, one per line, relative to the folder: docs/** — everything under docs; notes/2026 — that folder; *.md — every markdown file at any depth; /README.md — the root's only. Empty = the whole folder."
+            },
+            "exclude": {
+              "label": "Skip these paths",
+              "hint": "Same dialect: docs/archive — that folder; drafts/ — any folder named drafts; *.log — every log file. Applied after \"only these\"."
+            },
             "extensions": {
               "label": "Extensions",
               "hint": "Comma-separated, no dots; empty = the shape's defaults."
+            },
+            "ignoreFiles": {
+              "label": "Ignore files honoured in the tree",
+              "hint": "The machine's owner can leave a .brainignore (gitignore syntax, nested files allowed) anywhere under the folder to keep things out without touching this connection. Add .gitignore to also skip what git skips."
             },
             "excludeDirs": {
               "label": "Skip directories",
