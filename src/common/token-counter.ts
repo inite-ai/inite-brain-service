@@ -1,4 +1,4 @@
-import { encodingForModel, getEncoding, type Tiktoken } from 'js-tiktoken';
+import { getEncoding, type Tiktoken } from 'js-tiktoken';
 
 /**
  * Token counter shared across services for response budget enforcement.
@@ -9,21 +9,16 @@ import { encodingForModel, getEncoding, type Tiktoken } from 'js-tiktoken';
  * structured JSON (lots of `{},":` punctuation tokenises differently
  * than prose).
  *
- * The encoder is loaded once per process — `cl100k_base` covers
- * gpt-4o, gpt-4-turbo, gpt-3.5-turbo, text-embedding-3-*, so a single
- * encoder serves every Claude/OpenAI model brain currently calls or
- * estimates against.
+ * The encoder is loaded once per process — `o200k_base` is the
+ * vocabulary of gpt-4o and the whole gpt-5 line, so one encoder serves
+ * every chat model brain calls or estimates against (named by encoding,
+ * not by model: js-tiktoken's model table lags each new model id).
  */
 let cached: Tiktoken | null = null;
 
 function getEncoder(): Tiktoken {
   if (cached) return cached;
-  // Try model-specific first; fall back to the family encoding.
-  try {
-    cached = encodingForModel('gpt-4o-mini');
-  } catch {
-    cached = getEncoding('cl100k_base');
-  }
+  cached = getEncoding('o200k_base');
   return cached;
 }
 

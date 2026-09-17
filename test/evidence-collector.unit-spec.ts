@@ -93,7 +93,7 @@ describe('EvidenceCollectorService branches', () => {
     const updateStory = {
       previousStories: async (o: { factIds: string[] }) => {
         storyCalls.push(o.factIds);
-        return new Map([['f1', ' [previously: old]']]);
+        return new Map([['f1', ' (previously: old)']]);
       },
     } as unknown as UpdateStoryService;
     const make = () =>
@@ -121,7 +121,7 @@ describe('EvidenceCollectorService branches', () => {
       ...collectorArgs(profileWith({ updateStoryRendering: true })),
       factIds: ['f1'],
     });
-    expect(on.updateStories?.get('f1')).toBe(' [previously: old]');
+    expect(on.updateStories?.get('f1')).toBe(' (previously: old)');
     expect(storyCalls).toEqual([['f1']]);
   });
 
@@ -280,7 +280,7 @@ describe('EvidenceCollectorService branches', () => {
     const episodeLane = {
       groundingQuotes: async (o: { factIds: string[] }) => {
         seen.push(o.factIds);
-        return new Map([['f1', ' [source 2023-05-01 Mel: "dog face"]']]);
+        return new Map([['f1', ' (source 2023-05-01 Mel: "dog face")']]);
       },
     } as unknown as import('../src/synthesize/episode-lane.service').EpisodeLaneService;
     const make = () => new EvidenceCollectorService(noSearch, episodeLane);
@@ -297,7 +297,7 @@ describe('EvidenceCollectorService branches', () => {
       ...collectorArgs(profileWith({ factsAsKeys: true, factsAsKeysCap: 2 })),
       factIds: ['f1', 'f2', 'f3'],
     });
-    expect(on.groundingQuotes?.get('f1')).toBe(' [source 2023-05-01 Mel: "dog face"]');
+    expect(on.groundingQuotes?.get('f1')).toBe(' (source 2023-05-01 Mel: "dog face")');
     // Cap applies to the BEST evidence facts (input order).
     expect(seen).toEqual([['f1', 'f2']]);
   });

@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { createOpenAiClient } from '../ai/openai-client';
+import { chatCallParams, chatModel, createOpenAiClient } from '../ai/openai-client';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
@@ -44,7 +44,7 @@ export class LlmSummaryGenerator implements SummaryGenerator {
     this.openai = createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
     this.model = this.configService.get<string>(
       'DREAMS_SUMMARY_MODEL',
-      this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
+      chatModel(this.configService),
     );
     this.limiter = new Semaphore(
       parseInt(this.configService.get<string>('DREAMS_SUMMARY_CONCURRENCY', '4'), 10),
@@ -97,8 +97,11 @@ Rules:
             { role: 'system', content: sys },
             { role: 'user', content: user },
           ],
-          max_completion_tokens: 200,
-          temperature: 0,
+          ...chatCallParams(this.model, {
+            temperature: 0,
+            visibleCap: 200,
+            reasoningEffort: 'none',
+          }),
         }),
     );
     const content = res.choices[0]?.message?.content?.trim();

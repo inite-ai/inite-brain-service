@@ -93,7 +93,7 @@ export interface CollectedEvidence {
   updateStories?: Map<string, string> | undefined;
   /**
    * Multiworld §10 facts-as-keys: factId → rendered grounding quote
-   * (" [source YYYY-MM-DD speaker: …]") for the top evidence facts;
+   * (" (source YYYY-MM-DD speaker: …)") for the top evidence facts;
    * undefined when the profile has the lane off or nothing resolves.
    * Applied by the caller to the SAME fact lines both prompts read —
    * exactly the updateStories contract.

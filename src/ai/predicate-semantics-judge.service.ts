@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { createOpenAiClient } from './openai-client';
+import { chatCallParams, chatModel, createOpenAiClient } from './openai-client';
 import { MetricsService } from '../metrics/metrics.service';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
@@ -79,10 +79,7 @@ export class PredicateSemanticsJudgeService {
     @Optional() private readonly metrics?: MetricsService,
   ) {
     this.openai = createOpenAiClient(this.config) ?? (undefined as unknown as OpenAI);
-    this.model = this.config.get<string>(
-      'PREDICATE_SEMANTICS_MODEL',
-      this.config.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
-    );
+    this.model = this.config.get<string>('PREDICATE_SEMANTICS_MODEL', chatModel(this.config));
     this.limiter = new Semaphore(
       parseInt(this.config.get<string>('PREDICATE_SEMANTICS_CONCURRENCY', '4'), 10) || 4,
     );
@@ -187,8 +184,12 @@ Output strictly the JSON shape requested. No preamble.`;
               },
             },
           },
-          max_completion_tokens: 32,
-          temperature: 0,
+          ...chatCallParams(this.model, {
+            temperature: 0,
+            visibleCap: 32,
+            reasoningCap: 256,
+            reasoningEffort: 'none',
+          }),
         }),
     );
     const content = res.choices[0]?.message?.content;

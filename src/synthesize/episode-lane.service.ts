@@ -366,7 +366,7 @@ export class EpisodeLaneService {
             row.text.length > GROUNDING_QUOTE_CHAR_CAP
               ? `${row.text.slice(0, GROUNDING_QUOTE_CHAR_CAP - 1)}…`
               : row.text;
-          out.set(factId, ` [source ${day} ${row.speaker ?? 'unknown'}: "${text}"]`);
+          out.set(factId, ` (source ${day} ${row.speaker ?? 'unknown'}: "${text}")`);
         }
         return out;
       });

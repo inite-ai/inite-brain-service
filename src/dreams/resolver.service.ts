@@ -2,7 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Surreal, StringRecordId } from 'surrealdb';
 import OpenAI from 'openai';
-import { createOpenAiClient } from '../ai/openai-client';
+import { chatCallParams, chatModel, createOpenAiClient } from '../ai/openai-client';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
@@ -79,7 +79,7 @@ export class DreamsResolverService {
     this.openai = createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
     this.model = this.configService.get<string>(
       'DREAMS_RESOLVE_MODEL',
-      this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
+      chatModel(this.configService),
     );
     this.minAgeDays = parseInt(
       this.configService.get<string>('DREAMS_RESOLVE_MIN_AGE_DAYS', '7'),
@@ -287,8 +287,11 @@ Output strictly the JSON shape requested.`;
                 },
               },
             },
-            max_completion_tokens: 200,
-            temperature: 0,
+            ...chatCallParams(this.model, {
+              temperature: 0,
+              visibleCap: 200,
+              reasoningEffort: 'none',
+            }),
           }),
       );
       const content = res.choices[0]?.message?.content;

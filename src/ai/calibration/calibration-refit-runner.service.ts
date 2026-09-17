@@ -8,6 +8,7 @@ import {
   BOOTSTRAP_PROMPT_HASH,
   BOOTSTRAP_PROMPT_KEY,
 } from './calibration.service';
+import { DEFAULT_CHAT_MODEL } from '../openai-client';
 
 /** Per-tenant progress callback so the caller can track a job_run row. */
 export type RefitProgress = (detail: Record<string, unknown>) => void;
@@ -36,7 +37,7 @@ export interface RefitOutcome {
 @Injectable()
 export class CalibrationRefitRunnerService {
   private readonly logger = new Logger(CalibrationRefitRunnerService.name);
-  private readonly extractorModel = process.env.OPENAI_CHAT_MODEL ?? 'gpt-4o-mini';
+  private readonly extractorModel = process.env.OPENAI_CHAT_MODEL ?? DEFAULT_CHAT_MODEL;
   private readonly bootstrapPromptKey = BOOTSTRAP_PROMPT_HASH;
 
   constructor(

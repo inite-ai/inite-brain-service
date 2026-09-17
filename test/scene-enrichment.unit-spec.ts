@@ -25,6 +25,7 @@ import { SCENE_BASELINE_VERSION } from '../src/admin/scene-prediction-baseline';
 import { matchFactsToScene } from '../src/admin/scene-backlink.service';
 import { SEGMENTER_VERSION } from '../src/admin/scene-segmentation';
 import type { SceneVersionService } from '../src/admin/scene-version';
+import { DEFAULT_CHAT_MODEL } from '../src/ai/openai-client';
 
 const WELL_FORMED = {
   gist: 'Mika planned the Lisbon trip and booked the morning flight.',
@@ -281,13 +282,13 @@ describe('SceneEnricherService degrade contract (scripted provider)', () => {
     expect(mv.novelty).toBeCloseTo(0.8);
     expect(params.stateDeltas).toEqual(WELL_FORMED.stateDeltas);
     expect(params.unexpectedDetails).toEqual(WELL_FORMED.unexpectedDetails);
-    expect(params.model).toBe('gpt-4o-mini');
-    expect(params.enrichmentVersion).toBe(sceneEnrichmentVersion('gpt-4o-mini'));
+    expect(params.model).toBe(DEFAULT_CHAT_MODEL);
+    expect(params.enrichmentVersion).toBe(sceneEnrichmentVersion(DEFAULT_CHAT_MODEL));
   });
 
   it('skips a scene already at the current enrichmentVersion — zero model calls', async () => {
     const { svc, captured } = build(JSON.stringify(WELL_FORMED), {
-      sceneEnrichmentVersion: sceneEnrichmentVersion('gpt-4o-mini'),
+      sceneEnrichmentVersion: sceneEnrichmentVersion(DEFAULT_CHAT_MODEL),
     });
     const result = await svc.enrich('co_test');
     expect(result).toEqual({ scenes: 1, enriched: 0, failed: 0, skipped: 1 });
@@ -341,7 +342,9 @@ describe('SceneEnricherService degrade contract (scripted provider)', () => {
     expect((params.memoryValue as Record<string, unknown>).scorerVersion).toBe(
       SCENE_SCORER_LLM_VERSION,
     );
-    expect(params.enrichmentVersion).toBe('scene-gist-v1|scene-scorer-llm-v1|gpt-4o-mini');
+    expect(params.enrichmentVersion).toBe(
+      `scene-gist-v1|scene-scorer-llm-v1|${DEFAULT_CHAT_MODEL}`,
+    );
   });
 });
 
@@ -526,7 +529,7 @@ describe('SceneEnricherService prediction baseline (scripted provider)', () => {
     });
     expect(typeof (params.baselineRef as Record<string, unknown>).stampedAt).toBe('string');
     expect(params.enrichmentVersion).toBe(
-      'scene-gist-v2|scene-scorer-llm-v1+scene-scorer-v1|gpt-4o-mini',
+      `scene-gist-v2|scene-scorer-llm-v1+scene-scorer-v1|${DEFAULT_CHAT_MODEL}`,
     );
   });
 

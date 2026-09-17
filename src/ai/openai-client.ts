@@ -1,6 +1,22 @@
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 
+/**
+ * The chat model every LLM call runs on unless OPENAI_CHAT_MODEL says
+ * otherwise: the cost tier of the newest generation (gpt-5.6-luna, July
+ * 2026 — $0.20 / $1.20 per 1M, structured outputs, reasoning effort
+ * selectable, `temperature` rejected). It replaced gpt-4o-mini, which
+ * flip-flopped on identical entity pairs between runs and mis-cited
+ * twelve-line evidence sets. One constant: twenty-two readers used to
+ * carry their own `'gpt-4o-mini'` fallback.
+ */
+export const DEFAULT_CHAT_MODEL = 'gpt-5.6-luna';
+
+/** OPENAI_CHAT_MODEL, else the platform default. */
+export function chatModel(config: ConfigService): string {
+  return config.get<string>('OPENAI_CHAT_MODEL', DEFAULT_CHAT_MODEL);
+}
+
 function buildClient(config: ConfigService, apiKey: string): OpenAI {
   return new OpenAI({
     apiKey,
@@ -53,8 +69,20 @@ export function isReasoningModel(model: string): boolean {
   return REASONING_MODEL_RE.test(model);
 }
 
-/** The effort levels a reasoning model accepts on chat completions. */
-export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high';
+/**
+ * The effort levels a reasoning model accepts on chat completions
+ * (gpt-5.6 rejects `minimal` — probed 2026-09-17).
+ */
+export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+
+/**
+ * What a reasoning model gets when the caller does not say: the model's
+ * own default is `medium`, which for an extraction or a grounded answer
+ * bills hidden reasoning many times the visible output. `low` keeps the
+ * short deliberation (25 reasoning tokens on a two-fact extraction) at
+ * a fraction of the cost; one-token classifiers ask for `none`.
+ */
+const DEFAULT_REASONING_EFFORT: ReasoningEffort = 'low';
 
 export function chatCallParams(
   model: string,
@@ -65,10 +93,8 @@ export function chatCallParams(
     /**
      * How much a reasoning model may think before answering. Emitted
      * ONLY on the reasoning branch — a deterministic model rejects the
-     * field. Left unset, the model's own default applies (`medium` on
-     * the gpt-5.x line), which for a one-token classification bills
-     * hidden reasoning that outweighs the visible answer many times
-     * over; a judge or classifier should ask for `low` or `none`.
+     * field. Unset = DEFAULT_REASONING_EFFORT; a judge or classifier
+     * whose answer is one token asks for `none`.
      */
     reasoningEffort?: ReasoningEffort;
   },
@@ -76,7 +102,7 @@ export function chatCallParams(
   return isReasoningModel(model)
     ? {
         max_completion_tokens: opts.reasoningCap ?? opts.visibleCap * 4,
-        ...(opts.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}),
+        reasoning_effort: opts.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
       }
     : { temperature: opts.temperature, max_completion_tokens: opts.visibleCap };
 }

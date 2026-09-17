@@ -2,7 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import type OpenAI from 'openai';
-import { chatCallParams, createOpenAiClientOrThrow } from '../ai/openai-client';
+import { chatCallParams, chatModel, createOpenAiClientOrThrow } from '../ai/openai-client';
 import { ApiKeyService } from '../auth/api-key.service';
 import { DistributedLeaseGuard, noteUnguarded } from '../common/distributed-lease.guard';
 import { envFlagEnabled } from '../common/env-validation';
@@ -239,7 +239,7 @@ export class StrategyDistillService {
     @Optional() private readonly guard?: DistributedLeaseGuard,
   ) {
     this.openai = createOpenAiClientOrThrow(config);
-    this.model = config.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini');
+    this.model = chatModel(config);
     this.cronEnabled = envFlagEnabled(config.get<string>('STRATEGY_DISTILL_CRON_ENABLED'));
   }
 

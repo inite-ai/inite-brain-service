@@ -57,12 +57,15 @@ export function renderUpdateStory(prevs: readonly PreviousValue[]): string {
       return `${label}: ${obj}${until ? ` — until ${until}` : ''}`;
     })
     .filter((s) => s.length > 0);
-  return parts.length > 0 ? ` [${parts.join('; ')}]` : '';
+  // Parenthesised like the grounding quote: on a fact line only the
+  // opening `[f<n>]` handle is a citation, and the generator copies
+  // whatever else stands in brackets.
+  return parts.length > 0 ? ` (${parts.join('; ')})` : '';
 }
 
 /**
  * Append rendered history suffixes onto the matching fact lines. Lines
- * open with `[<factId>] ` (the buildFactIndex contract); unmatched
+ * open with `[<handle>] ` (the buildFactIndex contract); unmatched
  * lines pass through byte-identical. Module-private — external callers
  * compose through applyFactSuffixes.
  */

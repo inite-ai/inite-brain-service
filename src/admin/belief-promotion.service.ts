@@ -4,7 +4,7 @@ import type OpenAI from 'openai';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { retryOnUniqueViolation } from '../db/surreal-retry';
-import { chatCallParams, createOpenAiClient } from '../ai/openai-client';
+import { chatCallParams, chatModel, createOpenAiClient } from '../ai/openai-client';
 import {
   sceneBeliefFieldFoldEnabled,
   sceneBeliefLlmSynthesisEnabled,
@@ -767,10 +767,7 @@ export class BeliefPromotionService {
     private readonly predicates: PredicateRegistryService,
   ) {
     this.openai = createOpenAiClient(configService);
-    this.model = configService.get<string>(
-      'SCENES_BELIEF_MODEL',
-      configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
-    );
+    this.model = configService.get<string>('SCENES_BELIEF_MODEL', chatModel(configService));
   }
 
   /**

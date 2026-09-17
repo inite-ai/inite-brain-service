@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { createOpenAiClientOrThrow } from '../ai/openai-client';
+import { chatCallParams, chatModel, createOpenAiClientOrThrow } from '../ai/openai-client';
 import { Semaphore } from '../common/semaphore';
 import { clampLlmInputText } from '../common/input-limits';
 import { withGenAiCall } from '../common/gen-ai-observability';
@@ -119,7 +119,7 @@ export class MultiHopPlannerService {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.model = this.configService.get<string>(
       'MULTI_HOP_PLANNER_MODEL',
-      this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
+      chatModel(this.configService),
     );
     this.limiter = new Semaphore(
       parseInt(this.configService.get<string>('MULTI_HOP_PLANNER_CONCURRENCY', '4'), 10),
@@ -193,7 +193,7 @@ export class MultiHopPlannerService {
                 },
               },
             },
-            max_completion_tokens: 768,
+            ...chatCallParams(this.model, { temperature: 0, visibleCap: 768 }),
             temperature: 0,
           },
           { signal: getAbortSignal() },

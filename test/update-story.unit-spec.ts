@@ -25,7 +25,7 @@ describe('renderUpdateStory', () => {
         { object: 'works at Bar', validUntil: '2026-01-15T09:30:00Z' },
       ]),
     ).toBe(
-      ' [previously: works at Foo — until 2026-03-01; earlier: works at Bar — until 2026-01-15]',
+      ' (previously: works at Foo — until 2026-03-01; earlier: works at Bar — until 2026-01-15)',
     );
   });
 
@@ -36,7 +36,7 @@ describe('renderUpdateStory', () => {
       { object: 'v1' },
       { object: 'v0' },
     ]);
-    expect(s).toBe(' [previously: v3; earlier: v2; earlier: v1]');
+    expect(s).toBe(' (previously: v3; earlier: v2; earlier: v1)');
   });
 
   it('empty history renders nothing', () => {
@@ -58,19 +58,19 @@ describe('applyFactSuffixes', () => {
 
   it('appends the suffix to matching lines only', () => {
     const out = applyFactSuffixes(lines, [
-      new Map([['knowledge_fact:w1', ' [previously: works at Foo — until 2026-03-01]']]),
+      new Map([['knowledge_fact:w1', ' (previously: works at Foo — until 2026-03-01)']]),
     ]);
-    expect(out[0]).toBe(lines[0] + ' [previously: works at Foo — until 2026-03-01]');
+    expect(out[0]).toBe(lines[0] + ' (previously: works at Foo — until 2026-03-01)');
     expect(out[1]).toBe(lines[1]);
   });
 
   it('stacks maps in order on the same line (stories then quotes)', () => {
     const out = applyFactSuffixes(lines, [
-      new Map([['knowledge_fact:w1', ' [previously: works at Foo]']]),
-      new Map([['knowledge_fact:w1', ' [source 2026-02-01 Alex: "joined Baz"]']]),
+      new Map([['knowledge_fact:w1', ' (previously: works at Foo)']]),
+      new Map([['knowledge_fact:w1', ' (source 2026-02-01 Alex: "joined Baz")']]),
     ]);
     expect(out[0]).toBe(
-      lines[0] + ' [previously: works at Foo]' + ' [source 2026-02-01 Alex: "joined Baz"]',
+      lines[0] + ' (previously: works at Foo)' + ' (source 2026-02-01 Alex: "joined Baz")',
     );
   });
 
@@ -123,7 +123,7 @@ describe('UpdateStoryService', () => {
       callerScopes: [],
     });
     expect(out.get('knowledge_fact:w1')).toBe(
-      ' [previously: works at Foo — until 2026-03-01; earlier: works at Bar — until 2026-01-15]',
+      ' (previously: works at Foo — until 2026-03-01; earlier: works at Bar — until 2026-01-15)',
     );
     expect(out.has('knowledge_fact:noHistory')).toBe(false);
   });
@@ -161,14 +161,14 @@ describe('UpdateStoryService', () => {
       factIds: ['knowledge_fact:w1'],
       callerScopes: [],
     });
-    expect(without.get('knowledge_fact:w1')).toBe(' [previously: works at Foo — until 2026-03-01]');
+    expect(without.get('knowledge_fact:w1')).toBe(' (previously: works at Foo — until 2026-03-01)');
     const withScope = await makeService(byWinner, undefined, registry).previousStories({
       companyId: 'c1',
       factIds: ['knowledge_fact:w1'],
       callerScopes: ['sec:internal'],
     });
     expect(withScope.get('knowledge_fact:w1')).toBe(
-      ' [previously: works at Foo — until 2026-03-01; earlier: secret prior value — until 2026-02-01]',
+      ' (previously: works at Foo — until 2026-03-01; earlier: secret prior value — until 2026-02-01)',
     );
   });
 

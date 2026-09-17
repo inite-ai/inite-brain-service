@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { createOpenAiClientOrThrow } from '../ai/openai-client';
+import { chatCallParams, chatModel, createOpenAiClientOrThrow } from '../ai/openai-client';
 import { SearchService } from '../search/search.service';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
@@ -190,10 +190,7 @@ export class AgentQaService {
     @Optional() private readonly readPin?: ReadPinService,
   ) {
     this.openai = createOpenAiClientOrThrow(config);
-    this.model = config.get<string>(
-      'AGENT_QA_MODEL',
-      config.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
-    );
+    this.model = config.get<string>('AGENT_QA_MODEL', chatModel(config));
     this.maxRounds = positiveIntEnv(config.get<string>('AGENT_QA_MAX_ROUNDS'), 6);
     this.searchLimit = positiveIntEnv(config.get<string>('AGENT_QA_SEARCH_LIMIT'), 12);
     this.maxFactsPerRound = positiveIntEnv(config.get<string>('AGENT_QA_MAX_FACTS_PER_ROUND'), 40);
@@ -257,7 +254,7 @@ export class AgentQaService {
           messages,
           tools: v2 ? [SEARCH_TOOL, TIMELINE_TOOL, GREP_TOOL] : [SEARCH_TOOL],
           tool_choice: 'auto',
-          temperature: 0,
+          ...chatCallParams(this.model, { temperature: 0, visibleCap: 1024 }),
         },
         { signal: getAbortSignal() },
       );
@@ -303,7 +300,7 @@ export class AgentQaService {
               'Give your single best short answer now, based only on what you already found. Do not search again. Never refuse.',
           },
         ],
-        temperature: 0,
+        ...chatCallParams(this.model, { temperature: 0, visibleCap: 512 }),
       },
       { signal: getAbortSignal() },
     );

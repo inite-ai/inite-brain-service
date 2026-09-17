@@ -795,15 +795,20 @@ describe('buildDeriverSystem (V12 §3 date-resolve lockstep)', () => {
 });
 
 describe('chatCallParams (the ONE reasoning-model guard)', () => {
-  it('reasoning models: no temperature, reasoning cap', () => {
+  it('reasoning models: no temperature, reasoning cap, low effort unless asked', () => {
     expect(chatCallParams('gpt-5-mini', { temperature: 0, visibleCap: 512 })).toEqual({
       max_completion_tokens: 2048,
+      reasoning_effort: 'low',
     });
     expect(
       chatCallParams('o3-mini', { temperature: 0.1, visibleCap: 1000, reasoningCap: 8000 }),
     ).toEqual({
       max_completion_tokens: 8000,
+      reasoning_effort: 'low',
     });
+    expect(
+      chatCallParams('gpt-5.6-luna', { temperature: 0, visibleCap: 32, reasoningEffort: 'none' }),
+    ).toEqual({ max_completion_tokens: 128, reasoning_effort: 'none' });
   });
 
   it('non-reasoning models keep the byte-identical historical call', () => {

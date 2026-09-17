@@ -1117,14 +1117,14 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'COST_CHAT_PROMPT_USD_PER_MTOK',
     category: 'cost',
-    defaultValue: '0.15',
+    defaultValue: '0.2',
     runtimeMutable: false,
     isBooleanFlag: false,
   },
   {
     key: 'COST_CHAT_COMPLETION_USD_PER_MTOK',
     category: 'cost',
-    defaultValue: '0.6',
+    defaultValue: '1.2',
     runtimeMutable: false,
     isBooleanFlag: false,
   },
@@ -1207,9 +1207,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'OPENAI_CHAT_MODEL',
     category: 'auth',
-    defaultValue: 'gpt-4o-mini',
+    defaultValue: 'gpt-5.6-luna',
     runtimeMutable: false,
     isBooleanFlag: false,
+    description:
+      'The chat model behind extraction, generation, verification, the deriver, scenes, beliefs, the router and every judge that does not name its own. Default = the cost tier of the newest generation (gpt-5.6-luna, $0.20 / $1.20 per 1M). It replaced gpt-4o-mini on 2026-09-17: measured on the prod tenant, mini flip-flopped on identical entity pairs between runs and mis-cited twelve-line evidence sets. Every call goes through the shared reasoning guard (chatCallParams): a gpt-5.x / o-series model rejects `temperature`, so the guard drops it and sets reasoning effort — `low` by default, `none` for one-token classifiers.',
   },
   {
     key: 'ENTITY_JUDGE_MODEL',
@@ -2121,7 +2123,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "V10 §2 update-story rendering (profile field updateStoryRendering): evidence facts that superseded an older value get a compact history suffix on their prompt line — '[previously: <value> — until <date>]' — built from the reverse supersededBy links (indexed since 0059; ≤3 chain generations, ≤3 entries per line). Restores the update STORY that knowledge_update golds ask for WITHOUT re-including superseded rows in retrieval — the v9lifecycle diagnosis: the bitemporal closure hid the old value at asOf and made the row worse. Prompt-side only: retrieval, ranking and citations untouched; the generator and the verifier read the same augmented lines. Off = byte-identical prompt.",
+      "V10 §2 update-story rendering (profile field updateStoryRendering): evidence facts that superseded an older value get a compact history suffix on their prompt line — '(previously: <value> — until <date>)' — built from the reverse supersededBy links (indexed since 0059; ≤3 chain generations, ≤3 entries per line). Restores the update STORY that knowledge_update golds ask for WITHOUT re-including superseded rows in retrieval — the v9lifecycle diagnosis: the bitemporal closure hid the old value at asOf and made the row worse. Prompt-side only: retrieval, ranking and citations untouched; the generator and the verifier read the same augmented lines. Off = byte-identical prompt.",
   },
   {
     key: 'RETRIEVAL_ORDERING_FRAME',
@@ -2291,7 +2293,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Multiworld §10 facts-as-keys (profile field factsAsKeys; the LongMemEval design-study shape — facts as additional index KEYS +9.4% recall, facts as replacement VALUES hurt): each top evidence fact line carries ONE verbatim quote of its first grounding turn (" [source YYYY-MM-DD speaker: …]", 240-char cap) — the fact acts as the key, the raw turn is the served content. Generator and verifier read the same augmented lines (evidence parity). Off = byte-identical.',
+      'Multiworld §10 facts-as-keys (profile field factsAsKeys; the LongMemEval design-study shape — facts as additional index KEYS +9.4% recall, facts as replacement VALUES hurt): each top evidence fact line carries ONE verbatim quote of its first grounding turn (" (source YYYY-MM-DD speaker: …)", 240-char cap) — the fact acts as the key, the raw turn is the served content. Generator and verifier read the same augmented lines (evidence parity). Off = byte-identical.',
   },
   {
     key: 'RETRIEVAL_FACTS_AS_KEYS_CAP',
@@ -3279,7 +3281,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: false,
     isBooleanFlag: false,
     description:
-      'Model for the predicate CARDINALITY judge: when the extractor coins a predicate the registry has never seen, one small strict-JSON call decides whether it is `single_active` (a state with one true value at a time — deploy_target, pilot_launch_date, payout_cutoff: a new value RETIRES the old one) or `append_only` (an event / preference / multi-valued field, where history is the point). Before this pass existed every coined predicate was append_only, which means no conflict is possible at ingest — the prior value stayed active forever beside the new one, so supersession and the competing-facts surface only ever worked for the ~15 seeded single_active predicates. Ambiguity, a missing OPENAI_API_KEY, a throw or an unparseable answer all resolve to append_only (the historical behaviour), so the pass only ever ADDS supersession where the judge is confident. Runs ONCE per novel predicate per tenant — the row is then cached in the registry — and never re-classifies an aliased, seeded or operator-edited predicate. Empty (default) = OPENAI_CHAT_MODEL, else gpt-4o-mini.',
+      'Model for the predicate CARDINALITY judge: when the extractor coins a predicate the registry has never seen, one small strict-JSON call decides whether it is `single_active` (a state with one true value at a time — deploy_target, pilot_launch_date, payout_cutoff: a new value RETIRES the old one) or `append_only` (an event / preference / multi-valued field, where history is the point). Before this pass existed every coined predicate was append_only, which means no conflict is possible at ingest — the prior value stayed active forever beside the new one, so supersession and the competing-facts surface only ever worked for the ~15 seeded single_active predicates. Ambiguity, a missing OPENAI_API_KEY, a throw or an unparseable answer all resolve to append_only (the historical behaviour), so the pass only ever ADDS supersession where the judge is confident. Runs ONCE per novel predicate per tenant — the row is then cached in the registry — and never re-classifies an aliased, seeded or operator-edited predicate. Empty (default) = OPENAI_CHAT_MODEL.',
   },
   {
     key: 'PREDICATE_SEMANTICS_CONCURRENCY',
@@ -3298,7 +3300,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: false,
     isBooleanFlag: false,
     description:
-      'Model for the predicate IDENTITY judge, used by the consolidation pass (POST /v1/admin/predicates/consolidate) to decide whether two names in a tenant\u2019s vocabulary denote the same attribute. Empty (default) = OPENAI_CHAT_MODEL, else gpt-4o-mini.',
+      'Model for the predicate IDENTITY judge, used by the consolidation pass (POST /v1/admin/predicates/consolidate) to decide whether two names in a tenant\u2019s vocabulary denote the same attribute. Empty (default) = OPENAI_CHAT_MODEL.',
   },
   {
     key: 'PREDICATE_IDENTITY_CONCURRENCY',

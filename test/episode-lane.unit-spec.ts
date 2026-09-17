@@ -289,8 +289,8 @@ describe('EpisodeLaneService.groundingQuotes (multiworld §10 facts-as-keys)', (
       ],
     ]);
     const map = await svc.groundingQuotes(base);
-    expect(map.get('knowledge_fact:f1')).toBe(' [source 2023-05-01 Mel: "a cup with a dog face"]');
-    expect(map.get('knowledge_fact:f2')).toBe(' [source 2023-06-02 Caroline: "moved to Portland"]');
+    expect(map.get('knowledge_fact:f1')).toBe(' (source 2023-05-01 Mel: "a cup with a dog face")');
+    expect(map.get('knowledge_fact:f2')).toBe(' (source 2023-06-02 Caroline: "moved to Portland")');
   });
 
   it('caps runaway turn text and skips fenced-out episodes', async () => {

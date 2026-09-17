@@ -333,7 +333,7 @@ export class AdminService {
    * perTenant bucket is empty until that lands; we expose the same
    * shape so the UI doesn't need a special case once it does.
    *
-   * Pricing defaults reflect the v2.2.8 default models (gpt-4o-mini +
+   * Pricing defaults reflect the default models (gpt-5.6-luna +
    * text-embedding-3-small). Overridable via env so the operator can
    * pin their negotiated rates without redeploying.
    */
@@ -424,8 +424,8 @@ export class AdminService {
     const env = process.env;
     return {
       chat: {
-        promptPerMTok: parse(env.COST_CHAT_PROMPT_USD_PER_MTOK, 0.15),
-        completionPerMTok: parse(env.COST_CHAT_COMPLETION_USD_PER_MTOK, 0.6),
+        promptPerMTok: parse(env.COST_CHAT_PROMPT_USD_PER_MTOK, 0.2),
+        completionPerMTok: parse(env.COST_CHAT_COMPLETION_USD_PER_MTOK, 1.2),
       },
       embed: {
         promptPerMTok: parse(env.COST_EMBED_USD_PER_MTOK, 0.02),

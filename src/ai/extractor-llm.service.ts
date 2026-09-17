@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { createOpenAiClientOrThrow } from './openai-client';
+import { chatCallParams, chatModel, createOpenAiClientOrThrow } from './openai-client';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
@@ -41,7 +41,7 @@ export class ExtractorLlmService {
     @Optional() private readonly metrics?: MetricsService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
-    this.model = this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini');
+    this.model = chatModel(this.configService);
     // The static EXTRACTION_SYSTEM_PROMPT override is no longer the
     // source of truth for vocabulary — that's the registry. The env
     // var stays as an escape hatch for operators who want to fully
@@ -150,8 +150,7 @@ export class ExtractorLlmService {
                   }),
                 },
               },
-              max_completion_tokens: 1500,
-              temperature,
+              ...chatCallParams(model, { temperature, visibleCap: 1500 }),
             },
             { signal: getAbortSignal() },
           ),
