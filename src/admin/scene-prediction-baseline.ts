@@ -1,4 +1,4 @@
-import { resolveFieldFold } from './belief-field-fold';
+import { predicateIdFromFieldName } from '../common/attribute-names';
 import { sceneSingleUser, type PromotableSceneHead } from './belief-promotion.service';
 import type { SceneTurnRow } from './scene-segmentation';
 
@@ -30,9 +30,10 @@ import type { SceneTurnRow } from './scene-segmentation';
  * pushed belief-field-fold.ts out) and not inside the enricher (which
  * stays a transport/orchestration service). The two helpers imported
  * from the belief layer — `sceneSingleUser` (the #387 fail-closed
- * single-user fence) and `resolveFieldFold` (the deterministic lexical
- * field-name rule) — are IMPORTED, never re-implemented: a duplicated
- * scope fence is a fence that drifts.
+ * single-user fence) and `predicateIdFromFieldName` (the free-text
+ * attribute name → registry slot normalization the belief plane keys on
+ * since 0147) — are IMPORTED, never re-implemented: a duplicated scope
+ * fence is a fence that drifts.
  *
  * 3.2.4 DISCIPLINE. Exactly one plain SELECT per run (reads never trip
  * the compound-index planner class that makes `DELETE ... WHERE` a
@@ -337,15 +338,19 @@ function matchBelief(
 ): BaselineBelief | null {
   const candidates = bySubject.get(normalizeLexical(delta.subject));
   if (candidates === undefined || candidates.length === 0) return null;
-  // The belief layer's own field rule: exact name short-circuits, EXACTLY
-  // one foldable candidate folds, ambiguity folds nothing (fail-closed —
-  // an ambiguous match is not a measurement).
-  const resolved = resolveFieldFold(
-    delta.field,
-    candidates.map((c) => c.field),
-  );
-  if (resolved.ambiguous) return null;
-  return candidates.find((c) => c.field === resolved.field) ?? null;
+  // The belief layer's own identity rule (0147): a field name and a
+  // belief name are the same attribute when they resolve to the same
+  // registry slot. This used to consult a lexical token-subset rule with
+  // an ambiguity branch; a slot is one value, so the exact name and the
+  // normalized name are the whole test, in that order.
+  const exact = candidates.find((c) => c.field === delta.field);
+  if (exact !== undefined) return exact;
+  const slot = predicateIdFromFieldName(delta.field);
+  if (slot === '') return null;
+  const bySlot = candidates.filter((c) => predicateIdFromFieldName(c.field) === slot);
+  // Two baseline beliefs in one slot is a promotion-side defect, not a
+  // measurement: scoring either would be arbitrary. Fail closed.
+  return bySlot.length === 1 ? bySlot[0]! : null;
 }
 
 /**

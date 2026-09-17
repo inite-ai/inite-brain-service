@@ -284,7 +284,7 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
       promoterVersion: 'belief-promotion-v1|scene-segmenter-v1',
     });
     expect(String(rows[0]!.id)).toContain(
-      beliefIdTail({ userId: USER, subject: 'mika', field: 'home.city' }, 1),
+      beliefIdTail({ userId: USER, subject: 'mika', predicateId: 'home.city' }, 1),
     );
     expect((rows[0]!.sourceSceneIds ?? []).map(String).sort()).toEqual([
       'memory_episode:sa1',
@@ -419,8 +419,15 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
     expect((await beliefs()).filter((r) => r.field === 'home.city')).toHaveLength(2);
   });
 
-  it('negation + field fold (#135): an empty-`to` delta under a re-coined field name revises to the sentinel', async () => {
+  it('negation (#135): an empty-`to` delta revises the chain to the sentinel, never vanishes', async () => {
     process.env.SCENES_BELIEF_NEGATION_DELTAS = '1';
+    // Field identity is the REGISTRY slot now (0147, "one vocabulary for
+    // both planes"): a re-coined name joins an existing chain only when
+    // the registry aliases it there, which is an embedding + judge
+    // decision no stub can make — the fold itself is pinned in
+    // test/belief-promotion.unit-spec.ts with canonicalize stubbed. What
+    // this e2e pins is the negation contract on a real store, under the
+    // same written name, conversation-scoped so the counters are exact.
     process.env.SCENES_BELIEF_FIELD_FOLD = '1';
 
     // The live Compass shape, scene 1: acquisition — belief created.
@@ -432,29 +439,23 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
       occurredTo: '2026-03-06T10:00:00.000Z',
       deltas: [{ subject: 'Mikhail', field: 'car', from: '', to: 'Jeep Compass' }],
     });
-    const first = await promote();
+    const first = await promoteConv('proj:c4');
     expect(first.status).toBe(201);
-    expect(first.body).toMatchObject({ beliefsCreated: 1, beliefsRevised: 0, fieldFolds: 0 });
+    expect(first.body).toMatchObject({ beliefsCreated: 1, beliefsRevised: 0 });
 
-    // Scene 2: state REMOVAL under a RE-COINED field name — historically
-    // this delta vanished at the no-landing-value guard AND would have
-    // keyed a fresh parallel group ('car ownership' ≠ 'car').
+    // Scene 2: state REMOVAL — historically this delta vanished at the
+    // no-landing-value guard, so the belief said "Jeep Compass" forever.
     await seedScene({
       tail: 'scar2',
       conv: 'proj:c5',
       user: USER,
       users: [USER],
       occurredTo: '2026-03-07T10:00:00.000Z',
-      deltas: [{ subject: 'Mikhail', field: 'car ownership', from: 'Compass', to: '' }],
+      deltas: [{ subject: 'Mikhail', field: 'car', from: 'Compass', to: '' }],
     });
-    const second = await promote();
+    const second = await promoteConv('proj:c5');
     expect(second.status).toBe(201);
-    expect(second.body).toMatchObject({
-      beliefsCreated: 0,
-      beliefsRevised: 1,
-      fieldFolds: 1,
-      fieldFoldAmbiguous: 0,
-    });
+    expect(second.body).toMatchObject({ beliefsCreated: 0, beliefsRevised: 1 });
 
     const chain = (await beliefs()).filter((r) => r.subject === 'Mikhail' && r.field === 'car');
     expect(chain).toHaveLength(2);
@@ -469,8 +470,6 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
       statementSource: 'template',
       status: 'active',
     });
-    // NO parallel 'car ownership' belief exists — the fold won.
-    expect((await beliefs()).filter((r) => r.field === 'car ownership')).toEqual([]);
 
     // The full revision contract fires for the negation delta too.
     const scar2 = await sceneRow('scar2');

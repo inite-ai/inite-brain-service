@@ -11,7 +11,6 @@ import { MentionExtractionService } from './mention-extraction.service';
 import { MentionPersistService } from './mention-persist.service';
 import { MentionIngestService } from './mention-ingest.service';
 import { MentionProjectionService } from './mention-projection.service';
-import { EpisodeStoreService } from './episode-store.service';
 import { LinkIngestService } from './link-ingest.service';
 
 /**
@@ -36,7 +35,6 @@ import { LinkIngestService } from './link-ingest.service';
     MentionPersistService,
     MentionIngestService,
     MentionProjectionService,
-    EpisodeStoreService,
     LinkIngestService,
   ],
   exports: [IngestService, IngestPredictionService, IngestCoreModule],

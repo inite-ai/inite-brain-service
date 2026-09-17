@@ -9,6 +9,8 @@ import { buildGeneratorUserMessage } from './generator-prompt';
 import { salvageTruncatedAnswer } from './synthesize.helpers';
 
 import type { GeneratorOutput } from './synthesize.types';
+import type { Citation } from './fact-index';
+import { expandCitationHandles } from './synthesize.helpers';
 
 /**
  * Generator client — the synthesis LLM call, split out of
@@ -22,9 +24,9 @@ import type { GeneratorOutput } from './synthesize.types';
 
 const GENERATOR_SYSTEM = `You are an answer synthesizer for a knowledge graph.
 
-Given a user query and a set of retrieved facts (each prefixed with its factId in square brackets, e.g. "[knowledge_fact:8a3fd2c1b9e4f7a6d5c0] ..."), generate a CONCISE answer that:
+Given a user query and a set of retrieved facts (each prefixed with a short handle in square brackets, e.g. "[f3] ..."), generate a CONCISE answer that:
 1. Uses ONLY information present in the provided facts. Do NOT speculate, fill in missing details, or use outside knowledge.
-2. After each claim in the answer, inline a citation in square brackets, copying the factId EXACTLY as it appears in the fact list — including its "knowledge_fact:" prefix. Do not abbreviate, renumber, or change the prefix. Example: "Maya complained about a broken washing machine [knowledge_fact:8a3fd2c1b9e4f7a6d5c0]". Mirror every factId you cite inline into the citedFactIds array.
+2. After each claim in the answer, inline the handle of the fact that supports it, in square brackets, EXACTLY as it appears at the start of that fact's line. Example: "Maya complained about a broken washing machine [f3]". Cite only handles that appear in the fact list. Mirror every handle you cite inline into the citedFactIds array (e.g. ["f3"]).
 3. If the facts do not answer the question, output the exact answer string "I don't have grounded evidence for that." with citedFactIds set to [].
 
 Output strictly the JSON shape requested by the schema. Do not include preamble, follow-ups, or chain-of-thought.`;
@@ -37,9 +39,9 @@ Output strictly the JSON shape requested by the schema. Do not include preamble,
  */
 const GENERATOR_SYSTEM_ANSWER = `You are an answer synthesizer for a knowledge graph.
 
-Given a user query and a set of retrieved facts (each prefixed with its factId in square brackets, e.g. "[knowledge_fact:8a3fd2c1b9e4f7a6d5c0] ..."), generate a SHORT, CONCRETE answer that:
+Given a user query and a set of retrieved facts (each prefixed with a short handle in square brackets, e.g. "[f3] ..."), generate a SHORT, CONCRETE answer that:
 1. Is grounded in the provided facts — prefer specifics stated in them; do not invent named entities, dates, or numbers that no fact supports.
-2. After each claim, inline a citation copying the factId EXACTLY (including its "knowledge_fact:" prefix), and mirror every cited factId into citedFactIds.
+2. After each claim, inline the handle of the supporting fact in square brackets EXACTLY as it appears at the start of that fact's line (e.g. "[f3]"), and mirror every cited handle into citedFactIds.
 3. ALWAYS commit to an answer. If the facts do not fully resolve the question, give the single most likely short answer they point to — do NOT refuse, do NOT output "I don't have grounded evidence", do NOT hedge with "the facts don't say". Answer in as few words as the question allows.
 
 Output strictly the JSON shape requested by the schema. Do not include preamble, follow-ups, or chain-of-thought.`;
@@ -51,6 +53,12 @@ export interface GenerateRequest {
   logger?: { warn(message: string): void } | undefined;
   query: string;
   factLines: string[];
+  /**
+   * The index the fact lines were rendered from (fact-index.ts): keyed
+   * by id AND by the short handle each line opens with. Present ⇒ the
+   * returned answer and citedFactIds carry ids, never handles.
+   */
+  factIndex?: ReadonlyMap<string, Citation> | undefined;
   /** Episodic-lane quotes (P2) — rendered as a separate typed section. */
   transcriptLines?: string[] | undefined;
   /** V8 §1: derived insights — their own section, own budget slot. */
@@ -347,7 +355,9 @@ export async function runGenerator(req: GenerateRequest): Promise<GeneratorOutpu
     };
   }
   traceArtifact('synthesize.generator_output', parsed);
-  return parsed;
+  // Handles back to ids before anyone downstream reads the answer — the
+  // trace above keeps what the model actually wrote.
+  return req.factIndex ? expandCitationHandles(parsed, req.factIndex) : parsed;
 }
 
 /**

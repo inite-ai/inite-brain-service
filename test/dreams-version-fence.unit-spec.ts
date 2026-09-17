@@ -52,28 +52,28 @@ describe('derivedVersionFence', () => {
 });
 
 describe('dreams legs stay inside the tenant live world (W2)', () => {
-  it('dedup seed query is fenced to the pin', async () => {
+  /**
+   * Dedup seeds from ENTITIES now, and an entity is the same node
+   * in every derived world — `derivedVersion` is a fact field (0074) and
+   * does not exist on knowledge_entity. So the world fence this block was
+   * written for no longer has a column to fence on in the seed query, and
+   * pinning it there would pin a string that SurrealDB would reject. What
+   * is pinned instead: the seed reads entities, never `name` facts (the
+   * fact scan it replaced searched an empty set on every mention-ingested
+   * tenant), and it never leaks a private or merged-away entity.
+   */
+  it('dedup seeds from entity name embeddings, not from name facts', async () => {
     const { db, queries } = recordingDb();
     const svc = new DreamsDedupService(
       config({ DREAMS_DEDUP_ENABLED: '1', OPENAI_API_KEY: 'sk' }),
       { isAvailable: () => true } as unknown as EntityJudgeService,
     );
     await svc.run(db, 'wd-v3');
-    const seed = queries.find((q) => q.sql.includes("predicate = 'name'"));
-    expect(seed?.sql).toContain('AND derivedVersion = $derivedVersion');
-    expect(seed?.params?.derivedVersion).toBe('wd-v3');
-  });
-
-  it('dedup legacy tenant is fenced to the NONE namespace', async () => {
-    const { db, queries } = recordingDb();
-    const svc = new DreamsDedupService(
-      config({ DREAMS_DEDUP_ENABLED: '1', OPENAI_API_KEY: 'sk' }),
-      { isAvailable: () => true } as unknown as EntityJudgeService,
-    );
-    await svc.run(db, null);
-    const seed = queries.find((q) => q.sql.includes("predicate = 'name'"));
-    expect(seed?.sql).toContain('AND derivedVersion IS NONE');
-    expect(seed?.params?.derivedVersion).toBeUndefined();
+    const seed = queries.find((q) => q.sql.includes('FROM knowledge_entity'));
+    expect(seed?.sql).toContain('embedding != NONE');
+    expect(seed?.sql).toContain('userId IS NONE');
+    expect(seed?.sql).toContain('mergedInto IS NONE');
+    expect(queries.some((q) => q.sql.includes("predicate = 'name'"))).toBe(false);
   });
 
   it('resolver competing-pair query is fenced to the pin', async () => {

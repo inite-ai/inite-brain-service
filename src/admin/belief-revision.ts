@@ -27,25 +27,32 @@ export function epochMs(v: unknown): number {
 }
 
 /**
- * Pure: deterministic record-id tail over (userId|subject|field|
+ * Pure: deterministic record-id tail over (userId|subject|predicateId|
  * revision) — the composer's sceneIdTail idiom. Paired with INSERT
  * IGNORE it makes every create replay-idempotent, and it enforces
- * (userId, subject, field, revision) uniqueness in CODE — a compound
+ * (userId, subject, slot, revision) uniqueness in CODE — a compound
  * UNIQUE index is exactly the 3.2.4 planner trap 0120 avoids.
+ *
+ * It hashes the SLOT, not the written field name (0147). Identity had
+ * to follow the group key here too: with the id still keyed on free
+ * text, two scenes writing `deployment target` and `deployment
+ * platform` into the one slot would mint two record ids and both rows
+ * would survive — which is the parallel-belief bug the slot exists to
+ * end, reintroduced one layer down.
  */
 export function beliefIdTail(
-  key: { userId: string; subject: string; field: string },
+  key: { userId: string; subject: string; predicateId: string },
   revision: number,
 ): string {
   return createHash('sha256')
-    .update(`${key.userId}\x00${key.subject}\x00${key.field}\x00${revision}`)
+    .update(`${key.userId}\u0000${key.subject}\u0000${key.predicateId}\u0000${revision}`)
     .digest('hex')
     .slice(0, 24);
 }
 
 /** Full record-id string for a folded belief at a given revision. */
 export function beliefRecordString(
-  belief: Pick<FoldedBelief, 'userId' | 'subject' | 'field'>,
+  belief: Pick<FoldedBelief, 'userId' | 'subject' | 'predicateId'>,
   revision: number,
 ): string {
   return `semantic_belief:${beliefIdTail(belief, revision)}`;
@@ -53,6 +60,8 @@ export function beliefRecordString(
 
 /** Active-belief head read back for the upsert decision. */
 export interface ActiveBeliefRow {
+  /** The written name — used only when reporting a retired duplicate. */
+  field?: unknown;
   id: unknown;
   revision: number;
   value: string;
@@ -240,6 +249,7 @@ export async function commitRevision({
     userId: belief.userId,
     subject: belief.subject,
     field: belief.field,
+    predicateId: belief.predicateId,
     value: belief.value,
     ...(belief.priorValue !== '' ? { priorValue: belief.priorValue } : {}),
     statement: statement.text,

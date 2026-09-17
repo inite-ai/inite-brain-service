@@ -81,7 +81,7 @@ describe('mention-record section header', () => {
 
   it('default header without the timeline flag (no drift)', () => {
     const msg = buildGeneratorUserMessage({ ...base });
-    expect(msg).toContain('use them to answer, but cite factIds only');
+    expect(msg).toContain('use them to answer, but cite fact handles only');
     expect(msg).not.toContain('MENTION RECORD');
   });
 

@@ -4,7 +4,7 @@
  * = MAX, never boosted — same-document indexers are not independent
  * evidence), relation dedupe, orphan rejection.
  */
-import { mergeCandidates } from '../src/documents/candidate-merge';
+import { incomingFactsFor, mergeCandidates } from '../src/documents/candidate-merge';
 import type { CandidateRow } from '../src/documents/candidate-store.service';
 
 let seq = 0;
@@ -209,6 +209,32 @@ describe('mergeCandidates', () => {
     expect(out.rejected).toEqual([
       expect.objectContaining({ kind: 'relation', reason: 'orphan_relation' }),
     ]);
+  });
+
+  it("the judge reads an entity's facts AND its edges, each edge as `kind: other`", () => {
+    const rows = [
+      entity('Acme', 0),
+      row({
+        kind: 'entity',
+        payload: { entityIndex: 1, name: 'Мария', type: 'staff', indexerId: '_general' },
+      }),
+      row({
+        kind: 'fact',
+        payload: { entityIndex: 1, predicate: 'works_as', object: 'CTO', indexerId: '_general' },
+      }),
+      row({
+        kind: 'relation',
+        payload: { fromEntityIndex: 1, toEntityIndex: 0, kind: 'works_at', indexerId: '_general' },
+      }),
+    ];
+    const out = mergeCandidates(rows);
+    const maria = out.entities.find((e) => e.name === 'Мария')!;
+    const acme = out.entities.find((e) => e.name === 'Acme')!;
+    // The extractor files "works at Acme" as an edge on this surface; the
+    // judge must see it, or two scripts of one person share no evidence.
+    expect(incomingFactsFor(out, maria.key)).toEqual(['works_as: CTO', 'works_at: Acme']);
+    // The edge reads from the other end too.
+    expect(incomingFactsFor(out, acme.key)).toEqual(['works_at: Мария']);
   });
 
   it('cross-chunk duplicate of the same fact folds (overlap dedupe)', () => {

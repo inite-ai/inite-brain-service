@@ -192,8 +192,6 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   nonNegativeInt(env, 'HNSW_PROVISION_MAX_BUILDS_PER_RUN', errors);
 
   // ── HNSW on the inline entity-resolution name-candidate scan ───────
-  positiveInt(env, 'INGEST_INLINE_RESOLUTION_HNSW_EF', errors);
-  positiveInt(env, 'INGEST_INLINE_RESOLUTION_HNSW_OVERFETCH', errors);
 
   // ── HNSW on the coverage scan lanes (mention-scan / query_arc) ─────
   positiveInt(env, 'RETRIEVAL_SCAN_HNSW_EF', errors);
@@ -998,7 +996,6 @@ const KNOWN_BOOLEAN_FLAGS = [
   // the conflict engine to settle. Default off = byte-identical.
   'COMPACTION_PROMOTION_CONFLICT_GUARD',
   'INGEST_INLINE_RESOLUTION_ENABLED',
-  'INGEST_INLINE_RESOLUTION_HNSW',
   'EXTRACTOR_DROP_SAID',
   // Dialogue memory mode — Phase 4. On → open/normalized extraction profile:
   // normalized values (not verbatim spans, grounding-drop bypassed), specific
@@ -1639,13 +1636,6 @@ const KNOWN_BOOLEAN_FLAGS = [
   // off ⇒ the regex router is byte-identical. MULTILINGUAL_ family, off the
   // ENGINE flag budget.
   'MULTILINGUAL_LANE_ROUTING',
-  // Multilingual Tier 4. Locale-time decomposition: ar/hi/ko relative-
-  // expression recognition (chrono has no parser for them), locale-aware digit
-  // parsing, and the atUtcMidnight day-shift fix (anchors a relative event to
-  // the speaker's LOCAL calendar day via dto.timezone). Read on the ingest
-  // path (mention-persist); re-ingest to apply. Default off ⇒ byte-identical
-  // UTC-day chrono behavior. MULTILINGUAL_ family, off the ENGINE flag budget.
-  'MULTILINGUAL_TEMPORAL',
   // Multilingual Tier 4. Typed conflict detection: detectEvidenceConflicts
   // compares normalized TYPED values (numbers/booleans, digit-script/case
   // folded) instead of surface strings, catching cross-lingual value conflicts

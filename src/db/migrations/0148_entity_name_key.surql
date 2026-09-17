@@ -1,0 +1,53 @@
+-- 0148: a script-independent lookup key for entity names.
+--
+-- WHY. Deterministic entity reuse matched on `canonicalNameLc` — the
+-- lowercased surface — plus a literal alias list. That is an exact string
+-- comparison, so it unifies "ACME" with "Acme" and nothing else. The
+-- moment the same person is written in a second script, the name shares
+-- no characters with the first one and the deterministic path cannot see
+-- it at all:
+--
+--   Ivan Petrov   canonicalNameLc = "ivan petrov"
+--   Иван Петров   canonicalNameLc = "иван петров"    <- a different string
+--
+-- Everything past that point was left to the probabilistic resolver:
+-- embed the name, take the nearest neighbour above a cosine floor, ask an
+-- LLM judge. Measured on bge-m3 (the provider prod runs) on 2026-09-14,
+-- that signal cannot decide the question:
+--
+--   Ivan Petrov ~ Иван Петров     0.865   the same person
+--   Ivan Petrov ~ Иван Сидоров    0.712   a DIFFERENT person
+--   Иван Петров ~ إيفان بيتروف     0.695   the same person
+--
+-- A different person sits above a true pair, so no threshold separates
+-- them. That is not a mistuned floor: an embedding measures meaning, and
+-- a name has none — to the model both of those are "a Russian man's
+-- name", which is a correct answer to the wrong question.
+--
+-- `nameKeys` is the right question asked cheaply: the transliteration of
+-- every name the entity is known by, folded to letters and digits, so two
+-- spellings of one name meet as strings.
+--
+--   Иван Петров  -> "ivan petrov"   == Ivan Petrov -> "ivan petrov"
+--   Иван Сидоров -> "ivan sidorov"  != Ivan Petrov -> "ivan petrov"
+--
+-- Computed in JS (src/common/name-key.ts) because SurrealDB has no
+-- transliteration function — so unlike `canonicalNameLc` this cannot be a
+-- VALUE field and is written by the ingest path. Existing rows carry no
+-- keys until the backfill runs; a missing key simply means this step
+-- finds nothing and the ladder falls through to where it fell through
+-- before, so the field is safe to add ahead of the backfill.
+--
+-- NOT UNIQUE, deliberately. Two entities legitimately share a key — a
+-- person and a company named after them, two different Ivan Petrovs —
+-- and a UNIQUE index would make the SECOND one a write failure instead of
+-- a lookup ambiguity. The reader reuses only on a UNIQUE match and
+-- declines to guess otherwise, which is the same posture the
+-- article-variant lookup already takes.
+
+DEFINE FIELD IF NOT EXISTS nameKeys ON knowledge_entity
+  TYPE option<array<string>>;
+
+-- The lookup is `nameKeys CONTAINS $key`; SurrealDB indexes an array field
+-- per element, so this serves that predicate directly.
+DEFINE INDEX IF NOT EXISTS entity_name_keys_idx ON knowledge_entity FIELDS nameKeys;

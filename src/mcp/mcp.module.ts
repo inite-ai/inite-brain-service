@@ -20,6 +20,8 @@ import { FeedbackModule } from '../feedback/feedback.module';
 import { OutcomesModule } from '../outcomes/outcomes.module';
 import { StatsModule } from '../stats/stats.module';
 import { WorkspaceStatusService } from './workspace-status.service';
+import { ApiKeyGuard } from '../auth/api-key.guard';
+import { McpOptionalAuthGuard } from './mcp-optional-auth.guard';
 
 @Module({
   imports: [
@@ -41,7 +43,16 @@ import { WorkspaceStatusService } from './workspace-status.service';
     StatsModule,
   ],
   controllers: [McpController],
-  providers: [McpService, PackToolsReaderService, PackToolProxyService, WorkspaceStatusService],
+  providers: [
+    McpService,
+    PackToolsReaderService,
+    PackToolProxyService,
+    WorkspaceStatusService,
+    // The optional-auth guard wraps ApiKeyGuard, so both are providers
+    // here; the wrapper grants nothing on its own — see its header.
+    ApiKeyGuard,
+    McpOptionalAuthGuard,
+  ],
   // Exported for DomainPackInstallService's cache invalidation hook
   // (AdminModule imports McpModule).
   exports: [PackToolsReaderService],

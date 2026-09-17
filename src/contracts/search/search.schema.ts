@@ -73,7 +73,10 @@ export const SearchRequestSchema = z.strictObject({
 
 export const SearchFactSchema = z.object({
   factId: z.string(),
+  /** As written — the coinage the fact was stored under. */
   predicate: z.string(),
+  /** The canon it was aliased onto (0083); identity is `predicateAlias ?? predicate`. Absent = its own canon. */
+  predicateAlias: z.string().optional(),
   object: z.string(),
   confidence: z.number(),
   validFrom: z.string(),
@@ -91,11 +94,20 @@ export const SearchFactSchema = z.object({
   breakdown: ScoreBreakdownSchema.optional(),
 });
 
+/** One 1-hop graph relation of the hit — evidence beside the facts. */
+export const SearchRelationSchema = z.object({
+  kind: z.string(),
+  peer: z.string(),
+  peerType: z.string(),
+});
+
 export const SearchHitSchema = z.object({
   entityId: z.string(),
   entityType: z.string(),
   canonicalName: z.string(),
   externalRefs: z.record(z.string(), z.string()),
+  /** The entity's 1-hop `knowledge_edge` rows, when any were fetched (up to 5). */
+  relations: z.array(SearchRelationSchema).optional(),
   facts: z.array(SearchFactSchema),
   score: z.number(),
 });
