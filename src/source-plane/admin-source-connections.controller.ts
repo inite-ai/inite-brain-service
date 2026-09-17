@@ -30,8 +30,8 @@ import {
 import { SourceCatalogService } from './source-catalog.service';
 import { SourceConnectionService } from './source-connection.service';
 import { SourceItemService } from './source-item.service';
+import { SourceRunHistoryService } from './source-run-history.service';
 import { SourceSyncQueueService } from './source-sync-queue.service';
-import { SourceSyncService } from './source-sync.service';
 
 /**
  * Operator surface of the source plane (brain:admin). Mounted at its own
@@ -49,7 +49,7 @@ export class AdminSourceConnectionsController {
   constructor(
     private readonly connections: SourceConnectionService,
     private readonly items: SourceItemService,
-    private readonly sync: SourceSyncService,
+    private readonly history: SourceRunHistoryService,
     private readonly queue: SourceSyncQueueService,
     private readonly catalog: SourceCatalogService,
   ) {}
@@ -152,23 +152,21 @@ export class AdminSourceConnectionsController {
     const connectionId = assertId(id);
     // Existence + tenancy check before anything is enqueued.
     await this.connections.get(req.brainAuth.companyId, connectionId);
-    if (dto.inline === true) {
-      const summary = await this.sync.sync(req.brainAuth.companyId, connectionId, {
+    // Inline runs get a job_run of their own (the operator's receipt in
+    // the Jobs cockpit and the connection's history) — the same row a
+    // queued or agent run leaves.
+    const inline = () =>
+      this.history.runInline(req.brainAuth.companyId, connectionId, {
         full: dto.full,
+        actor: req.brainAuth.actorId ?? req.brainAuth.userId ?? 'admin',
       });
-      return { enqueued: false, summary };
-    }
+    if (dto.inline === true) return { enqueued: false, summary: await inline() };
     const r = await this.queue.enqueue(req.brainAuth.companyId, {
       connectionId,
       full: dto.full,
       triggeredBy: 'manual',
     });
-    if (!r) {
-      const summary = await this.sync.sync(req.brainAuth.companyId, connectionId, {
-        full: dto.full,
-      });
-      return { enqueued: false, summary };
-    }
+    if (!r) return { enqueued: false, summary: await inline() };
     return { enqueued: true, runId: r.runId, created: r.created };
   }
 }

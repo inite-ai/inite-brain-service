@@ -77,7 +77,9 @@ jobs:
 ```
 
 Point a `code_memory/repo_docs` connection at `agent:ci-<owner>` with
-`config: { repo: "." }` (the working directory of the job). Structure —
+`config: { repo: "." }` (the working directory of the job); `include`
+narrows the walk by prefix or glob (`["docs/**", "README.md", "adr/????-*.md"]`),
+`extensions` defaults to the docs extensions. Structure —
 decisions, ownership, version pins — stays with the repo indexer
 (`pnpm indexer:repo`); one repo, two shapes.
 

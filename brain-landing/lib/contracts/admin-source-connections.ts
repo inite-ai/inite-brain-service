@@ -163,6 +163,107 @@ export const SourceCatalogResponseSchema = z.object({
   egressAllowPrivate: z.boolean(),
 })
 
+// ── Inspection (the operator's drill-down) ─────────────────────────────
+
+export const SourceConnectionStatsSchema = z.object({
+  connectionId: z.string(),
+  items: z.object({
+    seen: z.number().int(),
+    fetched: z.number().int(),
+    indexed: z.number().int(),
+    gone: z.number().int(),
+    total: z.number().int(),
+  }),
+  facts: z
+    .object({
+      active: z.number().int(),
+      stale: z.number().int(),
+      closed: z.number().int(),
+    })
+    .nullable(),
+})
+
+export const SourceRunCountersSchema = z.object({
+  seen: z.number().int(),
+  new: z.number().int(),
+  changed: z.number().int(),
+  unchanged: z.number().int(),
+  gone: z.number().int(),
+  fetched: z.number().int(),
+  ingested: z.number().int(),
+  deduplicated: z.number().int(),
+  failed: z.number().int(),
+  closed: z.number().int(),
+})
+
+export const SourceRunSchema = z.object({
+  runId: z.string(),
+  status: z.enum(['running', 'succeeded', 'failed', 'cancelled', 'pending']),
+  ranBy: z.string(),
+  triggeredBy: z.enum(['cron', 'manual', 'startup']),
+  startedAt: z.string(),
+  finishedAt: z.string().nullable(),
+  durationMs: z.number().int().nullable(),
+  mode: z.enum(['full', 'incremental']).nullable(),
+  counters: SourceRunCountersSchema.nullable(),
+  skipped: z.string().nullable(),
+  error: z.string().nullable(),
+})
+
+export const SourceRunsResponseSchema = z.object({
+  connectionId: z.string(),
+  persisted: z.boolean(),
+  runs: z.array(SourceRunSchema),
+})
+
+export const SourceItemFactSchema = z.object({
+  id: z.string(),
+  entityId: z.string(),
+  predicate: z.string(),
+  object: z.string(),
+  confidence: z.number(),
+  version: z.string().nullable(),
+  staleAt: z.string().nullable(),
+  staleReason: z.string().nullable(),
+  validUntil: z.string().nullable(),
+  status: z.string(),
+})
+
+export const SourceItemDocumentSchema = z.object({
+  id: z.string(),
+  title: z.string().nullable(),
+  kind: z.string().nullable(),
+  status: z.string().nullable(),
+  originUri: z.string().nullable(),
+  createdAt: z.string().nullable(),
+})
+
+export const SourceItemAssetSchema = z.object({
+  id: z.string(),
+  mediaType: z.string(),
+  modality: z.string(),
+  byteLength: z.number().int(),
+  availability: z.string(),
+  quarantineStatus: z.string().nullable(),
+  representations: z.array(
+    z.object({
+      id: z.string(),
+      kind: z.string(),
+      producerVersion: z.string(),
+      chars: z.number().int(),
+      createdAt: z.string().nullable(),
+    }),
+  ),
+})
+
+export const SourceItemInspectResponseSchema = z.object({
+  item: SourceItemSchema,
+  documents: z.array(SourceItemDocumentSchema),
+  asset: SourceItemAssetSchema.nullable(),
+  facts: z.array(SourceItemFactSchema),
+  factsTruncated: z.boolean(),
+})
+
 export type SourceConnection = z.infer<typeof SourceConnectionSchema>
 export type SourceConnectionsListResponse = z.infer<
   typeof SourceConnectionsListResponseSchema
@@ -180,3 +281,12 @@ export type SourceContentPolicy = z.infer<typeof ContentPolicySchema>
 export type SourceDeletePolicy = z.infer<typeof DeletePolicySchema>
 export type SourceItemState = z.infer<typeof ItemStateSchema>
 export type SourceAvailability = z.infer<typeof AvailabilitySchema>
+export type SourceConnectionStats = z.infer<typeof SourceConnectionStatsSchema>
+export type SourceRun = z.infer<typeof SourceRunSchema>
+export type SourceRunsResponse = z.infer<typeof SourceRunsResponseSchema>
+export type SourceItemFact = z.infer<typeof SourceItemFactSchema>
+export type SourceItemDocument = z.infer<typeof SourceItemDocumentSchema>
+export type SourceItemAsset = z.infer<typeof SourceItemAssetSchema>
+export type SourceItemInspectResponse = z.infer<
+  typeof SourceItemInspectResponseSchema
+>

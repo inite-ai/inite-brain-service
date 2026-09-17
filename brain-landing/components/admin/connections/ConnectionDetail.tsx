@@ -1,18 +1,27 @@
 'use client'
 
 import { useCallback, useState } from 'react'
-import { Loader2, Play, X } from 'lucide-react'
+import { useParams } from 'next/navigation'
+import Link from 'next/link'
+import { ExternalLink, Loader2, Play, X } from 'lucide-react'
 import { useLoader } from '../../../hooks/useLoader'
 import { JsonView } from '../JsonView'
 import { Segmented } from '../policies/ui'
+import { normalizeLang } from '../../../lib/i18n'
 import {
   SOURCE_ITEM_STATES,
+  type SourceCatalogEntry,
   type SourceConnection,
+  type SourceConnectionStats,
+  type SourceItem,
   type SourceItemsListResponse,
   type SourceItemState,
+  type SourceRun,
+  type SourceRunsResponse,
   type SourceSyncSummary,
   type SyncNowResponse,
 } from '../../../lib/contracts/admin-source-connections'
+import { ItemInspect } from './ItemInspect'
 import {
   accentBtn,
   connectionPath,
@@ -23,33 +32,43 @@ import {
 } from './shared'
 
 const PAGE = 50
+const RUNS = 20
 
 type StateFilter = '' | SourceItemState
 
 /**
- * One connection opened: its identity and policies, the catalogue it
- * has built (paged, filterable by state) and an inline sync that shows
- * the run's counters — the operator's way to watch a first sync of a
- * small source without going to the Jobs panel.
+ * One connection opened: its identity and policies, what it produced
+ * (catalogue rows by state, the facts it grounds), every run it had
+ * (queued, inline, agent — one job_run each), the catalogue it built
+ * (paged, filterable by state, every row openable to its document /
+ * asset / facts) and an inline sync that shows the run's counters.
  */
 export function ConnectionDetail({
   connection,
+  entry,
   t,
   onClose,
   onChanged,
 }: {
   connection: SourceConnection
+  /** The pack's catalogue entry this connection instantiates; null when the pack no longer declares it. */
+  entry: SourceCatalogEntry | null
   t: ConnectionsT
   onClose: () => void
   onChanged: () => Promise<void>
 }) {
+  const params = useParams<{ lang: string }>()
+  const lang = normalizeLang(params?.lang)
   const d = t.detail
   const [items, setItems] = useState<SourceItemsListResponse | null>(null)
+  const [stats, setStats] = useState<SourceConnectionStats | null>(null)
+  const [runs, setRuns] = useState<SourceRunsResponse | null>(null)
   const [state, setState] = useState<StateFilter>('')
   const [offset, setOffset] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [summary, setSummary] = useState<SourceSyncSummary | null>(null)
   const [running, setRunning] = useState(false)
+  const [inspecting, setInspecting] = useState<SourceItem | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -58,13 +77,24 @@ export function ConnectionDetail({
         offset: String(offset),
       })
       if (state) params.set('state', state)
-      const res = await fetch(
-        `${connectionPath(connection.id, '/items')}?${params.toString()}`,
-        { cache: 'no-store' },
-      )
-      const json = await res.json()
-      if (!res.ok) throw new Error(errorMessage(json, res.status))
-      setItems(json as SourceItemsListResponse)
+      const [itemsRes, statsRes, runsRes] = await Promise.all([
+        fetch(`${connectionPath(connection.id, '/items')}?${params.toString()}`, {
+          cache: 'no-store',
+        }),
+        fetch(connectionPath(connection.id, '/stats'), { cache: 'no-store' }),
+        fetch(`${connectionPath(connection.id, '/runs')}?limit=${RUNS}`, {
+          cache: 'no-store',
+        }),
+      ])
+      const itemsJson = await itemsRes.json()
+      if (!itemsRes.ok) throw new Error(errorMessage(itemsJson, itemsRes.status))
+      setItems(itemsJson as SourceItemsListResponse)
+      const statsJson = await statsRes.json()
+      if (!statsRes.ok) throw new Error(errorMessage(statsJson, statsRes.status))
+      setStats(statsJson as SourceConnectionStats)
+      const runsJson = await runsRes.json()
+      if (!runsRes.ok) throw new Error(errorMessage(runsJson, runsRes.status))
+      setRuns(runsJson as SourceRunsResponse)
       setError(null)
     } catch (e) {
       setError((e as Error).message)
@@ -95,6 +125,9 @@ export function ConnectionDetail({
 
   const total = items?.total ?? 0
   const title = connection.label ?? `${connection.packId}/${connection.sourceId}`
+  const agentId = connection.host.startsWith('agent:')
+    ? connection.host.slice('agent:'.length)
+    : null
 
   return (
     <section className="rounded-md border border-[var(--accent)]/40 bg-[var(--bg-elevated)] p-3 space-y-3">
@@ -119,7 +152,39 @@ export function ConnectionDetail({
         </button>
       </header>
 
+      <div className="text-[11px]">
+        <span className="text-[var(--text-muted)]">{d.source}</span>
+        {': '}
+        {entry ? (
+          <>
+            <span className="text-[var(--text)]">{entry.title ?? entry.sourceId}</span>
+            <span className="font-mono text-[var(--text-faint)]">
+              {' · '}
+              {entry.packId}
+              {'/'}
+              {entry.sourceId}
+              {' · '}
+              {entry.connector}
+              {' · '}
+              {entry.shape}
+            </span>
+            {entry.description && (
+              <div className="text-[10px] text-[var(--text-muted)] max-w-3xl">
+                {entry.description}
+              </div>
+            )}
+          </>
+        ) : (
+          <span className="text-[var(--warning)]">{d.sourceUnknown}</span>
+        )}
+      </div>
+
       <dl className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-[11px]">
+        <Meta
+          k={d.host}
+          v={agentId ? fill(d.hostAgent, { agentId }) : d.hostServer}
+          mono={agentId !== null}
+        />
         <Meta k={d.sourceKey} v={connection.sourceKey} mono />
         <Meta k={d.recorder} v={connection.recorder} mono />
         <Meta k={d.vertical} v={connection.vertical} mono />
@@ -135,6 +200,8 @@ export function ConnectionDetail({
           v={connection.hasCredential ? d.credentialStored : d.credentialNone}
         />
       </dl>
+
+      {stats && <StatsStrip stats={stats} t={t} />}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
@@ -164,7 +231,7 @@ export function ConnectionDetail({
       <div className="flex items-center gap-2 flex-wrap">
         <button
           type="button"
-          disabled={running || connection.status !== 'active'}
+          disabled={running || connection.status !== 'active' || agentId !== null}
           onClick={() => void runInline()}
           className={accentBtn}
           title={d.runInlineHint}
@@ -185,6 +252,8 @@ export function ConnectionDetail({
 
       {summary && <SummaryCard summary={summary} t={t} />}
 
+      {runs && <RunsTable runs={runs} t={t} lang={lang} />}
+
       <div className="space-y-2">
         <div className="flex items-baseline justify-between gap-3 flex-wrap">
           <div>
@@ -193,6 +262,8 @@ export function ConnectionDetail({
             </h3>
             <p className="text-[10px] text-[var(--text-muted)]">
               {fill(t.items.subtitle, { total })}
+              {' '}
+              {t.item.openHint}
             </p>
           </div>
           <Segmented<StateFilter>
@@ -228,7 +299,11 @@ export function ConnectionDetail({
             </thead>
             <tbody>
               {(items?.items ?? []).map((row) => (
-                <tr key={row.id} className="border-t border-[var(--border)]">
+                <tr
+                  key={row.id}
+                  className="border-t border-[var(--border)] cursor-pointer hover:bg-[var(--accent)]/5"
+                  onClick={() => setInspecting(row)}
+                >
                   <td className="px-3 py-1.5 font-mono text-[var(--text)] max-w-[24rem] truncate" title={row.originUri ?? row.externalId}>
                     {row.path ?? row.title ?? row.externalId}
                   </td>
@@ -239,6 +314,9 @@ export function ConnectionDetail({
                   </td>
                   <td className="px-3 py-1.5 font-mono text-[10px] text-[var(--text-muted)] max-w-[10rem] truncate" title={row.revision ?? undefined}>
                     {row.revision ?? '—'}
+                    {row.fetchedRevision && row.revision && row.fetchedRevision !== row.revision && (
+                      <span className="ml-1 text-[var(--warning)]">{'≠'}</span>
+                    )}
                   </td>
                   <td className="px-3 py-1.5 text-right font-mono tabular-nums text-[var(--text-muted)]">
                     {row.size === null ? '—' : row.size}
@@ -290,6 +368,15 @@ export function ConnectionDetail({
           </span>
         </div>
       </div>
+
+      {inspecting && (
+        <ItemInspect
+          connectionId={connection.id}
+          item={inspecting}
+          t={t}
+          onClose={() => setInspecting(null)}
+        />
+      )}
     </section>
   )
 }
@@ -316,6 +403,171 @@ function stateTone(state: SourceItemState): string {
     default:
       return 'text-[var(--warning)] bg-[var(--warning)]/10'
   }
+}
+
+/** Catalogue rows by state and the facts the connection grounds. */
+function StatsStrip({ stats, t }: { stats: SourceConnectionStats; t: ConnectionsT }) {
+  const s = t.stats
+  const cells: Array<{ label: string; n: number | string; tone?: string }> = [
+    { label: t.items.state.seen, n: stats.items.seen },
+    { label: t.items.state.fetched, n: stats.items.fetched },
+    { label: t.items.state.indexed, n: stats.items.indexed, tone: 'text-[var(--success)]' },
+    { label: t.items.state.gone, n: stats.items.gone, tone: 'text-[var(--text-faint)]' },
+  ]
+  const facts: Array<{ label: string; n: number | string; tone?: string }> = stats.facts
+    ? [
+        { label: s.active, n: stats.facts.active, tone: 'text-[var(--success)]' },
+        {
+          label: s.stale,
+          n: stats.facts.stale,
+          tone: stats.facts.stale > 0 ? 'text-[var(--warning)]' : undefined,
+        },
+        { label: s.closed, n: stats.facts.closed, tone: 'text-[var(--text-faint)]' },
+      ]
+    : [{ label: s.facts, n: s.factsUnknown }]
+  return (
+    <div className="rounded border border-[var(--border)] bg-[var(--bg)] p-2 text-[11px]" title={s.hint}>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="font-medium text-[var(--text)]">{s.title}</span>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-[auto_1fr_auto_1fr] gap-x-3 gap-y-1 items-center">
+        <span className="text-[10px] uppercase tracking-wider text-[var(--text-faint)]">
+          {s.items}
+          {' '}
+          <span className="font-mono normal-case tracking-normal">{stats.items.total}</span>
+        </span>
+        <div className="flex flex-wrap gap-1">
+          {cells.map((c) => (
+            <Cell key={c.label} label={c.label} n={c.n} tone={c.tone} />
+          ))}
+        </div>
+        <span className="text-[10px] uppercase tracking-wider text-[var(--text-faint)]">
+          {s.facts}
+        </span>
+        <div className="flex flex-wrap gap-1">
+          {facts.map((c) => (
+            <Cell key={c.label} label={c.label} n={c.n} tone={c.tone} />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Cell({ label, n, tone }: { label: string; n: number | string; tone?: string | undefined }) {
+  return (
+    <span className="rounded bg-[var(--bg-overlay)] px-1.5 py-0.5 inline-flex items-baseline gap-1">
+      <span className="text-[9px] uppercase tracking-wider text-[var(--text-faint)]">{label}</span>
+      <span className={`font-mono tabular-nums ${tone ?? 'text-[var(--text)]'}`}>{n}</span>
+    </span>
+  )
+}
+
+/** Every run of the connection, newest first — each a source_sync job. */
+function RunsTable({ runs, t, lang }: { runs: SourceRunsResponse; t: ConnectionsT; lang: string }) {
+  const r = t.runs
+  return (
+    <div className="space-y-1">
+      <div className="flex items-baseline justify-between gap-3 flex-wrap">
+        <div>
+          <h3 className="text-xs font-medium text-[var(--text)]">{r.title}</h3>
+          <p className="text-[10px] text-[var(--text-muted)]">{r.subtitle}</p>
+        </div>
+        <Link
+          href={`/${lang}/admin/jobs?jobType=source_sync`}
+          className="text-[10px] text-[var(--accent)] inline-flex items-center gap-1"
+        >
+          <ExternalLink className="w-3 h-3" /> {t.detail.openJobs}
+        </Link>
+      </div>
+      {!runs.persisted && (
+        <p className="text-[10px] text-[var(--warning)]">{r.notPersisted}</p>
+      )}
+      <div className="rounded-md border border-[var(--border)] overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="bg-[var(--bg-overlay)] text-[var(--text-faint)] text-[10px] uppercase tracking-wider">
+            <tr>
+              <th className="text-left px-3 py-1.5">{r.headers.started}</th>
+              <th className="text-left px-3 py-1.5">{r.headers.ranBy}</th>
+              <th className="text-left px-3 py-1.5">{r.headers.trigger}</th>
+              <th className="text-left px-3 py-1.5">{r.headers.mode}</th>
+              <th className="text-left px-3 py-1.5">{r.headers.status}</th>
+              <th className="text-left px-3 py-1.5">{r.headers.counters}</th>
+              <th className="text-right px-3 py-1.5">{r.headers.duration}</th>
+              <th className="text-right px-3 py-1.5">{r.headers.job}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {runs.runs.map((run) => (
+              <RunRow key={run.runId} run={run} t={t} lang={lang} />
+            ))}
+            {runs.persisted && runs.runs.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-3 py-3 text-center text-[var(--text-muted)] italic">
+                  {r.empty}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {runs.runs.length >= RUNS && (
+        <p className="text-[10px] text-[var(--text-faint)]">{fill(r.more, { n: RUNS })}</p>
+      )}
+    </div>
+  )
+}
+
+function RunRow({ run, t, lang }: { run: SourceRun; t: ConnectionsT; lang: string }) {
+  const r = t.runs
+  const c = run.counters
+  const counters = c
+    ? [c.seen, c.new, c.changed, c.gone, c.fetched, c.ingested, c.failed, c.closed].join(' · ')
+    : '—'
+  return (
+    <tr className="border-t border-[var(--border)]">
+      <td className="px-3 py-1.5 font-mono text-[10px] text-[var(--text-muted)]">
+        {stamp(run.startedAt)}
+      </td>
+      <td className="px-3 py-1.5 font-mono text-[var(--text)]">
+        {run.ranBy === 'server' ? r.server : run.ranBy}
+      </td>
+      <td className="px-3 py-1.5 font-mono text-[var(--text-muted)]">{run.triggeredBy}</td>
+      <td className="px-3 py-1.5 font-mono text-[var(--text-muted)]">{run.mode ?? '—'}</td>
+      <td className="px-3 py-1.5">
+        <span className={`font-mono ${runTone(run.status)}`}>{run.status}</span>
+        {run.skipped && (
+          <span className="ml-1 font-mono text-[10px] text-[var(--warning)]">
+            {fill(r.skipped, { reason: run.skipped })}
+          </span>
+        )}
+        {run.error && (
+          <div className="font-mono text-[10px] text-[var(--danger)] max-w-[16rem] truncate" title={run.error}>
+            {run.error}
+          </div>
+        )}
+      </td>
+      <td className="px-3 py-1.5 font-mono tabular-nums text-[var(--text-muted)]">{counters}</td>
+      <td className="px-3 py-1.5 text-right font-mono tabular-nums text-[var(--text-muted)]">
+        {run.durationMs === null ? '—' : `${run.durationMs} ms`}
+      </td>
+      <td className="px-3 py-1.5 text-right">
+        <Link
+          href={`/${lang}/admin/jobs?runId=${encodeURIComponent(run.runId)}`}
+          className="text-[10px] text-[var(--accent)]"
+          title={run.runId}
+        >
+          {r.openJob}
+        </Link>
+      </td>
+    </tr>
+  )
+}
+
+function runTone(status: SourceRun['status']): string {
+  if (status === 'succeeded') return 'text-[var(--success)]'
+  if (status === 'failed' || status === 'cancelled') return 'text-[var(--danger)]'
+  return 'text-[var(--warning)]'
 }
 
 function SummaryCard({

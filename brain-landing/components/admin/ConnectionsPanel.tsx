@@ -4,6 +4,9 @@ import { useCallback, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import {
+  Check,
+  Copy,
+  Laptop,
   Loader2,
   Pause,
   Play,
@@ -91,6 +94,15 @@ export function ConnectionsPanel() {
   const selected = useMemo(
     () => data?.connections.find((c) => c.id === selectedId) ?? null,
     [data, selectedId],
+  )
+  const selectedEntry = useMemo(
+    () =>
+      selected
+        ? (catalog?.sources.find(
+            (e) => e.packId === selected.packId && e.sourceId === selected.sourceId,
+          ) ?? null)
+        : null,
+    [catalog, selected],
   )
 
   const act = useCallback(
@@ -291,9 +303,10 @@ export function ConnectionsPanel() {
                     <span className="inline-flex gap-1.5 flex-wrap justify-end">
                       <button
                         type="button"
-                        disabled={busy === c.id || c.status !== 'active'}
+                        disabled={busy === c.id || c.status !== 'active' || c.host !== 'server'}
                         onClick={() => void sync(c, false)}
                         className={accentBtn}
+                        title={c.host !== 'server' ? t.agents.subtitle : undefined}
                       >
                         {busy === c.id ? (
                           <Loader2 className="w-3 h-3 animate-spin" />
@@ -304,9 +317,10 @@ export function ConnectionsPanel() {
                       </button>
                       <button
                         type="button"
-                        disabled={busy === c.id || c.status !== 'active'}
+                        disabled={busy === c.id || c.status !== 'active' || c.host !== 'server'}
                         onClick={() => void sync(c, true)}
                         className={accentBtn}
+                        title={c.host !== 'server' ? t.agents.subtitle : undefined}
                       >
                         <RotateCcw className="w-3 h-3" /> {t.list.full}
                       </button>
@@ -366,11 +380,14 @@ export function ConnectionsPanel() {
         <ConnectionDetail
           key={selected.id}
           connection={selected}
+          entry={selectedEntry}
           t={t}
           onClose={() => setSelectedId(null)}
           onChanged={reload}
         />
       )}
+
+      {!off && data && <AgentsSection connections={data.connections} t={t} />}
 
       {catalog && (
         <Section title={t.catalog.title} subtitle={t.catalog.subtitle}>
@@ -534,6 +551,133 @@ function Fences({
         </dd>
       </dl>
     </article>
+  )
+}
+
+interface AgentRow {
+  agentId: string
+  connections: SourceConnection[]
+  lastSyncAt: string | null
+  lastSyncStatus: string | null
+}
+
+/** Agent-host connections grouped by agent — who checked in, and how to run one. */
+function agentRows(connections: SourceConnection[]): AgentRow[] {
+  const byAgent = new Map<string, AgentRow>()
+  for (const c of connections) {
+    if (!c.host.startsWith('agent:')) continue
+    const agentId = c.host.slice('agent:'.length)
+    const row = byAgent.get(agentId) ?? {
+      agentId,
+      connections: [],
+      lastSyncAt: null,
+      lastSyncStatus: null,
+    }
+    row.connections.push(c)
+    if (c.lastSyncAt && (!row.lastSyncAt || c.lastSyncAt > row.lastSyncAt)) {
+      row.lastSyncAt = c.lastSyncAt
+      row.lastSyncStatus = c.lastSyncStatus
+    }
+    byAgent.set(agentId, row)
+  }
+  return [...byAgent.values()].sort((a, b) => a.agentId.localeCompare(b.agentId))
+}
+
+function agentSnippet(agentId: string): string {
+  return [
+    'BRAIN_URL=https://<your-brain> \\',
+    'BRAIN_API_KEY=<brain:write key of this tenant> \\',
+    `BRAIN_AGENT_ID=${agentId} \\`,
+    'BRAIN_AGENT_ROOTS=/path/that/may/be/read \\',
+    '  npx @inite/brain-agent sync --every 300',
+  ].join('\n')
+}
+
+function AgentsSection({
+  connections,
+  t,
+}: {
+  connections: SourceConnection[]
+  t: ConnectionsT
+}) {
+  const a = t.agents
+  const rows = useMemo(() => agentRows(connections), [connections])
+  const [copied, setCopied] = useState<string | null>(null)
+  const copy = useCallback(async (agentId: string) => {
+    try {
+      await navigator.clipboard.writeText(agentSnippet(agentId))
+      setCopied(agentId)
+      setTimeout(() => setCopied(null), 1500)
+    } catch {
+      // clipboard refused (insecure context) — the snippet stays visible to select by hand
+    }
+  }, [])
+  return (
+    <Section title={a.title} subtitle={a.subtitle}>
+      {rows.length === 0 ? (
+        <p className="px-3 py-4 text-xs text-[var(--text-muted)] italic">{a.none}</p>
+      ) : (
+        <table className="w-full text-xs">
+          <thead className="bg-[var(--bg-overlay)] text-[var(--text-faint)] text-[10px] uppercase tracking-wider">
+            <tr>
+              <th className="text-left px-3 py-1.5">{a.headers.agent}</th>
+              <th className="text-left px-3 py-1.5">{a.headers.connections}</th>
+              <th className="text-left px-3 py-1.5">{a.headers.lastSync}</th>
+              <th className="text-left px-3 py-1.5">{a.headers.status}</th>
+              <th className="text-left px-3 py-1.5">{a.setup}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.agentId} className="border-t border-[var(--border)] align-top">
+                <td className="px-3 py-1.5 font-mono text-[var(--text)]">
+                  <span className="inline-flex items-center gap-1">
+                    <Laptop className="w-3 h-3 text-[var(--accent)]" /> {row.agentId}
+                  </span>
+                </td>
+                <td className="px-3 py-1.5 text-[var(--text-muted)]">
+                  {row.connections.map((c) => (
+                    <div key={c.id} className="font-mono text-[10px]">
+                      {c.label ?? `${c.packId}/${c.sourceId}`}
+                      <span className="text-[var(--text-faint)]">
+                        {' · '}
+                        {c.connector}
+                      </span>
+                    </div>
+                  ))}
+                </td>
+                <td className="px-3 py-1.5 font-mono text-[10px] text-[var(--text-muted)]">
+                  {row.lastSyncAt ? stamp(row.lastSyncAt) : a.never}
+                </td>
+                <td className="px-3 py-1.5 font-mono text-[10px]">
+                  {row.lastSyncStatus ? (
+                    <span className={syncTone(row.lastSyncStatus)}>{row.lastSyncStatus}</span>
+                  ) : (
+                    '—'
+                  )}
+                </td>
+                <td className="px-3 py-1.5">
+                  <pre className="font-mono text-[10px] text-[var(--text-muted)] whitespace-pre max-w-md overflow-x-auto">
+                    {agentSnippet(row.agentId)}
+                  </pre>
+                  <div className="flex items-center gap-2 mt-1">
+                    <button type="button" onClick={() => void copy(row.agentId)} className={mutedBtn}>
+                      {copied === row.agentId ? (
+                        <Check className="w-3 h-3" />
+                      ) : (
+                        <Copy className="w-3 h-3" />
+                      )}
+                      {copied === row.agentId ? a.copied : a.copy}
+                    </button>
+                    <span className="text-[10px] text-[var(--text-faint)] max-w-md">{a.setupHint}</span>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Section>
   )
 }
 

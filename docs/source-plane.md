@@ -67,7 +67,7 @@ failed run, never a crash.
 |---|---|---|
 | `document` | `DocumentIngestService.ingestDocument` (kind `source_document` unless the connector names one) | `originUri` (the item's, else `source://<connection>/<externalId>`), `occurredAt` = the source's clock, `contextRef` = the connection's vertical + recorder, `userId` = the owner, `source.meta.{source_connection, source_pack, source_id}`, internal header `sourceConnectionId` / `sourceItemId` / the four `sourceVersion*` keys |
 | `structure` | the record envelope rendered deterministically (sorted attributes, relations, `updated_at`) → the document door, kind `source_record`, `source.meta.record_type` | as above — an unchanged record dedupes on `contentHash`, a changed attribute is a new document. The attribute → predicate candidate path (no LLM) lands with the first structure-shaped native (W4) |
-| `binary` | `EvidenceUploadService.upload` (content-addressed, quarantine scan, processor dispatch for the pack) — the [evidence → document bridge](document-pipeline.md#the-evidence-bridge--bytes-become-a-document) carries text onward | recorder, vertical, owner, occurredAt |
+| `binary` | `EvidenceUploadService.upload` (content-addressed, quarantine scan, processor dispatch for the pack) — the [evidence → document bridge](document-pipeline.md#the-evidence-bridge--bytes-become-a-document) carries text onward | recorder, vertical, owner, occurredAt, and the same header as the document door on the asset's `meta` (`sourceConnectionId`, `sourceItemId`, the four `sourceVersion*` keys, the three `source_*` labels) — the bridge folds it into every document it makes of the asset, so bridged facts are stamped for the drift sweep and `deletePolicy: close` finds them (by `meta.evidenceAssetId`) when the item goes |
 | `conversation` | `IngestService.ingestMention` per turn (`speaker: text`, `conversationId`, `messageId`) → the episode substrate | recorder, vertical, owner, `emittedAt` |
 
 ## Operator surface (`brain:admin`)
@@ -81,7 +81,10 @@ failed run, never a crash.
 | `PATCH /v1/admin/source-connections/:id` | label / config / credential / schedule / policies / `status: active \| paused` |
 | `DELETE /v1/admin/source-connections/:id` | removes the connection and its catalogue; documents, assets and facts stay |
 | `GET /v1/admin/source-connections/:id/items?state=&limit=&offset=` | the catalogue |
-| `POST /v1/admin/source-connections/:id/sync` | `{ full?, inline? }` — enqueue a `source_sync` job (default) or run inline and return the summary |
+| `POST /v1/admin/source-connections/:id/sync` | `{ full?, inline? }` — enqueue a `source_sync` job (default) or run inline and return the summary; an inline run is a `source_sync` job_run of its own (actor = the caller), so it shows in the Jobs cockpit and the history like a queued one |
+| `GET /v1/admin/source-connections/:id/stats` | what the connection produced: catalogue rows by state, and the facts it grounds (`source.meta.source_connection`) as active / stale / closed — a bounded scan, `facts: null` when the tenant is too large to count in 5 s |
+| `GET /v1/admin/source-connections/:id/runs?limit=` | every run, newest first — queued (`payload.connectionId`), inline and agent (`progress.connectionId`) runs alike, projected to `ranBy` (`server` / `agent:<id>`), mode, counters, duration, error; `persisted: false` under `JOB_RUN_PERSIST=0` |
+| `GET /v1/admin/source-connections/:id/items/:itemId` | one catalogue row followed to its facts: the document it became (or the asset it was stored as, its current derived representations, and the documents the bridge made of it) and up to 50 facts that cite those documents with the revision each was read at, its stale mark and its close. 404 when the row belongs to another connection |
 
 The scheduler ticks every 5 minutes (`2-59/5 * * * *` UTC) and enqueues
 one job per due connection per tenant, deduped per 5-minute slot;
@@ -100,9 +103,21 @@ Connections; `brain-landing/components/admin/ConnectionsPanel.tsx`):
   **Sync** / **Full** enqueue a `source_sync` job (the notice names the
   run), **Pause** / **Resume** PATCH the status, **Delete** asks for the
   label back.
-- **Inspect** opens the connection under the table: identity, config,
-  checkpoint, last error, a **Run inline** that shows the run's counters,
-  and the catalogue (`source_item`) paged and filterable by state.
+- **Inspect** opens the connection under the table: the pack's source
+  entry it instantiates, where it runs (brain / `local agent <id>`),
+  identity, config, checkpoint, last error; **Produced** (`/stats`:
+  catalogue rows by state, facts active / stale / closed); **Runs**
+  (`/runs`: every sync with who ran it, mode, counters, duration, a link
+  into the Jobs cockpit); a **Run inline** that shows the run's
+  counters; and the catalogue (`source_item`) paged and filterable by
+  state — every row opens (`/items/:itemId`) to the item at the source,
+  the document(s) it became, the evidence asset and what the processors
+  extracted, and the facts it grounds with the revision each was read
+  at (`current` / `drifted` / `stale` / `closed`).
+- **Local agents** — agent-host connections grouped by agent id with
+  their last activity and the command to run the agent on that machine
+  (a `brain:write` key of the tenant, never an admin key). Sync / Full
+  are disabled on agent-host rows: the agent runs them.
 - **Connect a source** — the catalogue of declarable entries; **Connect**
   opens a form pre-filled from the connector's `configExample` and the
   entry's defaults; the credential is a write-only field. A source whose

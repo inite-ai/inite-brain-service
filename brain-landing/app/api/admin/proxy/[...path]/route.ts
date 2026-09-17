@@ -87,8 +87,11 @@ import {
   DeleteConnectionResponseSchema,
   SourceCatalogResponseSchema,
   SourceConnectionSchema,
+  SourceConnectionStatsSchema,
   SourceConnectionsListResponseSchema,
+  SourceItemInspectResponseSchema,
   SourceItemsListResponseSchema,
+  SourceRunsResponseSchema,
   SyncNowResponseSchema,
 } from '@/lib/contracts/admin-source-connections'
 import type { ZodType } from 'zod'
@@ -211,6 +214,18 @@ const DYNAMIC_RESPONSE_SCHEMAS: Partial<
     {
       pattern: 'v1/admin/source-connections/:id/items',
       schema: SourceItemsListResponseSchema,
+    },
+    {
+      pattern: 'v1/admin/source-connections/:id/stats',
+      schema: SourceConnectionStatsSchema,
+    },
+    {
+      pattern: 'v1/admin/source-connections/:id/runs',
+      schema: SourceRunsResponseSchema,
+    },
+    {
+      pattern: 'v1/admin/source-connections/:id/items/:itemId',
+      schema: SourceItemInspectResponseSchema,
     },
   ],
   POST: [

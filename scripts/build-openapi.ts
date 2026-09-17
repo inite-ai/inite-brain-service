@@ -121,6 +121,9 @@ import {
   SourceSyncSummarySchema,
   SyncNowRequestSchema,
   SyncNowResponseSchema,
+  SourceConnectionStatsSchema,
+  SourceRunsResponseSchema,
+  SourceItemInspectResponseSchema,
   AgentConnectionsListResponseSchema,
   AgentDeltasRequestSchema,
   AgentDeltasResponseSchema,
@@ -362,6 +365,9 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   SourceSyncSummary: SourceSyncSummarySchema,
   SyncNowRequest: SyncNowRequestSchema,
   SyncNowResponse: SyncNowResponseSchema,
+  SourceConnectionStats: SourceConnectionStatsSchema,
+  SourceRunsResponse: SourceRunsResponseSchema,
+  SourceItemInspectResponse: SourceItemInspectResponseSchema,
   AgentConnectionsListResponse: AgentConnectionsListResponseSchema,
   AgentDeltasRequest: AgentDeltasRequestSchema,
   AgentDeltasResponse: AgentDeltasResponseSchema,
@@ -1729,7 +1735,80 @@ function sourcePlanePaths(): Json {
         },
       }),
     },
+    ...inspectPaths(idParam),
     ...agentProtocolPaths(idParam),
+  };
+}
+
+/** The operator's read-only drill-down (docs/source-plane.md § Admin UI). */
+function inspectPaths(idParam: Json): Json {
+  return {
+    '/v1/admin/source-connections/{id}/stats': {
+      get: operation({
+        operationId: 'getSourceConnectionStats',
+        tag: 'Source Plane',
+        summary: 'What the connection produced',
+        description:
+          'Catalogue rows by state and the facts the connection grounds ' +
+          '(active / stale per the drift sweep / closed by the delete ' +
+          'policy). The fact count is a bounded scan; `facts` is null when ' +
+          'the tenant was too large to count in time. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        parameters: [idParam],
+        responses: {
+          '200': jsonResponse('The counts.', ref('SourceConnectionStats')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/source-connections/{id}/runs': {
+      get: operation({
+        operationId: 'listSourceConnectionRuns',
+        tag: 'Source Plane',
+        summary: 'The connection’s runs',
+        description:
+          'Every sync of the connection, newest first — queued, inline and ' +
+          'agent runs alike, each a `source_sync` job_run projected to who ' +
+          'ran it, its mode, counters, duration and error. `persisted: ' +
+          'false` when JOB_RUN_PERSIST is off. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        parameters: [
+          idParam,
+          queryParam('limit', 'Page size (default 20, max 200).', { type: 'integer' }),
+        ],
+        responses: {
+          '200': jsonResponse('The runs.', ref('SourceRunsResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/source-connections/{id}/items/{itemId}': {
+      get: operation({
+        operationId: 'inspectSourceItem',
+        tag: 'Source Plane',
+        summary: 'One catalogue row, followed to its facts',
+        description:
+          'The item, the document it became (or the asset it was stored as ' +
+          'and the parts the bridge made of it), the representations the ' +
+          'processors extracted, and the facts that cite it with the ' +
+          'revision each was read at, its stale mark and its close. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        parameters: [idParam, pathParam('itemId', 'The catalogue row id (`source_item:…`).')],
+        responses: {
+          '200': jsonResponse('The item and what it grounds.', ref('SourceItemInspectResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
   };
 }
 

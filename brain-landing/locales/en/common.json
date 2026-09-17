@@ -721,7 +721,13 @@
           "duration": "{ms} ms",
           "skipped": "skipped: {reason}"
         },
-        "close": "Close"
+        "close": "Close",
+        "host": "runs on",
+        "hostServer": "brain",
+        "hostAgent": "local agent {agentId}",
+        "source": "source entry",
+        "sourceUnknown": "the pack no longer declares this source",
+        "openJobs": "all source_sync jobs"
       },
       "items": {
         "title": "Catalogue",
@@ -804,6 +810,113 @@
         "submitting": "connecting…",
         "cancel": "Cancel",
         "created": "Connected {label}. Run Sync to catalogue it."
+      },
+      "stats": {
+        "title": "Produced",
+        "hint": "Catalogue rows by state and the facts this connection grounds (source.meta.source_connection). Stale = the source moved past the revision a fact was read at; closed = the delete policy ended it.",
+        "items": "catalogue",
+        "facts": "facts",
+        "active": "active",
+        "stale": "stale",
+        "closed": "closed",
+        "factsUnknown": "too many to count in time",
+        "loading": "counting…"
+      },
+      "runs": {
+        "title": "Runs",
+        "subtitle": "Every sync of this connection — queued, inline and agent runs alike, each a source_sync job.",
+        "headers": {
+          "started": "started",
+          "ranBy": "ran by",
+          "trigger": "trigger",
+          "mode": "mode",
+          "status": "status",
+          "counters": "seen · new · changed · gone · fetched · ingested · failed · closed",
+          "duration": "duration",
+          "job": "job"
+        },
+        "empty": "No runs yet.",
+        "notPersisted": "JOB_RUN_PERSIST is off — runs leave no history.",
+        "server": "brain",
+        "openJob": "open",
+        "skipped": "skipped: {reason}",
+        "more": "showing the latest {n}"
+      },
+      "item": {
+        "title": "Item",
+        "openHint": "click a row to follow it to its document, asset and facts",
+        "close": "Close",
+        "identity": "at the source",
+        "externalId": "external id",
+        "origin": "origin",
+        "path": "path",
+        "mediaType": "media type",
+        "size": "size",
+        "revision": "revision (enumerated)",
+        "fetchedRevision": "revision (fetched)",
+        "modifiedAt": "modified at source",
+        "firstSeen": "first seen",
+        "lastSeen": "last seen",
+        "goneAt": "gone at",
+        "error": "last error",
+        "episode": "episode",
+        "documents": "documents",
+        "documentsNone": "no document yet — the item was not fetched, or a processor still has to extract its text",
+        "document": {
+          "kind": "kind",
+          "status": "status",
+          "created": "created"
+        },
+        "asset": "evidence asset",
+        "assetNone": "—",
+        "assetFields": {
+          "mediaType": "media type",
+          "modality": "modality",
+          "bytes": "bytes",
+          "availability": "availability",
+          "quarantine": "quarantine"
+        },
+        "representations": "extracted representations",
+        "representationsNone": "none yet — no processor has run over this asset (EVIDENCE_PROCESSOR_BROKER, and a pack that names the modality)",
+        "representation": {
+          "kind": "kind",
+          "producer": "producer",
+          "chars": "chars",
+          "created": "created"
+        },
+        "facts": "facts this item grounds",
+        "factsEmpty": "No facts cite this item.",
+        "factsTruncated": "more facts than shown — open the entity to see the rest",
+        "factHeaders": {
+          "predicate": "predicate",
+          "object": "object",
+          "version": "read at revision",
+          "state": "state"
+        },
+        "factState": {
+          "current": "current",
+          "drifted": "drifted",
+          "stale": "stale",
+          "closed": "closed",
+          "retracted": "{status}"
+        },
+        "driftHint": "read at an older revision than the catalogue now holds — the drift sweep marks it stale on its next pass"
+      },
+      "agents": {
+        "title": "Local agents",
+        "subtitle": "Connections that run on an agent — a laptop, a CI runner, a machine in the LAN. The brain keeps the books; the agent walks the source and posts what changed.",
+        "headers": {
+          "agent": "agent",
+          "connections": "connections",
+          "lastSync": "last activity",
+          "status": "last status"
+        },
+        "never": "never checked in",
+        "setup": "Run the agent on that machine",
+        "setupHint": "A brain:write key of this tenant (never an admin key); BRAIN_AGENT_ROOTS fences what the fs connector may read. --every polls; omit it for a one-shot (CI).",
+        "copy": "copy",
+        "copied": "copied",
+        "none": "No agent-host connections. Pick a source with availability \"local agent\" in the catalogue, or choose \"local agent\" when connecting."
       }
     },
     "marketplace": {

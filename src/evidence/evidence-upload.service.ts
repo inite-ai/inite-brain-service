@@ -43,6 +43,14 @@ export interface UploadEvidenceBlobInput {
   pageCount?: number | undefined;
   /** Optional fire-and-forget processor dispatch target. */
   packId?: string | undefined;
+  /**
+   * Row-level provenance the caller wants on the asset (a service
+   * option, never a wire field): the source plane's connection / item /
+   * revision stamp, which the evidence → document bridge carries into
+   * the documents it makes of the asset so their facts are stamped and
+   * closable like a text item's.
+   */
+  meta?: Record<string, unknown> | undefined;
 }
 
 export interface UploadEvidenceBlobResult {
@@ -146,6 +154,7 @@ export class EvidenceUploadService {
       height: input.height,
       durationMs: input.durationMs,
       pageCount: input.pageCount,
+      meta: input.meta,
     });
     const quarantineStatus = await this.scan(adapter, {
       companyId,

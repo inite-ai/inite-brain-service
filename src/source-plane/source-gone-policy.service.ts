@@ -41,11 +41,30 @@ export class SourceGonePolicyService {
     }
     let closed = 0;
     for (const item of gone) {
-      if (!item.documentId) continue;
       const goneAt = asDate(item.goneAt) ?? new Date();
-      closed += await this.closeDocumentFacts(companyId, item.documentId, goneAt);
+      if (item.documentId) {
+        closed += await this.closeDocumentFacts(companyId, item.documentId, goneAt);
+      } else if (item.assetId) {
+        // A binary item's facts live on the documents the bridge made of
+        // its asset (meta.evidenceAssetId) — each closes like a text item's.
+        for (const docId of await this.bridgedDocuments(companyId, item.assetId)) {
+          closed += await this.closeDocumentFacts(companyId, docId, goneAt);
+        }
+      }
     }
     return closed;
+  }
+
+  private async bridgedDocuments(companyId: string, assetId: string): Promise<string[]> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      const tail = idTailOf(assetId);
+      const rows = await queryRows<{ id: unknown }>(
+        db,
+        `SELECT id FROM source_document WHERE meta.evidenceAssetId IN $ids LIMIT 100`,
+        { ids: [assetId, `evidence_asset:${tail}`] },
+      );
+      return rows.map((r) => String(r.id));
+    });
   }
 
   private async closeDocumentFacts(

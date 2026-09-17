@@ -23,7 +23,10 @@ export interface GitConfig {
   ref?: string;
   /** Default: the docs extensions. */
   extensions?: string[];
-  /** Keep only paths under one of these prefixes (e.g. ['docs/', 'README']). */
+  /**
+   * Keep only paths matching one of these: a prefix ('docs/', 'README')
+   * or a glob ('docs/**', '*.md', 'adr/????-*.md').
+   */
   include?: string[];
   maxFiles?: number;
   maxFileBytes?: number;
@@ -46,6 +49,7 @@ export class GitAgentConnector implements AgentConnector {
     const extensions = new Set((cfg.extensions ?? DOC_EXTENSIONS).map((e) => e.toLowerCase().replace(/^\./, '')));
     const maxFiles = Math.max(1, cfg.maxFiles ?? DEFAULT_MAX_FILES);
     const maxBytes = cfg.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
+    const include = (cfg.include ?? []).map(includeMatcher);
     const listing = await git(repo, ['ls-tree', '-r', '-z', '--long', commit]);
     let emitted = 0;
     for (const line of listing.split('\0')) {
@@ -57,7 +61,7 @@ export class GitAgentConnector implements AgentConnector {
       const path = line.slice(tab + 1);
       if (type !== 'blob' || !sha) continue;
       if (!extensions.has(extname(path).slice(1).toLowerCase())) continue;
-      if (cfg.include && cfg.include.length > 0 && !cfg.include.some((p) => path.startsWith(p))) continue;
+      if (include.length > 0 && !include.some((m) => m(path))) continue;
       const size = Number(sizeRaw);
       if (Number.isFinite(size) && size > maxBytes) continue;
       if (++emitted > maxFiles) {
@@ -134,4 +138,18 @@ function configOf(ctx: ConnectorCtx): GitConfig {
   const cfg = ctx.connection.config as Partial<GitConfig>;
   if (typeof cfg.repo !== 'string' || cfg.repo.length === 0) throw new Error('git: config.repo is required');
   return cfg as GitConfig;
+}
+
+/** A prefix or a glob (`*` within a segment, `**` across segments, `?` one char) → predicate. */
+export function includeMatcher(pattern: string): (path: string) => boolean {
+  if (!/[*?]/.test(pattern)) return (path) => path.startsWith(pattern);
+  const re = new RegExp(
+    '^' +
+      pattern
+        .split('**')
+        .map((part) => part.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]'))
+        .join('.*') +
+      '$',
+  );
+  return (path) => re.test(path);
 }

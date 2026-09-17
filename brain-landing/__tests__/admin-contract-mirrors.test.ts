@@ -33,8 +33,11 @@ import {
   DeleteConnectionResponseSchema,
   SourceCatalogResponseSchema,
   SourceConnectionSchema,
+  SourceConnectionStatsSchema,
   SourceConnectionsListResponseSchema,
+  SourceItemInspectResponseSchema,
   SourceItemsListResponseSchema,
+  SourceRunsResponseSchema,
   SyncNowResponseSchema,
 } from '@/lib/contracts/admin-source-connections'
 
@@ -530,5 +533,134 @@ describe('admin-source-connections mirrors', () => {
       egressAllowPrivate: false,
     }
     expect(SourceCatalogResponseSchema.safeParse(fixture).success).toBe(true)
+  })
+
+  it('parses the drill-down: stats, runs and one item followed to its facts', () => {
+    expect(
+      SourceConnectionStatsSchema.safeParse({
+        connectionId: 'source_connection:abc123',
+        items: { seen: 0, fetched: 1, indexed: 11, gone: 2, total: 14 },
+        facts: { active: 40, stale: 3, closed: 5 },
+      }).success,
+    ).toBe(true)
+    expect(
+      SourceConnectionStatsSchema.safeParse({
+        connectionId: 'source_connection:abc123',
+        items: { seen: 0, fetched: 0, indexed: 0, gone: 0, total: 0 },
+        facts: null,
+      }).success,
+    ).toBe(true)
+    expect(
+      SourceRunsResponseSchema.safeParse({
+        connectionId: 'source_connection:abc123',
+        persisted: true,
+        runs: [
+          {
+            runId: 'r1',
+            status: 'succeeded',
+            ranBy: 'agent:laptop',
+            triggeredBy: 'manual',
+            startedAt: '2026-09-17T10:00:00.000Z',
+            finishedAt: '2026-09-17T10:00:02.000Z',
+            durationMs: 2000,
+            mode: 'full',
+            counters: {
+              seen: 3,
+              new: 3,
+              changed: 0,
+              unchanged: 0,
+              gone: 0,
+              fetched: 3,
+              ingested: 3,
+              deduplicated: 0,
+              failed: 0,
+              closed: 0,
+            },
+            skipped: null,
+            error: null,
+          },
+          {
+            runId: 'r0',
+            status: 'running',
+            ranBy: 'server',
+            triggeredBy: 'cron',
+            startedAt: '2026-09-17T09:00:00.000Z',
+            finishedAt: null,
+            durationMs: null,
+            mode: null,
+            counters: null,
+            skipped: null,
+            error: null,
+          },
+        ],
+      }).success,
+    ).toBe(true)
+    expect(
+      SourceItemInspectResponseSchema.safeParse({
+        item: {
+          id: 'source_item:i1',
+          connectionId: 'source_connection:abc123',
+          externalId: 'docs/intro.md',
+          originUri: 'file:///srv/docs/docs/intro.md',
+          path: 'docs/intro.md',
+          title: 'intro.md',
+          mediaType: 'text/markdown',
+          size: 1234,
+          revision: '1726480000000:1234',
+          fetchedRevision: '1726480000000:1234',
+          modifiedAt: '2026-09-16T09:30:00.000Z',
+          documentId: 'source_document:xyz',
+          assetId: null,
+          episodeId: null,
+          state: 'indexed',
+          firstSeenAt: '2026-09-16T09:31:00.000Z',
+          lastSeenAt: '2026-09-16T10:00:00.000Z',
+          goneAt: null,
+          lastError: null,
+        },
+        documents: [
+          {
+            id: 'source_document:xyz',
+            title: 'intro.md',
+            kind: 'file',
+            status: 'active',
+            originUri: 'file:///srv/docs/docs/intro.md',
+            createdAt: '2026-09-16T09:31:00.000Z',
+          },
+        ],
+        asset: {
+          id: 'evidence_asset:a1',
+          mediaType: 'application/pdf',
+          modality: 'document',
+          byteLength: 40960,
+          availability: 'available',
+          quarantineStatus: null,
+          representations: [
+            {
+              id: 'derived_representation:d1',
+              kind: 'text',
+              producerVersion: 'document-text-v1',
+              chars: 2048,
+              createdAt: '2026-09-16T09:32:00.000Z',
+            },
+          ],
+        },
+        facts: [
+          {
+            id: 'knowledge_fact:f1',
+            entityId: 'knowledge_entity:e1',
+            predicate: 'file_memory__describes',
+            object: 'payments gateway',
+            confidence: 0.9,
+            version: '1726480000000:1234',
+            staleAt: null,
+            staleReason: null,
+            validUntil: null,
+            status: 'active',
+          },
+        ],
+        factsTruncated: false,
+      }).success,
+    ).toBe(true)
   })
 })

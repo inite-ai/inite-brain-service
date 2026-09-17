@@ -172,8 +172,10 @@ export class SourceDoorsService {
   private async binaryDoor(p: {
     companyId: string;
     connection: ConnectorConnectionView;
+    itemId: string;
     item: ItemDescriptor;
     fetched: Extract<FetchedItem, { shape: 'binary' }>;
+    stamp: SourceVersionStamp | null;
   }): Promise<DoorOutcome> {
     const r = await this.evidence.upload(
       p.companyId,
@@ -193,6 +195,11 @@ export class SourceDoorsService {
         // The pack whose source this is gets the processor dispatch — its
         // media contract decides what runs; the bridge carries text on.
         packId: p.connection.packId,
+        // The same header a text item's document gets, on the asset: the
+        // bridge folds it into every document it makes of the asset, so
+        // the facts are stamped for the drift sweep and the gone policy
+        // can find them (source-plane.md § binary).
+        meta: sourceAssetMeta(p),
       },
     );
     return { assetId: r.assetId, byteHash: r.byteHash, deduplicated: r.deduped };
@@ -257,4 +264,31 @@ function toIso(v: string | undefined): string {
     if (!Number.isNaN(d.getTime())) return d.toISOString();
   }
   return new Date().toISOString();
+}
+
+/**
+ * The provenance header an asset carries for the bridge: the internal
+ * document-meta keys verbatim (the bridge copies them through
+ * internalDocumentMeta) plus the flat ABAC labels the text door writes.
+ */
+export function sourceAssetMeta(p: {
+  connection: ConnectorConnectionView;
+  itemId: string;
+  stamp: SourceVersionStamp | null;
+}): Record<string, unknown> {
+  return {
+    sourceConnectionId: p.connection.id,
+    sourceItemId: p.itemId,
+    source_connection: idTailOf(p.connection.id),
+    source_pack: p.connection.packId,
+    source_id: p.connection.sourceId,
+    ...(p.stamp
+      ? {
+          sourceVersionSystem: p.stamp.system,
+          sourceVersionRef: p.stamp.ref,
+          sourceVersionValue: p.stamp.version,
+          sourceVersionReadAt: p.stamp.readAt,
+        }
+      : {}),
+  };
 }
