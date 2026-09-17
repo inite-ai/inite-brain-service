@@ -53,30 +53,98 @@ export interface FsConnectorConfig {
 }
 
 export const FS_TEXT_EXTENSIONS = [
-  'md', 'markdown', 'txt', 'text', 'rst', 'adoc', 'csv', 'tsv', 'json', 'yaml', 'yml',
-  'toml', 'ini', 'cfg', 'conf', 'html', 'htm', 'xml', 'log',
-  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'py', 'go', 'rs', 'java', 'kt', 'rb', 'php',
-  'c', 'h', 'cpp', 'hpp', 'cs', 'swift', 'sh', 'sql', 'graphql', 'proto',
+  'md',
+  'markdown',
+  'txt',
+  'text',
+  'rst',
+  'adoc',
+  'csv',
+  'tsv',
+  'json',
+  'yaml',
+  'yml',
+  'toml',
+  'ini',
+  'cfg',
+  'conf',
+  'html',
+  'htm',
+  'xml',
+  'log',
+  'ts',
+  'tsx',
+  'js',
+  'jsx',
+  'mjs',
+  'cjs',
+  'py',
+  'go',
+  'rs',
+  'java',
+  'kt',
+  'rb',
+  'php',
+  'c',
+  'h',
+  'cpp',
+  'hpp',
+  'cs',
+  'swift',
+  'sh',
+  'sql',
+  'graphql',
+  'proto',
 ];
 
 export const FS_BINARY_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif'];
 
 const DEFAULT_EXCLUDE_DIRS = [
-  '.git', 'node_modules', 'dist', 'build', 'target', '.venv', 'venv', '__pycache__',
-  '.cache', '.next', '.idea', '.vscode', 'coverage',
+  '.git',
+  'node_modules',
+  'dist',
+  'build',
+  'target',
+  '.venv',
+  'venv',
+  '__pycache__',
+  '.cache',
+  '.next',
+  '.idea',
+  '.vscode',
+  'coverage',
 ];
 const DEFAULT_MAX_FILES = 20_000;
 const DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024;
 const HARD_MAX_FILE_BYTES = 64 * 1024 * 1024;
 
 const MEDIA_TYPES: Record<string, string> = {
-  md: 'text/markdown', markdown: 'text/markdown', txt: 'text/plain', text: 'text/plain',
-  rst: 'text/plain', adoc: 'text/plain', csv: 'text/csv', tsv: 'text/tab-separated-values',
-  json: 'application/json', yaml: 'text/plain', yml: 'text/plain', toml: 'text/plain',
-  ini: 'text/plain', cfg: 'text/plain', conf: 'text/plain', html: 'text/html', htm: 'text/html',
-  xml: 'text/xml', log: 'text/plain',
-  pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-  gif: 'image/gif', webp: 'image/webp', avif: 'image/avif',
+  md: 'text/markdown',
+  markdown: 'text/markdown',
+  txt: 'text/plain',
+  text: 'text/plain',
+  rst: 'text/plain',
+  adoc: 'text/plain',
+  csv: 'text/csv',
+  tsv: 'text/tab-separated-values',
+  json: 'application/json',
+  yaml: 'text/plain',
+  yml: 'text/plain',
+  toml: 'text/plain',
+  ini: 'text/plain',
+  cfg: 'text/plain',
+  conf: 'text/plain',
+  html: 'text/html',
+  htm: 'text/html',
+  xml: 'text/xml',
+  log: 'text/plain',
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
 };
 
 @Injectable()
@@ -141,7 +209,8 @@ export class FsConnector implements Connector {
       };
     }
     const bytes = await readFile(full);
-    if (looksBinary(bytes)) throw new Error(`binary content in a text-shaped item: ${item.externalId}`);
+    if (looksBinary(bytes))
+      throw new Error(`binary content in a text-shaped item: ${item.externalId}`);
     return {
       shape: 'document',
       text: bytes.toString('utf8'),
@@ -300,4 +369,3 @@ export function looksBinary(bytes: Buffer): boolean {
   const head = bytes.subarray(0, 8192);
   return head.includes(0);
 }
-

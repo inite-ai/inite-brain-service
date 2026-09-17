@@ -38,7 +38,10 @@ const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_MAX_REDIRECTS = 5;
 
-export async function safeFetch(rawUrl: string, opts: SafeFetchOptions = {}): Promise<SafeFetchResult> {
+export async function safeFetch(
+  rawUrl: string,
+  opts: SafeFetchOptions = {},
+): Promise<SafeFetchResult> {
   const allowHttp = opts.allowPrivate === true && sourceEgressAllowPrivate();
   const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
   const maxRedirects = opts.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
@@ -91,7 +94,9 @@ async function refuseLinkLocal(rawUrl: string): Promise<void> {
   for (const { address } of addrs) {
     const v4 = address.startsWith('::ffff:') ? address.slice(7) : address;
     if (/^169\.254\./.test(v4)) {
-      throw new EgressDeniedError(`"${rawUrl}" resolves to the link-local metadata range — refused`);
+      throw new EgressDeniedError(
+        `"${rawUrl}" resolves to the link-local metadata range — refused`,
+      );
     }
   }
 }

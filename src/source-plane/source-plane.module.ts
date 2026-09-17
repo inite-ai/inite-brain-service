@@ -42,7 +42,11 @@ import { SourceSyncService } from './source-sync.service';
     S3Connector,
     {
       provide: SOURCE_CONNECTORS,
-      useFactory: (fs: FsConnector, url: UrlConnector, s3: S3Connector): Connector[] => [fs, url, s3],
+      useFactory: (fs: FsConnector, url: UrlConnector, s3: S3Connector): Connector[] => [
+        fs,
+        url,
+        s3,
+      ],
       inject: [FsConnector, UrlConnector, S3Connector],
     },
     SourceCatalogService,

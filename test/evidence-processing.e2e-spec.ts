@@ -214,9 +214,9 @@ describe('evidence processing lifecycle (e2e)', () => {
     });
     expect(again.runs[0]).toMatchObject({ status: 'replayed' });
     const jobs = await surreal.withCompany(COMPANY, async (db) => {
-      const [rows] = await db.query<[Array<{ dedupKey: string; payload: Record<string, unknown> }>]>(
-        `SELECT dedupKey, payload FROM job_run WHERE jobType = 'evidence_document_bridge'`,
-      );
+      const [rows] = await db.query<
+        [Array<{ dedupKey: string; payload: Record<string, unknown> }>]
+      >(`SELECT dedupKey, payload FROM job_run WHERE jobType = 'evidence_document_bridge'`);
       return rows as Array<{ dedupKey: string; payload: Record<string, unknown> }>;
     });
     expect(jobs).toHaveLength(1);

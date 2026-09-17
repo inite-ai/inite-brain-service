@@ -63,7 +63,10 @@ class MemorySource implements Connector {
   }
   async fetch(_ctx: ConnectorCtx, item: ItemDescriptor): Promise<FetchedItem> {
     this.fetches.push(item.externalId);
-    return { shape: 'document', text: `Page ${item.externalId} says: ${item.title} at ${item.revision}.` };
+    return {
+      shape: 'document',
+      text: `Page ${item.externalId} says: ${item.title} at ${item.revision}.`,
+    };
   }
 }
 
@@ -142,7 +145,10 @@ describe('source plane (e2e)', () => {
     expect([200, 201]).toContain(same.status);
 
     // A changed section re-requires the flag; then accepted.
-    const changed = [WIKI_SOURCE, { id: 'files', kind: 'native', connector: 'memory', shape: 'binary' }];
+    const changed = [
+      WIKI_SOURCE,
+      { id: 'files', kind: 'native', connector: 'memory', shape: 'binary' },
+    ];
     const reask = await f.http
       .post('/v1/admin/packs')
       .set(auth())
@@ -196,17 +202,14 @@ describe('source plane (e2e)', () => {
       .send({ packId: 'wiki_pack', sourceId: 'nope', vertical: 'wiki' });
     expect(unknownSource.status).toBe(404);
 
-    const r = await f.http
-      .post('/v1/admin/source-connections')
-      .set(auth())
-      .send({
-        packId: 'wiki_pack',
-        sourceId: 'wiki',
-        vertical: 'wiki',
-        label: 'Team wiki',
-        credential: 'super-secret',
-        schedule: '1h',
-      });
+    const r = await f.http.post('/v1/admin/source-connections').set(auth()).send({
+      packId: 'wiki_pack',
+      sourceId: 'wiki',
+      vertical: 'wiki',
+      label: 'Team wiki',
+      credential: 'super-secret',
+      schedule: '1h',
+    });
     expect(r.status).toBe(201);
     connectionId = r.body.id;
     expect(r.body).toMatchObject({
@@ -240,7 +243,12 @@ describe('source plane (e2e)', () => {
   });
 
   it('sync-now (inline): catalogues, fetches through the document door, commits facts with the stamp', async () => {
-    source.items.set('onboarding', { externalId: 'onboarding', title: 'Onboarding', revision: 'r1', originUri: 'https://wiki.example/onboarding' });
+    source.items.set('onboarding', {
+      externalId: 'onboarding',
+      title: 'Onboarding',
+      revision: 'r1',
+      originUri: 'https://wiki.example/onboarding',
+    });
     source.items.set('oncall', { externalId: 'oncall', title: 'On-call', revision: 'r1' });
     const r = await f.http
       .post(`/v1/admin/source-connections/${connectionId}/sync`)
@@ -261,7 +269,9 @@ describe('source plane (e2e)', () => {
     });
     expect(source.fetches.sort()).toEqual(['onboarding', 'oncall']);
 
-    const items = await f.http.get(`/v1/admin/source-connections/${connectionId}/items`).set(auth());
+    const items = await f.http
+      .get(`/v1/admin/source-connections/${connectionId}/items`)
+      .set(auth());
     expect(items.body.total).toBe(2);
     for (const item of items.body.items) {
       expect(item).toMatchObject({ state: 'indexed', revision: 'r1', fetchedRevision: 'r1' });
@@ -288,7 +298,10 @@ describe('source plane (e2e)', () => {
       `SELECT source FROM knowledge_fact WHERE source.meta.source_connection != NONE`,
     );
     expect(facts.length).toBeGreaterThanOrEqual(2);
-    expect(facts[0]!.source.meta).toMatchObject({ source_connection: expect.any(String), source_pack: 'wiki_pack' });
+    expect(facts[0]!.source.meta).toMatchObject({
+      source_connection: expect.any(String),
+      source_pack: 'wiki_pack',
+    });
     expect(facts[0]!.source.sourceVersion).toMatchObject({ system: 'memory', version: 'r1' });
 
     const conn = await f.http.get(`/v1/admin/source-connections/${connectionId}`).set(auth());
@@ -302,10 +315,20 @@ describe('source plane (e2e)', () => {
       .post(`/v1/admin/source-connections/${connectionId}/sync`)
       .set(auth())
       .send({ inline: true });
-    expect(again.body.summary).toMatchObject({ mode: 'incremental', seen: 2, unchanged: 2, fetched: 0, ingested: 0 });
+    expect(again.body.summary).toMatchObject({
+      mode: 'incremental',
+      seen: 2,
+      unchanged: 2,
+      fetched: 0,
+      ingested: 0,
+    });
     expect(source.fetches).toEqual([]);
 
-    source.items.set('oncall', { externalId: 'oncall', title: 'On-call (rotation changed)', revision: 'r2' });
+    source.items.set('oncall', {
+      externalId: 'oncall',
+      title: 'On-call (rotation changed)',
+      revision: 'r2',
+    });
     const moved = await f.http
       .post(`/v1/admin/source-connections/${connectionId}/sync`)
       .set(auth())
@@ -330,7 +353,9 @@ describe('source plane (e2e)', () => {
     const gone = await f.http
       .get(`/v1/admin/source-connections/${connectionId}/items?state=gone`)
       .set(auth());
-    expect(gone.body.items.map((i: { externalId: string }) => i.externalId)).toEqual(['onboarding']);
+    expect(gone.body.items.map((i: { externalId: string }) => i.externalId)).toEqual([
+      'onboarding',
+    ]);
     expect(gone.body.items[0].goneAt).not.toBeNull();
 
     const closed = await rows<{ validUntil: unknown }>(
@@ -355,8 +380,12 @@ describe('source plane (e2e)', () => {
 
     const del = await f.http.delete(`/v1/admin/source-connections/${connectionId}`).set(auth());
     expect(del.body).toEqual({ deleted: true, items: 2 });
-    expect((await f.http.get(`/v1/admin/source-connections/${connectionId}`).set(auth())).status).toBe(404);
-    const docs = await rows<{ id: unknown }>(`SELECT id FROM source_document WHERE kind = 'source_document'`);
+    expect(
+      (await f.http.get(`/v1/admin/source-connections/${connectionId}`).set(auth())).status,
+    ).toBe(404);
+    const docs = await rows<{ id: unknown }>(
+      `SELECT id FROM source_document WHERE kind = 'source_document'`,
+    );
     expect(docs).toHaveLength(3);
   });
 });
