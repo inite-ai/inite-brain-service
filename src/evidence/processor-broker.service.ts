@@ -3,13 +3,19 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import type { DomainPackManifest } from '../ai/domain-packs';
-import { evidenceSubstrateEnabled, processorBrokerEnabled } from '../common/evidence-flags';
+import {
+  evidenceDocumentBridgeEnabled,
+  evidenceSubstrateEnabled,
+  processorBrokerEnabled,
+} from '../common/evidence-flags';
 import type { DerivedRepresentationKind, EvidenceModality } from '../common/evidence-taxonomy';
 import { SurrealService, queryFirst, queryRows } from '../db/surreal.service';
 import { idTailOf } from '../ingest/ingest-utils';
+import { JobClaimService } from '../jobs/job-claim.service';
 import { gateProcessorDispatch } from './processing/dispatch-gate';
 import {
   EVIDENCE_PROCESSOR_ADAPTERS,
@@ -108,11 +114,16 @@ const SWEEP_MAX_LIMIT = 1000;
 export class EvidenceProcessorBrokerService {
   private readonly logger = new Logger(EvidenceProcessorBrokerService.name);
 
+  // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     @Inject(EVIDENCE_PROCESSOR_ADAPTERS)
     private readonly processors: ProcessorAdapterRegistry,
     private readonly runs: ProcessingRunService,
+    /** The evidence → document bridge's only seam out of this module
+     *  (EVIDENCE_DOCUMENT_BRIDGE): the queue. Optional so positionally
+     *  constructed fixtures — and a queue-less boot — keep working. */
+    @Optional() private readonly claim?: JobClaimService,
   ) {}
 
   async dispatchForPack(
@@ -165,6 +176,7 @@ export class EvidenceProcessorBrokerService {
       });
       result.runs.push(run);
     }
+    await this.enqueueDocumentBridge(companyId, { asset, packId: req.packId, runs: result.runs });
     result.outcome = foldBatchOutcome({
       total: result.runs.length,
       succeeded: result.runs.filter((r) => r.status === 'succeeded' || r.status === 'replayed')
@@ -174,6 +186,43 @@ export class EvidenceProcessorBrokerService {
         .map((r) => ({ key: r.capability, error: r.error ?? 'failed' })),
     });
     return result;
+  }
+
+  /**
+   * Evidence → document bridge (EVIDENCE_DOCUMENT_BRIDGE): every
+   * asset-level `text` representation a `document` asset just gained —
+   * or already had (`replayed`: the operator sweep IS the backfill) —
+   * gets one `evidence_document_bridge` job, deduped per (asset,
+   * representation). The documents module owns the handler; this module
+   * cannot import it, so the queue is the seam. Never fails a dispatch:
+   * a queue hiccup is logged, the runs already happened.
+   */
+  private async enqueueDocumentBridge(
+    companyId: string,
+    p: { asset: AssetRow; packId: string; runs: ExecuteRunResult[] },
+  ): Promise<void> {
+    if (!this.claim || !evidenceDocumentBridgeEnabled()) return;
+    if (p.asset.modality !== 'document') return;
+    const assetId = String(p.asset.id);
+    for (const run of p.runs) {
+      if (run.capability !== 'text') continue;
+      if (run.status !== 'succeeded' && run.status !== 'replayed') continue;
+      for (const representationId of run.representationIds) {
+        try {
+          await this.claim.enqueue({
+            jobType: 'evidence_document_bridge',
+            companyId,
+            triggeredBy: 'manual',
+            dedupKey: `evbridge_${idTailOf(assetId)}_${idTailOf(representationId)}`,
+            payload: { assetId, representationId, packId: p.packId },
+          });
+        } catch (err) {
+          this.logger.warn(
+            `evidence bridge enqueue failed asset=${assetId} rep=${representationId}: ${errorMessage(err)}`,
+          );
+        }
+      }
+    }
   }
 
   /**

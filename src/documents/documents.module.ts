@@ -28,6 +28,8 @@ import { CandidateSweeperService } from './candidate-sweeper.service';
 import { MentionViaDocumentService } from './mention-via-document.service';
 import { SceneCandidateWriterService } from './scene-candidate-writer.service';
 import { OutcomesModule } from '../outcomes/outcomes.module';
+import { EvidenceDocumentBridgeService } from './evidence-document-bridge.service';
+import { EvidenceDocumentBridgeQueueService } from './evidence-document-bridge-queue.service';
 
 /**
  * The Source → Indexer → Candidates → Brain pipeline (migrations
@@ -74,6 +76,8 @@ import { OutcomesModule } from '../outcomes/outcomes.module';
     IndexerWebhookService,
     SceneCandidateWriterService,
     SourceDriftStalenessService,
+    EvidenceDocumentBridgeService,
+    EvidenceDocumentBridgeQueueService,
   ],
   exports: [
     DocumentIngestService,

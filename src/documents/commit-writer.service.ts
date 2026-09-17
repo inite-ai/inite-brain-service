@@ -225,8 +225,32 @@ export class CommitWriterService {
           note: `chunk ${mf.leaderChunkSeq}`,
         },
         ...this.toolObservationEvidence(doc),
+        ...this.evidenceAssetEvidence(doc),
       ],
     };
+  }
+
+  /**
+   * The evidence-bridge hop (EVIDENCE_DOCUMENT_BRIDGE): a document the
+   * bridge created from a processor's text output carries the asset id
+   * on its header, so every committed fact's evidence[] walks back to
+   * the original bytes — asset → representation → document → fact. The
+   * `ref` is the evidence_asset record id, which is what
+   * parseRecordRef() dispatches on; the note names the representation
+   * the text was read from. Same open-array precedent as the 0111 hop.
+   */
+  private evidenceAssetEvidence(doc: StoredDocument): Array<Record<string, unknown>> {
+    const meta = doc.meta as Record<string, unknown> | undefined;
+    const ref = meta?.['evidenceAssetId'];
+    if (typeof ref !== 'string' || ref.length === 0) return [];
+    const rep = meta?.['evidenceRepresentationId'];
+    return [
+      {
+        kind: 'asset',
+        ref,
+        ...(typeof rep === 'string' && rep.length > 0 ? { note: `text via ${rep}` } : {}),
+      },
+    ];
   }
 
   /**

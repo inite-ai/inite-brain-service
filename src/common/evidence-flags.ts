@@ -482,6 +482,24 @@ export function processorBrokerEnabled(): boolean {
 }
 
 /**
+ * Evidence → document bridge — EVIDENCE_DOCUMENT_BRIDGE.
+ *
+ * The two half-pipelines never met: a processor turns a `document`
+ * asset into a `text` representation (embedded for the fragment lane),
+ * but that text never became a `source_document`, so an uploaded PDF
+ * produced no facts. When on, the broker enqueues one
+ * `evidence_document_bridge` job per successful (or replayed — the
+ * operator sweep is the backfill) asset-level `text` run on a
+ * `document`-modality asset, and the documents module ingests the text
+ * through the ordinary pipeline with an `evidenceAssetId` provenance
+ * hop. Off (default) ⇒ no job is ever enqueued — byte-identical. Read
+ * at call time (runtime-mutable). Requires the jobs queue.
+ */
+export function evidenceDocumentBridgeEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_DOCUMENT_BRIDGE);
+}
+
+/**
  * External-ingest quarantine seam (Brain v2.1 MM-6, migration 0121) —
  * EVIDENCE_QUARANTINE.
  *

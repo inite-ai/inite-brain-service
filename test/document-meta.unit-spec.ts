@@ -124,13 +124,15 @@ describe('mergeDocumentMeta', () => {
     expect(mergeDocumentMeta({}, undefined)).toEqual({});
   });
 
-  it('declares both internal writers', () => {
+  it('declares every internal writer', () => {
     expect([...INTERNAL_DOCUMENT_META_KEYS]).toEqual([
       'conversationId',
       'messageId',
       'eventId',
       'toolObservationRef',
       'toolObservationNote',
+      'evidenceAssetId',
+      'evidenceRepresentationId',
     ]);
   });
 });

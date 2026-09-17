@@ -1357,6 +1357,11 @@ const KNOWN_BOOLEAN_FLAGS = [
   // family sits off the ENGINE flag budget by design (see above).
   'EVIDENCE_PROCESSOR_BROKER',
   'EVIDENCE_QUARANTINE',
+  // Evidence → document bridge: a `document` asset's asset-level `text`
+  // representation is ingested through the document pipeline (one
+  // `evidence_document_bridge` job per (asset, representation)). Default
+  // off = no job is ever enqueued — byte-identical.
+  'EVIDENCE_DOCUMENT_BRIDGE',
   // Orphan-blob GC (MM-7 follow-up): the delete-side sweep that reclaims
   // blobs no evidence_asset row references — the leak the upload path
   // creates by design (bytes are stored before their row exists, and a
