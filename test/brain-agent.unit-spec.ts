@@ -214,7 +214,7 @@ describe('GitAgentConnector', () => {
     expect(readme.item.revision).toMatch(/^[0-9a-f]{40}$/);
     expect(readme.item.originUri).toBe('https://github.com/acme/repo#README.md');
     expect(deltas.at(-1)).toMatchObject({ type: 'checkpoint', checkpoint: { files: 2 } });
-    const doc = await c.fetch(x, { externalId: 'README.md', revision: readme.item.revision });
+    const doc = await c.fetch(x, { externalId: 'README.md', revision: readme.item.revision ?? '' });
     expect(doc).toMatchObject({
       shape: 'document',
       text: '# Repo\nAcme was founded in 2019.',
@@ -246,7 +246,7 @@ class FakeBrain {
   begun = {
     full: true,
     checkpoint: null as Record<string, unknown> | null,
-    contentPolicy: 'text' as const,
+    contentPolicy: 'text' as 'text' | 'manifest' | 'bytes',
     fetchBudget: null as number | null,
   };
   client(): BrainAgentClient {

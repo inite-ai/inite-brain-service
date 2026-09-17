@@ -117,7 +117,7 @@ describe('agent sync protocol (e2e)', () => {
       return (out as T[]) ?? [];
     });
   };
-  const post = (path: string, body: unknown) =>
+  const post = (path: string, body: object) =>
     f.http.post(`/v1/source-connections/${connectionId}${path}`).set(auth()).send(body);
   const doc = (text: string, title: string) => ({ shape: 'document', text, title, kind: 'file' });
   const item = (externalId: string, revision: string) => ({

@@ -80,7 +80,7 @@ export class BrainAgentClient {
         'Content-Type': 'application/json',
         'User-Agent': 'inite-brain-agent/0.1.0',
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     const text = await res.text();
     let json: unknown = null;
