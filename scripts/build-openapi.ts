@@ -115,6 +115,7 @@ import {
   CreateSourceConnectionRequestSchema,
   SourceConnectionSchema,
   SourceConnectionsListResponseSchema,
+  SourceCatalogResponseSchema,
   SourceItemSchema,
   SourceItemsListResponseSchema,
   SourceSyncSummarySchema,
@@ -345,6 +346,7 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   // --- source plane operator surface (src/contracts/source-plane/…)
   SourceConnection: SourceConnectionSchema,
   SourceConnectionsListResponse: SourceConnectionsListResponseSchema,
+  SourceCatalogResponse: SourceCatalogResponseSchema,
   CreateSourceConnectionRequest: CreateSourceConnectionRequestSchema,
   UpdateSourceConnectionRequest: UpdateSourceConnectionRequestSchema,
   SourceItem: SourceItemSchema,
@@ -1564,6 +1566,31 @@ function sourcePlanePaths(): Json {
         responses: {
           '201': jsonResponse('Created.', ref('SourceConnection')),
           '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/source-connections/catalog': {
+      get: operation({
+        operationId: 'listSourceCatalog',
+        tag: 'Source Plane',
+        summary: 'What this tenant can connect here',
+        description:
+          'The connectable catalogue: every `sources[]` entry of every pack ' +
+          'the tenant has (builtin and installed, with its consent state), ' +
+          'each with an `availability` — `ready`, `disabled` (the ' +
+          'connector’s SOURCE_KIND switch is off), `missing` (this build ' +
+          'ships no such connector), `agent` (stdio MCP, local-agent host) ' +
+          'or `external` (the publisher pushes) — and the connector’s ' +
+          'static `configExample` / `credentialHint`; plus the shipped ' +
+          'connectors with their switches and the two operator fences ' +
+          '(`fsRoots`, `egressAllowPrivate`). Read-only; never runs a ' +
+          'connector, never reveals a credential. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        responses: {
+          '200': jsonResponse('The catalogue.', ref('SourceCatalogResponse')),
           ...AUTH_ERRORS,
           '404': errorRef('NotFound'),
         },

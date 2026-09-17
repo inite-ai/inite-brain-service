@@ -75,6 +75,7 @@ failed run, never a crash.
 | Route | Does |
 |---|---|
 | `GET /v1/admin/source-connections` | list |
+| `GET /v1/admin/source-connections/catalog` | what this tenant can connect here: every `sources[]` entry of every pack it has (builtin + installed, with `accepted` = the sources section was consented at install) and its `availability` — `ready` / `disabled` (`SOURCE_KIND_<KIND>` off) / `missing` (not shipped in this build) / `agent` (stdio MCP) / `external` (the publisher pushes) — plus the connector's static `configExample` / `credentialHint`, the shipped connectors with their switches, `fsRoots` and `egressAllowPrivate`. Read-only, never runs a connector |
 | `POST /v1/admin/source-connections` | `{ packId, sourceId, vertical, label?, host?, config?, credential?, mode?, schedule?, contentPolicy?, deletePolicy?, fetchBudget?, ownerUserId? }` — the pack must be installed with `acceptSources` (or builtin); a `native` entry must name an installed connector; defaults come from the entry; the recorder is declared in `source_registry` |
 | `GET /v1/admin/source-connections/:id` | one (never the credential — `hasCredential`) |
 | `PATCH /v1/admin/source-connections/:id` | label / config / credential / schedule / policies / `status: active \| paused` |
@@ -86,6 +87,31 @@ The scheduler ticks every 5 minutes (`2-59/5 * * * *` UTC) and enqueues
 one job per due connection per tenant, deduped per 5-minute slot;
 `manual` connections are only synced by sync-now. The job handler
 registers at boot — flip the flag, then restart.
+
+### Admin UI — `/admin/connections`
+
+The landing's admin shell mirrors the surface one-to-one (Platform →
+Connections; `brain-landing/components/admin/ConnectionsPanel.tsx`):
+
+- **Deployment fences** — the shipped connectors and their switches, the
+  `fs` root jail, the private-egress opt-in — from `/catalog`, so an
+  operator sees *why* a source cannot be connected before trying.
+- **Connected** — every connection with schedule, status and last sync;
+  **Sync** / **Full** enqueue a `source_sync` job (the notice names the
+  run), **Pause** / **Resume** PATCH the status, **Delete** asks for the
+  label back.
+- **Inspect** opens the connection under the table: identity, config,
+  checkpoint, last error, a **Run inline** that shows the run's counters,
+  and the catalogue (`source_item`) paged and filterable by state.
+- **Connect a source** — the catalogue of declarable entries; **Connect**
+  opens a form pre-filled from the connector's `configExample` and the
+  entry's defaults; the credential is a write-only field. A source whose
+  pack was installed without `acceptSources` links back to Packs.
+
+While `SOURCE_PLANE_ENABLED` is off the page shows the off-state with the
+flag to set, nothing else. The Packs page's install flow asks for each
+consent gate in turn (MCP tools → modalities → sources), carrying the
+accepted flags into the retry.
 
 ## Natives
 
@@ -141,6 +167,8 @@ interface Connector {
     | { type: 'gone'; externalId: string }
     | { type: 'checkpoint'; checkpoint: Record<string, unknown> }>;
   fetch(ctx, item): Promise<FetchedItem>;  // { shape: 'document', text } | { shape: 'binary', bytes, mediaType, modality } | { shape: 'conversation', conversationId, turns } | { shape: 'structure', record }
+  readonly configExample?: Record<string, unknown>;  // what the admin form pre-fills — keys with example values, never secrets
+  readonly credentialHint?: string;                  // one line on what `credential` is, when the connector takes one
 }
 ```
 

@@ -148,6 +148,15 @@ export interface Connector {
   /** Runtime switch (SOURCE_KIND_<KIND>); absent = always on. A kind that
    *  answers false is "not installed" to the engine. */
   enabled?(): boolean;
+  /**
+   * What an operator has to fill in — the connection `config` an admin
+   * surface pre-fills, keys with their example values (never secrets).
+   * Static and declarative: the catalogue endpoint publishes it, the
+   * connector never sees it again.
+   */
+  readonly configExample?: Record<string, unknown>;
+  /** One line on what `credential` is when the connector takes one. */
+  readonly credentialHint?: string;
   enumerate(ctx: ConnectorCtx, opts: EnumerateOptions): AsyncIterable<ItemDelta>;
   fetch(ctx: ConnectorCtx, item: ItemDescriptor): Promise<FetchedItem>;
 }

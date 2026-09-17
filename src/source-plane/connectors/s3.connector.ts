@@ -60,6 +60,8 @@ export interface S3ClientLike {
 export class S3Connector implements Connector {
   readonly kind = 's3';
   readonly walksEverything = true;
+  readonly configExample = { bucket: 'my-bucket', prefix: 'docs/', region: 'us-east-1' };
+  readonly credentialHint = 'accessKeyId:secretAccessKey (omit to use the SDK credential chain)';
 
   /** Test seam: a factory returning a client for the resolved config. */
   clientFactory: (cfg: S3ConnectorConfig, credential: string | null) => S3ClientLike = defaultClient;

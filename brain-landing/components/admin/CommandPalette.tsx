@@ -20,6 +20,7 @@ import {
   Moon,
   Network,
   Package,
+  Plug,
   Play,
   Presentation,
   Scale,
@@ -259,6 +260,14 @@ export function CommandPalette({ lang }: { lang: string }) {
       icon: Package,
       path: `/${lang}/admin/packs`,
       keywords: ['packs', 'domain pack', 'install', 'manifest', 'eval'],
+    },
+    {
+      id: 'connections',
+      label: 'Connections',
+      hint: 'source plane · folders · buckets · sites · sync',
+      icon: Plug,
+      path: `/${lang}/admin/connections`,
+      keywords: ['connections', 'sources', 'source plane', 'sync', 'fs', 'url', 's3', 'index'],
     },
     {
       id: 'marketplace',

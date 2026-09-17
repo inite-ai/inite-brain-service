@@ -17,6 +17,7 @@ import {
 import { JsonView } from './JsonView'
 import { ErrorLine, Field, Modal, Segmented, inputCls } from './policies/ui'
 import { getMessages, normalizeLang } from '../../lib/i18n'
+import { consentFlagOf, type PackConsentFlag } from '../../lib/pack-consent'
 import type {
   InstallPackResponse,
   PackEvalReport,
@@ -66,9 +67,14 @@ export function PacksPanel() {
   const [expectedChecksum, setExpectedChecksum] = useState('')
 
   const [installBusy, setInstallBusy] = useState<InstallSource | null>(null)
+  // Consent asks arrive one gate at a time (mcp → modalities → sources);
+  // every accepted flag is carried into the retry so the next gate is the
+  // only thing that can still refuse.
   const [consent, setConsent] = useState<{
     message: string
     source: InstallSource
+    flag: PackConsentFlag
+    accepted: PackConsentFlag[]
   } | null>(null)
   const [payment, setPayment] = useState<PaymentRequiredHint | null>(null)
   const [checkoutBusy, setCheckoutBusy] = useState(false)
@@ -94,7 +100,7 @@ export function PacksPanel() {
   const { loading, reload } = useLoader(load)
 
   const doInstall = useCallback(
-    async (source: InstallSource, opts?: { accept?: boolean }) => {
+    async (source: InstallSource, opts?: { accept?: PackConsentFlag[] }) => {
       setInstallBusy(source)
       setError(null)
       setSuccess(null)
@@ -126,21 +132,23 @@ export function PacksPanel() {
               : {}),
           }
         }
-        if (opts?.accept) body.acceptMcpTools = true
+        for (const flag of opts?.accept ?? []) body[flag] = true
         const res = await fetch(path, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         })
         const json = await res.json()
-        if (
-          res.status === 400 &&
-          typeof (json as { message?: unknown }).message === 'string' &&
-          (json as { message: string }).message.includes('acceptMcpTools')
-        ) {
+        const asked =
+          res.status === 400
+            ? consentFlagOf((json as { message?: unknown }).message)
+            : null
+        if (asked) {
           setConsent({
             message: (json as { message: string }).message,
             source,
+            flag: asked,
+            accepted: opts?.accept ?? [],
           })
           return
         }
@@ -484,12 +492,12 @@ export function PacksPanel() {
 
       {consent && (
         <Modal
-          title={p.consent.title}
+          title={p.consent[consent.flag].title}
           onClose={() => setConsent(null)}
           wide
         >
           <p className="text-xs text-[var(--text-muted)] mb-2">
-            {p.consent.note}
+            {p.consent[consent.flag].note}
           </p>
           <pre className="text-[10px] font-mono text-[var(--text)] whitespace-pre-wrap rounded border border-[var(--border)] bg-[var(--bg)] p-2 max-h-60 overflow-y-auto">
             {consent.message}
@@ -505,13 +513,13 @@ export function PacksPanel() {
             <button
               type="button"
               onClick={() => {
-                const source = consent.source
+                const { source, flag, accepted } = consent
                 setConsent(null)
-                void doInstall(source, { accept: true })
+                void doInstall(source, { accept: [...accepted, flag] })
               }}
               className="rounded bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
             >
-              {p.consent.accept}
+              {p.consent[consent.flag].accept}
             </button>
           </div>
         </Modal>

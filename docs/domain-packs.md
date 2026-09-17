@@ -713,8 +713,9 @@ the CLI); the flag is recorded with a checksum of the section, so an
 upgrade that changes it re-asks and one that leaves it untouched carries
 the consent over — the `acceptMcpTools` / `acceptModalities` mold.
 Nothing is live until an operator creates a **connection** for an entry
-(`POST /v1/admin/source-connections`, `SOURCE_PLANE_ENABLED`); consent is
-the review of what MAY be connected.
+(`POST /v1/admin/source-connections` or Admin → Connections,
+`SOURCE_PLANE_ENABLED`); consent is the review of what MAY be connected.
+The Admin → Packs install flow asks for each gate in turn.
 
 ## First-party pack library (industries)
 

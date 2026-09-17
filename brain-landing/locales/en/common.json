@@ -599,10 +599,22 @@
         "invalidJson": "Manifest is not valid JSON."
       },
       "consent": {
-        "title": "Pack declares MCP tools",
-        "note": "Installing changes this tenant's agent surface; external tools cause signed outbound calls to the publisher's endpoint. Review the declaration:",
-        "accept": "Accept MCP tools and install",
-        "cancel": "Cancel"
+        "cancel": "Cancel",
+        "acceptMcpTools": {
+          "title": "Pack declares MCP tools",
+          "note": "Installing changes this tenant's agent surface; external tools cause signed outbound calls to the publisher's endpoint. Review the declaration:",
+          "accept": "Accept MCP tools and install"
+        },
+        "acceptModalities": {
+          "title": "Pack declares media modalities",
+          "note": "The pack asks to receive raw evidence (images, audio, documents) and to run processors over it. Review the declaration:",
+          "accept": "Accept modalities and install"
+        },
+        "acceptSources": {
+          "title": "Pack declares sources",
+          "note": "The pack names external systems the brain may READ through a connection (folders, buckets, sites, MCP servers). Nothing is read until an operator connects one. Review the declaration:",
+          "accept": "Accept sources and install"
+        }
       },
       "payment": {
         "title": "Payment required",
@@ -623,6 +635,168 @@
         "webhookNote": "Store it now: this HMAC secret signs indexer pushes and external MCP tool calls. It will NOT be shown again.",
         "copy": "Copy",
         "copied": "copied"
+      }
+    },
+    "connections": {
+      "title": "Connections",
+      "subtitle": "The source plane: where the brain reads existing evidence from. A connection instantiates one `sources` entry of an installed pack — folders, buckets, sites, MCP servers — catalogues what is there, fetches what changed and commits it through the ordinary doors with a revision on every fact.",
+      "off": {
+        "title": "Source plane is off",
+        "body": "This deployment answers 404 on /v1/admin/source-connections. Set SOURCE_PLANE_ENABLED=1 (and SOURCE_KIND_<KIND>=1 per connector) and restart; the scheduler registers at boot."
+      },
+      "fences": {
+        "title": "Deployment fences",
+        "connectors": "connectors",
+        "connectorOff": "off — set {flag}=1",
+        "fsRoots": "fs root jail",
+        "fsRootsNone": "none — SOURCE_FS_ROOTS unset, no directory may be read",
+        "egress": "private egress",
+        "egressOn": "operator opt-in on (SOURCE_EGRESS_ALLOW_PRIVATE) — a connection still needs config.allowPrivate",
+        "egressOff": "public hosts only (loopback / private / link-local refused)"
+      },
+      "list": {
+        "title": "Connected",
+        "subtitle": "Connections in this tenant. Sync enqueues a job; Full re-walks everything and marks what is missing gone.",
+        "headers": {
+          "label": "connection",
+          "source": "pack / source",
+          "connector": "connector · shape",
+          "host": "host",
+          "schedule": "schedule",
+          "status": "status",
+          "lastSync": "last sync",
+          "actions": "actions"
+        },
+        "empty": "No connections yet — pick a source from the catalogue below.",
+        "personal": "personal",
+        "neverSynced": "never",
+        "sync": "Sync",
+        "full": "Full",
+        "pause": "Pause",
+        "resume": "Resume",
+        "inspect": "Inspect",
+        "delete": "Delete",
+        "deletePrompt": "Delete connection \"{label}\" — its catalogue is dropped, the documents and facts it committed stay. Type the label to confirm.",
+        "confirmMismatch": "Confirmation phrase mismatch — aborting.",
+        "deleted": "Deleted {label}: {n} catalogue item(s) dropped.",
+        "enqueued": "Sync enqueued as job {runId}.",
+        "alreadyQueued": "A sync for this connection is already queued ({runId})."
+      },
+      "status": {
+        "active": "active",
+        "paused": "paused",
+        "deleting": "deleting"
+      },
+      "detail": {
+        "title": "Connection",
+        "id": "id",
+        "sourceKey": "source key",
+        "recorder": "recorder",
+        "vertical": "vertical",
+        "mode": "mode",
+        "contentPolicy": "content",
+        "deletePolicy": "on delete",
+        "fetchBudget": "fetch budget",
+        "credential": "credential",
+        "credentialStored": "stored (never shown)",
+        "credentialNone": "none",
+        "config": "config",
+        "checkpoint": "checkpoint",
+        "lastError": "last error",
+        "runInline": "Run inline",
+        "runInlineHint": "Runs the sync in this request and shows the counters — for watching a first sync of a small source.",
+        "running": "syncing…",
+        "summary": {
+          "title": "Sync result",
+          "seen": "seen",
+          "new": "new",
+          "changed": "changed",
+          "unchanged": "unchanged",
+          "gone": "gone",
+          "fetched": "fetched",
+          "ingested": "ingested",
+          "deduplicated": "deduplicated",
+          "failed": "failed",
+          "closed": "closed",
+          "duration": "{ms} ms",
+          "skipped": "skipped: {reason}"
+        },
+        "close": "Close"
+      },
+      "items": {
+        "title": "Catalogue",
+        "subtitle": "What the connection has seen at the source ({total} items).",
+        "all": "all",
+        "headers": {
+          "item": "item",
+          "state": "state",
+          "revision": "revision",
+          "size": "size",
+          "lastSeen": "last seen",
+          "error": "error"
+        },
+        "empty": "Nothing catalogued yet — run a sync.",
+        "prev": "previous",
+        "next": "next",
+        "state": {
+          "seen": "seen",
+          "fetched": "fetched",
+          "indexed": "indexed",
+          "gone": "gone"
+        }
+      },
+      "catalog": {
+        "title": "Connect a source",
+        "subtitle": "Every `sources` entry declared by a pack this tenant has. A native entry needs its connector switched on; an installed pack's sources must have been accepted at install.",
+        "headers": {
+          "pack": "pack",
+          "source": "source",
+          "connector": "connector · shape",
+          "availability": "availability",
+          "actions": "actions"
+        },
+        "builtin": "builtin",
+        "notAccepted": "sources not accepted — reinstall the pack with acceptSources",
+        "reinstall": "open Packs",
+        "connect": "Connect",
+        "empty": "No pack in this tenant declares sources. Install file_memory or web_memory from Packs (accept modalities + sources).",
+        "availability": {
+          "ready": "ready",
+          "disabled": "switched off",
+          "missing": "not shipped",
+          "agent": "local agent",
+          "external": "publisher pushes"
+        },
+        "availabilityHint": {
+          "ready": "the connector is installed and on",
+          "disabled": "installed, off — set {flag}=1",
+          "missing": "this build ships no such connector",
+          "agent": "runs on the local agent (stdio MCP), never on the server",
+          "external": "the publisher pushes through the doors; the connection is only the identity pushes are attributed to"
+        }
+      },
+      "create": {
+        "title": "Connect {packId} / {sourceId}",
+        "label": "label",
+        "labelHint": "free text for the operator; defaults to pack/source",
+        "vertical": "vertical",
+        "verticalHint": "contextRef.vertical on every fact this connection writes",
+        "config": "config (JSON)",
+        "configHint": "pre-filled from the connector's example — never put secrets here",
+        "credential": "credential",
+        "credentialNone": "this connector takes no credential",
+        "schedule": "schedule",
+        "contentPolicy": "content policy",
+        "deletePolicy": "on delete",
+        "fetchBudget": "fetch budget",
+        "fetchBudgetHint": "max items fetched per sync (blank = connector default)",
+        "ownerUserId": "owner user id",
+        "ownerUserIdHint": "set = personal connection: every row it writes is user-fenced",
+        "invalidJson": "config is not valid JSON.",
+        "submit": "Connect",
+        "submitting": "connecting…",
+        "cancel": "Cancel",
+        "created": "Connected {label}. Run Sync to catalogue it."
       }
     },
     "marketplace": {
@@ -946,7 +1120,11 @@
     "subtitle": "Connect Claude Code, ChatGPT, Cursor and your own code to the same graph. What one of them writes, the next one recalls — because the workspace comes from the key, not from the app that happens to be open.",
     "hubLabel": "Your memory",
     "hubTitle": "One graph",
-    "hubItems": ["Facts & beliefs", "Episodes & scenes", "Sources & evidence"],
+    "hubItems": [
+      "Facts & beliefs",
+      "Episodes & scenes",
+      "Sources & evidence"
+    ],
     "sdkLabel": "Your app",
     "clientsLabel": "Clients you connect",
     "surfaceLabel": "One surface",

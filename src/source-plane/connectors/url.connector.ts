@@ -64,6 +64,13 @@ interface Seed {
 export class UrlConnector implements Connector {
   readonly kind = 'url';
   readonly walksEverything = true;
+  readonly configExample = {
+    urls: ['https://example.com/handbook'],
+    sitemaps: ['https://example.com/sitemap.xml'],
+    maxPages: DEFAULT_MAX_PAGES,
+    sameHostOnly: true,
+  };
+  readonly credentialHint = 'optional bearer token (config.authScheme: bearer | basic | header:<Name>)';
 
   enabled(): boolean {
     return sourceKindEnabled('url');

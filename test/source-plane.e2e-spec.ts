@@ -74,13 +74,24 @@ describe('source plane (e2e)', () => {
   const saved: Record<string, string | undefined> = {};
 
   beforeAll(async () => {
-    for (const k of ['SOURCE_PLANE_ENABLED', 'DOCUMENT_INGEST_ENABLED', 'WORKER_LOOP_ENABLED']) {
+    for (const k of [
+      'SOURCE_PLANE_ENABLED',
+      'DOCUMENT_INGEST_ENABLED',
+      'WORKER_LOOP_ENABLED',
+      'SOURCE_KIND_FS',
+      'SOURCE_FS_ROOTS',
+      'SOURCE_EGRESS_ALLOW_PRIVATE',
+    ]) {
       saved[k] = process.env[k];
     }
     // The handler registers at boot; keep the worker loop out so the
     // inline sync is the only actor.
     process.env.WORKER_LOOP_ENABLED = '0';
     delete process.env.SOURCE_PLANE_ENABLED;
+    // The catalogue case pins the natives' switched-off state.
+    delete process.env.SOURCE_KIND_FS;
+    delete process.env.SOURCE_FS_ROOTS;
+    delete process.env.SOURCE_EGRESS_ALLOW_PRIVATE;
     f = await createApp({ companyId: COMPANY });
     source = new MemorySource();
     (f.app.get(SOURCE_CONNECTORS) as Connector[]).push(source);
@@ -142,6 +153,38 @@ describe('source plane (e2e)', () => {
       .set(auth())
       .send({ manifest: manifest(changed, '1.1.0'), acceptSources: true });
     expect([200, 201]).toContain(accepted.status);
+  });
+
+  it('the catalogue lists what can be connected here, with consent and connector state', async () => {
+    const r = await f.http.get('/v1/admin/source-connections/catalog').set(auth());
+    expect(r.status).toBe(200);
+    const byId = new Map<string, Record<string, unknown>>(
+      (r.body.sources as Array<Record<string, unknown>>).map((e) => [`${e.packId}/${e.sourceId}`, e]),
+    );
+    // The installed pack's two entries, consented, on the test connector
+    // (pushed into the registry, no switch ⇒ ready).
+    const wiki = byId.get('wiki_pack/wiki');
+    expect(wiki).toMatchObject({
+      builtin: false,
+      accepted: true,
+      kind: 'native',
+      connector: 'memory',
+      shape: 'document',
+      availability: 'ready',
+      configExample: null,
+      defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: 'manual' },
+    });
+    expect(byId.get('wiki_pack/files')?.availability).toBe('ready');
+    // The builtin code_memory repository entry: external ⇒ the publisher pushes.
+    expect(byId.get('code_memory/repository')).toMatchObject({ builtin: true, accepted: true, availability: 'external' });
+    // Shipped natives are present and switched off in this run.
+    const connectors = new Map<string, Record<string, unknown>>(
+      (r.body.connectors as Array<Record<string, unknown>>).map((c) => [String(c.kind), c]),
+    );
+    expect(connectors.get('fs')).toEqual({ kind: 'fs', state: 'disabled', flag: 'SOURCE_KIND_FS' });
+    expect(connectors.get('memory')?.state).toBe('ready');
+    expect(r.body.fsRoots).toEqual([]);
+    expect(r.body.egressAllowPrivate).toBe(false);
   });
 
   let connectionId = '';

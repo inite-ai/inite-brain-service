@@ -92,6 +92,7 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   // source plane (raw-evidence-sources-2026-09.md, W0) — the operator surface
   ['/v1/admin/source-connections', 'get'],
   ['/v1/admin/source-connections', 'post'],
+  ['/v1/admin/source-connections/catalog', 'get'],
   ['/v1/admin/source-connections/{id}', 'get'],
   ['/v1/admin/source-connections/{id}', 'patch'],
   ['/v1/admin/source-connections/{id}', 'delete'],
