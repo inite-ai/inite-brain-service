@@ -16,7 +16,7 @@ import type { DomainPackManifest } from './manifest';
  */
 export const WEB_MEMORY_PACK: DomainPackManifest = {
   id: 'web_memory',
-  version: '0.1.0',
+  version: '0.1.1',
   description:
     'Web pages as memory — what a page describes, links to and who wrote it, bound to the revision it was fetched at; the source pack that connects sites, sitemaps and self-hosted wikis.',
   predicates: [
@@ -119,7 +119,7 @@ chrome, cookie banners and footers. Copy names and URLs VERBATIM.`,
       { predicateOrScene: 'canonical_url', hint: 'standard' },
     ],
     // ── Media contract (Evidence Plane) ─────────────────────────────────
-    // A site serves PDFs next to its pages (`site_media`); document text
+    // A site serves PDFs and office documents next to its pages (`site_media`); document text
     // extraction turns them into documents through the bridge. No image
     // modality: page images are chrome, not evidence. rawEvidence absent.
     modalities: ['text', 'document'],
@@ -141,9 +141,9 @@ chrome, cookie banners and footers. Copy names and URLs VERBATIM.`,
       kind: 'native',
       connector: 'url',
       shape: 'binary',
-      title: 'Site (PDFs)',
+      title: 'Site (PDFs and office documents)',
       description:
-        'PDFs a sitemap lists or that are named outright, handed to the evidence plane. Same config and credential as `site`.',
+        'PDFs and office documents (docx, xlsx, pptx) a sitemap lists or that are named outright, handed to the evidence plane. Same config and credential as `site`.',
       defaults: { contentPolicy: 'bytes', deletePolicy: 'close', schedule: '24h' },
     },
   ],

@@ -8,6 +8,7 @@ import type {
   ItemDelta,
   ItemDescriptor,
 } from '../connector';
+import { decodeHtmlEntities, htmlToText } from '../../common/html-text';
 import { RobotsCache } from './robots';
 import { safeFetch } from './safe-fetch';
 
@@ -53,6 +54,14 @@ export interface UrlConnectorConfig {
 }
 
 const DEFAULT_MAX_PAGES = 500;
+/** Served documents the evidence plane has a processor for (all `document`). */
+const BINARY_CONTENT_TYPES = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'message/rfc822',
+];
 const DEFAULT_REFETCH_HOURS = 24;
 
 interface Seed {
@@ -125,14 +134,15 @@ export class UrlConnector implements Connector {
     const contentType = (res.headers.get('content-type') ?? '').toLowerCase();
     const lastModified = res.headers.get('last-modified');
     const occurredAt = isoOrUndefined(lastModified ?? undefined) ?? item.modifiedAt;
-    if (contentType.includes('application/pdf')) {
+    const binary = BINARY_CONTENT_TYPES.find((t) => contentType.includes(t));
+    if (binary) {
       if (ctx.connection.shape !== 'binary') {
-        throw new Error(`PDF at ${item.externalId} needs a binary-shaped source entry`);
+        throw new Error(`${binary} at ${item.externalId} needs a binary-shaped source entry`);
       }
       return {
         shape: 'binary',
         bytes: res.body,
-        mediaType: 'application/pdf',
+        mediaType: binary,
         modality: 'document',
         occurredAt,
       };
@@ -247,7 +257,7 @@ export function locs(xml: string): Array<{ loc: string; lastmod?: string | undef
     const loc = /<loc>\s*([^<\s]+)\s*<\/loc>/i.exec(inner)?.[1];
     if (!loc) continue;
     const lastmod = /<lastmod>\s*([^<\s]+)\s*<\/lastmod>/i.exec(inner)?.[1];
-    out.push({ loc: decodeEntities(loc), ...(lastmod ? { lastmod } : {}) });
+    out.push({ loc: decodeHtmlEntities(loc), ...(lastmod ? { lastmod } : {}) });
   }
   return out;
 }
@@ -271,39 +281,6 @@ async function serverRevision(
   }
   const hours = cfg.refetchHours ?? DEFAULT_REFETCH_HOURS;
   return `t:${Math.floor(Date.now() / (hours * 3_600_000))}`;
-}
-
-/** A conservative HTML → text reduction; the html adapter (W1c) is the richer path. */
-export function htmlToText(html: string): { title: string | undefined; body: string } {
-  const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1];
-  let s = html
-    .replace(/<head[\s\S]*?<\/head>/gi, ' ')
-    .replace(/<title[\s\S]*?<\/title>/gi, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<\/(p|div|li|h[1-6]|tr|br|section|article|header|footer|blockquote|pre)\s*>/gi, '\n')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ');
-  s = decodeEntities(s)
-    .replace(/[ \t\f\v]+/g, ' ')
-    .replace(/\s*\n\s*/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-  return { title: title ? decodeEntities(title).replace(/\s+/g, ' ').trim() : undefined, body: s };
-}
-
-function decodeEntities(s: string): string {
-  return s
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, n: string) => String.fromCodePoint(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCodePoint(parseInt(h, 16)));
 }
 
 function isoOrUndefined(v: string | undefined): string | undefined {

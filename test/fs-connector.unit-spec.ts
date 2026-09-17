@@ -86,6 +86,12 @@ describe('FsConnector', () => {
     await writeFile(join(root, 'docs', 'fake.md'), Buffer.from([0x68, 0x69, 0x00, 0x21]));
     await writeFile(join(root, 'docs', 'scan.pdf'), '%PDF-1.4 fake');
     await writeFile(join(root, 'docs', 'photo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    await writeFile(join(root, 'docs', 'plan.docx'), Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+    await writeFile(join(root, 'docs', 'mail.eml'), 'Subject: x\r\n\r\nbody');
+    await writeFile(
+      join(root, 'docs', 'page.html'),
+      '<html><head><title>Guide</title><style>p{}</style></head><body><h1>Hi</h1><p>a &amp; b</p></body></html>',
+    );
     await writeFile(join(root, '.hidden.md'), 'secret');
     await writeFile(join(root, 'node_modules', 'pkg', 'index.md'), 'dep');
     await writeFile(join(root, '.git', 'HEAD'), 'ref');
@@ -139,6 +145,7 @@ describe('FsConnector', () => {
       'README.md',
       'docs/fake.md',
       'docs/notes.txt',
+      'docs/page.html',
       'docs/runbooks/oncall.md',
     ]);
     const readme = deltas.find(
@@ -154,13 +161,18 @@ describe('FsConnector', () => {
       modifiedAt: '2026-09-01T00:00:00.000Z',
     });
     expect(readme.item.revision).toBe(`${Date.parse('2026-09-01T00:00:00Z')}:16`);
-    expect(deltas.at(-1)).toMatchObject({ type: 'checkpoint', checkpoint: { files: 4 } });
+    expect(deltas.at(-1)).toMatchObject({ type: 'checkpoint', checkpoint: { files: 5 } });
   });
 
   it('the binary shape walks PDFs and images and fetches them with the right modality', async () => {
     const c = new FsConnector();
     const x = ctx({ shape: 'binary' });
-    expect(ids(await walk(c, x))).toEqual(['docs/photo.png', 'docs/scan.pdf']);
+    expect(ids(await walk(c, x))).toEqual([
+      'docs/mail.eml',
+      'docs/photo.png',
+      'docs/plan.docx',
+      'docs/scan.pdf',
+    ]);
     const pdf = await c.fetch(x, { externalId: 'docs/scan.pdf' });
     expect(pdf).toMatchObject({
       shape: 'binary',
@@ -169,6 +181,20 @@ describe('FsConnector', () => {
     });
     const png = await c.fetch(x, { externalId: 'docs/photo.png' });
     expect(png).toMatchObject({ shape: 'binary', mediaType: 'image/png', modality: 'image' });
+    // Office documents and mail enter the evidence plane as documents —
+    // the office-text / mail-text processors read them there.
+    const docx = await c.fetch(x, { externalId: 'docs/plan.docx' });
+    expect(docx).toMatchObject({
+      shape: 'binary',
+      mediaType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      modality: 'document',
+    });
+    const eml = await c.fetch(x, { externalId: 'docs/mail.eml' });
+    expect(eml).toMatchObject({
+      shape: 'binary',
+      mediaType: 'message/rfc822',
+      modality: 'document',
+    });
   });
 
   it('maxFiles bounds the walk; explicit extensions and includeHidden widen it', async () => {
@@ -197,6 +223,14 @@ describe('FsConnector', () => {
       shape: 'document',
       text: 'On-call rotation.',
       title: 'oncall.md',
+      kind: 'file',
+    });
+    // An HTML file is reduced to its prose; the <title> becomes the title.
+    const html = await c.fetch(x, { externalId: 'docs/page.html' });
+    expect(html).toMatchObject({
+      shape: 'document',
+      text: 'Hi\na & b',
+      title: 'Guide',
       kind: 'file',
     });
     await expect(c.fetch(x, { externalId: 'docs/fake.md' })).rejects.toThrow('binary content');

@@ -118,7 +118,7 @@ accepted flags into the retry.
 | Kind | Flag | Reads | Revision | Config |
 |---|---|---|---|---|
 | **`fs`** (W1) | `SOURCE_KIND_FS` + the `SOURCE_FS_ROOTS` jail | a directory on the brain host — a mounted volume, an OS-mounted network share (SMB/NFS), the laptop a fully-local brain runs on. Every run is a full walk (`walksEverything`: no change feed exists for a directory), so what the walk did not see is gone. Symlinks are never followed; hidden entries and VCS/build directories are skipped; `maxFiles` / `maxFileBytes` bound the walk | `mtime:size` — polling, hashing only what the store hashes on write | `{ root, extensions?, excludeDirs?, includeHidden?, maxFiles?, maxFileBytes? }` |
-| **`url`** (W1) | `SOURCE_KIND_URL` | pages named outright and every page a sitemap lists (indexes followed one level) — a public site, a docs portal, a self-hosted wiki. HTML is reduced to text (title kept, scripts/styles/chrome stripped); `text/*` and JSON pass through; PDFs go to the binary shape. Every request and every redirect hop passes the SSRF egress guard; robots.txt `Disallow` for `*` and `inite-brain-source` is honoured per host; `sameHostOnly` (default) keeps a sitemap from enumerating another host; the credential rides as `Authorization: Bearer` (or `Basic`, or `header:<Name>`) | sitemap `<lastmod>`, else the server's ETag / Last-Modified (one HEAD per URL per run), else a `refetchHours` time bucket | `{ urls?, sitemaps?, maxPages?, sameHostOnly?, allowPrivate?, authScheme?, refetchHours?, delayMs?, maxBytes?, ignoreRobots? }` |
+| **`url`** (W1) | `SOURCE_KIND_URL` | pages named outright and every page a sitemap lists (indexes followed one level) — a public site, a docs portal, a self-hosted wiki. HTML is reduced to text (title kept, scripts/styles/chrome stripped); `text/*` and JSON pass through; PDFs, office documents and rfc822 go to the binary shape. Every request and every redirect hop passes the SSRF egress guard; robots.txt `Disallow` for `*` and `inite-brain-source` is honoured per host; `sameHostOnly` (default) keeps a sitemap from enumerating another host; the credential rides as `Authorization: Bearer` (or `Basic`, or `header:<Name>`) | sitemap `<lastmod>`, else the server's ETag / Last-Modified (one HEAD per URL per run), else a `refetchHours` time bucket | `{ urls?, sitemaps?, maxPages?, sameHostOnly?, allowPrivate?, authScheme?, refetchHours?, delayMs?, maxBytes?, ignoreRobots? }` |
 | **`s3`** (W1) | `SOURCE_KIND_S3` | objects under a prefix of an S3 or S3-compatible bucket (MinIO, R2, B2, GCS interop) through the SDK the evidence adapter already uses; the same extension rules as `fs` decide text vs binary items | the object ETag | `{ bucket, prefix?, region?, endpoint?, forcePathStyle?, allowPrivate?, extensions?, maxObjects?, maxObjectBytes? }`; credential `accessKeyId:secretAccessKey`, else the SDK chain |
 
 **Private hosts — the double opt-in.** A self-hosted wiki or a MinIO on
@@ -136,8 +136,10 @@ Packs: **`file_memory`** carries `folder` / `folder_media` (`fs`) and
 
 The declared shape decides what the `fs` connector counts as an item:
 `document` ⇒ text-like extensions read as UTF-8 (a file with NUL bytes is
-skipped as binary), `binary` ⇒ PDFs and images handed to the evidence
-door. The first-party **`file_memory`** pack (`packs/file-memory.pack.json`)
+skipped as binary; `.html` is reduced to its prose), `binary` ⇒ PDFs,
+office documents (`.docx` / `.xlsx` / `.pptx`), mail (`.eml`) and images
+handed to the evidence door. The table is one for `fs` and `s3`
+(`src/source-plane/connectors/media.ts`). The first-party **`file_memory`** pack (`packs/file-memory.pack.json`)
 carries both entries — `folder` and `folder_media` — plus the vocabulary
 a folder of documents yields (`describes`, `defines_term`, `references`)
 and the derivable class the drift sweep re-verifies (`located_in`,
@@ -149,6 +151,21 @@ curl -X POST $BRAIN/v1/admin/source-connections -H "Authorization: Bearer $KEY" 
   -d '{"packId":"file_memory","sourceId":"folder","vertical":"files","config":{"root":"/srv/brain/sources/vault"}}'
 curl -X POST $BRAIN/v1/admin/source-connections/<id>/sync -d '{"inline":true}'
 ```
+
+**What a binary item becomes.** The evidence plane's processors turn the
+bytes into text and the bridge (`EVIDENCE_DOCUMENT_BRIDGE`) carries that
+text into the document pipeline, so a `.docx` on a share ends as facts
+with `file://` provenance exactly like a `.md` would:
+
+| Bytes | Processor | Output |
+|---|---|---|
+| PDF | `document-pdf-text` (pdf2json) | `[page i of n]`-marked text |
+| `.docx` / `.xlsx` / `.pptx` | `document-office-text` — zero-dependency OOXML reader (`zip-reader.ts` + `ooxml-text.ts`): only the named parts are inflated, each under the derived-output cap, the directory under a count — a crafted archive is a failed run, never an OOM; no XML parser, so no XXE | paragraphs / `[sheet: …]` rows tab-separated / `[slide i of n]` |
+| `.eml` | `document-mail-text` — RFC 5322 + MIME, bounded by part count and depth; RFC 2047 words, quoted-printable / base64, charsets; attachments named, never read | `From/To/Cc/Date/Subject`, the first text body (HTML reduced), `[attachment: …]` lines |
+| images | `image-metadata`, OCR (opt-in) | header read / text |
+
+Macro-enabled containers (`.docm` / `.xlsm` / `.pptm`) stay outside the
+upload allowlist and the walk.
 
 with `SOURCE_FS_ROOTS=/srv/brain/sources` on the brain. `config.root`
 must resolve (realpath) inside a listed root — unset means no directory is

@@ -16,9 +16,13 @@ import { EVIDENCE_MODALITIES, type EvidenceModality } from '../common/evidence-t
  *   - `application/octet-stream` and other opaque types: an unclassified
  *     blob cannot be modality-checked, so it can never be honestly
  *     described to a pack's perception contract;
- *   - archives (zip/tar/gz) and macro-capable office formats: a container
- *     is a delivery vehicle, and nothing in v1 unpacks or scans inside
- *     one (the scan hook is a metadata-only stub);
+ *   - archives (zip/tar/gz) and macro-capable office formats (.docm /
+ *     .xlsm / .pptm): a container is a delivery vehicle, and nothing
+ *     unpacks a generic one (the scan hook is a metadata-only stub). The
+ *     three macro-FREE OOXML containers and `message/rfc822` ARE taken:
+ *     their processors (office-text / mail-text) open them under named
+ *     parts, inflate caps and part counts — a bomb is a failed run — and
+ *     the raw-read gateway serves them as attachments, never inline;
  *   - `text/html`: same active-content reasoning as SVG.
  *
  * The pairing matters as much as the membership: a `image/png` part may
@@ -33,7 +37,16 @@ export const EVIDENCE_UPLOAD_MEDIA_TYPES: Readonly<Record<EvidenceModality, read
   image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'],
   audio: ['audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/ogg', 'audio/wav', 'audio/flac'],
   video: ['video/mp4', 'video/webm', 'video/quicktime'],
-  document: ['application/pdf', 'text/plain', 'text/markdown', 'text/csv'],
+  document: [
+    'application/pdf',
+    'text/plain',
+    'text/markdown',
+    'text/csv',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'message/rfc822',
+  ],
   sensor: ['application/json', 'text/csv'],
 };
 
