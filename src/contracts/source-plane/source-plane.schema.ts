@@ -211,6 +211,24 @@ export const SourceCatalogEntrySchema = z.object({
   /** Pre-fill for the connection `config`; never secrets. */
   configExample: z.record(z.string(), z.unknown()).nullable(),
   credentialHint: z.string().nullable(),
+  /**
+   * Where a connection of this entry may run: the brain (`server`) and/or
+   * a local agent (`agent`). fs runs on both; url / s3 / http MCP on the
+   * brain; git / stdio MCP on an agent only; an external entry is an
+   * identity, not a runner.
+   */
+  hosts: z.array(z.enum(['server', 'agent'])),
+  /** The MCP entry's declared transport, so the form knows what to ask for. */
+  mcp: z
+    .object({
+      transport: z.enum(['http', 'stdio']),
+      /** Pinned by the pack (read-only) or null = the operator names it. */
+      url: z.string().nullable(),
+      auth: z.enum(['none', 'install_secret', 'oauth']).nullable(),
+      command: z.string().nullable(),
+      args: z.array(z.string()),
+    })
+    .nullable(),
 });
 export type SourceCatalogEntry = z.infer<typeof SourceCatalogEntrySchema>;
 

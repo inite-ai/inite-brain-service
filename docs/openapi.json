@@ -5780,6 +5780,16 @@
                     "null"
                   ]
                 },
+                "hosts": {
+                  "items": {
+                    "enum": [
+                      "server",
+                      "agent"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
                 "kind": {
                   "enum": [
                     "mcp",
@@ -5787,6 +5797,66 @@
                     "external"
                   ],
                   "type": "string"
+                },
+                "mcp": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "args": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "auth": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "none",
+                                "install_secret",
+                                "oauth"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "command": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "transport": {
+                          "enum": [
+                            "http",
+                            "stdio"
+                          ],
+                          "type": "string"
+                        },
+                        "url": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "transport",
+                        "url",
+                        "auth",
+                        "command",
+                        "args"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "packId": {
                   "type": "string"
@@ -5827,7 +5897,9 @@
                 "defaults",
                 "availability",
                 "configExample",
-                "credentialHint"
+                "credentialHint",
+                "hosts",
+                "mcp"
               ],
               "type": "object"
             },

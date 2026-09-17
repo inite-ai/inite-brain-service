@@ -148,6 +148,16 @@ export const SourceCatalogEntrySchema = z.object({
   availability: AvailabilitySchema,
   configExample: OpenRecord.nullable(),
   credentialHint: z.string().nullable(),
+  hosts: z.array(z.enum(['server', 'agent'])),
+  mcp: z
+    .object({
+      transport: z.enum(['http', 'stdio']),
+      url: z.string().nullable(),
+      auth: z.enum(['none', 'install_secret', 'oauth']).nullable(),
+      command: z.string().nullable(),
+      args: z.array(z.string()),
+    })
+    .nullable(),
 })
 
 export const SourceConnectorStateSchema = z.object({

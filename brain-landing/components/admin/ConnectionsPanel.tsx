@@ -5,7 +5,11 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   Check,
+  Cloud,
   Copy,
+  Folder,
+  GitBranch,
+  Globe,
   Laptop,
   Loader2,
   Pause,
@@ -15,13 +19,13 @@ import {
   RotateCcw,
   Search,
   Trash2,
+  Upload,
 } from 'lucide-react'
 import { useLoader } from '../../hooks/useLoader'
 import { ErrorLine } from './policies/ui'
 import { getMessages, normalizeLang } from '../../lib/i18n'
 import type {
   SourceAvailability,
-  SourceCatalogEntry,
   SourceCatalogResponse,
   SourceConnection,
   SourceConnectionsListResponse,
@@ -29,6 +33,7 @@ import type {
 } from '../../lib/contracts/admin-source-connections'
 import { ConnectionCreateModal } from './connections/ConnectionCreateModal'
 import { ConnectionDetail } from './connections/ConnectionDetail'
+import { cardsOf, familyOf, type SourceCard, type SourceFamily } from './connections/kinds'
 import {
   PROXY,
   accentBtn,
@@ -60,7 +65,7 @@ export function ConnectionsPanel() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  const [creating, setCreating] = useState<SourceCatalogEntry | null>(null)
+  const [creating, setCreating] = useState<SourceCard | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -216,8 +221,6 @@ export function ConnectionsPanel() {
         </article>
       )}
 
-      {catalog && <Fences catalog={catalog} t={t} />}
-
       {!off && (
         <Section title={t.list.title} subtitle={t.list.subtitle}>
           <table className="w-full text-xs">
@@ -228,7 +231,6 @@ export function ConnectionsPanel() {
                 <th className="text-left px-3 py-1.5">
                   {t.list.headers.connector}
                 </th>
-                <th className="text-left px-3 py-1.5">{t.list.headers.host}</th>
                 <th className="text-left px-3 py-1.5">
                   {t.list.headers.schedule}
                 </th>
@@ -265,18 +267,26 @@ export function ConnectionsPanel() {
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-1.5 font-mono text-[var(--text-muted)]">
-                    {c.packId}
-                    {'/'}
-                    {c.sourceId}
+                  <td className="px-3 py-1.5 text-[var(--text-muted)]">
+                    <KindLabel family={familyOf(c)} connector={c.connector} t={t} />
+                    <span className="text-[var(--text-faint)]">
+                      {' · '}
+                      {c.shape === 'binary' ? t.form.shape.binary : t.form.shape.document}
+                    </span>
+                    <div className="font-mono text-[10px] text-[var(--text-faint)]">
+                      {c.packId}
+                      {'/'}
+                      {c.sourceId}
+                    </div>
                   </td>
-                  <td className="px-3 py-1.5 font-mono text-[var(--text-muted)]">
-                    {c.connector}
-                    {' · '}
-                    {c.shape}
-                  </td>
-                  <td className="px-3 py-1.5 font-mono text-[var(--text-muted)]">
-                    {c.host}
+                  <td className="px-3 py-1.5 text-[var(--text-muted)]">
+                    {c.host === 'server' ? (
+                      t.detail.hostServer
+                    ) : (
+                      <span className="inline-flex items-center gap-1 font-mono">
+                        <Laptop className="w-3 h-3" /> {c.host.slice('agent:'.length)}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-1.5 font-mono text-[var(--text-muted)]">
                     {c.schedule}
@@ -366,7 +376,7 @@ export function ConnectionsPanel() {
               ))}
               {data && data.connections.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-3 py-4 text-center text-[var(--text-muted)] italic">
+                  <td colSpan={7} className="px-3 py-4 text-center text-[var(--text-muted)] italic">
                     {t.list.empty}
                   </td>
                 </tr>
@@ -390,56 +400,48 @@ export function ConnectionsPanel() {
       {!off && data && <AgentsSection connections={data.connections} t={t} />}
 
       {catalog && (
-        <Section title={t.catalog.title} subtitle={t.catalog.subtitle}>
-          <table className="w-full text-xs">
-            <thead className="bg-[var(--bg-overlay)] text-[var(--text-faint)] text-[10px] uppercase tracking-wider">
-              <tr>
-                <th className="text-left px-3 py-1.5">{t.catalog.headers.pack}</th>
-                <th className="text-left px-3 py-1.5">
-                  {t.catalog.headers.source}
-                </th>
-                <th className="text-left px-3 py-1.5">
-                  {t.catalog.headers.connector}
-                </th>
-                <th className="text-left px-3 py-1.5">
-                  {t.catalog.headers.availability}
-                </th>
-                <th className="text-right px-3 py-1.5">
-                  {t.catalog.headers.actions}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {catalog.sources.map((e) => (
-                <CatalogRow
-                  key={`${e.packId}/${e.sourceId}`}
-                  entry={e}
-                  t={t}
-                  lang={lang}
-                  onConnect={() => setCreating(e)}
-                />
+        <div className="space-y-2">
+          <div>
+            <h2 className="text-sm font-medium text-[var(--text)]">{t.catalog.title}</h2>
+            <p className="text-[11px] text-[var(--text-muted)] max-w-3xl">{t.catalog.subtitle}</p>
+          </div>
+          {catalog.sources.length === 0 ? (
+            <p className="rounded-md border border-[var(--border)] px-3 py-4 text-center text-xs text-[var(--text-muted)] italic">
+              {t.catalog.empty}
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {cardsOf(catalog.sources).map((card) => (
+                <SourceKindCard key={card.key} card={card} t={t} lang={lang} onConnect={() => setCreating(card)} />
               ))}
-              {catalog.sources.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-3 py-4 text-center text-[var(--text-muted)] italic">
-                    {t.catalog.empty}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </Section>
+            </div>
+          )}
+          <details className="text-xs">
+            <summary className="cursor-pointer text-[var(--text-muted)]">{t.kinds.deployment}</summary>
+            <div className="mt-2">
+              <Fences catalog={catalog} t={t} />
+            </div>
+          </details>
+        </div>
       )}
 
-      {creating && (
+      {creating && catalog && (
         <ConnectionCreateModal
-          entry={creating}
+          card={creating}
+          catalog={catalog}
           t={t}
           onClose={() => setCreating(null)}
           onCreated={(created) => {
             setCreating(null)
-            setNotice(fill(t.create.created, { label: labelOf(created) }))
-            setSelectedId(created.id)
+            const first = created[0]
+            if (first) {
+              setNotice(
+                fill(created.length > 1 ? t.create.createdBoth : t.create.created, {
+                  label: labelOf(first),
+                }),
+              )
+              setSelectedId(first.id)
+            }
             void reload()
           }}
         />
@@ -681,84 +683,120 @@ function AgentsSection({
   )
 }
 
-function CatalogRow({
-  entry,
+const KIND_ICONS: Record<SourceFamily, React.ComponentType<{ className?: string }>> = {
+  folder: Folder,
+  site: Globe,
+  bucket: Cloud,
+  mcp: Plug,
+  repo: GitBranch,
+  external: Upload,
+  other: Plug,
+}
+
+function kindTitle(t: ConnectionsT, family: SourceFamily, connector: string): string {
+  return fill(t.kinds[family].title, { connector })
+}
+
+function KindLabel({
+  family,
+  connector,
+  t,
+}: {
+  family: SourceFamily
+  connector: string
+  t: ConnectionsT
+}) {
+  const Icon = KIND_ICONS[family]
+  return (
+    <span className="inline-flex items-center gap-1 text-[var(--text)]">
+      <Icon className="w-3 h-3 text-[var(--text-muted)]" /> {kindTitle(t, family, connector)}
+    </span>
+  )
+}
+
+/**
+ * One kind of thing the packs here can read — a folder, a site, a
+ * bucket, an MCP server, a repository — with what it is in plain words,
+ * whether it can be connected right now (and what to do if not), and
+ * the pack behind it in small print.
+ */
+function SourceKindCard({
+  card,
   t,
   lang,
   onConnect,
 }: {
-  entry: SourceCatalogEntry
+  card: SourceCard
   t: ConnectionsT
   lang: string
   onConnect: () => void
 }) {
-  const c = t.catalog
-  const flag = `SOURCE_KIND_${entry.connector.toUpperCase()}`
-  // ready / external run on the server; agent runs on a local agent the
-  // form asks for. disabled / missing cannot be connected on the server
-  // — but any entry can be pointed at an agent, so the button stays.
-  const connectable = entry.accepted
+  const k = t.kinds
+  const Icon = KIND_ICONS[card.family]
+  const flag = `SOURCE_KIND_${card.connector.toUpperCase()}`
+  const status = card.accepted ? card.availability : 'notAccepted'
+  const connectable = card.accepted && card.availability !== 'missing'
+  const hint = fill(k.statusHint[status], { flag })
+  const shapes = [...new Set(card.entries.map((e) => e.shape))]
   return (
-    <tr className="border-t border-[var(--border)] align-top">
-      <td className="px-3 py-1.5 font-mono text-[var(--text)]">
-        {entry.packId}
-        <span className="ml-1 text-[10px] text-[var(--text-faint)]">
-          {entry.packVersion}
-        </span>
-        {entry.builtin && (
-          <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-[var(--bg-overlay)] text-[var(--text-faint)]">
-            {c.builtin}
+    <article
+      className={`flex flex-col rounded-md border p-3 ${
+        connectable ? 'border-[var(--border)] bg-[var(--bg-elevated)]' : 'border-[var(--border)] bg-[var(--bg)] opacity-80'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded bg-[var(--accent)]/10 text-[var(--accent)]">
+            <Icon className="w-4 h-4" />
           </span>
-        )}
-        {!entry.accepted && (
-          <div className="text-[10px] text-[var(--warning)] font-sans">
-            {c.notAccepted}
-            {' '}
-            <Link href={`/${lang}/admin/packs`} className="underline">
-              {c.reinstall}
-            </Link>
+          <div>
+            <h3 className="text-sm font-medium text-[var(--text)]">
+              {kindTitle(t, card.family, card.connector)}
+              {card.ambiguous && (
+                <span className="ml-1 text-[10px] font-normal text-[var(--text-faint)]">
+                  {fill(k.viaPack, { packId: card.packId })}
+                </span>
+              )}
+            </h3>
+            <div className="text-[10px] text-[var(--text-faint)]">
+              {shapes
+                .filter((sh) => sh === 'document' || sh === 'binary')
+                .map((sh) => (sh === 'binary' ? k[card.family].shapes.binary : k[card.family].shapes.document))
+                .join(' · ')}
+            </div>
           </div>
-        )}
-      </td>
-      <td className="px-3 py-1.5">
-        <div className="text-[var(--text)]">{entry.title ?? entry.sourceId}</div>
-        <div className="font-mono text-[10px] text-[var(--text-faint)]">
-          {entry.sourceId}
         </div>
-        {entry.description && (
-          <div className="text-[10px] text-[var(--text-muted)] max-w-md">
-            {entry.description}
-          </div>
-        )}
-      </td>
-      <td className="px-3 py-1.5 font-mono text-[var(--text-muted)]">
-        {entry.connector}
-        {' · '}
-        {entry.shape}
-      </td>
-      <td className="px-3 py-1.5">
-        <span
-          className={`px-1.5 py-0.5 rounded text-[10px] ${availabilityTone(entry.availability)}`}
-          title={fill(c.availabilityHint[entry.availability], { flag })}
-        >
-          {c.availability[entry.availability]}
+        <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] ${availabilityTone(status === 'notAccepted' ? 'disabled' : status)}`} title={hint || undefined}>
+          {k.status[status]}
         </span>
-        {entry.availability === 'disabled' && (
-          <div className="font-mono text-[10px] text-[var(--text-faint)]">
-            {fill(c.availabilityHint.disabled, { flag })}
-          </div>
-        )}
-      </td>
-      <td className="px-3 py-1.5 text-right">
-        <button
-          type="button"
-          disabled={!connectable}
-          onClick={onConnect}
-          className={accentBtn}
-        >
-          <Plug className="w-3 h-3" /> {c.connect}
+      </div>
+      <p className="mt-2 text-[11px] text-[var(--text-muted)] flex-1">
+        {k[card.family].body || card.entries[0]?.description || ''}
+      </p>
+      {hint && (
+        <p className="mt-1 text-[10px] text-[var(--warning)]">
+          {hint}
+          {status === 'notAccepted' && (
+            <>
+              {' '}
+              <Link href={`/${lang}/admin/packs`} className="underline">
+                {t.catalog.reinstall}
+              </Link>
+            </>
+          )}
+        </p>
+      )}
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <span className="font-mono text-[10px] text-[var(--text-faint)]" title={card.entries.map((e) => e.sourceId).join(', ')}>
+          {card.packId}
+          {' '}
+          {card.packVersion}
+          {card.builtin ? ` · ${t.catalog.builtin}` : ''}
+        </span>
+        <button type="button" disabled={!connectable} onClick={onConnect} className={accentBtn}>
+          <Plug className="w-3 h-3" /> {k.connect}
         </button>
-      </td>
-    </tr>
+      </div>
+    </article>
   )
 }

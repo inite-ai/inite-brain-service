@@ -106,9 +106,36 @@ export class SourceCatalogService {
         availability: state.availability,
         configExample: connector?.configExample ?? null,
         credentialHint: connector?.credentialHint ?? null,
+        hosts: hostsOf(entry, kind),
+        mcp: mcpOf(entry),
       };
     });
   }
+}
+
+/** Connectors the local agent ships (clients/brain-agent connectorFor). */
+const AGENT_CONNECTORS = new Set(['fs', 'git']);
+
+/** Where a connection of this entry may run — the same truth the create check and the agent's connectorFor apply. */
+function hostsOf(entry: PackSourceSpec, connector: string): SourceCatalogEntry['hosts'] {
+  if (entry.kind === 'external') return ['server'];
+  if (entry.kind === 'mcp') return entry.transport === 'stdio' ? ['agent'] : ['server'];
+  if (AGENT_ONLY_CONNECTORS.has(connector)) return ['agent'];
+  return AGENT_CONNECTORS.has(connector) ? ['server', 'agent'] : ['server'];
+}
+
+function mcpOf(entry: PackSourceSpec): SourceCatalogEntry['mcp'] {
+  if (entry.kind !== 'mcp') return null;
+  if (entry.transport === 'stdio') {
+    return {
+      transport: 'stdio',
+      url: null,
+      auth: null,
+      command: entry.command,
+      args: entry.args ?? [],
+    };
+  }
+  return { transport: 'http', url: entry.url ?? null, auth: entry.auth, command: null, args: [] };
 }
 
 /** Natives that exist on the local agent only — git never runs in the brain process. */

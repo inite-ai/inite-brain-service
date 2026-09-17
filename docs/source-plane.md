@@ -75,7 +75,7 @@ failed run, never a crash.
 | Route | Does |
 |---|---|
 | `GET /v1/admin/source-connections` | list |
-| `GET /v1/admin/source-connections/catalog` | what this tenant can connect here: every `sources[]` entry of every pack it has (builtin + installed, with `accepted` = the sources section was consented at install) and its `availability` — `ready` / `disabled` (`SOURCE_KIND_<KIND>` off) / `missing` (not shipped in this build) / `agent` (stdio MCP) / `external` (the publisher pushes) — plus the connector's static `configExample` / `credentialHint`, the shipped connectors with their switches, `fsRoots` and `egressAllowPrivate`. Read-only, never runs a connector |
+| `GET /v1/admin/source-connections/catalog` | what this tenant can connect here: every `sources[]` entry of every pack it has (builtin + installed, with `accepted` = the sources section was consented at install) and its `availability` — `ready` / `disabled` (`SOURCE_KIND_<KIND>` off) / `missing` (not shipped in this build) / `agent` (stdio MCP) / `external` (the publisher pushes) — plus the connector's static `configExample` / `credentialHint`, `hosts` (where a connection may run: `server` and/or `agent`), the MCP entry's declared transport (`mcp.{transport, url, auth, command, args}` — a pinned url is read-only, null = the operator names it), the shipped connectors with their switches, `fsRoots` and `egressAllowPrivate`. Read-only, never runs a connector |
 | `POST /v1/admin/source-connections` | `{ packId, sourceId, vertical, label?, host?, config?, credential?, mode?, schedule?, contentPolicy?, deletePolicy?, fetchBudget?, ownerUserId? }` — the pack must be installed with `acceptSources` (or builtin); a `native` entry must name an installed connector; defaults come from the entry; the recorder is declared in `source_registry` |
 | `GET /v1/admin/source-connections/:id` | one (never the credential — `hasCredential`) |
 | `PATCH /v1/admin/source-connections/:id` | label / config / credential / schedule / policies / `status: active \| paused` |
@@ -118,10 +118,30 @@ Connections; `brain-landing/components/admin/ConnectionsPanel.tsx`):
   their last activity and the command to run the agent on that machine
   (a `brain:write` key of the tenant, never an admin key). Sync / Full
   are disabled on agent-host rows: the agent runs them.
-- **Connect a source** — the catalogue of declarable entries; **Connect**
-  opens a form pre-filled from the connector's `configExample` and the
-  entry's defaults; the credential is a write-only field. A source whose
-  pack was installed without `acceptSources` links back to Packs.
+- **Connect a source** — one card per KIND of thing the packs here can
+  read (Folder, Website, S3 bucket, MCP server, Git repository, pushed
+  by a publisher), in plain words, with whether it can be connected now
+  and what to do if not (the switch to set, the agent to run, the pack
+  to reinstall); a pack's per-shape entries (text documents vs. files)
+  fold into one card and become the flow's "what's in it" question
+  (`components/admin/connections/kinds.ts`). **Connect** opens a
+  three-step flow: *where it runs* (the brain or a local agent —
+  offered only when the entry's `hosts` allows both; agent id when on an
+  agent), *the source* (the connector's own typed fields — a folder and
+  its extensions, pages / sitemaps and their auth, a bucket and its
+  endpoint, an MCP server's URL and resource filters, a repository's
+  path and include globs — validated as the brain would: absolute paths,
+  "what's in it" (documents / files / both — both creates two
+  connections over the same place, one per shape),
+  the `fs` root jail with the allowed roots named, http(s) URLs, a token
+  once an auth is chosen; rarely-set keys under *Advanced*, the exact
+  JSON the brain receives one click away, and the JSON editor as the
+  default only for a connector this build has no form for), *how it
+  syncs* (schedule, what to take, what to do when an item disappears, as
+  cards with the pack's defaults preselected). Specs live in
+  `components/admin/connections/create/specs.ts` and are unit-tested
+  without React. A source whose pack was installed without
+  `acceptSources` links back to Packs.
 
 While `SOURCE_PLANE_ENABLED` is off the page shows the off-state with the
 flag to set, nothing else. The Packs page's install flow asks for each

@@ -78,10 +78,13 @@ export function Field({
   label,
   children,
   hint,
+  error,
 }: {
   label: string
   children: ReactNode
   hint?: string
+  /** The hint is the field's error — shown in the danger tone. */
+  error?: boolean
 }) {
   return (
     <label className="block">
@@ -90,7 +93,11 @@ export function Field({
       </span>
       {children}
       {hint ? (
-        <span className="mt-1 block text-[10px] text-[var(--text-faint)]">{hint}</span>
+        <span
+          className={`mt-1 block text-[10px] ${error ? 'text-[var(--danger)]' : 'text-[var(--text-faint)]'}`}
+        >
+          {hint}
+        </span>
       ) : null}
     </label>
   )
