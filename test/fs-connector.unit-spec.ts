@@ -32,7 +32,9 @@ let base = '';
 let root = '';
 let outside = '';
 
-function ctx(over: { shape?: 'document' | 'binary'; config?: Record<string, unknown> } = {}): ConnectorCtx {
+function ctx(
+  over: { shape?: 'document' | 'binary'; config?: Record<string, unknown> } = {},
+): ConnectorCtx {
   return {
     companyId: 'co',
     connection: {
@@ -62,7 +64,10 @@ async function walk(c: FsConnector, x: ConnectorCtx): Promise<ItemDelta[]> {
 }
 
 const ids = (deltas: ItemDelta[]) =>
-  deltas.filter((d) => d.type === 'upsert').map((d) => (d as { item: { externalId: string } }).item.externalId).sort();
+  deltas
+    .filter((d) => d.type === 'upsert')
+    .map((d) => (d as { item: { externalId: string } }).item.externalId)
+    .sort();
 
 describe('FsConnector', () => {
   const saved: Record<string, string | undefined> = {};
@@ -89,7 +94,11 @@ describe('FsConnector', () => {
     await symlink(join(outside, 'leak.md'), join(root, 'docs', 'link.md'));
     await symlink(outside, join(root, 'docs', 'linkdir'));
     await symlink(root, join(base, 'vault-link'));
-    await utimes(join(root, 'README.md'), new Date('2026-09-01T00:00:00Z'), new Date('2026-09-01T00:00:00Z'));
+    await utimes(
+      join(root, 'README.md'),
+      new Date('2026-09-01T00:00:00Z'),
+      new Date('2026-09-01T00:00:00Z'),
+    );
     for (const k of ['SOURCE_FS_ROOTS', 'SOURCE_KIND_FS']) saved[k] = process.env[k];
     process.env.SOURCE_FS_ROOTS = base;
     process.env.SOURCE_KIND_FS = '1';
@@ -109,7 +118,9 @@ describe('FsConnector', () => {
     await expect(jailedRoot(root)).rejects.toThrow('outside SOURCE_FS_ROOTS');
     process.env.SOURCE_FS_ROOTS = base;
     await expect(jailedRoot(join(base, 'vault-link'))).resolves.toBe(await jailedRoot(root));
-    await expect(jailedRoot(join(root, 'docs', '..', '..', 'elsewhere'))).resolves.toContain('elsewhere');
+    await expect(jailedRoot(join(root, 'docs', '..', '..', 'elsewhere'))).resolves.toContain(
+      'elsewhere',
+    );
     await expect(jailedRoot(join(base, 'missing'))).rejects.toThrow('does not exist');
   });
 
@@ -124,9 +135,15 @@ describe('FsConnector', () => {
   it('walks text-like files only, skipping hidden, excluded, symlinked and oversized entries', async () => {
     const c = new FsConnector();
     const deltas = await walk(c, ctx({ config: { maxFileBytes: 4000 } }));
-    expect(ids(deltas)).toEqual(['README.md', 'docs/fake.md', 'docs/notes.txt', 'docs/runbooks/oncall.md']);
+    expect(ids(deltas)).toEqual([
+      'README.md',
+      'docs/fake.md',
+      'docs/notes.txt',
+      'docs/runbooks/oncall.md',
+    ]);
     const readme = deltas.find(
-      (d): d is Extract<ItemDelta, { type: 'upsert' }> => d.type === 'upsert' && d.item.externalId === 'README.md',
+      (d): d is Extract<ItemDelta, { type: 'upsert' }> =>
+        d.type === 'upsert' && d.item.externalId === 'README.md',
     )!;
     expect(readme.item).toMatchObject({
       path: 'README.md',
@@ -145,7 +162,11 @@ describe('FsConnector', () => {
     const x = ctx({ shape: 'binary' });
     expect(ids(await walk(c, x))).toEqual(['docs/photo.png', 'docs/scan.pdf']);
     const pdf = await c.fetch(x, { externalId: 'docs/scan.pdf' });
-    expect(pdf).toMatchObject({ shape: 'binary', mediaType: 'application/pdf', modality: 'document' });
+    expect(pdf).toMatchObject({
+      shape: 'binary',
+      mediaType: 'application/pdf',
+      modality: 'document',
+    });
     const png = await c.fetch(x, { externalId: 'docs/photo.png' });
     expect(png).toMatchObject({ shape: 'binary', mediaType: 'image/png', modality: 'image' });
   });
@@ -154,17 +175,34 @@ describe('FsConnector', () => {
     const c = new FsConnector();
     const bounded = await walk(c, ctx({ config: { maxFiles: 2 } }));
     expect(ids(bounded)).toHaveLength(2);
-    const widened = await walk(c, ctx({ config: { extensions: ['md'], includeHidden: true, excludeDirs: [] } }));
-    expect(ids(widened)).toEqual(['.hidden.md', 'README.md', 'big.md', 'docs/fake.md', 'docs/runbooks/oncall.md', 'node_modules/pkg/index.md']);
+    const widened = await walk(
+      c,
+      ctx({ config: { extensions: ['md'], includeHidden: true, excludeDirs: [] } }),
+    );
+    expect(ids(widened)).toEqual([
+      '.hidden.md',
+      'README.md',
+      'big.md',
+      'docs/fake.md',
+      'docs/runbooks/oncall.md',
+      'node_modules/pkg/index.md',
+    ]);
   });
 
   it('fetch reads a text file, refuses binary content in a text item, and re-checks containment', async () => {
     const c = new FsConnector();
     const x = ctx();
     const doc = await c.fetch(x, { externalId: 'docs/runbooks/oncall.md' });
-    expect(doc).toMatchObject({ shape: 'document', text: 'On-call rotation.', title: 'oncall.md', kind: 'file' });
+    expect(doc).toMatchObject({
+      shape: 'document',
+      text: 'On-call rotation.',
+      title: 'oncall.md',
+      kind: 'file',
+    });
     await expect(c.fetch(x, { externalId: 'docs/fake.md' })).rejects.toThrow('binary content');
-    await expect(c.fetch(x, { externalId: '../elsewhere/leak.md' })).rejects.toThrow('escapes the root');
+    await expect(c.fetch(x, { externalId: '../elsewhere/leak.md' })).rejects.toThrow(
+      'escapes the root',
+    );
     await expect(c.fetch(x, { externalId: 'docs/link.md' })).rejects.toThrow('not a regular file');
     expect(looksBinary(Buffer.from('plain'))).toBe(false);
     expect(looksBinary(Buffer.from([0x41, 0x00]))).toBe(true);

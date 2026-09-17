@@ -12,7 +12,11 @@ import type { IngestDocumentDto } from '../src/documents/dto/ingest-document.dto
 import type { EvidenceUploadService } from '../src/evidence/evidence-upload.service';
 import type { IngestService } from '../src/ingest/ingest.service';
 import type { ConnectorConnectionView } from '../src/source-plane/connector';
-import { SourceDoorsService, originUriOf, renderRecord } from '../src/source-plane/source-doors.service';
+import {
+  SourceDoorsService,
+  originUriOf,
+  renderRecord,
+} from '../src/source-plane/source-doors.service';
 
 const connection: ConnectorConnectionView = {
   id: 'source_connection:c1',
@@ -30,7 +34,12 @@ const connection: ConnectorConnectionView = {
   userId: 'u_9',
 };
 
-const stamp = { system: 'memory', ref: 'page-1', version: 'r7', readAt: '2026-09-16T10:00:00.000Z' };
+const stamp = {
+  system: 'memory',
+  ref: 'page-1',
+  version: 'r7',
+  readAt: '2026-09-16T10:00:00.000Z',
+};
 
 function doors() {
   const docCalls: Array<{ dto: IngestDocumentDto; origin: DocumentIngestOrigin }> = [];
@@ -66,7 +75,12 @@ describe('SourceDoorsService', () => {
       companyId: 'co',
       connection,
       itemId: 'source_item:i1',
-      item: { externalId: 'page-1', originUri: 'https://wiki.example/page-1', title: 'Onboarding', modifiedAt: '2026-09-01T00:00:00.000Z' },
+      item: {
+        externalId: 'page-1',
+        originUri: 'https://wiki.example/page-1',
+        title: 'Onboarding',
+        modifiedAt: '2026-09-01T00:00:00.000Z',
+      },
       fetched: { shape: 'document', text: 'Welcome to the team.' },
       stamp,
     });
@@ -116,7 +130,9 @@ describe('SourceDoorsService', () => {
       channel: 'source',
       internal: { sourceConnectionId: 'source_connection:c1', sourceItemId: 'source_item:i1' },
     });
-    expect(originUriOf(connection, { externalId: 'x', originUri: 'https://e/x' })).toBe('https://e/x');
+    expect(originUriOf(connection, { externalId: 'x', originUri: 'https://e/x' })).toBe(
+      'https://e/x',
+    );
   });
 
   it('structure → a deterministic record document (kind source_record, record_type in meta)', async () => {
@@ -126,7 +142,14 @@ describe('SourceDoorsService', () => {
       externalId: '42',
       name: 'Ada Lovelace',
       attributes: { email: 'ada@example.com', stage: 'lead', b: 1, a: true, skip: null },
-      relations: [{ kind: 'works_at', targetType: 'company', targetExternalId: '7', targetName: 'Analytical Engines' }],
+      relations: [
+        {
+          kind: 'works_at',
+          targetType: 'company',
+          targetExternalId: '7',
+          targetName: 'Analytical Engines',
+        },
+      ],
       updatedAt: '2026-09-10T00:00:00.000Z',
     };
     await d.svc.ingest({
@@ -143,9 +166,23 @@ describe('SourceDoorsService', () => {
     expect(dto.occurredAt).toBe('2026-09-10T00:00:00.000Z');
     expect(dto.meta).toMatchObject({ record_type: 'contact' });
     expect(dto.text).toBe(
-      ['contact: Ada Lovelace', 'id: 42', 'a: true', 'b: 1', 'email: ada@example.com', 'stage: lead', 'works_at: company Analytical Engines', 'updated_at: 2026-09-10T00:00:00.000Z'].join('\n'),
+      [
+        'contact: Ada Lovelace',
+        'id: 42',
+        'a: true',
+        'b: 1',
+        'email: ada@example.com',
+        'stage: lead',
+        'works_at: company Analytical Engines',
+        'updated_at: 2026-09-10T00:00:00.000Z',
+      ].join('\n'),
     );
-    expect(renderRecord(record)).toBe(renderRecord({ ...record, attributes: { stage: 'lead', a: true, b: 1, email: 'ada@example.com' } }));
+    expect(renderRecord(record)).toBe(
+      renderRecord({
+        ...record,
+        attributes: { stage: 'lead', a: true, b: 1, email: 'ada@example.com' },
+      }),
+    );
   });
 
   it('binary → evidence upload with the connection as recorder and the pack for dispatch', async () => {
@@ -155,7 +192,12 @@ describe('SourceDoorsService', () => {
       connection,
       itemId: 'source_item:i3',
       item: { externalId: 'scan.pdf', title: 'scan.pdf', modifiedAt: '2026-09-02T00:00:00.000Z' },
-      fetched: { shape: 'binary', bytes: Buffer.from('%PDF'), mediaType: 'application/pdf', modality: 'document' },
+      fetched: {
+        shape: 'binary',
+        bytes: Buffer.from('%PDF'),
+        mediaType: 'application/pdf',
+        modality: 'document',
+      },
       stamp: null,
     });
     expect(out).toEqual({ assetId: 'evidence_asset:a1', byteHash: 'h', deduplicated: true });
@@ -184,7 +226,12 @@ describe('SourceDoorsService', () => {
         shape: 'conversation',
         conversationId: 'thread-1',
         turns: [
-          { speaker: 'ann', text: 'shipping friday', at: '2026-09-03T09:00:00.000Z', messageId: 'm1' },
+          {
+            speaker: 'ann',
+            text: 'shipping friday',
+            at: '2026-09-03T09:00:00.000Z',
+            messageId: 'm1',
+          },
           { text: 'ok', at: '2026-09-03T09:01:00.000Z' },
         ],
       },
@@ -194,13 +241,23 @@ describe('SourceDoorsService', () => {
     expect(d.mentions).toEqual([
       {
         text: 'ann: shipping friday',
-        contextRef: { vertical: 'wiki', conversationId: 'thread-1', messageId: 'm1', recorder: 'srcconn_c1' },
+        contextRef: {
+          vertical: 'wiki',
+          conversationId: 'thread-1',
+          messageId: 'm1',
+          recorder: 'srcconn_c1',
+        },
         userId: 'u_9',
         emittedAt: '2026-09-03T09:00:00.000Z',
       },
       {
         text: 'ok',
-        contextRef: { vertical: 'wiki', conversationId: 'thread-1', messageId: 'thread-1#1', recorder: 'srcconn_c1' },
+        contextRef: {
+          vertical: 'wiki',
+          conversationId: 'thread-1',
+          messageId: 'thread-1#1',
+          recorder: 'srcconn_c1',
+        },
         userId: 'u_9',
         emittedAt: '2026-09-03T09:01:00.000Z',
       },
