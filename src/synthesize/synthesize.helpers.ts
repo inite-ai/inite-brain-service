@@ -7,7 +7,7 @@ import type { SynthesisGuardrails, SynthesizeDto } from './dto/synthesize.dto';
 import type { SearchDto } from '../search/dto/search.dto';
 import type { DecisionLogEntry } from './decision-log';
 import { resolveDateContext } from './evidence-union';
-import type { Citation } from './fact-index';
+import { handlesOf, parseFactHandle, type Citation } from './fact-index';
 import type { GeneratorOutput, SynthesizeResult } from './synthesize.types';
 import { buildDateMathLines } from './date-math';
 import { detectAnswerShape, shapeInstructionFor } from './answer-shape';
@@ -170,6 +170,8 @@ export function buildGeneratorArgs(
     answerLang: string | null;
     guardrails: SynthesisGuardrails;
     shapeInstruction?: string | undefined;
+    /** Round 1's index; a later round passes its own via `o.factIndex`. */
+    factIndex?: ReadonlyMap<string, Citation> | undefined;
     collected: {
       transcriptLines: string[];
       insightLines: string[];
@@ -195,6 +197,8 @@ export function buildGeneratorArgs(
   o: {
     results: SearchHit[];
     promptFactLines: string[];
+    /** The index the lines came from — lets the client restore ids behind handles. */
+    factIndex?: ReadonlyMap<string, Citation> | undefined;
     dateMathLines?: string[] | undefined;
     allowRefine?: boolean | undefined;
     answerLangStrict?: boolean | undefined;
@@ -202,6 +206,7 @@ export function buildGeneratorArgs(
 ): Omit<GenerateRequest, 'openai' | 'metrics' | 'logger'> {
   const { profile, dto, collected } = ctx;
   return {
+    factIndex: o.factIndex ?? ctx.factIndex,
     query: dto.query,
     factLines: o.promptFactLines,
     transcriptLines: collected.transcriptLines,
@@ -288,6 +293,32 @@ function citationTail(id: string): string {
 }
 
 /**
+ * Restore fact ids behind the short handles the generator was shown
+ * (fact-index.ts, factHandle): `[f7]` in the answer text becomes
+ * `[knowledge_fact:<id>]` and a `citedFactIds` entry `f7` becomes the id,
+ * so everything downstream — the resolver, the verifier, the cache, the
+ * MCP deep links — reads exactly what it read before handles existed. A
+ * handle no line carries is left as written and falls out at resolution
+ * as the hallucinated citation it is.
+ */
+export function expandCitationHandles<T extends { answer: string; citedFactIds: string[] }>(
+  generated: T,
+  factIndex: ReadonlyMap<string, Citation>,
+): T {
+  const handles = handlesOf(factIndex);
+  const idOf = (raw: string): string | undefined => {
+    const handle = parseFactHandle(raw);
+    return handle ? handles.get(handle) : undefined;
+  };
+  const answer = generated.answer.replace(/\[(f\d{1,4})\]/gu, (whole, handle: string) => {
+    const id = idOf(handle);
+    return id ? `[${id}]` : whole;
+  });
+  const citedFactIds = generated.citedFactIds.map((raw) => idOf(raw) ?? raw);
+  return { ...generated, answer, citedFactIds };
+}
+
+/**
  * Pull `[<factId>]` citation markers out of the answer text. The generator
  * RELIABLY inlines a bracketed citation after each claim (system prompt
  * rule #2) but only INTERMITTENTLY mirrors them into the structured
@@ -297,7 +328,7 @@ function citationTail(id: string): string {
  */
 function extractInlineCitations(answer: string): string[] {
   const ids: string[] = [];
-  const re = /\[((?:knowledge_fact[:_]|fact[:_])?[A-Za-z0-9]{6,})\]/g;
+  const re = /\[((?:knowledge_fact[:_]|fact[:_])?[A-Za-z0-9]{6,}|f\d{1,4})\]/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(answer)) !== null) ids.push(m[1]!); // group 1 is mandatory
   return ids;
@@ -323,8 +354,11 @@ export function resolveCitations(
   const citations: Citation[] = [];
   const seen = new Set<string>();
   const candidates = [...(citedFactIds ?? []), ...extractInlineCitations(answer ?? '')];
+  const handles = handlesOf(factIndex);
   for (const raw of candidates) {
-    const cite = factIndex.get(raw) ?? byTail.get(citationTail(raw));
+    const handle = parseFactHandle(raw);
+    const viaHandle = handle ? factIndex.get(handles.get(handle) ?? '') : undefined;
+    const cite = viaHandle ?? factIndex.get(raw) ?? byTail.get(citationTail(raw));
     if (cite && !seen.has(cite.factId)) {
       seen.add(cite.factId);
       citations.push(cite);

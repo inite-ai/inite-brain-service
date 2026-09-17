@@ -902,6 +902,7 @@ export class SynthesizeService {
               buildGeneratorArgs(args, {
                 results: round.results,
                 promptFactLines: round.promptFactLines,
+                factIndex: round.factIndex,
                 dateMathLines: round.dateMathLines,
                 answerLangStrict: true,
               }),
@@ -1012,7 +1013,7 @@ export class SynthesizeService {
         this.limiter.run(() =>
           // The round-2 call omits allowRefine — the one-round cap is structural.
           this.callGenerator(
-            buildGeneratorArgs(args, { results: prepared.results, promptFactLines, dateMathLines }),
+            buildGeneratorArgs(args, { ...prepared, promptFactLines, dateMathLines }),
           ),
         ),
       );
@@ -1214,12 +1215,8 @@ export class SynthesizeService {
     return { results, factIndex, factLines };
   }
 
-  /**
-   * Thin adapter over the generator client (V10 architecture pass) —
-   * the orchestrator supplies its client/metrics/logger, the module owns
-   * the call. (The verifier twin moved into fragment-zoom-seam.ts with
-   * the verify stage — verifyAndZoom calls runVerifier directly.)
-   */
+  /** Thin adapter over the generator client — the orchestrator supplies
+   *  its client/metrics/logger, the module owns the call. */
   private async callGenerator(
     args: Omit<GenerateRequest, 'openai' | 'metrics' | 'logger'>,
   ): Promise<GeneratorOutput> {

@@ -351,7 +351,7 @@ describe('buildGeneratorUserMessage transcript section', () => {
       transcriptLines: ['[2023-05-01] Melanie: I painted a sunset'],
     });
     expect(msg).toContain('Transcript excerpts');
-    expect(msg).toContain('cite factIds only');
+    expect(msg).toContain('cite fact handles only');
     expect(msg.indexOf('Transcript excerpts')).toBeGreaterThan(msg.indexOf('Retrieved facts:'));
   });
 });

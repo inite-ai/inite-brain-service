@@ -38,6 +38,17 @@ function profileWith(over: Partial<RetrievalProfile> = {}): RetrievalProfile {
 import { buildGeneratorUserMessage, buildFactIndex } from '../src/synthesize/synthesize.service';
 import { CONTRADICTION_NOTE_INSTRUCTION } from '../src/synthesize/answer-router';
 import type { SearchHit } from '../src/search/search.types';
+import { handlesOf, type Citation } from '../src/synthesize/fact-index';
+
+/** The rendered line of a fact, found through its handle (lines open with
+ *  `[f<n>]`, not the id — fact-index.ts, factHandle). */
+function lineOf(
+  res: { factIndex: Map<string, Citation>; factLines: string[] },
+  factId: string,
+): string {
+  const handle = [...handlesOf(res.factIndex).entries()].find(([, id]) => id === factId)?.[0];
+  return res.factLines.find((l) => handle !== undefined && l.startsWith(`[${handle}] `)) ?? '';
+}
 
 describe('detectLane (temporal lexicon)', () => {
   const temporal = [
@@ -380,15 +391,21 @@ describe('buildFactIndex chronological ordering (T2)', () => {
       mk('earlier', '2023-01-15T00:00:00.000Z'),
       mk('undated2'),
     ];
-    const { factLines } = buildFactIndex(hits, { chronological: true });
-    const order = factLines.map((l) => /knowledge_fact:(\w+)/.exec(l)![1]);
+    const res = buildFactIndex(hits, { chronological: true });
+    const order = res.factLines.map((_, i) =>
+      handlesOf(res.factIndex)
+        .get(`f${i + 1}`)!
+        .replace('knowledge_fact:', ''),
+    );
     expect(order).toEqual(['earlier', 'later', 'undated1', 'undated2']);
+    // The handle numbers the rendered order, and the line opens with it.
+    expect(res.factLines[0]!.startsWith('[f1] ')).toBe(true);
   });
   it('without the flag retrieval order is preserved byte-identically', () => {
     const hits = [mk('b', '2023-05-01T00:00:00.000Z'), mk('a', '2023-01-15T00:00:00.000Z')];
-    const { factLines } = buildFactIndex(hits);
-    expect(factLines[0]).toContain(':b');
-    expect(factLines[1]).toContain(':a');
+    const res = buildFactIndex(hits);
+    expect(handlesOf(res.factIndex).get('f1')).toBe('knowledge_fact:b');
+    expect(handlesOf(res.factIndex).get('f2')).toBe('knowledge_fact:a');
   });
 });
 
@@ -679,7 +696,7 @@ describe('buildFactIndex recency marker (T5)', () => {
     }) as unknown as SearchHit;
 
   it('tags max(validFrom) on disagreeing dated slots', () => {
-    const { factLines } = buildFactIndex(
+    const res = buildFactIndex(
       [
         slotHit([
           ['old', '65%', '2024-03-20T00:00:00.000Z'],
@@ -688,8 +705,8 @@ describe('buildFactIndex recency marker (T5)', () => {
       ],
       { markRecency: true },
     );
-    expect(factLines.find((l) => l.includes(':new'))).toContain('[most recent for this slot]');
-    expect(factLines.find((l) => l.includes(':old'))).not.toContain('most recent');
+    expect(lineOf(res, 'knowledge_fact:new')).toContain('[most recent for this slot]');
+    expect(lineOf(res, 'knowledge_fact:old')).not.toContain('most recent');
   });
   it('arbitrates ACROSS coinages of one attribute — the slot is the canon', async () => {
     // Two facts about one setting, written under two names, the older
@@ -723,11 +740,12 @@ describe('buildFactIndex recency marker (T5)', () => {
         },
       ],
     } as unknown as SearchHit;
-    const { factLines, factIndex } = buildFactIndex([hit], { markRecency: true });
-    expect(factLines.find((l) => l.includes(':new'))).toContain('[most recent for this slot]');
-    expect(factLines.find((l) => l.includes(':old'))).not.toContain('most recent');
+    const res = buildFactIndex([hit], { markRecency: true });
+    const { factIndex } = res;
+    expect(lineOf(res, 'knowledge_fact:new')).toContain('[most recent for this slot]');
+    expect(lineOf(res, 'knowledge_fact:old')).not.toContain('most recent');
     // The LINE still shows what was written; only the comparison canonizes.
-    expect(factLines.find((l) => l.includes(':old'))).toContain('deploys_to');
+    expect(lineOf(res, 'knowledge_fact:old')).toContain('deploys_to');
     expect(factIndex.get('knowledge_fact:old')).toMatchObject({
       predicate: 'deploys_to',
       slot: 'deploy_target',
@@ -893,6 +911,8 @@ describe('buildFactIndex renders graph relations as evidence', () => {
     };
     const { factIndex, factLines } = buildFactIndex([hit]);
     expect(factLines).toHaveLength(2);
+    expect(factLines[0]!.startsWith('[f1] ')).toBe(true);
+    expect(handlesOf(factIndex).get('f1')).toBe('knowledge_fact:aaa');
     expect(factLines[1]).toBe(
       '[relation] Мария Альварес (staff) — works_at: Orbital Dynamics (org)',
     );

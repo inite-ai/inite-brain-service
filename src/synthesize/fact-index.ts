@@ -30,8 +30,50 @@ export interface Citation {
 }
 
 export interface FactIndexResult {
+  /** factId → Citation. Handles are looked up beside it: handlesOf(). */
   factIndex: Map<string, Citation>;
   factLines: string[];
+}
+
+/**
+ * handle → factId, per index. Kept BESIDE the index rather than inside it
+ * because five consumers iterate or count the index (the outcome writer
+ * records one `selected_for_context` per key, the grounding-quote lane
+ * fetches one episode per key, three span attributes count it), and a
+ * second key per fact would double every one of them. Keyed by the Map
+ * object itself, so nothing has to be threaded through the round types.
+ */
+const HANDLES = new WeakMap<ReadonlyMap<string, Citation>, ReadonlyMap<string, string>>();
+
+/** The handle → factId table of an index built by buildFactIndex; empty for any other map. */
+export function handlesOf(factIndex: ReadonlyMap<string, Citation>): ReadonlyMap<string, string> {
+  return HANDLES.get(factIndex) ?? new Map();
+}
+
+/**
+ * The citation handle of the n-th rendered fact line (0-based).
+ *
+ * WHY HANDLES. The generator used to be shown `[knowledge_fact:<20 random
+ * chars>]` on every line and asked to copy the id exactly. On a five-line
+ * evidence set it did; on the prod tenant's twelve-line set gpt-4o-mini
+ * mis-cited two of three correct answers — one id copied from the wrong
+ * line (Alice Smith's tariff fact under "relocating to Porto"), one
+ * invented from the `[source 2026-09-17 …]` quote tag. Both answers were
+ * right and both were dropped: a wrong id fails the citation gate, and
+ * the plausibility judge, shown the mis-cited premise, vetoes. A short
+ * handle is copied reliably; the id is restored in code
+ * (expandCitationHandles) before anything downstream reads the answer,
+ * so the wire contract — `[knowledge_fact:…]` inline, real ids in
+ * `citations` — is unchanged.
+ */
+export function factHandle(index: number): string {
+  return `f${index + 1}`;
+}
+
+/** `f12` / `[f12]` → `f12`; anything else → null. */
+export function parseFactHandle(raw: string): string | null {
+  const m = /^\[?(f\d{1,4})\]?$/u.exec(raw.trim());
+  return m ? m[1]! : null;
 }
 
 /**
@@ -82,10 +124,17 @@ export function buildFactIndex(
   },
 ): FactIndexResult {
   const factIndex = new Map<string, Citation>();
-  const entries: Array<{ line: string; t: number; slot: string; obj: string }> = [];
+  const entries: Array<{
+    line: string;
+    t: number;
+    slot: string;
+    obj: string;
+    /** The cited fact behind the line; absent for a relation line. */
+    citation?: Citation;
+  }> = [];
   for (const r of results) {
     for (const f of r.facts) {
-      factIndex.set(f.factId, {
+      const citation: Citation = {
         factId: f.factId,
         entityId: r.entityId,
         canonicalName: r.canonicalName,
@@ -93,14 +142,17 @@ export function buildFactIndex(
         slot: f.predicateAlias ?? f.predicate,
         object: f.object,
         ...(f.sourceKey ? { sourceKey: f.sourceKey } : {}),
-      });
+      };
+      factIndex.set(f.factId, citation);
       const t = f.validFrom ? Date.parse(f.validFrom) : NaN;
       const validT = Number.isNaN(t) || t === 0 ? Number.POSITIVE_INFINITY : t;
       entries.push({
-        line: `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${factLineSuffixes(f, opts)}`,
+        // The handle is prefixed once the order is final (below).
+        line: `${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${factLineSuffixes(f, opts)}`,
         t: validT,
         slot: `${r.entityId}::${f.predicateAlias ?? f.predicate}`,
         obj: f.object,
+        citation,
       });
     }
     // The entity's graph relations, as evidence lines beside its facts.
@@ -138,7 +190,19 @@ export function buildFactIndex(
     // entries share +Infinity and keep their relative retrieval order.
     entries.sort((a, b) => a.t - b.t);
   }
-  return { factIndex, factLines: entries.map((e) => e.line) };
+  // Handles follow the rendered order, so "[f3]" is the third line the
+  // model reads. Relation lines keep their `[relation]` tag: support, not
+  // a citation.
+  let n = 0;
+  const handles = new Map<string, string>();
+  const factLines = entries.map((e) => {
+    if (!e.citation) return e.line;
+    const handle = factHandle(n++);
+    handles.set(handle, e.citation.factId);
+    return `[${handle}] ${e.line}`;
+  });
+  HANDLES.set(factIndex, handles);
+  return { factIndex, factLines };
 }
 
 /** The flag-gated suffix chain of one fact line: validity, mention
