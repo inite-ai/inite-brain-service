@@ -297,7 +297,7 @@ describe('write-side wire contracts', () => {
     const registry = {
       deprecate: async () => true,
     } as never;
-    const ctl = new AdminPredicatesController(registry);
+    const ctl = new AdminPredicatesController(registry, {} as never);
     const req = {
       brainAuth: { companyId: 'tenant-a' },
     } as unknown as AuthenticatedRequest;
@@ -319,7 +319,7 @@ describe('write-side wire contracts', () => {
         createdBy: 'admin' as const,
       }),
     } as never;
-    const ctl = new AdminPredicatesController(registry);
+    const ctl = new AdminPredicatesController(registry, {} as never);
     const req = {
       brainAuth: { companyId: 'tenant-a' },
     } as unknown as AuthenticatedRequest;

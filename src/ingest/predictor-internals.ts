@@ -123,25 +123,3 @@ export function intervalsOverlap({
   const bEnd = bUntil ?? new Date(8.64e15);
   return aFrom < bEnd && bFrom < aEnd;
 }
-
-export function vectorNorm(v: number[]): number {
-  let s = 0;
-  for (const x of v) s += x * x;
-  return Math.sqrt(s);
-}
-
-export function cosineSimilarity(a: number[], b: number[], aNorm: number): number {
-  if (a.length !== b.length || aNorm === 0) return 0;
-  let dot = 0;
-  let bNorm = 0;
-  for (let i = 0; i < a.length; i++) {
-    // a.length === b.length (checked above) ⇒ both indices are in-bounds.
-    const ai = a[i]!;
-    const bi = b[i]!;
-    dot += ai * bi;
-    bNorm += bi * bi;
-  }
-  bNorm = Math.sqrt(bNorm);
-  if (bNorm === 0) return 0;
-  return dot / (aNorm * bNorm);
-}

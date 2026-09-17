@@ -13,6 +13,8 @@ import { Throttle } from '@nestjs/throttler';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { McpOptionalAuthGuard } from './mcp-optional-auth.guard';
+import { requestBaseUrl } from '../auth/resource-metadata';
 import { PolicyAction } from '../policy/action-registry';
 import { POLICY_ACTION_EXEMPT } from '../policy/policy-gate.service';
 import { McpService } from './mcp.service';
@@ -78,13 +80,22 @@ export class McpController {
    */
   @Throttle({ expensive: { limit: 30, ttl: 60_000 } })
   @All()
-  @UseGuards(ApiKeyGuard)
+  @UseGuards(McpOptionalAuthGuard)
   @RequireScopes('brain:read')
   @PolicyAction(POLICY_ACTION_EXEMPT)
   async handleForCredentialTenant(
-    @Req() req: AuthenticatedRequest & Request,
+    @Req() req: AuthenticatedRequest & Request & { mcpAnonymous?: boolean },
     @Res() res: Response,
   ) {
+    // A caller with no key reaches the PUBLIC surface: initialize,
+    // tools/list and two consultation tools that read nothing. Every
+    // other message was already refused by the guard with the 401 that
+    // carries the auth challenge, so an OAuth client still starts its
+    // flow at its first real request.
+    if (req.mcpAnonymous === true) {
+      await this.servePublic(req, res);
+      return;
+    }
     await this.serve(req, res);
   }
 
@@ -167,6 +178,28 @@ export class McpController {
     // `(() => void) | undefined`, so the concrete class no longer structurally
     // satisfies its own interface. The runtime value genuinely is a valid
     // Transport; this asserts the SDK's own contract, not our types.
+    await server.connect(transport as Transport);
+    await transport.handleRequest(req, res, req.body);
+  }
+
+  /**
+   * The anonymous transport: the same Streamable HTTP plumbing, over a
+   * server that registers only the two consultation tools.
+   *
+   * A SEPARATE server instance, not a filtered one. buildServer resolves
+   * a tenant, loads policy and binds every memory tool; reaching it with
+   * a "public mode" flag would put one boolean between an anonymous
+   * caller and the graph. Here the fence is that the code which could
+   * touch a tenant was never registered.
+   */
+  private async servePublic(req: Request, res: Response): Promise<void> {
+    const base = requestBaseUrl(req as never) ?? 'https://brain.inite.ai';
+    const server = this.mcp.buildPublicServer(base);
+    const transport = new StreamableHTTPServerTransport({});
+    res.on('close', () => {
+      transport.close().catch(() => {});
+      server.close().catch(() => {});
+    });
     await server.connect(transport as Transport);
     await transport.handleRequest(req, res, req.body);
   }

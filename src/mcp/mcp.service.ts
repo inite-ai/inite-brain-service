@@ -24,6 +24,7 @@ import { registerWriteTools, registerAdminTools } from './write-tools';
 import { registerCodeMemoryReadTools, registerCodeMemoryWriteTools } from './code-memory-tools';
 import { registerSourceReadTools } from './source-tools';
 import { registerOnboardingTools } from './onboarding-tools';
+import { registerPublicTools } from './public-tools';
 import { registerMetaTools, type CatalogueEntry } from './meta-tools';
 import { registerChatGptTools } from './chatgpt-tools';
 import { CHATGPT_TOOLS, META_TOOLS, resolveToolProfile, type ToolProfile } from './tool-profiles';
@@ -546,6 +547,26 @@ export class McpService {
     } catch {
       return 'unknown';
     }
+  }
+
+  /**
+   * The anonymous surface: `initialize`, `tools/list` and the two
+   * consultation tools, for a caller that has no key yet.
+   *
+   * Deliberately NOT a reduced buildServer. That method resolves a
+   * tenant, loads policy, reads packs and binds every memory tool; a
+   * "public mode" flag threaded through it would be one boolean between
+   * an anonymous caller and the whole graph. This builds a separate
+   * server whose only registered tools are the public ones, so the
+   * fence is the absence of the code rather than a branch inside it.
+   */
+  buildPublicServer(baseUrl: string): McpServer {
+    const server = new McpServer({
+      name: 'inite-brain-service',
+      version: MCP_SERVER_VERSION,
+    });
+    registerPublicTools({ server, options: { baseUrl } });
+    return server;
   }
 
   async buildServer(

@@ -5,6 +5,10 @@ import type { SearchDto } from '../dto/search.dto';
 import type { SearchHit } from '../search.types';
 import type { SearchTuning } from '../retrieval-profile';
 import type { EntityBucket } from './types';
+import type { Neighbour } from './neighbours';
+
+/** Relations rendered per hit — the same five the reranker body shows. */
+const RELATIONS_PER_HIT = 5;
 
 /** The shaping slice of SearchTuning; defaults mirror the env defaults. */
 export type ShapingTuning = Pick<SearchTuning, 'tokenCountOffload' | 'tokenOffloadMinHits'>;
@@ -22,6 +26,9 @@ export interface AssembleHitsOptions {
   requireProvenance?: boolean;
   /** Per-entity fact cap. Default 5. */
   factsPerEntity?: number;
+  /** Prefetched 1-hop neighbourhoods, keyed by entity id; hits carry them
+   *  as `relations`. Absent ⇒ no relations on any hit. */
+  neighboursByEntity?: Map<string, Neighbour[]> | undefined;
 }
 
 export function assembleHits({
@@ -29,6 +36,7 @@ export function assembleHits({
   entityTypes,
   requireProvenance = false,
   factsPerEntity = 5,
+  neighboursByEntity,
 }: AssembleHitsOptions): SearchHit[] {
   // requireProvenance — DTO compliance primitive: keep only facts whose
   // ingest path preserved a non-empty `source` trail (vertical/eventId/
@@ -63,9 +71,17 @@ export function assembleHits({
         const refs = sf.row.entity?.externalRefs;
         if (refs) Object.assign(mergedRefs, refs);
       }
+      const nbrs = neighboursByEntity?.get(e.entityId) ?? [];
+      const relations = nbrs
+        .slice(0, RELATIONS_PER_HIT)
+        .map((n) => ({ kind: n.kind, peer: n.canonicalName, peerType: n.type }));
       const matchedRender = matchedSorted.map(({ row, score, breakdown }) => ({
         factId: String(row.id),
         predicate: row.predicate,
+        // The canon, when this coinage was aliased onto one (0083).
+        // Surfaced rather than collapsed into `predicate`: the line
+        // shows what was written, comparisons use the slot.
+        ...(row.predicateAlias ? { predicateAlias: row.predicateAlias } : {}),
         object: row.object,
         confidence: row.confidence,
         validFrom: row.validFrom,
@@ -92,6 +108,7 @@ export function assembleHits({
         entityType: ent.type,
         canonicalName: ent.canonicalName,
         externalRefs: mergedRefs,
+        ...(relations.length > 0 ? { relations } : {}),
         facts: matchedRender.slice(0, factsPerEntity),
         score: e.bestScore,
       };

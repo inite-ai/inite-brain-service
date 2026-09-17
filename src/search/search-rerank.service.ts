@@ -82,7 +82,11 @@ export class SearchRerankService {
     byEntity: Map<string, EntityBucket>,
     ctx: PipelineContext,
   ): Promise<Map<string, Neighbour[]>> {
-    if (!this.reranker.isEnabled() || byEntity.size <= 1) return new Map();
+    // Not gated on the reranker any more: the neighbourhoods ride onto
+    // the hits as `relations` and from there into the answer plane's
+    // evidence, so they are wanted whether or not a reranker reads them.
+    // One batched query for the wide candidate set, same as before.
+    if (byEntity.size === 0) return new Map();
     const { wideCandidates } = this.wideCandidates(byEntity, ctx);
     return withSpan(
       'search.fetch_neighbours',

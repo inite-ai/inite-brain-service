@@ -209,7 +209,7 @@ describe('belief revision chain: two clocks + compare-and-set (e2e)', () => {
            promoterVersion: 'belief-promotion-v1'
          }`,
         {
-          tail: beliefIdTail({ userId: user, subject: 'alice', field: 'city' }, 1),
+          tail: beliefIdTail({ userId: user, subject: 'alice', predicateId: 'city' }, 1),
           u: user,
           from: MAR,
         },
@@ -250,7 +250,10 @@ describe('belief revision chain: two clocks + compare-and-set (e2e)', () => {
           await d.query(
             `UPDATE type::record('semantic_belief', $tail)
                SET latestEvidenceAt = <datetime>$mar, corroborationCount = corroborationCount + 1`,
-            { tail: beliefIdTail({ userId: user, subject: 'alice', field: 'city' }, 1), mar: MAR },
+            {
+              tail: beliefIdTail({ userId: user, subject: 'alice', predicateId: 'city' }, 1),
+              mar: MAR,
+            },
           );
         });
       }
@@ -297,7 +300,7 @@ describe('belief revision chain: two clocks + compare-and-set (e2e)', () => {
     await seedScene({ tail: 'sl_a', user, conv: 'sl:c0', at: JAN, value: 'A' });
     expect(await promoteConv('sl:c0')).toMatchObject({ beliefsCreated: 1 });
     const [head] = await chainOf(user);
-    const key = { userId: user, subject: 'alice', field: 'city' };
+    const key = { userId: user, subject: 'alice', field: 'city', predicateId: 'city' };
     const candidate = (value: string): FoldedBelief => ({
       ...key,
       value,

@@ -205,7 +205,8 @@ describe('the gate through run() (fake db)', () => {
       if (sqlText.includes('FROM memory_episode') && sqlText.includes('stateDeltas')) {
         return [this.sceneHeads];
       }
-      if (sqlText.includes('field = $f')) return [[]];
+      // The chain-head lookup, keyed on the slot since 0147.
+      if (sqlText.includes('(predicateAlias ?? predicateId ?? field) = $slot')) return [[]];
       // The revision lands through the compare-and-set transaction
       // (commitRevision); with no head there is nothing to stamp — only
       // the INSERT IGNORE inside it matters here.
@@ -226,7 +227,10 @@ describe('the gate through run() (fake db)', () => {
       resolve: () => ({ version: 'scene-segmenter-v1' }),
     } as unknown as SceneVersionService;
     const config = { get: (_k: string, def?: string) => def } as unknown as ConfigService;
-    return new BeliefPromotionService(surreal, config, versions);
+    const predicates = {
+      canonicalize: async (_c: string, id: string) => ({ kind: 'matched', canonicalId: id }),
+    };
+    return new BeliefPromotionService(surreal, config, versions, predicates as never);
   }
 
   const scene = (id: string, over: Partial<PromotableSceneHead>): PromotableSceneHead => ({

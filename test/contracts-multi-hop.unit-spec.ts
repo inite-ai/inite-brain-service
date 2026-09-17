@@ -84,6 +84,7 @@ const fullResponse: Required<MultiHopResult> = {
         entityId: 'knowledge_entity:cuid_abc',
         canonicalName: 'Customer 42',
         predicate: 'complained_about',
+        slot: 'complained_about',
         object: 'late maintenance',
       },
     ],

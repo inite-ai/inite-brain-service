@@ -13,10 +13,9 @@ import {
   PredictResolveArgs,
   PredictResolveResult,
   PriorRow,
-  cosineSimilarity,
   rowToOpposingFact,
-  vectorNorm,
 } from './predictor-internals';
+import { cosineSimilarity, vectorNorm } from '../common/vector-math';
 
 /**
  * PredictScoringService — the conflict-scoring engine behind the ingest

@@ -20,12 +20,23 @@ import type { Citation } from './fact-index';
  *
  * CONTRADICTION SEMANTICS (deliberately conservative — never fuzzy):
  * a matched belief covers a fact line when, after trim + lowercase
- * normalization, belief.subject equals the fact's canonicalName AND
- * belief.field equals the fact's predicate; the line is CONTRADICTED
- * only when the normalized values then DIFFER (equal value ⇒ the fact
- * agrees with the current state ⇒ untouched). Subject matching rides
- * the lane's existing free-text (subject, field) key — no entity
- * resolution, no similarity.
+ * normalization, belief.subject equals the fact's canonicalName AND the
+ * belief's SLOT equals the fact's; the line is CONTRADICTED only when
+ * the normalized values then DIFFER (equal value ⇒ the fact agrees with
+ * the current state ⇒ untouched). Subject matching rides the lane's
+ * existing free-text subject key — no entity resolution, no similarity.
+ *
+ * THE SLOT IS WHY THIS PASS CAN FIRE AT ALL. It used to compare
+ * `belief.field` with `fact.predicate` as strings, and the two planes
+ * named attributes in two different languages: the fact plane in
+ * registry ids (`deploy_target`), the belief plane in whatever the scene
+ * enricher wrote (`deployment target`). Measured on a live tenant, ZERO
+ * of 12 beliefs matched any of 163 distinct fact (subject, predicate)
+ * keys — so the pass was structurally incapable of damping anything, and
+ * reported exactly that: 69 clean, 0 damped. Since 0147 a belief carries
+ * `(predicateAlias ?? predicateId)`, the same identity a fact carries,
+ * and the join is id to id. A belief written before 0147 has no slot and
+ * simply does not join — the behaviour it already had.
  *
  * THREE-CONSUMER PARITY BY CONSTRUCTION (the
  * BELIEFS_LANE_DATE_DISAMBIGUATION pattern): the pass runs at the ONE
@@ -60,10 +71,15 @@ function norm(s: string): string {
   return s.trim().toLowerCase();
 }
 
-/** (subject, field) → belief key; NUL-joined so a '|' inside a free-text
+/** (subject, slot) → belief key; NUL-joined so a '|' inside a free-text
  *  key can never alias two different keys onto one map slot. */
-function beliefKey(subject: string, field: string): string {
-  return `${norm(subject)}\u0000${norm(field)}`;
+function beliefKey(subject: string, slot: string): string {
+  return `${norm(subject)}\u0000${norm(slot)}`;
+}
+
+/** The slot a belief occupies, or '' when it predates 0147. */
+function beliefSlot(belief: CitableBelief): string {
+  return norm(belief.predicateId ?? '');
 }
 
 /**
@@ -98,9 +114,12 @@ export function applyBeliefFactDamping(opts: {
   // case-variant keys could collide — first rendered belief wins.
   const byKey = new Map<string, CitableBelief>();
   for (const belief of beliefsById.values()) {
-    const key = beliefKey(belief.subject, belief.field);
+    const slot = beliefSlot(belief);
+    if (slot === '') continue; // pre-0147 row: no slot, no join
+    const key = beliefKey(belief.subject, slot);
     if (!byKey.has(key)) byKey.set(key, belief);
   }
+  if (byKey.size === 0) return [...factLines];
   const kept: string[] = [];
   const damped: string[] = [];
   for (const line of factLines) {
@@ -123,8 +142,8 @@ export function applyBeliefFactDamping(opts: {
 }
 
 /** The matched belief that contradicts this fact line, or null: same
- *  normalized (subject=canonicalName, field=predicate) key, DIFFERENT
- *  normalized value. Unparsable/unindexed lines never dampen. */
+ *  normalized (subject=canonicalName, slot) key, DIFFERENT normalized
+ *  value. Unparsable/unindexed lines never dampen. */
 function contradictingBelief(
   line: string,
   factIndex: ReadonlyMap<string, Citation>,
@@ -135,7 +154,7 @@ function contradictingBelief(
   if (close <= 1) return null;
   const fact = factIndex.get(line.slice(1, close));
   if (!fact) return null;
-  const belief = byKey.get(beliefKey(fact.canonicalName, fact.predicate));
+  const belief = byKey.get(beliefKey(fact.canonicalName, fact.slot));
   if (!belief) return null;
   return norm(belief.value) !== norm(fact.object) ? belief : null;
 }

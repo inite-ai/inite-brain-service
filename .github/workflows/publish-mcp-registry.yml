@@ -1,0 +1,75 @@
+name: Publish to MCP Registry
+
+# WHY THIS EXISTS. `server.json` is the record the MCP Registry serves to
+# every client that discovers this server, and nothing published it.
+# Release-please version-bumps the file (pinned by
+# test/server-json-version.unit-spec.ts) and that was the whole pipeline —
+# the registry entries themselves were pushed by hand. It shows: the
+# registry currently lists TWO active versions of
+# io.github.inite-ai/inite-brain-service, 0.1.0 and 2.2.0, because
+# publishing a new version does not deprecate an old one and nobody ran
+# the call that does.
+#
+# Triggered by release-please's own tag push. Release-please pushes that
+# tag with GITHUB_TOKEN, which cannot trigger another workflow's `push:
+# tags` — the same trap the image job documents — so this is invoked from
+# release-please.yml via workflow_call rather than listening for the tag.
+# `workflow_dispatch` stays for a manual re-publish.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to publish from (e.g. v2.3.0).
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish from (e.g. v2.3.0).
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      # OIDC is how the registry proves we own the io.github.inite-ai
+      # namespace: the token names this repository, and the namespace is
+      # derived from it. No long-lived registry credential exists to leak.
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout the released tag
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag }}
+
+      # The version in server.json is the one release-please wrote into
+      # the tagged commit. Asserted rather than assumed: publishing a
+      # stale version silently creates a second "latest" and is exactly
+      # how the 0.1.0 entry outlived its usefulness.
+      - name: Check server.json carries the tag's version
+        run: |
+          TAG_VERSION="${TAG#v}"
+          FILE_VERSION="$(jq -r .version server.json)"
+          if [ "$TAG_VERSION" != "$FILE_VERSION" ]; then
+            echo "::error::server.json says $FILE_VERSION but the tag is $TAG_VERSION"
+            exit 1
+          fi
+          echo "publishing $FILE_VERSION"
+        env:
+          TAG: ${{ inputs.tag }}
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to the registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish
+        run: ./mcp-publisher publish

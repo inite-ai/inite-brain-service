@@ -21,19 +21,26 @@ import {
 import type { CitableBelief } from '../src/synthesize/belief-citations';
 import type { Citation } from '../src/synthesize/fact-index';
 
+// `predicate` is what the fact LINE shows; `slot` is what the join uses
+// (`predicateAlias ?? predicate`, 0083). They differ here whenever a
+// coinage was aliased, which is the case the string compare used to miss.
 const citation = (factId: string, over: Partial<Citation> = {}): Citation => ({
   factId,
   entityId: 'entity:alice',
   canonicalName: 'Alice',
   predicate: 'city',
+  slot: typeof over.predicate === 'string' ? over.predicate : 'city',
   object: 'Paris',
   ...over,
 });
 
+// `field` is the written display name; `predicateId` is the slot (0147).
+// A belief with no slot predates 0147 and joins nothing, by design.
 const belief = (over: Partial<CitableBelief> = {}): CitableBelief => ({
   beliefId: 'semantic_belief:b1',
   subject: 'Alice',
   field: 'city',
+  predicateId: typeof over.field === 'string' ? over.field : 'city',
   value: 'Berlin',
   excerpt: 'Alice — city: Berlin (was: Paris)',
   ...over,
@@ -252,5 +259,119 @@ describe('applyBeliefFactDamping — metric emission', () => {
       metrics,
     });
     expect(metrics.calls).toEqual([['clean', undefined]]);
+  });
+});
+
+/**
+ * The join itself — the reason this pass never fired.
+ *
+ * Every fixture above happens to name the attribute identically on both
+ * planes, so they passed while the pass was dead in production. The two
+ * planes do NOT name attributes the same way: the fact plane uses
+ * registry ids (`deploy_target`), the belief plane whatever the scene
+ * enricher wrote (`deployment target`). Measured on a live tenant, ZERO
+ * of 12 beliefs matched any of 163 distinct fact (subject, predicate)
+ * keys, and the counter said so: 69 clean, 0 damped.
+ */
+describe('applyBeliefFactDamping — the cross-plane join (0147)', () => {
+  it('damps across the naming gap: free-text field, registry-id predicate', () => {
+    const out = applyBeliefFactDamping({
+      enabled: true,
+      factLines: ['[fact:1] ledger-sync (service) — deploy_target: Fly.io'],
+      factIndex: asMap(
+        citation('fact:1', {
+          canonicalName: 'ledger-sync',
+          predicate: 'deploy_target',
+          object: 'Fly.io',
+        }),
+      ),
+      // What the promoter actually stores: the written name for display,
+      // the registry slot for identity.
+      beliefsById: beliefSet(
+        belief({
+          subject: 'ledger-sync',
+          field: 'deployment target',
+          predicateId: 'deploy_target',
+          value: 'AWS ECS Fargate',
+        }),
+      ),
+    });
+    expect(out[0]).toContain('(superseded by current belief: deployment target = AWS ECS Fargate)');
+  });
+
+  it('joins on the fact ALIAS, not the coinage the line shows', () => {
+    // A fact coined `deploys_to` and aliased onto `deploy_target` sits in
+    // the same slot as one coined `deploy_target`. The line still shows
+    // what was written; the comparison uses the canon.
+    const out = applyBeliefFactDamping({
+      enabled: true,
+      factLines: ['[fact:1] ledger-sync (service) — deploys_to: Fly.io'],
+      factIndex: asMap(
+        citation('fact:1', {
+          canonicalName: 'ledger-sync',
+          predicate: 'deploys_to',
+          slot: 'deploy_target',
+          object: 'Fly.io',
+        }),
+      ),
+      beliefsById: beliefSet(
+        belief({
+          subject: 'ledger-sync',
+          field: 'deployment target',
+          predicateId: 'deploy_target',
+          value: 'AWS ECS Fargate',
+        }),
+      ),
+    });
+    expect(out[0]).toContain('superseded by current belief');
+  });
+
+  it('a belief with no slot joins NOTHING — never a wrong join', () => {
+    // A row written before 0147. It must not fall back to comparing the
+    // display name, which is how the pass would resume guessing.
+    const lines = ['[fact:1] ledger-sync (service) — deploy_target: Fly.io'];
+    const out = applyBeliefFactDamping({
+      enabled: true,
+      factLines: lines,
+      factIndex: asMap(
+        citation('fact:1', {
+          canonicalName: 'ledger-sync',
+          predicate: 'deploy_target',
+          object: 'Fly.io',
+        }),
+      ),
+      beliefsById: beliefSet({
+        beliefId: 'semantic_belief:legacy',
+        subject: 'ledger-sync',
+        field: 'deploy_target',
+        value: 'AWS ECS Fargate',
+        excerpt: 'x',
+      }),
+    });
+    expect(out).toEqual(lines);
+  });
+
+  it('same slot, same value: the fact AGREES and is left alone', () => {
+    const lines = ['[fact:1] ledger-sync (service) — deploy_target: AWS ECS Fargate'];
+    const out = applyBeliefFactDamping({
+      enabled: true,
+      factLines: lines,
+      factIndex: asMap(
+        citation('fact:1', {
+          canonicalName: 'ledger-sync',
+          predicate: 'deploy_target',
+          object: 'AWS ECS Fargate',
+        }),
+      ),
+      beliefsById: beliefSet(
+        belief({
+          subject: 'ledger-sync',
+          field: 'deployment target',
+          predicateId: 'deploy_target',
+          value: 'AWS ECS Fargate',
+        }),
+      ),
+    });
+    expect(out).toEqual(lines);
   });
 });
