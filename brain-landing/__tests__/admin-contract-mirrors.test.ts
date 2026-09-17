@@ -29,6 +29,14 @@ import {
   SourceDetailResponseSchema,
   SourcesListResponseSchema,
 } from '@/lib/contracts/admin-sources'
+import {
+  DeleteConnectionResponseSchema,
+  SourceCatalogResponseSchema,
+  SourceConnectionSchema,
+  SourceConnectionsListResponseSchema,
+  SourceItemsListResponseSchema,
+  SyncNowResponseSchema,
+} from '@/lib/contracts/admin-source-connections'
 
 describe('admin-packs mirrors', () => {
   it('parses GET /v1/admin/packs', () => {
@@ -359,5 +367,168 @@ describe('admin-sources mirrors', () => {
       },
     }
     expect(DeclareSourceResponseSchema.safeParse(fixture).success).toBe(true)
+  })
+})
+
+describe('admin-source-connections mirrors', () => {
+  const connection = {
+    id: 'source_connection:abc123',
+    packId: 'file_memory',
+    sourceId: 'folder',
+    kind: 'native',
+    connector: 'fs',
+    shape: 'document',
+    host: 'server',
+    label: 'Handbook',
+    config: { root: '/srv/docs', excludeDirs: ['node_modules'] },
+    hasCredential: false,
+    mode: 'synced',
+    schedule: 'manual',
+    contentPolicy: 'text',
+    deletePolicy: 'close',
+    fetchBudget: null,
+    status: 'active',
+    checkpoint: { walked: 12 },
+    vertical: 'file_memory',
+    recorder: 'srcconn_abc123',
+    sourceKey: 'file_memory:srcconn_abc123',
+    ownerUserId: null,
+    lastSyncAt: '2026-09-16T10:00:00.000Z',
+    lastSyncStatus: 'succeeded',
+    lastError: null,
+    createdAt: '2026-09-16T09:00:00.000Z',
+    updatedAt: null,
+  }
+
+  it('parses GET / POST / PATCH /v1/admin/source-connections', () => {
+    expect(SourceConnectionSchema.safeParse(connection).success).toBe(true)
+    expect(
+      SourceConnectionsListResponseSchema.safeParse({ connections: [connection] })
+        .success,
+    ).toBe(true)
+  })
+
+  it('parses GET …/:id/items', () => {
+    const fixture = {
+      items: [
+        {
+          id: 'source_item:1',
+          connectionId: 'source_connection:abc123',
+          externalId: 'guide/intro.md',
+          originUri: 'file:///srv/docs/guide/intro.md',
+          path: 'guide/intro.md',
+          title: 'intro.md',
+          mediaType: 'text/markdown',
+          size: 1234,
+          revision: '1726480000000:1234',
+          fetchedRevision: '1726480000000:1234',
+          modifiedAt: '2026-09-16T09:30:00.000Z',
+          documentId: 'source_document:xyz',
+          assetId: null,
+          episodeId: null,
+          state: 'indexed',
+          firstSeenAt: '2026-09-16T09:31:00.000Z',
+          lastSeenAt: '2026-09-16T10:00:00.000Z',
+          goneAt: null,
+          lastError: null,
+        },
+      ],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    }
+    expect(SourceItemsListResponseSchema.safeParse(fixture).success).toBe(true)
+  })
+
+  it('parses both shapes of POST …/:id/sync', () => {
+    expect(
+      SyncNowResponseSchema.safeParse({
+        enqueued: true,
+        runId: 'job_run:1',
+        created: true,
+      }).success,
+    ).toBe(true)
+    expect(
+      SyncNowResponseSchema.safeParse({
+        enqueued: false,
+        summary: {
+          connectionId: 'source_connection:abc123',
+          mode: 'full',
+          status: 'succeeded',
+          seen: 3,
+          new: 3,
+          changed: 0,
+          unchanged: 0,
+          gone: 0,
+          fetched: 3,
+          ingested: 3,
+          deduplicated: 0,
+          failed: 0,
+          closed: 0,
+          durationMs: 120,
+        },
+      }).success,
+    ).toBe(true)
+  })
+
+  it('parses DELETE …/:id', () => {
+    expect(
+      DeleteConnectionResponseSchema.safeParse({ deleted: true, items: 4 })
+        .success,
+    ).toBe(true)
+  })
+
+  it('parses GET …/catalog', () => {
+    const fixture = {
+      sources: [
+        {
+          packId: 'file_memory',
+          packVersion: '0.2.0',
+          builtin: false,
+          accepted: true,
+          sourceId: 'folder',
+          kind: 'native',
+          connector: 'fs',
+          shape: 'document',
+          title: 'Folder (text documents)',
+          description: 'Text-like files under a directory.',
+          defaults: {
+            contentPolicy: 'text',
+            deletePolicy: 'close',
+            schedule: 'manual',
+          },
+          availability: 'disabled',
+          configExample: { root: '/srv/docs' },
+          credentialHint: null,
+        },
+        {
+          packId: 'code_memory',
+          packVersion: '0.8.0',
+          builtin: true,
+          accepted: true,
+          sourceId: 'repository',
+          kind: 'external',
+          connector: 'external',
+          shape: 'structure',
+          title: null,
+          description: null,
+          defaults: {
+            contentPolicy: 'manifest',
+            deletePolicy: 'close',
+            schedule: 'manual',
+          },
+          availability: 'external',
+          configExample: null,
+          credentialHint: null,
+        },
+      ],
+      connectors: [
+        { kind: 'fs', state: 'disabled', flag: 'SOURCE_KIND_FS' },
+        { kind: 'url', state: 'ready', flag: 'SOURCE_KIND_URL' },
+      ],
+      fsRoots: [],
+      egressAllowPrivate: false,
+    }
+    expect(SourceCatalogResponseSchema.safeParse(fixture).success).toBe(true)
   })
 })

@@ -170,6 +170,72 @@ export const SyncNowResponseSchema = z.union([
 ]);
 export type SyncNowResponse = z.infer<typeof SyncNowResponseSchema>;
 
+/**
+ * Why a catalogue entry can or cannot be connected right now:
+ *   ready    — the connector is installed and switched on;
+ *   disabled — installed, switched off (SOURCE_KIND_<KIND>);
+ *   missing  — the pack names a connector this build does not ship;
+ *   agent    — runs on the local agent (stdio MCP), never on the server;
+ *   external — the publisher pushes through the doors; a connection is
+ *              only the registry identity the pushes are attributed to.
+ */
+export const SourceAvailabilitySchema = z.enum([
+  'ready',
+  'disabled',
+  'missing',
+  'agent',
+  'external',
+]);
+export type SourceAvailability = z.infer<typeof SourceAvailabilitySchema>;
+
+/** One connectable `sources[]` entry of an installed (or builtin) pack. */
+export const SourceCatalogEntrySchema = z.object({
+  packId: z.string(),
+  packVersion: z.string(),
+  builtin: z.boolean(),
+  /** False = the install predates or never accepted this sources section;
+   *  `create` refuses until the pack is reinstalled with acceptSources. */
+  accepted: z.boolean(),
+  sourceId: z.string(),
+  kind: SourceKindSchema,
+  connector: z.string(),
+  shape: SourceShapeSchema,
+  title: z.string().nullable(),
+  description: z.string().nullable(),
+  defaults: z.object({
+    contentPolicy: SourceContentPolicySchema,
+    deletePolicy: SourceDeletePolicySchema,
+    schedule: SourceScheduleSchema,
+  }),
+  availability: SourceAvailabilitySchema,
+  /** Pre-fill for the connection `config`; never secrets. */
+  configExample: z.record(z.string(), z.unknown()).nullable(),
+  credentialHint: z.string().nullable(),
+});
+export type SourceCatalogEntry = z.infer<typeof SourceCatalogEntrySchema>;
+
+export const SourceConnectorStateSchema = z.object({
+  kind: z.string(),
+  state: z.enum(['ready', 'disabled']),
+  /** The env switch that turns it on. */
+  flag: z.string(),
+});
+export type SourceConnectorState = z.infer<typeof SourceConnectorStateSchema>;
+
+/**
+ * GET /v1/admin/source-connections/catalog — what this tenant can
+ * connect on this deployment: every declared source of every pack it
+ * has (with consent state), the shipped connectors and their switches,
+ * and the two operator fences (fs root jail, private-egress opt-in).
+ */
+export const SourceCatalogResponseSchema = z.object({
+  sources: z.array(SourceCatalogEntrySchema),
+  connectors: z.array(SourceConnectorStateSchema),
+  fsRoots: z.array(z.string()),
+  egressAllowPrivate: z.boolean(),
+});
+export type SourceCatalogResponse = z.infer<typeof SourceCatalogResponseSchema>;
+
 export function isConnectionId(v: string): boolean {
   return CONNECTION_ID.test(v);
 }

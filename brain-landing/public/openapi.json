@@ -5114,6 +5114,193 @@
         ],
         "type": "object"
       },
+      "SourceCatalogResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "connectors": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "flag": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "state": {
+                  "enum": [
+                    "ready",
+                    "disabled"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "state",
+                "flag"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "egressAllowPrivate": {
+            "type": "boolean"
+          },
+          "fsRoots": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "accepted": {
+                  "type": "boolean"
+                },
+                "availability": {
+                  "enum": [
+                    "ready",
+                    "disabled",
+                    "missing",
+                    "agent",
+                    "external"
+                  ],
+                  "type": "string"
+                },
+                "builtin": {
+                  "type": "boolean"
+                },
+                "configExample": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": {},
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "connector": {
+                  "type": "string"
+                },
+                "credentialHint": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "defaults": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "contentPolicy": {
+                      "enum": [
+                        "manifest",
+                        "text",
+                        "bytes"
+                      ],
+                      "type": "string"
+                    },
+                    "deletePolicy": {
+                      "enum": [
+                        "close",
+                        "retract",
+                        "keep"
+                      ],
+                      "type": "string"
+                    },
+                    "schedule": {
+                      "enum": [
+                        "manual",
+                        "15m",
+                        "1h",
+                        "4h",
+                        "24h"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "contentPolicy",
+                    "deletePolicy",
+                    "schedule"
+                  ],
+                  "type": "object"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "enum": [
+                    "mcp",
+                    "native",
+                    "external"
+                  ],
+                  "type": "string"
+                },
+                "packId": {
+                  "type": "string"
+                },
+                "packVersion": {
+                  "type": "string"
+                },
+                "shape": {
+                  "enum": [
+                    "document",
+                    "conversation",
+                    "binary",
+                    "structure"
+                  ],
+                  "type": "string"
+                },
+                "sourceId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "packId",
+                "packVersion",
+                "builtin",
+                "accepted",
+                "sourceId",
+                "kind",
+                "connector",
+                "shape",
+                "title",
+                "description",
+                "defaults",
+                "availability",
+                "configExample",
+                "credentialHint"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "sources",
+          "connectors",
+          "fsRoots",
+          "egressAllowPrivate"
+        ],
+        "type": "object"
+      },
       "SourceConnection": {
         "additionalProperties": false,
         "properties": {
@@ -7524,6 +7711,37 @@
           }
         },
         "summary": "Connect a pack’s declared source",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/admin/source-connections/catalog": {
+      "get": {
+        "description": "The connectable catalogue: every `sources[]` entry of every pack the tenant has (builtin and installed, with its consent state), each with an `availability` — `ready`, `disabled` (the connector’s SOURCE_KIND switch is off), `missing` (this build ships no such connector), `agent` (stdio MCP, local-agent host) or `external` (the publisher pushes) — and the connector’s static `configExample` / `credentialHint`; plus the shipped connectors with their switches and the two operator fences (`fsRoots`, `egressAllowPrivate`). Read-only; never runs a connector, never reveals a credential. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
+        "operationId": "listSourceCatalog",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceCatalogResponse"
+                }
+              }
+            },
+            "description": "The catalogue."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "What this tenant can connect here",
         "tags": [
           "Source Plane"
         ]

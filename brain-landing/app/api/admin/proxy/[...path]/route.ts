@@ -83,6 +83,14 @@ import {
   SourceDetailResponseSchema,
   SourcesListResponseSchema,
 } from '@/lib/contracts/admin-sources'
+import {
+  DeleteConnectionResponseSchema,
+  SourceCatalogResponseSchema,
+  SourceConnectionSchema,
+  SourceConnectionsListResponseSchema,
+  SourceItemsListResponseSchema,
+  SyncNowResponseSchema,
+} from '@/lib/contracts/admin-source-connections'
 import type { ZodType } from 'zod'
 
 /**
@@ -134,6 +142,8 @@ const RESPONSE_SCHEMAS: Partial<
     'v1/admin/packs': PacksListResponseSchema,
     'v1/registry/packs': RegistryListResponseSchema,
     'v1/admin/sources': SourcesListResponseSchema,
+    'v1/admin/source-connections': SourceConnectionsListResponseSchema,
+    'v1/admin/source-connections/catalog': SourceCatalogResponseSchema,
   },
   POST: {
     'v1/admin/dreams/run': DreamsRunResponseSchema,
@@ -155,6 +165,7 @@ const RESPONSE_SCHEMAS: Partial<
     'v1/admin/policy/preview-rule': PreviewRuleResponseSchema,
     'v1/admin/packs': InstallPackResponseSchema,
     'v1/admin/packs/from-registry': InstallPackResponseSchema,
+    'v1/admin/source-connections': SourceConnectionSchema,
   },
   PATCH: {},
   DELETE: {},
@@ -192,6 +203,14 @@ const DYNAMIC_RESPONSE_SCHEMAS: Partial<
     {
       pattern: 'v1/admin/sources/:sourceKey',
       schema: SourceDetailResponseSchema,
+    },
+    {
+      pattern: 'v1/admin/source-connections/:id',
+      schema: SourceConnectionSchema,
+    },
+    {
+      pattern: 'v1/admin/source-connections/:id/items',
+      schema: SourceItemsListResponseSchema,
     },
   ],
   POST: [
@@ -238,11 +257,19 @@ const DYNAMIC_RESPONSE_SCHEMAS: Partial<
       pattern: 'v1/admin/registry/packs/:packId/:version/unyank',
       schema: YankPackResponseSchema,
     },
+    {
+      pattern: 'v1/admin/source-connections/:id/sync',
+      schema: SyncNowResponseSchema,
+    },
   ],
   PATCH: [
     {
       pattern: 'v1/admin/predicates/:predicateId',
       schema: PredicateMutationResponseSchema,
+    },
+    {
+      pattern: 'v1/admin/source-connections/:id',
+      schema: SourceConnectionSchema,
     },
   ],
   PUT: [
@@ -276,6 +303,10 @@ const DYNAMIC_RESPONSE_SCHEMAS: Partial<
       schema: PackPricingResponseSchema,
     },
     { pattern: 'v1/admin/packs/:packId', schema: UninstallPackResponseSchema },
+    {
+      pattern: 'v1/admin/source-connections/:id',
+      schema: DeleteConnectionResponseSchema,
+    },
   ],
 }
 
@@ -358,6 +389,8 @@ const ALLOWED_PREFIXES = [
   'v1/admin/registry',
   'v1/registry',
   'v1/admin/sources',
+  // Source plane — connections the brain reads existing evidence through
+  'v1/admin/source-connections',
   // ABAC (policy editor + Key Lens + decisions feed)
   'v1/admin/policy-sets',
   'v1/admin/policy/',
@@ -419,7 +452,7 @@ async function forward(
   // brain's audit trail then names the real admin, not the anonymous
   // service credential. Dev-bypass sessions keep the M2M path.
   const res = await brainFetch(`/${subpath}`, {
-    method: request.method as 'GET' | 'POST' | 'PUT' | 'DELETE',
+    method: request.method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     body,
     query,
     userToken: await extractAccessToken(request),
@@ -456,6 +489,12 @@ export const POST = withAdmin((_session, request) =>
   forward(request, extractProxyPath(request, ADMIN_ROUTE_PREFIX)),
 )
 export const PUT = withAdmin((_session, request) =>
+  forward(request, extractProxyPath(request, ADMIN_ROUTE_PREFIX)),
+)
+// PATCH had schemas registered (predicates) but no handler — Next
+// answered 405 before the proxy ever saw the call. The source-plane
+// panel pauses/resumes/edits connections through it.
+export const PATCH = withAdmin((_session, request) =>
   forward(request, extractProxyPath(request, ADMIN_ROUTE_PREFIX)),
 )
 export const DELETE = withAdmin((_session, request) =>

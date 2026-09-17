@@ -151,6 +151,10 @@ const MEDIA_TYPES: Record<string, string> = {
 export class FsConnector implements Connector {
   readonly kind = 'fs';
   readonly walksEverything = true;
+  readonly configExample = {
+    root: '/srv/docs',
+    excludeDirs: [...DEFAULT_EXCLUDE_DIRS],
+  };
 
   enabled(): boolean {
     return sourceKindEnabled('fs');

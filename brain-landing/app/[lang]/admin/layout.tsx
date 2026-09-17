@@ -23,6 +23,7 @@ import {
   Moon,
   Network,
   Package,
+  Plug,
   Presentation,
   Play,
   Radio,
@@ -71,6 +72,7 @@ const GROUPS: ShellGroup[] = [
     label: 'Platform',
     items: [
       { slug: 'packs', title: 'Packs', icon: Package },
+      { slug: 'connections', title: 'Connections', icon: Plug },
       { slug: 'marketplace', title: 'Marketplace', icon: Store },
     ],
   },

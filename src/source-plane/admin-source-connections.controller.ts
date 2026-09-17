@@ -21,11 +21,13 @@ import {
   SyncNowRequestSchema,
   UpdateSourceConnectionRequestSchema,
   isConnectionId,
+  type SourceCatalogResponse,
   type SourceConnection,
   type SourceConnectionsListResponse,
   type SourceItemsListResponse,
   type SyncNowResponse,
 } from '../contracts/source-plane/source-plane.schema';
+import { SourceCatalogService } from './source-catalog.service';
 import { SourceConnectionService } from './source-connection.service';
 import { SourceItemService } from './source-item.service';
 import { SourceSyncQueueService } from './source-sync-queue.service';
@@ -49,6 +51,7 @@ export class AdminSourceConnectionsController {
     private readonly items: SourceItemService,
     private readonly sync: SourceSyncService,
     private readonly queue: SourceSyncQueueService,
+    private readonly catalog: SourceCatalogService,
   ) {}
 
   @Get()
@@ -66,6 +69,14 @@ export class AdminSourceConnectionsController {
       req.brainAuth.companyId,
       parseBody(CreateSourceConnectionRequestSchema, body),
     );
+  }
+
+  /** Declared before `:id` — a literal segment must not read as an id. */
+  @Get('catalog')
+  @RequireScopes('brain:admin')
+  async listCatalog(@Req() req: AuthenticatedRequest): Promise<SourceCatalogResponse> {
+    assertEnabled();
+    return this.catalog.catalog(req.brainAuth.companyId);
   }
 
   @Get(':id')

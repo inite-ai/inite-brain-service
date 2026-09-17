@@ -9,6 +9,7 @@ import { SOURCE_CONNECTORS, type Connector } from './connector';
 import { FsConnector } from './connectors/fs.connector';
 import { S3Connector } from './connectors/s3.connector';
 import { UrlConnector } from './connectors/url.connector';
+import { SourceCatalogService } from './source-catalog.service';
 import { SourceConnectionService } from './source-connection.service';
 import { SourceDoorsService } from './source-doors.service';
 import { SourceGonePolicyService } from './source-gone-policy.service';
@@ -48,6 +49,7 @@ import { SourceSyncService } from './source-sync.service';
       ],
       inject: [FsConnector, UrlConnector, S3Connector],
     },
+    SourceCatalogService,
     SourceConnectionService,
     SourceItemService,
     SourceDoorsService,
