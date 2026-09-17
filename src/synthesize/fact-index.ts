@@ -161,11 +161,15 @@ export function buildFactIndex(
     // fact for Thomas and an edge for Maria in the same corpus), and an
     // answer plane that read only facts had the generator asserting an
     // employer the verifier could not find — and dropping the answer.
-    // Tagged `[relation]` rather than a fact id: a relation is support,
-    // not a citation, and the cite resolver ignores an unknown tag.
+    // No bracket on a relation line: a relation is support, not a
+    // citation. Tagged `[relation]`, the generator cited the tag — on the
+    // prod tenant "relocating to Porto" rested on the edge alone and came
+    // back as `citedFactIds: ["relation"]`, which resolves to nothing, so
+    // a correct answer was dropped for want of a citation. With nothing
+    // to copy the model cites the fact handle beside it, or abstains.
     for (const rel of r.relations ?? []) {
       entries.push({
-        line: `[relation] ${r.canonicalName} (${r.entityType}) — ${rel.kind}: ${rel.peer} (${rel.peerType})`,
+        line: `(relation) ${r.canonicalName} (${r.entityType}) — ${rel.kind}: ${rel.peer} (${rel.peerType})`,
         t: Number.POSITIVE_INFINITY,
         slot: `${r.entityId}::relation::${rel.kind}::${rel.peer}`,
         obj: rel.peer,
@@ -191,8 +195,7 @@ export function buildFactIndex(
     entries.sort((a, b) => a.t - b.t);
   }
   // Handles follow the rendered order, so "[f3]" is the third line the
-  // model reads. Relation lines keep their `[relation]` tag: support, not
-  // a citation.
+  // model reads. Relation lines carry no handle: support, not a citation.
   let n = 0;
   const handles = new Map<string, string>();
   const factLines = entries.map((e) => {

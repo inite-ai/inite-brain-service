@@ -889,7 +889,7 @@ describe('enumeration strict clause (§8 item 3, profile.enumStrict)', () => {
 });
 
 describe('buildFactIndex renders graph relations as evidence', () => {
-  it('adds an uncitable [relation] line per relation, beside the facts', () => {
+  it('adds an uncitable (relation) line per relation, beside the facts', () => {
     const hit: SearchHit = {
       entityId: 'e1',
       entityType: 'staff',
@@ -914,7 +914,7 @@ describe('buildFactIndex renders graph relations as evidence', () => {
     expect(factLines[0]!.startsWith('[f1] ')).toBe(true);
     expect(handlesOf(factIndex).get('f1')).toBe('knowledge_fact:aaa');
     expect(factLines[1]).toBe(
-      '[relation] Мария Альварес (staff) — works_at: Orbital Dynamics (org)',
+      '(relation) Мария Альварес (staff) — works_at: Orbital Dynamics (org)',
     );
     // A relation is support, never a citation: it is not in the index.
     expect(factIndex.has('relation')).toBe(false);
