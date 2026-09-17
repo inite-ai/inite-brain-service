@@ -298,8 +298,13 @@ interface PackSourceBase {
 export interface PackMcpHttpSourceSpec extends PackSourceBase {
   kind: 'mcp';
   transport: 'http';
-  /** https URL (egress-guarded at install AND per sync). */
-  url: string;
+  /**
+   * https URL (egress-guarded at install AND per sync). A publisher-
+   * operated server pins it here; ABSENT means the operator names the
+   * server on the connection (`config.url`, guarded at create) — the
+   * consent then covers "this pack may read an MCP server you name".
+   */
+  url?: string;
   /** How brain authenticates to the server: the per-install secret as a
    *  bearer (publisher-operated), an OAuth grant (W4), or nothing. */
   auth: PackSourceMcpAuth;

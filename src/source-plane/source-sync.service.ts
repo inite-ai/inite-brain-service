@@ -90,7 +90,10 @@ export class SourceSyncService {
     const runStartedAt = new Date();
     const ctx: ConnectorCtx = {
       companyId,
-      connection: this.connections.toConnectorView(row),
+      connection: this.connections.toConnectorView(
+        row,
+        await this.connections.sourceContext(companyId, row),
+      ),
       signal: opts.signal ?? new AbortController().signal,
       log: (line) => this.logger.log(`[${connectionId}] ${line}`),
     };
@@ -138,6 +141,12 @@ export class SourceSyncService {
       await this.connections
         .recordSync(companyId, connectionId, { status: 'failed', error: message })
         .catch(() => undefined);
+    } finally {
+      // A session the connector held across the run (an MCP client) ends
+      // with the run; a failure to close is logged, never a run failure.
+      await connector.endRun?.(ctx).catch((e: unknown) => {
+        this.logger.warn(`source sync ${connectionId}: endRun failed: ${(e as Error).message}`);
+      });
     }
     summary.durationMs = Date.now() - started;
     this.logger.log(

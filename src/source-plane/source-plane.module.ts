@@ -7,6 +7,7 @@ import { SourcesModule } from '../sources/sources.module';
 import { AdminSourceConnectionsController } from './admin-source-connections.controller';
 import { SOURCE_CONNECTORS, type Connector } from './connector';
 import { FsConnector } from './connectors/fs.connector';
+import { McpConnector } from './connectors/mcp.connector';
 import { S3Connector } from './connectors/s3.connector';
 import { UrlConnector } from './connectors/url.connector';
 import { SourceCatalogService } from './source-catalog.service';
@@ -25,8 +26,9 @@ import { SourceSyncService } from './source-sync.service';
  * and the operator surface. Connectors are PLATFORM code registered in
  * the SOURCE_CONNECTORS array (the EVIDENCE_PROCESSOR_ADAPTERS mold):
  * `fs` (SOURCE_KIND_FS + the SOURCE_FS_ROOTS jail), `url` (SOURCE_KIND_URL,
- * every hop through the egress guard), `s3` (SOURCE_KIND_S3); webdav
- * and `mcp` (W2) follow. A kind whose switch is off is "not
+ * every hop through the egress guard), `s3` (SOURCE_KIND_S3), `mcp`
+ * (SOURCE_KIND_MCP — the harvester, W2: an MCP server's resources);
+ * webdav follows. A kind whose switch is off is "not
  * installed" to the engine: a connection of it records a failed sync
  * with "no installed connector", never a crash.
  *
@@ -40,14 +42,11 @@ import { SourceSyncService } from './source-sync.service';
     FsConnector,
     UrlConnector,
     S3Connector,
+    McpConnector,
     {
       provide: SOURCE_CONNECTORS,
-      useFactory: (fs: FsConnector, url: UrlConnector, s3: S3Connector): Connector[] => [
-        fs,
-        url,
-        s3,
-      ],
-      inject: [FsConnector, UrlConnector, S3Connector],
+      useFactory: (...connectors: Connector[]): Connector[] => connectors,
+      inject: [FsConnector, UrlConnector, S3Connector, McpConnector],
     },
     SourceCatalogService,
     SourceConnectionService,

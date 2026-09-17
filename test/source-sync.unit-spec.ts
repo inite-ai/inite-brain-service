@@ -166,6 +166,7 @@ function harness(
     load: async () => row,
     resolveConnector: () => (opts.registered === false ? null : source.connector()),
     connectorUnavailable: () => 'no installed connector "memory"',
+    sourceContext: async () => ({ source: null, installSecret: null }),
     toConnectorView: () => ({
       id: String(row.id),
       packId: row.packId,

@@ -1,5 +1,5 @@
 import type { EvidenceModality } from '../common/evidence-taxonomy';
-import type { PackSourceShape } from '../ai/domain-packs/manifest';
+import type { PackSourceShape, PackSourceSpec } from '../ai/domain-packs/manifest';
 
 /**
  * Connector — the source-plane seam (docs/roadmap/
@@ -38,6 +38,9 @@ export interface ConnectorConnectionView {
   vertical: string;
   recorder: string;
   userId: string | null;
+  /** The pack entry this connection instantiates (its declared url /
+   *  auth for `mcp`), when the pack still declares it. */
+  source?: PackSourceSpec | null | undefined;
 }
 
 export interface ConnectorCtx {
@@ -159,6 +162,9 @@ export interface Connector {
   readonly credentialHint?: string;
   enumerate(ctx: ConnectorCtx, opts: EnumerateOptions): AsyncIterable<ItemDelta>;
   fetch(ctx: ConnectorCtx, item: ItemDescriptor): Promise<FetchedItem>;
+  /** Called once a run is over (success or failure) — release a session
+   *  the connector kept across enumerate + fetch (an MCP client). */
+  endRun?(ctx: ConnectorCtx): Promise<void>;
 }
 
 /** Registry token: an ARRAY of platform connectors, resolved by `kind`. */

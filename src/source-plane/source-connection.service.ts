@@ -10,8 +10,11 @@ import {
   BUILTIN_PACKS,
   sourcesChecksum,
   type DomainPackManifest,
+  type PackMcpHttpSourceSpec,
   type PackSourceSpec,
 } from '../ai/domain-packs';
+import { assertPublicHttpUrl, EgressDeniedError } from '../common/egress-guard';
+import { sourceEgressAllowPrivate } from '../common/source-plane-flags';
 import { scopeForUser } from '../auth/scope-tags';
 import { SurrealService, queryFirst, queryRows } from '../db/surreal.service';
 import { idTailOf } from '../ingest/ingest-utils';
@@ -99,17 +102,7 @@ export class SourceConnectionService {
       throw new BadRequestException(`vertical must match ${VERTICAL}`);
     }
     const connector = connectorKindOf(entry);
-    if (entry.kind === 'native') {
-      const state = connectorState(this.connectors ?? [], connector);
-      if (typeof state === 'string') {
-        throw new BadRequestException(
-          `source "${entry.id}": ${connectorUnavailableMessage(connector, state)}`,
-        );
-      }
-    }
-    if (dto.label !== undefined && dto.label.length > LABEL_MAX) {
-      throw new BadRequestException(`label must be at most ${LABEL_MAX} characters`);
-    }
+    await this.assertConnectable(entry, connector, dto);
     const userId = dto.ownerUserId ?? undefined;
     const content = {
       packId: manifest.id,
@@ -325,8 +318,80 @@ export class SourceConnectionService {
       : `connector "${row.connector}" is available`;
   }
 
+  /**
+   * What must hold before a connection row exists: a server-run entry
+   * (native, http MCP) needs its connector installed and on; an http MCP
+   * entry needs its server named exactly once (pinned by the pack or
+   * `config.url`, guarded); the label fits.
+   */
+  private async assertConnectable(
+    entry: PackSourceSpec,
+    connector: string,
+    dto: CreateSourceConnectionRequest,
+  ): Promise<void> {
+    const serverRun =
+      entry.kind === 'native' || (entry.kind === 'mcp' && entry.transport === 'http');
+    if (serverRun) {
+      const state = connectorState(this.connectors ?? [], connector);
+      if (typeof state === 'string') {
+        throw new BadRequestException(
+          `source "${entry.id}": ${connectorUnavailableMessage(connector, state)}`,
+        );
+      }
+    }
+    if (entry.kind === 'mcp' && entry.transport === 'http') {
+      await assertOperatorUrl(entry, dto.config ?? {});
+    }
+    if (dto.label !== undefined && dto.label.length > LABEL_MAX) {
+      throw new BadRequestException(`label must be at most ${LABEL_MAX} characters`);
+    }
+  }
+
+  /**
+   * The pack entry a row instantiates plus the pack's install secret —
+   * what an `mcp` connection needs at run time (the declared url / auth,
+   * the bearer for `install_secret`). Null entry = the pack is gone or
+   * no longer declares the source; the connector says so by name.
+   */
+  async sourceContext(
+    companyId: string,
+    row: SourceConnectionRow,
+  ): Promise<{ source: PackSourceSpec | null; installSecret: string | null }> {
+    const builtin = BUILTIN_PACKS.find((p) => p.id === row.packId);
+    if (builtin) {
+      return {
+        source: builtin.sources?.find((s) => s.id === row.sourceId) ?? null,
+        installSecret: null,
+      };
+    }
+    const pack = await this.surreal.withCompany(companyId, (db) =>
+      queryFirst<{ manifest?: DomainPackManifest; webhookSecret?: unknown }>(
+        db,
+        `SELECT manifest, webhookSecret FROM domain_pack WHERE packId = $packId AND status = 'active' LIMIT 1`,
+        { packId: row.packId },
+      ),
+    );
+    return {
+      source: pack?.manifest?.sources?.find((s) => s.id === row.sourceId) ?? null,
+      installSecret: typeof pack?.webhookSecret === 'string' ? pack.webhookSecret : null,
+    };
+  }
+
   /** The connector-facing projection of a row (credential resolved). */
-  toConnectorView(row: SourceConnectionRow): ConnectorConnectionView {
+  toConnectorView(
+    row: SourceConnectionRow,
+    context: { source: PackSourceSpec | null; installSecret: string | null } = {
+      source: null,
+      installSecret: null,
+    },
+  ): ConnectorConnectionView {
+    const source = context.source;
+    // An `install_secret` MCP source authenticates with the pack's own
+    // secret unless the connection carries a credential of its own.
+    const installBearer =
+      source?.kind === 'mcp' && source.transport === 'http' && source.auth === 'install_secret'
+        ? context.installSecret
+        : null;
     return {
       id: String(row.id),
       packId: row.packId,
@@ -336,11 +401,12 @@ export class SourceConnectionService {
       shape: row.shape,
       host: row.host,
       config: row.config ?? {},
-      credential: row.credential ?? null,
+      credential: row.credential ?? installBearer,
       contentPolicy: row.contentPolicy,
       vertical: row.vertical,
       recorder: row.recorder,
       userId: row.userId ?? null,
+      source,
     };
   }
 
@@ -469,4 +535,36 @@ export function toView(row: SourceConnectionRow): SourceConnection {
 /** Bound-var-safe record link (the candidate-store idiom). */
 export function connectionRef(connectionId: string): unknown {
   return new StringRecordId(`source_connection:${idTailOf(connectionId)}`);
+}
+
+/**
+ * An http MCP entry without a pinned url is operator-named: the
+ * connection must carry `config.url`, and it passes the egress guard at
+ * create (the install-time guard covered pinned urls only). With a
+ * pinned url, a `config.url` is refused — the consented server is the
+ * one the pack named. Private hosts follow the double opt-in.
+ */
+async function assertOperatorUrl(
+  entry: PackMcpHttpSourceSpec,
+  config: Record<string, unknown>,
+): Promise<void> {
+  const named = config.url;
+  if (entry.url !== undefined) {
+    if (named !== undefined) {
+      throw new BadRequestException(
+        `source "${entry.id}" pins its server (${entry.url}); config.url is not accepted`,
+      );
+    }
+    return;
+  }
+  if (typeof named !== 'string' || named.length === 0) {
+    throw new BadRequestException(`source "${entry.id}" needs config.url — the MCP server to read`);
+  }
+  const allowHttp = config.allowPrivate === true && sourceEgressAllowPrivate();
+  try {
+    await assertPublicHttpUrl(named, { allowHttp });
+  } catch (e) {
+    if (e instanceof EgressDeniedError) throw new BadRequestException(`config.url: ${e.message}`);
+    throw e;
+  }
 }

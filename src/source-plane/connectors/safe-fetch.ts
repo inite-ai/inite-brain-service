@@ -120,3 +120,33 @@ async function readBounded(res: Response, maxBytes: number, url: string): Promis
 }
 
 export { EgressDeniedError };
+
+/**
+ * The guard as a `fetch` a client library can be handed (the MCP SDK's
+ * Streamable HTTP transport takes one): every URL it is asked for passes
+ * the same egress check as safeFetch's hops, redirects are never
+ * followed (`manual` — a 3xx surfaces as the library's own error), and
+ * the outer signal aborts in-flight requests. Bodies are the library's
+ * to read; the MCP transport streams JSON-RPC, so no byte cap applies
+ * here — the connector caps what it keeps.
+ */
+export function guardedFetch(opts: {
+  allowPrivate?: boolean | undefined;
+  signal?: AbortSignal | undefined;
+}) {
+  const allowHttp = opts.allowPrivate === true && sourceEgressAllowPrivate();
+  return async (url: string | URL, init?: RequestInit): Promise<Response> => {
+    const target = String(url);
+    await assertPublicHttpUrl(target, { allowHttp });
+    if (allowHttp) await refuseLinkLocal(target);
+    const signal =
+      opts.signal && init?.signal
+        ? AbortSignal.any([opts.signal, init.signal])
+        : (init?.signal ?? opts.signal);
+    return fetch(target, {
+      ...init,
+      redirect: 'manual',
+      ...(signal ? { signal } : {}),
+    });
+  };
+}

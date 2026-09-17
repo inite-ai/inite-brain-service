@@ -1585,6 +1585,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       "The `s3` source connector (source plane, W1): objects under a prefix of an S3 or S3-compatible bucket (MinIO, R2, B2, GCS interop) through the SDK the evidence adapter already uses — text-like objects as documents, PDFs/images to the evidence plane (file_memory: `bucket` / `bucket_media`). ListObjectsV2 every run, the ETag as revision. Credential `accessKeyId:secretAccessKey`, else the SDK's default provider chain; a custom endpoint passes the egress guard (private ones need the double opt-in). Off (default) = 'not installed' — byte-identical.",
   },
   {
+    key: 'SOURCE_KIND_MCP',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `mcp` source connector (source plane, W2) — the harvester: an MCP server's resources read as a source over Streamable HTTP. `resources/list` is the catalogue (re-walked every run; a resource the listing no longer carries is gone), `resources/read` the fetch, `annotations.lastModified` the revision (else a refetchHours time bucket + content-hash dedup). A pack declares the entry, pinning the server's URL (publisher-operated, `auth: install_secret` = the pack's install secret as bearer) or leaving it to the operator (`config.url`, egress-guarded at create; web_memory: `mcp_resources` / `mcp_resources_media`). Every request leaves through the egress guard; redirects are never followed; private hosts need the double opt-in. The server supplies DATA only — never tools or prompts. Off (default) = 'not installed' — byte-identical.",
+  },
+  {
     key: 'SOURCE_EGRESS_ALLOW_PRIVATE',
     category: 'pipeline',
     defaultValue: '0',

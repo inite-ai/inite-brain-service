@@ -82,6 +82,8 @@ describe('source plane (e2e)', () => {
       'DOCUMENT_INGEST_ENABLED',
       'WORKER_LOOP_ENABLED',
       'SOURCE_KIND_FS',
+      'SOURCE_KIND_MCP',
+      'MCP_PACK_TOOLS_ALLOW_HTTP',
       'SOURCE_FS_ROOTS',
       'SOURCE_EGRESS_ALLOW_PRIVATE',
     ]) {
@@ -93,6 +95,7 @@ describe('source plane (e2e)', () => {
     delete process.env.SOURCE_PLANE_ENABLED;
     // The catalogue case pins the natives' switched-off state.
     delete process.env.SOURCE_KIND_FS;
+    delete process.env.SOURCE_KIND_MCP;
     delete process.env.SOURCE_FS_ROOTS;
     delete process.env.SOURCE_EGRESS_ALLOW_PRIVATE;
     f = await createApp({ companyId: COMPANY });
@@ -198,6 +201,84 @@ describe('source plane (e2e)', () => {
     expect(connectors.get('memory')?.state).toBe('ready');
     expect(r.body.fsRoots).toEqual([]);
     expect(r.body.egressAllowPrivate).toBe(false);
+  });
+
+  it('an http MCP entry: the server is named exactly once, guarded at create; the kind switch gates it', async () => {
+    const mcpPack = (version: string) => ({
+      id: 'mcp_pack',
+      version,
+      description: 'MCP source e2e pack.',
+      predicates: [{ ...PREDICATE, localId: 'resource_note', displayLabel: 'resource note' }],
+      sources: [
+        {
+          id: 'pinned',
+          kind: 'mcp',
+          transport: 'http',
+          auth: 'none',
+          url: 'https://mcp.example.com/mcp',
+          shape: 'document',
+        },
+        { id: 'named', kind: 'mcp', transport: 'http', auth: 'none', shape: 'document' },
+      ],
+    });
+    process.env.SOURCE_PLANE_ENABLED = '1';
+    // The install-time guard resolves a pinned host; no DNS in CI, so the
+    // pack-tools dev escape covers the install only (create keeps its
+    // own fence below).
+    process.env.MCP_PACK_TOOLS_ALLOW_HTTP = '1';
+    const installed = await f.http
+      .post('/v1/admin/packs')
+      .set(auth())
+      .send({ manifest: mcpPack('1.0.0'), acceptSources: true });
+    delete process.env.MCP_PACK_TOOLS_ALLOW_HTTP;
+    expect([200, 201]).toContain(installed.status);
+
+    const post = (body: Record<string, unknown>) =>
+      f.http
+        .post('/v1/admin/source-connections')
+        .set(auth())
+        .send({ packId: 'mcp_pack', vertical: 'mcp', ...body });
+
+    // Switch off ⇒ "installed but switched off", by name.
+    delete process.env.SOURCE_KIND_MCP;
+    const off = await post({ sourceId: 'named', config: { url: 'https://mcp.example.com/mcp' } });
+    expect(off.status).toBe(400);
+    expect(String(off.body.message)).toContain('switched off (SOURCE_KIND_MCP)');
+    process.env.SOURCE_KIND_MCP = '1';
+
+    // A pinned entry refuses an operator url; a named entry requires one.
+    const pinnedPlus = await post({
+      sourceId: 'pinned',
+      config: { url: 'https://other.example.com/mcp' },
+    });
+    expect(pinnedPlus.status).toBe(400);
+    expect(String(pinnedPlus.body.message)).toContain('config.url is not accepted');
+    const namedMissing = await post({ sourceId: 'named', config: {} });
+    expect(namedMissing.status).toBe(400);
+    expect(String(namedMissing.body.message)).toContain('needs config.url');
+    // The named url passes the egress guard at create: loopback is refused
+    // without the double opt-in.
+    const namedPrivate = await post({
+      sourceId: 'named',
+      config: { url: 'http://127.0.0.1:9/mcp' },
+    });
+    expect(namedPrivate.status).toBe(400);
+    expect(String(namedPrivate.body.message)).toContain('config.url:');
+
+    // An IP literal needs no DNS: the guard classifies it offline.
+    const ok = await post({
+      sourceId: 'named',
+      config: { url: 'https://93.184.216.34/mcp' },
+      credential: 'tok',
+    });
+    expect(ok.status).toBe(201);
+    expect(ok.body).toMatchObject({ kind: 'mcp', connector: 'mcp', hasCredential: true });
+    // Leave the tenant as found for the cases below.
+    const gone = await f.http
+      .delete(`/v1/admin/source-connections/${encodeURIComponent(ok.body.id)}`)
+      .set(auth());
+    expect(gone.status).toBe(200);
+    delete process.env.SOURCE_KIND_MCP;
   });
 
   let connectionId = '';

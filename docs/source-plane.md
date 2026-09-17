@@ -121,6 +121,39 @@ accepted flags into the retry.
 | **`url`** (W1) | `SOURCE_KIND_URL` | pages named outright and every page a sitemap lists (indexes followed one level) — a public site, a docs portal, a self-hosted wiki. HTML is reduced to text (title kept, scripts/styles/chrome stripped); `text/*` and JSON pass through; PDFs, office documents and rfc822 go to the binary shape. Every request and every redirect hop passes the SSRF egress guard; robots.txt `Disallow` for `*` and `inite-brain-source` is honoured per host; `sameHostOnly` (default) keeps a sitemap from enumerating another host; the credential rides as `Authorization: Bearer` (or `Basic`, or `header:<Name>`) | sitemap `<lastmod>`, else the server's ETag / Last-Modified (one HEAD per URL per run), else a `refetchHours` time bucket | `{ urls?, sitemaps?, maxPages?, sameHostOnly?, allowPrivate?, authScheme?, refetchHours?, delayMs?, maxBytes?, ignoreRobots? }` |
 | **`s3`** (W1) | `SOURCE_KIND_S3` | objects under a prefix of an S3 or S3-compatible bucket (MinIO, R2, B2, GCS interop) through the SDK the evidence adapter already uses; the same extension rules as `fs` decide text vs binary items | the object ETag | `{ bucket, prefix?, region?, endpoint?, forcePathStyle?, allowPrivate?, extensions?, maxObjects?, maxObjectBytes? }`; credential `accessKeyId:secretAccessKey`, else the SDK chain |
 
+### `mcp` — the harvester (W2)
+
+| Kind | Flag | Reads | Revision | Config |
+|---|---|---|---|---|
+| **`mcp`** | `SOURCE_KIND_MCP` | an MCP server's **resources** over Streamable HTTP — a wiki, a docs portal, a knowledge base, a drive that speaks MCP. `resources/list` (paged) is the catalogue and is re-walked every run (`walksEverything`: a resource the listing no longer carries is gone); `resources/read` is the fetch — text contents to the document door, blobs (PDF, office, images) to the evidence door per the entry's shape. Resource *templates* need arguments and are not enumerated. The server is a peer that supplies DATA: never tools, never prompts — resources enter the ordinary doors under the connection's own recorder and stamp | `annotations.lastModified` (`lm:<iso>`); a resource without one gets a `refetchHours` time bucket and the store's content hash makes an unchanged re-read a dedup | `{ url? (operator-named entries only), allowPrivate?, uriPrefixes?, mimeTypes?, maxResources?, maxBytes?, refetchHours?, authScheme? }`; credential = the bearer the server expects (`header:<Name>` to send it as another header) |
+
+**Who names the server.** A pack's `{ kind: 'mcp', transport: 'http' }`
+entry either **pins** `url` — the publisher operates the server; with
+`auth: install_secret` brain authenticates with the pack's own install
+secret as the bearer, the same secret its external tools are signed
+with — or leaves `url` **absent**: the operator names the server on the
+connection (`config.url`), the egress guard runs at create, and the
+consent at install reads "an MCP server the operator names". A pinned
+entry refuses a `config.url`; a named entry requires one. `auth: oauth`
+is W4 and fails by name.
+
+Every request the SDK client makes leaves through the egress guard
+(`guardedFetch`: each URL checked, redirects never followed, the
+private-host double opt-in as everywhere). One client session lives
+exactly one run — `enumerate` opens it, `fetch` reuses it, the engine's
+`endRun` closes it.
+
+**`web_memory`** carries the generic entries — `mcp_resources` (text)
+and `mcp_resources_media` (blobs) — because a server's pages are pages:
+the same vocabulary as a crawled site. A CRM's records are a different
+shape and land with the record envelope (W4).
+
+```bash
+curl -X POST $BRAIN/v1/admin/source-connections -H "Authorization: Bearer $KEY" \
+  -d '{"packId":"web_memory","sourceId":"mcp_resources","vertical":"wiki",
+       "config":{"url":"https://wiki.example.com/mcp","uriPrefixes":["wiki://"]},"credential":"<token>"}'
+```
+
 **Private hosts — the double opt-in.** A self-hosted wiki or a MinIO on
 the LAN is a legitimate source, but the SSRF fence is lowered only when
 the operator who owns the network says so on the brain
@@ -184,6 +217,7 @@ interface Connector {
     | { type: 'gone'; externalId: string }
     | { type: 'checkpoint'; checkpoint: Record<string, unknown> }>;
   fetch(ctx, item): Promise<FetchedItem>;  // { shape: 'document', text } | { shape: 'binary', bytes, mediaType, modality } | { shape: 'conversation', conversationId, turns } | { shape: 'structure', record }
+  endRun?(ctx): Promise<void>;             // release a session held across enumerate + fetch (the engine calls it in finally)
   readonly configExample?: Record<string, unknown>;  // what the admin form pre-fills — keys with example values, never secrets
   readonly credentialHint?: string;                  // one line on what `credential` is, when the connector takes one
 }
@@ -192,7 +226,8 @@ interface Connector {
 Register it in the `SOURCE_CONNECTORS` array (`src/source-plane/
 source-plane.module.ts`, the `EVIDENCE_PROCESSOR_ADAPTERS` mold). `ctx`
 carries the connection view (config, resolved credential, vertical,
-recorder, owner), an abort signal and a logger. Rules: `enumerate` never
+recorder, owner, the pack entry it instantiates as `source`), an abort
+signal and a logger. Rules: `enumerate` never
 reads bytes; `revision` is the source's own token (etag, revisionId,
 mtime+size, commit) — no revision, no drift stamp; on a `full` walk emit
 every live item; emit `checkpoint` last. A connector is platform code: a
@@ -205,6 +240,7 @@ pack may only name it.
 | `SOURCE_PLANE_ENABLED` | `0` | the surface, the engine, the scheduler |
 | `SOURCE_KIND_FS` / `SOURCE_FS_ROOTS` | `0` / unset | the `fs` native and its root jail (W1) |
 | `SOURCE_KIND_URL`, `SOURCE_KIND_S3` | `0` | the `url` and `s3` natives (W1) |
+| `SOURCE_KIND_MCP` | `0` | the `mcp` harvester (W2) |
 | `SOURCE_EGRESS_ALLOW_PRIVATE` | `0` | operator half of the private-host double opt-in |
 | `DOCUMENT_INGEST_ENABLED` | `1` | the document door (default on) |
 | `EVIDENCE_*`, `EVIDENCE_DOCUMENT_BRIDGE` | `0` | the binary door and its bridge to facts |

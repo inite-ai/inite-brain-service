@@ -1366,6 +1366,7 @@ const KNOWN_BOOLEAN_FLAGS = [
   'SOURCE_KIND_FS',
   'SOURCE_KIND_URL',
   'SOURCE_KIND_S3',
+  'SOURCE_KIND_MCP',
   // The operator half of the private-host double opt-in for network connectors.
   'SOURCE_EGRESS_ALLOW_PRIVATE',
   // Orphan-blob GC (MM-7 follow-up): the delete-side sweep that reclaims
