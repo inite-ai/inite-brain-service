@@ -1362,6 +1362,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   // `evidence_document_bridge` job per (asset, representation)). Default
   // off = no job is ever enqueued — byte-identical.
   'EVIDENCE_DOCUMENT_BRIDGE',
+  // Source plane master switch (W0): connections, catalogue, sync engine,
+  // scheduler, admin surface. Default off = 404 / no handler / no job.
+  'SOURCE_PLANE_ENABLED',
   // Orphan-blob GC (MM-7 follow-up): the delete-side sweep that reclaims
   // blobs no evidence_asset row references — the leak the upload path
   // creates by design (bytes are stored before their row exists, and a

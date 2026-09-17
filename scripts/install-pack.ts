@@ -21,6 +21,11 @@
  * line). Without it the server refuses the install with a 400 naming what
  * would be accepted. Read the manifest's media section first — that is the
  * point of the flag.
+ *
+ * --accept-sources is the same kind of consent for a manifest's `sources`
+ * section (where the pack wants to read from: MCP servers, platform
+ * connectors, publisher pushes). Nothing is live until an operator creates
+ * a source connection; the flag is the review of what MAY be connected.
  */
 import { readFileSync } from 'node:fs';
 import { packChecksum } from '../src/ai/domain-packs/checksum';
@@ -57,10 +62,12 @@ async function main(): Promise<void> {
     );
   }
 
-  // Operator consent to the manifest's media section (see the header).
-  const consent = process.argv.includes('--accept-modalities')
-    ? { acceptModalities: true }
-    : {};
+  // Operator consent to the manifest's media section (see the header) and
+  // to its sources section (the source plane — where the pack reads from).
+  const consent = {
+    ...(process.argv.includes('--accept-modalities') ? { acceptModalities: true } : {}),
+    ...(process.argv.includes('--accept-sources') ? { acceptSources: true } : {}),
+  };
 
   if (registry) {
     // <packId> or <packId>@<version>

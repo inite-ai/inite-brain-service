@@ -111,6 +111,14 @@ export interface DomainPackManifest {
    * and raw-evidence serving additionally require `acceptModalities`.
    */
   memoryModel?: PackMemoryModel;
+  /**
+   * WHERE this pack's documents come from (docs/roadmap/
+   * raw-evidence-sources-2026-09.md § 5.1). Declarative data inside
+   * the signed manifest, consented per section at install
+   * (`acceptSources`, sources-consent.ts). A source becomes live only
+   * when an operator creates a `source_connection` for it.
+   */
+  sources?: PackSourceSpec[];
 }
 
 /** Compose the stored, namespaced predicate id for a pack-local predicate. */
@@ -230,6 +238,98 @@ export interface PackExternalToolSpec {
 }
 
 export type PackToolSpec = PackQueryToolSpec | PackExternalToolSpec;
+
+// ── sources — where a pack's evidence comes from (source plane, W0) ──
+//
+// A source is a pack (raw-evidence-sources-2026-09.md doctrine 1). The
+// section names the external systems a pack knows how to read and the
+// SHAPE their items take — the shape decides which ingest door an item
+// enters (doctrine 2): document → ingest/document, conversation →
+// ingest/mention, binary → evidence-blob, structure → the record
+// envelope. Three kinds, mirroring the indexer descriptor:
+//   'mcp'      — an MCP server exposing resources; brain harvests it
+//                (http: server host, egress-guarded; stdio: agent host).
+//   'native'   — a platform-shipped connector (fs, s3, url, …). A pack
+//                may only NAME one; it never supplies code (anti-DSL).
+//   'external' — the publisher pushes through the existing doors
+//                (today's external indexer, seen from the source side).
+// Everything is DECLARATIVE DATA — no code, no templates.
+
+export const PACK_SOURCE_KINDS = ['mcp', 'native', 'external'] as const;
+export type PackSourceKind = (typeof PACK_SOURCE_KINDS)[number];
+
+export const PACK_SOURCE_SHAPES = ['document', 'conversation', 'binary', 'structure'] as const;
+export type PackSourceShape = (typeof PACK_SOURCE_SHAPES)[number];
+
+export const PACK_SOURCE_CONTENT_POLICIES = ['manifest', 'text', 'bytes'] as const;
+export type PackSourceContentPolicy = (typeof PACK_SOURCE_CONTENT_POLICIES)[number];
+
+export const PACK_SOURCE_DELETE_POLICIES = ['close', 'retract', 'keep'] as const;
+export type PackSourceDeletePolicy = (typeof PACK_SOURCE_DELETE_POLICIES)[number];
+
+export const PACK_SOURCE_SCHEDULES = ['manual', '15m', '1h', '4h', '24h'] as const;
+export type PackSourceSchedule = (typeof PACK_SOURCE_SCHEDULES)[number];
+
+export const PACK_SOURCE_MCP_AUTH = ['none', 'install_secret', 'oauth'] as const;
+export type PackSourceMcpAuth = (typeof PACK_SOURCE_MCP_AUTH)[number];
+
+/** ≤ 8 sources per pack — a pack reads a domain, not the internet. */
+export const MAX_PACK_SOURCES = 8;
+
+/** Connection defaults an operator may override per connection. */
+export interface PackSourceDefaults {
+  contentPolicy?: PackSourceContentPolicy;
+  deletePolicy?: PackSourceDeletePolicy;
+  schedule?: PackSourceSchedule;
+}
+
+interface PackSourceBase {
+  /** snake_case, unique within the pack. */
+  id: string;
+  shape: PackSourceShape;
+  /** ≤ 80 chars (sanitized). */
+  title?: string;
+  /** ≤ 500 chars (sanitized). */
+  description?: string;
+  defaults?: PackSourceDefaults;
+}
+
+/** An MCP server brain harvests over Streamable HTTP (server host). */
+export interface PackMcpHttpSourceSpec extends PackSourceBase {
+  kind: 'mcp';
+  transport: 'http';
+  /** https URL (egress-guarded at install AND per sync). */
+  url: string;
+  /** How brain authenticates to the server: the per-install secret as a
+   *  bearer (publisher-operated), an OAuth grant (W4), or nothing. */
+  auth: PackSourceMcpAuth;
+}
+
+/** An MCP server the LOCAL AGENT spawns over stdio (agent host). */
+export interface PackMcpStdioSourceSpec extends PackSourceBase {
+  kind: 'mcp';
+  transport: 'stdio';
+  /** ≤ 200 chars; the agent, never the server, spawns it. */
+  command: string;
+  /** ≤ 16 args, each ≤ 200 chars. */
+  args?: string[];
+}
+
+export type PackMcpSourceSpec = PackMcpHttpSourceSpec | PackMcpStdioSourceSpec;
+
+/** A platform-shipped connector, named — never supplied — by the pack. */
+export interface PackNativeSourceSpec extends PackSourceBase {
+  kind: 'native';
+  /** `^[a-z][a-z0-9_]{1,31}$` — must match an installed Connector.kind. */
+  connector: string;
+}
+
+/** The publisher pushes items itself through the existing doors. */
+export interface PackExternalSourceSpec extends PackSourceBase {
+  kind: 'external';
+}
+
+export type PackSourceSpec = PackMcpSourceSpec | PackNativeSourceSpec | PackExternalSourceSpec;
 
 // ── memoryModel — the domain perception contract (docs/domain-packs.md) ──
 //

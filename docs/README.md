@@ -34,6 +34,7 @@ with one row per document.
 | [Source reputation & trust](source-reputation.md) | Domain-scoped trust, corroboration, feedback loop, trust in ranking. |
 | [ABAC access policies](abac.md) | Per-key policy sets: action gating + row-level read filtering, rollout runbook. |
 | [Document pipeline](document-pipeline.md) | Source → Indexer → Candidates → Brain: composable indexers, staged candidates, origin-keyed corroboration, re-indexing, external indexers, seed documents. |
+| [Source plane](source-plane.md) | Where brain READS raw evidence from: pack-declared sources, connections, the per-connection catalogue, the sync engine (diff · fetch by policy · drift stamps · delete policy) and the door each shape enters. Flag `SOURCE_PLANE_ENABLED`. |
 | [Extraction harvest lanes](extraction-harvest-lanes.md) | Deterministic post-LLM harvest: literal facts, state-verb transitions with holder binding, and the (unwired) language-agnostic transition classifier. |
 | [Fact provenance API](fact-provenance-api.md) | `GET /v1/facts/:id` + `/provenance` — the fact and the verbatim turns it came from ("show me why I remember this"). Flag-gated, ownership-fenced. |
 | [User profile API](user-profile-api.md) | `GET /v1/users/:userId/profile` — deterministic, prompt-ready assembly of one user's own memory (strict user scope). Flag-gated. |

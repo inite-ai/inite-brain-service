@@ -64,8 +64,24 @@ export function statementsOf(sql: string): string[] {
  * without the flag is deliberately absent — the schema dropped it.
  */
 export function collectFlexibleFields(migrationsDir: string): FlexibleFieldDeclaration[] {
-  const files = readdirSync(migrationsDir)
-    .filter((f) => MIGRATION_FILE.test(f) && !RECONCILE_FILE.test(f))
+  const all = readdirSync(migrationsDir).filter((f) => MIGRATION_FILE.test(f));
+  // Only the migrations BEFORE the reconcile: it runs at its own ledger
+  // position, so restating a field a LATER migration declares would
+  // DEFINE FIELD on a table that does not exist yet — SurrealDB then
+  // creates that table implicitly (SCHEMALESS), and the later
+  // `DEFINE TABLE IF NOT EXISTS … SCHEMAFULL` becomes a no-op. The
+  // drift the reconcile repairs is pre-cut by construction ("every
+  // option<object> declared on 3.x afterwards is intact"), so nothing
+  // after it needs restating.
+  const reconcileNumber = all
+    .filter((f) => RECONCILE_FILE.test(f))
+    .map((f) => Number(MIGRATION_FILE.exec(f)?.[1]))
+    .find((n) => Number.isFinite(n));
+  const files = all
+    .filter((f) => !RECONCILE_FILE.test(f))
+    .filter(
+      (f) => reconcileNumber === undefined || Number(MIGRATION_FILE.exec(f)?.[1]) < reconcileNumber,
+    )
     .sort();
   const latest = new Map<
     string,

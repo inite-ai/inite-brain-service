@@ -9,6 +9,7 @@ import {
   type PackToolParam,
 } from './manifest';
 import { validateMemoryModel } from './validate-memory-model';
+import { validateSources } from './validate-sources';
 
 /**
  * Validation + assembly for the Domain Pack standard. `validatePack` is what a
@@ -98,6 +99,9 @@ export function validatePack(pack: DomainPackManifest): void {
   }
   if (pack.memoryModel !== undefined) {
     validateMemoryModel(pack, pack.memoryModel);
+  }
+  if (pack.sources !== undefined) {
+    validateSources(pack, pack.sources);
   }
 }
 

@@ -662,6 +662,94 @@
         ],
         "type": "object"
       },
+      "CreateSourceConnectionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "contentPolicy": {
+            "enum": [
+              "manifest",
+              "text",
+              "bytes"
+            ],
+            "type": "string"
+          },
+          "credential": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "deletePolicy": {
+            "enum": [
+              "close",
+              "retract",
+              "keep"
+            ],
+            "type": "string"
+          },
+          "fetchBudget": {
+            "exclusiveMinimum": 0,
+            "maximum": 100000,
+            "type": "integer"
+          },
+          "host": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 120,
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "synced",
+              "linked"
+            ],
+            "type": "string"
+          },
+          "ownerUserId": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "packId": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "schedule": {
+            "enum": [
+              "manual",
+              "15m",
+              "1h",
+              "4h",
+              "24h"
+            ],
+            "type": "string"
+          },
+          "sourceId": {
+            "maxLength": 40,
+            "minLength": 1,
+            "type": "string"
+          },
+          "vertical": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "packId",
+          "sourceId",
+          "vertical"
+        ],
+        "type": "object"
+      },
       "DecisionLogEntry": {
         "additionalProperties": {},
         "propertyNames": {
@@ -3202,6 +3290,9 @@
           "acceptModalities": {
             "type": "boolean"
           },
+          "acceptSources": {
+            "type": "boolean"
+          },
           "packId": {
             "type": "string"
           },
@@ -3221,6 +3312,9 @@
             "type": "boolean"
           },
           "acceptModalities": {
+            "type": "boolean"
+          },
+          "acceptSources": {
             "type": "boolean"
           },
           "expectedChecksum": {
@@ -4990,6 +5084,213 @@
         ],
         "type": "object"
       },
+      "SourceConnection": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint": {
+            "anyOf": [
+              {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "config": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "connector": {
+            "type": "string"
+          },
+          "contentPolicy": {
+            "enum": [
+              "manifest",
+              "text",
+              "bytes"
+            ],
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "deletePolicy": {
+            "enum": [
+              "close",
+              "retract",
+              "keep"
+            ],
+            "type": "string"
+          },
+          "fetchBudget": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hasCredential": {
+            "type": "boolean"
+          },
+          "host": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "mcp",
+              "native",
+              "external"
+            ],
+            "type": "string"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastSyncAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastSyncStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mode": {
+            "enum": [
+              "synced",
+              "linked"
+            ],
+            "type": "string"
+          },
+          "ownerUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "packId": {
+            "type": "string"
+          },
+          "recorder": {
+            "type": "string"
+          },
+          "schedule": {
+            "enum": [
+              "manual",
+              "15m",
+              "1h",
+              "4h",
+              "24h"
+            ],
+            "type": "string"
+          },
+          "shape": {
+            "enum": [
+              "document",
+              "conversation",
+              "binary",
+              "structure"
+            ],
+            "type": "string"
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "sourceKey": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "paused",
+              "deleting"
+            ],
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "vertical": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "packId",
+          "sourceId",
+          "kind",
+          "connector",
+          "shape",
+          "host",
+          "label",
+          "config",
+          "hasCredential",
+          "mode",
+          "schedule",
+          "contentPolicy",
+          "deletePolicy",
+          "fetchBudget",
+          "status",
+          "checkpoint",
+          "vertical",
+          "recorder",
+          "sourceKey",
+          "ownerUserId",
+          "lastSyncAt",
+          "lastSyncStatus",
+          "lastError",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "SourceConnectionsListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "connections": {
+            "items": {
+              "$ref": "#/components/schemas/SourceConnection"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "connections"
+        ],
+        "type": "object"
+      },
       "SourceEvidence": {
         "additionalProperties": false,
         "properties": {
@@ -5044,6 +5345,275 @@
           "agreementRate",
           "sampleCount",
           "recordedAt"
+        ],
+        "type": "object"
+      },
+      "SourceItem": {
+        "additionalProperties": false,
+        "properties": {
+          "assetId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "connectionId": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "episodeId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "externalId": {
+            "type": "string"
+          },
+          "fetchedRevision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "firstSeenAt": {
+            "type": "string"
+          },
+          "goneAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastSeenAt": {
+            "type": "string"
+          },
+          "mediaType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "modifiedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "originUri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "enum": [
+              "seen",
+              "fetched",
+              "indexed",
+              "gone"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "connectionId",
+          "externalId",
+          "originUri",
+          "path",
+          "title",
+          "mediaType",
+          "size",
+          "revision",
+          "fetchedRevision",
+          "modifiedAt",
+          "documentId",
+          "assetId",
+          "episodeId",
+          "state",
+          "firstSeenAt",
+          "lastSeenAt",
+          "goneAt",
+          "lastError"
+        ],
+        "type": "object"
+      },
+      "SourceItemsListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SourceItem"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "offset": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "total": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "type": "object"
+      },
+      "SourceSyncSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "closed": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "connectionId": {
+            "type": "string"
+          },
+          "deduplicated": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "durationMs": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "error": {
+            "type": "string"
+          },
+          "failed": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "fetched": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "gone": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "ingested": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "mode": {
+            "enum": [
+              "full",
+              "incremental"
+            ],
+            "type": "string"
+          },
+          "new": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "seen": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "skipped": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "skipped"
+            ],
+            "type": "string"
+          },
+          "unchanged": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connectionId",
+          "mode",
+          "status",
+          "seen",
+          "new",
+          "changed",
+          "unchanged",
+          "gone",
+          "fetched",
+          "ingested",
+          "deduplicated",
+          "failed",
+          "closed",
+          "durationMs"
         ],
         "type": "object"
       },
@@ -5377,6 +5947,60 @@
         ],
         "type": "object"
       },
+      "SyncNowRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "full": {
+            "type": "boolean"
+          },
+          "inline": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "SyncNowResponse": {
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "created": {
+                "type": "boolean"
+              },
+              "enqueued": {
+                "const": true,
+                "type": "boolean"
+              },
+              "runId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "enqueued",
+              "runId",
+              "created"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "enqueued": {
+                "const": false,
+                "type": "boolean"
+              },
+              "summary": {
+                "$ref": "#/components/schemas/SourceSyncSummary"
+              }
+            },
+            "required": [
+              "enqueued",
+              "summary"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "SynthesisReason": {
         "enum": [
           "no_results",
@@ -5690,6 +6314,87 @@
           "packId",
           "predicatesDeprecated"
         ],
+        "type": "object"
+      },
+      "UpdateSourceConnectionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "contentPolicy": {
+            "enum": [
+              "manifest",
+              "text",
+              "bytes"
+            ],
+            "type": "string"
+          },
+          "credential": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deletePolicy": {
+            "enum": [
+              "close",
+              "retract",
+              "keep"
+            ],
+            "type": "string"
+          },
+          "fetchBudget": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 100000,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schedule": {
+            "enum": [
+              "manual",
+              "15m",
+              "1h",
+              "4h",
+              "24h"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "paused"
+            ],
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "UploadEvidenceBlobResponse": {
@@ -6718,6 +7423,367 @@
         "summary": "Write a publisher's public profile",
         "tags": [
           "Marketplace"
+        ]
+      }
+    },
+    "/v1/admin/source-connections": {
+      "get": {
+        "description": "Every connection the tenant has created for a pack’s declared `sources` entry, newest first, with its schedule, policies, checkpoint and last-sync bookkeeping. Credentials are never serialised — only `hasCredential`. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
+        "operationId": "listSourceConnections",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceConnectionsListResponse"
+                }
+              }
+            },
+            "description": "The connections."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "List this tenant’s source connections",
+        "tags": [
+          "Source Plane"
+        ]
+      },
+      "post": {
+        "description": "Instantiates one `sources[]` entry of an installed (and consented — `acceptSources`) or builtin pack: a `native` entry must name a connector this brain ships, `mcp` is harvested by brain, `external` is a catalogue the publisher fills. The connection becomes a `source_registry` recorder (`vertical:recorder`) so per-connection trust is learned; `ownerUserId` makes it personal (every row it writes is user-fenced). Defaults for schedule / policies come from the entry. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
+        "operationId": "createSourceConnection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSourceConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceConnection"
+                }
+              }
+            },
+            "description": "Created."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Connect a pack’s declared source",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/admin/source-connections/{id}": {
+      "delete": {
+        "description": "Deletes the connection and its catalogue rows. The documents, assets and facts they produced STAY (the facts-survive philosophy of pack uninstall): `deletePolicy` governs a source deleting an item, not an operator disconnecting a source. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
+        "operationId": "deleteSourceConnection",
+        "parameters": [
+          {
+            "description": "Connection id (`source_connection:<tail>`; the bare tail is accepted).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "deleted": {
+                      "const": true,
+                      "type": "boolean"
+                    },
+                    "items": {
+                      "description": "Catalogue rows removed.",
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "deleted",
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Deleted."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Disconnect a source",
+        "tags": [
+          "Source Plane"
+        ]
+      },
+      "get": {
+        "description": "The connection as listed. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
+        "operationId": "getSourceConnection",
+        "parameters": [
+          {
+            "description": "Connection id (`source_connection:<tail>`; the bare tail is accepted).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceConnection"
+                }
+              }
+            },
+            "description": "The connection."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "One source connection",
+        "tags": [
+          "Source Plane"
+        ]
+      },
+      "patch": {
+        "description": "Partial update; `null` clears an optional field. `status` takes `active` | `paused` — a paused connection is skipped by the scheduler and by sync-now. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
+        "operationId": "updateSourceConnection",
+        "parameters": [
+          {
+            "description": "Connection id (`source_connection:<tail>`; the bare tail is accepted).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSourceConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceConnection"
+                }
+              }
+            },
+            "description": "Updated."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Change a connection’s label, config, credential, schedule, policies or status",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/admin/source-connections/{id}/items": {
+      "get": {
+        "description": "One row per external item the connection has seen — identity by location (`externalId`), the revision last enumerated vs the one the stored content was fetched at, the document / asset / episode it produced, and its state (`seen` | `fetched` | `indexed` | `gone`). Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
+        "operationId": "listSourceItems",
+        "parameters": [
+          {
+            "description": "Connection id (`source_connection:<tail>`; the bare tail is accepted).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only items in this state.",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "enum": [
+                "seen",
+                "fetched",
+                "indexed",
+                "gone"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size (default 50, max 500).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Page offset.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceItemsListResponse"
+                }
+              }
+            },
+            "description": "The catalogue page."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The connection’s catalogue",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/admin/source-connections/{id}/sync": {
+      "post": {
+        "description": "Runs the engine over the connection: enumerate from the checkpoint (`full: true` re-walks everything and marks what is missing gone), diff against the catalogue, fetch every changed item by `contentPolicy` through the door for its shape, stamp the revision for the drift sweep, apply `deletePolicy` to what is gone. Default enqueues a `source_sync` job and returns its run id; `inline: true` runs it in the request and returns the summary. A re-run over an unchanged source is 0 fetches. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
+        "operationId": "syncSourceConnection",
+        "parameters": [
+          {
+            "description": "Connection id (`source_connection:<tail>`; the bare tail is accepted).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncNowRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncNowResponse"
+                }
+              }
+            },
+            "description": "Enqueued, or the inline summary."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Sync now",
+        "tags": [
+          "Source Plane"
         ]
       }
     },
@@ -9618,6 +10684,10 @@
     {
       "description": "Read-only trust inputs (scope `brain:read`): declared source identity ⋈ learned reputation. Public projection — operator annotations (owner/note) stay on the admin surface.",
       "name": "Sources"
+    },
+    {
+      "description": "Where brain READS raw evidence from (scope `brain:admin`): connections that instantiate a pack’s declared `sources` entry, the per-connection catalogue of external items, and the sync engine. Flag: `SOURCE_PLANE_ENABLED`.",
+      "name": "Source Plane"
     },
     {
       "description": "The raw-substrate driver: verbatim pre-extraction dialogue turns (L0) as a contract — keyset reads, NDJSON export, and signed new-episode webhooks — so any consumer can build its own projection without touching our database. Flags: EPISODES_API_ENABLED / EPISODE_SUBSCRIPTIONS_ENABLED (off → 404).",

@@ -89,6 +89,14 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   ['/v1/admin/indexers/{packId}/runs', 'get'],
   ['/v1/sources', 'get'],
   ['/v1/sources/{sourceKey}', 'get'],
+  // source plane (raw-evidence-sources-2026-09.md, W0) — the operator surface
+  ['/v1/admin/source-connections', 'get'],
+  ['/v1/admin/source-connections', 'post'],
+  ['/v1/admin/source-connections/{id}', 'get'],
+  ['/v1/admin/source-connections/{id}', 'patch'],
+  ['/v1/admin/source-connections/{id}', 'delete'],
+  ['/v1/admin/source-connections/{id}/items', 'get'],
+  ['/v1/admin/source-connections/{id}/sync', 'post'],
   // raw-substrate driver v1 (episodes read + subscriptions + projections)
   ['/v1/episodes', 'get'],
   ['/v1/episodes/export', 'get'],

@@ -61,12 +61,15 @@ export class AdminPacksController {
       acceptMcpTools?: boolean;
       /** Consent to declared non-text modalities (docs/mcp-pack-tools.md). */
       acceptModalities?: boolean;
+      /** Consent to the declared sources section (source plane). */
+      acceptSources?: boolean;
     },
   ): Promise<InstallPackResponse> {
     return this.packs.install(req.brainAuth.companyId, body?.manifest, {
       expectedChecksum: body?.expectedChecksum,
       acceptMcpTools: body?.acceptMcpTools,
       acceptModalities: body?.acceptModalities,
+      acceptSources: body?.acceptSources,
     });
   }
 
@@ -84,6 +87,7 @@ export class AdminPacksController {
       version?: string;
       acceptMcpTools?: boolean;
       acceptModalities?: boolean;
+      acceptSources?: boolean;
     },
   ): Promise<InstallPackResponse> {
     const { manifest, checksum } = await this.registry.resolveForInstall({
@@ -95,6 +99,7 @@ export class AdminPacksController {
       expectedChecksum: checksum,
       acceptMcpTools: body?.acceptMcpTools,
       acceptModalities: body?.acceptModalities,
+      acceptSources: body?.acceptSources,
     });
   }
 
