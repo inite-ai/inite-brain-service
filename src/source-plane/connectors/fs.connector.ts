@@ -83,7 +83,6 @@ const DEFAULT_MAX_FILES = 20_000;
 const DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024;
 const HARD_MAX_FILE_BYTES = 64 * 1024 * 1024;
 
-
 @Injectable()
 export class FsConnector implements Connector {
   readonly kind = 'fs';
@@ -146,7 +145,8 @@ export class FsConnector implements Connector {
       };
     }
     const bytes = await readFile(full);
-    if (looksBinary(bytes)) throw new Error(`binary content in a text-shaped item: ${item.externalId}`);
+    if (looksBinary(bytes))
+      throw new Error(`binary content in a text-shaped item: ${item.externalId}`);
     // An HTML file is markup around a document: the shared reduction
     // hands the extractor the prose, not the tags.
     const raw = bytes.toString('utf8');

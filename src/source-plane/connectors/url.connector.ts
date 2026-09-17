@@ -139,7 +139,13 @@ export class UrlConnector implements Connector {
       if (ctx.connection.shape !== 'binary') {
         throw new Error(`${binary} at ${item.externalId} needs a binary-shaped source entry`);
       }
-      return { shape: 'binary', bytes: res.body, mediaType: binary, modality: 'document', occurredAt };
+      return {
+        shape: 'binary',
+        bytes: res.body,
+        mediaType: binary,
+        modality: 'document',
+        occurredAt,
+      };
     }
     const text = res.body.toString('utf8');
     if (contentType.includes('text/html') || contentType.includes('application/xhtml')) {

@@ -578,13 +578,23 @@ describe('evidence processing lifecycle (e2e)', () => {
         'Acme Robotics was founded in 2019.\nCTO\tMaria Lind',
       ],
       [
-        xlsxBytes([{ name: 'Vendors', rows: [['vendor', 'part'], ['Nidec', 'motor']] }]),
+        xlsxBytes([
+          {
+            name: 'Vendors',
+            rows: [
+              ['vendor', 'part'],
+              ['Nidec', 'motor'],
+            ],
+          },
+        ]),
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'document-office-text-v1',
         '[sheet: Vendors]\nvendor\tpart\nNidec\tmotor',
       ],
       [
-        Buffer.from('From: a@x.example\r\nSubject: Motors\r\nContent-Type: text/plain\r\n\r\nPreferred vendor: Nidec.\r\n'),
+        Buffer.from(
+          'From: a@x.example\r\nSubject: Motors\r\nContent-Type: text/plain\r\n\r\nPreferred vendor: Nidec.\r\n',
+        ),
         'message/rfc822',
         'document-mail-text-v1',
         'From: a@x.example\nSubject: Motors\n\nPreferred vendor: Nidec.',
@@ -592,7 +602,10 @@ describe('evidence processing lifecycle (e2e)', () => {
     ];
     for (const [bytes, mediaType, producer, expected] of cases) {
       const asset = await registerBytes(bytes, mediaType);
-      const r = await broker.dispatchForPack(COMPANY, { packId: 'proc_lifecycle', assetId: asset.assetId });
+      const r = await broker.dispatchForPack(COMPANY, {
+        packId: 'proc_lifecycle',
+        assetId: asset.assetId,
+      });
       expect(r.denied).toHaveLength(0);
       expect(r.runs[0]).toMatchObject({ capability: 'text', status: 'succeeded' });
       const repr = await rawRow(r.runs[0]!.representationIds[0]!);

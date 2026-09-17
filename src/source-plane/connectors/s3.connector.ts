@@ -125,7 +125,9 @@ export class S3Connector implements Connector {
     if (bytes.byteLength > byteCap(cfg))
       throw new Error(`object over maxObjectBytes: ${item.externalId}`);
     const ext = extOf(item.externalId);
-    const mediaType = MEDIA_TYPES_KNOWN.has(ext) ? mediaTypeOf(ext) : (res.ContentType ?? 'application/octet-stream');
+    const mediaType = MEDIA_TYPES_KNOWN.has(ext)
+      ? mediaTypeOf(ext)
+      : (res.ContentType ?? 'application/octet-stream');
     const occurredAt = res.LastModified?.toISOString() ?? item.modifiedAt;
     if (ctx.connection.shape === 'binary') {
       return { shape: 'binary', bytes, mediaType, modality: modalityOf(ext), occurredAt };

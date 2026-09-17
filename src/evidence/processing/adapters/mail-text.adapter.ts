@@ -27,7 +27,9 @@ export class MailTextAdapter implements ProcessorAdapter {
   accepts(modality: EvidenceModality, mediaType: string): boolean {
     if (modality !== 'document') return false;
     const semi = mediaType.indexOf(';');
-    return (semi === -1 ? mediaType : mediaType.slice(0, semi)).trim().toLowerCase() === MAIL_MEDIA_TYPE;
+    return (
+      (semi === -1 ? mediaType : mediaType.slice(0, semi)).trim().toLowerCase() === MAIL_MEDIA_TYPE
+    );
   }
 
   async process(input: ProcessorInput): Promise<ProcessorOutput[]> {
