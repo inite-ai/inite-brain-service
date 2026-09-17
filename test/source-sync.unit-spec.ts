@@ -153,6 +153,7 @@ function harness(opts: { row?: Partial<SourceConnectionRow>; source?: MemorySour
   const connections = {
     load: async () => row,
     resolveConnector: () => (opts.registered === false ? null : source.connector()),
+    connectorUnavailable: () => 'no installed connector "memory"',
     toConnectorView: () => ({
       id: String(row.id),
       packId: row.packId,

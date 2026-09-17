@@ -87,6 +87,35 @@ one job per due connection per tenant, deduped per 5-minute slot;
 `manual` connections are only synced by sync-now. The job handler
 registers at boot — flip the flag, then restart.
 
+## Natives
+
+| Kind | Flag | Reads | Revision | Config |
+|---|---|---|---|---|
+| **`fs`** (W1) | `SOURCE_KIND_FS` + the `SOURCE_FS_ROOTS` jail | a directory on the brain host — a mounted volume, an OS-mounted network share (SMB/NFS), the laptop a fully-local brain runs on. Every run is a full walk (`walksEverything`: no change feed exists for a directory), so what the walk did not see is gone. Symlinks are never followed; hidden entries and VCS/build directories are skipped; `maxFiles` / `maxFileBytes` bound the walk | `mtime:size` — polling, hashing only what the store hashes on write | `{ root, extensions?, excludeDirs?, includeHidden?, maxFiles?, maxFileBytes? }` |
+
+The declared shape decides what the `fs` connector counts as an item:
+`document` ⇒ text-like extensions read as UTF-8 (a file with NUL bytes is
+skipped as binary), `binary` ⇒ PDFs and images handed to the evidence
+door. The first-party **`file_memory`** pack (`packs/file-memory.pack.json`)
+carries both entries — `folder` and `folder_media` — plus the vocabulary
+a folder of documents yields (`describes`, `defines_term`, `references`)
+and the derivable class the drift sweep re-verifies (`located_in`,
+`last_modified`). Install it with `--accept-sources --accept-modalities`,
+then:
+
+```bash
+curl -X POST $BRAIN/v1/admin/source-connections -H "Authorization: Bearer $KEY" \
+  -d '{"packId":"file_memory","sourceId":"folder","vertical":"files","config":{"root":"/srv/brain/sources/vault"}}'
+curl -X POST $BRAIN/v1/admin/source-connections/<id>/sync -d '{"inline":true}'
+```
+
+with `SOURCE_FS_ROOTS=/srv/brain/sources` on the brain. `config.root`
+must resolve (realpath) inside a listed root — unset means no directory is
+permitted: brain's own process reading arbitrary host paths is a
+capability an operator grants by name. A network share is connected by
+mounting it into that root; a laptop's folders by running the brain
+there (the local agent, W3, is the no-mount alternative).
+
 ## Writing a connector (platform code)
 
 ```ts
@@ -114,7 +143,7 @@ pack may only name it.
 | Flag | Default | Effect |
 |---|---|---|
 | `SOURCE_PLANE_ENABLED` | `0` | the surface, the engine, the scheduler |
-| `SOURCE_KIND_<X>` | — | per-native switches, W1+ |
+| `SOURCE_KIND_FS` / `SOURCE_FS_ROOTS` | `0` / unset | the `fs` native and its root jail (W1) |
 | `DOCUMENT_INGEST_ENABLED` | `1` | the document door (default on) |
 | `EVIDENCE_*`, `EVIDENCE_DOCUMENT_BRIDGE` | `0` | the binary door and its bridge to facts |
 | `PACK_SOURCE_VERSION_STALENESS` | `0` | the drift sweep the stamps feed |
