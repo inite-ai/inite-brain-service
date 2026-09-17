@@ -22,6 +22,7 @@ import { LiveSnapshotService } from './live-snapshot.service';
 import { DemoStateService } from './demo-state.service';
 import { DemoPipelineService } from './demo-pipeline.service';
 import { DemoChatService } from './demo-chat.service';
+import { PredicateConsolidationService } from './predicate-consolidation.service';
 import { AdminService } from './admin.service';
 import { OperatorActionService } from './operator-action.service';
 import { OperatorActionInterceptor } from './operator-action.interceptor';
@@ -44,8 +45,10 @@ import { AdminDeriveController } from './admin-derive.controller';
 import { ProjectionsController } from './projections.controller';
 import { WindowDeriverService } from './window-deriver.service';
 import { AdminSegmentsController } from './admin-segments.controller';
+import { AdminNameKeysController } from './admin-name-keys.controller';
 import { SegmentComposerService } from './segment-composer.service';
 import { SegmentBackfillService } from './segment-backfill.service';
+import { NameKeyBackfillService } from './name-key-backfill.service';
 import { AdminScenesController } from './admin-scenes.controller';
 import { SceneComposerService } from './scene-composer.service';
 import { SceneMaintenanceService } from './scene-maintenance.service';
@@ -126,11 +129,13 @@ import { ConfigInspectorService } from './config-inspector.service';
     AdminAggregatesController,
     AdminDeriveController,
     AdminSegmentsController,
+    AdminNameKeysController,
     AdminScenesController,
     ProjectionsController,
   ],
   providers: [
     AdminService,
+    PredicateConsolidationService,
     MemoryDecisionsReadService,
     HnswMaintenanceService,
     HnswProvisionService,
@@ -140,6 +145,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     WindowDeriverService,
     SegmentComposerService,
     SegmentBackfillService,
+    NameKeyBackfillService,
     SceneComposerService,
     SceneMaintenanceService,
     SceneEnricherService,

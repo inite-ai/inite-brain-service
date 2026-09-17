@@ -14,6 +14,7 @@ import {
   queryFirst,
   queryRows,
 } from '../db/surreal.service';
+import { retryOnReadConflict } from '../db/surreal-retry';
 import { envFlagEnabled } from '../common/env-validation';
 import { sanitizeIngestText } from '../common/text-sanitizer';
 import { sanitizeSourceMeta } from '../policy/source-meta';
@@ -161,25 +162,27 @@ export class DocumentStoreService {
 
     return this.surreal.withCompany(companyId, async (db) => {
       try {
-        const row = await dbCreate<Record<string, unknown>>(db, 'source_document', {
-          kind: dto.kind,
-          originUri: dto.originUri,
-          title: dto.title,
-          contentHash,
-          charLen: text.length,
-          chunkCount: chunks.length,
-          hasContent: storeContent,
-          vertical: dto.contextRef.vertical,
-          recorder: dto.contextRef.recorder,
-          occurredAt: new Date(dto.occurredAt),
-          meta,
-          status: 'received',
-          // Per-user scope (0128): userId + the 0093 scope-tag mirror.
-          // Tenant-global writes keep the field absent / scope [] — the
-          // column DEFAULT — so pre-0128 rows and new global rows match.
-          userId: dto.userId,
-          scope: scopeForUser(dto.userId),
-        });
+        const row = await retryOnReadConflict(() =>
+          dbCreate<Record<string, unknown>>(db, 'source_document', {
+            kind: dto.kind,
+            originUri: dto.originUri,
+            title: dto.title,
+            contentHash,
+            charLen: text.length,
+            chunkCount: chunks.length,
+            hasContent: storeContent,
+            vertical: dto.contextRef.vertical,
+            recorder: dto.contextRef.recorder,
+            occurredAt: new Date(dto.occurredAt),
+            meta,
+            status: 'received',
+            // Per-user scope (0128): userId + the 0093 scope-tag mirror.
+            // Tenant-global writes keep the field absent / scope [] — the
+            // column DEFAULT — so pre-0128 rows and new global rows match.
+            userId: dto.userId,
+            scope: scopeForUser(dto.userId),
+          }),
+        );
         const docId = String(row.id);
         if (storeContent && chunks.length > 0) {
           // One INSERT for all chunks instead of one CREATE per chunk

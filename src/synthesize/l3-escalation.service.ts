@@ -20,7 +20,7 @@ import {
   type AttentionHintSource,
 } from './attention-hints';
 import { runVerifier, type VerifierOutput } from './verifier';
-import { resolveCitations } from './synthesize.helpers';
+import { resolveCitations, expandCitationHandles } from './synthesize.helpers';
 import type { Citation } from './fact-index';
 import type { EvidenceCitation, GeneratorOutput } from './synthesize.types';
 import { resolveEpisodeCitations, type CitableTurn } from './l3-citations';
@@ -205,13 +205,13 @@ const L3_SYSTEM_HEAD = `You are an answer synthesizer with access to FULL raw co
 
 The extracted facts did not ground an answer, so you are given the complete raw sessions the relevant facts came from. Read the transcripts as the primary evidence and answer the user's query.
 1. Use ONLY information present in the provided transcripts and facts. Do NOT speculate or use outside knowledge.
-2. When a numbered fact supports a claim, inline its factId in square brackets EXACTLY as it appears (including the "knowledge_fact:" prefix) and mirror it into citedFactIds. `;
+2. When a fact supports a claim, inline the short handle its line opens with (e.g. "[f3]") EXACTLY as it appears and mirror it into citedFactIds. `;
 
 /** Rule-2 tail, flag OFF: the historical transcript-citation exemption. */
 const L3_RULE2_EXEMPT = `Claims taken from the raw transcript need no citation.`;
 
 /** Rule-2 tail, flag ON: transcript-grounded claims cite their turn. */
-const L3_RULE2_EPISODE_CITE = `When a claim comes from the raw transcript, cite the supporting turn: add {episodeId, quote} to citedEpisodes — episodeId EXACTLY as it appears in the turn's [episode:...] header, quote a SHORT verbatim excerpt of that turn. When a numbered fact supports a claim, cite its factId as before.`;
+const L3_RULE2_EPISODE_CITE = `When a claim comes from the raw transcript, cite the supporting turn: add {episodeId, quote} to citedEpisodes — episodeId EXACTLY as it appears in the turn's [episode:...] header, quote a SHORT verbatim excerpt of that turn. When a fact supports a claim, cite its handle as before.`;
 
 const L3_SYSTEM_TAIL = `
 3. If the transcripts do not answer the question, output the exact string "I don't have grounded evidence for that." with citedFactIds set to [].
@@ -843,7 +843,7 @@ export class L3EscalationService {
   ): Promise<GeneratorOutput & { citedEpisodes: unknown[] }> {
     const sections = [
       `Full conversation transcripts:\n${transcriptLines.join('\n')}`,
-      `Extracted facts (cite by factId when one supports a claim):\n${input.factLines.join('\n')}`,
+      `Extracted facts (cite by handle when one supports a claim):\n${input.factLines.join('\n')}`,
     ];
     if (input.dateMathLines && input.dateMathLines.length > 0) {
       sections.push(`Computed date table:\n${input.dateMathLines.join('\n')}`);
@@ -927,7 +927,7 @@ export class L3EscalationService {
     traceArtifact('synthesize.l3_output', parsed);
     // Defensive parse: a non-array (or flag-off) citedEpisodes is [].
     return {
-      ...parsed,
+      ...expandCitationHandles(parsed, input.factIndex),
       citedEpisodes:
         episodeCitations && Array.isArray(parsed.citedEpisodes) ? parsed.citedEpisodes : [],
     };

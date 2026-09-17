@@ -25,7 +25,10 @@
  */
 import * as chrono from 'chrono-node';
 import { detectLanguage } from '../ai/locale/language-detector';
+import { traceArtifact } from '../common/debug-trace';
+import { envFlagEnabled } from '../common/env-validation';
 import { normalizeDigits } from '../common/locale-digits';
+import { parseLocaleAbsoluteDate } from './locale-date';
 
 /** Sanity window: an event referenced in conversation is in the past, and we
  *  won't trust a resolved date more than this far back (guards a stray parse). */
@@ -93,23 +96,12 @@ export interface ResolveEventTimeOptions {
   /** ISO-639-1 language of the clause. When omitted it is auto-detected. */
   lang?: string;
   /**
-   * Multilingual Tier 4 (MULTILINGUAL_TEMPORAL). When true, three otherwise-
-   * conflated concerns turn on together: (1) ar/hi/ko relative-expression
-   * recognition (chrono has no parser for them — they otherwise fall to the
-   * English parser and silently miss), (2) locale-aware digit parsing (native
-   * ٣ / ५ digits in those expressions), and (3) — when `timeZone` is also set
-   * — the day-shift fix below. Absent / false ⇒ byte-identical legacy
-   * behavior (the caller passes nothing, so the default path is unchanged).
-   */
-  localeTime?: boolean;
-  /**
-   * IANA timezone of the speaker's session (e.g. 'Asia/Tokyo'). Only consulted
-   * when `localeTime` is true. Fixes the atUtcMidnight day-shift: a message
-   * emitted near a UTC day boundary is anchored to the speaker's LOCAL calendar
-   * day, so "yesterday" resolves against the day they actually saw, not the UTC
-   * day. An unknown/invalid zone degrades to the UTC-day behavior (never
-   * throws). The stored date stays language-neutral ISO-8601 (UTC-midnight of
-   * the resolved calendar day).
+   * IANA timezone of the speaker's session (e.g. 'Asia/Tokyo'). Fixes the
+   * atUtcMidnight day-shift: a message emitted near a UTC day boundary is
+   * anchored to the speaker's LOCAL calendar day, so "yesterday" resolves
+   * against the day they actually saw, not the UTC day. Absent or unknown ⇒
+   * the UTC-day behavior (never throws). The stored date stays
+   * language-neutral ISO-8601 (UTC-midnight of the resolved calendar day).
    */
   timeZone?: string;
 }
@@ -296,26 +288,24 @@ export function resolveEventTime(
   const anchorRaw = anchorIso instanceof Date ? anchorIso : new Date(anchorIso);
   if (Number.isNaN(anchorRaw.getTime())) return null;
 
-  // Locale-time decomposition (MULTILINGUAL_TEMPORAL). Off ⇒ the legacy
-  // UTC-day anchor and raw chrono reference — byte-identical. On with a
-  // timeZone ⇒ the anchor is the speaker's LOCAL calendar day (day-shift fix)
-  // and chrono resolves against local-day noon (host-tz-independent).
-  const localeOn = opts.localeTime === true;
-  const tz = localeOn && opts.timeZone ? opts.timeZone : undefined;
+  // With a session timezone the anchor is the speaker's LOCAL calendar day
+  // (the day-shift fix) and chrono resolves against local-day noon, which is
+  // host-timezone-independent. Without one, the UTC day.
+  const tz = opts.timeZone;
   const anchor = tz ? atLocaleMidnight(anchorRaw, tz) : atUtcMidnight(anchorRaw);
   const chronoRef = tz ? localeNoonUtc(anchorRaw, tz) : anchorRaw;
 
   const lang = opts.lang ?? (detectLanguage(clause).language || 'und');
 
   // ar/hi/ko relative expressions — scripts chrono has no parser for, which
-  // otherwise fall through to the English parser and silently miss. Gated by
-  // localeTime so the off path is unchanged.
-  if (localeOn) {
-    const rel = parseRelativeGrammar(lang, clause, anchor);
-    if (rel) {
-      const clamped = clampPast(rel.date, anchor);
-      if (clamped) return { date: clamped, expr: rel.expr };
-    }
+  // otherwise fall through to the English parser and silently miss. Runs
+  // unconditionally: REL_GRAMMARS is keyed by language, so for every other
+  // clause this is a map lookup that misses and costs nothing, and for an
+  // Arabic one the alternative is not "legacy behavior" but a silent miss.
+  const rel = parseRelativeGrammar(lang, clause, anchor);
+  if (rel) {
+    const clamped = clampPast(rel.date, anchor);
+    if (clamped) return { date: clamped, expr: rel.expr };
   }
 
   const langKey = PARSERS[lang] ? lang : 'en';
@@ -330,6 +320,20 @@ export function resolveEventTime(
   if (hit) {
     const clamped = clampPast(hit.date, anchor);
     if (clamped) return { date: clamped, expr: hit.expr };
+  }
+
+  // An explicit `day month-name year` in a locale chrono has no parser for.
+  // chrono covers thirteen languages; everything else was falling to the
+  // English parser, which reads nothing in a non-Latin script, and the caller
+  // then stamped the message time — "٣ مارس ٢٠٢٦" came back as the day the
+  // sentence was said, six months off, looking like an answer. The month
+  // names come from ICU, so this covers every locale the platform knows
+  // (ar, hi, th, he, fa, tr, id, pl, cs, uk, …) rather than the two that
+  // exposed it. Conservative by construction: see locale-date.ts.
+  const absolute = parseLocaleAbsoluteDate(clause, lang);
+  if (absolute) {
+    const clamped = clampPast(absolute.date, anchor);
+    if (clamped) return { date: clamped, expr: absolute.expr };
   }
 
   // Fallback: explicit past year chrono didn't resolve.
@@ -430,4 +434,65 @@ function clampPast(d: Date, anchor: Date): Date | null {
   min.setUTCFullYear(min.getUTCFullYear() - MAX_LOOKBACK_YEARS);
   if (day.getTime() < min.getTime()) return null;
   return day;
+}
+
+/** Resolved event-time knobs for one ingest, computed once per persist. */
+export interface EventTimeResolveOpts {
+  /** INGEST_EVENT_TIME_EXTRACTION — resolve occurrence dates at all. */
+  on: boolean;
+  /** IANA session timezone — anchors the speaker's local day. */
+  timeZone?: string;
+}
+
+/**
+ * Read the event-time knobs for an ingest. There is no second flag: the
+ * locale half of the resolver is keyed by the clause's own language and
+ * the speaker's own timezone, both of which are inputs, not switches.
+ */
+export function resolveEventTimeOpts(timeZone: string | undefined): EventTimeResolveOpts {
+  return {
+    on: envFlagEnabled(process.env.INGEST_EVENT_TIME_EXTRACTION),
+    ...(timeZone ? { timeZone } : {}),
+  };
+}
+
+/**
+ * The fact's occurrence time. A clause often refers to when something
+ * HAPPENED ("went yesterday", "painted last year", "3 марта 2026") — with
+ * INGEST_EVENT_TIME_EXTRACTION on and a resolvable expression, that is
+ * the date; else the message time.
+ *
+ * ONE function for both ingest paths. It lived inside the mention
+ * persister, and the document commit — the path a stock deployment
+ * actually runs mentions through (INGEST_MENTION_VIA_DOCUMENT) — stamped
+ * `doc.occurredAt` on every fact. Measured with a full-chain trace on the
+ * prod assembly: "Пилотный запуск запланирован на 3 марта 2026" landed as
+ * validFrom = the day it was said, on the path that ships, while the
+ * flag that promises otherwise was on. The temporal fixes measured on the
+ * mention path were not on the conveyor.
+ *
+ * PROD CAVEAT (docs/operations.md): a backdated validFrom on a BITEMPORAL
+ * supersede can stamp the incumbent's validUntil earlier than its own
+ * validFrom (inverted interval, fact hidden from asOf). single_active is
+ * guarded (INSERTED_HISTORICAL); bitemporal is not.
+ */
+export function factValidFrom(
+  f: { predicate: string; clause?: string | undefined },
+  emittedAt: string | Date,
+  opts: EventTimeResolveOpts,
+): Date {
+  const event = opts.on
+    ? resolveEventTime(f.clause, emittedAt, opts.timeZone ? { timeZone: opts.timeZone } : {})
+    : null;
+  if (!event) return emittedAt instanceof Date ? emittedAt : new Date(emittedAt);
+  traceArtifact('ingest.fact.event_time', {
+    predicate: f.predicate,
+    expr: event.expr,
+    resolved: event.date.toISOString().slice(0, 10),
+    emittedAt: (emittedAt instanceof Date ? emittedAt.toISOString() : String(emittedAt)).slice(
+      0,
+      10,
+    ),
+  });
+  return event.date;
 }

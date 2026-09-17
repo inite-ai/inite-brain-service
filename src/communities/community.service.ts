@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
-import { cosineSimilarity } from '../common/vector-math';
+import { sameWidthGate } from '../db/vector-width';
 
 /**
  * CommunityService — read surface over the topic communities that
@@ -11,10 +11,12 @@ import { cosineSimilarity } from '../common/vector-math';
  * "what do we know about <domain>" without scanning the fact firehose.
  *
  * Kept separate from the builder so the MCP/read path doesn't drag in the
- * SUMMARY_GENERATOR / build machinery. Cosine search mirrors
- * ProceduralMemoryService.match — JS-side over a small N (communities are
- * O(10²), not O(facts)); we revisit server-side vector::similarity only if
- * a tenant's community count ever justifies an HNSW index.
+ * SUMMARY_GENERATOR / build machinery. Cosine search runs SERVER-SIDE
+ * (`vector::similarity::cosine` + ORDER BY + LIMIT): communities are
+ * O(10²) rather than O(facts), but the old JS-side form selected every
+ * row's summary vector with no LIMIT to return five, so the wire cost
+ * grew with the table while the answer did not. An HNSW index is still
+ * only worth it if a tenant's community count ever justifies one.
  */
 @Injectable()
 export class CommunityService {
@@ -58,24 +60,27 @@ export class CommunityService {
   ): Promise<ScoredCommunity[]> {
     return this.run(companyId, args.callerScopes, async (db) => {
       const q = await this.embedder.embed(args.query);
-      const [rows] = await db.query<[RawCommunity[]]>(
-        `SELECT id, label, summary, memberCount, builtAt, summaryEmbedding
-           FROM community_node
-           WHERE summaryEmbedding != NONE`,
-      );
       const minSim = args.minSimilarity ?? 0.3;
       const limit = args.limit ?? 5;
-
-      const scored: ScoredCommunity[] = [];
-      for (const r of (rows as RawCommunity[]) ?? []) {
-        const emb = Array.isArray(r.summaryEmbedding) ? r.summaryEmbedding : null;
-        if (!emb) continue;
-        const sim = cosineSimilarity(q, emb);
-        if (sim < minSim) continue;
-        scored.push({ ...mapCommunity(r), similarity: sim });
-      }
-      scored.sort((a, b) => b.similarity - a.similarity);
-      return scored.slice(0, limit);
+      // Score, filter, order and cap in the DB. This used to SELECT
+      // every community's summary vector with no LIMIT and do all four
+      // in Node — the whole table's embeddings across the wire on every
+      // search, to return five rows. The width gate is the vector-corpus
+      // idiom (a tenant that lived through an embedding-space change
+      // holds two widths, and cosine over mismatched lengths raises for
+      // the whole query).
+      const [rows] = await db.query<[Array<RawCommunity & { similarity: number }>]>(
+        `SELECT id, label, summary, memberCount, builtAt,
+                vector::similarity::cosine(summaryEmbedding, $q) AS similarity
+           FROM community_node
+          WHERE ${sameWidthGate('summaryEmbedding')}
+          ORDER BY similarity DESC
+          LIMIT $limit`,
+        { q, limit },
+      );
+      return ((rows as Array<RawCommunity & { similarity: number }>) ?? [])
+        .filter((r) => typeof r.similarity === 'number' && r.similarity >= minSim)
+        .map((r) => ({ ...mapCommunity(r), similarity: r.similarity }));
     });
   }
 

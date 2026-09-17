@@ -292,10 +292,30 @@ function mergeRelations(rows: CandidateRow[], ctx: MergeContext): MergedRelation
 }
 
 /** "predicate: object" strings per entity — feeds the inline-resolution judge. */
+/**
+ * What the entity judge gets to read about an incoming entity: its facts,
+ * and its edges rendered as `kind: other`. The extractor files the same
+ * statement as a fact in one language and an edge in another ("works at
+ * X" was a fact on the Latin surface and a works_at edge on the Cyrillic
+ * one), so a judge that saw facts alone had nothing in common to match
+ * and said "different" for one person. Same rendering as the direct path.
+ */
 export function incomingFactsFor(merge: MergeResult, entityKey: string): string[] {
-  return merge.facts
-    .filter((f) => f.entityKey === entityKey)
-    .map((f) => `${f.predicate}: ${f.object}`);
+  const nameOf = new Map(merge.entities.map((e) => [e.key, e.name]));
+  return [
+    ...merge.facts
+      .filter((f) => f.entityKey === entityKey)
+      .map((f) => `${f.predicate}: ${f.object}`),
+    ...merge.relations.flatMap((r) => {
+      const other =
+        r.fromKey === entityKey
+          ? nameOf.get(r.toKey)
+          : r.toKey === entityKey
+            ? nameOf.get(r.fromKey)
+            : undefined;
+      return other ? [`${r.kind}: ${other}`] : [];
+    }),
+  ];
 }
 
 function normalizeType(type: unknown): string {

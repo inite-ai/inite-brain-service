@@ -572,7 +572,7 @@ describe('buildGeneratorUserMessage — scene section (RETRIEVAL_SCENE_LANE)', (
     const plain = buildGeneratorUserMessage({ ...BASE, sceneLines: lines });
     expect(cited).toContain('copy its id EXACTLY into citedSceneIds');
     expect(plain).not.toContain('citedSceneIds');
-    expect(plain).toContain('cite factIds only');
+    expect(plain).toContain('cite fact handles only');
   });
 
   it('BOTH header variants keep the base abstention rule and send specifics to the facts', () => {

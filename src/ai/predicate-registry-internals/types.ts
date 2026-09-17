@@ -145,6 +145,22 @@ export const DEFAULT_CANONICALIZE_AUTO_ALIAS_THRESHOLD = 0.85;
  *  on the proposed outcome so an operator reviewing the queue sees
  *  what the closest existing predicate was. */
 export const CANONICALIZE_REPORT_FLOOR = 0.6;
+/**
+ * Recall floor for the identity-judge shortlist — deliberately WELL
+ * below CANONICALIZE_REPORT_FLOOR, because cosine is used here to
+ * retrieve, not to decide. Measured on a 196-predicate vocabulary, the
+ * true same-attribute partner scored 0.534 (`deploy_target` ~
+ * `deploys_to`), 0.699, 0.722, 0.729 and 0.863 — a 0.6 floor would have
+ * dropped the first outright. 0.45 keeps every measured partner while
+ * still cutting the vocabulary down to a handful.
+ */
+export const CANONICALIZE_IDENTITY_FLOOR = 0.45;
+/**
+ * How many shortlisted candidates the identity judge sees. Over the same
+ * vocabulary the true partner ranked 1, 2, 1, 1 and 2 — so three covers
+ * every measured case, and one call ranks them against each other.
+ */
+export const CANONICALIZE_IDENTITY_TOP_N = 3;
 
 export const DEFAULT_FALLBACK: PredicateDefinition = {
   predicateId: '__default__',
