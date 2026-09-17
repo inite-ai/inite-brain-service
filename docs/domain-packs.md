@@ -700,7 +700,8 @@ section:
   server; leaving it out makes the entry **operator-named** — the
   connection carries `config.url` (guarded at create) and the consent
   reads "an MCP server the operator names" (`web_memory`'s
-  `mcp_resources`).
+  `mcp_resources`). A `stdio` entry runs on the local agent
+  (`@inite/brain-agent`), which spawns the named command.
 - **`native`** — a platform-shipped connector, NAMED by the pack and never
   supplied by it (the anti-DSL doctrine: exactly like `processors`, a
   kind with no installed connector fails every sync, never runs foreign

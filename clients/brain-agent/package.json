@@ -1,0 +1,53 @@
+{
+  "name": "@inite/brain-agent",
+  "version": "0.1.0",
+  "description": "The INITE Brain local agent: reads the folders, git repositories and stdio MCP servers on THIS machine as sources for a brain — walking and fetching here, bookkeeping on the brain — so a laptop, a CI runner or a box on the LAN can feed memory without mounting anything into the server.",
+  "author": "INITE",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inite-ai/inite-brain-service.git",
+    "directory": "clients/brain-agent"
+  },
+  "homepage": "https://brain.inite.ai",
+  "bugs": {
+    "url": "https://github.com/inite-ai/inite-brain-service/issues"
+  },
+  "keywords": [
+    "brain",
+    "memory",
+    "agent",
+    "source",
+    "sync",
+    "git",
+    "mcp",
+    "inite"
+  ],
+  "bin": {
+    "brain-agent": "dist/index.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.5",
+    "typescript": "^7.0.2"
+  }
+}

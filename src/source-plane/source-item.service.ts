@@ -197,6 +197,17 @@ export class SourceItemService {
     });
   }
 
+  /** Rows a run marked gone (explicitly or by the unseen sweep) since it started. */
+  async goneSince(companyId: string, p: { connectionId: string; since: Date }): Promise<SourceItemRow[]> {
+    return this.surreal.withCompany(companyId, (db) =>
+      queryRows<SourceItemRow>(
+        db,
+        `SELECT * FROM source_item WHERE connectionId = type::record('source_connection', $tail) AND state = 'gone' AND goneAt >= $since LIMIT 10000`,
+        { tail: idTailOf(p.connectionId), since: p.since },
+      ),
+    );
+  }
+
   async list(
     companyId: string,
     p: { connectionId: string; state?: SourceItem['state'] | undefined; limit: number; offset: number },
@@ -223,6 +234,11 @@ export class SourceItemService {
       );
       return { items: rows.map(toItemView), total: count?.n ?? 0 };
     });
+  }
+
+  /** One catalogue row by its source id, or null. */
+  async getByExternalId(companyId: string, p: { connectionId: string; externalId: string }): Promise<SourceItemRow | null> {
+    return this.surreal.withCompany(companyId, (db) => this.findByExternalId(db, p.connectionId, p.externalId));
   }
 
   private async findByExternalId(

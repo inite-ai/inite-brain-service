@@ -461,6 +461,14 @@ that document, so later re-indexing cannot reuse its text.
 [Document pipeline](docs/document-pipeline.md) ·
 [External indexers](docs/indexer-protocol.md).
 
+Or let the brain **read** what already exists: a folder, a bucket, a site, an
+MCP server — install a source pack (`file_memory`, `web_memory`), connect a
+source in **Admin → Connections**, sync; every fact carries the file's
+revision. For what lives on a laptop, a CI runner or a box on the LAN, the
+[`@inite/brain-agent`](clients/brain-agent/README.md) walks it there —
+folders, a repository's committed docs, a local MCP server — and the brain
+keeps the books. [Source plane](docs/source-plane.md).
+
 ## Files and evidence
 
 The evidence plane supports metadata/reference registration through

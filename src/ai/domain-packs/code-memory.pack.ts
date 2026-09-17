@@ -55,7 +55,7 @@ import { composePredicateId, type DomainPackManifest } from './manifest';
  */
 export const CODE_MEMORY_PACK: DomainPackManifest = {
   id: 'code_memory',
-  version: '0.8.0',
+  version: '0.9.0',
   description:
     'Non-derivable engineering "why" of a codebase — decisions, rationale, invariants, gotchas, ownership, flag/config defaults, dependency pins, and decision supersession anchored to code, with a domain extraction profile and memory model.',
   // Retro-declaration, documentation-true: code-memory has ALWAYS been an
@@ -78,6 +78,20 @@ export const CODE_MEMORY_PACK: DomainPackManifest = {
       title: 'Git repository',
       description:
         'A code repository read by the repo indexer (pnpm indexer:repo / the local agent): ownership, decisions, warnings and version pins as candidates, stamped with the commit they were read at.',
+    },
+    // The same repository, its DOCS as documents: READMEs, docs/**, ADRs,
+    // changelogs — read from the committed tree by the local agent's git
+    // connector (git never runs in the brain process), each stamped with
+    // its blob sha. One repo, two shapes.
+    {
+      id: 'repo_docs',
+      kind: 'native',
+      connector: 'git',
+      shape: 'document',
+      title: 'Repository docs (agent)',
+      description:
+        'The committed text documents of a repository — README, docs/**, ADRs, changelogs — read by the local agent (host agent:<id>) with the blob sha as revision and the last commit touching each file as its time. config: { repo, ref?, extensions?, include?, maxFiles?, maxFileBytes? }.',
+      defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: 'manual' },
     },
   ],
   predicates: [

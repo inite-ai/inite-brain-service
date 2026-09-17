@@ -631,8 +631,9 @@ const MEDIA_CONTRACT: MediaExpectation[] = [
     // declaration. 0.8.0: the `sources` entry (the repository as the
     // pack's declared source — the first source pack, retrofitted). The
     // media contract itself is unchanged since 0.6.0 — this pin just has
-    // to move deliberately on every version bump.
-    version: '0.8.0',
+    // to move deliberately on every version bump. 0.9.0: the `repo_docs`
+    // git entry the local agent runs.
+    version: '0.9.0',
     modalities: ['text', 'image', 'document'],
     processors: [IMAGE_METADATA, DOCUMENT_TEXT, IMAGE_OCR],
     rawEvidence: undefined, // a builtin seeds into every tenant unasked

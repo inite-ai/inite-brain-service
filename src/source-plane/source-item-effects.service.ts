@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { Connector, ConnectorCtx } from './connector';
+import type { Connector, ConnectorConnectionView, ConnectorCtx, FetchedItem } from './connector';
 import type { SourceConnectionRow } from './source-connection.service';
 import { SourceGonePolicyService } from './source-gone-policy.service';
 import { SourceItemIngestService, type ItemEffectOutcome } from './source-item-ingest.service';
@@ -25,6 +25,16 @@ export class SourceItemEffectsService {
     row: SourceItemRow;
   }): Promise<ItemEffectOutcome> {
     return this.ingest.fetchAndIngest(p);
+  }
+
+  /** The ingest half alone — content an agent fetched on its host. */
+  ingestFetched(p: {
+    companyId: string;
+    connection: ConnectorConnectionView;
+    row: SourceItemRow;
+    fetched: FetchedItem;
+  }): Promise<ItemEffectOutcome> {
+    return this.ingest.ingestFetched(p);
   }
 
   /** The delete policy for items the source reports gone. */

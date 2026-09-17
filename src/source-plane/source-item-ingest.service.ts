@@ -1,7 +1,13 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import type { SourceVersionStamp } from '../common/source-version';
 import { SourceDriftStalenessService } from '../documents/source-drift-staleness.service';
-import type { Connector, ConnectorConnectionView, ConnectorCtx, ItemDescriptor } from './connector';
+import type {
+  Connector,
+  ConnectorConnectionView,
+  ConnectorCtx,
+  FetchedItem,
+  ItemDescriptor,
+} from './connector';
 import { SourceDoorsService } from './source-doors.service';
 import { SourceItemService, type SourceItemRow } from './source-item.service';
 
@@ -34,13 +40,33 @@ export class SourceItemIngestService {
     row: SourceItemRow;
   }): Promise<ItemEffectOutcome> {
     const { companyId, ctx, connector, row } = p;
-    const item = descriptorOf(row);
-    const stamp = stampOf(ctx.connection, row);
+    let fetched: FetchedItem;
     try {
-      const fetched = await connector.fetch(ctx, item);
+      fetched = await connector.fetch(ctx, descriptorOf(row));
+    } catch (err) {
+      return this.failed({ companyId, connectionId: ctx.connection.id, row }, err);
+    }
+    return this.ingestFetched({ companyId, connection: ctx.connection, row, fetched });
+  }
+
+  /**
+   * The ingest half on its own — what an AGENT-host run calls with the
+   * content the agent fetched on its side of the wire: the same door,
+   * the same catalogue pin, the same drift sweep.
+   */
+  async ingestFetched(p: {
+    companyId: string;
+    connection: ConnectorConnectionView;
+    row: SourceItemRow;
+    fetched: FetchedItem;
+  }): Promise<ItemEffectOutcome> {
+    const { companyId, connection, row, fetched } = p;
+    const item = descriptorOf(row);
+    const stamp = stampOf(connection, row);
+    try {
       const out = await this.doors.ingest({
         companyId,
-        connection: ctx.connection,
+        connection,
         itemId: String(row.id),
         item,
         fetched,
@@ -59,17 +85,24 @@ export class SourceItemIngestService {
         // Marks facts read at an OLDER revision of this item stale —
         // pack-gated (only predicates the pack declares derivable),
         // flag-gated, and never fatal to the sync.
-        await this.drift?.sweep({ companyId, packId: ctx.connection.packId, current: stamp });
+        await this.drift?.sweep({ companyId, packId: connection.packId, current: stamp });
       }
       return { status: out.deduplicated ? 'deduplicated' : 'ingested' };
     } catch (err) {
-      const message = (err as Error).message ?? String(err);
-      this.logger.warn(
-        `source item ${row.externalId} of ${ctx.connection.id} failed for ${companyId}: ${message}`,
-      );
-      await this.catalogue.markFailed(companyId, String(row.id), message).catch(() => undefined);
-      return { status: 'failed', error: message };
+      return this.failed({ companyId, connectionId: connection.id, row }, err);
     }
+  }
+
+  private async failed(
+    p: { companyId: string; connectionId: string; row: SourceItemRow },
+    err: unknown,
+  ): Promise<ItemEffectOutcome> {
+    const message = (err as Error).message ?? String(err);
+    this.logger.warn(
+      `source item ${p.row.externalId} of ${p.connectionId} failed for ${p.companyId}: ${message}`,
+    );
+    await this.catalogue.markFailed(p.companyId, String(p.row.id), message).catch(() => undefined);
+    return { status: 'failed', error: message };
   }
 }
 
