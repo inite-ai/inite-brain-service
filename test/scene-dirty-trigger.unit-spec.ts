@@ -62,7 +62,15 @@ describe('scene-dirty — select', () => {
     const { db, seen } = fakeDb(() => [rows]);
     await expect(selectDirtyConversations(db, 25)).resolves.toEqual(rows);
     expect(seen[0]!.sql).toContain('ORDER BY markedAt ASC LIMIT $limit');
+    expect(seen[0]!.sql).not.toContain('WHERE');
     expect(seen[0]!.params).toEqual({ limit: 25 });
+  });
+
+  it('with a settle instant, only marks at or before it are on the page', async () => {
+    const { db, seen } = fakeDb(() => [[]]);
+    await selectDirtyConversations(db, 25, new Date('2026-03-01T04:10:00.000Z'));
+    expect(seen[0]!.sql).toContain('WHERE markedAt <= <datetime>$before');
+    expect(seen[0]!.params).toEqual({ limit: 25, before: '2026-03-01T04:10:00.000Z' });
   });
 
   it('floors a fractional limit and refuses a non-positive one without a query', async () => {
@@ -161,6 +169,8 @@ describe('EpisodeStoreService — the dirty-mark seam', () => {
       delete process.env[k];
     }
     process.env.EPISODE_SUBSTRATE_ENABLED = '1';
+    // The scheduled pass ships on; the "off" pins below switch it off.
+    process.env.SCENES_SCHEDULED_MAINTENANCE = '0';
   });
   afterEach(() => {
     for (const k of ENV) {

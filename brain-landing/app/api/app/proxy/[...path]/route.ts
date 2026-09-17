@@ -38,6 +38,11 @@ const READ_PREFIXES = [
   'v1/synthesize',
   'v1/entities/',
   'v1/communities',
+  // The episodic and semantic planes: scenes (what happened, together,
+  // when) and the beliefs promoted from them. Both read surfaces fence
+  // by the token's own user on the brain side.
+  'v1/scenes',
+  'v1/beliefs',
   'v1/stats',
   'health',
 ]

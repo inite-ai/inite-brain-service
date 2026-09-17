@@ -233,6 +233,10 @@ import {
   BeliefsListResponseSchema,
 } from '../src/contracts/beliefs/beliefs.schema';
 import {
+  SceneReadResponseSchema,
+  ScenesListResponseSchema,
+} from '../src/contracts/scenes/scenes.schema';
+import {
   ApiKeySummarySchema,
   IssueKeyRequestSchema,
   IssuedKeyResponseSchema,
@@ -426,6 +430,9 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   // --- belief reads (src/contracts/beliefs/beliefs.schema.ts)
   BeliefReadResponse: BeliefReadResponseSchema,
   BeliefsListResponse: BeliefsListResponseSchema,
+  // --- scene reads (src/contracts/scenes/scenes.schema.ts)
+  SceneReadResponse: SceneReadResponseSchema,
+  ScenesListResponse: ScenesListResponseSchema,
   // --- self-serve API keys (src/contracts/keys/keys.schema.ts)
   ApiKeySummary: ApiKeySummarySchema,
   IssueKeyRequest: IssueKeyRequestSchema,
@@ -1824,8 +1831,8 @@ function memoryReadPaths(): Json {
           'lifecycle status (default active) and user scope. A ' +
           'user-bound token is pinned to its own user (userId mismatch ' +
           'is 403); M2M keys may scope to any user or list tenant-wide. ' +
-          'Page capped at 100 (default 25). 404 until ' +
-          'BELIEFS_API_ENABLED=1. Source: ' +
+          'Page capped at 100 (default 25). On by default; ' +
+          'BELIEFS_API_ENABLED=0 makes it a 404. Source: ' +
           'src/beliefs/beliefs.controller.ts.',
         scope: 'brain:read',
         parameters: [
@@ -1860,13 +1867,76 @@ function memoryReadPaths(): Json {
           'scene provenance (sourceSceneIds) and corroboration ' +
           'counters. Superseded revisions still resolve. Every ' +
           'visibility fence (tenant, fail-closed single-user scope) ' +
-          'answers 404 — existence never leaks. 404 until ' +
-          'BELIEFS_API_ENABLED=1. Source: ' +
+          'answers 404 — existence never leaks. On by default; ' +
+          'BELIEFS_API_ENABLED=0 makes it a 404. Source: ' +
           'src/beliefs/beliefs.controller.ts.',
         scope: 'brain:read',
         parameters: [pathParam('id', 'Belief record id (`semantic_belief:…`).')],
         responses: {
           '200': jsonResponse('The belief.', ref('BeliefReadResponse')),
+          ...DRIVER_404,
+        },
+      }),
+    },
+    '/v1/scenes': {
+      get: operation({
+        operationId: 'listScenes',
+        tag: 'Scenes',
+        summary: 'List scenes — what happened, together, when',
+        description:
+          'Scenes of the current segmenter world (memory_episode: coherent ' +
+          'multi-turn groupings the composer derives from raw turns), newest ' +
+          'first, with their member episodes, knowledge-graph backlinks, ' +
+          'enrichment-owned state deltas (the beliefs are promoted from ' +
+          'these) and per-dimension memory value. Filter by conversationId, ' +
+          'entityId, since/until (overlap) and user scope. A user-bound ' +
+          'token is pinned to its own user (userId mismatch is 403) and sees ' +
+          'its own scenes plus tenant-global ones whose member set contains ' +
+          'it; an M2M key scopes to any user with userId, and without one ' +
+          'lists tenant-global scenes only (gists quote verbatim turns — the ' +
+          'episodes contract). Scenes carrying PII need brain:read_pii. ' +
+          'Page capped at 100 (default 25). `world` names the version ' +
+          'served (empty until a world has been composed). On by default; ' +
+          'SCENES_API_ENABLED=0 makes it a 404. Source: ' +
+          'src/scenes/scenes.controller.ts.',
+        scope: 'brain:read',
+        parameters: [
+          queryParam('conversationId', 'Only scenes covering this conversation.'),
+          queryParam('entityId', 'Only scenes back-linked to this entity (`knowledge_entity:…`).'),
+          queryParam(
+            'userId',
+            'End-user scope key. M2M keys may assert any user; ' +
+              'user-bound tokens are pinned to their own.',
+          ),
+          queryParam('since', 'ISO date-time: scenes ending at or after this instant.'),
+          queryParam('until', 'ISO date-time: scenes starting at or before this instant.'),
+          queryParam('limit', 'Page size (default 25, max 100).', {
+            type: 'integer',
+          }),
+        ],
+        responses: {
+          '200': jsonResponse('The visible scenes.', ref('ScenesListResponse')),
+          '400': errorRef('BadRequest'),
+          ...DRIVER_404,
+        },
+      }),
+    },
+    '/v1/scenes/{id}': {
+      get: operation({
+        operationId: 'getScene',
+        tag: 'Scenes',
+        summary: 'Read one scene by id',
+        description:
+          "One memory_episode scene as stored — the record a belief's " +
+          'sourceSceneIds and a scene citation point at. Resolves in any ' +
+          "world (a superseded world's scene still opens). Every " +
+          'visibility fence (tenant, user scope, PII) answers 404 — ' +
+          'existence never leaks. On by default; SCENES_API_ENABLED=0 ' +
+          'makes it a 404. Source: src/scenes/scenes.controller.ts.',
+        scope: 'brain:read',
+        parameters: [pathParam('id', 'Scene record id (`memory_episode:…`).')],
+        responses: {
+          '200': jsonResponse('The scene.', ref('SceneReadResponse')),
           ...DRIVER_404,
         },
       }),
@@ -2681,7 +2751,16 @@ export function buildOpenApiDocument(): Json {
           'the brain currently holds about a free-text (subject, field) ' +
           'key, with its supersede chain and inline scene provenance. ' +
           'Read-only — the scene promotion pass is the only writer. ' +
-          'Flag: BELIEFS_API_ENABLED (off → 404).',
+          'Flag: BELIEFS_API_ENABLED (on by default; =0 → 404).',
+      },
+      {
+        name: 'Scenes',
+        description:
+          'Scene-level reads over the memory_episode substrate: coherent ' +
+          'multi-turn groupings of raw turns — what happened, together, ' +
+          'when — with their member episodes, backlinks, state deltas and ' +
+          'memory value. Read-only — the scene composer is the only ' +
+          'writer. Flag: SCENES_API_ENABLED (on by default; =0 → 404).',
       },
       {
         name: 'Evidence',

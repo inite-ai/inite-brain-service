@@ -64,12 +64,22 @@ export async function markConversationDirty(
 export async function selectDirtyConversations(
   db: SceneDirtyDb,
   limit: number,
+  /**
+   * Only conversations marked at or before this instant: a conversation
+   * still receiving turns is left to settle (the mark is bumped on every
+   * turn), so the pass composes closed sessions, not a moving tail.
+   */
+  settledBefore?: Date,
 ): Promise<DirtyConversationRow[]> {
   if (limit <= 0) return [];
+  const settle = settledBefore ? ' WHERE markedAt <= <datetime>$before' : '';
   const [rows] = await db.query<[DirtyConversationRow[]]>(
-    `SELECT id, conversationId, markedAt FROM scene_dirty_conversation
+    `SELECT id, conversationId, markedAt FROM scene_dirty_conversation${settle}
       ORDER BY markedAt ASC LIMIT $limit`,
-    { limit: Math.floor(limit) },
+    {
+      limit: Math.floor(limit),
+      ...(settledBefore ? { before: settledBefore.toISOString() } : {}),
+    },
   );
   return (rows ?? []).filter((r) => typeof r.conversationId === 'string');
 }

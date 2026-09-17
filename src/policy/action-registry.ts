@@ -51,6 +51,8 @@ export const ACTIONS: Record<string, ActionSpec> = {
   // these actions (surface parity follow-up).
   get_belief: { kind: 'read', family: 'mcp_read', title: 'Get belief' },
   list_beliefs: { kind: 'read', family: 'mcp_read', title: 'List beliefs' },
+  get_scene: { kind: 'read', family: 'mcp_read', title: 'Get scene' },
+  list_scenes: { kind: 'read', family: 'mcp_read', title: 'List scenes' },
   summarize_entity: { kind: 'read', family: 'mcp_read', title: 'Summarize entity' },
   detect_contradiction: { kind: 'read', family: 'mcp_read', title: 'Detect contradiction' },
   why: { kind: 'read', family: 'mcp_read', title: 'Code-memory why' },

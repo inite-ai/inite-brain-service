@@ -1,4 +1,4 @@
-import { envFlagEnabled } from './env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from './env-validation';
 
 /**
  * Scenes (Brain v2 PR1) master flag — SCENES_SEGMENTATION_ENABLED.
@@ -457,22 +457,44 @@ export function sceneBeliefMinScenes(): number {
  * The scene chain (compose → enrich → backlink → evidence links →
  * beliefs) had NO scheduled runner: every SCENES_* flag could be on in
  * prod and the whole episodic/semantic plane would still only exist for
- * conversations an operator had curled by hand. When this flag is on,
- * SceneMaintenanceService's nightly cron (04:20 UTC) walks the tenant
- * roster and runs that chain over the DIRTY conversations only, and the
- * ingest seam (EpisodeStoreService.captureTurn) starts marking
- * conversations dirty (migration 0130) as turns land.
+ * conversations an operator had curled by hand. With this flag on (the
+ * default), SceneMaintenanceService's cron walks the tenant roster every
+ * ten minutes and runs that chain over the DIRTY conversations that have
+ * SETTLED (no turn for SCENES_MAINTENANCE_SETTLE_MS), and the ingest seam
+ * (EpisodeStoreService.captureTurn) marks conversations dirty (migration
+ * 0130) as turns land. The pass used to be nightly at 04:20 UTC: a
+ * memory that consolidates once a day is one the user never sees happen
+ * — every scene and belief on the prod tenant was a day old at best, and
+ * with the flag off (it shipped off) there were none at all.
  *
  * The env read lives here in the common layer, NOT inside the engine dirs
  * (engine-gates S5.2). Read at call time so a flip is runtime-mutable.
- * Default off ⇒ the cron returns before a single query, NO dirty mark is
- * ever written and the admin routes behave exactly as before —
- * byte-identical prod. Requires SCENES_SEGMENTATION_ENABLED to do
- * anything: both the cron and the mark seam check the master flag too, so
- * marks cannot pile up for a composer that is switched off.
+ * `=0` ⇒ the cron returns before a single query, NO dirty mark is ever
+ * written and the admin routes stay the only trigger. Requires
+ * SCENES_SEGMENTATION_ENABLED to do anything: both the cron and the mark
+ * seam check the master flag too, so marks cannot pile up for a composer
+ * that is switched off.
  */
 export function sceneScheduledMaintenanceEnabled(): boolean {
-  return envFlagEnabled(process.env.SCENES_SCHEDULED_MAINTENANCE);
+  return envFlagNotDisabled(process.env.SCENES_SCHEDULED_MAINTENANCE);
+}
+
+/** Default quiet period before a dirty conversation is composed (10 min). */
+const DEFAULT_MAINTENANCE_SETTLE_MS = 10 * 60 * 1000;
+
+/**
+ * Settle period (SCENES_MAINTENANCE_SETTLE_MS): a dirty conversation is
+ * composed only once no turn has landed on it for this long. The mark is
+ * bumped on every turn, so an active session is left alone until it goes
+ * quiet — the session gap is the scene boundary anyway — and the LLM
+ * enrichment is spent once per finished scene instead of once per tick
+ * on a moving tail. Milliseconds; unset, blank, or invalid → 600_000.
+ */
+export function sceneMaintenanceSettleMs(): number {
+  const raw = process.env.SCENES_MAINTENANCE_SETTLE_MS;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_MAINTENANCE_SETTLE_MS;
+  const v = Number(raw);
+  return Number.isInteger(v) && v >= 0 ? v : DEFAULT_MAINTENANCE_SETTLE_MS;
 }
 
 /** Default per-tenant, per-run conversation budget for the nightly pass. */

@@ -7,6 +7,7 @@ import {
   X,
   ExternalLink,
   Clock,
+  Clapperboard,
   ShieldOff,
   CircleDot,
 } from 'lucide-react'
@@ -75,6 +76,18 @@ interface TimelineEvent {
   supersededBy?: string
 }
 
+/** GET /v1/scenes?entityId= — the scenes back-linked to this entity. */
+interface SceneRow {
+  sceneId: string
+  sceneLabel: string
+  gist: string
+  enrichedGist?: string
+  occurredFrom: string
+  occurredTo: string
+  episodeIds: string[]
+  stateDeltas: Array<{ subject: string; field: string; from?: string; to?: string }>
+}
+
 export function EntityPanel({
   entityId,
   asOf,
@@ -94,6 +107,7 @@ export function EntityPanel({
     key: string
     profile: EntityProfile | null
     timeline: TimelineEvent[] | null
+    scenes: SceneRow[]
     err: string | null
   } | null>(null)
 
@@ -123,16 +137,23 @@ export function EntityPanel({
       fetch(
         `${proxyBase}/v1/entities/${encodeURIComponent(entityId)}/timeline${timelineQs}`,
       ),
+      // Scenes are a sibling plane: a miss here (no world composed yet,
+      // the surface switched off) must not blank the profile.
+      fetch(
+        `${proxyBase}/v1/scenes?entityId=${encodeURIComponent(entityId)}&limit=6`,
+      ).catch(() => null),
     ])
-      .then(async ([p, t]) => {
+      .then(async ([p, t, s]) => {
         const profileData = await p.json()
         const timelineData = await t.json()
+        const scenesData = s && s.ok ? await s.json() : null
         if (!p.ok) throw new Error(profileData?.error ?? `Profile ${p.status}`)
         if (!current) return
         setResult({
           key,
           profile: profileData as EntityProfile,
           timeline: (timelineData?.events ?? []) as TimelineEvent[],
+          scenes: (scenesData?.scenes ?? []) as SceneRow[],
           err: null,
         })
       })
@@ -142,6 +163,7 @@ export function EntityPanel({
           key,
           profile: null,
           timeline: null,
+          scenes: [],
           err: (e as Error).message,
         })
       })
@@ -153,6 +175,7 @@ export function EntityPanel({
   const shown = result?.key === key ? result : null
   const profile = shown?.profile ?? null
   const timeline = shown?.timeline ?? null
+  const scenes = shown?.scenes ?? []
   const err = shown?.err ?? null
   const loading = key !== null && shown === null
 
@@ -248,6 +271,8 @@ export function EntityPanel({
               </ul>
             </section>
 
+            {scenes.length > 0 && <SceneList scenes={scenes} />}
+
             {timeline && timeline.length > 0 && (
               <LineageTimeline events={timeline} />
             )}
@@ -264,6 +289,41 @@ export function EntityPanel({
         </button>
       </div>
     </div>
+  )
+}
+
+/** The scenes this entity took part in, newest first (the read API's order). */
+function SceneList({ scenes }: { scenes: SceneRow[] }) {
+  return (
+    <section>
+      <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-1 flex items-center gap-1">
+        <Clapperboard className="w-3 h-3" /> scenes ({scenes.length})
+      </div>
+      <ul className="space-y-1.5">
+        {scenes.map((s) => (
+          <li key={s.sceneId} className="text-xs">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-[var(--text)] flex-1 truncate">
+                {s.sceneLabel || 'Untitled scene'}
+              </span>
+              <span className="text-[10px] font-mono text-[var(--text-faint)] shrink-0">
+                {s.occurredFrom.slice(0, 10)} · {s.episodeIds.length} turns
+              </span>
+            </div>
+            <div className="text-[var(--text-muted)] line-clamp-2">
+              {s.enrichedGist ?? s.gist}
+            </div>
+            {s.stateDeltas.length > 0 && (
+              <div className="text-[10px] font-mono text-[var(--text-faint)] truncate">
+                {s.stateDeltas
+                  .map((d) => `${d.subject} · ${d.field}: ${d.from ? `${d.from} → ` : ''}${d.to ?? '∅'}`)
+                  .join('; ')}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

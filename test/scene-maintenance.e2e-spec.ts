@@ -3,7 +3,7 @@
  * 0130) — the loop the scene plane had no runner for, end to end against a
  * real SurrealDB 3.2.4:
  *
- *   ingest turns → a dirty mark appears → the nightly pass composes exactly
+ *   ingest turns → a dirty mark appears → the scheduled pass composes exactly
  *   the dirty conversations → scenes exist → the mark is cleared → a second
  *   pass finds nothing to do (and composes nothing) → new turns re-dirty the
  *   same conversation → the pass picks it up again.
@@ -35,6 +35,7 @@ const ENV = [
   'INGEST_EPISODE_ONLY',
   'SCENES_SEGMENTATION_ENABLED',
   'SCENES_SCHEDULED_MAINTENANCE',
+  'SCENES_MAINTENANCE_SETTLE_MS',
   'SCENES_TOPIC_BOUNDARY',
   'SCENES_LLM_ENRICHMENT',
   'SCENES_BELIEF_PROMOTION',
@@ -55,6 +56,9 @@ describe('scheduled scene maintenance (e2e)', () => {
     process.env.INGEST_EPISODE_ONLY = '1';
     process.env.SCENES_SEGMENTATION_ENABLED = '1';
     process.env.SCENES_SCHEDULED_MAINTENANCE = '1';
+    // The pass composes SETTLED conversations only; the fixture's turns
+    // land seconds before the run, so the quiet period is zero here.
+    process.env.SCENES_MAINTENANCE_SETTLE_MS = '0';
     f = await createApp({ companyId: 'co_scene_maint_e2e' });
   });
 
@@ -123,8 +127,8 @@ describe('scheduled scene maintenance (e2e)', () => {
     expect(await scenesOf(CONV)).toHaveLength(0);
   });
 
-  it('the nightly pass composes the dirty conversation and clears its mark', async () => {
-    const run = await maintenance().runNightly();
+  it('the scheduled pass composes the dirty conversation and clears its mark', async () => {
+    const run = await maintenance().runScheduled();
     expect(run.budgetExhausted).toBe(false);
     // The roster is every tenant the shared in-process database holds — the
     // sibling e2e suites' fixtures included — so this asserts OUR tenant's
@@ -147,7 +151,7 @@ describe('scheduled scene maintenance (e2e)', () => {
   });
 
   it('a second pass finds nothing dirty and composes nothing', async () => {
-    const run = await maintenance().runNightly();
+    const run = await maintenance().runScheduled();
     expect(run.tenants.find((t) => t.companyId === f.companyId)).toMatchObject({
       dirty: 0,
       conversations: 0,
@@ -162,7 +166,7 @@ describe('scheduled scene maintenance (e2e)', () => {
     await ingest(CONV, 3, '2026-04-01T12:05:00.000Z', 'Found a place near the river.');
     expect((await dirtyRows()).map((r) => r.conversationId)).toEqual([CONV]);
 
-    const run = await maintenance().runNightly();
+    const run = await maintenance().runScheduled();
     expect(run.tenants.find((t) => t.companyId === f.companyId)).toMatchObject({
       dirty: 1,
       conversations: 1,
@@ -173,14 +177,14 @@ describe('scheduled scene maintenance (e2e)', () => {
     expect(await scenesOf(CONV)).toHaveLength(2);
   });
 
-  it('PIN: with SCENES_SCHEDULED_MAINTENANCE off, ingest marks nothing', async () => {
-    delete process.env.SCENES_SCHEDULED_MAINTENANCE;
+  it('PIN: with SCENES_SCHEDULED_MAINTENANCE=0, ingest marks nothing', async () => {
+    process.env.SCENES_SCHEDULED_MAINTENANCE = '0';
     try {
       await ingest(QUIET_CONV, 0, '2026-04-02T09:00:00.000Z', 'A conversation nobody scheduled.');
       await ingest(QUIET_CONV, 1, '2026-04-02T09:05:00.000Z', 'Still nothing marked.');
       expect(await dirtyRows()).toHaveLength(0);
       // …and the cron itself is inert.
-      const run = await maintenance().runNightly();
+      const run = await maintenance().runScheduled();
       expect(run.tenants).toHaveLength(0);
       expect(await scenesOf(QUIET_CONV)).toHaveLength(0);
     } finally {
@@ -208,12 +212,12 @@ describe('scheduled scene maintenance (e2e)', () => {
       // container and sorted, so find this tenant's row rather than [0].
       const own = (run: { tenants: Array<{ companyId: string }> }) =>
         run.tenants.find((t) => t.companyId === f.companyId);
-      const first = await maintenance().runNightly();
+      const first = await maintenance().runScheduled();
       expect(own(first)).toMatchObject({ dirty: 1, cleared: 1 });
       // Exactly one mark consumed; the other waits for the next run.
       expect(await dirtyRows()).toHaveLength(1);
 
-      const second = await maintenance().runNightly();
+      const second = await maintenance().runScheduled();
       expect(own(second)).toMatchObject({ dirty: 1, cleared: 1 });
       expect(await dirtyRows()).toHaveLength(0);
     } finally {

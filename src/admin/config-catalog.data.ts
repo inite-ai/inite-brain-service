@@ -669,11 +669,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     // Read at call time (scene-flags.sceneScheduledMaintenanceEnabled) by
     // the cron entry point and by the ingest dirty-mark seam — never
     // captured in a constructor — so a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Scheduled scene maintenance (migration 0130): a nightly 04:20 UTC pass runs the scene chain (compose → enrich → backlink → evidence links → beliefs) per tenant over DIRTY conversations only — the ingest seam marks a conversation when turns land, the pass clears the mark after a successful swap, so the run is proportional to what moved instead of the O(all conversations) full rebuild. Bounded by SCENES_MAINTENANCE_MAX_CONVERSATIONS per tenant per run and SCENES_MAINTENANCE_TIME_BUDGET_MS overall, distributed-lease guarded (one pod, never overlapping itself), per-tenant error isolated. Off = the cron returns before a single query, no dirty mark is ever written, the admin routes stay the only trigger — byte-identical prod.',
+      'Scheduled scene maintenance (migration 0130): every ten minutes a pass runs the scene chain (compose → enrich → backlink → evidence links → beliefs) per tenant over DIRTY conversations that have SETTLED — the ingest seam marks a conversation when turns land (bumping the mark on every turn), the pass takes only marks older than SCENES_MAINTENANCE_SETTLE_MS, so an active session is left alone until it goes quiet and the paid enrichment is spent once per finished scene; the mark is cleared after a successful swap, so the run is proportional to what moved instead of the O(all conversations) full rebuild, and a quiet tenant costs one indexed read per tick. Was nightly at 04:20 UTC and shipped OFF: every scene and belief on the prod tenant existed only for conversations an operator had curled by hand. Bounded by SCENES_MAINTENANCE_MAX_CONVERSATIONS per tenant per run and SCENES_MAINTENANCE_TIME_BUDGET_MS overall, distributed-lease guarded (one pod, never overlapping itself), per-tenant error isolated. `=0` = the cron returns before a single query, no dirty mark is ever written, the admin routes stay the only trigger.',
   },
   {
     key: 'SCENES_MAINTENANCE_MAX_CONVERSATIONS',
@@ -698,6 +698,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
     description:
       'Scheduled scene maintenance: whole-run wall-clock budget in ms. Once elapsed the pass stops starting NEW tenants (the tenant in flight always finishes — no compose is aborted mid-swap) and the roster resumes next night with the marks intact. Guarantees the pass cannot still be running when the next night’s crons fire. Positive integer; default 1800000 (30 min).',
+  },
+  {
+    key: 'SCENES_MAINTENANCE_SETTLE_MS',
+    category: 'scenes',
+    defaultValue: '600000',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Quiet period before the scheduled scene pass composes a dirty conversation (milliseconds, default 10 min): a conversation whose latest turn landed more recently than this is not on the page yet. The session gap is the scene boundary anyway, so composing a session while it is still being written would only re-enrich its moving tail on every tick. 0 = compose on the next tick regardless (the e2e fixtures).',
   },
   {
     key: 'SCENES_LLM_ENRICHMENT',
@@ -2654,6 +2663,17 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: true,
     description:
       "Belief read API (Belief-B): GET /v1/beliefs/:id serves one semantic_belief revision as stored (free-text subject/field key, value/priorValue, statement, confidence, revision/status/supersededBy supersede chain, validFrom/validUntil, inline sourceSceneIds provenance, corroboration counters, promoterVersion) and GET /v1/beliefs lists by subject/field/status/userId with a capped page (default 25, max 100). Read-only — the Belief-A promotion pass (SCENES_BELIEF_PROMOTION) stays the only writer. Every miss is a 404 — tenant fence + fail-closed single-user scope (#387: a belief is always one user's; a user-bound token sees only its own, an unstamped row serves to no one); beliefs carry no piiClass and no registry predicate, so no PII/row-policy fence applies. On by default. Off → routes answer 404.",
+  },
+  {
+    key: 'SCENES_API_ENABLED',
+    category: 'pipeline',
+    // Read at call time (ScenesController.assertEnabled) — never
+    // captured in a constructor — so a flip takes effect without restart.
+    defaultValue: '1',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Scene read API: GET /v1/scenes/:id serves one memory_episode scene as stored (label, canonical and enriched gist, time span, member episodes in order, conversation ids, knowledge-graph backlinks, consolidated facts, unexpected details, enrichment-owned state deltas, per-dimension memory value, confidence, segmenter world) and GET /v1/scenes lists the CURRENT world — the version the projection registry marks live, else the newest built one — newest scene first, filtered by conversationId / entityId / since / until / userId with a capped page (default 25, max 100). Read-only: the composer (SCENES_SEGMENTATION_ENABLED) stays the only writer. Before this surface the episodic plane had no reader outside the answer lane, so a belief's sourceSceneIds pointed at records nothing could open and the product UI could show no scene at all. Fences: tenant; user scope via pinUserScope (a user-bound token sees its own scenes plus tenant-global ones whose persisted member set is empty or contains it — the scene lane's 0117 gate; an unscoped M2M caller sees tenant-global scenes only and scopes to a user with ?userId= — the episode read port's contract, a gist quotes verbatim turns; an unstamped row serves to no one, fail-closed); text PII (piiClass IS NONE without brain:read_pii); 0093 scope tags. Every miss is a 404. `=0` → both routes 404 indistinguishably from an absent route.",
   },
   {
     key: 'BELIEFS_SERVING_LANE',
