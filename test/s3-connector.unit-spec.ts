@@ -47,7 +47,10 @@ function fakeClient(objects: FakeObject[], pageSize = 2): S3ClientLike & { calls
   };
 }
 
-function ctx(config: Record<string, unknown>, shape: 'document' | 'binary' = 'document'): ConnectorCtx {
+function ctx(
+  config: Record<string, unknown>,
+  shape: 'document' | 'binary' = 'document',
+): ConnectorCtx {
   return {
     companyId: 'co',
     connection: {
@@ -80,7 +83,13 @@ const upserts = (deltas: ItemDelta[]) =>
 
 const OBJECTS: FakeObject[] = [
   { Key: 'docs/', Size: 0 },
-  { Key: 'docs/a.md', ETag: '"e1"', Size: 5, LastModified: new Date('2026-03-01T00:00:00Z'), body: Buffer.from('hello') },
+  {
+    Key: 'docs/a.md',
+    ETag: '"e1"',
+    Size: 5,
+    LastModified: new Date('2026-03-01T00:00:00Z'),
+    body: Buffer.from('hello'),
+  },
   { Key: 'docs/b.txt', ETag: '"e2"', Size: 3, body: Buffer.from('bye') },
   { Key: 'docs/big.md', ETag: '"e3"', Size: 10_000_000 },
   { Key: 'docs/scan.pdf', ETag: '"e4"', Size: 9, body: Buffer.from('%PDF fake') },
@@ -117,7 +126,9 @@ describe('S3Connector', () => {
   it('the binary shape admits PDFs; maxObjects bounds the walk', async () => {
     const c = new S3Connector();
     c.clientFactory = () => fakeClient(OBJECTS);
-    expect(upserts(await walk(c, ctx({ prefix: 'docs/' }, 'binary'))).map((d) => d.item.externalId)).toEqual(['docs/scan.pdf']);
+    expect(
+      upserts(await walk(c, ctx({ prefix: 'docs/' }, 'binary'))).map((d) => d.item.externalId),
+    ).toEqual(['docs/scan.pdf']);
     expect(upserts(await walk(c, ctx({ maxObjects: 1 })))).toHaveLength(1);
   });
 
@@ -144,10 +155,21 @@ describe('S3Connector', () => {
     const c = new S3Connector();
     c.clientFactory = () => fakeClient(OBJECTS);
     delete process.env.SOURCE_EGRESS_ALLOW_PRIVATE;
-    await expect(walk(c, ctx({ endpoint: 'http://minio.local:9000', allowPrivate: true }))).rejects.toThrow(EgressDeniedError);
+    await expect(
+      walk(c, ctx({ endpoint: 'http://minio.local:9000', allowPrivate: true })),
+    ).rejects.toThrow(EgressDeniedError);
     process.env.SOURCE_EGRESS_ALLOW_PRIVATE = '1';
-    await expect(walk(c, ctx({ endpoint: 'http://127.0.0.1:9000' }))).rejects.toThrow(EgressDeniedError);
-    expect(upserts(await walk(c, ctx({ endpoint: 'http://127.0.0.1:9000', allowPrivate: true, prefix: 'other/' })))).toHaveLength(1);
+    await expect(walk(c, ctx({ endpoint: 'http://127.0.0.1:9000' }))).rejects.toThrow(
+      EgressDeniedError,
+    );
+    expect(
+      upserts(
+        await walk(
+          c,
+          ctx({ endpoint: 'http://127.0.0.1:9000', allowPrivate: true, prefix: 'other/' }),
+        ),
+      ),
+    ).toHaveLength(1);
   });
 
   it('config.bucket is required', async () => {

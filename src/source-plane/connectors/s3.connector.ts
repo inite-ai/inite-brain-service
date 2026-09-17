@@ -60,7 +60,8 @@ export class S3Connector implements Connector {
   readonly credentialHint = 'accessKeyId:secretAccessKey (omit to use the SDK credential chain)';
 
   /** Test seam: a factory returning a client for the resolved config. */
-  clientFactory: (cfg: S3ConnectorConfig, credential: string | null) => S3ClientLike = defaultClient;
+  clientFactory: (cfg: S3ConnectorConfig, credential: string | null) => S3ClientLike =
+    defaultClient;
 
   enabled(): boolean {
     return sourceKindEnabled('s3');
@@ -100,29 +101,37 @@ export class S3Connector implements Connector {
       }
       token = page.IsTruncated && emitted < maxObjects ? page.NextContinuationToken : undefined;
     } while (token);
-    if (skippedLarge > 0) ctx.log(`s3 walk of ${cfg.bucket} skipped ${skippedLarge} object(s) over maxObjectBytes`);
-    yield { type: 'checkpoint', checkpoint: { walkedAt: new Date().toISOString(), objects: emitted } };
+    if (skippedLarge > 0)
+      ctx.log(`s3 walk of ${cfg.bucket} skipped ${skippedLarge} object(s) over maxObjectBytes`);
+    yield {
+      type: 'checkpoint',
+      checkpoint: { walkedAt: new Date().toISOString(), objects: emitted },
+    };
   }
 
   async fetch(ctx: ConnectorCtx, item: ItemDescriptor): Promise<FetchedItem> {
     const cfg = configOf(ctx);
     await guardEndpoint(cfg);
     const client = this.clientFactory(cfg, ctx.connection.credential);
-    const res = (await client.send(new GetObjectCommand({ Bucket: cfg.bucket, Key: item.externalId }))) as {
+    const res = (await client.send(
+      new GetObjectCommand({ Bucket: cfg.bucket, Key: item.externalId }),
+    )) as {
       Body?: { transformToByteArray(): Promise<Uint8Array> };
       ContentType?: string;
       LastModified?: Date;
     };
     if (!res.Body) throw new Error(`empty object body: ${item.externalId}`);
     const bytes = Buffer.from(await res.Body.transformToByteArray());
-    if (bytes.byteLength > byteCap(cfg)) throw new Error(`object over maxObjectBytes: ${item.externalId}`);
+    if (bytes.byteLength > byteCap(cfg))
+      throw new Error(`object over maxObjectBytes: ${item.externalId}`);
     const ext = extOf(item.externalId);
     const mediaType = MEDIA_TYPES_KNOWN.has(ext) ? mediaTypeOf(ext) : (res.ContentType ?? 'application/octet-stream');
     const occurredAt = res.LastModified?.toISOString() ?? item.modifiedAt;
     if (ctx.connection.shape === 'binary') {
       return { shape: 'binary', bytes, mediaType, modality: modalityOf(ext), occurredAt };
     }
-    if (looksBinary(bytes)) throw new Error(`binary content in a text-shaped item: ${item.externalId}`);
+    if (looksBinary(bytes))
+      throw new Error(`binary content in a text-shaped item: ${item.externalId}`);
     return {
       shape: 'document',
       text: bytes.toString('utf8'),
@@ -135,7 +144,11 @@ export class S3Connector implements Connector {
 
 type S3Object = { Key?: string; ETag?: string; Size?: number; LastModified?: Date };
 
-function admitObject(obj: S3Object, extensions: Set<string>, maxBytes: number): 'admit' | 'skip' | 'large' {
+function admitObject(
+  obj: S3Object,
+  extensions: Set<string>,
+  maxBytes: number,
+): 'admit' | 'skip' | 'large' {
   const key = obj.Key ?? '';
   if (!key || key.endsWith('/')) return 'skip';
   if (!extensions.has(extOf(key))) return 'skip';

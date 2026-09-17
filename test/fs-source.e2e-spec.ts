@@ -32,7 +32,13 @@ describe('fs source connector (e2e)', () => {
     await writeFile(join(root, 'README.md'), '# Vault\nThe vault documents the payments gateway.');
     await writeFile(join(root, 'docs', 'oncall.md'), 'On-call rotation: see docs/alerts.md.');
     await writeFile(join(root, 'docs', 'photo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-    for (const k of ['SOURCE_PLANE_ENABLED', 'SOURCE_KIND_FS', 'SOURCE_FS_ROOTS', 'DOCUMENT_INGEST_ENABLED', 'WORKER_LOOP_ENABLED']) {
+    for (const k of [
+      'SOURCE_PLANE_ENABLED',
+      'SOURCE_KIND_FS',
+      'SOURCE_FS_ROOTS',
+      'DOCUMENT_INGEST_ENABLED',
+      'WORKER_LOOP_ENABLED',
+    ]) {
       saved[k] = process.env[k];
     }
     process.env.WORKER_LOOP_ENABLED = '0';
@@ -72,7 +78,12 @@ describe('fs source connector (e2e)', () => {
     const outside = await f.http
       .post('/v1/admin/source-connections')
       .set(auth())
-      .send({ packId: 'file_memory', sourceId: 'folder', vertical: 'files', config: { root: '/etc' } });
+      .send({
+        packId: 'file_memory',
+        sourceId: 'folder',
+        vertical: 'files',
+        config: { root: '/etc' },
+      });
     // Creation succeeds (the jail is checked at sync time, where the root
     // is resolved); the sync then fails by name.
     expect(outside.status).toBe(201);
@@ -84,12 +95,20 @@ describe('fs source connector (e2e)', () => {
     expect(jailed.body.summary.error).toContain('outside SOURCE_FS_ROOTS');
     await f.http.delete(`/v1/admin/source-connections/${outside.body.id}`).set(auth());
 
-    const r = await f.http
-      .post('/v1/admin/source-connections')
-      .set(auth())
-      .send({ packId: 'file_memory', sourceId: 'folder', vertical: 'files', label: 'Vault', config: { root } });
+    const r = await f.http.post('/v1/admin/source-connections').set(auth()).send({
+      packId: 'file_memory',
+      sourceId: 'folder',
+      vertical: 'files',
+      label: 'Vault',
+      config: { root },
+    });
     expect(r.status).toBe(201);
-    expect(r.body).toMatchObject({ connector: 'fs', shape: 'document', contentPolicy: 'text', deletePolicy: 'close' });
+    expect(r.body).toMatchObject({
+      connector: 'fs',
+      shape: 'document',
+      contentPolicy: 'text',
+      deletePolicy: 'close',
+    });
     connectionId = r.body.id;
   });
 
@@ -98,11 +117,22 @@ describe('fs source connector (e2e)', () => {
       .post(`/v1/admin/source-connections/${connectionId}/sync`)
       .set(auth())
       .send({ inline: true });
-    expect(r.body.summary).toMatchObject({ mode: 'full', status: 'succeeded', seen: 2, new: 2, fetched: 2, ingested: 2, failed: 0 });
+    expect(r.body.summary).toMatchObject({
+      mode: 'full',
+      status: 'succeeded',
+      seen: 2,
+      new: 2,
+      fetched: 2,
+      ingested: 2,
+      failed: 0,
+    });
 
-    const docs = await rows<{ kind: string; originUri: string; title: string; meta: Record<string, unknown> }>(
-      `SELECT kind, originUri, title, meta FROM source_document WHERE kind = 'file'`,
-    );
+    const docs = await rows<{
+      kind: string;
+      originUri: string;
+      title: string;
+      meta: Record<string, unknown>;
+    }>(`SELECT kind, originUri, title, meta FROM source_document WHERE kind = 'file'`);
     expect(docs).toHaveLength(2);
     const readme = docs.find((d) => d.title === 'README.md')!;
     expect(readme.originUri).toMatch(/^file:\/\/.*\/vault\/README\.md$/);
@@ -120,18 +150,34 @@ describe('fs source connector (e2e)', () => {
     expect(facts.length).toBeGreaterThanOrEqual(2);
     expect(facts[0]!.source.sourceVersion).toMatchObject({ system: 'fs' });
 
-    const items = await f.http.get(`/v1/admin/source-connections/${connectionId}/items`).set(auth());
-    expect(items.body.items.map((i: { externalId: string }) => i.externalId).sort()).toEqual(['README.md', 'docs/oncall.md']);
+    const items = await f.http
+      .get(`/v1/admin/source-connections/${connectionId}/items`)
+      .set(auth());
+    expect(items.body.items.map((i: { externalId: string }) => i.externalId).sort()).toEqual([
+      'README.md',
+      'docs/oncall.md',
+    ]);
   });
 
   it('an edited file re-syncs alone; a deleted file goes gone and its facts close', async () => {
-    await writeFile(join(root, 'docs', 'oncall.md'), 'On-call rotation changed: see docs/alerts-v2.md.');
+    await writeFile(
+      join(root, 'docs', 'oncall.md'),
+      'On-call rotation changed: see docs/alerts-v2.md.',
+    );
     await utimes(join(root, 'docs', 'oncall.md'), new Date(), new Date(Date.now() + 5000));
     const edited = await f.http
       .post(`/v1/admin/source-connections/${connectionId}/sync`)
       .set(auth())
       .send({ inline: true });
-    expect(edited.body.summary).toMatchObject({ mode: 'full', seen: 2, changed: 1, unchanged: 1, fetched: 1, ingested: 1, gone: 0 });
+    expect(edited.body.summary).toMatchObject({
+      mode: 'full',
+      seen: 2,
+      changed: 1,
+      unchanged: 1,
+      fetched: 1,
+      ingested: 1,
+      gone: 0,
+    });
 
     await unlink(join(root, 'README.md'));
     const removed = await f.http
@@ -140,7 +186,9 @@ describe('fs source connector (e2e)', () => {
       .send({ inline: true });
     expect(removed.body.summary).toMatchObject({ seen: 1, unchanged: 1, gone: 1, fetched: 0 });
     expect(removed.body.summary.closed).toBeGreaterThanOrEqual(1);
-    const gone = await f.http.get(`/v1/admin/source-connections/${connectionId}/items?state=gone`).set(auth());
+    const gone = await f.http
+      .get(`/v1/admin/source-connections/${connectionId}/items?state=gone`)
+      .set(auth());
     expect(gone.body.items.map((i: { externalId: string }) => i.externalId)).toEqual(['README.md']);
     const closed = await rows<{ validUntil: unknown }>(
       `SELECT validUntil FROM knowledge_fact WHERE source.documentId = $docId`,
@@ -152,10 +200,12 @@ describe('fs source connector (e2e)', () => {
 
   it('the kind switch off: no new connection, and an existing one records a named failed sync', async () => {
     delete process.env.SOURCE_KIND_FS;
-    const refused = await f.http
-      .post('/v1/admin/source-connections')
-      .set(auth())
-      .send({ packId: 'file_memory', sourceId: 'folder_media', vertical: 'files', config: { root } });
+    const refused = await f.http.post('/v1/admin/source-connections').set(auth()).send({
+      packId: 'file_memory',
+      sourceId: 'folder_media',
+      vertical: 'files',
+      config: { root },
+    });
     expect(refused.status).toBe(400);
     expect(String(refused.body.message)).toContain('SOURCE_KIND_FS');
     const off = await f.http

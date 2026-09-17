@@ -107,11 +107,10 @@ export class SourceItemService {
       // so the resurrection clears goneAt inline.
       const { sets, vars } = setClauses({ ...descriptor, lastSeenAt: p.seenAt });
       if (wasGone) sets.push(`state = 'seen'`, `goneAt = NONE`);
-      const [updated] = await queryRows<SourceItemRow>(
-        db,
-        `UPDATE $id SET ${sets.join(', ')}`,
-        { id: existing.id, ...vars },
-      );
+      const [updated] = await queryRows<SourceItemRow>(db, `UPDATE $id SET ${sets.join(', ')}`, {
+        id: existing.id,
+        ...vars,
+      });
       return { row: updated ?? existing, isNew: false, changed };
     });
   }
@@ -199,7 +198,12 @@ export class SourceItemService {
 
   async list(
     companyId: string,
-    p: { connectionId: string; state?: SourceItem['state'] | undefined; limit: number; offset: number },
+    p: {
+      connectionId: string;
+      state?: SourceItem['state'] | undefined;
+      limit: number;
+      offset: number;
+    },
   ): Promise<{ items: SourceItem[]; total: number }> {
     return this.surreal.withCompany(companyId, async (db) => {
       const where = `connectionId = type::record('source_connection', $tail)${

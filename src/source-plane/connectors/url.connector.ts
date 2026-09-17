@@ -79,7 +79,8 @@ export class UrlConnector implements Connector {
     maxPages: DEFAULT_MAX_PAGES,
     sameHostOnly: true,
   };
-  readonly credentialHint = 'optional bearer token (config.authScheme: bearer | basic | header:<Name>)';
+  readonly credentialHint =
+    'optional bearer token (config.authScheme: bearer | basic | header:<Name>)';
 
   enabled(): boolean {
     return sourceKindEnabled('url');
@@ -87,7 +88,11 @@ export class UrlConnector implements Connector {
 
   async *enumerate(ctx: ConnectorCtx, _opts: EnumerateOptions): AsyncIterable<ItemDelta> {
     const cfg = configOf(ctx);
-    const fetchOpts = { allowPrivate: cfg.allowPrivate, signal: ctx.signal, headers: authHeaders(ctx, cfg) };
+    const fetchOpts = {
+      allowPrivate: cfg.allowPrivate,
+      signal: ctx.signal,
+      headers: authHeaders(ctx, cfg),
+    };
     const maxPages = cfg.maxPages ?? DEFAULT_MAX_PAGES;
     const seeds = await collectSeeds(cfg, fetchOpts, maxPages);
     const robots = new RobotsCache(fetchOpts, cfg.ignoreRobots === true);
@@ -110,7 +115,10 @@ export class UrlConnector implements Connector {
       };
       if (cfg.delayMs) await sleep(cfg.delayMs, ctx.signal);
     }
-    yield { type: 'checkpoint', checkpoint: { walkedAt: new Date().toISOString(), pages: emitted } };
+    yield {
+      type: 'checkpoint',
+      checkpoint: { walkedAt: new Date().toISOString(), pages: emitted },
+    };
   }
 
   async fetch(ctx: ConnectorCtx, item: ItemDescriptor): Promise<FetchedItem> {
@@ -121,7 +129,8 @@ export class UrlConnector implements Connector {
       headers: authHeaders(ctx, cfg),
       maxBytes: cfg.maxBytes,
     });
-    if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status} from ${item.externalId}`);
+    if (res.status < 200 || res.status >= 300)
+      throw new Error(`HTTP ${res.status} from ${item.externalId}`);
     const contentType = (res.headers.get('content-type') ?? '').toLowerCase();
     const lastModified = res.headers.get('last-modified');
     const occurredAt = isoOrUndefined(lastModified ?? undefined) ?? item.modifiedAt;
@@ -135,19 +144,37 @@ export class UrlConnector implements Connector {
     const text = res.body.toString('utf8');
     if (contentType.includes('text/html') || contentType.includes('application/xhtml')) {
       const { title, body } = htmlToText(text);
-      return { shape: 'document', text: body, title: title ?? item.title, occurredAt, kind: 'web_page' };
+      return {
+        shape: 'document',
+        text: body,
+        title: title ?? item.title,
+        occurredAt,
+        kind: 'web_page',
+      };
     }
-    if (contentType.startsWith('text/') || contentType.includes('json') || contentType.includes('xml')) {
+    if (
+      contentType.startsWith('text/') ||
+      contentType.includes('json') ||
+      contentType.includes('xml')
+    ) {
       return { shape: 'document', text, title: item.title, occurredAt, kind: 'web_page' };
     }
     throw new Error(`unsupported content-type "${contentType}" at ${item.externalId}`);
   }
 }
 
-type FetchOpts = { allowPrivate: boolean | undefined; signal: AbortSignal; headers: Record<string, string> };
+type FetchOpts = {
+  allowPrivate: boolean | undefined;
+  signal: AbortSignal;
+  headers: Record<string, string>;
+};
 
 /** The URLs named outright plus every sitemap's, deduped, same-host by default. */
-async function collectSeeds(cfg: UrlConnectorConfig, opts: FetchOpts, maxPages: number): Promise<Map<string, Seed>> {
+async function collectSeeds(
+  cfg: UrlConnectorConfig,
+  opts: FetchOpts,
+  maxPages: number,
+): Promise<Map<string, Seed>> {
   const seeds = new Map<string, Seed>();
   for (const u of cfg.urls ?? []) seeds.set(normalize(u), { url: normalize(u) });
   const hosts = new Set<string>([...seeds.keys()].map((u) => new URL(u).host));
@@ -174,7 +201,8 @@ function authHeaders(ctx: ConnectorCtx, cfg: UrlConnectorConfig): Record<string,
   const credential = ctx.connection.credential;
   if (!credential) return {};
   const scheme = cfg.authScheme ?? 'bearer';
-  if (scheme === 'basic') return { authorization: `Basic ${Buffer.from(credential).toString('base64')}` };
+  if (scheme === 'basic')
+    return { authorization: `Basic ${Buffer.from(credential).toString('base64')}` };
   if (scheme.startsWith('header:')) return { [scheme.slice('header:'.length)]: credential };
   return { authorization: `Bearer ${credential}` };
 }
@@ -188,7 +216,8 @@ function normalize(u: string): string {
 /** `<loc>` entries of a sitemap or (one level of) a sitemap index. */
 async function readSitemap(url: string, opts: FetchOpts, depth: number): Promise<Seed[]> {
   const res = await safeFetch(url, opts);
-  if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status} from sitemap ${url}`);
+  if (res.status < 200 || res.status >= 300)
+    throw new Error(`HTTP ${res.status} from sitemap ${url}`);
   const xml = res.body.toString('utf8');
   const out: Seed[] = [];
   if (/<sitemapindex[\s>]/i.test(xml)) {
@@ -227,7 +256,11 @@ export function locs(xml: string): Array<{ loc: string; lastmod?: string | undef
   return out;
 }
 
-async function serverRevision(url: string, opts: FetchOpts, cfg: UrlConnectorConfig): Promise<string> {
+async function serverRevision(
+  url: string,
+  opts: FetchOpts,
+  cfg: UrlConnectorConfig,
+): Promise<string> {
   try {
     const head = await safeFetch(url, { ...opts, method: 'HEAD', maxBytes: 1 });
     const etag = head.headers.get('etag');
@@ -253,9 +286,13 @@ function isoOrUndefined(v: string | undefined): string | undefined {
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     const t = setTimeout(resolve, ms);
-    signal.addEventListener('abort', () => {
-      clearTimeout(t);
-      resolve();
-    }, { once: true });
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(t);
+        resolve();
+      },
+      { once: true },
+    );
   });
 }

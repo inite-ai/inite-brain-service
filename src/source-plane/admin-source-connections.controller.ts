@@ -103,7 +103,10 @@ export class AdminSourceConnectionsController {
 
   @Delete(':id')
   @RequireScopes('brain:admin')
-  async remove(@Req() req: AuthenticatedRequest, @Param('id') id: string): Promise<{ deleted: true; items: number }> {
+  async remove(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ): Promise<{ deleted: true; items: number }> {
     assertEnabled();
     const { items } = await this.connections.remove(req.brainAuth.companyId, assertId(id));
     return { deleted: true, items };
@@ -150,7 +153,9 @@ export class AdminSourceConnectionsController {
     // Existence + tenancy check before anything is enqueued.
     await this.connections.get(req.brainAuth.companyId, connectionId);
     if (dto.inline === true) {
-      const summary = await this.sync.sync(req.brainAuth.companyId, connectionId, { full: dto.full });
+      const summary = await this.sync.sync(req.brainAuth.companyId, connectionId, {
+        full: dto.full,
+      });
       return { enqueued: false, summary };
     }
     const r = await this.queue.enqueue(req.brainAuth.companyId, {
@@ -159,7 +164,9 @@ export class AdminSourceConnectionsController {
       triggeredBy: 'manual',
     });
     if (!r) {
-      const summary = await this.sync.sync(req.brainAuth.companyId, connectionId, { full: dto.full });
+      const summary = await this.sync.sync(req.brainAuth.companyId, connectionId, {
+        full: dto.full,
+      });
       return { enqueued: false, summary };
     }
     return { enqueued: true, runId: r.runId, created: r.created };

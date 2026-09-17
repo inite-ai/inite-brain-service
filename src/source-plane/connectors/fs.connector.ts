@@ -65,8 +65,19 @@ export const FS_TEXT_EXTENSIONS = TEXT_EXTENSIONS;
 export const FS_BINARY_EXTENSIONS = BINARY_EXTENSIONS;
 
 const DEFAULT_EXCLUDE_DIRS = [
-  '.git', 'node_modules', 'dist', 'build', 'target', '.venv', 'venv', '__pycache__',
-  '.cache', '.next', '.idea', '.vscode', 'coverage',
+  '.git',
+  'node_modules',
+  'dist',
+  'build',
+  'target',
+  '.venv',
+  'venv',
+  '__pycache__',
+  '.cache',
+  '.next',
+  '.idea',
+  '.vscode',
+  'coverage',
 ];
 const DEFAULT_MAX_FILES = 20_000;
 const DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -298,4 +309,3 @@ export function looksBinary(bytes: Buffer): boolean {
   const head = bytes.subarray(0, 8192);
   return head.includes(0);
 }
-
