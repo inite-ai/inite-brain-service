@@ -21,7 +21,10 @@ import type {
   ItemDelta,
   ItemDescriptor,
 } from '../src/source-plane/connector';
-import type { SourceConnectionRow, SourceConnectionService } from '../src/source-plane/source-connection.service';
+import type {
+  SourceConnectionRow,
+  SourceConnectionService,
+} from '../src/source-plane/source-connection.service';
 import type { SourceItemEffectsService } from '../src/source-plane/source-item-effects.service';
 import type { SourceItemRow, SourceItemService } from '../src/source-plane/source-item.service';
 import { SourceSyncService } from '../src/source-plane/source-sync.service';
@@ -82,7 +85,10 @@ class MemoryCatalogue {
   rows = new Map<string, SourceItemRow>();
   private seq = 0;
 
-  async upsertSeen(_c: string, p: { connectionId: string; userId: string | null; item: ItemDescriptor; seenAt: Date }) {
+  async upsertSeen(
+    _c: string,
+    p: { connectionId: string; userId: string | null; item: ItemDescriptor; seenAt: Date },
+  ) {
     const existing = this.rows.get(p.item.externalId);
     if (!existing) {
       const row: SourceItemRow = {
@@ -98,7 +104,8 @@ class MemoryCatalogue {
       return { row, isNew: true, changed: true };
     }
     const wasGone = existing.state === 'gone';
-    const revisionMoved = p.item.revision !== undefined && p.item.revision !== (existing.fetchedRevision ?? null);
+    const revisionMoved =
+      p.item.revision !== undefined && p.item.revision !== (existing.fetchedRevision ?? null);
     const neverFetched = existing.fetchedRevision == null && existing.state === 'seen';
     existing.revision = p.item.revision ?? null;
     existing.lastSeenAt = p.seenAt;
@@ -109,7 +116,10 @@ class MemoryCatalogue {
     return { row: existing, isNew: false, changed: wasGone || revisionMoved || neverFetched };
   }
 
-  async markIndexed(_c: string, p: { itemId: string; revision: string | null; documentId?: string }) {
+  async markIndexed(
+    _c: string,
+    p: { itemId: string; revision: string | null; documentId?: string },
+  ) {
     const row = [...this.rows.values()].find((r) => r.id === p.itemId)!;
     row.state = 'indexed';
     row.fetchedRevision = p.revision;
@@ -143,7 +153,9 @@ class MemoryCatalogue {
   }
 }
 
-function harness(opts: { row?: Partial<SourceConnectionRow>; source?: MemorySource; registered?: boolean } = {}) {
+function harness(
+  opts: { row?: Partial<SourceConnectionRow>; source?: MemorySource; registered?: boolean } = {},
+) {
   const source = opts.source ?? new MemorySource();
   const row = connectionRow(opts.row);
   const catalogue = new MemoryCatalogue();
@@ -177,7 +189,10 @@ function harness(opts: { row?: Partial<SourceConnectionRow>; source?: MemorySour
   const effects = {
     fetchAndIngest: async (p: { connector: Connector; ctx: ConnectorCtx; row: SourceItemRow }) => {
       try {
-        await p.connector.fetch(p.ctx, { externalId: p.row.externalId, revision: p.row.revision ?? undefined });
+        await p.connector.fetch(p.ctx, {
+          externalId: p.row.externalId,
+          revision: p.row.revision ?? undefined,
+        });
         await catalogue.markIndexed('co', {
           itemId: String(p.row.id),
           revision: p.row.revision ?? null,
@@ -195,7 +210,11 @@ function harness(opts: { row?: Partial<SourceConnectionRow>; source?: MemorySour
       return rows.filter((r) => r.documentId).length;
     },
   } as unknown as SourceItemEffectsService;
-  const svc = new SourceSyncService(connections, catalogue as unknown as SourceItemService, effects);
+  const svc = new SourceSyncService(
+    connections,
+    catalogue as unknown as SourceItemService,
+    effects,
+  );
   return {
     svc,
     source,
@@ -243,13 +262,35 @@ describe('SourceSyncService', () => {
     h.source.items.set('b', { externalId: 'b', revision: 'r1' });
     const first = await h.run();
     expect(first.mode).toBe('full');
-    expect(counts(first)).toEqual({ status: 'succeeded', seen: 2, new: 2, changed: 0, unchanged: 0, gone: 0, fetched: 2, ingested: 2, failed: 0, closed: 0 });
+    expect(counts(first)).toEqual({
+      status: 'succeeded',
+      seen: 2,
+      new: 2,
+      changed: 0,
+      unchanged: 0,
+      gone: 0,
+      fetched: 2,
+      ingested: 2,
+      failed: 0,
+      closed: 0,
+    });
     expect(h.source.fetches).toEqual(['a', 'b']);
     expect([...h.catalogue.rows.values()].map((r) => r.state)).toEqual(['indexed', 'indexed']);
 
     const second = await h.run();
     expect(second.mode).toBe('incremental');
-    expect(counts(second)).toEqual({ status: 'succeeded', seen: 2, new: 0, changed: 0, unchanged: 2, gone: 0, fetched: 0, ingested: 0, failed: 0, closed: 0 });
+    expect(counts(second)).toEqual({
+      status: 'succeeded',
+      seen: 2,
+      new: 0,
+      changed: 0,
+      unchanged: 2,
+      gone: 0,
+      fetched: 0,
+      ingested: 0,
+      failed: 0,
+      closed: 0,
+    });
     expect(h.source.fetches).toHaveLength(2);
   });
 
@@ -357,7 +398,9 @@ describe('SourceSyncService', () => {
       yield { type: 'upsert', item: { externalId: 'a', revision: 'r1' } } as ItemDelta;
       throw new Error('token expired');
     };
-    (h.svc as unknown as { connections: { resolveConnector: () => Connector } }).connections.resolveConnector = () => broken;
+    (
+      h.svc as unknown as { connections: { resolveConnector: () => Connector } }
+    ).connections.resolveConnector = () => broken;
     const s = await h.run();
     expect(s.status).toBe('failed');
     expect(s.error).toBe('token expired');

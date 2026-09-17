@@ -48,7 +48,11 @@ export class SourceGonePolicyService {
     return closed;
   }
 
-  private async closeDocumentFacts(companyId: string, documentId: string, at: Date): Promise<number> {
+  private async closeDocumentFacts(
+    companyId: string,
+    documentId: string,
+    at: Date,
+  ): Promise<number> {
     return this.surreal.withCompany(companyId, async (db) => {
       const docId = `source_document:${idTailOf(documentId)}`;
       let total = 0;

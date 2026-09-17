@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import {
   BUILTIN_PACKS,
@@ -238,10 +244,9 @@ export class SourceConnectionService {
     await this.load(companyId, connectionId);
     const tail = idTailOf(connectionId);
     return this.surreal.withCompany(companyId, async (db) => {
-      await db.query(
-        `UPDATE type::record('source_connection', $tail) SET status = 'deleting'`,
-        { tail },
-      );
+      await db.query(`UPDATE type::record('source_connection', $tail) SET status = 'deleting'`, {
+        tail,
+      });
       let items = 0;
       for (;;) {
         const ids = await queryRows<{ id: unknown }>(
