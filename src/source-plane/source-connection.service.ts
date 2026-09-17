@@ -166,7 +166,10 @@ export class SourceConnectionService {
   /** Every connection row of the tenant, newest first (credential included — engine reads only). */
   async listRows(companyId: string): Promise<SourceConnectionRow[]> {
     return this.surreal.withCompany(companyId, (db) =>
-      queryRows<SourceConnectionRow>(db, `SELECT * FROM source_connection ORDER BY createdAt DESC LIMIT 1000`),
+      queryRows<SourceConnectionRow>(
+        db,
+        `SELECT * FROM source_connection ORDER BY createdAt DESC LIMIT 1000`,
+      ),
     );
   }
 
@@ -344,7 +347,8 @@ export class SourceConnectionService {
     // An agent-host connection runs its connector on the agent: the
     // server needs no installed connector for it, only the bookkeeping.
     const serverRun =
-      host === 'server' && (entry.kind === 'native' || (entry.kind === 'mcp' && entry.transport === 'http'));
+      host === 'server' &&
+      (entry.kind === 'native' || (entry.kind === 'mcp' && entry.transport === 'http'));
     if (serverRun) {
       const state = connectorState(this.connectors ?? [], connector);
       if (typeof state === 'string') {

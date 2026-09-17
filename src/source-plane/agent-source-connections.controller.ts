@@ -1,4 +1,14 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import type { ZodType } from 'zod';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
@@ -57,7 +67,11 @@ export class AgentSourceConnectionsController {
     @Param('id') id: string,
     @Body() body: unknown,
   ): Promise<BeginAgentRunResponse> {
-    return this.runs.begin(req.brainAuth.companyId, assertId(id), parseBody(BeginAgentRunRequestSchema, body ?? {}));
+    return this.runs.begin(
+      req.brainAuth.companyId,
+      assertId(id),
+      parseBody(BeginAgentRunRequestSchema, body ?? {}),
+    );
   }
 
   // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Param/@Body binding, cannot be folded into an options object without breaking Nest param resolution
@@ -70,7 +84,11 @@ export class AgentSourceConnectionsController {
     @Body() body: unknown,
   ): Promise<AgentDeltasResponse> {
     const { deltas } = parseBody(AgentDeltasRequestSchema, body);
-    return this.runs.deltas(req.brainAuth.companyId, { connectionId: assertId(id), runId: assertRunId(runId), deltas });
+    return this.runs.deltas(req.brainAuth.companyId, {
+      connectionId: assertId(id),
+      runId: assertRunId(runId),
+      deltas,
+    });
   }
 
   // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Param/@Body binding, cannot be folded into an options object without breaking Nest param resolution
@@ -89,7 +107,9 @@ export class AgentSourceConnectionsController {
       externalId,
       item,
     });
-    return out.error === undefined ? { status: out.status } : { status: out.status, error: out.error };
+    return out.error === undefined
+      ? { status: out.status }
+      : { status: out.status, error: out.error };
   }
 
   // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Param/@Body binding, cannot be folded into an options object without breaking Nest param resolution

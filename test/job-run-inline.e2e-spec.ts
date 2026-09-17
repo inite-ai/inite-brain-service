@@ -31,7 +31,12 @@ describe('job_run inline lifecycle (e2e)', () => {
   it('start persists the row (with and without progress / actor); progress and finish land', async () => {
     const bare = await jobs.start({ jobType: 'dreams', companyId: COMPANY, triggeredBy: 'manual' });
     const bareRow = await jobs.get(bare.runId, COMPANY);
-    expect(bareRow).toMatchObject({ runId: bare.runId, jobType: 'dreams', status: 'running', triggeredByActor: null });
+    expect(bareRow).toMatchObject({
+      runId: bare.runId,
+      jobType: 'dreams',
+      status: 'running',
+      triggeredByActor: null,
+    });
     expect(bareRow?.progress ?? null).toBeNull();
 
     const rich = await jobs.start({
@@ -39,7 +44,11 @@ describe('job_run inline lifecycle (e2e)', () => {
       companyId: COMPANY,
       triggeredBy: 'manual',
       triggeredByActor: 'agent:laptop',
-      initialProgress: { connectionId: 'source_connection:x', counters: { seen: 0 }, checkpoint: null },
+      initialProgress: {
+        connectionId: 'source_connection:x',
+        counters: { seen: 0 },
+        checkpoint: null,
+      },
     });
     expect(await jobs.get(rich.runId, COMPANY)).toMatchObject({
       triggeredByActor: 'agent:laptop',
@@ -47,7 +56,9 @@ describe('job_run inline lifecycle (e2e)', () => {
     });
 
     await jobs.updateProgress(rich, { counters: { seen: 3 } });
-    expect((await jobs.get(rich.runId, COMPANY))?.progress).toMatchObject({ counters: { seen: 3 } });
+    expect((await jobs.get(rich.runId, COMPANY))?.progress).toMatchObject({
+      counters: { seen: 3 },
+    });
 
     await jobs.finish(rich, { status: 'succeeded', result: { ingested: 3 } });
     const done = await jobs.get(rich.runId, COMPANY);
@@ -55,7 +66,10 @@ describe('job_run inline lifecycle (e2e)', () => {
     expect(done?.finishedAt).toMatch(/^\d{4}-/);
 
     await jobs.finish(bare, { status: 'failed', error: { message: 'boom' } });
-    expect(await jobs.get(bare.runId, COMPANY)).toMatchObject({ status: 'failed', error: { message: 'boom' } });
+    expect(await jobs.get(bare.runId, COMPANY)).toMatchObject({
+      status: 'failed',
+      error: { message: 'boom' },
+    });
 
     // The admin list sees both, newest first.
     const listed = await f.http.get('/v1/admin/jobs').set({ Authorization: `Bearer ${f.apiKey}` });

@@ -31,7 +31,13 @@ describe('brain-agent (e2e)', () => {
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
 
   beforeAll(async () => {
-    for (const k of ['SOURCE_PLANE_ENABLED', 'DOCUMENT_INGEST_ENABLED', 'WORKER_LOOP_ENABLED', 'SOURCE_KIND_FS']) saved[k] = process.env[k];
+    for (const k of [
+      'SOURCE_PLANE_ENABLED',
+      'DOCUMENT_INGEST_ENABLED',
+      'WORKER_LOOP_ENABLED',
+      'SOURCE_KIND_FS',
+    ])
+      saved[k] = process.env[k];
     process.env.WORKER_LOOP_ENABLED = '0';
     process.env.SOURCE_PLANE_ENABLED = '1';
     process.env.DOCUMENT_INGEST_ENABLED = '1';
@@ -42,20 +48,38 @@ describe('brain-agent (e2e)', () => {
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
     root = await mkdtemp(join(tmpdir(), 'brain-agent-e2e-'));
-    await writeFile(join(root, 'README.md'), '# Acme\nAcme Robotics was founded in 2019 in Tallinn.');
+    await writeFile(
+      join(root, 'README.md'),
+      '# Acme\nAcme Robotics was founded in 2019 in Tallinn.',
+    );
     await writeFile(join(root, 'vendors.md'), 'Preferred vendor for motors: Nidec.');
-    await writeFile(join(root, 'ops.md'), 'Deploy key: ghp_abcdefghijklmnopqrstuvwxyz0123456789ABCD rotates monthly.');
+    await writeFile(
+      join(root, 'ops.md'),
+      'Deploy key: ghp_abcdefghijklmnopqrstuvwxyz0123456789ABCD rotates monthly.',
+    );
 
-    const install = await f.http.post('/v1/admin/packs').set(auth()).send({
-      manifest: JSON.parse(readFileSync(join(__dirname, '..', 'packs', 'file-memory.pack.json'), 'utf8')),
-      acceptSources: true,
-      acceptModalities: true,
-    });
+    const install = await f.http
+      .post('/v1/admin/packs')
+      .set(auth())
+      .send({
+        manifest: JSON.parse(
+          readFileSync(join(__dirname, '..', 'packs', 'file-memory.pack.json'), 'utf8'),
+        ),
+        acceptSources: true,
+        acceptModalities: true,
+      });
     expect([200, 201]).toContain(install.status);
     const created = await f.http
       .post('/v1/admin/source-connections')
       .set(auth())
-      .send({ packId: 'file_memory', sourceId: 'folder', vertical: 'files', label: 'Laptop notes', host: `agent:${AGENT}`, config: { root } });
+      .send({
+        packId: 'file_memory',
+        sourceId: 'folder',
+        vertical: 'files',
+        label: 'Laptop notes',
+        host: `agent:${AGENT}`,
+        config: { root },
+      });
     expect(created.status).toBe(201);
     connectionId = created.body.id;
   }, 120_000);
@@ -70,7 +94,7 @@ describe('brain-agent (e2e)', () => {
   });
 
   const agent = () => new BrainAgentClient({ baseUrl, apiKey: f.apiKey });
-  const rows = async <T,>(sql: string, vars: Record<string, unknown> = {}): Promise<T[]> => {
+  const rows = async <T>(sql: string, vars: Record<string, unknown> = {}): Promise<T[]> => {
     const surreal = f.app.get(SurrealService);
     return surreal.withCompany(COMPANY, async (db) => {
       const [out] = await db.query<[T[]]>(sql, vars);
@@ -85,16 +109,41 @@ describe('brain-agent (e2e)', () => {
     expect(target.source).toMatchObject({ id: 'folder', connector: 'fs' });
     const connector = connectorFor([new FsAgentConnector()], target);
     const summary = await runConnection(agent(), connector, target, { agentId: AGENT });
-    expect(summary).toMatchObject({ mode: 'full', status: 'succeeded', seen: 3, new: 3, fetched: 3, ingested: 3, failed: 0 });
+    expect(summary).toMatchObject({
+      mode: 'full',
+      status: 'succeeded',
+      seen: 3,
+      new: 3,
+      fetched: 3,
+      ingested: 3,
+      failed: 0,
+    });
 
-    const items = await f.http.get(`/v1/admin/source-connections/${connectionId}/items`).set(auth());
-    expect(items.body.items.map((i: { externalId: string; state: string }) => [i.externalId, i.state]).sort()).toEqual([
-      ['README.md', 'indexed'], ['ops.md', 'indexed'], ['vendors.md', 'indexed'],
+    const items = await f.http
+      .get(`/v1/admin/source-connections/${connectionId}/items`)
+      .set(auth());
+    expect(
+      items.body.items
+        .map((i: { externalId: string; state: string }) => [i.externalId, i.state])
+        .sort(),
+    ).toEqual([
+      ['README.md', 'indexed'],
+      ['ops.md', 'indexed'],
+      ['vendors.md', 'indexed'],
     ]);
-    const docs = await rows<{ id: unknown; originUri: string }>(`SELECT id, originUri FROM source_document WHERE kind = 'file'`);
-    expect(docs.map((d) => d.originUri).sort()).toEqual([`file://${join(root, 'README.md')}`, `file://${join(root, 'ops.md')}`, `file://${join(root, 'vendors.md')}`]);
+    const docs = await rows<{ id: unknown; originUri: string }>(
+      `SELECT id, originUri FROM source_document WHERE kind = 'file'`,
+    );
+    expect(docs.map((d) => d.originUri).sort()).toEqual([
+      `file://${join(root, 'README.md')}`,
+      `file://${join(root, 'ops.md')}`,
+      `file://${join(root, 'vendors.md')}`,
+    ]);
     const ops = docs.find((d) => d.originUri.endsWith('ops.md'))!;
-    const chunks = await rows<{ text: string }>(`SELECT text FROM source_chunk WHERE docId = $doc`, { doc: ops.id });
+    const chunks = await rows<{ text: string }>(
+      `SELECT text FROM source_chunk WHERE docId = $doc`,
+      { doc: ops.id },
+    );
     const stored = chunks.map((c) => c.text).join('');
     expect(stored).not.toContain('ghp_');
     expect(stored).toContain('[redacted:github_token]');
@@ -107,15 +156,32 @@ describe('brain-agent (e2e)', () => {
   });
 
   it('second run after an edit and a delete: one fetched, one closed', async () => {
-    await writeFile(join(root, 'README.md'), '# Acme\nAcme Robotics was founded in 2019 in Tallinn. The CTO is Maria Lind.');
+    await writeFile(
+      join(root, 'README.md'),
+      '# Acme\nAcme Robotics was founded in 2019 in Tallinn. The CTO is Maria Lind.',
+    );
     await utimes(join(root, 'README.md'), new Date(Date.now() + 5000), new Date(Date.now() + 5000));
     await unlink(join(root, 'vendors.md'));
     const [target] = await agent().listConnections(AGENT);
-    const summary = await runConnection(agent(), new FsAgentConnector(), target!, { agentId: AGENT });
-    expect(summary).toMatchObject({ status: 'succeeded', seen: 2, changed: 1, unchanged: 1, gone: 1, fetched: 1, ingested: 1 });
+    const summary = await runConnection(agent(), new FsAgentConnector(), target!, {
+      agentId: AGENT,
+    });
+    expect(summary).toMatchObject({
+      status: 'succeeded',
+      seen: 2,
+      changed: 1,
+      unchanged: 1,
+      gone: 1,
+      fetched: 1,
+      ingested: 1,
+    });
     expect(summary.closed).toBeGreaterThanOrEqual(1);
-    const gone = await f.http.get(`/v1/admin/source-connections/${connectionId}/items?state=gone`).set(auth());
-    expect(gone.body.items.map((i: { externalId: string }) => i.externalId)).toEqual(['vendors.md']);
+    const gone = await f.http
+      .get(`/v1/admin/source-connections/${connectionId}/items?state=gone`)
+      .set(auth());
+    expect(gone.body.items.map((i: { externalId: string }) => i.externalId)).toEqual([
+      'vendors.md',
+    ]);
     const conn = await f.http.get(`/v1/admin/source-connections/${connectionId}`).set(auth());
     expect(conn.body).toMatchObject({ lastSyncStatus: 'succeeded' });
     expect(conn.body.checkpoint).toMatchObject({ files: 2 });

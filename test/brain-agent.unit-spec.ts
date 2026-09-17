@@ -58,7 +58,10 @@ async function walk(c: AgentConnector, x: ConnectorCtx): Promise<ItemDelta[]> {
   return out;
 }
 const ids = (deltas: ItemDelta[]) =>
-  deltas.filter((d): d is Extract<ItemDelta, { type: 'upsert' }> => d.type === 'upsert').map((d) => d.item.externalId).sort();
+  deltas
+    .filter((d): d is Extract<ItemDelta, { type: 'upsert' }> => d.type === 'upsert')
+    .map((d) => d.item.externalId)
+    .sort();
 
 describe('redactSecrets', () => {
   it('replaces credentials by kind and keeps everything else', () => {
@@ -101,7 +104,11 @@ describe('FsAgentConnector', () => {
     await writeFile(join(root, 'big.md'), 'x'.repeat(5000));
     await writeFile(join(base, 'outside', 'leak.md'), 'leak');
     await symlink(join(base, 'outside', 'leak.md'), join(root, 'link.md'));
-    await utimes(join(root, 'README.md'), new Date('2026-09-01T00:00:00Z'), new Date('2026-09-01T00:00:00Z'));
+    await utimes(
+      join(root, 'README.md'),
+      new Date('2026-09-01T00:00:00Z'),
+      new Date('2026-09-01T00:00:00Z'),
+    );
   });
   afterAll(async () => {
     await rm(base, { recursive: true, force: true });
@@ -112,24 +119,45 @@ describe('FsAgentConnector', () => {
     const x = ctx(connection({ config: { root, maxFileBytes: 4000 } }));
     const deltas = await walk(c, x);
     expect(ids(deltas)).toEqual(['README.md', 'docs/bin.md', 'docs/plan.md']);
-    const readme = deltas.find((d) => d.type === 'upsert' && d.item.externalId === 'README.md') as Extract<ItemDelta, { type: 'upsert' }>;
-    expect(readme.item).toMatchObject({ mediaType: 'text/markdown', revision: `${Date.UTC(2026, 8, 1)}:7`, originUri: `file://${join(root, 'README.md')}` });
+    const readme = deltas.find(
+      (d) => d.type === 'upsert' && d.item.externalId === 'README.md',
+    ) as Extract<ItemDelta, { type: 'upsert' }>;
+    expect(readme.item).toMatchObject({
+      mediaType: 'text/markdown',
+      revision: `${Date.UTC(2026, 8, 1)}:7`,
+      originUri: `file://${join(root, 'README.md')}`,
+    });
     expect(deltas.at(-1)).toMatchObject({ type: 'checkpoint', checkpoint: { files: 3 } });
-    expect(await c.fetch(x, { externalId: 'docs/plan.md' })).toMatchObject({ shape: 'document', text: 'plan', title: 'plan.md', kind: 'file' });
+    expect(await c.fetch(x, { externalId: 'docs/plan.md' })).toMatchObject({
+      shape: 'document',
+      text: 'plan',
+      title: 'plan.md',
+      kind: 'file',
+    });
     await expect(c.fetch(x, { externalId: 'docs/bin.md' })).rejects.toThrow('binary content');
-    await expect(c.fetch(x, { externalId: '../outside/leak.md' })).rejects.toThrow('escapes the root');
+    await expect(c.fetch(x, { externalId: '../outside/leak.md' })).rejects.toThrow(
+      'escapes the root',
+    );
     await expect(c.fetch(x, { externalId: 'link.md' })).rejects.toThrow('not a regular file');
 
     const bin = ctx(connection({ shape: 'binary', config: { root } }));
     expect(ids(await walk(c, bin))).toEqual(['docs/scan.pdf']);
     const pdf = await c.fetch(bin, { externalId: 'docs/scan.pdf' });
-    expect(pdf).toMatchObject({ shape: 'binary', mediaType: 'application/pdf', modality: 'document' });
-    expect(Buffer.from((pdf as { bytesBase64: string }).bytesBase64, 'base64').toString()).toBe('%PDF-1.4');
+    expect(pdf).toMatchObject({
+      shape: 'binary',
+      mediaType: 'application/pdf',
+      modality: 'document',
+    });
+    expect(Buffer.from((pdf as { bytesBase64: string }).bytesBase64, 'base64').toString()).toBe(
+      '%PDF-1.4',
+    );
   });
 
   it('BRAIN_AGENT_ROOTS fences the root when set', async () => {
     const fenced = new FsAgentConnector([join(base, 'outside')]);
-    await expect(walk(fenced, ctx(connection({ config: { root } })))).rejects.toThrow('outside BRAIN_AGENT_ROOTS');
+    await expect(walk(fenced, ctx(connection({ config: { root } })))).rejects.toThrow(
+      'outside BRAIN_AGENT_ROOTS',
+    );
     const open = new FsAgentConnector([base]);
     expect(ids(await walk(open, ctx(connection({ config: { root } }))))).toHaveLength(4);
     expect(() => containedPath('/r', '../x')).toThrow('escapes');
@@ -150,7 +178,15 @@ describe('GitAgentConnector', () => {
     const g = (...args: string[]) =>
       execFileSync('git', ['-C', repo, ...args], {
         stdio: 'ignore',
-        env: { ...process.env, GIT_AUTHOR_NAME: 'a', GIT_AUTHOR_EMAIL: 'a@x', GIT_COMMITTER_NAME: 'a', GIT_COMMITTER_EMAIL: 'a@x', GIT_AUTHOR_DATE: '2026-03-01T10:00:00Z', GIT_COMMITTER_DATE: '2026-03-01T10:00:00Z' },
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: 'a',
+          GIT_AUTHOR_EMAIL: 'a@x',
+          GIT_COMMITTER_NAME: 'a',
+          GIT_COMMITTER_EMAIL: 'a@x',
+          GIT_AUTHOR_DATE: '2026-03-01T10:00:00Z',
+          GIT_COMMITTER_DATE: '2026-03-01T10:00:00Z',
+        },
       });
     g('init', '-q', '-b', 'main');
     await mkdir(join(repo, 'docs', 'adr'), { recursive: true });
@@ -172,12 +208,20 @@ describe('GitAgentConnector', () => {
     const x = ctx(connection({ connector: 'git', config: { repo } }));
     const deltas = await walk(c, x);
     expect(ids(deltas)).toEqual(['README.md', 'docs/adr/0001-surreal.md']);
-    const readme = deltas.find((d) => d.type === 'upsert' && d.item.externalId === 'README.md') as Extract<ItemDelta, { type: 'upsert' }>;
+    const readme = deltas.find(
+      (d) => d.type === 'upsert' && d.item.externalId === 'README.md',
+    ) as Extract<ItemDelta, { type: 'upsert' }>;
     expect(readme.item.revision).toMatch(/^[0-9a-f]{40}$/);
     expect(readme.item.originUri).toBe('https://github.com/acme/repo#README.md');
     expect(deltas.at(-1)).toMatchObject({ type: 'checkpoint', checkpoint: { files: 2 } });
     const doc = await c.fetch(x, { externalId: 'README.md', revision: readme.item.revision });
-    expect(doc).toMatchObject({ shape: 'document', text: '# Repo\nAcme was founded in 2019.', title: 'README.md', kind: 'repo_doc', occurredAt: '2026-03-01T10:00:00.000Z' });
+    expect(doc).toMatchObject({
+      shape: 'document',
+      text: '# Repo\nAcme was founded in 2019.',
+      title: 'README.md',
+      kind: 'repo_doc',
+      occurredAt: '2026-03-01T10:00:00.000Z',
+    });
     await expect(c.fetch(x, { externalId: 'README.md' })).rejects.toThrow('no blob sha');
     // include narrows by prefix.
     const narrowed = ctx(connection({ connector: 'git', config: { repo, include: ['docs/'] } }));
@@ -186,7 +230,9 @@ describe('GitAgentConnector', () => {
 
   it('normalises remotes without leaking credentials', () => {
     expect(normaliseRemote('git@github.com:acme/repo.git')).toBe('git://github.com/acme/repo');
-    expect(normaliseRemote('https://user:pw@gitlab.example/g/r.git')).toBe('https://gitlab.example/g/r');
+    expect(normaliseRemote('https://user:pw@gitlab.example/g/r.git')).toBe(
+      'https://gitlab.example/g/r',
+    );
     expect(normaliseRemote('ssh://git@host:2222/x/y.git')).toBe('ssh://host:2222/x/y');
   });
 });
@@ -197,7 +243,12 @@ class FakeBrain {
   changed = new Set<string>();
   finished: unknown = null;
   items = new Map<string, FetchedItem>();
-  begun = { full: true, checkpoint: null as Record<string, unknown> | null, contentPolicy: 'text' as const, fetchBudget: null as number | null };
+  begun = {
+    full: true,
+    checkpoint: null as Record<string, unknown> | null,
+    contentPolicy: 'text' as const,
+    fetchBudget: null as number | null,
+  };
   client(): BrainAgentClient {
     return new BrainAgentClient({
       baseUrl: 'http://brain.test',
@@ -205,12 +256,28 @@ class FakeBrain {
       fetch: async (url, init) => {
         this.calls.push(`${init.method} ${url.replace('http://brain.test', '')}`);
         const body = init.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
-        const json = (v: unknown, status = 201) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json' } });
+        const json = (v: unknown, status = 201) =>
+          new Response(JSON.stringify(v), {
+            status,
+            headers: { 'content-type': 'application/json' },
+          });
         if (url.endsWith('/agent-runs')) return json({ runId: 'run-1', ...this.begun });
         if (url.endsWith('/deltas')) {
           const ds = body.deltas as ItemDelta[];
-          const fetch = ds.filter((d): d is Extract<ItemDelta, { type: 'upsert' }> => d.type === 'upsert' && this.changed.has(d.item.externalId)).map((d) => d.item.externalId);
-          return json({ fetch, seen: ds.length, new: 0, changed: fetch.length, unchanged: 0, gone: 0 });
+          const fetch = ds
+            .filter(
+              (d): d is Extract<ItemDelta, { type: 'upsert' }> =>
+                d.type === 'upsert' && this.changed.has(d.item.externalId),
+            )
+            .map((d) => d.item.externalId);
+          return json({
+            fetch,
+            seen: ds.length,
+            new: 0,
+            changed: fetch.length,
+            unchanged: 0,
+            gone: 0,
+          });
         }
         if (url.endsWith('/items')) {
           this.items.set(body.externalId as string, body.item as FetchedItem);
@@ -218,7 +285,23 @@ class FakeBrain {
         }
         if (url.endsWith('/finish')) {
           this.finished = body;
-          return json({ connectionId: 'source_connection:a1', mode: 'full', status: body.status, seen: 0, new: 0, changed: 0, unchanged: 0, gone: 0, fetched: this.items.size, ingested: this.items.size, deduplicated: 0, failed: 0, closed: 0, durationMs: 1, ...(body.error ? { error: body.error } : {}) });
+          return json({
+            connectionId: 'source_connection:a1',
+            mode: 'full',
+            status: body.status,
+            seen: 0,
+            new: 0,
+            changed: 0,
+            unchanged: 0,
+            gone: 0,
+            fetched: this.items.size,
+            ingested: this.items.size,
+            deduplicated: 0,
+            failed: 0,
+            closed: 0,
+            durationMs: 1,
+            ...(body.error ? { error: body.error } : {}),
+          });
         }
         return json({ message: 'nope' }, 404);
       },
@@ -229,9 +312,16 @@ class FakeBrain {
 class MemoryConnector implements AgentConnector {
   readonly kind = 'fs';
   ended = 0;
-  constructor(private readonly docs: Record<string, string>, private readonly failOn: string[] = []) {}
-  async *enumerate(_ctx: ConnectorCtx, _opts: { checkpoint: Record<string, unknown> | null; full: boolean }): AsyncIterable<ItemDelta> {
-    for (const id of Object.keys(this.docs)) yield { type: 'upsert', item: { externalId: id, revision: 'r1' } };
+  constructor(
+    private readonly docs: Record<string, string>,
+    private readonly failOn: string[] = [],
+  ) {}
+  async *enumerate(
+    _ctx: ConnectorCtx,
+    _opts: { checkpoint: Record<string, unknown> | null; full: boolean },
+  ): AsyncIterable<ItemDelta> {
+    for (const id of Object.keys(this.docs))
+      yield { type: 'upsert', item: { externalId: id, revision: 'r1' } };
     yield { type: 'checkpoint', checkpoint: { files: Object.keys(this.docs).length } };
   }
   async fetch(_ctx: ConnectorCtx, item: ItemDescriptor): Promise<FetchedItem> {
@@ -249,14 +339,24 @@ describe('runConnection', () => {
   it('batches deltas, fetches only what the brain named, redacts, finishes with the checkpoint, ends the run', async () => {
     const brain = new FakeBrain();
     brain.changed.add('a.md').add('c.md');
-    const docs = { 'a.md': 'token ghp_abcdefghijklmnopqrstuvwxyz0123456789ABCD here', 'b.md': 'b', 'c.md': 'c', 'd.md': 'd' };
+    const docs = {
+      'a.md': 'token ghp_abcdefghijklmnopqrstuvwxyz0123456789ABCD here',
+      'b.md': 'b',
+      'c.md': 'c',
+      'd.md': 'd',
+    };
     const connector = new MemoryConnector(docs, ['c.md']);
-    const summary = await runConnection(brain.client(), connector, target, { agentId: 'laptop', batchSize: 2 });
+    const summary = await runConnection(brain.client(), connector, target, {
+      agentId: 'laptop',
+      batchSize: 2,
+    });
     expect(summary.status).toBe('succeeded');
     // 4 upserts + 1 checkpoint in batches of 2 ⇒ 3 delta calls.
     expect(brain.calls.filter((c) => c.endsWith('/deltas'))).toHaveLength(3);
     expect([...brain.items.keys()]).toEqual(['a.md']); // c.md failed locally — never posted
-    expect((brain.items.get('a.md') as { text: string }).text).toBe('token [redacted:github_token] here');
+    expect((brain.items.get('a.md') as { text: string }).text).toBe(
+      'token [redacted:github_token] here',
+    );
     expect(brain.finished).toEqual({ status: 'succeeded', checkpoint: { files: 4 } });
     expect(connector.ended).toBe(1);
   });
@@ -265,12 +365,19 @@ describe('runConnection', () => {
     const brain = new FakeBrain();
     brain.begun = { ...brain.begun, contentPolicy: 'manifest' };
     brain.changed.add('a.md');
-    await runConnection(brain.client(), new MemoryConnector({ 'a.md': 'x' }), target, { agentId: 'laptop' });
+    await runConnection(brain.client(), new MemoryConnector({ 'a.md': 'x' }), target, {
+      agentId: 'laptop',
+    });
     expect(brain.items.size).toBe(0);
 
     const raw = new FakeBrain();
     raw.changed.add('a.md');
-    await runConnection(raw.client(), new MemoryConnector({ 'a.md': 'password: hunter2hunter2' }), target, { agentId: 'laptop', redact: false });
+    await runConnection(
+      raw.client(),
+      new MemoryConnector({ 'a.md': 'password: hunter2hunter2' }),
+      target,
+      { agentId: 'laptop', redact: false },
+    );
     expect((raw.items.get('a.md') as { text: string }).text).toBe('password: hunter2hunter2');
 
     const broken = new FakeBrain();
@@ -287,21 +394,53 @@ describe('runConnection', () => {
   });
 
   it('connectorFor maps by pack entry and refuses what the agent cannot run', () => {
-    const registry: AgentConnector[] = [new MemoryConnector({}), { kind: 'git', enumerate: async function* () {}, fetch: () => Promise.reject(new Error('x')) }];
+    const registry: AgentConnector[] = [
+      new MemoryConnector({}),
+      {
+        kind: 'git',
+        enumerate: async function* () {},
+        fetch: () => Promise.reject(new Error('x')),
+      },
+    ];
     expect(connectorFor(registry, { connection: connection(), source: null }).kind).toBe('fs');
-    expect(connectorFor(registry, { connection: connection({ connector: 'git' }), source: null }).kind).toBe('git');
-    expect(() => connectorFor(registry, { connection: connection({ kind: 'mcp', connector: 'mcp' }), source: { id: 's', kind: 'mcp', shape: 'document', transport: 'http' } })).toThrow('runs on the brain');
-    expect(() => connectorFor(registry, { connection: connection({ kind: 'external', connector: 'external' }), source: null })).toThrow('pushed by its publisher');
-    expect(() => connectorFor(registry, { connection: connection({ connector: 's3' }), source: null })).toThrow('no "s3" connector');
+    expect(
+      connectorFor(registry, { connection: connection({ connector: 'git' }), source: null }).kind,
+    ).toBe('git');
+    expect(() =>
+      connectorFor(registry, {
+        connection: connection({ kind: 'mcp', connector: 'mcp' }),
+        source: { id: 's', kind: 'mcp', shape: 'document', transport: 'http' },
+      }),
+    ).toThrow('runs on the brain');
+    expect(() =>
+      connectorFor(registry, {
+        connection: connection({ kind: 'external', connector: 'external' }),
+        source: null,
+      }),
+    ).toThrow('pushed by its publisher');
+    expect(() =>
+      connectorFor(registry, { connection: connection({ connector: 's3' }), source: null }),
+    ).toThrow('no "s3" connector');
   });
 
   it('the protocol client surfaces the brain’s message on errors', async () => {
     const client = new BrainAgentClient({
       baseUrl: 'http://brain.test/',
       apiKey: 'k',
-      fetch: async () => new Response(JSON.stringify({ message: 'a run of this connection is already in progress', statusCode: 409 }), { status: 409 }),
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            message: 'a run of this connection is already in progress',
+            statusCode: 409,
+          }),
+          { status: 409 },
+        ),
     });
-    await expect(client.begin('source_connection:a1', { agentId: 'x' })).rejects.toThrow(BrainApiError);
-    await expect(client.begin('source_connection:a1', { agentId: 'x' })).rejects.toThrow('409: a run of this connection is already in progress');
+    await expect(client.begin('source_connection:a1', { agentId: 'x' })).rejects.toThrow(
+      BrainApiError,
+    );
+    await expect(client.begin('source_connection:a1', { agentId: 'x' })).rejects.toThrow(
+      '409: a run of this connection is already in progress',
+    );
   });
 });

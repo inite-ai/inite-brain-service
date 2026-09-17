@@ -74,7 +74,14 @@ export class AgentSyncService {
     p: { row: SourceConnectionRow; run: AgentRunState; deltas: ItemDeltaWire[] },
   ): Promise<AgentDeltasResponse> {
     const { row, run, deltas } = p;
-    const out: AgentDeltasResponse = { fetch: [], seen: 0, new: 0, changed: 0, unchanged: 0, gone: 0 };
+    const out: AgentDeltasResponse = {
+      fetch: [],
+      seen: 0,
+      new: 0,
+      changed: 0,
+      unchanged: 0,
+      gone: 0,
+    };
     for (const delta of deltas) {
       if (delta.type === 'checkpoint') {
         run.checkpoint = delta.checkpoint;
@@ -114,15 +121,21 @@ export class AgentSyncService {
   async ingestItem(
     companyId: string,
     p: { row: SourceConnectionRow; run: AgentRunState; externalId: string; item: FetchedItemWire },
-  ): Promise<{ status: 'ingested' | 'deduplicated' | 'failed' | 'skipped'; error?: string | undefined }> {
-    if (p.row.contentPolicy === 'manifest') return { status: 'skipped', error: 'contentPolicy is manifest' };
+  ): Promise<{
+    status: 'ingested' | 'deduplicated' | 'failed' | 'skipped';
+    error?: string | undefined;
+  }> {
+    if (p.row.contentPolicy === 'manifest')
+      return { status: 'skipped', error: 'contentPolicy is manifest' };
     const budget = p.row.fetchBudget ?? Number.POSITIVE_INFINITY;
-    if (p.run.counters.fetched >= budget) return { status: 'skipped', error: 'fetchBudget reached' };
+    if (p.run.counters.fetched >= budget)
+      return { status: 'skipped', error: 'fetchBudget reached' };
     const item = await this.catalogue.getByExternalId(companyId, {
       connectionId: p.run.connectionId,
       externalId: p.externalId,
     });
-    if (!item) throw new NotFoundException(`item "${p.externalId}" is not catalogued in this connection`);
+    if (!item)
+      throw new NotFoundException(`item "${p.externalId}" is not catalogued in this connection`);
     const connection = await this.viewOf(companyId, p.row);
     p.run.counters.fetched++;
     const out = await this.effects.ingestFetched({
@@ -157,7 +170,10 @@ export class AgentSyncService {
           if (swept.length < 500) break;
         }
       }
-      const gone = await this.catalogue.goneSince(companyId, { connectionId, since: run.startedAt });
+      const gone = await this.catalogue.goneSince(companyId, {
+        connectionId,
+        since: run.startedAt,
+      });
       closed = await this.effects.applyGone(companyId, row, gone);
       await this.connections.recordSync(companyId, connectionId, {
         status: 'succeeded',
@@ -180,8 +196,14 @@ export class AgentSyncService {
     };
   }
 
-  private async viewOf(companyId: string, row: SourceConnectionRow): Promise<ConnectorConnectionView> {
-    return this.connections.toConnectorView(row, await this.connections.sourceContext(companyId, row));
+  private async viewOf(
+    companyId: string,
+    row: SourceConnectionRow,
+  ): Promise<ConnectorConnectionView> {
+    return this.connections.toConnectorView(
+      row,
+      await this.connections.sourceContext(companyId, row),
+    );
   }
 }
 
@@ -189,11 +211,23 @@ export class AgentSyncService {
 export function fromWire(w: FetchedItemWire): FetchedItem {
   switch (w.shape) {
     case 'document':
-      return { shape: 'document', text: w.text, title: w.title, occurredAt: w.occurredAt, kind: w.kind };
+      return {
+        shape: 'document',
+        text: w.text,
+        title: w.title,
+        occurredAt: w.occurredAt,
+        kind: w.kind,
+      };
     case 'binary': {
       const bytes = Buffer.from(w.bytesBase64, 'base64');
       if (bytes.length === 0) throw new BadRequestException('binary item carries no bytes');
-      return { shape: 'binary', bytes, mediaType: w.mediaType, modality: w.modality, occurredAt: w.occurredAt };
+      return {
+        shape: 'binary',
+        bytes,
+        mediaType: w.mediaType,
+        modality: w.modality,
+        occurredAt: w.occurredAt,
+      };
     }
     case 'conversation':
       return { shape: 'conversation', conversationId: w.conversationId, turns: w.turns };

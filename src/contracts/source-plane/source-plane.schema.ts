@@ -307,7 +307,10 @@ export const FetchedItemWireSchema = z.discriminatedUnion('shape', [
       entityType: z.string().min(1).max(64),
       externalId: z.string().min(1).max(512),
       name: z.string().min(1).max(512),
-      attributes: z.record(z.string().max(64), z.union([z.string(), z.number(), z.boolean(), z.null()])),
+      attributes: z.record(
+        z.string().max(64),
+        z.union([z.string(), z.number(), z.boolean(), z.null()]),
+      ),
       relations: z
         .array(
           z.object({

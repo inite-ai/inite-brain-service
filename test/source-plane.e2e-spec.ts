@@ -188,9 +188,17 @@ describe('source plane (e2e)', () => {
     });
     expect(byId.get('wiki_pack/files')?.availability).toBe('ready');
     // The builtin code_memory repository entry: external ⇒ the publisher pushes.
-    expect(byId.get('code_memory/repository')).toMatchObject({ builtin: true, accepted: true, availability: 'external' });
+    expect(byId.get('code_memory/repository')).toMatchObject({
+      builtin: true,
+      accepted: true,
+      availability: 'external',
+    });
     // git is agent-only: never a server connector, always 'agent'.
-    expect(byId.get('code_memory/repo_docs')).toMatchObject({ builtin: true, connector: 'git', availability: 'agent' });
+    expect(byId.get('code_memory/repo_docs')).toMatchObject({
+      builtin: true,
+      connector: 'git',
+      availability: 'agent',
+    });
     // Shipped natives are present and switched off in this run.
     const connectors = new Map<string, Record<string, unknown>>(
       (r.body.connectors as Array<Record<string, unknown>>).map((c) => [String(c.kind), c]),

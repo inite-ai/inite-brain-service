@@ -183,7 +183,12 @@ describe('sources consent', () => {
   it('code_memory is the first source pack — the external structure source and the agent-run docs entry', () => {
     expect(CODE_MEMORY_PACK.sources).toEqual([
       expect.objectContaining({ id: 'repository', kind: 'external', shape: 'structure' }),
-      expect.objectContaining({ id: 'repo_docs', kind: 'native', connector: 'git', shape: 'document' }),
+      expect.objectContaining({
+        id: 'repo_docs',
+        kind: 'native',
+        connector: 'git',
+        shape: 'document',
+      }),
     ]);
     expect(() => validatePack(CODE_MEMORY_PACK)).not.toThrow();
   });

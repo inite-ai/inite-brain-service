@@ -197,7 +197,10 @@ export class SourceItemService {
   }
 
   /** Rows a run marked gone (explicitly or by the unseen sweep) since it started. */
-  async goneSince(companyId: string, p: { connectionId: string; since: Date }): Promise<SourceItemRow[]> {
+  async goneSince(
+    companyId: string,
+    p: { connectionId: string; since: Date },
+  ): Promise<SourceItemRow[]> {
     return this.surreal.withCompany(companyId, (db) =>
       queryRows<SourceItemRow>(
         db,
@@ -241,8 +244,13 @@ export class SourceItemService {
   }
 
   /** One catalogue row by its source id, or null. */
-  async getByExternalId(companyId: string, p: { connectionId: string; externalId: string }): Promise<SourceItemRow | null> {
-    return this.surreal.withCompany(companyId, (db) => this.findByExternalId(db, p.connectionId, p.externalId));
+  async getByExternalId(
+    companyId: string,
+    p: { connectionId: string; externalId: string },
+  ): Promise<SourceItemRow | null> {
+    return this.surreal.withCompany(companyId, (db) =>
+      this.findByExternalId(db, p.connectionId, p.externalId),
+    );
   }
 
   private async findByExternalId(

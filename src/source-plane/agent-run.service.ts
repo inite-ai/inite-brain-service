@@ -11,8 +11,17 @@ import type {
   SourceSyncSummary,
 } from '../contracts/source-plane/source-plane.schema';
 import { JobRunService, type JobRunRow } from '../jobs/job-run.service';
-import { AgentSyncService, ZERO_COUNTERS, type AgentRunCounters, type AgentRunState } from './agent-sync.service';
-import { SourceConnectionService, toView, type SourceConnectionRow } from './source-connection.service';
+import {
+  AgentSyncService,
+  ZERO_COUNTERS,
+  type AgentRunCounters,
+  type AgentRunState,
+} from './agent-sync.service';
+import {
+  SourceConnectionService,
+  toView,
+  type SourceConnectionRow,
+} from './source-connection.service';
 
 /**
  * AgentRunService — the run ledger of the agent protocol. A run is a
@@ -43,16 +52,28 @@ export class AgentRunService {
     const out: AgentConnectionsListResponse['connections'] = [];
     for (const row of rows.filter((r) => r.host === host)) {
       const { source } = await this.connections.sourceContext(companyId, row);
-      out.push({ connection: toView(row), source: (source as Record<string, unknown> | null) ?? null });
+      out.push({
+        connection: toView(row),
+        source: (source as Record<string, unknown> | null) ?? null,
+      });
     }
     return { connections: out };
   }
 
-  async begin(companyId: string, connectionId: string, req: BeginAgentRunRequest): Promise<BeginAgentRunResponse> {
+  async begin(
+    companyId: string,
+    connectionId: string,
+    req: BeginAgentRunRequest,
+  ): Promise<BeginAgentRunResponse> {
     assertEnabled();
     const row = await this.loadAgentRow(companyId, connectionId, `agent:${req.agentId}`);
     if (row.status !== 'active') throw new ConflictException(`connection is ${row.status}`);
-    const running = await this.jobs.list({ companyId, jobType: 'source_sync', status: 'running', limit: 200 });
+    const running = await this.jobs.list({
+      companyId,
+      jobType: 'source_sync',
+      status: 'running',
+      limit: 200,
+    });
     if (running.some((j) => progressOf(j).connectionId === String(row.id))) {
       throw new ConflictException('a run of this connection is already in progress');
     }
@@ -94,9 +115,17 @@ export class AgentRunService {
   async item(
     companyId: string,
     p: { connectionId: string; runId: string; externalId: string; item: FetchedItemWire },
-  ): Promise<{ status: 'ingested' | 'deduplicated' | 'failed' | 'skipped'; error?: string | undefined }> {
+  ): Promise<{
+    status: 'ingested' | 'deduplicated' | 'failed' | 'skipped';
+    error?: string | undefined;
+  }> {
     const { row, job, state } = await this.loadRun(companyId, p.connectionId, p.runId);
-    const out = await this.sync.ingestItem(companyId, { row, run: state, externalId: p.externalId, item: p.item });
+    const out = await this.sync.ingestItem(companyId, {
+      row,
+      run: state,
+      externalId: p.externalId,
+      item: p.item,
+    });
     await this.jobs.updateProgress(job, toProgress(state));
     return out;
   }
@@ -115,7 +144,11 @@ export class AgentRunService {
     return summary;
   }
 
-  private async loadAgentRow(companyId: string, connectionId: string, host: string): Promise<SourceConnectionRow> {
+  private async loadAgentRow(
+    companyId: string,
+    connectionId: string,
+    host: string,
+  ): Promise<SourceConnectionRow> {
     const row = await this.connections.load(companyId, connectionId);
     if (row.host !== host) {
       throw new NotFoundException(`connection ${connectionId} is not hosted on ${host}`);
@@ -131,7 +164,9 @@ export class AgentRunService {
     assertEnabled();
     const job = await this.jobs.get(runId, companyId);
     if (!job || job.jobType !== 'source_sync') {
-      throw new NotFoundException(`run ${runId} not found (job persistence must be on for agent runs)`);
+      throw new NotFoundException(
+        `run ${runId} not found (job persistence must be on for agent runs)`,
+      );
     }
     if (job.status !== 'running') throw new ConflictException(`run ${runId} is ${job.status}`);
     const state = fromProgress(job);
@@ -140,7 +175,9 @@ export class AgentRunService {
       throw new NotFoundException(`run ${runId} does not belong to connection ${connectionId}`);
     }
     if (row.host !== `agent:${state.agentId}`) {
-      throw new NotFoundException(`connection ${connectionId} is no longer hosted on agent:${state.agentId}`);
+      throw new NotFoundException(
+        `connection ${connectionId} is no longer hosted on agent:${state.agentId}`,
+      );
     }
     return { row, job, state };
   }
@@ -176,7 +213,10 @@ function toProgress(state: AgentRunState): Record<string, unknown> {
 
 function fromProgress(job: JobRunRow): AgentRunState {
   const p = progressOf(job);
-  const counters = { ...ZERO_COUNTERS, ...((p.counters as Partial<AgentRunCounters> | undefined) ?? {}) };
+  const counters = {
+    ...ZERO_COUNTERS,
+    ...((p.counters as Partial<AgentRunCounters> | undefined) ?? {}),
+  };
   return {
     connectionId: String(p.connectionId ?? ''),
     agentId: String(p.agentId ?? ''),
