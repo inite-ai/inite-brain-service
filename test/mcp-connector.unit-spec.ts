@@ -24,26 +24,50 @@ function buildMcp(): McpServer {
   mcp.registerResource(
     'intro',
     'wiki://pages/intro',
-    { title: 'Intro page', mimeType: 'text/markdown', annotations: { lastModified: '2026-03-01T10:00:00Z' } },
-    async (uri) => ({ contents: [{ uri: uri.href, mimeType: 'text/markdown', text: '# Intro\nAcme was founded in 2019.' }] }),
+    {
+      title: 'Intro page',
+      mimeType: 'text/markdown',
+      annotations: { lastModified: '2026-03-01T10:00:00Z' },
+    },
+    async (uri) => ({
+      contents: [
+        { uri: uri.href, mimeType: 'text/markdown', text: '# Intro\nAcme was founded in 2019.' },
+      ],
+    }),
   );
   mcp.registerResource(
     'nohints',
     'wiki://pages/nohints',
     { mimeType: 'text/plain' },
-    async (uri) => ({ contents: [{ uri: uri.href, mimeType: 'text/plain', text: 'no hints here' }] }),
+    async (uri) => ({
+      contents: [{ uri: uri.href, mimeType: 'text/plain', text: 'no hints here' }],
+    }),
   );
   mcp.registerResource(
     'plan',
     'wiki://files/plan.pdf',
-    { title: 'Plan', mimeType: 'application/pdf', annotations: { lastModified: '2026-03-02T00:00:00Z' } },
-    async (uri) => ({ contents: [{ uri: uri.href, mimeType: 'application/pdf', blob: Buffer.from('%PDF-1.4 fake').toString('base64') }] }),
+    {
+      title: 'Plan',
+      mimeType: 'application/pdf',
+      annotations: { lastModified: '2026-03-02T00:00:00Z' },
+    },
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: 'application/pdf',
+          blob: Buffer.from('%PDF-1.4 fake').toString('base64'),
+        },
+      ],
+    }),
   );
   mcp.registerResource(
     'other',
     'crm://accounts/1',
     { mimeType: 'application/json' },
-    async (uri) => ({ contents: [{ uri: uri.href, mimeType: 'application/json', text: '{"a":1}' }] }),
+    async (uri) => ({
+      contents: [{ uri: uri.href, mimeType: 'application/json', text: '{"a":1}' }],
+    }),
   );
   return mcp;
 }
@@ -64,11 +88,21 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   await transport.handleRequest(req, res, body);
 }
 
-const ENTRY: PackMcpHttpSourceSpec = { id: 'mcp_resources', kind: 'mcp', transport: 'http', auth: 'none', shape: 'document' };
+const ENTRY: PackMcpHttpSourceSpec = {
+  id: 'mcp_resources',
+  kind: 'mcp',
+  transport: 'http',
+  auth: 'none',
+  shape: 'document',
+};
 
 function ctx(
   config: Record<string, unknown>,
-  over: { shape?: 'document' | 'binary'; credential?: string; source?: PackMcpHttpSourceSpec | null } = {},
+  over: {
+    shape?: 'document' | 'binary';
+    credential?: string;
+    source?: PackMcpHttpSourceSpec | null;
+  } = {},
 ): ConnectorCtx {
   return {
     companyId: 'co',
@@ -133,7 +167,10 @@ describe('McpConnector', () => {
     const deltas = await walk(c, x);
     const items = upserts(deltas).map((d) => d.item);
     expect(items.map((i) => i.externalId).sort()).toEqual([
-      'crm://accounts/1', 'wiki://files/plan.pdf', 'wiki://pages/intro', 'wiki://pages/nohints',
+      'crm://accounts/1',
+      'wiki://files/plan.pdf',
+      'wiki://pages/intro',
+      'wiki://pages/nohints',
     ]);
     const intro = items.find((i) => i.externalId === 'wiki://pages/intro')!;
     expect(intro).toMatchObject({
@@ -153,14 +190,19 @@ describe('McpConnector', () => {
   it('uriPrefixes / mimeTypes narrow the catalogue; maxResources truncates it by name', async () => {
     const c = new McpConnector();
     const narrowed = ctx({ uriPrefixes: ['wiki://'], mimeTypes: ['text/'] });
-    expect(upserts(await walk(c, narrowed)).map((d) => d.item.externalId).sort()).toEqual([
-      'wiki://pages/intro', 'wiki://pages/nohints',
-    ]);
+    expect(
+      upserts(await walk(c, narrowed))
+        .map((d) => d.item.externalId)
+        .sort(),
+    ).toEqual(['wiki://pages/intro', 'wiki://pages/nohints']);
     await c.endRun(narrowed);
     const capped = ctx({ maxResources: 2 });
     const deltas = await walk(c, capped);
     expect(upserts(deltas)).toHaveLength(2);
-    expect(deltas.at(-1)).toMatchObject({ type: 'checkpoint', checkpoint: { kept: 2, truncated: true } });
+    expect(deltas.at(-1)).toMatchObject({
+      type: 'checkpoint',
+      checkpoint: { kept: 2, truncated: true },
+    });
     await c.endRun(capped);
     expect(admitResource({ mimeTypes: ['text/'] }, 'x', undefined)).toBe(false);
     expect(admitResource({}, 'x', undefined)).toBe(true);
@@ -169,7 +211,11 @@ describe('McpConnector', () => {
   it('reads a text resource as a document and a blob as binary — the shape decides', async () => {
     const c = new McpConnector();
     const doc = ctx({});
-    const intro = await c.fetch(doc, { externalId: 'wiki://pages/intro', title: 'Intro page', modifiedAt: '2026-03-01T10:00:00Z' });
+    const intro = await c.fetch(doc, {
+      externalId: 'wiki://pages/intro',
+      title: 'Intro page',
+      modifiedAt: '2026-03-01T10:00:00Z',
+    });
     expect(intro).toEqual({
       shape: 'document',
       text: '# Intro\nAcme was founded in 2019.',
@@ -177,14 +223,25 @@ describe('McpConnector', () => {
       occurredAt: '2026-03-01T10:00:00Z',
       kind: 'mcp_resource',
     });
-    await expect(c.fetch(doc, { externalId: 'wiki://files/plan.pdf' })).rejects.toThrow('needs a binary-shaped entry');
+    await expect(c.fetch(doc, { externalId: 'wiki://files/plan.pdf' })).rejects.toThrow(
+      'needs a binary-shaped entry',
+    );
     await c.endRun(doc);
 
     const bin = ctx({}, { shape: 'binary' });
-    const pdf = await c.fetch(bin, { externalId: 'wiki://files/plan.pdf', mediaType: 'application/pdf' });
-    expect(pdf).toMatchObject({ shape: 'binary', mediaType: 'application/pdf', modality: 'document' });
+    const pdf = await c.fetch(bin, {
+      externalId: 'wiki://files/plan.pdf',
+      mediaType: 'application/pdf',
+    });
+    expect(pdf).toMatchObject({
+      shape: 'binary',
+      mediaType: 'application/pdf',
+      modality: 'document',
+    });
     expect((pdf as { bytes: Buffer }).bytes.toString()).toBe('%PDF-1.4 fake');
-    await expect(c.fetch(bin, { externalId: 'wiki://pages/intro' })).rejects.toThrow('needs a document-shaped entry');
+    await expect(c.fetch(bin, { externalId: 'wiki://pages/intro' })).rejects.toThrow(
+      'needs a document-shaped entry',
+    );
     await c.endRun(bin);
   });
 
@@ -212,11 +269,17 @@ describe('McpConnector', () => {
     const pinned = ctx({}, { source: { ...ENTRY, url: `${base}/mcp` } });
     expect(upserts(await walk(c, pinned))).toHaveLength(4);
     await c.endRun(pinned);
-    await expect(walk(c, ctx({}, { source: { ...ENTRY, auth: 'oauth' } }))).rejects.toThrow('not available yet (W4)');
-    await expect(walk(c, ctx({}, { source: null }))).rejects.toThrow('no longer declares http MCP source');
+    await expect(walk(c, ctx({}, { source: { ...ENTRY, auth: 'oauth' } }))).rejects.toThrow(
+      'not available yet (W4)',
+    );
+    await expect(walk(c, ctx({}, { source: null }))).rejects.toThrow(
+      'no longer declares http MCP source',
+    );
     await expect(walk(c, ctx({ url: undefined }))).rejects.toThrow('config.url is not set');
     // Without the connection's half of the double opt-in a loopback server is refused.
-    await expect(walk(c, ctx({ allowPrivate: false }))).rejects.toThrow(/must use https|non-public/);
+    await expect(walk(c, ctx({ allowPrivate: false }))).rejects.toThrow(
+      /must use https|non-public/,
+    );
   });
 
   it('the kind switch makes the connector "not installed" by name', () => {

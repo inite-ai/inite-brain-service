@@ -57,7 +57,12 @@ describe('validatePack — sources section', () => {
             shape: 'document',
           },
           { id: 'folder', kind: 'native', connector: 'fs', shape: 'binary' },
-          { id: 'push', kind: 'external', shape: 'structure', defaults: { schedule: '1h', deletePolicy: 'close' } },
+          {
+            id: 'push',
+            kind: 'external',
+            shape: 'structure',
+            defaults: { schedule: '1h', deletePolicy: 'close' },
+          },
           // Operator-named server: no url pinned — the connection carries it.
           { id: 'my_server', kind: 'mcp', transport: 'http', auth: 'none', shape: 'document' },
         ]),
@@ -66,8 +71,15 @@ describe('validatePack — sources section', () => {
   });
 
   it('an operator-named http MCP entry is consented as such', () => {
-    const m = base([{ id: 'my_server', kind: 'mcp', transport: 'http', auth: 'none', shape: 'document' }]);
-    const refused = sourcesConsentRequired({ manifest: m, acceptSources: undefined, priorAccepted: false, priorChecksum: null });
+    const m = base([
+      { id: 'my_server', kind: 'mcp', transport: 'http', auth: 'none', shape: 'document' },
+    ]);
+    const refused = sourcesConsentRequired({
+      manifest: m,
+      acceptSources: undefined,
+      priorAccepted: false,
+      priorChecksum: null,
+    });
     expect(refused).toContain('mcp "my_server" → a server the operator names (none, document)');
   });
 

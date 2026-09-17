@@ -86,7 +86,8 @@ export class McpConnector implements Connector {
     mimeTypes: ['text/'],
     maxResources: DEFAULT_MAX_RESOURCES,
   };
-  readonly credentialHint = 'bearer token the server expects (omit for auth: none / install_secret)';
+  readonly credentialHint =
+    'bearer token the server expects (omit for auth: none / install_secret)';
 
   private readonly sessions = new Map<string, Session>();
 
@@ -103,13 +104,23 @@ export class McpConnector implements Connector {
     let seen = 0;
     let listed = 0;
     do {
-      const page = await client.listResources(cursor ? { cursor } : {}, { timeout: REQUEST_TIMEOUT_MS });
+      const page = await client.listResources(cursor ? { cursor } : {}, {
+        timeout: REQUEST_TIMEOUT_MS,
+      });
       for (const r of page.resources) {
         listed++;
         if (!admitResource(cfg, r.uri, r.mimeType)) continue;
         if (++seen > max) {
           ctx.log(`mcp: maxResources ${String(max)} reached — listing truncated`);
-          yield { type: 'checkpoint', checkpoint: { listed, kept: seen - 1, truncated: true, walkedAt: new Date().toISOString() } };
+          yield {
+            type: 'checkpoint',
+            checkpoint: {
+              listed,
+              kept: seen - 1,
+              truncated: true,
+              walkedAt: new Date().toISOString(),
+            },
+          };
           return;
         }
         const lastModified = r.annotations?.lastModified;
@@ -128,30 +139,50 @@ export class McpConnector implements Connector {
       }
       cursor = page.nextCursor;
     } while (cursor);
-    yield { type: 'checkpoint', checkpoint: { listed, kept: seen, walkedAt: new Date().toISOString() } };
+    yield {
+      type: 'checkpoint',
+      checkpoint: { listed, kept: seen, walkedAt: new Date().toISOString() },
+    };
   }
 
   async fetch(ctx: ConnectorCtx, item: ItemDescriptor): Promise<FetchedItem> {
     const cfg = configOf(ctx);
     const client = await this.session(ctx, cfg);
-    const res = await client.readResource({ uri: item.externalId }, { timeout: REQUEST_TIMEOUT_MS });
+    const res = await client.readResource(
+      { uri: item.externalId },
+      { timeout: REQUEST_TIMEOUT_MS },
+    );
     const maxBytes = cfg.maxBytes ?? DEFAULT_MAX_BYTES;
     const texts: string[] = [];
     let blob: { bytes: Buffer; mediaType: string } | null = null;
     for (const c of res.contents) {
       if ('text' in c && typeof c.text === 'string') texts.push(c.text);
       else if ('blob' in c && typeof c.blob === 'string' && !blob) {
-        blob = { bytes: Buffer.from(c.blob, 'base64'), mediaType: c.mimeType ?? item.mediaType ?? 'application/octet-stream' };
+        blob = {
+          bytes: Buffer.from(c.blob, 'base64'),
+          mediaType: c.mimeType ?? item.mediaType ?? 'application/octet-stream',
+        };
       }
     }
     const occurredAt = item.modifiedAt;
     if (ctx.connection.shape === 'binary') {
-      if (!blob) throw new Error(`resource ${item.externalId} carries no blob — a text resource needs a document-shaped entry`);
-      if (blob.bytes.length > maxBytes) throw new Error(`resource ${item.externalId} over maxBytes`);
-      return { shape: 'binary', bytes: blob.bytes, mediaType: blob.mediaType, modality: modalityOfMediaType(blob.mediaType), occurredAt };
+      if (!blob)
+        throw new Error(
+          `resource ${item.externalId} carries no blob — a text resource needs a document-shaped entry`,
+        );
+      if (blob.bytes.length > maxBytes)
+        throw new Error(`resource ${item.externalId} over maxBytes`);
+      return {
+        shape: 'binary',
+        bytes: blob.bytes,
+        mediaType: blob.mediaType,
+        modality: modalityOfMediaType(blob.mediaType),
+        occurredAt,
+      };
     }
     let text = texts.join('\n\n');
-    if (text.length === 0 && blob && blob.mediaType.startsWith('text/')) text = blob.bytes.toString('utf8');
+    if (text.length === 0 && blob && blob.mediaType.startsWith('text/'))
+      text = blob.bytes.toString('utf8');
     if (text.length === 0) {
       throw new Error(
         blob
@@ -159,7 +190,8 @@ export class McpConnector implements Connector {
           : `resource ${item.externalId} carries no content`,
       );
     }
-    if (Buffer.byteLength(text, 'utf8') > maxBytes) throw new Error(`resource ${item.externalId} over maxBytes`);
+    if (Buffer.byteLength(text, 'utf8') > maxBytes)
+      throw new Error(`resource ${item.externalId} over maxBytes`);
     return { shape: 'document', text, title: item.title, occurredAt, kind: 'mcp_resource' };
   }
 
@@ -175,8 +207,10 @@ export class McpConnector implements Connector {
     if (existing) return existing.client;
     const entry = entryOf(ctx);
     const url = entry.url ?? cfg.url;
-    if (!url) throw new Error('mcp connector: the pack entry pins no url and config.url is not set');
-    if (entry.auth === 'oauth') throw new Error('mcp connector: auth "oauth" is not available yet (W4)');
+    if (!url)
+      throw new Error('mcp connector: the pack entry pins no url and config.url is not set');
+    if (entry.auth === 'oauth')
+      throw new Error('mcp connector: auth "oauth" is not available yet (W4)');
     const client = new Client(CLIENT_INFO, { capabilities: {} });
     const transport = new StreamableHTTPClientTransport(new URL(url), {
       fetch: guardedFetch({ allowPrivate: cfg.allowPrivate, signal: ctx.signal }),
@@ -212,8 +246,16 @@ function authHeaders(ctx: ConnectorCtx, cfg: McpConnectorConfig): Record<string,
   return { Authorization: `Bearer ${cred}` };
 }
 
-export function admitResource(cfg: McpConnectorConfig, uri: string, mimeType: string | undefined): boolean {
-  if (cfg.uriPrefixes && cfg.uriPrefixes.length > 0 && !cfg.uriPrefixes.some((p) => uri.startsWith(p))) {
+export function admitResource(
+  cfg: McpConnectorConfig,
+  uri: string,
+  mimeType: string | undefined,
+): boolean {
+  if (
+    cfg.uriPrefixes &&
+    cfg.uriPrefixes.length > 0 &&
+    !cfg.uriPrefixes.some((p) => uri.startsWith(p))
+  ) {
     return false;
   }
   if (cfg.mimeTypes && cfg.mimeTypes.length > 0) {

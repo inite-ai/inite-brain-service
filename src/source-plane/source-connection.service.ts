@@ -329,7 +329,8 @@ export class SourceConnectionService {
     connector: string,
     dto: CreateSourceConnectionRequest,
   ): Promise<void> {
-    const serverRun = entry.kind === 'native' || (entry.kind === 'mcp' && entry.transport === 'http');
+    const serverRun =
+      entry.kind === 'native' || (entry.kind === 'mcp' && entry.transport === 'http');
     if (serverRun) {
       const state = connectorState(this.connectors ?? [], connector);
       if (typeof state === 'string') {
@@ -358,7 +359,10 @@ export class SourceConnectionService {
   ): Promise<{ source: PackSourceSpec | null; installSecret: string | null }> {
     const builtin = BUILTIN_PACKS.find((p) => p.id === row.packId);
     if (builtin) {
-      return { source: builtin.sources?.find((s) => s.id === row.sourceId) ?? null, installSecret: null };
+      return {
+        source: builtin.sources?.find((s) => s.id === row.sourceId) ?? null,
+        installSecret: null,
+      };
     }
     const pack = await this.surreal.withCompany(companyId, (db) =>
       queryFirst<{ manifest?: DomainPackManifest; webhookSecret?: unknown }>(
@@ -376,7 +380,10 @@ export class SourceConnectionService {
   /** The connector-facing projection of a row (credential resolved). */
   toConnectorView(
     row: SourceConnectionRow,
-    context: { source: PackSourceSpec | null; installSecret: string | null } = { source: null, installSecret: null },
+    context: { source: PackSourceSpec | null; installSecret: string | null } = {
+      source: null,
+      installSecret: null,
+    },
   ): ConnectorConnectionView {
     const source = context.source;
     // An `install_secret` MCP source authenticates with the pack's own
@@ -537,7 +544,10 @@ export function connectionRef(connectionId: string): unknown {
  * pinned url, a `config.url` is refused — the consented server is the
  * one the pack named. Private hosts follow the double opt-in.
  */
-async function assertOperatorUrl(entry: PackMcpHttpSourceSpec, config: Record<string, unknown>): Promise<void> {
+async function assertOperatorUrl(
+  entry: PackMcpHttpSourceSpec,
+  config: Record<string, unknown>,
+): Promise<void> {
   const named = config.url;
   if (entry.url !== undefined) {
     if (named !== undefined) {

@@ -130,13 +130,19 @@ export { EgressDeniedError };
  * to read; the MCP transport streams JSON-RPC, so no byte cap applies
  * here — the connector caps what it keeps.
  */
-export function guardedFetch(opts: { allowPrivate?: boolean | undefined; signal?: AbortSignal | undefined }) {
+export function guardedFetch(opts: {
+  allowPrivate?: boolean | undefined;
+  signal?: AbortSignal | undefined;
+}) {
   const allowHttp = opts.allowPrivate === true && sourceEgressAllowPrivate();
   return async (url: string | URL, init?: RequestInit): Promise<Response> => {
     const target = String(url);
     await assertPublicHttpUrl(target, { allowHttp });
     if (allowHttp) await refuseLinkLocal(target);
-    const signal = opts.signal && init?.signal ? AbortSignal.any([opts.signal, init.signal]) : (init?.signal ?? opts.signal);
+    const signal =
+      opts.signal && init?.signal
+        ? AbortSignal.any([opts.signal, init.signal])
+        : (init?.signal ?? opts.signal);
     return fetch(target, {
       ...init,
       redirect: 'manual',

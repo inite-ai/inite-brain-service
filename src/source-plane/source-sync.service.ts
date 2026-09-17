@@ -90,7 +90,10 @@ export class SourceSyncService {
     const runStartedAt = new Date();
     const ctx: ConnectorCtx = {
       companyId,
-      connection: this.connections.toConnectorView(row, await this.connections.sourceContext(companyId, row)),
+      connection: this.connections.toConnectorView(
+        row,
+        await this.connections.sourceContext(companyId, row),
+      ),
       signal: opts.signal ?? new AbortController().signal,
       log: (line) => this.logger.log(`[${connectionId}] ${line}`),
     };

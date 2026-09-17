@@ -135,7 +135,9 @@ function validateMcpSource(packId: string, id: string, s: SourceShape): void {
         parsed = null;
       }
       if (!parsed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
-        throw new DomainPackError(`pack "${packId}" source "${id}" url must be a valid http(s) URL`);
+        throw new DomainPackError(
+          `pack "${packId}" source "${id}" url must be a valid http(s) URL`,
+        );
       }
     }
     if (!MCP_AUTH.has(s.auth as string)) {

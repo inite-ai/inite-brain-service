@@ -210,7 +210,14 @@ describe('source plane (e2e)', () => {
       description: 'MCP source e2e pack.',
       predicates: [{ ...PREDICATE, localId: 'resource_note', displayLabel: 'resource note' }],
       sources: [
-        { id: 'pinned', kind: 'mcp', transport: 'http', auth: 'none', url: 'https://mcp.example.com/mcp', shape: 'document' },
+        {
+          id: 'pinned',
+          kind: 'mcp',
+          transport: 'http',
+          auth: 'none',
+          url: 'https://mcp.example.com/mcp',
+          shape: 'document',
+        },
         { id: 'named', kind: 'mcp', transport: 'http', auth: 'none', shape: 'document' },
       ],
     });
@@ -227,7 +234,10 @@ describe('source plane (e2e)', () => {
     expect([200, 201]).toContain(installed.status);
 
     const post = (body: Record<string, unknown>) =>
-      f.http.post('/v1/admin/source-connections').set(auth()).send({ packId: 'mcp_pack', vertical: 'mcp', ...body });
+      f.http
+        .post('/v1/admin/source-connections')
+        .set(auth())
+        .send({ packId: 'mcp_pack', vertical: 'mcp', ...body });
 
     // Switch off ⇒ "installed but switched off", by name.
     delete process.env.SOURCE_KIND_MCP;
@@ -237,7 +247,10 @@ describe('source plane (e2e)', () => {
     process.env.SOURCE_KIND_MCP = '1';
 
     // A pinned entry refuses an operator url; a named entry requires one.
-    const pinnedPlus = await post({ sourceId: 'pinned', config: { url: 'https://other.example.com/mcp' } });
+    const pinnedPlus = await post({
+      sourceId: 'pinned',
+      config: { url: 'https://other.example.com/mcp' },
+    });
     expect(pinnedPlus.status).toBe(400);
     expect(String(pinnedPlus.body.message)).toContain('config.url is not accepted');
     const namedMissing = await post({ sourceId: 'named', config: {} });
@@ -245,16 +258,25 @@ describe('source plane (e2e)', () => {
     expect(String(namedMissing.body.message)).toContain('needs config.url');
     // The named url passes the egress guard at create: loopback is refused
     // without the double opt-in.
-    const namedPrivate = await post({ sourceId: 'named', config: { url: 'http://127.0.0.1:9/mcp' } });
+    const namedPrivate = await post({
+      sourceId: 'named',
+      config: { url: 'http://127.0.0.1:9/mcp' },
+    });
     expect(namedPrivate.status).toBe(400);
     expect(String(namedPrivate.body.message)).toContain('config.url:');
 
     // An IP literal needs no DNS: the guard classifies it offline.
-    const ok = await post({ sourceId: 'named', config: { url: 'https://93.184.216.34/mcp' }, credential: 'tok' });
+    const ok = await post({
+      sourceId: 'named',
+      config: { url: 'https://93.184.216.34/mcp' },
+      credential: 'tok',
+    });
     expect(ok.status).toBe(201);
     expect(ok.body).toMatchObject({ kind: 'mcp', connector: 'mcp', hasCredential: true });
     // Leave the tenant as found for the cases below.
-    const gone = await f.http.delete(`/v1/admin/source-connections/${encodeURIComponent(ok.body.id)}`).set(auth());
+    const gone = await f.http
+      .delete(`/v1/admin/source-connections/${encodeURIComponent(ok.body.id)}`)
+      .set(auth());
     expect(gone.status).toBe(200);
     delete process.env.SOURCE_KIND_MCP;
   });
