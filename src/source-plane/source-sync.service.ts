@@ -81,17 +81,11 @@ export class SourceSyncService {
     if (row.host !== 'server') return { ...base('incremental'), skipped: 'agent_host' };
     const connector = this.connections.resolveConnector(row);
     if (!connector) {
-      await this.connections.recordSync(companyId, connectionId, {
-        status: 'failed',
-        error: `no installed connector "${row.connector}"`,
-      });
-      return {
-        ...base('incremental'),
-        status: 'failed',
-        error: `no installed connector "${row.connector}"`,
-      };
+      const error = this.connections.connectorUnavailable(row);
+      await this.connections.recordSync(companyId, connectionId, { status: 'failed', error });
+      return { ...base('incremental'), status: 'failed', error };
     }
-    const full = opts.full === true || row.checkpoint == null;
+    const full = opts.full === true || row.checkpoint == null || connector.walksEverything === true;
     const summary = base(full ? 'full' : 'incremental');
     const runStartedAt = new Date();
     const ctx: ConnectorCtx = {

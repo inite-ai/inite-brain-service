@@ -18,3 +18,29 @@ import { envFlagEnabled } from './env-validation';
 export function sourcePlaneEnabled(): boolean {
   return envFlagEnabled(process.env.SOURCE_PLANE_ENABLED);
 }
+
+/**
+ * Per-connector switch — SOURCE_KIND_<KIND> (e.g. SOURCE_KIND_FS). The
+ * master alone enables no connector: a kind that is off is "not
+ * installed" to the engine (a connection of it records a failed run,
+ * never runs). Read at call time.
+ */
+export function sourceKindEnabled(kind: string): boolean {
+  return envFlagEnabled(process.env[`SOURCE_KIND_${kind.toUpperCase()}`]);
+}
+
+/**
+ * The `fs` connector's root jail — SOURCE_FS_ROOTS: a `:`-separated list
+ * of absolute directories a connection's `config.root` must resolve
+ * inside. Unset ⇒ NO root is permitted (fail closed): brain's own
+ * process reading arbitrary paths on the host is exactly the capability
+ * an operator must grant by name.
+ */
+export function sourceFsRoots(): string[] {
+  const raw = process.env.SOURCE_FS_ROOTS;
+  if (raw === undefined) return [];
+  return raw
+    .split(':')
+    .map((r) => r.trim())
+    .filter((r) => r.length > 0);
+}

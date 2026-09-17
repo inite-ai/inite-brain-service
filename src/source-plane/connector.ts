@@ -139,6 +139,15 @@ export type FetchedItem =
 export interface Connector {
   /** `^[a-z][a-z0-9_]{1,31}$` — what a pack's `native.connector` names. */
   readonly kind: string;
+  /**
+   * True for sources with no change feed (a filesystem walk, a bucket
+   * listing): every enumerate re-emits every live item, so the engine
+   * treats every run as full and marks what it did not see gone.
+   */
+  readonly walksEverything?: boolean;
+  /** Runtime switch (SOURCE_KIND_<KIND>); absent = always on. A kind that
+   *  answers false is "not installed" to the engine. */
+  enabled?(): boolean;
   enumerate(ctx: ConnectorCtx, opts: EnumerateOptions): AsyncIterable<ItemDelta>;
   fetch(ctx: ConnectorCtx, item: ItemDescriptor): Promise<FetchedItem>;
 }
@@ -148,5 +157,22 @@ export const SOURCE_CONNECTORS = Symbol('SOURCE_CONNECTORS');
 export type ConnectorRegistry = readonly Connector[];
 
 export function findConnector(registry: ConnectorRegistry, kind: string): Connector | null {
-  return registry.find((c) => c.kind === kind) ?? null;
+  const state = connectorState(registry, kind);
+  return typeof state === 'string' ? null : state;
+}
+
+/** Why a kind is unavailable — the message an operator can act on. */
+export function connectorState(
+  registry: ConnectorRegistry,
+  kind: string,
+): Connector | 'missing' | 'disabled' {
+  const found = registry.find((c) => c.kind === kind);
+  if (!found) return 'missing';
+  return found.enabled === undefined || found.enabled() ? found : 'disabled';
+}
+
+export function connectorUnavailableMessage(kind: string, state: 'missing' | 'disabled'): string {
+  return state === 'missing'
+    ? `no installed connector "${kind}"`
+    : `connector "${kind}" is installed but switched off (SOURCE_KIND_${kind.toUpperCase()})`;
 }

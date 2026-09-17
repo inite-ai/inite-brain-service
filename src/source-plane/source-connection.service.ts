@@ -23,7 +23,12 @@ import type {
   UpdateSourceConnectionRequest,
 } from '../contracts/source-plane/source-plane.schema';
 import type { Connector, ConnectorConnectionView, ConnectorRegistry } from './connector';
-import { findConnector, SOURCE_CONNECTORS } from './connector';
+import {
+  connectorState,
+  connectorUnavailableMessage,
+  findConnector,
+  SOURCE_CONNECTORS,
+} from './connector';
 import { Inject } from '@nestjs/common';
 
 /** Raw `source_connection` row (SurrealDB record id in `id`). */
@@ -94,10 +99,13 @@ export class SourceConnectionService {
       throw new BadRequestException(`vertical must match ${VERTICAL}`);
     }
     const connector = connectorKindOf(entry);
-    if (entry.kind === 'native' && !findConnector(this.connectors ?? [], connector)) {
-      throw new BadRequestException(
-        `source "${entry.id}" names connector "${connector}" but no such connector is installed on this brain`,
-      );
+    if (entry.kind === 'native') {
+      const state = connectorState(this.connectors ?? [], connector);
+      if (typeof state === 'string') {
+        throw new BadRequestException(
+          `source "${entry.id}": ${connectorUnavailableMessage(connector, state)}`,
+        );
+      }
     }
     if (dto.label !== undefined && dto.label.length > LABEL_MAX) {
       throw new BadRequestException(`label must be at most ${LABEL_MAX} characters`);
@@ -304,9 +312,17 @@ export class SourceConnectionService {
     return rows.filter((r) => isDue(r, now));
   }
 
-  /** The platform connector that runs this connection, if installed. */
+  /** The platform connector that runs this connection, if installed and on. */
   resolveConnector(row: SourceConnectionRow): Connector | null {
     return findConnector(this.connectors ?? [], row.connector);
+  }
+
+  /** The operator-facing reason resolveConnector() returned null. */
+  connectorUnavailable(row: SourceConnectionRow): string {
+    const state = connectorState(this.connectors ?? [], row.connector);
+    return typeof state === 'string'
+      ? connectorUnavailableMessage(row.connector, state)
+      : `connector "${row.connector}" is available`;
   }
 
   /** The connector-facing projection of a row (credential resolved). */

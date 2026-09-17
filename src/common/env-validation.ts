@@ -1362,6 +1362,8 @@ const KNOWN_BOOLEAN_FLAGS = [
   // Source plane master switch (W0): connections, catalogue, sync engine,
   // scheduler, admin surface. Default off = 404 / no handler / no job.
   'SOURCE_PLANE_ENABLED',
+  // Per-connector switches (W1+): a kind that is off is "not installed".
+  'SOURCE_KIND_FS',
   // Orphan-blob GC (MM-7 follow-up): the delete-side sweep that reclaims
   // blobs no evidence_asset row references — the leak the upload path
   // creates by design (bytes are stored before their row exists, and a

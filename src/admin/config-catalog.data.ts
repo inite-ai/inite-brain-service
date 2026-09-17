@@ -1558,6 +1558,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       "Source plane master switch (docs/roadmap/raw-evidence-sources-2026-09.md, W0): the operator surface /v1/admin/source-connections (create a connection for a pack's declared `sources` entry, list its catalogue, sync now), the sync engine's `source_sync` job handler and the 5-minute scheduler that enqueues due connections. A connection runs a platform connector (`native`), harvests an MCP server (`mcp`, W2) or is a catalogue a publisher fills (`external`); what it fetches enters the existing door for its shape (document → ingest/document, conversation → ingest/mention, binary → evidence-blob, structure → the record envelope). Off (default) = the routes answer a bare 404, no handler is registered, nothing is ever enqueued and no connector ever runs — byte-identical. The handler registration is read at boot; the admin verbs and sync-now read the flag per call.",
   },
   {
+    key: 'SOURCE_KIND_FS',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `fs` source connector (source plane, W1): a directory on the brain host's filesystem — a mounted volume, an OS-mounted network share, the laptop a fully-local brain runs on — read as documents (text-like files) or handed to the evidence plane (PDFs, images) per the pack's source entry (file_memory: `folder` / `folder_media`). Every run is a full walk (no change feed): mtime + size is the revision, symlinks are never followed, hidden entries and VCS/build directories are skipped, maxFiles / maxFileBytes bound the walk. Requires SOURCE_PLANE_ENABLED and a SOURCE_FS_ROOTS jail. Off (default) = the connector is 'not installed': a connection of it cannot be created and an existing one records a failed sync — byte-identical.",
+  },
+  {
+    key: 'SOURCE_FS_ROOTS',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "Root jail for the `fs` source connector: a `:`-separated list of absolute directories a connection's `config.root` must resolve inside (realpath on both sides, so neither a symlinked root nor a `..` segment escapes). NO default on purpose — unset means no directory is permitted and every fs sync fails with a clear message: brain's own process reading arbitrary host paths is a capability an operator grants by name.",
+  },
+  {
     key: 'EVIDENCE_QUARANTINE',
     category: 'pipeline',
     defaultValue: '0',

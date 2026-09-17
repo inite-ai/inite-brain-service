@@ -1,0 +1,252 @@
+{
+  "id": "file_memory",
+  "version": "0.1.0",
+  "description": "Files as memory — what a folder of documents describes, defines and references, bound to the file revision it was read at; the source pack that connects local and mounted folders.",
+  "predicates": [
+    {
+      "localId": "describes",
+      "displayLabel": "describes",
+      "description": "TYPE   subject is a document/file; value is a subject the document is about\nADMIT  the text is clearly ABOUT a named thing — a project, a system, a\n       process, a person's role, a product (\"this runbook covers the\n       payments gateway\", a README's opening line)\nVALUE  the subject, verbatim as named (\"payments gateway\")",
+      "datatype": "string",
+      "semantics": "append_only",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "defines_term",
+      "displayLabel": "defines term",
+      "description": "TYPE   subject is a document/file; value is a term the document defines\nADMIT  the text gives a definition, glossary entry or \"X means Y\"\n       (\"SLA — the response-time commitment in the contract\")\nVALUE  the term being defined, verbatim (\"SLA\")",
+      "datatype": "string",
+      "semantics": "append_only",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "references",
+      "displayLabel": "references",
+      "description": "TYPE   subject is a document/file; value is another document, file or link it points to\nADMIT  the text names another document, file path or URL as something to\n       read (\"see docs/deploy.md\", \"the spec is at https://…\")\nVALUE  the referenced path/name/URL, verbatim (\"docs/deploy.md\")",
+      "datatype": "string",
+      "semantics": "append_only",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "located_in",
+      "displayLabel": "located in",
+      "description": "TYPE   subject is a document/file; value is the folder that holds it\nADMIT  DERIVABLE — the filesystem states it; from text only when the\n       document names its own location (\"this file lives in docs/runbooks\")\nVALUE  the folder path, verbatim (\"docs/runbooks\")",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "last_modified",
+      "displayLabel": "last modified",
+      "description": "TYPE   subject is a document/file; value is when it was last changed\nADMIT  DERIVABLE — the filesystem states it; from text only when the\n       document carries its own \"last updated\" line\nVALUE  an ISO date or the verbatim date text (\"2026-09-01\")",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    }
+  ],
+  "extractionProfile": {
+    "guidance": "Inputs are DOCUMENTS read from files — READMEs, runbooks, notes,\nspecs, exports. Treat the document itself as one SUBJECT entity (its title or\nfile name) and extract what it is ABOUT (file_memory__describes), which terms it\nDEFINES (file_memory__defines_term) and which other documents, paths or links it\nREFERENCES (file_memory__references). Do NOT invent location or modification\nfacts from prose: file_memory__located_in and file_memory__last_modified are\nderived from the filesystem and only admitted when the text states them\nexplicitly. Copy names, terms, paths and URLs VERBATIM.",
+    "fewShot": [
+      {
+        "text": "# Payments gateway runbook\nThis runbook covers on-call procedures for the payments gateway. See docs/alerts.md for the alert catalogue. \"Settlement window\" means the 02:00–04:00 UTC batch.",
+        "note": "document 'Payments gateway runbook' → file_memory__describes='payments gateway', file_memory__references='docs/alerts.md', file_memory__defines_term='Settlement window'."
+      },
+      {
+        "text": "Last updated 2026-03-01. The onboarding checklist lives in people/onboarding/.",
+        "note": "→ file_memory__last_modified='2026-03-01', file_memory__located_in='people/onboarding/' (both stated in the text, so admitted)."
+      }
+    ]
+  },
+  "memoryModel": {
+    "sceneSchemas": [
+      {
+        "id": "document_review",
+        "description": "A document is read, discussed or revised: what it says, what is missing, what changed.",
+        "cues": [
+          "runbook",
+          "readme",
+          "spec",
+          "updated the doc",
+          "see the notes"
+        ]
+      }
+    ],
+    "attentionHints": [
+      {
+        "cue": "covers",
+        "prefer": [
+          "describes"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.5
+      },
+      {
+        "cue": "means",
+        "prefer": [
+          "defines_term"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.6
+      },
+      {
+        "cue": "see ",
+        "prefer": [
+          "references"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.5
+      },
+      {
+        "cue": "lives in",
+        "prefer": [
+          "located_in"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.5
+      }
+    ],
+    "verificationRules": [
+      {
+        "requires": "source_version_match",
+        "appliesTo": [
+          "located_in",
+          "last_modified"
+        ]
+      }
+    ],
+    "retentionHints": [
+      {
+        "predicateOrScene": "describes",
+        "hint": "durable"
+      },
+      {
+        "predicateOrScene": "defines_term",
+        "hint": "durable"
+      },
+      {
+        "predicateOrScene": "references",
+        "hint": "standard"
+      },
+      {
+        "predicateOrScene": "located_in",
+        "hint": "standard"
+      },
+      {
+        "predicateOrScene": "last_modified",
+        "hint": "ephemeral"
+      },
+      {
+        "predicateOrScene": "document_review",
+        "hint": "ephemeral"
+      }
+    ],
+    "modalities": [
+      "text",
+      "document",
+      "image"
+    ],
+    "processors": [
+      {
+        "id": "document_text",
+        "modality": "document",
+        "produces": [
+          "text"
+        ]
+      },
+      {
+        "id": "image_metadata",
+        "modality": "image",
+        "produces": [
+          "caption"
+        ]
+      }
+    ]
+  },
+  "sources": [
+    {
+      "id": "folder",
+      "kind": "native",
+      "connector": "fs",
+      "shape": "document",
+      "title": "Folder (text documents)",
+      "description": "Text-like files under a directory (markdown, text, csv, json, yaml, html, code) read as documents. config: { root, extensions?, excludeDirs?, maxFiles?, maxFileBytes? }.",
+      "defaults": {
+        "contentPolicy": "text",
+        "deletePolicy": "close",
+        "schedule": "manual"
+      }
+    },
+    {
+      "id": "folder_media",
+      "kind": "native",
+      "connector": "fs",
+      "shape": "binary",
+      "title": "Folder (PDFs and images)",
+      "description": "PDFs and images under a directory handed to the evidence plane (needs the evidence substrate + broker; the bridge carries a PDF’s text into facts). config: { root, extensions?, excludeDirs?, maxFiles?, maxFileBytes? }.",
+      "defaults": {
+        "contentPolicy": "bytes",
+        "deletePolicy": "close",
+        "schedule": "manual"
+      }
+    }
+  ],
+  "evalFixtures": [
+    {
+      "id": "describes",
+      "description": "what a document is about is extracted",
+      "text": "This runbook covers on-call procedures for the payments gateway.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "describes",
+            "objectIncludes": "payments gateway"
+          }
+        ]
+      }
+    },
+    {
+      "id": "defines",
+      "description": "a defined term is captured",
+      "text": "\"Settlement window\" means the 02:00–04:00 UTC batch.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "defines_term",
+            "objectIncludes": "Settlement window"
+          }
+        ]
+      }
+    },
+    {
+      "id": "references",
+      "description": "a referenced document is captured verbatim",
+      "text": "See docs/alerts.md for the alert catalogue.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "references",
+            "objectIncludes": "docs/alerts.md"
+          }
+        ]
+      }
+    }
+  ]
+}
