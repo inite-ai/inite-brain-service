@@ -1,6 +1,6 @@
 {
   "id": "web_memory",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Web pages as memory — what a page describes, links to and who wrote it, bound to the revision it was fetched at; the source pack that connects sites, sitemaps and self-hosted wikis.",
   "predicates": [
     {
@@ -166,6 +166,34 @@
         "contentPolicy": "bytes",
         "deletePolicy": "close",
         "schedule": "24h"
+      }
+    },
+    {
+      "id": "mcp_resources",
+      "kind": "mcp",
+      "transport": "http",
+      "auth": "none",
+      "shape": "document",
+      "title": "MCP server (text resources)",
+      "description": "Text resources of an MCP server the operator names — `resources/list` as the catalogue, `resources/read` as the fetch, lastModified as the revision. config: { url, allowPrivate?, uriPrefixes?, mimeTypes?, maxResources?, maxBytes?, refetchHours?, authScheme? }; credential = the bearer the server expects.",
+      "defaults": {
+        "contentPolicy": "text",
+        "deletePolicy": "close",
+        "schedule": "4h"
+      }
+    },
+    {
+      "id": "mcp_resources_media",
+      "kind": "mcp",
+      "transport": "http",
+      "auth": "none",
+      "shape": "binary",
+      "title": "MCP server (PDFs and office documents)",
+      "description": "Blob resources (PDFs, office documents, images) of an MCP server the operator names, handed to the evidence plane. Same config and credential as `mcp_resources`.",
+      "defaults": {
+        "contentPolicy": "bytes",
+        "deletePolicy": "close",
+        "schedule": "4h"
       }
     }
   ],

@@ -59,3 +59,13 @@ export function modalityOf(ext: string): EvidenceModality {
 }
 
 export const HTML_EXTENSIONS = new Set(['html', 'htm']);
+
+/** The modality a served media type enters the evidence plane under. */
+export function modalityOfMediaType(mediaType: string): EvidenceModality {
+  const semi = mediaType.indexOf(';');
+  const t = (semi === -1 ? mediaType : mediaType.slice(0, semi)).trim().toLowerCase();
+  if (t.startsWith('image/')) return 'image';
+  if (t.startsWith('audio/')) return 'audio';
+  if (t.startsWith('video/')) return 'video';
+  return 'document';
+}

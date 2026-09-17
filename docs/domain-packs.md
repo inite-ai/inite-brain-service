@@ -696,7 +696,11 @@ section:
   the server host, egress-guarded at install and per sync; `stdio`: the
   local agent spawns it). `auth` is `install_secret` (the per-install
   webhook secret as bearer — a publisher-operated server), `oauth` (W4)
-  or `none`.
+  or `none`. An `http` entry pins `url` when the publisher operates the
+  server; leaving it out makes the entry **operator-named** — the
+  connection carries `config.url` (guarded at create) and the consent
+  reads "an MCP server the operator names" (`web_memory`'s
+  `mcp_resources`).
 - **`native`** — a platform-shipped connector, NAMED by the pack and never
   supplied by it (the anti-DSL doctrine: exactly like `processors`, a
   kind with no installed connector fails every sync, never runs foreign
@@ -754,7 +758,7 @@ tracking and scene graphs remain deliberately undeclared.
 | `hr` | 0.3.0 | text, document | document text | deny | CVs and offer letters are personal data; `image` withheld, so no ocr |
 | `code_memory` (builtin) | 0.6.0 | text, image, document | image metadata, document text, **ocr** | deny | failure/dashboard screenshots + log artifacts; the text in a screenshot is the whole point of it |
 | `file_memory` | 0.3.0 | text, document, image | document text, image metadata | deny | a folder or bucket holds PDFs, office documents, mail and images next to its text; the source pack for `fs` (`folder` / `folder_media`) and `s3` (`bucket` / `bucket_media`) connections — a folder can hold anything, so raw bytes never serve |
-| `web_memory` | 0.1.1 | text, document | document text | deny | a site serves PDFs and office documents next to its pages; the source pack for `url` connections (`site` / `site_media`); page images are chrome, not evidence |
+| `web_memory` | 0.2.0 | text, document | document text | deny | a site serves PDFs and office documents next to its pages; the source pack for `url` connections (`site` / `site_media`) and for `mcp` ones (`mcp_resources` / `mcp_resources_media` — an MCP server the operator names); page images are chrome, not evidence |
 
 The `ocr` capability needs `EVIDENCE_OCR_ENABLED` on top of the usual
 ladder (`EVIDENCE_PROCESSOR_BROKER`, pack declaration, current modality

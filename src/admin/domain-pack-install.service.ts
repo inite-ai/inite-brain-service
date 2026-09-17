@@ -549,6 +549,7 @@ export class DomainPackInstallService {
   private async assertSourceUrls(sources: PackMcpHttpSourceSpec[]): Promise<void> {
     const allowHttp = envFlagEnabled(process.env.MCP_PACK_TOOLS_ALLOW_HTTP);
     for (const source of sources) {
+      if (source.url === undefined) continue; // operator-named: guarded at connection create
       try {
         await assertPublicHttpUrl(source.url, { allowHttp });
       } catch (e) {

@@ -3,8 +3,10 @@ import type { DomainPackManifest } from './manifest';
 /**
  * Source pack: THE WEB. DISTRIBUTABLE (installed per-tenant from
  * `packs/web-memory.pack.json`, NOT in BUILTIN_PACKS). The carrier of
- * the `url` source entry — a public site, a docs portal, a self-hosted
- * wiki on the LAN (with the egress double opt-in) — plus the vocabulary
+ * the `url` source entries — a public site, a docs portal, a self-hosted
+ * wiki on the LAN (with the egress double opt-in) — and of the `mcp`
+ * entries (W2: the same pages served as MCP resources by a server the
+ * operator names) — plus the vocabulary
  * a crawled page yields and the derivable class the drift sweep
  * re-verifies: `published_on` and `canonical_url` are what the page's
  * own metadata states and the server re-derives on every fetch; bound
@@ -16,7 +18,7 @@ import type { DomainPackManifest } from './manifest';
  */
 export const WEB_MEMORY_PACK: DomainPackManifest = {
   id: 'web_memory',
-  version: '0.1.1',
+  version: '0.2.0',
   description:
     'Web pages as memory — what a page describes, links to and who wrote it, bound to the revision it was fetched at; the source pack that connects sites, sitemaps and self-hosted wikis.',
   predicates: [
@@ -145,6 +147,33 @@ chrome, cookie banners and footers. Copy names and URLs VERBATIM.`,
       description:
         'PDFs and office documents (docx, xlsx, pptx) a sitemap lists or that are named outright, handed to the evidence plane. Same config and credential as `site`.',
       defaults: { contentPolicy: 'bytes', deletePolicy: 'close', schedule: '24h' },
+    },
+    // ── MCP (W2) — the only third-party seam. A wiki, a docs portal or a
+    // knowledge base that speaks MCP exposes its pages as RESOURCES; the
+    // operator names the server on the connection (no url pinned here),
+    // and the harvester reads them under this pack's vocabulary. Records
+    // (a CRM's rows) are a different shape and a different pack.
+    {
+      id: 'mcp_resources',
+      kind: 'mcp',
+      transport: 'http',
+      auth: 'none',
+      shape: 'document',
+      title: 'MCP server (text resources)',
+      description:
+        'Text resources of an MCP server the operator names — `resources/list` as the catalogue, `resources/read` as the fetch, lastModified as the revision. config: { url, allowPrivate?, uriPrefixes?, mimeTypes?, maxResources?, maxBytes?, refetchHours?, authScheme? }; credential = the bearer the server expects.',
+      defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '4h' },
+    },
+    {
+      id: 'mcp_resources_media',
+      kind: 'mcp',
+      transport: 'http',
+      auth: 'none',
+      shape: 'binary',
+      title: 'MCP server (PDFs and office documents)',
+      description:
+        'Blob resources (PDFs, office documents, images) of an MCP server the operator names, handed to the evidence plane. Same config and credential as `mcp_resources`.',
+      defaults: { contentPolicy: 'bytes', deletePolicy: 'close', schedule: '4h' },
     },
   ],
   evalFixtures: [

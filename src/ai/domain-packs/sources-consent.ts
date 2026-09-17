@@ -39,7 +39,7 @@ export function wantsInstallSecret(manifest: DomainPackManifest): boolean {
 function describe(s: PackSourceSpec): string {
   if (s.kind === 'mcp') {
     return s.transport === 'http'
-      ? `mcp "${s.id}" → ${s.url} (${s.auth}, ${s.shape})`
+      ? `mcp "${s.id}" → ${s.url ?? 'a server the operator names'} (${s.auth}, ${s.shape})`
       : `mcp "${s.id}" via stdio "${s.command}" (${s.shape})`;
   }
   if (s.kind === 'native') return `native "${s.id}" (${s.connector}, ${s.shape})`;

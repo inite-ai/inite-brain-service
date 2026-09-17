@@ -121,16 +121,20 @@ function validateSourceDefaults(packId: string, id: string, defaults: unknown): 
 
 function validateMcpSource(packId: string, id: string, s: SourceShape): void {
   if (s.transport === 'http') {
-    let parsed: URL | null = null;
-    try {
-      parsed = new URL(s.url as string);
-    } catch {
-      parsed = null;
-    }
-    // http accepted here so the validator stays env-free; https-only is
-    // the egress guard's call (the mcpTools precedent).
-    if (!parsed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
-      throw new DomainPackError(`pack "${packId}" source "${id}" url must be a valid http(s) URL`);
+    // A pinned URL must parse; an absent one means the operator names
+    // the server on the connection. http accepted here so the validator
+    // stays env-free; https-only is the egress guard's call (the
+    // mcpTools precedent).
+    if (s.url !== undefined) {
+      let parsed: URL | null = null;
+      try {
+        parsed = new URL(s.url as string);
+      } catch {
+        parsed = null;
+      }
+      if (!parsed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
+        throw new DomainPackError(`pack "${packId}" source "${id}" url must be a valid http(s) URL`);
+      }
     }
     if (!MCP_AUTH.has(s.auth as string)) {
       throw new DomainPackError(
