@@ -550,9 +550,10 @@ function CatalogRow({
 }) {
   const c = t.catalog
   const flag = `SOURCE_KIND_${entry.connector.toUpperCase()}`
-  const connectable =
-    entry.accepted &&
-    (entry.availability === 'ready' || entry.availability === 'external')
+  // ready / external run on the server; agent runs on a local agent the
+  // form asks for. disabled / missing cannot be connected on the server
+  // — but any entry can be pointed at an agent, so the button stays.
+  const connectable = entry.accepted
   return (
     <tr className="border-t border-[var(--border)] align-top">
       <td className="px-3 py-1.5 font-mono text-[var(--text)]">

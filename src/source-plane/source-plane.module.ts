@@ -5,6 +5,9 @@ import { EvidenceModule } from '../evidence/evidence.module';
 import { IngestModule } from '../ingest/ingest.module';
 import { SourcesModule } from '../sources/sources.module';
 import { AdminSourceConnectionsController } from './admin-source-connections.controller';
+import { AgentRunService } from './agent-run.service';
+import { AgentSourceConnectionsController } from './agent-source-connections.controller';
+import { AgentSyncService } from './agent-sync.service';
 import { SOURCE_CONNECTORS, type Connector } from './connector';
 import { FsConnector } from './connectors/fs.connector';
 import { McpConnector } from './connectors/mcp.connector';
@@ -37,7 +40,7 @@ import { SourceSyncService } from './source-sync.service';
  */
 @Module({
   imports: [AuthModule, DocumentsModule, EvidenceModule, IngestModule, SourcesModule],
-  controllers: [AdminSourceConnectionsController],
+  controllers: [AdminSourceConnectionsController, AgentSourceConnectionsController],
   providers: [
     FsConnector,
     UrlConnector,
@@ -57,6 +60,8 @@ import { SourceSyncService } from './source-sync.service';
     SourceItemEffectsService,
     SourceSyncService,
     SourceSyncQueueService,
+    AgentSyncService,
+    AgentRunService,
   ],
   exports: [SourceConnectionService, SourceItemService, SourceSyncService, SOURCE_CONNECTORS],
 })

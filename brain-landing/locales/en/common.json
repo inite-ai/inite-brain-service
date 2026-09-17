@@ -771,12 +771,19 @@
           "ready": "the connector is installed and on",
           "disabled": "installed, off — set {flag}=1",
           "missing": "this build ships no such connector",
-          "agent": "runs on the local agent (stdio MCP), never on the server",
+          "agent": "runs on a local agent (brain-agent) — Connect asks for the agent id",
           "external": "the publisher pushes through the doors; the connection is only the identity pushes are attributed to"
         }
       },
       "create": {
         "title": "Connect {packId} / {sourceId}",
+        "host": "runs on",
+        "hostHint": "the brain (a mounted volume, a bucket, a site) or a local agent",
+        "hostAgentOnly": "this source runs on a local agent only",
+        "hostServer": "brain",
+        "hostAgent": "local agent",
+        "agentId": "agent id",
+        "agentIdHint": "the id the agent runs with (brain-agent --agent <id>, default: its hostname)",
         "label": "label",
         "labelHint": "free text for the operator; defaults to pack/source",
         "vertical": "vertical",

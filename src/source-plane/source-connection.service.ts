@@ -20,10 +20,11 @@ import { SurrealService, queryFirst, queryRows } from '../db/surreal.service';
 import { idTailOf } from '../ingest/ingest-utils';
 import { SourcesService } from '../sources/sources.service';
 import type { SourceType } from '../contracts/sources/sources.schema';
-import type {
-  CreateSourceConnectionRequest,
-  SourceConnection,
-  UpdateSourceConnectionRequest,
+import {
+  AGENT_HOST,
+  type CreateSourceConnectionRequest,
+  type SourceConnection,
+  type UpdateSourceConnectionRequest,
 } from '../contracts/source-plane/source-plane.schema';
 import type { Connector, ConnectorConnectionView, ConnectorRegistry } from './connector';
 import {
@@ -160,6 +161,16 @@ export class SourceConnectionService {
       );
     }
     return toView(row);
+  }
+
+  /** Every connection row of the tenant, newest first (credential included — engine reads only). */
+  async listRows(companyId: string): Promise<SourceConnectionRow[]> {
+    return this.surreal.withCompany(companyId, (db) =>
+      queryRows<SourceConnectionRow>(
+        db,
+        `SELECT * FROM source_connection ORDER BY createdAt DESC LIMIT 1000`,
+      ),
+    );
   }
 
   async list(companyId: string): Promise<SourceConnection[]> {
@@ -329,8 +340,15 @@ export class SourceConnectionService {
     connector: string,
     dto: CreateSourceConnectionRequest,
   ): Promise<void> {
+    const host = dto.host ?? 'server';
+    if (host !== 'server' && !AGENT_HOST.test(host)) {
+      throw new BadRequestException('host must be "server" or "agent:<id>"');
+    }
+    // An agent-host connection runs its connector on the agent: the
+    // server needs no installed connector for it, only the bookkeeping.
     const serverRun =
-      entry.kind === 'native' || (entry.kind === 'mcp' && entry.transport === 'http');
+      host === 'server' &&
+      (entry.kind === 'native' || (entry.kind === 'mcp' && entry.transport === 'http'));
     if (serverRun) {
       const state = connectorState(this.connectors ?? [], connector);
       if (typeof state === 'string') {
@@ -339,7 +357,7 @@ export class SourceConnectionService {
         );
       }
     }
-    if (entry.kind === 'mcp' && entry.transport === 'http') {
+    if (host === 'server' && entry.kind === 'mcp' && entry.transport === 'http') {
       await assertOperatorUrl(entry, dto.config ?? {});
     }
     if (dto.label !== undefined && dto.label.length > LABEL_MAX) {

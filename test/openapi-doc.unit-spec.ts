@@ -98,6 +98,11 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   ['/v1/admin/source-connections/{id}', 'delete'],
   ['/v1/admin/source-connections/{id}/items', 'get'],
   ['/v1/admin/source-connections/{id}/sync', 'post'],
+  ['/v1/source-connections', 'get'],
+  ['/v1/source-connections/{id}/agent-runs', 'post'],
+  ['/v1/source-connections/{id}/agent-runs/{runId}/deltas', 'post'],
+  ['/v1/source-connections/{id}/agent-runs/{runId}/items', 'post'],
+  ['/v1/source-connections/{id}/agent-runs/{runId}/finish', 'post'],
   // raw-substrate driver v1 (episodes read + subscriptions + projections)
   ['/v1/episodes', 'get'],
   ['/v1/episodes/export', 'get'],

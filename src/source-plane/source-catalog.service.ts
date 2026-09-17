@@ -111,12 +111,18 @@ export class SourceCatalogService {
   }
 }
 
+/** Natives that exist on the local agent only — git never runs in the brain process. */
+const AGENT_ONLY_CONNECTORS = new Set(['git']);
+
 function availabilityOf(
   registry: ConnectorRegistry,
   entry: PackSourceSpec,
 ): { availability: SourceAvailability; connector: Connector | 'missing' | 'disabled' } {
   if (entry.kind === 'external') return { availability: 'external', connector: 'missing' };
   if (entry.kind === 'mcp' && entry.transport === 'stdio') {
+    return { availability: 'agent', connector: 'missing' };
+  }
+  if (entry.kind === 'native' && AGENT_ONLY_CONNECTORS.has(entry.connector)) {
     return { availability: 'agent', connector: 'missing' };
   }
   const state = connectorState(registry, connectorKindOf(entry));

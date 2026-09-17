@@ -154,6 +154,40 @@ curl -X POST $BRAIN/v1/admin/source-connections -H "Authorization: Bearer $KEY" 
        "config":{"url":"https://wiki.example.com/mcp","uriPrefixes":["wiki://"]},"credential":"<token>"}'
 ```
 
+### The local agent (W3) — `@inite/brain-agent`
+
+The connector's other host. An operator points a connection at an agent
+(**Admin → Connections → Connect → runs on: local agent**, host
+`agent:<id>`); the agent (`clients/brain-agent`, `npm i -g
+@inite/brain-agent`) asks the brain which connections are its, walks the
+folders / repositories / stdio MCP servers on its own machine, and
+speaks the **agent protocol** — the engine's bookkeeping over HTTP:
+
+| Route (`brain:write`) | Does |
+|---|---|
+| `GET /v1/source-connections?host=agent:<id>` | the agent's connections, each with the pack entry it runs |
+| `POST /v1/source-connections/:id/agent-runs` | `{ agentId, full? }` — begin: a `source_sync` job_run (actor `agent:<id>`); answers whether the walk is full, the checkpoint, the content policy, the fetch budget; one running run per connection (409) |
+| `POST …/agent-runs/:runId/deltas` | up to 1000 `upsert` / `gone` / `checkpoint` deltas → the catalogue, exactly as a server walk; answers with the externalIds whose revision moved |
+| `POST …/agent-runs/:runId/items` | `{ externalId, item }` — the content in the seam's shape (binary as base64), through the door for its shape under the connection's recorder and stamp; `skipped` under `manifest` policy or a spent budget |
+| `POST …/agent-runs/:runId/finish` | `{ status, error?, checkpoint? }` — a full run marks what it did not see gone, the delete policy runs over everything gone since the run began, the checkpoint is recorded; the summary is the job's result |
+
+Agent connectors: `fs` (the brain's walking rules; `BRAIN_AGENT_ROOTS`
+fences it when the agent serves others), **`git`** — a repository's
+committed docs with the blob sha as revision and the last commit
+touching each file as its time (`code_memory/repo_docs`; git runs on the
+agent, never in the brain), and **`mcp` over stdio** — the server the
+pack names, spawned per run. Text is **redacted locally** before it
+leaves (cloud keys, tokens, private keys, bearer headers, `secret=value`)
+— `--no-redact` opts out. The key is a tenant write key; an agent reaches
+only the connections an operator pointed at its host. A CI recipe (the
+repo's docs after every push) is in the package README.
+
+An agent-host connection needs no server connector: `SOURCE_KIND_FS`
+may stay off, `git` has no server connector at all (the catalogue says
+`agent`), and the pack entry's `stdio` MCP command is the agent's to
+spawn. `SOURCE_PLANE_ENABLED` and job_run persistence are the two things
+the brain needs.
+
 **Private hosts — the double opt-in.** A self-hosted wiki or a MinIO on
 the LAN is a legitimate source, but the SSRF fence is lowered only when
 the operator who owns the network says so on the brain
@@ -241,6 +275,7 @@ pack may only name it.
 | `SOURCE_KIND_FS` / `SOURCE_FS_ROOTS` | `0` / unset | the `fs` native and its root jail (W1) |
 | `SOURCE_KIND_URL`, `SOURCE_KIND_S3` | `0` | the `url` and `s3` natives (W1) |
 | `SOURCE_KIND_MCP` | `0` | the `mcp` harvester (W2) |
+| `JOB_RUN_PERSIST` | `1` | agent runs are job_run rows — the protocol needs persistence on |
 | `SOURCE_EGRESS_ALLOW_PRIVATE` | `0` | operator half of the private-host double opt-in |
 | `DOCUMENT_INGEST_ENABLED` | `1` | the document door (default on) |
 | `EVIDENCE_*`, `EVIDENCE_DOCUMENT_BRIDGE` | `0` | the binary door and its bridge to facts |

@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import { Loader2, Plug } from 'lucide-react'
-import { Field, Modal, inputCls } from '../policies/ui'
+import { Field, Modal, Segmented, inputCls } from '../policies/ui'
 import {
   SOURCE_CONTENT_POLICIES,
   SOURCE_DELETE_POLICIES,
@@ -32,6 +32,13 @@ export function ConnectionCreateModal({
 }) {
   const c = t.create
   const [label, setLabel] = useState('')
+  // An agent-only entry (git, stdio MCP) runs on a local agent: the host
+  // is `agent:<id>` and the operator names the agent. A server-run entry
+  // may also be pointed at an agent — the same folder on a laptop instead
+  // of a mounted volume.
+  const agentOnly = entry.availability === 'agent'
+  const [onAgent, setOnAgent] = useState(agentOnly)
+  const [agentId, setAgentId] = useState('')
   const [vertical, setVertical] = useState(entry.packId)
   const [config, setConfig] = useState(
     JSON.stringify(entry.configExample ?? {}, null, 2),
@@ -68,6 +75,7 @@ export function ConnectionCreateModal({
         schedule,
         contentPolicy,
         deletePolicy,
+        ...(onAgent ? { host: `agent:${agentId.trim()}` } : {}),
       }
       if (label.trim()) body.label = label.trim()
       if (credential) body.credential = credential
@@ -87,6 +95,7 @@ export function ConnectionCreateModal({
       setBusy(false)
     }
   }, [
+    agentId,
     c,
     config,
     contentPolicy,
@@ -95,6 +104,7 @@ export function ConnectionCreateModal({
     entry,
     fetchBudget,
     label,
+    onAgent,
     onCreated,
     ownerUserId,
     schedule,
@@ -113,6 +123,31 @@ export function ConnectionCreateModal({
         </p>
       )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <Field label={c.host} hint={agentOnly ? c.hostAgentOnly : c.hostHint}>
+          <Segmented<'server' | 'agent'>
+            value={onAgent ? 'agent' : 'server'}
+            options={[
+              { value: 'server', label: c.hostServer },
+              { value: 'agent', label: c.hostAgent },
+            ]}
+            onChange={(v) => {
+              if (agentOnly) return
+              setOnAgent(v === 'agent')
+            }}
+          />
+        </Field>
+        {onAgent ? (
+          <Field label={c.agentId} hint={c.agentIdHint}>
+            <input
+              value={agentId}
+              onChange={(e) => setAgentId(e.target.value)}
+              placeholder="laptop-1"
+              className={`${inputCls} font-mono`}
+            />
+          </Field>
+        ) : (
+          <div className="hidden md:block" />
+        )}
         <Field label={c.label} hint={c.labelHint}>
           <input
             value={label}
@@ -222,7 +257,7 @@ export function ConnectionCreateModal({
         </button>
         <button
           type="button"
-          disabled={busy || !vertical.trim()}
+          disabled={busy || !vertical.trim() || (onAgent && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(agentId.trim()))}
           onClick={() => void submit()}
           className="rounded bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white inline-flex items-center gap-1 disabled:opacity-40"
         >

@@ -121,6 +121,14 @@ import {
   SourceSyncSummarySchema,
   SyncNowRequestSchema,
   SyncNowResponseSchema,
+  AgentConnectionsListResponseSchema,
+  AgentDeltasRequestSchema,
+  AgentDeltasResponseSchema,
+  AgentItemResponseSchema,
+  BeginAgentRunRequestSchema,
+  BeginAgentRunResponseSchema,
+  FetchedItemWireSchema,
+  FinishAgentRunRequestSchema,
   UpdateSourceConnectionRequestSchema,
 } from '../src/contracts/source-plane/source-plane.schema';
 import {
@@ -354,6 +362,14 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   SourceSyncSummary: SourceSyncSummarySchema,
   SyncNowRequest: SyncNowRequestSchema,
   SyncNowResponse: SyncNowResponseSchema,
+  AgentConnectionsListResponse: AgentConnectionsListResponseSchema,
+  AgentDeltasRequest: AgentDeltasRequestSchema,
+  AgentDeltasResponse: AgentDeltasResponseSchema,
+  AgentItemResponse: AgentItemResponseSchema,
+  BeginAgentRunRequest: BeginAgentRunRequestSchema,
+  BeginAgentRunResponse: BeginAgentRunResponseSchema,
+  FetchedItemWire: FetchedItemWireSchema,
+  FinishAgentRunRequest: FinishAgentRunRequestSchema,
   // --- external-indexer work discovery (src/contracts/indexer/…)
   ClaimWorkResponse: ClaimWorkResponseSchema,
   FailWorkRequest: FailWorkRequestSchema,
@@ -1710,6 +1726,137 @@ function sourcePlanePaths(): Json {
           '400': errorRef('BadRequest'),
           ...AUTH_ERRORS,
           '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    ...agentProtocolPaths(idParam),
+  };
+}
+
+const AGENT_NOTE =
+  'The local agent’s wire (docs/source-plane.md § Agent): the connector runs ' +
+  'on the agent’s machine, the engine keeps the books here. Scope ' +
+  'brain:write — a tenant write key, never an admin one; it reaches only ' +
+  'the connections an operator pointed at its host (`host: agent:<id>`). ' +
+  SOURCE_PLANE_NOTE;
+
+function agentProtocolPaths(idParam: Json): Json {
+  const runParam = pathParam('runId', 'The run id `begin` returned (a `source_sync` job_run).');
+  return {
+    '/v1/source-connections': {
+      get: operation({
+        operationId: 'listAgentSourceConnections',
+        tag: 'Source Plane',
+        summary: 'The connections pointed at this agent host',
+        description:
+          'Every connection whose `host` is the given `agent:<id>`, each with the ' +
+          'pack’s `sources[]` entry it instantiates (the connector kind, a stdio ' +
+          'command, …) so the agent knows what to run. ' +
+          AGENT_NOTE,
+        scope: 'brain:write',
+        parameters: [queryParam('host', 'Required — `agent:<id>`.', { type: 'string' })],
+        responses: {
+          '200': jsonResponse('The agent’s connections.', ref('AgentConnectionsListResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/source-connections/{id}/agent-runs': {
+      post: operation({
+        operationId: 'beginAgentRun',
+        tag: 'Source Plane',
+        summary: 'Begin an agent run',
+        description:
+          'Opens one run (a `source_sync` job_run, actor `agent:<id>`) and answers ' +
+          'with whether the walk must be full (first run, or requested), the ' +
+          'checkpoint to resume from, the content policy and the fetch budget. ' +
+          'One running agent run per connection — a second begin is 409. ' +
+          AGENT_NOTE,
+        scope: 'brain:write',
+        parameters: [idParam],
+        requestBody: jsonBody(ref('BeginAgentRunRequest')),
+        responses: {
+          '201': jsonResponse('The run.', ref('BeginAgentRunResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+          '409': errorRef('Conflict'),
+        },
+      }),
+    },
+    '/v1/source-connections/{id}/agent-runs/{runId}/deltas': {
+      post: operation({
+        operationId: 'postAgentRunDeltas',
+        tag: 'Source Plane',
+        summary: 'A batch of catalogue deltas',
+        description:
+          'Up to 1000 `upsert` / `gone` / `checkpoint` deltas from the agent’s walk, ' +
+          'applied to the catalogue exactly as a server walk would be. The answer ' +
+          'names the items whose revision moved — the ones the agent must now ' +
+          'fetch and post. ' +
+          AGENT_NOTE,
+        scope: 'brain:write',
+        parameters: [idParam, runParam],
+        requestBody: jsonBody(ref('AgentDeltasRequest')),
+        responses: {
+          '201': jsonResponse('What to fetch, and the batch’s counters.', ref('AgentDeltasResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+          '409': errorRef('Conflict'),
+        },
+      }),
+    },
+    '/v1/source-connections/{id}/agent-runs/{runId}/items': {
+      post: operation({
+        operationId: 'postAgentRunItem',
+        tag: 'Source Plane',
+        summary: 'One fetched item’s content',
+        description:
+          '`{ externalId, item }` — the item in the connector seam’s shape ' +
+          '(document text, binary as base64, conversation turns, a record ' +
+          'envelope), handed to the door for its shape under the connection’s ' +
+          'recorder and revision stamp. `skipped` when the content policy is ' +
+          '`manifest` or the fetch budget is spent. ' +
+          AGENT_NOTE,
+        scope: 'brain:write',
+        parameters: [idParam, runParam],
+        requestBody: jsonBody({
+          type: 'object',
+          required: ['externalId', 'item'],
+          properties: { externalId: { type: 'string' }, item: ref('FetchedItemWire') },
+        }),
+        responses: {
+          '201': jsonResponse('The item’s outcome.', ref('AgentItemResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+          '409': errorRef('Conflict'),
+        },
+      }),
+    },
+    '/v1/source-connections/{id}/agent-runs/{runId}/finish': {
+      post: operation({
+        operationId: 'finishAgentRun',
+        tag: 'Source Plane',
+        summary: 'Finish an agent run',
+        description:
+          'Closes the run: on `succeeded` a full walk marks what it did not see ' +
+          'gone, the delete policy runs over everything gone since the run ' +
+          'began, and the checkpoint is recorded; on `failed` the connection ' +
+          'records the error. Returns the run summary (also the job_run result). ' +
+          AGENT_NOTE,
+        scope: 'brain:write',
+        parameters: [idParam, runParam],
+        requestBody: jsonBody(ref('FinishAgentRunRequest')),
+        responses: {
+          '201': jsonResponse('The run summary.', ref('SourceSyncSummary')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+          '409': errorRef('Conflict'),
         },
       }),
     },

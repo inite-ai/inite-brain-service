@@ -123,6 +123,233 @@
       }
     },
     "schemas": {
+      "AgentConnectionsListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "connections": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "connection": {
+                  "$ref": "#/components/schemas/SourceConnection"
+                },
+                "source": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": {},
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "connection",
+                "source"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "connections"
+        ],
+        "type": "object"
+      },
+      "AgentDeltasRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "deltas": {
+            "items": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "item": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "acl": {
+                          "additionalProperties": {},
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "type": "object"
+                        },
+                        "externalId": {
+                          "maxLength": 2048,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "mediaType": {
+                          "maxLength": 128,
+                          "type": "string"
+                        },
+                        "modifiedAt": {
+                          "maxLength": 64,
+                          "type": "string"
+                        },
+                        "originUri": {
+                          "maxLength": 2048,
+                          "type": "string"
+                        },
+                        "path": {
+                          "maxLength": 2048,
+                          "type": "string"
+                        },
+                        "revision": {
+                          "maxLength": 256,
+                          "type": "string"
+                        },
+                        "size": {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "title": {
+                          "maxLength": 512,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "externalId"
+                      ],
+                      "type": "object"
+                    },
+                    "type": {
+                      "const": "upsert",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "item"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "externalId": {
+                      "maxLength": 2048,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "gone",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "externalId"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "checkpoint": {
+                      "additionalProperties": {},
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "type": {
+                      "const": "checkpoint",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "checkpoint"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "deltas"
+        ],
+        "type": "object"
+      },
+      "AgentDeltasResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "fetch": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "gone": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "new": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "seen": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "unchanged": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "fetch",
+          "seen",
+          "new",
+          "changed",
+          "unchanged",
+          "gone"
+        ],
+        "type": "object"
+      },
+      "AgentItemResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ingested",
+              "deduplicated",
+              "failed",
+              "skipped"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
       "ApiKeySummary": {
         "additionalProperties": false,
         "properties": {
@@ -264,6 +491,75 @@
           "succeeded",
           "failed",
           "degradedBy"
+        ],
+        "type": "object"
+      },
+      "BeginAgentRunRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "agentId": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+            "type": "string"
+          },
+          "full": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "agentId"
+        ],
+        "type": "object"
+      },
+      "BeginAgentRunResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint": {
+            "anyOf": [
+              {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "contentPolicy": {
+            "enum": [
+              "manifest",
+              "text",
+              "bytes"
+            ],
+            "type": "string"
+          },
+          "fetchBudget": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "full": {
+            "type": "boolean"
+          },
+          "runId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId",
+          "full",
+          "checkpoint",
+          "contentPolicy",
+          "fetchBudget"
         ],
         "type": "object"
       },
@@ -2035,6 +2331,251 @@
         "required": [
           "packId",
           "featured"
+        ],
+        "type": "object"
+      },
+      "FetchedItemWire": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "maxLength": 64,
+                "type": "string"
+              },
+              "occurredAt": {
+                "maxLength": 64,
+                "type": "string"
+              },
+              "shape": {
+                "const": "document",
+                "type": "string"
+              },
+              "text": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "title": {
+                "maxLength": 512,
+                "type": "string"
+              }
+            },
+            "required": [
+              "shape",
+              "text"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "bytesBase64": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "mediaType": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "modality": {
+                "enum": [
+                  "image",
+                  "audio",
+                  "video",
+                  "document",
+                  "sensor"
+                ],
+                "type": "string"
+              },
+              "occurredAt": {
+                "maxLength": 64,
+                "type": "string"
+              },
+              "shape": {
+                "const": "binary",
+                "type": "string"
+              }
+            },
+            "required": [
+              "shape",
+              "bytesBase64",
+              "mediaType",
+              "modality"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "conversationId": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "shape": {
+                "const": "conversation",
+                "type": "string"
+              },
+              "turns": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "at": {
+                      "maxLength": 64,
+                      "type": "string"
+                    },
+                    "messageId": {
+                      "maxLength": 200,
+                      "type": "string"
+                    },
+                    "role": {
+                      "maxLength": 40,
+                      "type": "string"
+                    },
+                    "speaker": {
+                      "maxLength": 200,
+                      "type": "string"
+                    },
+                    "text": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 5000,
+                "minItems": 1,
+                "type": "array"
+              }
+            },
+            "required": [
+              "shape",
+              "conversationId",
+              "turns"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "record": {
+                "additionalProperties": false,
+                "properties": {
+                  "attributes": {
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "propertyNames": {
+                      "maxLength": 64,
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "entityType": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "externalId": {
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "name": {
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "relations": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "kind": {
+                          "maxLength": 64,
+                          "type": "string"
+                        },
+                        "targetExternalId": {
+                          "maxLength": 512,
+                          "type": "string"
+                        },
+                        "targetName": {
+                          "maxLength": 512,
+                          "type": "string"
+                        },
+                        "targetType": {
+                          "maxLength": 64,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "targetType",
+                        "targetExternalId"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 500,
+                    "type": "array"
+                  },
+                  "updatedAt": {
+                    "maxLength": 64,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "entityType",
+                  "externalId",
+                  "name",
+                  "attributes"
+                ],
+                "type": "object"
+              },
+              "shape": {
+                "const": "structure",
+                "type": "string"
+              }
+            },
+            "required": [
+              "shape",
+              "record"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "FinishAgentRunRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "error": {
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "succeeded",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
         ],
         "type": "object"
       },
@@ -10629,6 +11170,322 @@
         "summary": "Chained multi-hop search",
         "tags": [
           "Search"
+        ]
+      }
+    },
+    "/v1/source-connections": {
+      "get": {
+        "description": "Every connection whose `host` is the given `agent:<id>`, each with the pack’s `sources[]` entry it instantiates (the connector kind, a stdio command, …) so the agent knows what to run. The local agent’s wire (docs/source-plane.md § Agent): the connector runs on the agent’s machine, the engine keeps the books here. Scope brain:write — a tenant write key, never an admin one; it reaches only the connections an operator pointed at its host (`host: agent:<id>`). Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:write`.",
+        "operationId": "listAgentSourceConnections",
+        "parameters": [
+          {
+            "description": "Required — `agent:<id>`.",
+            "in": "query",
+            "name": "host",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConnectionsListResponse"
+                }
+              }
+            },
+            "description": "The agent’s connections."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The connections pointed at this agent host",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/source-connections/{id}/agent-runs": {
+      "post": {
+        "description": "Opens one run (a `source_sync` job_run, actor `agent:<id>`) and answers with whether the walk must be full (first run, or requested), the checkpoint to resume from, the content policy and the fetch budget. One running agent run per connection — a second begin is 409. The local agent’s wire (docs/source-plane.md § Agent): the connector runs on the agent’s machine, the engine keeps the books here. Scope brain:write — a tenant write key, never an admin one; it reaches only the connections an operator pointed at its host (`host: agent:<id>`). Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:write`.",
+        "operationId": "beginAgentRun",
+        "parameters": [
+          {
+            "description": "Connection id (`source_connection:<tail>`; the bare tail is accepted).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BeginAgentRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BeginAgentRunResponse"
+                }
+              }
+            },
+            "description": "The run."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "summary": "Begin an agent run",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/source-connections/{id}/agent-runs/{runId}/deltas": {
+      "post": {
+        "description": "Up to 1000 `upsert` / `gone` / `checkpoint` deltas from the agent’s walk, applied to the catalogue exactly as a server walk would be. The answer names the items whose revision moved — the ones the agent must now fetch and post. The local agent’s wire (docs/source-plane.md § Agent): the connector runs on the agent’s machine, the engine keeps the books here. Scope brain:write — a tenant write key, never an admin one; it reaches only the connections an operator pointed at its host (`host: agent:<id>`). Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:write`.",
+        "operationId": "postAgentRunDeltas",
+        "parameters": [
+          {
+            "description": "Connection id (`source_connection:<tail>`; the bare tail is accepted).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The run id `begin` returned (a `source_sync` job_run).",
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentDeltasRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentDeltasResponse"
+                }
+              }
+            },
+            "description": "What to fetch, and the batch’s counters."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "summary": "A batch of catalogue deltas",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/source-connections/{id}/agent-runs/{runId}/finish": {
+      "post": {
+        "description": "Closes the run: on `succeeded` a full walk marks what it did not see gone, the delete policy runs over everything gone since the run began, and the checkpoint is recorded; on `failed` the connection records the error. Returns the run summary (also the job_run result). The local agent’s wire (docs/source-plane.md § Agent): the connector runs on the agent’s machine, the engine keeps the books here. Scope brain:write — a tenant write key, never an admin one; it reaches only the connections an operator pointed at its host (`host: agent:<id>`). Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:write`.",
+        "operationId": "finishAgentRun",
+        "parameters": [
+          {
+            "description": "Connection id (`source_connection:<tail>`; the bare tail is accepted).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The run id `begin` returned (a `source_sync` job_run).",
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinishAgentRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceSyncSummary"
+                }
+              }
+            },
+            "description": "The run summary."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "summary": "Finish an agent run",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/source-connections/{id}/agent-runs/{runId}/items": {
+      "post": {
+        "description": "`{ externalId, item }` — the item in the connector seam’s shape (document text, binary as base64, conversation turns, a record envelope), handed to the door for its shape under the connection’s recorder and revision stamp. `skipped` when the content policy is `manifest` or the fetch budget is spent. The local agent’s wire (docs/source-plane.md § Agent): the connector runs on the agent’s machine, the engine keeps the books here. Scope brain:write — a tenant write key, never an admin one; it reaches only the connections an operator pointed at its host (`host: agent:<id>`). Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:write`.",
+        "operationId": "postAgentRunItem",
+        "parameters": [
+          {
+            "description": "Connection id (`source_connection:<tail>`; the bare tail is accepted).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The run id `begin` returned (a `source_sync` job_run).",
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "externalId": {
+                    "type": "string"
+                  },
+                  "item": {
+                    "$ref": "#/components/schemas/FetchedItemWire"
+                  }
+                },
+                "required": [
+                  "externalId",
+                  "item"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentItemResponse"
+                }
+              }
+            },
+            "description": "The item’s outcome."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "summary": "One fetched item’s content",
+        "tags": [
+          "Source Plane"
         ]
       }
     },
