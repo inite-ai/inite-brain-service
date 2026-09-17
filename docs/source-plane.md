@@ -114,7 +114,17 @@ Connections; `brain-landing/components/admin/ConnectionsPanel.tsx`):
   the document(s) it became, the evidence asset and what the processors
   extracted, and the facts it grounds with the revision each was read
   at (`current` / `drifted` / `stale` / `closed`).
-- **Local agents** — agent-host connections grouped by agent id with
+- **Folder picker** — the Folder field's *Browse…* opens a tree instead
+  of a path box: on the brain, the host's disk inside `SOURCE_FS_ROOTS`
+  one level per request (`GET /browse?path=`; outside the jail, or with
+  no jail, refused); on an agent, what that agent reported on its last
+  check-in (`PUT /v1/source-connections/agents/:agentId` — version,
+  host, platform and the directories under its roots, names only,
+  depth-bounded; `source_agent`, 0151). "Use this" sets the folder;
+  ticked subfolders become `include`.
+- **Local agents** — every agent that has checked in (when, host,
+  version, the roots it can see) merged with agent-host connections by
+  agent id, with
   their last activity and the command to run the agent on that machine
   (a `brain:write` key of the tenant, never an admin key). Sync / Full
   are disabled on agent-host rows: the agent runs them.

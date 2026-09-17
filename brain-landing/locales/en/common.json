@@ -887,7 +887,8 @@
           "agent": "agent",
           "connections": "connections",
           "lastSync": "last activity",
-          "status": "last status"
+          "status": "last status",
+          "seen": "checked in"
         },
         "never": "never checked in",
         "setup": "Run the agent on that machine",
@@ -914,7 +915,10 @@
           "ciHint": "No file is written; the key rides in the environment. Exit 2 when a connection failed.",
           "keyRecord": "Key {name} ({prefix}…) — revoke it under Key Lens if the machine is gone.",
           "done": "Done"
-        }
+        },
+        "seenNever": "never checked in",
+        "seenAt": "{at} · {hostname} · {platform} · v{version}",
+        "roots": "can see"
       },
       "form": {
         "steps": {
@@ -1323,6 +1327,24 @@
         },
         "connect": "Connect",
         "deployment": "Deployment fences"
+      },
+      "picker": {
+        "browse": "Browse…",
+        "title": "Pick the folder",
+        "serverHint": "The brain's own disk, inside SOURCE_FS_ROOTS. Open a folder to look inside; \"use this\" makes it the connection's folder; tick subfolders to read only those.",
+        "agentHint": "What agent {agentId} reported on its last check-in — the folders under its roots, names only. \"Use this\" makes one the connection's folder; tick subfolders to read only those.",
+        "agentMissing": "Agent {agentId} has not checked in yet. Install it on that machine (Local agents → Set up an agent) and wait one pass, or type the path.",
+        "reportedAt": "reported {at} by {hostname}",
+        "up": "↑ up",
+        "jailRoots": "allowed roots",
+        "useThis": "use this",
+        "isRoot": "✓ this folder",
+        "noFolders": "no subfolders here ({files} files)",
+        "truncated": "Only the first 500 subfolders are shown.",
+        "tickHint": "read only this subfolder (adds it to \"only these paths\")",
+        "tickedCount": "{n} subfolder(s) ticked",
+        "nothingYet": "nothing chosen yet",
+        "use": "Use"
       }
     },
     "marketplace": {

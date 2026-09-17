@@ -14,6 +14,7 @@ import { FsConnector } from './connectors/fs.connector';
 import { McpConnector } from './connectors/mcp.connector';
 import { S3Connector } from './connectors/s3.connector';
 import { UrlConnector } from './connectors/url.connector';
+import { SourceAgentService } from './source-agent.service';
 import { SourceCatalogService } from './source-catalog.service';
 import { SourceConnectionService } from './source-connection.service';
 import { SourceDoorsService } from './source-doors.service';
@@ -59,6 +60,7 @@ import { SourceSyncService } from './source-sync.service';
       inject: [FsConnector, UrlConnector, S3Connector, McpConnector],
     },
     SourceCatalogService,
+    SourceAgentService,
     SourceConnectionService,
     SourceItemService,
     SourceDoorsService,

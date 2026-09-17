@@ -87,6 +87,8 @@ import {
   DeleteConnectionResponseSchema,
   SourceCatalogResponseSchema,
   SourceConnectionSchema,
+  BrowseResponseSchema,
+  SourceAgentsResponseSchema,
   SourceConnectionStatsSchema,
   SourceConnectionsListResponseSchema,
   SourceItemInspectResponseSchema,
@@ -153,6 +155,8 @@ const RESPONSE_SCHEMAS: Partial<
     'v1/admin/sources': SourcesListResponseSchema,
     'v1/admin/source-connections': SourceConnectionsListResponseSchema,
     'v1/admin/source-connections/catalog': SourceCatalogResponseSchema,
+    'v1/admin/source-connections/agents': SourceAgentsResponseSchema,
+    'v1/admin/source-connections/browse': BrowseResponseSchema,
   },
   POST: {
     'v1/keys': IssuedKeyResponseSchema,

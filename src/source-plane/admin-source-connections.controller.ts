@@ -21,12 +21,15 @@ import {
   SyncNowRequestSchema,
   UpdateSourceConnectionRequestSchema,
   isConnectionId,
+  type BrowseResponse,
+  type SourceAgentsResponse,
   type SourceCatalogResponse,
   type SourceConnection,
   type SourceConnectionsListResponse,
   type SourceItemsListResponse,
   type SyncNowResponse,
 } from '../contracts/source-plane/source-plane.schema';
+import { SourceAgentService } from './source-agent.service';
 import { SourceCatalogService } from './source-catalog.service';
 import { SourceConnectionService } from './source-connection.service';
 import { SourceItemService } from './source-item.service';
@@ -52,7 +55,24 @@ export class AdminSourceConnectionsController {
     private readonly history: SourceRunHistoryService,
     private readonly queue: SourceSyncQueueService,
     private readonly catalog: SourceCatalogService,
+    private readonly agents: SourceAgentService,
   ) {}
+
+  /** The agents this tenant has heard from, with the folders they can see. Static path — before `:id`. */
+  @Get('agents')
+  @RequireScopes('brain:admin')
+  async listAgents(@Req() req: AuthenticatedRequest): Promise<SourceAgentsResponse> {
+    assertEnabled();
+    return { agents: await this.agents.list(req.brainAuth.companyId) };
+  }
+
+  /** One level of the brain host's disk inside SOURCE_FS_ROOTS — the folder picker for server-host connections. */
+  @Get('browse')
+  @RequireScopes('brain:admin')
+  async browse(@Query('path') path?: string): Promise<BrowseResponse> {
+    assertEnabled();
+    return this.agents.browse(typeof path === 'string' ? path : undefined);
+  }
 
   @Get()
   @RequireScopes('brain:admin')

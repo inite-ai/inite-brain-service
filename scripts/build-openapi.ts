@@ -124,6 +124,9 @@ import {
   SourceConnectionStatsSchema,
   SourceRunsResponseSchema,
   SourceItemInspectResponseSchema,
+  SourceAgentsResponseSchema,
+  BrowseResponseSchema,
+  AgentInventorySchema,
   AgentConnectionsListResponseSchema,
   AgentDeltasRequestSchema,
   AgentDeltasResponseSchema,
@@ -368,6 +371,9 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   SourceConnectionStats: SourceConnectionStatsSchema,
   SourceRunsResponse: SourceRunsResponseSchema,
   SourceItemInspectResponse: SourceItemInspectResponseSchema,
+  SourceAgentsResponse: SourceAgentsResponseSchema,
+  BrowseResponse: BrowseResponseSchema,
+  AgentInventory: AgentInventorySchema,
   AgentConnectionsListResponse: AgentConnectionsListResponseSchema,
   AgentDeltasRequest: AgentDeltasRequestSchema,
   AgentDeltasResponse: AgentDeltasResponseSchema,
@@ -1743,6 +1749,36 @@ function sourcePlanePaths(): Json {
 /** The operator's read-only drill-down (docs/source-plane.md § Admin UI). */
 function inspectPaths(idParam: Json): Json {
   return {
+    '/v1/admin/source-connections/agents': {
+      get: operation({
+        operationId: 'listSourceAgents',
+        tag: 'Source Plane',
+        summary: 'The local agents this tenant has heard from',
+        description:
+          'Every agent that checked in: when, from which host and version, and the ' +
+          'folders it reported under its roots (names only) — the folder picker for ' +
+          'agent-host connections. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        responses: { '200': jsonResponse('The agents.', ref('SourceAgentsResponse')), ...AUTH_ERRORS, '404': errorRef('NotFound') },
+      }),
+    },
+    '/v1/admin/source-connections/browse': {
+      get: operation({
+        operationId: 'browseSourceFolders',
+        tag: 'Source Plane',
+        summary: 'One level of the brain host’s disk, inside SOURCE_FS_ROOTS',
+        description:
+          'The folder picker for server-host connections: without `path`, the jail roots; ' +
+          'with one, its subfolders (hidden, VCS and build directories left out, symlinks ' +
+          'never followed) and a count of files. A path outside the jail, or any path ' +
+          'when no jail is set, is refused. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        parameters: [queryParam('path', 'The directory to list; empty = the jail roots.', { type: 'string' })],
+        responses: { '200': jsonResponse('The level.', ref('BrowseResponse')), '400': errorRef('BadRequest'), ...AUTH_ERRORS, '404': errorRef('NotFound') },
+      }),
+    },
     '/v1/admin/source-connections/{id}/stats': {
       get: operation({
         operationId: 'getSourceConnectionStats',
@@ -1822,6 +1858,22 @@ const AGENT_NOTE =
 function agentProtocolPaths(idParam: Json): Json {
   const runParam = pathParam('runId', 'The run id `begin` returned (a `source_sync` job_run).');
   return {
+    '/v1/source-connections/agents/{agentId}': {
+      put: operation({
+        operationId: 'agentCheckIn',
+        tag: 'Source Plane',
+        summary: 'Agent check-in: presence and the folders it can see',
+        description:
+          'Sent by the agent on every pass: its version, hostname, platform and the ' +
+          'directories under its roots (names only, depth-bounded). Presence for the ' +
+          'operator, an inventory for the folder picker. ' +
+          AGENT_NOTE,
+        scope: 'brain:write',
+        parameters: [pathParam('agentId', 'The agent id (`agent:<id>` without the prefix).')],
+        requestBody: jsonBody(ref('AgentInventory')),
+        responses: { '200': jsonResponse('Recorded.', { type: 'object', properties: { ok: { type: 'boolean' } } }), '400': errorRef('BadRequest'), ...AUTH_ERRORS },
+      }),
+    },
     '/v1/source-connections': {
       get: operation({
         operationId: 'listAgentSourceConnections',

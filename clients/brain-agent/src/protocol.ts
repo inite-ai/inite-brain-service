@@ -47,6 +47,11 @@ export class BrainAgentClient {
     return r.connections;
   }
 
+  /** Presence + the folders this machine offers (the admin's folder picker). */
+  checkIn(agentId: string, inv: object): Promise<{ ok: true }> {
+    return this.call('PUT', `/v1/source-connections/agents/${encodeURIComponent(agentId)}`, inv);
+  }
+
   begin(connectionId: string, body: { agentId: string; full?: boolean }): Promise<BeginRun> {
     return this.call('POST', `/v1/source-connections/${encodeURIComponent(connectionId)}/agent-runs`, body);
   }
@@ -71,7 +76,7 @@ export class BrainAgentClient {
     return `/v1/source-connections/${encodeURIComponent(connectionId)}/agent-runs/${encodeURIComponent(runId)}`;
   }
 
-  private async call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+  private async call<T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown): Promise<T> {
     const doFetch = this.opts.fetch ?? fetch;
     const res = await doFetch(`${this.base}${path}`, {
       method,

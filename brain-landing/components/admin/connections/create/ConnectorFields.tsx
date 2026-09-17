@@ -49,6 +49,7 @@ export function ConnectorFields({
   ctx,
   t,
   onChange,
+  onBrowse,
 }: {
   fields: FieldSpec[]
   values: FormValues
@@ -56,6 +57,8 @@ export function ConnectorFields({
   ctx: FormContext
   t: ConnectionsT
   onChange: (key: string, value: string | boolean) => void
+  /** Opens the folder picker for a `browse` field. */
+  onBrowse?: ((key: string) => void) | undefined
 }) {
   const group = fieldGroupOf(ctx)
   return (
@@ -68,7 +71,22 @@ export function ConnectorFields({
         return (
           <div key={f.key} className={wide ? 'md:col-span-2' : ''}>
             <Field label={f.required ? `${text.label} *` : text.label} hint={hint} error={!!error}>
-              <FieldInput field={f} value={values[f.key]} t={t} onChange={(v) => onChange(f.key, v)} />
+              {f.browse && onBrowse ? (
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <FieldInput field={f} value={values[f.key]} t={t} onChange={(v) => onChange(f.key, v)} />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onBrowse(f.key)}
+                    className="shrink-0 rounded border border-[var(--border)] px-2 text-[11px] text-[var(--accent)]"
+                  >
+                    {t.picker.browse}
+                  </button>
+                </div>
+              ) : (
+                <FieldInput field={f} value={values[f.key]} t={t} onChange={(v) => onChange(f.key, v)} />
+              )}
             </Field>
           </div>
         )

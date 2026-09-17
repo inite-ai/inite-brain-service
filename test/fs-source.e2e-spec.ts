@@ -413,6 +413,56 @@ describe('fs source connector (e2e)', () => {
     delete process.env.EVIDENCE_DOCUMENT_BRIDGE;
   });
 
+  it('the folder picker: the brain browses its own disk inside the jail; an agent reports the folders it can see', async () => {
+    const top = await f.http.get('/v1/admin/source-connections/browse').set(auth());
+    expect(top.status).toBe(200);
+    expect(top.body.roots.length).toBe(1);
+    expect(top.body.folders.map((x: { path: string }) => x.path)).toEqual(top.body.roots);
+    const level = await f.http
+      .get('/v1/admin/source-connections/browse')
+      .query({ path: root })
+      .set(auth());
+    expect(level.status).toBe(200);
+    expect(level.body.folders.map((x: { name: string }) => x.name)).toEqual(['docs']);
+    expect(typeof level.body.files).toBe('number'); // README.md was deleted by the earlier case
+    expect(level.body.parent).toBe(top.body.roots[0]); // one level under the jail root
+    const outside = await f.http
+      .get('/v1/admin/source-connections/browse')
+      .query({ path: '/etc' })
+      .set(auth());
+    expect(outside.status).toBe(400);
+    expect(String(outside.body.message)).toContain('outside SOURCE_FS_ROOTS');
+
+    const checkIn = await f.http
+      .put('/v1/source-connections/agents/laptop-1')
+      .set(auth())
+      .send({
+        version: '0.1.0',
+        hostname: 'mac',
+        platform: 'darwin',
+        roots: [{ path: '/Users/me', folders: ['Documents', 'Documents/notes', 'Projects'] }],
+      });
+    expect(checkIn.status).toBe(200);
+    await f.http
+      .put('/v1/source-connections/agents/laptop-1')
+      .set(auth())
+      .send({ roots: [{ path: '/Users/me', folders: ['Documents'] }] });
+    const agents = await f.http.get('/v1/admin/source-connections/agents').set(auth());
+    expect(agents.status).toBe(200);
+    expect(agents.body.agents).toHaveLength(1);
+    expect(agents.body.agents[0]).toMatchObject({
+      agentId: 'laptop-1',
+      hostname: null,
+      roots: [{ path: '/Users/me', folders: ['Documents'] }],
+    });
+    expect(agents.body.agents[0].lastSeenAt >= agents.body.agents[0].firstSeenAt).toBe(true);
+    const bad = await f.http
+      .put('/v1/source-connections/agents/bad id')
+      .set(auth())
+      .send({ roots: [] });
+    expect(bad.status).toBe(400);
+  });
+
   it('the kind switch off: no new connection, and an existing one records a named failed sync', async () => {
     delete process.env.SOURCE_KIND_FS;
     const refused = await f.http.post('/v1/admin/source-connections').set(auth()).send({

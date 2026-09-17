@@ -36,6 +36,8 @@ export interface FieldSpec {
   when?: (values: FormValues, ctx: FormContext) => boolean
   /** Not a config key: consumed by `finalize` (e.g. a header name). */
   virtual?: boolean
+  /** A path the folder picker can fill (with `include` from ticked subfolders). */
+  browse?: boolean
 }
 
 export type CredentialSpec =
@@ -78,7 +80,7 @@ const allowPrivate: FieldSpec = {
 
 const FS: ConnectorForm = {
   fields: [
-    { key: 'root', type: 'path', required: true, mono: true, placeholder: '/srv/docs' },
+    { key: 'root', type: 'path', required: true, mono: true, placeholder: '/srv/docs', browse: true },
     { key: 'include', type: 'list', mono: true, placeholder: 'docs/**\nnotes/2026\n*.md' },
     { key: 'exclude', type: 'list', mono: true, placeholder: 'docs/archive\n*.log\ndrafts/' },
     { key: 'extensions', type: 'list', mono: true, placeholder: 'md, txt, csv, json, html' },

@@ -274,6 +274,28 @@ export const SourceItemInspectResponseSchema = z.object({
   factsTruncated: z.boolean(),
 })
 
+// ── Agents' presence and the folder picker ────────────────────────────
+
+export const SourceAgentSchema = z.object({
+  agentId: z.string(),
+  firstSeenAt: z.string(),
+  lastSeenAt: z.string(),
+  version: z.string().nullable(),
+  hostname: z.string().nullable(),
+  platform: z.string().nullable(),
+  roots: z.array(z.object({ path: z.string(), folders: z.array(z.string()) })),
+})
+export const SourceAgentsResponseSchema = z.object({ agents: z.array(SourceAgentSchema) })
+
+export const BrowseResponseSchema = z.object({
+  path: z.string(),
+  parent: z.string().nullable(),
+  roots: z.array(z.string()),
+  folders: z.array(z.object({ name: z.string(), path: z.string() })),
+  files: z.number().int(),
+  truncated: z.boolean(),
+})
+
 export type SourceConnection = z.infer<typeof SourceConnectionSchema>
 export type SourceConnectionsListResponse = z.infer<
   typeof SourceConnectionsListResponseSchema
@@ -300,3 +322,6 @@ export type SourceItemAsset = z.infer<typeof SourceItemAssetSchema>
 export type SourceItemInspectResponse = z.infer<
   typeof SourceItemInspectResponseSchema
 >
+export type SourceAgent = z.infer<typeof SourceAgentSchema>
+export type SourceAgentsResponse = z.infer<typeof SourceAgentsResponseSchema>
+export type BrowseResponse = z.infer<typeof BrowseResponseSchema>

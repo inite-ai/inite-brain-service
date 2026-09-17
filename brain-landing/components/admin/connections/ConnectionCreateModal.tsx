@@ -15,6 +15,7 @@ import {
 } from '../../../lib/contracts/admin-source-connections'
 import { PROXY, errorMessage, fill, type ConnectionsT } from './shared'
 import { ConnectorFields } from './create/ConnectorFields'
+import { FolderPicker } from './create/FolderPicker'
 import { entriesFor, shapeChoices, type ShapeChoice, type SourceCard } from './kinds'
 import {
   AGENT_ID,
@@ -83,6 +84,7 @@ export function ConnectionCreateModal({
   const [vertical, setVertical] = useState(entry.packId)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [picking, setPicking] = useState(false)
 
   const ctx: FormContext = useMemo(
     () => ({ host, entry, fsRoots: catalog.fsRoots, egressAllowPrivate: catalog.egressAllowPrivate }),
@@ -273,6 +275,7 @@ export function ConnectionCreateModal({
             json={json}
             t={t}
             onValue={(k, v) => setValues((prev) => ({ ...prev, [k]: v }))}
+            onBrowse={() => setPicking(true)}
             onSecret={setSecret}
             onAdvanced={setAdvanced}
             onJson={setJson}
@@ -344,6 +347,24 @@ export function ConnectionCreateModal({
           </div>
         )}
       </div>
+
+      {picking && (
+        <FolderPicker
+          host={host}
+          agentId={agentId.trim()}
+          initialRoot={String(values['root'] ?? '')}
+          initialInclude={String(values['include'] ?? '')
+            .split('\n')
+            .map((x) => x.trim())
+            .filter(Boolean)}
+          t={t}
+          onClose={() => setPicking(false)}
+          onPick={(root, include) => {
+            setValues((prev) => ({ ...prev, root, include: include.join('\n') }))
+            setPicking(false)
+          }}
+        />
+      )}
 
       {error && <div className="mt-3 font-mono text-xs text-[var(--danger)]">{error}</div>}
 
@@ -509,6 +530,7 @@ function SourceStep({
   json,
   t,
   onValue,
+  onBrowse,
   onSecret,
   onAdvanced,
   onJson,
@@ -524,6 +546,7 @@ function SourceStep({
   json: string | null
   t: ConnectionsT
   onValue: (key: string, value: string | boolean) => void
+  onBrowse: () => void
   onSecret: (s: { single: string; keyId: string; keySecret: string }) => void
   onAdvanced: (v: boolean) => void
   onJson: (v: string | null) => void
@@ -575,7 +598,7 @@ function SourceStep({
         <p className="text-[11px] text-[var(--text-muted)]">{f.installSecret}</p>
       )}
       {entry.mcp?.auth === 'oauth' && <p className="text-[11px] text-[var(--warning)]">{f.oauth}</p>}
-      <ConnectorFields fields={fields} values={values} errors={errors} ctx={ctx} t={t} onChange={onValue} />
+      <ConnectorFields fields={fields} values={values} errors={errors} ctx={ctx} t={t} onChange={onValue} onBrowse={onBrowse} />
       {form.credential && form.credential.shown(values) && (
         <CredentialFields
           kind={form.credential.kind}

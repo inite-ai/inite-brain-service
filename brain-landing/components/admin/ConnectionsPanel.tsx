@@ -24,6 +24,7 @@ import { useLoader } from '../../hooks/useLoader'
 import { ErrorLine } from './policies/ui'
 import { getMessages, normalizeLang } from '../../lib/i18n'
 import type {
+  SourceAgent,
   SourceAvailability,
   SourceCatalogResponse,
   SourceConnection,
@@ -61,6 +62,7 @@ export function ConnectionsPanel() {
 
   const [data, setData] = useState<SourceConnectionsListResponse | null>(null)
   const [catalog, setCatalog] = useState<SourceCatalogResponse | null>(null)
+  const [agents, setAgents] = useState<SourceAgent[]>([])
   const [off, setOff] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -70,9 +72,10 @@ export function ConnectionsPanel() {
 
   const load = useCallback(async () => {
     try {
-      const [list, cat] = await Promise.all([
+      const [list, cat, ag] = await Promise.all([
         fetch(PROXY, { cache: 'no-store' }),
         fetch(`${PROXY}/catalog`, { cache: 'no-store' }),
+        fetch(`${PROXY}/agents`, { cache: 'no-store' }),
       ])
       if (list.status === 404) {
         setOff(true)
@@ -85,9 +88,11 @@ export function ConnectionsPanel() {
       if (!list.ok) throw new Error(errorMessage(listJson, list.status))
       const catJson = await cat.json()
       if (!cat.ok) throw new Error(errorMessage(catJson, cat.status))
+      const agJson = await ag.json()
       setOff(false)
       setData(listJson as SourceConnectionsListResponse)
       setCatalog(catJson as SourceCatalogResponse)
+      setAgents(ag.ok ? (agJson as { agents: SourceAgent[] }).agents : [])
       setError(null)
     } catch (e) {
       setError((e as Error).message)
@@ -397,7 +402,7 @@ export function ConnectionsPanel() {
         />
       )}
 
-      {!off && data && <AgentsSection connections={data.connections} t={t} />}
+      {!off && data && <AgentsSection connections={data.connections} agents={agents} t={t} />}
 
       {catalog && (
         <div className="space-y-2">
@@ -561,11 +566,16 @@ interface AgentRow {
   connections: SourceConnection[]
   lastSyncAt: string | null
   lastSyncStatus: string | null
+  /** The agent's own check-in, when it has ever made one. */
+  presence: SourceAgent | null
 }
 
 /** Agent-host connections grouped by agent — who checked in, and how to run one. */
-function agentRows(connections: SourceConnection[]): AgentRow[] {
+function agentRows(connections: SourceConnection[], agents: SourceAgent[]): AgentRow[] {
   const byAgent = new Map<string, AgentRow>()
+  for (const a of agents) {
+    byAgent.set(a.agentId, { agentId: a.agentId, connections: [], lastSyncAt: null, lastSyncStatus: null, presence: a })
+  }
   for (const c of connections) {
     if (!c.host.startsWith('agent:')) continue
     const agentId = c.host.slice('agent:'.length)
@@ -574,6 +584,7 @@ function agentRows(connections: SourceConnection[]): AgentRow[] {
       connections: [],
       lastSyncAt: null,
       lastSyncStatus: null,
+      presence: null,
     }
     row.connections.push(c)
     if (c.lastSyncAt && (!row.lastSyncAt || c.lastSyncAt > row.lastSyncAt)) {
@@ -587,13 +598,15 @@ function agentRows(connections: SourceConnection[]): AgentRow[] {
 
 function AgentsSection({
   connections,
+  agents,
   t,
 }: {
   connections: SourceConnection[]
+  agents: SourceAgent[]
   t: ConnectionsT
 }) {
   const a = t.agents
-  const rows = useMemo(() => agentRows(connections), [connections])
+  const rows = useMemo(() => agentRows(connections, agents), [connections, agents])
   const [setup, setSetup] = useState<string | null>(null)
   return (
     <div className="space-y-2">
@@ -614,6 +627,7 @@ function AgentsSection({
             <thead className="bg-[var(--bg-overlay)] text-[var(--text-faint)] text-[10px] uppercase tracking-wider">
               <tr>
                 <th className="text-left px-3 py-1.5">{a.headers.agent}</th>
+                <th className="text-left px-3 py-1.5">{a.headers.seen}</th>
                 <th className="text-left px-3 py-1.5">{a.headers.connections}</th>
                 <th className="text-left px-3 py-1.5">{a.headers.lastSync}</th>
                 <th className="text-left px-3 py-1.5">{a.headers.status}</th>
@@ -627,6 +641,29 @@ function AgentsSection({
                     <span className="inline-flex items-center gap-1">
                       <Laptop className="w-3 h-3 text-[var(--accent)]" /> {row.agentId}
                     </span>
+                  </td>
+                  <td className="px-3 py-1.5 text-[10px] text-[var(--text-muted)]">
+                    {row.presence ? (
+                      <>
+                        <div className="font-mono">
+                          {fill(a.seenAt, {
+                            at: stamp(row.presence.lastSeenAt),
+                            hostname: row.presence.hostname ?? '?',
+                            platform: row.presence.platform ?? '?',
+                            version: row.presence.version ?? '?',
+                          })}
+                        </div>
+                        {row.presence.roots.length > 0 && (
+                          <div className="font-mono text-[var(--text-faint)]" title={row.presence.roots.map((r) => r.path).join('\n')}>
+                            {a.roots}
+                            {': '}
+                            {row.presence.roots.map((r) => r.path).join(', ')}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-[var(--warning)]">{a.seenNever}</span>
+                    )}
                   </td>
                   <td className="px-3 py-1.5 text-[var(--text-muted)]">
                     {row.connections.map((c) => (

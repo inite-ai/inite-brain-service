@@ -48,6 +48,7 @@ import { FsAgentConnector } from './connectors/fs.js';
 import { GitAgentConnector } from './connectors/git.js';
 import { McpStdioAgentConnector } from './connectors/mcp-stdio.js';
 import { doctor, worstVerdict } from './doctor.js';
+import { inventory } from './inventory.js';
 import { BrainAgentClient } from './protocol.js';
 import { connectorFor, runConnection } from './runner.js';
 import {
@@ -91,9 +92,18 @@ function registry(): AgentConnector[] {
   return [new FsAgentConnector(cfg.roots ?? []), new GitAgentConnector(), new McpStdioAgentConnector()];
 }
 
+const AGENT_VERSION = '0.1.0';
+
 async function pass(id: string, only: string | undefined, json: boolean): Promise<SyncSummary[]> {
   const brain = client();
   const connectors = registry();
+  // Check in first: presence and the folders this machine offers, so the
+  // admin can pick one even before anything is pointed here.
+  try {
+    await brain.checkIn(id, await inventory(cfg.roots ?? [], AGENT_VERSION));
+  } catch (e) {
+    process.stderr.write(`brain-agent: check-in failed: ${(e as Error).message}\n`);
+  }
   const targets = (await brain.listConnections(id)).filter((t) => !only || t.connection.id === only);
   if (targets.length === 0) {
     process.stderr.write(`brain-agent: no ${only ? `connection ${only}` : 'connections'} pointed at agent:${id}\n`);

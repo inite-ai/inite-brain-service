@@ -529,6 +529,54 @@ export const SourceItemInspectResponseSchema = z.object({
 });
 export type SourceItemInspectResponse = z.infer<typeof SourceItemInspectResponseSchema>;
 
+// ── Agents: presence + the folders they can see ────────────────────────
+
+export const AGENT_INVENTORY_MAX_FOLDERS = 2000;
+
+/** What an agent reports on every pass: its identity and the folders under its roots. */
+export const AgentInventorySchema = z.object({
+  version: z.string().max(40).optional(),
+  hostname: z.string().max(200).optional(),
+  platform: z.string().max(40).optional(),
+  roots: z
+    .array(
+      z.object({
+        path: z.string().min(1).max(1000),
+        /** Directories under the root as relative posix paths, depth-bounded, sorted. */
+        folders: z.array(z.string().max(1000)).max(AGENT_INVENTORY_MAX_FOLDERS),
+      }),
+    )
+    .max(32),
+});
+export type AgentInventory = z.infer<typeof AgentInventorySchema>;
+
+export const SourceAgentSchema = z.object({
+  agentId: z.string(),
+  firstSeenAt: z.string(),
+  lastSeenAt: z.string(),
+  version: z.string().nullable(),
+  hostname: z.string().nullable(),
+  platform: z.string().nullable(),
+  roots: z.array(z.object({ path: z.string(), folders: z.array(z.string()) })),
+});
+export type SourceAgent = z.infer<typeof SourceAgentSchema>;
+
+export const SourceAgentsResponseSchema = z.object({ agents: z.array(SourceAgentSchema) });
+export type SourceAgentsResponse = z.infer<typeof SourceAgentsResponseSchema>;
+
+/** One level of the brain host's own disk, inside the SOURCE_FS_ROOTS jail. */
+export const BrowseResponseSchema = z.object({
+  path: z.string(),
+  parent: z.string().nullable(),
+  /** The jail roots — the picker's top level. */
+  roots: z.array(z.string()),
+  folders: z.array(z.object({ name: z.string(), path: z.string() })),
+  /** Regular files in this directory (count only — the picker picks folders). */
+  files: z.number().int(),
+  truncated: z.boolean(),
+});
+export type BrowseResponse = z.infer<typeof BrowseResponseSchema>;
+
 export function isConnectionId(v: string): boolean {
   return CONNECTION_ID.test(v);
 }

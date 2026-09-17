@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -14,6 +15,8 @@ import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import {
   AGENT_HOST,
+  AGENT_ID,
+  AgentInventorySchema,
   AgentDeltasRequestSchema,
   BeginAgentRunRequestSchema,
   FetchedItemWireSchema,
@@ -26,6 +29,7 @@ import {
   type SourceSyncSummary,
 } from '../contracts/source-plane/source-plane.schema';
 import { AgentRunService } from './agent-run.service';
+import { SourceAgentService } from './source-agent.service';
 import { z } from 'zod';
 
 /**
@@ -46,7 +50,28 @@ import { z } from 'zod';
 @Controller('v1/source-connections')
 @UseGuards(ApiKeyGuard)
 export class AgentSourceConnectionsController {
-  constructor(private readonly runs: AgentRunService) {}
+  constructor(
+    private readonly runs: AgentRunService,
+    private readonly agents: SourceAgentService,
+  ) {}
+
+  /**
+   * An agent's check-in: who it is and the folders it can see. Presence
+   * for the operator, an inventory for the folder picker — the brain
+   * cannot list a laptop's disk, so the agent tells it on every pass.
+   */
+  @Put('agents/:agentId')
+  @RequireScopes('brain:write')
+  async checkIn(
+    @Req() req: AuthenticatedRequest,
+    @Param('agentId') agentId: string,
+    @Body() body: unknown,
+  ): Promise<{ ok: true }> {
+    if (!AGENT_ID.test(agentId)) throw new BadRequestException('invalid agent id');
+    const inv = parseBody(AgentInventorySchema, body ?? {});
+    await this.agents.checkIn(req.brainAuth.companyId, agentId, inv);
+    return { ok: true };
+  }
 
   @Get()
   @RequireScopes('brain:write')
