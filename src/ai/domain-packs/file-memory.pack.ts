@@ -123,7 +123,8 @@ explicitly. Copy names, terms, paths and URLs VERBATIM.`,
     sceneSchemas: [
       {
         id: 'document_review',
-        description: 'A document is read, discussed or revised: what it says, what is missing, what changed.',
+        description:
+          'A document is read, discussed or revised: what it says, what is missing, what changed.',
         cues: ['runbook', 'readme', 'spec', 'updated the doc', 'see the notes'],
       },
     ],

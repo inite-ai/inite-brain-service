@@ -56,7 +56,15 @@ describe.each(INDUSTRY.map((p) => [p.id, p] as const))('industry pack: %s', (id,
 describe('first-party pack library', () => {
   it('lists the industry packs + real_estate', () => {
     const ids = FIRST_PARTY_PACKS.map((p) => p.id).sort();
-    expect(ids).toEqual(['file_memory', 'fintech', 'hr', 'insurance', 'legal', 'medical', 'real_estate']);
+    expect(ids).toEqual([
+      'file_memory',
+      'fintech',
+      'hr',
+      'insurance',
+      'legal',
+      'medical',
+      'real_estate',
+    ]);
   });
 
   it('seeds together with core collision-free (namespaced)', () => {

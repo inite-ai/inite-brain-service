@@ -23,7 +23,12 @@ import type {
   UpdateSourceConnectionRequest,
 } from '../contracts/source-plane/source-plane.schema';
 import type { Connector, ConnectorConnectionView, ConnectorRegistry } from './connector';
-import { connectorState, connectorUnavailableMessage, findConnector, SOURCE_CONNECTORS } from './connector';
+import {
+  connectorState,
+  connectorUnavailableMessage,
+  findConnector,
+  SOURCE_CONNECTORS,
+} from './connector';
 import { Inject } from '@nestjs/common';
 
 /** Raw `source_connection` row (SurrealDB record id in `id`). */
