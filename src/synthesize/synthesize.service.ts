@@ -1217,14 +1217,10 @@ export class SynthesizeService {
 
   /** Thin adapter over the generator client — the orchestrator supplies
    *  its client/metrics/logger, the module owns the call. */
-  private async callGenerator(
+  private callGenerator(
     args: Omit<GenerateRequest, 'openai' | 'metrics' | 'logger'>,
   ): Promise<GeneratorOutput> {
-    return runGenerator({
-      openai: this.openai,
-      metrics: this.metrics,
-      logger: this.logger,
-      ...args,
-    });
+    const { openai, metrics, logger } = this;
+    return runGenerator({ openai, metrics, logger, ...args });
   }
 }
