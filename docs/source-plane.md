@@ -92,6 +92,21 @@ registers at boot — flip the flag, then restart.
 | Kind | Flag | Reads | Revision | Config |
 |---|---|---|---|---|
 | **`fs`** (W1) | `SOURCE_KIND_FS` + the `SOURCE_FS_ROOTS` jail | a directory on the brain host — a mounted volume, an OS-mounted network share (SMB/NFS), the laptop a fully-local brain runs on. Every run is a full walk (`walksEverything`: no change feed exists for a directory), so what the walk did not see is gone. Symlinks are never followed; hidden entries and VCS/build directories are skipped; `maxFiles` / `maxFileBytes` bound the walk | `mtime:size` — polling, hashing only what the store hashes on write | `{ root, extensions?, excludeDirs?, includeHidden?, maxFiles?, maxFileBytes? }` |
+| **`url`** (W1) | `SOURCE_KIND_URL` | pages named outright and every page a sitemap lists (indexes followed one level) — a public site, a docs portal, a self-hosted wiki. HTML is reduced to text (title kept, scripts/styles/chrome stripped); `text/*` and JSON pass through; PDFs go to the binary shape. Every request and every redirect hop passes the SSRF egress guard; robots.txt `Disallow` for `*` and `inite-brain-source` is honoured per host; `sameHostOnly` (default) keeps a sitemap from enumerating another host; the credential rides as `Authorization: Bearer` (or `Basic`, or `header:<Name>`) | sitemap `<lastmod>`, else the server's ETag / Last-Modified (one HEAD per URL per run), else a `refetchHours` time bucket | `{ urls?, sitemaps?, maxPages?, sameHostOnly?, allowPrivate?, authScheme?, refetchHours?, delayMs?, maxBytes?, ignoreRobots? }` |
+| **`s3`** (W1) | `SOURCE_KIND_S3` | objects under a prefix of an S3 or S3-compatible bucket (MinIO, R2, B2, GCS interop) through the SDK the evidence adapter already uses; the same extension rules as `fs` decide text vs binary items | the object ETag | `{ bucket, prefix?, region?, endpoint?, forcePathStyle?, allowPrivate?, extensions?, maxObjects?, maxObjectBytes? }`; credential `accessKeyId:secretAccessKey`, else the SDK chain |
+
+**Private hosts — the double opt-in.** A self-hosted wiki or a MinIO on
+the LAN is a legitimate source, but the SSRF fence is lowered only when
+the operator who owns the network says so on the brain
+(`SOURCE_EGRESS_ALLOW_PRIVATE=1`) **and** the connection that needs it
+says so itself (`config.allowPrivate: true`). Either alone changes
+nothing; with both, plain http is accepted for that connection. The
+link-local metadata range (169.254.0.0/16) is refused even then.
+
+Packs: **`file_memory`** carries `folder` / `folder_media` (`fs`) and
+`bucket` / `bucket_media` (`s3`); **`web_memory`** carries `site` /
+`site_media` (`url`) with its own vocabulary (`describes`, `links_to`,
+`authored_by`) and derivable class (`published_on`, `canonical_url`).
 
 The declared shape decides what the `fs` connector counts as an item:
 `document` ⇒ text-like extensions read as UTF-8 (a file with NUL bytes is
@@ -144,6 +159,8 @@ pack may only name it.
 |---|---|---|
 | `SOURCE_PLANE_ENABLED` | `0` | the surface, the engine, the scheduler |
 | `SOURCE_KIND_FS` / `SOURCE_FS_ROOTS` | `0` / unset | the `fs` native and its root jail (W1) |
+| `SOURCE_KIND_URL`, `SOURCE_KIND_S3` | `0` | the `url` and `s3` natives (W1) |
+| `SOURCE_EGRESS_ALLOW_PRIVATE` | `0` | operator half of the private-host double opt-in |
 | `DOCUMENT_INGEST_ENABLED` | `1` | the document door (default on) |
 | `EVIDENCE_*`, `EVIDENCE_DOCUMENT_BRIDGE` | `0` | the binary door and its bridge to facts |
 | `PACK_SOURCE_VERSION_STALENESS` | `0` | the drift sweep the stamps feed |

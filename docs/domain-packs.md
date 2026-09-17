@@ -752,7 +752,8 @@ tracking and scene graphs remain deliberately undeclared.
 | `fintech` | 0.3.0 | text, document | document text | deny | statements and KYC files; `image` withheld (biometric-adjacent), so no ocr |
 | `hr` | 0.3.0 | text, document | document text | deny | CVs and offer letters are personal data; `image` withheld, so no ocr |
 | `code_memory` (builtin) | 0.6.0 | text, image, document | image metadata, document text, **ocr** | deny | failure/dashboard screenshots + log artifacts; the text in a screenshot is the whole point of it |
-| `file_memory` | 0.1.0 | text, document, image | document text, image metadata | deny | a folder holds PDFs and images next to its text; the source pack for `fs` connections (`folder` / `folder_media`) — a folder can hold anything, so raw bytes never serve |
+| `file_memory` | 0.2.0 | text, document, image | document text, image metadata | deny | a folder or bucket holds PDFs and images next to its text; the source pack for `fs` (`folder` / `folder_media`) and `s3` (`bucket` / `bucket_media`) connections — a folder can hold anything, so raw bytes never serve |
+| `web_memory` | 0.1.0 | text, document | document text | deny | a site serves PDFs next to its pages; the source pack for `url` connections (`site` / `site_media`); page images are chrome, not evidence |
 
 The `ocr` capability needs `EVIDENCE_OCR_ENABLED` on top of the usual
 ladder (`EVIDENCE_PROCESSOR_BROKER`, pack declaration, current modality

@@ -1570,6 +1570,33 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       "The `fs` source connector (source plane, W1): a directory on the brain host's filesystem — a mounted volume, an OS-mounted network share, the laptop a fully-local brain runs on — read as documents (text-like files) or handed to the evidence plane (PDFs, images) per the pack's source entry (file_memory: `folder` / `folder_media`). Every run is a full walk (no change feed): mtime + size is the revision, symlinks are never followed, hidden entries and VCS/build directories are skipped, maxFiles / maxFileBytes bound the walk. Requires SOURCE_PLANE_ENABLED and a SOURCE_FS_ROOTS jail. Off (default) = the connector is 'not installed': a connection of it cannot be created and an existing one records a failed sync — byte-identical.",
   },
   {
+    key: 'SOURCE_KIND_URL',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `url` source connector (source plane, W1): pages named outright and every page a sitemap lists (indexes followed one level), reduced to text (HTML stripped) or handed to the evidence plane as PDFs per the pack's source entry (web_memory: `site` / `site_media`). Every request — the first and every redirect hop — passes the SSRF egress guard; robots.txt Disallow rules are honoured per host; sameHostOnly keeps a sitemap from enumerating another host; the revision is the sitemap lastmod, else the server's ETag / Last-Modified (one HEAD per URL per run), else a time bucket. Private hosts need SOURCE_EGRESS_ALLOW_PRIVATE AND the connection's allowPrivate. Off (default) = the connector is 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_KIND_S3',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `s3` source connector (source plane, W1): objects under a prefix of an S3 or S3-compatible bucket (MinIO, R2, B2, GCS interop) through the SDK the evidence adapter already uses — text-like objects as documents, PDFs/images to the evidence plane (file_memory: `bucket` / `bucket_media`). ListObjectsV2 every run, the ETag as revision. Credential `accessKeyId:secretAccessKey`, else the SDK's default provider chain; a custom endpoint passes the egress guard (private ones need the double opt-in). Off (default) = 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_EGRESS_ALLOW_PRIVATE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The operator half of the DOUBLE opt-in for network source connectors (url, s3 endpoint, webdav, mcp/http) to reach loopback / private / link-local hosts — a self-hosted wiki or MinIO on the LAN. The other half is `allowPrivate: true` on the connection itself; either alone changes nothing. With both, plain http is also accepted for that connection (a LAN service rarely has a certificate). Never a pack's or a caller's decision. Off (default) = the SSRF fence stands for every source connection.",
+  },
+  {
     key: 'SOURCE_FS_ROOTS',
     category: 'pipeline',
     defaultValue: '',
