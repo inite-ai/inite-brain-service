@@ -23,6 +23,7 @@ function make(opts: { fail?: boolean; predicates?: string[] } = {}) {
       queries.push({ sql, params });
       if (opts.fail) throw new Error('db down');
       if (sql.includes('FROM episode')) {
+        if (params?.c !== 'conv') return [[]];
         return [
           [
             {
@@ -185,5 +186,32 @@ describe('MemoryContextService.build', () => {
     expect(queries.some((q) => q.sql.includes('FROM episode'))).toBe(false);
     expect(lookups).toEqual(['RK Imóveis']);
     expect(ctx?.entities.map((e) => e.name)).toEqual(['RK Imóveis']);
+  });
+});
+
+describe("MemoryContextService.remember — the conversation's last subjects", () => {
+  it('a remembered entity joins the context after the named ones; other conversations are untouched', async () => {
+    const { svc, lookups } = make();
+    svc.remember('co', 'conv', ['knowledge_entity:rk']);
+    svc.remember('co', 'other', ['knowledge_entity:rui']);
+    const ctx = await svc.build({ companyId: 'co', text: 'current', conversationId: 'conv' });
+    // NER found "Rui" (from the turn) → rui first, then the remembered rk.
+    expect(lookups).toContain('Rui');
+    expect(ctx?.entities.map((e) => e.name)).toEqual(['Rui Almeida', 'RK Imóveis']);
+    const none = await svc.build({ companyId: 'co', text: 'nothing', conversationId: 'fresh' });
+    expect(none?.entities).toEqual([]);
+  });
+
+  it('keeps the latest ids first, bounded per conversation, and ignores empty input', () => {
+    const { svc } = make();
+    svc.remember('co', 'conv', ['a']);
+    svc.remember('co', 'conv', ['b', 'a']);
+    svc.remember('co', undefined, ['z']);
+    svc.remember('co', 'conv', []);
+    expect(
+      (svc as unknown as { conversationEntities: Map<string, string[]> }).conversationEntities.get(
+        'co|conv',
+      ),
+    ).toEqual(['b', 'a']);
   });
 });

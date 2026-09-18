@@ -6,6 +6,7 @@ import { failClosedCaptureEnabled } from '../common/evidence-flags';
 import { DocumentIngestService } from './document-ingest.service';
 import { internalDocumentMeta, joinKnownNames } from './document-meta';
 import { pinUserScope } from '../auth/user-scope';
+import { MemoryContextService } from '../ingest/memory-context.service';
 
 export interface MentionCompatResult {
   skipped: boolean;
@@ -53,10 +54,12 @@ export interface MentionCompatResult {
  */
 @Injectable()
 export class MentionViaDocumentService {
+  // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token
   constructor(
     private readonly documents: DocumentIngestService,
     @Optional() private readonly episodes?: EpisodeStoreService,
     @Optional() private readonly metrics?: MetricsService,
+    @Optional() private readonly memory?: MemoryContextService,
   ) {}
 
   async ingest(companyId: string, dto: IngestMentionDto): Promise<MentionCompatResult> {
@@ -146,6 +149,7 @@ export class MentionViaDocumentService {
         };
       }
       this.metrics?.countIngestMention('extracted');
+      this.memory?.remember(companyId, dto.contextRef.conversationId, res.committed.entityIds);
       return {
         skipped: false,
         extractedEntityIds: res.committed.entityIds,

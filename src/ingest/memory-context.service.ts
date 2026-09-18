@@ -18,6 +18,9 @@ import { EntityUpsertService } from './entity-upsert.service';
 const MAX_NAMES = 16;
 /** Entities shown; the facts cap follows from MEMORY_FACTS_PER_ENTITY. */
 const MAX_ENTITIES = 10;
+/** Conversations whose recent entities are remembered in-process, and how many per conversation. */
+const CONVERSATION_CACHE_MAX = 2000;
+const CONVERSATION_ENTITIES_MAX = 12;
 /** The tenant's predicate vocabulary changes slowly; one read per minute is plenty. */
 const PREDICATES_TTL_MS = 60_000;
 const PREDICATES_CACHE_MAX = 512;
@@ -54,12 +57,41 @@ export interface MemoryContextInput {
 export class MemoryContextService {
   private readonly logger = new Logger(MemoryContextService.name);
   private readonly predicateCache = new Map<string, { at: number; predicates: string[] }>();
+  /**
+   * The entities the last turns of a conversation committed, keyed
+   * `companyId|conversationId`. A subject the extractor filed a turn
+   * under is not always a name NER can find again ("воркер
+   * синхронизации", "the pilot") — without this the next turn of the
+   * same conversation did not see the facts it was about to update
+   * (measured on prod 2026-09-18: turn 2 pinned Fluenta and Ana but saw
+   * 0 facts, and nothing superseded). A cache, not a record: a miss
+   * (another replica, a restart) degrades to the name lookups.
+   */
+  private readonly conversationEntities = new Map<string, string[]>();
 
   constructor(
     private readonly surreal: SurrealService,
     private readonly entities: EntityUpsertService,
     @Optional() private readonly ner?: LocalNerService,
   ) {}
+
+  /** Remember what a turn of a conversation committed, for the next turn's context. */
+  remember(companyId: string, conversationId: string | undefined, entityIds: string[]): void {
+    if (!conversationId || entityIds.length === 0) return;
+    const key = `${companyId}|${conversationId}`;
+    const prior = this.conversationEntities.get(key) ?? [];
+    const next = [...entityIds, ...prior.filter((id) => !entityIds.includes(id))].slice(
+      0,
+      CONVERSATION_ENTITIES_MAX,
+    );
+    // Re-insert so the map's order is recency; evict the oldest key.
+    this.conversationEntities.delete(key);
+    this.conversationEntities.set(key, next);
+    if (this.conversationEntities.size > CONVERSATION_CACHE_MAX) {
+      const oldest = this.conversationEntities.keys().next().value;
+      if (oldest !== undefined) this.conversationEntities.delete(oldest);
+    }
+  }
 
   async build(p: MemoryContextInput): Promise<MemoryContext | undefined> {
     const occurredAt =
@@ -69,7 +101,11 @@ export class MemoryContextService {
         const ctx = await this.surreal.withCompany(p.companyId, async (db) => {
           const recentTurns = await this.recentTurns(db, p);
           const names = await this.candidateNames(p, recentTurns);
-          const ids = await this.lookupIds(db, names, p.userId);
+          const ids = await this.lookupIds(db, {
+            names,
+            userId: p.userId,
+            remembered: this.remembered(p),
+          });
           const [entities, predicates] = await Promise.all([
             this.knownEntities(db, ids),
             this.predicates(db, p.companyId),
@@ -140,16 +176,27 @@ export class MemoryContextService {
     return out;
   }
 
+  private remembered(p: MemoryContextInput): string[] {
+    return p.conversationId
+      ? (this.conversationEntities.get(`${p.companyId}|${p.conversationId}`) ?? [])
+      : [];
+  }
+
   private async lookupIds(
     db: Surreal,
-    names: string[],
-    userId: string | undefined,
+    {
+      names,
+      userId,
+      remembered,
+    }: { names: string[]; userId: string | undefined; remembered: string[] },
   ): Promise<string[]> {
     const found = await Promise.all(
       names.map((name) => this.entities.resolveExistingByName(db, { name }, { userId })),
     );
     const ids: string[] = [];
-    for (const id of found) {
+    // The names first (the turn's own subjects), then what the
+    // conversation's last turns were filed under.
+    for (const id of [...found, ...remembered]) {
       if (id && !ids.includes(id)) ids.push(id);
       if (ids.length >= MAX_ENTITIES) break;
     }
