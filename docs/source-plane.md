@@ -49,9 +49,14 @@ with independent lifecycles.
    sweep (pack-gated by `verificationRules: source_version_match`) marks
    facts read at older revisions stale.
 5. **Gone** — `close` (default) stamps `validUntil = goneAt` on the open
-   facts the item's document grounded (a deleted file is history, not a
-   lie); `keep` marks the row only; `retract` closes today and gains the
-   cascade with W1.
+   facts every document of the item grounded — the linked one and the
+   earlier revisions' (a fact first asserted by an older render stays
+   grounded there; later renders corroborate it), active and
+   corroborating alike (a deleted file is history, not a lie); `keep`
+   marks the row only; `retract` closes today and gains the cascade
+   with W1. An item that comes back byte-identical (a restored record)
+   deduplicates at the store, so nothing is re-extracted: the facts
+   closed at that instant reopen instead (`reopen`, the inverse).
 6. **Bookkeeping** — checkpoint, `lastSyncAt`, `lastSyncStatus`,
    counters; a queued run's counters are its `job_run.result`.
 
@@ -92,6 +97,9 @@ failed run, never a crash.
 | `POST /v1/source-connections/:id/records` | `brain:write` — push record envelopes (≤ 200) + `gone` ids under a `structure`-shaped connection (W4.2, § Records); each batch a run, each record the records door |
 | `POST /v1/admin/source-connections/preview` | `{ packId, sourceId, config, credential? }` — a records connector's first page per entity, mapped, before a connection exists; nothing written |
 | `POST /v1/admin/source-connections/assist` | `{ packId, openapi?: { url \| text }, samples?, endpoints?, allowPrivate? }` — a proposed `rest_records` config (endpoints + field → predicate mapping, each entity with a reason and confidence) from an OpenAPI document and / or sample answers; nothing written |
+| `POST /v1/admin/source-connections/:id/webhook` | `{ secret? }` — switch the connection's inbound webhook on (W4.2c, § Webhooks): the address to register at the vendor, the secret shown once (generated, or the vendor's own), the vendor's how-to. Again = rotate. 404 until `SOURCE_WEBHOOKS` |
+| `DELETE /v1/admin/source-connections/:id/webhook` | off — the address answers 404 from here on |
+| `POST /v1/source-connections/webhook/:address` | **public** — the vendor's call; the HMAC-signed address names the tenant and the connection, the vendor's signature or the secret authenticates. 202 + the queued run, or 200 + the summary without a queue |
 
 The scheduler ticks every 5 minutes (`2-59/5 * * * *` UTC) and enqueues
 one job per due connection per tenant, deduped per 5-minute slot;
@@ -351,15 +359,56 @@ name once per run):
 | `hubspot` | connected account (scopes per object), or a private-app access token | CRM v3 Search per object: `hs_lastmodifieddate GTE since` sorted ascending, `after` cursor, 200 a page; at the 10 000-result cap the window restarts from the last row's modified-at | v4 associations batch read per page (deal → contacts / companies, contact → companies) |
 | `bitrix24` | an **inbound webhook URL** (`https://<portal>/rest/<user>/<code>/`, scope `crm` + `user`), stored encrypted, the code never echoed | `crm.item.list` per `entityTypeId` (deal / lead / contact / company), `filter[>updatedTime]` + `order`, `start` offset, 50 a page; `crm.status.list` / `crm.category.list` / `user.get` for names | `contactId` / `companyId` on the item |
 | `kommo` | a **long-lived token** of a private integration + `config.baseUrl` (`https://<sub>.kommo.com` / `.amocrm.ru`) | API v4 `filter[updated_at][from]` + `order[updated_at]`, `page`, 250 a page, `with=contacts`; pipelines / statuses / users / loss reasons / the account currency for names | `_embedded.contacts` / `_embedded.companies` |
+| `salesforce` (W4.2c) | connected account (scope `api`; the org from the grant's `instance_url`, `config.instanceUrl` overrides), or a **JWT bearer** for an integration user (the credential is a JSON `{ clientId, username, privateKey, loginUrl? }` — an RS256 assertion minted per run, exchanged at the login host, no browser, no refresh token; `test.salesforce.com` for a sandbox) | SOQL over REST per object (Opportunity / Contact / Account / Lead / Case) ordered by `LastModifiedDate`, `LastModifiedDate > since`, 2 000 a page on `nextRecordsUrl`; the **deleted-ids feed** (`/sobjects/<Object>/deleted`) closes what was deleted since the checkpoint without a full walk; **Bulk API 2.0** carries the first walk when `config.bulk` (one query job per object, CSV pages by `Sforce-Locator`) | relationship fields in the query (`Owner.Name`, `Account.Name`, `ContactId`) — no lookups; a lead's converted contact / account / opportunity |
 
 Bitrix24's OAuth (per-portal authorize URL) and Kommo's (token endpoint
 on the account's host, JSON body) wait for the per-origin provider lane
 (W4.3); both vendors' native "make a token in the settings" path is the
 one their SMB admins use. **Push**: any automation posts envelopes to
 `POST /v1/source-connections/:id/records`. The catalogue entry carries
-`records: { entities, preset, predicates }` for the connect form;
+`records: { entities, preset, predicates }` for the connect form and
+`webhook: { scheme }` when the vendor has an inbound lane;
 `POST …/preview` shows what the mapping makes of the first records
 before the connection exists.
+
+### Webhooks (W4.2c) — freshness in seconds
+
+Polling every hour is enough for facts that live weeks; a deal stage
+change wants minutes. Under `SOURCE_WEBHOOKS`, a records connection
+gets an **inbound webhook**: `POST /v1/admin/source-connections/:id/
+webhook` hands out the **address** to register at the vendor —
+`<public base>/v1/source-connections/webhook/<address>`, the tenant and
+the connection under an HMAC of `SOURCE_CREDENTIAL_ENCRYPTION_KEY`
+(`records/webhook-address.ts`, the OAuth `state` mold: a forged or
+edited address opens no tenant) — and a **secret** shown once (kept
+encrypted like a credential). The vendor's call is trusted the vendor's
+way (`records/webhook-schemes.ts`, every comparison constant-time):
+
+| Scheme | Vendors | Trust | Events |
+|---|---|---|---|
+| `hubspot` | `hubspot` | the v3 signature — base64(HMAC-SHA256(secret, method + URL + raw body + timestamp)) in `X-HubSpot-Signature-v3`, the timestamp within five minutes; the secret is the app's client secret (the deployment's `SOURCE_OAUTH_HUBSPOT_CLIENT_SECRET`, or a private app's, pasted at setup) | `[{ subscriptionType: 'deal.propertyChange', objectId }]` — deal / contact / company / ticket, `*.deletion` = gone |
+| `pipedrive` | `pipedrive` | HTTP Basic on the webhook: any user, the password is the secret | v2 `meta.entity` + `meta.entity_id` (`action: delete` = gone); v1 `meta.object` + `meta.id` |
+| `bitrix24` | `bitrix24` | the outbound webhook's `auth[application_token]` (form-encoded), pasted at setup | `event=ONCRM<DEAL\|LEAD\|CONTACT\|COMPANY><ADD\|UPDATE\|DELETE>`, `data[FIELDS][ID]` |
+| `kommo` | `kommo` | nothing to sign, no header to set: the secret rides in the address (`?token=`) — the vendor's ceiling | the form `leads[update][0][id]`, `contacts[add][0][id]` (`type=company` = an organization), `…[delete]…` |
+| `signed` | `rest_records` (a custom backend, an automation) | `X-Brain-Signature: sha256=<HMAC-SHA256 hex of the raw body>`, or the secret as a bearer, or `?token=` | `{ events: [{ entity, id, deleted? }] }` or one such object; entities as the connection's config names them |
+
+The call never carries data into memory: the scheme answers only
+*which* records changed (entity + id, deleted or not), filtered to the
+entities the connection syncs, deduplicated (a deletion wins), capped
+at 100 a call. With a job queue the events become one `source_sync`
+job (`ranBy: webhook`) and the vendor gets its 202 at once — vendors
+time out in seconds and retry on anything else; without a queue the
+fetches run inline under a bounded budget. The job
+(`RecordsWebhookService.apply`) fetches each named record through the
+connector's `get` (`fetchRecord`: named relation targets, the mapping
+in force) into the same catalogue row and the same records door a sync
+uses — an unchanged revision is deduplicated, a changed one moves the
+fact, a `deleted` event or a 404 at the vendor closes the record's
+facts by the connection's delete policy. `webhook.lastEventAt` on the
+connection says the vendor is reaching us. The app keeps the raw body
+(`rawBody: true`) because HubSpot signs the bytes. Salesforce Change
+Data Capture (Pub/Sub over gRPC) waits for demand — its deleted-ids
+feed already closes deletions on every incremental run.
 
 **The long tail — `rest_records` + the mapping assistant (W4.2b′)**:
 a CRM / ERP / ticketing backend with a JSON list API and no connector
@@ -490,7 +539,9 @@ pack may only name it.
 | `SOURCE_KIND_PIPEDRIVE` | `0` | the first CRM connector on the records contract (W4.2); a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_PIPEDRIVE_CLIENT_ID`, an API token needs neither |
 | `SOURCE_KIND_HUBSPOT` | `0` | the `hubspot` connector (W4.2b); a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_HUBSPOT_CLIENT_ID`, a private-app token needs neither |
 | `SOURCE_KIND_BITRIX24`, `SOURCE_KIND_KOMMO` | `0` | the `bitrix24` (inbound webhook URL) and `kommo` (long-lived token) connectors (W4.2b) — no OAuth app needed |
+| `SOURCE_KIND_SALESFORCE` | `0` | the `salesforce` connector (W4.2c); a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_SALESFORCE_CLIENT_ID` (`SOURCE_OAUTH_SALESFORCE_LOGIN_URL` for a sandbox / My Domain login host), a JWT bearer needs neither |
 | `SOURCE_KIND_REST_RECORDS` | `0` | the config-driven `rest_records` connector for any JSON list API (W4.2b′) |
+| `SOURCE_WEBHOOKS` | `0` | the inbound webhook lane of the records connectors (W4.2c): the setup route and the public address; needs `SOURCE_CREDENTIAL_ENCRYPTION_KEY` |
 | `SOURCE_MAPPING_ASSISTANT` / `MAPPING_ASSISTANT_MODEL` | `0` / `gpt-5.6-luna` | the model half of the mapping assistant; off = the deterministic proposal only |
 | `SOURCE_OAUTH_CLIENT` | `0` | the brain as an outbound OAuth client: connected accounts, the public callback, refresh (W4) |
 | `SOURCE_CREDENTIAL_ENCRYPTION_KEY` (+ `_PREVIOUS`) | unset | credentials and grants encrypted at rest; required for OAuth |

@@ -10,6 +10,7 @@ import type {
 } from '../connector';
 import type { OAuthProviderId } from '../oauth/oauth-providers';
 import { mergeMappings, type EntityMapping, type RecordMapping } from './record-mapping';
+import type { WebhookScheme } from './webhook-schemes';
 
 /**
  * The records contract (docs/roadmap/crm-sources-2026-09.md § 4.2): one
@@ -50,6 +51,8 @@ export interface ListPage {
   records: RecordEnvelope[];
   /** The vendor's token for the next page; null = done. */
   next: unknown;
+  /** Vendor ids of this entity type the vendor reports deleted since `cursor.since` (a deleted-ids feed) — closed like a full walk would. */
+  gone?: string[] | undefined;
 }
 
 export interface RecordsConnectionConfig {
@@ -82,6 +85,8 @@ export abstract class RecordsConnector implements Connector {
   readonly oauth?: { provider: OAuthProviderId; scopes: string[]; optional?: boolean };
   readonly credentialHint?: string;
   readonly configExample?: Record<string, unknown>;
+  /** The vendor's inbound webhook — its trust and its event format (W4.2c); absent = no webhook lane. */
+  readonly webhook?: WebhookScheme;
 
   private readonly runs = new Map<string, RunState>();
 
@@ -111,6 +116,9 @@ export abstract class RecordsConnector implements Connector {
       do {
         if (ctx.signal.aborted) throw new Error('aborted');
         const got = await this.list(ctx, entity.type, { since, page });
+        for (const id of got.gone ?? []) {
+          yield { type: 'gone', externalId: itemIdOf(entity.type, id) };
+        }
         for (const record of got.records) {
           const externalId = itemIdOf(entity.type, record.externalId);
           state.records.set(externalId, record);
@@ -144,6 +152,28 @@ export abstract class RecordsConnector implements Connector {
 
   async endRun(ctx: ConnectorCtx): Promise<void> {
     this.runs.delete(ctx.connection.id);
+  }
+
+  /**
+   * One record by vendor id, as a webhook names it: the descriptor for
+   * the catalogue and the fetched item for the door, with the same
+   * naming and mapping a sync applies; null when the vendor says it is
+   * gone. Needs `get` — a vendor without it has no webhook lane.
+   */
+  async fetchRecord(
+    ctx: ConnectorCtx,
+    entity: string,
+    id: string,
+  ): Promise<{ item: ItemDescriptor; fetched: FetchedItem } | null> {
+    if (!this.get) throw new Error(`${this.kind}: cannot fetch one record (no get)`);
+    const record = await this.get(ctx, entity, id);
+    if (!record) return null;
+    const named = await this.named(ctx, record);
+    const mapping = this.mappingFor(configOf(ctx))[entity];
+    return {
+      item: describeRecord(entity, named),
+      fetched: { shape: 'structure', record: named, ...(mapping ? { mapping } : {}) },
+    };
   }
 
   /** The entities a connection could sync — the connector's own, unless its config describes them (`rest_records`). */

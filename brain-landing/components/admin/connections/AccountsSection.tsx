@@ -131,6 +131,7 @@ export function AccountsSection({
                       <div className="text-[10px] text-[var(--text-faint)]" title={g.scopes.join(' ')}>
                         {g.ownerUserId ? `${t.list.personal} · ` : ''}
                         {stamp(g.createdAt)}
+                        {g.apiBase ? ` · ${fill(a.org, { url: g.apiBase })}` : ''}
                       </div>
                     </td>
                     <td className={`px-3 py-1.5 ${tone}`}>

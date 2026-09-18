@@ -1712,6 +1712,52 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       "The `kommo` source connector (source plane, W4.2b — a CRM on the records contract): leads (deals), contacts and companies of a Kommo / amoCRM account through API v4 (`filter[updated_at][from]` + `page`, 250 a page, `with=contacts`; pipelines / statuses / users / loss reasons resolved to names once per run; the account currency on every lead). The credential is a LONG-LIVED TOKEN of a private integration (a bearer); `config.baseUrl` names the account (`https://<subdomain>.kommo.com` / `.amocrm.ru`). Records enter the records door (crm_memory). Off (default) = 'not installed' — byte-identical.",
   },
   {
+    key: 'SOURCE_KIND_SALESFORCE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `salesforce` source connector (source plane, W4.2c — a CRM on the records contract, docs/roadmap/crm-sources-2026-09.md § 4.2.1): opportunities, contacts, accounts, leads and cases of a Salesforce org through SOQL over REST (one query per object ordered by LastModifiedDate, `LastModifiedDate > since` for the incremental walk, `nextRecordsUrl` paging; owner / account names as relationship fields; the deleted-ids feed closes what was deleted since the checkpoint), Bulk API 2.0 for a large org's first walk when the connection asks (`config.bulk`). Runs as a connected account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_SALESFORCE_CLIENT_ID; scope `api`; the org from the grant's `instance_url`, `config.instanceUrl` overrides) or as an integration user through a JWT bearer (the credential is a JSON { clientId, username, privateKey, loginUrl? }; no browser, no refresh token). Records enter the records door (crm_memory). Off (default) = 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_OAUTH_SALESFORCE_CLIENT_ID',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The consumer key of the Salesforce connected app the brain connects orgs through (OAuth web server flow with PKCE; the brain's callback URL as its callback URL; scopes api, refresh_token, openid). Unset = Salesforce is 'not configured' — a JWT bearer credential still works.",
+  },
+  {
+    key: 'SOURCE_OAUTH_SALESFORCE_CLIENT_SECRET',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description:
+      'The consumer secret of the Salesforce connected app named by SOURCE_OAUTH_SALESFORCE_CLIENT_ID.',
+  },
+  {
+    key: 'SOURCE_OAUTH_SALESFORCE_LOGIN_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The Salesforce login host for the connected-account flow: unset = https://login.salesforce.com; https://test.salesforce.com for a sandbox, or the org's My Domain login URL. Swaps the origin of the authorize / token / identity URLs (public https only — not the dev override). A JWT bearer credential names its own `loginUrl`.",
+  },
+  {
+    key: 'SOURCE_OAUTH_SALESFORCE_BASE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the Salesforce (login host + org API) counterpart.',
+  },
+  {
     key: 'SOURCE_KIND_REST_RECORDS',
     category: 'pipeline',
     defaultValue: '0',
@@ -1728,6 +1774,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: true,
     description:
       'The model half of the mapping assistant (W4.2b′): with it, POST /v1/admin/source-connections/assist sends the bounded API digest and the deterministic proposal to MAPPING_ASSISTANT_MODEL under a strict JSON schema and keeps what validates — a hallucinated path or predicate is dropped, never trusted. Off (default) = the deterministic proposal only (conventional names for id / name / updated-at / paging / since parameters, a synonym table over the pack vocabulary); the endpoint and the preview work the same, no model is ever called.',
+  },
+  {
+    key: 'SOURCE_WEBHOOKS',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Inbound webhooks on the records connectors (source plane, W4.2c — docs/roadmap/crm-sources-2026-09.md § 4.4): `POST /v1/admin/source-connections/:id/webhook` switches a connection's webhook on and hands out the address to register at the vendor (the tenant and the connection under an HMAC of SOURCE_CREDENTIAL_ENCRYPTION_KEY) plus a secret shown once (generated, or the vendor's own — a Bitrix24 application token, a HubSpot app's client secret); the public `POST /v1/source-connections/webhook/:address` takes the vendor's call — HubSpot v3 signature, Pipedrive basic auth, Bitrix24 `auth[application_token]`, Kommo / custom REST `?token=` or an HMAC of the body — parses it into entity + id (+ deleted), and the engine fetches those records through the same records door a sync uses (a queued `source_sync` job, `ranBy: webhook`; a deletion closes the record's facts by the delete policy). The webhook never carries data into memory. Off (default) = both routes answer 404, no address exists, no vendor call is accepted — byte-identical.",
   },
   {
     key: 'MAPPING_ASSISTANT_MODEL',

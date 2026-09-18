@@ -53,7 +53,11 @@ async function bootstrap() {
     procLog.error(`uncaughtException: ${err?.message ?? err}`, err?.stack);
   });
 
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // rawBody: the source plane's inbound webhooks verify a vendor's
+  // signature over the bytes it sent (HubSpot v3 signs method + URL +
+  // body + timestamp); the parsers below keep them on `req.rawBody` for
+  // the request's lifetime, bounded by the same body cap.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
 
   // Rate limits on unauthenticated callers key on the client IP, and
   // behind a reverse proxy every request arrives from the proxy's

@@ -21,15 +21,19 @@ import { OneDriveConnector } from './connectors/onedrive.connector';
 import { PipedriveConnector } from './connectors/pipedrive.connector';
 import { RestRecordsConnector } from './connectors/rest-records.connector';
 import { S3Connector } from './connectors/s3.connector';
+import { SalesforceConnector } from './connectors/salesforce.connector';
 import { UrlConnector } from './connectors/url.connector';
 import { AdminSourceOAuthController } from './oauth/admin-source-oauth.controller';
 import { CredentialProvider } from './oauth/credential-provider';
 import { SourceOAuthCallbackController } from './oauth/source-oauth-callback.controller';
 import { SourceOAuthService } from './oauth/source-oauth.service';
+import { AdminSourceWebhookController } from './records/admin-source-webhook.controller';
 import { MappingAssistantService } from './records/mapping-assistant.service';
 import { RecordsDoorService } from './records/records-door.service';
 import { RecordsPreviewService } from './records/records-preview.service';
 import { RecordsPushService } from './records/records-push.service';
+import { RecordsWebhookService } from './records/records-webhook.service';
+import { SourceWebhookController } from './records/source-webhook.controller';
 import { SourceAgentService } from './source-agent.service';
 import { SourceCatalogService } from './source-catalog.service';
 import { SourceConnectionService } from './source-connection.service';
@@ -58,18 +62,23 @@ import { SourceSyncService } from './source-sync.service';
  * through CredentialProvider at run time); the records contract (W4.2,
  * `records/`) with the CRM vendors on it — `pipedrive`
  * (SOURCE_KIND_PIPEDRIVE), `hubspot` (SOURCE_KIND_HUBSPOT), `bitrix24`
- * (SOURCE_KIND_BITRIX24), `kommo` (SOURCE_KIND_KOMMO), and the
- * config-driven `rest_records` (SOURCE_KIND_REST_RECORDS) the mapping
- * assistant proposes for the long tail — and the records door behind
- * every `structure` item; webdav follows. A kind whose
- * switch is off is "not installed" to the engine: a connection of it
- * records a failed sync with "no installed connector", never a crash.
+ * (SOURCE_KIND_BITRIX24), `kommo` (SOURCE_KIND_KOMMO), `salesforce`
+ * (SOURCE_KIND_SALESFORCE — SOQL over REST, a connected account or a
+ * JWT bearer, W4.2c), and the config-driven `rest_records`
+ * (SOURCE_KIND_REST_RECORDS) the mapping assistant proposes for the
+ * long tail — the records door behind every `structure` item, and the
+ * inbound webhook lane (SOURCE_WEBHOOKS, W4.2c: the vendor names a
+ * record, the engine fetches it through the same door); webdav
+ * follows. A kind whose switch is off is "not installed" to the
+ * engine: a connection of it records a failed sync with "no installed
+ * connector", never a crash.
  *
  * Everything is dark behind SOURCE_PLANE_ENABLED (default off): routes
  * answer 404, no job handler registers, the scheduler enqueues nothing.
  *
  * Controller order matters: the OAuth controller's literal `oauth/…`
- * segments are registered before the connections controller's `:id`.
+ * segments and the public webhook's `webhook/…` are registered before
+ * the connections controllers' `:id`.
  */
 @Module({
   imports: [AuthModule, DocumentsModule, EvidenceModule, IngestModule, SourcesModule],
@@ -77,6 +86,8 @@ import { SourceSyncService } from './source-sync.service';
     AdminSourceOAuthController,
     AdminSourceConnectionsController,
     AdminSourceInspectController,
+    AdminSourceWebhookController,
+    SourceWebhookController,
     AgentSourceConnectionsController,
     SourceOAuthCallbackController,
   ],
@@ -92,6 +103,7 @@ import { SourceSyncService } from './source-sync.service';
     HubSpotConnector,
     Bitrix24Connector,
     KommoConnector,
+    SalesforceConnector,
     RestRecordsConnector,
     {
       provide: SOURCE_CONNECTORS,
@@ -108,6 +120,7 @@ import { SourceSyncService } from './source-sync.service';
         HubSpotConnector,
         Bitrix24Connector,
         KommoConnector,
+        SalesforceConnector,
         RestRecordsConnector,
       ],
     },
@@ -121,6 +134,7 @@ import { SourceSyncService } from './source-sync.service';
     RecordsDoorService,
     RecordsPushService,
     RecordsPreviewService,
+    RecordsWebhookService,
     MappingAssistantService,
     SourceGonePolicyService,
     SourceItemIngestService,

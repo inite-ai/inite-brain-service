@@ -9,6 +9,7 @@ import {
   type ListCursor,
   type ListPage,
 } from '../records/records-connector';
+import { kommoWebhook } from '../records/webhook-schemes';
 import { cloudHttp, type CloudHttp } from './cloud-http';
 import { isoOf, scalars } from './records-vendor';
 
@@ -93,6 +94,7 @@ export class KommoConnector extends RecordsConnector {
     entities: ['deal', 'person', 'organization'],
   };
   override readonly credentialHint = 'a long-lived token of a private integration (bearer)';
+  override readonly webhook = kommoWebhook;
   readonly entities: EntitySpec[] = [
     {
       type: 'deal',

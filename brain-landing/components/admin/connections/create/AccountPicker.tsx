@@ -193,6 +193,9 @@ function AccountRow({
     <label className={`flex items-center gap-2 rounded border px-2 py-1 cursor-pointer ${selected ? 'border-[var(--accent)] bg-[var(--accent)]/5' : 'border-[var(--border)]'}`}>
       <input type="radio" name="grant" checked={selected} onChange={onPick} />
       <span className="font-mono text-[11px] text-[var(--text)]">{grant.account ?? grant.id}</span>
+      {grant.apiBase && (
+        <span className="font-mono text-[10px] text-[var(--text-faint)]">{fill(t.accounts.org, { url: grant.apiBase })}</span>
+      )}
       {selected && <Check className="w-3 h-3 text-[var(--accent)]" />}
       {narrower && <span className="ml-auto text-[10px] text-[var(--warning)]">{t.form.credential.scopesShort}</span>}
       {!grant.refreshable && !narrower && (

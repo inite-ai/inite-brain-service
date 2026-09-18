@@ -5,6 +5,7 @@ import { sourcePlaneEnabled } from '../common/source-plane-flags';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService, type JobContext } from '../jobs/worker-loop.service';
 import { idTailOf } from '../ingest/ingest-utils';
+import { RecordsWebhookService, type WebhookJobPayload } from './records/records-webhook.service';
 import { SourceSyncService } from './source-sync.service';
 
 /**
@@ -28,6 +29,7 @@ export class SourceSyncQueueService implements OnModuleInit {
   constructor(
     private readonly sync: SourceSyncService,
     private readonly apiKeys: ApiKeyService,
+    private readonly webhooks: RecordsWebhookService,
     @Optional() private readonly workerLoop?: WorkerLoopService,
     @Optional() private readonly claim?: JobClaimService,
   ) {}
@@ -90,9 +92,24 @@ export class SourceSyncQueueService implements OnModuleInit {
     return { enqueued };
   }
 
-  private async executeFromQueue(ctx: JobContext): Promise<Record<string, unknown>> {
+  /**
+   * One queued `source_sync` job: a walk (the payload names the
+   * connection and whether it is full) or a webhook batch (the payload
+   * carries the events a vendor's call named — W4.2c, `ranBy: webhook`).
+   * Public so a test can run a queued job without the worker loop.
+   */
+  async executeFromQueue(ctx: JobContext): Promise<Record<string, unknown>> {
     const connectionId = String(ctx.payload?.connectionId ?? '');
     if (!connectionId) return { skipped: 'missing_connectionId' };
+    const webhook = (ctx.payload as Partial<WebhookJobPayload> | undefined)?.webhook;
+    if (webhook && Array.isArray(webhook.events)) {
+      const summary = await this.webhooks.apply(ctx.companyId, {
+        connectionId,
+        webhook,
+        signal: ctx.abortSignal,
+      });
+      return { ...summary, ranBy: 'webhook' };
+    }
     const summary = await this.sync.sync(ctx.companyId, connectionId, {
       full: ctx.payload?.full === true,
       signal: ctx.abortSignal,

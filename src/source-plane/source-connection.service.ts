@@ -27,7 +27,7 @@ import {
   type SourceConnection,
   type UpdateSourceConnectionRequest,
 } from '../contracts/source-plane/source-plane.schema';
-import { encryptSecret } from './credential-cipher';
+import { decryptSecret, encryptSecret } from './credential-cipher';
 import { CredentialProvider } from './oauth/credential-provider';
 import { SourceOAuthService } from './oauth/source-oauth.service';
 import type { Connector, ConnectorConnectionView, ConnectorRegistry } from './connector';
@@ -64,6 +64,9 @@ export interface SourceConnectionRow {
   lastSyncAt?: unknown;
   lastSyncStatus?: string | null;
   lastError?: string | null;
+  /** Encrypted; set = the inbound webhook is on (W4.2c). */
+  webhookSecret?: string | null;
+  lastWebhookAt?: unknown;
   userId?: string | null;
   scope?: string[];
   createdAt?: unknown;
@@ -338,6 +341,55 @@ export class SourceConnectionService {
     return rows.filter((r) => isDue(r, now));
   }
 
+  /**
+   * What the connected account says about itself beyond the token — the
+   * API origin a provider names at its token endpoint (Salesforce
+   * `instance_url`, Pipedrive `api_domain`): a connector runs against
+   * it when the connection names no origin of its own. Null for a
+   * secret credential or a grant without one.
+   */
+  async grantHints(
+    companyId: string,
+    row: SourceConnectionRow,
+  ): Promise<ConnectorConnectionView['grant']> {
+    if (!this.credentials) return null;
+    return this.credentials.hints(companyId, row.credential);
+  }
+
+  /** The inbound webhook's secret (set = on), encrypted at rest like a credential; null switches it off. */
+  async setWebhookSecret(
+    companyId: string,
+    connectionId: string,
+    secret: string | null,
+  ): Promise<void> {
+    const tail = idTailOf(connectionId);
+    await this.surreal.withCompany(companyId, (db) =>
+      secret === null
+        ? db.query(`UPDATE type::record('source_connection', $tail) SET webhookSecret = NONE`, {
+            tail,
+          })
+        : db.query(`UPDATE type::record('source_connection', $tail) SET webhookSecret = $secret`, {
+            tail,
+            secret: encryptSecret(secret),
+          }),
+    );
+  }
+
+  /** The webhook secret in the clear — for verification only, never for a view. */
+  webhookSecretOf(row: SourceConnectionRow): string | null {
+    if (typeof row.webhookSecret !== 'string' || row.webhookSecret.length === 0) return null;
+    return decryptSecret(row.webhookSecret);
+  }
+
+  /** An accepted webhook call — the operator's "is the vendor reaching us?". */
+  async touchWebhook(companyId: string, connectionId: string): Promise<void> {
+    await this.surreal.withCompany(companyId, (db) =>
+      db.query(`UPDATE type::record('source_connection', $tail) SET lastWebhookAt = time::now()`, {
+        tail: idTailOf(connectionId),
+      }),
+    );
+  }
+
   /** The platform connector that runs this connection, if installed and on. */
   resolveConnector(row: SourceConnectionRow): Connector | null {
     return findConnector(this.connectors ?? [], row.connector);
@@ -484,6 +536,8 @@ export class SourceConnectionService {
       installSecret: string | null;
       /** From `credentialFor` — the row's stored value is never handed over raw. */
       credential?: string | null | undefined;
+      /** From `grantHints` — what the connected account said about itself. */
+      grant?: ConnectorConnectionView['grant'];
     } = { source: null, installSecret: null },
   ): ConnectorConnectionView {
     const source = context.source;
@@ -511,10 +565,12 @@ export class SourceConnectionService {
           ? 'install'
           : null,
       contentPolicy: row.contentPolicy,
+      deletePolicy: row.deletePolicy,
       vertical: row.vertical,
       recorder: row.recorder,
       userId: row.userId ?? null,
       source,
+      grant: context.grant ?? null,
     };
   }
 
@@ -636,6 +692,10 @@ export function toView(row: SourceConnectionRow): SourceConnection {
     lastSyncAt: toIso(row.lastSyncAt),
     lastSyncStatus: row.lastSyncStatus ?? null,
     lastError: row.lastError ?? null,
+    webhook: {
+      enabled: typeof row.webhookSecret === 'string' && row.webhookSecret.length > 0,
+      lastEventAt: toIso(row.lastWebhookAt),
+    },
     createdAt: toIso(row.createdAt) ?? new Date(0).toISOString(),
     updatedAt: toIso(row.updatedAt),
   };

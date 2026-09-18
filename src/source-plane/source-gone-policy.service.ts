@@ -12,7 +12,9 @@ import type { SourceItemRow } from './source-item.service';
  *   close   (default) — the facts stay believed for their interval and
  *           get `validUntil = goneAt`: a deleted file is history, not a
  *           lie. Only facts that are still open (`validUntil IS NONE`)
- *           and still active are touched.
+ *           and still active — or corroborating one that is (a later
+ *           render of the same record re-asserting a value) — are
+ *           touched, on every document the item produced.
  *   retract — reserved: the cascade-retract path lands with the first
  *             native that can observe deletions reliably (W1); today it
  *             behaves as `close` and says so in the log.
@@ -42,17 +44,83 @@ export class SourceGonePolicyService {
     let closed = 0;
     for (const item of gone) {
       const goneAt = asDate(item.goneAt) ?? new Date();
-      if (item.documentId) {
-        closed += await this.closeDocumentFacts(companyId, item.documentId, goneAt);
-      } else if (item.assetId) {
-        // A binary item's facts live on the documents the bridge made of
-        // its asset (meta.evidenceAssetId) — each closes like a text item's.
-        for (const docId of await this.bridgedDocuments(companyId, item.assetId)) {
-          closed += await this.closeDocumentFacts(companyId, docId, goneAt);
-        }
+      for (const docId of await this.documentsOf(companyId, item)) {
+        closed += await this.closeDocumentFacts(companyId, docId, goneAt);
       }
     }
     return closed;
+  }
+
+  /**
+   * The inverse, for an item that was gone and is seen again with
+   * byte-identical content (the document deduplicates, so no new facts
+   * are made): the facts `apply` closed at exactly `goneAt` reopen. Only
+   * that instant's closes — a fact whose validity ended for a reason of
+   * its own keeps its end. Returns the number reopened.
+   */
+  async reopen(
+    companyId: string,
+    connection: SourceConnectionRow,
+    item: {
+      id: unknown;
+      documentId?: string | null | undefined;
+      assetId?: string | null | undefined;
+      goneAt: Date;
+    },
+  ): Promise<number> {
+    if (connection.deletePolicy === 'keep') return 0;
+    let reopened = 0;
+    for (const docId of await this.documentsOf(companyId, item)) {
+      reopened += await this.reopenDocumentFacts(companyId, docId, item.goneAt);
+    }
+    if (reopened > 0) {
+      this.logger.log(
+        `${String(connection.id)}: ${reopened} fact(s) reopened — the item is back unchanged`,
+      );
+    }
+    return reopened;
+  }
+
+  /**
+   * Every document an item's facts may sit on: the one it is linked to
+   * now, the earlier revisions' documents (a fact first asserted by an
+   * older render stays grounded there while later renders only
+   * corroborate it — `meta.sourceItemId` names them all), and, for a
+   * binary item, the documents the bridge made of its asset
+   * (meta.evidenceAssetId). Bounded and best-effort: a scan that times
+   * out leaves the linked document alone in the list.
+   */
+  private async documentsOf(
+    companyId: string,
+    item: {
+      id: unknown;
+      documentId?: string | null | undefined;
+      assetId?: string | null | undefined;
+    },
+  ): Promise<string[]> {
+    const out = new Set<string>();
+    if (item.documentId) out.add(item.documentId);
+    if (item.assetId) {
+      for (const docId of await this.bridgedDocuments(companyId, item.assetId)) out.add(docId);
+    }
+    for (const docId of await this.revisionDocuments(companyId, String(item.id))) out.add(docId);
+    return [...out];
+  }
+
+  private async revisionDocuments(companyId: string, itemId: string): Promise<string[]> {
+    try {
+      return await this.surreal.withCompany(companyId, async (db) => {
+        const rows = await queryRows<{ id: unknown }>(
+          db,
+          `SELECT id FROM source_document WHERE meta.sourceItemId = $itemId LIMIT 200 TIMEOUT 5s`,
+          { itemId },
+        );
+        return rows.map((r) => String(r.id));
+      });
+    } catch (e) {
+      this.logger.warn(`documents of ${itemId} not listed: ${(e as Error).message}`);
+      return [];
+    }
   }
 
   private async bridgedDocuments(companyId: string, assetId: string): Promise<string[]> {
@@ -78,11 +146,34 @@ export class SourceGonePolicyService {
       for (;;) {
         const rows = await queryRows<{ id: unknown }>(
           db,
-          `SELECT id FROM knowledge_fact WHERE source.documentId = $docId AND status = 'active' AND validUntil IS NONE LIMIT 200`,
+          `SELECT id FROM knowledge_fact WHERE source.documentId = $docId AND status IN ['active', 'corroborating'] AND validUntil IS NONE LIMIT 200`,
           { docId },
         );
         if (rows.length === 0) break;
         await db.query(`UPDATE $ids SET validUntil = $at`, { ids: rows.map((r) => r.id), at });
+        total += rows.length;
+        if (rows.length < 200) break;
+      }
+      return total;
+    });
+  }
+
+  private async reopenDocumentFacts(
+    companyId: string,
+    documentId: string,
+    at: Date,
+  ): Promise<number> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      const docId = `source_document:${idTailOf(documentId)}`;
+      let total = 0;
+      for (;;) {
+        const rows = await queryRows<{ id: unknown }>(
+          db,
+          `SELECT id FROM knowledge_fact WHERE source.documentId = $docId AND status IN ['active', 'corroborating'] AND validUntil = $at LIMIT 200`,
+          { docId, at },
+        );
+        if (rows.length === 0) break;
+        await db.query(`UPDATE $ids SET validUntil = NONE`, { ids: rows.map((r) => r.id) });
         total += rows.length;
         if (rows.length < 200) break;
       }

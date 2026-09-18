@@ -8,7 +8,9 @@ import type {
   FetchedItem,
   ItemDescriptor,
 } from './connector';
+import type { SourceConnectionRow } from './source-connection.service';
 import { SourceDoorsService } from './source-doors.service';
+import { SourceGonePolicyService } from './source-gone-policy.service';
 import { SourceItemService, type SourceItemRow } from './source-item.service';
 
 export interface ItemEffectOutcome {
@@ -27,9 +29,11 @@ export interface ItemEffectOutcome {
 export class SourceItemIngestService {
   private readonly logger = new Logger(SourceItemIngestService.name);
 
+  // eslint-disable-next-line max-params
   constructor(
     private readonly doors: SourceDoorsService,
     private readonly catalogue: SourceItemService,
+    private readonly gonePolicy: SourceGonePolicyService,
     @Optional() private readonly drift?: SourceDriftStalenessService,
   ) {}
 
@@ -87,6 +91,16 @@ export class SourceItemIngestService {
         // flag-gated, and never fatal to the sync.
         await this.drift?.sweep({ companyId, packId: connection.packId, current: stamp });
       }
+      // Back from gone with byte-identical content: the document deduplicated,
+      // so nothing new was extracted — the facts the delete policy closed reopen.
+      if (out.deduplicated && row.resurrectedAt) {
+        await this.gonePolicy.reopen(companyId, policyOf(connection), {
+          id: row.id,
+          documentId: out.documentId,
+          assetId: out.assetId,
+          goneAt: row.resurrectedAt,
+        });
+      }
       return { status: out.deduplicated ? 'deduplicated' : 'ingested' };
     } catch (err) {
       return this.failed({ companyId, connectionId: connection.id, row }, err);
@@ -104,6 +118,14 @@ export class SourceItemIngestService {
     await this.catalogue.markFailed(p.companyId, String(p.row.id), message).catch(() => undefined);
     return { status: 'failed', error: message };
   }
+}
+
+/** The policy read off the connector view — the row it came from is not in hand here. */
+function policyOf(connection: ConnectorConnectionView): SourceConnectionRow {
+  return {
+    id: connection.id,
+    deletePolicy: connection.deletePolicy ?? 'close',
+  } as SourceConnectionRow;
 }
 
 function descriptorOf(row: SourceItemRow): ItemDescriptor {

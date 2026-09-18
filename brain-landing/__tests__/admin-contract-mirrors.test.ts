@@ -405,6 +405,7 @@ describe('admin-source-connections mirrors', () => {
     lastSyncAt: '2026-09-16T10:00:00.000Z',
     lastSyncStatus: 'succeeded',
     lastError: null,
+    webhook: { enabled: false, lastEventAt: null },
     createdAt: '2026-09-16T09:00:00.000Z',
     updatedAt: null,
   }
@@ -513,6 +514,7 @@ describe('admin-source-connections mirrors', () => {
           mcp: null,
           oauth: null,
           records: null,
+          webhook: null,
         },
         {
           packId: 'code_memory',
@@ -537,6 +539,7 @@ describe('admin-source-connections mirrors', () => {
           mcp: null,
           oauth: null,
           records: null,
+          webhook: null,
         },
         {
           packId: 'web_memory',
@@ -567,6 +570,7 @@ describe('admin-source-connections mirrors', () => {
           },
           oauth: null,
           records: null,
+          webhook: null,
         },
       ],
       connectors: [
@@ -575,6 +579,7 @@ describe('admin-source-connections mirrors', () => {
       ],
       fsRoots: [],
       egressAllowPrivate: false,
+      webhooks: false,
     }
     expect(SourceCatalogResponseSchema.safeParse(fixture).success).toBe(true)
   })

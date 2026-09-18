@@ -979,7 +979,9 @@
           "webhookUrl": "Inbound webhook URL",
           "webhookUrlHint": "https://<portal>.bitrix24.ru/rest/<user>/<code>/ — made in Developer resources → Other → Inbound webhook, scope crm (+ user for owner names). The code is the secret: stored encrypted, never shown again.",
           "longLivedToken": "Long-lived token",
-          "longLivedTokenHint": "From the private integration in Settings → Integrations (valid for years). Stored encrypted, never shown again."
+          "longLivedTokenHint": "From the private integration in Settings → Integrations (valid for years). Stored encrypted, never shown again.",
+          "jwtBearer": "or a JWT bearer (integration user)",
+          "jwtBearerHint": "Paste a JSON { \"clientId\": \"<consumer key>\", \"username\": \"<integration user>\", \"privateKey\": \"-----BEGIN PRIVATE KEY-----…\", \"loginUrl\"?: \"https://test.salesforce.com\" } — the connected app must carry the certificate of that key and pre-authorize the user. No browser, no refresh token; stored encrypted, never shown again."
         },
         "errors": {
           "required": "required",
@@ -989,7 +991,8 @@
           "credential": "a credential is needed for this auth",
           "header": "name the header",
           "jail": "must be under one of: {roots}",
-          "account": "connect an account first"
+          "account": "connect an account first",
+          "jwtBearer": "a JSON with clientId, username and a PEM privateKey"
         },
         "fields": {
           "fs": {
@@ -1295,6 +1298,24 @@
               "label": "Allow private hosts",
               "hint": "A backend on the LAN — the deployment already opted in."
             }
+          },
+          "salesforce": {
+            "instanceUrl": {
+              "label": "Org (My Domain) URL",
+              "hint": "https://<org>.my.salesforce.com — empty = the org the connected account or the JWT exchange named."
+            },
+            "loginUrl": {
+              "label": "Login host",
+              "hint": "JWT bearer only: https://login.salesforce.com (default) or https://test.salesforce.com for a sandbox."
+            },
+            "apiVersion": {
+              "label": "API version",
+              "hint": "REST API version, e.g. v62.0 (default)."
+            },
+            "bulk": {
+              "label": "Bulk API 2.0 for the first walk",
+              "hint": "For a large org: the full walk runs as one query job per object (CSV pages); incremental runs stay on the query endpoint."
+            }
           }
         },
         "authOptions": {
@@ -1553,7 +1574,8 @@
         "configured": "app registered",
         "notConfigured": "not configured — set {flag}",
         "redirect": "redirect URI",
-        "notReady": "Connected accounts are off (SOURCE_OAUTH_CLIENT) or the brain has no SOURCE_CREDENTIAL_ENCRYPTION_KEY."
+        "notReady": "Connected accounts are off (SOURCE_OAUTH_CLIENT) or the brain has no SOURCE_CREDENTIAL_ENCRYPTION_KEY.",
+        "org": "org {url}"
       },
       "records": {
         "entities": "What to sync",
@@ -1602,6 +1624,36 @@
         "updatedOf": "updated",
         "editEndpoint": "edit the endpoint as JSON",
         "endpointInvalid": "Not valid JSON."
+      },
+      "webhook": {
+        "title": "Inbound webhook",
+        "hint": "The vendor calls the brain on change and the changed record is fetched at once — freshness in seconds instead of the schedule. Nothing in the call enters memory: it only names the record.",
+        "on": "on",
+        "off": "off",
+        "lastEvent": "last call {at}",
+        "noEvent": "no call received yet",
+        "enable": "Switch on",
+        "rotate": "Rotate the secret",
+        "disable": "Switch off",
+        "disablePrompt": "Switch the webhook off? The vendor's calls will answer 404 until it is switched on again (a new address and secret).",
+        "secretLabel": "Vendor secret (optional)",
+        "secretHint": "Leave empty to generate one. Paste the vendor's own token where the vendor issues it: the Bitrix24 outbound webhook's application token, a HubSpot private app's client secret (empty = the deployment's HubSpot app).",
+        "working": "switching on…",
+        "url": "Address to register at the vendor",
+        "secret": "Secret",
+        "secretOnce": "Shown once — the brain keeps it encrypted. Copy it now.",
+        "copy": "Copy",
+        "copied": "Copied",
+        "notes": "How to register it",
+        "scheme": {
+          "hubspot": "HubSpot v3 signature",
+          "pipedrive": "HTTP Basic (password = secret)",
+          "bitrix24": "application token in the form",
+          "kommo": "token in the URL",
+          "signed": "HMAC of the body, bearer, or token in the URL"
+        },
+        "flagOff": "The webhook lane is off on this brain — set SOURCE_WEBHOOKS=1 (and SOURCE_CREDENTIAL_ENCRYPTION_KEY).",
+        "unsupported": "This connector has no webhook lane."
       }
     },
     "marketplace": {

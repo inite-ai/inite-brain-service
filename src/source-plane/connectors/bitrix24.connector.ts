@@ -9,6 +9,7 @@ import {
   type ListCursor,
   type ListPage,
 } from '../records/records-connector';
+import { bitrix24Webhook } from '../records/webhook-schemes';
 import { CloudHttpError, cloudHttp, type CloudHttp } from './cloud-http';
 import { isoOf, scalars } from './records-vendor';
 
@@ -105,6 +106,7 @@ export class Bitrix24Connector extends RecordsConnector {
   override readonly configExample = { entities: ['deal', 'person', 'organization'] };
   override readonly credentialHint =
     'an inbound webhook URL of the portal (https://<portal>/rest/<user>/<code>/), scope crm (+ user for owner names)';
+  override readonly webhook = bitrix24Webhook;
   readonly entities: EntitySpec[] = [
     {
       type: 'deal',

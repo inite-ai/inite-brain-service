@@ -105,16 +105,10 @@ export function toSourceRun(row: JobRunRow): SourceRun {
   const startedAt = toIso(row.startedAt) ?? new Date(0).toISOString();
   const finishedAt = toIso(row.finishedAt);
   const actor = row.triggeredByActor ?? null;
-  const modeOf = (): SourceRun['mode'] => {
-    if (result?.mode === 'full' || result?.mode === 'incremental') return result.mode;
-    if (progress && typeof progress['full'] === 'boolean')
-      return progress['full'] ? 'full' : 'incremental';
-    return null;
-  };
   return {
     runId: row.runId,
     status: row.status,
-    ranBy: actor && actor.startsWith('agent:') ? actor : 'server',
+    ranBy: actor && (actor.startsWith('agent:') || actor.startsWith('webhook:')) ? actor : 'server',
     triggeredBy: row.triggeredBy,
     startedAt,
     finishedAt,
@@ -124,11 +118,29 @@ export function toSourceRun(row: JobRunRow): SourceRun {
         : finishedAt
           ? Math.max(0, new Date(finishedAt).getTime() - new Date(startedAt).getTime())
           : null,
-    mode: modeOf(),
+    mode: modeOf({ actor, result, progress }),
     counters: counters ? countersOf(counters) : null,
     skipped: typeof result?.skipped === 'string' ? result.skipped : null,
     error: row.error?.message ?? (typeof result?.error === 'string' ? result.error : null),
   };
+}
+
+/** A webhook batch (the actor, the result's `ranBy`, or the inline receipt's progress says so), else the walk's mode. */
+function modeOf(p: {
+  actor: string | null;
+  result: Partial<SourceSyncSummary> | null;
+  progress: Record<string, unknown> | null;
+}): SourceRun['mode'] {
+  const { actor, result, progress } = p;
+  const webhook =
+    (actor?.startsWith('webhook:') ?? false) ||
+    (result as { ranBy?: unknown } | null)?.ranBy === 'webhook' ||
+    progress?.['webhook'] !== undefined;
+  if (webhook) return 'webhook';
+  if (result?.mode === 'full' || result?.mode === 'incremental') return result.mode;
+  if (progress && typeof progress['full'] === 'boolean')
+    return progress['full'] ? 'full' : 'incremental';
+  return null;
 }
 
 function countersOf(raw: Record<string, unknown>): SourceRun['counters'] {

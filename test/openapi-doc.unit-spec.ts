@@ -110,6 +110,9 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   ['/v1/source-connections/{id}/records', 'post'],
   ['/v1/admin/source-connections/preview', 'post'],
   ['/v1/admin/source-connections/assist', 'post'],
+  ['/v1/admin/source-connections/{id}/webhook', 'post'],
+  ['/v1/admin/source-connections/{id}/webhook', 'delete'],
+  ['/v1/source-connections/webhook/{address}', 'post'],
   ['/v1/source-connections/agents/{agentId}', 'put'],
   ['/v1/source-connections', 'get'],
   ['/v1/source-connections/{id}/agent-runs', 'post'],
@@ -203,6 +206,7 @@ describe('docs/openapi.json', () => {
     const unauthenticated = new Set([
       'get /v1/evidence/redeem/{token}',
       'get /v1/source-connections/oauth/callback',
+      'post /v1/source-connections/webhook/{address}',
     ]);
     for (const [path, method] of PLATFORM_OPERATIONS) {
       if (unauthenticated.has(`${method} ${path}`)) continue;

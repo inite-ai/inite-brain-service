@@ -61,6 +61,12 @@ export const SourceConnectionSchema = z.object({
   lastSyncAt: z.string().nullable(),
   lastSyncStatus: z.string().nullable(),
   lastError: z.string().nullable(),
+  /**
+   * The inbound webhook (W4.2c): `enabled` = a secret is set and the
+   * vendor may call `POST /v1/source-connections/webhook/<address>`;
+   * the secret itself is shown once, at setup, never here.
+   */
+  webhook: z.object({ enabled: z.boolean(), lastEventAt: z.string().nullable() }),
   createdAt: z.string(),
   updatedAt: z.string().nullable(),
 });
@@ -172,6 +178,62 @@ export const SyncNowResponseSchema = z.union([
 ]);
 export type SyncNowResponse = z.infer<typeof SyncNowResponseSchema>;
 
+// ── Inbound webhooks (W4.2c) ────────────────────────────────────────────
+// A vendor that can call a URL on change (HubSpot, Pipedrive, Bitrix24,
+// Kommo, a custom backend) is pointed at the connection's webhook
+// address; the event names the entity + id and the engine fetches THAT
+// record through the same door a sync uses — the webhook never carries
+// data into memory. The address encodes the tenant and the connection
+// under an HMAC; the secret authenticates the vendor (or the vendor's
+// own signature does).
+
+export const WEBHOOK_SECRET_MIN = 16;
+export const WEBHOOK_SECRET_MAX = 256;
+
+/** POST /v1/admin/source-connections/:id/webhook — switch the webhook on (a secret is generated unless given). */
+export const WebhookSetupRequestSchema = z.object({
+  /** The vendor's own token when the vendor issues it (Bitrix24 application token, a HubSpot app's client secret); absent = generated. */
+  secret: z.string().min(WEBHOOK_SECRET_MIN).max(WEBHOOK_SECRET_MAX).optional(),
+});
+export type WebhookSetupRequest = z.infer<typeof WebhookSetupRequestSchema>;
+
+export const WebhookSetupResponseSchema = z.object({
+  /** What to register at the vendor. Kommo / signed: the secret rides in it as `?token=`. */
+  url: z.string(),
+  /** Shown ONCE — the brain keeps it encrypted. */
+  secret: z.string(),
+  scheme: z.string(),
+  /** How to register it at this vendor, one line each. */
+  notes: z.array(z.string()),
+});
+export type WebhookSetupResponse = z.infer<typeof WebhookSetupResponseSchema>;
+
+/** What one webhook call did (inline) or will do (queued). */
+export const WebhookApplySummarySchema = z.object({
+  connectionId: z.string(),
+  received: z.number().int(),
+  fetched: z.number().int(),
+  ingested: z.number().int(),
+  deduplicated: z.number().int(),
+  gone: z.number().int(),
+  closed: z.number().int(),
+  failed: z.number().int(),
+  errors: z.array(z.object({ externalId: z.string(), error: z.string() })),
+});
+export type WebhookApplySummary = z.infer<typeof WebhookApplySummarySchema>;
+
+/** POST /v1/source-connections/webhook/:address — the vendor's receipt. */
+export const WebhookReceiptSchema = z.object({
+  /** Events that named an entity this connection syncs. */
+  accepted: z.number().int(),
+  /** Events for other entities / unparseable ones — acknowledged, not fetched. */
+  ignored: z.number().int(),
+  /** Queued: the job that will fetch them; inline (no queue): null and `summary` set. */
+  runId: z.string().nullable(),
+  summary: WebhookApplySummarySchema.optional(),
+});
+export type WebhookReceipt = z.infer<typeof WebhookReceiptSchema>;
+
 /**
  * Why a catalogue entry can or cannot be connected right now:
  *   ready    — the connector is installed and switched on;
@@ -264,6 +326,13 @@ export const SourceCatalogEntrySchema = z.object({
       predicates: z.array(z.object({ localId: z.string(), label: z.string() })),
     })
     .nullable(),
+  /**
+   * The connector takes an inbound webhook (W4.2c): how the vendor
+   * signs its calls — its own signature (`hubspot`), HTTP Basic
+   * (`pipedrive`), an application token in the body (`bitrix24`), or
+   * the brain's own secret in the URL / a header (`kommo`, `signed`).
+   */
+  webhook: z.object({ scheme: z.string() }).nullable(),
 });
 export type SourceCatalogEntry = z.infer<typeof SourceCatalogEntrySchema>;
 
@@ -286,6 +355,8 @@ export const SourceCatalogResponseSchema = z.object({
   connectors: z.array(SourceConnectorStateSchema),
   fsRoots: z.array(z.string()),
   egressAllowPrivate: z.boolean(),
+  /** SOURCE_WEBHOOKS is on: connections of a vendor with a lane can be given an address (W4.2c). */
+  webhooks: z.boolean(),
 });
 export type SourceCatalogResponse = z.infer<typeof SourceCatalogResponseSchema>;
 
@@ -703,13 +774,14 @@ export type SourceRunCounters = z.infer<typeof SourceRunCountersSchema>;
 export const SourceRunSchema = z.object({
   runId: z.string(),
   status: z.enum(['running', 'succeeded', 'failed', 'cancelled', 'pending']),
-  /** 'server' (queue or inline) or 'agent:<id>'. */
+  /** 'server' (queue or inline), 'agent:<id>', or 'webhook:<scheme>' (a vendor's call fetched by name). */
   ranBy: z.string(),
   triggeredBy: z.enum(['cron', 'manual', 'startup']),
   startedAt: z.string(),
   finishedAt: z.string().nullable(),
   durationMs: z.number().int().nullable(),
-  mode: z.enum(['full', 'incremental']).nullable(),
+  /** `webhook` = a fetch-one batch, not a walk. */
+  mode: z.enum(['full', 'incremental', 'webhook']).nullable(),
   /** Final counters (from the result) or the live ones (from progress) — null before the first delta. */
   counters: SourceRunCountersSchema.nullable(),
   skipped: z.string().nullable(),
@@ -848,6 +920,7 @@ export const SourceOAuthProviderIdSchema = z.enum([
   'dropbox',
   'pipedrive',
   'hubspot',
+  'salesforce',
 ]);
 export type SourceOAuthProviderId = z.infer<typeof SourceOAuthProviderIdSchema>;
 
@@ -886,6 +959,8 @@ export const SourceOAuthGrantSchema = z.object({
   refreshable: z.boolean(),
   lastRefreshAt: z.string().nullable(),
   lastError: z.string().nullable(),
+  /** The account's own API origin when the provider names one at the token endpoint (Salesforce `instance_url`, Pipedrive `api_domain`); a connector runs against it. */
+  apiBase: z.string().nullable(),
   createdAt: z.string(),
 });
 export type SourceOAuthGrant = z.infer<typeof SourceOAuthGrantSchema>;

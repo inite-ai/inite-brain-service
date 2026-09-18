@@ -520,11 +520,13 @@ describe('rest_records connector', () => {
     });
   });
 
-  it('get reads one record by id (unwrapped by the id field); missing is null; no get path is null', async () => {
+  it('get reads one record by id (unwrapped by the id field); missing is null; no get path is a named configuration error, not "gone"', async () => {
     const ctx = ctxOf({ endpoints });
     expect(await c.get(ctx, 'deal', '42')).toMatchObject({ name: 'Cold chain' });
     expect(await c.get(ctx, 'deal', '999')).toBeNull();
-    expect(await c.get(ctx, 'person', '12')).toBeNull();
+    await expect(c.get(ctx, 'person', '12')).rejects.toThrow(
+      /no get endpoint configured for "person"/,
+    );
   });
 
   it('every auth scheme rides as configured and the credential never appears in an error; the origin is fenced', async () => {

@@ -43,6 +43,10 @@ export interface TokenSet {
   expiresAt?: string | undefined;
   tokenType: string;
   scope?: string | undefined;
+  /** The account's own API origin the provider named (`spec.apiBaseKey`) — not a secret, kept with the set. */
+  apiBase?: string | undefined;
+  /** The identity URL the token response named (`id`, Salesforce). */
+  identityUrl?: string | undefined;
 }
 
 interface StateRow {
@@ -214,7 +218,7 @@ export class SourceOAuthService {
     } catch (e) {
       throw new OAuthCallbackError(`token exchange failed: ${(e as Error).message}`, origin);
     }
-    const account = await this.identity(provider, tokens.accessToken);
+    const account = await this.identity(provider, tokens);
     const grantId = await this.surreal.withCompany(companyId, async (db) => {
       const [created] = await queryRows<{ id: unknown }>(
         db,
@@ -320,8 +324,16 @@ export class SourceOAuthService {
       await this.markBroken(companyId, row, `refresh failed: ${message}`);
       throw new Error(`connected account ${grantId}: refresh failed (${message}) — reconnect it`);
     }
-    // A provider that does not rotate refresh tokens omits it: keep ours.
-    const merged: TokenSet = { ...fresh, refreshToken: fresh.refreshToken ?? tokens.refreshToken };
+    // A provider that does not rotate refresh tokens omits it: keep ours;
+    // the same for the account's API origin and identity URL.
+    const merged: TokenSet = {
+      ...fresh,
+      refreshToken: fresh.refreshToken ?? tokens.refreshToken,
+      ...((fresh.apiBase ?? tokens.apiBase) ? { apiBase: fresh.apiBase ?? tokens.apiBase } : {}),
+      ...((fresh.identityUrl ?? tokens.identityUrl)
+        ? { identityUrl: fresh.identityUrl ?? tokens.identityUrl }
+        : {}),
+    };
     await this.surreal.withCompany(companyId, (db) =>
       db.query(
         `UPDATE $id SET tokens = $tokens, lastRefreshAt = $now, updatedAt = $now, lastError = NONE`,
@@ -414,13 +426,16 @@ export class SourceOAuthService {
         : {}),
       tokenType: typeof json.token_type === 'string' ? json.token_type : 'Bearer',
       ...(typeof json.scope === 'string' ? { scope: json.scope } : {}),
+      ...apiBaseOf(provider, json),
+      ...identityUrlOf(provider, json),
     };
   }
 
   /** The account label — never fatal: a grant without a name is still a grant. */
-  private async identity(provider: ResolvedProvider, accessToken: string): Promise<string | null> {
+  private async identity(provider: ResolvedProvider, tokens: TokenSet): Promise<string | null> {
+    const accessToken = tokens.accessToken;
     try {
-      const res = await safeFetch(identityUrl(provider, accessToken), {
+      const res = await safeFetch(identityUrl(provider, accessToken, tokens.identityUrl), {
         method: provider.identity.method,
         headers: {
           authorization: `Bearer ${accessToken}`,
@@ -549,6 +564,34 @@ function toGrant(r: GrantRow, tokens: TokenSet | null): SourceOAuthGrant {
     refreshable: typeof tokens?.refreshToken === 'string',
     lastRefreshAt: iso(r.lastRefreshAt),
     lastError: r.lastError ?? null,
+    apiBase: tokens?.apiBase ?? null,
     createdAt: iso(r.createdAt) ?? new Date(0).toISOString(),
   };
+}
+
+/** The identity URL the token response named (`id`) — https only, unless the dev override is in force (it reroutes the host anyway). */
+function identityUrlOf(
+  provider: ResolvedProvider,
+  json: Record<string, unknown>,
+): { identityUrl?: string } {
+  if (typeof json.id !== 'string') return {};
+  const ok = provider.private ? /^https?:\/\//i.test(json.id) : /^https:\/\//i.test(json.id);
+  return ok ? { identityUrl: json.id } : {};
+}
+
+/** The account's API origin the token response named — an https origin only, never a path a provider could smuggle. */
+function apiBaseOf(
+  provider: ResolvedProvider,
+  json: Record<string, unknown>,
+): { apiBase?: string } {
+  if (!provider.apiBaseKey) return {};
+  const raw = json[provider.apiBaseKey];
+  if (typeof raw !== 'string') return {};
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'https:' && !provider.private) return {};
+    return { apiBase: u.origin };
+  } catch {
+    return {};
+  }
 }

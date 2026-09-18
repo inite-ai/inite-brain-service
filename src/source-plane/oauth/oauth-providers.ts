@@ -22,7 +22,8 @@
  * access token lives.
  */
 
-export type OAuthProviderId = 'google' | 'microsoft' | 'dropbox' | 'pipedrive' | 'hubspot';
+export type OAuthProviderId =
+  'google' | 'microsoft' | 'dropbox' | 'pipedrive' | 'hubspot' | 'salesforce';
 
 export const OAUTH_PROVIDER_IDS: readonly OAuthProviderId[] = [
   'google',
@@ -30,6 +31,7 @@ export const OAUTH_PROVIDER_IDS: readonly OAuthProviderId[] = [
   'dropbox',
   'pipedrive',
   'hubspot',
+  'salesforce',
 ];
 
 export interface OAuthProviderSpec {
@@ -50,11 +52,28 @@ export interface OAuthProviderSpec {
   /**
    * How the account label is read once a token is in hand (`pick`
    * entries may be dotted paths). A `{token}` in the URL is the access
-   * token itself (HubSpot describes a token at `/access-tokens/{token}`).
+   * token itself (HubSpot describes a token at `/access-tokens/{token}`);
+   * `fromTokenId` prefers the identity URL the token response itself
+   * names (`id`, Salesforce) — the right host for a sandbox or a My
+   * Domain — over `url`.
    */
-  identity: { method: 'GET' | 'POST'; url: string; pick: string[] };
+  identity: { method: 'GET' | 'POST'; url: string; pick: string[]; fromTokenId?: boolean };
   /** Best-effort revocation on disconnect; absent = the user revokes at the provider. */
   revoke?: { url: string; style: 'token_param' | 'bearer' } | undefined;
+  /**
+   * The token response names the account's own API origin under this
+   * key (Salesforce `instance_url`, Pipedrive `api_domain`); the grant
+   * keeps it and connectors run against it.
+   */
+  apiBaseKey?: string | undefined;
+  /**
+   * The provider's login host is the operator's choice (Salesforce:
+   * `login.salesforce.com`, `test.salesforce.com` for a sandbox, or a
+   * My Domain) — SOURCE_OAUTH_<P>_LOGIN_URL swaps the origin of the
+   * authorize / token / identity URLs, public hosts only (unlike the
+   * dev override, no private opt-in is involved).
+   */
+  loginUrlEnv?: string | undefined;
 }
 
 const SPECS: Record<OAuthProviderId, OAuthProviderSpec> = {
@@ -119,6 +138,7 @@ const SPECS: Record<OAuthProviderId, OAuthProviderSpec> = {
       url: 'https://api.pipedrive.com/v1/users/me',
       pick: ['data.email', 'data.name'],
     },
+    apiBaseKey: 'api_domain',
   },
   hubspot: {
     id: 'hubspot',
@@ -137,6 +157,30 @@ const SPECS: Record<OAuthProviderId, OAuthProviderSpec> = {
       url: 'https://api.hubapi.com/oauth/v1/access-tokens/{token}',
       pick: ['user', 'hub_domain'],
     },
+  },
+  salesforce: {
+    id: 'salesforce',
+    title: 'Salesforce',
+    authorizeUrl: 'https://login.salesforce.com/services/oauth2/authorize',
+    tokenUrl: 'https://login.salesforce.com/services/oauth2/token',
+    // Web server flow with PKCE; `refresh_token` (= offline_access) is
+    // asked as a base scope, `api` by the connector. The token response
+    // names the org (`instance_url`) — every API call goes there, never
+    // to the login host — and the identity URL (`id`) on the right host
+    // for a production org, a sandbox or a My Domain.
+    authorizeParams: {},
+    baseScopes: ['openid', 'refresh_token'],
+    apiBase: 'https://login.salesforce.com',
+    identity: {
+      method: 'GET',
+      url: 'https://login.salesforce.com/services/oauth2/userinfo',
+      // userinfo answers `preferred_username`; the token's own identity URL answers `username`.
+      pick: ['preferred_username', 'username', 'email', 'user_id'],
+      fromTokenId: true,
+    },
+    revoke: { url: 'https://login.salesforce.com/services/oauth2/revoke', style: 'token_param' },
+    apiBaseKey: 'instance_url',
+    loginUrlEnv: 'SOURCE_OAUTH_SALESFORCE_LOGIN_URL',
   },
 };
 
@@ -186,6 +230,11 @@ const ENV_NAMES: Record<
     clientSecret: 'SOURCE_OAUTH_HUBSPOT_CLIENT_SECRET',
     baseUrl: 'SOURCE_OAUTH_HUBSPOT_BASE_URL',
   },
+  salesforce: {
+    clientId: 'SOURCE_OAUTH_SALESFORCE_CLIENT_ID',
+    clientSecret: 'SOURCE_OAUTH_SALESFORCE_CLIENT_SECRET',
+    baseUrl: 'SOURCE_OAUTH_SALESFORCE_BASE_URL',
+  },
 };
 
 /** The env name of a provider's client id — what an operator must set. */
@@ -211,7 +260,7 @@ export function providerEndpoints(
   id: OAuthProviderId,
   env: NodeJS.ProcessEnv = process.env,
 ): OAuthProviderSpec & { private: boolean } {
-  const spec = SPECS[id];
+  const spec = withLoginHost(SPECS[id], env);
   const override = env[ENV_NAMES[id].baseUrl]?.trim();
   if (!override) return { ...spec, private: false };
   const origin = override.replace(/\/$/, '');
@@ -228,6 +277,28 @@ export function providerEndpoints(
   };
 }
 
+/** The operator's login host (public https only) on the authorize / token / identity / revoke URLs. */
+function withLoginHost(spec: OAuthProviderSpec, env: NodeJS.ProcessEnv): OAuthProviderSpec {
+  const raw = spec.loginUrlEnv ? env[spec.loginUrlEnv]?.trim() : undefined;
+  if (!raw) return spec;
+  let origin: string;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'https:') return spec;
+    origin = u.origin;
+  } catch {
+    return spec;
+  }
+  const re = (u: string) => `${origin}${new URL(u).pathname}`;
+  return {
+    ...spec,
+    authorizeUrl: re(spec.authorizeUrl),
+    tokenUrl: re(spec.tokenUrl),
+    identity: { ...spec.identity, url: re(spec.identity.url) },
+    revoke: spec.revoke ? { ...spec.revoke, url: re(spec.revoke.url) } : undefined,
+  };
+}
+
 /** The provider with the operator's app applied, or null when none is registered for it. */
 export function resolveProvider(
   id: OAuthProviderId,
@@ -239,8 +310,23 @@ export function resolveProvider(
   return { ...providerEndpoints(id, env), clientId, clientSecret };
 }
 
-/** The identity URL for one token: the `{token}` placeholder (also as the URL parser percent-encodes it), when the provider has one, filled in. */
-export function identityUrl(spec: OAuthProviderSpec, accessToken: string): string {
+/**
+ * The identity URL for one token: the `{token}` placeholder (also as the
+ * URL parser percent-encodes it), when the provider has one, filled in;
+ * the token response's own identity URL when the provider prefers it
+ * (`fromTokenId`) and it is an https URL — rerouted to the dev
+ * override's origin when one is in force (`private`), so a fake
+ * provider on loopback still answers it.
+ */
+export function identityUrl(
+  spec: OAuthProviderSpec & { private?: boolean },
+  accessToken: string,
+  tokenIdUrl?: string | undefined,
+): string {
+  if (spec.identity.fromTokenId && tokenIdUrl && /^https?:\/\//i.test(tokenIdUrl)) {
+    if (spec.private) return `${new URL(spec.identity.url).origin}${new URL(tokenIdUrl).pathname}`;
+    if (/^https:\/\//i.test(tokenIdUrl)) return tokenIdUrl;
+  }
   return spec.identity.url.replace(/\{token\}|%7Btoken%7D/i, encodeURIComponent(accessToken));
 }
 
