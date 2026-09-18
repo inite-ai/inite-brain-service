@@ -226,22 +226,53 @@ RecordEnvelope ──▶ structureDoor
   a connection of kind `external` + this endpoint — no polling, no
   credential on the brain.
 
-### 4.2 `rest_records` — the one runtime
+### 4.2 One direction, per-vendor connectors — the records contract
 
-Platform code on the `cloud-http.ts` mold (bearer / basic / header /
+Owner's call (2026-09-17): **every CRM gets its own connector; what is
+unified is the direction.** So the shared part is not a generic REST
+runtime but a **records contract** every CRM connector implements, and
+one engine-side runtime that turns it into the connector verbs:
+
+```ts
+interface RecordsSource {                       // what a vendor connector implements
+  readonly kind: string;                        // 'pipedrive' | 'hubspot' | 'bitrix24' | 'kommo' | …
+  readonly oauth?: { provider; scopes };        // or a plain credential (API token, webhook URL)
+  entities(ctx): EntitySpec[];                  // { type: 'deal', label, defaultOn, fields: [...] } — what it can list
+  list(ctx, entity, cursor: { since?: string; page?: unknown }): Promise<{ records: RecordEnvelope[]; next?: unknown }>;
+  get?(ctx, entity, externalId): Promise<RecordEnvelope | null>;   // webhooks fetch-one
+  lookups?(ctx): Promise<Record<string, Record<string, string>>>;  // stage id → label, owner id → name
+  verifyWebhook?(headers, body): boolean;       // the vendor's signature
+}
+```
+
+`records-runtime.ts` (platform, once) does the rest: per-entity
+checkpoints with an overlap window and id-dedup, `externalId =
+<entity>/<id>`, `revision = updatedAt | vendor version`, lookups
+resolved into the envelope, the gone sweep on a full walk, the same
+`structure` door for every vendor. A vendor connector is therefore
+~150 lines: auth, `list` with its own paging and `updated_since`
+spelling, `get`, lookups, its **preset mapping** (§ 4.1) and its
+webhook signature. The generic OpenAPI-configured connector of § 4.3
+is then just one more `RecordsSource` whose `list` is driven by the
+mapping — for the long tail, not the spine.
+
+What is unified, concretely: (1) the envelope and the door (facts,
+stamps, lifecycle, relations — § 4.1); (2) the `RecordsSource` contract
+and the runtime (paging, overlap, dedup, gone); (3) one `crm_memory`
+vocabulary + canonical funnel states that every vendor's stages map
+onto; (4) one UI flow (vendor → account → entities → field mapping →
+preview → sync); (5) one sync-correctness matrix run against a fake
+vendor and a real sandbox per connector.
+
+### 4.2.1 Vendor presets
+
+Every vendor connector rides `cloud-http.ts` (bearer / basic / header /
 connected-account credential; 429 / 5xx backoff; bounded bodies; every
 hop through the egress guard; private hosts by the double opt-in for a
-self-hosted CRM on the LAN). `enumerate` walks each mapped entity with
-the incremental filter from the checkpoint (per entity, with the
-overlap window and id-dedup HubSpot's index needs), emits one item per
-record with `revision = updatedAt` (or the vendor's version field) and
-the lookups resolved; `fetch` returns the envelope. A full run re-lists
-without the filter and marks unseen records gone (`walksEverything`
-false — the vendor tells us about deletions only through webhooks or a
-full walk; `deletePolicy` decides what a gone record does).
-
-Vendor presets (data, `crm_memory` `sources[]`), first four by market
-fit — RU/LatAm SMB (Bitrix24, Kommo) and global SMB (HubSpot, Pipedrive):
+self-hosted CRM on the LAN). First four by market fit — RU/LatAm SMB
+(Bitrix24, Kommo) and global SMB (HubSpot, Pipedrive) — each a
+`crm_memory` `sources[]` entry naming its connector, with the preset
+field mapping as `configExample`:
 
 | Preset | Auth | List / incremental / paging | Notes |
 |---|---|---|---|
@@ -252,11 +283,8 @@ fit — RU/LatAm SMB (Bitrix24, Kommo) and global SMB (HubSpot, Pipedrive):
 | `salesforce` (W4.2c) | OAuth 2.0 web flow / JWT bearer | SOQL `SELECT … WHERE LastModifiedDate > :since` with `nextRecordsUrl`; Bulk API 2.0 for the first walk | field-level security applies as the user |
 | `custom` | any | filled by hand or from an OpenAPI document | § 4.3 |
 
-The presets are the vendor knowledge; the runtime never contains the
-word "HubSpot". A preset that needs more than the mapping expresses
-(HubSpot's window narrowing is the one already known — it is a runtime
-feature, not a mapping feature) is the signal to promote it to a
-native.
+The runtime never contains the word "HubSpot"; the window narrowing
+HubSpot's search cap needs lives in the HubSpot connector's `list`.
 
 ### 4.3 The OpenAPI-assisted mapping (the owner's question, answered)
 
@@ -351,7 +379,8 @@ facts read `deal_stage: Negotiation (v 2026-09-15T10:00Z)`.
 | Wave | Delivers | Flag | Proves |
 |---|---|---|---|
 | **W4.2a Records door** | attribute → predicate deterministic candidates in `structureDoor` (grounded in the render; PII gate; lifecycle → stateDelta; relations → edges; text fields → budgeted LLM); `crm_memory` pack (vocabulary, state models, verification rules, eval fixtures); `POST /v1/source-connections/:id/records` (push, batch, gone); drill-down shows the version on each fact | `SOURCE_RECORDS_DOOR` | a synthetic CRM pushed as envelopes answers the eval harness's questions with **zero LLM calls**; a stage change closes the old fact |
-| **W4.2b `rest_records` + presets + OpenAPI assistant** | the runtime (4 paging styles, incremental filter, lookups, overlap + dedup, window narrowing); presets Pipedrive / HubSpot / Bitrix24 / Kommo as `crm_memory` entries; the OpenAPI/JSON-sample assistant with live preview; the CRM card + mapping table | `SOURCE_KIND_REST_RECORDS`, `SOURCE_MAPPING_ASSISTANT` | sync-correctness matrix against a fake vendor (`test/fixtures/fake-cloud.ts` grows a CRM) and one real sandbox per preset |
+| **W4.2a′ `RecordsSource` contract + records runtime + first connector** | the contract, the runtime (per-entity checkpoints, overlap + dedup, lookups, gone on a full walk), `pipedrive` as the first vendor (OAuth or API token; deals / persons / organizations), the CRM card with entities + field mapping + preview | `SOURCE_KIND_PIPEDRIVE` | the sync-correctness matrix against a fake Pipedrive; one real sandbox |
+| **W4.2b more vendors + OpenAPI assistant** | `bitrix24`, `kommo`, `hubspot` connectors on the contract; the OpenAPI/JSON-sample-driven `RecordsSource` for the long tail with the assistant + live preview | per kind, `SOURCE_MAPPING_ASSISTANT` | one real sandbox per connector |
 | **W4.2c Freshness + Salesforce** | inbound webhooks per preset (signature verified, fetch-one); Salesforce preset (SOQL + Bulk 2.0) | per preset | change at source → fact queryable ≤ 60 s with a webhook |
 | **W4.3 MCP client OAuth** | RFC 9728 → DCR → PKCE; provider kind `mcp:<origin>`; "Sign in" on MCP sources; W7 linked lane over the official CRM servers' `search` | `SOURCE_MCP_OAUTH` | HubSpot's and Pipedrive's hosted servers connected from the UI; a retrieval hit deepened live |
 | **W4.4 `db` on the agent** | read-only Postgres / MySQL / SQLite views → envelopes, DSN never leaves the machine | agent config | a self-hosted CRM's DB read where it lives |
@@ -378,10 +407,10 @@ as resources — produce facts instead of prose.
 1. **Records door before any transport?** Recommend yes — W4.2a first;
    it is small, transport-free and turns the existing `structure` shape
    from prose into facts.
-2. **One `rest_records` runtime with vendor presets as data, or a native
-   per vendor?** Recommend the runtime + presets, with promotion to a
-   native as the escape hatch; the drives stay natives (they are files,
-   not records).
+2. **One generic runtime with vendor presets as data, or a connector
+   per vendor?** Owner's call: **a connector per vendor**, unified by the
+   `RecordsSource` contract + one records runtime (§ 4.2); the generic
+   OpenAPI-driven one is a `RecordsSource` for the long tail.
 3. **OpenAPI: assistant + live preview, or manual only?** Recommend the
    assistant (the tenant's default model, strict JSON, never trusted —
    the preview is the truth); manual stays available.
