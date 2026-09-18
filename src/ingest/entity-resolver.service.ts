@@ -15,7 +15,7 @@ export interface MergeLogEntry {
   targetEntity: string;
   verdict: EntityVerdict;
   cosine: number;
-  matchKind: 'exact' | 'externalRef' | 'translit' | 'embedding' | 'article-variant';
+  matchKind: 'exact' | 'externalRef' | 'translit' | 'embedding' | 'article-variant' | 'name-part';
   decision: 'reused' | 'candidate';
 }
 
@@ -55,7 +55,7 @@ interface NameCandidate {
   canonicalName?: string | undefined;
   /** Similarity on the scan's own scale — see findKeyNeighbour on why. */
   cosine: number;
-  matchKind: 'translit' | 'embedding';
+  matchKind: 'translit' | 'embedding' | 'name-part';
 }
 
 export interface ResolveByNameOptions {
@@ -199,7 +199,12 @@ export class EntityResolverService {
       // different from "Fyodor Volkov" with the same employer and role.
       const verdict = await this.judge.judge(existingFacts, incoming, {
         cosine: candidate.cosine,
-        similarity: candidate.matchKind === 'translit' ? 'transliteration' : 'embedding',
+        similarity:
+          candidate.matchKind === 'translit'
+            ? 'transliteration'
+            : candidate.matchKind === 'name-part'
+              ? 'name-part'
+              : 'embedding',
         names: { a: candidate.canonicalName, b: name },
       });
       // The whole question and the whole answer, on the trace: which
@@ -315,6 +320,17 @@ export class EntityResolverService {
     const neighbour = await this.findKeyNeighbour(db, name, type);
     if (neighbour) return neighbour;
 
+    // A NAME THAT IS A PART OF A LONGER NAME. "Артём" three turns after
+    // "Артём Соколов" is an edit distance of eight — far outside the
+    // ceiling — and by meaning a first name alone sits nowhere near the
+    // full one; on the prod tenant the first name became its own node
+    // beside the person, every time. A key that is a whole token of an
+    // existing key (or the reverse) names a candidate the judge can
+    // decide on with facts; two such entities name an ambiguity nobody
+    // here can decide, and that is a create, not a guess.
+    const part = await this.findTokenSubsetCandidate(db, name, type);
+    if (part) return part;
+
     // What the key cannot reach: a name rendered by SOUND in another
     // script sits far away by edits ("ivan petrov" vs "yfn bytrwf" is
     // 0.64) and close by meaning (bge-m3 cosine 0.739).
@@ -404,6 +420,68 @@ export class EntityResolverService {
       // path, and that has to be visible the first time it happens.
       this.logger.warn(
         `[ingest.inline_resolution] key-neighbour scan unavailable: ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * The one entity of `type` whose name key contains the incoming key as
+   * a whole token (or is contained by it): "artem" ⊂ "artem sokolov",
+   * "helio" ⊂ "helio robotics". Candidate generation only — the judge
+   * decides. Null when none or when MORE than one match: two people
+   * sharing a first name is exactly the case a string must not decide.
+   * Never throws (the key-neighbour posture).
+   */
+  private async findTokenSubsetCandidate(
+    db: Surreal,
+    name: string,
+    type: string,
+  ): Promise<NameCandidate | null> {
+    const key = nameKey(name);
+    if (key === '') return null;
+    const isPart = (a: string, b: string): boolean =>
+      a !== b && (a.startsWith(`${b} `) || a.endsWith(` ${b}`) || a.includes(` ${b} `));
+    try {
+      const [rows] = await db.query<
+        [Array<{ entityId: unknown; canonicalName?: string; nameKeys?: unknown }>]
+      >(
+        `SELECT id AS entityId, canonicalName, nameKeys
+           FROM knowledge_entity
+          WHERE type = $type
+            AND userId IS NONE
+            AND mergedInto IS NONE
+            AND nameKeys != NONE
+            AND array::len(nameKeys.filter(|$k| $k != $key AND (
+                  string::starts_with($k, $pre) OR string::ends_with($k, $suf)
+                  OR string::contains($k, $mid)
+                  OR string::starts_with($key, $k + ' ') OR string::ends_with($key, ' ' + $k)
+                ))) > 0
+          LIMIT 3`,
+        { key, type, pre: `${key} `, suf: ` ${key}`, mid: ` ${key} ` },
+      );
+      const hits = (rows ?? [])
+        .map((r) => ({
+          ...r,
+          matched: (Array.isArray(r.nameKeys) ? (r.nameKeys as string[]) : []).find(
+            (k) => isPart(k, key) || isPart(key, k),
+          ),
+        }))
+        .filter((r): r is typeof r & { matched: string } => typeof r.matched === 'string');
+      if (hits.length !== 1) return null;
+      const hit = hits[0]!;
+      const span = Math.max(key.length, hit.matched.length, 1);
+      return {
+        entityId: String(hit.entityId),
+        canonicalName: hit.canonicalName,
+        // The judge's hint on one scale with the key scan: the share of
+        // the longer key the shorter one covers.
+        cosine: Math.min(key.length, hit.matched.length) / span,
+        matchKind: 'name-part',
+      };
+    } catch (err) {
+      this.logger.warn(
+        `[ingest.inline_resolution] token-subset scan unavailable: ${(err as Error).message}`,
       );
       return null;
     }

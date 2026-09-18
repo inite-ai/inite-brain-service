@@ -32,7 +32,7 @@ export interface JudgeContext {
    * similarity. Named so the prompt does not call a string distance a
    * cosine.
    */
-  similarity?: 'embedding' | 'transliteration';
+  similarity?: 'embedding' | 'transliteration' | 'name-part';
   /** The two surface names, when the caller has them. */
   names?: { a?: string | undefined; b?: string | undefined };
 }
@@ -63,6 +63,21 @@ function similarityLine(ctx: JudgeContext): string {
       `person — a surname that differs by an ending is often a relative or the other ` +
       `gender — so when the names are NOT identical after transliteration, require at ` +
       `least one fact in common beyond the employer before answering "same".`
+    );
+  }
+  if (ctx.similarity === 'name-part') {
+    // One name is a whole part of the other — a first name against the
+    // full name, a short company name against its full one — and it is
+    // the ONLY entity in this memory whose name contains that part.
+    // People are referred to by first name once introduced; the question
+    // is whether the facts contradict, not whether they overlap.
+    return (
+      `\n\nOne of the names is a whole part of the other (${(ctx.cosine * 100).toFixed(0)}% ` +
+      `of the longer name), and no other known entity shares that part. A person is ` +
+      `commonly referred to by first name alone once introduced, and a company by its ` +
+      `short name, so answer "same" unless a fact CONTRADICTS it — a different employer, ` +
+      `role at the same time, date of birth or email is "different". Few or unrelated ` +
+      `facts are not a contradiction.`
     );
   }
   return `\n\nCosine name-similarity: ${ctx.cosine.toFixed(3)}.`;

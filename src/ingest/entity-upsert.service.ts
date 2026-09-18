@@ -385,9 +385,12 @@ export class EntityUpsertService {
     // match reuses the existing entity, so the duplicate is never created.
     // Falls through to create-new when disabled, no match, or any error.
     if (this.entityResolver?.isEnabled()) {
+      // The form the entity is known by, not the surface it was mentioned
+      // in: the key scans and the judge's name hint work on "Мария
+      // Петрова", never on "Марией Петровой".
       const judged = await this.entityResolver.resolveByName({
         db,
-        name: e.name,
+        name: e.canonical ?? e.name,
         type: this.normalizeEntityType(e.type),
         incomingFacts,
       });
