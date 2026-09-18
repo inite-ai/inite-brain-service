@@ -198,6 +198,7 @@ function makeHarness(opts: {
     episode: 'FROM episode ',
     fragment: 'FROM evidence_fragment',
     scene: 'FROM memory_episode',
+    edge: 'FROM knowledge_edge',
   };
   /** The 0112 consent row shape hasCurrentModalityConsent accepts. */
   const CONSENTED_PACK = {
@@ -1433,5 +1434,117 @@ describe('AnswerCacheService.admit — a dependency that moved during generation
     await h.svc.admit(c, result(), 'supported');
     expect(h.calls.some((call) => /UPSERT/.test(call.sql))).toBe(false);
     expect(h.outcomes).toEqual(['not_admitted']);
+  });
+});
+
+describe('AnswerCacheService — a relation citation is a dependency arm (0152)', () => {
+  const ctx: AnswerCacheStoreContext = {
+    key: 'c'.repeat(64),
+    companyId: 'co_test',
+    userId: 'alice',
+    callerScopes: ['brain:read'],
+    profileHash: 'ph',
+    model: 'gpt-4o-mini',
+    normalizedQuery: 'who covers for ana',
+    isEnumeration: false,
+  };
+  const edgeCite = {
+    factId: 'knowledge_edge:x1',
+    entityId: 'knowledge_entity:pedro',
+    canonicalName: 'Pedro Lima',
+    predicate: 'covers_for',
+    slot: 'edge:covers_for',
+    object: 'Ana Costa',
+  };
+  const factCite = {
+    factId: 'knowledge_fact:f1',
+    entityId: 'knowledge_entity:e1',
+    canonicalName: 'Ana Costa',
+    predicate: 'on_vacation',
+    slot: 'on_vacation',
+    object: '22–26 September',
+  };
+  const liveEdge = (over: Record<string, unknown> = {}) => ({
+    id: 'knowledge_edge:x1',
+    invalidatedAt: null,
+    userId: null,
+    kind: 'covers_for',
+    in: 'knowledge_entity:pedro',
+    fromName: 'Pedro Lima',
+    toName: 'Ana Costa',
+    ...over,
+  });
+  const answer = (citations: SynthesizeResult['citations']): SynthesizeResult => ({
+    answer: 'Pedro Lima covers for Ana Costa.',
+    citations,
+    results: [],
+  });
+
+  it('admits an answer citing a fact and a relation: the edge is stamped, the fact stays cited', async () => {
+    const h = makeHarness({ dependencyRows: { edge: [liveEdge()] } });
+    await h.svc.admit(ctx, answer([factCite, edgeCite]), 'supported');
+    const upsert = h.calls.find((call) => /UPSERT/.test(call.sql))!;
+    expect(upsert).toBeDefined();
+    expect(upsert.params.citedFactIds).toEqual(['knowledge_fact:f1']);
+    expect(upsert.params.dependencies).toEqual([
+      { kind: 'edge', id: 'knowledge_edge:x1', rev: '' },
+    ]);
+    expect(h.outcomes).toEqual(['stored']);
+  });
+
+  it('admits an answer resting on a relation alone', async () => {
+    const h = makeHarness({ dependencyRows: { edge: [liveEdge()] } });
+    await h.svc.admit(ctx, answer([edgeCite]), 'supported');
+    const upsert = h.calls.find((call) => /UPSERT/.test(call.sql))!;
+    expect(upsert.params.citedFactIds).toEqual([]);
+    expect(h.outcomes).toEqual(['stored']);
+  });
+
+  it('is not admitted when the edge is already invalidated, or fenced from the caller', async () => {
+    const closed = makeHarness({
+      dependencyRows: { edge: [liveEdge({ invalidatedAt: new Date() })] },
+    });
+    await closed.svc.admit(ctx, answer([edgeCite]), 'supported');
+    expect(closed.outcomes).toEqual(['not_admitted']);
+    const foreign = makeHarness({ dependencyRows: { edge: [liveEdge({ userId: 'bob' })] } });
+    await foreign.svc.admit(ctx, answer([edgeCite]), 'supported');
+    expect(foreign.outcomes).toEqual(['not_admitted']);
+  });
+
+  it('serves the hit with the relation citation rebuilt from its live row', async () => {
+    const h = makeHarness({
+      cacheRow: liveCacheRow({
+        answer: 'Pedro Lima covers for Ana Costa.',
+        dependencies: [{ kind: 'edge', id: 'knowledge_edge:x1', rev: '' }],
+      }),
+      factRows: [activeFact()],
+      entityRows: [{ id: 'knowledge_entity:e1', canonicalName: 'Acme' }],
+      dependencyRows: { edge: [liveEdge()] },
+    });
+    const out = await h.svc.begin(beginArgs());
+    expect(out?.hit?.cached).toBe(true);
+    expect(out?.hit?.citations.map((c) => c.factId)).toEqual([
+      'knowledge_fact:f1',
+      'knowledge_edge:x1',
+    ]);
+    expect(out?.hit?.citations[1]).toEqual(edgeCite);
+    expect(out?.hit?.evidenceCitations).toBeUndefined();
+    expect(h.outcomes).toEqual(['hit']);
+  });
+
+  it('a relation closed since admission invalidates the row (superseded)', async () => {
+    const h = makeHarness({
+      cacheRow: liveCacheRow({
+        dependencies: [{ kind: 'edge', id: 'knowledge_edge:x1', rev: '' }],
+      }),
+      factRows: [activeFact()],
+      entityRows: [{ id: 'knowledge_entity:e1', canonicalName: 'Acme' }],
+      dependencyRows: { edge: [liveEdge({ invalidatedAt: new Date() })] },
+    });
+    const out = await h.svc.begin(beginArgs());
+    expect(out?.hit).toBeUndefined();
+    expect(h.outcomes).toEqual(['rejected_stale']);
+    const inv = h.calls.find((c) => /invalidatedAt = time::now\(\)/.test(c.sql));
+    expect(String(inv?.params.cause)).toBe('superseded');
   });
 });

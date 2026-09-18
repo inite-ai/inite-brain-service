@@ -18,14 +18,20 @@ import { mergeCandidates } from '../src/documents/candidate-merge';
 import { EntityUpsertService } from '../src/ingest/entity-upsert.service';
 
 describe('FactResolverService — explicit supersession', () => {
-  function make(opts: { closeFails?: boolean; closed?: string[] } = {}) {
+  function make(opts: { closeFails?: boolean; closed?: string[]; closedEdges?: string[] } = {}) {
     const queries: Array<{ sql: string; params: Record<string, unknown> }> = [];
     const db = {
       query: jest.fn(async (sql: string, params: Record<string, unknown>) => {
         queries.push({ sql, params });
         if (sql.includes("status = 'superseded'")) {
           if (opts.closeFails) throw new Error('close failed');
-          return [null, null, null, (opts.closed ?? []).map((id) => ({ id }))];
+          return [
+            null,
+            null,
+            null,
+            (opts.closed ?? []).map((id) => ({ id })),
+            (opts.closedEdges ?? []).map((id) => ({ id })),
+          ];
         }
         return [{ factId: 'knowledge_fact:new', outcome: 'INSERTED' }];
       }),
@@ -69,6 +75,22 @@ describe('FactResolverService — explicit supersession', () => {
     );
     expect(result.outcome).toBe('SUPERSEDED');
     expect(result.supersededFactIds).toEqual(['knowledge_fact:old']);
+  });
+
+  it("a named relation is invalidated from the new value's day; an edge alone does not fold the outcome", async () => {
+    const { svc, db, queries } = make({ closedEdges: ['knowledge_edge:e9'] });
+    const { result } = await svc.resolve(
+      db as never,
+      input(['knowledge_edge:e9', 'knowledge_fact:old']),
+    );
+    const close = queries.find((q) => q.sql.includes("status = 'superseded'"))!;
+    expect((close.params.ids as unknown[]).map(String)).toEqual(['knowledge_fact:old']);
+    expect((close.params.edge_ids as unknown[]).map(String)).toEqual(['knowledge_edge:e9']);
+    expect(close.sql).toContain('UPDATE knowledge_edge SET');
+    expect(close.sql).toContain('IF $valid_from > createdAt THEN $valid_from ELSE createdAt END');
+    expect(close.sql).toContain('invalidatedAt IS NONE');
+    expect(result.outcome).toBe('INSERTED');
+    expect(result.supersededFactIds).toBeUndefined();
   });
 
   it('runs nothing without a list, or when the list holds only the winner', async () => {

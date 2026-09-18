@@ -3,6 +3,7 @@ import { StringRecordId, type Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { LocalNerService } from '../ai/local-ner.service';
 import {
+  MEMORY_EDGES_PER_ENTITY,
   MEMORY_FACTS_PER_ENTITY,
   MEMORY_PREDICATES,
   MEMORY_RECENT_TURNS,
@@ -75,8 +76,17 @@ export class MemoryContextService {
     @Optional() private readonly ner?: LocalNerService,
   ) {}
 
-  /** Remember what a turn of a conversation committed, for the next turn's context. */
+  /**
+   * Remember what a turn of a conversation committed, for the next turn's
+   * context. A commit also changes the tenant's vocabulary, so the cached
+   * predicate list goes with it: under a fixed TTL every turn of a
+   * tenant's first minute read the list its first turn had cached (one
+   * predicate, for eleven turns, on the 2026-09-18 stand) — the young
+   * tenant, whose vocabulary moves with every turn, is exactly the one
+   * that needs it fresh; a quiet tenant keeps the cache.
+   */
   remember(companyId: string, conversationId: string | undefined, entityIds: string[]): void {
+    this.predicateCache.delete(companyId);
     if (!conversationId || entityIds.length === 0) return;
     const key = `${companyId}|${conversationId}`;
     const prior = this.conversationEntities.get(key) ?? [];
@@ -111,7 +121,11 @@ export class MemoryContextService {
             this.predicates(db, p.companyId),
           ]);
           const facts = await this.knownFacts(db, entities, p.userId);
-          return { occurredAt, recentTurns, entities, facts, predicates };
+          const edges = await this.knownEdges(db, entities, {
+            userId: p.userId,
+            offset: facts.length,
+          });
+          return { occurredAt, recentTurns, entities, facts: [...facts, ...edges], predicates };
         });
         traceArtifact('extractor.memory_context', {
           recentTurns: ctx.recentTurns.length,
@@ -263,6 +277,73 @@ export class MemoryContextService {
         predicate: r.predicate,
         object: r.object,
         since: toIso(r.validFrom).slice(0, 10) || undefined,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * The known entities' live relations, after the facts under the same
+   * handle series — a relation the turn replaces ("moved to Hetzner"
+   * against `e2 — runs_on → Fly.io`) is closed through `supersedes`
+   * exactly like a fact; without this an edge outlived the value it
+   * mirrored and stood beside the new one on every read (found on the
+   * 2026-09-18 dogfood: `runs_on → Fly.io` next to `runs_on: Hetzner`).
+   * Peer names come off the entity rows; the user fence is the edge
+   * fence's (tenant-global + own).
+   */
+  private async knownEdges(
+    db: Surreal,
+    entities: MemoryEntity[],
+    opts: { userId: string | undefined; offset: number },
+  ): Promise<MemoryFact[]> {
+    const { userId, offset } = opts;
+    if (entities.length === 0) return [];
+    const ids = entities.map((e) => e.id);
+    const handleOf = new Map(entities.map((e) => [e.id, e.handle]));
+    const userGate = userId ? '(userId IS NONE OR userId = $u)' : 'userId IS NONE';
+    const [rows] = await db.query<
+      [
+        Array<{
+          id: unknown;
+          in: unknown;
+          out: unknown;
+          kind: string;
+          fromName: string | null;
+          toName: string | null;
+          createdAt: unknown;
+        }>,
+      ]
+    >(
+      `SELECT id, in, out, kind, in.canonicalName AS fromName, out.canonicalName AS toName, createdAt
+         FROM knowledge_edge
+        WHERE (in IN $ids OR out IN $ids) AND invalidatedAt IS NONE AND ${userGate}
+        ORDER BY createdAt DESC LIMIT $k`,
+      { ids: ids.map(recordRef), u: userId, k: MEMORY_EDGES_PER_ENTITY * ids.length },
+    );
+    const perEntity = new Map<string, number>();
+    const out: MemoryFact[] = [];
+    for (const r of rows ?? []) {
+      const from = String(r.in);
+      const to = String(r.out);
+      // The known side is the anchor; an edge between two known entities
+      // reads from its subject.
+      const [entityId, edge, peer] = handleOf.has(from)
+        ? [from, 'out' as const, r.toName]
+        : [to, 'in' as const, r.fromName];
+      const entityHandle = handleOf.get(entityId);
+      if (!entityHandle || !peer) continue;
+      const n = perEntity.get(entityId) ?? 0;
+      if (n >= MEMORY_EDGES_PER_ENTITY) continue;
+      perEntity.set(entityId, n + 1);
+      out.push({
+        handle: `m${offset + out.length + 1}`,
+        id: String(r.id),
+        entityHandle,
+        predicate: r.kind,
+        object: peer,
+        since: toIso(r.createdAt).slice(0, 10) || undefined,
+        edge,
       });
     }
     return out;

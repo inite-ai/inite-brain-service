@@ -17,8 +17,8 @@ of which cross-linked two projects and produced a false answer — and
 every deadline date lost because the date lane only resolved the past.
 
 Every memory system that works makes the decision that needs judgement
-— *is this the same attribute of the same thing, and does it replace
-what we hold?* — once, in the model that reads the sentence, with the
+— _is this the same attribute of the same thing, and does it replace
+what we hold?_ — once, in the model that reads the sentence, with the
 memory in front of it (Mem0's add/update over retrieved memories,
 Graphiti's extractor over the episode's existing nodes and edges). Brain
 does the same: the extractor reads the memory around the turn and
@@ -31,13 +31,14 @@ the context before every extraction, on both ingest paths (the document
 path a stock deployment routes mentions through, and the direct mention
 path):
 
-| Section | Source | Cap |
-|---|---|---|
-| `TURN DATE` | the turn's `occurredAt` | — |
-| `CONVERSATION SO FAR` | the conversation's earlier `episode` rows (index `conversationId, occurredAt`), oldest first, without the turn itself | 6 turns |
-| `KNOWN ENTITIES [e#]` | local-NER names of the turn, the earlier turns and the participants, each through the resolver's **read-only** lookup (exact / transliteration key / article / code alias — no embedding, no judge) | 10 |
-| `KNOWN FACTS [m#]` | active + competing facts of those entities, user-fenced | 12 per entity |
-| `KNOWN PREDICATES` | the tenant's predicates by usage (`GROUP BY predicate`), cached a minute per tenant | 40 |
+| Section                       | Source                                                                                                                                                                                              | Cap           |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `TURN DATE`                   | the turn's `occurredAt`                                                                                                                                                                             | —             |
+| `CONVERSATION SO FAR`         | the conversation's earlier `episode` rows (index `conversationId, occurredAt`), oldest first, without the turn itself                                                                               | 6 turns       |
+| `KNOWN ENTITIES [e#]`         | local-NER names of the turn, the earlier turns and the participants, each through the resolver's **read-only** lookup (exact / transliteration key / article / code alias — no embedding, no judge) | 10            |
+| `KNOWN FACTS [m#]`            | active + competing facts of those entities, user-fenced                                                                                                                                             | 12 per entity |
+| relations, same `[m#]` series | the entities' live edges (`invalidatedAt IS NONE`), rendered in their own direction (`e2 — runs_on → Fly.io`, `Pedro Lima — covers_for → e1`)                                                       | 8 per entity  |
+| `KNOWN PREDICATES`            | the tenant's predicates by usage (`GROUP BY predicate`), cached per tenant until the tenant's next commit                                                                                           | 40            |
 
 The read is a few indexed queries and the NER pass (already cached per
 text for the extractor's own pre-pass) — ~20–30 ms. Any failure degrades
@@ -63,17 +64,21 @@ the strict JSON schema in lockstep with the prompt:
   alias so the next exact lookup needs no model. A pinned entity is
   grounded by construction — the extractor writes the known name for a
   short mention, and the span gate must not drop it.
-- `facts[].supersedes` — handles of KNOWN FACTS this fact replaces: a new
-  value of the same attribute, a moved date, a changed state — whatever
-  predicate the old row was spelled under. After `fn::resolve_fact`
-  inserts the fact, `FactResolverService.applyExplicitSupersession`
-  closes those rows with the fn's own supersede shape (`status`,
-  `retractionReason`, `retractedBy`, `supersededBy`, `priorValidUntil`,
-  `validUntil` — never before the loser's own `validFrom`), flips a
-  winner the fn had left COMPETING to active, and folds the outcome into
-  the result so telemetry, support edges and the trace read SUPERSEDED.
-  The slot machinery inside the fn still runs first, for facts that name
-  nothing.
+- `facts[].supersedes` — handles of KNOWN FACTS and relations this fact
+  replaces: a new value of the same attribute, a moved date, a changed
+  state, the edge that stated the old value — whatever predicate the old
+  row was spelled under. After `fn::resolve_fact` inserts the fact,
+  `FactResolverService.applyExplicitSupersession` closes those rows with
+  the fn's own supersede shape (`status`, `retractionReason`,
+  `retractedBy`, `supersededBy`, `priorValidUntil`, `validUntil` — never
+  before the loser's own `validFrom`), flips a winner the fn had left
+  COMPETING to active, and folds the outcome into the result so
+  telemetry, support edges and the trace read SUPERSEDED. A named edge
+  gets `invalidatedAt` = the new value's day (never before it was
+  written) — the fence every edge read runs behind — so "moved to
+  Hetzner" retires `runs_on → Fly.io` instead of leaving it beside the
+  new value on every read. The slot machinery inside the fn still runs
+  first, for facts that name nothing.
 - `facts[].eventTime` — the calendar day (YYYY-MM-DD) the value refers
   to, resolved by the model against the turn date, any language. A day
   at or before the turn is an occurrence and becomes `validFrom`; a day
@@ -83,6 +88,23 @@ the strict JSON schema in lockstep with the prompt:
   `(on YYYY-MM-DD)` and fed to the computed date table, so the read side
   never parses "19 сентября" again. The chrono lane (`event-time.ts`)
   remains the fallback for a fact without a day.
+
+- `facts[].cardinality` — `one` or `many`: can the subject hold several
+  values of this attribute at once? A novel predicate the turn coins
+  registers with that reading (`one` → `single_active`, `many` →
+  `append_only`; `PredicateRegistryService.canonicalize` takes it in the
+  context object) and the semantics judge is not asked; a predicate
+  already registered keeps its semantics. The judge remains for writers
+  without the contract (`record_fact`, the harvest lanes). Measured on
+  the stand: the judge was 1–3.6 s of every turn that coined something,
+  in series after the extraction, on a tenant young enough that every
+  turn did — ingest fell from 2.6–10.9 s to 2.0–6.6 s per turn with the
+  extractor deciding. On the same 17 coinages the extractor agreed with
+  the judge on 12 and read `one` where the judge read `many` on the
+  rest (an event, a responsibility, an intent); the contract wording
+  names those classes and ties break to `many`. `instruction` is seeded
+  `append_only` in the core vocabulary — its cardinality is part of the
+  contract, not a per-turn reading.
 
 Two policies ride the same contract:
 
@@ -107,15 +129,30 @@ Candidate rows carry `known`, `eventTime` and `supersedes`; the
 cross-indexer merge keeps `known`, takes `eventTime` from the leader and
 unions `supersedes`.
 
+## Reading history
+
+A fact that superseded an older value carries the story on its evidence
+line — `(previously: <value> — until <date>)`, built from the reverse
+`supersededBy` links (`UpdateStoryService`) — and, with facts-as-keys,
+one verbatim quote of its grounding turn. Both suffixes, and the belief
+damping pass, key on the fact id; the rendered line opens with a handle
+(`[f3]`, #613), so every consumer resolves the line through
+`lineFactId` (fact-index.ts). Between #613 and this fix nothing matched
+and a history question ("как менялся бюджет") could not see the old
+value at all.
+
 ## Relations are citable
 
 An edge is knowledge with a record behind it. Search hits carry the
 edge id and its direction on every relation, and the answer plane
 renders a relation as `[r2] A — kind → B` (an incoming edge reads in
-its own direction — the peer is the subject). The generator cites it
-like a fact; the citation's `factId` is the `knowledge_edge` id. Such an
-answer is served fresh (the answer cache tracks fact lifecycles only)
-and the outcome ledger records fact citations only.
+its own direction — the peer is the subject); an edge the search
+returns on both of its endpoints renders once. The generator cites it
+like a fact; the citation's `factId` is the `knowledge_edge` id. The
+answer cache tracks the edge as a dependency arm (`kind: 'edge'`, 0152 —
+revalidated on every read against `invalidatedAt` and the edge fence),
+so a relation answer is cached like any other; the outcome ledger
+records fact citations only.
 
 ## Serving: the revision round
 

@@ -51,6 +51,26 @@ export function handlesOf(factIndex: ReadonlyMap<string, Citation>): ReadonlyMap
 }
 
 /**
+ * The id of the fact (or edge) a rendered line stands for, from its
+ * opening bracket: a handle resolves through the index's table, a raw id
+ * stands as written; null for a line without a bracket.
+ *
+ * Every consumer that keys a rendered line back to its record goes
+ * through here. The two that read the bracket themselves — the history
+ * suffix and the belief damping — kept doing so after the lines switched
+ * from ids to handles (#613), and matched nothing from that day: no
+ * "previously: …" on a superseded value, no damping (found on a
+ * history question that abstained, 2026-09-18).
+ */
+export function lineFactId(line: string, factIndex: ReadonlyMap<string, Citation>): string | null {
+  if (!line.startsWith('[')) return null;
+  const close = line.indexOf(']');
+  if (close <= 1) return null;
+  const key = line.slice(1, close);
+  return handlesOf(factIndex).get(key) ?? key;
+}
+
+/**
  * The citation handle of the n-th rendered fact line (0-based).
  *
  * WHY HANDLES. The generator used to be shown `[knowledge_fact:<20 random
@@ -179,25 +199,19 @@ export function buildFactIndex(
     // abstained on a question the graph answered (measured 2026-09-18).
     // The line reads in the edge's own direction: an incoming edge is
     // "peer — kind → entity", never the inverse.
+    // One edge joins two hits, and the search returns it on both — the
+    // same record rendered twice, under two handles, so the line stands
+    // once: the first hit to carry the edge keeps it.
     for (const rel of r.relations ?? []) {
       const entry = relationEntry(r, rel);
-      if (entry.citation) factIndex.set(entry.citation.factId, entry.citation);
+      if (entry.citation) {
+        if (factIndex.has(entry.citation.factId)) continue;
+        factIndex.set(entry.citation.factId, entry.citation);
+      }
       entries.push(entry);
     }
   }
-  if (opts?.markRecency) {
-    const bySlot = new Map<string, typeof entries>();
-    for (const e of entries) {
-      bySlot.set(e.slot, [...(bySlot.get(e.slot) ?? []), e]);
-    }
-    for (const group of bySlot.values()) {
-      const dated = group.filter((e) => Number.isFinite(e.t));
-      if (dated.length < 2) continue;
-      if (new Set(group.map((e) => e.obj)).size < 2) continue;
-      const newest = dated.reduce((a, b) => (b.t >= a.t ? b : a));
-      newest.line += ' [most recent for this slot]';
-    }
-  }
+  if (opts?.markRecency) markMostRecentPerSlot(entries);
   if (opts?.chronological) {
     // Stable by construction: Array.prototype.sort is stable, undated
     // entries share +Infinity and keep their relative retrieval order.
@@ -218,6 +232,24 @@ export function buildFactIndex(
   });
   HANDLES.set(factIndex, handles);
   return { factIndex, factLines };
+}
+
+/** T5 update arbitration: on a slot holding ≥2 dated, disagreeing
+ *  statements, tag the newest line (see buildFactIndex markRecency). */
+function markMostRecentPerSlot(
+  entries: Array<{ line: string; t: number; slot: string; obj: string }>,
+): void {
+  const bySlot = new Map<string, typeof entries>();
+  for (const e of entries) {
+    bySlot.set(e.slot, [...(bySlot.get(e.slot) ?? []), e]);
+  }
+  for (const group of bySlot.values()) {
+    const dated = group.filter((e) => Number.isFinite(e.t));
+    if (dated.length < 2) continue;
+    if (new Set(group.map((e) => e.obj)).size < 2) continue;
+    const newest = dated.reduce((a, b) => (b.t >= a.t ? b : a));
+    newest.line += ' [most recent for this slot]';
+  }
 }
 
 /** One relation line and, when the edge record is known, its citation. */

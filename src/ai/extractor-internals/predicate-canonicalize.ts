@@ -90,7 +90,13 @@ async function decidePerPredicate({
     [...firstByPredicate.entries()].map(async ([predicate, f]) => {
       const contextText = `${f.predicate}: ${f.object}${f.clause ? ` (clause: ${f.clause})` : ''}`;
       try {
-        decisions.set(predicate, await registry.canonicalize(companyId, predicate, contextText));
+        decisions.set(
+          predicate,
+          await registry.canonicalize(companyId, predicate, {
+            text: contextText,
+            cardinality: f.cardinality,
+          }),
+        );
       } catch (e) {
         logger.warn(`${pass} failed for predicate '${predicate}': ${(e as Error).message}`);
       }

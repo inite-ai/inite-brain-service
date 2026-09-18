@@ -812,11 +812,9 @@ export class BeliefPromotionService {
       const id = predicateIdFromFieldName(field);
       if (id === '') continue;
       try {
-        const decision = await this.predicates.canonicalize(
-          companyId,
-          id,
-          sample === '' ? id : `${id}: ${sample}`,
-        );
+        const decision = await this.predicates.canonicalize(companyId, id, {
+          text: sample === '' ? id : `${id}: ${sample}`,
+        });
         slots.set(field, decision.canonicalId);
       } catch (e) {
         this.logger.warn(

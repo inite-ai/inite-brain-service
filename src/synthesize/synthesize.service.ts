@@ -388,7 +388,7 @@ export class SynthesizeService {
     const factDamping = beliefFactDampingEnabled();
     let promptFactLines = applyBeliefFactDamping({
       enabled: factDamping,
-      factLines: applyFactSuffixes(prepared.factLines, [updateStories, groundingQuotes]),
+      factLines: applyFactSuffixes(prepared.factLines, [updateStories, groundingQuotes], factIndex),
       factIndex,
       beliefsById,
       metrics: this.metrics,
@@ -968,10 +968,11 @@ export class SynthesizeService {
       // damping off / no matched beliefs ⇒ byte-identical lines.
       const promptFactLines = applyBeliefFactDamping({
         enabled: args.factDamping === true,
-        factLines: applyFactSuffixes(prepared.factLines, [
-          args.updateStories,
-          args.groundingQuotes,
-        ]),
+        factLines: applyFactSuffixes(
+          prepared.factLines,
+          [args.updateStories, args.groundingQuotes],
+          prepared.factIndex,
+        ),
         factIndex: prepared.factIndex,
         beliefsById: args.beliefsById,
         metrics: this.metrics,

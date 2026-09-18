@@ -19,7 +19,8 @@ import {
   type BeliefDampingMetrics,
 } from '../src/synthesize/belief-damping';
 import type { CitableBelief } from '../src/synthesize/belief-citations';
-import type { Citation } from '../src/synthesize/fact-index';
+import { buildFactIndex, type Citation } from '../src/synthesize/fact-index';
+import type { SearchHit } from '../src/search/search.types';
 
 // `predicate` is what the fact LINE shows; `slot` is what the join uses
 // (`predicateAlias ?? predicate`, 0083). They differ here whenever a
@@ -373,5 +374,38 @@ describe('applyBeliefFactDamping — the cross-plane join (0147)', () => {
       ),
     });
     expect(out).toEqual(lines);
+  });
+});
+
+describe('applyBeliefFactDamping — on the lines buildFactIndex renders', () => {
+  it('a handle-prefixed line resolves to its fact and is damped', () => {
+    const { factLines, factIndex } = buildFactIndex([
+      {
+        entityId: 'entity:alice',
+        entityType: 'person',
+        canonicalName: 'Alice',
+        externalRefs: {},
+        score: 1,
+        facts: [
+          {
+            factId: 'knowledge_fact:c1',
+            predicate: 'city',
+            object: 'Paris',
+            confidence: 0.9,
+            score: 1,
+            validFrom: '2026-01-01T00:00:00.000Z',
+            status: 'active',
+          },
+        ],
+      } as unknown as SearchHit,
+    ]);
+    expect(factLines[0]!.startsWith('[f1] ')).toBe(true);
+    const out = applyBeliefFactDamping({
+      enabled: true,
+      factLines,
+      factIndex,
+      beliefsById: beliefSet(belief()),
+    });
+    expect(out[0]).toBe(`${factLines[0]} (superseded by current belief: city = Berlin)`);
   });
 });

@@ -983,6 +983,31 @@ describe('buildFactIndex renders graph relations as evidence', () => {
     expect(factIndex.size).toBe(3);
   });
 
+  it('one edge returned on both of its hits renders once, under the first hit', () => {
+    const edge = {
+      kind: 'works_at',
+      peer: 'Orbital Dynamics',
+      peerType: 'org',
+      edgeId: 'knowledge_edge:e1',
+    };
+    const { factIndex, factLines } = buildFactIndex([
+      hitWith([{ ...edge, direction: 'out' }]),
+      {
+        entityId: 'e2',
+        entityType: 'org',
+        canonicalName: 'Orbital Dynamics',
+        externalRefs: {},
+        score: 1,
+        facts: [],
+        relations: [{ ...edge, peer: 'Мария Альварес', peerType: 'staff', direction: 'in' }],
+      },
+    ]);
+    expect(factLines.filter((l) => l.includes('works_at'))).toEqual([
+      '[r1] Мария Альварес (staff) — works_at → Orbital Dynamics (org)',
+    ]);
+    expect(factIndex.size).toBe(2);
+  });
+
   it('a relation without an edge record stays an uncitable (relation) line', () => {
     const { factIndex, factLines } = buildFactIndex([
       hitWith([{ kind: 'works_at', peer: 'Orbital Dynamics', peerType: 'org' }]),

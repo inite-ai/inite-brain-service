@@ -56,6 +56,54 @@ describe('renderMemoryContext', () => {
     expect(out.endsWith('CURRENT TURN:\n')).toBe(true);
   });
 
+  it('a relation renders in its own direction under the same handle series', () => {
+    const out = renderMemoryContext({
+      ...ctx,
+      facts: [
+        ...ctx.facts,
+        {
+          handle: 'm2',
+          id: 'knowledge_edge:x1',
+          entityHandle: 'e1',
+          predicate: 'runs_on',
+          object: 'Fly.io',
+          since: '2026-09-11',
+          edge: 'out',
+        },
+        {
+          handle: 'm3',
+          id: 'knowledge_edge:x2',
+          entityHandle: 'e2',
+          predicate: 'covers_for',
+          object: 'Pedro Lima',
+          edge: 'in',
+        },
+      ],
+    });
+    expect(out).toContain('[m2] e1 — runs_on → Fly.io (since 2026-09-11)');
+    expect(out).toContain('[m3] Pedro Lima — covers_for → e2');
+    // The extractor's supersedes maps a relation handle to the edge id like any fact.
+    expect(
+      supersededFactIds(
+        {
+          ...ctx,
+          facts: [
+            ...ctx.facts,
+            {
+              handle: 'm2',
+              id: 'knowledge_edge:x1',
+              entityHandle: 'e1',
+              predicate: 'runs_on',
+              object: 'Fly.io',
+              edge: 'out',
+            },
+          ],
+        },
+        ['m1', 'm2'],
+      ),
+    ).toEqual(['knowledge_fact:b4000', 'knowledge_edge:x1']);
+  });
+
   it('is empty for no context and for an empty one — the input is byte-identical', () => {
     expect(renderMemoryContext(undefined)).toBe('');
     expect(renderMemoryContext({ recentTurns: [], entities: [], facts: [], predicates: [] })).toBe(

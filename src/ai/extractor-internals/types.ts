@@ -49,6 +49,15 @@ export interface ExtractedFact {
    */
   supersedes?: string[] | undefined;
   /**
+   * How many values of this attribute the subject holds at one time, as
+   * the extractor read it in the sentence: "one" — a setting or a state,
+   * a later value replaces the earlier one; "many" — several coexist.
+   * Decides a coined predicate's semantics at registration (single_active
+   * / append_only) without a second model call; absent for an extractor
+   * without the contract, and the registry's judge decides then.
+   */
+  cardinality?: FactCardinality | undefined;
+  /**
    * The verbatim grounded span the object was derived from. Equal to
    * `object` unless object normalization rewrote the stored value
    * (EXTRACTION_OBJECT_NORMALIZE); kept for audit and pattern-cache
@@ -106,6 +115,15 @@ export interface RawExtractedFact {
   eventTime?: string;
   /** knowledge_fact ids this one replaces — handles already mapped by the parser. */
   supersedes?: string[];
+  /** "one" | "many" — the attribute's cardinality over time (memory-context contract). */
+  cardinality?: FactCardinality;
+}
+
+/** How many values of an attribute its subject holds at one time. */
+export type FactCardinality = 'one' | 'many';
+
+export function parseCardinality(raw: unknown): FactCardinality | undefined {
+  return raw === 'one' || raw === 'many' ? raw : undefined;
 }
 
 export const ENTITY_TYPE_VOCABULARY = [

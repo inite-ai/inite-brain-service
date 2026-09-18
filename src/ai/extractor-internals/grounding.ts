@@ -1,5 +1,10 @@
 import { knownEntityId, supersededFactIds, type MemoryContext } from './memory-context';
-import type { ExtractedEntity, ExtractedFact, RawExtractedFact } from './types';
+import {
+  parseCardinality,
+  type ExtractedEntity,
+  type ExtractedFact,
+  type RawExtractedFact,
+} from './types';
 import type { ExtractionPipelineProfile } from '../extraction-profile';
 
 /**
@@ -222,6 +227,7 @@ export function parseRawFacts(
       continue;
     }
     const eventTime = parseEventTime(f.eventTime);
+    const cardinality = parseCardinality(f.cardinality);
     // Handles are mapped to record ids here; invented ones vanish.
     const supersedes = supersededFactIds(memory, f.supersedes);
     out.push({
@@ -236,6 +242,7 @@ export function parseRawFacts(
       ...(typeof f.object === 'string' && f.object.trim() ? { object: f.object.trim() } : {}),
       ...(eventTime ? { eventTime } : {}),
       ...(supersedes.length > 0 ? { supersedes } : {}),
+      ...(cardinality ? { cardinality } : {}),
     });
   }
   return out;
@@ -359,6 +366,7 @@ export function applyGroundingGate(
       valueSpan: rf.valueSpan,
       ...(rf.eventTime ? { eventTime: rf.eventTime } : {}),
       ...(rf.supersedes && rf.supersedes.length > 0 ? { supersedes: rf.supersedes } : {}),
+      ...(rf.cardinality ? { cardinality: rf.cardinality } : {}),
     });
   }
 

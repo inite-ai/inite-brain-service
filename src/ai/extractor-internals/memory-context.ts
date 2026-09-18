@@ -49,14 +49,33 @@ export interface MemoryEntity {
 export interface MemoryFact {
   /** Prompt handle: m1, m2, … */
   handle: string;
-  /** knowledge_fact record id. */
+  /** knowledge_fact record id — or knowledge_edge, for a relation. */
   id: string;
-  /** Handle of the entity the fact sits on. */
+  /** Handle of the known entity the fact (or relation) sits on. */
   entityHandle: string;
   predicate: string;
+  /** The value; for a relation, the peer's name. */
   object: string;
   /** Calendar day the fact has been valid from (YYYY-MM-DD), for display. */
   since?: string | undefined;
+  /**
+   * Set for a relation (a knowledge_edge): 'out' — the known entity is
+   * the subject (`e2 — runs_on → Fly.io`), 'in' — the peer is
+   * (`Pedro Lima — covers_for → e1`). A relation is knowledge the graph
+   * holds about the entity like any fact, and a turn that replaces it
+   * ("moved to Hetzner") closes it the same way — through `supersedes`.
+   */
+  edge?: 'out' | 'in' | undefined;
+}
+
+/** One KNOWN FACTS line: a fact as `e2 · predicate: value`, a relation in its own direction. */
+export function renderMemoryFact(f: MemoryFact): string {
+  const since = f.since ? ` (since ${f.since})` : '';
+  if (f.edge === 'out')
+    return `[${f.handle}] ${f.entityHandle} — ${f.predicate} → ${clip(f.object, 160)}${since}`;
+  if (f.edge === 'in')
+    return `[${f.handle}] ${clip(f.object, 160)} — ${f.predicate} → ${f.entityHandle}${since}`;
+  return `[${f.handle}] ${f.entityHandle} · ${f.predicate}: ${clip(f.object, 160)}${since}`;
 }
 
 export interface MemoryContext {
@@ -73,6 +92,7 @@ export interface MemoryContext {
 /** Prompt-side caps: enough to anchor a turn, small enough to stay cheap. */
 export const MEMORY_RECENT_TURNS = 6;
 export const MEMORY_FACTS_PER_ENTITY = 12;
+export const MEMORY_EDGES_PER_ENTITY = 8;
 export const MEMORY_PREDICATES = 40;
 /** Characters of one earlier turn shown as context. */
 const TURN_CHARS = 280;
@@ -116,13 +136,8 @@ export function renderMemoryContext(ctx: MemoryContext | undefined): string {
   }
   if (ctx.facts.length > 0) {
     parts.push(
-      "KNOWN FACTS about them (when the current turn changes, updates or contradicts one, put its handle in the new fact's supersedes):\n" +
-        ctx.facts
-          .map(
-            (f) =>
-              `[${f.handle}] ${f.entityHandle} · ${f.predicate}: ${clip(f.object, 160)}${f.since ? ` (since ${f.since})` : ''}`,
-          )
-          .join('\n'),
+      "KNOWN FACTS and relations about them (when the current turn changes, updates or contradicts one, put its handle in the new fact's supersedes):\n" +
+        ctx.facts.map(renderMemoryFact).join('\n'),
     );
   }
   if (ctx.predicates.length > 0) {

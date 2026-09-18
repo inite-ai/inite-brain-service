@@ -15,6 +15,7 @@
  *
  * Pure module — no DI, no IO, no env.
  */
+import { lineFactId, type Citation } from './fact-index';
 
 /** History entries rendered per fact line (immediate predecessor plus
  *  up to two earlier beats — the KU golds ask old vs new, not a full
@@ -64,21 +65,21 @@ export function renderUpdateStory(prevs: readonly PreviousValue[]): string {
 }
 
 /**
- * Append rendered history suffixes onto the matching fact lines. Lines
- * open with `[<handle>] ` (the buildFactIndex contract); unmatched
+ * Append rendered history suffixes onto the matching fact lines. A line
+ * opens with `[<handle>] ` (the buildFactIndex contract) and the maps are
+ * keyed by fact id, so the handle resolves through the index; unmatched
  * lines pass through byte-identical. Module-private — external callers
  * compose through applyFactSuffixes.
  */
 function appendUpdateStories(
   factLines: readonly string[],
   stories: ReadonlyMap<string, string>,
+  factIndex: ReadonlyMap<string, Citation>,
 ): string[] {
   if (stories.size === 0) return [...factLines];
   return factLines.map((line) => {
-    if (!line.startsWith('[')) return line;
-    const close = line.indexOf(']');
-    if (close <= 1) return line;
-    const suffix = stories.get(line.slice(1, close));
+    const id = lineFactId(line, factIndex);
+    const suffix = id ? stories.get(id) : undefined;
     return suffix ? line + suffix : line;
   });
 }
@@ -88,15 +89,18 @@ function appendUpdateStories(
  * grounding quotes (multiworld §10 facts-as-keys) — in order. Absent
  * and empty maps are skipped, so callers pass their profile-gated maps
  * unconditionally; both prompts read the same augmented lines
- * (evidence parity by construction).
+ * (evidence parity by construction). `factIndex` is the index the lines
+ * were rendered from — it resolves each line's handle to the id the maps
+ * are keyed by.
  */
 export function applyFactSuffixes(
   factLines: readonly string[],
   maps: ReadonlyArray<ReadonlyMap<string, string> | undefined>,
+  factIndex: ReadonlyMap<string, Citation>,
 ): string[] {
   let lines = [...factLines];
   for (const m of maps) {
-    if (m && m.size > 0) lines = appendUpdateStories(lines, m);
+    if (m && m.size > 0) lines = appendUpdateStories(lines, m, factIndex);
   }
   return lines;
 }

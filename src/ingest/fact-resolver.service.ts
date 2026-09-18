@@ -627,11 +627,9 @@ export class FactResolverService {
     const first = this.predicateRegistry.policyFor(p.companyId, keyed);
     if (first.predicateId !== DEFAULT_FALLBACK.predicateId) return first;
     try {
-      const decision = await this.predicateRegistry.canonicalize(
-        p.companyId,
-        keyed,
-        `${keyed}: ${p.object}`,
-      );
+      const decision = await this.predicateRegistry.canonicalize(p.companyId, keyed, {
+        text: `${keyed}: ${p.object}`,
+      });
       await this.predicateRegistry.getSnapshot(p.companyId);
       return this.predicateRegistry.policyFor(p.companyId, decision.canonicalId);
     } catch (e) {
@@ -849,6 +847,11 @@ export class FactResolverService {
    * closed becomes active. The outcome is folded into `result` so the
    * telemetry, support edges and trace downstream see SUPERSEDED with
    * the ids, as they would from the fn.
+   *
+   * A relation the extractor named (the memory context lists the known
+   * entities' edges under the same handles) is invalidated from the new
+   * value's day — the edge fence every read runs behind — never before
+   * it was written.
    */
   private async applyExplicitSupersession(
     db: Surreal,
@@ -858,9 +861,13 @@ export class FactResolverService {
     const winner = result?.factId ? String(result.factId) : null;
     const ids = (p.supersedes ?? []).filter((id) => id && id !== winner);
     if (!winner || ids.length === 0) return;
+    const edgeIds = ids.filter((id) => id.startsWith('knowledge_edge:'));
+    const factIds = ids.filter((id) => !edgeIds.includes(id));
     try {
-      const closed = await retryOnReadConflict(async () => {
-        const res = await db.query<[unknown, unknown, unknown, Array<{ id: unknown }>]>(
+      const { closed, closedEdges } = await retryOnReadConflict(async () => {
+        const res = await db.query<
+          [unknown, unknown, unknown, Array<{ id: unknown }>, Array<{ id: unknown }>]
+        >(
           `LET $losers = (SELECT id, validFrom, validUntil FROM knowledge_fact
               WHERE id IN $ids AND id != $winner
                 AND status IN ['active', 'competing'] AND retractedAt IS NONE);
@@ -875,22 +882,31 @@ export class FactResolverService {
            };
            UPDATE $winner SET status = 'active'
              WHERE status = 'competing' AND array::len($losers) > 0;
-           SELECT id FROM $losers;`,
+           SELECT id FROM $losers;
+           UPDATE knowledge_edge SET
+               invalidatedAt = IF $valid_from > createdAt THEN $valid_from ELSE createdAt END
+             WHERE id IN $edge_ids AND invalidatedAt IS NONE RETURN id;`,
           {
-            ids: ids.map((id) => new StringRecordId(id)),
+            ids: factIds.map((id) => new StringRecordId(id)),
+            edge_ids: edgeIds.map((id) => new StringRecordId(id)),
             winner: new StringRecordId(winner),
             valid_from: p.validFrom,
           },
         );
-        return (res[3] ?? []).map((r) => String(r.id));
+        return {
+          closed: (res[3] ?? []).map((r) => String(r.id)),
+          closedEdges: (res[4] ?? []).map((r) => String(r.id)),
+        };
       });
-      if (closed.length === 0) return;
-      const prior = ((result.supersededFactIds as unknown[] | undefined) ?? []).map(String);
-      result.supersededFactIds = [...prior, ...closed.filter((id) => !prior.includes(id))];
-      if (result.outcome === 'INSERTED' || result.outcome === 'COMPETING') {
-        result.outcome = 'SUPERSEDED';
+      if (closed.length === 0 && closedEdges.length === 0) return;
+      if (closed.length > 0) {
+        const prior = ((result.supersededFactIds as unknown[] | undefined) ?? []).map(String);
+        result.supersededFactIds = [...prior, ...closed.filter((id) => !prior.includes(id))];
+        if (result.outcome === 'INSERTED' || result.outcome === 'COMPETING') {
+          result.outcome = 'SUPERSEDED';
+        }
       }
-      traceArtifact('ingest.fact.superseded_by_extractor', { winner, closed });
+      traceArtifact('ingest.fact.superseded_by_extractor', { winner, closed, closedEdges });
     } catch (e) {
       this.logger.warn(
         `explicit supersession by ${winner} failed (rows left open): ${(e as Error).message}`,

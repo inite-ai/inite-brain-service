@@ -53,6 +53,39 @@ function make(opts: { fail?: boolean; predicates?: string[] } = {}) {
           })),
         ];
       }
+      if (sql.includes('FROM knowledge_edge')) {
+        return [
+          [
+            {
+              id: 'knowledge_edge:x1',
+              in: 'knowledge_entity:rk',
+              out: 'knowledge_entity:fly',
+              kind: 'runs_on',
+              fromName: 'RK Imóveis',
+              toName: 'Fly.io',
+              createdAt: '2026-09-11T00:00:00Z',
+            },
+            {
+              id: 'knowledge_edge:x2',
+              in: 'knowledge_entity:pedro',
+              out: 'knowledge_entity:rui',
+              kind: 'covers_for',
+              fromName: 'Pedro Lima',
+              toName: 'Rui Almeida',
+              createdAt: '2026-09-17T00:00:00Z',
+            },
+            {
+              id: 'knowledge_edge:x3',
+              in: 'knowledge_entity:rui',
+              out: 'knowledge_entity:rk',
+              kind: 'works_at',
+              fromName: 'Rui Almeida',
+              toName: 'RK Imóveis',
+              createdAt: '2026-09-10T00:00:00Z',
+            },
+          ],
+        ];
+      }
       if (sql.includes('FROM knowledge_fact')) {
         return [
           [
@@ -143,26 +176,54 @@ describe('MemoryContextService.build', () => {
       { handle: 'e1', id: 'knowledge_entity:rui', name: 'Rui Almeida', type: 'customer' },
       { handle: 'e2', id: 'knowledge_entity:rk', name: 'RK Imóveis', type: 'customer' },
     ]);
-    // Facts keyed on the handle; a fact of an entity not in the list is dropped.
+    // Facts keyed on the handle; a fact of an entity not in the list is
+    // dropped; the relations follow under the same series.
     expect(ctx?.facts.map((f) => `${f.handle}:${f.entityHandle}:${f.id}`)).toEqual([
       'm1:e2:knowledge_fact:1',
       'm2:e2:knowledge_fact:2',
       'm3:e1:knowledge_fact:3',
+      'm4:e2:knowledge_edge:x1',
+      'm5:e1:knowledge_edge:x2',
+      'm6:e1:knowledge_edge:x3',
     ]);
     expect(ctx?.facts[0]?.since).toBe('2026-09-16');
     expect(ctx?.predicates).toEqual(['monthly_budget', 'project_start']);
   });
 
-  it('caches the vocabulary per tenant but never an empty one', async () => {
+  it("the known entities' relations follow the facts under the same handles, in their direction", async () => {
+    const { svc, queries } = make();
+    const ctx = await svc.build({ companyId: 'co', text: 'current', userId: 'u1' });
+    const edgeQ = queries.find((q) => q.sql.includes('FROM knowledge_edge'))!;
+    expect(edgeQ.sql).toContain('invalidatedAt IS NONE');
+    expect(edgeQ.sql).toContain('userId IS NONE OR userId = $u');
+    const rels = ctx!.facts.filter((f) => f.edge);
+    // Handles continue the fact series; the known side anchors each line
+    // (an in-edge to a known entity reads from its subject).
+    expect(
+      rels.map((f) => `${f.handle}:${f.entityHandle}:${f.edge}:${f.predicate}:${f.object}`),
+    ).toEqual(['m2:e1:in:covers_for:Pedro Lima', 'm3:e1:out:works_at:RK Imóveis']);
+    expect(rels[0]?.id).toBe('knowledge_edge:x2');
+    expect(rels[0]?.since).toBe('2026-09-17');
+  });
+
+  it('caches the vocabulary per tenant, never an empty one, and re-reads after a commit', async () => {
     const { svc, queries } = make({ predicates: [] });
     const args = { companyId: 'co', text: 'x', occurredAt: '2026-09-16T00:00:00Z' };
     await svc.build(args);
     await svc.build(args);
     expect(queries.filter((q) => q.sql.includes('GROUP BY predicate'))).toHaveLength(2);
     const full = make();
+    const reads = () => full.queries.filter((q) => q.sql.includes('GROUP BY predicate')).length;
     await full.svc.build(args);
     await full.svc.build(args);
-    expect(full.queries.filter((q) => q.sql.includes('GROUP BY predicate'))).toHaveLength(1);
+    expect(reads()).toBe(1);
+    // A commit on the tenant moves its vocabulary — with or without a conversation.
+    full.svc.remember('co', undefined, []);
+    await full.svc.build(args);
+    expect(reads()).toBe(2);
+    full.svc.remember('other', 'conv', ['knowledge_entity:rk']);
+    await full.svc.build(args);
+    expect(reads()).toBe(2);
   });
 
   it('degrades to the date alone when the store fails, and to nothing without a date', async () => {

@@ -225,10 +225,12 @@ CURRENT TURN only; the rest is what the memory already holds.
   facts: on the KNOWN ENTITY the conversation is about, else on the speaker,
   else on the described thing itself as the entity.
 
-  supersedes (per fact) — handles of KNOWN FACTS this fact replaces: a new value
-  of the same attribute ("budget 4000" → "2500"), a moved date, a changed
-  state, a correction — even when the known fact's predicate is spelled
-  differently. A fact that adds a different attribute supersedes nothing.
+  supersedes (per fact) — handles of KNOWN FACTS and relations this fact
+  replaces: a new value of the same attribute ("budget 4000" → "2500"), a
+  moved date, a changed state, a correction, the relation that stated the old
+  value ("moved to Hetzner" closes "runs_on → Fly.io") — even when the known
+  fact's predicate is spelled differently. A fact that adds a different
+  attribute supersedes nothing.
   Empty when nothing changes. A statement that something is NO LONGER the case
   ("Redis is no longer the queue", "this supersedes the March decision") is not
   a fact carrying that value — it closes the known fact through the new
@@ -238,6 +240,17 @@ CURRENT TURN only; the rest is what the memory already holds.
   deadline, a meeting, a start, when something happened or will happen —
   resolved against TURN DATE. null when the clause names no day. The value
   itself stays as written ("19 сентября"); eventTime carries the resolved day.
+
+  cardinality (per fact) — can the subject hold several of these at once?
+  "one": no — a SETTING or a STATE it is in (where it runs, its budget, a
+  deadline, its status, its address, its CTO): a later value replaces the
+  earlier one. "many": yes — something that HAPPENED (sent, moved, requested,
+  stood up), an observation, a wish or intent, a preference, a capability, a
+  responsibility or any other link to another entity that does not exclude
+  other links, a standing instruction. The value being a thing and the clause
+  narrating an action decide nothing; the plural does: "its deploy targets"
+  is wrong, "its dependencies", "its responsibilities", "its instructions"
+  read naturally → "many". When both readings hold, "many".
 
   instruction — a standing instruction to the assistant about how to act,
   answer, write or format from now on ("запомни: …", "always …", "never …",
@@ -496,6 +509,12 @@ export function buildExtractionSchema(opts?: {
                 'Handles of KNOWN FACTS this fact replaces ("m3"); empty when nothing changes.',
               items: { type: 'string' },
             },
+            cardinality: {
+              type: 'string',
+              enum: ['one', 'many'],
+              description:
+                'How many values of this attribute the subject holds at one time: "one" (a setting or state — a later value replaces it) or "many" (several coexist).',
+            },
           },
           required: [
             'entityIndex',
@@ -506,6 +525,7 @@ export function buildExtractionSchema(opts?: {
             'confidence',
             'eventTime',
             'supersedes',
+            'cardinality',
           ],
         },
       },

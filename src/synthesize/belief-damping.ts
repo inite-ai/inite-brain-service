@@ -1,5 +1,5 @@
 import type { CitableBelief } from './belief-citations';
-import type { Citation } from './fact-index';
+import { lineFactId, type Citation } from './fact-index';
 
 /**
  * Belief-aware fact damping (BELIEFS_FACT_DAMPING, PR-B — the serving
@@ -149,10 +149,8 @@ function contradictingBelief(
   factIndex: ReadonlyMap<string, Citation>,
   byKey: ReadonlyMap<string, CitableBelief>,
 ): CitableBelief | null {
-  if (!line.startsWith('[')) return null;
-  const close = line.indexOf(']');
-  if (close <= 1) return null;
-  const fact = factIndex.get(line.slice(1, close));
+  const id = lineFactId(line, factIndex);
+  const fact = id ? factIndex.get(id) : undefined;
   if (!fact) return null;
   const belief = byKey.get(beliefKey(fact.canonicalName, fact.slot));
   if (!belief) return null;

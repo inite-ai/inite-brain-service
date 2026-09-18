@@ -225,7 +225,7 @@ describe('canonicalize repeat-coinage short-circuit (registry storm fix)', () =>
       true,
     );
 
-    const first = await svc.canonicalize('co_x', 'painted_seascape', 'ctx');
+    const first = await svc.canonicalize('co_x', 'painted_seascape', { text: 'ctx' });
     expect(first.kind).toBe('proposed');
     const inserts = () =>
       db.query.mock.calls.filter(([sql]) => String(sql).includes('CREATE knowledge_predicate'))
@@ -233,7 +233,7 @@ describe('canonicalize repeat-coinage short-circuit (registry storm fix)', () =>
     expect(inserts()).toBe(1);
     const embedsAfterFirst = embedder.embed.mock.calls.length;
 
-    const second = await svc.canonicalize('co_x', 'painted_seascape', 'ctx');
+    const second = await svc.canonicalize('co_x', 'painted_seascape', { text: 'ctx' });
     expect(second).toEqual({ kind: 'matched', canonicalId: 'painted_seascape' });
     expect(inserts()).toBe(1); // no re-insert
     expect(embedder.embed.mock.calls.length).toBe(embedsAfterFirst); // no re-embed
@@ -267,7 +267,10 @@ describe('canonicalization passes — one registry question per distinct predica
     });
     expect(registry.canonicalize).toHaveBeenCalledTimes(1);
     // The first fact's context carries the predicate, as it always did.
-    expect((registry.canonicalize.mock.calls[0] as unknown[])[2]).toBe('signed_on: 18 сентября');
+    expect((registry.canonicalize.mock.calls[0] as unknown[])[2]).toEqual({
+      text: 'signed_on: 18 сентября',
+      cardinality: undefined,
+    });
     expect(facts.map((f) => f.predicate)).toEqual(['occurred_on', 'occurred_on']);
     expect(decisions).toEqual([
       { original: 'signed_on', canonical: 'occurred_on', kind: 'aliased', similarity: 0.7 },
