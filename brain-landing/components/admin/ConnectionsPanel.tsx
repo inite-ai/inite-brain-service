@@ -281,7 +281,11 @@ export function ConnectionsPanel() {
                     <KindLabel family={familyOf(c)} connector={c.connector} t={t} />
                     <span className="text-[var(--text-faint)]">
                       {' · '}
-                      {c.shape === 'binary' ? t.form.shape.binary : t.form.shape.document}
+                      {c.shape === 'binary'
+                        ? t.form.shape.binary
+                        : c.shape === 'structure'
+                          ? t.form.shape.structure
+                          : t.form.shape.document}
                     </span>
                     <div className="font-mono text-[10px] text-[var(--text-faint)]">
                       {c.packId}

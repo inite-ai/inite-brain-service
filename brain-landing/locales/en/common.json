@@ -975,7 +975,11 @@
           "keyMissing": "The brain has no SOURCE_CREDENTIAL_ENCRYPTION_KEY — tokens are never stored in the clear, so no account can be connected until it is set.",
           "scopesShort": "This account was connected with narrower permissions; connect it again.",
           "token": "or an API token",
-          "tokenHint": "Pasted once, stored encrypted; a connected account is preferred where the CRM offers one."
+          "tokenHint": "Pasted once, stored encrypted; a connected account is preferred where the CRM offers one.",
+          "webhookUrl": "Inbound webhook URL",
+          "webhookUrlHint": "https://<portal>.bitrix24.ru/rest/<user>/<code>/ — made in Developer resources → Other → Inbound webhook, scope crm (+ user for owner names). The code is the secret: stored encrypted, never shown again.",
+          "longLivedToken": "Long-lived token",
+          "longLivedTokenHint": "From the private integration in Settings → Integrations (valid for years). Stored encrypted, never shown again."
         },
         "errors": {
           "required": "required",
@@ -1253,6 +1257,22 @@
               "label": "API domain",
               "hint": "The api_domain of the account (https://<company>.pipedrive.com); empty = api.pipedrive.com."
             }
+          },
+          "bitrix24": {
+            "allowPrivate": {
+              "label": "Allow private hosts",
+              "hint": "A self-hosted portal on the LAN — the deployment already opted in."
+            }
+          },
+          "kommo": {
+            "baseUrl": {
+              "label": "Account URL",
+              "hint": "https://<subdomain>.kommo.com or https://<subdomain>.amocrm.ru."
+            },
+            "allowPrivate": {
+              "label": "Allow private hosts",
+              "hint": "Loopback / LAN addresses — the deployment already opted in."
+            }
           }
         },
         "authOptions": {
@@ -1322,7 +1342,8 @@
         "verticalHint": "contextRef.vertical on every fact this connection writes; defaults to the pack.",
         "shape": {
           "document": "documents",
-          "binary": "files"
+          "binary": "files",
+          "structure": "records"
         }
       },
       "kinds": {

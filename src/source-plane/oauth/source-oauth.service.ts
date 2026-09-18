@@ -18,6 +18,7 @@ import {
 import { OAuthCallbackError } from './oauth-errors';
 import {
   OAUTH_PROVIDER_IDS,
+  identityUrl,
   isOAuthProviderId,
   pickAccount,
   providerClientIdEnv,
@@ -419,7 +420,7 @@ export class SourceOAuthService {
   /** The account label — never fatal: a grant without a name is still a grant. */
   private async identity(provider: ResolvedProvider, accessToken: string): Promise<string | null> {
     try {
-      const res = await safeFetch(provider.identity.url, {
+      const res = await safeFetch(identityUrl(provider, accessToken), {
         method: provider.identity.method,
         headers: {
           authorization: `Bearer ${accessToken}`,

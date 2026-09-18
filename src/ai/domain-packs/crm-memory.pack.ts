@@ -30,11 +30,12 @@ const single = {
  * connection maps its pipeline's stages onto it (the vendor label is
  * always kept as the plain `deal_stage` fact). Sources: `push` — any
  * automation posts record envelopes to the connection's records
- * endpoint; the vendor connectors follow (`pipedrive` first).
+ * endpoint — and the vendor connectors on the records contract:
+ * `pipedrive`, `hubspot`, `bitrix24`, `kommo`.
  */
 export const CRM_MEMORY_PACK: DomainPackManifest = {
   id: 'crm_memory',
-  version: '0.1.0',
+  version: '0.2.0',
   description:
     'What a CRM knows — people, organizations and deals as facts with the revision they were read at: title, company, owner, stage, amount, dates, source. Records enter deterministically through the records door (no model call); prose fields (notes) go to the ordinary extractor.',
   indexer: {
@@ -59,6 +60,36 @@ export const CRM_MEMORY_PACK: DomainPackManifest = {
       title: 'Pipedrive',
       description:
         'Deals, persons and organizations of a Pipedrive account, incrementally through updated_since + cursor (API v2), as a connected account or with an API token. config: { entities?, mapping?, apiDomain? }.',
+      defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '1h' },
+    },
+    {
+      id: 'hubspot',
+      kind: 'native',
+      connector: 'hubspot',
+      shape: 'structure',
+      title: 'HubSpot',
+      description:
+        'Deals, contacts and companies of a HubSpot portal, incrementally through the CRM Search API (last-modified windows + cursor; associations read per page), as a connected account or with a private-app access token. config: { entities?, mapping? }.',
+      defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '1h' },
+    },
+    {
+      id: 'bitrix24',
+      kind: 'native',
+      connector: 'bitrix24',
+      shape: 'structure',
+      title: 'Bitrix24',
+      description:
+        'Deals, leads, contacts and companies of a Bitrix24 portal through crm.item.list (filter[>updatedTime] + start), stages / sources / pipelines resolved to names, with an inbound webhook URL as the credential. config: { entities?, mapping?, allowPrivate? }.',
+      defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '1h' },
+    },
+    {
+      id: 'kommo',
+      kind: 'native',
+      connector: 'kommo',
+      shape: 'structure',
+      title: 'Kommo / amoCRM',
+      description:
+        'Leads (deals), contacts and companies of a Kommo or amoCRM account through API v4 (filter[updated_at][from] + page), statuses / pipelines / users resolved to names, with a long-lived token of a private integration. config: { baseUrl, entities?, mapping? }.',
       defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '1h' },
     },
   ],

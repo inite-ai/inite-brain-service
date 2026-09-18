@@ -352,7 +352,7 @@ export const SourceAgentsResponseSchema = z.object({ agents: z.array(SourceAgent
 
 // ── Connected accounts (W4) ──────────────────────────────────────────
 
-export const SourceOAuthProviderIdSchema = z.enum(['google', 'microsoft', 'dropbox', 'pipedrive'])
+export const SourceOAuthProviderIdSchema = z.enum(['google', 'microsoft', 'dropbox', 'pipedrive', 'hubspot'])
 
 export const SourceOAuthStartRequestSchema = z.object({
   provider: SourceOAuthProviderIdSchema,

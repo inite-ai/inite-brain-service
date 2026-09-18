@@ -11,6 +11,7 @@ import {
   type ListPage,
 } from '../records/records-connector';
 import { cloudHttp, type CloudHttp } from './cloud-http';
+import { isoOf, scalars } from './records-vendor';
 
 /**
  * `pipedrive` — the first CRM connector on the records contract
@@ -300,7 +301,7 @@ export function toEnvelope(entity: string, row: unknown, l: Lookups): RecordEnve
               ]
             : []),
         ],
-        ...(d.update_time ? { updatedAt: toIso(d.update_time) } : {}),
+        ...(d.update_time ? { updatedAt: isoOf(d.update_time) } : {}),
       };
     }
     case 'person': {
@@ -320,7 +321,7 @@ export function toEnvelope(entity: string, row: unknown, l: Lookups): RecordEnve
           p.org_id != null
             ? [{ kind: 'works_at', targetType: 'organization', targetExternalId: String(p.org_id) }]
             : [],
-        ...(p.update_time ? { updatedAt: toIso(p.update_time) } : {}),
+        ...(p.update_time ? { updatedAt: isoOf(p.update_time) } : {}),
       };
     }
     case 'organization': {
@@ -335,7 +336,7 @@ export function toEnvelope(entity: string, row: unknown, l: Lookups): RecordEnve
           add_time: o.add_time,
         }),
         relations: [],
-        ...(o.update_time ? { updatedAt: toIso(o.update_time) } : {}),
+        ...(o.update_time ? { updatedAt: isoOf(o.update_time) } : {}),
       };
     }
     default:
@@ -348,22 +349,6 @@ function primary(
 ): string | undefined {
   if (!items?.length) return undefined;
   return (items.find((i) => i.primary) ?? items[0])?.value || undefined;
-}
-
-function scalars(
-  raw: Record<string, string | number | boolean | null | undefined>,
-): Record<string, string | number | boolean | null> {
-  const out: Record<string, string | number | boolean | null> = {};
-  for (const [k, v] of Object.entries(raw)) {
-    if (v === undefined || v === null || v === '') continue;
-    out[k] = v;
-  }
-  return out;
-}
-
-function toIso(v: string): string {
-  const d = new Date(v.includes('T') || v.endsWith('Z') ? v : `${v.replace(' ', 'T')}Z`);
-  return Number.isNaN(d.getTime()) ? v : d.toISOString();
 }
 
 function apiBase(ctx: ConnectorCtx): string {

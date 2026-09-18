@@ -339,21 +339,33 @@ deals vocabulary, the `deal_stage` funnel, every predicate
 (its own paging and `updated_since`), `get`, its `preset`; the base does
 per-entity checkpoints with an overlap window, `<type>/<id>` items with
 `updatedAt` as revision, the run cache, relation targets named from the
-run (else one bounded `get`), the gone sweep on a full walk. First
-vendor: **`pipedrive`** (`SOURCE_KIND_PIPEDRIVE`; connected account or
-API token on `x-api-token`; deals / persons / organizations; stage,
-pipeline and owner ids resolved to names). **Push**: any automation
-posts envelopes to `POST /v1/source-connections/:id/records`. The
-catalogue entry carries `records: { entities, preset, predicates }` for
-the connect form; `POST …/preview` shows what the mapping makes of the
-first records before the connection exists.
+run (else one bounded `get`), the gone sweep on a full walk. The
+vendors on it (each `SOURCE_KIND_<VENDOR>`, each a `crm_memory` source;
+every vendor row becomes the same envelope, every id resolved to its
+name once per run):
+
+| Vendor | Credential | Incremental walk | Relations |
+|---|---|---|---|
+| `pipedrive` | connected account, or an API token (`x-api-token`) | API v2 `updated_since` + `cursor`, 500 a page | deal → person / organization by id |
+| `hubspot` | connected account (scopes per object), or a private-app access token | CRM v3 Search per object: `hs_lastmodifieddate GTE since` sorted ascending, `after` cursor, 200 a page; at the 10 000-result cap the window restarts from the last row's modified-at | v4 associations batch read per page (deal → contacts / companies, contact → companies) |
+| `bitrix24` | an **inbound webhook URL** (`https://<portal>/rest/<user>/<code>/`, scope `crm` + `user`), stored encrypted, the code never echoed | `crm.item.list` per `entityTypeId` (deal / lead / contact / company), `filter[>updatedTime]` + `order`, `start` offset, 50 a page; `crm.status.list` / `crm.category.list` / `user.get` for names | `contactId` / `companyId` on the item |
+| `kommo` | a **long-lived token** of a private integration + `config.baseUrl` (`https://<sub>.kommo.com` / `.amocrm.ru`) | API v4 `filter[updated_at][from]` + `order[updated_at]`, `page`, 250 a page, `with=contacts`; pipelines / statuses / users / loss reasons / the account currency for names | `_embedded.contacts` / `_embedded.companies` |
+
+Bitrix24's OAuth (per-portal authorize URL) and Kommo's (token endpoint
+on the account's host, JSON body) wait for the per-origin provider lane
+(W4.3); both vendors' native "make a token in the settings" path is the
+one their SMB admins use. **Push**: any automation posts envelopes to
+`POST /v1/source-connections/:id/records`. The catalogue entry carries
+`records: { entities, preset, predicates }` for the connect form;
+`POST …/preview` shows what the mapping makes of the first records
+before the connection exists.
 
 ## Connected accounts (W4) — the brain as an OAuth client
 
 The cloud natives run as an **account an admin connected once**, not as
 a token pasted into a form. The brain is an outbound OAuth 2.1 client
 (`src/source-plane/oauth/`): authorization code + PKCE (S256) against a
-platform provider — Google, Microsoft, Dropbox (`oauth-providers.ts`,
+platform provider — Google, Microsoft, Dropbox, Pipedrive, HubSpot (`oauth-providers.ts`,
 platform code like the connectors: a pack names a connector, the
 connector names its provider and scopes, nothing else knows an
 authorize URL).
@@ -446,6 +458,8 @@ pack may only name it.
 | `SOURCE_KIND_MCP` | `0` | the `mcp` harvester (W2) |
 | `SOURCE_KIND_GDRIVE`, `SOURCE_KIND_ONEDRIVE`, `SOURCE_KIND_DROPBOX` | `0` | the cloud-drive natives (W4) — each also needs `SOURCE_OAUTH_CLIENT` |
 | `SOURCE_KIND_PIPEDRIVE` | `0` | the first CRM connector on the records contract (W4.2); a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_PIPEDRIVE_CLIENT_ID`, an API token needs neither |
+| `SOURCE_KIND_HUBSPOT` | `0` | the `hubspot` connector (W4.2b); a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_HUBSPOT_CLIENT_ID`, a private-app token needs neither |
+| `SOURCE_KIND_BITRIX24`, `SOURCE_KIND_KOMMO` | `0` | the `bitrix24` (inbound webhook URL) and `kommo` (long-lived token) connectors (W4.2b) — no OAuth app needed |
 | `SOURCE_OAUTH_CLIENT` | `0` | the brain as an outbound OAuth client: connected accounts, the public callback, refresh (W4) |
 | `SOURCE_CREDENTIAL_ENCRYPTION_KEY` (+ `_PREVIOUS`) | unset | credentials and grants encrypted at rest; required for OAuth |
 | `SOURCE_OAUTH_<P>_CLIENT_ID` / `_CLIENT_SECRET` / `_BASE_URL` | unset | the operator's app per provider; the dev override |

@@ -7539,7 +7539,8 @@
                     "google",
                     "microsoft",
                     "dropbox",
-                    "pipedrive"
+                    "pipedrive",
+                    "hubspot"
                   ],
                   "type": "string"
                 },
@@ -7593,7 +7594,8 @@
               "google",
               "microsoft",
               "dropbox",
-              "pipedrive"
+              "pipedrive",
+              "hubspot"
             ],
             "type": "string"
           }

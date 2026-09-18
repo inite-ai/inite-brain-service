@@ -1658,6 +1658,60 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the Pipedrive (OAuth + API) counterpart.',
   },
   {
+    key: 'SOURCE_KIND_HUBSPOT',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `hubspot` source connector (source plane, W4.2b — a CRM on the records contract, docs/roadmap/crm-sources-2026-09.md): deals, contacts and companies of a HubSpot portal through the CRM v3 Search API (one query per object sorted by last-modified, `GTE since` for the incremental walk, `after` cursor, the 10 000-result cap narrowed into windows; associations batch-read per page; owners / deal pipelines / lifecycle stages resolved to labels once per run), as a connected account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_HUBSPOT_CLIENT_ID; scopes crm.objects.{deals,contacts,companies,owners}.read) or with a private-app access token. Records enter the records door (crm_memory). Off (default) = 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_OAUTH_HUBSPOT_CLIENT_ID',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The client id of the HubSpot app the brain connects HubSpot accounts through (a public app in the developer account; the brain's callback URL as its redirect URL; the app's scopes must include the ones the connector asks). Unset = HubSpot is 'not configured' — a private-app access token still works as the connection's credential.",
+  },
+  {
+    key: 'SOURCE_OAUTH_HUBSPOT_CLIENT_SECRET',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description: 'The client secret of the HubSpot app named by SOURCE_OAUTH_HUBSPOT_CLIENT_ID.',
+  },
+  {
+    key: 'SOURCE_OAUTH_HUBSPOT_BASE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the HubSpot (OAuth + API) counterpart.',
+  },
+  {
+    key: 'SOURCE_KIND_BITRIX24',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `bitrix24` source connector (source plane, W4.2b — a CRM on the records contract): deals, leads, contacts and companies of a Bitrix24 portal through `crm.item.list` / `crm.item.get` (one entityTypeId per entity; `filter[>updatedTime]` + `start` offset for the incremental walk; stages / statuses / sources / industries resolved through crm.status.list, pipelines through crm.category.list, responsible users through user.get when the webhook has the `user` scope). The credential is an INBOUND WEBHOOK URL the portal admin makes (`https://<portal>/rest/<user>/<code>/`, scope crm) — stored encrypted, never echoed. A self-hosted portal on the LAN needs the double opt-in (`config.allowPrivate` + SOURCE_EGRESS_ALLOW_PRIVATE). Records enter the records door (crm_memory). Off (default) = 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_KIND_KOMMO',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `kommo` source connector (source plane, W4.2b — a CRM on the records contract): leads (deals), contacts and companies of a Kommo / amoCRM account through API v4 (`filter[updated_at][from]` + `page`, 250 a page, `with=contacts`; pipelines / statuses / users / loss reasons resolved to names once per run; the account currency on every lead). The credential is a LONG-LIVED TOKEN of a private integration (a bearer); `config.baseUrl` names the account (`https://<subdomain>.kommo.com` / `.amocrm.ru`). Records enter the records door (crm_memory). Off (default) = 'not installed' — byte-identical.",
+  },
+  {
     key: 'SOURCE_OAUTH_CLIENT',
     category: 'pipeline',
     defaultValue: '0',
