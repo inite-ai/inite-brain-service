@@ -40,8 +40,16 @@ export interface FieldSpec {
   browse?: boolean
 }
 
+/** What the single credential is called when it is not a plain token (`form.credential.<label>` / `<label>Hint`). */
+export type CredentialLabel = 'webhookUrl' | 'longLivedToken'
+
 export type CredentialSpec =
-  | { kind: 'single'; required: (values: FormValues) => boolean; shown: (values: FormValues) => boolean }
+  | {
+      kind: 'single'
+      required: (values: FormValues) => boolean
+      shown: (values: FormValues) => boolean
+      label?: CredentialLabel
+    }
   | { kind: 'pair'; required: false; shown: (values: FormValues) => boolean }
   /** A connected account (the catalogue entry's `oauth` names the provider); required on the brain host. */
   | { kind: 'oauth' }
@@ -229,6 +237,22 @@ const DROPBOX: ConnectorForm = {
   credential: { kind: 'oauth' },
 }
 
+const HUBSPOT: ConnectorForm = { fields: [], credential: { kind: 'oauth' } }
+
+/** The credential IS the inbound webhook URL (its code is the secret); a self-hosted portal may sit on the LAN. */
+const BITRIX24: ConnectorForm = {
+  fields: [allowPrivate],
+  credential: { kind: 'single', required: () => true, shown: () => true, label: 'webhookUrl' },
+}
+
+const KOMMO: ConnectorForm = {
+  fields: [
+    { key: 'baseUrl', type: 'url', required: true, mono: true, placeholder: 'https://acme.kommo.com' },
+    allowPrivate,
+  ],
+  credential: { kind: 'single', required: () => true, shown: () => true, label: 'longLivedToken' },
+}
+
 const MCP_STDIO: ConnectorForm = { fields: [], credential: null }
 
 const GIT: ConnectorForm = {
@@ -283,6 +307,12 @@ export function formFor(entry: SourceCatalogEntry): ConnectorForm | null {
       return DROPBOX
     case 'pipedrive':
       return PIPEDRIVE
+    case 'hubspot':
+      return HUBSPOT
+    case 'bitrix24':
+      return BITRIX24
+    case 'kommo':
+      return KOMMO
     default:
       return null
   }

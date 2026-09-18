@@ -10,9 +10,12 @@ import { AgentRunService } from './agent-run.service';
 import { AgentSourceConnectionsController } from './agent-source-connections.controller';
 import { AgentSyncService } from './agent-sync.service';
 import { SOURCE_CONNECTORS, type Connector } from './connector';
+import { Bitrix24Connector } from './connectors/bitrix24.connector';
 import { DropboxConnector } from './connectors/dropbox.connector';
 import { FsConnector } from './connectors/fs.connector';
 import { GDriveConnector } from './connectors/gdrive.connector';
+import { HubSpotConnector } from './connectors/hubspot.connector';
+import { KommoConnector } from './connectors/kommo.connector';
 import { McpConnector } from './connectors/mcp.connector';
 import { OneDriveConnector } from './connectors/onedrive.connector';
 import { PipedriveConnector } from './connectors/pipedrive.connector';
@@ -51,9 +54,10 @@ import { SourceSyncService } from './source-sync.service';
  * a connected account (SOURCE_OAUTH_CLIENT: the brain as an outbound
  * OAuth client, grants encrypted under SOURCE_CREDENTIAL_ENCRYPTION_KEY, resolved
  * through CredentialProvider at run time); the records contract (W4.2,
- * `records/`) with `pipedrive` (SOURCE_KIND_PIPEDRIVE) as its first
- * vendor and the records door behind every `structure` item; webdav
- * follows. A kind whose
+ * `records/`) with the CRM vendors on it — `pipedrive`
+ * (SOURCE_KIND_PIPEDRIVE), `hubspot` (SOURCE_KIND_HUBSPOT), `bitrix24`
+ * (SOURCE_KIND_BITRIX24), `kommo` (SOURCE_KIND_KOMMO) — and the records
+ * door behind every `structure` item; webdav follows. A kind whose
  * switch is off is "not installed" to the engine: a connection of it
  * records a failed sync with "no installed connector", never a crash.
  *
@@ -81,6 +85,9 @@ import { SourceSyncService } from './source-sync.service';
     OneDriveConnector,
     DropboxConnector,
     PipedriveConnector,
+    HubSpotConnector,
+    Bitrix24Connector,
+    KommoConnector,
     {
       provide: SOURCE_CONNECTORS,
       useFactory: (...connectors: Connector[]): Connector[] => connectors,
@@ -93,6 +100,9 @@ import { SourceSyncService } from './source-sync.service';
         OneDriveConnector,
         DropboxConnector,
         PipedriveConnector,
+        HubSpotConnector,
+        Bitrix24Connector,
+        KommoConnector,
       ],
     },
     SourceOAuthService,

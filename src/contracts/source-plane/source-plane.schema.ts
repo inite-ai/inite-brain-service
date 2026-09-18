@@ -701,7 +701,13 @@ export type BrowseResponse = z.infer<typeof BrowseResponseSchema>;
 
 const GRANT_ID = /^source_oauth_grant:[A-Za-z0-9_]+$/;
 
-export const SourceOAuthProviderIdSchema = z.enum(['google', 'microsoft', 'dropbox', 'pipedrive']);
+export const SourceOAuthProviderIdSchema = z.enum([
+  'google',
+  'microsoft',
+  'dropbox',
+  'pipedrive',
+  'hubspot',
+]);
 export type SourceOAuthProviderId = z.infer<typeof SourceOAuthProviderIdSchema>;
 
 export const SourceOAuthStartRequestSchema = z.object({

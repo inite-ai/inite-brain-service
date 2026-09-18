@@ -28,6 +28,7 @@ import {
   initialValues,
   validate,
   visibleFields,
+  type CredentialLabel,
   type FieldError,
   type FormContext,
   type FormValues,
@@ -647,6 +648,7 @@ function SourceStep({
       {form.credential && form.credential.kind !== 'oauth' && form.credential.shown(values) && (
         <CredentialFields
           kind={form.credential.kind}
+          label={form.credential.kind === 'single' ? form.credential.label : undefined}
           secret={secret}
           error={errors['credential'] ? f.errors.credential : null}
           t={t}
@@ -677,12 +679,14 @@ function SourceStep({
 
 function CredentialFields({
   kind,
+  label,
   secret,
   error,
   t,
   onChange,
 }: {
   kind: 'single' | 'pair'
+  label?: CredentialLabel | undefined
   secret: SecretValues
   error: string | null
   t: ConnectionsT
@@ -712,8 +716,10 @@ function CredentialFields({
       </div>
     )
   }
+  const named = label ? c[label] : c.single
+  const namedHint = label ? c[`${label}Hint`] : c.singleHint
   return (
-    <Field label={c.single} hint={error ?? c.singleHint} error={!!error}>
+    <Field label={named} hint={error ?? namedHint} error={!!error}>
       <input
         type="password"
         value={secret.single}

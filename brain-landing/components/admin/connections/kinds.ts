@@ -41,6 +41,9 @@ export function familyOf(e: { kind: string; connector: string }): SourceFamily {
     case 'dropbox':
       return e.connector
     case 'pipedrive':
+    case 'hubspot':
+    case 'bitrix24':
+    case 'kommo':
       return 'records'
     default:
       return 'other'

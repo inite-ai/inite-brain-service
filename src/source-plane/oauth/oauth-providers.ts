@@ -22,13 +22,14 @@
  * access token lives.
  */
 
-export type OAuthProviderId = 'google' | 'microsoft' | 'dropbox' | 'pipedrive';
+export type OAuthProviderId = 'google' | 'microsoft' | 'dropbox' | 'pipedrive' | 'hubspot';
 
 export const OAUTH_PROVIDER_IDS: readonly OAuthProviderId[] = [
   'google',
   'microsoft',
   'dropbox',
   'pipedrive',
+  'hubspot',
 ];
 
 export interface OAuthProviderSpec {
@@ -46,7 +47,11 @@ export interface OAuthProviderSpec {
   apiBase: string;
   /** A second origin for bytes (Dropbox serves content from its own host). */
   contentBase?: string | undefined;
-  /** How the account label is read once a token is in hand (`pick` entries may be dotted paths). */
+  /**
+   * How the account label is read once a token is in hand (`pick`
+   * entries may be dotted paths). A `{token}` in the URL is the access
+   * token itself (HubSpot describes a token at `/access-tokens/{token}`).
+   */
   identity: { method: 'GET' | 'POST'; url: string; pick: string[] };
   /** Best-effort revocation on disconnect; absent = the user revokes at the provider. */
   revoke?: { url: string; style: 'token_param' | 'bearer' } | undefined;
@@ -115,6 +120,24 @@ const SPECS: Record<OAuthProviderId, OAuthProviderSpec> = {
       pick: ['data.email', 'data.name'],
     },
   },
+  hubspot: {
+    id: 'hubspot',
+    title: 'HubSpot',
+    authorizeUrl: 'https://app.hubspot.com/oauth/authorize',
+    tokenUrl: 'https://api.hubapi.com/oauth/v1/token',
+    // HubSpot always returns a refresh token; its scopes are asked per
+    // grant (the connector names the objects it reads) and must be a
+    // subset of the app's. No PKCE at HubSpot — the verifier we send is
+    // ignored, the state + the app secret carry the flow.
+    authorizeParams: {},
+    baseScopes: ['oauth'],
+    apiBase: 'https://api.hubapi.com',
+    identity: {
+      method: 'GET',
+      url: 'https://api.hubapi.com/oauth/v1/access-tokens/{token}',
+      pick: ['user', 'hub_domain'],
+    },
+  },
 };
 
 /** A provider as this deployment can use it: its spec with the operator's app and any dev override applied. */
@@ -157,6 +180,11 @@ const ENV_NAMES: Record<
     clientId: 'SOURCE_OAUTH_DROPBOX_CLIENT_ID',
     clientSecret: 'SOURCE_OAUTH_DROPBOX_CLIENT_SECRET',
     baseUrl: 'SOURCE_OAUTH_DROPBOX_BASE_URL',
+  },
+  hubspot: {
+    clientId: 'SOURCE_OAUTH_HUBSPOT_CLIENT_ID',
+    clientSecret: 'SOURCE_OAUTH_HUBSPOT_CLIENT_SECRET',
+    baseUrl: 'SOURCE_OAUTH_HUBSPOT_BASE_URL',
   },
 };
 
@@ -209,6 +237,11 @@ export function resolveProvider(
   if (!clientId) return null;
   const clientSecret = env[ENV_NAMES[id].clientSecret]?.trim() ?? '';
   return { ...providerEndpoints(id, env), clientId, clientSecret };
+}
+
+/** The identity URL for one token: the `{token}` placeholder (also as the URL parser percent-encodes it), when the provider has one, filled in. */
+export function identityUrl(spec: OAuthProviderSpec, accessToken: string): string {
+  return spec.identity.url.replace(/\{token\}|%7Btoken%7D/i, encodeURIComponent(accessToken));
 }
 
 /** The account label out of an identity response: the first named key that is a non-empty string. */

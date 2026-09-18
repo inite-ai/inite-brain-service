@@ -185,6 +185,44 @@ describe('connect form specs', () => {
     ])
   })
 
+  it('CRM vendors: HubSpot as an account or a pasted token; Bitrix24 takes the webhook URL as its credential; Kommo needs the account URL and a token', () => {
+    const hubspot = entry({
+      packId: 'crm_memory',
+      sourceId: 'hubspot',
+      connector: 'hubspot',
+      shape: 'structure',
+      hosts: ['server'],
+      credentialHint: 'a connected HubSpot account (oauth:<grant id>), or a private-app access token',
+      oauth: { provider: 'hubspot', title: 'HubSpot', scopes: ['crm.objects.deals.read'], configured: false },
+    })
+    const hf = formFor(hubspot)!
+    expect(hf.credential).toEqual({ kind: 'oauth' })
+    expect(visibleFields(hf, initialValues(hf, hubspot), ctxFor(hubspot), true)).toEqual([])
+    expect(validate(hf, {}, ctxFor(hubspot), noSecret)).toEqual({ credential: 'account' })
+    expect(credentialFrom(hf, { ...noSecret, single: 'pat-na1-x' })).toBe('pat-na1-x')
+    expect(validate(hf, {}, ctxFor(hubspot), { ...noSecret, single: 'pat-na1-x' })).toEqual({})
+
+    const bitrix = entry({ packId: 'crm_memory', sourceId: 'bitrix24', connector: 'bitrix24', shape: 'structure', hosts: ['server'] })
+    const bf = formFor(bitrix)!
+    expect(bf.credential).toMatchObject({ kind: 'single', label: 'webhookUrl' })
+    const bv = initialValues(bf, bitrix)
+    expect(visibleFields(bf, bv, ctxFor(bitrix), true).map((f) => f.key)).toEqual([])
+    expect(visibleFields(bf, bv, ctxFor(bitrix, { egressAllowPrivate: true }), true).map((f) => f.key)).toEqual(['allowPrivate'])
+    expect(validate(bf, bv, ctxFor(bitrix), noSecret)).toEqual({ credential: 'credential' })
+    const hook = { ...noSecret, single: 'https://acme.bitrix24.ru/rest/1/abc/' }
+    expect(validate(bf, bv, ctxFor(bitrix), hook)).toEqual({})
+    expect(credentialFrom(bf, hook)).toBe('https://acme.bitrix24.ru/rest/1/abc/')
+    expect(configFrom(bf, { ...bv, allowPrivate: true }, ctxFor(bitrix, { egressAllowPrivate: true }))).toEqual({ allowPrivate: true })
+
+    const kommo = entry({ packId: 'crm_memory', sourceId: 'kommo', connector: 'kommo', shape: 'structure', hosts: ['server'] })
+    const kf = formFor(kommo)!
+    expect(kf.credential).toMatchObject({ kind: 'single', label: 'longLivedToken' })
+    const kv = initialValues(kf, kommo)
+    expect(validate(kf, kv, ctxFor(kommo), noSecret)).toEqual({ baseUrl: 'required', credential: 'credential' })
+    expect(validate(kf, { ...kv, baseUrl: 'acme.kommo.com' }, ctxFor(kommo), { ...noSecret, single: 't' })).toEqual({ baseUrl: 'url' })
+    expect(configFrom(kf, { ...kv, baseUrl: 'https://acme.kommo.com' }, ctxFor(kommo))).toEqual({ baseUrl: 'https://acme.kommo.com' })
+  })
+
   it('mcp over http: a named server asks for the url, a pinned one does not; install_secret hides auth', () => {
     const named = entry({
       packId: 'web_memory',
