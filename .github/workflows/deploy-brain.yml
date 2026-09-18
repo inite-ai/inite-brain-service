@@ -211,7 +211,24 @@ jobs:
           AUDIT_CHANGEFEED_ENABLED=1
           # ── Ingest / extraction quality ──
           EXTRACTION_OBJECT_NORMALIZE=1
-          EXTRACTOR_ROUTING_ENABLED=1
+          # The open (dialogue) extraction profile: the model coins a
+          # specific predicate per clause; the closed CRM vocabulary is
+          # applied downstream by canonicalization. Production ran the
+          # CLOSED profile until 2026-09-18 — every business fact was
+          # squeezed into name/status/intent/state_change and contract
+          # amounts and dates were dropped outright (the co_admin
+          # registry: 27 `name` facts of 61, 17 coined Russian-word
+          # predicates). Measured on gpt-5.6-luna, same build:
+          # multilingual T0 temporal-exact-day 0.57 (closed) → 1.00
+          # (open), extraction-f1 0.76 both; memory-fitness 26/32 closed,
+          # 25/32 open, 24/32 open+facets (D1 state currency fails in
+          # every arm — a supersession problem, not a profile one).
+          # Facet routing (EXTRACTOR_ROUTING_ENABLED) only runs under
+          # this profile: it was dead here for months, and measured it
+          # doubles the extractor call for +0.00 f1 and duplicate
+          # predicates — it stays off. Requires re-ingest for old rows.
+          EXTRACTOR_DIALOGUE_PROFILE=1
+          EXTRACTOR_ROUTING_ENABLED=0
           EXTRACTOR_DROP_SAID=1
           INGEST_INLINE_RESOLUTION_ENABLED=1
           INGEST_CONTEXTUAL_FACT_EMBEDDING=1
