@@ -209,17 +209,14 @@ export interface SentenceSpan {
 
 /**
  * Sentence spans with offsets. The boundary is [.!?] + whitespace +
- * an upper-case letter (any script — «Я продал машину. Байка больше
- * нет.» is two sentences, and read as one it fed the RU transition path
- * a guarded whole where the first half was a clean hit) or a digit, so
- * dots INSIDE identifiers (`LSYNC.payouts.*`, `Fly.io`, `v2.3`) never
- * split a sentence. Exported for the sibling deterministic lanes
- * (state-verb and transition harvest) so the lanes attribute matches
- * identically.
+ * an upper-case letter or digit, so dots INSIDE identifiers
+ * (`LSYNC.payouts.*`, `Fly.io`, `v2.3`) never split a sentence.
+ * Exported for the sibling deterministic lane (state-verb-harvest) so
+ * the two lanes attribute matches identically.
  */
 export function sentenceSpans(input: string): SentenceSpan[] {
   const starts = [0];
-  for (const m of input.matchAll(/[.!?]+\s+(?=[\p{Lu}0-9])/gu)) {
+  for (const m of input.matchAll(/[.!?]+\s+(?=[A-Z0-9])/g)) {
     starts.push(m.index + m[0].length);
   }
   return starts.map((start, i) => {

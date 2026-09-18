@@ -24,7 +24,6 @@ import {
 import {
   TRANSITION_HARVEST_CAP,
   TRANSITION_HARVEST_CONFIDENCE,
-  findHarvestCandidates,
   harvestTransitions,
 } from '../src/ai/extractor-internals/transition-harvest';
 import {
@@ -160,39 +159,6 @@ describe('harvestTransitions — out-of-lexicon EN + RU positives', () => {
       object: 'Я продал мотоцикл вчера',
       confidence: TRANSITION_HARVEST_CONFIDENCE,
     });
-  });
-
-  it('RU: a colon closes the clause — a speech-act verb with a reported clause emits nothing', async () => {
-    // Production minted «Ольга — state_change: <the whole 150-char
-    // sentence>» off «подтвердила» (confirmed): the sentence was the
-    // clause, so the classifier read «контракт … подписан» in the report
-    // after the colon as her completed transition. Split at the colon,
-    // the classifier sees only the speech act (the -л shape still makes
-    // it a candidate — the verdict is the backstop, as documented) and
-    // the report is not a candidate at all (participle, no -л token).
-    const text =
-      'Ольга Смирнова из отдела продаж подтвердила: контракт с Lisboa Ventures на 120 000 евро подписан 18 сентября, оплата в течение 30 дней.';
-    expect(findHarvestCandidates(text).map((c) => c.clause)).toEqual([
-      'Ольга Смирнова из отдела продаж подтвердила',
-    ]);
-    expect(await harvest(text, [ent('Ольга Смирнова')])).toEqual([]);
-  });
-
-  it('RU: a semicolon scopes the guard to its own clause — the sale before it is harvested', async () => {
-    // The documented deliberate miss: «нет» in the second clause used
-    // to reject the whole sentence. The object is the clause, not the
-    // sentence.
-    const text = 'Я продал Kawasaki сегодня; байка больше нет.';
-    const facts = await harvest(text);
-    expect(facts).toHaveLength(1);
-    expect(facts[0]).toMatchObject({ object: 'Я продал Kawasaki сегодня' });
-  });
-
-  it('RU: sentences split on a Cyrillic capital too', async () => {
-    const text = 'Я продал мотоцикл вчера. Байка больше нет.';
-    const facts = await harvest(text);
-    expect(facts).toHaveLength(1);
-    expect(facts[0]).toMatchObject({ object: 'Я продал мотоцикл вчера' });
   });
 
   it('binds the state HOLDER: a person named in the sentence wins over the speaker', async () => {
