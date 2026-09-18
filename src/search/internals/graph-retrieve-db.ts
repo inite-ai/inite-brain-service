@@ -248,7 +248,7 @@ export async function fetchFactsForEntities({
   // filter (policy/row-filter.ts) — internal only, assembleGraphHits
   // never surfaces them in the response.
   const [rows] = await db.query<[FactSelect[]]>(
-    `SELECT id, entityId, predicate, predicateAlias, object, confidence,
+    `SELECT id, entityId, predicate, predicateAlias, object, objectMeta, confidence,
             validFrom, validUntil, status, recordedAt,
             source, trustSnapshot, corroboration
        FROM knowledge_fact

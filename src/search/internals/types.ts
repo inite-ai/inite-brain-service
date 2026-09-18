@@ -30,6 +30,13 @@ export interface FactRow {
    *  consumers (policy, chatter, diversity) use `predicateAlias ?? predicate`. */
   predicateAlias?: string;
   object: string;
+  /**
+   * Structured companion of `object` (FLEXIBLE). The write path stamps
+   * `date` (YYYY-MM-DD) when the extractor resolved the calendar day the
+   * value refers to (memory-context contract); the direct fact API
+   * stores a structured object here. Projected by the fact legs.
+   */
+  objectMeta?: Record<string, unknown> | null;
   confidence: number;
   /**
    * Stored content language (ISO 639-1) of the `object`, migration 0020;

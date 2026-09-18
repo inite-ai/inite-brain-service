@@ -1013,7 +1013,14 @@ export class MetricsService implements OnModuleInit {
   }
 
   countRerank(
-    outcome: 'invoked' | 'error' | 'skipped_disabled' | 'skipped_singleton' | 'skipped_margin',
+    outcome:
+      | 'invoked'
+      | 'error'
+      | 'skipped_disabled'
+      | 'skipped_singleton'
+      | 'skipped_margin'
+      // No more candidates than the caller's limit — nothing to cut.
+      | 'skipped_all_fit',
   ): void {
     this.searchRerankCount.inc({ outcome } as LabelValues<'outcome'>);
   }
@@ -1072,6 +1079,9 @@ export class MetricsService implements OnModuleInit {
       // Tier 5: the answer was STILL not in the target language after that
       // retry (the bounded "then flag" — served best-effort).
       | 'answer_lang_unresolved'
+      // The revision round ran on a partial verdict (revise-round.ts);
+      // the final outcome is still counted by the exits above.
+      | 'revised'
       | 'verifier_error',
   ): void {
     this.synthesizeCount.inc({ outcome } as LabelValues<'outcome'>);

@@ -47,6 +47,7 @@ const fullFact: Required<SearchHit['facts'][number]> = {
   predicate: 'complained_about',
   predicateAlias: 'complained_about',
   object: 'late maintenance',
+  date: '2026-09-01',
   confidence: 0.85,
   validFrom: '2026-09-01T10:00:00.000Z',
   validUntil: '2026-10-01T00:00:00.000Z',
@@ -64,7 +65,15 @@ const fullSearchHit: Required<SearchHit> = {
   entityType: 'person',
   canonicalName: 'Customer 42',
   externalRefs: { rent: 'cust_42' },
-  relations: [{ kind: 'works_at', peer: 'Acme', peerType: 'company' }],
+  relations: [
+    {
+      kind: 'works_at',
+      peer: 'Acme',
+      peerType: 'company',
+      edgeId: 'knowledge_edge:acme',
+      direction: 'out',
+    },
+  ],
   facts: [fullFact],
   score: 0.71,
 };

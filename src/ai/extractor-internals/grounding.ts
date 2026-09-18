@@ -1,3 +1,4 @@
+import { knownEntityId, supersededFactIds, type MemoryContext } from './memory-context';
 import type { ExtractedEntity, ExtractedFact, RawExtractedFact } from './types';
 import type { ExtractionPipelineProfile } from '../extraction-profile';
 
@@ -125,6 +126,12 @@ export function groundEntities(
   const normalizedInput = normalizeForGrounding(trimmedInput);
   const allowed = new Set(allowedNames.map((n) => normalizeForGrounding(n)).filter(Boolean));
   return entities.map((e) => {
+    // A mention pinned to a KNOWN ENTITY (memory-context.ts) is grounded
+    // by construction: the pin is a resolution the graph issued the
+    // handle for, and the extractor routinely writes the entity's known
+    // name for a short mention ("Rui" → "Rui Almeida"). Dropping it
+    // here lost every fact of the turn (measured 2026-09-18).
+    if (e.known) return true;
     const normName = normalizeForGrounding(e.name);
     return (
       allowed.has(normName) ||
@@ -152,19 +159,35 @@ export function normalizeEntityType(t: unknown): ExtractedEntity['type'] {
 }
 
 /** Parse the entities[] array from the raw LLM JSON. */
-export function parseEntities(parsed: unknown): ExtractedEntity[] {
+export function parseEntities(parsed: unknown, memory?: MemoryContext): ExtractedEntity[] {
   const entities = isRecord(parsed) ? parsed.entities : undefined;
   if (!Array.isArray(entities)) return [];
   const out: ExtractedEntity[] = [];
   for (const e of entities as unknown[]) {
     if (!isRecord(e) || typeof e.name !== 'string') continue;
+    // A handle the memory context did not issue maps to nothing — the
+    // mention then resolves like any other.
+    const known = knownEntityId(memory, e.known);
     out.push({
       name: e.name.trim(),
       type: normalizeEntityType(e.type),
       canonical: typeof e.canonical === 'string' ? e.canonical.trim() : undefined,
+      ...(known ? { known } : {}),
     });
   }
   return out;
+}
+
+/** A calendar day the extractor resolved, or undefined for anything else. */
+export function parseEventTime(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw.trim());
+  if (!m) return undefined;
+  const day = `${m[1]}-${m[2]}-${m[3]}`;
+  const ms = Date.parse(`${day}T00:00:00Z`);
+  // A real day only: "2026-02-30" parses to March on some engines.
+  if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== day) return undefined;
+  return day;
 }
 
 /** Parse the clauses[] array — verbatim string sub-spans. */
@@ -178,7 +201,11 @@ export function parseClauses(parsed: unknown): string[] {
  * Pull raw facts out of the LLM JSON with shallow shape validation —
  * entityIndex in bounds, predicate is a string, valueSpan is a string.
  */
-export function parseRawFacts(parsed: unknown, entityCount: number): RawExtractedFact[] {
+export function parseRawFacts(
+  parsed: unknown,
+  entityCount: number,
+  memory?: MemoryContext,
+): RawExtractedFact[] {
   const facts = isRecord(parsed) ? parsed.facts : undefined;
   if (!Array.isArray(facts)) return [];
   const out: RawExtractedFact[] = [];
@@ -194,6 +221,9 @@ export function parseRawFacts(parsed: unknown, entityCount: number): RawExtracte
     ) {
       continue;
     }
+    const eventTime = parseEventTime(f.eventTime);
+    // Handles are mapped to record ids here; invented ones vanish.
+    const supersedes = supersededFactIds(memory, f.supersedes);
     out.push({
       entityIndex: f.entityIndex,
       clauseIndex:
@@ -204,6 +234,8 @@ export function parseRawFacts(parsed: unknown, entityCount: number): RawExtracte
       valueSpan: f.valueSpan.trim(),
       confidence: typeof f.confidence === 'number' ? Math.max(0, Math.min(1, f.confidence)) : 0.5,
       ...(typeof f.object === 'string' && f.object.trim() ? { object: f.object.trim() } : {}),
+      ...(eventTime ? { eventTime } : {}),
+      ...(supersedes.length > 0 ? { supersedes } : {}),
     });
   }
   return out;
@@ -325,6 +357,8 @@ export function applyGroundingGate(
       confidence: rf.confidence,
       clause: clauseText,
       valueSpan: rf.valueSpan,
+      ...(rf.eventTime ? { eventTime: rf.eventTime } : {}),
+      ...(rf.supersedes && rf.supersedes.length > 0 ? { supersedes: rf.supersedes } : {}),
     });
   }
 

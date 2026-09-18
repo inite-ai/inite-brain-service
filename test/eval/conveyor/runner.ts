@@ -272,16 +272,23 @@ async function main(): Promise<void> {
     ),
   );
   check('resolution ladder on the trace', steps.length > 0, steps.join(' | ') || 'no artifact');
+  // Cross-script identity is decided either by the extractor's own pin
+  // (memory context: the mention resolves `known`, no judge needed) or by
+  // the judge for a mention the memory did not hold. Either decision must
+  // be on the trace; a judge call for a mention the extractor already
+  // pinned would be the waste the pin exists to remove.
   const judged = calls.flatMap((c) => c.artifacts.get('ingest.entity.judge') ?? []);
+  const pinned = steps.filter((s) => s.endsWith('→known'));
   check(
-    'judge question and verdict on the trace',
-    judged.length > 0,
-    judged
-      .map((v) => {
+    'cross-script identity decided on the trace (extractor pin or judge)',
+    judged.length > 0 || pinned.length > 0,
+    [
+      ...pinned,
+      ...judged.map((v) => {
         const j = v as { name: string; verdict: string; candidate: { canonicalName?: string } };
         return `${j.name} vs ${j.candidate.canonicalName ?? '?'} → ${j.verdict}`;
-      })
-      .join(' | ') || 'no judge call',
+      }),
+    ].join(' | ') || 'neither a pin nor a judge call',
   );
   const eventTimes = calls.flatMap((c) => c.artifacts.get('ingest.fact.event_time') ?? []);
   const march = eventTimes.some((v) => (v as { resolved: string }).resolved === '2026-03-03');

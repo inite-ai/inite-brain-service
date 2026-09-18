@@ -202,12 +202,15 @@ export function buildGeneratorArgs(
     dateMathLines?: string[] | undefined;
     allowRefine?: boolean | undefined;
     answerLangStrict?: boolean | undefined;
+    /** Revision round: the audited previous answer (revise-round.ts). */
+    revise?: { answer: string; unsupportedClaims: string[] } | undefined;
   },
 ): Omit<GenerateRequest, 'openai' | 'metrics' | 'logger'> {
   const { profile, dto, collected } = ctx;
   return {
     factIndex: o.factIndex ?? ctx.factIndex,
     query: dto.query,
+    revise: o.revise,
     factLines: o.promptFactLines,
     transcriptLines: collected.transcriptLines,
     insightLines: collected.insightLines,
@@ -251,7 +254,7 @@ export function buildGeneratorArgs(
 
 /** Temporal lane forces the Today anchor from asOf; others follow the
  *  profile's dateAnchoring. */
-function resolveLaneDateContext(
+export function resolveLaneDateContext(
   profile: RetrievalProfile,
   lane: LaneId | null,
   asOf: string | undefined,
@@ -289,7 +292,10 @@ export function salvageTruncatedAnswer(content: string): GeneratorOutput | null 
  * matching on the tail is unambiguous.
  */
 function citationTail(id: string): string {
-  return id.replace(/^knowledge_fact[:_]/i, '').replace(/^fact[:_]/i, '');
+  return id
+    .replace(/^knowledge_fact[:_]/i, '')
+    .replace(/^knowledge_edge[:_]/i, '')
+    .replace(/^fact[:_]/i, '');
 }
 
 /**
@@ -310,7 +316,7 @@ export function expandCitationHandles<T extends { answer: string; citedFactIds: 
     const handle = parseFactHandle(raw);
     return handle ? handles.get(handle) : undefined;
   };
-  const answer = generated.answer.replace(/\[(f\d{1,4})\]/gu, (whole, handle: string) => {
+  const answer = generated.answer.replace(/\[([fr]\d{1,4})\]/gu, (whole, handle: string) => {
     const id = idOf(handle);
     return id ? `[${id}]` : whole;
   });
@@ -328,7 +334,8 @@ export function expandCitationHandles<T extends { answer: string; citedFactIds: 
  */
 function extractInlineCitations(answer: string): string[] {
   const ids: string[] = [];
-  const re = /\[((?:knowledge_fact[:_]|fact[:_])?[A-Za-z0-9]{6,}|f\d{1,4})\]/g;
+  const re =
+    /\[((?:knowledge_fact[:_]|knowledge_edge[:_]|fact[:_])?[A-Za-z0-9]{6,}|[fr]\d{1,4})\]/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(answer)) !== null) ids.push(m[1]!); // group 1 is mandatory
   return ids;

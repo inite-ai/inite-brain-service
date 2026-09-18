@@ -70,9 +70,19 @@ export function factHandle(index: number): string {
   return `f${index + 1}`;
 }
 
-/** `f12` / `[f12]` → `f12`; anything else → null. */
+/** A citation that names a knowledge_edge (a relation line), not a fact. */
+export function isEdgeCitation(c: Pick<Citation, 'factId'>): boolean {
+  return c.factId.startsWith('knowledge_edge:');
+}
+
+/** The citation handle of the n-th rendered relation line (0-based). */
+function relationHandle(index: number): string {
+  return `r${index + 1}`;
+}
+
+/** `f12` / `[f12]` / `r3` → the handle; anything else → null. */
 export function parseFactHandle(raw: string): string | null {
-  const m = /^\[?(f\d{1,4})\]?$/u.exec(raw.trim());
+  const m = /^\[?([fr]\d{1,4})\]?$/u.exec(raw.trim());
   return m ? m[1]! : null;
 }
 
@@ -161,19 +171,18 @@ export function buildFactIndex(
     // fact for Thomas and an edge for Maria in the same corpus), and an
     // answer plane that read only facts had the generator asserting an
     // employer the verifier could not find — and dropping the answer.
-    // No bracket on a relation line: a relation is support, not a
-    // citation. Tagged `[relation]`, the generator cited the tag — on the
-    // prod tenant "relocating to Porto" rested on the edge alone and came
-    // back as `citedFactIds: ["relation"]`, which resolves to nothing, so
-    // a correct answer was dropped for want of a citation. With nothing
-    // to copy the model cites the fact handle beside it, or abstains.
+    // A relation is knowledge with a record behind it (knowledge_edge),
+    // so it is CITABLE like a fact: its line carries a handle and the
+    // citation names the edge. Without one, a claim resting on the edge
+    // alone ("Pedro Lima covers for Ana Costa" — the extractor emits the
+    // link as an edge, as told) had nothing to cite and the generator
+    // abstained on a question the graph answered (measured 2026-09-18).
+    // The line reads in the edge's own direction: an incoming edge is
+    // "peer — kind → entity", never the inverse.
     for (const rel of r.relations ?? []) {
-      entries.push({
-        line: `(relation) ${r.canonicalName} (${r.entityType}) — ${rel.kind}: ${rel.peer} (${rel.peerType})`,
-        t: Number.POSITIVE_INFINITY,
-        slot: `${r.entityId}::relation::${rel.kind}::${rel.peer}`,
-        obj: rel.peer,
-      });
+      const entry = relationEntry(r, rel);
+      if (entry.citation) factIndex.set(entry.citation.factId, entry.citation);
+      entries.push(entry);
     }
   }
   if (opts?.markRecency) {
@@ -194,18 +203,51 @@ export function buildFactIndex(
     // entries share +Infinity and keep their relative retrieval order.
     entries.sort((a, b) => a.t - b.t);
   }
-  // Handles follow the rendered order, so "[f3]" is the third line the
-  // model reads. Relation lines carry no handle: support, not a citation.
+  // Handles follow the rendered order, so "[f3]" is the third fact line
+  // the model reads and "[r2]" the second relation line. A relation
+  // without an edge record (a caller-supplied hit) carries no handle.
   let n = 0;
+  let m = 0;
   const handles = new Map<string, string>();
   const factLines = entries.map((e) => {
     if (!e.citation) return e.line;
-    const handle = factHandle(n++);
+    const edge = e.citation.slot.startsWith('edge:');
+    const handle = edge ? relationHandle(m++) : factHandle(n++);
     handles.set(handle, e.citation.factId);
     return `[${handle}] ${e.line}`;
   });
   HANDLES.set(factIndex, handles);
   return { factIndex, factLines };
+}
+
+/** One relation line and, when the edge record is known, its citation. */
+function relationEntry(
+  r: SearchHit,
+  rel: NonNullable<SearchHit['relations']>[number],
+): { line: string; t: number; slot: string; obj: string; citation?: Citation } {
+  const subject = `${r.canonicalName} (${r.entityType})`;
+  const object = `${rel.peer} (${rel.peerType})`;
+  const line =
+    rel.direction === 'in'
+      ? `${object} — ${rel.kind} → ${subject}`
+      : `${subject} — ${rel.kind} → ${object}`;
+  const citation: Citation | undefined = rel.edgeId
+    ? {
+        factId: rel.edgeId,
+        entityId: r.entityId,
+        canonicalName: r.canonicalName,
+        predicate: rel.kind,
+        slot: `edge:${rel.kind}`,
+        object: rel.peer,
+      }
+    : undefined;
+  return {
+    line: citation ? line : `(relation) ${line}`,
+    t: Number.POSITIVE_INFINITY,
+    slot: `${r.entityId}::relation::${rel.kind}::${rel.peer}`,
+    obj: rel.peer,
+    ...(citation ? { citation } : {}),
+  };
 }
 
 /** The flag-gated suffix chain of one fact line: validity, mention
@@ -222,7 +264,11 @@ function factLineSuffixes(
   const elapsed = opts?.elapsedAsOf ? formatElapsed(f.validFrom, opts.elapsedAsOf) : '';
   const mention = opts?.mentionDates ? formatMentionDate(f.mentionedAt, f.validFrom) : '';
   const scene = opts?.sceneTraces && f.scene?.trim() ? ` (context: ${f.scene.trim()})` : '';
-  return `${formatFactValidity(f.validFrom, f.validUntil)}${mention}${scene}${elapsed}`;
+  // The day the value points at, as resolved at write time — "19
+  // сентября" said in September 2026 reads (on 2026-09-19), so the
+  // generator and the date table place it without parsing.
+  const on = f.date && toValidityDate(f.date) ? ` (on ${f.date})` : '';
+  return `${on}${formatFactValidity(f.validFrom, f.validUntil)}${mention}${scene}${elapsed}`;
 }
 
 /**

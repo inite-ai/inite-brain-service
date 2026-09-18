@@ -53,10 +53,13 @@ Definitions:
 
 Be strict on "supported" — a paraphrase that adds detail beyond the evidence is "partial" at best. Cite each unsupported / partially-supported claim by quoting the offending span verbatim.
 
-Three things are NOT unsupported claims:
+Six things are NOT unsupported claims:
 - The graph is multilingual, and the answer is written in the language of the query, not of the evidence. A claim that is a faithful translation of a piece of evidence is directly supported by it: "leads engineering" is supported by "works_as: руководитель инженерного отдела", "CTO" by "职位: 首席技术官". Judge the meaning, not the script.
 - Wording the answer repeats from the query itself is framing, not a claim. If the query asks "who leads engineering at Orbital Dynamics?", then "at Orbital Dynamics" in the answer restates the question; the claim to check is who. Only information the answer ADDS beyond the query needs evidence.
 - Arithmetic on the evidence is not a new claim. A date or period the answer completes from a piece of evidence and that evidence's own date stamp: a RELATIVE expression resolved against the stamp ("next month" stated (as of 2026-09-15) supports "October 2026"; "two weeks ago" stated (as of 2026-03-20) supports "early March 2026"), or a date given without its year taking the year of the stamp ("22 сентября" stated (as of 2026-09-16) supports "22 September 2026"). Likewise a quantity computed from numbers the evidence states — a percentage of a stated amount ("prepayment 30%" of "85 000 евро" supports "25 500 евро"), a sum or difference of stated figures, the span between two stated dates. The generator is instructed to resolve time expressions against the stamp of the fact that states them and to do simple date arithmetic. Such a completion is unsupported only when the arithmetic is wrong, or when the evidence carries no figure or stamp to compute from.
+- Placing the evidence on the calendar relative to the query's date is the same arithmetic. When the message gives Today, a dated piece of evidence is "this week", "next week", "in three days", "the nearest", "the latest", "already past" by plain calendar reckoning from that date — supported whenever the reckoning holds, unsupported only when it is wrong.
+- A statement about the evidence itself is not a claim about the world. "Nothing else is recorded for this week", "the earlier amount is not stated", "no other meeting is mentioned" describe what the evidence contains; they need no supporting line. Such a statement is unsupported only when the evidence DOES contain what the answer says it lacks.
+- Layout is not a claim. A heading, a grouping, an ordering or a connective ("this week: …; later: …", "first …, then …", "key deadline") the answer imposes on supported items adds no fact; judge the items. It is unsupported only when the grouping itself asserts something the evidence contradicts (a date placed under a week it does not fall in).
 
 Output strictly the JSON shape requested by the schema.`;
 
@@ -127,12 +130,19 @@ export interface VerifyRequest {
    * (answer-integrity.ts citedCapabilities).
    */
   capabilityEvidenceLines?: string[] | undefined;
+  /**
+   * The date the generator was told is "today" (the same
+   * dateContext), so calendar placement relative to it can be judged
+   * rather than flagged. Absent ⇒ no Today line.
+   */
+  dateContext?: string | undefined;
   model: string;
 }
 
 /** Compose the auditor's evidence sections; empty ones are omitted. */
 function buildVerifierUserMessage({
   query,
+  dateContext,
   answer,
   factLines,
   transcriptLines,
@@ -144,6 +154,7 @@ function buildVerifierUserMessage({
   capabilityEvidenceLines,
 }: {
   query: string;
+  dateContext?: string | undefined;
   answer: string;
   factLines: string[];
   transcriptLines?: string[] | undefined;
@@ -198,7 +209,8 @@ function buildVerifierUserMessage({
         capabilityEvidenceLines.join('\n'),
     );
   }
-  return `Query: ${query}\n\nAnswer:\n${answer}\n\n${sections.join('\n\n')}`;
+  const today = dateContext ? `Today (the query's date): ${dateContext}\n` : '';
+  return `Query: ${query}\n${today}\nAnswer:\n${answer}\n\n${sections.join('\n\n')}`;
 }
 
 /**

@@ -21,6 +21,8 @@ export interface MergedEntity {
   name: string;
   type: string;
   canonical?: string | undefined;
+  /** knowledge_entity the extractor pinned the mention to (memory context). */
+  known?: string | undefined;
   /** Leader first; the rest fold to status 'merged'. */
   candidateIds: string[];
 }
@@ -45,6 +47,10 @@ export interface MergedFact {
   confidence: number;
   entropy?: number | undefined;
   clause?: string | undefined;
+  /** YYYY-MM-DD the value refers to (memory context); leader's, else any contributor's. */
+  eventTime?: string | undefined;
+  /** knowledge_fact ids this fact replaces — the union across contributors. */
+  supersedes?: string[] | undefined;
   /** Leader's indexer — becomes the committed fact's source.recorder. */
   recorder: string;
   leaderId: string;
@@ -129,16 +135,19 @@ function mergeEntities(rows: CandidateRow[], ctx: MergeContext): MergedEntity[] 
   for (const it of items) {
     const key = dsu.find(it.nameKey);
     ctx.scopeToKey.set(scopeRef(it.row.runId, it.row.chunkSeq, it.row.payload.entityIndex), key);
+    const known = typeof it.row.payload.known === 'string' ? it.row.payload.known : undefined;
     const existing = entities.get(key);
     if (existing) {
       existing.candidateIds.push(it.row.id);
       if (!existing.canonical && it.canonical) existing.canonical = it.canonical;
+      if (!existing.known && known) existing.known = known;
     } else {
       entities.set(key, {
         key,
         name: it.name,
         type: normalizeType(it.row.payload.type),
         canonical: it.canonical,
+        ...(known ? { known } : {}),
         candidateIds: [it.row.id],
       });
     }
@@ -236,6 +245,8 @@ function foldFactIntoGroup(p: {
       confidence: row.confidence,
       entropy: numOrUndefined(payload.extractionEntropy),
       clause: typeof payload.clause === 'string' ? payload.clause : undefined,
+      eventTime: strOrUndefined(payload.eventTime),
+      supersedes: idList(payload.supersedes),
       recorder: contributor.indexerId,
       leaderId: row.id,
       leaderChunkSeq: row.chunkSeq,
@@ -245,6 +256,12 @@ function foldFactIntoGroup(p: {
     return;
   }
   group.contributors.push(contributor);
+  // Replacement is a union: any contributor that saw the update closes
+  // the row; the day is the leader's, else the first one stated.
+  for (const id of idList(payload.supersedes) ?? []) {
+    if (!group.supersedes) group.supersedes = [];
+    if (!group.supersedes.includes(id)) group.supersedes.push(id);
+  }
   if (row.confidence > group.confidence) {
     // New leader: previous leader folds to merged.
     group.mergedIds.push(group.leaderId);
@@ -255,7 +272,9 @@ function foldFactIntoGroup(p: {
     group.entropy = numOrUndefined(payload.extractionEntropy);
     group.clause =
       (typeof payload.clause === 'string' ? payload.clause : undefined) ?? group.clause;
+    group.eventTime = strOrUndefined(payload.eventTime) ?? group.eventTime;
   } else {
+    group.eventTime ??= strOrUndefined(payload.eventTime);
     group.mergedIds.push(row.id);
   }
 }
@@ -336,6 +355,16 @@ function scopeRef(runId: string, chunkSeq: number, entityIndex: unknown): string
 
 function joinKey(...parts: string[]): string {
   return parts.join('\x00');
+}
+
+function strOrUndefined(v: unknown): string | undefined {
+  return typeof v === 'string' && v.length > 0 ? v : undefined;
+}
+
+function idList(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const ids = v.filter((x): x is string => typeof x === 'string' && x.length > 0);
+  return ids.length > 0 ? ids : undefined;
 }
 
 function numOrUndefined(v: unknown): number | undefined {

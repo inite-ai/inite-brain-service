@@ -502,3 +502,44 @@ export function factValidFrom(
   });
   return event.date;
 }
+
+/**
+ * The fact's timing on the write path, from the extractor's own
+ * resolution first (memory-context contract: `eventTime` is the
+ * calendar day the value refers to, resolved by the model against the
+ * turn date — any language, any calendar phrasing, past or future),
+ * with the chrono lane above as the fallback for a fact that carries
+ * none.
+ *
+ * A day at or before the turn is an occurrence: validFrom takes it,
+ * exactly as the chrono lane stamps a resolved past date. A day after
+ * the turn is a scheduled thing — a deadline, a meeting, a launch — and
+ * the fact is valid from the moment it was said, not from the day it
+ * points at (a plan asserted in September must not surface as unknown
+ * in an asOf read of October). Either way the day rides the row as
+ * `objectMeta.date`, so the read side can place "19 сентября" on a
+ * calendar without parsing it again.
+ */
+export function factTiming(
+  f: { predicate: string; clause?: string | undefined; eventTime?: string | undefined },
+  emittedAt: string | Date,
+  opts: EventTimeResolveOpts,
+): { validFrom: Date; objectMeta?: { date: string } } {
+  const said = emittedAt instanceof Date ? emittedAt : new Date(emittedAt);
+  const day = f.eventTime;
+  if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    const at = new Date(`${day}T00:00:00Z`);
+    if (!Number.isNaN(at.getTime())) {
+      const occurred = at.getTime() <= said.getTime();
+      traceArtifact('ingest.fact.event_time', {
+        predicate: f.predicate,
+        expr: 'extractor',
+        resolved: day,
+        emittedAt: said.toISOString().slice(0, 10),
+        scheduled: !occurred,
+      });
+      return { validFrom: occurred ? at : said, objectMeta: { date: day } };
+    }
+  }
+  return { validFrom: factValidFrom(f, emittedAt, opts) };
+}

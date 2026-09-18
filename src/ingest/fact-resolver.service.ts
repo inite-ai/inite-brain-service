@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { StringRecordId, Surreal } from 'surrealdb';
 import { queryRows, retryOnUniqueViolation } from '../db/surreal.service';
+import { retryOnReadConflict } from '../db/surreal-retry';
 import { scopeForUser } from '../auth/scope-tags';
 import { MetricsService } from '../metrics/metrics.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
@@ -23,6 +24,7 @@ import {
 import { supportEdgesEnabled } from '../common/provenance-flags';
 import { buildConflictEdgeRows } from '../common/support-edges';
 import { KeyedMutex } from '../common/keyed-mutex';
+import { traceArtifact } from '../common/debug-trace';
 import {
   ConflictConfig,
   clampTemporalTiebreakWindowMs,
@@ -492,6 +494,15 @@ export class FactResolverService {
       /** Derived-world namespace (0074/0079); undefined = live world. */
       derivedVersion?: string | undefined;
       recordOutcomeMetric?: boolean | undefined;
+      /**
+       * knowledge_fact ids the extractor judged this fact to replace —
+       * the KNOWN FACTS of its memory context that held the previous
+       * value of the same attribute (memory-context.ts). Closed in the
+       * post-call tail with the same supersede shape fn::resolve_fact
+       * writes, whatever predicate they were spelled under; the slot
+       * machinery inside the fn is untouched and still runs first.
+       */
+      supersedes?: string[] | undefined;
     },
   ): Promise<{ result: ResolveOutcome; semantics: string }> {
     // Read policy from the per-tenant registry. Pre-warm the snapshot so the
@@ -814,12 +825,77 @@ export class FactResolverService {
     p: Parameters<FactResolverService['resolve']>[1],
     result: ResolveOutcome,
   ): Promise<void> {
+    await this.applyExplicitSupersession(db, p, result);
     const outcome = result?.outcome;
     if (p.recordOutcomeMetric && outcome) {
       this.metrics?.countIngestFact(String(outcome));
     }
     this.emitConflictOutcomes(p.companyId, result);
     await this.writeConflictSupportEdges(db, result);
+  }
+
+  /**
+   * The extractor's supersession (memory-context.ts): close the rows it
+   * named as the previous value of what this fact states. The decision
+   * was made by the model that read the sentence with those rows in
+   * front of it, so this is not a second conflict resolver — no scores,
+   * no margins, no similarity gate; the one guard is that a row already
+   * closed, retracted, or the winner itself is left alone. The write
+   * shape is the fn's own (status/retractionReason/retractedBy/
+   * supersededBy/priorValidUntil/validUntil), so revive, calibration and
+   * the provenance walks read it exactly as a slot supersede. validUntil
+   * never precedes the loser's own validFrom (the 0043 inverted-interval
+   * guard). A winner the fn had left COMPETING against a row it just
+   * closed becomes active. The outcome is folded into `result` so the
+   * telemetry, support edges and trace downstream see SUPERSEDED with
+   * the ids, as they would from the fn.
+   */
+  private async applyExplicitSupersession(
+    db: Surreal,
+    p: { supersedes?: string[] | undefined; validFrom: Date },
+    result: ResolveOutcome,
+  ): Promise<void> {
+    const winner = result?.factId ? String(result.factId) : null;
+    const ids = (p.supersedes ?? []).filter((id) => id && id !== winner);
+    if (!winner || ids.length === 0) return;
+    try {
+      const closed = await retryOnReadConflict(async () => {
+        const res = await db.query<[unknown, unknown, unknown, Array<{ id: unknown }>]>(
+          `LET $losers = (SELECT id, validFrom, validUntil FROM knowledge_fact
+              WHERE id IN $ids AND id != $winner
+                AND status IN ['active', 'competing'] AND retractedAt IS NONE);
+           FOR $loser IN $losers {
+             UPDATE $loser.id SET
+               status = 'superseded',
+               retractionReason = 'superseded',
+               retractedBy = 'system',
+               supersededBy = $winner,
+               priorValidUntil = $loser.validUntil,
+               validUntil = IF $valid_from > $loser.validFrom THEN $valid_from ELSE $loser.validFrom END;
+           };
+           UPDATE $winner SET status = 'active'
+             WHERE status = 'competing' AND array::len($losers) > 0;
+           SELECT id FROM $losers;`,
+          {
+            ids: ids.map((id) => new StringRecordId(id)),
+            winner: new StringRecordId(winner),
+            valid_from: p.validFrom,
+          },
+        );
+        return (res[3] ?? []).map((r) => String(r.id));
+      });
+      if (closed.length === 0) return;
+      const prior = ((result.supersededFactIds as unknown[] | undefined) ?? []).map(String);
+      result.supersededFactIds = [...prior, ...closed.filter((id) => !prior.includes(id))];
+      if (result.outcome === 'INSERTED' || result.outcome === 'COMPETING') {
+        result.outcome = 'SUPERSEDED';
+      }
+      traceArtifact('ingest.fact.superseded_by_extractor', { winner, closed });
+    } catch (e) {
+      this.logger.warn(
+        `explicit supersession by ${winner} failed (rows left open): ${(e as Error).message}`,
+      );
+    }
   }
 
   /**

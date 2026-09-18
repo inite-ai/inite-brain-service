@@ -11,6 +11,7 @@ import { ExtractorCacheService } from './extractor-cache.service';
 import { ExtractorRunnerService } from './extractor-runner.service';
 import type { ExtractionResult } from './extractor-internals/types';
 import type { ConversationContext } from './extractor-internals/prompts';
+import { memoryContextDigest } from './extractor-internals/memory-context';
 
 export type { ConversationContext } from './extractor-internals/prompts';
 
@@ -90,6 +91,10 @@ export class ExtractorService {
       // two people would collide on one memoised result.
       speaker: context?.speakerName,
       addressee: context?.addresseeName,
+      // So does the memory the extractor reads: the same sentence said
+      // when the graph already holds the budget it changes must not
+      // replay the extraction made when it held nothing.
+      memory: memoryContextDigest(context?.memory),
     });
     const cached = this.extractionCache.get(cacheKey);
     if (cached) {

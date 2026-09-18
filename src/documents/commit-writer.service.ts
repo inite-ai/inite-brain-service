@@ -4,9 +4,15 @@ import { SurrealService } from '../db/surreal.service';
 import { EntityUpsertService } from '../ingest/entity-upsert.service';
 import { FactResolverService } from '../ingest/fact-resolver.service';
 import { createEdgeBetween } from '../ingest/edge-writer';
-import { factValidFrom, resolveEventTimeOpts } from '../ingest/event-time';
+import { factTiming, resolveEventTimeOpts } from '../ingest/event-time';
 import { traceSpan } from '../common/debug-trace';
 import { originKeyOf, StoredDocument } from './document-store.service';
+import { internalMetaString } from './document-meta';
+import {
+  isFirstPersonSelfReference,
+  isSecondPersonReference,
+  matchesParticipantName,
+} from '../common/coreference';
 import { sanitizeSourceMeta } from '../policy/source-meta';
 import { incomingFactsFor, MergedFact, MergedRelation, MergeResult } from './candidate-merge';
 
@@ -72,14 +78,20 @@ export class CommitWriterService {
     p: { doc: StoredDocument; merge: MergeResult },
   ): Promise<Map<string, string>> {
     const entityIds = new Map<string, string>();
+    const speaker = participantOf(p.doc, 'speaker');
+    const addressee = participantOf(p.doc, 'addressee');
     for (const me of p.merge.entities) {
       const eid = await traceSpan(
         'brain.commit.entity',
         () =>
           this.entities.resolveOrCreateNamedEntity({
             db,
-            e: { name: me.name, type: me.type, canonical: me.canonical },
-            hint: undefined,
+            e: { name: me.name, type: me.type, canonical: me.canonical, known: me.known },
+            // The participant this mention corefers to (first person /
+            // the speaker's own name → the speaker; second person / the
+            // addressee's name → the addressee) anchors it to the
+            // caller's externalRef — the direct path's hintFor rule.
+            hint: hintFor(me.name, speaker, addressee),
             _contextRef: { vertical: p.doc.vertical },
             incomingFacts: incomingFactsFor(p.merge, me.key),
           }),
@@ -103,7 +115,7 @@ export class CommitWriterService {
     const outcomes: FactWriteOutcome[] = [];
     // The speaker's session timezone rides the internal document channel
     // (mention-via-document); a document posted directly has none.
-    const timeOpts = resolveEventTimeOpts(internalString(p.doc, 'timezone'));
+    const timeOpts = resolveEventTimeOpts(internalMetaString(p.doc.meta, 'timezone'));
     for (const [i, mf] of p.factsToWrite.entries()) {
       const entityId = p.entityIds.get(mf.entityKey);
       if (!entityId) {
@@ -118,6 +130,12 @@ export class CommitWriterService {
       // pipeline's own motto: one broken pack must not hold a document's
       // memory hostage.
       try {
+        // The day the extractor resolved, else the occurrence date the
+        // clause names, else the document's time — the same rule, from
+        // the same function, as the direct mention path. This used to be
+        // `p.doc.occurredAt` unconditionally, which stamped every fact a
+        // stock deployment ingests with the day it was SAID.
+        const { validFrom, objectMeta } = factTiming(mf, p.doc.occurredAt, timeOpts);
         const { result } = await traceSpan(
           'brain.commit.fact',
           () =>
@@ -127,12 +145,9 @@ export class CommitWriterService {
               predicate: mf.predicate,
               object: mf.object,
               confidence: mf.confidence,
-              // The occurrence date the clause names, else the document's
-              // time — the same rule, from the same function, as the
-              // direct mention path. This used to be `p.doc.occurredAt`
-              // unconditionally, which stamped every fact a stock
-              // deployment ingests with the day it was SAID.
-              validFrom: factValidFrom(mf, p.doc.occurredAt, timeOpts),
+              validFrom,
+              objectMeta,
+              supersedes: mf.supersedes,
               source: this.factSource(p.doc, mf),
               entropy: mf.entropy,
               precomputedEmbedding: p.embeddings[i],
@@ -216,7 +231,7 @@ export class CommitWriterService {
     // The L0 turn the mention wrapper captured for this document. Stamped
     // exactly as the direct path stamps it, so GET /v1/facts/:id/provenance
     // walks a document-path fact back to its episode too.
-    const episodeId = internalString(doc, 'episodeId');
+    const episodeId = internalMetaString(doc.meta, 'episodeId');
     return {
       vertical: doc.vertical,
       recorder: mf.recorder,
@@ -291,11 +306,39 @@ export function sourceVersionOf(mf: MergedFact): Record<string, unknown> {
 }
 
 /**
- * A brain-owned string off the RAW document header (document-meta.ts:
- * the internal channel never passes the caller gate, so it is read
- * here, not from the sanitized projection).
+ * A turn participant off the internal document channel (the mention
+ * wrapper threads `knownEntities` by role as name + `vertical:id`).
  */
-function internalString(doc: StoredDocument, key: 'episodeId' | 'timezone'): string | undefined {
-  const v = (doc.meta as Record<string, unknown> | undefined)?.[key];
-  return typeof v === 'string' && v.length > 0 ? v : undefined;
+function participantOf(
+  doc: StoredDocument,
+  role: 'speaker' | 'addressee',
+): { vertical: string; id: string; role: string; name?: string | undefined } | undefined {
+  const ref = internalMetaString(doc.meta, role === 'speaker' ? 'speakerRef' : 'addresseeRef');
+  if (!ref) return undefined;
+  const cut = ref.indexOf(':');
+  if (cut <= 0 || cut === ref.length - 1) return undefined;
+  return {
+    vertical: ref.slice(0, cut),
+    id: ref.slice(cut + 1),
+    role,
+    name: internalMetaString(doc.meta, role === 'speaker' ? 'speakerName' : 'addresseeName'),
+  };
+}
+
+/** The direct path's coreference rule (MentionPersistService.hintFor). */
+function hintFor(
+  name: string,
+  speaker: ReturnType<typeof participantOf>,
+  addressee: ReturnType<typeof participantOf>,
+): ReturnType<typeof participantOf> {
+  if (speaker && (isFirstPersonSelfReference(name) || matchesParticipantName(name, speaker.name))) {
+    return speaker;
+  }
+  if (
+    addressee &&
+    (isSecondPersonReference(name) || matchesParticipantName(name, addressee.name))
+  ) {
+    return addressee;
+  }
+  return undefined;
 }

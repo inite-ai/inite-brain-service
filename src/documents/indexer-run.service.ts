@@ -1,8 +1,10 @@
 import { Injectable, Optional } from '@nestjs/common';
-import { ExtractorService } from '../ai/extractor.service';
+import { ExtractorService, type ConversationContext } from '../ai/extractor.service';
 import type { ExtractionResult } from '../ai/extractor-internals/types';
 import { MetricsService } from '../metrics/metrics.service';
 import { traceSpan } from '../common/debug-trace';
+import { MemoryContextService } from '../ingest/memory-context.service';
+import { internalMetaString, splitKnownNames } from './document-meta';
 import {
   CandidateBatch,
   GENERAL_INDEXER_ID,
@@ -58,9 +60,11 @@ export interface IndexerRunSpec {
  */
 @Injectable()
 export class IndexerRunService {
+  // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token
   constructor(
     private readonly extractor: ExtractorService,
     private readonly candidates: CandidateStoreService,
+    private readonly memory: MemoryContextService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
@@ -85,9 +89,56 @@ export class IndexerRunService {
       executionMode: 'virtual',
       model: this.extractor.modelId(),
       registryVersionHash: await this.extractor.vocabularyVersionHash(p.companyId),
-      extract: (chunkText) => this.extractor.extract(chunkText, p.companyId),
+      extract: async (chunkText) =>
+        this.extractor.extract(
+          chunkText,
+          p.companyId,
+          await this.extractionContext(p.companyId, p.doc, chunkText),
+        ),
       abortSignal: p.abortSignal,
     });
+  }
+
+  /**
+   * What the extractor is told about this chunk beyond its text: who
+   * spoke it (the participants the mention wrapper threaded through the
+   * internal meta) and what the memory already holds around it — the
+   * conversation so far, the entities it names, their facts, the
+   * tenant's predicates (MemoryContextService). Built per chunk because
+   * the names differ per chunk; the conversation reads are the same and
+   * cheap.
+   */
+  private async extractionContext(
+    companyId: string,
+    doc: StoredDocument,
+    chunkText: string,
+  ): Promise<ConversationContext> {
+    const speakerName = internalMetaString(doc.meta, 'speakerName');
+    const addresseeName = internalMetaString(doc.meta, 'addresseeName');
+    const memory = await this.memory.build({
+      companyId,
+      text: chunkText,
+      occurredAt: doc.occurredAt,
+      conversationId: internalMetaString(doc.meta, 'conversationId'),
+      messageId: internalMetaString(doc.meta, 'messageId'),
+      userId: doc.userId,
+      // The caller's anchors first (participants among them): what the
+      // caller says the turn is about is looked up before what NER finds.
+      participants: [
+        ...new Set(
+          [
+            speakerName,
+            addresseeName,
+            ...splitKnownNames(internalMetaString(doc.meta, 'knownNames')),
+          ].filter((n): n is string => !!n),
+        ),
+      ],
+    });
+    return {
+      ...(speakerName ? { speakerName } : {}),
+      ...(addresseeName ? { addresseeName } : {}),
+      ...(memory ? { memory } : {}),
+    };
   }
 
   /**

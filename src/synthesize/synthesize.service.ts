@@ -39,7 +39,7 @@ import { resolveAndCountFragmentCitations } from './fragment-citations';
 import { resolveAndCountBeliefCitations, type CitableBelief } from './belief-citations';
 import { resolveAndCountSceneCitations } from './scene-citations';
 import { applyBeliefFactDamping } from './belief-damping';
-import { verifyAndZoom } from './fragment-zoom-seam';
+import { auditAndRevise, type AuditPorts } from './revise-round';
 import { FragmentLaneService } from './fragment-lane.service';
 import { resolveAnswerIntegrity, type FinalizeContext } from './answer-integrity';
 import { makeGroundingFetchPort } from './grounding-fetch';
@@ -58,7 +58,7 @@ import {
 } from './evidence-collector.service';
 import { L3EscalationService } from './l3-escalation.service';
 import { FocusSignalService } from './focus-signal.service';
-import { queryClassOf, type FocusVerdict } from './focus-signal';
+import { queryClassOf } from './focus-signal';
 import { resolveAdaptiveAbstain, resolveAdaptiveL3 } from './adaptive-gates';
 import {
   buildL3DecisionCallback,
@@ -290,9 +290,7 @@ export class SynthesizeService {
     captureLaneRouteDecision(this.decisions, companyId, { profile, lane, query: dto.query });
 
     onProgress({ stage: 'search', message: 'hybrid retrieval' });
-    // The T7 instruction probe is a second full search that depends on
-    // nothing the main one produces — launched beside it, its latency
-    // hides under the main search; collectSections awaits it.
+    // The T7 instruction read is launched beside the main search.
     const instructionProbe = this.launchInstructionProbe({ profile, companyId, callerScopes, dto });
     const searchResult = await withSpan(
       'synthesize.search',
@@ -411,7 +409,7 @@ export class SynthesizeService {
     // Generation + the V13 constrained refine round, one seam: a
     // 'failed' result is the generator_error early-return; otherwise
     // the tuple is whichever round answered last.
-    const produced = await this.produceAnswer({
+    const produceArgs = {
       companyId,
       callerScopes,
       dto,
@@ -439,23 +437,22 @@ export class SynthesizeService {
       collected: {
         ...collected,
         // MM-zoom PR2: citation affordance (populated fence map ⟺
-        // switch on AND rendered); round 2 carries both.
+        // switch on AND rendered); round 2 carries both. The belief and
+        // scene lanes follow the same construction.
         fragmentCitations: fragmentsById !== undefined,
-        // BELIEFS_SERVING_LANE: same construction — citations ride the
-        // master flag, so affordance ⟺ the lane rendered anything.
         beliefCitations: beliefsById !== undefined,
-        // RETRIEVAL_SCENE_LANE: same construction — scene citations
-        // ride the lane flag, so affordance ⟺ the lane rendered.
         sceneCitations: scenesById !== undefined,
       },
-    });
+    };
+    const produced = await this.produceAnswer(produceArgs);
     if ('failed' in produced) return produced.failed;
-    const { generated } = produced;
+    let { generated } = produced;
     ({ results, factIndex, promptFactLines, dateMathLines } = produced);
 
-    const citations = resolveCitations(generated.citedFactIds, generated.answer, factIndex);
-    const citedSet = new Set(citations.map((c) => c.factId));
-    const decisionLog = explain ? buildDecisionLog(results, citedSet) : undefined;
+    let citations = resolveCitations(generated.citedFactIds, generated.answer, factIndex);
+    let decisionLog = explain
+      ? buildDecisionLog(results, new Set(citations.map((c) => c.factId)))
+      : undefined;
 
     const unverified = unverifiedServe(
       { metrics: this.metrics, outcomes: this.outcomes },
@@ -465,45 +462,25 @@ export class SynthesizeService {
     if (unverified) return unverified;
 
     onProgress({ stage: 'verify', message: 'verifier checking claim grounding' });
-    // Verifier — the corrective guardrail — plus the MM-zoom PR3
-    // fragment-zoom step (FOVEA_FRAGMENT_ZOOM), ONE stage behind one
-    // seam (fragment-zoom-seam.ts, moved whole for the size gates: the
-    // primary audit and the zoom re-verify build their VerifyRequest in
-    // one module, so evidence parity between them holds by
-    // construction). Strict gates the answer behind a 'supported'
-    // verdict; lenient surfaces the verdict but returns the answer
-    // either way; 'minicheck' delegates to the local NLI. A verifier
-    // throw returns the historical verifier_error result. On a
-    // zoom flip the returned verdict is the RE-verified one — the L3
-    // trigger below then reads 'skip_verdict_ok' and the normal
-    // supported serve runs; otherwise (and always with the flag off)
-    // it is the primary verdict, byte for byte.
-    //
-    // Optics-1 focus capture rides the onPrimaryVerdict callback so the
-    // sample sees the PRE-zoom verdict (fit-shape discipline; see
-    // maybeCaptureFocusSignal — SERVING-NEUTRAL guarded no-op).
-    // `dto.query` carries the Tier 5 language key onto the verdict
-    // sample; the 0119 primary decision id joins sample → decision row.
-    const verified = await verifyAndZoom(this.verifyDeps(), {
+    // The audit stage (revise-round.ts): the verifier + the MM-zoom step
+    // (fragment-zoom-seam.ts), then the revision round on a partial
+    // verdict — the pair returned is the answer to serve with the
+    // verdict that judged it. The exit matrix is finalizeVerdict's.
+    const audited = await auditAndRevise(this.auditPorts(), {
       ctx: cacheArgs,
+      lane,
+      explain,
+      produceArgs,
+      round: { results, factIndex, promptFactLines, dateMathLines },
       generated,
-      collected,
-      promptFactLines,
-      dateMathLines,
       citations,
-      results,
       decisionLog,
-      factCount: factIndex.size,
+      collected,
       decisionCtx,
-      onPrimaryVerdict: (v) =>
-        this.maybeCaptureFocusSignal(
-          companyId,
-          { results, verdict: v.verdict, lane, decisionId: decisionCtx.primaryDecisionId },
-          dto.query,
-        ),
     });
-    if ('failed' in verified) return verified.failed;
-    const { verdict } = verified;
+    if ('failed' in audited) return audited.failed;
+    const { verdict } = audited;
+    ({ generated, citations, decisionLog } = audited);
 
     // G2 L3 escalation — the pre-abstention seam. On a verifier-fail with
     // an anchoring session it escalates ONCE to full-raw-session context
@@ -570,12 +547,6 @@ export class SynthesizeService {
     });
   }
 
-  private launchInstructionProbe(
-    opts: Parameters<EvidenceCollectorService['startInstructionProbe']>[0],
-  ): Promise<SearchHit[]> | undefined {
-    return this.evidenceCollector?.startInstructionProbe(opts);
-  }
-
   /**
    * Every non-fact prompt section behind one seam (extracted from
    * synthesize() for the function-size gate): the collector when wired,
@@ -595,7 +566,7 @@ export class SynthesizeService {
     callerScopes: string[];
     factIds: string[];
     evidence: SearchHit[];
-    instructionProbe?: Promise<SearchHit[]> | undefined;
+    instructionProbe?: Promise<string[]> | undefined;
   }): Promise<CollectedEvidence> {
     if (!this.evidenceCollector) return emptyCollectedEvidence(opts.profile, opts.dto.query);
     return this.evidenceCollector.collect({
@@ -613,27 +584,6 @@ export class SynthesizeService {
       // header key off the same resolution (echoed on CollectedEvidence).
       beliefDateDisambiguation: beliefLaneDateDisambiguationEnabled(),
     });
-  }
-
-  /**
-   * Optics-1 focus-signal capture — a guarded no-op when the flag is off
-   * (or the service is absent). Extracted so synthesize() keeps a single
-   * capture call on the serving path and stays within its line budget.
-   * SERVING-NEUTRAL: nothing consumes the captured signal yet.
-   */
-  private async maybeCaptureFocusSignal(
-    companyId: string,
-    signal: {
-      results: SearchHit[];
-      verdict: FocusVerdict;
-      lane: LaneId | null;
-      /** 0119 join key — present only under OUTCOME_DECISION_CAPTURE. */
-      decisionId?: string | undefined;
-    },
-    query: string,
-  ): Promise<void> {
-    if (!this.focusSignal || !FocusSignalService.captureEnabled()) return;
-    await this.focusSignal.maybeCapture(companyId, { ...signal, query });
   }
 
   /**
@@ -735,18 +685,34 @@ export class SynthesizeService {
     );
   }
 
-  /** The verify-stage ports, bundled once (fragment-zoom-seam.ts owns
-   *  the primary audit + the MM-zoom PR3 step; this service only lends
-   *  its ports — the resolveAnswerIntegrity deps idiom). */
-  private verifyDeps() {
+  private launchInstructionProbe(
+    opts: Parameters<EvidenceCollectorService['startInstructionProbe']>[0],
+  ): Promise<string[]> | undefined {
+    return this.evidenceCollector?.startInstructionProbe(opts);
+  }
+
+  /** The audit-stage ports (revise-round.ts + fragment-zoom-seam.ts). */
+  private auditPorts(): AuditPorts {
+    const { openai, metrics, logger, limiter, fragmentLane, decisions } = this;
     return {
-      openai: this.openai,
-      metrics: this.metrics,
-      logger: this.logger,
-      limiter: this.limiter,
-      fragmentLane: this.fragmentLane,
-      decisions: this.decisions,
-      minicheck: { baseUrl: this.minicheckUrl, model: this.minicheckModel },
+      metrics,
+      logger,
+      verifyDeps: {
+        openai,
+        metrics,
+        logger,
+        limiter,
+        fragmentLane,
+        decisions,
+        minicheck: { baseUrl: this.minicheckUrl, model: this.minicheckModel },
+      },
+      generate: (args) => limiter.run(() => this.callGenerator(args)),
+      // Optics-1 focus capture — SERVING-NEUTRAL: nothing consumes the
+      // captured signal yet; a guarded no-op unless the flag is on.
+      captureFocus: async (companyId, sample, query) => {
+        if (!this.focusSignal || !FocusSignalService.captureEnabled()) return;
+        await this.focusSignal.maybeCapture(companyId, { ...sample, query });
+      },
     };
   }
 
@@ -758,13 +724,10 @@ export class SynthesizeService {
    *
    * `ctx.dto`+`ctx.profile` are supplied by BOTH serving paths — the primary
    * serve AND the L3 flip — so both resolve the default-off verifier
-   * answer-integrity arm (Parts A + C — answer-integrity.ts) over the supported
-   * verdict and merge the gate flags into finalizeVerdict. BOTH flags off ⇒
-   * empty gate ⇒ byte-identical serve on either path (no LLM call, no flag
-   * effect). A gate downgrade produces a low_coverage/zero-citation result that
-   * admit() rejects, so a downgraded answer is never cached. The auditor model
-   * (profile.verifierModel || synthesis model) is resolved here so the caller
-   * carries no branch.
+   * answer-integrity arm (Parts A + C — answer-integrity.ts) and merge the
+   * gate flags into finalizeVerdict; both flags off ⇒ empty gate ⇒
+   * byte-identical serve. A gate downgrade yields a low_coverage/zero-citation
+   * result that admit() rejects, so a downgraded answer is never cached.
    */
   private async finalizeAndAdmit(
     ctx: FinalizeContext,
@@ -772,8 +735,7 @@ export class SynthesizeService {
     args: Omit<Parameters<typeof finalizeVerdict>[1], 'verdict' | 'questionAnswered'>,
   ): Promise<SynthesizeResult> {
     // The gate-resolution also folds in the evidence-capability flag
-    // (FOVEA_EVIDENCE_CAPABILITY, 0113 — resolveEvidenceCapability, the
-    // resolveAnswerIntegrity sibling in answer-integrity.ts): does the
+    // (FOVEA_EVIDENCE_CAPABILITY, 0113 — resolveEvidenceCapability): does the
     // supported answer's cited predicate set REQUIRE non-text evidence no
     // citation carries? Flag off / no registry ⇒ absent ⇒ byte-identical.
     const fetchGrounding = makeGroundingFetchPort(this.surreal);

@@ -4,7 +4,7 @@ import { IngestMentionDto } from '../ingest/dto/ingest-mention.dto';
 import { EpisodeStoreService } from '../ingest/episode-store.service';
 import { failClosedCaptureEnabled } from '../common/evidence-flags';
 import { DocumentIngestService } from './document-ingest.service';
-import { internalDocumentMeta } from './document-meta';
+import { internalDocumentMeta, joinKnownNames } from './document-meta';
 import { pinUserScope } from '../auth/user-scope';
 
 export interface MentionCompatResult {
@@ -43,10 +43,13 @@ export interface MentionCompatResult {
  * had nothing to segment, because the only writer of its input lived on
  * the path the deployment does not run.
  *
- * Known difference that remains: `knownEntities` hints are not threaded
- * into entity resolution, and skip detection for 'no_entities' happens
- * AFTER the document + candidates are staged (the document is the audit
- * trail of the empty read).
+ * The participants (`knownEntities` by role) ride the internal channel
+ * too — speaker/addressee names for the extractor's coreference framing
+ * and their externalRefs for the commit writer's anchor — so this path
+ * files a first-person turn under its speaker exactly as the direct
+ * path does. Known difference that remains: skip detection for
+ * 'no_entities' happens AFTER the document + candidates are staged (the
+ * document is the audit trail of the empty read).
  */
 @Injectable()
 export class MentionViaDocumentService {
@@ -87,12 +90,19 @@ export class MentionViaDocumentService {
     }
     // Bounded BEFORE the pipeline runs: an over-long or non-string id is a
     // 400 at the door, not a failed extraction.
+    const speaker = dto.knownEntities?.find((k) => k.role === 'speaker');
+    const addressee = dto.knownEntities?.find((k) => k.role === 'addressee');
     const internal = internalDocumentMeta({
       conversationId: dto.contextRef.conversationId,
       messageId: dto.contextRef.messageId,
       eventId: dto.contextRef.eventId,
       episodeId,
       timezone: dto.timezone,
+      speakerName: speaker?.name,
+      speakerRef: speaker ? `${speaker.vertical}:${speaker.id}` : undefined,
+      addresseeName: addressee?.name,
+      addresseeRef: addressee ? `${addressee.vertical}:${addressee.id}` : undefined,
+      knownNames: joinKnownNames((dto.knownEntities ?? []).map((k) => k.name)),
     });
     try {
       const res = await this.documents.ingestDocument(

@@ -926,35 +926,71 @@ describe('enumeration strict clause (§8 item 3, profile.enumStrict)', () => {
 });
 
 describe('buildFactIndex renders graph relations as evidence', () => {
-  it('adds an uncitable (relation) line per relation, beside the facts', () => {
-    const hit: SearchHit = {
-      entityId: 'e1',
-      entityType: 'staff',
-      canonicalName: 'Мария Альварес',
-      externalRefs: {},
-      score: 1,
-      relations: [{ kind: 'works_at', peer: 'Orbital Dynamics', peerType: 'org' }],
-      facts: [
+  const hitWith = (relations: NonNullable<SearchHit['relations']>): SearchHit => ({
+    entityId: 'e1',
+    entityType: 'staff',
+    canonicalName: 'Мария Альварес',
+    externalRefs: {},
+    score: 1,
+    relations,
+    facts: [
+      {
+        factId: 'knowledge_fact:aaa',
+        predicate: 'works_as',
+        object: 'руководитель инженерного отдела',
+        confidence: 0.9,
+        score: 1,
+        validFrom: '2026-09-16T00:00:00.000Z',
+        status: 'active',
+      },
+    ],
+  });
+
+  it('a relation with its edge record is a citable line with an [r#] handle, in the edge direction', () => {
+    const { factIndex, factLines } = buildFactIndex([
+      hitWith([
         {
-          factId: 'knowledge_fact:aaa',
-          predicate: 'works_as',
-          object: 'руководитель инженерного отдела',
-          confidence: 0.9,
-          score: 1,
-          validFrom: '2026-09-16T00:00:00.000Z',
-          status: 'active',
+          kind: 'works_at',
+          peer: 'Orbital Dynamics',
+          peerType: 'org',
+          edgeId: 'knowledge_edge:e1',
+          direction: 'out',
         },
-      ],
-    };
-    const { factIndex, factLines } = buildFactIndex([hit]);
-    expect(factLines).toHaveLength(2);
+        {
+          kind: 'covers_for',
+          peer: 'Pedro Lima',
+          peerType: 'staff',
+          edgeId: 'knowledge_edge:e2',
+          direction: 'in',
+        },
+      ]),
+    ]);
+    expect(factLines).toHaveLength(3);
     expect(factLines[0]!.startsWith('[f1] ')).toBe(true);
     expect(handlesOf(factIndex).get('f1')).toBe('knowledge_fact:aaa');
+    expect(factLines[1]).toBe('[r1] Мария Альварес (staff) — works_at → Orbital Dynamics (org)');
+    // An incoming edge reads in ITS direction: the peer is the subject.
+    expect(factLines[2]).toBe('[r2] Pedro Lima (staff) — covers_for → Мария Альварес (staff)');
+    expect(handlesOf(factIndex).get('r1')).toBe('knowledge_edge:e1');
+    expect(handlesOf(factIndex).get('r2')).toBe('knowledge_edge:e2');
+    expect(factIndex.get('knowledge_edge:e2')).toMatchObject({
+      factId: 'knowledge_edge:e2',
+      entityId: 'e1',
+      predicate: 'covers_for',
+      slot: 'edge:covers_for',
+      object: 'Pedro Lima',
+    });
+    expect(factIndex.size).toBe(3);
+  });
+
+  it('a relation without an edge record stays an uncitable (relation) line', () => {
+    const { factIndex, factLines } = buildFactIndex([
+      hitWith([{ kind: 'works_at', peer: 'Orbital Dynamics', peerType: 'org' }]),
+    ]);
+    expect(factLines).toHaveLength(2);
     expect(factLines[1]).toBe(
-      '(relation) Мария Альварес (staff) — works_at: Orbital Dynamics (org)',
+      '(relation) Мария Альварес (staff) — works_at → Orbital Dynamics (org)',
     );
-    // A relation is support, never a citation: it is not in the index.
-    expect(factIndex.has('relation')).toBe(false);
     expect(factIndex.size).toBe(1);
   });
 });

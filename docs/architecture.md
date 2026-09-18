@@ -159,8 +159,11 @@ citation-bearing answer (each claim ends with `[factId]`), and then a
 verifier LLM judges whether every claim is supported by the source
 facts. Three modes:
 
-- **strict** (default) — verifier must return `supported`. Anything
-  else (`partial` / `unsupported`) collapses to `answer: null` with a
+- **strict** (default) — verifier must return `supported`. A `partial`
+  verdict whose evidence answers the question gets ONE revision round
+  (the generator rewrites with the auditor's named claims, the auditor
+  judges the rewrite — see [extraction-with-memory.md](extraction-with-memory.md));
+  anything still not `supported` collapses to `answer: null` with a
   `reason` field. Fail-closed on verifier outage too.
 - **lenient** — verifier still runs, but the answer is returned
   regardless. The verifier's verdict is exposed via `reason` so the
@@ -335,4 +338,5 @@ posture: [mcp-pack-tools.md](mcp-pack-tools.md).
 - [Data model](data-model.md) — the facts the pipeline retrieves.
 - [Bitemporal semantics](bitemporal-semantics.md) — the two clocks behind `asOf`.
 - [Document pipeline](document-pipeline.md) — the ingestion plane.
+- [Extraction with memory](extraction-with-memory.md) — what the extractor reads before it extracts, and the `known` / `supersedes` / `eventTime` contract.
 - [Operations](operations.md) — every flag named above, with rollout guidance.

@@ -276,30 +276,6 @@ export const STRATEGY_ADVISORY_INSTRUCTION =
  */
 const PREFERENCE_PROBE_QUERY = 'preferences likes dislikes favorite style enjoys prefers avoids';
 
-/**
- * T7 instruction lane: standing user instructions ("always format code
- * with syntax highlighting when I ask about implementation") are
- * captured by the substrate as preference facts. BEAM's IF questions
- * are deliberately neutral, so no lexical route can fire — the lane is
- * UNCONDITIONAL, like T3: a fixed probe pulls instruction-shaped facts
- * and they render as a separate standing-instructions section. LIGHT's
- * relevance-gated scratchpad filters exactly these out (its IF never
- * exceeds 0.5); unconditional injection is the structural fix.
- */
-export const INSTRUCTION_PROBE_QUERY =
-  'always include format style make sure when I ask prefers ' +
-  'instructions how to answer respond ' +
-  // The lexical leg reads words, and standing instructions are stated
-  // in the user's language: the same triggers the filter below reads,
-  // for the languages the multilingual battery covers. (The vector leg
-  // is cross-lingual on its own — BGE-M3 — and needs no help.)
-  'всегда никогда обязательно когда я спрашиваю отвечай ' +
-  'sempre nunca quando eu perguntar responda ' +
-  'siempre nunca cuando pregunte responde ' +
-  'immer niemals wenn ich frage antworte ' +
-  'toujours jamais quand je demande réponds ' +
-  '总是 每次 当我问 回答 いつも 必ず 決して';
-
 /** PRF query: base query + ≤2 top entity names + ≤4 dominant aspects. */
 export function buildWideProbeQuery(query: string, hits: SearchHit[]): string {
   const names = hits.slice(0, 2).map((h) => h.canonicalName);
@@ -538,6 +514,7 @@ const INSTRUCTION_TRIGGER_RE = triggerRe(
 
 /** The preference aspect under either registry spelling. */
 const PREFERENCE_PREDICATES = new Set(['preference', 'preferences']);
+const INSTRUCTION_PREDICATE = 'instruction';
 
 /** Dedup + cap standing instructions found across evidence and probe. */
 export function extractStandingInstructions(hits: SearchHit[], cap = 8): string[] {
@@ -545,10 +522,15 @@ export function extractStandingInstructions(hits: SearchHit[], cap = 8): string[
   const seen = new Set<string>();
   for (const h of hits) {
     for (const f of h.facts) {
+      // A fact the extractor filed as an instruction IS one — no trigger
+      // words needed (the memory contract in extractor prompts). The
+      // triggers remain for instruction-shaped text under other
+      // predicates.
+      const filed = (f.predicateAlias ?? f.predicate) === INSTRUCTION_PREDICATE;
       const re = PREFERENCE_PREDICATES.has(f.predicate)
         ? INSTRUCTION_TRIGGER_RE
         : INSTRUCTION_STRONG_RE;
-      if (!re.test(f.object)) continue;
+      if (!filed && !re.test(f.object)) continue;
       const key = f.object.trim().toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);

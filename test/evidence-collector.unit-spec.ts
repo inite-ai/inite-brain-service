@@ -1,3 +1,4 @@
+import type { InstructionLaneService } from '../src/synthesize/instruction-lane.service';
 import { EvidenceCollectorService } from '../src/synthesize/evidence-collector.service';
 import type { SearchService, SearchHit } from '../src/search/search.service';
 import type { SegmentLaneService } from '../src/synthesize/segment-lane.service';
@@ -26,6 +27,30 @@ function profileWith(over: Partial<RetrievalProfile>): RetrievalProfile {
 const noSearch = {
   search: async () => ({ results: [] }),
 } as unknown as SearchService;
+
+/** The collector with only the instruction lane wired (the 14th dep). */
+function withInstructionLane(
+  search: SearchService,
+  lane: InstructionLaneService,
+): EvidenceCollectorService {
+  const none = undefined;
+  return new EvidenceCollectorService(
+    search,
+    none,
+    none,
+    none,
+    none,
+    none,
+    none,
+    none,
+    none,
+    none,
+    none,
+    none,
+    none,
+    lane,
+  );
+}
 
 function collectorArgs(profile: RetrievalProfile) {
   return {
@@ -125,40 +150,42 @@ describe('EvidenceCollectorService branches', () => {
     expect(storyCalls).toEqual([['f1']]);
   });
 
-  it('an instruction-probe failure degrades to evidence-only', async () => {
-    const search = {
-      search: async () => {
-        throw new Error('probe down');
+  it('an instruction-lane failure degrades to evidence-only', async () => {
+    const lane = {
+      instructionLines: async () => {
+        throw new Error('lane down');
       },
-    } as unknown as SearchService;
-    const svc = new EvidenceCollectorService(search);
+    } as unknown as InstructionLaneService;
+    const svc = withInstructionLane(noSearch, lane);
     const profile = profileWith({});
     (profile as { lanes: ReadonlySet<string> }).lanes = new Set(['instruction']);
     const out = await svc.collect(collectorArgs(profile));
-    // No instructions section (probe died, evidence empty) — but the
+    // No instructions section (lane died, evidence empty) — but the
     // collect itself succeeded.
     expect(out.instructions).toBeUndefined();
     expect(out.transcriptLines).toEqual([]);
   });
 
-  it('a probe launched beside the main search is awaited here, not re-run', async () => {
-    // The orchestrator starts the probe before its own search (the probe
-    // depends on nothing the search produces); collect() takes the
-    // in-flight promise and never issues a second probe search.
-    const calls: string[] = [];
-    const hit = (object: string): SearchHit =>
-      ({
-        entityId: 'e',
-        canonicalName: 'user',
-        facts: [{ predicate: 'preferences', object }],
-      }) as unknown as SearchHit;
+  it('the instruction read launched beside the main search is awaited here, not re-run; no search is issued', async () => {
+    // The orchestrator starts the read before its own search (it depends
+    // on nothing the search produces); collect() takes the in-flight
+    // promise and never issues a second read — and the lane is a direct
+    // predicate read, so the search service is never asked.
+    const searchCalls: string[] = [];
+    let laneCalls = 0;
     const search = {
       search: async (_c: string, dto: { query: string }) => {
-        calls.push(dto.query);
-        return { results: [hit('always answer in Portuguese when I ask about Lisbon')] };
+        searchCalls.push(dto.query);
+        return { results: [] };
       },
     } as unknown as SearchService;
-    const svc = new EvidenceCollectorService(search);
+    const lane = {
+      instructionLines: async () => {
+        laneCalls += 1;
+        return ['always answer in Portuguese when I ask about Lisbon'];
+      },
+    } as unknown as InstructionLaneService;
+    const svc = withInstructionLane(search, lane);
     const profile = profileWith({});
     (profile as { lanes: ReadonlySet<string> }).lanes = new Set(['instruction']);
     const instructionProbe = svc.startInstructionProbe({
@@ -166,13 +193,39 @@ describe('EvidenceCollectorService branches', () => {
       companyId: 'c1',
       callerScopes: [],
     });
-    expect(calls).toHaveLength(1);
+    expect(laneCalls).toBe(1);
     const out = await svc.collect({ ...collectorArgs(profile), instructionProbe });
-    expect(calls).toHaveLength(1);
+    expect(laneCalls).toBe(1);
+    expect(searchCalls).toEqual([]);
     expect(out.instructions).toEqual(['always answer in Portuguese when I ask about Lisbon']);
   });
 
-  it('startInstructionProbe resolves [] when the lane is off, and never rejects', async () => {
+  it('filed instructions come first and merge with instruction-shaped evidence, deduplicated', async () => {
+    const lane = {
+      instructionLines: async () => ['Write reports for Boomerang in Portuguese.'],
+    } as unknown as InstructionLaneService;
+    const svc = withInstructionLane(noSearch, lane);
+    const profile = profileWith({});
+    (profile as { lanes: ReadonlySet<string> }).lanes = new Set(['instruction']);
+    const evidence = [
+      {
+        entityId: 'e',
+        canonicalName: 'user',
+        facts: [
+          { predicate: 'instruction', object: 'write reports for boomerang in portuguese.' },
+          { predicate: 'preferences', object: 'always answer briefly when I ask for status' },
+          { predicate: 'hobby', object: 'hiking' },
+        ],
+      },
+    ] as unknown as SearchHit[];
+    const out = await svc.collect({ ...collectorArgs(profile), evidence });
+    expect(out.instructions).toEqual([
+      'Write reports for Boomerang in Portuguese.',
+      'always answer briefly when I ask for status',
+    ]);
+  });
+
+  it('startInstructionProbe resolves [] when the lane is off or not wired, and never rejects', async () => {
     const svc = new EvidenceCollectorService({
       search: async () => {
         throw new Error('probe down');

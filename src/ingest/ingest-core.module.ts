@@ -5,6 +5,7 @@ import { EntityUpsertService } from './entity-upsert.service';
 import { FactEmbeddingService } from './fact-embedding.service';
 import { FactResolverService } from './fact-resolver.service';
 import { EpisodeStoreService } from './episode-store.service';
+import { MemoryContextService } from './memory-context.service';
 
 /**
  * The graph WRITE PRIMITIVES, module-separated from the ingest routes:
@@ -27,6 +28,9 @@ import { EpisodeStoreService } from './episode-store.service';
     // direct mention persister and the document commit a stock deployment
     // routes mentions through — capture the turn before extraction.
     EpisodeStoreService,
+    // What the extractor reads before it extracts: the conversation so
+    // far, the known entities and their facts (memory-context.service).
+    MemoryContextService,
   ],
   exports: [
     EntityResolverService,
@@ -34,6 +38,7 @@ import { EpisodeStoreService } from './episode-store.service';
     FactEmbeddingService,
     FactResolverService,
     EpisodeStoreService,
+    MemoryContextService,
   ],
 })
 export class IngestCoreModule {}

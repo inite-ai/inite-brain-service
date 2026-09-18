@@ -401,9 +401,9 @@ export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplica
   }): Promise<ExtractionResult> {
     const { companyId, trimmed, snapshot, rawJson, context } = args;
 
-    const parsedEntities: ExtractedEntity[] = parseEntities(rawJson);
+    const parsedEntities: ExtractedEntity[] = parseEntities(rawJson, context?.memory);
     const clauses = parseClauses(rawJson);
-    const rawFacts = parseRawFacts(rawJson, parsedEntities.length);
+    const rawFacts = parseRawFacts(rawJson, parsedEntities.length, context?.memory);
     // Dialogue profile (Phase 4): values are normalized, not verbatim spans, so
     // the substring-drop gate would delete every normalized fact. Keep them.
     const {

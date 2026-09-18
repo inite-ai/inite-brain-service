@@ -14,6 +14,7 @@ import { MultilingualLaneClassifierService } from './multilingual-lane-classifie
 import { EpisodeLaneService } from './episode-lane.service';
 import { SegmentLaneService } from './segment-lane.service';
 import { InsightLaneService } from './insight-lane.service';
+import { InstructionLaneService } from './instruction-lane.service';
 import { MentionScanService } from './mention-scan.service';
 import { QueryArcService } from './query-arc.service';
 import { UpdateStoryService } from './update-story.service';
@@ -37,6 +38,7 @@ import { MemoryModelReaderService } from '../ai/memory-model-reader.service';
     EpisodeLaneService,
     SegmentLaneService,
     InsightLaneService,
+    InstructionLaneService,
     MentionScanService,
     QueryArcService,
     UpdateStoryService,

@@ -41,7 +41,10 @@ function collectDayMs(hits: SearchHit[]): number[] {
   const days = new Set<number>();
   for (const h of hits) {
     for (const f of h.facts) {
-      for (const raw of [f.validFrom, f.validUntil, f.mentionedAt]) {
+      // The day a value points at (a deadline, a meeting) is an evidence
+      // date like the stamps: "what is due this week" needs it on the
+      // table, weekday and all.
+      for (const raw of [f.validFrom, f.validUntil, f.mentionedAt, f.date]) {
         if (!raw) continue;
         const ms = Date.parse(String(raw));
         if (!isRealDate(ms)) continue;

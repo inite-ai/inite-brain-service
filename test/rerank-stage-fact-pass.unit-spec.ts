@@ -36,7 +36,7 @@ function bucket(entityId: string, scores: number[]): EntityBucket {
 
 function ctx(factRerank: boolean): PipelineContext {
   return {
-    limit: 5,
+    limit: 1,
     dto: { query: 'q' },
     profile: { factRerank },
     tuning: { rerankTrustBand: 0, rerankSkipMargin: 0, factRerankWindow: 64 },
@@ -92,6 +92,32 @@ describe('rerank stage — the fact pass rides beside the LLM rerank', () => {
     expect([...scores].sort((x, y) => y - x)).toEqual([0.9, 0.8, 0.2, 0.1]);
     expect(byEntity.get('b')!.facts[1]!.score).toBe(0.9);
     expect(byEntity.get('a')!.facts[0]!.score).toBe(0.1);
+  });
+
+  it('the LLM reranker is skipped when every candidate fits the caller limit', async () => {
+    const byEntity = new Map([
+      ['a', bucket('a', [0.9, 0.2])],
+      ['b', bucket('b', [0.8, 0.1])],
+    ]);
+    const crossEncoder = {
+      isEnabled: () => false,
+      isLocalOnly: () => false,
+      rerank: jest.fn(),
+    } as unknown as CrossEncoderService;
+    const reranker = {
+      isEnabled: () => true,
+      rerank: jest.fn(async (_q: string, inputs: unknown[]) => inputs.map((_, i) => i)),
+    } as unknown as RerankerService;
+    const metrics = { countRerank: jest.fn(), countCrossEncoder: jest.fn() };
+    const svc = new SearchRerankService(reranker, crossEncoder, metrics as never);
+    // Two candidates, limit 5: nothing to cut, so nothing to order.
+    const fits = await svc.runRerankStage({ byEntity, ctx: { ...ctx(false), limit: 5 } as never });
+    expect(fits.map((b) => b.entityId)).toEqual(['a', 'b']);
+    expect(reranker.rerank).not.toHaveBeenCalled();
+    expect(metrics.countRerank).toHaveBeenCalledWith('skipped_all_fit');
+    // Limit 1: the cut is real, the reranker runs.
+    await svc.runRerankStage({ byEntity, ctx: { ...ctx(false), limit: 1 } as never });
+    expect(reranker.rerank).toHaveBeenCalledTimes(1);
   });
 
   it('with the fact pass off, the cross-encoder is asked once and scores are untouched', async () => {

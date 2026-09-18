@@ -5,6 +5,10 @@ export type Neighbour = {
   canonicalName: string;
   type: string;
   kind: string;
+  /** The knowledge_edge record — what a citation of the relation names. */
+  edgeId: string;
+  /** 'out' = the entity is the edge's subject; 'in' = its object. */
+  direction: 'out' | 'in';
 };
 
 /**
@@ -35,33 +39,23 @@ export async function fetchNeighbours({
   if (entityIds.length === 0) return out;
   const rids = entityIds.map((s) => new StringRecordId(s));
   const fence = buildEdgeFence(userId);
-  type Row = {
+  type Side = Array<{
     id: unknown;
-    outNeighbours: Array<{
-      kind: string;
-      peer: {
-        id: unknown;
-        type: string;
-        canonicalName: string;
-        userId?: string | null;
-      } | null;
-    }> | null;
-    inNeighbours: Array<{
-      kind: string;
-      peer: {
-        id: unknown;
-        type: string;
-        canonicalName: string;
-        userId?: string | null;
-      } | null;
-    }> | null;
-  };
+    kind: string;
+    peer: {
+      id: unknown;
+      type: string;
+      canonicalName: string;
+      userId?: string | null;
+    } | null;
+  }> | null;
+  type Row = { id: unknown; outNeighbours: Side; inNeighbours: Side };
   try {
     const [rows] = await db.query<[Row[]]>(
       `SELECT
            id,
-           ->(knowledge_edge WHERE ${fence.cond}).{ kind, peer: out.{id, type, canonicalName, userId} } AS outNeighbours,
-           <-(knowledge_edge WHERE ${fence.cond}).{ kind, peer: in.{id, type, canonicalName, userId} } AS inNeighbours
+           ->(knowledge_edge WHERE ${fence.cond}).{ id, kind, peer: out.{id, type, canonicalName, userId} } AS outNeighbours,
+           <-(knowledge_edge WHERE ${fence.cond}).{ id, kind, peer: in.{id, type, canonicalName, userId} } AS inNeighbours
          FROM $ids`,
       { ids: rids, ...fence.params },
     );
@@ -69,17 +63,10 @@ export async function fetchNeighbours({
       const id = String(row.id);
       const list: Neighbour[] = [];
       const seen = new Set<string>();
-      const pushSide = (
-        side: Array<{
-          kind: string;
-          peer: {
-            id: unknown;
-            type: string;
-            canonicalName: string;
-            userId?: string | null;
-          } | null;
-        }> | null,
-      ) => {
+      // Direction is kept: "Pedro covers_for Ana" read from Ana's side
+      // is an INCOMING edge, and a line that dropped the direction
+      // ("Ana — covers_for: Pedro") stated the opposite of the record.
+      const pushSide = (side: Side, direction: 'out' | 'in') => {
         if (!side) return;
         for (const e of side) {
           if (!e?.peer) continue;
@@ -88,18 +75,20 @@ export async function fetchNeighbours({
           // Self-loop guard (identity_of after merge): skip when
           // the peer is the entity itself.
           if (peerId === id) continue;
-          const key = `${peerId}|${e.kind}`;
+          const key = `${peerId}|${e.kind}|${direction}`;
           if (seen.has(key)) continue;
           seen.add(key);
           list.push({
             canonicalName: e.peer.canonicalName,
             type: e.peer.type,
             kind: e.kind,
+            edgeId: String(e.id),
+            direction,
           });
         }
       };
-      pushSide(row.outNeighbours);
-      pushSide(row.inNeighbours);
+      pushSide(row.outNeighbours, 'out');
+      pushSide(row.inNeighbours, 'in');
       out.set(id, list);
     }
   } catch (err) {

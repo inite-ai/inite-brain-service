@@ -3,6 +3,7 @@ import {
   buildDialogueSystemPrompt,
   buildExtractionSchema,
   EXTRACTION_PROMPT_HEADER_DIALOGUE,
+  MEMORY_CONTRACT_SECTION,
   OBJECT_NORMALIZATION_SECTION,
 } from '../src/ai/extractor-internals/prompts';
 import type { PredicateDefinition } from '../src/ai/predicate-registry.service';
@@ -39,8 +40,8 @@ describe('Phase 4 v2 dialogue extraction prompt', () => {
     expect(open).not.toContain('interacted_with [append_only]');
     expect(open).not.toContain('status [single_active]');
     expect(open).not.toContain('CATCH-ALL');
-    // It is exactly the open header (nothing appended).
-    expect(open).toBe(EXTRACTION_PROMPT_HEADER_DIALOGUE);
+    // It is the open header plus the memory contract — no cards.
+    expect(open).toBe(EXTRACTION_PROMPT_HEADER_DIALOGUE + MEMORY_CONTRACT_SECTION);
   });
 
   it('dialogue prompt carries the evidence-based anti-catch-all rules', () => {

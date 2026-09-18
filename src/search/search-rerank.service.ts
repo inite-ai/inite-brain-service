@@ -186,6 +186,15 @@ export class SearchRerankService {
       this.metrics?.countRerank('skipped_singleton');
       return candidatesForRerank;
     }
+    // Every candidate is returned when there are no more of them than
+    // the caller asked for: the reranker could only permute a set the
+    // generator reads whole. Three reranker calls per search for that
+    // was the largest fixed cost of a small tenant's answer (measured
+    // 2026-09-18: 1.2–1.8 s of a 4.5 s synthesize).
+    if (candidatesForRerank.length <= ctx.limit) {
+      this.metrics?.countRerank('skipped_all_fit');
+      return candidatesForRerank;
+    }
     if (skipByMargin) {
       this.metrics?.countRerank('skipped_margin');
       return candidatesForRerank;

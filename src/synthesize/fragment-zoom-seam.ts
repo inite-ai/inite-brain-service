@@ -105,6 +105,8 @@ export interface VerifyStageArgs {
   };
   promptFactLines: string[];
   dateMathLines?: string[] | undefined;
+  /** The generator's "today" (dateContext) — the auditor sees the same. */
+  dateContext?: string | undefined;
   citations: Citation[];
   results: SearchHit[];
   decisionLog: Parameters<typeof verifierErrorResult>[0]['decisionLog'];
@@ -189,6 +191,9 @@ export async function verifyAndZoom(
                 // V13 date-table parity: the auditor sees the same
                 // computed table the generator saw.
                 dateMathLines: args.dateMathLines,
+                // And the same "today", so calendar placement relative
+                // to it is judged, not flagged.
+                dateContext: args.dateContext,
                 // MM-zoom PR2 parity: the same media lines the
                 // generator saw (the 0113 capabilityEvidenceLines seam).
                 capabilityEvidenceLines: collected.fragmentLines,
@@ -229,6 +234,7 @@ export async function verifyAndZoom(
     collected,
     promptFactLines: args.promptFactLines,
     dateMathLines: args.dateMathLines,
+    dateContext: args.dateContext,
     decisionCtx: args.decisionCtx,
   });
   return { verdict: zoomed ?? verdict };
@@ -256,6 +262,7 @@ interface FragmentZoomSeamArgs {
   };
   promptFactLines: string[];
   dateMathLines?: string[] | undefined;
+  dateContext?: string | undefined;
   decisionCtx: DecisionContext;
 }
 
@@ -303,6 +310,7 @@ async function tryFragmentZoom(
               timelineEvidence: collected.timelineEvidence,
               topicCoverage: profile.verifierTopicCoverage,
               dateMathLines: args.dateMathLines,
+              dateContext: args.dateContext,
               capabilityEvidenceLines: zoomedLines,
               model: profile.verifierModel || model,
             }),

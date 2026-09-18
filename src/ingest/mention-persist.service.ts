@@ -17,7 +17,7 @@ import {
 } from '../common/coreference';
 import type { KnownEntity } from './dto/ingest-mention.dto';
 import { envFlagEnabled } from '../common/env-validation';
-import { factValidFrom, resolveEventTimeOpts, type EventTimeResolveOpts } from './event-time';
+import { factTiming, resolveEventTimeOpts, type EventTimeResolveOpts } from './event-time';
 
 export interface MentionPersistResult {
   extractedEntityIds: string[];
@@ -175,7 +175,7 @@ export class MentionPersistService {
       const f = extraction.facts[i]!;
       const eid = entityIds[f.entityIndex];
       if (!eid) continue;
-      const validFrom = factValidFrom(f, dto.emittedAt, timeOpts);
+      const { validFrom, objectMeta } = factTiming(f, dto.emittedAt, timeOpts);
       const factId = await traceSpan(
         'ingest.fact.upsert',
         () =>
@@ -185,6 +185,7 @@ export class MentionPersistService {
             f,
             source,
             validFrom,
+            objectMeta,
             precomputedEmbedding: factEmbeddings[i],
             userId: dto.userId,
             // Subject entity's extraction type — read only by the
@@ -226,6 +227,7 @@ export class MentionPersistService {
       const f = extraction.facts[i]!;
       const eid = entityIds[f.entityIndex];
       if (!eid) continue;
+      const { validFrom, objectMeta } = factTiming(f, dto.emittedAt, timeOpts);
       specs.push({
         f,
         input: {
@@ -235,7 +237,9 @@ export class MentionPersistService {
           predicateAlias: f.predicateAlias,
           object: f.object,
           confidence: f.confidence,
-          validFrom: factValidFrom(f, dto.emittedAt, timeOpts),
+          validFrom,
+          objectMeta,
+          supersedes: f.supersedes,
           source,
           entropy: typeof f.extractionEntropy === 'number' ? f.extractionEntropy : undefined,
           precomputedEmbedding: factEmbeddings[i],
@@ -287,9 +291,11 @@ export class MentionPersistService {
         object: string;
         confidence: number;
         extractionEntropy?: number | undefined;
+        supersedes?: string[] | undefined;
       };
       source: MentionSource;
       validFrom: Date;
+      objectMeta?: { date: string } | undefined;
       precomputedEmbedding: number[] | undefined;
       /** Per-user scope (audit 2026-08-21 P0) — stamps the fact row. */
       userId?: string | undefined;
@@ -307,6 +313,8 @@ export class MentionPersistService {
       object: f.object,
       confidence: f.confidence,
       validFrom: p.validFrom,
+      objectMeta: p.objectMeta,
+      supersedes: f.supersedes,
       source: p.source,
       entropy,
       precomputedEmbedding: p.precomputedEmbedding,

@@ -4,8 +4,11 @@ import type { LaneId, RetrievalProfile } from '../search/retrieval-profile';
 import type { SearchDto } from '../search/dto/search.dto';
 import { getAbortSignal } from '../common/request-context';
 import { withSpan } from '../common/tracing';
-import { INSTRUCTION_PROBE_QUERY, extractStandingInstructions } from './answer-router';
-import { buildSecondaryDto } from './synthesize.helpers';
+import { extractStandingInstructions } from './answer-router';
+import { InstructionLaneService } from './instruction-lane.service';
+
+/** Standing instructions rendered per prompt. */
+const INSTRUCTIONS_CAP = 8;
 import {
   wantsInsightEvidence,
   wantsTimelineEvidence,
@@ -246,6 +249,7 @@ export class EvidenceCollectorService {
     @Optional() private readonly fragmentLane?: FragmentLaneService,
     @Optional() private readonly beliefLane?: BeliefLaneService,
     @Optional() private readonly sceneLane?: SceneLaneService,
+    @Optional() private readonly instructionLane?: InstructionLaneService,
   ) {}
 
   /**
@@ -275,10 +279,10 @@ export class EvidenceCollectorService {
      *  beside beliefLane — shapes the lane's rendered date token and is
      *  echoed on CollectedEvidence for the generator header. */
     beliefDateDisambiguation?: boolean | undefined;
-    /** The instruction probe already in flight (startInstructionProbe),
-     *  when the caller launched it beside its main search; absent → the
-     *  probe runs here, after the main search, as it did before. */
-    instructionProbe?: Promise<SearchHit[]> | undefined;
+    /** The instruction read already in flight (startInstructionProbe),
+     *  when the caller launched it beside its main search; absent → it
+     *  runs here. */
+    instructionProbe?: Promise<string[]> | undefined;
   }): Promise<CollectedEvidence> {
     const { profile, query } = opts;
     const timelineEvidence = wantsTimelineEvidence(profile, query);
@@ -759,14 +763,13 @@ export class EvidenceCollectorService {
   }
 
   /**
-   * T7 instruction lane — the probe half. A fixed query pulls
-   * instruction-shaped facts through a FULL second search (its own
-   * rerank stages included), which is why the orchestrator launches it
-   * BESIDE the main search rather than after it: the probe depends on
-   * nothing the main search produces, and run in sequence it added a
-   * whole search's latency to every answer (2–4 s on the production
-   * host). Resolves [] when the lane is off, the request is already
-   * aborted, or the probe fails — never rejects.
+   * T7 instruction lane — the read half: the standing instructions the
+   * memory files under the `instruction` predicate for this caller
+   * (InstructionLaneService — one indexed read, no search). Launched
+   * beside the main search by the orchestrator; collectSections awaits
+   * it. Resolves [] when the lane is off, the request is already
+   * aborted, the service is not wired, or the read fails — never
+   * rejects.
    */
   startInstructionProbe({
     profile,
@@ -778,31 +781,21 @@ export class EvidenceCollectorService {
     companyId: string;
     callerScopes: string[];
     dto?: SearchDto | undefined;
-  }): Promise<SearchHit[]> {
-    if (!profile.lanes.has('instruction')) return Promise.resolve([]);
-    // Structured cancellation: the probe is a full second search — if
-    // the request already died, don't spend it. (Per-query aborts are
-    // not supported by the DB SDK; stage-boundary checks are the
-    // honest granularity.)
+  }): Promise<string[]> {
+    if (!profile.lanes.has('instruction') || !this.instructionLane) return Promise.resolve([]);
     if (getAbortSignal()?.aborted) return Promise.resolve([]);
-    // Audit 2026-08-19 P1: the probe inherits the caller's filter
-    // contract (user scope included) — only its query/limit are fixed.
     return withSpan('synthesize.instruction_probe', () =>
-      this.search.search(
+      (this.instructionLane as InstructionLaneService).instructionLines({
         companyId,
-        dto
-          ? buildSecondaryDto(dto, { query: INSTRUCTION_PROBE_QUERY, limit: 8 })
-          : ({ query: INSTRUCTION_PROBE_QUERY, limit: 8 } as SearchDto),
         callerScopes,
-      ),
-    )
-      .then((probe) => probe.results)
-      .catch((e: unknown) => {
-        this.logger.warn(
-          `instruction probe failed (companyId=${companyId}): ${(e as Error).message}`,
-        );
-        return [];
-      });
+        userId: dto?.userId,
+      }),
+    ).catch((e: unknown) => {
+      this.logger.warn(
+        `instruction probe failed (companyId=${companyId}): ${(e as Error).message}`,
+      );
+      return [];
+    });
   }
 
   /**
@@ -818,11 +811,20 @@ export class EvidenceCollectorService {
     callerScopes: string[];
     evidence: SearchHit[];
     dto?: SearchDto;
-    instructionProbe?: Promise<SearchHit[]> | undefined;
+    instructionProbe?: Promise<string[]> | undefined;
   }): Promise<string[] | undefined> {
     if (!opts.profile.lanes.has('instruction')) return undefined;
-    const probeHits = await (opts.instructionProbe ?? this.startInstructionProbe(opts));
-    const list = extractStandingInstructions([...opts.evidence, ...probeHits]);
-    return list.length > 0 ? list : undefined;
+    const filed = await (opts.instructionProbe ?? this.startInstructionProbe(opts));
+    // The filed instructions first, then any instruction-shaped fact the
+    // evidence itself carries, deduplicated on the text.
+    const seen = new Set<string>();
+    const list: string[] = [];
+    for (const text of [...filed, ...extractStandingInstructions(opts.evidence)]) {
+      const key = text.trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      list.push(text.trim());
+    }
+    return list.length > 0 ? list.slice(0, INSTRUCTIONS_CAP) : undefined;
   }
 }

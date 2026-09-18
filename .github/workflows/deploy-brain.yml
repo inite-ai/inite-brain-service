@@ -401,16 +401,22 @@ jobs:
           CONFLICT_DIRECT_FACT_SLOT=1
           BELIEFS_LANE_DATE_DISAMBIGUATION=1
           PROVENANCE_EPISODE_NEIGHBOURS=1
-          # ── Literal harvest + belief transitions (#423/#426, measured:
-          # memory-fitness 70% -> 90% with the harvest lane; Compass
-          # acceptance green — negation revision + field fold) ──
-          EXTRACTOR_LITERAL_HARVEST=1
+          # ── Belief transitions (#423/#426; Compass acceptance green —
+          # negation revision + field fold). The literal harvest lane that
+          # shipped with them is OFF since the extractor reads the memory
+          # (extraction-with-memory.md): measured 2026-09-18 on the same
+          # build, lanes on vs off — memory-fitness 26/32 vs 26/32,
+          # state-transitions ru 8/12 (21/25) vs 8/12 (21/25) — while the
+          # regex lane wrote `identifier: Fly.io` on every turn naming a
+          # host. Same for the state-verb and transition-classifier lanes
+          # below. ──
+          EXTRACTOR_LITERAL_HARVEST=0
           SCENES_BELIEF_NEGATION_DELTAS=1
           SCENES_BELIEF_FIELD_FOLD=1
-          # ── State-verb harvest (#429/#431, measured: state-transition
-          # battery 4/12 -> 8/12 scenarios, checks 84%; held-out
-          # adversarial set 18/18; unit 29/29 incl. holder binding) ──
-          EXTRACTOR_STATE_VERB_HARVEST=1
+          # ── State-verb harvest (#429/#431): a lexicon lane the memory
+          # contract makes redundant — the extractor's `supersedes` closes
+          # the state the lane used to flip (measured null above). ──
+          EXTRACTOR_STATE_VERB_HARVEST=0
           # ── Answer conditioning (V13 G2 shape instructions; existing
           # flag, was never enabled — the aggregation shape's coverage
           # instruction fixes broad-question domain dropout. Measured on
@@ -429,7 +435,9 @@ jobs:
           # status vs duration_limit — so no single_active collision
           # exists to pair; slot canonicalization is the follow-up). ──
           CONFLICT_MENTION_FACT_SLOT=1
-          EXTRACTOR_TRANSITION_CLASSIFIER=1
+          # Prototype-bank transition lane: measured null under the memory
+          # contract (see EXTRACTOR_LITERAL_HARVEST above); off.
+          EXTRACTOR_TRANSITION_CLASSIFIER=0
           # ── s07/k07/k10 root-cause wave (#450 #454 #455 #456, all
           # live-verified on the stand 2026-09-06):
           # - slot canonicalization: calendar-anchored duration claims

@@ -41,7 +41,7 @@ const disabledReranker = {
 
 function ctxWith(trustBand: number): PipelineContext {
   return {
-    limit: 5,
+    limit: 1,
     dto: { query: 'test query' },
     tuning: { rerankTrustBand: trustBand, rerankSkipMargin: 0 },
   } as unknown as PipelineContext;

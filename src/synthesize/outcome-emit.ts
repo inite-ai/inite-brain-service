@@ -1,5 +1,5 @@
 import { MemoryOutcomeService, type OutcomeEventInput } from '../outcomes/memory-outcome.service';
-import type { Citation } from './fact-index';
+import { isEdgeCitation, type Citation } from './fact-index';
 import type { VerifierOutput } from './verifier';
 import { unverifiedReturn, type VerdictDeps } from './verdict';
 import type { EvidenceCitation, SynthesizeResult } from './synthesize.types';
@@ -80,8 +80,11 @@ export function emitAnswerUse(
     decisionId?: string | undefined;
   },
 ): void {
-  const { companyId, citations, verdict, decisionId } = opts;
+  const { companyId, verdict, decisionId } = opts;
   if (!outcomes || !MemoryOutcomeService.enabled() || companyId === undefined) return;
+  // Fact outcomes only: a relation citation names a knowledge_edge
+  // (fact-index.ts), and the outcome ledger keys facts.
+  const citations = opts.citations.filter((c) => !isEdgeCitation(c));
   const events: OutcomeEventInput[] = citations.map((c) => ({
     subjectKind: 'fact',
     subjectId: c.factId,

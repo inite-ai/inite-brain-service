@@ -54,6 +54,8 @@ export class ExtractorCacheService {
     scPasses?: number | undefined;
     speaker?: string | undefined;
     addressee?: string | undefined;
+    /** Digest of the memory context the extractor read (memoryContextDigest). */
+    memory?: string | undefined;
   }): string {
     // scPasses is part of the key: a single-pass cached result lacks the
     // semantic-entropy fields a >1-pass run produces, so serving it after
@@ -72,6 +74,7 @@ export class ExtractorCacheService {
       input.predicateVocabHash,
       `sc=${input.scPasses ?? 1}`,
       `spk=${input.speaker ?? ''}\x1eadr=${input.addressee ?? ''}`,
+      `mem=${input.memory ?? ''}`,
       nfc(input.text),
     ].join('\x1f');
     return createHash('sha256').update(parts).digest('hex');

@@ -27,7 +27,7 @@ import {
 import type { RetrievalProfile } from '../search/retrieval-profile';
 import type { SynthesizeDto } from '../synthesize/dto/synthesize.dto';
 import type { EvidenceCitation, SynthesizeResult } from '../synthesize/synthesize.types';
-import type { Citation } from '../synthesize/fact-index';
+import { isEdgeCitation, type Citation } from '../synthesize/fact-index';
 
 /**
  * Generator/verifier PROMPT SHAPE version baked into the cache key.
@@ -662,6 +662,14 @@ export class AnswerCacheService {
     if (wanted === null) {
       // A citation with no trackable arm — the cache cannot promise to
       // notice when it dies, so the answer is served fresh every time.
+      this.metrics?.countAnswerCache('not_admitted');
+      traceArtifact('synthesize.answer_cache', { decision: 'not_admitted' });
+      return;
+    }
+    // A relation citation names a knowledge_edge (fact-index.ts); the
+    // fact-lifecycle revalidation reads knowledge_fact only, so such an
+    // answer would be stored and rejected on every hit. Served fresh.
+    if (result.citations.some(isEdgeCitation)) {
       this.metrics?.countAnswerCache('not_admitted');
       traceArtifact('synthesize.answer_cache', { decision: 'not_admitted' });
       return;

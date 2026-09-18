@@ -204,15 +204,41 @@ describe('assembleHits relations', () => {
         [
           'knowledge_entity:e1',
           [
-            { canonicalName: 'Orbital Dynamics', type: 'org', kind: 'works_at' },
-            { canonicalName: 'Maria', type: 'person', kind: 'knows' },
+            {
+              canonicalName: 'Orbital Dynamics',
+              type: 'org',
+              kind: 'works_at',
+              edgeId: 'knowledge_edge:w',
+              direction: 'out' as const,
+            },
+            {
+              canonicalName: 'Maria',
+              type: 'person',
+              kind: 'knows',
+              edgeId: 'knowledge_edge:k',
+              direction: 'in' as const,
+            },
           ],
         ],
       ]),
     });
+    // The edge record and its direction ride along: the answer plane
+    // cites the edge and reads an incoming edge in its own direction.
     expect(hits[0]!.relations).toEqual([
-      { kind: 'works_at', peer: 'Orbital Dynamics', peerType: 'org' },
-      { kind: 'knows', peer: 'Maria', peerType: 'person' },
+      {
+        kind: 'works_at',
+        peer: 'Orbital Dynamics',
+        peerType: 'org',
+        edgeId: 'knowledge_edge:w',
+        direction: 'out',
+      },
+      {
+        kind: 'knows',
+        peer: 'Maria',
+        peerType: 'person',
+        edgeId: 'knowledge_edge:k',
+        direction: 'in',
+      },
     ]);
   });
 

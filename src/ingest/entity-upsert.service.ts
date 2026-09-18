@@ -72,7 +72,7 @@ export function articleNameVariants(nameLc: string): string[] {
 /** The rung of the naming ladder that settled an entity — see the trace
  *  artifact `ingest.entity.resolution`. */
 type ResolutionStep =
-  'hint' | 'exact' | 'article-variant' | 'translit' | 'code-alias' | 'judge' | 'created';
+  'hint' | 'known' | 'exact' | 'article-variant' | 'translit' | 'code-alias' | 'judge' | 'created';
 
 @Injectable()
 export class EntityUpsertService {
@@ -211,7 +211,7 @@ export class EntityUpsertService {
     incomingFacts = [],
   }: {
     db: Surreal;
-    e: { name: string; type: string; canonical?: string | undefined };
+    e: { name: string; type: string; canonical?: string | undefined; known?: string | undefined };
     hint: { vertical: string; id: string; role?: string } | undefined;
     _contextRef: { vertical: string };
     incomingFacts?: string[];
@@ -260,6 +260,29 @@ export class EntityUpsertService {
           adopt: () => this.resolveExistingByName(db, { name: e.canonical ?? e.name }),
         }),
       );
+    }
+
+    // 1a. The extractor's own pin (memory context): the mention was
+    // written with the entity in front of it and refers to it by
+    // handle — "Ana" after "Ana Costa", "Rui" after "Rui Almeida", a
+    // transliteration, a role the conversation tied to them. That is
+    // the resolution decision, made where the sentence was read; the
+    // ladder below exists for mentions the memory did not hold. The
+    // row is re-read so a stale or merged id cannot be filed under.
+    if (e.known) {
+      const pinned = await this.followKnown(db, e.known);
+      if (pinned) {
+        await this.stampNameKeys(db, pinned, [e.name, e.canonical]);
+        // The surface form that named it this time becomes an alias, so
+        // the next exact lookup hits without a model in the loop.
+        await this.stampAlias(db, pinned, e.name);
+        await this.auditKeyedReuse(db, pinned, {
+          mention: e.name,
+          type: this.normalizeEntityType(e.type),
+          matchKind: 'known',
+        });
+        return resolved('known', pinned);
+      }
     }
 
     // 2. Canonical-name match. Hits `entity_canonical_lc_idx` directly
@@ -867,6 +890,25 @@ export class EntityUpsertService {
     );
   }
 
+  /**
+   * The entity an extractor pin names, or null when the id is stale.
+   * A merged row forwards to its survivor.
+   */
+  private async followKnown(db: Surreal, known: string): Promise<string | null> {
+    try {
+      const row = await queryFirst<{ id: unknown; mergedInto?: unknown }>(
+        db,
+        `SELECT id, mergedInto FROM $id`,
+        { id: new StringRecordId(known) },
+      );
+      if (!row) return null;
+      return row.mergedInto ? String(row.mergedInto) : String(row.id);
+    } catch (err) {
+      this.logger.warn(`[entity.known] ${known} unreadable: ${(err as Error).message}`);
+      return null;
+    }
+  }
+
   /** Audit a deterministic keyed reuse to entity_merge_log (0102), gated on
    *  MULTILINGUAL_ENTITY_REVERSIBLE. No-op when the resolver isn't wired or
    *  the flag is off. */
@@ -876,7 +918,7 @@ export class EntityUpsertService {
     meta: {
       mention: string;
       type: string;
-      matchKind: 'exact' | 'externalRef' | 'article-variant' | 'translit';
+      matchKind: 'exact' | 'externalRef' | 'article-variant' | 'translit' | 'known';
     },
   ): Promise<void> {
     if (!this.entityResolver?.isReversible()) return;

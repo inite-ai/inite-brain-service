@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ExtractorService, type ExtractionResult } from '../ai/extractor.service';
 import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { traceArtifact, traceSpan } from '../common/debug-trace';
@@ -6,6 +6,7 @@ import { redactPii } from './ingest-utils';
 import { FactEmbeddingService } from './fact-embedding.service';
 import { factIndexText } from './fact-index-text';
 import { envFlagEnabled } from '../common/env-validation';
+import { MemoryContextService } from './memory-context.service';
 
 export interface MentionSource {
   /**
@@ -45,6 +46,9 @@ export class MentionExtractionService {
   constructor(
     private readonly extractor: ExtractorService,
     private readonly factEmbedding: FactEmbeddingService,
+    // @Optional: a stripped-down module (or a direct-construction spec)
+    // without the memory reader extracts context-free, as before.
+    @Optional() private readonly memory?: MemoryContextService,
   ) {}
 
   async prepare(companyId: string, dto: IngestMentionDto): Promise<MentionPrep> {
@@ -65,13 +69,31 @@ export class MentionExtractionService {
     // absent → the extractor runs speaker-agnostic exactly as before.
     const speaker = dto.knownEntities?.find((k) => k.role === 'speaker');
     const addressee = dto.knownEntities?.find((k) => k.role === 'addressee');
-    const context =
-      speaker?.name || addressee?.name
-        ? {
-            ...(speaker?.name !== undefined ? { speakerName: speaker.name } : {}),
-            ...(addressee?.name !== undefined ? { addresseeName: addressee.name } : {}),
-          }
-        : undefined;
+    // What the memory already holds around this turn — the conversation
+    // so far, the entities it names, their facts, the tenant's
+    // predicates (MemoryContextService) — read before the extraction so
+    // the extractor pins mentions and closes replaced values itself.
+    const memory = await this.memory?.build({
+      companyId,
+      text,
+      occurredAt: dto.emittedAt,
+      conversationId: dto.contextRef.conversationId,
+      messageId: dto.contextRef.messageId,
+      userId: dto.userId,
+      // Every anchor the caller attached, participants first.
+      participants: [
+        ...new Set(
+          [speaker?.name, addressee?.name, ...(dto.knownEntities ?? []).map((k) => k.name)].filter(
+            (n): n is string => !!n,
+          ),
+        ),
+      ],
+    });
+    const context = {
+      ...(speaker?.name !== undefined ? { speakerName: speaker.name } : {}),
+      ...(addressee?.name !== undefined ? { addresseeName: addressee.name } : {}),
+      ...(memory ? { memory } : {}),
+    };
 
     const extraction = await traceSpan('ingest.nlu.extract', () =>
       this.extractor.extract(text, companyId, context),

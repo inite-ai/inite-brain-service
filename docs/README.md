@@ -34,6 +34,7 @@ with one row per document.
 | [Source reputation & trust](source-reputation.md) | Domain-scoped trust, corroboration, feedback loop, trust in ranking. |
 | [ABAC access policies](abac.md) | Per-key policy sets: action gating + row-level read filtering, rollout runbook. |
 | [Document pipeline](document-pipeline.md) | Source → Indexer → Candidates → Brain: composable indexers, staged candidates, origin-keyed corroboration, re-indexing, external indexers, seed documents. |
+| [Extraction with memory](extraction-with-memory.md) | The write-path contract: the extractor reads the conversation, the known entities and their facts, and returns `known` / `supersedes` / `eventTime`; citable relations; the revision round. |
 | [Extraction harvest lanes](extraction-harvest-lanes.md) | Deterministic post-LLM harvest: literal facts, state-verb transitions with holder binding, and the (unwired) language-agnostic transition classifier. |
 | [Fact provenance API](fact-provenance-api.md) | `GET /v1/facts/:id` + `/provenance` — the fact and the verbatim turns it came from ("show me why I remember this"). Flag-gated, ownership-fenced. |
 | [User profile API](user-profile-api.md) | `GET /v1/users/:userId/profile` — deterministic, prompt-ready assembly of one user's own memory (strict user scope). Flag-gated. |

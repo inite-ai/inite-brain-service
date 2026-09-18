@@ -1,6 +1,7 @@
 import type { PredicateDefinition } from '../predicate-registry.service';
 import type { PackExtractionProfile } from '../predicate-registry-internals/types';
 import { ENTITY_TYPE_VOCABULARY } from './types';
+import { renderMemoryContext, type MemoryContext } from './memory-context';
 
 /**
  * Static header — the structural / verbatim-rule / decompose-then-extract
@@ -131,13 +132,21 @@ OUTPUT CONTRACT — JSON with four top-level fields, in this order:
 
   1. clauses[] — verbatim sub-spans of the input, ONE independent assertion each.
 
-  2. entities[] — the people/things involved. name = the person's name when known,
-     else the clearest noun phrase that denotes them; resolve pronouns and roles to
-     who they refer to — NEVER a bare "I"/"you"/"the woman". type (closed enum:
-     ${ENTITY_TYPE_VOCABULARY.join(', ')}). canonical = the form the entity is
-     known by when the mention is not it: the dictionary form of an inflected
-     mention (nominative singular — "Марией" → "Мария"), the full name when the
-     turn gives it, or the stated legal form; null when name already is it.
+  2. entities[] — the NAMED things involved: people, organisations, places,
+     and products / projects / systems / documents the turn calls by a name.
+     Resolve pronouns and roles to who they refer to — NEVER a bare
+     "I"/"you"/"the woman". A generic noun, a role, a date, a group or an
+     unnamed thing ("the report", "the board", "Friday", "the pilot",
+     "brokers") is NOT an entity when a named one is there to carry the
+     fact — it becomes the value of a fact on the named entity it belongs
+     to (a KNOWN ENTITY, one the turn names, or the speaker). Only when the
+     turn names nothing and no speaker is known does the described thing
+     itself become the entity ("pilot launch" as a project), so the fact is
+     never lost. type (closed enum: ${ENTITY_TYPE_VOCABULARY.join(', ')}).
+     canonical = the form the entity is known by when the mention is not it:
+     the dictionary form of an inflected mention (nominative singular —
+     "Марией" → "Мария"), the full name when the turn gives it, or the stated
+     legal form; null when name already is it. known = see MEMORY below.
 
   3. facts[] — durable facts. Each: entityIndex, clauseIndex, predicate, valueSpan,
      confidence (0..1; >0.8 explicit, 0.5–0.8 inferred).
@@ -184,6 +193,59 @@ BE EXHAUSTIVE (recall matters more than brevity):
   • Near-zero temperature; the strict JSON schema is enforced by the runtime.
 `;
 
+/**
+ * The memory contract — appended to BOTH headers. It explains the three
+ * output fields that tie an extraction to what the graph already holds
+ * (`known`, `supersedes`, `eventTime`), the entity policy those fields
+ * assume, and the one predicate the serving side reads by name
+ * (`instruction`). The matching user-message sections are rendered by
+ * renderMemoryContext; the schema fields are added by
+ * buildExtractionSchema in lockstep.
+ */
+export const MEMORY_CONTRACT_SECTION = `
+MEMORY
+The user message may open with TURN DATE, CONVERSATION SO FAR, KNOWN ENTITIES,
+KNOWN FACTS and KNOWN PREDICATES sections, then CURRENT TURN. Extract from the
+CURRENT TURN only; the rest is what the memory already holds.
+
+  known (per entity) — the handle of the KNOWN ENTITY this mention refers to
+  ("e2"), else null. The same person or organisation by a shorter, inflected or
+  transliterated name, a first name after the full name, a nickname or a role
+  the conversation already tied to them → the known one. A KNOWN ENTITY is never
+  created again under another name. name stays the mention as the turn wrote it
+  ("Rui"); known says who that is.
+
+  A value is never a bare pronoun or a phrase whose object is one ("it", "her",
+  "covers for her"): name the thing, or state the link as an edge instead.
+
+  Attach each fact to the entity it is ABOUT — the one the KNOWN FACTS of that
+  attribute already sit on. A deal's budget, start date and decision belong to
+  the client, not to a "pilot" or a "proposal"; a rule about someone's contact
+  hours belongs to that person. A turn that names nobody still yields its
+  facts: on the KNOWN ENTITY the conversation is about, else on the speaker,
+  else on the described thing itself as the entity.
+
+  supersedes (per fact) — handles of KNOWN FACTS this fact replaces: a new value
+  of the same attribute ("budget 4000" → "2500"), a moved date, a changed
+  state, a correction — even when the known fact's predicate is spelled
+  differently. A fact that adds a different attribute supersedes nothing.
+  Empty when nothing changes. A statement that something is NO LONGER the case
+  ("Redis is no longer the queue", "this supersedes the March decision") is not
+  a fact carrying that value — it closes the known fact through the new
+  value's supersedes and yields no positive fact of its own.
+
+  eventTime (per fact) — the calendar day (YYYY-MM-DD) the value refers to: a
+  deadline, a meeting, a start, when something happened or will happen —
+  resolved against TURN DATE. null when the clause names no day. The value
+  itself stays as written ("19 сентября"); eventTime carries the resolved day.
+
+  instruction — a standing instruction to the assistant about how to act,
+  answer, write or format from now on ("запомни: …", "always …", "never …",
+  "when I ask …", "write reports for X in Portuguese") is a fact with predicate
+  "instruction", attached to the speaker (or, when it concerns one named party,
+  to that party), value = the instruction as one self-contained sentence.
+`;
+
 export function renderPredicateCard(p: PredicateDefinition): string {
   return `\n${p.predicateId} [${p.semantics}]\n${p.description.trim()}\n`;
 }
@@ -197,7 +259,7 @@ export function renderPredicateCard(p: PredicateDefinition): string {
  * buildSystemPrompt).
  */
 export function buildDialogueSystemPrompt(_predicates: PredicateDefinition[]): string {
-  return EXTRACTION_PROMPT_HEADER_DIALOGUE;
+  return EXTRACTION_PROMPT_HEADER_DIALOGUE + MEMORY_CONTRACT_SECTION;
 }
 
 /**
@@ -231,7 +293,9 @@ If the turn names nothing, return empty facts.`,
  * never an error.
  */
 export function buildFacetSystemPrompt(facet: string): string {
-  return EXTRACTION_PROMPT_HEADER_DIALOGUE + (FACET_INSTRUCTIONS[facet] ?? '');
+  return (
+    EXTRACTION_PROMPT_HEADER_DIALOGUE + MEMORY_CONTRACT_SECTION + (FACET_INSTRUCTIONS[facet] ?? '')
+  );
 }
 
 /** Conversation participants for one turn — drives coreference resolution. */
@@ -240,6 +304,13 @@ export interface ConversationContext {
   speakerName?: string;
   /** Who they address. Second-person ("you") refers to them. */
   addresseeName?: string;
+  /**
+   * What the memory already holds around this turn (memory-context.ts):
+   * the earlier turns, the known entities and their facts, the tenant's
+   * predicates. Rendered ahead of the turn; its handles come back on
+   * the extraction as `known` / `supersedes`.
+   */
+  memory?: MemoryContext | undefined;
 }
 
 /**
@@ -254,6 +325,10 @@ export interface ConversationContext {
  * byte-identical to the pre-coreference behaviour.
  */
 export function buildConversationContext(ctx: ConversationContext): string {
+  return buildSpeakerFraming(ctx) + renderMemoryContext(ctx.memory);
+}
+
+function buildSpeakerFraming(ctx: ConversationContext): string {
   if (!ctx.speakerName) return '';
   const addressee = ctx.addresseeName ? `, addressing "${ctx.addresseeName}"` : '';
   const secondPerson = ctx.addresseeName
@@ -301,7 +376,8 @@ export function buildSystemPrompt(
   return (
     EXTRACTION_PROMPT_HEADER +
     predicates.map(renderPredicateCard).join('\n') +
-    (opts?.objectNormalization ? OBJECT_NORMALIZATION_SECTION : '')
+    (opts?.objectNormalization ? OBJECT_NORMALIZATION_SECTION : '') +
+    MEMORY_CONTRACT_SECTION
   );
 }
 
@@ -381,8 +457,12 @@ export function buildExtractionSchema(opts?: {
               description:
                 'The form the entity is known by when the mention is not it: dictionary form of an inflected mention (nominative singular), the full name when this input gives it, or the stated legal form. null when name already is that form.',
             },
+            known: {
+              type: ['string', 'null'],
+              description: 'Handle of the KNOWN ENTITY this mention refers to ("e2"), else null.',
+            },
           },
-          required: ['name', 'type', 'canonical'],
+          required: ['name', 'type', 'canonical', 'known'],
         },
       },
       facts: {
@@ -405,6 +485,17 @@ export function buildExtractionSchema(opts?: {
             },
             ...objectProperty,
             confidence: { type: 'number', minimum: 0, maximum: 1 },
+            eventTime: {
+              type: ['string', 'null'],
+              description:
+                'YYYY-MM-DD the value refers to (deadline, meeting, occurrence), resolved against TURN DATE; null when the clause names no day.',
+            },
+            supersedes: {
+              type: 'array',
+              description:
+                'Handles of KNOWN FACTS this fact replaces ("m3"); empty when nothing changes.',
+              items: { type: 'string' },
+            },
           },
           required: [
             'entityIndex',
@@ -413,6 +504,8 @@ export function buildExtractionSchema(opts?: {
             'valueSpan',
             ...(opts?.objectNormalization ? ['object'] : []),
             'confidence',
+            'eventTime',
+            'supersedes',
           ],
         },
       },

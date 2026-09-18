@@ -4940,6 +4940,9 @@
           "confidence": {
             "type": "number"
           },
+          "date": {
+            "type": "string"
+          },
           "factId": {
             "type": "string"
           },
@@ -5019,6 +5022,16 @@
             "items": {
               "additionalProperties": false,
               "properties": {
+                "direction": {
+                  "enum": [
+                    "out",
+                    "in"
+                  ],
+                  "type": "string"
+                },
+                "edgeId": {
+                  "type": "string"
+                },
                 "kind": {
                   "type": "string"
                 },
