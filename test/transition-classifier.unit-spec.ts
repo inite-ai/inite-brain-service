@@ -138,6 +138,22 @@ describe('classify — prototype caching and batch shape', () => {
     expect(calls[2]).toEqual(['We moved to Berlin last spring.']);
   });
 
+  it('warm() embeds the bank ahead of time; the first classify() then embeds only its inputs', async () => {
+    // The runner warms the bank at boot (once the embedder is ready) so
+    // the first ingest after a deploy does not pay ~40 embeddings inside
+    // its own request — 5–6 s on the production host.
+    const { embed, calls } = makeStubEmbed();
+    const clf = createTransitionClassifier(embed);
+    await clf.warm();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toHaveLength(BANK_SIZE);
+    await clf.warm(); // idempotent
+    expect(calls).toHaveLength(1);
+    await clf.classify(['I sold my old car.']);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toEqual(['I sold my old car.']);
+  });
+
   it('classify([]) returns [] without invoking the embedder at all', async () => {
     const { embed, calls } = makeStubEmbed();
     const clf = createTransitionClassifier(embed);

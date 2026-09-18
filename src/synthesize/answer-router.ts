@@ -288,7 +288,17 @@ const PREFERENCE_PROBE_QUERY = 'preferences likes dislikes favorite style enjoys
  */
 export const INSTRUCTION_PROBE_QUERY =
   'always include format style make sure when I ask prefers ' +
-  'instructions how to answer respond';
+  'instructions how to answer respond ' +
+  // The lexical leg reads words, and standing instructions are stated
+  // in the user's language: the same triggers the filter below reads,
+  // for the languages the multilingual battery covers. (The vector leg
+  // is cross-lingual on its own — BGE-M3 — and needs no help.)
+  'всегда никогда обязательно когда я спрашиваю отвечай ' +
+  'sempre nunca quando eu perguntar responda ' +
+  'siempre nunca cuando pregunte responde ' +
+  'immer niemals wenn ich frage antworte ' +
+  'toujours jamais quand je demande réponds ' +
+  '总是 每次 当我问 回答 いつも 必ず 決して';
 
 /** PRF query: base query + ≤2 top entity names + ≤4 dominant aspects. */
 export function buildWideProbeQuery(query: string, hits: SearchHit[]): string {
@@ -464,10 +474,70 @@ export function laneProbeDto(
  * instruction): preference-aspect facts match on any trigger word;
  * other aspects need a STRONG imperative trigger (bare "never"/"when
  * asking" is not enough).
+ *
+ * The triggers are the standing-instruction markers of each language
+ * the multilingual battery covers — the lane used to read English only,
+ * so on a Russian tenant its probe was a full search that could never
+ * fire. Boundaries are letter/digit lookarounds, not `\b`: JavaScript's
+ * `\b` is ASCII and «всегда» has no word boundary under it.
  */
-const INSTRUCTION_TRIGGER_RE =
-  /\b(?:always|never|whenever|when(?:ever)? (?:i|they|the user) asks?|when asking|make sure)\b/i;
-const INSTRUCTION_STRONG_RE = /\b(?:always|make sure|when(?:ever)? (?:i|they|the user) asks?)\b/i;
+const STRONG_TRIGGERS = [
+  // en
+  'always',
+  'make sure',
+  'when(?:ever)? (?:i|they|the user) asks?',
+  // ru
+  'всегда',
+  'обязательно',
+  'каждый раз,? когда',
+  'когда я (?:спрашиваю|прошу|задаю)',
+  'не забывай',
+  // pt
+  'sempre',
+  'sempre que',
+  'quando (?:eu )?(?:perguntar|pedir)',
+  'certifique-se',
+  // es
+  'siempre',
+  'cada vez que',
+  'cuando (?:te |le )?(?:pregunte|pida)',
+  'asegúrate',
+  // de
+  'immer',
+  'jedes mal,? wenn',
+  'wenn ich (?:frage|bitte)',
+  'achte darauf',
+  // fr
+  'toujours',
+  'chaque fois que',
+  'quand je (?:demande|pose)',
+  'assure-toi',
+];
+/** zh / ja markers: the scripts carry no word boundaries — matched bare. */
+const STRONG_TRIGGERS_UNSPACED = ['总是', '每次', '当我问', '务必', 'いつも', '必ず'];
+const WEAK_TRIGGERS = [
+  'never',
+  'whenever',
+  'when asking',
+  'никогда',
+  'nunca',
+  'jamais',
+  'nie(?:mals)?',
+];
+const WEAK_TRIGGERS_UNSPACED = ['从不', '永远不', '決して'];
+const triggerRe = (spaced: string[], unspaced: string[]): RegExp =>
+  new RegExp(
+    `(?<![\\p{L}\\p{N}])(?:${spaced.join('|')})(?![\\p{L}\\p{N}])|(?:${unspaced.join('|')})`,
+    'iu',
+  );
+const INSTRUCTION_STRONG_RE = triggerRe(STRONG_TRIGGERS, STRONG_TRIGGERS_UNSPACED);
+const INSTRUCTION_TRIGGER_RE = triggerRe(
+  [...STRONG_TRIGGERS, ...WEAK_TRIGGERS],
+  [...STRONG_TRIGGERS_UNSPACED, ...WEAK_TRIGGERS_UNSPACED],
+);
+
+/** The preference aspect under either registry spelling. */
+const PREFERENCE_PREDICATES = new Set(['preference', 'preferences']);
 
 /** Dedup + cap standing instructions found across evidence and probe. */
 export function extractStandingInstructions(hits: SearchHit[], cap = 8): string[] {
@@ -475,7 +545,9 @@ export function extractStandingInstructions(hits: SearchHit[], cap = 8): string[
   const seen = new Set<string>();
   for (const h of hits) {
     for (const f of h.facts) {
-      const re = f.predicate === 'preferences' ? INSTRUCTION_TRIGGER_RE : INSTRUCTION_STRONG_RE;
+      const re = PREFERENCE_PREDICATES.has(f.predicate)
+        ? INSTRUCTION_TRIGGER_RE
+        : INSTRUCTION_STRONG_RE;
       if (!re.test(f.object)) continue;
       const key = f.object.trim().toLowerCase();
       if (seen.has(key)) continue;

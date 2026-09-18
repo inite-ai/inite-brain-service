@@ -580,6 +580,43 @@ describe('T7 instruction lane', () => {
     ]);
   });
 
+  it('reads standing instructions in the languages the battery covers, not English alone', () => {
+    // On a Russian tenant the lane's probe was a full search that could
+    // never fire: the triggers were English words behind an ASCII `\b`.
+    const out = extractStandingInstructions([
+      hitWith([
+        ['preference', 'Всегда отвечай мне кратко, одним абзацем.'],
+        ['preference', 'Никогда не используй markdown-таблицы.'],
+        ['work', 'Когда я спрашиваю про Лиссабон, отвечай по-португальски.'],
+        ['preference', 'Sempre responda em português quando eu perguntar sobre Lisboa.'],
+        ['preference', '总是用中文回答我关于合同的问题。'],
+        // plain facts in the same languages stay out
+        ['work', 'Ольга подтвердила: контракт подписан 18 сентября.'],
+        ['work', 'Я всегдашний участник конференции.'],
+        // a bare weak trigger on a non-preference aspect is still a plain fact
+        ['work', 'Он никогда не работал с Flask.'],
+      ]),
+    ]);
+    expect(out).toEqual([
+      'Всегда отвечай мне кратко, одним абзацем.',
+      'Никогда не используй markdown-таблицы.',
+      'Когда я спрашиваю про Лиссабон, отвечай по-португальски.',
+      'Sempre responda em português quando eu perguntar sobre Lisboa.',
+      '总是用中文回答我关于合同的问题。',
+    ]);
+  });
+
+  it('the preference tier applies under either registry spelling of the aspect', () => {
+    const out = extractStandingInstructions([
+      hitWith([
+        ['preference', 'u never wants tables in answers.'],
+        ['preferences', 'u never wants emoji in answers.'],
+        ['work', 'u never used tables.'],
+      ]),
+    ]);
+    expect(out).toEqual(['u never wants tables in answers.', 'u never wants emoji in answers.']);
+  });
+
   it('dedups case-insensitively and honors the cap', () => {
     const dup = 'u prefers bullet points whenever the user asks about planning.';
     const out = extractStandingInstructions(

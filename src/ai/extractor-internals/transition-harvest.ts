@@ -123,29 +123,64 @@ export interface HarvestCandidate {
 }
 
 /**
- * RU candidates: at most ONE per sentence (the sentence itself is the
- * clause — no RU clause segmentation without a parser), only for
- * sentences that contain Cyrillic, pass the sentence-scoped guard, and
- * carry a past-tense-shaped non-copula token with material after it.
+ * Clause boundaries inside a Russian sentence: a colon or a semicolon
+ * always closes the clause before it — what follows a colon is what was
+ * said, listed or specified, never the complement of the verb before
+ * it; what follows a semicolon is a new clause. No parser is needed for
+ * that much, and it is what keeps the RU path honest on business text:
+ * «Ольга подтвердила: контракт с Lisboa Ventures подписан 18 сентября,
+ * оплата в течение 30 дней» is a speech-act verb and a reported clause,
+ * not a 150-character state transition of Ольга. It also un-blocks the
+ * documented deliberate miss «Я продал Kawasaki сегодня; байка больше
+ * нет» — the guard is scoped to the clause it reads, so the negation in
+ * the second half no longer rejects the sale in the first.
+ */
+const RU_CLAUSE_BREAK = /[:;]/g;
+
+function russianClauseSpans(
+  sentence: ReturnType<typeof sentenceSpans>[number],
+): Array<{ text: string; start: number; end: number }> {
+  const out: Array<{ text: string; start: number; end: number }> = [];
+  let from = 0;
+  for (const m of sentence.text.matchAll(RU_CLAUSE_BREAK)) {
+    out.push({
+      text: sentence.text.slice(from, m.index),
+      start: sentence.start + from,
+      end: sentence.start + m.index,
+    });
+    from = m.index + m[0].length;
+  }
+  out.push({ text: sentence.text.slice(from), start: sentence.start + from, end: sentence.end });
+  return out.filter((c) => c.text.trim().length > 0);
+}
+
+/**
+ * RU candidates: at most ONE per clause (a sentence split at colons and
+ * semicolons — see russianClauseSpans; no finer RU segmentation without
+ * a parser), only for clauses that contain Cyrillic, pass the
+ * clause-scoped guard, and carry a past-tense-shaped non-copula token
+ * with material after it.
  */
 function findRussianCandidates(
   trimmed: string,
   sentences: ReturnType<typeof sentenceSpans>,
 ): HarvestCandidate[] {
   const out: HarvestCandidate[] = [];
-  for (const s of sentences) {
-    if (!/[а-яё]/i.test(s.text)) continue;
-    if (RU_GUARD.test(s.text)) continue;
-    let hasVerb = false;
-    for (const m of s.text.matchAll(RU_PAST_VERB)) {
-      const token = (m[1] ?? '').toLowerCase();
-      if (RU_COPULA.has(token)) continue;
-      const rest = s.text.slice(m.index + m[0].length);
-      if (!RU_WORD_AFTER.test(rest)) continue; // no complement material
-      hasVerb = true;
-      break;
+  for (const sentence of sentences) {
+    for (const s of russianClauseSpans(sentence)) {
+      if (!/[а-яё]/i.test(s.text)) continue;
+      if (RU_GUARD.test(s.text)) continue;
+      let hasVerb = false;
+      for (const m of s.text.matchAll(RU_PAST_VERB)) {
+        const token = (m[1] ?? '').toLowerCase();
+        if (RU_COPULA.has(token)) continue;
+        const rest = s.text.slice(m.index + m[0].length);
+        if (!RU_WORD_AFTER.test(rest)) continue; // no complement material
+        hasVerb = true;
+        break;
+      }
+      if (hasVerb) out.push({ clause: s.text.trim(), span: [s.start, s.end] });
     }
-    if (hasVerb) out.push({ clause: s.text.trim(), span: [s.start, s.end] });
   }
   return out;
 }
