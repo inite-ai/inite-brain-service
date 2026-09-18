@@ -26,6 +26,7 @@ function e(over: Partial<SourceCatalogEntry>): SourceCatalogEntry {
     hosts: ['server', 'agent'],
     mcp: null,
     oauth: null,
+    records: null,
     ...over,
   }
 }

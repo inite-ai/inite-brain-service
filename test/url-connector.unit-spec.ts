@@ -114,6 +114,7 @@ function ctx(
       host: 'server',
       config: { allowPrivate: true, ...config },
       credential: over.credential ?? null,
+      credentialSource: null,
       contentPolicy: 'text',
       vertical: 'web',
       recorder: 'srcconn_c1',

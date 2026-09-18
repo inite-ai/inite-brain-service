@@ -68,6 +68,7 @@ function ctx(
       host: 'server',
       config,
       credential,
+      credentialSource: null,
       contentPolicy: shape === 'binary' ? 'bytes' : 'text',
       vertical: 'files',
       recorder: 'r',

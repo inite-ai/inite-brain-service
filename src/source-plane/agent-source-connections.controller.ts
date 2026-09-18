@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Body,
+  NotFoundException,
   Controller,
   Get,
   Param,
@@ -11,12 +12,15 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { ZodType } from 'zod';
+import { sourcePlaneEnabled } from '../common/source-plane-flags';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import {
   AGENT_HOST,
   AGENT_ID,
   AgentInventorySchema,
+  PushRecordsRequestSchema,
+  type PushRecordsResponse,
   AgentDeltasRequestSchema,
   BeginAgentRunRequestSchema,
   FetchedItemWireSchema,
@@ -29,6 +33,7 @@ import {
   type SourceSyncSummary,
 } from '../contracts/source-plane/source-plane.schema';
 import { AgentRunService } from './agent-run.service';
+import { RecordsPushService } from './records/records-push.service';
 import { SourceAgentService } from './source-agent.service';
 import { z } from 'zod';
 
@@ -53,7 +58,29 @@ export class AgentSourceConnectionsController {
   constructor(
     private readonly runs: AgentRunService,
     private readonly agents: SourceAgentService,
+    private readonly push: RecordsPushService,
   ) {}
+
+  /**
+   * Push records (W4.2): a CRM's outbound webhook or an automation posts
+   * record envelopes — plus the ids that are gone — under a connection
+   * of shape `structure`. Each batch is a run; each record enters the
+   * records door as facts.
+   */
+  @Post(':id/records')
+  @RequireScopes('brain:write')
+  async pushRecords(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ): Promise<PushRecordsResponse> {
+    if (!sourcePlaneEnabled()) throw new NotFoundException();
+    return this.push.push(req.brainAuth.companyId, {
+      connectionId: assertId(id),
+      body: parseBody(PushRecordsRequestSchema, body),
+      actor: req.brainAuth.actorId ?? req.brainAuth.userId ?? 'push',
+    });
+  }
 
   /**
    * An agent's check-in: who it is and the folders it can see. Presence

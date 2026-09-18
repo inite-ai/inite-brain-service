@@ -189,7 +189,7 @@ POST /v1/documents/:documentId/candidates
   "indexerId": "my_pack",
   "runId": "indexer_run:vp5vfjjtl0977p0uh9opm",
   "claimToken": "0b1f9c3e-…",
-  "entities": [ { "name": "Acme GmbH", "type": "organization" } ],
+  "entities": [ { "name": "Acme GmbH", "type": "organization", "externalId": "crm:org:7" } ],
   "facts": [
     {
       "entityIndex": 0,

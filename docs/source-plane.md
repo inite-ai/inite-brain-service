@@ -89,6 +89,8 @@ failed run, never a crash.
 | `GET /v1/admin/source-connections/oauth/grants` | the accounts connected (never a token), each provider's readiness and the redirect URI to register, `ready` (the client on + the key set) |
 | `DELETE /v1/admin/source-connections/oauth/grants/:id` | disconnect: revoked at the provider (best effort), the grant marked revoked |
 | `GET /v1/source-connections/oauth/callback` | **public** — the provider's return leg; the signed state authenticates it. Answers the HTML page that hands the result to the admin window |
+| `POST /v1/source-connections/:id/records` | `brain:write` — push record envelopes (≤ 200) + `gone` ids under a `structure`-shaped connection (W4.2, § Records); each batch a run, each record the records door |
+| `POST /v1/admin/source-connections/preview` | `{ packId, sourceId, config, credential? }` — a records connector's first page per entity, mapped, before a connection exists; nothing written |
 
 The scheduler ticks every 5 minutes (`2-59/5 * * * *` UTC) and enqueues
 one job per due connection per tenant, deduped per 5-minute slot;
@@ -310,6 +312,42 @@ capability an operator grants by name. A network share is connected by
 mounting it into that root; a laptop's folders by running the brain
 there (the local agent, W3, is the no-mount alternative).
 
+## Records (W4.2) — a CRM row enters as facts
+
+docs/roadmap/crm-sources-2026-09.md is the plan; this is what shipped.
+A record (`RecordEnvelope { entityType, externalId, name, attributes,
+relations?, updatedAt? }`) goes through **`RecordsDoorService`**: the
+render (`key: value` lines, sorted) is stored as the grounding document
+with the general extractor OFF; the mapping (the connector's preset
+under the connection's `config.mapping`) turns attributes into
+candidates — one fact per mapped attribute, the record's entity filed
+under its own id (`externalId` on the submitted entity → `externalRefs`;
+a renamed contact stays one entity, two "John Smith"s stay two),
+relation targets as entities of their own — submitted through the same
+external-candidates seam a remote indexer uses (verbatim grounding, the
+namespace fence, the run ledger, the commit) and committed at once. A
+changed value supersedes the old fact (`single_active`), a `gone` record
+closes them, prose keys (`text`) become their own documents for the
+ordinary extractor. PII core predicates (`email`, `phone`) are never
+seeded — they stay in the render, searchable. The pack must be
+`indexer.mode: 'external'` (`crm_memory` is: people / organizations /
+deals vocabulary, the `deal_stage` funnel, every predicate
+`source_version_match`).
+
+**One direction, a connector per vendor**: `records/records-connector.ts`
+— a vendor extends `RecordsConnector` and implements `entities`, `list`
+(its own paging and `updated_since`), `get`, its `preset`; the base does
+per-entity checkpoints with an overlap window, `<type>/<id>` items with
+`updatedAt` as revision, the run cache, relation targets named from the
+run (else one bounded `get`), the gone sweep on a full walk. First
+vendor: **`pipedrive`** (`SOURCE_KIND_PIPEDRIVE`; connected account or
+API token on `x-api-token`; deals / persons / organizations; stage,
+pipeline and owner ids resolved to names). **Push**: any automation
+posts envelopes to `POST /v1/source-connections/:id/records`. The
+catalogue entry carries `records: { entities, preset, predicates }` for
+the connect form; `POST …/preview` shows what the mapping makes of the
+first records before the connection exists.
+
 ## Connected accounts (W4) — the brain as an OAuth client
 
 The cloud natives run as an **account an admin connected once**, not as
@@ -407,6 +445,7 @@ pack may only name it.
 | `SOURCE_KIND_URL`, `SOURCE_KIND_S3` | `0` | the `url` and `s3` natives (W1) |
 | `SOURCE_KIND_MCP` | `0` | the `mcp` harvester (W2) |
 | `SOURCE_KIND_GDRIVE`, `SOURCE_KIND_ONEDRIVE`, `SOURCE_KIND_DROPBOX` | `0` | the cloud-drive natives (W4) — each also needs `SOURCE_OAUTH_CLIENT` |
+| `SOURCE_KIND_PIPEDRIVE` | `0` | the first CRM connector on the records contract (W4.2); a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_PIPEDRIVE_CLIENT_ID`, an API token needs neither |
 | `SOURCE_OAUTH_CLIENT` | `0` | the brain as an outbound OAuth client: connected accounts, the public callback, refresh (W4) |
 | `SOURCE_CREDENTIAL_ENCRYPTION_KEY` (+ `_PREVIOUS`) | unset | credentials and grants encrypted at rest; required for OAuth |
 | `SOURCE_OAUTH_<P>_CLIENT_ID` / `_CLIENT_SECRET` / `_BASE_URL` | unset | the operator's app per provider; the dev override |

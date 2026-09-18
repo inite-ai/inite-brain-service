@@ -83,6 +83,7 @@ import { EvidenceDocumentBridgeQueueService } from './evidence-document-bridge-q
     DocumentIngestService,
     DocumentStoreService,
     CandidateStoreService,
+    ExternalCandidatesService,
     MentionViaDocumentService,
     PackSeedIngestService,
     SourceDriftStalenessService,

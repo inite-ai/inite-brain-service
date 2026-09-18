@@ -6,6 +6,7 @@ import Link from 'next/link'
 import {
   Cloud,
   CloudCog,
+  Database,
   Folder,
   GitBranch,
   Globe,
@@ -719,6 +720,7 @@ const KIND_ICONS: Record<SourceFamily, React.ComponentType<{ className?: string 
   gdrive: HardDrive,
   onedrive: CloudCog,
   dropbox: Package,
+  records: Database,
   external: Upload,
   other: Plug,
 }

@@ -18,6 +18,8 @@ import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { sourcePlaneEnabled } from '../common/source-plane-flags';
 import {
   CreateSourceConnectionRequestSchema,
+  RecordsPreviewRequestSchema,
+  type RecordsPreviewResponse,
   SyncNowRequestSchema,
   UpdateSourceConnectionRequestSchema,
   isConnectionId,
@@ -29,6 +31,7 @@ import {
   type SourceItemsListResponse,
   type SyncNowResponse,
 } from '../contracts/source-plane/source-plane.schema';
+import { RecordsPreviewService } from './records/records-preview.service';
 import { SourceAgentService } from './source-agent.service';
 import { SourceCatalogService } from './source-catalog.service';
 import { SourceConnectionService } from './source-connection.service';
@@ -56,7 +59,22 @@ export class AdminSourceConnectionsController {
     private readonly queue: SourceSyncQueueService,
     private readonly catalog: SourceCatalogService,
     private readonly agents: SourceAgentService,
+    private readonly preview: RecordsPreviewService,
   ) {}
+
+  /** A records connector's first page per entity, mapped — before a connection exists. Static path — before `:id`. */
+  @Post('preview')
+  @RequireScopes('brain:admin')
+  async previewRecords(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: unknown,
+  ): Promise<RecordsPreviewResponse> {
+    assertEnabled();
+    return this.preview.preview(
+      req.brainAuth.companyId,
+      parseBody(RecordsPreviewRequestSchema, body),
+    );
+  }
 
   /** The agents this tenant has heard from, with the folders they can see. Static path — before `:id`. */
   @Get('agents')

@@ -116,6 +116,7 @@ function ctx(
       host: 'server',
       config: { url: `${base}/mcp`, allowPrivate: true, ...config },
       credential: over.credential ?? null,
+      credentialSource: null,
       contentPolicy: 'text',
       vertical: 'web',
       recorder: 'srcconn_m1',

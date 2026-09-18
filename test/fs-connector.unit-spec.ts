@@ -47,6 +47,7 @@ function ctx(
       host: 'server',
       config: { root, ...(over.config ?? {}) },
       credential: null,
+      credentialSource: null,
       contentPolicy: 'text',
       vertical: 'files',
       recorder: 'srcconn_c1',

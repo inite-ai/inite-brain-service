@@ -178,6 +178,7 @@ function harness(
       host: row.host,
       config: {},
       credential: null,
+      credentialSource: null,
       contentPolicy: row.contentPolicy,
       vertical: row.vertical,
       recorder: row.recorder,

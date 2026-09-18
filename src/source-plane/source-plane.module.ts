@@ -15,12 +15,16 @@ import { FsConnector } from './connectors/fs.connector';
 import { GDriveConnector } from './connectors/gdrive.connector';
 import { McpConnector } from './connectors/mcp.connector';
 import { OneDriveConnector } from './connectors/onedrive.connector';
+import { PipedriveConnector } from './connectors/pipedrive.connector';
 import { S3Connector } from './connectors/s3.connector';
 import { UrlConnector } from './connectors/url.connector';
 import { AdminSourceOAuthController } from './oauth/admin-source-oauth.controller';
 import { CredentialProvider } from './oauth/credential-provider';
 import { SourceOAuthCallbackController } from './oauth/source-oauth-callback.controller';
 import { SourceOAuthService } from './oauth/source-oauth.service';
+import { RecordsDoorService } from './records/records-door.service';
+import { RecordsPreviewService } from './records/records-preview.service';
+import { RecordsPushService } from './records/records-push.service';
 import { SourceAgentService } from './source-agent.service';
 import { SourceCatalogService } from './source-catalog.service';
 import { SourceConnectionService } from './source-connection.service';
@@ -46,7 +50,10 @@ import { SourceSyncService } from './source-sync.service';
  * (SOURCE_KIND_ONEDRIVE), `dropbox` (SOURCE_KIND_DROPBOX) — which run as
  * a connected account (SOURCE_OAUTH_CLIENT: the brain as an outbound
  * OAuth client, grants encrypted under SOURCE_CREDENTIAL_ENCRYPTION_KEY, resolved
- * through CredentialProvider at run time); webdav follows. A kind whose
+ * through CredentialProvider at run time); the records contract (W4.2,
+ * `records/`) with `pipedrive` (SOURCE_KIND_PIPEDRIVE) as its first
+ * vendor and the records door behind every `structure` item; webdav
+ * follows. A kind whose
  * switch is off is "not installed" to the engine: a connection of it
  * records a failed sync with "no installed connector", never a crash.
  *
@@ -73,6 +80,7 @@ import { SourceSyncService } from './source-sync.service';
     GDriveConnector,
     OneDriveConnector,
     DropboxConnector,
+    PipedriveConnector,
     {
       provide: SOURCE_CONNECTORS,
       useFactory: (...connectors: Connector[]): Connector[] => connectors,
@@ -84,6 +92,7 @@ import { SourceSyncService } from './source-sync.service';
         GDriveConnector,
         OneDriveConnector,
         DropboxConnector,
+        PipedriveConnector,
       ],
     },
     SourceOAuthService,
@@ -93,6 +102,9 @@ import { SourceSyncService } from './source-sync.service';
     SourceConnectionService,
     SourceItemService,
     SourceDoorsService,
+    RecordsDoorService,
+    RecordsPushService,
+    RecordsPreviewService,
     SourceGonePolicyService,
     SourceItemIngestService,
     SourceItemEffectsService,

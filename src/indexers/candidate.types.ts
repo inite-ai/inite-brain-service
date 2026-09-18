@@ -56,6 +56,8 @@ export interface CandidateEntity extends ExtractedEntity {
   /** Position within the producing run's entity list (extractor order). */
   entityIndex: number;
   ungrounded?: boolean;
+  /** The system-of-record's id (external submissions only) — the commit files the entity under it. */
+  externalId?: string | undefined;
 }
 
 export type CandidateFact = ExtractedFact & { ungrounded?: boolean };

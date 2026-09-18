@@ -512,6 +512,7 @@ describe('admin-source-connections mirrors', () => {
           hosts: ['server', 'agent'],
           mcp: null,
           oauth: null,
+          records: null,
         },
         {
           packId: 'code_memory',
@@ -535,6 +536,7 @@ describe('admin-source-connections mirrors', () => {
           hosts: ['server'],
           mcp: null,
           oauth: null,
+          records: null,
         },
         {
           packId: 'web_memory',
@@ -564,6 +566,7 @@ describe('admin-source-connections mirrors', () => {
             args: [],
           },
           oauth: null,
+          records: null,
         },
       ],
       connectors: [

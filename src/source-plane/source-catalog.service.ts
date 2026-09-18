@@ -20,6 +20,7 @@ import {
   type ConnectorRegistry,
 } from './connector';
 import { providerConfigured, providerSpec } from './oauth/oauth-providers';
+import { RecordsConnector } from './records/records-connector';
 import { connectorKindOf } from './source-connection.service';
 
 /** The domain_pack columns the catalogue reads. */
@@ -110,6 +111,7 @@ export class SourceCatalogService {
         hosts: hostsOf(entry, kind),
         mcp: mcpOf(entry),
         oauth: oauthOf(connector),
+        records: recordsOf(connector, manifest, entry),
       };
     });
   }
@@ -138,6 +140,29 @@ function mcpOf(entry: PackSourceSpec): SourceCatalogEntry['mcp'] {
     };
   }
   return { transport: 'http', url: entry.url ?? null, auth: entry.auth, command: null, args: [] };
+}
+
+/**
+ * A records connector's static self-description (W4.2) — or, for the
+ * push entry (kind external, shape structure), the pack vocabulary alone
+ * so the mapping table still has predicates to offer.
+ */
+function recordsOf(
+  connector: Connector | null,
+  manifest: DomainPackManifest,
+  entry: PackSourceSpec,
+): SourceCatalogEntry['records'] {
+  const predicates = manifest.predicates.map((p) => ({
+    localId: p.localId,
+    label: p.displayLabel,
+  }));
+  if (connector instanceof RecordsConnector) {
+    return { entities: connector.entities, preset: connector.preset, predicates };
+  }
+  if (entry.kind === 'external' && entry.shape === 'structure') {
+    return { entities: [], preset: {}, predicates };
+  }
+  return null;
 }
 
 /** The connected account a connector runs as, and whether this deployment can make one. */

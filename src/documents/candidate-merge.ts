@@ -21,6 +21,8 @@ export interface MergedEntity {
   name: string;
   type: string;
   canonical?: string | undefined;
+  /** The system-of-record's id, when an external submission named one — the commit files the entity under it. */
+  externalId?: string | undefined;
   /** Leader first; the rest fold to status 'merged'. */
   candidateIds: string[];
 }
@@ -106,9 +108,13 @@ function mergeEntities(rows: CandidateRow[], ctx: MergeContext): MergedEntity[] 
     row: CandidateRow;
     name: string;
     canonical?: string | undefined;
+    externalId?: string | undefined;
     nameKey: string;
   }> = [];
-  // Pass 1: register aliases and union each candidate's own aliases.
+  // Pass 1: register aliases and union each candidate's own aliases. An
+  // externalId is an identity of its own: two candidates naming the same
+  // id fold together even when their names differ (a renamed contact),
+  // and the id key is what the commit files the entity under.
   for (const row of rows) {
     if (row.kind !== 'entity') continue;
     const p = row.payload;
@@ -120,9 +126,12 @@ function mergeEntities(rows: CandidateRow[], ctx: MergeContext): MergedEntity[] 
     const nameKey = joinKey(type, foldName(p.name));
     const canonical =
       typeof p.canonical === 'string' && p.canonical.trim() ? p.canonical : undefined;
+    const externalId =
+      typeof p.externalId === 'string' && p.externalId.trim() ? p.externalId.trim() : undefined;
     dsu.add(nameKey);
     if (canonical) dsu.union(nameKey, joinKey(type, foldName(canonical)));
-    items.push({ row, name: p.name, canonical, nameKey });
+    if (externalId) dsu.union(nameKey, joinKey(type, `#${externalId}`));
+    items.push({ row, name: p.name, canonical, externalId, nameKey });
   }
   // Pass 2: group by DSU root (stable) — roots are final after all unions.
   const entities = new Map<string, MergedEntity>();
@@ -133,12 +142,14 @@ function mergeEntities(rows: CandidateRow[], ctx: MergeContext): MergedEntity[] 
     if (existing) {
       existing.candidateIds.push(it.row.id);
       if (!existing.canonical && it.canonical) existing.canonical = it.canonical;
+      if (!existing.externalId && it.externalId) existing.externalId = it.externalId;
     } else {
       entities.set(key, {
         key,
         name: it.name,
         type: normalizeType(it.row.payload.type),
         canonical: it.canonical,
+        externalId: it.externalId,
         candidateIds: [it.row.id],
       });
     }

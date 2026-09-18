@@ -413,6 +413,7 @@ export class CandidateStoreService {
             name: e.name,
             type: e.type,
             canonical: e.canonical,
+            ...(e.externalId ? { externalId: e.externalId } : {}),
             ungrounded: e.ungrounded,
             indexerId: prov.indexerId,
             packVersion: prov.packVersion,
