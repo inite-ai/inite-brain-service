@@ -19,12 +19,14 @@ import { KommoConnector } from './connectors/kommo.connector';
 import { McpConnector } from './connectors/mcp.connector';
 import { OneDriveConnector } from './connectors/onedrive.connector';
 import { PipedriveConnector } from './connectors/pipedrive.connector';
+import { RestRecordsConnector } from './connectors/rest-records.connector';
 import { S3Connector } from './connectors/s3.connector';
 import { UrlConnector } from './connectors/url.connector';
 import { AdminSourceOAuthController } from './oauth/admin-source-oauth.controller';
 import { CredentialProvider } from './oauth/credential-provider';
 import { SourceOAuthCallbackController } from './oauth/source-oauth-callback.controller';
 import { SourceOAuthService } from './oauth/source-oauth.service';
+import { MappingAssistantService } from './records/mapping-assistant.service';
 import { RecordsDoorService } from './records/records-door.service';
 import { RecordsPreviewService } from './records/records-preview.service';
 import { RecordsPushService } from './records/records-push.service';
@@ -56,8 +58,10 @@ import { SourceSyncService } from './source-sync.service';
  * through CredentialProvider at run time); the records contract (W4.2,
  * `records/`) with the CRM vendors on it — `pipedrive`
  * (SOURCE_KIND_PIPEDRIVE), `hubspot` (SOURCE_KIND_HUBSPOT), `bitrix24`
- * (SOURCE_KIND_BITRIX24), `kommo` (SOURCE_KIND_KOMMO) — and the records
- * door behind every `structure` item; webdav follows. A kind whose
+ * (SOURCE_KIND_BITRIX24), `kommo` (SOURCE_KIND_KOMMO), and the
+ * config-driven `rest_records` (SOURCE_KIND_REST_RECORDS) the mapping
+ * assistant proposes for the long tail — and the records door behind
+ * every `structure` item; webdav follows. A kind whose
  * switch is off is "not installed" to the engine: a connection of it
  * records a failed sync with "no installed connector", never a crash.
  *
@@ -88,6 +92,7 @@ import { SourceSyncService } from './source-sync.service';
     HubSpotConnector,
     Bitrix24Connector,
     KommoConnector,
+    RestRecordsConnector,
     {
       provide: SOURCE_CONNECTORS,
       useFactory: (...connectors: Connector[]): Connector[] => connectors,
@@ -103,6 +108,7 @@ import { SourceSyncService } from './source-sync.service';
         HubSpotConnector,
         Bitrix24Connector,
         KommoConnector,
+        RestRecordsConnector,
       ],
     },
     SourceOAuthService,
@@ -115,6 +121,7 @@ import { SourceSyncService } from './source-sync.service';
     RecordsDoorService,
     RecordsPushService,
     RecordsPreviewService,
+    MappingAssistantService,
     SourceGonePolicyService,
     SourceItemIngestService,
     SourceItemEffectsService,

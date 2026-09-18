@@ -133,6 +133,8 @@ import {
   PushRecordsRequestSchema,
   PushRecordsResponseSchema,
   RecordsPreviewRequestSchema,
+  MappingAssistRequestSchema,
+  MappingAssistResponseSchema,
   RecordsPreviewResponseSchema,
   AgentInventorySchema,
   AgentConnectionsListResponseSchema,
@@ -389,6 +391,8 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   PushRecordsResponse: PushRecordsResponseSchema,
   RecordsPreviewRequest: RecordsPreviewRequestSchema,
   RecordsPreviewResponse: RecordsPreviewResponseSchema,
+  MappingAssistRequest: MappingAssistRequestSchema,
+  MappingAssistResponse: MappingAssistResponseSchema,
   AgentInventory: AgentInventorySchema,
   AgentConnectionsListResponse: AgentConnectionsListResponseSchema,
   AgentDeltasRequest: AgentDeltasRequestSchema,
@@ -1816,6 +1820,31 @@ function recordsPaths(idParam: Json): Json {
         },
       }),
     },
+    '/v1/admin/source-connections/assist': {
+      post: operation({
+        operationId: 'assistSourceMapping',
+        tag: 'Source Plane',
+        summary: 'Propose a rest_records config from an OpenAPI document or sample answers',
+        description:
+          'The mapping assistant for a backend with no connector of its own: from an OpenAPI 3.x ' +
+          'document (fetched through the egress guard, or pasted as JSON / YAML) and / or sample list ' +
+          'answers, propose the `rest_records` endpoints — the entity types, where the rows sit, the ' +
+          'paging style, the updated-since parameter, the id / name / updated-at fields, the relation ' +
+          'fields — and the field → predicate mapping over the pack vocabulary, each entity with a ' +
+          'reason and a confidence. Deterministic heuristics always; under `SOURCE_MAPPING_ASSISTANT` ' +
+          'one bounded model call refines them (validated, never trusted). Nothing is written; the ' +
+          'preview verifies the proposal by execution. ' +
+          RECORDS_NOTE,
+        scope: 'brain:admin',
+        requestBody: jsonBody(ref('MappingAssistRequest')),
+        responses: {
+          '201': jsonResponse('The proposal.', ref('MappingAssistResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
   };
 }
 
@@ -1934,7 +1963,11 @@ function inspectPaths(idParam: Json): Json {
           'agent-host connections. ' +
           SOURCE_PLANE_NOTE,
         scope: 'brain:admin',
-        responses: { '200': jsonResponse('The agents.', ref('SourceAgentsResponse')), ...AUTH_ERRORS, '404': errorRef('NotFound') },
+        responses: {
+          '200': jsonResponse('The agents.', ref('SourceAgentsResponse')),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
       }),
     },
     '/v1/admin/source-connections/browse': {
@@ -1949,8 +1982,15 @@ function inspectPaths(idParam: Json): Json {
           'when no jail is set, is refused. ' +
           SOURCE_PLANE_NOTE,
         scope: 'brain:admin',
-        parameters: [queryParam('path', 'The directory to list; empty = the jail roots.', { type: 'string' })],
-        responses: { '200': jsonResponse('The level.', ref('BrowseResponse')), '400': errorRef('BadRequest'), ...AUTH_ERRORS, '404': errorRef('NotFound') },
+        parameters: [
+          queryParam('path', 'The directory to list; empty = the jail roots.', { type: 'string' }),
+        ],
+        responses: {
+          '200': jsonResponse('The level.', ref('BrowseResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
       }),
     },
     '/v1/admin/source-connections/{id}/stats': {
@@ -2045,7 +2085,14 @@ function agentProtocolPaths(idParam: Json): Json {
         scope: 'brain:write',
         parameters: [pathParam('agentId', 'The agent id (`agent:<id>` without the prefix).')],
         requestBody: jsonBody(ref('AgentInventory')),
-        responses: { '200': jsonResponse('Recorded.', { type: 'object', properties: { ok: { type: 'boolean' } } }), '400': errorRef('BadRequest'), ...AUTH_ERRORS },
+        responses: {
+          '200': jsonResponse('Recorded.', {
+            type: 'object',
+            properties: { ok: { type: 'boolean' } },
+          }),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+        },
       }),
     },
     '/v1/source-connections': {
@@ -2106,7 +2153,10 @@ function agentProtocolPaths(idParam: Json): Json {
         parameters: [idParam, runParam],
         requestBody: jsonBody(ref('AgentDeltasRequest')),
         responses: {
-          '201': jsonResponse('What to fetch, and the batch’s counters.', ref('AgentDeltasResponse')),
+          '201': jsonResponse(
+            'What to fetch, and the batch’s counters.',
+            ref('AgentDeltasResponse'),
+          ),
           '400': errorRef('BadRequest'),
           ...AUTH_ERRORS,
           '404': errorRef('NotFound'),

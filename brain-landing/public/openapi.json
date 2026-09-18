@@ -4268,6 +4268,684 @@
         ],
         "type": "object"
       },
+      "MappingAssistRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "allowPrivate": {
+            "type": "boolean"
+          },
+          "baseUrl": {
+            "format": "uri",
+            "maxLength": 512,
+            "type": "string"
+          },
+          "endpoints": {
+            "additionalProperties": {
+              "additionalProperties": false,
+              "properties": {
+                "attributes": {
+                  "additionalProperties": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "propertyNames": {
+                    "maxLength": 64,
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "deleted": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "fields": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "name": {
+                      "items": {
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 4,
+                      "minItems": 1,
+                      "type": "array"
+                    },
+                    "updatedAt": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "get": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "maxLength": 512,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "incremental": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "format": {
+                      "enum": [
+                        "iso",
+                        "epoch",
+                        "epoch_ms",
+                        "date"
+                      ],
+                      "type": "string"
+                    },
+                    "in": {
+                      "enum": [
+                        "query",
+                        "body"
+                      ],
+                      "type": "string"
+                    },
+                    "param": {
+                      "maxLength": 64,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "param"
+                  ],
+                  "type": "object"
+                },
+                "items": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "label": {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                "list": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "body": {
+                      "additionalProperties": {},
+                      "propertyNames": {
+                        "maxLength": 64,
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "method": {
+                      "enum": [
+                        "GET",
+                        "POST"
+                      ],
+                      "type": "string"
+                    },
+                    "path": {
+                      "maxLength": 512,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "query": {
+                      "additionalProperties": {
+                        "maxLength": 256,
+                        "type": "string"
+                      },
+                      "propertyNames": {
+                        "maxLength": 64,
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "paging": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "next": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "param": {
+                      "maxLength": 64,
+                      "type": "string"
+                    },
+                    "size": {
+                      "maximum": 1000,
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "sizeParam": {
+                      "maxLength": 64,
+                      "type": "string"
+                    },
+                    "start": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "style": {
+                      "enum": [
+                        "none",
+                        "page",
+                        "offset",
+                        "cursor",
+                        "link"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "style"
+                  ],
+                  "type": "object"
+                },
+                "relations": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "maxLength": 64,
+                        "type": "string"
+                      },
+                      "name": {
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "path": {
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "targetType": {
+                        "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "targetType",
+                      "path"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 16,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "list",
+                "fields"
+              ],
+              "type": "object"
+            },
+            "propertyNames": {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "openapi": {
+            "additionalProperties": false,
+            "properties": {
+              "text": {
+                "maxLength": 2000000,
+                "type": "string"
+              },
+              "url": {
+                "format": "uri",
+                "maxLength": 2048,
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "packId": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "samples": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "json": {},
+                "path": {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                "type": {
+                  "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "json"
+              ],
+              "type": "object"
+            },
+            "maxItems": 16,
+            "type": "array"
+          }
+        },
+        "required": [
+          "packId"
+        ],
+        "type": "object"
+      },
+      "MappingAssistResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "endpoints": {
+            "additionalProperties": {
+              "additionalProperties": false,
+              "properties": {
+                "attributes": {
+                  "additionalProperties": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "propertyNames": {
+                    "maxLength": 64,
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "deleted": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "fields": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "name": {
+                      "items": {
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 4,
+                      "minItems": 1,
+                      "type": "array"
+                    },
+                    "updatedAt": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "get": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "maxLength": 512,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "incremental": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "format": {
+                      "enum": [
+                        "iso",
+                        "epoch",
+                        "epoch_ms",
+                        "date"
+                      ],
+                      "type": "string"
+                    },
+                    "in": {
+                      "enum": [
+                        "query",
+                        "body"
+                      ],
+                      "type": "string"
+                    },
+                    "param": {
+                      "maxLength": 64,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "param"
+                  ],
+                  "type": "object"
+                },
+                "items": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "label": {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                "list": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "body": {
+                      "additionalProperties": {},
+                      "propertyNames": {
+                        "maxLength": 64,
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "method": {
+                      "enum": [
+                        "GET",
+                        "POST"
+                      ],
+                      "type": "string"
+                    },
+                    "path": {
+                      "maxLength": 512,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "query": {
+                      "additionalProperties": {
+                        "maxLength": 256,
+                        "type": "string"
+                      },
+                      "propertyNames": {
+                        "maxLength": 64,
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "paging": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "next": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "param": {
+                      "maxLength": 64,
+                      "type": "string"
+                    },
+                    "size": {
+                      "maximum": 1000,
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "sizeParam": {
+                      "maxLength": 64,
+                      "type": "string"
+                    },
+                    "start": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "style": {
+                      "enum": [
+                        "none",
+                        "page",
+                        "offset",
+                        "cursor",
+                        "link"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "style"
+                  ],
+                  "type": "object"
+                },
+                "relations": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "maxLength": 64,
+                        "type": "string"
+                      },
+                      "name": {
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "path": {
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "targetType": {
+                        "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "targetType",
+                      "path"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 16,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "list",
+                "fields"
+              ],
+              "type": "object"
+            },
+            "propertyNames": {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "entities": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "confidence": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "fields": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "source": {
+                  "enum": [
+                    "openapi",
+                    "sample",
+                    "model",
+                    "operator"
+                  ],
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "label",
+                "source",
+                "confidence",
+                "reason",
+                "fields"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "mapping": {
+            "additionalProperties": {
+              "additionalProperties": false,
+              "properties": {
+                "coreType": {
+                  "enum": [
+                    "customer",
+                    "staff",
+                    "asset",
+                    "project",
+                    "topic",
+                    "location",
+                    "other"
+                  ],
+                  "type": "string"
+                },
+                "fields": {
+                  "additionalProperties": {
+                    "maxLength": 96,
+                    "type": "string"
+                  },
+                  "propertyNames": {
+                    "maxLength": 64,
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "lifecycle": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "field": {
+                      "maxLength": 64,
+                      "type": "string"
+                    },
+                    "model": {
+                      "maxLength": 64,
+                      "type": "string"
+                    },
+                    "states": {
+                      "additionalProperties": {
+                        "maxLength": 64,
+                        "type": "string"
+                      },
+                      "propertyNames": {
+                        "maxLength": 128,
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "field",
+                    "model"
+                  ],
+                  "type": "object"
+                },
+                "text": {
+                  "items": {
+                    "maxLength": 64,
+                    "type": "string"
+                  },
+                  "maxItems": 16,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "fields"
+              ],
+              "type": "object"
+            },
+            "propertyNames": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "refined": {
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "endpoints",
+          "mapping",
+          "entities",
+          "refined",
+          "warnings"
+        ],
+        "type": "object"
+      },
       "MemoryFile": {
         "additionalProperties": false,
         "properties": {
@@ -9825,6 +10503,50 @@
           }
         },
         "summary": "The local agents this tenant has heard from",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/admin/source-connections/assist": {
+      "post": {
+        "description": "The mapping assistant for a backend with no connector of its own: from an OpenAPI 3.x document (fetched through the egress guard, or pasted as JSON / YAML) and / or sample list answers, propose the `rest_records` endpoints — the entity types, where the rows sit, the paging style, the updated-since parameter, the id / name / updated-at fields, the relation fields — and the field → predicate mapping over the pack vocabulary, each entity with a reason and a confidence. Deterministic heuristics always; under `SOURCE_MAPPING_ASSISTANT` one bounded model call refines them (validated, never trusted). Nothing is written; the preview verifies the proposal by execution. Records (docs/roadmap/crm-sources-2026-09.md): a CRM row enters as FACTS — its mapped attributes become deterministic candidates under the record’s own id, never prose a model re-extracts. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
+        "operationId": "assistSourceMapping",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MappingAssistRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MappingAssistResponse"
+                }
+              }
+            },
+            "description": "The proposal."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Propose a rest_records config from an OpenAPI document or sample answers",
         "tags": [
           "Source Plane"
         ]

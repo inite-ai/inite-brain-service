@@ -399,6 +399,147 @@ export const RecordsPreviewRequestSchema = z.object({
 });
 export type RecordsPreviewRequest = z.infer<typeof RecordsPreviewRequestSchema>;
 
+// ── The custom REST records source (W4.2b′, crm-sources § 4.3) ──
+//
+// `rest_records` is the one RecordsConnector whose entities are CONFIG,
+// not code: per entity type a list endpoint, where the rows sit in the
+// answer, one of five paging styles, one incremental filter, the id /
+// name / updated-at fields and the relation fields — dotted paths only,
+// no expressions. The mapping assistant proposes it from an OpenAPI
+// document or a sample response; the preview verifies it by execution.
+
+const DOTTED = z.string().min(1).max(128);
+const ENTITY_TYPE = z.string().regex(/^[a-z][a-z0-9_]{0,31}$/);
+
+export const RestPagingSchema = z.object({
+  style: z.enum(['none', 'page', 'offset', 'cursor', 'link']),
+  /** The page number / offset / cursor parameter (query for GET, body for POST). */
+  param: z.string().max(64).optional(),
+  sizeParam: z.string().max(64).optional(),
+  size: z.number().int().min(1).max(1000).optional(),
+  /** The first page number (page style, default 1) or offset (default 0). */
+  start: z.number().int().min(0).optional(),
+  /** Dotted path in the answer to the next cursor (cursor) or the next URL (link). */
+  next: DOTTED.optional(),
+});
+export type RestPaging = z.infer<typeof RestPagingSchema>;
+
+export const RestEntitySchema = z.object({
+  label: z.string().max(64).optional(),
+  list: z.object({
+    /** Relative to `baseUrl` (a query string is kept); or absolute on the same origin. */
+    path: z.string().min(1).max(512),
+    method: z.enum(['GET', 'POST']).optional(),
+    /** Fixed query parameters on every call. */
+    query: z.record(z.string().max(64), z.string().max(256)).optional(),
+    /** A fixed JSON body (POST). */
+    body: z.record(z.string().max(64), z.unknown()).optional(),
+  }),
+  /** Dotted path to the rows in the answer (`data`, `result.items`, `_embedded.leads`); absent = the answer is the array, or its first array-valued property. */
+  items: DOTTED.optional(),
+  /** One record by id — `{id}` in the path. */
+  get: z.object({ path: z.string().min(1).max(512) }).optional(),
+  paging: RestPagingSchema.optional(),
+  incremental: z
+    .object({
+      param: z.string().max(64),
+      format: z.enum(['iso', 'epoch', 'epoch_ms', 'date']).optional(),
+      in: z.enum(['query', 'body']).optional(),
+    })
+    .optional(),
+  fields: z.object({
+    id: DOTTED,
+    /** Joined with a space; the first that yields something names the record. */
+    name: z.array(DOTTED).min(1).max(4),
+    updatedAt: DOTTED.optional(),
+  }),
+  /** Attribute key → dotted path; absent = every top-level scalar that is not an id / name / updated-at / relation field. */
+  attributes: z.record(z.string().max(64), DOTTED).optional(),
+  relations: z
+    .array(
+      z.object({
+        kind: z.string().max(64),
+        targetType: ENTITY_TYPE,
+        /** Dotted path to the target id — a scalar, an object with `id`, or an array of either. */
+        path: DOTTED,
+        /** Dotted path to the target's name, when the row carries it. */
+        name: DOTTED.optional(),
+      }),
+    )
+    .max(16)
+    .optional(),
+  /** Dotted path; a truthy value means the row is deleted at the source (skipped). */
+  deleted: DOTTED.optional(),
+});
+export type RestEntity = z.infer<typeof RestEntitySchema>;
+
+export const RestRecordsConfigSchema = z.object({
+  baseUrl: z.string().url().max(512),
+  /** How the credential rides: `bearer` (default), `basic`, `header:<Name>`, `query:<name>`, `none`. */
+  authScheme: z.string().max(80).optional(),
+  /** Fixed headers on every call (never a secret — that is the credential). */
+  headers: z.record(z.string().max(64), z.string().max(512)).optional(),
+  allowPrivate: z.boolean().optional(),
+  /** Entity type → its endpoints. */
+  endpoints: z.record(ENTITY_TYPE, RestEntitySchema),
+  /** Entity types to sync; absent = every configured one. */
+  entities: z.array(ENTITY_TYPE).max(32).optional(),
+  mapping: RecordMappingSchema.optional(),
+  overlapMinutes: z.number().int().min(0).max(1440).optional(),
+  maxRecords: z.number().int().min(1).max(500_000).optional(),
+});
+export type RestRecordsConfig = z.infer<typeof RestRecordsConfigSchema>;
+
+/** POST /v1/admin/source-connections/assist — propose a `rest_records` config from an API description. */
+export const MappingAssistRequestSchema = z.object({
+  packId: z.string().min(1).max(64),
+  baseUrl: z.string().url().max(512).optional(),
+  /** An OpenAPI 3.x document — fetched (egress-guarded) or pasted (JSON or YAML, ≤ 2 MB). */
+  openapi: z
+    .object({
+      url: z.string().url().max(2048).optional(),
+      text: z.string().max(2_000_000).optional(),
+    })
+    .optional(),
+  /** Sample answers of list endpoints, one per entity; `type` names the entity when the path does not. */
+  samples: z
+    .array(
+      z.object({
+        type: ENTITY_TYPE.optional(),
+        path: z.string().max(512).optional(),
+        json: z.unknown(),
+      }),
+    )
+    .max(16)
+    .optional(),
+  /** The operator's own edits so far, kept over the proposal. */
+  endpoints: z.record(ENTITY_TYPE, RestEntitySchema).optional(),
+  allowPrivate: z.boolean().optional(),
+});
+export type MappingAssistRequest = z.infer<typeof MappingAssistRequestSchema>;
+
+export const MappingAssistResponseSchema = z.object({
+  /** The proposed `rest_records` config pieces: the endpoints and the field → predicate mapping. */
+  endpoints: z.record(ENTITY_TYPE, RestEntitySchema),
+  mapping: RecordMappingSchema,
+  /** One row per proposed entity, with why. */
+  entities: z.array(
+    z.object({
+      type: z.string(),
+      label: z.string(),
+      /** `openapi` — from the document; `sample` — from a pasted answer; `model` — the assistant's own call. */
+      source: z.enum(['openapi', 'sample', 'model', 'operator']),
+      confidence: z.number().min(0).max(1),
+      reason: z.string(),
+      fields: z.array(z.object({ key: z.string(), label: z.string() })),
+    }),
+  ),
+  /** Whether the model refined the proposal (SOURCE_MAPPING_ASSISTANT + a key). */
+  refined: z.boolean(),
+  warnings: z.array(z.string()),
+});
+export type MappingAssistResponse = z.infer<typeof MappingAssistResponseSchema>;
+
 export const RecordsPreviewResponseSchema = z.object({
   entities: z.array(
     z.object({

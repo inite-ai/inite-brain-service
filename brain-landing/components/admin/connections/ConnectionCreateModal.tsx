@@ -18,6 +18,7 @@ import { AccountPicker } from './create/AccountPicker'
 import { ConnectorFields } from './create/ConnectorFields'
 import { FolderPicker } from './create/FolderPicker'
 import { RecordsFields, initialRecords, type RecordsChoice } from './create/RecordsFields'
+import { RestApiDescribe } from './create/RestApiDescribe'
 import { entriesFor, shapeChoices, type ShapeChoice, type SourceCard } from './kinds'
 import {
   AGENT_ID,
@@ -144,7 +145,12 @@ export function ConnectionCreateModal({
           vertical: vertical.trim() || target.packId,
           // A records connector: the entities chosen and the field → fact table ride the config.
           config: target.records
-            ? { ...config, entities: records.entities, mapping: records.mapping }
+            ? {
+                ...config,
+                entities: records.entities,
+                mapping: records.mapping,
+                ...(records.endpoints ? { endpoints: records.endpoints } : {}),
+              }
             : config,
           schedule,
           // "Content" means text for a document entry and bytes for a
@@ -635,7 +641,10 @@ function SourceStep({
           />
         </Field>
       )}
-      {entry.records && entry.records.entities.length > 0 && (
+      {entry.records && entry.connector === 'rest_records' && (
+        <RestApiDescribe entry={entry} value={records} config={assembledConfig()} t={t} onChange={onRecords} />
+      )}
+      {entry.records && (entry.records.entities.length > 0 || records.proposal) && (
         <RecordsFields
           entry={entry}
           value={records}

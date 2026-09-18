@@ -146,10 +146,15 @@ export abstract class RecordsConnector implements Connector {
     this.runs.delete(ctx.connection.id);
   }
 
+  /** The entities a connection could sync — the connector's own, unless its config describes them (`rest_records`). */
+  entitiesFor(_cfg: RecordsConnectionConfig): EntitySpec[] {
+    return this.entities;
+  }
+
   /** The entity specs a connection syncs. */
   selectedEntities(cfg: RecordsConnectionConfig): EntitySpec[] {
     const wanted = cfg.entities;
-    return this.entities.filter((e) => (wanted ? wanted.includes(e.type) : e.defaultOn));
+    return this.entitiesFor(cfg).filter((e) => (wanted ? wanted.includes(e.type) : e.defaultOn));
   }
 
   /** The mapping in force for a connection: the preset under its own. */
@@ -157,11 +162,20 @@ export abstract class RecordsConnector implements Connector {
     return mergeMappings(this.preset, cfg.mapping);
   }
 
+  /** Listed records enter the run cache (their names serve as relation targets) — what `enumerate` does as it goes; the preview does it for every page it listed. */
+  remember(ctx: ConnectorCtx, records: RecordEnvelope[]): void {
+    const state = this.stateOf(ctx);
+    for (const record of records) {
+      const id = itemIdOf(record.entityType, record.externalId);
+      state.records.set(id, record);
+      state.names.set(id, record.name);
+    }
+  }
+
   /** A record with its relation targets named — what `fetch` hands the door; the preview uses it too. */
   async named(ctx: ConnectorCtx, record: RecordEnvelope): Promise<RecordEnvelope> {
-    const state = this.stateOf(ctx);
-    state.names.set(itemIdOf(record.entityType, record.externalId), record.name);
-    return this.nameTargets(ctx, state, record);
+    this.remember(ctx, [record]);
+    return this.nameTargets(ctx, this.stateOf(ctx), record);
   }
 
   /** Relation targets get their names from records seen this run, else one bounded `get` each. */

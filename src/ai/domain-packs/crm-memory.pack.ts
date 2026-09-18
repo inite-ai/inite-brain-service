@@ -30,12 +30,13 @@ const single = {
  * connection maps its pipeline's stages onto it (the vendor label is
  * always kept as the plain `deal_stage` fact). Sources: `push` — any
  * automation posts record envelopes to the connection's records
- * endpoint — and the vendor connectors on the records contract:
- * `pipedrive`, `hubspot`, `bitrix24`, `kommo`.
+ * endpoint — the vendor connectors on the records contract
+ * (`pipedrive`, `hubspot`, `bitrix24`, `kommo`) and `custom`, the
+ * config-driven `rest_records` connector for the long tail.
  */
 export const CRM_MEMORY_PACK: DomainPackManifest = {
   id: 'crm_memory',
-  version: '0.2.0',
+  version: '0.3.0',
   description:
     'What a CRM knows — people, organizations and deals as facts with the revision they were read at: title, company, owner, stage, amount, dates, source. Records enter deterministically through the records door (no model call); prose fields (notes) go to the ordinary extractor.',
   indexer: {
@@ -90,6 +91,16 @@ export const CRM_MEMORY_PACK: DomainPackManifest = {
       title: 'Kommo / amoCRM',
       description:
         'Leads (deals), contacts and companies of a Kommo or amoCRM account through API v4 (filter[updated_at][from] + page), statuses / pipelines / users resolved to names, with a long-lived token of a private integration. config: { baseUrl, entities?, mapping? }.',
+      defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '1h' },
+    },
+    {
+      id: 'custom',
+      kind: 'native',
+      connector: 'rest_records',
+      shape: 'structure',
+      title: 'Custom REST / OpenAPI',
+      description:
+        'Any CRM, ERP or ticketing backend with a JSON list API and no connector of its own: its endpoints described as config (list path, where the rows sit, paging style, updated-since parameter, id / name / updated-at fields, relations) — proposed by the mapping assistant from an OpenAPI document or a sample answer, verified by the preview. config: { baseUrl, authScheme?, endpoints, entities?, mapping? }.',
       defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '1h' },
     },
   ],

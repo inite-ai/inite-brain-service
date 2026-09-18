@@ -9,9 +9,10 @@ import {
   findConnector,
   type ConnectorCtx,
   type ConnectorRegistry,
+  type RecordEnvelope,
 } from '../connector';
 import { CredentialProvider } from '../oauth/credential-provider';
-import { mapRecord, mergeMappings, type RecordMapping } from './record-mapping';
+import { mapRecord, mergeMappings, type RecordMapping, type Vocabulary } from './record-mapping';
 import { RecordsConnector, type RecordsConnectionConfig } from './records-connector';
 import { RecordsDoorService } from './records-door.service';
 
@@ -71,45 +72,77 @@ export class RecordsPreviewService {
     };
     const mapping: RecordMapping = mergeMappings(connector.preset, cfg.mapping);
     const limit = req.limit ?? DEFAULT_LIMIT;
-    const entities: RecordsPreviewResponse['entities'] = [];
-    for (const entity of connector.selectedEntities(cfg)) {
-      try {
-        const page = await connector.list(ctx, entity.type, { since: null, page: null });
-        const named = [];
-        for (const r of page.records.slice(0, limit)) named.push(await connector.named(ctx, r));
-        const records = named.map((record) => {
-          const m = mapRecord({
-            record,
-            mapping: mapping[entity.type],
-            vocab,
-            idScope: (t, id) => `src_${idTailOf(ctx.connection.id)}:${t}:${id}`,
+    const selected = connector.selectedEntities(cfg);
+    // Every entity's first page is listed BEFORE any record is named, so a
+    // deal's contact listed later in the same preview still gets its name
+    // from the run cache — as it does in a real run, where the whole
+    // enumerate precedes the fetches. One run, ended once.
+    const pages = new Map<string, RecordEnvelope[] | Error>();
+    try {
+      for (const entity of selected) {
+        try {
+          const page = await connector.list(ctx, entity.type, { since: null, page: null });
+          connector.remember(ctx, page.records);
+          pages.set(entity.type, page.records);
+        } catch (e) {
+          pages.set(entity.type, e as Error);
+        }
+      }
+      const entities: RecordsPreviewResponse['entities'] = [];
+      for (const entity of selected) {
+        const listed = pages.get(entity.type);
+        if (listed instanceof Error || !listed) {
+          entities.push({
+            type: entity.type,
+            label: entity.label,
+            records: [],
+            error: listed?.message ?? 'not listed',
           });
-          const mappedKeys = new Set(Object.keys(mapping[entity.type]?.fields ?? {}));
-          return {
-            record,
-            facts: m.facts.map((f) => ({ predicate: f.predicate, object: f.object })),
-            relations: m.relations.map((r) => ({
-              kind: r.kind,
-              target: m.entities[r.toEntityIndex]?.name ?? '',
-            })),
-            unmapped: Object.keys(record.attributes).filter((k) => !mappedKeys.has(k)),
-            dropped: m.dropped,
-          };
-        });
-        entities.push({ type: entity.type, label: entity.label, records, error: null });
-      } catch (e) {
+          continue;
+        }
+        const named: RecordEnvelope[] = [];
+        for (const r of listed.slice(0, limit)) named.push(await connector.named(ctx, r));
         entities.push({
           type: entity.type,
           label: entity.label,
-          records: [],
-          error: (e as Error).message,
+          records: named.map((record) =>
+            previewOf({ record, mapping, entity: entity.type, vocab, ctx }),
+          ),
+          error: null,
         });
-      } finally {
-        await connector.endRun?.(ctx).catch(() => undefined);
       }
+      return { entities };
+    } finally {
+      await connector.endRun?.(ctx).catch(() => undefined);
     }
-    return { entities };
   }
+}
+
+/** One record as the preview shows it: the facts and relations the mapping yields, the fields it leaves, the drops by name. */
+function previewOf(p: {
+  record: RecordEnvelope;
+  mapping: RecordMapping;
+  entity: string;
+  vocab: Vocabulary;
+  ctx: ConnectorCtx;
+}): RecordsPreviewResponse['entities'][number]['records'][number] {
+  const m = mapRecord({
+    record: p.record,
+    mapping: p.mapping[p.entity],
+    vocab: p.vocab,
+    idScope: (t, id) => `src_${idTailOf(p.ctx.connection.id)}:${t}:${id}`,
+  });
+  const mappedKeys = new Set(Object.keys(p.mapping[p.entity]?.fields ?? {}));
+  return {
+    record: p.record,
+    facts: m.facts.map((f) => ({ predicate: f.predicate, object: f.object })),
+    relations: m.relations.map((r) => ({
+      kind: r.kind,
+      target: m.entities[r.toEntityIndex]?.name ?? '',
+    })),
+    unmapped: Object.keys(p.record.attributes).filter((k) => !mappedKeys.has(k)),
+    dropped: m.dropped,
+  };
 }
 
 /** The connector a preview runs — by the pack entry's connector name, which the catalogue already resolved for the form. */

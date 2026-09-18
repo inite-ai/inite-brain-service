@@ -239,6 +239,45 @@ const DROPBOX: ConnectorForm = {
 
 const HUBSPOT: ConnectorForm = { fields: [], credential: { kind: 'oauth' } }
 
+const authParam: FieldSpec = {
+  key: 'authParam',
+  type: 'text',
+  mono: true,
+  placeholder: 'api_key',
+  virtual: true,
+  when: (v) => v['authScheme'] === 'query',
+}
+
+/**
+ * Any JSON list API as config: the base URL and how the credential
+ * rides; the endpoints themselves come from the assistant's proposal
+ * (RestApiDescribe) and travel in the records choice, not in a field.
+ */
+const REST_RECORDS: ConnectorForm = {
+  fields: [
+    { key: 'baseUrl', type: 'url', required: true, mono: true, placeholder: 'https://crm.example.com/api' },
+    {
+      key: 'authScheme',
+      type: 'select',
+      options: ['bearer', 'header', 'query', 'basic', 'none'],
+      virtual: true,
+    },
+    authHeader,
+    authParam,
+    allowPrivate,
+  ],
+  credential: {
+    kind: 'single',
+    required: (v) => v['authScheme'] !== 'none',
+    shown: (v) => v['authScheme'] !== 'none',
+  },
+  finalize: (config, values) => {
+    const out = withAuthScheme(config, values)
+    if (values['authScheme'] === 'none') out['authScheme'] = 'none'
+    return out
+  },
+}
+
 /** The credential IS the inbound webhook URL (its code is the secret); a self-hosted portal may sit on the LAN. */
 const BITRIX24: ConnectorForm = {
   fields: [allowPrivate],
@@ -278,10 +317,15 @@ function withAuthScheme(
   const out = { ...config }
   delete out['authScheme']
   delete out['authHeader']
+  delete out['authParam']
   if (scheme === 'basic') out['authScheme'] = 'basic'
   if (scheme === 'header') {
     const name = String(values['authHeader'] ?? '').trim()
     if (name) out['authScheme'] = `header:${name}`
+  }
+  if (scheme === 'query') {
+    const name = String(values['authParam'] ?? '').trim()
+    if (name) out['authScheme'] = `query:${name}`
   }
   return out
 }
@@ -313,6 +357,8 @@ export function formFor(entry: SourceCatalogEntry): ConnectorForm | null {
       return BITRIX24
     case 'kommo':
       return KOMMO
+    case 'rest_records':
+      return REST_RECORDS
     default:
       return null
   }
@@ -448,6 +494,9 @@ export function validate(
   }
   if (values['authScheme'] === 'header' && !String(values['authHeader'] ?? '').trim()) {
     errors['authHeader'] = 'header'
+  }
+  if (values['authScheme'] === 'query' && !String(values['authParam'] ?? '').trim()) {
+    errors['authParam'] = 'header'
   }
   if (form.credential?.kind === 'single' && form.credential.required(values) && !secret.single) {
     errors['credential'] = 'credential'

@@ -75,6 +75,18 @@ export function sourceOAuthClientEnabled(): boolean {
 }
 
 /**
+ * SOURCE_MAPPING_ASSISTANT — the model half of the mapping assistant
+ * (W4.2b′): with it, `POST /v1/admin/source-connections/assist` sends
+ * the API digest and the heuristic proposal to the model
+ * (MAPPING_ASSISTANT_MODEL) for a refined `rest_records` config.
+ * Off (default) ⇒ the deterministic proposal only — no model is ever
+ * called by the assistant; the endpoint and the preview work the same.
+ */
+export function sourceMappingAssistantEnabled(): boolean {
+  return envFlagEnabled(process.env.SOURCE_MAPPING_ASSISTANT);
+}
+
+/**
  * SOURCE_OAUTH_REDIRECT_URL — the callback URL registered at the
  * providers, when it is not `<public base>/v1/source-connections/oauth/
  * callback` as the admin's request reached the brain (a path prefix at
