@@ -61,6 +61,8 @@ export const SourceConnectionSchema = z.object({
   lastSyncAt: z.string().nullable(),
   lastSyncStatus: z.string().nullable(),
   lastError: z.string().nullable(),
+  /** The inbound webhook (W4.2c): on = a secret is set; the secret itself is shown once, at setup. */
+  webhook: z.object({ enabled: z.boolean(), lastEventAt: z.string().nullable() }),
   createdAt: z.string(),
   updatedAt: z.string().nullable(),
 })
@@ -184,7 +186,20 @@ export const SourceCatalogEntrySchema = z.object({
       predicates: z.array(z.object({ localId: z.string(), label: z.string() })),
     })
     .nullable(),
+  /** The connector takes an inbound webhook: how the vendor's call is trusted. */
+  webhook: z.object({ scheme: z.string() }).nullable(),
 })
+
+/** POST /v1/admin/source-connections/:id/webhook — the address to register, the secret (once), the how-to. */
+export const WebhookSetupResponseSchema = z.object({
+  url: z.string(),
+  secret: z.string(),
+  scheme: z.string(),
+  notes: z.array(z.string()),
+})
+export type WebhookSetupResponse = z.infer<typeof WebhookSetupResponseSchema>
+
+export const WebhookDisableResponseSchema = z.object({ ok: z.literal(true) })
 
 export const RecordEnvelopeSchema = z.object({
   entityType: z.string(),
@@ -290,6 +305,8 @@ export const SourceCatalogResponseSchema = z.object({
   connectors: z.array(SourceConnectorStateSchema),
   fsRoots: z.array(z.string()),
   egressAllowPrivate: z.boolean(),
+  /** SOURCE_WEBHOOKS is on. */
+  webhooks: z.boolean(),
 })
 
 // ── Inspection (the operator's drill-down) ─────────────────────────────
@@ -333,7 +350,7 @@ export const SourceRunSchema = z.object({
   startedAt: z.string(),
   finishedAt: z.string().nullable(),
   durationMs: z.number().int().nullable(),
-  mode: z.enum(['full', 'incremental']).nullable(),
+  mode: z.enum(['full', 'incremental', 'webhook']).nullable(),
   counters: SourceRunCountersSchema.nullable(),
   skipped: z.string().nullable(),
   error: z.string().nullable(),
@@ -408,7 +425,14 @@ export const SourceAgentsResponseSchema = z.object({ agents: z.array(SourceAgent
 
 // ── Connected accounts (W4) ──────────────────────────────────────────
 
-export const SourceOAuthProviderIdSchema = z.enum(['google', 'microsoft', 'dropbox', 'pipedrive', 'hubspot'])
+export const SourceOAuthProviderIdSchema = z.enum([
+  'google',
+  'microsoft',
+  'dropbox',
+  'pipedrive',
+  'hubspot',
+  'salesforce',
+])
 
 export const SourceOAuthStartRequestSchema = z.object({
   provider: SourceOAuthProviderIdSchema,
@@ -435,6 +459,8 @@ export const SourceOAuthGrantSchema = z.object({
   refreshable: z.boolean(),
   lastRefreshAt: z.string().nullable(),
   lastError: z.string().nullable(),
+  /** The account's own API origin when the provider named one (Salesforce `instance_url`, Pipedrive `api_domain`). */
+  apiBase: z.string().nullable(),
   createdAt: z.string(),
 })
 

@@ -136,6 +136,9 @@ import {
   MappingAssistRequestSchema,
   MappingAssistResponseSchema,
   RecordsPreviewResponseSchema,
+  WebhookSetupRequestSchema,
+  WebhookSetupResponseSchema,
+  WebhookReceiptSchema,
   AgentInventorySchema,
   AgentConnectionsListResponseSchema,
   AgentDeltasRequestSchema,
@@ -393,6 +396,9 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   RecordsPreviewResponse: RecordsPreviewResponseSchema,
   MappingAssistRequest: MappingAssistRequestSchema,
   MappingAssistResponse: MappingAssistResponseSchema,
+  WebhookSetupRequest: WebhookSetupRequestSchema,
+  WebhookSetupResponse: WebhookSetupResponseSchema,
+  WebhookReceipt: WebhookReceiptSchema,
   AgentInventory: AgentInventorySchema,
   AgentConnectionsListResponse: AgentConnectionsListResponseSchema,
   AgentDeltasRequest: AgentDeltasRequestSchema,
@@ -1844,6 +1850,78 @@ function recordsPaths(idParam: Json): Json {
           '404': errorRef('NotFound'),
         },
       }),
+    },
+    '/v1/admin/source-connections/{id}/webhook': {
+      post: operation({
+        operationId: 'setupSourceWebhook',
+        tag: 'Source Plane',
+        summary: 'Switch a connection’s inbound webhook on',
+        description:
+          'Freshness for the records connectors (docs/roadmap/crm-sources-2026-09.md § 4.4): the ' +
+          'address to register at the vendor (the tenant and the connection under an HMAC), the ' +
+          'secret shown once (generated, or the vendor’s own — a Bitrix24 application token, a ' +
+          'HubSpot app’s client secret), and the vendor’s how-to. Calling it again rotates the ' +
+          'secret. Needs `SOURCE_WEBHOOKS=1` and `SOURCE_CREDENTIAL_ENCRYPTION_KEY`. ' +
+          RECORDS_NOTE,
+        scope: 'brain:admin',
+        parameters: [idParam],
+        requestBody: jsonBody(ref('WebhookSetupRequest')),
+        responses: {
+          '201': jsonResponse('The address, the secret (once) and the notes.', ref('WebhookSetupResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+      delete: operation({
+        operationId: 'disableSourceWebhook',
+        tag: 'Source Plane',
+        summary: 'Switch a connection’s inbound webhook off',
+        description:
+          'Forgets the secret; the public address answers 404 from here on. ' + RECORDS_NOTE,
+        scope: 'brain:admin',
+        parameters: [idParam],
+        responses: {
+          '200': jsonResponse('Off.', { type: 'object', properties: { ok: { type: 'boolean' } } }),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/source-connections/webhook/{address}': {
+      post: {
+        operationId: 'receiveSourceWebhook',
+        tags: ['Source Plane'],
+        // Unauthenticated: the signed address names the connection, the vendor's signature or the secret authenticates.
+        security: [],
+        summary: 'The vendor’s call (public)',
+        description:
+          'Where a CRM calls on change — the address the setup call handed out. Public by ' +
+          'construction: the HMAC-signed address names the tenant and the connection, and the ' +
+          'call is trusted the vendor’s way (HubSpot v3 signature, Pipedrive basic auth, Bitrix24 ' +
+          '`auth[application_token]`, Kommo / custom `?token=` or `X-Brain-Signature`). The ' +
+          'events name entity + id (+ deleted); the engine fetches those records through the ' +
+          'records door as a queued `source_sync` job (202) — or inline without a queue (200, ' +
+          'summary). The webhook never carries data into memory. 404 for an unknown address or ' +
+          'a connection whose webhook is off; 401 for a call the scheme rejects. ' +
+          RECORDS_NOTE,
+        parameters: [pathParam('address', 'The signed address from the setup call.')],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { type: 'object', additionalProperties: true } },
+            'application/x-www-form-urlencoded': {
+              schema: { type: 'object', additionalProperties: true },
+            },
+          },
+        },
+        responses: {
+          '200': jsonResponse('Applied inline.', ref('WebhookReceipt')),
+          '202': jsonResponse('Queued.', ref('WebhookReceipt')),
+          '401': errorRef('Unauthorized'),
+          '404': errorRef('NotFound'),
+        },
+      },
     },
   };
 }

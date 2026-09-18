@@ -43,6 +43,9 @@ export interface FieldSpec {
 /** What the single credential is called when it is not a plain token (`form.credential.<label>` / `<label>Hint`). */
 export type CredentialLabel = 'webhookUrl' | 'longLivedToken'
 
+/** What a connected-account connector also takes instead of an account: a vendor token, or a JWT bearer JSON (Salesforce). */
+export type OAuthAlternative = 'token' | 'jwtBearer'
+
 export type CredentialSpec =
   | {
       kind: 'single'
@@ -51,8 +54,8 @@ export type CredentialSpec =
       label?: CredentialLabel
     }
   | { kind: 'pair'; required: false; shown: (values: FormValues) => boolean }
-  /** A connected account (the catalogue entry's `oauth` names the provider); required on the brain host. */
-  | { kind: 'oauth' }
+  /** A connected account (the catalogue entry's `oauth` names the provider); required on the brain host, unless the alternative is pasted. */
+  | { kind: 'oauth'; alternative?: OAuthAlternative }
 
 /** What the operator typed or picked for the credential. */
 export interface SecretValues {
@@ -229,7 +232,7 @@ const ONEDRIVE: ConnectorForm = {
 
 const PIPEDRIVE: ConnectorForm = {
   fields: [{ key: 'apiDomain', type: 'url', mono: true, advanced: true, placeholder: 'https://acme.pipedrive.com' }],
-  credential: { kind: 'oauth' },
+  credential: { kind: 'oauth', alternative: 'token' },
 }
 
 const DROPBOX: ConnectorForm = {
@@ -237,7 +240,22 @@ const DROPBOX: ConnectorForm = {
   credential: { kind: 'oauth' },
 }
 
-const HUBSPOT: ConnectorForm = { fields: [], credential: { kind: 'oauth' } }
+const HUBSPOT: ConnectorForm = { fields: [], credential: { kind: 'oauth', alternative: 'token' } }
+
+/**
+ * Salesforce: a connected account (the org comes from the grant) or a
+ * JWT bearer for an integration user; the org, the login host, the API
+ * version and the bulk first walk are advanced.
+ */
+const SALESFORCE: ConnectorForm = {
+  fields: [
+    { key: 'instanceUrl', type: 'url', mono: true, advanced: true, placeholder: 'https://acme.my.salesforce.com' },
+    { key: 'loginUrl', type: 'url', mono: true, advanced: true, placeholder: 'https://login.salesforce.com' },
+    { key: 'apiVersion', type: 'text', mono: true, advanced: true, placeholder: 'v62.0' },
+    { key: 'bulk', type: 'boolean', default: false, advanced: true },
+  ],
+  credential: { kind: 'oauth', alternative: 'jwtBearer' },
+}
 
 const authParam: FieldSpec = {
   key: 'authParam',
@@ -353,6 +371,8 @@ export function formFor(entry: SourceCatalogEntry): ConnectorForm | null {
       return PIPEDRIVE
     case 'hubspot':
       return HUBSPOT
+    case 'salesforce':
+      return SALESFORCE
     case 'bitrix24':
       return BITRIX24
     case 'kommo':
@@ -434,8 +454,8 @@ export function configFrom(
 export function credentialFrom(form: ConnectorForm, secret: SecretValues): string | undefined {
   if (!form.credential) return undefined
   if (form.credential.kind === 'oauth') {
-    // A connected account, else a vendor token pasted in (Pipedrive's API token).
-    return secret.grantId ? `oauth:${secret.grantId}` : secret.single || undefined
+    // A connected account, else the alternative pasted in (Pipedrive's API token, a Salesforce JWT bearer JSON).
+    return secret.grantId ? `oauth:${secret.grantId}` : secret.single.trim() || undefined
   }
   if (form.credential.kind === 'pair') {
     const id = secret.keyId.trim()
@@ -455,6 +475,7 @@ export type FieldError =
   | 'header'
   | 'jail'
   | 'account'
+  | 'jwtBearer'
 
 /** Field-level errors, keyed by field (or `credential`); empty = the step may proceed. */
 export function validate(
@@ -508,10 +529,30 @@ export function validate(
   }
   // The brain runs the cloud connector, so it needs the account; an
   // agent-host connection would carry its own (none of these run there).
-  if (form.credential?.kind === 'oauth' && ctx.host === 'server' && !secret.grantId && !secret.single) {
+  if (form.credential?.kind === 'oauth' && ctx.host === 'server' && !secret.grantId && !secret.single.trim()) {
     errors['credential'] = 'account'
   }
+  if (form.credential?.kind === 'oauth' && form.credential.alternative === 'jwtBearer' && !secret.grantId && secret.single.trim()) {
+    if (!isJwtBearer(secret.single)) errors['credential'] = 'jwtBearer'
+  }
   return errors
+}
+
+/** `{ clientId, username, privateKey }` with a PEM key — what the Salesforce connector parses. */
+export function isJwtBearer(raw: string): boolean {
+  try {
+    const v = JSON.parse(raw) as Record<string, unknown>
+    return (
+      typeof v.clientId === 'string' &&
+      v.clientId.trim().length > 0 &&
+      typeof v.username === 'string' &&
+      v.username.trim().length > 0 &&
+      typeof v.privateKey === 'string' &&
+      /-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(v.privateKey)
+    )
+  } catch {
+    return false
+  }
 }
 
 function isHttpUrl(raw: string): boolean {

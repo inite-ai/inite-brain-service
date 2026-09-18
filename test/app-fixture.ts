@@ -128,7 +128,8 @@ export async function createApp(
     .useValue(new StubLocalCrossEncoder())
     .compile();
 
-  const app = moduleRef.createNestApplication();
+  // Mirror main.ts: the raw body is what a webhook signature is checked over.
+  const app = moduleRef.createNestApplication({ rawBody: true });
   // Mirror main.ts: the correlation middleware also carries the
   // AsyncLocalStorage request context that ABAC row filtering reads
   // (getPolicyContext) — without it the row gate is silently inactive

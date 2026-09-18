@@ -7,6 +7,7 @@ import type {
 import { RestRecordsConfigSchema } from '../../contracts/source-plane/source-plane.schema';
 import type { ConnectorCtx, RecordEnvelope } from '../connector';
 import type { RecordMapping } from '../records/record-mapping';
+import { signedWebhook } from '../records/webhook-schemes';
 import {
   RecordsConnector,
   configOf,
@@ -61,6 +62,8 @@ export class RestRecordsConnector extends RecordsConnector {
   };
   override readonly credentialHint =
     "the API's credential — a bearer token by default; config.authScheme picks basic / header:<Name> / query:<name>";
+  /** A custom backend or an automation posts `{ events: [{ entity, id, deleted? }] }`, signed or tokened. */
+  override readonly webhook = signedWebhook;
   /** Static none: the entities are the connection's config. */
   readonly entities: EntitySpec[] = [];
   readonly preset: RecordMapping = {};
@@ -95,7 +98,8 @@ export class RestRecordsConnector extends RecordsConnector {
   ): Promise<RecordEnvelope | null> {
     const cfg = restConfigOf(ctx);
     const spec = cfg.endpoints[entity];
-    if (!spec?.get) return null;
+    // Null means "the backend says it is gone"; a missing get endpoint is a configuration fact, named as such.
+    if (!spec?.get) throw new Error(`rest_records: no get endpoint configured for "${entity}"`);
     const http = httpOf(ctx, cfg);
     const url = resolveUrl(cfg.baseUrl, spec.get.path.replace('{id}', encodeURIComponent(id)));
     let answer: unknown;

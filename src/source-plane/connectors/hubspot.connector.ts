@@ -9,6 +9,7 @@ import {
   type ListCursor,
   type ListPage,
 } from '../records/records-connector';
+import { hubspotWebhook } from '../records/webhook-schemes';
 import { cloudHttp, type CloudHttp } from './cloud-http';
 import { isoOf, scalars } from './records-vendor';
 
@@ -141,6 +142,7 @@ export class HubSpotConnector extends RecordsConnector {
   override readonly configExample = { entities: ['deal', 'person', 'organization'] };
   override readonly credentialHint =
     'a connected HubSpot account (oauth:<grant id>), or a private-app access token';
+  override readonly webhook = hubspotWebhook;
   override readonly oauth = {
     provider: 'hubspot' as const,
     scopes: [

@@ -5,7 +5,11 @@ import {
   type DomainPackManifest,
   type PackSourceSpec,
 } from '../ai/domain-packs';
-import { sourceEgressAllowPrivate, sourceFsRoots } from '../common/source-plane-flags';
+import {
+  sourceEgressAllowPrivate,
+  sourceFsRoots,
+  sourceWebhooksEnabled,
+} from '../common/source-plane-flags';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import type {
   SourceAvailability,
@@ -77,6 +81,7 @@ export class SourceCatalogService {
       connectors: registry.map(describeConnector),
       fsRoots: sourceFsRoots(),
       egressAllowPrivate: sourceEgressAllowPrivate(),
+      webhooks: sourceWebhooksEnabled(),
     };
   }
 
@@ -112,6 +117,7 @@ export class SourceCatalogService {
         mcp: mcpOf(entry),
         oauth: oauthOf(connector),
         records: recordsOf(connector, manifest, entry),
+        webhook: webhookOf(connector),
       };
     });
   }
@@ -175,6 +181,12 @@ function oauthOf(connector: Connector | null): SourceCatalogEntry['oauth'] {
     scopes,
     configured: providerConfigured(provider),
   };
+}
+
+/** The vendor's inbound webhook, when the connector has one (W4.2c). */
+function webhookOf(connector: Connector | null): SourceCatalogEntry['webhook'] {
+  if (!(connector instanceof RecordsConnector) || !connector.webhook) return null;
+  return { scheme: connector.webhook.id };
 }
 
 /** Natives that exist on the local agent only — git never runs in the brain process. */

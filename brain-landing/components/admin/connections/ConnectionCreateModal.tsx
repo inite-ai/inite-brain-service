@@ -630,7 +630,7 @@ function SourceStep({
           onChange={(grantId) => onSecret({ ...secret, grantId })}
         />
       )}
-      {form.credential?.kind === 'oauth' && entry.credentialHint?.includes('token') && (
+      {form.credential?.kind === 'oauth' && form.credential.alternative === 'token' && (
         <Field label={f.credential.token} hint={f.credential.tokenHint}>
           <input
             type="password"
@@ -639,6 +639,21 @@ function SourceStep({
             autoComplete="new-password"
             className={`${inputCls} font-mono`}
           />
+        </Field>
+      )}
+      {form.credential?.kind === 'oauth' && form.credential.alternative === 'jwtBearer' && (
+        <Field label={f.credential.jwtBearer} hint={f.credential.jwtBearerHint}>
+          <textarea
+            value={secret.single}
+            onChange={(e) => onSecret({ ...secret, single: e.target.value })}
+            rows={4}
+            spellCheck={false}
+            placeholder='{ "clientId": "…", "username": "…", "privateKey": "-----BEGIN PRIVATE KEY-----\n…" }'
+            className={`${inputCls} font-mono text-[11px]`}
+          />
+          {errors['credential'] === 'jwtBearer' && (
+            <p className="mt-1 text-[11px] text-[var(--danger)]">{f.errors.jwtBearer}</p>
+          )}
         </Field>
       )}
       {entry.records && entry.connector === 'rest_records' && (

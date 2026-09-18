@@ -39,12 +39,20 @@ export interface ConnectorConnectionView {
   /** Where it came from: a connected account (bearer), an operator secret (the vendor's own scheme), a pack install secret. */
   credentialSource: 'grant' | 'secret' | 'install' | null;
   contentPolicy: 'manifest' | 'text' | 'bytes';
+  /** What happens to an item's facts when it is gone (absent = `close`). */
+  deletePolicy?: 'close' | 'retract' | 'keep' | undefined;
   vertical: string;
   recorder: string;
   userId: string | null;
   /** The pack entry this connection instantiates (its declared url /
    *  auth for `mcp`), when the pack still declares it. */
   source?: PackSourceSpec | null | undefined;
+  /**
+   * What the connected account said about itself at the token endpoint
+   * (W4.2c): its own API origin (Salesforce `instance_url`, Pipedrive
+   * `api_domain`) and its label. Null for a secret credential.
+   */
+  grant?: { account: string | null; apiBase: string | null } | null | undefined;
 }
 
 export interface ConnectorCtx {

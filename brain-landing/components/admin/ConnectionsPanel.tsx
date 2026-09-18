@@ -405,6 +405,7 @@ export function ConnectionsPanel() {
           key={selected.id}
           connection={selected}
           entry={selectedEntry}
+          webhooksOn={catalog?.webhooks === true}
           t={t}
           onClose={() => setSelectedId(null)}
           onChanged={reload}
@@ -735,6 +736,7 @@ const CONNECTOR_NAMES: Record<string, string> = {
   hubspot: 'HubSpot',
   bitrix24: 'Bitrix24',
   kommo: 'Kommo / amoCRM',
+  salesforce: 'Salesforce',
   rest_records: 'custom REST / OpenAPI',
 }
 

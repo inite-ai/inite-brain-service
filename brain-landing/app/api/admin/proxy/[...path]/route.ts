@@ -100,6 +100,8 @@ import {
   RevokeGrantResponseSchema,
   RecordsPreviewResponseSchema,
   MappingAssistResponseSchema,
+  WebhookSetupResponseSchema,
+  WebhookDisableResponseSchema,
 } from '@/lib/contracts/admin-source-connections'
 import {
   IssuedKeyResponseSchema,
@@ -297,6 +299,10 @@ const DYNAMIC_RESPONSE_SCHEMAS: Partial<
       pattern: 'v1/admin/source-connections/:id/sync',
       schema: SyncNowResponseSchema,
     },
+    {
+      pattern: 'v1/admin/source-connections/:id/webhook',
+      schema: WebhookSetupResponseSchema,
+    },
   ],
   PATCH: [
     {
@@ -342,6 +348,10 @@ const DYNAMIC_RESPONSE_SCHEMAS: Partial<
     {
       pattern: 'v1/admin/source-connections/oauth/grants/:id',
       schema: RevokeGrantResponseSchema,
+    },
+    {
+      pattern: 'v1/admin/source-connections/:id/webhook',
+      schema: WebhookDisableResponseSchema,
     },
     {
       pattern: 'v1/admin/source-connections/:id',

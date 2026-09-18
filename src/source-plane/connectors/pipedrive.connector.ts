@@ -10,6 +10,7 @@ import {
   type ListCursor,
   type ListPage,
 } from '../records/records-connector';
+import { pipedriveWebhook } from '../records/webhook-schemes';
 import { cloudHttp, type CloudHttp } from './cloud-http';
 import { isoOf, scalars } from './records-vendor';
 
@@ -25,9 +26,12 @@ import { isoOf, scalars } from './records-vendor';
  * Deletions reach the catalogue on a full walk (a deleted deal is not
  * listed) and, later, through webhooks.
  *
- * `config.apiDomain` (the `api_domain` an OAuth grant names, e.g.
- * `https://acme.pipedrive.com`) replaces the public API host; the
- * dev override SOURCE_OAUTH_PIPEDRIVE_BASE_URL replaces both.
+ * `config.apiDomain` (e.g. `https://acme.pipedrive.com`) replaces the
+ * public API host, else the `api_domain` the connected account learned
+ * at the token endpoint does; the dev override
+ * SOURCE_OAUTH_PIPEDRIVE_BASE_URL replaces all of them. Webhooks v2
+ * (basic auth on the webhook) name the changed deal / person /
+ * organization and the engine fetches it (W4.2c).
  */
 
 export interface PipedriveConfig {
@@ -95,6 +99,7 @@ export class PipedriveConnector extends RecordsConnector {
   override readonly credentialHint =
     'a connected Pipedrive account (oauth:<grant id>), or an API token';
   override readonly oauth = { provider: 'pipedrive' as const, scopes: [], optional: true };
+  override readonly webhook = pipedriveWebhook;
   readonly entities: EntitySpec[] = [
     {
       type: 'deal',
@@ -351,11 +356,12 @@ function primary(
   return (items.find((i) => i.primary) ?? items[0])?.value || undefined;
 }
 
+/** The account's own host: `config.apiDomain`, else the `api_domain` the grant learned at the token endpoint, else the public API host. */
 function apiBase(ctx: ConnectorCtx): string {
   const ep = providerEndpoints('pipedrive');
   if (ep.private) return ep.apiBase;
   const own = (configOf(ctx) as PipedriveConfig).apiDomain?.trim().replace(/\/$/, '');
-  return own || ep.apiBase;
+  return own || ctx.connection.grant?.apiBase || ep.apiBase;
 }
 
 function httpOf(ctx: ConnectorCtx): CloudHttp {

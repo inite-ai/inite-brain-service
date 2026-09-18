@@ -32,6 +32,12 @@ export interface SourceItemRow {
   lastError?: string | null;
   userId?: string | null;
   scope?: string[];
+  /**
+   * Not a column: set on the row `upsertSeen` returns when the item was
+   * gone and is seen again — the instant the delete policy closed its
+   * facts at, so an ingest that turns out byte-identical can reopen them.
+   */
+  resurrectedAt?: Date | undefined;
 }
 
 export interface UpsertOutcome {
@@ -111,7 +117,9 @@ export class SourceItemService {
         id: existing.id,
         ...vars,
       });
-      return { row: updated ?? existing, isNew: false, changed };
+      const row = updated ?? existing;
+      const goneAt = wasGone ? asDate(existing.goneAt) : null;
+      return { row: goneAt ? { ...row, resurrectedAt: goneAt } : row, isNew: false, changed };
     });
   }
 
@@ -322,4 +330,10 @@ export function toItemView(row: SourceItemRow): SourceItem {
     goneAt: toIso(row.goneAt),
     lastError: row.lastError ?? null,
   };
+}
+
+function asDate(v: unknown): Date | null {
+  if (v === null || v === undefined) return null;
+  const d = new Date(v as string | number | Date);
+  return Number.isNaN(d.getTime()) ? null : d;
 }

@@ -22,6 +22,7 @@ import {
   type SyncNowResponse,
 } from '../../../lib/contracts/admin-source-connections'
 import { ItemInspect } from './ItemInspect'
+import { WebhookSection } from './WebhookSection'
 import {
   accentBtn,
   connectionPath,
@@ -46,6 +47,7 @@ type StateFilter = '' | SourceItemState
 export function ConnectionDetail({
   connection,
   entry,
+  webhooksOn,
   t,
   onClose,
   onChanged,
@@ -53,6 +55,8 @@ export function ConnectionDetail({
   connection: SourceConnection
   /** The pack's catalogue entry this connection instantiates; null when the pack no longer declares it. */
   entry: SourceCatalogEntry | null
+  /** SOURCE_WEBHOOKS on this brain (the catalogue says). */
+  webhooksOn: boolean
   t: ConnectionsT
   onClose: () => void
   onChanged: () => Promise<void>
@@ -251,6 +255,10 @@ export function ConnectionDetail({
       {error && <div className="font-mono text-xs text-[var(--danger)]">{error}</div>}
 
       {summary && <SummaryCard summary={summary} t={t} />}
+
+      {agentId === null && (
+        <WebhookSection connection={connection} entry={entry} webhooksOn={webhooksOn} t={t} onChanged={onChanged} />
+      )}
 
       {runs && <RunsTable runs={runs} t={t} lang={lang} />}
 

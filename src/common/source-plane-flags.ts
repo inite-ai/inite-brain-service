@@ -96,3 +96,18 @@ export function sourceOAuthRedirectUrl(): string | null {
   const raw = process.env.SOURCE_OAUTH_REDIRECT_URL?.trim();
   return raw ? raw : null;
 }
+
+/**
+ * SOURCE_WEBHOOKS — the inbound webhook lane of the records connectors
+ * (W4.2c): `POST /v1/admin/source-connections/:id/webhook` switches a
+ * connection's webhook on (a secret, an address), and the public
+ * `POST /v1/source-connections/webhook/:address` accepts the vendor's
+ * calls — verified per vendor, the named records fetched through the
+ * records door. Off (default) ⇒ both routes answer 404, no address is
+ * ever handed out, no vendor call is ever accepted — byte-identical.
+ * Needs SOURCE_CREDENTIAL_ENCRYPTION_KEY: the address is signed and the
+ * secret encrypted under it.
+ */
+export function sourceWebhooksEnabled(): boolean {
+  return envFlagEnabled(process.env.SOURCE_WEBHOOKS);
+}

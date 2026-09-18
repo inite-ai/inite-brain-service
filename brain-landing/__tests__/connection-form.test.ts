@@ -5,6 +5,7 @@ import {
   formFor,
   initialValues,
   validate,
+  isJwtBearer,
   visibleFields,
   type FormContext,
   type FormValues,
@@ -37,6 +38,7 @@ function entry(over: Partial<SourceCatalogEntry>): SourceCatalogEntry {
     mcp: null,
     oauth: null,
     records: null,
+    webhook: null,
     ...over,
   }
 }
@@ -196,7 +198,7 @@ describe('connect form specs', () => {
       oauth: { provider: 'hubspot', title: 'HubSpot', scopes: ['crm.objects.deals.read'], configured: false },
     })
     const hf = formFor(hubspot)!
-    expect(hf.credential).toEqual({ kind: 'oauth' })
+    expect(hf.credential).toEqual({ kind: 'oauth', alternative: 'token' })
     expect(visibleFields(hf, initialValues(hf, hubspot), ctxFor(hubspot), true)).toEqual([])
     expect(validate(hf, {}, ctxFor(hubspot), noSecret)).toEqual({ credential: 'account' })
     expect(credentialFrom(hf, { ...noSecret, single: 'pat-na1-x' })).toBe('pat-na1-x')
@@ -221,6 +223,37 @@ describe('connect form specs', () => {
     expect(validate(kf, kv, ctxFor(kommo), noSecret)).toEqual({ baseUrl: 'required', credential: 'credential' })
     expect(validate(kf, { ...kv, baseUrl: 'acme.kommo.com' }, ctxFor(kommo), { ...noSecret, single: 't' })).toEqual({ baseUrl: 'url' })
     expect(configFrom(kf, { ...kv, baseUrl: 'https://acme.kommo.com' }, ctxFor(kommo))).toEqual({ baseUrl: 'https://acme.kommo.com' })
+  })
+
+  it('Salesforce: a connected account or a JWT bearer JSON (validated as such); the org, login host, version and bulk walk are advanced', () => {
+    const sf = entry({
+      packId: 'crm_memory',
+      sourceId: 'salesforce',
+      connector: 'salesforce',
+      shape: 'structure',
+      hosts: ['server'],
+      oauth: { provider: 'salesforce', title: 'Salesforce', scopes: ['api'], configured: true },
+    })
+    const form = formFor(sf)!
+    expect(form.credential).toEqual({ kind: 'oauth', alternative: 'jwtBearer' })
+    const values = initialValues(form, sf)
+    expect(visibleFields(form, values, ctxFor(sf), false)).toEqual([])
+    expect(visibleFields(form, values, ctxFor(sf), true).map((f) => f.key)).toEqual(['instanceUrl', 'loginUrl', 'apiVersion', 'bulk'])
+    expect(validate(form, values, ctxFor(sf), noSecret)).toEqual({ credential: 'account' })
+    expect(validate(form, values, ctxFor(sf), { ...noSecret, grantId: 'source_oauth_grant:g1' })).toEqual({})
+    expect(credentialFrom(form, { ...noSecret, grantId: 'source_oauth_grant:g1' })).toBe('oauth:source_oauth_grant:g1')
+    expect(validate(form, values, ctxFor(sf), { ...noSecret, single: 'not json' })).toEqual({ credential: 'jwtBearer' })
+    expect(validate(form, values, ctxFor(sf), { ...noSecret, single: '{"clientId":"k","username":"u"}' })).toEqual({ credential: 'jwtBearer' })
+    const jwt = JSON.stringify({ clientId: 'k', username: 'u@acme.test', privateKey: '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----' })
+    expect(validate(form, values, ctxFor(sf), { ...noSecret, single: ` ${jwt} ` })).toEqual({})
+    expect(credentialFrom(form, { ...noSecret, single: ` ${jwt} ` })).toBe(jwt)
+    expect(isJwtBearer(jwt)).toBe(true)
+    expect(validate(form, { ...values, instanceUrl: 'acme.my.salesforce.com' }, ctxFor(sf), { ...noSecret, single: jwt })).toEqual({ instanceUrl: 'url' })
+    expect(configFrom(form, { ...values, instanceUrl: 'https://acme.my.salesforce.com', bulk: true, apiVersion: 'v62.0' }, ctxFor(sf))).toEqual({
+      instanceUrl: 'https://acme.my.salesforce.com',
+      apiVersion: 'v62.0',
+      bulk: true,
+    })
   })
 
   it('custom REST: base URL required, the credential rides as chosen (header / query names required), none needs no credential', () => {

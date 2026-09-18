@@ -45,6 +45,7 @@ export class RecordsPreviewService {
     }
     const cfg = (req.config ?? {}) as RecordsConnectionConfig;
     const credential = await this.credentials.resolve(companyId, req.credential ?? null);
+    const grant = await this.credentials.hints(companyId, req.credential ?? null);
     const ctx: ConnectorCtx = {
       companyId,
       connection: {
@@ -66,6 +67,7 @@ export class RecordsPreviewService {
         vertical: 'preview',
         recorder: 'preview',
         userId: null,
+        grant,
       },
       signal: AbortSignal.timeout(30_000),
       log: () => undefined,

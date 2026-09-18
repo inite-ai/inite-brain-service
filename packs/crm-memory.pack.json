@@ -1,6 +1,6 @@
 {
   "id": "crm_memory",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "What a CRM knows — people, organizations and deals as facts with the revision they were read at: title, company, owner, stage, amount, dates, source. Records enter deterministically through the records door (no model call); prose fields (notes) go to the ordinary extractor.",
   "indexer": {
     "mode": "external",
@@ -70,6 +70,19 @@
       "shape": "structure",
       "title": "Kommo / amoCRM",
       "description": "Leads (deals), contacts and companies of a Kommo or amoCRM account through API v4 (filter[updated_at][from] + page), statuses / pipelines / users resolved to names, with a long-lived token of a private integration. config: { baseUrl, entities?, mapping? }.",
+      "defaults": {
+        "contentPolicy": "text",
+        "deletePolicy": "close",
+        "schedule": "1h"
+      }
+    },
+    {
+      "id": "salesforce",
+      "kind": "native",
+      "connector": "salesforce",
+      "shape": "structure",
+      "title": "Salesforce",
+      "description": "Opportunities, contacts, accounts (and leads, cases) of a Salesforce org through SOQL over REST (LastModifiedDate > since, nextRecordsUrl; the deleted-ids feed closes deletions), Bulk API 2.0 for a large org's first walk, as a connected account or as an integration user (JWT bearer). config: { entities?, mapping?, instanceUrl?, loginUrl?, apiVersion?, bulk? }.",
       "defaults": {
         "contentPolicy": "text",
         "deletePolicy": "close",

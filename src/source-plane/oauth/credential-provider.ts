@@ -26,4 +26,24 @@ export class CredentialProvider {
     if (grantId) return this.oauth.accessToken(companyId, grantId);
     return decryptSecret(credential);
   }
+
+  /**
+   * What a connected account says about itself beyond the token — its
+   * label and the API origin the provider named at the token endpoint
+   * (Salesforce `instance_url`, Pipedrive `api_domain`). Null for a
+   * secret credential; never throws (a hint, not a credential).
+   */
+  async hints(
+    companyId: string,
+    credential: string | null | undefined,
+  ): Promise<{ account: string | null; apiBase: string | null } | null> {
+    const grantId = grantIdOfCredential(credential);
+    if (!grantId) return null;
+    try {
+      const grant = await this.oauth.get(companyId, grantId);
+      return { account: grant.account, apiBase: grant.apiBase };
+    } catch {
+      return null;
+    }
+  }
 }

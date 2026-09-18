@@ -27,6 +27,7 @@ function e(over: Partial<SourceCatalogEntry>): SourceCatalogEntry {
     mcp: null,
     oauth: null,
     records: null,
+    webhook: null,
     ...over,
   }
 }

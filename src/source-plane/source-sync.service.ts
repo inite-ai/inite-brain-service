@@ -104,6 +104,7 @@ export class SourceSyncService {
       connection: this.connections.toConnectorView(row, {
         ...(await this.connections.sourceContext(companyId, row)),
         credential,
+        grant: await this.connections.grantHints(companyId, row),
       }),
       signal: opts.signal ?? new AbortController().signal,
       log: (line) => this.logger.log(`[${connectionId}] ${line}`),
