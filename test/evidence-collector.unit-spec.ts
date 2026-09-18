@@ -141,6 +141,55 @@ describe('EvidenceCollectorService branches', () => {
     expect(out.transcriptLines).toEqual([]);
   });
 
+  it('a probe launched beside the main search is awaited here, not re-run', async () => {
+    // The orchestrator starts the probe before its own search (the probe
+    // depends on nothing the search produces); collect() takes the
+    // in-flight promise and never issues a second probe search.
+    const calls: string[] = [];
+    const hit = (object: string): SearchHit =>
+      ({
+        entityId: 'e',
+        canonicalName: 'user',
+        facts: [{ predicate: 'preferences', object }],
+      }) as unknown as SearchHit;
+    const search = {
+      search: async (_c: string, dto: { query: string }) => {
+        calls.push(dto.query);
+        return { results: [hit('always answer in Portuguese when I ask about Lisbon')] };
+      },
+    } as unknown as SearchService;
+    const svc = new EvidenceCollectorService(search);
+    const profile = profileWith({});
+    (profile as { lanes: ReadonlySet<string> }).lanes = new Set(['instruction']);
+    const instructionProbe = svc.startInstructionProbe({
+      profile,
+      companyId: 'c1',
+      callerScopes: [],
+    });
+    expect(calls).toHaveLength(1);
+    const out = await svc.collect({ ...collectorArgs(profile), instructionProbe });
+    expect(calls).toHaveLength(1);
+    expect(out.instructions).toEqual(['always answer in Portuguese when I ask about Lisbon']);
+  });
+
+  it('startInstructionProbe resolves [] when the lane is off, and never rejects', async () => {
+    const svc = new EvidenceCollectorService({
+      search: async () => {
+        throw new Error('probe down');
+      },
+    } as unknown as SearchService);
+    const off = profileWith({});
+    (off as { lanes: ReadonlySet<string> }).lanes = new Set();
+    await expect(
+      svc.startInstructionProbe({ profile: off, companyId: 'c1', callerScopes: [] }),
+    ).resolves.toEqual([]);
+    const on = profileWith({});
+    (on as { lanes: ReadonlySet<string> }).lanes = new Set(['instruction']);
+    await expect(
+      svc.startInstructionProbe({ profile: on, companyId: 'c1', callerScopes: [] }),
+    ).resolves.toEqual([]);
+  });
+
   it('assistant lane gates on its own flag and joins the transcript set', async () => {
     const calls: Array<{ limit: number; match: string }> = [];
     const episodeLane = {

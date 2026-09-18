@@ -224,10 +224,13 @@ export class CrossEncoderService implements OnApplicationBootstrap, OnApplicatio
     identity: number[],
   ): Promise<number[]> {
     const documents = candidates.map((c) => (c.body ? `${c.label}\n${c.body}` : c.label));
+    // The deadline is absolute and taken BEFORE the limiter: time spent
+    // waiting for a slot is time the caller's stage budget is already
+    // spending, and the provider's loop must stop inside that budget,
+    // not inside a fresh one that starts when the slot frees.
+    const deadlineAt = Date.now() + this.localDeadlineMs;
     try {
-      const scores = await this.limiter.run(() =>
-        this.local!.score(query, documents, this.localDeadlineMs),
-      );
+      const scores = await this.limiter.run(() => this.local!.score(query, documents, deadlineAt));
       if (scores.length !== candidates.length) return identity;
       // `|| 0` keeps the sort stable when two scores tie or are both
       // -Infinity (docs the deadline left unscored) — their difference is

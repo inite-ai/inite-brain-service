@@ -53,8 +53,19 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
           errors.push(`BRAIN_API_KEYS[${i}].scopes must be a non-empty array`);
         }
       }
-      if (parsed.length === 0 && env.NODE_ENV === 'production') {
-        warnings.push('BRAIN_API_KEYS is empty in production — no caller can authenticate');
+      // Static keys are one of three ways in: JWKS-verified tokens
+      // (AUTH_SERVICE_JWKS_URL — production's actual path, where static
+      // keys are refused) and self-issued keys from the keys table are the
+      // others. The warning is about NO way in, not about this one.
+      if (
+        parsed.length === 0 &&
+        env.NODE_ENV === 'production' &&
+        !env.AUTH_SERVICE_JWKS_URL &&
+        !env.AUTH_SERVICE_URL
+      ) {
+        warnings.push(
+          'BRAIN_API_KEYS is empty and no AUTH_SERVICE_JWKS_URL is set in production — only keys issued through /v1/keys can authenticate',
+        );
       }
     }
   } catch (e) {

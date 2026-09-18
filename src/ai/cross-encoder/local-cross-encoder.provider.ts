@@ -3,6 +3,7 @@ import { Worker } from 'node:worker_threads';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { applyTransformersCacheDir } from '../transformers-cache';
+import { scorePairs, type PairScorer } from './score-pairs';
 
 /**
  * Local cross-encoder reranker via `@xenova/transformers`
@@ -24,18 +25,14 @@ import { applyTransformersCacheDir } from '../transformers-cache';
  * order. A failed warmup latches for `FAIL_RETRY_MS` (so we don't re-download
  * on every request) but is retried afterwards — a transient network blip at
  * first use no longer disables the fallback until the next process restart.
+ *
+ * Deadline contract: `score()` takes the ABSOLUTE time by which the caller
+ * wants its answer and stops the scoring loop `SCORE_MARGIN_MS` before it,
+ * so the partial result (score-pairs.ts) is back in the caller's hands
+ * before the caller's own stage timer fires — the opposite of the previous
+ * relative deadline, which equalled the stage budget and lost the race to
+ * it on every call from a slow host.
  */
-
-/** Minimal shape of the transformers.js pieces we use (in-thread path). */
-interface Tokenizer {
-  (
-    query: string,
-    opts: { text_pair: string; padding: boolean; truncation: boolean },
-  ): Promise<unknown>;
-}
-interface SeqClassModel {
-  (inputs: unknown): Promise<{ logits: { data: Float32Array | number[] } }>;
-}
 
 export interface LocalCrossEncoderConfig {
   modelId: string;
@@ -48,6 +45,13 @@ export interface LocalCrossEncoderConfig {
 const WORKER_WARMUP_TIMEOUT_MS = 120_000;
 const DEFAULT_SCORE_TIMEOUT_MS = 8_000;
 const FAIL_RETRY_MS = 5 * 60_000;
+/**
+ * How far inside the caller's deadline the scoring loop stops: the worker
+ * round-trip plus the last chunk's overshoot risk (the loop estimates a
+ * chunk from the worst pair seen so far, so the overshoot is bounded by
+ * one padded chunk on a host slower than its own history).
+ */
+export const SCORE_MARGIN_MS = 250;
 
 export class LocalCrossEncoderProvider {
   readonly modelId: string;
@@ -56,8 +60,7 @@ export class LocalCrossEncoderProvider {
   private readonly scoreTimeoutMs: number;
 
   // In-thread fallback
-  private tokenizer: Tokenizer | null = null;
-  private model: SeqClassModel | null = null;
+  private scorer: PairScorer | null = null;
 
   // Worker runtime
   private worker: Worker | null = null;
@@ -78,7 +81,7 @@ export class LocalCrossEncoderProvider {
   }
 
   isReady(): boolean {
-    return this.useWorker ? this.workerReady : this.tokenizer !== null && this.model !== null;
+    return this.useWorker ? this.workerReady : this.scorer !== null;
   }
 
   /** Load (or await the in-flight load of) the model. Idempotent; a failed
@@ -87,7 +90,13 @@ export class LocalCrossEncoderProvider {
     if (this.isReady()) return;
     if (this.warmupPromise) return this.warmupPromise;
     if (Date.now() < this.failedUntil) return;
+    const start = Date.now();
     this.warmupPromise = (this.useWorker ? this.warmupWorker() : this.warmupInThread())
+      .then(() => {
+        this.logger.log(
+          `local cross-encoder ready (${this.modelId}, ${this.useWorker ? 'worker' : 'in-thread'}) — warmup ${Date.now() - start}ms`,
+        );
+      })
       .catch((e) => {
         this.failedUntil = Date.now() + FAIL_RETRY_MS;
         this.logger.warn(
@@ -103,21 +112,21 @@ export class LocalCrossEncoderProvider {
   /**
    * Relevance score per document (higher = more relevant). Returns an empty
    * array on any failure so the caller falls back to the identity permutation.
-   * `deadlineMs` bounds the worker's scoring loop (unscored docs sink).
+   * `deadlineAt` (epoch ms) is when the caller wants the answer: the loop
+   * stops SCORE_MARGIN_MS before it and the unscored tail sinks (-Infinity).
+   * Without a deadline the per-score RPC timeout is the only bound.
    */
-  async score(query: string, documents: string[], deadlineMs?: number): Promise<number[]> {
+  async score(query: string, documents: string[], deadlineAt?: number): Promise<number[]> {
     if (Date.now() < this.failedUntil) return [];
     if (!this.isReady()) await this.warmup();
     if (!this.isReady()) return [];
+    const stopAt =
+      deadlineAt === undefined ? Date.now() + this.scoreTimeoutMs : deadlineAt - SCORE_MARGIN_MS;
     try {
       if (this.useWorker) {
-        return await this.rpc<number[]>('score', {
-          query,
-          documents,
-          deadlineMs: deadlineMs ?? this.scoreTimeoutMs,
-        });
+        return await this.rpc<number[]>('score', { query, documents, deadlineAt: stopAt });
       }
-      return await this.scoreInThread(query, documents, deadlineMs);
+      return await scorePairs(this.scorer as PairScorer, { query, documents, deadlineAt: stopAt });
     } catch (e) {
       this.logger.warn(`local cross-encoder score failed: ${(e as Error).message}`);
       return [];
@@ -142,16 +151,22 @@ export class LocalCrossEncoderProvider {
   private async warmupInThread(): Promise<void> {
     const t = (await import('@xenova/transformers')) as unknown as {
       env: { cacheDir?: string };
-      AutoTokenizer: { from_pretrained: (id: string) => Promise<Tokenizer> };
+      AutoTokenizer: { from_pretrained: (id: string) => Promise<PairScorer['tokenizer']> };
       AutoModelForSequenceClassification: {
-        from_pretrained: (id: string, opts?: { quantized?: boolean }) => Promise<SeqClassModel>;
+        from_pretrained: (
+          id: string,
+          opts?: { quantized?: boolean },
+        ) => Promise<PairScorer['model']>;
       };
     };
     applyTransformersCacheDir(t);
-    this.tokenizer = await t.AutoTokenizer.from_pretrained(this.modelId);
-    this.model = await t.AutoModelForSequenceClassification.from_pretrained(this.modelId, {
+    const tokenizer = await t.AutoTokenizer.from_pretrained(this.modelId);
+    const model = await t.AutoModelForSequenceClassification.from_pretrained(this.modelId, {
       quantized: true,
     });
+    const loaded: PairScorer = { tokenizer, model };
+    await scorePairs(loaded, { query: 'warmup', documents: ['warmup'] });
+    this.scorer = loaded;
   }
 
   private async warmupWorker(): Promise<void> {
@@ -167,14 +182,24 @@ export class LocalCrossEncoderProvider {
       await stale.terminate().catch(() => undefined);
     }
     const workerPath = this.resolveWorkerPath();
-    this.worker = new Worker(workerPath);
-    this.worker.on('message', (m: unknown) => this.handleReply(m));
-    this.worker.on('error', (err) => {
+    const w = new Worker(workerPath);
+    this.worker = w;
+    // Every listener checks it still speaks for the CURRENT worker:
+    // terminate() and a re-warmup both null/replace `this.worker` before
+    // the old thread exits, and a thread we no longer own must neither
+    // log its exit as a failure nor mark the provider not-ready.
+    w.on('message', (m: unknown) => {
+      if (this.worker !== w) return;
+      this.handleReply(m);
+    });
+    w.on('error', (err) => {
+      if (this.worker !== w) return;
       this.logger.warn(`cross-encoder worker error: ${err.message}`);
       this.failAllPending(err);
       this.workerReady = false;
     });
-    this.worker.on('exit', (code) => {
+    w.on('exit', (code) => {
+      if (this.worker !== w) return;
       if (code !== 0) this.logger.warn(`cross-encoder worker exited (${code})`);
       this.failAllPending(new Error('worker exited'));
       this.workerReady = false;
@@ -240,27 +265,5 @@ export class LocalCrossEncoderProvider {
       });
       this.worker!.postMessage({ id, kind, payload });
     });
-  }
-
-  private async scoreInThread(
-    query: string,
-    documents: string[],
-    deadlineMs?: number,
-  ): Promise<number[]> {
-    const model = this.model as SeqClassModel;
-    const tokenizer = this.tokenizer as Tokenizer;
-    const deadline = deadlineMs && deadlineMs > 0 ? Date.now() + deadlineMs : undefined;
-    const scores: number[] = new Array(documents.length).fill(Number.NEGATIVE_INFINITY);
-    for (const [i, doc] of documents.entries()) {
-      if (deadline !== undefined && Date.now() > deadline) break;
-      const inputs = await tokenizer(query, {
-        text_pair: doc,
-        padding: true,
-        truncation: true,
-      });
-      const out = await model(inputs);
-      scores[i] = Number(out.logits.data[0]);
-    }
-    return scores;
   }
 }

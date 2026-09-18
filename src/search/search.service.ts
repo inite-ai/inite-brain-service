@@ -738,17 +738,15 @@ export class SearchService {
     ctx: PipelineContext,
   ): Promise<{ results: SearchHit[]; degraded?: SearchDegradation[] }> {
     const { byEntity, rowPolicy, neighboursByEntity } = staged;
-    // 7. Cross-encoder + LLM rerank.
+    // 7. Cross-encoder + LLM rerank, with the fact-level cross-encoder
+    // rescoring (July A3, profile-gated) riding beside the LLM call: the
+    // stage remaps the top of the flat fact pool IN PLACE before it
+    // returns, so step 8's global cut selects by joint-encoder relevance.
     let topEntities = await this.rerank.runRerankStage({
       byEntity,
       ctx,
       neighboursByEntity,
     });
-    // 7b. Fact-level cross-encoder rescoring (July A3, profile-gated):
-    // reorders the top of the flat fact pool IN PLACE so step 8's
-    // global cut selects by joint-encoder relevance. No-op unless
-    // profile.factRerank.
-    await this.rerank.rerankFactsGlobal({ byEntity, ctx });
     // The rerank stage only ranks a bounded window (≤20 buckets). When the
     // caller asked for more (limit up to the DTO's @Max(100)), the reranked
     // head is correct but the tail beyond the window was dropped — a silent

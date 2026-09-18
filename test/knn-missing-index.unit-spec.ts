@@ -1,6 +1,14 @@
 import { runVectorLeg } from '../src/search/internals/legs';
 import { runDenseScanLeg } from '../src/search/internals/scan-leg';
-import { hnswIndexState, knnDroppedMessage, knnOperatorDropped } from '../src/db/knn-index';
+import {
+  hnswIndexState,
+  knnDroppedMessage,
+  knnIndexKnownUnusable,
+  knnOperatorDropped,
+  noteKnnOperatorDropped,
+  probeHnswIndex,
+  resetKnnIndexMemo,
+} from '../src/db/knn-index';
 
 /**
  * The missing-HNSW-index defect (roadmap embedding-spaces-2026-09 §6 E1).
@@ -118,6 +126,34 @@ describe('hnswIndexState — why the operator was dropped', () => {
     expect(await hnswIndexState(db as never, SPEC)).toBe('ready');
   });
 
+  it('reports FAILED, with the cause, for a build that ended in an error — not building', async () => {
+    // Verbatim from production (3.1.5): one row of a foreign width broke
+    // the build; the definition stays, status says 'error'. Folded into
+    // 'building' this sat unrepaired for a week — every reconcile waits on
+    // 'building' and the roster reported it as in progress.
+    const error = 'Incorrect vector dimension (1536). Expected a vector of 1024 dimension.';
+    const db = fakeDb([
+      INFO_TABLE_WITH_INDEX,
+      [{ building: { error, initial: 0, pending: 0, status: 'error' } }],
+    ]);
+    expect(await probeHnswIndex(db as never, SPEC)).toMatchObject({ state: 'failed', error });
+    // The legs remember it like an absent index: no KNN attempt for the
+    // memo TTL, straight to the exact scan.
+    const scoped = Object.assign(
+      fakeDb([INFO_TABLE_WITH_INDEX, [{ building: { error, status: 'error' } }]]),
+      {
+        namespace: 'brain',
+        database: 'co_failed_probe',
+      },
+    );
+    resetKnnIndexMemo();
+    expect(
+      await noteKnnOperatorDropped(scoped as never, SPEC, { logger: { warn: () => {} } }),
+    ).toBe('failed');
+    expect(knnIndexKnownUnusable(scoped as never, SPEC)).toBe(true);
+    resetKnnIndexMemo();
+  });
+
   it('never escalates a diagnostic failure into a query failure', async () => {
     const db = {
       query: jest.fn(async () => {
@@ -131,6 +167,7 @@ describe('hnswIndexState — why the operator was dropped', () => {
     const spec = { table: 'knowledge_fact', index: 'fact_embedding_hnsw' };
     expect(knnDroppedMessage(spec, 'absent')).toContain('/v1/admin/maintenance/hnsw');
     expect(knnDroppedMessage(spec, 'building')).toContain('still building');
+    expect(knnDroppedMessage(spec, 'failed')).toContain('FAILED');
     expect(knnDroppedMessage(spec, 'unknown')).toContain('could not be determined');
   });
 });

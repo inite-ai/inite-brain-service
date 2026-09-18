@@ -346,17 +346,26 @@ export class IntentClassifierService implements OnModuleInit, OnApplicationShutd
       await stale.terminate().catch(() => undefined);
     }
     const workerPath = this.resolveWorkerPath();
-    this.worker = new Worker(workerPath);
-    this.worker.on('message', (m: unknown) => this.handleReply(m));
-    this.worker.on('error', (err) => {
+    const w = new Worker(workerPath);
+    this.worker = w;
+    // Every listener checks it still speaks for the CURRENT worker:
+    // terminate() and a re-warmup both null/replace `this.worker` before
+    // the old thread exits (a terminated worker exits with code 1), and a
+    // thread we no longer own must neither log its exit as a failure nor
+    // mark the service not-ready.
+    w.on('message', (m: unknown) => {
+      if (this.worker !== w) return;
+      this.handleReply(m);
+    });
+    w.on('error', (err) => {
+      if (this.worker !== w) return;
       this.logger.warn(`intent-classifier worker error: ${err.message}`);
       this.failAllPending(err);
       this.workerReady = false;
     });
-    this.worker.on('exit', (code) => {
-      if (code !== 0) {
-        this.logger.warn(`intent-classifier worker exited (${code})`);
-      }
+    w.on('exit', (code) => {
+      if (this.worker !== w) return;
+      if (code !== 0) this.logger.warn(`intent-classifier worker exited (${code})`);
       this.failAllPending(new Error('worker exited'));
       this.workerReady = false;
     });

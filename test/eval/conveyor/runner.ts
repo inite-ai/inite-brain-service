@@ -124,8 +124,7 @@ const FOOTPRINT: Record<string, string[]> = {
   'retrieval.5': ['search.edge_expansion'],
   'retrieval.6': ['search.ppr'],
   'retrieval.6b': ['search.segment_leg'],
-  'retrieval.7': ['search.rerank', 'search.cross_encoder'],
-  'retrieval.7b': ['search.fact_rerank'],
+  'retrieval.7': ['search.rerank', 'search.cross_encoder', 'search.fact_rerank'],
   'retrieval.8': ['search.fact_centric'],
   // synthesize
   'synthesize.cache': ['synthesize.answer_cache'],

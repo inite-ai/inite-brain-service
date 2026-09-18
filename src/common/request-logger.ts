@@ -23,14 +23,15 @@ const log = new Logger('Request');
  */
 const SKIP_PATHS = new Set(['/health', '/ready', '/metrics']);
 
-function useJson(): boolean {
-  if (process.env.LOG_FORMAT === 'json') return true;
-  if (process.env.LOG_FORMAT === 'text') return false;
-  return process.env.NODE_ENV === 'production';
+/** The one format rule, shared with the process logger (app-logger.ts). */
+export function useJsonLogs(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.LOG_FORMAT === 'json') return true;
+  if (env.LOG_FORMAT === 'text') return false;
+  return env.NODE_ENV === 'production';
 }
 
 export function requestLogger() {
-  const json = useJson();
+  const json = useJsonLogs();
   return function (req: Request, res: Response, next: NextFunction) {
     if (SKIP_PATHS.has(req.path)) return next();
 

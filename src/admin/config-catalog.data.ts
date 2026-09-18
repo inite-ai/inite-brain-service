@@ -110,6 +110,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: false,
     isBooleanFlag: false,
   },
+  {
+    key: 'BGE_M3_WORKER',
+    category: 'embedder',
+    defaultValue: '1',
+    runtimeMutable: false,
+    isBooleanFlag: true,
+    description:
+      'With EMBEDDER_PROVIDER=bge-m3: ONNX inference runs in a dedicated worker_thread so the main event loop keeps serving HTTP while embeds compute. 0 = in-thread inference — the event loop stops for every embed (hundreds of ms per call on a small host; an ingest embeds a batch), which is what production ran until 2026-09.',
+  },
   // ── Dreams ────────────────────────────────────────────
   {
     key: 'DREAMS_ENABLED',
@@ -1750,6 +1759,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
     description:
       "How much of X-Forwarded-For to believe, in Express's `trust proxy` form. Unset/0 = off (the default): every request is attributed to the socket address, so behind a reverse proxy EVERY anonymous caller shares one rate-limit bucket — the mechanism behind the 2026-09-10 outage. `1` = trust one hop (one Traefik/nginx in front of the app), `2` = two, `loopback` or a CIDR list = trust those addresses, `true` = trust the whole chain (only on a closed network; the leftmost entry is client-controlled). Read once at boot: it configures the Express app.",
+  },
+  {
+    key: 'LOG_FORMAT',
+    category: 'misc',
+    defaultValue: null,
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      '`json` = one JSON object per line for every log line the process writes — the request log AND the Nest logger (level, context, message) — the shape a log shipper files by level; `text` = human-readable lines for `tail -f`. Unset: json in production, text elsewhere. Production also drops debug/verbose lines regardless of format (a 60-second capability probe and the throttle sweep each wrote one per tick).',
   },
   // ── MCP tool profiles ─────────────────────────────────────
   {

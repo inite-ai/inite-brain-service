@@ -1,5 +1,8 @@
 import { ExtractorRefineService } from '../src/ai/extractor-refine.service';
-import { applyAliasPass } from '../src/ai/extractor-internals/predicate-canonicalize';
+import {
+  applyAliasPass,
+  applyCanonicalizePass,
+} from '../src/ai/extractor-internals/predicate-canonicalize';
 import type { ExtractedFact } from '../src/ai/extractor-internals/types';
 import { DEFAULT_FALLBACK } from '../src/ai/predicate-registry-internals/types';
 import { DEFAULT_POLICY } from '../src/ingest/conflict-resolver';
@@ -239,5 +242,65 @@ describe('canonicalize repeat-coinage short-circuit (registry storm fix)', () =>
       (q) => q.includes('FROM knowledge_predicate') && q.includes("WHERE status = 'active'"),
     ).length;
     expect(fullLoads).toBe(1);
+  });
+});
+
+describe('canonicalization passes — one registry question per distinct predicate, concurrently', () => {
+  const fact = (predicate: string, object: string): ExtractedFact =>
+    ({ entityIndex: 0, predicate, object, confidence: 0.9 }) as ExtractedFact;
+  const logger = { warn: jest.fn() } as never;
+
+  it('two facts with one predicate ask once; every fact carrying it is rewritten', async () => {
+    const facts = [fact('signed_on', '18 сентября'), fact('signed_on', '3 марта')];
+    const registry = {
+      canonicalize: jest.fn(async () => ({
+        kind: 'aliased' as const,
+        canonicalId: 'occurred_on',
+        similarity: 0.7,
+      })),
+    };
+    const decisions = await applyCanonicalizePass({
+      facts,
+      registry: registry as never,
+      companyId: 'co',
+      logger,
+    });
+    expect(registry.canonicalize).toHaveBeenCalledTimes(1);
+    // The first fact's context carries the predicate, as it always did.
+    expect((registry.canonicalize.mock.calls[0] as unknown[])[2]).toBe('signed_on: 18 сентября');
+    expect(facts.map((f) => f.predicate)).toEqual(['occurred_on', 'occurred_on']);
+    expect(decisions).toEqual([
+      { original: 'signed_on', canonical: 'occurred_on', kind: 'aliased', similarity: 0.7 },
+    ]);
+  });
+
+  it('distinct predicates are asked concurrently — all calls are in flight before any resolves', async () => {
+    const facts = [fact('a_pred', 'x'), fact('b_pred', 'y'), fact('c_pred', 'z')];
+    const started: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const registry = {
+      canonicalize: jest.fn(async (_co: string, predicate: string) => {
+        started.push(predicate);
+        if (started.length === 3) release();
+        await gate;
+        return { kind: 'proposed' as const, canonicalId: predicate, novelPredicateId: predicate };
+      }),
+    };
+    await applyAliasPass({ facts, registry: registry as never, companyId: 'co', logger });
+    expect(started).toEqual(['a_pred', 'b_pred', 'c_pred']);
+    expect(facts.every((f) => f.predicateAlias === undefined)).toBe(true);
+  });
+
+  it('one predicate failing leaves its facts alone and the others resolved', async () => {
+    const facts = [fact('good', 'x'), fact('bad', 'y')];
+    const registry = {
+      canonicalize: jest.fn(async (_co: string, predicate: string) => {
+        if (predicate === 'bad') throw new Error('registry down');
+        return { kind: 'matched' as const, canonicalId: 'canon' };
+      }),
+    };
+    await applyCanonicalizePass({ facts, registry: registry as never, companyId: 'co', logger });
+    expect(facts.map((f) => f.predicate)).toEqual(['canon', 'bad']);
   });
 });

@@ -275,6 +275,10 @@ export class EvidenceCollectorService {
      *  beside beliefLane — shapes the lane's rendered date token and is
      *  echoed on CollectedEvidence for the generator header. */
     beliefDateDisambiguation?: boolean | undefined;
+    /** The instruction probe already in flight (startInstructionProbe),
+     *  when the caller launched it beside its main search; absent → the
+     *  probe runs here, after the main search, as it did before. */
+    instructionProbe?: Promise<SearchHit[]> | undefined;
   }): Promise<CollectedEvidence> {
     const { profile, query } = opts;
     const timelineEvidence = wantsTimelineEvidence(profile, query);
@@ -755,51 +759,70 @@ export class EvidenceCollectorService {
   }
 
   /**
-   * T7: standing user instructions for the prompt's dedicated section.
-   * UNCONDITIONAL (IF questions are deliberately neutral — no lexical
-   * route can fire): a fixed probe pulls instruction-shaped facts,
-   * merged with any already in the evidence. undefined when the lane is
-   * off or nothing qualifies; probe failures degrade to evidence-only.
+   * T7 instruction lane — the probe half. A fixed query pulls
+   * instruction-shaped facts through a FULL second search (its own
+   * rerank stages included), which is why the orchestrator launches it
+   * BESIDE the main search rather than after it: the probe depends on
+   * nothing the main search produces, and run in sequence it added a
+   * whole search's latency to every answer (2–4 s on the production
+   * host). Resolves [] when the lane is off, the request is already
+   * aborted, or the probe fails — never rejects.
    */
-  private async collectStandingInstructions({
+  startInstructionProbe({
     profile,
     companyId,
     callerScopes,
-    evidence,
     dto,
   }: {
     profile: RetrievalProfile;
     companyId: string;
     callerScopes: string[];
-    evidence: SearchHit[];
-    dto?: SearchDto;
-  }): Promise<string[] | undefined> {
-    if (!profile.lanes.has('instruction')) return undefined;
+    dto?: SearchDto | undefined;
+  }): Promise<SearchHit[]> {
+    if (!profile.lanes.has('instruction')) return Promise.resolve([]);
     // Structured cancellation: the probe is a full second search — if
     // the request already died, don't spend it. (Per-query aborts are
     // not supported by the DB SDK; stage-boundary checks are the
     // honest granularity.)
-    if (getAbortSignal()?.aborted) return undefined;
-    let probeHits: SearchHit[] = [];
-    try {
-      // Audit 2026-08-19 P1: the probe inherits the caller's filter
-      // contract (user scope included) — only its query/limit are fixed.
-      const probe = await withSpan('synthesize.instruction_probe', () =>
-        this.search.search(
-          companyId,
-          dto
-            ? buildSecondaryDto(dto, { query: INSTRUCTION_PROBE_QUERY, limit: 8 })
-            : ({ query: INSTRUCTION_PROBE_QUERY, limit: 8 } as SearchDto),
-          callerScopes,
-        ),
-      );
-      probeHits = probe.results;
-    } catch (e) {
-      this.logger.warn(
-        `instruction probe failed (companyId=${companyId}): ${(e as Error).message}`,
-      );
-    }
-    const list = extractStandingInstructions([...evidence, ...probeHits]);
+    if (getAbortSignal()?.aborted) return Promise.resolve([]);
+    // Audit 2026-08-19 P1: the probe inherits the caller's filter
+    // contract (user scope included) — only its query/limit are fixed.
+    return withSpan('synthesize.instruction_probe', () =>
+      this.search.search(
+        companyId,
+        dto
+          ? buildSecondaryDto(dto, { query: INSTRUCTION_PROBE_QUERY, limit: 8 })
+          : ({ query: INSTRUCTION_PROBE_QUERY, limit: 8 } as SearchDto),
+        callerScopes,
+      ),
+    )
+      .then((probe) => probe.results)
+      .catch((e: unknown) => {
+        this.logger.warn(
+          `instruction probe failed (companyId=${companyId}): ${(e as Error).message}`,
+        );
+        return [];
+      });
+  }
+
+  /**
+   * T7: standing user instructions for the prompt's dedicated section.
+   * UNCONDITIONAL (IF questions are deliberately neutral — no lexical
+   * route can fire): the probe's instruction-shaped facts merge with any
+   * already in the evidence. undefined when the lane is off or nothing
+   * qualifies; probe failures degrade to evidence-only.
+   */
+  private async collectStandingInstructions(opts: {
+    profile: RetrievalProfile;
+    companyId: string;
+    callerScopes: string[];
+    evidence: SearchHit[];
+    dto?: SearchDto;
+    instructionProbe?: Promise<SearchHit[]> | undefined;
+  }): Promise<string[] | undefined> {
+    if (!opts.profile.lanes.has('instruction')) return undefined;
+    const probeHits = await (opts.instructionProbe ?? this.startInstructionProbe(opts));
+    const list = extractStandingInstructions([...opts.evidence, ...probeHits]);
     return list.length > 0 ? list : undefined;
   }
 }

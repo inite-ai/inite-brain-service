@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
-import { probeHnswIndex, resetKnnIndexMemo } from '../db/knn-index';
+import { probeHnswIndex, resetKnnIndexMemo, type HnswIndexState } from '../db/knn-index';
 
 /**
  * HnswMaintenanceService — per-tenant HNSW index lifecycle.
@@ -116,7 +116,7 @@ import { probeHnswIndex, resetKnnIndexMemo } from '../db/knn-index';
  * ready. The declared DIMENSION is parsed out of the same `INFO FOR TABLE`
  * response the existence probe already fetched, so it costs nothing.
  */
-export type HnswIndexBuildState = 'ready' | 'building' | 'absent' | 'unknown';
+export type HnswIndexBuildState = HnswIndexState;
 
 /** Every action this service can be asked to perform. */
 export type HnswMaintenanceAction = 'create' | 'drop' | 'status' | 'ensure';
@@ -130,6 +130,8 @@ export interface HnswIndexBuild {
   initial?: number;
   /** Rows queued behind the build (live writes), when reported. */
   pending?: number;
+  /** The engine's own message when the build `failed`. */
+  error?: string;
   /**
    * DIMENSION declared in the index's own DDL, parsed from `INFO FOR
    * TABLE`. Absent when the index is absent or the probe failed. A value
@@ -336,14 +338,23 @@ export class HnswMaintenanceService {
   }
 
   /**
-   * Define the indexes that are ABSENT, and only those. Returns the names
-   * it defined, so an empty array means the call emitted no DDL.
+   * Define the indexes that are ABSENT or whose build FAILED, and only
+   * those. Returns the names it defined, so an empty array means the call
+   * emitted no DDL.
    *
    * `building` is deliberately left alone rather than restarted: #507
    * measured that a build in flight is indistinguishable from a missing
    * index to a KNN query, so a sweep that "fixed" it on every pass would
    * restart the same build forever and never reach ready. `unknown` is left
    * alone too — a failed probe is not evidence of absence.
+   *
+   * `failed` is the opposite of building: the engine has stopped, keeps
+   * the definition, and reports the cause (on production: one row of a
+   * foreign width left over from the OpenAI era broke the build, the row
+   * was later re-embedded, and the index sat in that state for a week
+   * while every reconcile read it as "still building" and waited). The
+   * definition is removed and issued again; if the cause is still there
+   * the build fails again and the roster says so, with the message.
    *
    * THE RACE IS EXPECTED AND BENIGN. `DEFINE INDEX` without IF NOT EXISTS
    * does not no-op on an existing index, it ERRORS: measured on
@@ -359,11 +370,19 @@ export class HnswMaintenanceService {
    */
   private async ensure(db: Surreal, dimension: number): Promise<string[]> {
     const builds = await this.probeBuilds(db);
-    const absent = INDEX_SPECS.filter(
-      (spec) => builds.find((b) => b.index === spec.index)?.state === 'absent',
-    );
+    const wanted = INDEX_SPECS.filter((spec) => {
+      const state = builds.find((b) => b.index === spec.index)?.state;
+      return state === 'absent' || state === 'failed';
+    });
     const created: string[] = [];
-    for (const spec of absent) {
+    for (const spec of wanted) {
+      const build = builds.find((b) => b.index === spec.index);
+      if (build?.state === 'failed') {
+        this.logger.warn(
+          `hnsw ensure: ${spec.index} build had failed (${build.error ?? 'no cause reported'}) — removing and defining it again`,
+        );
+        await db.query(`REMOVE INDEX IF EXISTS ${spec.index} ON ${spec.table};`);
+      }
       try {
         // DIMENSION cannot be parameterised in DDL — `dimension` comes from
         // the space declaration and is range-validated by the caller.
@@ -422,6 +441,9 @@ export class HnswMaintenanceService {
       await new Promise((r) => setTimeout(r, BUILD_POLL_MS));
       builds = await this.surreal.withCompany(companyId, (db) => this.probeBuilds(db));
       if (builds.every((b) => b.state === 'ready')) return builds;
+      // A failed build never becomes ready; waiting for it only burns the
+      // ceiling. The caller reports the state (and the cause) as observed.
+      if (builds.some((b) => b.state === 'failed')) return builds;
     }
     return builds;
   }

@@ -46,8 +46,13 @@ export function knnOperatorDropped(
   return rows.every((row) => typeof (row as Record<string, unknown>)?.[distanceField] !== 'number');
 }
 
-/** What an HNSW index is doing on a tenant. */
-export type HnswIndexState = 'ready' | 'building' | 'absent' | 'unknown';
+/**
+ * What an HNSW index is doing on a tenant. `failed` is a build that
+ * ended in an error (SurrealDB keeps the definition and reports
+ * `building.status = 'error'` with the cause) — it will never become
+ * ready on its own, so it is neither "building" (wait) nor "ready".
+ */
+export type HnswIndexState = 'ready' | 'building' | 'failed' | 'absent' | 'unknown';
 
 export interface HnswIndexSpec {
   table: string;
@@ -64,6 +69,8 @@ export interface HnswIndexProbe {
    *  DDL shape is not the one we expect, so a parse miss reads as "not
    *  checked", never as "matches". */
   dimension?: number;
+  /** The engine's own message for a `failed` build. */
+  error?: string;
 }
 
 type ProbeDb = Pick<Surreal, 'query'>;
@@ -95,17 +102,27 @@ export async function probeHnswIndex(db: ProbeDb, spec: HnswIndexSpec): Promise<
     if (typeof ddl !== 'string') return { state: 'absent' };
     const declared = /DIMENSION\s+(\d+)/i.exec(ddl);
     const dimension = declared ? { dimension: parseInt(declared[1]!, 10) } : {};
-    const [detail] = await db.query<
-      [{ building?: { status?: string; initial?: number; pending?: number } }]
-    >(`INFO FOR INDEX ${spec.index} ON ${spec.table};`);
-    const building = (
-      detail as { building?: { status?: string; initial?: number; pending?: number } } | undefined
-    )?.building;
+    type Building = { status?: string; initial?: number; pending?: number; error?: string };
+    const [detail] = await db.query<[{ building?: Building }]>(
+      `INFO FOR INDEX ${spec.index} ON ${spec.table};`,
+    );
+    const building = (detail as { building?: Building } | undefined)?.building;
     if (!building || building.status === undefined) return { state: 'ready', ...dimension };
+    // A build that hit an error stays in the catalog with status 'error'
+    // and the cause (measured on 3.1.5: a row of the wrong width — "Incorrect
+    // vector dimension (1536). Expected a vector of 1024 dimension."). It was
+    // folded into 'building' before, and 'building' is a state every
+    // reconcile deliberately waits on — so the tenant stayed un-indexed
+    // forever while reporting itself as in progress.
+    const state: HnswIndexState =
+      building.status === 'ready' ? 'ready' : building.status === 'error' ? 'failed' : 'building';
     return {
-      state: building.status === 'ready' ? 'ready' : 'building',
+      state,
       ...(typeof building.initial === 'number' ? { initial: building.initial } : {}),
       ...(typeof building.pending === 'number' ? { pending: building.pending } : {}),
+      ...(state === 'failed' && typeof building.error === 'string'
+        ? { error: building.error }
+        : {}),
       ...dimension,
     };
   } catch {
@@ -158,7 +175,7 @@ export function knnIndexKnownUnusable(
   if (!key) return false;
   const entry = memo.get(key);
   if (!entry || now - entry.at >= KNN_INDEX_MEMO_TTL_MS) return false;
-  return entry.state === 'absent' || entry.state === 'building';
+  return entry.state === 'absent' || entry.state === 'building' || entry.state === 'failed';
 }
 
 /**
@@ -207,7 +224,9 @@ export function knnDroppedMessage(spec: HnswIndexSpec, state: HnswIndexState): s
       ? `index '${spec.index}' does not exist on this tenant — build it with POST /v1/admin/maintenance/hnsw`
       : state === 'building'
         ? `index '${spec.index}' exists but is still building — it is not usable until it reports ready`
-        : `index '${spec.index}' state could not be determined`;
+        : state === 'failed'
+          ? `index '${spec.index}' exists but its build FAILED — it never becomes usable on its own; the next reconcile (or POST /v1/admin/maintenance/hnsw) rebuilds it`
+          : `index '${spec.index}' state could not be determined`;
   return (
     `hnsw KNN operator was DROPPED on ${spec.table} (every row came back with a null ` +
     `distance, i.e. unranked table-order rows): ${why}. Falling back to the exact scan` +

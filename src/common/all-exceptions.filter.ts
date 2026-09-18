@@ -63,8 +63,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
         typeof body === 'string'
           ? { statusCode: status, message: body }
           : { ...(body as Record<string, unknown>) };
-      // Log 5xx HttpExceptions (rare) at error; 4xx at debug.
-      if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+      // Log 5xx HttpExceptions (rare) at error; 4xx at debug. A 503 is
+      // the one 5xx a handler THROWS ON PURPOSE — readiness while a model
+      // warms, the embedder space guard, a fail-closed admin path — and
+      // the caller polls it. Its stack trace points at the `throw` and
+      // nothing else; logged at error it filled a third of the boot log
+      // (the edge probes /ready every 3 s through a 20 s warmup). Warn,
+      // message only.
+      if (status === HttpStatus.SERVICE_UNAVAILABLE) {
+        this.logger.warn(
+          `[${requestId}] ${req.method} ${req.url} → ${status}: ${exception.message}`,
+        );
+      } else if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
         this.logger.error(
           `[${requestId}] ${req.method} ${req.url} → ${status}: ${exception.message}`,
           exception.stack,

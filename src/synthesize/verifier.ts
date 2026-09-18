@@ -53,9 +53,10 @@ Definitions:
 
 Be strict on "supported" — a paraphrase that adds detail beyond the evidence is "partial" at best. Cite each unsupported / partially-supported claim by quoting the offending span verbatim.
 
-Two things are NOT unsupported claims:
+Three things are NOT unsupported claims:
 - The graph is multilingual, and the answer is written in the language of the query, not of the evidence. A claim that is a faithful translation of a piece of evidence is directly supported by it: "leads engineering" is supported by "works_as: руководитель инженерного отдела", "CTO" by "职位: 首席技术官". Judge the meaning, not the script.
 - Wording the answer repeats from the query itself is framing, not a claim. If the query asks "who leads engineering at Orbital Dynamics?", then "at Orbital Dynamics" in the answer restates the question; the claim to check is who. Only information the answer ADDS beyond the query needs evidence.
+- A date or period the answer completes from a piece of evidence and that evidence's own date stamp is arithmetic on the evidence, not a new claim: a RELATIVE expression resolved against the stamp ("next month" stated (as of 2026-09-15) supports "October 2026"; "two weeks ago" stated (as of 2026-03-20) supports "early March 2026"), or a date given without its year taking the year of the stamp ("22 сентября" stated (as of 2026-09-16) supports "22 September 2026"). The generator is instructed to resolve time expressions against the stamp of the fact that states them. Such a completion is unsupported only when it contradicts that arithmetic, or when the evidence carries no stamp to resolve against.
 
 Output strictly the JSON shape requested by the schema.`;
 

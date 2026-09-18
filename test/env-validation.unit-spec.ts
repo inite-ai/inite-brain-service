@@ -354,3 +354,32 @@ describe('validateEnv — evidence ingest pair (M3, warn never throw)', () => {
     ).toBe(false);
   });
 });
+
+describe('validateEnv — BRAIN_API_KEYS empty in production', () => {
+  const warnSpy = () => jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  const keysWarning = (warn: jest.SpyInstance) =>
+    warn.mock.calls.some(([m]) => String(m).includes('BRAIN_API_KEYS is empty'));
+
+  it('is silent when JWKS verification is configured — that IS the production way in', () => {
+    // The old line — "no caller can authenticate" — fired on every
+    // production boot of a deployment where static keys are refused by
+    // design and every caller carries a JWKS-verified token.
+    const warn = warnSpy();
+    const env = baseProdEnv();
+    env.BRAIN_API_KEYS = '[]';
+    env.AUTH_SERVICE_JWKS_URL = 'https://auth.example/.well-known/jwks.json';
+    env.AUTH_SERVICE_ISSUER = 'https://auth.example';
+    validateEnv(env);
+    expect(keysWarning(warn)).toBe(false);
+    warn.mockRestore();
+  });
+
+  it('warns when neither static keys nor JWKS are configured', () => {
+    const warn = warnSpy();
+    const env = baseProdEnv();
+    env.BRAIN_API_KEYS = '[]';
+    validateEnv(env);
+    expect(keysWarning(warn)).toBe(true);
+    warn.mockRestore();
+  });
+});

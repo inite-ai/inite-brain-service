@@ -3,7 +3,14 @@
  * + safe message and gain a requestId; unknown errors collapse to a
  * generic 500 that never leaks the underlying message/stack.
  */
-import { BadRequestException, ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  BadRequestException,
+  ArgumentsHost,
+  HttpException,
+  HttpStatus,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { AllExceptionsFilter } from '../src/common/all-exceptions.filter';
 
 function mockHost(): {
@@ -69,5 +76,28 @@ describe('AllExceptionsFilter', () => {
     filter.catch(new HttpException('upstream down', HttpStatus.BAD_GATEWAY), host);
     expect(sent.status).toBe(HttpStatus.BAD_GATEWAY);
     expect(sent.body.requestId).toBe('req-from-header');
+  });
+
+  it('a 503 is a state the caller polls, not a failure: warn without a stack, answer as usual', () => {
+    // Readiness during a model warmup, the embedder space guard, a
+    // fail-closed admin path — every 503 is a deliberate throw whose
+    // stack names the `throw` and nothing else. Logged at error it made
+    // up a third of the production boot log (the edge probes /ready
+    // every 3 s through a ~20 s warmup).
+    const { host, sent } = mockHost();
+    const error = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    filter.catch(new ServiceUnavailableException({ ready: false, detail: 'embedder' }), host);
+    expect(sent.status).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+    expect(sent.body).toMatchObject({
+      ready: false,
+      detail: 'embedder',
+      requestId: 'req-from-header',
+    });
+    expect(error).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]).toHaveLength(1);
+    error.mockRestore();
+    warn.mockRestore();
   });
 });

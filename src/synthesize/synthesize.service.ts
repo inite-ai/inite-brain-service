@@ -290,6 +290,10 @@ export class SynthesizeService {
     captureLaneRouteDecision(this.decisions, companyId, { profile, lane, query: dto.query });
 
     onProgress({ stage: 'search', message: 'hybrid retrieval' });
+    // The T7 instruction probe is a second full search that depends on
+    // nothing the main one produces — launched beside it, its latency
+    // hides under the main search; collectSections awaits it.
+    const instructionProbe = this.launchInstructionProbe({ profile, companyId, callerScopes, dto });
     const searchResult = await withSpan(
       'synthesize.search',
       () => this.search.search(companyId, dto, callerScopes),
@@ -353,6 +357,7 @@ export class SynthesizeService {
       callerScopes,
       factIds: [...factIndex.keys()],
       evidence,
+      instructionProbe,
     });
     // The other rendered sections stay on `collected` — the verify stage
     // (verifyAndZoom) and produceAnswer read them from there directly.
@@ -565,6 +570,12 @@ export class SynthesizeService {
     });
   }
 
+  private launchInstructionProbe(
+    opts: Parameters<EvidenceCollectorService['startInstructionProbe']>[0],
+  ): Promise<SearchHit[]> | undefined {
+    return this.evidenceCollector?.startInstructionProbe(opts);
+  }
+
   /**
    * Every non-fact prompt section behind one seam (extracted from
    * synthesize() for the function-size gate): the collector when wired,
@@ -584,18 +595,13 @@ export class SynthesizeService {
     callerScopes: string[];
     factIds: string[];
     evidence: SearchHit[];
+    instructionProbe?: Promise<SearchHit[]> | undefined;
   }): Promise<CollectedEvidence> {
     if (!this.evidenceCollector) return emptyCollectedEvidence(opts.profile, opts.dto.query);
     return this.evidenceCollector.collect({
-      profile: opts.profile,
-      lane: opts.lane,
-      companyId: opts.companyId,
+      ...opts,
       query: opts.dto.query,
-      callerScopes: opts.callerScopes,
       userId: opts.dto.userId,
-      dto: opts.dto,
-      factIds: opts.factIds,
-      evidence: opts.evidence,
       fragmentCitations: fragmentCitationsEnabled(),
       // BELIEFS_SERVING_LANE, resolved ONCE per request (the same
       // single-resolution idiom): the lane, the rendered headers, the

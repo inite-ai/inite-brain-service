@@ -116,7 +116,7 @@ export interface HnswProvisionRunResult {
 }
 
 export type HnswProvisionState =
-  'ready' | 'building' | 'partial' | 'absent' | 'mismatch' | 'unknown';
+  'ready' | 'building' | 'failed' | 'partial' | 'absent' | 'mismatch' | 'unknown';
 
 export interface HnswProvisionOptions {
   /** Probe and record, emit no DDL. The default for a first look. */
@@ -442,6 +442,7 @@ export class HnswProvisionService implements OnModuleInit {
     for (const state of [
       'ready',
       'building',
+      'failed',
       'partial',
       'absent',
       'mismatch',
@@ -466,6 +467,9 @@ export class HnswProvisionService implements OnModuleInit {
 function foldState(r: HnswMaintenanceResult): HnswProvisionState {
   if (r.mismatched.length > 0) return 'mismatch';
   if (r.builds.some((b) => b.state === 'unknown')) return 'unknown';
+  // A failed build outranks the rest below: it is the one state that
+  // never resolves by waiting, and the next reconcile acts on it.
+  if (r.builds.some((b) => b.state === 'failed')) return 'failed';
   if (r.builds.every((b) => b.state === 'ready')) return 'ready';
   if (r.builds.every((b) => b.state === 'absent')) return 'absent';
   if (r.builds.some((b) => b.state === 'building')) return 'building';
