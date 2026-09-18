@@ -14,11 +14,13 @@ import {
   type SourceSchedule,
 } from '../../../lib/contracts/admin-source-connections'
 import { PROXY, errorMessage, fill, type ConnectionsT } from './shared'
+import { AccountPicker } from './create/AccountPicker'
 import { ConnectorFields } from './create/ConnectorFields'
 import { FolderPicker } from './create/FolderPicker'
 import { entriesFor, shapeChoices, type ShapeChoice, type SourceCard } from './kinds'
 import {
   AGENT_ID,
+  EMPTY_SECRET,
   configFrom,
   credentialFrom,
   formFor,
@@ -28,6 +30,7 @@ import {
   type FieldError,
   type FormContext,
   type FormValues,
+  type SecretValues,
 } from './create/specs'
 
 type Step = 'where' | 'source' | 'sync'
@@ -68,7 +71,7 @@ export function ConnectionCreateModal({
   const [agentId, setAgentId] = useState('')
   const [label, setLabel] = useState('')
   const [values, setValues] = useState<FormValues>(() => (form ? initialValues(form, entry) : {}))
-  const [secret, setSecret] = useState({ single: '', keyId: '', keySecret: '' })
+  const [secret, setSecret] = useState<SecretValues>(EMPTY_SECRET)
   const [advanced, setAdvanced] = useState(false)
   const [json, setJson] = useState<string | null>(null)
   const [touched, setTouched] = useState(false)
@@ -541,13 +544,13 @@ function SourceStep({
   form: ReturnType<typeof formFor>
   values: FormValues
   errors: Record<string, FieldError>
-  secret: { single: string; keyId: string; keySecret: string }
+  secret: SecretValues
   advanced: boolean
   json: string | null
   t: ConnectionsT
   onValue: (key: string, value: string | boolean) => void
   onBrowse: () => void
-  onSecret: (s: { single: string; keyId: string; keySecret: string }) => void
+  onSecret: (s: SecretValues) => void
   onAdvanced: (v: boolean) => void
   onJson: (v: string | null) => void
   assembledConfig: () => Record<string, unknown>
@@ -599,7 +602,16 @@ function SourceStep({
       )}
       {entry.mcp?.auth === 'oauth' && <p className="text-[11px] text-[var(--warning)]">{f.oauth}</p>}
       <ConnectorFields fields={fields} values={values} errors={errors} ctx={ctx} t={t} onChange={onValue} onBrowse={onBrowse} />
-      {form.credential && form.credential.shown(values) && (
+      {form.credential?.kind === 'oauth' && entry.oauth && ctx.host === 'server' && (
+        <AccountPicker
+          entry={entry}
+          value={secret.grantId}
+          error={errors['credential'] ? f.errors.account : null}
+          t={t}
+          onChange={(grantId) => onSecret({ ...secret, grantId })}
+        />
+      )}
+      {form.credential && form.credential.kind !== 'oauth' && form.credential.shown(values) && (
         <CredentialFields
           kind={form.credential.kind}
           secret={secret}
@@ -638,10 +650,10 @@ function CredentialFields({
   onChange,
 }: {
   kind: 'single' | 'pair'
-  secret: { single: string; keyId: string; keySecret: string }
+  secret: SecretValues
   error: string | null
   t: ConnectionsT
-  onChange: (s: { single: string; keyId: string; keySecret: string }) => void
+  onChange: (s: SecretValues) => void
 }) {
   const c = t.form.credential
   if (kind === 'pair') {

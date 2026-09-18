@@ -1,5 +1,6 @@
 import type { EvidenceModality } from '../common/evidence-taxonomy';
 import type { PackSourceShape, PackSourceSpec } from '../ai/domain-packs/manifest';
+import type { OAuthProviderId } from './oauth/oauth-providers';
 
 /**
  * Connector — the source-plane seam (docs/roadmap/
@@ -160,6 +161,13 @@ export interface Connector {
   readonly configExample?: Record<string, unknown>;
   /** One line on what `credential` is when the connector takes one. */
   readonly credentialHint?: string;
+  /**
+   * The connector authenticates through a connected account (W4): the
+   * provider it speaks and the scopes a grant must carry. A connection
+   * of it names its grant as `credential: 'oauth:<grant id>'`; the
+   * engine hands the connector a fresh access token in `credential`.
+   */
+  readonly oauth?: { provider: OAuthProviderId; scopes: string[] };
   enumerate(ctx: ConnectorCtx, opts: EnumerateOptions): AsyncIterable<ItemDelta>;
   fetch(ctx: ConnectorCtx, item: ItemDescriptor): Promise<FetchedItem>;
   /** Called once a run is over (success or failure) — release a session

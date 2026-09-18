@@ -18,8 +18,10 @@ import { sourceEgressAllowPrivate } from '../../common/source-plane-flags';
  * and a LAN opt-in must never become an IAM-credential read.
  */
 export interface SafeFetchOptions {
-  method?: 'GET' | 'HEAD' | undefined;
+  method?: 'GET' | 'HEAD' | 'POST' | undefined;
   headers?: Record<string, string> | undefined;
+  /** POST only — sent as-is; the caller sets content-type. */
+  body?: string | undefined;
   allowPrivate?: boolean | undefined;
   maxBytes?: number | undefined;
   timeoutMs?: number | undefined;
@@ -57,6 +59,7 @@ export async function safeFetch(
       const res = await fetch(url, {
         method: opts.method ?? 'GET',
         headers: { 'user-agent': 'inite-brain-source/1.0', ...(opts.headers ?? {}) },
+        ...(opts.method === 'POST' && opts.body !== undefined ? { body: opts.body } : {}),
         redirect: 'manual',
         signal: controller.signal,
       });
@@ -64,6 +67,9 @@ export async function safeFetch(
         const location = res.headers.get('location');
         if (!location) throw new Error(`redirect without location from ${url}`);
         if (hop >= maxRedirects) throw new Error(`too many redirects from ${rawUrl}`);
+        // A POST is never replayed at another host: a token endpoint or
+        // an API that redirects is a misconfiguration, not a hop to follow.
+        if (opts.method === 'POST') throw new Error(`POST to ${url} redirected — refused`);
         url = new URL(location, url).toString();
         await res.body?.cancel().catch(() => undefined);
         continue;

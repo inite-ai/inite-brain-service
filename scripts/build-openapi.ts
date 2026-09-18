@@ -126,6 +126,10 @@ import {
   SourceItemInspectResponseSchema,
   SourceAgentsResponseSchema,
   BrowseResponseSchema,
+  SourceOAuthStartRequestSchema,
+  SourceOAuthStartResponseSchema,
+  SourceOAuthGrantsResponseSchema,
+  RevokeGrantResponseSchema,
   AgentInventorySchema,
   AgentConnectionsListResponseSchema,
   AgentDeltasRequestSchema,
@@ -373,6 +377,10 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   SourceItemInspectResponse: SourceItemInspectResponseSchema,
   SourceAgentsResponse: SourceAgentsResponseSchema,
   BrowseResponse: BrowseResponseSchema,
+  SourceOAuthStartRequest: SourceOAuthStartRequestSchema,
+  SourceOAuthStartResponse: SourceOAuthStartResponseSchema,
+  SourceOAuthGrantsResponse: SourceOAuthGrantsResponseSchema,
+  RevokeGrantResponse: RevokeGrantResponseSchema,
   AgentInventory: AgentInventorySchema,
   AgentConnectionsListResponse: AgentConnectionsListResponseSchema,
   AgentDeltasRequest: AgentDeltasRequestSchema,
@@ -1742,7 +1750,109 @@ function sourcePlanePaths(): Json {
       }),
     },
     ...inspectPaths(idParam),
+    ...oauthPaths(),
     ...agentProtocolPaths(idParam),
+  };
+}
+
+const OAUTH_NOTE =
+  'Connected accounts (docs/source-plane.md § Connected accounts): the brain as an ' +
+  'outbound OAuth 2.1 client for the cloud connectors (gdrive, onedrive, dropbox). ' +
+  'Answers a bare 404 until `SOURCE_PLANE_ENABLED=1` and `SOURCE_OAUTH_CLIENT=1`; ' +
+  'needs `SOURCE_CREDENTIAL_ENCRYPTION_KEY` — tokens are never stored in the clear.';
+
+/** Connected accounts — the admin half and the provider's public return leg. */
+function oauthPaths(): Json {
+  return {
+    '/v1/admin/source-connections/oauth/start': {
+      post: operation({
+        operationId: 'startSourceOAuth',
+        tag: 'Source Plane',
+        summary: 'Begin connecting an account',
+        description:
+          'For a connector that runs as a connected account: the provider’s consent URL ' +
+          '(authorization code + PKCE, the connector’s scopes, a signed `state`) to open ' +
+          'in a popup. The provider returns the browser to the public callback, which ' +
+          'keeps the grant and posts `{ type: "brain-source-oauth", grantId, account }` ' +
+          'to the `origin` named here. ' +
+          OAUTH_NOTE,
+        scope: 'brain:admin',
+        requestBody: jsonBody(ref('SourceOAuthStartRequest')),
+        responses: {
+          '200': jsonResponse('Where to send the browser.', ref('SourceOAuthStartResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/source-connections/oauth/grants': {
+      get: operation({
+        operationId: 'listSourceOAuthGrants',
+        tag: 'Source Plane',
+        summary: 'The accounts connected, and the providers this deployment can connect',
+        description:
+          'Every grant (provider, account label, scopes, status, whether it can refresh ' +
+          'itself, when its access token expires) — never a token — plus each provider’s ' +
+          'readiness (an app registered or not) and the redirect URI to register. ' +
+          OAUTH_NOTE,
+        scope: 'brain:admin',
+        responses: {
+          '200': jsonResponse('The grants.', ref('SourceOAuthGrantsResponse')),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/source-connections/oauth/grants/{id}': {
+      delete: operation({
+        operationId: 'revokeSourceOAuthGrant',
+        tag: 'Source Plane',
+        summary: 'Disconnect an account',
+        description:
+          'Revokes the token at the provider (best effort; `providerRevoked` says whether ' +
+          'it accepted) and marks the grant revoked. Connections that run as it fail their ' +
+          'next sync by name until reconnected. ' +
+          OAUTH_NOTE,
+        scope: 'brain:admin',
+        parameters: [pathParam('id', 'The grant id (`source_oauth_grant:<id>`, prefix optional).')],
+        responses: {
+          '200': jsonResponse('Disconnected.', ref('RevokeGrantResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/source-connections/oauth/callback': {
+      get: {
+        operationId: 'sourceOAuthCallback',
+        tags: ['Source Plane'],
+        // Unauthenticated: the signed state is the credential.
+        security: [],
+        summary: 'The provider’s return leg (public)',
+        description:
+          'Where a provider sends the browser after consent — the app’s registered redirect ' +
+          'URI. Public by construction: the HMAC-signed `state` authenticates the request. ' +
+          'Exchanges the code, keeps the grant, and answers a small HTML page that hands the ' +
+          'result to the admin window that opened it and closes. No token, code or state ' +
+          'appears in the page. ' +
+          OAUTH_NOTE,
+        parameters: [
+          queryParam('state', 'The signed state the start call issued.', { type: 'string' }),
+          queryParam('code', 'The authorization code.', { type: 'string' }),
+          queryParam('error', 'The provider’s error, when consent failed.', { type: 'string' }),
+          queryParam('error_description', 'The provider’s error text.', { type: 'string' }),
+        ],
+        responses: {
+          '200': {
+            description: 'The result page.',
+            content: { 'text/html': { schema: { type: 'string' } } },
+          },
+          '404': errorRef('NotFound'),
+        },
+      },
+    },
   };
 }
 

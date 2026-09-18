@@ -5,9 +5,12 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   Cloud,
+  CloudCog,
   Folder,
   GitBranch,
   Globe,
+  HardDrive,
+  Package,
   KeyRound,
   Laptop,
   Loader2,
@@ -31,6 +34,7 @@ import type {
   SourceConnectionsListResponse,
   SyncNowResponse,
 } from '../../lib/contracts/admin-source-connections'
+import { AccountsSection } from './connections/AccountsSection'
 import { AgentSetupModal } from './connections/AgentSetupModal'
 import { ConnectionCreateModal } from './connections/ConnectionCreateModal'
 import { ConnectionDetail } from './connections/ConnectionDetail'
@@ -404,6 +408,8 @@ export function ConnectionsPanel() {
 
       {!off && data && <AgentsSection connections={data.connections} agents={agents} t={t} />}
 
+      {!off && data && <AccountsSection connections={data.connections} refreshKey={data.connections.length} t={t} />}
+
       {catalog && (
         <div className="space-y-2">
           <div>
@@ -710,6 +716,9 @@ const KIND_ICONS: Record<SourceFamily, React.ComponentType<{ className?: string 
   bucket: Cloud,
   mcp: Plug,
   repo: GitBranch,
+  gdrive: HardDrive,
+  onedrive: CloudCog,
+  dropbox: Package,
   external: Upload,
   other: Plug,
 }
@@ -757,7 +766,14 @@ function SourceKindCard({
   const flag = `SOURCE_KIND_${card.connector.toUpperCase()}`
   const status = card.accepted ? card.availability : 'notAccepted'
   const connectable = card.accepted && card.availability !== 'missing'
-  const hint = fill(k.statusHint[status], { flag })
+  const oauth = card.entries[0]?.oauth ?? null
+  const hint =
+    status === 'ready' && oauth && !oauth.configured
+      ? fill(k.statusHint.oauthUnconfigured, {
+          provider: oauth.title,
+          flag: `SOURCE_OAUTH_${oauth.provider.toUpperCase()}_CLIENT_ID`,
+        })
+      : fill(k.statusHint[status], { flag })
   const shapes = [...new Set(card.entries.map((e) => e.shape))]
   return (
     <article

@@ -1594,6 +1594,152 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       "The `mcp` source connector (source plane, W2) — the harvester: an MCP server's resources read as a source over Streamable HTTP. `resources/list` is the catalogue (re-walked every run; a resource the listing no longer carries is gone), `resources/read` the fetch, `annotations.lastModified` the revision (else a refetchHours time bucket + content-hash dedup). A pack declares the entry, pinning the server's URL (publisher-operated, `auth: install_secret` = the pack's install secret as bearer) or leaving it to the operator (`config.url`, egress-guarded at create; web_memory: `mcp_resources` / `mcp_resources_media`). Every request leaves through the egress guard; redirects are never followed; private hosts need the double opt-in. The server supplies DATA only — never tools or prompts. Off (default) = 'not installed' — byte-identical.",
   },
   {
+    key: 'SOURCE_KIND_GDRIVE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `gdrive` source connector (source plane, W4): a Google Drive folder — My Drive, a folder, a shared drive, optionally what is shared with the account — read as documents (text-like files; Docs / Sheets / Slides exported as text) or handed to the evidence plane (PDFs, office documents, images; native documents exported as OOXML) per the pack's source entry (file_memory: `gdrive` / `gdrive_media`). A full run walks the folder breadth-first through the Drive v3 API; later runs read the changes feed from the checkpointed page token. Runs as a connected Google account (SOURCE_OAUTH_CLIENT, credential `oauth:<grant id>`). Off (default) = 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_KIND_ONEDRIVE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `onedrive` source connector (source plane, W4): a OneDrive folder or a SharePoint document library — the account's own drive, a drive by id, or a site's default library — read as documents or handed to the evidence plane (file_memory: `onedrive` / `onedrive_media`). Microsoft Graph's delta query is both the first walk and the change feed (the delta link is the checkpoint; an expired one restarts the walk). Bytes come from the item's pre-authenticated download URL, fetched without the bearer. Runs as a connected Microsoft account (SOURCE_OAUTH_CLIENT). Off (default) = 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_KIND_DROPBOX',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `dropbox` source connector (source plane, W4): a Dropbox folder read recursively as documents or handed to the evidence plane (file_memory: `dropbox` / `dropbox_media`). The folder cursor is the change feed (`list_folder/continue` from the checkpointed cursor returns only what changed; a cursor Dropbox reset restarts the walk); `rev` is the revision. Runs as a connected Dropbox account (SOURCE_OAUTH_CLIENT). Off (default) = 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_OAUTH_CLIENT',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The brain as an OUTBOUND OAuth 2.1 client (source plane, W4): the connected-accounts surface (`POST /v1/admin/source-connections/oauth/start`, `GET …/oauth/grants`, `DELETE …/oauth/grants/:id`), the public callback (`GET /v1/source-connections/oauth/callback`, authenticated by the HMAC-signed state), and the grants the cloud connectors (gdrive, onedrive, dropbox) run as — authorization code + PKCE against a platform provider (Google, Microsoft, Dropbox; the operator's app in SOURCE_OAUTH_<PROVIDER>_CLIENT_ID / _CLIENT_SECRET), the token set encrypted at rest under SOURCE_CREDENTIAL_ENCRYPTION_KEY (required — the client refuses to start without it), refreshed by the engine before a run when it is about to expire, a refusal marking the grant broken by name. Off (default) = the routes answer 404, no provider is ever contacted, no grant exists — byte-identical.",
+  },
+  {
+    key: 'SOURCE_CREDENTIAL_ENCRYPTION_KEY',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description:
+      "The key source credentials are encrypted with at rest (32 bytes, base64 or 64 hex chars): a connection's `credential` and every OAuth grant's token set are stored as AES-256-GCM ciphertext (`enc:v1:<kid>:…`) and decrypted only on the engine's read. Unset = operator secrets are stored as-is (the pre-W4 posture; a legacy clear value stays readable once the key is set and is re-encrypted on its next write) and no OAuth grant can be made. Rotate by moving the old key to SOURCE_CREDENTIAL_ENCRYPTION_KEY_PREVIOUS. Generate: `openssl rand -base64 32`.",
+  },
+  {
+    key: 'SOURCE_CREDENTIAL_ENCRYPTION_KEY_PREVIOUS',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description:
+      'The previous SOURCE_CREDENTIAL_ENCRYPTION_KEY during a rotation: values it encrypted still decrypt (each ciphertext names its key by id); every write uses the current key. Remove once every credential has been rewritten.',
+  },
+  {
+    key: 'SOURCE_OAUTH_REDIRECT_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The callback URL registered at the OAuth providers, when it is not `<public base>/v1/source-connections/oauth/callback` as the admin's request reached the brain (BRAIN_PUBLIC_URL or the forwarded host) — a path prefix at the edge, a canonical host. Unset = derived per request; `GET …/oauth/grants` shows the value in force.",
+  },
+  {
+    key: 'SOURCE_OAUTH_GOOGLE_CLIENT_ID',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The OAuth client id of the Google Cloud app the brain connects Google accounts through (Drive API enabled; the brain's callback URL as an authorized redirect URI). Unset = Google is 'not configured' in the catalogue and no Google account can be connected.",
+  },
+  {
+    key: 'SOURCE_OAUTH_GOOGLE_CLIENT_SECRET',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description: 'The client secret of the Google app named by SOURCE_OAUTH_GOOGLE_CLIENT_ID.',
+  },
+  {
+    key: 'SOURCE_OAUTH_MICROSOFT_CLIENT_ID',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The application (client) id of the Entra ID app registration the brain connects Microsoft accounts through (multi-tenant + personal accounts; delegated Files.Read.All / Sites.Read.All / User.Read / offline_access; the brain's callback URL as a Web redirect URI). Unset = Microsoft is 'not configured'.",
+  },
+  {
+    key: 'SOURCE_OAUTH_MICROSOFT_CLIENT_SECRET',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description: 'The client secret of the Entra app named by SOURCE_OAUTH_MICROSOFT_CLIENT_ID.',
+  },
+  {
+    key: 'SOURCE_OAUTH_DROPBOX_CLIENT_ID',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The app key of the Dropbox app the brain connects Dropbox accounts through (scoped access; files.metadata.read + files.content.read + account_info.read; the brain's callback URL as a redirect URI). Unset = Dropbox is 'not configured'.",
+  },
+  {
+    key: 'SOURCE_OAUTH_DROPBOX_CLIENT_SECRET',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description: 'The app secret of the Dropbox app named by SOURCE_OAUTH_DROPBOX_CLIENT_ID.',
+  },
+  {
+    key: 'SOURCE_OAUTH_GOOGLE_BASE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Dev/test only: one origin that replaces EVERY Google URL the brain uses (authorize, token, userinfo, the Drive API — paths kept), so a fake provider on loopback can play Google. Honoured only with SOURCE_EGRESS_ALLOW_PRIVATE (the override is a private target). Unset in production — the public hosts are the only ones ever contacted. SOURCE_OAUTH_MICROSOFT_BASE_URL and SOURCE_OAUTH_DROPBOX_BASE_URL do the same for their providers.',
+  },
+  {
+    key: 'SOURCE_OAUTH_MICROSOFT_BASE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the Microsoft (login + Graph) counterpart.',
+  },
+  {
+    key: 'SOURCE_OAUTH_DROPBOX_BASE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the Dropbox (api + content) counterpart.',
+  },
+  {
     key: 'SOURCE_EGRESS_ALLOW_PRIVATE',
     category: 'pipeline',
     defaultValue: '0',

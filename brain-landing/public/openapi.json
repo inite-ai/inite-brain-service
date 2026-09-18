@@ -5483,6 +5483,22 @@
         ],
         "type": "object"
       },
+      "RevokeGrantResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "providerRevoked": {
+            "type": "boolean"
+          },
+          "revoked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "revoked",
+          "providerRevoked"
+        ],
+        "type": "object"
+      },
       "RevokeKeyResponse": {
         "additionalProperties": false,
         "properties": {
@@ -6038,6 +6054,40 @@
                     }
                   ]
                 },
+                "oauth": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "configured": {
+                          "type": "boolean"
+                        },
+                        "provider": {
+                          "type": "string"
+                        },
+                        "scopes": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "provider",
+                        "title",
+                        "scopes",
+                        "configured"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "packId": {
                   "type": "string"
                 },
@@ -6079,7 +6129,8 @@
                 "configExample",
                 "credentialHint",
                 "hosts",
-                "mcp"
+                "mcp",
+                "oauth"
               ],
               "type": "object"
             },
@@ -6151,6 +6202,12 @@
               {
                 "type": "null"
               }
+            ]
+          },
+          "grantId": {
+            "type": [
+              "string",
+              "null"
             ]
           },
           "hasCredential": {
@@ -6267,6 +6324,7 @@
           "label",
           "config",
           "hasCredential",
+          "grantId",
           "mode",
           "schedule",
           "contentPolicy",
@@ -6821,6 +6879,186 @@
           "total",
           "limit",
           "offset"
+        ],
+        "type": "object"
+      },
+      "SourceOAuthGrantsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "grants": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "accessExpiresAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "account": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "lastError": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "lastRefreshAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "ownerUserId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "provider": {
+                  "type": "string"
+                },
+                "refreshable": {
+                  "type": "boolean"
+                },
+                "scopes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "status": {
+                  "enum": [
+                    "active",
+                    "revoked",
+                    "broken"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "provider",
+                "account",
+                "scopes",
+                "status",
+                "actor",
+                "ownerUserId",
+                "accessExpiresAt",
+                "refreshable",
+                "lastRefreshAt",
+                "lastError",
+                "createdAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "providers": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "configured": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "enum": [
+                    "google",
+                    "microsoft",
+                    "dropbox"
+                  ],
+                  "type": "string"
+                },
+                "redirectUri": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "configured",
+                "redirectUri"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "ready": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "grants",
+          "providers",
+          "ready"
+        ],
+        "type": "object"
+      },
+      "SourceOAuthStartRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "connector": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "origin": {
+            "format": "uri",
+            "maxLength": 256,
+            "type": "string"
+          },
+          "ownerUserId": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "google",
+              "microsoft",
+              "dropbox"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "connector"
+        ],
+        "type": "object"
+      },
+      "SourceOAuthStartResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "authorizeUrl": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorizeUrl",
+          "state",
+          "expiresAt"
         ],
         "type": "object"
       },
@@ -9094,6 +9332,126 @@
           }
         },
         "summary": "What this tenant can connect here",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/admin/source-connections/oauth/grants": {
+      "get": {
+        "description": "Every grant (provider, account label, scopes, status, whether it can refresh itself, when its access token expires) — never a token — plus each provider’s readiness (an app registered or not) and the redirect URI to register. Connected accounts (docs/source-plane.md § Connected accounts): the brain as an outbound OAuth 2.1 client for the cloud connectors (gdrive, onedrive, dropbox). Answers a bare 404 until `SOURCE_PLANE_ENABLED=1` and `SOURCE_OAUTH_CLIENT=1`; needs `SOURCE_CREDENTIAL_ENCRYPTION_KEY` — tokens are never stored in the clear.\n\nRequired scope: `brain:admin`.",
+        "operationId": "listSourceOAuthGrants",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceOAuthGrantsResponse"
+                }
+              }
+            },
+            "description": "The grants."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The accounts connected, and the providers this deployment can connect",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/admin/source-connections/oauth/grants/{id}": {
+      "delete": {
+        "description": "Revokes the token at the provider (best effort; `providerRevoked` says whether it accepted) and marks the grant revoked. Connections that run as it fail their next sync by name until reconnected. Connected accounts (docs/source-plane.md § Connected accounts): the brain as an outbound OAuth 2.1 client for the cloud connectors (gdrive, onedrive, dropbox). Answers a bare 404 until `SOURCE_PLANE_ENABLED=1` and `SOURCE_OAUTH_CLIENT=1`; needs `SOURCE_CREDENTIAL_ENCRYPTION_KEY` — tokens are never stored in the clear.\n\nRequired scope: `brain:admin`.",
+        "operationId": "revokeSourceOAuthGrant",
+        "parameters": [
+          {
+            "description": "The grant id (`source_oauth_grant:<id>`, prefix optional).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeGrantResponse"
+                }
+              }
+            },
+            "description": "Disconnected."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Disconnect an account",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/admin/source-connections/oauth/start": {
+      "post": {
+        "description": "For a connector that runs as a connected account: the provider’s consent URL (authorization code + PKCE, the connector’s scopes, a signed `state`) to open in a popup. The provider returns the browser to the public callback, which keeps the grant and posts `{ type: \"brain-source-oauth\", grantId, account }` to the `origin` named here. Connected accounts (docs/source-plane.md § Connected accounts): the brain as an outbound OAuth 2.1 client for the cloud connectors (gdrive, onedrive, dropbox). Answers a bare 404 until `SOURCE_PLANE_ENABLED=1` and `SOURCE_OAUTH_CLIENT=1`; needs `SOURCE_CREDENTIAL_ENCRYPTION_KEY` — tokens are never stored in the clear.\n\nRequired scope: `brain:admin`.",
+        "operationId": "startSourceOAuth",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceOAuthStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceOAuthStartResponse"
+                }
+              }
+            },
+            "description": "Where to send the browser."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Begin connecting an account",
         "tags": [
           "Source Plane"
         ]
@@ -12234,6 +12592,70 @@
           }
         },
         "summary": "Agent check-in: presence and the folders it can see",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/source-connections/oauth/callback": {
+      "get": {
+        "description": "Where a provider sends the browser after consent — the app’s registered redirect URI. Public by construction: the HMAC-signed `state` authenticates the request. Exchanges the code, keeps the grant, and answers a small HTML page that hands the result to the admin window that opened it and closes. No token, code or state appears in the page. Connected accounts (docs/source-plane.md § Connected accounts): the brain as an outbound OAuth 2.1 client for the cloud connectors (gdrive, onedrive, dropbox). Answers a bare 404 until `SOURCE_PLANE_ENABLED=1` and `SOURCE_OAUTH_CLIENT=1`; needs `SOURCE_CREDENTIAL_ENCRYPTION_KEY` — tokens are never stored in the clear.",
+        "operationId": "sourceOAuthCallback",
+        "parameters": [
+          {
+            "description": "The signed state the start call issued.",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The authorization code.",
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The provider’s error, when consent failed.",
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The provider’s error text.",
+            "in": "query",
+            "name": "error_description",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The result page."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "security": [],
+        "summary": "The provider’s return leg (public)",
         "tags": [
           "Source Plane"
         ]

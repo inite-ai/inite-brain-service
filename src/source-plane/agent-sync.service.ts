@@ -200,6 +200,8 @@ export class AgentSyncService {
     companyId: string,
     row: SourceConnectionRow,
   ): Promise<ConnectorConnectionView> {
+    // The agent holds its own credential; the server-side view only
+    // feeds the ingest effects, so nothing is resolved here.
     return this.connections.toConnectorView(
       row,
       await this.connections.sourceContext(companyId, row),

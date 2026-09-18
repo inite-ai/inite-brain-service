@@ -58,3 +58,29 @@ export function sourceFsRoots(): string[] {
 export function sourceEgressAllowPrivate(): boolean {
   return envFlagEnabled(process.env.SOURCE_EGRESS_ALLOW_PRIVATE);
 }
+
+/**
+ * SOURCE_OAUTH_CLIENT — the brain as an outbound OAuth client (W4): the
+ * connected-accounts surface (`/v1/admin/source-connections/oauth/*`)
+ * and the public callback answer, grants can be made and refreshed,
+ * and the cloud connectors (gdrive, onedrive, dropbox) can run. Off
+ * (default) ⇒ the routes answer 404, no grant is ever created or
+ * refreshed, no provider is ever contacted — byte-identical. Needs
+ * SOURCE_CREDENTIAL_ENCRYPTION_KEY as well: a refresh token is never stored in
+ * the clear, so without the key the client refuses to start. Read at
+ * call time.
+ */
+export function sourceOAuthClientEnabled(): boolean {
+  return envFlagEnabled(process.env.SOURCE_OAUTH_CLIENT);
+}
+
+/**
+ * SOURCE_OAUTH_REDIRECT_URL — the callback URL registered at the
+ * providers, when it is not `<public base>/v1/source-connections/oauth/
+ * callback` as the admin's request reached the brain (a path prefix at
+ * the edge, a canonical host). Unset ⇒ derived per request.
+ */
+export function sourceOAuthRedirectUrl(): string | null {
+  const raw = process.env.SOURCE_OAUTH_REDIRECT_URL?.trim();
+  return raw ? raw : null;
+}

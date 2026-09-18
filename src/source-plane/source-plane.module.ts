@@ -10,10 +10,17 @@ import { AgentRunService } from './agent-run.service';
 import { AgentSourceConnectionsController } from './agent-source-connections.controller';
 import { AgentSyncService } from './agent-sync.service';
 import { SOURCE_CONNECTORS, type Connector } from './connector';
+import { DropboxConnector } from './connectors/dropbox.connector';
 import { FsConnector } from './connectors/fs.connector';
+import { GDriveConnector } from './connectors/gdrive.connector';
 import { McpConnector } from './connectors/mcp.connector';
+import { OneDriveConnector } from './connectors/onedrive.connector';
 import { S3Connector } from './connectors/s3.connector';
 import { UrlConnector } from './connectors/url.connector';
+import { AdminSourceOAuthController } from './oauth/admin-source-oauth.controller';
+import { CredentialProvider } from './oauth/credential-provider';
+import { SourceOAuthCallbackController } from './oauth/source-oauth-callback.controller';
+import { SourceOAuthService } from './oauth/source-oauth.service';
 import { SourceAgentService } from './source-agent.service';
 import { SourceCatalogService } from './source-catalog.service';
 import { SourceConnectionService } from './source-connection.service';
@@ -34,31 +41,53 @@ import { SourceSyncService } from './source-sync.service';
  * the SOURCE_CONNECTORS array (the EVIDENCE_PROCESSOR_ADAPTERS mold):
  * `fs` (SOURCE_KIND_FS + the SOURCE_FS_ROOTS jail), `url` (SOURCE_KIND_URL,
  * every hop through the egress guard), `s3` (SOURCE_KIND_S3), `mcp`
- * (SOURCE_KIND_MCP — the harvester, W2: an MCP server's resources);
- * webdav follows. A kind whose switch is off is "not
- * installed" to the engine: a connection of it records a failed sync
- * with "no installed connector", never a crash.
+ * (SOURCE_KIND_MCP — the harvester, W2: an MCP server's resources), and
+ * the cloud drives (W4) — `gdrive` (SOURCE_KIND_GDRIVE), `onedrive`
+ * (SOURCE_KIND_ONEDRIVE), `dropbox` (SOURCE_KIND_DROPBOX) — which run as
+ * a connected account (SOURCE_OAUTH_CLIENT: the brain as an outbound
+ * OAuth client, grants encrypted under SOURCE_CREDENTIAL_ENCRYPTION_KEY, resolved
+ * through CredentialProvider at run time); webdav follows. A kind whose
+ * switch is off is "not installed" to the engine: a connection of it
+ * records a failed sync with "no installed connector", never a crash.
  *
  * Everything is dark behind SOURCE_PLANE_ENABLED (default off): routes
  * answer 404, no job handler registers, the scheduler enqueues nothing.
+ *
+ * Controller order matters: the OAuth controller's literal `oauth/…`
+ * segments are registered before the connections controller's `:id`.
  */
 @Module({
   imports: [AuthModule, DocumentsModule, EvidenceModule, IngestModule, SourcesModule],
   controllers: [
+    AdminSourceOAuthController,
     AdminSourceConnectionsController,
     AdminSourceInspectController,
     AgentSourceConnectionsController,
+    SourceOAuthCallbackController,
   ],
   providers: [
     FsConnector,
     UrlConnector,
     S3Connector,
     McpConnector,
+    GDriveConnector,
+    OneDriveConnector,
+    DropboxConnector,
     {
       provide: SOURCE_CONNECTORS,
       useFactory: (...connectors: Connector[]): Connector[] => connectors,
-      inject: [FsConnector, UrlConnector, S3Connector, McpConnector],
+      inject: [
+        FsConnector,
+        UrlConnector,
+        S3Connector,
+        McpConnector,
+        GDriveConnector,
+        OneDriveConnector,
+        DropboxConnector,
+      ],
     },
+    SourceOAuthService,
+    CredentialProvider,
     SourceCatalogService,
     SourceAgentService,
     SourceConnectionService,
@@ -74,6 +103,12 @@ import { SourceSyncService } from './source-sync.service';
     AgentSyncService,
     AgentRunService,
   ],
-  exports: [SourceConnectionService, SourceItemService, SourceSyncService, SOURCE_CONNECTORS],
+  exports: [
+    SourceConnectionService,
+    SourceItemService,
+    SourceSyncService,
+    SourceOAuthService,
+    SOURCE_CONNECTORS,
+  ],
 })
 export class SourcePlaneModule {}

@@ -19,6 +19,7 @@ import {
   type Connector,
   type ConnectorRegistry,
 } from './connector';
+import { providerConfigured, providerSpec } from './oauth/oauth-providers';
 import { connectorKindOf } from './source-connection.service';
 
 /** The domain_pack columns the catalogue reads. */
@@ -108,6 +109,7 @@ export class SourceCatalogService {
         credentialHint: connector?.credentialHint ?? null,
         hosts: hostsOf(entry, kind),
         mcp: mcpOf(entry),
+        oauth: oauthOf(connector),
       };
     });
   }
@@ -136,6 +138,18 @@ function mcpOf(entry: PackSourceSpec): SourceCatalogEntry['mcp'] {
     };
   }
   return { transport: 'http', url: entry.url ?? null, auth: entry.auth, command: null, args: [] };
+}
+
+/** The connected account a connector runs as, and whether this deployment can make one. */
+function oauthOf(connector: Connector | null): SourceCatalogEntry['oauth'] {
+  if (!connector?.oauth) return null;
+  const { provider, scopes } = connector.oauth;
+  return {
+    provider,
+    title: providerSpec(provider).title,
+    scopes,
+    configured: providerConfigured(provider),
+  };
 }
 
 /** Natives that exist on the local agent only — git never runs in the brain process. */

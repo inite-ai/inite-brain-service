@@ -55,7 +55,10 @@ function walk(dir: string): string[] {
 function currentEngineFlags(): Set<string> {
   const keys = new Set<string>();
   const files = walk(SRC).filter(
-    (f) => !f.endsWith('config-catalog.data.ts') && !f.endsWith('env-validation.ts'),
+    (f) =>
+      !f.endsWith('config-catalog.data.ts') &&
+      !f.endsWith('env-validation.ts') &&
+      !f.endsWith('known-boolean-flags.ts'),
   );
   const parserRead =
     /envFlag(?:Enabled|NotDisabled)\(\s*(?:process\.env\.|this\.configService\.get<string>\(.)([A-Z][A-Z0-9_]+)/g;

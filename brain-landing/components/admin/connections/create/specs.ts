@@ -43,6 +43,19 @@ export interface FieldSpec {
 export type CredentialSpec =
   | { kind: 'single'; required: (values: FormValues) => boolean; shown: (values: FormValues) => boolean }
   | { kind: 'pair'; required: false; shown: (values: FormValues) => boolean }
+  /** A connected account (the catalogue entry's `oauth` names the provider); required on the brain host. */
+  | { kind: 'oauth' }
+
+/** What the operator typed or picked for the credential. */
+export interface SecretValues {
+  single: string
+  keyId: string
+  keySecret: string
+  /** The connected account chosen (`source_oauth_grant:…`). */
+  grantId: string
+}
+
+export const EMPTY_SECRET: SecretValues = { single: '', keyId: '', keySecret: '', grantId: '' }
 
 export interface ConnectorForm {
   fields: FieldSpec[]
@@ -180,6 +193,37 @@ const MCP_HTTP: ConnectorForm = {
   finalize: withAuthScheme,
 }
 
+const CLOUD_LIMITS: FieldSpec[] = [
+  { key: 'extensions', type: 'list', mono: true, placeholder: 'md, txt, csv, json, html' },
+  { key: 'maxFiles', type: 'number', min: 1, advanced: true },
+  { key: 'maxFileBytes', type: 'number', min: 1, advanced: true },
+]
+
+const GDRIVE: ConnectorForm = {
+  fields: [
+    { key: 'folderId', type: 'text', mono: true, placeholder: 'root' },
+    { key: 'includeShared', type: 'boolean', default: false },
+    { key: 'driveId', type: 'text', mono: true, advanced: true, placeholder: '0AAbCdEfGhIjKlMnOpQ' },
+    ...CLOUD_LIMITS,
+  ],
+  credential: { kind: 'oauth' },
+}
+
+const ONEDRIVE: ConnectorForm = {
+  fields: [
+    { key: 'folderPath', type: 'text', mono: true, placeholder: '/Documents/Team' },
+    { key: 'siteId', type: 'text', mono: true, advanced: true, placeholder: 'contoso.sharepoint.com,guid,guid' },
+    { key: 'driveId', type: 'text', mono: true, advanced: true },
+    ...CLOUD_LIMITS,
+  ],
+  credential: { kind: 'oauth' },
+}
+
+const DROPBOX: ConnectorForm = {
+  fields: [{ key: 'path', type: 'text', mono: true, placeholder: '/Documents' }, ...CLOUD_LIMITS],
+  credential: { kind: 'oauth' },
+}
+
 const MCP_STDIO: ConnectorForm = { fields: [], credential: null }
 
 const GIT: ConnectorForm = {
@@ -226,6 +270,12 @@ export function formFor(entry: SourceCatalogEntry): ConnectorForm | null {
       return S3
     case 'git':
       return GIT
+    case 'gdrive':
+      return GDRIVE
+    case 'onedrive':
+      return ONEDRIVE
+    case 'dropbox':
+      return DROPBOX
     default:
       return null
   }
@@ -297,12 +347,12 @@ export function configFrom(
   return form.finalize ? form.finalize(config, values) : config
 }
 
-/** The credential string the brain stores: a bearer / token, or `accessKeyId:secretAccessKey`. */
-export function credentialFrom(
-  form: ConnectorForm,
-  secret: { single: string; keyId: string; keySecret: string },
-): string | undefined {
+/** The credential string the brain stores: a bearer / token, `accessKeyId:secretAccessKey`, or `oauth:<grant id>`. */
+export function credentialFrom(form: ConnectorForm, secret: SecretValues): string | undefined {
   if (!form.credential) return undefined
+  if (form.credential.kind === 'oauth') {
+    return secret.grantId ? `oauth:${secret.grantId}` : undefined
+  }
   if (form.credential.kind === 'pair') {
     const id = secret.keyId.trim()
     const key = secret.keySecret.trim()
@@ -312,14 +362,22 @@ export function credentialFrom(
   return secret.single.length > 0 ? secret.single : undefined
 }
 
-export type FieldError = 'required' | 'path' | 'url' | 'number' | 'credential' | 'header' | 'jail'
+export type FieldError =
+  | 'required'
+  | 'path'
+  | 'url'
+  | 'number'
+  | 'credential'
+  | 'header'
+  | 'jail'
+  | 'account'
 
 /** Field-level errors, keyed by field (or `credential`); empty = the step may proceed. */
 export function validate(
   form: ConnectorForm,
   values: FormValues,
   ctx: FormContext,
-  secret: { single: string; keyId: string; keySecret: string },
+  secret: SecretValues,
 ): Record<string, FieldError> {
   const errors: Record<string, FieldError> = {}
   for (const f of form.fields) {
@@ -360,6 +418,11 @@ export function validate(
     const id = secret.keyId.trim()
     const key = secret.keySecret.trim()
     if ((id && !key) || (!id && key)) errors['credential'] = 'credential'
+  }
+  // The brain runs the cloud connector, so it needs the account; an
+  // agent-host connection would carry its own (none of these run there).
+  if (form.credential?.kind === 'oauth' && ctx.host === 'server' && !secret.grantId) {
+    errors['credential'] = 'account'
   }
   return errors
 }
