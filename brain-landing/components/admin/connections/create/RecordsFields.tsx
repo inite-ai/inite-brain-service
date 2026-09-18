@@ -4,8 +4,10 @@ import { useCallback, useState } from 'react'
 import { Eye, Loader2 } from 'lucide-react'
 import { Field, inputCls } from '../../policies/ui'
 import type {
+  MappingAssistResponse,
   RecordMapping,
   RecordsPreviewResponse,
+  RestEntity,
   SourceCatalogEntry,
 } from '../../../../lib/contracts/admin-source-connections'
 import { PROXY, errorMessage, fill, type ConnectionsT } from '../shared'
@@ -13,6 +15,18 @@ import { PROXY, errorMessage, fill, type ConnectionsT } from '../shared'
 export interface RecordsChoice {
   entities: string[]
   mapping: RecordMapping
+  /** The custom REST source only: the endpoints the assistant proposed (and the operator edited). */
+  endpoints?: Record<string, RestEntity>
+  /** The custom REST source only: the proposal rows (type, reason, confidence, the fields the rows carry). */
+  proposal?: MappingAssistResponse['entities']
+}
+
+/** What the mapping table lists: the connector's static entities, or the proposal's for the custom REST source. */
+export function entitiesOf(entry: SourceCatalogEntry, value: RecordsChoice): SourceCatalogEntry['records'] extends infer R ? (R extends { entities: infer E } ? E : never) : never {
+  if (value.proposal) {
+    return value.proposal.map((e) => ({ type: e.type, label: e.label, defaultOn: true, fields: e.fields }))
+  }
+  return entry.records?.entities ?? []
 }
 
 /** The connector's preset as the starting choice: its default entities, its field → fact table. */
@@ -49,7 +63,7 @@ export function RecordsFields({
   onChange: (v: RecordsChoice) => void
 }) {
   const r = t.records
-  const spec = entry.records!
+  const spec = { ...entry.records!, entities: entitiesOf(entry, value) }
   const [preview, setPreview] = useState<RecordsPreviewResponse | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -76,7 +90,13 @@ export function RecordsFields({
         body: JSON.stringify({
           packId: entry.packId,
           sourceId: entry.sourceId,
-          config: { ...config, connector: entry.connector, entities: value.entities, mapping: value.mapping },
+          config: {
+            ...config,
+            connector: entry.connector,
+            entities: value.entities,
+            mapping: value.mapping,
+            ...(value.endpoints ? { endpoints: value.endpoints } : {}),
+          },
           ...(credential ? { credential } : {}),
           limit: 3,
         }),
@@ -93,6 +113,7 @@ export function RecordsFields({
 
   return (
     <div className="space-y-3">
+      {!value.proposal && (
       <Field label={r.entities} hint={r.entitiesHint}>
         <div className="flex flex-wrap gap-3 text-xs">
           {spec.entities.map((e) => (
@@ -102,6 +123,7 @@ export function RecordsFields({
           ))}
         </div>
       </Field>
+      )}
       {spec.entities.length > 0 && (
         <Field label={r.mapping} hint={r.mappingHint}>
           <div className="space-y-2">

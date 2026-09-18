@@ -18,6 +18,8 @@ import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { sourcePlaneEnabled } from '../common/source-plane-flags';
 import {
   CreateSourceConnectionRequestSchema,
+  MappingAssistRequestSchema,
+  type MappingAssistResponse,
   RecordsPreviewRequestSchema,
   type RecordsPreviewResponse,
   SyncNowRequestSchema,
@@ -31,6 +33,7 @@ import {
   type SourceItemsListResponse,
   type SyncNowResponse,
 } from '../contracts/source-plane/source-plane.schema';
+import { MappingAssistantService } from './records/mapping-assistant.service';
 import { RecordsPreviewService } from './records/records-preview.service';
 import { SourceAgentService } from './source-agent.service';
 import { SourceCatalogService } from './source-catalog.service';
@@ -60,7 +63,22 @@ export class AdminSourceConnectionsController {
     private readonly catalog: SourceCatalogService,
     private readonly agents: SourceAgentService,
     private readonly preview: RecordsPreviewService,
+    private readonly assistant: MappingAssistantService,
   ) {}
+
+  /** A proposed `rest_records` config from an OpenAPI document and / or sample answers. Static path — before `:id`. */
+  @Post('assist')
+  @RequireScopes('brain:admin')
+  async assistMapping(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: unknown,
+  ): Promise<MappingAssistResponse> {
+    assertEnabled();
+    return this.assistant.assist(
+      req.brainAuth.companyId,
+      parseBody(MappingAssistRequestSchema, body),
+    );
+  }
 
   /** A records connector's first page per entity, mapped — before a connection exists. Static path — before `:id`. */
   @Post('preview')

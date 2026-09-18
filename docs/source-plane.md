@@ -91,6 +91,7 @@ failed run, never a crash.
 | `GET /v1/source-connections/oauth/callback` | **public** — the provider's return leg; the signed state authenticates it. Answers the HTML page that hands the result to the admin window |
 | `POST /v1/source-connections/:id/records` | `brain:write` — push record envelopes (≤ 200) + `gone` ids under a `structure`-shaped connection (W4.2, § Records); each batch a run, each record the records door |
 | `POST /v1/admin/source-connections/preview` | `{ packId, sourceId, config, credential? }` — a records connector's first page per entity, mapped, before a connection exists; nothing written |
+| `POST /v1/admin/source-connections/assist` | `{ packId, openapi?: { url \| text }, samples?, endpoints?, allowPrivate? }` — a proposed `rest_records` config (endpoints + field → predicate mapping, each entity with a reason and confidence) from an OpenAPI document and / or sample answers; nothing written |
 
 The scheduler ticks every 5 minutes (`2-59/5 * * * *` UTC) and enqueues
 one job per due connection per tenant, deduped per 5-minute slot;
@@ -360,6 +361,35 @@ one their SMB admins use. **Push**: any automation posts envelopes to
 `POST …/preview` shows what the mapping makes of the first records
 before the connection exists.
 
+**The long tail — `rest_records` + the mapping assistant (W4.2b′)**:
+a CRM / ERP / ticketing backend with a JSON list API and no connector
+of its own is described as CONFIG, not code (`connectors/rest-records.
+connector.ts`; `SOURCE_KIND_REST_RECORDS`; the `crm_memory` source
+`custom`). Per entity type the config names a list endpoint, where the
+rows sit in the answer (`items`, a dotted path), one of five paging
+styles (`none` / `page` / `offset` / `cursor` / `link` — a cursor that
+turns out to be a URL is followed as a link), one incremental filter
+(`param` + `format` iso / epoch / epoch_ms / date, in the query or a
+POST body), the id / name / updated-at fields, which attributes to
+read (or every top-level scalar), which fields point at other records
+and a deleted flag — dotted paths only, no expressions. The credential
+rides as `authScheme` says (`bearer` / `basic` / `header:<Name>` /
+`query:<name>` / `none`) and is masked out of every error; every URL
+must be on `baseUrl`'s origin. The **assistant**
+(`POST /v1/admin/source-connections/assist`) proposes that config from
+an OpenAPI 3.x document (fetched through the egress guard or pasted,
+JSON or YAML — `records/openapi-digest.ts` keeps the list-shaped reads,
+resolves `$ref` / `allOf`, reads a POST search's body parameters) and /
+or a sample list answer, by conventional names (`records/mapping-
+heuristics.ts`: collections → the brain's entity types with lookups
+skipped, id / name / updated-at, paging and since-parameters, relations
+from `<entity>_id`, a synonym table over the pack vocabulary for the
+field → predicate mapping), each entity with a reason and a confidence;
+under `SOURCE_MAPPING_ASSISTANT` one bounded model call
+(`MAPPING_ASSISTANT_MODEL`) refines the proposal under a strict JSON
+schema and only what validates is kept. The operator's own edits win;
+the preview verifies by execution before anything is connected.
+
 ## Connected accounts (W4) — the brain as an OAuth client
 
 The cloud natives run as an **account an admin connected once**, not as
@@ -460,6 +490,8 @@ pack may only name it.
 | `SOURCE_KIND_PIPEDRIVE` | `0` | the first CRM connector on the records contract (W4.2); a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_PIPEDRIVE_CLIENT_ID`, an API token needs neither |
 | `SOURCE_KIND_HUBSPOT` | `0` | the `hubspot` connector (W4.2b); a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_HUBSPOT_CLIENT_ID`, a private-app token needs neither |
 | `SOURCE_KIND_BITRIX24`, `SOURCE_KIND_KOMMO` | `0` | the `bitrix24` (inbound webhook URL) and `kommo` (long-lived token) connectors (W4.2b) — no OAuth app needed |
+| `SOURCE_KIND_REST_RECORDS` | `0` | the config-driven `rest_records` connector for any JSON list API (W4.2b′) |
+| `SOURCE_MAPPING_ASSISTANT` / `MAPPING_ASSISTANT_MODEL` | `0` / `gpt-5.6-luna` | the model half of the mapping assistant; off = the deterministic proposal only |
 | `SOURCE_OAUTH_CLIENT` | `0` | the brain as an outbound OAuth client: connected accounts, the public callback, refresh (W4) |
 | `SOURCE_CREDENTIAL_ENCRYPTION_KEY` (+ `_PREVIOUS`) | unset | credentials and grants encrypted at rest; required for OAuth |
 | `SOURCE_OAUTH_<P>_CLIENT_ID` / `_CLIENT_SECRET` / `_BASE_URL` | unset | the operator's app per provider; the dev override |

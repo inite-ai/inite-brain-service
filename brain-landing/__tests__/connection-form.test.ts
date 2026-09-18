@@ -223,6 +223,29 @@ describe('connect form specs', () => {
     expect(configFrom(kf, { ...kv, baseUrl: 'https://acme.kommo.com' }, ctxFor(kommo))).toEqual({ baseUrl: 'https://acme.kommo.com' })
   })
 
+  it('custom REST: base URL required, the credential rides as chosen (header / query names required), none needs no credential', () => {
+    const custom = entry({ packId: 'crm_memory', sourceId: 'custom', connector: 'rest_records', shape: 'structure', hosts: ['server'] })
+    const form = formFor(custom)!
+    const values = initialValues(form, custom)
+    expect(values['authScheme']).toBe('bearer')
+    expect(visibleFields(form, values, ctxFor(custom), false).map((f) => f.key)).toEqual(['baseUrl', 'authScheme'])
+    expect(validate(form, values, ctxFor(custom), noSecret)).toEqual({ baseUrl: 'required', credential: 'credential' })
+    const header = { ...values, baseUrl: 'https://crm.example.com/api', authScheme: 'header' }
+    expect(visibleFields(form, header, ctxFor(custom), false).map((f) => f.key)).toEqual(['baseUrl', 'authScheme', 'authHeader'])
+    expect(validate(form, header, ctxFor(custom), { ...noSecret, single: 'k' })).toEqual({ authHeader: 'header' })
+    expect(configFrom(form, { ...header, authHeader: 'X-Api-Key' }, ctxFor(custom))).toEqual({
+      baseUrl: 'https://crm.example.com/api',
+      authScheme: 'header:X-Api-Key',
+    })
+    const query = { ...header, authScheme: 'query', authParam: 'api_key' }
+    expect(configFrom(form, query, ctxFor(custom))).toEqual({ baseUrl: 'https://crm.example.com/api', authScheme: 'query:api_key' })
+    expect(validate(form, { ...query, authParam: '' }, ctxFor(custom), { ...noSecret, single: 'k' })).toEqual({ authParam: 'header' })
+    const none = { ...header, authScheme: 'none' }
+    expect(validate(form, none, ctxFor(custom), noSecret)).toEqual({})
+    expect(configFrom(form, none, ctxFor(custom))).toEqual({ baseUrl: 'https://crm.example.com/api', authScheme: 'none' })
+    expect(credentialFrom(form, { ...noSecret, single: 'k' })).toBe('k')
+  })
+
   it('mcp over http: a named server asks for the url, a pinned one does not; install_secret hides auth', () => {
     const named = entry({
       packId: 'web_memory',

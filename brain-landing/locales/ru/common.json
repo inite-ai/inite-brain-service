@@ -1273,13 +1273,36 @@
               "label": "Разрешить приватные хосты",
               "hint": "Loopback / LAN-адреса — деплой уже дал согласие."
             }
+          },
+          "rest_records": {
+            "baseUrl": {
+              "label": "Базовый URL API",
+              "hint": "Пути эндпоинтов относительны к нему."
+            },
+            "authScheme": {
+              "label": "Как передаётся кред",
+              "hint": "bearer = Authorization: Bearer; header = заголовок с вашим именем; query = query-параметр; basic = user:password."
+            },
+            "authHeader": {
+              "label": "Имя заголовка",
+              "hint": "напр. X-Api-Key"
+            },
+            "authParam": {
+              "label": "Имя query-параметра",
+              "hint": "напр. api_key — учтите, он попадает в каждый URL."
+            },
+            "allowPrivate": {
+              "label": "Разрешить приватные хосты",
+              "hint": "Бэкенд в локальной сети — деплой уже дал согласие."
+            }
           }
         },
         "authOptions": {
           "none": "нет",
           "bearer": "bearer-токен",
           "basic": "basic (user:password)",
-          "header": "свой заголовок"
+          "header": "свой заголовок",
+          "query": "query-параметр"
         },
         "schedule": {
           "title": "Расписание",
@@ -1548,7 +1571,37 @@
         "dropped": "отброшено: {items}",
         "relations": "связи",
         "pushHint": "Любая автоматизация шлёт сюда записи с ключом brain:write:",
-        "pushGone": "gone: [\"deal/4812\"] закрывает факты записи."
+        "pushGone": "gone: [\"deal/4812\"] закрывает факты записи.",
+        "describe": "Опишите API",
+        "describeHint": "Дайте мозгу OpenAPI-документ API (URL, который он скачает, или вставленный JSON / YAML) и / или один пример ответа list-эндпоинта. Он предложит, какие эндпоинты — записи, как они листаются, какое поле — id / имя / updated-at и какие поля станут фактами. Затем «Предпросмотр» прогонит это по живому API — ничему не верим, пока не увидели строки.",
+        "openapiUrl": "URL OpenAPI-документа",
+        "openapiUrlHint": "Скачивает мозг (для хостов в LAN — «Разрешить приватные хосты»).",
+        "openapiText": "или вставьте документ",
+        "openapiTextHint": "OpenAPI 3.x как JSON или YAML, до 2 МБ.",
+        "sample": "Пример ответа list-эндпоинта",
+        "sampleHint": "То, что вернул curl списка — строки говорят то, чего нет в документе (ссылка next, реальные поля). Необязательно рядом с документом; сам по себе предложит одну сущность.",
+        "samplePath": "его путь, напр. /deals",
+        "sampleType": "тип сущности, напр. deal",
+        "sampleInvalid": "Пример — не валидный JSON.",
+        "propose": "Предложить",
+        "proposing": "Предлагаем…",
+        "refined": "уточнено моделью",
+        "heuristicOnly": "по общепринятым именам — модель выключена (SOURCE_MAPPING_ASSISTANT)",
+        "confidence": "уверенность {pct}%",
+        "sourceOf": {
+          "openapi": "из документа",
+          "sample": "из примера",
+          "model": "от модели",
+          "operator": "ваше"
+        },
+        "rowsAt": "строки в",
+        "pagingOf": "листание",
+        "sinceOf": "с",
+        "noSince": "нет параметра updated-since (каждый прогон перечитывает всё)",
+        "nameOf": "имя",
+        "updatedOf": "обновлено",
+        "editEndpoint": "править эндпоинт как JSON",
+        "endpointInvalid": "Не валидный JSON."
       }
     },
     "marketplace": {

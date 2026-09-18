@@ -729,8 +729,17 @@ const KIND_ICONS: Record<SourceFamily, React.ComponentType<{ className?: string 
   other: Plug,
 }
 
+/** The records family names the vendor: the vendor's name for a vendor connector, "custom REST" for the config-driven one. */
+const CONNECTOR_NAMES: Record<string, string> = {
+  pipedrive: 'Pipedrive',
+  hubspot: 'HubSpot',
+  bitrix24: 'Bitrix24',
+  kommo: 'Kommo / amoCRM',
+  rest_records: 'custom REST / OpenAPI',
+}
+
 function kindTitle(t: ConnectionsT, family: SourceFamily, connector: string): string {
-  return fill(t.kinds[family].title, { connector })
+  return fill(t.kinds[family].title, { connector: CONNECTOR_NAMES[connector] ?? connector })
 }
 
 function KindLabel({

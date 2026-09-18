@@ -223,6 +223,62 @@ export const RecordsPreviewResponseSchema = z.object({
   ),
 })
 
+// ── The custom REST records source + the mapping assistant (W4.2b′) ──
+
+export const RestPagingSchema = z.object({
+  style: z.enum(['none', 'page', 'offset', 'cursor', 'link']),
+  param: z.string().optional(),
+  sizeParam: z.string().optional(),
+  size: z.number().int().optional(),
+  start: z.number().int().optional(),
+  next: z.string().optional(),
+})
+
+export const RestEntitySchema = z.object({
+  label: z.string().optional(),
+  list: z.object({
+    path: z.string(),
+    method: z.enum(['GET', 'POST']).optional(),
+    query: z.record(z.string(), z.string()).optional(),
+    body: z.record(z.string(), z.unknown()).optional(),
+  }),
+  items: z.string().optional(),
+  get: z.object({ path: z.string() }).optional(),
+  paging: RestPagingSchema.optional(),
+  incremental: z
+    .object({
+      param: z.string(),
+      format: z.enum(['iso', 'epoch', 'epoch_ms', 'date']).optional(),
+      in: z.enum(['query', 'body']).optional(),
+    })
+    .optional(),
+  fields: z.object({ id: z.string(), name: z.array(z.string()), updatedAt: z.string().optional() }),
+  attributes: z.record(z.string(), z.string()).optional(),
+  relations: z
+    .array(z.object({ kind: z.string(), targetType: z.string(), path: z.string(), name: z.string().optional() }))
+    .optional(),
+  deleted: z.string().optional(),
+})
+export type RestEntity = z.infer<typeof RestEntitySchema>
+
+export const MappingAssistResponseSchema = z.object({
+  endpoints: z.record(z.string(), RestEntitySchema),
+  mapping: z.record(z.string(), z.object({ fields: z.record(z.string(), z.string()), coreType: z.string().optional() })),
+  entities: z.array(
+    z.object({
+      type: z.string(),
+      label: z.string(),
+      source: z.enum(['openapi', 'sample', 'model', 'operator']),
+      confidence: z.number(),
+      reason: z.string(),
+      fields: z.array(z.object({ key: z.string(), label: z.string() })),
+    }),
+  ),
+  refined: z.boolean(),
+  warnings: z.array(z.string()),
+})
+export type MappingAssistResponse = z.infer<typeof MappingAssistResponseSchema>
+
 export const SourceConnectorStateSchema = z.object({
   kind: z.string(),
   state: z.enum(['ready', 'disabled']),

@@ -44,6 +44,7 @@ export function familyOf(e: { kind: string; connector: string }): SourceFamily {
     case 'hubspot':
     case 'bitrix24':
     case 'kommo':
+    case 'rest_records':
       return 'records'
     default:
       return 'other'

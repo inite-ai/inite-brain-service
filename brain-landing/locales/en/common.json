@@ -1273,13 +1273,36 @@
               "label": "Allow private hosts",
               "hint": "Loopback / LAN addresses — the deployment already opted in."
             }
+          },
+          "rest_records": {
+            "baseUrl": {
+              "label": "API base URL",
+              "hint": "Every endpoint path is relative to it."
+            },
+            "authScheme": {
+              "label": "How the credential rides",
+              "hint": "bearer = Authorization: Bearer; header = a header of your naming; query = a query parameter; basic = user:password."
+            },
+            "authHeader": {
+              "label": "Header name",
+              "hint": "e.g. X-Api-Key"
+            },
+            "authParam": {
+              "label": "Query parameter name",
+              "hint": "e.g. api_key — note it travels in every URL."
+            },
+            "allowPrivate": {
+              "label": "Allow private hosts",
+              "hint": "A backend on the LAN — the deployment already opted in."
+            }
           }
         },
         "authOptions": {
           "none": "none",
           "bearer": "bearer token",
           "basic": "basic (user:password)",
-          "header": "custom header"
+          "header": "custom header",
+          "query": "query parameter"
         },
         "schedule": {
           "title": "Schedule",
@@ -1548,7 +1571,37 @@
         "dropped": "dropped: {items}",
         "relations": "relations",
         "pushHint": "Any automation posts records here with a brain:write key:",
-        "pushGone": "gone: [\"deal/4812\"] closes a record's facts."
+        "pushGone": "gone: [\"deal/4812\"] closes a record's facts.",
+        "describe": "Describe the API",
+        "describeHint": "Give the brain the API’s OpenAPI document (a URL it fetches, or pasted JSON / YAML) and / or one sample answer of a list endpoint. It proposes which endpoints are records, how they page, which field is the id / name / updated-at, and which fields become facts. Then Preview runs it against the live API — nothing is trusted until you saw the rows.",
+        "openapiUrl": "OpenAPI document URL",
+        "openapiUrlHint": "Fetched by the brain (LAN hosts need “Allow private hosts”).",
+        "openapiText": "or paste the document",
+        "openapiTextHint": "OpenAPI 3.x as JSON or YAML, up to 2 MB.",
+        "sample": "Sample answer of a list endpoint",
+        "sampleHint": "What a curl of the list returned — the rows tell what the document cannot (a next link, the real fields). Optional next to a document; alone it proposes one entity.",
+        "samplePath": "its path, e.g. /deals",
+        "sampleType": "entity type, e.g. deal",
+        "sampleInvalid": "The sample is not valid JSON.",
+        "propose": "Propose",
+        "proposing": "Proposing…",
+        "refined": "refined by the model",
+        "heuristicOnly": "by conventional names — the model is off (SOURCE_MAPPING_ASSISTANT)",
+        "confidence": "confidence {pct}%",
+        "sourceOf": {
+          "openapi": "from the document",
+          "sample": "from the sample",
+          "model": "from the model",
+          "operator": "yours"
+        },
+        "rowsAt": "rows at",
+        "pagingOf": "paging",
+        "sinceOf": "since",
+        "noSince": "no updated-since parameter (every run re-reads everything)",
+        "nameOf": "name",
+        "updatedOf": "updated",
+        "editEndpoint": "edit the endpoint as JSON",
+        "endpointInvalid": "Not valid JSON."
       }
     },
     "marketplace": {

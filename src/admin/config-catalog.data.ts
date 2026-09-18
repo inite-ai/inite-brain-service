@@ -1712,6 +1712,33 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       "The `kommo` source connector (source plane, W4.2b — a CRM on the records contract): leads (deals), contacts and companies of a Kommo / amoCRM account through API v4 (`filter[updated_at][from]` + `page`, 250 a page, `with=contacts`; pipelines / statuses / users / loss reasons resolved to names once per run; the account currency on every lead). The credential is a LONG-LIVED TOKEN of a private integration (a bearer); `config.baseUrl` names the account (`https://<subdomain>.kommo.com` / `.amocrm.ru`). Records enter the records door (crm_memory). Off (default) = 'not installed' — byte-identical.",
   },
   {
+    key: 'SOURCE_KIND_REST_RECORDS',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `rest_records` source connector (source plane, W4.2b′ — the long tail on the records contract, docs/roadmap/crm-sources-2026-09.md § 4.3): a CRM / ERP / ticketing backend with a JSON list API and no connector of its own, described as CONFIG — per entity a list endpoint, where the rows sit in the answer, one of five paging styles (none / page / offset / cursor / link), one updated-since parameter, the id / name / updated-at fields, the relation fields — dotted paths only. The credential rides as `config.authScheme` says (bearer / basic / header:<Name> / query:<name>); a backend on the LAN needs `config.allowPrivate` + SOURCE_EGRESS_ALLOW_PRIVATE. The mapping assistant (POST /v1/admin/source-connections/assist) proposes the config from an OpenAPI document or a sample answer; the preview verifies it. Off (default) = 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_MAPPING_ASSISTANT',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'The model half of the mapping assistant (W4.2b′): with it, POST /v1/admin/source-connections/assist sends the bounded API digest and the deterministic proposal to MAPPING_ASSISTANT_MODEL under a strict JSON schema and keeps what validates — a hallucinated path or predicate is dropped, never trusted. Off (default) = the deterministic proposal only (conventional names for id / name / updated-at / paging / since parameters, a synonym table over the pack vocabulary); the endpoint and the preview work the same, no model is ever called.',
+  },
+  {
+    key: 'MAPPING_ASSISTANT_MODEL',
+    category: 'pipeline',
+    defaultValue: 'gpt-5.6-luna',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'The model the mapping assistant refines a proposal with (SOURCE_MAPPING_ASSISTANT). One bounded call per proposal; the cheapest current model with structured outputs by default.',
+  },
+  {
     key: 'SOURCE_OAUTH_CLIENT',
     category: 'pipeline',
     defaultValue: '0',
