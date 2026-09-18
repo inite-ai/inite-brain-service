@@ -202,8 +202,19 @@ export async function noteKnnOperatorDropped(
   // or a tenant could stay skipped indefinitely on repeated observations.
   if (key) memo.set(key, { state, at: fresh ? prev.at : now, warnedAt: shout ? now : warnedAt });
   const message = knnDroppedMessage(spec, state);
-  if (shout) (logger?.error ?? logger?.warn)?.(message);
-  else logger?.debug?.(message);
+  // Method CALLS, never a detached reference: Nest's Logger reads
+  // `this.context` inside error()/warn(), and `(logger.error ?? …)(msg)`
+  // called it unbound — the once-an-hour operator shout threw
+  // "Cannot read properties of undefined (reading 'context')" into the
+  // leg's own catch, which logged THAT and fell back. The one line that
+  // was meant to tell the operator the tenant is un-indexed never
+  // reached the log; production showed the TypeError once per boot.
+  if (shout) {
+    if (logger?.error) logger.error(message);
+    else logger?.warn(message);
+  } else {
+    logger?.debug?.(message);
+  }
   return state;
 }
 

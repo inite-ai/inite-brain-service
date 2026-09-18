@@ -163,6 +163,24 @@ describe('hnswIndexState — why the operator was dropped', () => {
     await expect(hnswIndexState(db as never, SPEC)).resolves.toBe('unknown');
   });
 
+  it('shouts through a real Nest Logger without throwing (the method must stay bound)', async () => {
+    // `(logger.error ?? logger.warn)?.(msg)` detached the method: Nest's
+    // Logger reads `this.context` inside, so the once-an-hour shout threw
+    // a TypeError into the leg's catch instead of reaching the log.
+    const { Logger } = await import('@nestjs/common');
+    const logger = new Logger('knn-spec');
+    const error = jest.spyOn(logger, 'error').mockImplementation(() => undefined);
+    const db = Object.assign(fakeDb([INFO_TABLE_NO_INDEX]), {
+      namespace: 'brain',
+      database: 'co_shout_probe',
+    });
+    resetKnnIndexMemo();
+    await expect(noteKnnOperatorDropped(db as never, SPEC, { logger })).resolves.toBe('absent');
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(String(error.mock.calls[0]![0])).toContain('/v1/admin/maintenance/hnsw');
+    resetKnnIndexMemo();
+  });
+
   it('names the remedy for each state', () => {
     const spec = { table: 'knowledge_fact', index: 'fact_embedding_hnsw' };
     expect(knnDroppedMessage(spec, 'absent')).toContain('/v1/admin/maintenance/hnsw');
