@@ -63,6 +63,7 @@ function ctx(
       host: 'server',
       config: { bucket: 'b', ...config },
       credential: 'ak:sk',
+      credentialSource: null,
       contentPolicy: 'text',
       vertical: 'files',
       recorder: 'srcconn_c1',

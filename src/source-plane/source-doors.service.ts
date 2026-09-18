@@ -7,12 +7,10 @@ import { EvidenceUploadService } from '../evidence/evidence-upload.service';
 import { idTailOf } from '../ingest/ingest-utils';
 import { IngestService } from '../ingest/ingest.service';
 import type { IngestMentionDto } from '../ingest/dto/ingest-mention.dto';
-import type {
-  ConnectorConnectionView,
-  FetchedItem,
-  ItemDescriptor,
-  RecordEnvelope,
-} from './connector';
+import type { ConnectorConnectionView, FetchedItem, ItemDescriptor } from './connector';
+import { RecordsDoorService } from './records/records-door.service';
+export { renderRecord } from './records/record-mapping';
+export { SOURCE_RECORD_KIND } from './records/records-door.service';
 
 /** What a door wrote — the catalogue links to it. */
 export interface DoorOutcome {
@@ -27,7 +25,6 @@ export interface DoorOutcome {
 
 /** `kind` on rows the doors write when the connector names none. */
 export const SOURCE_DOCUMENT_KIND = 'source_document';
-export const SOURCE_RECORD_KIND = 'source_record';
 
 /**
  * SourceDoorsService — "shape decides the door" (raw-evidence-sources
@@ -42,9 +39,10 @@ export const SOURCE_RECORD_KIND = 'source_record';
  *                  document bridge carries text onward)
  *   conversation → IngestService.ingestMention per turn (episode
  *                  substrate, the dialogue machinery)
- *   structure    → the record envelope rendered deterministically and
- *                  ingested as a document (kind 'source_record'); the
- *                  attribute → predicate candidate path is W4's
+ *   structure    → RecordsDoorService: the envelope rendered as the
+ *                  grounding document (general extraction OFF) and its
+ *                  mapped attributes submitted as deterministic
+ *                  candidates — facts, not prose (W4.2)
  *
  * Provenance every door writes: the connection's vertical + recorder as
  * contextRef, the item's originUri, the source's own clock as
@@ -54,10 +52,12 @@ export const SOURCE_RECORD_KIND = 'source_record';
  */
 @Injectable()
 export class SourceDoorsService {
+  // eslint-disable-next-line max-params
   constructor(
     private readonly documents: DocumentIngestService,
     private readonly evidence: EvidenceUploadService,
     private readonly mentions: IngestService,
+    private readonly records: RecordsDoorService,
   ) {}
 
   async ingest(p: {
@@ -107,15 +107,16 @@ export class SourceDoorsService {
     fetched: Extract<FetchedItem, { shape: 'structure' }>;
     stamp: SourceVersionStamp | null;
   }): Promise<DoorOutcome> {
-    const record = p.fetched.record;
-    return this.ingestDocumentText({
-      ...p,
-      text: renderRecord(record),
-      kind: SOURCE_RECORD_KIND,
-      title: record.name,
-      occurredAt: record.updatedAt ?? p.item.modifiedAt,
-      meta: { record_type: record.entityType.slice(0, 256) },
+    const r = await this.records.ingest({
+      companyId: p.companyId,
+      connection: p.connection,
+      itemId: p.itemId,
+      item: p.item,
+      record: p.fetched.record,
+      mapping: p.fetched.mapping,
+      stamp: p.stamp,
     });
+    return { documentId: r.documentId, deduplicated: r.deduplicated };
   }
 
   private async ingestDocumentText(p: {
@@ -237,25 +238,6 @@ export function originUriOf(connection: ConnectorConnectionView, item: ItemDescr
   const uri =
     item.originUri ?? `source://${idTailOf(connection.id)}/${encodeURIComponent(item.externalId)}`;
   return uri.slice(0, 512);
-}
-
-/**
- * Deterministic rendering of a record envelope — the same envelope
- * always yields the same text, so the document contentHash dedupes an
- * unchanged record and a changed attribute is a new document.
- */
-export function renderRecord(r: RecordEnvelope): string {
-  const lines = [`${r.entityType}: ${r.name}`, `id: ${r.externalId}`];
-  for (const key of Object.keys(r.attributes).sort()) {
-    const v = r.attributes[key];
-    if (v === null || v === undefined) continue;
-    lines.push(`${key}: ${String(v)}`);
-  }
-  for (const rel of r.relations ?? []) {
-    lines.push(`${rel.kind}: ${rel.targetType} ${rel.targetName ?? rel.targetExternalId}`);
-  }
-  if (r.updatedAt) lines.push(`updated_at: ${r.updatedAt}`);
-  return lines.join('\n');
 }
 
 function toIso(v: string | undefined): string {

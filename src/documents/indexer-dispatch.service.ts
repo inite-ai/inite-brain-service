@@ -45,8 +45,10 @@ export class IndexerDispatchService {
     doc: StoredDocument;
     chunks: DocumentChunk[];
     indexers?: IndexerSelection | undefined;
+    /** False = skip the pack-less general pass (a rendered record whose facts arrive as candidates). Default true. */
+    general?: boolean | undefined;
   }): Promise<IndexerRunResult[]> {
-    const results: IndexerRunResult[] = [await this.runs.runGeneral(p)];
+    const results: IndexerRunResult[] = p.general === false ? [] : [await this.runs.runGeneral(p)];
     for (const binding of await this.selectDedicated(p)) {
       try {
         results.push(await this.runBinding({ ...p, binding }));

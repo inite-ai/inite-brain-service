@@ -22,15 +22,22 @@
  * access token lives.
  */
 
-export type OAuthProviderId = 'google' | 'microsoft' | 'dropbox';
+export type OAuthProviderId = 'google' | 'microsoft' | 'dropbox' | 'pipedrive';
 
-export const OAUTH_PROVIDER_IDS: readonly OAuthProviderId[] = ['google', 'microsoft', 'dropbox'];
+export const OAUTH_PROVIDER_IDS: readonly OAuthProviderId[] = [
+  'google',
+  'microsoft',
+  'dropbox',
+  'pipedrive',
+];
 
 export interface OAuthProviderSpec {
   id: OAuthProviderId;
   title: string;
   authorizeUrl: string;
   tokenUrl: string;
+  /** How the client authenticates at the token endpoint: in the form body (default) or HTTP Basic (Pipedrive). */
+  tokenAuth?: 'body' | 'basic' | undefined;
   /** Provider-specific authorize parameters (offline access, consent). */
   authorizeParams: Record<string, string>;
   /** Scopes every grant of this provider carries (identity), beyond what a connector asks. */
@@ -39,7 +46,7 @@ export interface OAuthProviderSpec {
   apiBase: string;
   /** A second origin for bytes (Dropbox serves content from its own host). */
   contentBase?: string | undefined;
-  /** How the account label is read once a token is in hand. */
+  /** How the account label is read once a token is in hand (`pick` entries may be dotted paths). */
   identity: { method: 'GET' | 'POST'; url: string; pick: string[] };
   /** Best-effort revocation on disconnect; absent = the user revokes at the provider. */
   revoke?: { url: string; style: 'token_param' | 'bearer' } | undefined;
@@ -91,6 +98,23 @@ const SPECS: Record<OAuthProviderId, OAuthProviderSpec> = {
     },
     revoke: { url: 'https://api.dropboxapi.com/2/auth/token/revoke', style: 'bearer' },
   },
+  pipedrive: {
+    id: 'pipedrive',
+    title: 'Pipedrive',
+    authorizeUrl: 'https://oauth.pipedrive.com/oauth/authorize',
+    tokenUrl: 'https://oauth.pipedrive.com/oauth/token',
+    // Pipedrive wants the app's credentials as HTTP Basic on the token
+    // endpoint; its scopes are set on the app, not asked per grant.
+    tokenAuth: 'basic',
+    authorizeParams: {},
+    baseScopes: [],
+    apiBase: 'https://api.pipedrive.com',
+    identity: {
+      method: 'GET',
+      url: 'https://api.pipedrive.com/v1/users/me',
+      pick: ['data.email', 'data.name'],
+    },
+  },
 };
 
 /** A provider as this deployment can use it: its spec with the operator's app and any dev override applied. */
@@ -114,6 +138,11 @@ const ENV_NAMES: Record<
   OAuthProviderId,
   { clientId: string; clientSecret: string; baseUrl: string }
 > = {
+  pipedrive: {
+    clientId: 'SOURCE_OAUTH_PIPEDRIVE_CLIENT_ID',
+    clientSecret: 'SOURCE_OAUTH_PIPEDRIVE_CLIENT_SECRET',
+    baseUrl: 'SOURCE_OAUTH_PIPEDRIVE_BASE_URL',
+  },
   google: {
     clientId: 'SOURCE_OAUTH_GOOGLE_CLIENT_ID',
     clientSecret: 'SOURCE_OAUTH_GOOGLE_CLIENT_SECRET',
@@ -185,9 +214,11 @@ export function resolveProvider(
 /** The account label out of an identity response: the first named key that is a non-empty string. */
 export function pickAccount(body: unknown, pick: string[]): string | null {
   if (!body || typeof body !== 'object') return null;
-  const o = body as Record<string, unknown>;
   for (const k of pick) {
-    const v = o[k];
+    let v: unknown = body;
+    for (const part of k.split('.')) {
+      v = v && typeof v === 'object' ? (v as Record<string, unknown>)[part] : undefined;
+    }
     if (typeof v === 'string' && v.length > 0) return v;
   }
   return null;

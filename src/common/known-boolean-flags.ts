@@ -610,6 +610,7 @@ export const KNOWN_BOOLEAN_FLAGS = [
   'SOURCE_KIND_GDRIVE',
   'SOURCE_KIND_ONEDRIVE',
   'SOURCE_KIND_DROPBOX',
+  'SOURCE_KIND_PIPEDRIVE',
   'SOURCE_OAUTH_CLIENT',
   'SOURCE_EGRESS_ALLOW_PRIVATE',
   // Orphan-blob GC (MM-7 follow-up): the delete-side sweep that reclaims

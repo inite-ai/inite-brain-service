@@ -366,14 +366,27 @@ export class SourceOAuthService {
     provider: ResolvedProvider,
     params: Record<string, string>,
   ): Promise<TokenSet> {
+    const basic = provider.tokenAuth === 'basic';
     const body = new URLSearchParams({
       ...params,
-      client_id: provider.clientId,
-      ...(provider.clientSecret ? { client_secret: provider.clientSecret } : {}),
+      ...(basic
+        ? {}
+        : {
+            client_id: provider.clientId,
+            ...(provider.clientSecret ? { client_secret: provider.clientSecret } : {}),
+          }),
     });
     const res = await safeFetch(provider.tokenUrl, {
       method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        accept: 'application/json',
+        ...(basic
+          ? {
+              authorization: `Basic ${Buffer.from(`${provider.clientId}:${provider.clientSecret}`).toString('base64')}`,
+            }
+          : {}),
+      },
       body: body.toString(),
       allowPrivate: provider.private,
       timeoutMs: TOKEN_TIMEOUT_MS,

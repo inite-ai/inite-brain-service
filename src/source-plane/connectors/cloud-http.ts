@@ -41,8 +41,15 @@ export function cloudHttp(p: {
   private: boolean;
   signal: AbortSignal;
   timeoutMs?: number | undefined;
+  /** False = the token does not ride as a bearer (a vendor's own header in `headers` carries it). */
+  bearer?: boolean | undefined;
+  /** Headers on every call (a vendor's own auth scheme). */
+  headers?: Record<string, string> | undefined;
 }): CloudHttp {
-  const auth = { authorization: `Bearer ${p.token}` };
+  const auth = {
+    ...(p.bearer === false ? {} : { authorization: `Bearer ${p.token}` }),
+    ...(p.headers ?? {}),
+  };
   const base = { allowPrivate: p.private, signal: p.signal, timeoutMs: p.timeoutMs ?? 30_000 };
 
   const call = async (

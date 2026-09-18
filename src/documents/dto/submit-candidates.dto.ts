@@ -13,6 +13,15 @@ export interface SubmittedEntity {
   name: string;
   type?: string;
   canonical?: string;
+  /**
+   * The system-of-record's own id for this entity (a CRM contact id, a
+   * ticket key) — the indexer's authoritative identity, scoped to the
+   * document's vertical + the source it came from. Two submissions with
+   * the same externalId are one entity whatever the name says; a name
+   * alone never merges two different ids. Optional: prose indexers have
+   * none. ≤ 256 chars.
+   */
+  externalId?: string;
 }
 
 export interface SubmittedFact {

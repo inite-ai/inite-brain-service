@@ -130,6 +130,10 @@ import {
   SourceOAuthStartResponseSchema,
   SourceOAuthGrantsResponseSchema,
   RevokeGrantResponseSchema,
+  PushRecordsRequestSchema,
+  PushRecordsResponseSchema,
+  RecordsPreviewRequestSchema,
+  RecordsPreviewResponseSchema,
   AgentInventorySchema,
   AgentConnectionsListResponseSchema,
   AgentDeltasRequestSchema,
@@ -381,6 +385,10 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   SourceOAuthStartResponse: SourceOAuthStartResponseSchema,
   SourceOAuthGrantsResponse: SourceOAuthGrantsResponseSchema,
   RevokeGrantResponse: RevokeGrantResponseSchema,
+  PushRecordsRequest: PushRecordsRequestSchema,
+  PushRecordsResponse: PushRecordsResponseSchema,
+  RecordsPreviewRequest: RecordsPreviewRequestSchema,
+  RecordsPreviewResponse: RecordsPreviewResponseSchema,
   AgentInventory: AgentInventorySchema,
   AgentConnectionsListResponse: AgentConnectionsListResponseSchema,
   AgentDeltasRequest: AgentDeltasRequestSchema,
@@ -1751,7 +1759,63 @@ function sourcePlanePaths(): Json {
     },
     ...inspectPaths(idParam),
     ...oauthPaths(),
+    ...recordsPaths(idParam),
     ...agentProtocolPaths(idParam),
+  };
+}
+
+const RECORDS_NOTE =
+  'Records (docs/roadmap/crm-sources-2026-09.md): a CRM row enters as FACTS — its mapped ' +
+  'attributes become deterministic candidates under the record’s own id, never prose a model ' +
+  're-extracts. ' +
+  SOURCE_PLANE_NOTE;
+
+/** The records door's two wires: push (brain:write) and the admin preview. */
+function recordsPaths(idParam: Json): Json {
+  return {
+    '/v1/source-connections/{id}/records': {
+      post: operation({
+        operationId: 'pushSourceRecords',
+        tag: 'Source Plane',
+        summary: 'Push record envelopes to a connection',
+        description:
+          'A CRM’s outbound webhook, an automation (Make, n8n, Zapier, Albato) or a script posts a ' +
+          'batch of records — `{ entityType, externalId, name, attributes, relations?, updatedAt? }` — ' +
+          'plus the `<type>/<id>`s that are gone, under a connection of shape `structure`. Each batch ' +
+          'is a `source_sync` run; an unchanged revision is not re-ingested; gone ids close their ' +
+          'facts by the connection’s delete policy. ' +
+          RECORDS_NOTE,
+        scope: 'brain:write',
+        parameters: [idParam],
+        requestBody: jsonBody(ref('PushRecordsRequest')),
+        responses: {
+          '201': jsonResponse('The batch’s outcome.', ref('PushRecordsResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/source-connections/preview': {
+      post: operation({
+        operationId: 'previewSourceRecords',
+        tag: 'Source Plane',
+        summary: 'Preview a records connector before connecting',
+        description:
+          'With the config and credential about to be connected, list one page per chosen entity at ' +
+          'the live vendor and show what the mapping makes of the first records — the facts, the ' +
+          'relations, the fields left unmapped, the drops by name. Nothing is written. ' +
+          RECORDS_NOTE,
+        scope: 'brain:admin',
+        requestBody: jsonBody(ref('RecordsPreviewRequest')),
+        responses: {
+          '201': jsonResponse('The preview.', ref('RecordsPreviewResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
   };
 }
 

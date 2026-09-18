@@ -244,6 +244,26 @@ export const SourceCatalogEntrySchema = z.object({
       configured: z.boolean(),
     })
     .nullable(),
+  /**
+   * A records connector (W4.2): the entity types it can list, their
+   * fields, and the preset mapping of fields to the pack vocabulary —
+   * what the connect form's "what to sync" and mapping table show.
+   */
+  records: z
+    .object({
+      entities: z.array(
+        z.object({
+          type: z.string(),
+          label: z.string(),
+          defaultOn: z.boolean(),
+          fields: z.array(z.object({ key: z.string(), label: z.string() })),
+        }),
+      ),
+      preset: z.record(z.string(), z.unknown()),
+      /** The pack's predicate localIds a field may map to. */
+      predicates: z.array(z.object({ localId: z.string(), label: z.string() })),
+    })
+    .nullable(),
 });
 export type SourceCatalogEntry = z.infer<typeof SourceCatalogEntrySchema>;
 
@@ -302,6 +322,103 @@ export const ItemDeltaWireSchema = z.discriminatedUnion('type', [
 ]);
 export type ItemDeltaWire = z.infer<typeof ItemDeltaWireSchema>;
 
+// ── Records (W4.2: docs/roadmap/crm-sources-2026-09.md) ─────────────────
+
+/** The record envelope — entities + attributes + relations + a revision; the shape every CRM transport funnels into. */
+export const RecordEnvelopeWireSchema = z.object({
+  entityType: z.string().min(1).max(64),
+  externalId: z.string().min(1).max(512),
+  name: z.string().min(1).max(512),
+  attributes: z.record(
+    z.string().max(64),
+    z.union([z.string(), z.number(), z.boolean(), z.null()]),
+  ),
+  relations: z
+    .array(
+      z.object({
+        kind: z.string().max(64),
+        targetType: z.string().max(64),
+        targetExternalId: z.string().max(512),
+        targetName: z.string().max(512).optional(),
+      }),
+    )
+    .max(500)
+    .optional(),
+  updatedAt: z.string().max(64).optional(),
+});
+export type RecordEnvelopeWire = z.infer<typeof RecordEnvelopeWireSchema>;
+
+/** How one entity type's attributes become facts (records/record-mapping.ts) — bounded on purpose. */
+export const EntityMappingSchema = z.object({
+  fields: z.record(z.string().max(64), z.string().max(96)),
+  text: z.array(z.string().max(64)).max(16).optional(),
+  lifecycle: z
+    .object({
+      field: z.string().max(64),
+      model: z.string().max(64),
+      states: z.record(z.string().max(128), z.string().max(64)).optional(),
+    })
+    .optional(),
+  coreType: z
+    .enum(['customer', 'staff', 'asset', 'project', 'topic', 'location', 'other'])
+    .optional(),
+});
+export const RecordMappingSchema = z.record(z.string().max(64), EntityMappingSchema);
+export type RecordMappingWire = z.infer<typeof RecordMappingSchema>;
+
+/** POST /v1/source-connections/:id/records — a batch pushed by a webhook or an automation. */
+export const PushRecordsRequestSchema = z.object({
+  records: z.array(RecordEnvelopeWireSchema).max(200),
+  /** `<entityType>/<externalId>` of records that no longer exist at the source. */
+  gone: z.array(z.string().min(1).max(600)).max(200).optional(),
+  /** The revision of the source these were read at (else each record's updatedAt). */
+  sourceVersion: z.string().max(200).optional(),
+});
+export type PushRecordsRequest = z.infer<typeof PushRecordsRequestSchema>;
+
+export const PushRecordsResponseSchema = z.object({
+  runId: z.string().nullable(),
+  received: z.number().int(),
+  ingested: z.number().int(),
+  deduplicated: z.number().int(),
+  failed: z.number().int(),
+  gone: z.number().int(),
+  closed: z.number().int(),
+  errors: z.array(z.object({ externalId: z.string(), error: z.string() })),
+});
+export type PushRecordsResponse = z.infer<typeof PushRecordsResponseSchema>;
+
+/** POST /v1/admin/source-connections/preview — one page per entity, mapped, before a connection exists. */
+export const RecordsPreviewRequestSchema = z.object({
+  packId: z.string().min(1).max(64),
+  sourceId: z.string().min(1).max(40),
+  config: z.record(z.string().max(64), z.unknown()).optional(),
+  credential: z.string().max(4096).optional(),
+  /** Records per entity (default 5, max 20). */
+  limit: z.number().int().min(1).max(20).optional(),
+});
+export type RecordsPreviewRequest = z.infer<typeof RecordsPreviewRequestSchema>;
+
+export const RecordsPreviewResponseSchema = z.object({
+  entities: z.array(
+    z.object({
+      type: z.string(),
+      label: z.string(),
+      records: z.array(
+        z.object({
+          record: RecordEnvelopeWireSchema,
+          facts: z.array(z.object({ predicate: z.string(), object: z.string() })),
+          relations: z.array(z.object({ kind: z.string(), target: z.string() })),
+          unmapped: z.array(z.string()),
+          dropped: z.array(z.object({ key: z.string(), reason: z.string() })),
+        }),
+      ),
+      error: z.string().nullable(),
+    }),
+  ),
+});
+export type RecordsPreviewResponse = z.infer<typeof RecordsPreviewResponseSchema>;
+
 export const FetchedItemWireSchema = z.discriminatedUnion('shape', [
   z.object({
     shape: z.literal('document'),
@@ -336,27 +453,8 @@ export const FetchedItemWireSchema = z.discriminatedUnion('shape', [
   }),
   z.object({
     shape: z.literal('structure'),
-    record: z.object({
-      entityType: z.string().min(1).max(64),
-      externalId: z.string().min(1).max(512),
-      name: z.string().min(1).max(512),
-      attributes: z.record(
-        z.string().max(64),
-        z.union([z.string(), z.number(), z.boolean(), z.null()]),
-      ),
-      relations: z
-        .array(
-          z.object({
-            kind: z.string().max(64),
-            targetType: z.string().max(64),
-            targetExternalId: z.string().max(512),
-            targetName: z.string().max(512).optional(),
-          }),
-        )
-        .max(500)
-        .optional(),
-      updatedAt: z.string().max(64).optional(),
-    }),
+    record: RecordEnvelopeWireSchema,
+    mapping: EntityMappingSchema.optional(),
   }),
 ]);
 export type FetchedItemWire = z.infer<typeof FetchedItemWireSchema>;
@@ -603,7 +701,7 @@ export type BrowseResponse = z.infer<typeof BrowseResponseSchema>;
 
 const GRANT_ID = /^source_oauth_grant:[A-Za-z0-9_]+$/;
 
-export const SourceOAuthProviderIdSchema = z.enum(['google', 'microsoft', 'dropbox']);
+export const SourceOAuthProviderIdSchema = z.enum(['google', 'microsoft', 'dropbox', 'pipedrive']);
 export type SourceOAuthProviderId = z.infer<typeof SourceOAuthProviderIdSchema>;
 
 export const SourceOAuthStartRequestSchema = z.object({

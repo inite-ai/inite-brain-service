@@ -93,6 +93,7 @@ export class DocumentIngestService {
           doc,
           chunks,
           indexers: dto.indexers,
+          general: !(origin.channel === 'source' && origin.extraction === 'none'),
         });
         // External packs get pull-API work items instead of in-process
         // runs; they never defer this commit (external runs are excluded

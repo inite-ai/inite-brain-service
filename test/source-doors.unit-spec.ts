@@ -11,6 +11,7 @@ import type { DocumentIngestOrigin } from '../src/documents/document-meta';
 import type { IngestDocumentDto } from '../src/documents/dto/ingest-document.dto';
 import type { EvidenceUploadService } from '../src/evidence/evidence-upload.service';
 import type { IngestService } from '../src/ingest/ingest.service';
+import type { RecordsDoorService } from '../src/source-plane/records/records-door.service';
 import type { ConnectorConnectionView } from '../src/source-plane/connector';
 import {
   SourceDoorsService,
@@ -28,6 +29,7 @@ const connection: ConnectorConnectionView = {
   host: 'server',
   config: {},
   credential: null,
+  credentialSource: null,
   contentPolicy: 'text',
   vertical: 'wiki',
   recorder: 'srcconn_c1',
@@ -45,6 +47,7 @@ function doors() {
   const docCalls: Array<{ dto: IngestDocumentDto; origin: DocumentIngestOrigin }> = [];
   const uploads: unknown[] = [];
   const mentions: unknown[] = [];
+  const records: unknown[] = [];
   const svc = new SourceDoorsService(
     {
       ingestDocument: async (_c: string, dto: IngestDocumentDto, origin: DocumentIngestOrigin) => {
@@ -64,8 +67,20 @@ function doors() {
         return { skipped: false, episodeId: 'episode:e1' };
       },
     } as unknown as IngestService,
+    {
+      ingest: async (p: unknown) => {
+        records.push(p);
+        return {
+          documentId: 'source_document:r1',
+          deduplicated: false,
+          facts: 2,
+          relations: 1,
+          dropped: [],
+        };
+      },
+    } as unknown as RecordsDoorService,
   );
-  return { svc, docCalls, uploads, mentions };
+  return { svc, docCalls, uploads, mentions, records };
 }
 
 describe('SourceDoorsService', () => {
@@ -135,7 +150,7 @@ describe('SourceDoorsService', () => {
     );
   });
 
-  it('structure → a deterministic record document (kind source_record, record_type in meta)', async () => {
+  it('structure → the records door, with the record, its mapping and the stamp; renderRecord is deterministic', async () => {
     const d = doors();
     const record = {
       entityType: 'contact',
@@ -152,20 +167,26 @@ describe('SourceDoorsService', () => {
       ],
       updatedAt: '2026-09-10T00:00:00.000Z',
     };
-    await d.svc.ingest({
+    const mapping = { fields: { email: 'email' } };
+    const out = await d.svc.ingest({
       companyId: 'co',
       connection,
       itemId: 'source_item:i2',
       item: { externalId: '42' },
-      fetched: { shape: 'structure', record },
-      stamp: null,
+      fetched: { shape: 'structure', record, mapping },
+      stamp,
     });
-    const { dto } = d.docCalls[0]!;
-    expect(dto.kind).toBe('source_record');
-    expect(dto.title).toBe('Ada Lovelace');
-    expect(dto.occurredAt).toBe('2026-09-10T00:00:00.000Z');
-    expect(dto.meta).toMatchObject({ record_type: 'contact' });
-    expect(dto.text).toBe(
+    expect(out).toEqual({ documentId: 'source_document:r1', deduplicated: false });
+    expect(d.records).toHaveLength(1);
+    expect(d.records[0]).toMatchObject({
+      companyId: 'co',
+      itemId: 'source_item:i2',
+      record,
+      mapping,
+      stamp,
+    });
+    expect(d.docCalls).toHaveLength(0);
+    expect(renderRecord(record)).toBe(
       [
         'contact: Ada Lovelace',
         'id: 42',

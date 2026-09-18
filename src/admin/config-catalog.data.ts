@@ -1621,6 +1621,43 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       "The `dropbox` source connector (source plane, W4): a Dropbox folder read recursively as documents or handed to the evidence plane (file_memory: `dropbox` / `dropbox_media`). The folder cursor is the change feed (`list_folder/continue` from the checkpointed cursor returns only what changed; a cursor Dropbox reset restarts the walk); `rev` is the revision. Runs as a connected Dropbox account (SOURCE_OAUTH_CLIENT). Off (default) = 'not installed' — byte-identical.",
   },
   {
+    key: 'SOURCE_KIND_PIPEDRIVE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `pipedrive` source connector (source plane, W4.2 — the first CRM on the records contract, docs/roadmap/crm-sources-2026-09.md): deals, persons and organizations of a Pipedrive account through API v2 (`updated_since` + cursor per entity, stage / pipeline / owner ids resolved to names once per run), as a connected account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_PIPEDRIVE_CLIENT_ID) or with an API token. Every record enters the records door: its mapped attributes become facts deterministically (crm_memory), the record's own id is the entity's identity, a changed value supersedes the old one, a record gone at the source closes them. Off (default) = 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_OAUTH_PIPEDRIVE_CLIENT_ID',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The client id of the Pipedrive app the brain connects Pipedrive accounts through (Marketplace Manager; the brain's callback URL as its OAuth callback; scopes set on the app). Unset = Pipedrive is 'not configured' — an API token still works as the connection's credential.",
+  },
+  {
+    key: 'SOURCE_OAUTH_PIPEDRIVE_CLIENT_SECRET',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description:
+      'The client secret of the Pipedrive app named by SOURCE_OAUTH_PIPEDRIVE_CLIENT_ID (sent as HTTP Basic to its token endpoint).',
+  },
+  {
+    key: 'SOURCE_OAUTH_PIPEDRIVE_BASE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the Pipedrive (OAuth + API) counterpart.',
+  },
+  {
     key: 'SOURCE_OAUTH_CLIENT',
     category: 'pipeline',
     defaultValue: '0',

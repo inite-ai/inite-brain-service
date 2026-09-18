@@ -300,6 +300,9 @@ export class ExternalCandidatesService {
       name: clean ? sanitizeIngestText(e.name) : e.name,
       type: normalizeEntityType(e.type),
       canonical: clean ? sanitizeIngestText(e.canonical) : e.canonical,
+      ...(typeof e.externalId === 'string' && e.externalId.trim()
+        ? { externalId: e.externalId.trim() }
+        : {}),
     }));
     const facts: CandidateFact[] = dto.facts.map((f) => {
       const fact = toFact(f);

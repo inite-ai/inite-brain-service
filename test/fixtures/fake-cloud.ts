@@ -67,6 +67,17 @@ export interface FakeCloud {
   };
   /** Identity answers. */
   identity: { email: string };
+  /** Pipedrive facet: rows the v2 list endpoints return (deleted ones carry is_deleted). */
+  pipedrive: {
+    deals: Array<Record<string, unknown>>;
+    persons: Array<Record<string, unknown>>;
+    organizations: Array<Record<string, unknown>>;
+    stages: Array<{ id: number; name: string; pipeline_id: number }>;
+    pipelines: Array<{ id: number; name: string }>;
+    users: Array<{ id: number; name: string }>;
+    /** API tokens accepted on x-api-token. */
+    apiTokens: Set<string>;
+  };
 }
 
 export async function startFakeCloud(): Promise<FakeCloud> {
@@ -90,6 +101,15 @@ export async function startFakeCloud(): Promise<FakeCloud> {
     dropbox: { all: [], changed: [], deleted: [], cursorSerial: 0 },
     graph: { all: [], changed: [], deleted: [], deltaSerial: 0 },
     identity: { email: 'owner@example.test' },
+    pipedrive: {
+      deals: [],
+      persons: [],
+      organizations: [],
+      stages: [],
+      pipelines: [],
+      users: [],
+      apiTokens: new Set(),
+    },
   };
   const server: Server = createServer((req, res) => {
     let body = '';
@@ -195,9 +215,46 @@ function route(cloud: FakeCloud, req: IncomingMessage, res: ServerResponse, body
   ) {
     return tokenAnswer(cloud, res, new URLSearchParams(body));
   }
+  if (m === 'POST' && p === '/oauth/token') {
+    // Pipedrive: the app's credentials ride as HTTP Basic, never in the body.
+    if (!(req.headers.authorization ?? '').startsWith('Basic '))
+      return json(res, 401, { error: 'basic auth required' });
+    return tokenAnswer(cloud, res, new URLSearchParams(body));
+  }
+
   if (m === 'POST' && p === '/revoke') return json(res, 200, {});
-  if (!p.startsWith('/dl/') && !bearerOk(cloud, req))
+  const apiToken = req.headers['x-api-token'];
+  const apiTokenOk = typeof apiToken === 'string' && cloud.pipedrive.apiTokens.has(apiToken);
+  if (!p.startsWith('/dl/') && !bearerOk(cloud, req) && !apiTokenOk)
     return json(res, 401, { error: { message: 'invalid credentials' } });
+  // ── Pipedrive ──
+  if (p === '/v1/users/me')
+    return json(res, 200, { data: { email: cloud.identity.email, name: 'Owner' } });
+  if (p === '/v1/users') return json(res, 200, { data: cloud.pipedrive.users });
+  if (p === '/api/v2/stages') return json(res, 200, { data: cloud.pipedrive.stages });
+  if (p === '/api/v2/pipelines') return json(res, 200, { data: cloud.pipedrive.pipelines });
+  const pd = /^\/api\/v2\/(deals|persons|organizations)(?:\/(\d+))?$/.exec(p);
+  if (pd) {
+    const rows = cloud.pipedrive[pd[1] as 'deals' | 'persons' | 'organizations'];
+    if (pd[2]) {
+      const one = rows.find((r) => String(r.id) === pd![2]);
+      return one ? json(res, 200, { data: one }) : json(res, 404, { error: 'not found' });
+    }
+    const since = url.searchParams.get('updated_since');
+    const limit = Number(url.searchParams.get('limit') ?? 500);
+    const start = Number(url.searchParams.get('cursor') ?? 0);
+    const all = rows
+      .filter(
+        (r) => !since || String(r.update_time ?? '') >= since.replace('T', ' ').replace(/Z$/, ''),
+      )
+      .sort((a, b) => String(a.update_time).localeCompare(String(b.update_time)));
+    const slice = all.slice(start, start + limit);
+    const nextStart = start + limit;
+    return json(res, 200, {
+      data: slice,
+      additional_data: { next_cursor: nextStart < all.length ? String(nextStart) : null },
+    });
+  }
   // ── identity ──
   if (p === '/oauth2/v3/userinfo') return json(res, 200, { email: cloud.identity.email, sub: '1' });
   if (p === '/v1.0/me') return json(res, 200, { userPrincipalName: cloud.identity.email, id: '1' });

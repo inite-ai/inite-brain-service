@@ -1,6 +1,7 @@
 import type { EvidenceModality } from '../common/evidence-taxonomy';
 import type { PackSourceShape, PackSourceSpec } from '../ai/domain-packs/manifest';
 import type { OAuthProviderId } from './oauth/oauth-providers';
+import type { EntityMapping } from './records/record-mapping';
 
 /**
  * Connector — the source-plane seam (docs/roadmap/
@@ -35,6 +36,8 @@ export interface ConnectorConnectionView {
   config: Record<string, unknown>;
   /** Resolved credential, when the host holds one. */
   credential: string | null;
+  /** Where it came from: a connected account (bearer), an operator secret (the vendor's own scheme), a pack install secret. */
+  credentialSource: 'grant' | 'secret' | 'install' | null;
   contentPolicy: 'manifest' | 'text' | 'bytes';
   vertical: string;
   recorder: string;
@@ -138,7 +141,12 @@ export type FetchedItem =
       conversationId: string;
       turns: ConversationTurn[];
     }
-  | { shape: 'structure'; record: RecordEnvelope };
+  | {
+      shape: 'structure';
+      record: RecordEnvelope;
+      /** How the record's attributes become facts (records/record-mapping.ts); absent = render only. */
+      mapping?: EntityMapping | undefined;
+    };
 
 export interface Connector {
   /** `^[a-z][a-z0-9_]{1,31}$` — what a pack's `native.connector` names. */
@@ -167,7 +175,12 @@ export interface Connector {
    * of it names its grant as `credential: 'oauth:<grant id>'`; the
    * engine hands the connector a fresh access token in `credential`.
    */
-  readonly oauth?: { provider: OAuthProviderId; scopes: string[] };
+  readonly oauth?: {
+    provider: OAuthProviderId;
+    scopes: string[];
+    /** True = the vendor also takes a plain secret (an API token) as `credential`. */
+    optional?: boolean;
+  };
   enumerate(ctx: ConnectorCtx, opts: EnumerateOptions): AsyncIterable<ItemDelta>;
   fetch(ctx: ConnectorCtx, item: ItemDescriptor): Promise<FetchedItem>;
   /** Called once a run is over (success or failure) — release a session

@@ -149,7 +149,20 @@ export interface DocumentWriteOrigin {
  */
 export type DocumentIngestOrigin =
   | { channel: 'api' | 'mcp' | 'pack_seed' }
-  | { channel: 'mention' | 'evidence' | 'source'; internal: InternalDocumentMeta | undefined };
+  | { channel: 'mention' | 'evidence'; internal: InternalDocumentMeta | undefined }
+  | {
+      channel: 'source';
+      internal: InternalDocumentMeta | undefined;
+      /**
+       * `none` = the pack-less general extractor does NOT run over this
+       * document (a rendered record: its facts arrive deterministically
+       * as external candidates, and prose extraction over `key: value`
+       * lines would only add noise and a model call). Dedicated /
+       * external routing is unaffected. Internal channel only — never a
+       * caller's choice.
+       */
+      extraction?: 'general' | 'none';
+    };
 
 /** The internal bag an ingest origin contributes — the mention wrapper
  *  (its typed contextRef ids), the evidence bridge (the asset +

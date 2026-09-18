@@ -973,7 +973,9 @@
           "notConfigured": "This brain has no {provider} app registered — set {flag} (and the redirect URI below) on the brain.",
           "redirectUri": "Redirect URI to register at {provider}: {uri}",
           "keyMissing": "The brain has no SOURCE_CREDENTIAL_ENCRYPTION_KEY — tokens are never stored in the clear, so no account can be connected until it is set.",
-          "scopesShort": "This account was connected with narrower permissions; connect it again."
+          "scopesShort": "This account was connected with narrower permissions; connect it again.",
+          "token": "or an API token",
+          "tokenHint": "Pasted once, stored encrypted; a connected account is preferred where the CRM offers one."
         },
         "errors": {
           "required": "required",
@@ -1245,6 +1247,12 @@
               "label": "Max file size (bytes)",
               "hint": ""
             }
+          },
+          "pipedrive": {
+            "apiDomain": {
+              "label": "API domain",
+              "hint": "The api_domain of the account (https://<company>.pipedrive.com); empty = api.pipedrive.com."
+            }
           }
         },
         "authOptions": {
@@ -1398,6 +1406,16 @@
             "binaryHint": "PDFs, Word / Excel / PowerPoint, mail, images"
           }
         },
+        "records": {
+          "title": "CRM · {connector}",
+          "body": "People, organizations and deals of a CRM as facts with the revision they were read at — stage, amount, owner, title, company. Records enter deterministically: no model reads them.",
+          "shapes": {
+            "document": "Records",
+            "documentHint": "deals, persons, organizations",
+            "binary": "",
+            "binaryHint": ""
+          }
+        },
         "external": {
           "title": "Pushed by a publisher",
           "body": "An indexer or tool pushes here through the doors; connecting only creates the identity its writes are attributed to.",
@@ -1492,6 +1510,24 @@
         "notConfigured": "not configured — set {flag}",
         "redirect": "redirect URI",
         "notReady": "Connected accounts are off (SOURCE_OAUTH_CLIENT) or the brain has no SOURCE_CREDENTIAL_ENCRYPTION_KEY."
+      },
+      "records": {
+        "entities": "What to sync",
+        "entitiesHint": "The record types this connection reads; each becomes catalogue rows and facts.",
+        "mapping": "Fields → facts",
+        "mappingHint": "Which attribute becomes which fact. Unmapped fields stay in the record's text (searchable) but make no fact.",
+        "field": "field",
+        "predicate": "fact",
+        "none": "— not a fact —",
+        "preview": "Preview",
+        "previewing": "Asking the CRM…",
+        "previewHint": "Lists the first records at the CRM with this setup and shows the facts they would become. Nothing is written.",
+        "previewEmpty": "No records.",
+        "unmapped": "unmapped: {fields}",
+        "dropped": "dropped: {items}",
+        "relations": "relations",
+        "pushHint": "Any automation posts records here with a brain:write key:",
+        "pushGone": "gone: [\"deal/4812\"] closes a record's facts."
       }
     },
     "marketplace": {

@@ -1,0 +1,432 @@
+{
+  "id": "crm_memory",
+  "version": "0.1.0",
+  "description": "What a CRM knows — people, organizations and deals as facts with the revision they were read at: title, company, owner, stage, amount, dates, source. Records enter deterministically through the records door (no model call); prose fields (notes) go to the ordinary extractor.",
+  "indexer": {
+    "mode": "external",
+    "relevance": {
+      "verticals": [
+        "crm",
+        "sales"
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "push",
+      "kind": "external",
+      "shape": "structure",
+      "title": "Pushed records (webhook / automation)",
+      "description": "Record envelopes posted by a CRM outbound webhook or an automation (Make, n8n, Zapier, Albato, a script) to POST /v1/source-connections/<id>/records with a brain:write key — batches of { entityType, externalId, name, attributes, relations?, updatedAt? } plus the ids that are gone. No polling, no credential on the brain. config: { mapping? }.",
+      "defaults": {
+        "contentPolicy": "text",
+        "deletePolicy": "close",
+        "schedule": "manual"
+      }
+    },
+    {
+      "id": "pipedrive",
+      "kind": "native",
+      "connector": "pipedrive",
+      "shape": "structure",
+      "title": "Pipedrive",
+      "description": "Deals, persons and organizations of a Pipedrive account, incrementally through updated_since + cursor (API v2), as a connected account or with an API token. config: { entities?, mapping?, apiDomain? }.",
+      "defaults": {
+        "contentPolicy": "text",
+        "deletePolicy": "close",
+        "schedule": "1h"
+      }
+    }
+  ],
+  "predicates": [
+    {
+      "localId": "job_title",
+      "displayLabel": "job title",
+      "description": "TYPE   subject is a person; value is their role at their organization\nADMIT  a CRM record or text names the person's title (\"Head of Procurement\")\nVALUE  the title verbatim",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "owner",
+      "displayLabel": "owned by",
+      "description": "TYPE   subject is a person, organization or deal; value is the CRM user responsible for it\nADMIT  the record names its owner / responsible user\nVALUE  the owner's name verbatim",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "lead_source",
+      "displayLabel": "lead source",
+      "description": "TYPE   subject is a person or deal; value is where it came from\nADMIT  the record names a source / channel (\"Inbound web form\", \"Referral\")\nVALUE  the source verbatim",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "lifecycle_stage",
+      "displayLabel": "lifecycle stage",
+      "description": "TYPE   subject is a person or organization; value is its lifecycle stage in the CRM\nADMIT  the record carries a lifecycle / status field (\"lead\", \"customer\", \"churned\")\nVALUE  the stage verbatim",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "industry",
+      "displayLabel": "industry",
+      "description": "TYPE   subject is an organization; value is its industry\nADMIT  the record names the organization's industry / sector\nVALUE  the industry verbatim",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "website",
+      "displayLabel": "website",
+      "description": "TYPE   subject is an organization; value is its website\nADMIT  the record carries a website / domain\nVALUE  the URL or domain verbatim",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "deal_stage",
+      "displayLabel": "deal stage",
+      "description": "TYPE   subject is a deal; value is the pipeline stage it is in\nADMIT  the record names the deal's current stage (\"Negotiation\", \"Proposal sent\")\nVALUE  the stage label verbatim — the CRM's own name for it",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "deal_status",
+      "displayLabel": "deal status",
+      "description": "TYPE   subject is a deal; value is open / won / lost (or the CRM's equivalent)\nADMIT  the record carries a status field\nVALUE  the status verbatim",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "deal_amount",
+      "displayLabel": "deal amount",
+      "description": "TYPE   subject is a deal; value is its monetary value\nADMIT  the record carries a value / amount\nVALUE  the amount as the CRM states it (\"40000\")",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "currency",
+      "displayLabel": "currency",
+      "description": "TYPE   subject is a deal; value is the currency of its amount\nADMIT  the record names a currency code\nVALUE  the code verbatim (\"EUR\")",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "pipeline",
+      "displayLabel": "pipeline",
+      "description": "TYPE   subject is a deal; value is the pipeline it belongs to\nADMIT  the record names its pipeline\nVALUE  the pipeline name verbatim",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "probability",
+      "displayLabel": "win probability",
+      "description": "TYPE   subject is a deal; value is the CRM's win probability\nADMIT  the record carries a probability\nVALUE  the number as stated (\"60\")",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "expected_close",
+      "displayLabel": "expected close",
+      "description": "TYPE   subject is a deal; value is the expected close date\nADMIT  the record carries an expected / planned close date\nVALUE  the date as stated",
+      "datatype": "date",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "won_at",
+      "displayLabel": "won at",
+      "description": "TYPE   subject is a deal; value is when it was won\nADMIT  the record carries a won time\nVALUE  the timestamp as stated",
+      "datatype": "datetime",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "lost_at",
+      "displayLabel": "lost at",
+      "description": "TYPE   subject is a deal; value is when it was lost\nADMIT  the record carries a lost time\nVALUE  the timestamp as stated",
+      "datatype": "datetime",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "lost_reason",
+      "displayLabel": "lost reason",
+      "description": "TYPE   subject is a deal; value is why it was lost\nADMIT  the record carries a lost reason\nVALUE  the reason verbatim",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "next_step",
+      "displayLabel": "next step",
+      "description": "TYPE   subject is a deal; value is the agreed next activity\nADMIT  the record or text names the next step (\"send revised proposal by Friday\")\nVALUE  the step verbatim",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "last_activity_at",
+      "displayLabel": "last activity",
+      "description": "TYPE   subject is a person, organization or deal; value is when it was last touched\nADMIT  the record carries a last-activity time\nVALUE  the timestamp as stated",
+      "datatype": "datetime",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "label",
+      "displayLabel": "label",
+      "description": "TYPE   subject is any record; value is a tag / label the CRM applies\nADMIT  the record carries labels or tags\nVALUE  one label per fact (multi-valued)",
+      "datatype": "string",
+      "semantics": "append_only",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    }
+  ],
+  "extractionProfile": {
+    "guidance": "CRM inputs are RECORDS (contacts, organizations, deals) — their structured\nfields arrive as facts by themselves; this profile is for the PROSE they\ncarry: notes, call summaries, next steps. Treat the record's subject (the\nperson, organization or deal named in the title) as the SUBJECT entity.\nPrefer crm_memory__next_step for agreed actions, crm_memory__lost_reason\nfor why a deal was lost, crm_memory__deal_stage only when a stage is named\nverbatim. Copy values VERBATIM — \"send revised proposal by Friday\", not a\nparaphrase.",
+    "fewShot": [
+      {
+        "text": "Call with Acme Robotics: they asked for a revised proposal by Friday; budget owner is Grace Hopper.",
+        "note": "deal/organization 'Acme Robotics' → crm_memory__next_step='revised proposal by Friday'; person 'Grace Hopper' → crm_memory__owner is NOT this (owner = the CRM user), but a relation to Acme."
+      },
+      {
+        "text": "Lost to a cheaper competitor after the pilot; the deal moved to Lost.",
+        "note": "→ crm_memory__lost_reason='cheaper competitor after the pilot', crm_memory__deal_stage='Lost'."
+      }
+    ]
+  },
+  "memoryModel": {
+    "sceneSchemas": [
+      {
+        "id": "record_update",
+        "description": "A CRM record changed state: a deal moved to another stage, was won or lost; a contact changed lifecycle stage.",
+        "cues": [
+          "moved to",
+          "stage",
+          "won",
+          "lost",
+          "qualified"
+        ]
+      }
+    ],
+    "stateModels": [
+      {
+        "id": "deal_stage",
+        "subjectType": "deal",
+        "states": [
+          "new",
+          "qualified",
+          "proposal",
+          "negotiation",
+          "won",
+          "lost",
+          "on_hold"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "qualified"
+          },
+          {
+            "from": "qualified",
+            "to": "proposal"
+          },
+          {
+            "from": "proposal",
+            "to": "negotiation"
+          },
+          {
+            "from": "negotiation",
+            "to": "won"
+          },
+          {
+            "from": "negotiation",
+            "to": "lost"
+          },
+          {
+            "from": "proposal",
+            "to": "lost"
+          },
+          {
+            "from": "qualified",
+            "to": "lost"
+          },
+          {
+            "from": "new",
+            "to": "lost"
+          },
+          {
+            "from": "negotiation",
+            "to": "on_hold"
+          },
+          {
+            "from": "on_hold",
+            "to": "negotiation"
+          },
+          {
+            "from": "lost",
+            "to": "new"
+          }
+        ]
+      }
+    ],
+    "attentionHints": [
+      {
+        "cue": "deal",
+        "prefer": [
+          "deal_stage",
+          "deal_amount",
+          "next_step"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.6
+      },
+      {
+        "cue": "stage",
+        "prefer": [
+          "deal_stage",
+          "deal_status"
+        ],
+        "zoom": [
+          "facts",
+          "episodes"
+        ],
+        "weight": 0.6
+      },
+      {
+        "cue": "who owns",
+        "prefer": [
+          "owner"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.6
+      },
+      {
+        "cue": "why lost",
+        "prefer": [
+          "lost_reason"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.7
+      }
+    ],
+    "verificationRules": [
+      {
+        "requires": "source_version_match",
+        "appliesTo": [
+          "job_title",
+          "owner",
+          "lead_source",
+          "lifecycle_stage",
+          "industry",
+          "website",
+          "deal_stage",
+          "deal_status",
+          "deal_amount",
+          "currency",
+          "pipeline",
+          "probability",
+          "expected_close",
+          "won_at",
+          "lost_at",
+          "lost_reason",
+          "next_step",
+          "last_activity_at",
+          "label"
+        ]
+      }
+    ],
+    "retentionHints": [
+      {
+        "predicateOrScene": "lost_reason",
+        "hint": "durable"
+      },
+      {
+        "predicateOrScene": "record_update",
+        "hint": "durable"
+      }
+    ]
+  },
+  "evalFixtures": [
+    {
+      "id": "next_step",
+      "description": "an agreed next step in a call note is captured verbatim",
+      "text": "Call with Acme Robotics: they asked for a revised proposal by Friday.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "next_step",
+            "objectIncludes": "revised proposal by Friday"
+          }
+        ]
+      }
+    },
+    {
+      "id": "lost_reason",
+      "description": "why a deal was lost is captured",
+      "text": "Deal with Globex lost to a cheaper competitor after the pilot.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "lost_reason",
+            "objectIncludes": "cheaper competitor"
+          }
+        ]
+      }
+    }
+  ]
+}

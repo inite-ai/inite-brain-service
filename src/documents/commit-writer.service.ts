@@ -80,7 +80,10 @@ export class CommitWriterService {
           this.entities.resolveOrCreateNamedEntity({
             db,
             e: { name: me.name, type: me.type, canonical: me.canonical },
-            hint: undefined,
+            // A system-of-record id names WHICH entity this is (a CRM
+            // contact by its id, whatever it is called today); prose
+            // candidates carry none and resolve by name.
+            hint: me.externalId ? { vertical: p.doc.vertical, id: me.externalId } : undefined,
             _contextRef: { vertical: p.doc.vertical },
             incomingFacts: incomingFactsFor(p.merge, me.key),
           }),

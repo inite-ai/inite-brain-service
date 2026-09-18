@@ -20,6 +20,7 @@ export type SourceFamily =
   | 'gdrive'
   | 'onedrive'
   | 'dropbox'
+  | 'records'
   | 'external'
   | 'other'
 
@@ -39,6 +40,8 @@ export function familyOf(e: { kind: string; connector: string }): SourceFamily {
     case 'onedrive':
     case 'dropbox':
       return e.connector
+    case 'pipedrive':
+      return 'records'
     default:
       return 'other'
   }

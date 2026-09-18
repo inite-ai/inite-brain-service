@@ -2566,6 +2566,75 @@
           {
             "additionalProperties": false,
             "properties": {
+              "mapping": {
+                "additionalProperties": false,
+                "properties": {
+                  "coreType": {
+                    "enum": [
+                      "customer",
+                      "staff",
+                      "asset",
+                      "project",
+                      "topic",
+                      "location",
+                      "other"
+                    ],
+                    "type": "string"
+                  },
+                  "fields": {
+                    "additionalProperties": {
+                      "maxLength": 96,
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "maxLength": 64,
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "lifecycle": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "field": {
+                        "maxLength": 64,
+                        "type": "string"
+                      },
+                      "model": {
+                        "maxLength": 64,
+                        "type": "string"
+                      },
+                      "states": {
+                        "additionalProperties": {
+                          "maxLength": 64,
+                          "type": "string"
+                        },
+                        "propertyNames": {
+                          "maxLength": 128,
+                          "type": "string"
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "model"
+                    ],
+                    "type": "object"
+                  },
+                  "text": {
+                    "items": {
+                      "maxLength": 64,
+                      "type": "string"
+                    },
+                    "maxItems": 16,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "fields"
+                ],
+                "type": "object"
+              },
               "record": {
                 "additionalProperties": false,
                 "properties": {
@@ -5078,6 +5147,180 @@
         ],
         "type": "object"
       },
+      "PushRecordsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "gone": {
+            "items": {
+              "maxLength": 600,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 200,
+            "type": "array"
+          },
+          "records": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "attributes": {
+                  "additionalProperties": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "propertyNames": {
+                    "maxLength": 64,
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "entityType": {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "externalId": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "name": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "relations": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "maxLength": 64,
+                        "type": "string"
+                      },
+                      "targetExternalId": {
+                        "maxLength": 512,
+                        "type": "string"
+                      },
+                      "targetName": {
+                        "maxLength": 512,
+                        "type": "string"
+                      },
+                      "targetType": {
+                        "maxLength": 64,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "targetType",
+                      "targetExternalId"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 500,
+                  "type": "array"
+                },
+                "updatedAt": {
+                  "maxLength": 64,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "entityType",
+                "externalId",
+                "name",
+                "attributes"
+              ],
+              "type": "object"
+            },
+            "maxItems": 200,
+            "type": "array"
+          },
+          "sourceVersion": {
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "records"
+        ],
+        "type": "object"
+      },
+      "PushRecordsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "closed": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "deduplicated": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "errors": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "type": "string"
+                },
+                "externalId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "externalId",
+                "error"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "failed": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "gone": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "ingested": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "received": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "runId",
+          "received",
+          "ingested",
+          "deduplicated",
+          "failed",
+          "gone",
+          "closed",
+          "errors"
+        ],
+        "type": "object"
+      },
       "RebuildProjectionRequest": {
         "additionalProperties": false,
         "properties": {
@@ -5179,6 +5422,235 @@
           "status",
           "failed",
           "outcome"
+        ],
+        "type": "object"
+      },
+      "RecordsPreviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "credential": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "limit": {
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "packId": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sourceId": {
+            "maxLength": 40,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "packId",
+          "sourceId"
+        ],
+        "type": "object"
+      },
+      "RecordsPreviewResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "entities": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "records": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "dropped": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "key": {
+                              "type": "string"
+                            },
+                            "reason": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "key",
+                            "reason"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "facts": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "object": {
+                              "type": "string"
+                            },
+                            "predicate": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "predicate",
+                            "object"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "record": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "attributes": {
+                            "additionalProperties": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "null"
+                              ]
+                            },
+                            "propertyNames": {
+                              "maxLength": 64,
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
+                          "entityType": {
+                            "maxLength": 64,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "externalId": {
+                            "maxLength": 512,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "name": {
+                            "maxLength": 512,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "relations": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "kind": {
+                                  "maxLength": 64,
+                                  "type": "string"
+                                },
+                                "targetExternalId": {
+                                  "maxLength": 512,
+                                  "type": "string"
+                                },
+                                "targetName": {
+                                  "maxLength": 512,
+                                  "type": "string"
+                                },
+                                "targetType": {
+                                  "maxLength": 64,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "targetType",
+                                "targetExternalId"
+                              ],
+                              "type": "object"
+                            },
+                            "maxItems": 500,
+                            "type": "array"
+                          },
+                          "updatedAt": {
+                            "maxLength": 64,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "entityType",
+                          "externalId",
+                          "name",
+                          "attributes"
+                        ],
+                        "type": "object"
+                      },
+                      "relations": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "kind": {
+                              "type": "string"
+                            },
+                            "target": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "target"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "unmapped": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "record",
+                      "facts",
+                      "relations",
+                      "unmapped",
+                      "dropped"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "label",
+                "records",
+                "error"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "entities"
         ],
         "type": "object"
       },
@@ -6094,6 +6566,93 @@
                 "packVersion": {
                   "type": "string"
                 },
+                "records": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "entities": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "defaultOn": {
+                                "type": "boolean"
+                              },
+                              "fields": {
+                                "items": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "key": {
+                                      "type": "string"
+                                    },
+                                    "label": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "key",
+                                    "label"
+                                  ],
+                                  "type": "object"
+                                },
+                                "type": "array"
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "label",
+                              "defaultOn",
+                              "fields"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "predicates": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "label": {
+                                "type": "string"
+                              },
+                              "localId": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "localId",
+                              "label"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "preset": {
+                          "additionalProperties": {},
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "entities",
+                        "preset",
+                        "predicates"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "shape": {
                   "enum": [
                     "document",
@@ -6130,7 +6689,8 @@
                 "credentialHint",
                 "hosts",
                 "mcp",
-                "oauth"
+                "oauth",
+                "records"
               ],
               "type": "object"
             },
@@ -6978,7 +7538,8 @@
                   "enum": [
                     "google",
                     "microsoft",
-                    "dropbox"
+                    "dropbox",
+                    "pipedrive"
                   ],
                   "type": "string"
                 },
@@ -7031,7 +7592,8 @@
             "enum": [
               "google",
               "microsoft",
-              "dropbox"
+              "dropbox",
+              "pipedrive"
             ],
             "type": "string"
           }
@@ -7608,6 +8170,11 @@
         "additionalProperties": false,
         "properties": {
           "canonical": {
+            "type": "string"
+          },
+          "externalId": {
+            "description": "The system-of-record's own id for the entity (a CRM contact id): the authoritative identity — same id ⇒ same entity whatever the name; never merged by name alone.",
+            "maxLength": 256,
             "type": "string"
           },
           "name": {
@@ -9452,6 +10019,50 @@
           }
         },
         "summary": "Begin connecting an account",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/admin/source-connections/preview": {
+      "post": {
+        "description": "With the config and credential about to be connected, list one page per chosen entity at the live vendor and show what the mapping makes of the first records — the facts, the relations, the fields left unmapped, the drops by name. Nothing is written. Records (docs/roadmap/crm-sources-2026-09.md): a CRM row enters as FACTS — its mapped attributes become deterministic candidates under the record’s own id, never prose a model re-extracts. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
+        "operationId": "previewSourceRecords",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordsPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordsPreviewResponse"
+                }
+              }
+            },
+            "description": "The preview."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Preview a records connector before connecting",
         "tags": [
           "Source Plane"
         ]
@@ -12927,6 +13538,61 @@
           }
         },
         "summary": "One fetched item’s content",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/source-connections/{id}/records": {
+      "post": {
+        "description": "A CRM’s outbound webhook, an automation (Make, n8n, Zapier, Albato) or a script posts a batch of records — `{ entityType, externalId, name, attributes, relations?, updatedAt? }` — plus the `<type>/<id>`s that are gone, under a connection of shape `structure`. Each batch is a `source_sync` run; an unchanged revision is not re-ingested; gone ids close their facts by the connection’s delete policy. Records (docs/roadmap/crm-sources-2026-09.md): a CRM row enters as FACTS — its mapped attributes become deterministic candidates under the record’s own id, never prose a model re-extracts. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:write`.",
+        "operationId": "pushSourceRecords",
+        "parameters": [
+          {
+            "description": "Connection id (`source_connection:<tail>`; the bare tail is accepted).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushRecordsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushRecordsResponse"
+                }
+              }
+            },
+            "description": "The batch’s outcome."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Push record envelopes to a connection",
         "tags": [
           "Source Plane"
         ]

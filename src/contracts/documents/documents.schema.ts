@@ -192,6 +192,13 @@ export const SubmittedEntitySchema = z.object({
   name: z.string(),
   type: z.string().optional(),
   canonical: z.string().optional(),
+  externalId: z
+    .string()
+    .max(256)
+    .optional()
+    .describe(
+      "The system-of-record's own id for the entity (a CRM contact id): the authoritative identity — same id ⇒ same entity whatever the name; never merged by name alone.",
+    ),
 });
 
 /** Mirror of SubmittedFact — entityIndex is LOCAL to this batch. */

@@ -107,6 +107,8 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   ['/v1/admin/source-connections/oauth/grants', 'get'],
   ['/v1/admin/source-connections/oauth/grants/{id}', 'delete'],
   ['/v1/source-connections/oauth/callback', 'get'],
+  ['/v1/source-connections/{id}/records', 'post'],
+  ['/v1/admin/source-connections/preview', 'post'],
   ['/v1/source-connections/agents/{agentId}', 'put'],
   ['/v1/source-connections', 'get'],
   ['/v1/source-connections/{id}/agent-runs', 'post'],

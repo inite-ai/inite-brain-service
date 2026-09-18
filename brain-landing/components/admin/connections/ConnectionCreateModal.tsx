@@ -17,6 +17,7 @@ import { PROXY, errorMessage, fill, type ConnectionsT } from './shared'
 import { AccountPicker } from './create/AccountPicker'
 import { ConnectorFields } from './create/ConnectorFields'
 import { FolderPicker } from './create/FolderPicker'
+import { RecordsFields, initialRecords, type RecordsChoice } from './create/RecordsFields'
 import { entriesFor, shapeChoices, type ShapeChoice, type SourceCard } from './kinds'
 import {
   AGENT_ID,
@@ -72,6 +73,7 @@ export function ConnectionCreateModal({
   const [label, setLabel] = useState('')
   const [values, setValues] = useState<FormValues>(() => (form ? initialValues(form, entry) : {}))
   const [secret, setSecret] = useState<SecretValues>(EMPTY_SECRET)
+  const [records, setRecords] = useState<RecordsChoice>(() => initialRecords(entry))
   const [advanced, setAdvanced] = useState(false)
   const [json, setJson] = useState<string | null>(null)
   const [touched, setTouched] = useState(false)
@@ -139,7 +141,10 @@ export function ConnectionCreateModal({
           packId: target.packId,
           sourceId: target.sourceId,
           vertical: vertical.trim() || target.packId,
-          config,
+          // A records connector: the entities chosen and the field → fact table ride the config.
+          config: target.records
+            ? { ...config, entities: records.entities, mapping: records.mapping }
+            : config,
           schedule,
           // "Content" means text for a document entry and bytes for a
           // binary one; "catalogue only" is manifest for both.
@@ -173,6 +178,7 @@ export function ConnectionCreateModal({
       setBusy(false)
     }
   }, [
+    records,
     agentId,
     assembledConfig,
     card,
@@ -283,6 +289,8 @@ export function ConnectionCreateModal({
             onAdvanced={setAdvanced}
             onJson={setJson}
             assembledConfig={assembledConfig}
+            records={records}
+            onRecords={setRecords}
           />
         )}
 
@@ -535,6 +543,8 @@ function SourceStep({
   onValue,
   onBrowse,
   onSecret,
+  records,
+  onRecords,
   onAdvanced,
   onJson,
   assembledConfig,
@@ -551,6 +561,8 @@ function SourceStep({
   onValue: (key: string, value: string | boolean) => void
   onBrowse: () => void
   onSecret: (s: SecretValues) => void
+  records: RecordsChoice
+  onRecords: (r: RecordsChoice) => void
   onAdvanced: (v: boolean) => void
   onJson: (v: string | null) => void
   assembledConfig: () => Record<string, unknown>
@@ -609,6 +621,27 @@ function SourceStep({
           error={errors['credential'] ? f.errors.account : null}
           t={t}
           onChange={(grantId) => onSecret({ ...secret, grantId })}
+        />
+      )}
+      {form.credential?.kind === 'oauth' && entry.credentialHint?.includes('token') && (
+        <Field label={f.credential.token} hint={f.credential.tokenHint}>
+          <input
+            type="password"
+            value={secret.single}
+            onChange={(e) => onSecret({ ...secret, single: e.target.value })}
+            autoComplete="new-password"
+            className={`${inputCls} font-mono`}
+          />
+        </Field>
+      )}
+      {entry.records && entry.records.entities.length > 0 && (
+        <RecordsFields
+          entry={entry}
+          value={records}
+          credential={form ? credentialFrom(form, secret) : undefined}
+          config={assembledConfig()}
+          t={t}
+          onChange={onRecords}
         />
       )}
       {form.credential && form.credential.kind !== 'oauth' && form.credential.shown(values) && (

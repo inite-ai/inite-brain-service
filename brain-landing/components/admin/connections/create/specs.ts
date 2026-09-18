@@ -219,6 +219,11 @@ const ONEDRIVE: ConnectorForm = {
   credential: { kind: 'oauth' },
 }
 
+const PIPEDRIVE: ConnectorForm = {
+  fields: [{ key: 'apiDomain', type: 'url', mono: true, advanced: true, placeholder: 'https://acme.pipedrive.com' }],
+  credential: { kind: 'oauth' },
+}
+
 const DROPBOX: ConnectorForm = {
   fields: [{ key: 'path', type: 'text', mono: true, placeholder: '/Documents' }, ...CLOUD_LIMITS],
   credential: { kind: 'oauth' },
@@ -276,6 +281,8 @@ export function formFor(entry: SourceCatalogEntry): ConnectorForm | null {
       return ONEDRIVE
     case 'dropbox':
       return DROPBOX
+    case 'pipedrive':
+      return PIPEDRIVE
     default:
       return null
   }
@@ -351,7 +358,8 @@ export function configFrom(
 export function credentialFrom(form: ConnectorForm, secret: SecretValues): string | undefined {
   if (!form.credential) return undefined
   if (form.credential.kind === 'oauth') {
-    return secret.grantId ? `oauth:${secret.grantId}` : undefined
+    // A connected account, else a vendor token pasted in (Pipedrive's API token).
+    return secret.grantId ? `oauth:${secret.grantId}` : secret.single || undefined
   }
   if (form.credential.kind === 'pair') {
     const id = secret.keyId.trim()
@@ -421,7 +429,7 @@ export function validate(
   }
   // The brain runs the cloud connector, so it needs the account; an
   // agent-host connection would carry its own (none of these run there).
-  if (form.credential?.kind === 'oauth' && ctx.host === 'server' && !secret.grantId) {
+  if (form.credential?.kind === 'oauth' && ctx.host === 'server' && !secret.grantId && !secret.single) {
     errors['credential'] = 'account'
   }
   return errors

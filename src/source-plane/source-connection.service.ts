@@ -454,6 +454,8 @@ export class SourceConnectionService {
       return;
     }
     if (host !== 'server') return;
+    // A vendor that also takes its own token (Pipedrive's API token) may run on it.
+    if (!grantId && spec.oauth.optional && credential) return;
     if (!grantId) {
       throw new BadRequestException(
         `connector "${connector}" runs as a connected ${spec.oauth.provider} account — connect one first and pass credential "oauth:<grant id>"`,
@@ -501,6 +503,13 @@ export class SourceConnectionService {
       host: row.host,
       config: row.config ?? {},
       credential: context.credential ?? installBearer,
+      credentialSource: context.credential
+        ? grantIdOfCredential(row.credential)
+          ? 'grant'
+          : 'secret'
+        : installBearer
+          ? 'install'
+          : null,
       contentPolicy: row.contentPolicy,
       vertical: row.vertical,
       recorder: row.recorder,

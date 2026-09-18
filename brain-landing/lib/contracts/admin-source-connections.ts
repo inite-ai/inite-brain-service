@@ -169,6 +169,58 @@ export const SourceCatalogEntrySchema = z.object({
       configured: z.boolean(),
     })
     .nullable(),
+  /** A records connector: the entities it lists, the preset mapping, the pack's predicates. */
+  records: z
+    .object({
+      entities: z.array(
+        z.object({
+          type: z.string(),
+          label: z.string(),
+          defaultOn: z.boolean(),
+          fields: z.array(z.object({ key: z.string(), label: z.string() })),
+        }),
+      ),
+      preset: z.record(z.string(), z.unknown()),
+      predicates: z.array(z.object({ localId: z.string(), label: z.string() })),
+    })
+    .nullable(),
+})
+
+export const RecordEnvelopeSchema = z.object({
+  entityType: z.string(),
+  externalId: z.string(),
+  name: z.string(),
+  attributes: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
+  relations: z
+    .array(
+      z.object({
+        kind: z.string(),
+        targetType: z.string(),
+        targetExternalId: z.string(),
+        targetName: z.string().optional(),
+      }),
+    )
+    .optional(),
+  updatedAt: z.string().optional(),
+})
+
+export const RecordsPreviewResponseSchema = z.object({
+  entities: z.array(
+    z.object({
+      type: z.string(),
+      label: z.string(),
+      records: z.array(
+        z.object({
+          record: RecordEnvelopeSchema,
+          facts: z.array(z.object({ predicate: z.string(), object: z.string() })),
+          relations: z.array(z.object({ kind: z.string(), target: z.string() })),
+          unmapped: z.array(z.string()),
+          dropped: z.array(z.object({ key: z.string(), reason: z.string() })),
+        }),
+      ),
+      error: z.string().nullable(),
+    }),
+  ),
 })
 
 export const SourceConnectorStateSchema = z.object({
@@ -300,7 +352,7 @@ export const SourceAgentsResponseSchema = z.object({ agents: z.array(SourceAgent
 
 // ── Connected accounts (W4) ──────────────────────────────────────────
 
-export const SourceOAuthProviderIdSchema = z.enum(['google', 'microsoft', 'dropbox'])
+export const SourceOAuthProviderIdSchema = z.enum(['google', 'microsoft', 'dropbox', 'pipedrive'])
 
 export const SourceOAuthStartRequestSchema = z.object({
   provider: SourceOAuthProviderIdSchema,
@@ -406,3 +458,6 @@ export type SourceOAuthProviderState = z.infer<typeof SourceOAuthProviderStateSc
 export type SourceOAuthGrantsResponse = z.infer<typeof SourceOAuthGrantsResponseSchema>
 export type RevokeGrantResponse = z.infer<typeof RevokeGrantResponseSchema>
 export type OAuthPopupMessage = z.infer<typeof OAuthPopupMessageSchema>
+export type RecordsPreviewResponse = z.infer<typeof RecordsPreviewResponseSchema>
+export type EntityMapping = { fields: Record<string, string>; text?: string[]; coreType?: string }
+export type RecordMapping = Record<string, EntityMapping>
