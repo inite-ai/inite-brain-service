@@ -209,3 +209,57 @@ them. Three things the trace exposed, all fixed in the follow-up PR:
   fixed: the abstention is the design working on an imprecise sample;
   effort `medium` on generator + verifier is the lever if the rate is
   too high in use.
+
+### 2026-09-18 — reading the production log instead of the stand
+
+Three days of production request logs, read stage by stage: **synthesize
+p50 15.6 s, ingest p50 9.6 s** (34 s for one question through the
+Playground). Nearly all of it was sequential waiting on work whose result
+was thrown away, or that had no reason to wait for the step before it.
+Fixed in one PR, measured on the stand at prod parity (conveyor 13/13,
+synthesize 10.1/8.9/9.4 s → 6.3/4.9/5.9 s, ingest 8.1 → 6.8 s median):
+
+- **The cross-encoder never landed on production.** 81 `exceeded
+  2000ms budget` in 72 h and not one ordering served: one pair per
+  forward pass under a relative deadline equal to the stage budget, on a
+  host where a pair costs ~140 ms (~10 ms on the laptop that ran every
+  battery). The loop overshot by a pair, the stage timer won, and each
+  search paid 2 s twice for an identity permutation. Now batched chunks
+  under an absolute deadline taken before the semaphore, stop before the
+  chunk that would cross it, one request at a time in the worker. The
+  stand cannot show this gain — its pair cost is 15× lower.
+- **Passes that waited for nothing.** The fact-level cross-encoder pass
+  ran after the LLM rerank; the T7 instruction probe (a full second
+  search on a fixed query) ran after the main search; predicate
+  canonicalization asked the registry once per fact, in sequence. All
+  three now run beside the step they used to follow.
+- **BGE-M3 on the main event loop.** `BGE_M3_WORKER` shipped opt-in
+  while the docs said default-on; production embedded in-thread for
+  months (`scoped signin timed out` was the symptom). Worker by default.
+- **The verifier contradicted the generator.** The generator resolves
+  "next month" / "22 сентября" against the fact's date stamp, as told;
+  the verifier had no such rule and graded the resolution `partial`,
+  which the answer policy turns into an empty answer. Same tenant, same
+  evidence, 8 asks each: place 0/8 → 8/8 answered, interview 6/8 → 8/8;
+  the three unanswerable probes still abstain 12/12. This — not effort,
+  measured the day before — was the empty-answer lever.
+- **Self-reports that lied.** An HNSW build that ended in an error
+  (`status: 'error'`, one 1536-wide row) read as `building` and was
+  waited on for a week; the un-indexed-tenant shout threw a TypeError
+  (detached Nest logger method) instead of logging; the process logger
+  wrote coloured text under `LOG_FORMAT=json`; `/ready` 503s during
+  warmup were logged as errors with stacks; "no caller can authenticate"
+  warned on a JWKS-only deployment.
+
+Seen and left for their own measurement: the entity facet pass fires on
+nearly every business turn (any capitalised word) and doubles the
+extractor call, emitting paraphrased duplicates of the general pass's
+facts under fresh predicate names (`signed_on` / `contract_signed_date`,
+`opened_position` / `opened_vacancy`, `relocating_to` /
+`relocating_team_to` — the prod registry holds 51 predicates for 61
+facts); the transition classifier minted a `state_change` fact whose
+object was a whole 150-character sentence off the speech-act verb
+"подтвердила"; generic-noun entities (`контракт`, `офис`) each cost an
+entity-judge call against an unrelated embedding neighbour. The
+instruction lane's probe query and trigger regex are English-only, so on
+a Russian tenant the lane costs a search and can never fire.
