@@ -15,8 +15,17 @@
  *     shape-checked at ingest by evidenceValidationError), OR
  *   - `source.conversationId` is a non-empty string (it names a
  *     conversation that happened — observational; this also keeps every
- *     mention-path fact grounded without the fail-closed capture flag).
- * Else ungrounded.
+ *     mention-path fact grounded without the fail-closed capture flag), OR
+ *   - `source.recorder` is a non-empty string: an identified party
+ *     recorded the claim directly (MCP `record_fact` stamps
+ *     `mcp_agent:<actor>`; a REST caller names its own). The record IS
+ *     the observation — the recorder witnessed the claim being stated
+ *     to it. Without this rule every fact written through the direct
+ *     API without a conversation id was unservable: the serving gate
+ *     answered "I don't have that in my memory" for memory the agent
+ *     had just been asked to keep (the memory-fitness D10 row failed on
+ *     exactly this in every arm).
+ * Else ungrounded — a claim nobody names a source or a recorder for.
  *
  * Pure module (episode-ids.ts discipline): no env reads, no IO —
  * importable from the resolver stamp, the runners, and the specs alike.
@@ -38,5 +47,6 @@ export function groundingStatusOf(source: unknown): GroundingStatus {
   if (typeof s.conversationId === 'string' && s.conversationId.length > 0) {
     return 'grounded';
   }
+  if (typeof s.recorder === 'string' && s.recorder.trim().length > 0) return 'grounded';
   return 'ungrounded';
 }

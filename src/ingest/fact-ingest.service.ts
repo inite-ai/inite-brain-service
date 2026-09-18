@@ -68,6 +68,7 @@ export class FactIngestService {
         throw new BadRequestException('validUntil must be strictly after validFrom');
       }
     }
+    assertEntityRefShape(dto.entityRef);
     // source is an opaque @IsObject (union shape) — nested evidence[] must
     // be shape-checked here, not by class-validator.
     const evidenceError = evidenceValidationError(dto.source?.evidence);
@@ -201,4 +202,20 @@ export class FactIngestService {
       return out;
     });
   }
+}
+
+/**
+ * entityRef is an opaque @IsObject on the DTO (a union class-validator
+ * cannot express) — the two members are checked here. A `{ name, type }`
+ * object (the mention DTO's shape, sent to this route by mistake) used to
+ * reach the external-ref key builder and answer 500 "Cannot read
+ * properties of undefined (reading 'replace')".
+ */
+function assertEntityRefShape(entityRef: unknown): void {
+  const ref = (entityRef ?? {}) as { entityId?: unknown; vertical?: unknown; id?: unknown };
+  const nonEmpty = (v: unknown): boolean => typeof v === 'string' && v.length > 0;
+  if (nonEmpty(ref.entityId) || (nonEmpty(ref.vertical) && nonEmpty(ref.id))) return;
+  throw new BadRequestException(
+    'entityRef must be { vertical, id } (an external reference) or { entityId } (a known entity)',
+  );
 }

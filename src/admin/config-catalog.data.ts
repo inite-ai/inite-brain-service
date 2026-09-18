@@ -1593,7 +1593,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "Evidence plane, claim-state write side: after fn::resolve_fact returns, stamp knowledge_fact.groundingStatus ('grounded'|'ungrounded') computed from the presence of observational source (episode: ids in source.episodeIds, non-empty source.evidence[], or source.conversationId) — the stampFactScope post-resolve idiom, best-effort, warn-never-fail. Absent field = legacy row (pre-flag), never backfilled. Off (default) → no extra UPDATE is issued, rows are byte-identical.",
+      "Evidence plane, claim-state write side: after fn::resolve_fact returns, stamp knowledge_fact.groundingStatus ('grounded'|'ungrounded') computed from the presence of observational source (episode: ids in source.episodeIds, non-empty source.evidence[], source.conversationId, or an identified source.recorder — a direct record by a named party is the observation) — the stampFactScope post-resolve idiom, best-effort, warn-never-fail. Absent field = legacy row (pre-flag), never backfilled. Off (default) → no extra UPDATE is issued, rows are byte-identical.",
   },
   {
     key: 'EVIDENCE_FAIL_CLOSED_CAPTURE',

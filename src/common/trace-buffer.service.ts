@@ -216,12 +216,18 @@ export class TraceBufferService {
           errored: snapshot.errored,
         },
       );
+      // SurrealDB 3.x: the ORDER BY field must be in the projection
+      // ("Missing order idiom `ts`") — with `id` alone the eviction
+      // failed on every write past the cap and the table grew unbounded
+      // while each request logged a persist warning. The delete goes by
+      // id (the SELECT-then-DELETE idiom; a DELETE … WHERE over an
+      // indexed field can silently match nothing on 3.2).
       await db.query(
         `LET $cap = ${this.dbCapacity};
          LET $extra = (SELECT count() AS c FROM debug_trace GROUP ALL)[0].c - $cap;
          IF $extra > 0 {
-           LET $stale = (SELECT id FROM debug_trace ORDER BY ts ASC LIMIT $extra);
-           DELETE $stale.*;
+           LET $stale = (SELECT VALUE id FROM (SELECT id, ts FROM debug_trace ORDER BY ts ASC LIMIT $extra));
+           DELETE $stale;
          };`,
       );
     });

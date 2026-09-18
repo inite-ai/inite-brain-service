@@ -26,6 +26,10 @@ describe('groundingStatusOf — truth table', () => {
       'mention-path shape (vertical + conversationId)',
       { vertical: 'crm', conversationId: 'conv-9', recorder: 'gpt' },
     ],
+    // A direct record by an identified party — MCP record_fact stamps
+    // mcp_agent:<actor>. Ungrounded, every such fact was unservable
+    // ("I don't have that in my memory" right after the agent recorded it).
+    ['direct record with a recorder', { vertical: 'crm', recorder: 'mcp_agent:claude' }],
   ];
   for (const [name, source] of GROUNDED) {
     it(`grounded: ${name}`, () => {
@@ -34,7 +38,8 @@ describe('groundingStatusOf — truth table', () => {
   }
 
   const UNGROUNDED: Array<[string, unknown]> = [
-    ['bare source', { vertical: 'crm', recorder: 'agent' }],
+    ['bare source — nobody named', { vertical: 'crm' }],
+    ['blank recorder', { vertical: 'crm', recorder: '  ' }],
     ['empty episodeIds', { episodeIds: [] }],
     ['non-prefixed episode ids only', { episodeIds: ['e1', 'turn:e2'] }],
     ['episodeIds not an array', { episodeIds: 'episode:e1' }],

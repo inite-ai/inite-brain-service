@@ -4,6 +4,7 @@
  * POST /v1/ingest/fact → GET /v1/facts/:id —
  *
  *  - stamp ON + bare source            → groundingStatus 'ungrounded'
+ *  - stamp ON + a named recorder       → 'grounded' (the record is the observation)
  *  - stamp ON + source.evidence[]      → 'grounded'
  *  - stamp ON + source.conversationId  → 'grounded'
  *  - all flags OFF                     → NO groundingStatus key on the
@@ -65,9 +66,16 @@ describe('claim grounding status (real SurrealDB)', () => {
 
   it('stamp ON + bare source → ungrounded', async () => {
     process.env.EVIDENCE_GROUNDING_STAMP = '1';
-    const factId = await ingest({ vertical: 'rent', recorder: 'agent' });
+    const factId = await ingest({ vertical: 'rent' });
     const fact = await readFact(factId);
     expect(fact.groundingStatus).toBe('ungrounded');
+  });
+
+  it('stamp ON + a named recorder → grounded (a direct record by an identified party)', async () => {
+    process.env.EVIDENCE_GROUNDING_STAMP = '1';
+    const factId = await ingest({ vertical: 'rent', recorder: 'agent' });
+    const fact = await readFact(factId);
+    expect(fact.groundingStatus).toBe('grounded');
   });
 
   it('stamp ON + source.evidence[] → grounded', async () => {
@@ -85,6 +93,21 @@ describe('claim grounding status (real SurrealDB)', () => {
     const factId = await ingest({ vertical: 'rent', conversationId: 'conv_g1' });
     const fact = await readFact(factId);
     expect(fact.groundingStatus).toBe('grounded');
+  });
+
+  it('a { name, type } entityRef (the mention shape) is a 400, not a 500', async () => {
+    const res = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { name: 'Helio Robotics', type: 'company' },
+        predicate: 'headquarters',
+        object: 'Lisbon',
+        validFrom: new Date('2026-04-01').toISOString(),
+        source: { vertical: 'rent' },
+      });
+    expect(res.status).toBe(400);
+    expect(String(res.body.message)).toContain('entityRef must be');
   });
 
   it('all flags OFF → the wire shape carries NO groundingStatus key (byte-identity)', async () => {
