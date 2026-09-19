@@ -12,6 +12,7 @@
  * marker-first serve verdict.
  */
 import {
+  checkOrdering,
   classifyConflictAnswer,
   containsAnyOf,
   findForbidden,
@@ -166,9 +167,11 @@ export interface ServeVerdict {
  *  1. conflict mode — classifyConflictAnswer: both-sides or abstained
  *     pass; one-sided / neither fail (scenario 7);
  *  2. expectAbstain — pass iff the answer is an abstention;
- *  3. forbidden markers — any hit fails FIRST (an answer naming both
- *     the current and the forbidden value is a stale leak, sibling D1);
- *  4. expect markers — pass on ≥1 hit. Deliberately checked BEFORE the
+ *  3. forbidden markers — any hit fails FIRST (a phrasing that only a
+ *     wrongly flipped answer contains);
+ *  4. prior markers — the replaced value may follow an expect marker as
+ *     history, never lead (the sibling's checkOrdering, D1/D9);
+ *  5. expect markers — pass on ≥1 hit. Deliberately checked BEFORE the
  *     abstention detector: the honest answer to a disposal question
  *     ("you don't have a bike anymore — you sold it") trips the shared
  *     decline regex, so abstention alone must not fail a serve whose
@@ -179,7 +182,10 @@ export interface ServeVerdict {
 export function scoreServe(
   answer: string | null | undefined,
   reason: string | undefined,
-  spec: Pick<ServeCheck, 'expectAnyOf' | 'forbidAnyOf' | 'expectAbstain' | 'conflictSides'>,
+  spec: Pick<
+    ServeCheck,
+    'expectAnyOf' | 'priorAnyOf' | 'forbidAnyOf' | 'expectAbstain' | 'conflictSides'
+  >,
 ): ServeVerdict {
   if (spec.conflictSides !== undefined) {
     const verdict = classifyConflictAnswer(
@@ -208,6 +214,12 @@ export function scoreServe(
   const forbidden = findForbidden(text, spec.forbidAnyOf ?? []);
   if (forbidden !== null) {
     return { status: 'fail', detail: `forbidden marker served: "${forbidden}"` };
+  }
+  if (spec.priorAnyOf !== undefined && spec.expectAnyOf !== undefined) {
+    const order = checkOrdering(text, spec.expectAnyOf, spec.priorAnyOf);
+    if (order.pass) return { status: 'pass', detail: order.detail };
+    if (containsAnyOf(text, spec.priorAnyOf)) return { status: 'fail', detail: order.detail };
+    // Neither value present — fall through to the abstention arm below.
   }
   const expected = spec.expectAnyOf === undefined || containsAnyOf(text, spec.expectAnyOf);
   if (expected) {

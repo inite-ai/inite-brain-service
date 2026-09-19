@@ -34,7 +34,10 @@ serving cost.
 ## Check kinds (all mechanical — see `types.ts` / `scorers.ts`)
 
 - **`serve`** — MCP `synthesize` (strict guardrails by default) scored by
-  `expectAnyOf` / `forbidAnyOf` / conflict-sides / expect-abstain.
+  `expectAnyOf` / `priorAnyOf` (the replaced value may follow the
+  current one as history, never lead — the sibling's `checkOrdering`) /
+  `forbidAnyOf` (phrasings only a wrongly flipped answer contains) /
+  conflict-sides / expect-abstain.
   Scoring is **marker-first**: the honest answer to a disposal question
   ("you don't have a bike anymore") trips the shared decline regex
   (`test/eval/abstain.ts`), so abstention alone never fails a serve

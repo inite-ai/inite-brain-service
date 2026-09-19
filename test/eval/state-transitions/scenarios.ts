@@ -7,11 +7,12 @@
  * Scoreability rules applied throughout (the sibling's D1 forbid-lesson
  * plus the decline-regex interplay):
  *
- *  - prefer expectAnyOf on the CURRENT-state marker over forbidAnyOf on
- *    the old value — "currently X, previously Y" is an honest answer;
- *  - forbid only where naming the old value at all is an unambiguous
- *    stale leak, and never with phrases a NEGATED honest answer would
- *    contain ("you haven't sold it yet" contains 'sold it');
+ *  - prefer expectAnyOf on the CURRENT-state marker; name the old value
+ *    in priorAnyOf, where it may FOLLOW the current one as history but
+ *    never lead — "currently X, previously Y" is an honest answer;
+ *  - forbid only phrasings that occur solely in a wrongly flipped
+ *    answer, and never phrases a NEGATED honest answer would contain
+ *    ("you haven't sold it yet" contains 'sold it');
  *  - never use bare 'no' / 'do not' / "don't" as expect markers: decline
  *    answers contain them ("I do not have information…"), and 'now'
  *    contains 'no'. Negative states are asserted through markers that
@@ -134,11 +135,10 @@ export const SCENARIOS: Scenario[] = [
         id: 's02-serve',
         query: 'Which laptop do I use for work right now?',
         expectAnyOf: ['MacBook'],
-        // Forbid IS justified here (unlike s08): the corpus states the
-        // ThinkPad went back to IT and the MacBook is "the only machine"
-        // — on a "right now" question any mention of the ThinkPad is a
-        // stale leak, the exact D1 semantics of the sibling.
-        forbidAnyOf: ['ThinkPad'],
+        // The replaced machine may be told as history ("MacBook now;
+        // previously the ThinkPad") — it must not lead. A forbid here
+        // failed exactly that honest answer, the sibling's D1 lesson.
+        priorAnyOf: ['ThinkPad'],
       },
       {
         kind: 'belief',
