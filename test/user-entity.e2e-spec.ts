@@ -60,7 +60,7 @@ describe("the user's own entity (user-entity.ts) end to end", () => {
         { name: 'Berlin', type: 'location' },
       ],
       facts: [{ entityIndex: 0, predicate: 'lives_in', object: 'Berlin', confidence: 0.9 }],
-      edges: [{ fromEntityIndex: 0, toEntityIndex: 1, kind: 'lives_at' }],
+      edges: [{ fromEntityIndex: 0, toEntityIndex: 1, kind: 'lives_at', confidence: 0.9 }],
     });
     const res = await f.http
       .post('/v1/ingest/mention')
