@@ -67,8 +67,8 @@ describe('Scoped pool — DB-level PII enforcement', () => {
       .post('/v1/search')
       .set(fullAuth())
       .send({ query: 'name: Sasha Tester', limit: 5, searchMode: 'vector' });
-    const entityId = v.body.results.find(
-      (r: any) => r.canonicalName === 'pii_fence_cust',
+    const entityId = v.body.results.find((r: any) =>
+      Object.values(r.externalRefs ?? {}).includes('pii_fence_cust'),
     )?.entityId;
     expect(entityId).toBeTruthy();
 
@@ -132,7 +132,9 @@ describe('Scoped pool — DB-level PII enforcement', () => {
       .post('/v1/search')
       .set(fullAuth())
       .send({ query: 'name: Iris Test', limit: 5, searchMode: 'vector' });
-    const entityId = v.body.results.find((r: any) => r.canonicalName === 'art_pii_cust')?.entityId;
+    const entityId = v.body.results.find((r: any) =>
+      Object.values(r.externalRefs ?? {}).includes('art_pii_cust'),
+    )?.entityId;
     expect(entityId).toBeTruthy();
 
     const fullDossier = await full.http

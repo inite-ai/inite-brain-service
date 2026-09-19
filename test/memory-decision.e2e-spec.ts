@@ -233,7 +233,8 @@ describe('memory_decision — decision-context capture, joins and cascade', () =
     const surreal = f.app.get(SurrealService);
     const entityId = await surreal.withCompany(f.companyId, async (db) => {
       const [rows] = await db.query<[Array<{ id: unknown }>]>(
-        `SELECT id FROM knowledge_entity WHERE canonicalName = $n LIMIT 1`,
+        // Named by its `name` fact now (entity-name.ts); the reference id stays an alias.
+        `SELECT id FROM knowledge_entity WHERE aliases CONTAINS $n LIMIT 1`,
         { n: 'decision_serve_subj' },
       );
       return String((rows as Array<{ id: unknown }>)?.[0]?.id);

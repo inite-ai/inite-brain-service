@@ -46,7 +46,8 @@ describe('HNSW vector leg (real SurrealDB)', () => {
     delete process.env.SEARCH_HNSW_ENABLED;
     expect(results.length).toBeGreaterThan(0);
     // canonicalName defaults to the entityRef id at upsert time.
-    expect(results[0]!.canonicalName).toBe('hnsw_subject');
+    // Named by its `name` fact (entity-name.ts); the reference id is the stable handle.
+    expect(results[0]!.externalRefs).toMatchObject({ rent__hnsw_subject: 'hnsw_subject' });
   });
 
   /**
