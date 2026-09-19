@@ -9,6 +9,7 @@ import {
   laneInstructionFor,
   type LaneId,
 } from './answer-router';
+import { askerGeneratorLine, type Asker } from './asker';
 
 /**
  * Generator user-message assembly, exported for byte-equality tests.
@@ -45,11 +46,14 @@ export function buildGeneratorUserMessage({
   fragmentLines,
   fragmentCitations,
   revise,
+  asker,
 }: {
   query: string;
   factLines: string[];
   /** Revision round: the audited previous answer (generator-client.ts). */
   revise?: { answer: string; unsupportedClaims: string[] } | undefined;
+  /** Who is asking (asker.ts) — the query's first person; the auditor reads the same. */
+  asker?: Asker | undefined;
   /** Episodic-lane quotes (P2) — separate typed section after the facts. */
   transcriptLines?: string[] | undefined;
   /**
@@ -242,7 +246,7 @@ export function buildGeneratorUserMessage({
     dateMathLines && dateMathLines.length > 0
       ? `\n\nDate table (computed from the fact date stamps — trust it over your own arithmetic; gaps are between EVIDENCE dates, not from today):\n${dateMathLines.join('\n')}`
       : '';
-  return `Query: ${query}\n${renderRevisionSection(revise)}${dateInstruction}${shapeInstruction ?? ''}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${beliefSection}${sceneSection}${fragmentSection}${dateMathSection}${renderStrategySection(strategyNotes)}${langInstruction}`;
+  return `Query: ${query}\n${askerGeneratorLine(asker)}${renderRevisionSection(revise)}${dateInstruction}${shapeInstruction ?? ''}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${beliefSection}${sceneSection}${fragmentSection}${dateMathSection}${renderStrategySection(strategyNotes)}${langInstruction}`;
 }
 
 /**

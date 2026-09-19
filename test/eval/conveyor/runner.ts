@@ -104,6 +104,7 @@ const at = (minute: number) => new Date(Date.UTC(2026, 8, 16, 10, minute)).toISO
  */
 const FOOTPRINT: Record<string, string[]> = {
   // ingest
+  'ingest.participants': ['ingest.participants'],
   'ingest.capture': ['ingest.episode.captured'],
   'ingest.extract': ['ingest.nlu.extract', 'indexer.run.extract'],
   'ingest.embed': ['gen_ai.embed'],

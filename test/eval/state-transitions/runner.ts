@@ -24,7 +24,7 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { HttpBrainClient } from '../http-brain-client';
 import { interleaveRoundRobin } from '../memory-fitness/interleave';
 import { walkProvenance } from '../memory-fitness/scorers';
-import { BORIS_REF, CORPUS_VERTICAL, SPEAKER } from './scenarios';
+import { BORIS_REF, CORPUS_VERTICAL, speakerFor } from './scenarios';
 import { allTurnsOf, buildScenarios, parseVariant, type StevVariant } from './variants';
 import { checkBelief, checkHistorySequence, scoreServe, type HistoryEvent } from './scorers';
 import type {
@@ -284,7 +284,7 @@ async function ingestTurns(
     `[ingest] ${turns.length} mention turns (run ${cfg.runId}, variant ${cfg.variant})…`,
   );
   for (const [i, turn] of turns.entries()) {
-    const knownEntities: Array<Record<string, string>> = [{ ...SPEAKER }];
+    const knownEntities: Array<Record<string, string>> = [{ ...speakerFor(cfg.userId) }];
     // Both spellings — the RU corpus writes the brother's name «Борис».
     if (turn.text.includes('Boris') || turn.text.includes('Борис')) {
       knownEntities.push({ ...BORIS_REF, name: 'Boris' });

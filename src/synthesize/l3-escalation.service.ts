@@ -25,6 +25,7 @@ import type { Citation } from './fact-index';
 import type { EvidenceCitation, GeneratorOutput } from './synthesize.types';
 import { resolveEpisodeCitations, type CitableTurn } from './l3-citations';
 import { SegmentLaneService } from './segment-lane.service';
+import { askerGeneratorLine, type Asker } from './asker';
 import {
   l3TriggerDecision,
   l3Covered,
@@ -132,6 +133,8 @@ export interface L3EscalateInput {
   factLines: string[];
   answerLang: string | null;
   dateMathLines?: string[] | undefined;
+  /** Who is asking (asker.ts) — the same asker the primary round read. */
+  asker?: Asker | undefined;
   /**
    * Optics-2 (§4.1) adaptive gate inputs, supplied by synthesize.service
    * ONLY when FOVEA_ADAPTIVE_L3 is on AND a usable per-class calibration
@@ -849,7 +852,7 @@ export class L3EscalationService {
       sections.push(`Computed date table:\n${input.dateMathLines.join('\n')}`);
     }
     const langLine = input.answerLang ? `\n\nAnswer in ${input.answerLang}.` : '';
-    const user = `Query: ${input.dto.query}\n\n${sections.join('\n\n')}${langLine}`;
+    const user = `Query: ${input.dto.query}\n${askerGeneratorLine(input.asker)}\n${sections.join('\n\n')}${langLine}`;
     const system = l3SystemPrompt(episodeCitations);
     traceArtifact('synthesize.l3_prompt', {
       system,
@@ -949,6 +952,7 @@ export class L3EscalationService {
       transcriptLines: ctx.transcriptLines,
       topicCoverage: input.profile.verifierTopicCoverage,
       dateMathLines: input.dateMathLines,
+      asker: input.asker,
       model: input.profile.verifierModel || input.model,
     });
   }

@@ -119,12 +119,50 @@ Two policies ride the same contract:
   reads that predicate directly (`InstructionLaneService`) instead of
   running a second search over trigger words.
 
+## The user in the memory
+
+A mention's `userId` scopes what it writes (0055); it also says who is
+talking. A user-scoped mention with no `speaker` anchor is the user's
+own turn — their side of a conversation with their assistant, their
+notes — so the ingest path puts the user among the participants before
+anything reads them (`participants.ts`, `UserEntityService.participants`):
+the episode's `speaker`, the extractor's framing ("This turn is by X, the
+user this memory belongs to … 'I' and 'the user' refer to X; words the
+turn attributes to someone else are that person's") and the entity
+anchor all see the same speaker. A declared speaker always wins, so a
+caller relaying someone else's words under the user's scope says so.
+
+The user's entity is an external reference like any other — vertical
+`user`, id = the userId (the namespace the scope-tag grammar reserves
+for end users) — under the user's OWN scope: a personal entity, visible
+to the user alone, deleted with their memory on forget. Both paths mint
+it through the same scoped key (`scopedRefKey`), so a first-person turn
+and a typed fact on `{vertical: 'user', id: <userId>}` land on one node.
+It is named by the caller's anchor (`{vertical: 'user', id, role:
+'speaker', name: 'Sasha'}`), else by the token's OIDC `name` claim, else
+it carries the userId as its name until one arrives — a reference id is
+not a name, and the first name a caller gives a reference-minted entity
+becomes its canonical one (`stampParticipantName`). The memory context
+pins the user's entity as KNOWN on every turn of theirs, resolved by its
+key, never by name, so "I moved to Berlin" closes `lives_in: Riga` on
+the right node.
+
+At ask time the same entity is the **asker** (`synthesize/asker.ts`):
+the collector reads it beside the other sections and the generator, the
+auditor and the L3 round all get the same line — the query's first
+person is this person, evidence about them is evidence about the asker,
+answer in the second person. Before this the auditor rejected "Do I own
+the Riga apartment?" over evidence filed on Sasha with, verbatim,
+"evidence attributes ownership to Sasha, not to the user".
+
 ## Both ingest paths
 
 The document path threads the turn's participants through the internal
 document meta (`speakerName` / `speakerRef` / `addresseeName` /
-`addresseeRef`), so the extractor's coreference framing and the commit
-writer's externalRef anchor apply there exactly as on the direct path.
+`addresseeRef`; `participantsFromMeta` reads them back), so the
+extractor's coreference framing and the commit writer's externalRef
+anchor apply there exactly as on the direct path (`coreferentParticipant`
+is the one coreference rule both use).
 Candidate rows carry `known`, `eventTime` and `supersedes`; the
 cross-indexer merge keeps `known`, takes `eventTime` from the leader and
 unions `supersedes`.

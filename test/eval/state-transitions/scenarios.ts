@@ -31,13 +31,16 @@ import type { Scenario, ScenarioTurn } from './types';
 /** The vertical every scenario write attributes itself to. */
 export const CORPUS_VERTICAL = 'personal';
 
-/** The agent's own entity — first-person turns resolve to it. */
-export const SPEAKER = {
-  vertical: CORPUS_VERTICAL,
-  id: 'agent-sasha',
-  role: 'speaker',
-  name: 'Sasha',
-} as const;
+/**
+ * The user's own entity — first-person turns resolve to it, and the
+ * answer plane knows who "I" is at ask time. Anchored on the user's own
+ * reference (`{vertical: 'user', id: <userId>}`, the platform's identity
+ * key) with a display name, exactly as a client names its user; the
+ * runner fills in the id per run.
+ */
+export const SPEAKER_NAME = 'Sasha';
+export const speakerFor = (userId: string) =>
+  ({ vertical: 'user', id: userId, role: 'speaker', name: SPEAKER_NAME }) as const;
 
 /** Anchor entity for the third-party scenario (s09). */
 export const BORIS_REF = { vertical: CORPUS_VERTICAL, id: 'brother-boris' } as const;

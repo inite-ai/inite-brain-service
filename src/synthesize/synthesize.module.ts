@@ -25,9 +25,20 @@ import { SceneLaneService } from './scene-lane.service';
 import { EvidenceCollectorService } from './evidence-collector.service';
 import { L3EscalationService } from './l3-escalation.service';
 import { MemoryModelReaderService } from '../ai/memory-model-reader.service';
+import { IngestCoreModule } from '../ingest/ingest-core.module';
 
 @Module({
-  imports: [SearchModule, EpisodesModule, AnswerCacheModule, StrategyModule, OutcomesModule],
+  imports: [
+    SearchModule,
+    EpisodesModule,
+    AnswerCacheModule,
+    StrategyModule,
+    OutcomesModule,
+    // Who is asking: the user's own entity (ingest/user-entity.ts) is
+    // read by the collector through the same service the ingest path
+    // names the speaker with.
+    IngestCoreModule,
+  ],
   controllers: [SynthesizeController, FocusAdminController, LensAdminController],
   providers: [
     SynthesizeService,

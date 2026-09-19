@@ -46,6 +46,7 @@
  */
 import { BadRequestException } from '@nestjs/common';
 import { SOURCE_META_MAX_VALUE_CHARS } from '../policy/source-meta';
+import type { KnownEntity } from '../ingest/dto/ingest-mention.dto';
 
 /** Keys the pipeline synthesises for itself. Callers may not assert them. */
 export const INTERNAL_DOCUMENT_META_KEYS = [
@@ -196,6 +197,41 @@ export function internalMetaString(
 ): string | undefined {
   const v = meta?.[key];
   return typeof v === 'string' && v.length > 0 ? v : undefined;
+}
+
+/**
+ * The turn's participants back out of the internal channel, in the
+ * shape the mention wrapper threaded them (IngestMentionDto
+ * .knownEntities by role): the `vertical:id` ref and the display name.
+ * Absent or malformed → no participant of that role.
+ */
+export function participantsFromMeta(meta: Record<string, unknown> | undefined): {
+  speaker?: KnownEntity | undefined;
+  addressee?: KnownEntity | undefined;
+} {
+  const speaker = participantFromMeta(meta, 'speaker');
+  const addressee = participantFromMeta(meta, 'addressee');
+  return {
+    ...(speaker ? { speaker } : {}),
+    ...(addressee ? { addressee } : {}),
+  };
+}
+
+function participantFromMeta(
+  meta: Record<string, unknown> | undefined,
+  role: 'speaker' | 'addressee',
+): KnownEntity | undefined {
+  const ref = internalMetaString(meta, role === 'speaker' ? 'speakerRef' : 'addresseeRef');
+  if (!ref) return undefined;
+  const cut = ref.indexOf(':');
+  if (cut <= 0 || cut === ref.length - 1) return undefined;
+  const name = internalMetaString(meta, role === 'speaker' ? 'speakerName' : 'addresseeName');
+  return {
+    vertical: ref.slice(0, cut),
+    id: ref.slice(cut + 1),
+    role,
+    ...(name ? { name } : {}),
+  };
 }
 
 /** The separator between names in the `knownNames` internal key. */

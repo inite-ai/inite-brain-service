@@ -4,6 +4,7 @@ import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
 import { traceArtifact } from '../common/debug-trace';
 import type { MetricsService } from '../metrics/metrics.service';
+import { askerVerifierLine, type Asker } from './asker';
 
 /**
  * Corrective-RAG verifier: audits a synthesized answer against the
@@ -137,6 +138,8 @@ export interface VerifyRequest {
    * rather than flagged. Absent ⇒ no Today line.
    */
   dateContext?: string | undefined;
+  /** Who is asking (asker.ts) — the same asker the generator was told. */
+  asker?: Asker | undefined;
   model: string;
 }
 
@@ -144,6 +147,7 @@ export interface VerifyRequest {
 function buildVerifierUserMessage({
   query,
   dateContext,
+  asker,
   answer,
   factLines,
   transcriptLines,
@@ -156,6 +160,7 @@ function buildVerifierUserMessage({
 }: {
   query: string;
   dateContext?: string | undefined;
+  asker?: Asker | undefined;
   answer: string;
   factLines: string[];
   transcriptLines?: string[] | undefined;
@@ -211,7 +216,7 @@ function buildVerifierUserMessage({
     );
   }
   const today = dateContext ? `Today (the query's date): ${dateContext}\n` : '';
-  return `Query: ${query}\n${today}\nAnswer:\n${answer}\n\n${sections.join('\n\n')}`;
+  return `Query: ${query}\n${today}${askerVerifierLine(asker)}\nAnswer:\n${answer}\n\n${sections.join('\n\n')}`;
 }
 
 /**

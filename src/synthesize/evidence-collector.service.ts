@@ -31,6 +31,8 @@ import type { CitableBelief } from './belief-citations';
 import type { CitableScene } from './scene-citations';
 import type { ZoomCandidate } from './fragment-zoom';
 import type { CoverageScanTuning } from '../search/internals/scan-leg';
+import type { Asker } from './asker';
+import { UserEntityService } from '../ingest/user-entity.service';
 
 /** Grounding anchors the raw-window lane expands (top evidence order). */
 const RAW_WINDOW_MAX_ANCHORS = 4;
@@ -75,6 +77,13 @@ function scanTuning(profile: RetrievalProfile): CoverageScanTuning {
  */
 
 export interface CollectedEvidence {
+  /**
+   * Who is asking (asker.ts): the caller's user as an entity of the
+   * memory, when their turns have minted one. The generator, the
+   * auditor and the L3 round read the same asker — evidence parity.
+   * Undefined without a userId or before the user has spoken.
+   */
+  asker?: Asker | undefined;
   /** Deduped verbatim lines for the transcript section. */
   transcriptLines: string[];
   /** Derived-insight lines (V8 §1), own budget slot. */
@@ -209,6 +218,7 @@ export function emptyCollectedEvidence(
   query: string,
 ): CollectedEvidence {
   return {
+    asker: undefined,
     transcriptLines: [],
     insightLines: [],
     instructions: undefined,
@@ -250,6 +260,7 @@ export class EvidenceCollectorService {
     @Optional() private readonly beliefLane?: BeliefLaneService,
     @Optional() private readonly sceneLane?: SceneLaneService,
     @Optional() private readonly instructionLane?: InstructionLaneService,
+    @Optional() private readonly users?: UserEntityService,
   ) {}
 
   /**
@@ -287,6 +298,7 @@ export class EvidenceCollectorService {
     const { profile, query } = opts;
     const timelineEvidence = wantsTimelineEvidence(profile, query);
     const [
+      asker,
       instructions,
       transcriptLines,
       insightLines,
@@ -298,6 +310,7 @@ export class EvidenceCollectorService {
       beliefEvidence,
       sceneEvidence,
     ] = await Promise.all([
+      this.collectAsker(opts),
       this.collectStandingInstructions(opts),
       this.collectTranscriptLines(opts, timelineEvidence),
       this.collectInsightLines(opts),
@@ -325,6 +338,7 @@ export class EvidenceCollectorService {
           ])
         : [transcriptLines, insightSlot];
     return {
+      asker,
       transcriptLines: filteredTranscript,
       insightLines: filteredInsights,
       instructions,
@@ -796,6 +810,20 @@ export class EvidenceCollectorService {
       );
       return [];
     });
+  }
+
+  /**
+   * Who is asking (asker.ts): the caller's user as the memory knows them
+   * (ingest/user-entity.ts) — the same read the ingest path names the
+   * speaker with. No userId, no entity yet, or a failed read ⇒ undefined.
+   */
+  private async collectAsker(opts: {
+    companyId: string;
+    userId?: string | undefined;
+  }): Promise<Asker | undefined> {
+    if (!opts.userId || !this.users) return undefined;
+    const own = await this.users.resolve(opts.companyId, opts.userId);
+    return own ? { name: own.name } : undefined;
   }
 
   /**

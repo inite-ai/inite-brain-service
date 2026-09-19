@@ -413,6 +413,48 @@ describe('EvidenceCollectorService branches', () => {
  * content leaks into the assembled evidence and the assertions below
  * catch it in that section.
  */
+describe('the asker (asker.ts)', () => {
+  function withUsers(users: unknown): EvidenceCollectorService {
+    const none = undefined;
+    return new EvidenceCollectorService(
+      noSearch,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      users as never,
+    );
+  }
+
+  it("is the caller's user as the memory names them; absent without a userId, an entity, or the reader", async () => {
+    const resolve = jest.fn(async (_c: string, userId: string) =>
+      userId === 'u42' ? { id: 'knowledge_entity:x', name: 'Sasha', named: true } : null,
+    );
+    const svc = withUsers({ resolve });
+    const profile = profileWith({});
+    expect((await svc.collect({ ...collectorArgs(profile), userId: 'u42' })).asker).toEqual({
+      name: 'Sasha',
+    });
+    expect(resolve).toHaveBeenCalledWith('c1', 'u42');
+    expect((await svc.collect({ ...collectorArgs(profile), userId: 'u43' })).asker).toBeUndefined();
+    expect((await svc.collect(collectorArgs(profile))).asker).toBeUndefined();
+    expect(resolve).toHaveBeenCalledTimes(2);
+    const unwired = withUsers(undefined);
+    expect(
+      (await unwired.collect({ ...collectorArgs(profile), userId: 'u42' })).asker,
+    ).toBeUndefined();
+  });
+});
+
 describe('cross-user evidence isolation (V11 item 10)', () => {
   const A_SECRET = 'A-SECRET: user A rents a flat in Lisbon';
   const laneCalls: Array<{ lane: string; userId?: string | undefined }> = [];

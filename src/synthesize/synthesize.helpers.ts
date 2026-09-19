@@ -16,6 +16,7 @@ import type { GenerateRequest } from './generator-client';
 import type { MetricsService } from '../metrics/metrics.service';
 import type { MemoryDecisionService } from '../outcomes/memory-decision.service';
 import { captureVerdictDecision, type DecisionContext } from './decision-emit';
+import type { Asker } from './asker';
 
 /**
  * Pure helpers of the synthesize orchestrator, split out of
@@ -173,6 +174,8 @@ export function buildGeneratorArgs(
     /** Round 1's index; a later round passes its own via `o.factIndex`. */
     factIndex?: ReadonlyMap<string, Citation> | undefined;
     collected: {
+      /** Who is asking (asker.ts) — the auditor reads the same. */
+      asker?: Asker | undefined;
       transcriptLines: string[];
       insightLines: string[];
       instructions?: string[] | undefined;
@@ -222,6 +225,8 @@ export function buildGeneratorArgs(
     neverAbstain: ctx.guardrails === 'answer',
     // Date context anchors "today"; the temporal lane forces it from asOf.
     dateContext: resolveLaneDateContext(profile, ctx.lane, dto.asOf),
+    // Who is asking — the query's first person (asker.ts).
+    asker: collected.asker,
     lane: ctx.lane,
     enumStrict: profile.enumStrict,
     instructions: collected.instructions,

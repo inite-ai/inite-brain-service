@@ -6,6 +6,7 @@ import { FactEmbeddingService } from './fact-embedding.service';
 import { FactResolverService } from './fact-resolver.service';
 import { EpisodeStoreService } from './episode-store.service';
 import { MemoryContextService } from './memory-context.service';
+import { UserEntityService } from './user-entity.service';
 
 /**
  * The graph WRITE PRIMITIVES, module-separated from the ingest routes:
@@ -31,6 +32,10 @@ import { MemoryContextService } from './memory-context.service';
     // What the extractor reads before it extracts: the conversation so
     // far, the known entities and their facts (memory-context.service).
     MemoryContextService,
+    // Who the user is in the memory (user-entity.ts): the ingest paths
+    // put the user among a turn's participants, the answer plane asks
+    // who is asking.
+    UserEntityService,
   ],
   exports: [
     EntityResolverService,
@@ -39,6 +44,7 @@ import { MemoryContextService } from './memory-context.service';
     FactResolverService,
     EpisodeStoreService,
     MemoryContextService,
+    UserEntityService,
   ],
 })
 export class IngestCoreModule {}

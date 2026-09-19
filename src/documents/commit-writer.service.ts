@@ -7,12 +7,8 @@ import { createEdgeBetween } from '../ingest/edge-writer';
 import { factTiming, resolveEventTimeOpts } from '../ingest/event-time';
 import { traceSpan } from '../common/debug-trace';
 import { originKeyOf, StoredDocument } from './document-store.service';
-import { internalMetaString } from './document-meta';
-import {
-  isFirstPersonSelfReference,
-  isSecondPersonReference,
-  matchesParticipantName,
-} from '../common/coreference';
+import { internalMetaString, participantsFromMeta } from './document-meta';
+import { coreferentParticipant, participantHint } from '../ingest/participants';
 import { sanitizeSourceMeta } from '../policy/source-meta';
 import { incomingFactsFor, MergedFact, MergedRelation, MergeResult } from './candidate-merge';
 
@@ -78,8 +74,7 @@ export class CommitWriterService {
     p: { doc: StoredDocument; merge: MergeResult },
   ): Promise<Map<string, string>> {
     const entityIds = new Map<string, string>();
-    const speaker = participantOf(p.doc, 'speaker');
-    const addressee = participantOf(p.doc, 'addressee');
+    const participants = participantsFromMeta(p.doc.meta);
     for (const me of p.merge.entities) {
       const eid = await traceSpan(
         'brain.commit.entity',
@@ -90,8 +85,9 @@ export class CommitWriterService {
             // The participant this mention corefers to (first person /
             // the speaker's own name → the speaker; second person / the
             // addressee's name → the addressee) anchors it to the
-            // caller's externalRef — the direct path's hintFor rule.
-            hint: hintFor(me.name, speaker, addressee),
+            // caller's externalRef — the same rule as the direct path
+            // (participants.ts); the user's own ref carries their scope.
+            hint: participantHint(coreferentParticipant(me.name, participants), p.doc.userId),
             _contextRef: { vertical: p.doc.vertical },
             incomingFacts: incomingFactsFor(p.merge, me.key),
           }),
@@ -303,42 +299,4 @@ export function sourceVersionOf(mf: MergedFact): Record<string, unknown> {
     leader?.sourceVersion ??
     mf.contributors.find((c) => c.sourceVersion !== undefined)?.sourceVersion;
   return stamp ? { sourceVersion: stamp } : {};
-}
-
-/**
- * A turn participant off the internal document channel (the mention
- * wrapper threads `knownEntities` by role as name + `vertical:id`).
- */
-function participantOf(
-  doc: StoredDocument,
-  role: 'speaker' | 'addressee',
-): { vertical: string; id: string; role: string; name?: string | undefined } | undefined {
-  const ref = internalMetaString(doc.meta, role === 'speaker' ? 'speakerRef' : 'addresseeRef');
-  if (!ref) return undefined;
-  const cut = ref.indexOf(':');
-  if (cut <= 0 || cut === ref.length - 1) return undefined;
-  return {
-    vertical: ref.slice(0, cut),
-    id: ref.slice(cut + 1),
-    role,
-    name: internalMetaString(doc.meta, role === 'speaker' ? 'speakerName' : 'addresseeName'),
-  };
-}
-
-/** The direct path's coreference rule (MentionPersistService.hintFor). */
-function hintFor(
-  name: string,
-  speaker: ReturnType<typeof participantOf>,
-  addressee: ReturnType<typeof participantOf>,
-): ReturnType<typeof participantOf> {
-  if (speaker && (isFirstPersonSelfReference(name) || matchesParticipantName(name, speaker.name))) {
-    return speaker;
-  }
-  if (
-    addressee &&
-    (isSecondPersonReference(name) || matchesParticipantName(name, addressee.name))
-  ) {
-    return addressee;
-  }
-  return undefined;
 }

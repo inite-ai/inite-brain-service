@@ -209,8 +209,13 @@ async function capture(payload, cfg) {
   if (text.length < MIN_CAPTURE_CHARS) return;
 
   const project = await projectName(payload.cwd ?? process.cwd());
+  // The turns are the human's own words. With a userId, brain files
+  // their first person under the user's own entity (the userId is the
+  // speaker unless a speaker anchor says otherwise); the framing names
+  // the project and nothing else, so no "user" node gets coined from
+  // the wrapper text.
   const body = {
-    text: `Working session on ${project}. What the user asked for:\n\n${text}`,
+    text: `Working session on ${project}. Asked for, in order:\n\n${text}`,
     contextRef: {
       vertical: 'chat',
       conversationId: String(payload.session_id ?? ''),

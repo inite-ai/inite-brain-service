@@ -7,6 +7,8 @@ import { FactEmbeddingService } from './fact-embedding.service';
 import { factIndexText } from './fact-index-text';
 import { envFlagEnabled } from '../common/env-validation';
 import { MemoryContextService } from './memory-context.service';
+import { participantsOf } from './participants';
+import { isUserEntityRef } from './user-entity';
 
 export interface MentionSource {
   /**
@@ -65,10 +67,10 @@ export class MentionExtractionService {
 
     // Coreference context: tell the extractor who is speaking (and whom
     // they address), so first-person "I decided …" attaches to the speaker
-    // rather than a junk "I" node. Derived by ROLE from knownEntities;
-    // absent → the extractor runs speaker-agnostic exactly as before.
-    const speaker = dto.knownEntities?.find((k) => k.role === 'speaker');
-    const addressee = dto.knownEntities?.find((k) => k.role === 'addressee');
+    // rather than a junk "I" node. Derived by ROLE from knownEntities
+    // (the user among them, participants.ts); absent → the extractor
+    // runs speaker-agnostic exactly as before.
+    const { speaker, addressee } = participantsOf(dto);
     // What the memory already holds around this turn — the conversation
     // so far, the entities it names, their facts, the tenant's
     // predicates (MemoryContextService) — read before the extraction so
@@ -91,6 +93,7 @@ export class MentionExtractionService {
     });
     const context = {
       ...(speaker?.name !== undefined ? { speakerName: speaker.name } : {}),
+      ...(isUserEntityRef(speaker, dto.userId) ? { speakerIsUser: true } : {}),
       ...(addressee?.name !== undefined ? { addresseeName: addressee.name } : {}),
       ...(memory ? { memory } : {}),
     };

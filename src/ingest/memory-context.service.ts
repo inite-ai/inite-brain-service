@@ -14,6 +14,7 @@ import {
 } from '../ai/extractor-internals/memory-context';
 import { traceArtifact, traceSpan } from '../common/debug-trace';
 import { EntityUpsertService } from './entity-upsert.service';
+import { UserEntityService } from './user-entity.service';
 
 /** Names looked up per turn — the turn's own plus the conversation's. */
 const MAX_NAMES = 16;
@@ -70,10 +71,12 @@ export class MemoryContextService {
    */
   private readonly conversationEntities = new Map<string, string[]>();
 
+  // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token
   constructor(
     private readonly surreal: SurrealService,
     private readonly entities: EntityUpsertService,
     @Optional() private readonly ner?: LocalNerService,
+    @Optional() private readonly users?: UserEntityService,
   ) {}
 
   /**
@@ -112,6 +115,7 @@ export class MemoryContextService {
           const recentTurns = await this.recentTurns(db, p);
           const names = await this.candidateNames(p, recentTurns);
           const ids = await this.lookupIds(db, {
+            own: await this.ownEntity(db, p.userId),
             names,
             userId: p.userId,
             remembered: this.remembered(p),
@@ -196,21 +200,40 @@ export class MemoryContextService {
       : [];
   }
 
+  /**
+   * The user's own entity (user-entity.ts) is a known entity of every
+   * turn of theirs — a first-person turn updates ITS facts ("I moved to
+   * Berlin" closes `lives_in: Riga`), and no name in the turn would find
+   * it (the turn says "I"; the entity may still be named by the userId).
+   * Resolved by its key, never by name: a same-named third party in
+   * someone's notes must not stand in for the user.
+   */
+  private async ownEntity(db: Surreal, userId: string | undefined): Promise<string | undefined> {
+    if (!userId || !this.users) return undefined;
+    return (await this.users.lookup(db, userId))?.id;
+  }
+
   private async lookupIds(
     db: Surreal,
     {
+      own,
       names,
       userId,
       remembered,
-    }: { names: string[]; userId: string | undefined; remembered: string[] },
+    }: {
+      own: string | undefined;
+      names: string[];
+      userId: string | undefined;
+      remembered: string[];
+    },
   ): Promise<string[]> {
     const found = await Promise.all(
       names.map((name) => this.entities.resolveExistingByName(db, { name }, { userId })),
     );
     const ids: string[] = [];
-    // The names first (the turn's own subjects), then what the
-    // conversation's last turns were filed under.
-    for (const id of [...found, ...remembered]) {
+    // The user first, then the names (the turn's own subjects), then
+    // what the conversation's last turns were filed under.
+    for (const id of [own, ...found, ...remembered]) {
       if (id && !ids.includes(id)) ids.push(id);
       if (ids.length >= MAX_ENTITIES) break;
     }

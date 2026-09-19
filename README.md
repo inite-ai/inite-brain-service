@@ -272,7 +272,13 @@ curl --fail-with-body -X POST "$BRAIN_URL/v1/search" \
 ```
 
 Use your application's stable user ID on **both** writes and reads. Omit
-`userId` on both only for tenant-global memory.
+`userId` on both only for tenant-global memory. The `userId` is also who
+is speaking: a first-person turn ("I moved to Berlin") lands on the user's
+own entity, and "where do I live?" on `/v1/synthesize` is answered to
+them. To name the user, anchor them once as the speaker —
+`"knownEntities": [{ "vertical": "user", "id": "user_42", "role": "speaker", "name": "Maria" }]`;
+to relay someone else's words under the user's scope, anchor that person
+as the speaker instead.
 
 ### Record a fact you already know
 

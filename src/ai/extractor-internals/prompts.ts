@@ -315,6 +315,12 @@ export function buildFacetSystemPrompt(facet: string): string {
 export interface ConversationContext {
   /** Who is speaking this turn. First-person refers to them. */
   speakerName?: string;
+  /**
+   * The speaker is the user this memory is captured for (participants.ts):
+   * the turn is theirs unless it attributes words to someone else, and
+   * "the user" in a recorder's framing means them.
+   */
+  speakerIsUser?: boolean;
   /** Who they address. Second-person ("you") refers to them. */
   addresseeName?: string;
   /**
@@ -343,16 +349,25 @@ export function buildConversationContext(ctx: ConversationContext): string {
 
 function buildSpeakerFraming(ctx: ConversationContext): string {
   if (!ctx.speakerName) return '';
+  const name = ctx.speakerName;
   const addressee = ctx.addresseeName ? `, addressing "${ctx.addresseeName}"` : '';
   const secondPerson = ctx.addresseeName
     ? ` Second-person ("you", "your") refers to "${ctx.addresseeName}".`
     : '';
+  // The user's own turn: what a recorder calls "the user" is them too,
+  // and words the turn puts in someone else's mouth stay that person's.
+  const who = ctx.speakerIsUser
+    ? `This turn is by "${name}", the user this memory belongs to${addressee}. ` +
+      `First-person references ("I", "me", "my", "myself") and "the user" refer to "${name}"`
+    : `This turn was spoken by "${name}"${addressee}. ` +
+      `First-person references ("I", "me", "my", "myself") refer to "${name}"`;
   return (
     `CONVERSATION CONTEXT\n` +
-    `This turn was spoken by "${ctx.speakerName}"${addressee}. ` +
-    `First-person references ("I", "me", "my", "myself") refer to "${ctx.speakerName}" — ` +
-    `emit "${ctx.speakerName}" as the entity for the speaker's own statements, NEVER a bare "I"/"me" node, ` +
-    `and attach the speaker's self-facts to it rather than to a topic or description entity from the same clause.` +
+    `${who} — ` +
+    `emit "${name}" as the entity for the speaker's own statements, NEVER a bare "I"/"me"/"user" node, ` +
+    `and attach the speaker's self-facts to it rather than to a topic or description entity from the same clause. ` +
+    `Words the turn attributes to someone else ("Ana said …", a line labelled "Ana: …") are that person's — ` +
+    `a first person inside them is theirs.` +
     secondPerson +
     ` Never create an entity whose name is a bare pronoun or a bare definite description ("the woman", "my ex"); ` +
     `resolve it to the participant it refers to. Do NOT map group "we"/"us" to a single person.\n\n`

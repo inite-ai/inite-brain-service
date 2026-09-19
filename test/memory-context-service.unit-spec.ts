@@ -16,7 +16,7 @@ interface Q {
   params: Record<string, unknown> | undefined;
 }
 
-function make(opts: { fail?: boolean; predicates?: string[] } = {}) {
+function make(opts: { fail?: boolean; predicates?: string[]; own?: string } = {}) {
   const queries: Q[] = [];
   const db = {
     query: jest.fn(async (sql: string, params?: Record<string, unknown>) => {
@@ -146,8 +146,19 @@ function make(opts: { fail?: boolean; predicates?: string[] } = {}) {
       return [];
     }),
   };
-  const svc = new MemoryContextService(surreal as never, entities as never, ner as never);
-  return { svc, queries, lookups, ner };
+  // The user's own entity, by key (UserEntityService.lookup) — never by name.
+  const users = {
+    lookup: jest.fn(async (_d: unknown, userId: string) =>
+      opts.own ? { id: opts.own, name: userId, named: false } : null,
+    ),
+  };
+  const svc = new MemoryContextService(
+    surreal as never,
+    entities as never,
+    ner as never,
+    users as never,
+  );
+  return { svc, queries, lookups, ner, users };
 }
 
 describe('MemoryContextService.build', () => {
@@ -204,6 +215,23 @@ describe('MemoryContextService.build', () => {
     ).toEqual(['m2:e1:in:covers_for:Pedro Lima', 'm3:e1:out:works_at:RK Imóveis']);
     expect(rels[0]?.id).toBe('knowledge_edge:x2');
     expect(rels[0]?.since).toBe('2026-09-17');
+  });
+
+  it("the user's own entity is known first on every turn of theirs, resolved by key", async () => {
+    const { svc, users, lookups } = make({ own: 'knowledge_entity:rk' });
+    const ctx = await svc.build({ companyId: 'co', text: 'current', userId: 'u1' });
+    expect(users.lookup).toHaveBeenCalledWith(expect.anything(), 'u1');
+    // rk is the user's entity here: it leads, and the turn's own name (Rui) follows.
+    expect(ctx?.entities.map((e) => `${e.handle}:${e.id}`)).toEqual([
+      'e1:knowledge_entity:rk',
+      'e2:knowledge_entity:rui',
+    ]);
+    // The name lookups are unchanged — the pin is additional, not a lookup.
+    expect(lookups).toEqual(['Rui']);
+    // No user → no pin, no read.
+    const anon = make({ own: 'knowledge_entity:rk' });
+    await anon.svc.build({ companyId: 'co', text: 'current' });
+    expect(anon.users.lookup).not.toHaveBeenCalled();
   });
 
   it('caches the vocabulary per tenant, never an empty one, and re-reads after a commit', async () => {

@@ -7,6 +7,8 @@ import { DocumentIngestService } from './document-ingest.service';
 import { internalDocumentMeta, joinKnownNames } from './document-meta';
 import { pinUserScope } from '../auth/user-scope';
 import { MemoryContextService } from '../ingest/memory-context.service';
+import { UserEntityService } from '../ingest/user-entity.service';
+import { participantsOf } from '../ingest/participants';
 
 export interface MentionCompatResult {
   skipped: boolean;
@@ -60,6 +62,7 @@ export class MentionViaDocumentService {
     @Optional() private readonly episodes?: EpisodeStoreService,
     @Optional() private readonly metrics?: MetricsService,
     @Optional() private readonly memory?: MemoryContextService,
+    @Optional() private readonly users?: UserEntityService,
   ) {}
 
   async ingest(companyId: string, dto: IngestMentionDto): Promise<MentionCompatResult> {
@@ -78,6 +81,10 @@ export class MentionViaDocumentService {
         extractedFactIds: [],
       };
     }
+    // The user is the speaker of their own turn unless the caller says
+    // who else is (participants.ts) — the same normalisation as the
+    // direct path, before the episode and the internal meta read it.
+    dto = (await this.users?.participants(companyId, { ...dto, userId })) ?? dto;
     // L0 episode capture (EPISODE_SUBSTRATE_ENABLED) runs BEFORE the
     // document is staged, so an indexer failure or an empty read no
     // longer loses the turn. Non-fatal by contract; idempotent on retry.
@@ -93,8 +100,7 @@ export class MentionViaDocumentService {
     }
     // Bounded BEFORE the pipeline runs: an over-long or non-string id is a
     // 400 at the door, not a failed extraction.
-    const speaker = dto.knownEntities?.find((k) => k.role === 'speaker');
-    const addressee = dto.knownEntities?.find((k) => k.role === 'addressee');
+    const { speaker, addressee } = participantsOf(dto);
     const internal = internalDocumentMeta({
       conversationId: dto.contextRef.conversationId,
       messageId: dto.contextRef.messageId,

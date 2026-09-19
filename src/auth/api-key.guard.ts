@@ -127,13 +127,7 @@ export class ApiKeyGuard implements CanActivate {
     // decision sink + metrics without DI. authUserId rides the same
     // store — per-user memory surfaces pin caller-asserted userId to
     // the token's end-user via pinUserScope().
-    if (record.userId || record.actorId) {
-      const store = getRequestContext();
-      if (store) {
-        if (record.userId) store.authUserId = record.userId;
-        if (record.actorId) store.authActorId = record.actorId;
-      }
-    }
+    stampIdentity(record);
     if (policy) {
       const store = getRequestContext();
       if (store) {
@@ -174,4 +168,23 @@ export class ApiKeyGuard implements CanActivate {
     };
     return true;
   }
+}
+
+/**
+ * The credential's end-user (and their display name) and acting client,
+ * onto the request context — per-user memory surfaces pin caller-asserted
+ * userId to the token's end-user via pinUserScope(); the mention path
+ * names the user's own entity with authUserName; fact ingest attributes
+ * writes to authActorId. The userName is a property OF the user: never
+ * stamped without a userId. No-op outside the correlation middleware.
+ */
+function stampIdentity(record: ApiKeyRecord): void {
+  if (!record.userId && !record.actorId) return;
+  const store = getRequestContext();
+  if (!store) return;
+  if (record.userId) {
+    store.authUserId = record.userId;
+    if (record.userName) store.authUserName = record.userName;
+  }
+  if (record.actorId) store.authActorId = record.actorId;
 }

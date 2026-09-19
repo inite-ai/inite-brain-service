@@ -10,12 +10,7 @@ import { createEdgeBetween } from './edge-writer';
 import { MentionSource } from './mention-extraction.service';
 import type { ExtractionResult } from '../ai/extractor.service';
 import type { ResolveOutcome } from './conflict-resolver';
-import {
-  isFirstPersonSelfReference,
-  isSecondPersonReference,
-  matchesParticipantName,
-} from '../common/coreference';
-import type { KnownEntity } from './dto/ingest-mention.dto';
+import { coreferentParticipant, participantHint, participantsOf } from './participants';
 import { envFlagEnabled } from '../common/env-validation';
 import { factTiming, resolveEventTimeOpts, type EventTimeResolveOpts } from './event-time';
 
@@ -71,38 +66,6 @@ export class MentionPersistService {
     });
   }
 
-  /**
-   * Decide which known participant (if any) an extracted entity corefers
-   * to, so resolveOrCreateNamedEntity can anchor it to that participant's
-   * externalRef instead of minting a pronoun/duplicate node:
-   *   - first-person singular ("I", "me", "my") or the speaker's own name
-   *     → the speaker;
-   *   - second-person ("you", "your") or the addressee's own name
-   *     → the addressee;
-   *   - anything else → no hint (normal name/embedding resolution).
-   * Returns undefined when no participant matches, preserving the prior
-   * behaviour for third-party named entities.
-   */
-  private hintFor(
-    e: { name: string },
-    speaker: KnownEntity | undefined,
-    addressee: KnownEntity | undefined,
-  ): KnownEntity | undefined {
-    if (
-      speaker &&
-      (isFirstPersonSelfReference(e.name) || matchesParticipantName(e.name, speaker.name))
-    ) {
-      return speaker;
-    }
-    if (
-      addressee &&
-      (isSecondPersonReference(e.name) || matchesParticipantName(e.name, addressee.name))
-    ) {
-      return addressee;
-    }
-    return undefined;
-  }
-
   private async persistEntities(
     db: Surreal,
     p: { extraction: ExtractionResult; dto: IngestMentionDto },
@@ -114,13 +77,12 @@ export class MentionPersistService {
     // extractor actually emitted for a first-person statement — so "I decided
     // to transition" minted a junk "I" node instead of attaching to the
     // speaker. Resolve by ROLE instead, then hint each extracted entity by
-    // coreference (see hintFor).
-    const speakerHint = dto.knownEntities?.find((k) => k.role === 'speaker');
-    const addresseeHint = dto.knownEntities?.find((k) => k.role === 'addressee');
+    // coreference (participants.ts).
+    const participants = participantsOf(dto);
     const entityIds: string[] = [];
     for (let i = 0; i < extraction.entities.length; i++) {
       const e = extraction.entities[i]!;
-      const knownHint = this.hintFor(e, speakerHint, addresseeHint);
+      const knownHint = participantHint(coreferentParticipant(e.name, participants), dto.userId);
       // The entity's freshly-extracted facts feed the inline-resolution judge
       // (the "new" side — these aren't written yet). Its EDGES go too, as
       // `kind: <other entity's name>` lines: the extractor files "works at

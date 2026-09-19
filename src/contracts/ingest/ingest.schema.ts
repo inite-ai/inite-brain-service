@@ -128,7 +128,12 @@ export const MentionContextRefSchema = z.looseObject({
   recorder: z.string().optional(),
 });
 
-/** A participant already known to the caller, for coreference anchoring. */
+/**
+ * A participant already known to the caller, for coreference anchoring.
+ * The user's own reference is `{vertical: 'user', id: <userId>}` — anchor
+ * it as the speaker with a `name` to name the user; a user-scoped
+ * mention with no speaker anchor is the user's own turn already.
+ */
 export const KnownEntitySchema = z.looseObject({
   vertical: z.string(),
   id: z.string(),
@@ -150,8 +155,9 @@ export const IngestMentionRequestSchema = z.strictObject({
   knownEntities: z.array(KnownEntitySchema).optional(),
   /**
    * Per-user memory scope (migration 0055) — stamps the captured episode
-   * turn and every extracted fact. A user-bound token pins it to its own
-   * user; a mismatch is 403.
+   * turn and every extracted fact, and names the speaker when no
+   * `speaker` anchor does: the user's first person lands on their own
+   * entity. A user-bound token pins it to its own user; a mismatch is 403.
    */
   userId: z.string().max(200).optional(),
   /** ISO-8601 event time. Defaults to the moment the request arrives. */

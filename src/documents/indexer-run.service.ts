@@ -4,7 +4,8 @@ import type { ExtractionResult } from '../ai/extractor-internals/types';
 import { MetricsService } from '../metrics/metrics.service';
 import { traceSpan } from '../common/debug-trace';
 import { MemoryContextService } from '../ingest/memory-context.service';
-import { internalMetaString, splitKnownNames } from './document-meta';
+import { internalMetaString, participantsFromMeta, splitKnownNames } from './document-meta';
+import { isUserEntityRef } from '../ingest/user-entity';
 import {
   CandidateBatch,
   GENERAL_INDEXER_ID,
@@ -113,8 +114,9 @@ export class IndexerRunService {
     doc: StoredDocument,
     chunkText: string,
   ): Promise<ConversationContext> {
-    const speakerName = internalMetaString(doc.meta, 'speakerName');
-    const addresseeName = internalMetaString(doc.meta, 'addresseeName');
+    const { speaker, addressee } = participantsFromMeta(doc.meta);
+    const speakerName = speaker?.name;
+    const addresseeName = addressee?.name;
     const memory = await this.memory.build({
       companyId,
       text: chunkText,
@@ -136,6 +138,7 @@ export class IndexerRunService {
     });
     return {
       ...(speakerName ? { speakerName } : {}),
+      ...(isUserEntityRef(speaker, doc.userId) ? { speakerIsUser: true } : {}),
       ...(addresseeName ? { addresseeName } : {}),
       ...(memory ? { memory } : {}),
     };

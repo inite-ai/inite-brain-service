@@ -11,6 +11,7 @@ import {
   extractPolicyNames,
   extractScopes,
   resolveTokenIdentity,
+  extractUserName,
 } from './claim-parsers';
 
 const VALID_SCOPES: ReadonlySet<BrainScope> = new Set([
@@ -167,6 +168,7 @@ export class JwksService implements OnModuleInit {
     const packIds = extractPackIds(payload);
     const entitlements = extractEntitlements(payload);
     const actorId = extractActorId(payload);
+    const userName = identity.userId ? extractUserName(payload) : undefined;
     // RFC 9396 per-tool grants; fail-closed for foreign-location entries
     // (see claim-parsers.ts). undefined = gate inactive.
     const mcpGrantedActions = extractMcpGrantedActions(payload, this.publicUrl);
@@ -176,6 +178,7 @@ export class JwksService implements OnModuleInit {
       companyId: identity.companyId,
       scopes,
       ...(identity.userId ? { userId: identity.userId } : {}),
+      ...(userName ? { userName } : {}),
       ...(actorId ? { actorId } : {}),
       ...(mcpGrantedActions !== undefined ? { mcpGrantedActions } : {}),
       ...(entitlements.length > 0 ? { entitlements } : {}),

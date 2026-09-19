@@ -114,6 +114,7 @@ export type {
   TokenUsage,
 } from './synthesize.types';
 import type { GeneratorOutput, SynthesizeResult } from './synthesize.types';
+import type { Asker } from './asker';
 
 /**
  * SynthesizeService — orchestrates the corrective-RAG flow:
@@ -506,6 +507,7 @@ export class SynthesizeService {
       factIndex,
       promptFactLines,
       dateMathLines,
+      asker: collected.asker,
       guardrails,
       explain,
       decisionCtx,
@@ -611,6 +613,7 @@ export class SynthesizeService {
     factIndex: ReturnType<typeof buildFactIndex>['factIndex'];
     promptFactLines: string[];
     dateMathLines?: string[] | undefined;
+    asker?: Asker | undefined;
     guardrails: SynthesisGuardrails;
     explain: boolean;
     decisionCtx: DecisionContext;
@@ -643,6 +646,7 @@ export class SynthesizeService {
       factLines: args.promptFactLines,
       answerLang: args.answerLang,
       dateMathLines: args.dateMathLines,
+      asker: args.asker,
       ...(adaptiveL3 ? { adaptiveL3 } : {}),
       ...(onDecision ? { onDecision } : {}),
     });

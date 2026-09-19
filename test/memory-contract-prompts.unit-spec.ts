@@ -105,6 +105,36 @@ describe("the auditor knows the query's date and the non-claims", () => {
     expect(systems[0]).toContain('Layout is not a claim');
     expect(systems[0]).toContain('The evidence IS the current state');
   });
+
+  it('names the asker beside Today, only when one is known', async () => {
+    const users: string[] = [];
+    const systems: string[] = [];
+    await runVerifier({
+      ...base,
+      query: 'Do I currently own the Riga apartment?',
+      dateContext: '2026-09-18',
+      asker: { name: 'Sasha' },
+      openai: capturing(users, systems),
+    });
+    await runVerifier({ ...base, openai: capturing(users, systems) });
+    expect(users[0]).toContain(
+      'Today (the query\'s date): 2026-09-18\nAsker: "Sasha" — the query\'s first person',
+    );
+    expect(users[0]).toContain('evidence about "Sasha" supports claims about the asker');
+    expect(users[1]).not.toContain('Asker:');
+  });
+});
+
+describe('the asker in the generator frame', () => {
+  it('opens right after the query and addresses them in the second person; absent without one', () => {
+    const base = { query: 'Do I own the Riga apartment?', factLines: ['[f1] a'], answerLang: null };
+    const msg = buildGeneratorUserMessage({ ...base, asker: { name: 'Sasha' } });
+    expect(
+      msg.startsWith('Query: Do I own the Riga apartment?\nAsker: "Sasha" — the person asking.'),
+    ).toBe(true);
+    expect(msg).toContain('Address them in the second person ("you", "your")');
+    expect(buildGeneratorUserMessage(base)).not.toContain('Asker:');
+  });
 });
 
 describe('the revision frame', () => {

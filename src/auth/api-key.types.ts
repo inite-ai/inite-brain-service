@@ -51,6 +51,13 @@ export interface ApiKeyRecord {
    */
   userId?: string;
   /**
+   * The end user's display name from the token's OIDC `name` claim —
+   * present only beside `userId`, and only when the issuer stamped it
+   * (user-flow tokens do; the BFF's exchanged tokens carry no name).
+   * Names the user's own entity in memory when the caller gives none.
+   */
+  userName?: string;
+  /**
    * Plan/tier entitlements from the token's `entitlements` claim —
    * feeds tier-aware throttling. Absent = default tier.
    */

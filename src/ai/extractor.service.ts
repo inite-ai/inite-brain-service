@@ -90,6 +90,7 @@ export class ExtractorService {
       // it must partition the cache — otherwise the same utterance spoken by
       // two people would collide on one memoised result.
       speaker: context?.speakerName,
+      speakerIsUser: context?.speakerIsUser,
       addressee: context?.addresseeName,
       // So does the memory the extractor reads: the same sentence said
       // when the graph already holds the budget it changes must not

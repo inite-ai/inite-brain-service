@@ -38,7 +38,7 @@ at the discovery document below.
 
 | Endpoint | Notes |
 |---|---|
-| `POST /v1/ingest/mention` | The simplest write: free text → entities + facts. `text` is the only required field — `contextRef` defaults to the `chat` vertical, `emittedAt` to request time. With `INGEST_MENTION_VIA_DOCUMENT=1`, routed through the document pipeline (same response shape; `userId` scope preserved end-to-end — 0127). |
+| `POST /v1/ingest/mention` | The simplest write: free text → entities + facts. `text` is the only required field — `contextRef` defaults to the `chat` vertical, `emittedAt` to request time. `userId` scopes the write to that end user AND makes them the speaker unless a `knownEntities` anchor with `role: 'speaker'` says who else is talking; first-person turns land on the user's own entity (`{vertical: 'user', id: <userId>}`, personal), which `{…, role: 'speaker', name: 'Sasha'}` names. With `INGEST_MENTION_VIA_DOCUMENT=1`, routed through the document pipeline (same response shape; `userId` scope preserved end-to-end — 0127). |
 | `POST /v1/ingest/fact` | Declared structured fact ingest — the precision route when the claim is already known. Optional `userId` stamps a per-user memory scope (0055): scope-local conflict resolution, invisible outside that user. |
 | `POST /v1/ingest/link` | Typed edge between entities (incl. `identity_of` for cross-vertical merge). |
 
@@ -93,7 +93,7 @@ Protocol: [indexer-protocol.md](indexer-protocol.md).
 
 | Endpoint | Notes |
 |---|---|
-| `POST /v1/search` | Hybrid (vector + BM25), router-boosted, listwise rerank w/ self-consistency, per-leg CI, entity-fact backfill. `userId` scopes results to tenant-global + that user's personal memory (fail-closed: omitted → global only); also on `/synthesize` and `/search/multi-hop`. When the query cannot be embedded (embedder warming up or down) a hybrid search answers lexical-only and carries `degraded: ["vector_leg"]`; retry later for the full ranking. See [Architecture § Retrieval pipeline](architecture.md#retrieval-pipeline). |
+| `POST /v1/search` | Hybrid (vector + BM25), router-boosted, listwise rerank w/ self-consistency, per-leg CI, entity-fact backfill. `userId` scopes results to tenant-global + that user's personal memory (fail-closed: omitted → global only); also on `/synthesize` and `/search/multi-hop`. On `/synthesize` the userId also names the asker: the query's "I"/"my" is the user's own entity, and the answer addresses them. When the query cannot be embedded (embedder warming up or down) a hybrid search answers lexical-only and carries `degraded: ["vector_leg"]`; retry later for the full ranking. See [Architecture § Retrieval pipeline](architecture.md#retrieval-pipeline). |
 | `POST /v1/synthesize` | Corrective-RAG with strict / lenient / off guardrails + claim-level faithfulness scorer. See [Architecture § Synthesize](architecture.md#synthesize-corrective-rag). |
 | `POST /v1/search/multi-hop` | Planner-LLM decomposes the query into ≤N anchored sub-queries; carries supportingFactIds for HotpotQA-style joint-F1 eval. See [Architecture § Multi-hop](architecture.md#multi-hop-search). |
 | `GET /v1/entities/autocomplete?q=` | Entity-name typeahead over the edge-ngram `prefix` fulltext index (word-start match, BM25-ranked via `search::score`). `?limit=` 1–25 (default 10); a query under 2 chars returns empty. Live, tenant-global entities only (merged-away redirects and personal-scoped entities excluded). |

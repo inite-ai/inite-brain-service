@@ -11,6 +11,7 @@ import { salvageTruncatedAnswer } from './synthesize.helpers';
 import type { GeneratorOutput } from './synthesize.types';
 import type { Citation } from './fact-index';
 import { expandCitationHandles } from './synthesize.helpers';
+import type { Asker } from './asker';
 
 /**
  * Generator client — the synthesis LLM call, split out of
@@ -80,6 +81,8 @@ export interface GenerateRequest {
   neverAbstain?: boolean | undefined;
   /** ISO date the answer should treat as "today" (SYNTHESIZE_DATE_CONTEXT). */
   dateContext?: string | undefined;
+  /** Who is asking (asker.ts): the query's first person is this entity. */
+  asker?: Asker | undefined;
   /**
    * The revision round (revise-round.ts): the previous answer and the
    * claims the grounding audit found unsupported. The user message

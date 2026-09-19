@@ -10,7 +10,7 @@ import {
 import { EntityResolverService } from './entity-resolver.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { EntityRef, IngestFactDto } from './dto/ingest-fact.dto';
-import { externalRefKey, idTailOf } from './ingest-utils';
+import { externalRefKey, idTailOf, scopedRefKey } from './ingest-utils';
 import { isCodeSymbolShaped, pathNeedlesForSymbol, symbolAliasForPath } from './code-alias';
 import { scopeForUser } from '../auth/scope-tags';
 import { scopeFenceSql } from '../auth/scope-visibility';
@@ -18,6 +18,8 @@ import { envFlagEnabled } from '../common/env-validation';
 import { analyzeConfusables } from '../common/text-sanitizer';
 import { nameKey, nameKeysFor } from '../common/name-key';
 import { traceArtifact } from '../common/debug-trace';
+import { isPronounReference } from '../common/coreference';
+import type { ParticipantHint } from './participants';
 
 /**
  * Leading English articles the extractor inconsistently keeps on coined
@@ -50,6 +52,24 @@ export function articleNameVariants(nameLc: string): string[] {
     if (variant !== nameLc.trim()) out.push(variant);
   }
   return out;
+}
+
+/**
+ * The names a participant's entity is born with when the hint mints it:
+ * the caller's display name first (canonical), then the mention's own
+ * forms — unless the mention is a bare pronoun, which is why the hint
+ * fired and names nothing. Pure, exported for tests.
+ */
+export function participantSurfaces(
+  e: { name: string; canonical?: string | undefined },
+  hint: { name?: string | undefined },
+): { canonical: string; aliases: string[] } {
+  const pronoun = isPronounReference(e.name);
+  const forms = [hint.name, pronoun ? undefined : e.canonical, pronoun ? undefined : e.name]
+    .map((n) => n?.trim())
+    .filter((n): n is string => !!n);
+  const canonical = forms[0] ?? e.canonical ?? e.name;
+  return { canonical, aliases: [...new Set(forms.length > 0 ? forms : [canonical])] };
 }
 
 /**
@@ -103,18 +123,9 @@ export class EntityUpsertService {
       return dto.entityRef.entityId;
     }
     const ref = dto.entityRef as { vertical: string; id: string };
-    // User scope (0055): the UNIQUE external-ref key is the dedup axis, so
-    // a user-scoped ref must never collide with the tenant-global one (or
-    // another user's) for the same (vertical, id). Fold the scope into the
-    // key and stamp it on the minted entity.
-    const baseKey = externalRefKey(ref.vertical, ref.id);
-    // Scope separator MUST be a byte externalRefKey never emits, or a
-    // dotted id folds into the marker and a tenant-global ref collides
-    // with a user-scoped one (e.g. global "x.u.bob" → "x__u__bob" ==
-    // scoped ("x", user "bob") under the old "__u__" marker — no crafted
-    // input needed). externalRefKey only ever produces [word]/`__`, never
-    // a colon, so "::u::" cannot be forged from the (vertical, id) side.
-    const refKey = userId ? `${baseKey}::u::${userId}` : baseKey;
+    // User scope (0055): the scope is folded into the UNIQUE external-ref
+    // key (scopedRefKey) and stamped on the minted entity.
+    const refKey = scopedRefKey(ref.vertical, ref.id, userId);
     return this.upsertEntityByExternalRef(db, refKey, {
       factory: () => ({
         type: 'other',
@@ -212,7 +223,7 @@ export class EntityUpsertService {
   }: {
     db: Surreal;
     e: { name: string; type: string; canonical?: string | undefined; known?: string | undefined };
-    hint: { vertical: string; id: string; role?: string } | undefined;
+    hint: ParticipantHint | undefined;
     _contextRef: { vertical: string };
     incomingFacts?: string[];
   }): Promise<string> {
@@ -235,31 +246,43 @@ export class EntityUpsertService {
       return entityId;
     };
 
-    // 1. Caller hint wins — same atomic upsert as fact ingest.
+    // 1. Caller hint wins — same atomic upsert as fact ingest. The
+    // user's own reference (participants.ts) carries the user's scope:
+    // its key is the scoped one and the entity is personal (0055), the
+    // same node a typed fact on {vertical: 'user', id: <userId>} lands on.
     if (hint) {
-      const hintKey = externalRefKey(hint.vertical, hint.id);
+      const hintKey = scopedRefKey(hint.vertical, hint.id, hint.userId);
       // Tier 3 reversible audit: a keyed reuse is deterministic (caller-
       // authoritative externalRef), but still logged so the merge trail is
       // complete. Existence is pre-checked ONLY under the flag (off ⇒ no
       // extra query, byte-identical).
       await this.auditExternalRefReuse(db, hintKey, e);
-      return resolved(
-        'hint',
-        await this.upsertEntityByExternalRef(db, hintKey, {
-          factory: () => ({
-            type: this.normalizeEntityType(e.type),
-            canonicalName: e.canonical ?? e.name,
-            aliases: [e.name],
-            nameKeys: nameKeysFor([e.name, e.canonical]),
-            externalRefs: { [hintKey]: hint.id },
-          }),
-          // Same identity check as the structured path: a hint says WHICH
-          // key to file this under, not that the name is new. Without it
-          // step 2's canonical-name match — the thing that would have found
-          // the existing entity — is skipped whenever a hint is present.
-          adopt: () => this.resolveExistingByName(db, { name: e.canonical ?? e.name }),
+      // The participant's name is the caller's and authoritative; the
+      // mention that anchored here is a surface of it — or a pronoun,
+      // which names nothing (isPronounReference) and is kept off the
+      // entity. Without a caller name the mention's own form stands.
+      const named = participantSurfaces(e, hint);
+      const id = await this.upsertEntityByExternalRef(db, hintKey, {
+        factory: () => ({
+          type: this.normalizeEntityType(e.type),
+          canonicalName: named.canonical,
+          aliases: named.aliases,
+          nameKeys: nameKeysFor(named.aliases),
+          externalRefs: { [hintKey]: hint.id },
+          ...(hint.userId ? { userId: hint.userId, scope: scopeForUser(hint.userId) } : {}),
         }),
-      );
+        // Same identity check as the structured path: a hint says WHICH
+        // key to file this under, not that the name is new. Without it
+        // step 2's canonical-name match — the thing that would have found
+        // the existing entity — is skipped whenever a hint is present.
+        // Tenant-global hints only — a scoped ref never adopts a shared
+        // node (the resolveOrCreateEntity rule).
+        ...(hint.userId === undefined
+          ? { adopt: () => this.resolveExistingByName(db, { name: e.canonical ?? e.name }) }
+          : {}),
+      });
+      await this.nameParticipant(db, id, hint);
+      return resolved('hint', id);
     }
 
     // 1a. The extractor's own pin (memory context): the mention was
@@ -782,6 +805,41 @@ export class EntityUpsertService {
     });
     this.logger.log(`[ingest.code_alias] reused ${entityId} for symbol "${symbol}"`);
     return entityId;
+  }
+
+  /**
+   * The display name a caller gave a participant reaches the entity it
+   * anchored: an alias the next exact lookup hits, its transliteration
+   * key — and, when the entity was minted from its reference and is still
+   * named by the reference id (`canonicalName: ref.id`, the fact path's
+   * and the user entity's birth name), the name itself. A reference id is
+   * not a name; the first name a caller gives becomes the canonical one.
+   * The hint path used to stamp nothing, so a speaker anchored under a
+   * ref for months kept the ref id as its name. Idempotent; called from
+   * the hint rung here and, for the user's own entity, by
+   * UserEntityService when the caller names the user on a turn whose
+   * extraction did not pass through the hint (a `known` pin, say).
+   */
+  async nameParticipant(
+    db: Surreal,
+    entityId: string,
+    hint: { id: string; name?: string | undefined },
+  ): Promise<void> {
+    const name = hint.name?.trim();
+    if (!name || name === hint.id) return;
+    await this.stampAlias(db, entityId, name);
+    await this.stampNameKeys(db, entityId, [name]);
+    try {
+      await db.query(`UPDATE $id SET canonicalName = $name WHERE canonicalName = $refId`, {
+        id: new StringRecordId(entityId),
+        name,
+        refId: hint.id,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[ingest.participant] naming ${entityId} "${name}" failed: ${(err as Error).message}`,
+      );
+    }
   }
 
   /** Append the newly-seen surface to the reused entity's aliases so the

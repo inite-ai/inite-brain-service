@@ -19,16 +19,25 @@ export const INGEST_CONVEYOR: Conveyor = {
   outputs: ['episode', 'entity', 'fact', 'edge', 'scene', 'belief'],
   stages: [
     {
+      step: 'participants',
+      title:
+        'Participants — the speaker and addressee by role; a user-scoped turn with no declared speaker is the user’s own (participants.ts)',
+      consumes: ['turn-text'],
+      produces: ['participants'],
+      gate: 'always',
+    },
+    {
       step: 'capture',
       title: 'Episode capture — the raw turn is stored before anything reads it',
-      consumes: ['turn-text'],
+      consumes: ['turn-text', 'participants'],
       produces: ['episode'],
       gate: 'always',
     },
     {
       step: 'extract',
-      title: 'LLM extraction — entities, facts and edges read out of the turn',
-      consumes: ['turn-text'],
+      title:
+        'LLM extraction — entities, facts and edges read out of the turn, framed by who spoke it',
+      consumes: ['turn-text', 'participants'],
       produces: ['extraction'],
       gate: 'always',
     },
@@ -41,8 +50,9 @@ export const INGEST_CONVEYOR: Conveyor = {
     },
     {
       step: 'resolve-entities',
-      title: 'Entity resolution and upsert — surfaces collapse onto one node',
-      consumes: ['extraction'],
+      title:
+        'Entity resolution and upsert — surfaces collapse onto one node; a participant’s first person onto their reference',
+      consumes: ['extraction', 'participants'],
       produces: ['entity'],
       gate: 'always',
     },

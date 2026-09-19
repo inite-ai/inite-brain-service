@@ -15,6 +15,7 @@ import { verifierErrorResult } from './synthesize.helpers';
 import { verifierPasses } from './l3-escalation';
 import { runFragmentZoom, type ZoomCandidate } from './fragment-zoom';
 import { captureZoomDecision, type DecisionContext } from './decision-emit';
+import type { Asker } from './asker';
 
 /**
  * The corrective-VERIFIER stage + the MM-zoom PR3 fragment-zoom step
@@ -91,6 +92,8 @@ export interface VerifyStageArgs {
   /** The collector's rendered sections (evidence parity: generator,
    *  primary audit and zoom re-verify all read the same lines). */
   collected: {
+    /** Who is asking (asker.ts) — parity with the generator. */
+    asker?: Asker | undefined;
     fragmentLines: string[];
     fragmentZoom: ZoomCandidate[];
     transcriptLines: string[];
@@ -194,6 +197,9 @@ export async function verifyAndZoom(
                 // And the same "today", so calendar placement relative
                 // to it is judged, not flagged.
                 dateContext: args.dateContext,
+                // And the same asker (asker.ts), so the query's first
+                // person and the answer's second person are one person.
+                asker: collected.asker,
                 // MM-zoom PR2 parity: the same media lines the
                 // generator saw (the 0113 capabilityEvidenceLines seam).
                 capabilityEvidenceLines: collected.fragmentLines,
@@ -250,6 +256,7 @@ interface FragmentZoomSeamArgs {
   /** The collector's rendered sections (evidence parity: the re-verify
    *  reuses them verbatim, only the fragment lines are enriched). */
   collected: {
+    asker?: Asker | undefined;
     fragmentLines: string[];
     fragmentZoom: ZoomCandidate[];
     transcriptLines: string[];
@@ -311,6 +318,7 @@ async function tryFragmentZoom(
               topicCoverage: profile.verifierTopicCoverage,
               dateMathLines: args.dateMathLines,
               dateContext: args.dateContext,
+              asker: collected.asker,
               capabilityEvidenceLines: zoomedLines,
               model: profile.verifierModel || model,
             }),

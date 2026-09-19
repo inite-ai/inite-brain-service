@@ -51,9 +51,20 @@ describe('buildConversationContext', () => {
     const ctx = buildConversationContext({ speakerName: 'Caroline' });
     expect(ctx).toContain('spoken by "Caroline"');
     expect(ctx).toContain('First-person');
-    expect(ctx).toContain('NEVER a bare "I"/"me" node');
+    expect(ctx).toContain('NEVER a bare "I"/"me"/"user" node');
+    // A declared speaker is not "the user" — that clause is the user's turn only.
+    expect(ctx).not.toContain('the user this memory belongs to');
+    // Quoted or labelled speech inside the turn stays that person's.
+    expect(ctx).toContain('Words the turn attributes to someone else');
     // No addressee → no second-person clause.
     expect(ctx).not.toContain('Second-person');
+  });
+
+  it("frames the user's own turn: 'I' and 'the user' are them", () => {
+    const ctx = buildConversationContext({ speakerName: 'Sasha', speakerIsUser: true });
+    expect(ctx).toContain('This turn is by "Sasha", the user this memory belongs to');
+    expect(ctx).toContain('and "the user" refer to "Sasha"');
+    expect(ctx).not.toContain('spoken by');
   });
 
   it('adds the addressee for second-person resolution when known', () => {
