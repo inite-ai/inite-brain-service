@@ -3,11 +3,12 @@ import type { AddressInfo } from 'node:net';
 
 /**
  * One loopback server that plays HubSpot (OAuth + CRM v3/v4), Bitrix24
- * (inbound-webhook REST) and Kommo (API v4) for the CRM-connector
- * suites. HubSpot is reached through SOURCE_OAUTH_HUBSPOT_BASE_URL
- * (paths kept) under SOURCE_EGRESS_ALLOW_PRIVATE; Bitrix24 through a
- * webhook URL under this origin; Kommo through `config.baseUrl` — the
- * last two with `config.allowPrivate: true`.
+ * (OAuth at "oauth.bitrix.info" + the portal's REST, inbound-webhook
+ * REST) and Kommo (OAuth on the account host + API v4) for the
+ * CRM-connector suites. Each vendor is reached through its
+ * SOURCE_OAUTH_<P>_BASE_URL (paths kept) under
+ * SOURCE_EGRESS_ALLOW_PRIVATE; the webhook / long-lived-token paths
+ * through a URL under this origin with `config.allowPrivate: true`.
  *
  * Deliberately small and mutable: tests edit the rows between runs and
  * read `calls` to assert what the brain asked for.
@@ -37,6 +38,11 @@ export interface FakeCrm {
   bitrix24: {
     /** Webhook codes accepted under /rest/<user>/<code>/. */
     codes: Set<string>;
+    /** Authorization codes the fake consent page handed out, spent at the token endpoint. */
+    oauthCodes: Set<string>;
+    /** Access tokens minted by the token endpoint, taken as `auth` or a bearer under /rest/<method>. */
+    tokens: Set<string>;
+    profile: { ID: string; NAME: string; LAST_NAME: string; EMAIL: string };
     /** Items per entityTypeId (camelCase, as crm.item.* returns them). */
     items: Record<number, Array<Record<string, unknown>>>;
     statuses: Array<{ ENTITY_ID: string; STATUS_ID: string; NAME: string }>;
@@ -46,7 +52,12 @@ export interface FakeCrm {
     failNext: number | null;
   };
   kommo: {
+    /** Bearers accepted: long-lived tokens a test adds, or what the token endpoint minted. */
     tokens: Set<string>;
+    codes: Set<string>;
+    /** Refresh tokens already spent — Kommo rotates them, a second use is refused. */
+    refreshSpent: Set<string>;
+    account: { name: string; subdomain: string };
     pipelines: Array<{ id: number; name: string; statuses: Array<{ id: number; name: string }> }>;
     lossReasons: Array<{ id: number; name: string }>;
     users: Array<{ id: number; name: string }>;
@@ -74,6 +85,9 @@ export async function startFakeCrm(): Promise<FakeCrm> {
     },
     bitrix24: {
       codes: new Set(),
+      oauthCodes: new Set(),
+      tokens: new Set(),
+      profile: { ID: '1', NAME: 'Anna', LAST_NAME: 'Petrova', EMAIL: 'anna@acme.test' },
       items: {},
       statuses: [],
       categories: [],
@@ -82,6 +96,9 @@ export async function startFakeCrm(): Promise<FakeCrm> {
     },
     kommo: {
       tokens: new Set(),
+      codes: new Set(),
+      refreshSpent: new Set(),
+      account: { name: 'Acme', subdomain: 'acme' },
       pipelines: [],
       lossReasons: [],
       users: [],
@@ -129,9 +146,25 @@ function route(
   const url = new URL(req.url ?? '/', crm.base);
   const p = url.pathname;
   const m = req.method ?? 'GET';
-  if (p.startsWith('/rest/')) return bitrix24(crm, url, res, body);
+  // Under the dev override the trailing slash of Bitrix24's paths is gone; its consent shares HubSpot's path and is told apart by the app.
+  if (
+    (p === '/oauth/authorize' && url.searchParams.get('client_id') === 'b24-client') ||
+    p === '/oauth/token'
+  )
+    return bitrix24OAuth(crm, url, res, mint);
+  if (p.startsWith('/rest/')) return bitrix24(crm, req, url, res, body);
+  if (p === '/oauth' || p === '/oauth2/access_token') return kommoOAuth(crm, url, res, body, mint);
   if (p.startsWith('/api/v4/')) return kommo(crm, req, url, res);
   return hubspot(crm, req, url, res, body, m, mint);
+}
+
+/** A consent page with one link back to the app: the code, the state, and whatever else the vendor adds. */
+function consentPage(res: ServerResponse, title: string, back: URL): void {
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+  res.end(
+    `<!doctype html><html><body><h2>${escapeHtml(title)}</h2>` +
+      `<p><a id="allow" href="${escapeHtml(back.toString())}">Allow</a></p></body></html>`,
+  );
 }
 
 // ── HubSpot ──
@@ -270,17 +303,82 @@ function hubspot(
 
 // ── Bitrix24 ──
 
-function bitrix24(crm: FakeCrm, url: URL, res: ServerResponse, body: string): void {
+/**
+ * The "full" authorization as oauth.bitrix.info runs it: the consent
+ * page sends the browser back with `code`, `state`, `domain`,
+ * `member_id`; the token endpoint is a GET with the parameters in the
+ * query and answers the portal's REST root as `client_endpoint`.
+ */
+function bitrix24OAuth(crm: FakeCrm, url: URL, res: ServerResponse, mint: () => string): void {
   const b = crm.bitrix24;
-  const mm = /^\/rest\/(\d+)\/([^/]+)\/([a-z.]+)\.json$/.exec(url.pathname);
-  if (!mm) return json(res, 404, { error: 'NOT_FOUND', error_description: 'bad path' });
-  if (!b.codes.has(mm[2]!))
-    return json(res, 401, {
-      error: 'INVALID_CREDENTIALS',
-      error_description: 'Invalid request credentials',
-    });
+  if (url.pathname === '/oauth/authorize') {
+    const back = new URL(url.searchParams.get('redirect_uri') ?? '');
+    const code = `b24_code_${b.oauthCodes.size + 1}`;
+    b.oauthCodes.add(code);
+    back.searchParams.set('code', code);
+    back.searchParams.set('state', url.searchParams.get('state') ?? '');
+    back.searchParams.set('domain', new URL(crm.base).host);
+    back.searchParams.set('member_id', 'member-1');
+    return consentPage(res, 'Fake Bitrix24', back);
+  }
+  const q = url.searchParams;
+  if (q.get('client_id') !== 'b24-client' || q.get('client_secret') !== 'b24-secret')
+    return json(res, 401, { error: 'invalid_client', error_description: 'bad client' });
+  const grant = q.get('grant_type');
+  if (grant === 'authorization_code') {
+    const code = q.get('code') ?? '';
+    if (!b.oauthCodes.has(code))
+      return json(res, 400, { error: 'invalid_grant', error_description: 'bad code' });
+    b.oauthCodes.delete(code);
+  } else if (grant !== 'refresh_token' || !q.get('refresh_token')?.startsWith('b24_rt_')) {
+    return json(res, 400, { error: 'invalid_grant', error_description: 'bad refresh' });
+  }
+  const access = mint();
+  b.tokens.add(access);
+  return json(res, 200, {
+    access_token: access,
+    refresh_token: `b24_rt_${access}`,
+    expires_in: 3600,
+    domain: new URL(crm.base).host,
+    client_endpoint: `${crm.base}/rest/`,
+    server_endpoint: `${crm.base}/rest/`,
+    member_id: 'member-1',
+    user_id: 1,
+    status: 'L',
+  });
+}
+
+function bitrix24(
+  crm: FakeCrm,
+  req: IncomingMessage,
+  url: URL,
+  res: ServerResponse,
+  body: string,
+): void {
+  const b = crm.bitrix24;
   const params = body ? (JSON.parse(body) as Record<string, unknown>) : {};
-  const method = mm[3]!;
+  let method: string;
+  const om = /^\/rest\/([a-z.]+)\.json$/.exec(url.pathname);
+  if (om) {
+    // A connected account: the token as the `auth` parameter or a bearer.
+    const token = typeof params.auth === 'string' ? params.auth : bearerOf(req);
+    if (!token || !b.tokens.has(token))
+      return json(res, 401, {
+        error: 'expired_token',
+        error_description: 'The access token provided has expired.',
+      });
+    method = om[1]!;
+    if (method === 'profile') return json(res, 200, { result: b.profile });
+  } else {
+    const mm = /^\/rest\/(\d+)\/([^/]+)\/([a-z.]+)\.json$/.exec(url.pathname);
+    if (!mm) return json(res, 404, { error: 'NOT_FOUND', error_description: 'bad path' });
+    if (!b.codes.has(mm[2]!))
+      return json(res, 401, {
+        error: 'INVALID_CREDENTIALS',
+        error_description: 'Invalid request credentials',
+      });
+    method = mm[3]!;
+  }
   if (b.failNext) {
     const status = b.failNext;
     b.failNext = null;
@@ -323,12 +421,75 @@ function bitrix24(crm: FakeCrm, url: URL, res: ServerResponse, body: string): vo
 
 // ── Kommo ──
 
+/**
+ * Kommo's OAuth: the consent page at www.kommo.com sends the browser
+ * back with `code`, `state`, `referer` (the account's host) and
+ * `client_id`; the token endpoint on the account host takes a JSON body
+ * and rotates the refresh token on every use.
+ */
+function kommoOAuth(
+  crm: FakeCrm,
+  url: URL,
+  res: ServerResponse,
+  body: string,
+  mint: () => string,
+): void {
+  const k = crm.kommo;
+  if (url.pathname === '/oauth') {
+    const back = new URL(url.searchParams.get('redirect_uri') ?? '');
+    const code = `km_code_${k.codes.size + 1}`;
+    k.codes.add(code);
+    back.searchParams.set('code', code);
+    back.searchParams.set('state', url.searchParams.get('state') ?? '');
+    back.searchParams.set('referer', new URL(crm.base).host);
+    back.searchParams.set('client_id', url.searchParams.get('client_id') ?? '');
+    back.searchParams.set('platform', '1');
+    return consentPage(res, 'Fake Kommo', back);
+  }
+  let params: Record<string, string>;
+  try {
+    params = JSON.parse(body) as Record<string, string>;
+  } catch {
+    return json(res, 400, { hint: 'JSON body expected', title: 'Bad request', status: 400 });
+  }
+  if (params.client_id !== 'km-client' || params.client_secret !== 'km-secret')
+    return json(res, 401, { hint: 'Invalid client', title: 'Unauthorized', status: 401 });
+  if (!params.redirect_uri)
+    return json(res, 400, { hint: 'redirect_uri required', title: 'Bad request', status: 400 });
+  if (params.grant_type === 'authorization_code') {
+    if (!k.codes.has(params.code ?? ''))
+      return json(res, 400, { hint: 'Invalid code', title: 'Bad request', status: 400 });
+    k.codes.delete(params.code!);
+  } else if (params.grant_type === 'refresh_token') {
+    const rt = params.refresh_token ?? '';
+    if (!rt.startsWith('km_rt_') || k.refreshSpent.has(rt))
+      return json(res, 400, { hint: 'Invalid refresh token', title: 'Bad request', status: 400 });
+    k.refreshSpent.add(rt);
+  } else {
+    return json(res, 400, { hint: 'Invalid grant type', title: 'Bad request', status: 400 });
+  }
+  const access = mint();
+  k.tokens.add(access);
+  return json(res, 200, {
+    token_type: 'Bearer',
+    expires_in: 86400,
+    access_token: access,
+    refresh_token: `km_rt_${access}`,
+  });
+}
+
 function kommo(crm: FakeCrm, req: IncomingMessage, url: URL, res: ServerResponse): void {
   const k = crm.kommo;
   const token = bearerOf(req);
   if (!token || !k.tokens.has(token)) return json(res, 401, { title: 'Unauthorized', status: 401 });
   const p = url.pathname;
-  if (p === '/api/v4/account') return json(res, 200, { id: 1, currency: k.currency });
+  if (p === '/api/v4/account')
+    return json(res, 200, {
+      id: 1,
+      name: k.account.name,
+      subdomain: k.account.subdomain,
+      currency: k.currency,
+    });
   if (p === '/api/v4/leads/pipelines')
     return json(res, 200, {
       _embedded: {

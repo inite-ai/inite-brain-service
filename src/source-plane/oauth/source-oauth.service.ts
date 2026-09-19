@@ -25,6 +25,8 @@ import { OAuthClientRegistryService, type DynamicClient } from './oauth-client-r
 import { signState, verifyState } from './oauth-state';
 import {
   OAUTH_PROVIDER_IDS,
+  accountHostOf,
+  fillHost,
   identityUrl,
   isOAuthProviderId,
   pickAccount,
@@ -58,6 +60,8 @@ export interface TokenSet {
   apiBase?: string | undefined;
   /** The identity URL the token response named (`id`, Salesforce). */
   identityUrl?: string | undefined;
+  /** The redirect URI the grant was made with — a vendor that wants it on refresh too (Kommo) reads it here. */
+  redirectUri?: string | undefined;
 }
 
 interface StateRow {
@@ -108,6 +112,11 @@ interface TokenClient {
   apiBaseKey?: string | undefined;
   /** Sent with every token request (RFC 8707 `resource`). */
   tokenParams?: Record<string, string> | undefined;
+  /** Form body (default), JSON body (Kommo) or GET query (Bitrix24). */
+  tokenRequest?: OAuthProviderSpec['tokenRequest'];
+  /** The vendor's token endpoint lives on the account's host, named by the callback. */
+  accountHost?: OAuthProviderSpec['accountHost'];
+  refreshWithRedirectUri?: boolean | undefined;
   /** The dev override / private opt-in and the spec's URL for identityUrl(). */
   spec: (OAuthProviderSpec & { private: boolean }) | null;
 }
@@ -313,6 +322,8 @@ export class SourceOAuthService {
     code?: string | undefined;
     error?: string | undefined;
     errorDescription?: string | undefined;
+    /** Every query parameter of the callback — a vendor may name the account's host in one (Kommo `referer`). */
+    params?: Record<string, string | undefined> | undefined;
   }): Promise<{
     grantId: string;
     provider: string;
@@ -350,17 +361,28 @@ export class SourceOAuthService {
     } catch (e) {
       throw new OAuthCallbackError((e as Error).message, origin);
     }
+    let host: string | null;
+    try {
+      host = provider.spec ? accountHostOf(provider.spec, q.params ?? {}) : null;
+    } catch (e) {
+      throw new OAuthCallbackError((e as Error).message, origin);
+    }
     let tokens: TokenSet;
     try {
-      tokens = await this.exchange(provider, {
-        grant_type: 'authorization_code',
-        code: q.code,
-        redirect_uri: row.redirectUri,
-        code_verifier: decryptSecret(row.codeVerifier),
-      });
+      tokens = await this.exchange(
+        provider,
+        {
+          grant_type: 'authorization_code',
+          code: q.code,
+          redirect_uri: row.redirectUri,
+          code_verifier: decryptSecret(row.codeVerifier),
+        },
+        host,
+      );
     } catch (e) {
       throw new OAuthCallbackError(`token exchange failed: ${(e as Error).message}`, origin);
     }
+    if (provider.refreshWithRedirectUri) tokens.redirectUri = row.redirectUri;
     const account = await this.identity(provider, tokens);
     const grantId = await this.surreal.withCompany(companyId, async (db) => {
       const [created] = await queryRows<{ id: unknown }>(
@@ -457,17 +479,24 @@ export class SourceOAuthService {
     const provider = await this.clientFor(companyId, row);
     let fresh: TokenSet;
     try {
-      fresh = await this.exchange(provider, {
-        grant_type: 'refresh_token',
-        refresh_token: tokens.refreshToken,
-      });
+      fresh = await this.exchange(
+        provider,
+        {
+          grant_type: 'refresh_token',
+          refresh_token: tokens.refreshToken,
+          ...(provider.refreshWithRedirectUri && tokens.redirectUri
+            ? { redirect_uri: tokens.redirectUri }
+            : {}),
+        },
+        hostOf(tokens.apiBase),
+      );
     } catch (e) {
       const message = (e as Error).message;
       await this.markBroken(companyId, row, `refresh failed: ${message}`);
       throw new Error(`connected account ${grantId}: refresh failed (${message}) — reconnect it`);
     }
     // A provider that does not rotate refresh tokens omits it: keep ours;
-    // the same for the account's API origin and identity URL.
+    // the same for the account's API origin, identity URL and redirect URI.
     const merged: TokenSet = {
       ...fresh,
       refreshToken: fresh.refreshToken ?? tokens.refreshToken,
@@ -475,6 +504,7 @@ export class SourceOAuthService {
       ...((fresh.identityUrl ?? tokens.identityUrl)
         ? { identityUrl: fresh.identityUrl ?? tokens.identityUrl }
         : {}),
+      ...(tokens.redirectUri ? { redirectUri: tokens.redirectUri } : {}),
     };
     await this.surreal.withCompany(companyId, (db) =>
       db.query(
@@ -537,10 +567,19 @@ export class SourceOAuthService {
     return { ...provider, spec: provider };
   }
 
-  /** One POST to the token endpoint; the client authenticates as the provider takes it (body / basic / none). */
-  private async exchange(provider: TokenClient, params: Record<string, string>): Promise<TokenSet> {
+  /**
+   * One request to the token endpoint; the client authenticates as the
+   * provider takes it (body / basic / none), the parameters travel as
+   * the provider takes them (form / JSON / query), and a vendor whose
+   * endpoint lives on the account's host gets `host` filled in.
+   */
+  private async exchange(
+    provider: TokenClient,
+    params: Record<string, string>,
+    host: string | null = null,
+  ): Promise<TokenSet> {
     const basic = provider.tokenAuth === 'basic';
-    const body = new URLSearchParams({
+    const fields: Record<string, string> = {
       ...params,
       ...(provider.tokenParams ?? {}),
       ...(basic
@@ -551,23 +590,8 @@ export class SourceOAuthService {
               ? { client_secret: provider.clientSecret }
               : {}),
           }),
-    });
-    const res = await safeFetch(provider.tokenUrl, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/x-www-form-urlencoded',
-        accept: 'application/json',
-        ...(basic
-          ? {
-              authorization: `Basic ${Buffer.from(`${provider.clientId}:${provider.clientSecret}`).toString('base64')}`,
-            }
-          : {}),
-      },
-      body: body.toString(),
-      allowPrivate: provider.private,
-      timeoutMs: TOKEN_TIMEOUT_MS,
-      maxBytes: 64 * 1024,
-    });
+    };
+    const res = await tokenRequest(provider, fillHost(provider.tokenUrl, host), fields);
     let json: Record<string, unknown>;
     try {
       json = JSON.parse(res.body.toString('utf8')) as Record<string, unknown>;
@@ -579,19 +603,7 @@ export class SourceOAuthService {
       const desc = typeof json.error_description === 'string' ? `: ${json.error_description}` : '';
       throw new Error(`${err}${desc}`);
     }
-    const expiresIn =
-      typeof json.expires_in === 'number' ? json.expires_in : Number(json.expires_in);
-    return {
-      accessToken: json.access_token,
-      ...(typeof json.refresh_token === 'string' ? { refreshToken: json.refresh_token } : {}),
-      ...(Number.isFinite(expiresIn) && expiresIn > 0
-        ? { expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString() }
-        : {}),
-      tokenType: typeof json.token_type === 'string' ? json.token_type : 'Bearer',
-      ...(typeof json.scope === 'string' ? { scope: json.scope } : {}),
-      ...apiBaseOf(provider, json),
-      ...identityUrlOf(provider, json),
-    };
+    return tokenSetOf(provider, json, host);
   }
 
   /** The account label — never fatal: a grant without a name is still a grant; an MCP grant is labelled by its server. */
@@ -601,7 +613,11 @@ export class SourceOAuthService {
     }
     const accessToken = tokens.accessToken;
     try {
-      const res = await safeFetch(identityUrl(provider.spec, accessToken, tokens.identityUrl), {
+      const url = identityUrl(provider.spec, accessToken, {
+        tokenIdUrl: tokens.identityUrl,
+        accountHost: hostOf(tokens.apiBase),
+      });
+      const res = await safeFetch(url, {
         method: provider.identity.method,
         headers: {
           authorization: `Bearer ${accessToken}`,
@@ -703,6 +719,78 @@ function mcpTokenClient(c: DynamicClient): TokenClient {
     tokenParams: { resource: c.resource },
     spec: null,
   };
+}
+
+/** The token request as the provider takes it: a GET with the fields in the query, or a POST with a JSON / form body. */
+async function tokenRequest(
+  provider: TokenClient,
+  url: string,
+  fields: Record<string, string>,
+): Promise<{ status: number; body: Buffer }> {
+  const auth =
+    provider.tokenAuth === 'basic'
+      ? {
+          authorization: `Basic ${Buffer.from(`${provider.clientId}:${provider.clientSecret}`).toString('base64')}`,
+        }
+      : {};
+  const shape = provider.tokenRequest ?? 'form';
+  const common = {
+    allowPrivate: provider.private,
+    timeoutMs: TOKEN_TIMEOUT_MS,
+    maxBytes: 64 * 1024,
+  };
+  if (shape === 'query') {
+    return safeFetch(`${url}${url.includes('?') ? '&' : '?'}${new URLSearchParams(fields)}`, {
+      method: 'GET',
+      headers: { accept: 'application/json', ...auth },
+      ...common,
+    });
+  }
+  return safeFetch(url, {
+    method: 'POST',
+    headers: {
+      'content-type': shape === 'json' ? 'application/json' : 'application/x-www-form-urlencoded',
+      accept: 'application/json',
+      ...auth,
+    },
+    body: shape === 'json' ? JSON.stringify(fields) : new URLSearchParams(fields).toString(),
+    ...common,
+  });
+}
+
+/** The token set out of a token response, with what the provider said about the account beside the tokens. */
+function tokenSetOf(
+  provider: TokenClient,
+  json: Record<string, unknown>,
+  host: string | null,
+): TokenSet {
+  const expiresIn = typeof json.expires_in === 'number' ? json.expires_in : Number(json.expires_in);
+  return {
+    accessToken: json.access_token as string,
+    ...(typeof json.refresh_token === 'string' ? { refreshToken: json.refresh_token } : {}),
+    ...(Number.isFinite(expiresIn) && expiresIn > 0
+      ? { expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString() }
+      : {}),
+    tokenType: typeof json.token_type === 'string' ? json.token_type : 'Bearer',
+    ...(typeof json.scope === 'string' ? { scope: json.scope } : {}),
+    ...apiBaseOf(provider, json),
+    // The account's host the callback named IS its API origin (Kommo);
+    // under the dev override every URL is the fake's anyway.
+    ...(host && provider.accountHost
+      ? { apiBase: provider.private && provider.spec ? provider.spec.apiBase : `https://${host}` }
+      : {}),
+    ...identityUrlOf(provider, json),
+  };
+}
+
+/** The host (with port) of a grant's API origin — where a vendor on the account's host is reached again. */
+function hostOf(apiBase: string | undefined): string | null {
+  if (!apiBase) return null;
+  try {
+    return new URL(apiBase).host;
+  } catch {
+    return null;
+  }
 }
 
 /** The identity URL the token response named (`id`) — https only, unless the dev override is in force (it reroutes the host anyway). */

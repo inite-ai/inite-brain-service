@@ -432,6 +432,8 @@ export const SourceOAuthProviderIdSchema = z.enum([
   'pipedrive',
   'hubspot',
   'salesforce',
+  'bitrix24',
+  'kommo',
 ])
 
 export const SourceOAuthStartRequestSchema = z.object({

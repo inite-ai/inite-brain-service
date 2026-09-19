@@ -23,6 +23,8 @@ export interface FieldSpec {
   key: string
   type: FieldType
   required?: boolean
+  /** Required unless a connected account is chosen — the account names it (Kommo's host). */
+  requiredWithoutGrant?: boolean
   /** Folded under "Advanced"; never required. */
   advanced?: boolean
   mono?: boolean
@@ -43,8 +45,12 @@ export interface FieldSpec {
 /** What the single credential is called when it is not a plain token (`form.credential.<label>` / `<label>Hint`). */
 export type CredentialLabel = 'webhookUrl' | 'longLivedToken'
 
-/** What a connected-account connector also takes instead of an account: a vendor token, or a JWT bearer JSON (Salesforce). */
-export type OAuthAlternative = 'token' | 'jwtBearer'
+/**
+ * What a connected-account connector also takes instead of an account:
+ * a vendor token (Pipedrive, HubSpot), a JWT bearer JSON (Salesforce),
+ * an inbound webhook URL (Bitrix24), a long-lived token (Kommo).
+ */
+export type OAuthAlternative = 'token' | 'jwtBearer' | 'webhookUrl' | 'longLivedToken'
 
 export type CredentialSpec =
   | {
@@ -296,18 +302,19 @@ const REST_RECORDS: ConnectorForm = {
   },
 }
 
-/** The credential IS the inbound webhook URL (its code is the secret); a self-hosted portal may sit on the LAN. */
+/** A connected account (the portal comes from the grant) or the inbound webhook URL itself (its code is the secret); a self-hosted portal may sit on the LAN. */
 const BITRIX24: ConnectorForm = {
   fields: [allowPrivate],
-  credential: { kind: 'single', required: () => true, shown: () => true, label: 'webhookUrl' },
+  credential: { kind: 'oauth', alternative: 'webhookUrl' },
 }
 
+/** A connected account (the host comes from the grant) or a long-lived token, which needs the account's URL. */
 const KOMMO: ConnectorForm = {
   fields: [
-    { key: 'baseUrl', type: 'url', required: true, mono: true, placeholder: 'https://acme.kommo.com' },
+    { key: 'baseUrl', type: 'url', requiredWithoutGrant: true, mono: true, placeholder: 'https://acme.kommo.com' },
     allowPrivate,
   ],
-  credential: { kind: 'single', required: () => true, shown: () => true, label: 'longLivedToken' },
+  credential: { kind: 'oauth', alternative: 'longLivedToken' },
 }
 
 /** An MCP server that signs in (`auth: 'oauth'`, W4.3): the same fields, the credential is the grant at that server. */
@@ -498,7 +505,7 @@ export function validate(
     if (f.when && !f.when(values, ctx)) continue
     const v = values[f.key]
     const raw = typeof v === 'string' ? v.trim() : ''
-    if (f.required && raw.length === 0) {
+    if ((f.required || (f.requiredWithoutGrant && !secret.grantId)) && raw.length === 0) {
       errors[f.key] = 'required'
       continue
     }

@@ -921,6 +921,8 @@ export const SourceOAuthProviderIdSchema = z.enum([
   'pipedrive',
   'hubspot',
   'salesforce',
+  'bitrix24',
+  'kommo',
 ]);
 export type SourceOAuthProviderId = z.infer<typeof SourceOAuthProviderIdSchema>;
 

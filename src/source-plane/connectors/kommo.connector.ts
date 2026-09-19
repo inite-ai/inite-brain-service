@@ -9,6 +9,7 @@ import {
   type ListCursor,
   type ListPage,
 } from '../records/records-connector';
+import { providerEndpoints } from '../oauth/oauth-providers';
 import { kommoWebhook } from '../records/webhook-schemes';
 import { cloudHttp, type CloudHttp } from './cloud-http';
 import { isoOf, scalars } from './records-vendor';
@@ -24,12 +25,15 @@ import { isoOf, scalars } from './records-vendor';
  * reads `deal_stage: Negotiation`, not `142`; the account's currency
  * rides every lead.
  *
- * The credential is a LONG-LIVED TOKEN of a private integration
- * (Settings → Integrations → the integration → "Long-lived token"; a
- * bearer, valid for years) and `config.baseUrl` names the account
- * (`https://<subdomain>.kommo.com` or `https://<subdomain>.amocrm.ru`).
- * OAuth for Kommo — its token endpoint lives on the account's own host
- * and takes JSON — waits for the per-origin provider lane (W4.3).
+ * Two credentials (W4.2b / W4.3b). A CONNECTED ACCOUNT
+ * (`oauth:<grant>`, the `kommo` provider — an integration of the
+ * operator's): the callback named the account's host (`referer`), the
+ * grant keeps it as `apiBase` and the engine refreshes the 24-hour
+ * token there. Or a LONG-LIVED TOKEN of a private integration (Settings
+ * → Integrations → the integration → "Long-lived token"; a bearer,
+ * valid for years) with `config.baseUrl` naming the account
+ * (`https://<subdomain>.kommo.com` or `https://<subdomain>.amocrm.ru`);
+ * `baseUrl` also overrides the grant's host when both are given.
  */
 
 export interface KommoConfig {
@@ -93,7 +97,9 @@ export class KommoConnector extends RecordsConnector {
     baseUrl: 'https://acme.kommo.com',
     entities: ['deal', 'person', 'organization'],
   };
-  override readonly credentialHint = 'a long-lived token of a private integration (bearer)';
+  override readonly credentialHint =
+    'a connected Kommo / amoCRM account (oauth:<grant id>), or a long-lived token of a private integration (bearer) with config.baseUrl';
+  override readonly oauth = { provider: 'kommo' as const, scopes: [], optional: true };
   override readonly webhook = kommoWebhook;
   readonly entities: EntitySpec[] = [
     {
@@ -370,9 +376,24 @@ function customField(row: KommoRow, code: string): string | undefined {
   return v === undefined || v === null ? undefined : String(v);
 }
 
+/** The account's origin: `config.baseUrl`, else the host the connected account was made at (the dev override's origin when one is in force). */
 function baseOf(ctx: ConnectorCtx): string {
-  const raw = (configOf(ctx) as KommoConfig).baseUrl?.trim();
-  if (!raw) throw new Error('kommo: config.baseUrl (https://<subdomain>.kommo.com) is required');
+  const own = (configOf(ctx) as KommoConfig).baseUrl?.trim();
+  const ep = providerEndpoints('kommo');
+  const raw =
+    own ||
+    (ctx.connection.credentialSource === 'grant'
+      ? ep.private
+        ? ep.apiBase
+        : ctx.connection.grant?.apiBase
+      : undefined);
+  if (!raw) {
+    throw new Error(
+      ctx.connection.credentialSource === 'grant'
+        ? 'kommo: the connected account names no host — reconnect it'
+        : 'kommo: config.baseUrl (https://<subdomain>.kommo.com) is required',
+    );
+  }
   let u: URL;
   try {
     u = new URL(raw);
@@ -386,10 +407,13 @@ function baseOf(ctx: ConnectorCtx): string {
 
 function httpOf(ctx: ConnectorCtx): CloudHttp {
   const token = ctx.connection.credential;
-  if (!token) throw new Error('kommo: no long-lived token on this connection');
+  if (!token) throw new Error('kommo: no connected account or long-lived token on this connection');
   return cloudHttp({
     token,
-    private: (configOf(ctx) as KommoConfig).allowPrivate === true,
+    // An account on the LAN (the connection's half of the opt-in), or the dev override on a connected account.
+    private:
+      (configOf(ctx) as KommoConfig).allowPrivate === true ||
+      (ctx.connection.credentialSource === 'grant' && providerEndpoints('kommo').private),
     signal: ctx.signal,
   });
 }
