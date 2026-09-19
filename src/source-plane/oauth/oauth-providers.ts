@@ -39,8 +39,8 @@ export interface OAuthProviderSpec {
   title: string;
   authorizeUrl: string;
   tokenUrl: string;
-  /** How the client authenticates at the token endpoint: in the form body (default) or HTTP Basic (Pipedrive). */
-  tokenAuth?: 'body' | 'basic' | undefined;
+  /** How the client authenticates at the token endpoint: in the form body (default), HTTP Basic (Pipedrive), or not at all (a public PKCE client). */
+  tokenAuth?: 'body' | 'basic' | 'none' | undefined;
   /** Provider-specific authorize parameters (offline access, consent). */
   authorizeParams: Record<string, string>;
   /** Scopes every grant of this provider carries (identity), beyond what a connector asks. */

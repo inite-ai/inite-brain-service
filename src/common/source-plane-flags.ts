@@ -111,3 +111,16 @@ export function sourceOAuthRedirectUrl(): string | null {
 export function sourceWebhooksEnabled(): boolean {
   return envFlagEnabled(process.env.SOURCE_WEBHOOKS);
 }
+
+/**
+ * SOURCE_MCP_OAUTH — the brain as an OAuth client of ANY MCP server
+ * (W4.3): `POST /v1/admin/source-connections/oauth/mcp/start` discovers
+ * the server's authorization server (RFC 9728 → RFC 8414), registers a
+ * client there (RFC 7591) and sends the admin to consent; a pack's
+ * `auth: 'oauth'` MCP source then runs as that grant. Off (default) ⇒
+ * the route answers 404, no server is ever discovered, such a source
+ * says so by name — byte-identical. Needs SOURCE_OAUTH_CLIENT.
+ */
+export function sourceMcpOAuthEnabled(): boolean {
+  return envFlagEnabled(process.env.SOURCE_MCP_OAUTH);
+}

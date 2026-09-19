@@ -310,6 +310,12 @@ const KOMMO: ConnectorForm = {
   credential: { kind: 'single', required: () => true, shown: () => true, label: 'longLivedToken' },
 }
 
+/** An MCP server that signs in (`auth: 'oauth'`, W4.3): the same fields, the credential is the grant at that server. */
+const MCP_HTTP_OAUTH: ConnectorForm = {
+  fields: MCP_HTTP.fields.filter((f) => f.key !== 'authScheme' && f.key !== 'authHeader'),
+  credential: { kind: 'oauth' },
+}
+
 const MCP_STDIO: ConnectorForm = { fields: [], credential: null }
 
 const GIT: ConnectorForm = {
@@ -351,7 +357,10 @@ function withAuthScheme(
 /** The form for an entry, or null when this build knows no form for its connector (JSON editor). */
 export function formFor(entry: SourceCatalogEntry): ConnectorForm | null {
   if (entry.kind === 'external') return EXTERNAL
-  if (entry.kind === 'mcp') return entry.mcp?.transport === 'stdio' ? MCP_STDIO : MCP_HTTP
+  if (entry.kind === 'mcp') {
+    if (entry.mcp?.transport === 'stdio') return MCP_STDIO
+    return entry.mcp?.auth === 'oauth' ? MCP_HTTP_OAUTH : MCP_HTTP
+  }
   switch (entry.connector) {
     case 'fs':
       return FS

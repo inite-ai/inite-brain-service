@@ -619,6 +619,7 @@ export const KNOWN_BOOLEAN_FLAGS = [
   'SOURCE_MAPPING_ASSISTANT',
   'SOURCE_WEBHOOKS',
   'SOURCE_OAUTH_CLIENT',
+  'SOURCE_MCP_OAUTH',
   'SOURCE_EGRESS_ALLOW_PRIVATE',
   // Orphan-blob GC (MM-7 follow-up): the delete-side sweep that reclaims
   // blobs no evidence_asset row references — the leak the upload path

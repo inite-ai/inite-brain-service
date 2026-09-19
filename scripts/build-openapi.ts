@@ -128,6 +128,8 @@ import {
   BrowseResponseSchema,
   SourceOAuthStartRequestSchema,
   SourceOAuthStartResponseSchema,
+  SourceOAuthMcpStartRequestSchema,
+  SourceOAuthMcpStartResponseSchema,
   SourceOAuthGrantsResponseSchema,
   RevokeGrantResponseSchema,
   PushRecordsRequestSchema,
@@ -388,6 +390,8 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   BrowseResponse: BrowseResponseSchema,
   SourceOAuthStartRequest: SourceOAuthStartRequestSchema,
   SourceOAuthStartResponse: SourceOAuthStartResponseSchema,
+  SourceOAuthMcpStartRequest: SourceOAuthMcpStartRequestSchema,
+  SourceOAuthMcpStartResponse: SourceOAuthMcpStartResponseSchema,
   SourceOAuthGrantsResponse: SourceOAuthGrantsResponseSchema,
   RevokeGrantResponse: RevokeGrantResponseSchema,
   PushRecordsRequest: PushRecordsRequestSchema,
@@ -1951,6 +1955,29 @@ function oauthPaths(): Json {
         requestBody: jsonBody(ref('SourceOAuthStartRequest')),
         responses: {
           '200': jsonResponse('Where to send the browser.', ref('SourceOAuthStartResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/source-connections/oauth/mcp/start': {
+      post: operation({
+        operationId: 'startSourceMcpOAuth',
+        tag: 'Source Plane',
+        summary: 'Sign in at an MCP server (discovered authorization server)',
+        description:
+          'The brain as an OAuth client of any MCP server (W4.3): the server’s authorization server ' +
+          'is discovered from its 401 (RFC 9728 protected-resource metadata → RFC 8414 / OpenID ' +
+          'metadata), a client is registered there dynamically (RFC 7591) unless one the operator ' +
+          'registered is passed, and the admin is sent to consent with PKCE and the RFC 8707 ' +
+          '`resource`. The callback keeps a `mcp` grant for that resource; a pack’s `auth: oauth` ' +
+          'MCP source then runs as it. 404 until `SOURCE_MCP_OAUTH=1`. ' +
+          OAUTH_NOTE,
+        scope: 'brain:admin',
+        requestBody: jsonBody(ref('SourceOAuthMcpStartRequest')),
+        responses: {
+          '201': jsonResponse('The consent URL, the state and the resource.', ref('SourceOAuthMcpStartResponse')),
           '400': errorRef('BadRequest'),
           ...AUTH_ERRORS,
           '404': errorRef('NotFound'),

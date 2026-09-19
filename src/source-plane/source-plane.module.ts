@@ -25,6 +25,7 @@ import { SalesforceConnector } from './connectors/salesforce.connector';
 import { UrlConnector } from './connectors/url.connector';
 import { AdminSourceOAuthController } from './oauth/admin-source-oauth.controller';
 import { CredentialProvider } from './oauth/credential-provider';
+import { OAuthClientRegistryService } from './oauth/oauth-client-registry.service';
 import { SourceOAuthCallbackController } from './oauth/source-oauth-callback.controller';
 import { SourceOAuthService } from './oauth/source-oauth.service';
 import { AdminSourceWebhookController } from './records/admin-source-webhook.controller';
@@ -124,6 +125,7 @@ import { SourceSyncService } from './source-sync.service';
         RestRecordsConnector,
       ],
     },
+    OAuthClientRegistryService,
     SourceOAuthService,
     CredentialProvider,
     SourceCatalogService,

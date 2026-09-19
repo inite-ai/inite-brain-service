@@ -225,6 +225,25 @@ describe('connect form specs', () => {
     expect(configFrom(kf, { ...kv, baseUrl: 'https://acme.kommo.com' }, ctxFor(kommo))).toEqual({ baseUrl: 'https://acme.kommo.com' })
   })
 
+  it('an MCP server that signs in: the operator-named URL, no auth scheme, the credential is the grant at that server', () => {
+    const signedIn = entry({
+      packId: 'signed_wiki',
+      sourceId: 'wiki',
+      kind: 'mcp',
+      connector: 'mcp',
+      hosts: ['server'],
+      mcp: { transport: 'http', url: null, auth: 'oauth', command: null, args: [] },
+      oauth: { provider: 'mcp', title: 'the MCP server', scopes: [], configured: true },
+    })
+    const form = formFor(signedIn)!
+    expect(form.credential).toEqual({ kind: 'oauth' })
+    const values = initialValues(form, signedIn)
+    expect(visibleFields(form, values, ctxFor(signedIn), false).map((f) => f.key)).toEqual(['url', 'uriPrefixes', 'mimeTypes'])
+    expect(validate(form, values, ctxFor(signedIn), noSecret)).toEqual({ url: 'required', credential: 'account' })
+    expect(validate(form, { ...values, url: 'https://mcp.example.test/mcp' }, ctxFor(signedIn), { ...noSecret, grantId: 'source_oauth_grant:g1' })).toEqual({})
+    expect(configFrom(form, { ...values, url: 'https://mcp.example.test/mcp' }, ctxFor(signedIn))).toEqual({ url: 'https://mcp.example.test/mcp' })
+  })
+
   it('Salesforce: a connected account or a JWT bearer JSON (validated as such); the org, login host, version and bulk walk are advanced', () => {
     const sf = entry({
       packId: 'crm_memory',

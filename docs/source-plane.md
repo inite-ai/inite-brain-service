@@ -92,6 +92,7 @@ failed run, never a crash.
 | `GET /v1/admin/source-connections/:id/items/:itemId` | one catalogue row followed to its facts: the document it became (or the asset it was stored as, its current derived representations, and the documents the bridge made of it) and up to 50 facts that cite those documents with the revision each was read at, its stale mark and its close. 404 when the row belongs to another connection |
 | `POST /v1/admin/source-connections/oauth/start` | `{ provider, connector, origin?, ownerUserId? }` — begin connecting an account: the provider's consent URL with the connector's scopes and a signed state (W4, § Connected accounts). 404 until `SOURCE_OAUTH_CLIENT` |
 | `GET /v1/admin/source-connections/oauth/grants` | the accounts connected (never a token), each provider's readiness and the redirect URI to register, `ready` (the client on + the key set) |
+| `POST /v1/admin/source-connections/oauth/mcp/start` | `{ serverUrl, allowPrivate?, client?: { clientId, clientSecret? }, origin?, ownerUserId? }` — sign in at an MCP server (W4.3, § MCP client OAuth): its authorization server discovered, a client registered there (or the operator's taken), the consent URL with PKCE and the RFC 8707 `resource`. 404 until `SOURCE_MCP_OAUTH` |
 | `DELETE /v1/admin/source-connections/oauth/grants/:id` | disconnect: revoked at the provider (best effort), the grant marked revoked |
 | `GET /v1/source-connections/oauth/callback` | **public** — the provider's return leg; the signed state authenticates it. Answers the HTML page that hands the result to the admin window |
 | `POST /v1/source-connections/:id/records` | `brain:write` — push record envelopes (≤ 200) + `gone` ids under a `structure`-shaped connection (W4.2, § Records); each batch a run, each record the records door |
@@ -500,6 +501,32 @@ run time: CredentialProvider.resolve → the grant's access token, REFRESHED bef
   connection's grant may be a user's (`ownerUserId`) and its rows stay
   user-fenced like every personal connection's.
 
+### MCP client OAuth (W4.3) — signing in at a server never seen
+
+A pack's http MCP entry with `auth: 'oauth'` no longer "waits for
+W4": the brain signs in at the server itself, the way the 2025-06-18+
+MCP authorization flow prescribes (`oauth/mcp-oauth-discovery.ts`,
+pure functions over the egress guard): an unauthenticated `initialize`
+answers 401 with `WWW-Authenticate: Bearer resource_metadata="…"`
+(RFC 9728) — else the path-aware `/.well-known/oauth-protected-resource`
+— naming the authorization servers and the scopes the resource takes;
+the authorization server's metadata (RFC 8414, path-aware, then OpenID
+discovery) names the authorize / token / registration / revocation
+endpoints; a client is registered there dynamically (RFC 7591) as a
+public PKCE client unless the server only takes clients with a secret —
+or the operator passes a client the server issued when it offers no
+registration. What the deployment learned is kept per tenant and per
+resource in `source_oauth_client` (0154; the secret encrypted): the
+grant (`provider: mcp`, its `resource`) refreshes and revokes through
+it, and every token request carries the RFC 8707 `resource` the tokens
+are bound to. The account label is the server's host. A connection of
+such a source must name a `mcp` grant for the same origin; the
+harvester runs as it — the bearer refreshed by the engine, a 401 from
+the server naming the account to sign in again. Flag: `SOURCE_MCP_OAUTH`
+(with `SOURCE_OAUTH_CLIENT`). Not built on purpose: bulk sync through
+the official CRM servers' tools (§ 2.1 of the CRM plan) — W7's linked
+lane calls their `search` at retrieval time.
+
 ## Writing a connector (platform code)
 
 ```ts
@@ -544,6 +571,7 @@ pack may only name it.
 | `SOURCE_WEBHOOKS` | `0` | the inbound webhook lane of the records connectors (W4.2c): the setup route and the public address; needs `SOURCE_CREDENTIAL_ENCRYPTION_KEY` |
 | `SOURCE_MAPPING_ASSISTANT` / `MAPPING_ASSISTANT_MODEL` | `0` / `gpt-5.6-luna` | the model half of the mapping assistant; off = the deterministic proposal only |
 | `SOURCE_OAUTH_CLIENT` | `0` | the brain as an outbound OAuth client: connected accounts, the public callback, refresh (W4) |
+| `SOURCE_MCP_OAUTH` | `0` | signing in at any MCP server — discovery, dynamic registration, PKCE + `resource` (W4.3); needs `SOURCE_OAUTH_CLIENT` |
 | `SOURCE_CREDENTIAL_ENCRYPTION_KEY` (+ `_PREVIOUS`) | unset | credentials and grants encrypted at rest; required for OAuth |
 | `SOURCE_OAUTH_<P>_CLIENT_ID` / `_CLIENT_SECRET` / `_BASE_URL` | unset | the operator's app per provider; the dev override |
 | `SOURCE_OAUTH_REDIRECT_URL` | unset | the callback URL when it is not derivable from the request |

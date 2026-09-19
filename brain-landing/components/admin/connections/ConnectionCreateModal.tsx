@@ -619,11 +619,13 @@ function SourceStep({
       {entry.mcp?.auth === 'install_secret' && (
         <p className="text-[11px] text-[var(--text-muted)]">{f.installSecret}</p>
       )}
-      {entry.mcp?.auth === 'oauth' && <p className="text-[11px] text-[var(--warning)]">{f.oauth}</p>}
+      {entry.mcp?.auth === 'oauth' && <p className="text-[11px] text-[var(--text-muted)]">{f.oauth}</p>}
       <ConnectorFields fields={fields} values={values} errors={errors} ctx={ctx} t={t} onChange={onValue} onBrowse={onBrowse} />
       {form.credential?.kind === 'oauth' && entry.oauth && ctx.host === 'server' && (
         <AccountPicker
           entry={entry}
+          serverUrl={entry.mcp?.url ?? (typeof values['url'] === 'string' ? values['url'] : '')}
+          allowPrivate={values['allowPrivate'] === true}
           value={secret.grantId}
           error={errors['credential'] ? f.errors.account : null}
           t={t}
