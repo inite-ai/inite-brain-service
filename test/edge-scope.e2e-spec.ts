@@ -71,6 +71,8 @@ describe('per-user scope on knowledge_edge', () => {
   let orbital: string;
   let globalEdge: string;
   let personalEdge: string;
+  /** A relation user_a alone holds — no tenant-global twin. */
+  let personalOnlyEdge: string;
 
   it('one triple, one row per scope; a repeat within a scope returns the first', async () => {
     maria = await mint('edge_scope_maria', 'Maria Edge Scope');
@@ -95,6 +97,14 @@ describe('per-user scope on knowledge_edge', () => {
       // repeat resolve to their own existing row.
       expect(await write()).toBe(globalEdge);
       expect(await write('user_a')).toBe(personalEdge);
+      personalOnlyEdge = (await createEdgeBetween(db, {
+        fromEntityId: maria,
+        toEntityId: orbital,
+        kind: 'mentors_at',
+        source,
+        userId: 'user_a',
+      })) as string;
+      expect(personalOnlyEdge).toBeTruthy();
 
       const [rows] = await db.query<
         [Array<{ id: unknown; userId: string | null; scopeKey: string }>]
@@ -112,14 +122,13 @@ describe('per-user scope on knowledge_edge', () => {
     });
   });
 
-  it('connections: tenant-global to everyone, the personal edge to its user only', async () => {
+  it('connections: tenant-global to everyone, the personal edges to their user only', async () => {
+    const own = [globalEdge, personalEdge, personalOnlyEdge].sort();
     expect(await connections(maria)).toEqual([globalEdge]);
-    expect((await connections(maria, 'user_a')).sort()).toEqual([globalEdge, personalEdge].sort());
+    expect((await connections(maria, 'user_a')).sort()).toEqual(own);
     expect(await connections(maria, 'user_b')).toEqual([globalEdge]);
     // Seen from the far end as well.
-    expect((await connections(orbital, 'user_a')).sort()).toEqual(
-      [globalEdge, personalEdge].sort(),
-    );
+    expect((await connections(orbital, 'user_a')).sort()).toEqual(own);
     expect(await connections(orbital, 'user_b')).toEqual([globalEdge]);
   });
 
@@ -127,14 +136,19 @@ describe('per-user scope on knowledge_edge', () => {
     const none = await searchRelations('Maria Edge Scope');
     const mine = await searchRelations('Maria Edge Scope', 'user_a');
     const theirs = await searchRelations('Maria Edge Scope', 'user_b');
+    // A hit renders one relation line per (peer, kind, direction), so the
+    // global works_at and user_a's personal twin collapse to one line —
+    // either id is that relation. The personal-only relation is the
+    // discriminating one: its user sees it, nobody else does.
     expect(none).toContain(globalEdge);
-    expect(none).not.toContain(personalEdge);
-    expect(mine).toContain(personalEdge);
+    expect(none).not.toContain(personalOnlyEdge);
+    expect(mine).toContain(personalOnlyEdge);
     expect(theirs).toContain(globalEdge);
     expect(theirs).not.toContain(personalEdge);
+    expect(theirs).not.toContain(personalOnlyEdge);
   });
 
-  it('user forget takes the personal edge with it and leaves the global one', async () => {
+  it('user forget takes the personal edges with it and leaves the global one', async () => {
     const r = await f.http.post('/v1/users/user_a/forget').set(auth()).send({});
     expect([200, 201]).toContain(r.status);
     const surreal = f.app.get(SurrealService);
