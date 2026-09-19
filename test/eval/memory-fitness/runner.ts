@@ -439,13 +439,8 @@ async function askOne(ctx: AskContext, q: Question): Promise<Verdict> {
         return { status: 'fail', detail: 'abstained on a known value', answer: out.answer };
       }
       const answer = out.answer ?? '';
-      const stale = findForbidden(answer, q.forbidAnyOf);
-      if (stale !== null) {
-        return { status: 'fail', detail: `stale value served: "${stale}"`, answer };
-      }
-      return containsAnyOf(answer, q.expectAnyOf)
-        ? { status: 'pass', detail: 'current value served, stale value absent', answer }
-        : { status: 'fail', detail: `expected one of [${q.expectAnyOf.join(', ')}]`, answer };
+      const verdict = checkOrdering(answer, q.currentMarkers, q.priorMarkers);
+      return { status: verdict.pass ? 'pass' : 'fail', detail: verdict.detail, answer };
     }
     case 'evolution': {
       const entityId = await resolveEntityId(ctx, q.entityQuery, q.predicate);

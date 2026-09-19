@@ -211,6 +211,19 @@ revalidated on every read against `invalidatedAt` and the edge fence),
 so a relation answer is cached like any other; the outcome ledger
 records fact citations only.
 
+An edge is as personal as the facts of its turn. A user-scoped turn
+stamps its edges with the same `userId` its facts get (0153), and every
+relation read — the search lanes, the answer plane's evidence, the
+connections surface, the memory the extractor is shown — runs behind
+the fail-closed edge fence: tenant-global edges for everyone, a user's
+own edges for that user only. Uniqueness is per scope (0154:
+`(in, out, kind, scopeKey)`, where `scopeKey` is the row's own fold of
+`userId ?? ''` — SurrealDB does not enforce a unique key with a NONE
+component), so the tenant-global "Maria — works_at → Orbital" and a
+user's personal one are two rows that never stand in for each other.
+Tenant-wide structures — communities — are built from tenant-global
+edges only.
+
 ## Serving: the revision round
 
 Under strict guardrails a `partial` verdict used to null the whole

@@ -192,6 +192,38 @@ describe('MentionPersistService batched edge persistence', () => {
     expect(queries).toHaveLength(4);
   });
 
+  it('a user-scoped turn stamps its edges and looks them up within its scope', async () => {
+    const { db, queries } = fakeDb({ existingIdx: [], relateThrows: true });
+    const extraction = {
+      edges: [{ fromEntityIndex: 0, toEntityIndex: 1, kind: 'works_at', confidence: 0.9 }],
+    };
+    const scoped = { ...dto, userId: 'user_a' } as IngestMentionDto;
+    await (
+      make() as unknown as {
+        persistEdgesBatched: (db: unknown, p: unknown) => Promise<string[]>;
+      }
+    ).persistEdgesBatched(db, { extraction, entityIds: ['entity:a', 'entity:b'], dto: scoped });
+    // Existence check keys on the computed scope (0153), never on the
+    // bare triple — the tenant-global edge does not stand in for the
+    // personal one.
+    expect(queries[0]!.sql).toContain('scopeKey=$scopeKey');
+    expect(queries[0]!.params.scopeKey).toBe('user_a');
+    // The batch RELATE and the per-edge fallback both carry the scope.
+    expect(queries[1]!.sql).toContain('userId: $userId');
+    expect(queries[1]!.params.userId).toBe('user_a');
+    expect(queries[2]!.params.userId).toBe('user_a');
+  });
+
+  it('a tenant-global turn keys on the empty scope', async () => {
+    const { db, queries } = fakeDb({ existingIdx: [] });
+    const extraction = {
+      edges: [{ fromEntityIndex: 0, toEntityIndex: 1, kind: 'works_at', confidence: 0.9 }],
+    };
+    await run(make(), db, extraction, ['entity:a', 'entity:b']);
+    expect(queries[0]!.params.scopeKey).toBe('');
+    expect(queries[1]!.params.userId).toBeUndefined();
+  });
+
   it('flag dispatch: persistEdges routes to the batched path when INGEST_BATCH_EDGES=1', async () => {
     process.env.INGEST_BATCH_EDGES = '1';
     const { db, queries } = fakeDb({ existingIdx: [] });

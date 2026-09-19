@@ -6,7 +6,7 @@ import { traceArtifact, traceSpan } from '../common/debug-trace';
 import { redactPii } from './ingest-utils';
 import { EntityUpsertService } from './entity-upsert.service';
 import { FactResolverService } from './fact-resolver.service';
-import { createEdgeBetween } from './edge-writer';
+import { createEdgeBetween, edgeScopeKey } from './edge-writer';
 import { MentionSource } from './mention-extraction.service';
 import type { ExtractionResult } from '../ai/extractor.service';
 import type { ResolveOutcome } from './conflict-resolver';
@@ -349,6 +349,8 @@ export class MentionPersistService {
                 messageId: dto.contextRef.messageId,
                 confidence: e.confidence,
               },
+              // The relation is as personal as the facts of the same turn.
+              userId: dto.userId,
             }),
           { kind: e.kind, from: fromEid, to: toEid },
         );
@@ -409,14 +411,16 @@ export class MentionPersistService {
     return traceSpan(
       'ingest.edge.batch',
       async () => {
-        // 1. One round-trip existence check (N SELECTs, one query).
-        const existParams: Record<string, unknown> = {};
+        // 1. One round-trip existence check (N SELECTs, one query), within
+        //    the turn's scope: a personal edge never stands in for the
+        //    tenant-global one, nor the other way round.
+        const existParams: Record<string, unknown> = { scopeKey: edgeScopeKey(dto.userId) };
         const existStmts = cands
           .map((c, i) => {
             existParams[`f${i}`] = new StringRecordId(c.from);
             existParams[`t${i}`] = new StringRecordId(c.to);
             existParams[`k${i}`] = c.kind;
-            return `SELECT id FROM knowledge_edge WHERE in=$f${i} AND out=$t${i} AND kind=$k${i} LIMIT 1;`;
+            return `SELECT id FROM knowledge_edge WHERE in=$f${i} AND out=$t${i} AND kind=$k${i} AND scopeKey=$scopeKey LIMIT 1;`;
           })
           .join('\n');
         const existResults = await db.query<unknown[]>(existStmts, existParams);
@@ -432,14 +436,14 @@ export class MentionPersistService {
 
         // 2. One round-trip RELATE for the missing edges.
         try {
-          const relParams: Record<string, unknown> = {};
+          const relParams: Record<string, unknown> = { userId: dto.userId };
           const relStmts = missing
             .map((c, i) => {
               relParams[`f${i}`] = new StringRecordId(c.from);
               relParams[`t${i}`] = new StringRecordId(c.to);
               relParams[`k${i}`] = c.kind;
               relParams[`s${i}`] = sourceOf(c);
-              return `RELATE $f${i}->knowledge_edge->$t${i} CONTENT { kind: $k${i}, weight: 1.0, source: $s${i} } RETURN AFTER;`;
+              return `RELATE $f${i}->knowledge_edge->$t${i} CONTENT { kind: $k${i}, weight: 1.0, source: $s${i}, userId: $userId } RETURN AFTER;`;
             })
             .join('\n');
           const relResults = await db.query<unknown[]>(relStmts, relParams);
@@ -463,6 +467,7 @@ export class MentionPersistService {
                 toEntityId: c.to,
                 kind: c.kind,
                 source: sourceOf(c),
+                userId: dto.userId,
               });
               if (id) edgeIds.push(id);
             } catch (e2) {

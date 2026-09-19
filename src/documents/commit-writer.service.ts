@@ -201,6 +201,8 @@ export class CommitWriterService {
                 originKey: originKeyOf(p.doc.contentHash),
                 confidence: mr.confidence,
               },
+              // Same scope as the document's facts (0055).
+              userId: p.doc.userId,
             }),
           { kind: mr.kind, from: fromId, to: toId },
         );

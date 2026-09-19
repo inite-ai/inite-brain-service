@@ -1,13 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { StringRecordId } from 'surrealdb';
-import {
-  SurrealService,
-  isUniqueViolation,
-  queryFirst,
-  queryRows,
-  retryOnUniqueViolation,
-} from '../db/surreal.service';
+import { SurrealService, retryOnUniqueViolation } from '../db/surreal.service';
 import { IngestLinkDto } from './dto/ingest-link.dto';
+import { createEdgeBetween } from './edge-writer';
 import { idTailOf } from './ingest-utils';
 import { EntityUpsertService } from './entity-upsert.service';
 
@@ -84,39 +78,17 @@ export class LinkIngestService {
         );
       }
 
-      // Idempotent edge insert. UNIQUE on (in, out, kind) means the second
-      // insert of the same conceptual edge raises a unique violation; we
-      // catch it and return the existing edge so duplicate webhook replays
-      // don't pollute the graph with N copies of the same relationship.
-      const fromRid = new StringRecordId(fromId);
-      const toRid = new StringRecordId(toId);
-      let edgeId: string | null = null;
-      try {
-        const edgeRows = await queryRows<{ id: unknown }>(
-          db,
-          `RELATE $from->knowledge_edge->$to CONTENT { kind: $kind, weight: $weight, source: $source } RETURN AFTER`,
-          {
-            from: fromRid,
-            to: toRid,
-            kind: dto.kind,
-            weight: dto.weight ?? 1.0,
-            source: dto.source,
-          },
-        );
-        const edge = edgeRows[0];
-        edgeId = edge ? String(edge.id) : null;
-      } catch (err) {
-        if (!isUniqueViolation(err)) throw err;
-        const existing = await queryFirst<{ id: unknown }>(
-          db,
-          `SELECT id FROM knowledge_edge WHERE in = $from AND out = $to AND kind = $kind LIMIT 1`,
-          { from: fromRid, to: toRid, kind: dto.kind },
-        );
-        edgeId = existing ? String(existing.id) : null;
-        this.logger.debug(
-          `[knowledge.edge.idempotent] companyId=${companyId} kind=${dto.kind} ${fromId} → ${toId} (already existed)`,
-        );
-      }
+      // Idempotent edge insert through the shared primitive: a replayed
+      // webhook returns the existing edge instead of a second copy. The
+      // link API declares tenant-global relations (no per-user scope on
+      // this surface), so the edge lands in the '' scope.
+      const edgeId = await createEdgeBetween(db, {
+        fromEntityId: fromId,
+        toEntityId: toId,
+        kind: dto.kind,
+        weight: dto.weight ?? 1.0,
+        source: { ...dto.source },
+      });
 
       this.logger.log(
         `[knowledge.edge.created] companyId=${companyId} kind=${dto.kind} ${fromId} → ${toId}`,

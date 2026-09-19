@@ -14,16 +14,16 @@ serving cost (mention extraction on ingest, synthesis on questions).
 
 ## The eight dimensions
 
-| Dim | Name                      | What it measures                                                                                                           | Mechanical check                                                                 |
-| --- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| D1  | State currency            | A revised decision serves the CURRENT value, and the stale value does not leak                                             | expected substring present, forbidden (stale) substring absent                   |
-| D2  | Evolution history         | Superseded state is retained, not garbage-collected: old + new both in history, in order                                   | entity timeline (and, optionally, promoted belief `value` + `priorValue`)        |
-| D3  | Provenance unrollability  | A served claim unrolls to ≥1 verbatim episode quoting the seeded turn                                                      | `get_fact_provenance` walk, substring match against corpus fragments             |
-| D4  | Temporal anchors          | Dated decisions come back with their dates                                                                                 | date matcher over common phrasings of the expected `yyyy-mm-dd`                  |
-| D5  | Absence honesty           | Never-written topics yield abstention, not confabulation                                                                   | `answer === null` or the shared decline regex (`test/eval/abstain.ts`)           |
-| D6  | Conflict surfacing        | Two disagreeing sources are surfaced, not silently collapsed to one                                                        | `get_competing_facts` lists both sides; the served answer names both or abstains |
-| D7  | Cross-session integration | Questions answerable only by joining two conversations                                                                     | `search_multi_hop` (fallback `synthesize`), expected substring                   |
-| D8  | Self-utility replay       | Questions phrased exactly as a returning agent asks them ("what idiom do we use for X and why", "which numbers are taken") | key-phrase presence                                                              |
+| Dim | Name                      | What it measures                                                                                                           | Mechanical check                                                                              |
+| --- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| D1  | State currency            | A revised decision serves the CURRENT value; the superseded one may be told as history, never as the answer                | current marker present and first; the prior marker, if present, after it (D9's discriminator) |
+| D2  | Evolution history         | Superseded state is retained, not garbage-collected: old + new both in history, in order                                   | entity timeline (and, optionally, promoted belief `value` + `priorValue`)                     |
+| D3  | Provenance unrollability  | A served claim unrolls to ≥1 verbatim episode quoting the seeded turn                                                      | `get_fact_provenance` walk, substring match against corpus fragments                          |
+| D4  | Temporal anchors          | Dated decisions come back with their dates                                                                                 | date matcher over common phrasings of the expected `yyyy-mm-dd`                               |
+| D5  | Absence honesty           | Never-written topics yield abstention, not confabulation                                                                   | `answer === null` or the shared decline regex (`test/eval/abstain.ts`)                        |
+| D6  | Conflict surfacing        | Two disagreeing sources are surfaced, not silently collapsed to one                                                        | `get_competing_facts` lists both sides; the served answer names both or abstains              |
+| D7  | Cross-session integration | Questions answerable only by joining two conversations                                                                     | `search_multi_hop` (fallback `synthesize`), expected substring                                |
+| D8  | Self-utility replay       | Questions phrased exactly as a returning agent asks them ("what idiom do we use for X and why", "which numbers are taken") | key-phrase presence                                                                           |
 
 ## The corpus
 

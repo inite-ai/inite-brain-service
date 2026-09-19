@@ -1320,12 +1320,18 @@ function entitiesPaths(): Json {
           'both directions (`direction` says which). `kind` filters to ' +
           'one edge type; `asOf` restricts to edges live at that ' +
           'instant. `neighbour` is absent when the far end could not be ' +
-          'projected.',
+          'projected. Edges carry the per-user scope of the turn that ' +
+          'wrote them (migration 0153): without `userId` the read is ' +
+          'tenant-global only; with one it adds that user’s own edges ' +
+          'and neighbours. Honoured while READ_SURFACE_USER_SCOPE is on; ' +
+          'a user-bound token is pinned to its own end user, and a ' +
+          'mismatch is 403.',
         scope: 'brain:read',
         parameters: [
           pathParam('id', 'Entity id — short or fully-qualified.'),
           queryParam('kind', 'Only edges of this kind.'),
           queryParam('asOf', 'ISO-8601 instant the edge must be live at.'),
+          queryParam('userId', 'Per-user scope (READ_SURFACE_USER_SCOPE only).'),
         ],
         responses: {
           '200': jsonResponse('The typed edges.', ref('EntityConnectionsResponse')),
