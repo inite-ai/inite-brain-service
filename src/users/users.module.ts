@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module';
 import { EpisodesModule } from '../episodes/episodes.module';
 import { UserProfileController } from './user-profile.controller';
 import { UserProfileService } from './user-profile.service';
+import { IngestCoreModule } from '../ingest/ingest-core.module';
 
 /**
  * Per-user surfaces. v1 owns the rolling user profile read
@@ -13,7 +14,7 @@ import { UserProfileService } from './user-profile.service';
 @Module({
   // EpisodesModule supplies ReadPinService (the per-tenant derived-world
   // pin the profile's world fence resolves through).
-  imports: [AuthModule, EpisodesModule],
+  imports: [AuthModule, EpisodesModule, IngestCoreModule],
   controllers: [UserProfileController],
   providers: [UserProfileService],
 })

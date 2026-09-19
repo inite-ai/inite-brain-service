@@ -11,7 +11,11 @@
  *    auditor who is asking; without a userId, or for a user who never
  *    spoke, it does not;
  *  - a typed fact on {vertical: 'user', id} under the same userId lands
- *    on the same node — one identity across both write paths.
+ *    on the same node — one identity across both write paths;
+ *  - the memory learns the user's name from a `name` fact — the user's
+ *    own words or an onboarding write — and the entity's canonical name
+ *    follows it (entity-name.ts); the profile API reports the identity;
+ *  - in the asker's own prompts their entity is headed "you".
  */
 import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
@@ -43,11 +47,13 @@ describe("the user's own entity (user-entity.ts) end to end", () => {
   }
 
   beforeAll(async () => {
+    process.env.USER_PROFILE_API_ENABLED = '1';
     f = await createApp({ companyId: `co_userent_${Date.now()}` });
     surreal = f.app.get(SurrealService);
   });
 
   afterAll(async () => {
+    delete process.env.USER_PROFILE_API_ENABLED;
     if (f) await f.close();
   });
 
@@ -139,7 +145,38 @@ describe("the user's own entity (user-entity.ts) end to end", () => {
     expect(factEntity).toBe(String(row!.id));
   });
 
-  it('synthesize names the asker for that user, and nobody else', async () => {
+  it("the name follows a `name` fact — the user's own words or an onboarding write — and the profile reports it", async () => {
+    const row = await userEntity();
+    expect(row!.canonicalName).toBe('Sasha');
+    // The user says who they are; the extractor files it as `name` on their entity.
+    f.extractor.setScript({
+      entities: [{ name: 'Alexander Petrov', type: 'customer', known: String(row!.id) }],
+      facts: [{ entityIndex: 0, predicate: 'name', object: 'Alexander Petrov', confidence: 0.95 }],
+      edges: [],
+    });
+    const res = await f.http
+      .post('/v1/ingest/mention')
+      .set(auth())
+      .send({
+        text: 'My full name is Alexander Petrov.',
+        userId: USER,
+        contextRef: { vertical: 'chat', conversationId: 'c-user', messageId: 'm4' },
+      });
+    expect(res.status).toBe(201);
+    const renamed = await userEntity();
+    expect(renamed!.canonicalName).toBe('Alexander Petrov');
+    expect(renamed!.aliases).toEqual(expect.arrayContaining(['Sasha', 'Alexander Petrov']));
+    const profile = await f.http.get(`/v1/users/${USER}/profile`).set(auth());
+    expect(profile.status).toBe(200);
+    expect(profile.body.identity).toEqual({ entityId: String(row!.id), name: 'Alexander Petrov' });
+    expect(profile.body.profileText.split('\n')[0]).toBe('- [identity] name: Alexander Petrov');
+    // A user the memory has not heard from has no identity yet.
+    const none = await f.http.get('/v1/users/user_77/profile').set(auth());
+    expect(none.body.identity).toEqual({ entityId: null, name: null });
+    expect(none.body.profileText).toContain('name: not learned yet');
+  });
+
+  it('synthesize heads the asker\'s own lines "you" and names them, for that user and nobody else', async () => {
     const script = () =>
       mockSynthesizeOpenAi(f.app, [
         JSON.stringify({ answer: 'You live in Berlin.', citedFactIds: [] }),
@@ -151,9 +188,16 @@ describe("the user's own entity (user-entity.ts) end to end", () => {
       .set(auth())
       .send({ query: 'Where do I live?', userId: USER });
     const generator = own.calls[0]?.user ?? '';
-    expect(generator).toContain('Query: Where do I live?\nAsker: "Sasha" — the person asking.');
+    expect(generator).toContain(
+      'Query: Where do I live?\nAsker: the evidence lines headed "you" are about the person asking (Alexander Petrov)',
+    );
+    expect(generator).toMatch(/\[f\d+\] you — lives_in: Berlin/);
+    expect(generator).not.toContain('Alexander Petrov (customer) — lives_in');
     const auditor = own.calls.find((c) => c.user.includes('Answer:'))?.user ?? '';
-    expect(auditor).toContain('Asker: "Sasha" — the query\'s first person');
+    expect(auditor).toContain(
+      'Asker: "you" in the evidence is the person asking (Alexander Petrov)',
+    );
+    expect(auditor).toMatch(/\[f\d+\] you — lives_in: Berlin/);
 
     const stranger = script();
     await f.http

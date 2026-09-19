@@ -23,6 +23,17 @@ const state = (over: Partial<WorkspaceChecklistState> = {}): WorkspaceChecklistS
 });
 
 describe('nextStepsFor', () => {
+  it("asks for the user's name once, while the memory has none — a write for brain:write, a note otherwise", () => {
+    const unnamed = state({ userId: 'u42', user: { name: null } });
+    expect(nextStepsFor(unnamed, WRITE)[0]).toContain(
+      "record it: `record_fact` with entityRef {vertical: 'user', id: 'u42'}, predicate 'name', userId 'u42'",
+    );
+    expect(nextStepsFor(unnamed, READ)[0]).toContain('a credential with brain:write can record it');
+    expect(nextStepsFor(state({ userId: 'u42', user: { name: 'Sasha' } }), ADMIN)).toEqual([]);
+    // No user-bound caller → no user step.
+    expect(nextStepsFor(state(), ADMIN)).toEqual([]);
+  });
+
   it('says nothing when a workspace is named, fed and equipped', () => {
     expect(nextStepsFor(state(), ADMIN)).toEqual([]);
   });

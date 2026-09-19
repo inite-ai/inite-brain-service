@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Surreal } from 'surrealdb';
 import { queryFirst, SurrealService } from '../db/surreal.service';
-import { getRequestContext } from '../common/request-context';
 import { traceArtifact } from '../common/debug-trace';
 import type { IngestMentionDto } from './dto/ingest-mention.dto';
 import { EntityUpsertService } from './entity-upsert.service';
@@ -62,9 +61,11 @@ export class UserEntityService {
   /**
    * The mention with the user among its participants (participants.ts).
    * The user's display name comes from the caller's own anchor when it
-   * names the user, else from the entity the memory already holds, else
-   * from the token that authenticated the request; with none, the
-   * userId stands in until one arrives. A name the caller gives reaches
+   * names the user, else from the entity the memory already holds — the
+   * name it learned from the user's own words or an onboarding fact
+   * (entity-name.ts); with none, the userId stands in until one arrives.
+   * Never from the token: a credential says WHO (the subject), the
+   * memory learns what they are called. A name the caller gives reaches
    * the entity here — whatever rung the turn's extraction resolves
    * through — so the next turn, the episode and the asker all carry it.
    */
@@ -88,7 +89,7 @@ export class UserEntityService {
     if (!userId) return dto;
     const { speaker } = participantsOf(dto);
     if (speaker && !isUserEntityRef(speaker, userId)) return dto;
-    const given = speaker?.name?.trim() || getRequestContext()?.authUserName;
+    const given = speaker?.name?.trim() || undefined;
     const known = await this.readAndName(companyId, userId, given);
     return withUserAsSpeaker(dto, given ?? (known?.named ? known.name : undefined));
   }

@@ -275,10 +275,15 @@ Use your application's stable user ID on **both** writes and reads. Omit
 `userId` on both only for tenant-global memory. The `userId` is also who
 is speaking: a first-person turn ("I moved to Berlin") lands on the user's
 own entity, and "where do I live?" on `/v1/synthesize` is answered to
-them. To name the user, anchor them once as the speaker —
-`"knownEntities": [{ "vertical": "user", "id": "user_42", "role": "speaker", "name": "Maria" }]`;
-to relay someone else's words under the user's scope, anchor that person
-as the speaker instead.
+them. The memory learns the user's name from them — "I'm Maria" becomes a
+`name` fact on their own entity — or from your onboarding write:
+`/v1/ingest/fact` with `entityRef: { "vertical": "user", "id": "user_42" }`,
+`predicate: "name"`, the same `userId`. (A speaker anchor
+`{ "vertical": "user", "id": "user_42", "role": "speaker", "name": "Maria" }`
+on a mention names them too.) To relay someone else's words under the
+user's scope, anchor that person as the speaker instead. Until a name is
+learned, `workspace_status` and `/v1/users/:userId/profile` say so — ask
+once, record it.
 
 ### Record a fact you already know
 

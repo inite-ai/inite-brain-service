@@ -18,7 +18,7 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { ApiKeyRecord, BrainScope } from './api-key.types';
-import { extractPolicyNames, extractUserName } from './claim-parsers';
+import { extractPolicyNames } from './claim-parsers';
 
 /**
  * Scopes an introspected (operator-issued) key may carry. Superset of the
@@ -169,7 +169,6 @@ export function mapIntrospectionRecord(
   if (scopes.length === 0) return null;
 
   const userId = sub && sub !== companyId ? sub : undefined;
-  const userName = userId ? extractUserName(payload) : undefined;
   // Same `policy` member the JWT path parses — auth ApiKey.policyNames.
   const policyNames = extractPolicyNames(payload);
   return {
@@ -177,7 +176,6 @@ export function mapIntrospectionRecord(
     companyId,
     scopes,
     ...(userId ? { userId } : {}),
-    ...(userName ? { userName } : {}),
     ...(policyNames.length > 0 ? { policyNames } : {}),
   };
 }

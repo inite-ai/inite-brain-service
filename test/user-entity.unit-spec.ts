@@ -13,16 +13,15 @@
  *
  *  UserEntityService —
  *   - lookup reads the ref row by the scoped key and follows a merge;
- *   - participants() names the user from the caller, else the entity,
- *     else the token, else the userId; a name the caller (or the token)
- *     gives reaches the entity; a declared third-party speaker skips
- *     the read entirely.
+ *   - participants() names the user from the caller, else the entity
+ *     (what the memory learned), else the userId — never a credential's
+ *     claim; a name the caller gives reaches the entity; a declared
+ *     third-party speaker skips the read entirely.
  */
 import type { Surreal } from 'surrealdb';
 import { EntityUpsertService, participantSurfaces } from '../src/ingest/entity-upsert.service';
 import { UserEntityService } from '../src/ingest/user-entity.service';
 import type { IngestMentionDto } from '../src/ingest/dto/ingest-mention.dto';
-import { runWithRequestContext } from '../src/common/request-context';
 
 interface Captured {
   queries: Array<{ sql: string; params: Record<string, unknown> }>;
@@ -192,19 +191,15 @@ describe('UserEntityService', () => {
     expect(await svc.resolve('co', 'u42')).toBeNull();
   });
 
-  it("participants(): the entity's name, else the token's, else the userId", async () => {
+  it("participants(): the entity's learned name, else the userId — never a credential's claim", async () => {
     const named = makeUsers([{ id: 'knowledge_entity:x', canonicalName: 'Sasha' }]);
     expect((await named.svc.participants('co', dto())).knownEntities).toEqual([
       { vertical: 'user', id: 'u42', role: 'speaker', name: 'Sasha' },
     ]);
-    const fromToken = makeUsers([]);
-    const viaToken = await runWithRequestContext(
-      { correlationId: 't', authUserId: 'u42', authUserName: 'Mike' },
-      () => fromToken.svc.participants('co', dto()),
-    );
-    expect(viaToken.knownEntities?.[0]?.name).toBe('Mike');
     const placeholder = makeUsers([{ id: 'knowledge_entity:x', canonicalName: 'u42' }]);
     expect((await placeholder.svc.participants('co', dto())).knownEntities?.[0]?.name).toBe('u42');
+    const fresh = makeUsers([]);
+    expect((await fresh.svc.participants('co', dto())).knownEntities?.[0]?.name).toBe('u42');
   });
 
   it("participants(): the caller's name for the user reaches the entity, whatever rung the turn resolves through", async () => {
@@ -214,13 +209,7 @@ describe('UserEntityService', () => {
     });
     expect(await svc.participants('co', anchored)).toBe(anchored);
     expect(named).toEqual([{ entityId: 'knowledge_entity:x', id: 'u42', name: 'Sasha' }]);
-    // The token's name names it too; a name the entity already carries is not re-stamped.
-    const viaToken = makeUsers([{ id: 'knowledge_entity:x', canonicalName: 'u42' }]);
-    await runWithRequestContext(
-      { correlationId: 't', authUserId: 'u42', authUserName: 'Mike' },
-      () => viaToken.svc.participants('co', dto()),
-    );
-    expect(viaToken.named).toEqual([{ entityId: 'knowledge_entity:x', id: 'u42', name: 'Mike' }]);
+    // A name the entity already carries is not re-stamped.
     const same = makeUsers([{ id: 'knowledge_entity:x', canonicalName: 'Sasha' }]);
     await same.svc.participants('co', anchored);
     expect(same.named).toEqual([]);

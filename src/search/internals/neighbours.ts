@@ -2,6 +2,8 @@ import { Surreal, StringRecordId } from 'surrealdb';
 import { buildEdgeFence } from './edge-fence';
 
 export type Neighbour = {
+  /** The peer entity's record id — what a caller compares identities by. */
+  peerId: string;
   canonicalName: string;
   type: string;
   kind: string;
@@ -79,6 +81,7 @@ export async function fetchNeighbours({
           if (seen.has(key)) continue;
           seen.add(key);
           list.push({
+            peerId,
             canonicalName: e.peer.canonicalName,
             type: e.peer.type,
             kind: e.kind,

@@ -101,6 +101,8 @@ export const SearchRelationSchema = z.object({
   kind: z.string(),
   peer: z.string(),
   peerType: z.string(),
+  /** The peer entity's record id. */
+  peerId: z.string().optional(),
   /** The knowledge_edge record behind the relation — what a citation of it names. */
   edgeId: z.string().optional(),
   /** 'out' = the hit's entity is the subject of the relation; 'in' = its object. */

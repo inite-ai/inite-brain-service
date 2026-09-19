@@ -42,18 +42,6 @@ export function resolveTokenIdentity(
   return { companyId: sub };
 }
 
-/**
- * The end user's display name, when the token carries one (OIDC `name`;
- * the auth-service stamps it on user-flow tokens). Bounded like userId;
- * anything else — absent, empty, not a string, over-long — is undefined.
- * It names the user's own entity in memory the first time they speak;
- * an M2M credential, which has no user, never carries it.
- */
-export function extractUserName(payload: Claims): string | undefined {
-  const name = typeof payload.name === 'string' ? payload.name.trim() : '';
-  return name.length > 0 && name.length <= MAX_USER_ID_LENGTH ? name : undefined;
-}
-
 export function extractScopes(payload: Claims): string[] {
   if (Array.isArray(payload.scopes)) {
     return payload.scopes.filter((s): s is string => typeof s === 'string').slice(0, MAX_SCOPES);

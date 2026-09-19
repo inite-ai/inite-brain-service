@@ -32,6 +32,7 @@ const fullSection: ProfileSectionWire = {
 
 const fullProfile: UserProfileWire = {
   userId: 'user-1',
+  identity: { entityId: 'knowledge_entity:u1', name: 'Sasha' },
   generatedAt: '2026-08-21T00:00:00.000Z',
   factCount: 1,
   sections: [fullSection],

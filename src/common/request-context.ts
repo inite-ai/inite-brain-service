@@ -55,12 +55,6 @@ export interface RequestContext {
    */
   authUserId?: string;
   /**
-   * The end user's display name from the token's `name` claim, beside
-   * authUserId when the issuer stamped one. The mention path names the
-   * user's own entity with it when the caller gives no name.
-   */
-  authUserName?: string;
-  /**
    * Acting client (agent) identity from the token (`act`/`client_id`),
    * stamped by ApiKeyGuard. Fact ingest attributes writes to it via
    * source.meta.actor — provenance without signature threading.

@@ -36,6 +36,7 @@ import { stampGroundingStatus } from './grounding-stamp';
 import { FactEmbeddingService } from './fact-embedding.service';
 import { factIndexText } from './fact-index-text';
 import { MemoryOutcomeService, type OutcomeEventInput } from '../outcomes/memory-outcome.service';
+import { followNameFact } from './entity-name';
 
 /**
  * V9 §1 — aspect classes for the derived-world lifecycle. The deriver's
@@ -825,6 +826,14 @@ export class FactResolverService {
   ): Promise<void> {
     await this.applyExplicitSupersession(db, p, result);
     const outcome = result?.outcome;
+    // A `name` fact that is now the current one names a reference-minted
+    // entity — the user's own above all (entity-name.ts).
+    try {
+      const renamed = await followNameFact(db, { ...p, outcome });
+      if (renamed) traceArtifact('ingest.entity.named', { entityId: p.entityId, name: p.object });
+    } catch (err) {
+      this.logger.warn(`[ingest.entity.named] ${p.entityId}: ${(err as Error).message}`);
+    }
     if (p.recordOutcomeMetric && outcome) {
       this.metrics?.countIngestFact(String(outcome));
     }

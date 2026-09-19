@@ -113,14 +113,14 @@ describe("the auditor knows the query's date and the non-claims", () => {
       ...base,
       query: 'Do I currently own the Riga apartment?',
       dateContext: '2026-09-18',
-      asker: { name: 'Sasha' },
+      asker: { entityId: 'knowledge_entity:u', name: 'Sasha' },
       openai: capturing(users, systems),
     });
     await runVerifier({ ...base, openai: capturing(users, systems) });
     expect(users[0]).toContain(
-      'Today (the query\'s date): 2026-09-18\nAsker: "Sasha" — the query\'s first person',
+      'Today (the query\'s date): 2026-09-18\nAsker: "you" in the evidence is the person asking (Sasha)',
     );
-    expect(users[0]).toContain('evidence about "Sasha" supports claims about the asker');
+    expect(users[0]).toContain('evidence headed "you" supports claims about them');
     expect(users[1]).not.toContain('Asker:');
   });
 });
@@ -128,11 +128,20 @@ describe("the auditor knows the query's date and the non-claims", () => {
 describe('the asker in the generator frame', () => {
   it('opens right after the query and addresses them in the second person; absent without one', () => {
     const base = { query: 'Do I own the Riga apartment?', factLines: ['[f1] a'], answerLang: null };
-    const msg = buildGeneratorUserMessage({ ...base, asker: { name: 'Sasha' } });
+    const msg = buildGeneratorUserMessage({
+      ...base,
+      asker: { entityId: 'knowledge_entity:u', name: 'Sasha' },
+    });
     expect(
-      msg.startsWith('Query: Do I own the Riga apartment?\nAsker: "Sasha" — the person asking.'),
+      msg.startsWith(
+        'Query: Do I own the Riga apartment?\nAsker: the evidence lines headed "you" are about the person asking (Sasha)',
+      ),
     ).toBe(true);
     expect(msg).toContain('Address them in the second person ("you", "your")');
+    // No name learned yet: the line says so instead of showing an id.
+    expect(
+      buildGeneratorUserMessage({ ...base, asker: { entityId: 'knowledge_entity:u', name: null } }),
+    ).toContain('(the memory has not learned their name yet)');
     expect(buildGeneratorUserMessage(base)).not.toContain('Asker:');
   });
 });

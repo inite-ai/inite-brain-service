@@ -205,6 +205,7 @@ describe('assembleHits relations', () => {
           'knowledge_entity:e1',
           [
             {
+              peerId: 'knowledge_entity:orbital',
               canonicalName: 'Orbital Dynamics',
               type: 'org',
               kind: 'works_at',
@@ -212,6 +213,7 @@ describe('assembleHits relations', () => {
               direction: 'out' as const,
             },
             {
+              peerId: 'knowledge_entity:maria',
               canonicalName: 'Maria',
               type: 'person',
               kind: 'knows',
@@ -229,6 +231,7 @@ describe('assembleHits relations', () => {
         kind: 'works_at',
         peer: 'Orbital Dynamics',
         peerType: 'org',
+        peerId: 'knowledge_entity:orbital',
         edgeId: 'knowledge_edge:w',
         direction: 'out',
       },
@@ -236,6 +239,7 @@ describe('assembleHits relations', () => {
         kind: 'knows',
         peer: 'Maria',
         peerType: 'person',
+        peerId: 'knowledge_entity:maria',
         edgeId: 'knowledge_edge:k',
         direction: 'in',
       },

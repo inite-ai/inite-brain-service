@@ -294,6 +294,9 @@ export class EvidenceCollectorService {
      *  when the caller launched it beside its main search; absent → it
      *  runs here. */
     instructionProbe?: Promise<string[]> | undefined;
+    /** The asker already resolved (startAskerProbe) — the orchestrator
+     *  needs it before the evidence lines render; absent → read here. */
+    asker?: Asker | undefined;
   }): Promise<CollectedEvidence> {
     const { profile, query } = opts;
     const timelineEvidence = wantsTimelineEvidence(profile, query);
@@ -310,7 +313,7 @@ export class EvidenceCollectorService {
       beliefEvidence,
       sceneEvidence,
     ] = await Promise.all([
-      this.collectAsker(opts),
+      opts.asker ? Promise.resolve(opts.asker) : this.collectAsker(opts),
       this.collectStandingInstructions(opts),
       this.collectTranscriptLines(opts, timelineEvidence),
       this.collectInsightLines(opts),
@@ -816,6 +819,8 @@ export class EvidenceCollectorService {
    * Who is asking (asker.ts): the caller's user as the memory knows them
    * (ingest/user-entity.ts) — the same read the ingest path names the
    * speaker with. No userId, no entity yet, or a failed read ⇒ undefined.
+   * The name is null until the memory has learned one (the userId
+   * placeholder is not a name).
    */
   private async collectAsker(opts: {
     companyId: string;
@@ -823,7 +828,18 @@ export class EvidenceCollectorService {
   }): Promise<Asker | undefined> {
     if (!opts.userId || !this.users) return undefined;
     const own = await this.users.resolve(opts.companyId, opts.userId);
-    return own ? { name: own.name } : undefined;
+    return own ? { entityId: own.id, name: own.named ? own.name : null } : undefined;
+  }
+
+  /** The asker read, launched beside the main search (the instruction-probe idiom). */
+  startAskerProbe(opts: {
+    companyId: string;
+    userId?: string | undefined;
+  }): Promise<Asker | undefined> {
+    return this.collectAsker(opts).catch((e: unknown) => {
+      this.logger.warn(`asker read failed (companyId=${opts.companyId}): ${(e as Error).message}`);
+      return undefined;
+    });
   }
 
   /**

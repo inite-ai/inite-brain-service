@@ -548,3 +548,47 @@ export function verifierErrorResult({
   }
   return attachDecisionLog({ answer, reason: 'verifier_error', citations, results }, decisionLog);
 }
+
+/**
+ * The per-request evidence-rendering options (SynthesizeService
+ * .prepareEvidence), derived once from the lane, the profile and the
+ * asker. Pure: the lane frames (temporal elapsed stamps, chronological
+ * order, recency marker), the profile switches, and the asker's own
+ * entity, whose lines are headed "you" (asker.ts).
+ */
+export function buildPrepareOpts(args: {
+  answerMode: boolean;
+  explain: boolean;
+  lane: LaneId | null;
+  asOf: string | undefined;
+  profile: RetrievalProfile;
+  asker: Asker | undefined;
+}): {
+  answerMode: boolean;
+  explain: boolean;
+  askerEntityId: string | undefined;
+  elapsedAsOf: string | undefined;
+  chronological: boolean;
+  markRecency: boolean;
+  mentionDates: boolean;
+  sceneTraces: boolean;
+} {
+  const { answerMode, explain, lane, asOf, profile, asker } = args;
+  return {
+    answerMode,
+    explain,
+    askerEntityId: asker?.entityId,
+    elapsedAsOf: lane === 'temporal' ? asOf : undefined,
+    // T2 and T6 both read off a code-sorted timeline.
+    chronological: lane === 'enumeration' || lane === 'summary',
+    // T5: recency marker on the newest fact of multi-statement slots
+    // (knowledge-update misses answer STALE values) — active for any
+    // routed request, independent of lane.
+    markRecency: profile.lanes.has('recency'),
+    // V12 mention anchoring: "(mentioned YYYY-MM-DD)" on stamped
+    // facts whose anchor disagrees with validFrom by day.
+    mentionDates: profile.mentionDates,
+    // V13 dual-trace read side: "(context: …)" scene suffixes.
+    sceneTraces: profile.sceneTraces,
+  };
+}

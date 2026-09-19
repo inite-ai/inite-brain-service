@@ -54,6 +54,23 @@ async function readStdin() {
   }
 }
 
+async function apiGet(path, cfg) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${cfg.baseUrl}${path}`, {
+      headers: { Authorization: `Bearer ${cfg.apiKey}` },
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function api(path, body, cfg) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -108,21 +125,43 @@ function renderRecall(results) {
   return lines.join('\n').slice(0, MAX_RECALL_CHARS);
 }
 
+/**
+ * Onboarding of the person, the memory's way: brain learns who the user
+ * is from them — never from a credential. Until it has learned their
+ * name, the session is told so, once, and the agent asks and records the
+ * answer with the same write the user's own "I'm Sasha" would make.
+ */
+async function identityLine(cfg) {
+  if (!cfg.userId) return '';
+  const profile = await apiGet(`/v1/users/${encodeURIComponent(cfg.userId)}/profile?maxFacts=1`, cfg);
+  if (!profile || !profile.identity) return '';
+  if (profile.identity.name) return `Brain knows this user as ${profile.identity.name}.`;
+  return (
+    `Brain has not learned how to address this user yet. Ask once, then record it: ` +
+    `record_fact({ entityRef: { vertical: 'user', id: '${cfg.userId}' }, predicate: 'name', object: '<name>', userId: '${cfg.userId}' }).`
+  );
+}
+
 async function recall(payload, cfg) {
   if (!cfg.recallOn) return;
   const project = await projectName(payload.cwd ?? process.cwd());
   const body = { query: project, limit: 8 };
   if (cfg.userId) body.userId = cfg.userId;
-  const out = await api('/v1/search', body, cfg);
+  const [out, identity] = await Promise.all([api('/v1/search', body, cfg), identityLine(cfg)]);
   const rendered = renderRecall(out?.results ?? []);
-  if (!rendered) return;
+  if (!rendered && !identity) return;
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: {
         hookEventName: 'SessionStart',
         additionalContext: [
-          `What brain remembers about ${project} (ask it directly with the brain MCP tools for more):`,
-          rendered,
+          ...(rendered
+            ? [
+                `What brain remembers about ${project} (ask it directly with the brain MCP tools for more):`,
+                rendered,
+              ]
+            : []),
+          ...(identity ? [identity] : []),
         ].join('\n'),
       },
     }),

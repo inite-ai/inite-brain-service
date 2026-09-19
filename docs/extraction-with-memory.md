@@ -138,22 +138,41 @@ for end users) — under the user's OWN scope: a personal entity, visible
 to the user alone, deleted with their memory on forget. Both paths mint
 it through the same scoped key (`scopedRefKey`), so a first-person turn
 and a typed fact on `{vertical: 'user', id: <userId>}` land on one node.
-It is named by the caller's anchor (`{vertical: 'user', id, role:
-'speaker', name: 'Sasha'}`), else by the token's OIDC `name` claim, else
-it carries the userId as its name until one arrives — a reference id is
-not a name, and the first name a caller gives a reference-minted entity
-becomes its canonical one (`stampParticipantName`). The memory context
-pins the user's entity as KNOWN on every turn of theirs, resolved by its
-key, never by name, so "I moved to Berlin" closes `lives_in: Riga` on
-the right node.
+**Its name is memory, not a claim.** A credential says who the subject
+is (`sub`/`org`); what they are called the memory learns — the way Zep's
+user node carries a summary the graph builds and Letta's `human` block
+is written by the agent as it learns, not read off a login. The user's
+entity is born named by the userId (a reference id is not a name) and
+its canonical name follows its current `name` fact (`entity-name.ts`,
+one UPDATE in the fact resolver's post-write tail): the fact the
+extractor files when the user says who they are ("Я Саша", "this is
+Mike"), or the fact a client writes at onboarding —
+`record_fact({entityRef: {vertical: 'user', id}, predicate: 'name',
+object, userId})`, the same node. The old name stays an alias. The rule
+is narrow: an entity minted from a name keeps it; only one still named
+by its reference id, or the user's own entity, follows the fact. The
+caller's speaker anchor with a `name` names the entity directly as well
+(`nameParticipant`). The memory context pins the user's entity as KNOWN
+on every turn of theirs, resolved by its key, never by name, so "I moved
+to Berlin" closes `lives_in: Riga` on the right node.
 
-At ask time the same entity is the **asker** (`synthesize/asker.ts`):
-the collector reads it beside the other sections and the generator, the
-auditor and the L3 round all get the same line — the query's first
-person is this person, evidence about them is evidence about the asker,
-answer in the second person. Before this the auditor rejected "Do I own
-the Riga apartment?" over evidence filed on Sasha with, verbatim,
-"evidence attributes ownership to Sasha, not to the user".
+**Onboarding is the memory saying what it lacks.** `workspace_status`
+(`user.name`, a `nextSteps` entry), `GET /v1/users/:userId/profile`
+(`identity`, the first line of `profileText`) and the Claude Code hook's
+session-start context all say when the memory has not learned the
+user's name, and what write records it — the agent asks once, the answer
+becomes a `name` fact, and everything downstream follows.
+
+At ask time the same entity is the **asker** (`synthesize/asker.ts`),
+resolved beside the main search and BEFORE the evidence renders: its
+fact and relation lines are headed `you` instead of its name (subject or
+relation peer, `buildFactIndex`), and the generator, the auditor and the
+L3 round get the same line — "you" is the person asking (with the name
+when the memory has one), the query's first person is them, answer in
+the second person. The link is structural, so it holds before any name
+is known. Before this the auditor rejected "Do I own the Riga apartment?"
+over evidence filed on Sasha with, verbatim, "evidence attributes
+ownership to Sasha, not to the user".
 
 ## Both ingest paths
 

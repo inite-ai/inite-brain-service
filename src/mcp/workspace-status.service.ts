@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Optional, Logger } from '@nestjs/common';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import { StatsService } from '../stats/stats.service';
 import { TenantRegistryService } from '../auth/tenant-registry.service';
+import { UserEntityService } from '../ingest/user-entity.service';
 
 /** Personal workspaces are provisioned as `co_u_<hash>` by the auth-service. */
 const PERSONAL_PREFIX = 'co_u_';
@@ -13,6 +14,12 @@ export interface WorkspaceStatus {
   personal: boolean;
   /** Present when the caller is a user-bound credential. */
   userId?: string;
+  /**
+   * Who that user is in this memory (ingest/user-entity.ts): the name
+   * the memory has learned — from their own words or an onboarding
+   * `name` fact — or null while it has none. Present with `userId`.
+   */
+  user?: { name: string | null };
   mcpUrl?: string;
   memory: {
     entities: number;
@@ -54,17 +61,20 @@ export class WorkspaceStatusService {
   private readonly namedCache = new Map<string, { named: boolean; until: number }>();
   private static readonly NAMED_TTL_MS = 60_000;
 
+  // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token
   constructor(
     private readonly surreal: SurrealService,
     private readonly stats: StatsService,
     private readonly registry: TenantRegistryService,
+    @Optional() private readonly users?: UserEntityService,
   ) {}
 
   async status(input: StatusInput): Promise<WorkspaceStatus> {
-    const [displayName, overview, packsInstalled] = await Promise.all([
+    const [displayName, overview, packsInstalled, own] = await Promise.all([
       this.registry.displayName(input.companyId),
       this.stats.overview(input.companyId, input.scopes, input.userId),
       this.countPacks(input.companyId),
+      input.userId !== undefined ? this.users?.resolve(input.companyId, input.userId) : undefined,
     ]);
 
     const status: WorkspaceStatus = {
@@ -79,7 +89,10 @@ export class WorkspaceStatusService {
       nextSteps: [],
     };
     if (displayName !== undefined) status.displayName = displayName;
-    if (input.userId !== undefined) status.userId = input.userId;
+    if (input.userId !== undefined) {
+      status.userId = input.userId;
+      status.user = { name: own?.named ? own.name : null };
+    }
     const mcpUrl = this.mcpUrl(input.companyId);
     if (mcpUrl !== undefined) status.mcpUrl = mcpUrl;
     status.nextSteps = nextStepsFor(status, input.scopes);
@@ -147,6 +160,9 @@ export class WorkspaceStatusService {
 export interface WorkspaceChecklistState {
   /** Explicitly nullable: "no name yet" is the case the checklist exists for. */
   displayName?: string | undefined;
+  /** The user-bound caller and what the memory calls them (null = not learned yet). */
+  userId?: string | undefined;
+  user?: { name: string | null } | undefined;
   personal: boolean;
   packsInstalled: number;
   memory: { entities: number; facts: number; factsLast7d: number };
@@ -162,6 +178,18 @@ export function nextStepsFor(status: WorkspaceChecklistState, scopes: readonly s
       canWrite
         ? 'Name this workspace with `rename_workspace` — it is showing its raw tenant id.'
         : 'This workspace has no name yet; someone with brain:write can set one.',
+    );
+  }
+  // Onboarding of the person: the memory learns who they are from
+  // them, never from a credential. Until it has a name, the agent is
+  // told to ask once and record the answer — the same write the user's
+  // own "I'm Sasha" would make.
+  if (status.userId !== undefined && status.user?.name === null) {
+    steps.push(
+      canWrite
+        ? `The memory has not learned this user's name yet — ask how to address them once and record it: ` +
+            `\`record_fact\` with entityRef {vertical: 'user', id: '${status.userId}'}, predicate 'name', userId '${status.userId}'.`
+        : "The memory has not learned this user's name yet; a credential with brain:write can record it.",
     );
   }
   if (status.memory.facts === 0) {

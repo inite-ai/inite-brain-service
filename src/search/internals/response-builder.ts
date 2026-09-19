@@ -76,6 +76,7 @@ export function assembleHits({
         kind: n.kind,
         peer: n.canonicalName,
         peerType: n.type,
+        peerId: n.peerId,
         edgeId: n.edgeId,
         direction: n.direction,
       }));

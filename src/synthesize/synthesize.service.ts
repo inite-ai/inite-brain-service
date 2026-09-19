@@ -23,6 +23,7 @@ import {
   resolveRoutedLane,
   serveCacheHit,
   servingBoundary,
+  buildPrepareOpts,
 } from './synthesize.helpers';
 import { applyEvidenceUnion } from './evidence-union';
 import type { LaneId } from './answer-router';
@@ -291,8 +292,11 @@ export class SynthesizeService {
     captureLaneRouteDecision(this.decisions, companyId, { profile, lane, query: dto.query });
 
     onProgress({ stage: 'search', message: 'hybrid retrieval' });
-    // The T7 instruction read is launched beside the main search.
+    // The T7 instruction read and the asker read (asker.ts) are launched
+    // beside the main search; the asker is needed before the evidence
+    // lines are rendered — their own entity is headed "you".
     const instructionProbe = this.launchInstructionProbe({ profile, companyId, callerScopes, dto });
+    const askerProbe = this.launchAskerProbe(companyId, dto.userId);
     const searchResult = await withSpan(
       'synthesize.search',
       () => this.search.search(companyId, dto, callerScopes),
@@ -322,12 +326,14 @@ export class SynthesizeService {
       profile.extraEvidenceCap,
     );
 
-    const prepareOpts = this.buildPrepareOpts({
+    const asker = await askerProbe;
+    const prepareOpts = buildPrepareOpts({
       answerMode: guardrails === 'answer',
       explain,
       lane,
       asOf: dto.asOf,
       profile,
+      asker,
     });
     const prepared = this.prepareEvidence(evidence, prepareOpts);
     if ('empty' in prepared) return prepared.empty;
@@ -357,6 +363,7 @@ export class SynthesizeService {
       factIds: [...factIndex.keys()],
       evidence,
       instructionProbe,
+      asker,
     });
     // The other rendered sections stay on `collected` — the verify stage
     // (verifyAndZoom) and produceAnswer read them from there directly.
@@ -569,6 +576,7 @@ export class SynthesizeService {
     factIds: string[];
     evidence: SearchHit[];
     instructionProbe?: Promise<string[]> | undefined;
+    asker?: Asker | undefined;
   }): Promise<CollectedEvidence> {
     if (!this.evidenceCollector) return emptyCollectedEvidence(opts.profile, opts.dto.query);
     return this.evidenceCollector.collect({
@@ -693,6 +701,16 @@ export class SynthesizeService {
     opts: Parameters<EvidenceCollectorService['startInstructionProbe']>[0],
   ): Promise<string[]> | undefined {
     return this.evidenceCollector?.startInstructionProbe(opts);
+  }
+
+  /** The asker read (asker.ts), launched beside the main search. */
+  private launchAskerProbe(
+    companyId: string,
+    userId: string | undefined,
+  ): Promise<Asker | undefined> {
+    return (
+      this.evidenceCollector?.startAskerProbe({ companyId, userId }) ?? Promise.resolve(undefined)
+    );
   }
 
   /** The audit-stage ports (revise-round.ts + fragment-zoom-seam.ts). */
@@ -1089,32 +1107,6 @@ export class SynthesizeService {
    * lane + profile. Extracted from synthesize() to keep it under the
    * function-size gate; the field semantics live here.
    */
-  private buildPrepareOpts(args: {
-    answerMode: boolean;
-    explain: boolean;
-    lane: LaneId | null;
-    asOf: string | undefined;
-    profile: RetrievalProfile;
-  }) {
-    const { answerMode, explain, lane, asOf, profile } = args;
-    return {
-      answerMode,
-      explain,
-      elapsedAsOf: lane === 'temporal' ? asOf : undefined,
-      // T2 and T6 both read off a code-sorted timeline.
-      chronological: lane === 'enumeration' || lane === 'summary',
-      // T5: recency marker on the newest fact of multi-statement slots
-      // (knowledge-update misses answer STALE values) — active for any
-      // routed request, independent of lane.
-      markRecency: profile.lanes.has('recency'),
-      // V12 mention anchoring: "(mentioned YYYY-MM-DD)" on stamped
-      // facts whose anchor disagrees with validFrom by day.
-      mentionDates: profile.mentionDates,
-      // V13 dual-trace read side: "(context: …)" scene suffixes.
-      sceneTraces: profile.sceneTraces,
-    };
-  }
-
   private prepareEvidence(
     evidence: SearchHit[],
     opts: {
@@ -1130,6 +1122,8 @@ export class SynthesizeService {
       mentionDates?: boolean | undefined;
       /** V13: "(context: …)" scene suffix (profile.sceneTraces). */
       sceneTraces?: boolean | undefined;
+      /** The asker's own entity — its lines are headed "you" (asker.ts). */
+      askerEntityId?: string | undefined;
     },
   ): { empty: SynthesizeResult } | ({ results: SearchHit[] } & ReturnType<typeof buildFactIndex>) {
     const {
@@ -1140,6 +1134,7 @@ export class SynthesizeService {
       markRecency,
       mentionDates,
       sceneTraces,
+      askerEntityId,
     } = opts;
     const guardrail = applyConformalGuardrail(evidence, {
       // 'answer' mode disables the CONFIDENCE floor by design: the whole
@@ -1172,6 +1167,7 @@ export class SynthesizeService {
       markRecency,
       mentionDates,
       sceneTraces,
+      askerEntityId,
     });
     if (factIndex.size === 0) {
       // Search returned entities but they were stripped to ids by

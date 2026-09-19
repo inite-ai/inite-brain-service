@@ -1,5 +1,6 @@
 import type { SearchHit } from '../search/search.service';
 import { formatElapsed } from './answer-router';
+import { ASKER_LABEL } from './asker';
 
 /**
  * Fact-line rendering for the generator/verifier prompts, split out of
@@ -151,6 +152,12 @@ export function buildFactIndex(
      * the dual-trace encoding wrote. Unstamped facts render nothing.
      */
     sceneTraces?: boolean | undefined;
+    /**
+     * The asker's own entity (asker.ts): its lines — subject or relation
+     * peer — are headed "you" instead of its name, so the query's first
+     * person meets its evidence without a name to match.
+     */
+    askerEntityId?: string | undefined;
   },
 ): FactIndexResult {
   const factIndex = new Map<string, Citation>();
@@ -178,7 +185,7 @@ export function buildFactIndex(
       const validT = Number.isNaN(t) || t === 0 ? Number.POSITIVE_INFINITY : t;
       entries.push({
         // The handle is prefixed once the order is final (below).
-        line: `${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${factLineSuffixes(f, opts)}`,
+        line: `${subjectLabel(r, opts?.askerEntityId)} — ${f.predicate}: ${f.object}${factLineSuffixes(f, opts)}`,
         t: validT,
         slot: `${r.entityId}::${f.predicateAlias ?? f.predicate}`,
         obj: f.object,
@@ -203,7 +210,7 @@ export function buildFactIndex(
     // same record rendered twice, under two handles, so the line stands
     // once: the first hit to carry the edge keeps it.
     for (const rel of r.relations ?? []) {
-      const entry = relationEntry(r, rel);
+      const entry = relationEntry(r, rel, opts?.askerEntityId);
       if (entry.citation) {
         if (factIndex.has(entry.citation.factId)) continue;
         factIndex.set(entry.citation.factId, entry.citation);
@@ -252,13 +259,25 @@ function markMostRecentPerSlot(
   }
 }
 
+/** How an entity is named on its evidence lines: the asker's own is "you". */
+function subjectLabel(
+  e: { entityId: string; canonicalName: string; entityType: string },
+  askerEntityId: string | undefined,
+): string {
+  return e.entityId === askerEntityId ? ASKER_LABEL : `${e.canonicalName} (${e.entityType})`;
+}
+
 /** One relation line and, when the edge record is known, its citation. */
 function relationEntry(
   r: SearchHit,
   rel: NonNullable<SearchHit['relations']>[number],
+  askerEntityId: string | undefined,
 ): { line: string; t: number; slot: string; obj: string; citation?: Citation } {
-  const subject = `${r.canonicalName} (${r.entityType})`;
-  const object = `${rel.peer} (${rel.peerType})`;
+  const subject = subjectLabel(r, askerEntityId);
+  const object =
+    rel.peerId !== undefined && rel.peerId === askerEntityId
+      ? ASKER_LABEL
+      : `${rel.peer} (${rel.peerType})`;
   const line =
     rel.direction === 'in'
       ? `${object} — ${rel.kind} → ${subject}`

@@ -437,17 +437,32 @@ describe('the asker (asker.ts)', () => {
 
   it("is the caller's user as the memory names them; absent without a userId, an entity, or the reader", async () => {
     const resolve = jest.fn(async (_c: string, userId: string) =>
-      userId === 'u42' ? { id: 'knowledge_entity:x', name: 'Sasha', named: true } : null,
+      userId === 'u42'
+        ? { id: 'knowledge_entity:x', name: 'Sasha', named: true }
+        : userId === 'u44'
+          ? { id: 'knowledge_entity:y', name: 'u44', named: false }
+          : null,
     );
     const svc = withUsers({ resolve });
     const profile = profileWith({});
     expect((await svc.collect({ ...collectorArgs(profile), userId: 'u42' })).asker).toEqual({
+      entityId: 'knowledge_entity:x',
       name: 'Sasha',
     });
+    // A placeholder-named entity is an asker without a name.
+    expect((await svc.collect({ ...collectorArgs(profile), userId: 'u44' })).asker).toEqual({
+      entityId: 'knowledge_entity:y',
+      name: null,
+    });
+    // An asker resolved by the orchestrator is taken as is, not re-read.
+    const given = { entityId: 'knowledge_entity:z', name: null };
+    expect(
+      (await svc.collect({ ...collectorArgs(profile), userId: 'u42', asker: given })).asker,
+    ).toBe(given);
     expect(resolve).toHaveBeenCalledWith('c1', 'u42');
     expect((await svc.collect({ ...collectorArgs(profile), userId: 'u43' })).asker).toBeUndefined();
     expect((await svc.collect(collectorArgs(profile))).asker).toBeUndefined();
-    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(resolve).toHaveBeenCalledTimes(3);
     const unwired = withUsers(undefined);
     expect(
       (await unwired.collect({ ...collectorArgs(profile), userId: 'u42' })).asker,

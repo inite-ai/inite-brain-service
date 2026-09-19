@@ -1345,10 +1345,17 @@ describe('L3EscalationService — evidence citations', () => {
       ],
       captured,
     );
-    await service.escalate({ ...baseInput(openai, makeProfile({})), asker: { name: 'Sasha' } });
+    await service.escalate({
+      ...baseInput(openai, makeProfile({})),
+      asker: { entityId: 'knowledge_entity:u', name: 'Sasha' },
+    });
     const [gen, verify] = captured as CapturedL3Request[];
-    expect(gen!.messages[1]!.content).toContain('\nAsker: "Sasha" — the person asking.');
-    expect(verify!.messages[1]!.content).toContain('Asker: "Sasha" — the query\'s first person');
+    expect(gen!.messages[1]!.content).toContain(
+      '\nAsker: the evidence lines headed "you" are about the person asking (Sasha)',
+    );
+    expect(verify!.messages[1]!.content).toContain(
+      'Asker: "you" in the evidence is the person asking (Sasha)',
+    );
   });
 
   it('flag ON → [episode:...] headers, citedEpisodes in schema+required, spans resolved, hallucinated id dropped', async () => {

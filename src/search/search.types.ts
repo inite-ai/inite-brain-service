@@ -29,6 +29,8 @@ export interface SearchHit {
     kind: string;
     peer: string;
     peerType: string;
+    /** The peer entity's id — the asker's own entity renders as "you" by it. */
+    peerId?: string | undefined;
     /** The knowledge_edge record behind the relation (citable). */
     edgeId?: string | undefined;
     /** 'out' = this entity is the subject of the relation; 'in' = its object. */
