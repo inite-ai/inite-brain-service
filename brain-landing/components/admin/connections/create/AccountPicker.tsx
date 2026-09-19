@@ -10,7 +10,7 @@ import {
   type SourceOAuthGrant,
   type SourceOAuthGrantsResponse,
 } from '../../../../lib/contracts/admin-source-connections'
-import { PROXY, errorMessage, fill, type ConnectionsT } from '../shared'
+import { PROXY, errorMessage, fill, tokenWords, type ConnectionsT } from '../shared'
 
 /**
  * The credential of a cloud connector is an ACCOUNT the brain connected,
@@ -262,7 +262,7 @@ function AccountRow({
       {selected && <Check className="w-3 h-3 text-[var(--accent)]" />}
       {narrower && <span className="ml-auto text-[10px] text-[var(--warning)]">{t.form.credential.scopesShort}</span>}
       {!grant.refreshable && !narrower && (
-        <span className="ml-auto text-[10px] text-[var(--warning)]">{t.accounts.notRefreshable}</span>
+        <span className="ml-auto text-[10px] text-[var(--warning)]">{tokenWords(grant, t.accounts)}</span>
       )}
     </label>
   )

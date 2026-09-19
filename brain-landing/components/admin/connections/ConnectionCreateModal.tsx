@@ -54,12 +54,15 @@ const STEPS: Step[] = ['where', 'source', 'sync']
 export function ConnectionCreateModal({
   card,
   catalog,
+  knownAgents = [],
   t,
   onClose,
   onCreated,
 }: {
   card: SourceCard
   catalog: SourceCatalogResponse
+  /** The agents that have checked in — offered under the agent id field, not required. */
+  knownAgents?: string[]
   t: ConnectionsT
   onClose: () => void
   /** One connection, or two when the operator wanted documents AND files. */
@@ -269,10 +272,18 @@ export function ConnectionCreateModal({
                   <input
                     value={agentId}
                     onChange={(e) => setAgentId(e.target.value)}
-                    placeholder="laptop-1"
+                    placeholder={knownAgents[0] ?? 'laptop-1'}
                     autoComplete="off"
+                    list={knownAgents.length > 0 ? 'known-agents' : undefined}
                     className={`${inputCls} font-mono`}
                   />
+                  {knownAgents.length > 0 && (
+                    <datalist id="known-agents">
+                      {knownAgents.map((id) => (
+                        <option key={id} value={id} />
+                      ))}
+                    </datalist>
+                  )}
                 </Field>
               )}
               <Field label={f.label} hint={f.labelHint}>

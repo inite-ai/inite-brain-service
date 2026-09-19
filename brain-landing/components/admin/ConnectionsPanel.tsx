@@ -276,6 +276,7 @@ export function ConnectionsPanel() {
         <ConnectionCreateModal
           card={creating}
           catalog={catalog}
+          knownAgents={agents.map((a) => a.agentId)}
           t={t}
           onClose={() => setCreating(null)}
           onCreated={onCreated}

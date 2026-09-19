@@ -120,12 +120,15 @@ export class DbAgentConnector implements AgentConnector {
           const updated = entity.updatedAtColumn ? row[entity.updatedAtColumn] : undefined;
           if (updated !== undefined && updated !== null && later(updated, maxUpdated)) maxUpdated = updated;
           const externalId = `${entity.type}/${String(id)}`;
+          const name = String(row[entity.nameColumn ?? 'name'] ?? id);
           state.rows.set(externalId, { entity, row });
           yield {
             type: 'upsert',
             item: {
               externalId,
-              title: String(row[entity.nameColumn ?? 'name'] ?? id),
+              title: name,
+              // The catalogue names a record `type/name`, as the records door does.
+              path: `${entity.type}/${name}`,
               revision: updated !== undefined && updated !== null ? revisionOf(updated) : rowHash(row),
               ...(isoOf(updated) ? { modifiedAt: isoOf(updated)! } : {}),
             },
