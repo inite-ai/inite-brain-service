@@ -420,8 +420,22 @@ export const SourceAgentSchema = z.object({
   hostname: z.string().nullable(),
   platform: z.string().nullable(),
   roots: z.array(z.object({ path: z.string(), folders: z.array(z.string()) })),
+  /** The databases the agent holds a DSN for — names only (W4.4). */
+  databases: z.array(z.string()),
 })
 export const SourceAgentsResponseSchema = z.object({ agents: z.array(SourceAgentSchema) })
+
+/** One table or view of a `db` source on the agent (W4.4) — identifiers only, the DSN lives on the agent. */
+export const DbSourceEntitySchema = z.object({
+  type: z.string(),
+  table: z.string(),
+  idColumn: z.string().optional(),
+  nameColumn: z.string().optional(),
+  updatedAtColumn: z.string().optional(),
+  columns: z.array(z.string()).optional(),
+  relations: z.array(z.object({ kind: z.string(), column: z.string(), targetType: z.string() })).optional(),
+})
+export type DbSourceEntity = z.infer<typeof DbSourceEntitySchema>
 
 // ── Connected accounts (W4) ──────────────────────────────────────────
 

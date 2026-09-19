@@ -22,6 +22,8 @@ import { SourcesService } from '../sources/sources.service';
 import type { SourceType } from '../contracts/sources/sources.schema';
 import {
   AGENT_HOST,
+  DB_CONFIG_FORBIDDEN_KEYS,
+  DbSourceConfigSchema,
   grantIdOfCredential,
   type CreateSourceConnectionRequest,
   type SourceConnection,
@@ -32,6 +34,7 @@ import { CredentialProvider } from './oauth/credential-provider';
 import { SourceOAuthService } from './oauth/source-oauth.service';
 import type { Connector, ConnectorConnectionView, ConnectorRegistry } from './connector';
 import {
+  AGENT_ONLY_CONNECTORS,
   connectorState,
   connectorUnavailableMessage,
   findConnector,
@@ -117,6 +120,7 @@ export class SourceConnectionService {
     }
     const connector = connectorKindOf(entry);
     await this.assertConnectable(entry, connector, dto);
+    if (connector === 'db') assertDbConfig(dto.config ?? {});
     await this.assertCredential(companyId, {
       connector,
       host: dto.host ?? 'server',
@@ -228,6 +232,7 @@ export class SourceConnectionService {
     if (patch.label !== undefined && patch.label !== null && patch.label.length > LABEL_MAX) {
       throw new BadRequestException(`label must be at most ${LABEL_MAX} characters`);
     }
+    if (patch.config !== undefined && current.connector === 'db') assertDbConfig(patch.config);
     if (patch.credential !== undefined) {
       const { source } = await this.sourceContext(companyId, current);
       await this.assertCredential(companyId, {
@@ -426,6 +431,11 @@ export class SourceConnectionService {
     const serverRun =
       host === 'server' &&
       (entry.kind === 'native' || (entry.kind === 'mcp' && entry.transport === 'http'));
+    if (serverRun && AGENT_ONLY_CONNECTORS.has(connector)) {
+      throw new BadRequestException(
+        `source "${entry.id}": the ${connector} connector runs on a local agent (host agent:<id>) — the brain never holds a clone or a database connection string`,
+      );
+    }
     if (serverRun) {
       const state = connectorState(this.connectors ?? [], connector);
       if (typeof state === 'string') {
@@ -782,6 +792,29 @@ async function assertOperatorUrl(
 }
 
 /** The server an `auth: 'oauth'` http MCP entry signs in at (pinned, else operator-named), or null. */
+/**
+ * A `db` connection (W4.4) runs on a local agent and names its database
+ * by the label the agent holds the DSN for — a config carrying the DSN
+ * or its parts is refused, so a connection string never reaches the
+ * brain; the rest of the config is the agent's contract, validated here
+ * so the admin sees the mistake at create, not at the first run.
+ */
+function assertDbConfig(config: Record<string, unknown>): void {
+  const leaked = DB_CONFIG_FORBIDDEN_KEYS.filter((k) => k in config);
+  if (leaked.length > 0) {
+    throw new BadRequestException(
+      `config must not carry ${leaked.join(', ')} — the DSN stays on the agent (brain-agent db add <name> <dsn>); name the database by "database"`,
+    );
+  }
+  const parsed = DbSourceConfigSchema.safeParse(config);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new BadRequestException(
+      `config.${issue?.path.join('.') || '?'}: ${issue?.message ?? 'invalid'}`,
+    );
+  }
+}
+
 function mcpOAuthResourceOf(entry: PackSourceSpec, config: Record<string, unknown>): string | null {
   if (entry.kind !== 'mcp' || entry.transport !== 'http' || entry.auth !== 'oauth') return null;
   const url = entry.url ?? (typeof config.url === 'string' ? config.url : null);

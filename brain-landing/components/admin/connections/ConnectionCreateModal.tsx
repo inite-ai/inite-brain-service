@@ -16,6 +16,7 @@ import {
 import { PROXY, errorMessage, fill, type ConnectionsT } from './shared'
 import { AccountPicker } from './create/AccountPicker'
 import { ConnectorFields } from './create/ConnectorFields'
+import { DbEntitiesFields } from './create/DbEntitiesFields'
 import { FolderPicker } from './create/FolderPicker'
 import { RecordsFields, initialRecords, type RecordsChoice } from './create/RecordsFields'
 import { RestApiDescribe } from './create/RestApiDescribe'
@@ -26,6 +27,7 @@ import {
   EMPTY_SECRET,
   configFrom,
   credentialFrom,
+  dbProposalOf,
   formFor,
   initialValues,
   validate,
@@ -96,8 +98,14 @@ export function ConnectionCreateModal({
   const [picking, setPicking] = useState(false)
 
   const ctx: FormContext = useMemo(
-    () => ({ host, entry, fsRoots: catalog.fsRoots, egressAllowPrivate: catalog.egressAllowPrivate }),
-    [host, entry, catalog],
+    () => ({
+      host,
+      entry,
+      fsRoots: catalog.fsRoots,
+      egressAllowPrivate: catalog.egressAllowPrivate,
+      ...(host === 'agent' && AGENT_ID.test(agentId.trim()) ? { agentId: agentId.trim() } : {}),
+    }),
+    [host, entry, catalog, agentId],
   )
   const errors: Record<string, FieldError> = useMemo(
     () => (form && json === null ? validate(form, values, ctx, secret) : {}),
@@ -145,15 +153,19 @@ export function ConnectionCreateModal({
           packId: target.packId,
           sourceId: target.sourceId,
           vertical: vertical.trim() || target.packId,
-          // A records connector: the entities chosen and the field → fact table ride the config.
-          config: target.records
-            ? {
-                ...config,
-                entities: records.entities,
-                mapping: records.mapping,
-                ...(records.endpoints ? { endpoints: records.endpoints } : {}),
-              }
-            : config,
+          // A records connector: the entities chosen and the field → fact table ride the config
+          // (a db source's entities are its tables, assembled by the form; the mapping rides the same way).
+          config:
+            target.connector === 'db'
+              ? { ...config, mapping: records.mapping }
+              : target.records
+                ? {
+                    ...config,
+                    entities: records.entities,
+                    mapping: records.mapping,
+                    ...(records.endpoints ? { endpoints: records.endpoints } : {}),
+                  }
+                : config,
           schedule,
           // "Content" means text for a document entry and bytes for a
           // binary one; "catalogue only" is manifest for both.
@@ -615,6 +627,7 @@ function SourceStep({
     )
   }
   const fields = visibleFields(form, values, ctx, advanced)
+  const dbProposal = entry.connector === 'db' ? dbProposalOf(String(values['entities'] ?? '')) : []
   return (
     <div className="space-y-3">
       {entry.mcp?.transport === 'http' && entry.mcp.url && (
@@ -626,6 +639,9 @@ function SourceStep({
         <p className="text-[11px] text-[var(--text-muted)]">{f.installSecret}</p>
       )}
       {entry.mcp?.auth === 'oauth' && <p className="text-[11px] text-[var(--text-muted)]">{f.oauth}</p>}
+      {entry.connector === 'db' && (
+        <DbEntitiesFields values={values} errors={errors} agentId={ctx.agentId ?? ''} t={t} onChange={onValue} />
+      )}
       <ConnectorFields fields={fields} values={values} errors={errors} ctx={ctx} t={t} onChange={onValue} onBrowse={onBrowse} />
       {form.credential?.kind === 'oauth' && entry.oauth && ctx.host === 'server' && (
         <AccountPicker
@@ -669,7 +685,18 @@ function SourceStep({
       {entry.records && entry.connector === 'rest_records' && (
         <RestApiDescribe entry={entry} value={records} config={assembledConfig()} t={t} onChange={onRecords} />
       )}
-      {entry.records && (entry.records.entities.length > 0 || records.proposal) && (
+      {entry.records && entry.connector === 'db' && dbProposal.length > 0 && (
+        <RecordsFields
+          entry={entry}
+          value={{ ...records, entities: dbProposal.map((e) => e.type), proposal: dbProposal }}
+          credential={undefined}
+          config={{}}
+          previewable={false}
+          t={t}
+          onChange={onRecords}
+        />
+      )}
+      {entry.records && entry.connector !== 'db' && (entry.records.entities.length > 0 || records.proposal) && (
         <RecordsFields
           entry={entry}
           value={records}

@@ -19,6 +19,8 @@ import type {
   SourceConnectorState,
 } from '../contracts/source-plane/source-plane.schema';
 import {
+  AGENT_CONNECTORS,
+  AGENT_ONLY_CONNECTORS,
   SOURCE_CONNECTORS,
   connectorState,
   type Connector,
@@ -124,9 +126,6 @@ export class SourceCatalogService {
   }
 }
 
-/** Connectors the local agent ships (clients/brain-agent connectorFor). */
-const AGENT_CONNECTORS = new Set(['fs', 'git']);
-
 /** Where a connection of this entry may run — the same truth the create check and the agent's connectorFor apply. */
 function hostsOf(entry: PackSourceSpec, connector: string): SourceCatalogEntry['hosts'] {
   if (entry.kind === 'external') return ['server'];
@@ -166,7 +165,11 @@ function recordsOf(
   if (connector instanceof RecordsConnector) {
     return { entities: connector.entities, preset: connector.preset, predicates };
   }
-  if (entry.kind === 'external' && entry.shape === 'structure') {
+  // A push door, or the agent's `db` source: no fixed entities, the operator's own mapping.
+  if (
+    entry.shape === 'structure' &&
+    (entry.kind === 'external' || (entry.kind === 'native' && entry.connector === 'db'))
+  ) {
     return { entities: [], preset: {}, predicates };
   }
   return null;
@@ -197,9 +200,6 @@ function webhookOf(connector: Connector | null): SourceCatalogEntry['webhook'] {
   if (!(connector instanceof RecordsConnector) || !connector.webhook) return null;
   return { scheme: connector.webhook.id };
 }
-
-/** Natives that exist on the local agent only — git never runs in the brain process. */
-const AGENT_ONLY_CONNECTORS = new Set(['git']);
 
 function availabilityOf(
   registry: ConnectorRegistry,

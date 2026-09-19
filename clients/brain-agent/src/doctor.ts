@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
 import { accessSync, constants, statSync } from 'node:fs';
 import { promisify } from 'node:util';
-import type { AgentConfig } from './config.js';
+import { databaseNames, resolveDsn, type AgentConfig } from './config.js';
+import { dialectOf, openSession } from './connectors/db-session.js';
 import { BrainApiError, type BrainAgentClient } from './protocol.js';
 
 const run = promisify(execFile);
@@ -29,6 +30,9 @@ export interface DoctorInput {
   /** Injected for tests; default runs `git --version`. */
   gitVersion?: () => Promise<string>;
   nodeVersion?: string;
+  /** Injected for tests; default opens the database read-only and runs `SELECT 1`. */
+  openDb?: (dsn: string) => Promise<void>;
+  env?: NodeJS.ProcessEnv;
 }
 
 export async function doctor(input: DoctorInput): Promise<Check[]> {
@@ -58,6 +62,24 @@ export async function doctor(input: DoctorInput): Promise<Check[]> {
     checks.push({ name: 'git', verdict: 'ok', detail: v });
   } catch {
     checks.push({ name: 'git', verdict: 'warn', detail: 'git not found on PATH — repository connections will fail' });
+  }
+
+  // Every database the agent knows: the DSN parses, the driver is there, a read-only session opens.
+  for (const name of databaseNames(config, input.env)) {
+    const dsn = resolveDsn(name, config, input.env) ?? '';
+    let dialect: string;
+    try {
+      dialect = dialectOf(dsn);
+    } catch (e) {
+      checks.push({ name: `db ${name}`, verdict: 'fail', detail: (e as Error).message });
+      continue;
+    }
+    try {
+      await (input.openDb ?? probeDb)(dsn);
+      checks.push({ name: `db ${name}`, verdict: 'ok', detail: `${dialect}, read-only session opens` });
+    } catch (e) {
+      checks.push({ name: `db ${name}`, verdict: 'fail', detail: `${dialect}: ${(e as Error).message}` });
+    }
   }
 
   for (const root of config.roots ?? []) {
@@ -128,4 +150,13 @@ export function worstVerdict(checks: Check[]): Verdict {
   if (checks.some((c) => c.verdict === 'fail')) return 'fail';
   if (checks.some((c) => c.verdict === 'warn')) return 'warn';
   return 'ok';
+}
+
+async function probeDb(dsn: string): Promise<void> {
+  const session = await openSession(dsn);
+  try {
+    await session.query('SELECT 1', []);
+  } finally {
+    await session.close();
+  }
 }

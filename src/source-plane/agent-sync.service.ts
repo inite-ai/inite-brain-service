@@ -7,6 +7,7 @@ import type {
   SourceSyncSummary,
 } from '../contracts/source-plane/source-plane.schema';
 import type { ConnectorConnectionView, FetchedItem } from './connector';
+import type { EntityMapping } from './records/record-mapping';
 import { SourceConnectionService, type SourceConnectionRow } from './source-connection.service';
 import { SourceItemEffectsService } from './source-item-effects.service';
 import { SourceItemService } from './source-item.service';
@@ -142,7 +143,7 @@ export class AgentSyncService {
       companyId,
       connection,
       row: item,
-      fetched: fromWire(p.item),
+      fetched: fromWire(p.item, p.row.config ?? {}),
     });
     if (out.status === 'ingested') p.run.counters.ingested++;
     else if (out.status === 'deduplicated') p.run.counters.deduplicated++;
@@ -210,7 +211,13 @@ export class AgentSyncService {
 }
 
 /** The wire form of a fetched item back into the connector seam's shape. */
-export function fromWire(w: FetchedItemWire): FetchedItem {
+/**
+ * The wire item as the doors take it. A structure-shaped item (a `db`
+ * source on the agent, W4.4) carries no mapping of its own — the
+ * connection's `config.mapping[entityType]` is the mapping, the way the
+ * push transport applies it.
+ */
+export function fromWire(w: FetchedItemWire, config: Record<string, unknown> = {}): FetchedItem {
   switch (w.shape) {
     case 'document':
       return {
@@ -233,7 +240,11 @@ export function fromWire(w: FetchedItemWire): FetchedItem {
     }
     case 'conversation':
       return { shape: 'conversation', conversationId: w.conversationId, turns: w.turns };
-    case 'structure':
-      return { shape: 'structure', record: w.record };
+    case 'structure': {
+      const mapping = (config.mapping as Record<string, EntityMapping | undefined> | undefined)?.[
+        w.record.entityType
+      ];
+      return { shape: 'structure', record: w.record, ...(mapping ? { mapping } : {}) };
+    }
   }
 }

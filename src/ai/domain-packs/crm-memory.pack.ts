@@ -36,7 +36,7 @@ const single = {
  */
 export const CRM_MEMORY_PACK: DomainPackManifest = {
   id: 'crm_memory',
-  version: '0.4.1',
+  version: '0.5.0',
   description:
     'What a CRM knows — people, organizations and deals as facts with the revision they were read at: title, company, owner, stage, amount, dates, source. Records enter deterministically through the records door (no model call); prose fields (notes) go to the ordinary extractor.',
   indexer: {
@@ -81,6 +81,16 @@ export const CRM_MEMORY_PACK: DomainPackManifest = {
       title: 'Bitrix24',
       description:
         'Deals, leads, contacts and companies of a Bitrix24 portal through crm.item.list (filter[>updatedTime] + start), stages / sources / pipelines resolved to names, as a connected account (a local / Marketplace application) or with an inbound webhook URL as the credential. config: { entities?, mapping?, allowPrivate? }.',
+      defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '1h' },
+    },
+    {
+      id: 'db',
+      kind: 'native',
+      connector: 'db',
+      shape: 'structure',
+      title: 'Database (agent)',
+      description:
+        'A self-hosted CRM, ERP or ticketing backend read from its database by the local agent (host agent:<id>): each table or view one record type, each row one record, foreign keys as relations; incremental by a change column, else a full walk. The agent holds the DSN (brain-agent db add <name> <dsn>); the brain knows the name only. Postgres, MySQL, SQLite, read-only. config: { database, entities: [{ type, table, idColumn?, nameColumn?, updatedAtColumn?, columns?, relations? }], mapping? }.',
       defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '1h' },
     },
     {

@@ -332,6 +332,14 @@
       "AgentInventory": {
         "additionalProperties": false,
         "properties": {
+          "databases": {
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": "array"
+          },
           "hostname": {
             "maxLength": 200,
             "type": "string"
@@ -6935,6 +6943,12 @@
                 "agentId": {
                   "type": "string"
                 },
+                "databases": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
                 "firstSeenAt": {
                   "type": "string"
                 },
@@ -6989,7 +7003,8 @@
                 "version",
                 "hostname",
                 "platform",
-                "roots"
+                "roots",
+                "databases"
               ],
               "type": "object"
             },

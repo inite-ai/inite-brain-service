@@ -857,6 +857,57 @@ export type SourceItemInspectResponse = z.infer<typeof SourceItemInspectResponse
 
 // ── Agents: presence + the folders they can see ────────────────────────
 
+/**
+ * The `db` source's config (W4.4) — a database read by the LOCAL AGENT
+ * as records: the database by the NAME the agent holds a DSN for
+ * (`brain-agent db add <name> <dsn>`; the DSN never reaches the brain),
+ * one entity per table or view with its key, name and change columns,
+ * the columns to read and the foreign keys read as relations. Every
+ * identifier is a bare SQL identifier: the agent quotes it, nothing is
+ * ever interpolated, no SQL travels.
+ */
+const SQL_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const SQL_TABLE = /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$/;
+export const DB_DATABASE_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
+const SqlIdentSchema = z.string().regex(SQL_IDENT, 'a SQL identifier');
+
+export const DbSourceEntitySchema = z.object({
+  type: SqlIdentSchema,
+  table: z.string().regex(SQL_TABLE, 'a table or schema.table'),
+  idColumn: SqlIdentSchema.optional(),
+  nameColumn: SqlIdentSchema.optional(),
+  updatedAtColumn: SqlIdentSchema.optional(),
+  columns: z.array(SqlIdentSchema).max(200).optional(),
+  relations: z
+    .array(z.object({ kind: SqlIdentSchema, column: SqlIdentSchema, targetType: SqlIdentSchema }))
+    .max(32)
+    .optional(),
+});
+export type DbSourceEntity = z.infer<typeof DbSourceEntitySchema>;
+
+/** Keys a `db` config must not carry: the DSN and its parts stay on the agent. */
+export const DB_CONFIG_FORBIDDEN_KEYS = [
+  'dsn',
+  'url',
+  'connectionString',
+  'password',
+  'user',
+  'username',
+  'host',
+  'port',
+] as const;
+
+export const DbSourceConfigSchema = z
+  .object({
+    database: z.string().regex(DB_DATABASE_NAME, 'a database name (letters, digits, _ and -)'),
+    entities: z.array(DbSourceEntitySchema).min(1).max(64),
+    pageSize: z.number().int().positive().max(10_000).optional(),
+    maxRows: z.number().int().positive().optional(),
+    mapping: z.record(z.string(), z.unknown()).optional(),
+  })
+  .passthrough();
+export type DbSourceConfig = z.infer<typeof DbSourceConfigSchema>;
+
 export const AGENT_INVENTORY_MAX_FOLDERS = 2000;
 
 /** What an agent reports on every pass: its identity and the folders under its roots. */
@@ -873,6 +924,8 @@ export const AgentInventorySchema = z.object({
       }),
     )
     .max(32),
+  /** The databases the agent holds a DSN for — names only (the `db` form's picker). */
+  databases: z.array(z.string().regex(DB_DATABASE_NAME)).max(64).optional(),
 });
 export type AgentInventory = z.infer<typeof AgentInventorySchema>;
 
@@ -884,6 +937,7 @@ export const SourceAgentSchema = z.object({
   hostname: z.string().nullable(),
   platform: z.string().nullable(),
   roots: z.array(z.object({ path: z.string(), folders: z.array(z.string()) })),
+  databases: z.array(z.string()),
 });
 export type SourceAgent = z.infer<typeof SourceAgentSchema>;
 

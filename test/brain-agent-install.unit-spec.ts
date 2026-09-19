@@ -48,6 +48,7 @@ describe('brain-agent config', () => {
         roots: ['/srv'],
         everyMinutes: 5,
         redact: true,
+        databases: {},
       },
       env,
     );
@@ -84,6 +85,7 @@ describe('brain-agent config', () => {
         roots: [],
         everyMinutes: 5,
         redact: true,
+        databases: {},
       },
       env,
     );

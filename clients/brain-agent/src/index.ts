@@ -9,6 +9,8 @@
  *   brain-agent sync                                  # one pass now (also what the service runs)
  *   brain-agent sync --every 15                       # keep syncing every 15 minutes
  *   brain-agent list                                  # what this agent is asked to sync
+ *   brain-agent db add crm postgres://ro@localhost/crm   # a database this agent may read (the DSN stays here)
+ *   brain-agent db list | db remove <name>
  *   brain-agent uninstall [--purge]                   # stop and remove the service (and the config)
  *
  * An operator points connections at this agent (Admin → Connections,
@@ -29,21 +31,28 @@
  *   --url --key --agent --roots <a:b> --every <minutes> --no-redact --no-service
  * Env:
  *   BRAIN_URL, BRAIN_API_KEY, BRAIN_AGENT_ID, BRAIN_AGENT_ROOTS (':'-separated
- *   allowlist for fs roots when the agent serves others), BRAIN_AGENT_HOME
+ *   allowlist for fs roots when the agent serves others), BRAIN_AGENT_HOME,
+ *   BRAIN_AGENT_DB_<NAME> (the DSN of database <name>, over the config file)
  */
 import { hostname } from 'node:os';
 import { realpathSync } from 'node:fs';
 import {
+  DATABASE_NAME,
   DEFAULT_EVERY_MINUTES,
   configMode,
   configPath,
+  databaseEnvName,
+  databaseNames,
   loadConfig,
   maskKey,
   removeConfig,
   resolveConfig,
+  resolveDsn,
   saveConfig,
   type AgentConfig,
 } from './config.js';
+import { DbAgentConnector } from './connectors/db.js';
+import { dialectOf } from './connectors/db-session.js';
 import { FsAgentConnector } from './connectors/fs.js';
 import { GitAgentConnector } from './connectors/git.js';
 import { McpStdioAgentConnector } from './connectors/mcp-stdio.js';
@@ -89,7 +98,12 @@ function client(): BrainAgentClient {
 }
 
 function registry(): AgentConnector[] {
-  return [new FsAgentConnector(cfg.roots ?? []), new GitAgentConnector(), new McpStdioAgentConnector()];
+  return [
+    new FsAgentConnector(cfg.roots ?? []),
+    new GitAgentConnector(),
+    new McpStdioAgentConnector(),
+    new DbAgentConnector((name) => resolveDsn(name, cfg)),
+  ];
 }
 
 const AGENT_VERSION = '0.1.0';
@@ -100,7 +114,7 @@ async function pass(id: string, only: string | undefined, json: boolean): Promis
   // Check in first: presence and the folders this machine offers, so the
   // admin can pick one even before anything is pointed here.
   try {
-    await brain.checkIn(id, await inventory(cfg.roots ?? [], AGENT_VERSION));
+    await brain.checkIn(id, await inventory(cfg.roots ?? [], AGENT_VERSION, databaseNames(cfg)));
   } catch (e) {
     process.stderr.write(`brain-agent: check-in failed: ${(e as Error).message}\n`);
   }
@@ -161,6 +175,7 @@ async function install(): Promise<void> {
     roots,
     everyMinutes: every,
     redact: !flag('no-redact'),
+    databases: cfg.databases ?? {},
   };
   const file = saveConfig(config);
   process.stdout.write(`config: ${file} (mode 600) — agent:${config.agentId} → ${config.url}, key ${maskKey(apiKey)}\n`);
@@ -223,9 +238,58 @@ async function runDoctor(): Promise<void> {
   process.exit(worstVerdict(checks) === 'fail' ? 2 : 0);
 }
 
+/**
+ * `db add <name> <dsn>` / `db list` / `db remove <name>` — the databases
+ * this agent may read. The DSN is written to the config file (0600)
+ * and never shown again; `list` prints names and dialects only.
+ */
+function dbCommand(): void {
+  const sub = process.argv[3];
+  const saved = loadConfig();
+  if (sub === 'list') {
+    const names = databaseNames(cfg);
+    if (names.length === 0) process.stdout.write('(no databases — brain-agent db add <name> <dsn>, or BRAIN_AGENT_DB_<NAME>)\n');
+    for (const name of names) {
+      const dsn = resolveDsn(name, cfg) ?? '';
+      const from = process.env[databaseEnvName(name)] ? databaseEnvName(name) : 'config';
+      let dialect = '?';
+      try {
+        dialect = dialectOf(dsn);
+      } catch {
+        dialect = 'unknown';
+      }
+      process.stdout.write(`${name}  ${dialect}  (${from})\n`);
+    }
+    return;
+  }
+  if (!saved) fail('db add / remove need an installed agent (brain-agent install …); for a one-off pass set BRAIN_AGENT_DB_<NAME>');
+  const name = (process.argv[4] ?? '').trim();
+  if (!DATABASE_NAME.test(name)) fail('db <add|remove> <name> — letters, digits, "_" and "-", up to 64');
+  if (sub === 'add') {
+    const dsn = (process.argv[5] ?? '').trim();
+    if (!dsn) fail(`db add ${name} <dsn> — postgres://…, mysql://… or sqlite:/path.db`);
+    try {
+      dialectOf(dsn);
+    } catch (e) {
+      fail((e as Error).message);
+    }
+    saveConfig({ ...saved, databases: { ...saved.databases, [name]: dsn } });
+    process.stdout.write(`database ${name}: ${dialectOf(dsn)} — saved to ${configPath()} (mode 600); the brain sees the name only\n`);
+    return;
+  }
+  if (sub === 'remove') {
+    const { [name]: gone, ...rest } = saved.databases;
+    saveConfig({ ...saved, databases: rest });
+    process.stdout.write(`database ${name}: ${gone ? 'removed' : 'was not set'}\n`);
+    return;
+  }
+  fail('usage: brain-agent db <add <name> <dsn> | list | remove <name>>');
+}
+
 const USAGE =
-  'usage: brain-agent <install|uninstall|status|doctor|sync|list> [--agent <id>] [--connection <id>] [--full] [--every <min>] [--no-redact] [--json]\n' +
-  '       brain-agent install --url <brain> --key <brain:write key> [--agent <id>] [--roots a:b] [--every <min>] [--no-service]\n';
+  'usage: brain-agent <install|uninstall|status|doctor|sync|list|db> [--agent <id>] [--connection <id>] [--full] [--every <min>] [--no-redact] [--json]\n' +
+  '       brain-agent install --url <brain> --key <brain:write key> [--agent <id>] [--roots a:b] [--every <min>] [--no-service]\n' +
+  '       brain-agent db add <name> <dsn> | db list | db remove <name>\n';
 
 async function main(): Promise<void> {
   const cmd = process.argv[2];
@@ -237,6 +301,7 @@ async function main(): Promise<void> {
   }
   if (cmd === 'status') return status();
   if (cmd === 'doctor') return runDoctor();
+  if (cmd === 'db') return dbCommand();
   const id = agentId();
   if (cmd === 'list') {
     const targets = await client().listConnections(id);

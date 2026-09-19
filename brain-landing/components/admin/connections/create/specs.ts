@@ -38,6 +38,8 @@ export interface FieldSpec {
   when?: (values: FormValues, ctx: FormContext) => boolean
   /** Not a config key: consumed by `finalize` (e.g. a header name). */
   virtual?: boolean
+  /** Rendered by the connector's own component, not the generic field list (still validated). */
+  hidden?: boolean
   /** A path the folder picker can fill (with `include` from ticked subfolders). */
   browse?: boolean
 }
@@ -89,6 +91,8 @@ export interface FormContext {
   entry: SourceCatalogEntry
   fsRoots: string[]
   egressAllowPrivate: boolean
+  /** The agent the connection will run on (its check-in names what it offers). */
+  agentId?: string
 }
 
 const authHeader: FieldSpec = {
@@ -317,6 +321,111 @@ const KOMMO: ConnectorForm = {
   credential: { kind: 'oauth', alternative: 'longLivedToken' },
 }
 
+/**
+ * A database read by the local agent (W4.4): the database by the name
+ * the agent holds a DSN for, the tables / views as record types
+ * (`entities`, kept as JSON in a hidden field and edited by
+ * DbEntitiesFields), no credential — the DSN never reaches the brain.
+ */
+const DB: ConnectorForm = {
+  fields: [
+    { key: 'database', type: 'text', required: true, mono: true, hidden: true, placeholder: 'crm' },
+    { key: 'entities', type: 'text', virtual: true, hidden: true },
+    { key: 'pageSize', type: 'number', min: 1, advanced: true },
+    { key: 'maxRows', type: 'number', min: 1, advanced: true },
+  ],
+  credential: null,
+  finalize: (config, values) => ({ ...config, entities: parseDbEntities(String(values['entities'] ?? '')) }),
+}
+
+export interface DbEntityDraft {
+  type: string
+  table: string
+  idColumn: string
+  nameColumn: string
+  updatedAtColumn: string
+  /** Comma-separated as typed. */
+  columns: string
+  /** One per line: `kind = column -> targetType`. */
+  relations: string
+}
+
+export const EMPTY_DB_ENTITY: DbEntityDraft = {
+  type: '',
+  table: '',
+  idColumn: '',
+  nameColumn: '',
+  updatedAtColumn: '',
+  columns: '',
+  relations: '',
+}
+
+const SQL_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/
+const SQL_TABLE = /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$/
+const RELATION_LINE = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:->|→)\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/
+
+/** The drafts as typed (the hidden `entities` value), or the empty list. */
+export function dbDraftsOf(raw: string): DbEntityDraft[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.map((d) => ({ ...EMPTY_DB_ENTITY, ...(d as Partial<DbEntityDraft>) }))
+  } catch {
+    return []
+  }
+}
+
+/** Why the drafts cannot be sent: the first problem, in the form's error vocabulary; null = fine. */
+export function dbEntitiesError(raw: string): FieldError | null {
+  const drafts = dbDraftsOf(raw)
+  if (drafts.length === 0) return 'required'
+  for (const d of drafts) {
+    if (!SQL_IDENT.test(d.type.trim()) || !SQL_TABLE.test(d.table.trim())) return 'identifier'
+    for (const col of [d.idColumn, d.nameColumn, d.updatedAtColumn, ...splitList(d.columns)]) {
+      if (col.trim() && !SQL_IDENT.test(col.trim())) return 'identifier'
+    }
+    for (const line of d.relations.split('\n').map((l) => l.trim()).filter(Boolean)) {
+      if (!RELATION_LINE.test(line)) return 'identifier'
+    }
+  }
+  return null
+}
+
+/** The drafts as the brain's `config.entities` — blanks left out, lists split. */
+export function parseDbEntities(raw: string): Array<Record<string, unknown>> {
+  return dbDraftsOf(raw).map((d) => {
+    const columns = splitList(d.columns)
+    const relations = d.relations
+      .split('\n')
+      .map((l) => RELATION_LINE.exec(l.trim()))
+      .filter((m): m is RegExpExecArray => m !== null)
+      .map((m) => ({ kind: m[1]!, column: m[2]!, targetType: m[3]! }))
+    return {
+      type: d.type.trim(),
+      table: d.table.trim(),
+      ...(d.idColumn.trim() ? { idColumn: d.idColumn.trim() } : {}),
+      ...(d.nameColumn.trim() ? { nameColumn: d.nameColumn.trim() } : {}),
+      ...(d.updatedAtColumn.trim() ? { updatedAtColumn: d.updatedAtColumn.trim() } : {}),
+      ...(columns.length > 0 ? { columns } : {}),
+      ...(relations.length > 0 ? { relations } : {}),
+    }
+  })
+}
+
+/** The drafts as the mapping table lists them: one entity per draft, its listed columns as the fields a fact can come from. */
+export function dbProposalOf(raw: string): Array<{ type: string; label: string; source: 'operator'; confidence: number; reason: string; fields: Array<{ key: string; label: string }> }> {
+  return dbDraftsOf(raw)
+    .filter((d) => d.type.trim())
+    .map((d) => ({
+      type: d.type.trim(),
+      label: d.type.trim(),
+      source: 'operator' as const,
+      confidence: 1,
+      reason: d.table.trim(),
+      fields: splitList(d.columns).map((c) => ({ key: c, label: c })),
+    }))
+}
+
 /** An MCP server that signs in (`auth: 'oauth'`, W4.3): the same fields, the credential is the grant at that server. */
 const MCP_HTTP_OAUTH: ConnectorForm = {
   fields: MCP_HTTP.fields.filter((f) => f.key !== 'authScheme' && f.key !== 'authHeader'),
@@ -395,6 +504,8 @@ export function formFor(entry: SourceCatalogEntry): ConnectorForm | null {
       return KOMMO
     case 'rest_records':
       return REST_RECORDS
+    case 'db':
+      return DB
     default:
       return null
   }
@@ -408,6 +519,7 @@ export function visibleFields(
   advanced: boolean,
 ): FieldSpec[] {
   return form.fields.filter((f) => {
+    if (f.hidden) return false
     if (f.advanced && !advanced) return false
     return f.when ? f.when(values, ctx) : true
   })
@@ -492,6 +604,7 @@ export type FieldError =
   | 'jail'
   | 'account'
   | 'jwtBearer'
+  | 'identifier'
 
 /** Field-level errors, keyed by field (or `credential`); empty = the step may proceed. */
 export function validate(
@@ -523,6 +636,10 @@ export function validate(
       const n = Number(raw)
       if (!Number.isFinite(n) || (f.min !== undefined && n < f.min)) errors[f.key] = 'number'
     }
+  }
+  if (form.fields.some((f) => f.key === 'entities' && f.hidden)) {
+    const problem = dbEntitiesError(String(values['entities'] ?? ''))
+    if (problem) errors['entities'] = problem
   }
   if (form.fields.some((f) => f.key === 'urls') && form.fields.some((f) => f.key === 'sitemaps')) {
     const urls = String(values['urls'] ?? '').trim()

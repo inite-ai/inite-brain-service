@@ -56,6 +56,7 @@ way and never writes a file; `BRAIN_AGENT_HOME` moves the config dir.
    | `native: fs` (`file_memory/folder`, `folder_media`) | `fs` | a directory on this machine — notes, a vault, Downloads, an OS-mounted share | `mtime:size` |
    | `native: git` (`code_memory/repo_docs`) | `git` | the **committed** text docs of a repository (README, docs/**, ADRs); git runs here, never in the brain | the blob sha |
    | `mcp` / `transport: stdio` | `mcp` | a local MCP server the pack names (spawned per run) — its resources | `annotations.lastModified` |
+   | `native: db` (`crm_memory/db`) | `db` | a Postgres / MySQL / SQLite database — each table or view a record type, each row a record, foreign keys as relations; the DSN stays here (`brain-agent db add <name> <dsn>`), the brain knows the name only; read-only sessions | the change column, else a row hash |
 
 3. One run = `begin` → deltas in batches (the brain answers with what
    changed) → the changed items' content → `finish` with the checkpoint.
@@ -94,6 +95,24 @@ it when the agent runs for others.
 | `BRAIN_AGENT_ID` | this agent's id (default: the hostname); `--agent` overrides |
 | `BRAIN_AGENT_ROOTS` | optional `:`-separated allowlist of directories `fs` roots must be under — set it when the agent runs for others (a CI box, a shared server); unset on your own laptop |
 | `BRAIN_AGENT_HOME` | where the config file lives (default `$XDG_CONFIG_HOME/brain-agent`, else `~/.config/brain-agent`) |
+| `BRAIN_AGENT_DB_<NAME>` | the DSN of the database a `db` connection calls `<name>` (over the config file's `databases`) — `postgres://…`, `mysql://…` or `sqlite:/path.db`; `pg` / `mysql2` installed beside the agent when used |
+
+## Databases — a self-hosted CRM read where it lives
+
+```bash
+brain-agent db add crm postgres://brain_ro:…@127.0.0.1/crm   # saved 0600, never shown again
+brain-agent db list                                          # names and dialects only
+brain-agent doctor                                           # opens each read-only
+```
+
+Then, in **Admin → Connections → Add a source → Database (agent)**, pick
+this agent, the database by its name (the agent reported it at its last
+check-in), and the tables or views as record types — the key, name and
+change columns, the columns to read (prefer a view that shows exactly
+what the brain should see), foreign keys as relations — and map columns
+to facts. The next `brain-agent sync` reads the rows as record
+envelopes; the brain turns them into facts. A change column makes the
+walk incremental; without one the table is walked whole and hashed.
 
 ## In CI — a repository's docs after every push
 
