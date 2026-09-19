@@ -88,9 +88,25 @@ export function ItemInspect({
           </dl>
         </Block>
 
+        {data?.episode && (
+          <Block title={s.turn}>
+            <dl className="grid grid-cols-[10rem_1fr] gap-x-3 gap-y-1">
+              <Row k={s.turnFields.speaker} v={data.episode.speaker ?? '—'} />
+              <Row k={s.turnFields.conversation} v={data.episode.conversationId ?? '—'} mono />
+              <Row k={s.turnFields.messageId} v={data.episode.messageId ?? '—'} mono />
+              <Row k={s.turnFields.at} v={stamp(data.episode.occurredAt)} mono />
+            </dl>
+            <pre className="mt-2 whitespace-pre-wrap font-sans text-[var(--text)] max-h-64 overflow-y-auto rounded border border-[var(--border)] bg-[var(--bg)] p-2">
+              {data.episode.text}
+            </pre>
+          </Block>
+        )}
+
         <Block title={s.documents}>
           {data && data.documents.length === 0 && (
-            <p className="text-[var(--text-muted)] italic">{s.documentsNone}</p>
+            <p className="text-[var(--text-muted)] italic">
+              {data.episode ? s.documentsNoneTurn : s.documentsNone}
+            </p>
           )}
           {data && data.documents.length > 0 && (
             <table className="w-full">

@@ -63,6 +63,7 @@ describe('first-party pack library', () => {
       'hr',
       'insurance',
       'legal',
+      'mail_memory',
       'medical',
       'real_estate',
       'web_memory',

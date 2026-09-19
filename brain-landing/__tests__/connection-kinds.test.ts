@@ -54,6 +54,8 @@ describe('source kinds', () => {
     expect(familyOf({ kind: 'native', connector: 'db' })).toBe('db')
     expect(familyOf({ kind: 'native', connector: 'notion' })).toBe('notion')
     expect(familyOf({ kind: 'native', connector: 'confluence' })).toBe('confluence')
+    expect(familyOf({ kind: 'native', connector: 'gmail' })).toBe('gmail')
+    expect(familyOf({ kind: 'native', connector: 'imap' })).toBe('imap')
     expect(familyOf({ kind: 'native', connector: 'webdav' })).toBe('other')
   })
 
@@ -81,6 +83,21 @@ describe('source kinds', () => {
     const repo = cards[1]!
     expect(shapeChoices(repo)).toEqual([])
     expect(entriesFor(repo, null).map((x) => x.sourceId)).toEqual(['repo_docs'])
+  })
+
+  it('a mailbox’s messages (conversation) and attachments (binary) are one card, messages first — the "document" choice is the messages', () => {
+    const cards = cardsOf([
+      e({ packId: 'mail_memory', sourceId: 'gmail_attachments', connector: 'gmail', shape: 'binary' }),
+      e({ packId: 'mail_memory', sourceId: 'gmail', connector: 'gmail', shape: 'conversation' }),
+    ])
+    expect(cards).toHaveLength(1)
+    const mailbox = cards[0]!
+    expect(mailbox.family).toBe('gmail')
+    expect(mailbox.entries.map((x) => x.sourceId)).toEqual(['gmail', 'gmail_attachments'])
+    expect(shapeChoices(mailbox)).toEqual(['document', 'binary', 'both'])
+    expect(entriesFor(mailbox, null).map((x) => x.sourceId)).toEqual(['gmail'])
+    expect(entriesFor(mailbox, 'document').map((x) => x.sourceId)).toEqual(['gmail'])
+    expect(entriesFor(mailbox, 'both').map((x) => x.sourceId)).toEqual(['gmail', 'gmail_attachments'])
   })
 
   it('two packs offering the same kind are told apart by pack; http and stdio MCP are different cards', () => {
@@ -161,13 +178,15 @@ describe('source groups', () => {
     expect(groupOf('site')).toBe('web')
     expect(groupOf('notion')).toBe('web')
     expect(groupOf('confluence')).toBe('web')
+    expect(groupOf('gmail')).toBe('mail')
+    expect(groupOf('imap')).toBe('mail')
     expect(groupOf('mcp')).toBe('mcp')
     expect(groupOf('repo')).toBe('code')
     expect(groupOf('records')).toBe('records')
     expect(groupOf('db')).toBe('records')
     expect(groupOf('external')).toBe('external')
     expect(groupOf('other')).toBe('other')
-    expect(SOURCE_GROUPS).toEqual(['files', 'web', 'mcp', 'code', 'records', 'external', 'other'])
+    expect(SOURCE_GROUPS).toEqual(['files', 'web', 'mail', 'mcp', 'code', 'records', 'external', 'other'])
   })
 
   it('the catalogue folds by group in page order, empty groups absent, ready cards first inside a group', () => {

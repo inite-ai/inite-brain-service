@@ -3,6 +3,7 @@ import type {
   SourceConnectionStats,
   SourceItemAsset,
   SourceItemDocument,
+  SourceItemEpisode,
   SourceItemFact,
   SourceItemInspectResponse,
 } from '../contracts/source-plane/source-plane.schema';
@@ -18,6 +19,8 @@ const FACTS_PAGE = 50;
 const DOCUMENTS_MAX = 20;
 /** A count over the fact table is a scan — bounded, and "null" past the bound. */
 const SCAN_TIMEOUT = '5s';
+/** The turn's text shown in the drawer, at most. */
+const EPISODE_TEXT_MAX = 4000;
 
 /**
  * SourceInspectService — the operator's drill-down over what a
@@ -102,11 +105,12 @@ export class SourceInspectService {
       const item = toItemView(row);
       const documents = await this.documentsOf(db, row);
       const asset = row.assetId ? await this.assetOf(db, row.assetId) : null;
-      const { facts, truncated } = await this.factsOf(
-        db,
-        documents.map((d) => d.id),
-      );
-      return { item, documents, asset, facts, factsTruncated: truncated };
+      const episode = row.episodeId ? await this.episodeOf(db, row.episodeId) : null;
+      const { facts, truncated } = await this.factsOf(db, [
+        ...documents.map((d) => ({ documentId: d.id })),
+        ...(episode ? [{ episodeId: episode.id }] : []),
+      ]);
+      return { item, documents, asset, episode, facts, factsTruncated: truncated };
     });
   }
 
@@ -171,14 +175,40 @@ export class SourceInspectService {
     };
   }
 
+  /** The turn a conversation-shaped item was captured as (the mention door's episode). */
+  private async episodeOf(db: Db, episodeId: string): Promise<SourceItemEpisode | null> {
+    try {
+      const row = await queryFirst<RawEpisode>(
+        db,
+        `SELECT id, conversationId, messageId, speaker, text, occurredAt
+           FROM type::record('episode', $tail)`,
+        { tail: idTailOf(episodeId) },
+      );
+      if (!row) return null;
+      return {
+        id: String(row.id),
+        conversationId: row.conversationId ?? null,
+        messageId: row.messageId ?? null,
+        speaker: row.speaker ?? null,
+        text: (row.text ?? '').slice(0, EPISODE_TEXT_MAX),
+        occurredAt: toIso(row.occurredAt),
+      };
+    } catch (e) {
+      this.logger.warn(`episode ${episodeId} skipped: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
+  /** The facts a document grounds (`source.documentId`) or an episode turn yielded (`source.episodeIds`). */
   private async factsOf(
     db: Db,
-    documentIds: string[],
+    refs: Array<{ documentId: string } | { episodeId: string }>,
   ): Promise<{ facts: SourceItemFact[]; truncated: boolean }> {
     const facts: SourceItemFact[] = [];
     let truncated = false;
-    for (const docId of documentIds) {
+    for (const ref of refs) {
       if (facts.length > FACTS_PAGE) break;
+      const byDocument = 'documentId' in ref;
       try {
         const rows = await queryRows<RawFact>(
           db,
@@ -186,13 +216,15 @@ export class SourceInspectService {
           `SELECT id, entityId, predicate, object, confidence, status, recordedAt,
                   source.sourceVersion.version AS version, staleAt, staleReason, validUntil
              FROM knowledge_fact
-            WHERE source.documentId = $docId
+            WHERE ${byDocument ? 'source.documentId = $ref' : 'source.episodeIds CONTAINS $ref'}
             ORDER BY recordedAt ASC LIMIT ${FACTS_PAGE + 1} TIMEOUT ${SCAN_TIMEOUT}`,
-          { docId },
+          { ref: byDocument ? ref.documentId : ref.episodeId },
         );
         for (const r of rows) facts.push(toFact(r));
       } catch (e) {
-        this.logger.warn(`facts of ${docId} skipped: ${(e as Error).message}`);
+        this.logger.warn(
+          `facts of ${byDocument ? ref.documentId : ref.episodeId} skipped: ${(e as Error).message}`,
+        );
         truncated = true;
       }
     }
@@ -202,6 +234,15 @@ export class SourceInspectService {
     }
     return { facts, truncated };
   }
+}
+
+interface RawEpisode {
+  id: unknown;
+  conversationId?: string | null;
+  messageId?: string | null;
+  speaker?: string | null;
+  text?: string | null;
+  occurredAt?: unknown;
 }
 
 interface RawDocument {

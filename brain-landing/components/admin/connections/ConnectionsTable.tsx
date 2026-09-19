@@ -195,7 +195,9 @@ function ConnectionRow({
             ? t.form.shape.binary
             : c.shape === 'structure'
               ? t.form.shape.structure
-              : t.form.shape.document}
+              : c.shape === 'conversation'
+                ? t.form.shape.conversation
+                : t.form.shape.document}
         </span>
         <div className="font-mono text-[10px] text-[var(--text-faint)]">
           {c.packId}

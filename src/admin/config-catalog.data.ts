@@ -1639,6 +1639,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       "The `confluence` source connector (source plane, W4.5 — a wiki): the pages (and blog posts when asked) of a Confluence Cloud site the connected Atlassian account reaches (web_memory: `confluence`), through the v2 REST API at api.atlassian.com/ex/confluence/<cloud id> — the site from accessible-resources (`config.site` names one of several), `spaceKeys` narrows the walk, the listing newest modification first (an incremental run stops at the checkpoint), the version number the revision, storage-format XHTML reduced to text. Runs as a connected Atlassian account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_ATLASSIAN_CLIENT_ID). Off (default) = 'not installed' — byte-identical.",
   },
   {
+    key: 'SOURCE_KIND_GMAIL',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `gmail` source connector (source plane, W4.6 — mail): a Gmail mailbox through the Gmail REST API as a connected Google account (gmail.readonly; the brain never labels or deletes). One catalogue row per message (its id is its revision), `messages.list` with the connection's own Gmail query plus `after:<since>` (the operator's date on a first walk, the checkpoint's walk time less a day on an incremental one), newest first, capped by `maxMessages`; deletions from the history feed. A message is fetched raw and enters the mention door as ONE TURN of its thread (mail_memory: `gmail`) — sender as the speaker, quoted replies and signatures stripped, attachments named; the `gmail_attachments` entry hands the attachments themselves to the evidence plane. Runs as a connected Google account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_GOOGLE_CLIENT_ID). Off (default) = 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_KIND_IMAP',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `imap` source connector (source plane, W4.6 — mail): any mailbox over IMAP — a host, a user and the mailbox password (an app password) as the credential, TLS on 993 (a plain socket only under the private opt-in), read-only: greeting, LOGIN, EXAMINE, UID SEARCH, UID FETCH, LOGOUT and nothing else (no STARTTLS, no IDLE, no OAuth over IMAP). One row per message, the Message-ID its id and revision, the RFC 5092 URL its origin; a first walk reads `SINCE <since>` (the newest `maxMessages` per mailbox), an incremental run only what is above the checkpoint's highest UID, a mailbox whose UIDVALIDITY moved is walked again; a full walk finds what was deleted. A message enters the mention door as one turn of the thread its References name (mail_memory: `imap`). Off (default) = 'not installed' — byte-identical.",
+  },
+  {
     key: 'SOURCE_KIND_PIPEDRIVE',
     category: 'pipeline',
     defaultValue: '0',

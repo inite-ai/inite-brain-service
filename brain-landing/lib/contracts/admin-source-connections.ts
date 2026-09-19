@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from 'zod';
 
 /**
  * Wire contracts for the source plane's operator surface
@@ -11,28 +11,22 @@ import { z } from 'zod'
  * from them (guarded by __tests__/admin-drift.test.ts).
  */
 
-const ConnectionStatusSchema = z.enum(['active', 'paused', 'deleting'])
-const ModeSchema = z.enum(['synced', 'linked'])
-const ScheduleSchema = z.enum(['manual', '15m', '1h', '4h', '24h'])
-const ContentPolicySchema = z.enum(['manifest', 'text', 'bytes'])
-const DeletePolicySchema = z.enum(['close', 'retract', 'keep'])
-const ShapeSchema = z.enum(['document', 'conversation', 'binary', 'structure'])
-const KindSchema = z.enum(['mcp', 'native', 'external'])
-const ItemStateSchema = z.enum(['seen', 'fetched', 'indexed', 'gone'])
-const AvailabilitySchema = z.enum([
-  'ready',
-  'disabled',
-  'missing',
-  'agent',
-  'external',
-])
+const ConnectionStatusSchema = z.enum(['active', 'paused', 'deleting']);
+const ModeSchema = z.enum(['synced', 'linked']);
+const ScheduleSchema = z.enum(['manual', '15m', '1h', '4h', '24h']);
+const ContentPolicySchema = z.enum(['manifest', 'text', 'bytes']);
+const DeletePolicySchema = z.enum(['close', 'retract', 'keep']);
+const ShapeSchema = z.enum(['document', 'conversation', 'binary', 'structure']);
+const KindSchema = z.enum(['mcp', 'native', 'external']);
+const ItemStateSchema = z.enum(['seen', 'fetched', 'indexed', 'gone']);
+const AvailabilitySchema = z.enum(['ready', 'disabled', 'missing', 'agent', 'external']);
 
-export const SOURCE_SCHEDULES = ScheduleSchema.options
-export const SOURCE_CONTENT_POLICIES = ContentPolicySchema.options
-export const SOURCE_DELETE_POLICIES = DeletePolicySchema.options
-export const SOURCE_ITEM_STATES = ItemStateSchema.options
+export const SOURCE_SCHEDULES = ScheduleSchema.options;
+export const SOURCE_CONTENT_POLICIES = ContentPolicySchema.options;
+export const SOURCE_DELETE_POLICIES = DeletePolicySchema.options;
+export const SOURCE_ITEM_STATES = ItemStateSchema.options;
 
-const OpenRecord = z.record(z.string(), z.unknown())
+const OpenRecord = z.record(z.string(), z.unknown());
 
 export const SourceConnectionSchema = z.object({
   id: z.string(),
@@ -65,11 +59,11 @@ export const SourceConnectionSchema = z.object({
   webhook: z.object({ enabled: z.boolean(), lastEventAt: z.string().nullable() }),
   createdAt: z.string(),
   updatedAt: z.string().nullable(),
-})
+});
 
 export const SourceConnectionsListResponseSchema = z.object({
   connections: z.array(SourceConnectionSchema),
-})
+});
 
 export const SourceItemSchema = z.object({
   id: z.string(),
@@ -91,14 +85,14 @@ export const SourceItemSchema = z.object({
   lastSeenAt: z.string(),
   goneAt: z.string().nullable(),
   lastError: z.string().nullable(),
-})
+});
 
 export const SourceItemsListResponseSchema = z.object({
   items: z.array(SourceItemSchema),
   total: z.number().int(),
   limit: z.number().int(),
   offset: z.number().int(),
-})
+});
 
 export const SourceSyncSummarySchema = z.object({
   connectionId: z.string(),
@@ -117,7 +111,7 @@ export const SourceSyncSummarySchema = z.object({
   closed: z.number().int(),
   durationMs: z.number().int(),
   error: z.string().optional(),
-})
+});
 
 export const SyncNowResponseSchema = z.union([
   z.object({
@@ -126,12 +120,12 @@ export const SyncNowResponseSchema = z.union([
     created: z.boolean(),
   }),
   z.object({ enqueued: z.literal(false), summary: SourceSyncSummarySchema }),
-])
+]);
 
 export const DeleteConnectionResponseSchema = z.object({
   deleted: z.literal(true),
   items: z.number().int(),
-})
+});
 
 export const SourceCatalogEntrySchema = z.object({
   packId: z.string(),
@@ -188,7 +182,7 @@ export const SourceCatalogEntrySchema = z.object({
     .nullable(),
   /** The connector takes an inbound webhook: how the vendor's call is trusted. */
   webhook: z.object({ scheme: z.string() }).nullable(),
-})
+});
 
 /** POST /v1/admin/source-connections/:id/webhook — the address to register, the secret (once), the how-to. */
 export const WebhookSetupResponseSchema = z.object({
@@ -196,10 +190,10 @@ export const WebhookSetupResponseSchema = z.object({
   secret: z.string(),
   scheme: z.string(),
   notes: z.array(z.string()),
-})
-export type WebhookSetupResponse = z.infer<typeof WebhookSetupResponseSchema>
+});
+export type WebhookSetupResponse = z.infer<typeof WebhookSetupResponseSchema>;
 
-export const WebhookDisableResponseSchema = z.object({ ok: z.literal(true) })
+export const WebhookDisableResponseSchema = z.object({ ok: z.literal(true) });
 
 export const RecordEnvelopeSchema = z.object({
   entityType: z.string(),
@@ -217,7 +211,7 @@ export const RecordEnvelopeSchema = z.object({
     )
     .optional(),
   updatedAt: z.string().optional(),
-})
+});
 
 export const RecordsPreviewResponseSchema = z.object({
   entities: z.array(
@@ -236,7 +230,7 @@ export const RecordsPreviewResponseSchema = z.object({
       error: z.string().nullable(),
     }),
   ),
-})
+});
 
 // ── The custom REST records source + the mapping assistant (W4.2b′) ──
 
@@ -247,7 +241,7 @@ export const RestPagingSchema = z.object({
   size: z.number().int().optional(),
   start: z.number().int().optional(),
   next: z.string().optional(),
-})
+});
 
 export const RestEntitySchema = z.object({
   label: z.string().optional(),
@@ -270,15 +264,25 @@ export const RestEntitySchema = z.object({
   fields: z.object({ id: z.string(), name: z.array(z.string()), updatedAt: z.string().optional() }),
   attributes: z.record(z.string(), z.string()).optional(),
   relations: z
-    .array(z.object({ kind: z.string(), targetType: z.string(), path: z.string(), name: z.string().optional() }))
+    .array(
+      z.object({
+        kind: z.string(),
+        targetType: z.string(),
+        path: z.string(),
+        name: z.string().optional(),
+      }),
+    )
     .optional(),
   deleted: z.string().optional(),
-})
-export type RestEntity = z.infer<typeof RestEntitySchema>
+});
+export type RestEntity = z.infer<typeof RestEntitySchema>;
 
 export const MappingAssistResponseSchema = z.object({
   endpoints: z.record(z.string(), RestEntitySchema),
-  mapping: z.record(z.string(), z.object({ fields: z.record(z.string(), z.string()), coreType: z.string().optional() })),
+  mapping: z.record(
+    z.string(),
+    z.object({ fields: z.record(z.string(), z.string()), coreType: z.string().optional() }),
+  ),
   entities: z.array(
     z.object({
       type: z.string(),
@@ -291,14 +295,14 @@ export const MappingAssistResponseSchema = z.object({
   ),
   refined: z.boolean(),
   warnings: z.array(z.string()),
-})
-export type MappingAssistResponse = z.infer<typeof MappingAssistResponseSchema>
+});
+export type MappingAssistResponse = z.infer<typeof MappingAssistResponseSchema>;
 
 export const SourceConnectorStateSchema = z.object({
   kind: z.string(),
   state: z.enum(['ready', 'disabled']),
   flag: z.string(),
-})
+});
 
 export const SourceCatalogResponseSchema = z.object({
   sources: z.array(SourceCatalogEntrySchema),
@@ -307,7 +311,7 @@ export const SourceCatalogResponseSchema = z.object({
   egressAllowPrivate: z.boolean(),
   /** SOURCE_WEBHOOKS is on. */
   webhooks: z.boolean(),
-})
+});
 
 // ── Inspection (the operator's drill-down) ─────────────────────────────
 
@@ -327,7 +331,7 @@ export const SourceConnectionStatsSchema = z.object({
       closed: z.number().int(),
     })
     .nullable(),
-})
+});
 
 export const SourceRunCountersSchema = z.object({
   seen: z.number().int(),
@@ -340,7 +344,7 @@ export const SourceRunCountersSchema = z.object({
   deduplicated: z.number().int(),
   failed: z.number().int(),
   closed: z.number().int(),
-})
+});
 
 export const SourceRunSchema = z.object({
   runId: z.string(),
@@ -354,13 +358,13 @@ export const SourceRunSchema = z.object({
   counters: SourceRunCountersSchema.nullable(),
   skipped: z.string().nullable(),
   error: z.string().nullable(),
-})
+});
 
 export const SourceRunsResponseSchema = z.object({
   connectionId: z.string(),
   persisted: z.boolean(),
   runs: z.array(SourceRunSchema),
-})
+});
 
 export const SourceItemFactSchema = z.object({
   id: z.string(),
@@ -373,7 +377,7 @@ export const SourceItemFactSchema = z.object({
   staleReason: z.string().nullable(),
   validUntil: z.string().nullable(),
   status: z.string(),
-})
+});
 
 export const SourceItemDocumentSchema = z.object({
   id: z.string(),
@@ -382,7 +386,7 @@ export const SourceItemDocumentSchema = z.object({
   status: z.string().nullable(),
   originUri: z.string().nullable(),
   createdAt: z.string().nullable(),
-})
+});
 
 export const SourceItemAssetSchema = z.object({
   id: z.string(),
@@ -400,15 +404,26 @@ export const SourceItemAssetSchema = z.object({
       createdAt: z.string().nullable(),
     }),
   ),
-})
+});
+
+export const SourceItemEpisodeSchema = z.object({
+  id: z.string(),
+  conversationId: z.string().nullable(),
+  messageId: z.string().nullable(),
+  speaker: z.string().nullable(),
+  text: z.string(),
+  occurredAt: z.string().nullable(),
+});
 
 export const SourceItemInspectResponseSchema = z.object({
   item: SourceItemSchema,
   documents: z.array(SourceItemDocumentSchema),
   asset: SourceItemAssetSchema.nullable(),
+  /** The episode turn a conversation-shaped item became; null for the other shapes. */
+  episode: SourceItemEpisodeSchema.nullable(),
   facts: z.array(SourceItemFactSchema),
   factsTruncated: z.boolean(),
-})
+});
 
 // ── Agents' presence and the folder picker ────────────────────────────
 
@@ -422,8 +437,8 @@ export const SourceAgentSchema = z.object({
   roots: z.array(z.object({ path: z.string(), folders: z.array(z.string()) })),
   /** The databases the agent holds a DSN for — names only (W4.4). */
   databases: z.array(z.string()),
-})
-export const SourceAgentsResponseSchema = z.object({ agents: z.array(SourceAgentSchema) })
+});
+export const SourceAgentsResponseSchema = z.object({ agents: z.array(SourceAgentSchema) });
 
 /** One table or view of a `db` source on the agent (W4.4) — identifiers only, the DSN lives on the agent. */
 export const DbSourceEntitySchema = z.object({
@@ -433,9 +448,11 @@ export const DbSourceEntitySchema = z.object({
   nameColumn: z.string().optional(),
   updatedAtColumn: z.string().optional(),
   columns: z.array(z.string()).optional(),
-  relations: z.array(z.object({ kind: z.string(), column: z.string(), targetType: z.string() })).optional(),
-})
-export type DbSourceEntity = z.infer<typeof DbSourceEntitySchema>
+  relations: z
+    .array(z.object({ kind: z.string(), column: z.string(), targetType: z.string() }))
+    .optional(),
+});
+export type DbSourceEntity = z.infer<typeof DbSourceEntitySchema>;
 
 // ── Connected accounts (W4) ──────────────────────────────────────────
 
@@ -450,20 +467,20 @@ export const SourceOAuthProviderIdSchema = z.enum([
   'kommo',
   'notion',
   'atlassian',
-])
+]);
 
 export const SourceOAuthStartRequestSchema = z.object({
   provider: SourceOAuthProviderIdSchema,
   connector: z.string(),
   origin: z.string().optional(),
   ownerUserId: z.string().optional(),
-})
+});
 
 export const SourceOAuthStartResponseSchema = z.object({
   authorizeUrl: z.string(),
   state: z.string(),
   expiresAt: z.string(),
-})
+});
 
 export const SourceOAuthGrantSchema = z.object({
   id: z.string(),
@@ -482,25 +499,25 @@ export const SourceOAuthGrantSchema = z.object({
   /** The account's own API origin when the provider named one (Salesforce `instance_url`, Pipedrive `api_domain`). */
   apiBase: z.string().nullable(),
   createdAt: z.string(),
-})
+});
 
 export const SourceOAuthProviderStateSchema = z.object({
   id: SourceOAuthProviderIdSchema,
   title: z.string(),
   configured: z.boolean(),
   redirectUri: z.string(),
-})
+});
 
 export const SourceOAuthGrantsResponseSchema = z.object({
   grants: z.array(SourceOAuthGrantSchema),
   providers: z.array(SourceOAuthProviderStateSchema),
   ready: z.boolean(),
-})
+});
 
 export const RevokeGrantResponseSchema = z.object({
   revoked: z.boolean(),
   providerRevoked: z.boolean(),
-})
+});
 
 /** The message the brain's callback page posts to the window that opened it. */
 export const OAuthPopupMessageSchema = z.discriminatedUnion('ok', [
@@ -512,7 +529,7 @@ export const OAuthPopupMessageSchema = z.discriminatedUnion('ok', [
     account: z.string().nullable(),
   }),
   z.object({ type: z.literal('brain-source-oauth'), ok: z.literal(false), error: z.string() }),
-])
+]);
 
 export const BrowseResponseSchema = z.object({
   path: z.string(),
@@ -521,45 +538,39 @@ export const BrowseResponseSchema = z.object({
   folders: z.array(z.object({ name: z.string(), path: z.string() })),
   files: z.number().int(),
   truncated: z.boolean(),
-})
+});
 
-export type SourceConnection = z.infer<typeof SourceConnectionSchema>
-export type SourceConnectionsListResponse = z.infer<
-  typeof SourceConnectionsListResponseSchema
->
-export type SourceItem = z.infer<typeof SourceItemSchema>
-export type SourceItemsListResponse = z.infer<
-  typeof SourceItemsListResponseSchema
->
-export type SourceSyncSummary = z.infer<typeof SourceSyncSummarySchema>
-export type SyncNowResponse = z.infer<typeof SyncNowResponseSchema>
-export type SourceCatalogEntry = z.infer<typeof SourceCatalogEntrySchema>
-export type SourceCatalogResponse = z.infer<typeof SourceCatalogResponseSchema>
-export type SourceSchedule = z.infer<typeof ScheduleSchema>
-export type SourceContentPolicy = z.infer<typeof ContentPolicySchema>
-export type SourceDeletePolicy = z.infer<typeof DeletePolicySchema>
-export type SourceItemState = z.infer<typeof ItemStateSchema>
-export type SourceAvailability = z.infer<typeof AvailabilitySchema>
-export type SourceConnectionStats = z.infer<typeof SourceConnectionStatsSchema>
-export type SourceRun = z.infer<typeof SourceRunSchema>
-export type SourceRunsResponse = z.infer<typeof SourceRunsResponseSchema>
-export type SourceItemFact = z.infer<typeof SourceItemFactSchema>
-export type SourceItemDocument = z.infer<typeof SourceItemDocumentSchema>
-export type SourceItemAsset = z.infer<typeof SourceItemAssetSchema>
-export type SourceItemInspectResponse = z.infer<
-  typeof SourceItemInspectResponseSchema
->
-export type SourceAgent = z.infer<typeof SourceAgentSchema>
-export type SourceAgentsResponse = z.infer<typeof SourceAgentsResponseSchema>
-export type BrowseResponse = z.infer<typeof BrowseResponseSchema>
-export type SourceOAuthProviderId = z.infer<typeof SourceOAuthProviderIdSchema>
-export type SourceOAuthStartRequest = z.infer<typeof SourceOAuthStartRequestSchema>
-export type SourceOAuthStartResponse = z.infer<typeof SourceOAuthStartResponseSchema>
-export type SourceOAuthGrant = z.infer<typeof SourceOAuthGrantSchema>
-export type SourceOAuthProviderState = z.infer<typeof SourceOAuthProviderStateSchema>
-export type SourceOAuthGrantsResponse = z.infer<typeof SourceOAuthGrantsResponseSchema>
-export type RevokeGrantResponse = z.infer<typeof RevokeGrantResponseSchema>
-export type OAuthPopupMessage = z.infer<typeof OAuthPopupMessageSchema>
-export type RecordsPreviewResponse = z.infer<typeof RecordsPreviewResponseSchema>
-export type EntityMapping = { fields: Record<string, string>; text?: string[]; coreType?: string }
-export type RecordMapping = Record<string, EntityMapping>
+export type SourceConnection = z.infer<typeof SourceConnectionSchema>;
+export type SourceConnectionsListResponse = z.infer<typeof SourceConnectionsListResponseSchema>;
+export type SourceItem = z.infer<typeof SourceItemSchema>;
+export type SourceItemsListResponse = z.infer<typeof SourceItemsListResponseSchema>;
+export type SourceSyncSummary = z.infer<typeof SourceSyncSummarySchema>;
+export type SyncNowResponse = z.infer<typeof SyncNowResponseSchema>;
+export type SourceCatalogEntry = z.infer<typeof SourceCatalogEntrySchema>;
+export type SourceCatalogResponse = z.infer<typeof SourceCatalogResponseSchema>;
+export type SourceSchedule = z.infer<typeof ScheduleSchema>;
+export type SourceContentPolicy = z.infer<typeof ContentPolicySchema>;
+export type SourceDeletePolicy = z.infer<typeof DeletePolicySchema>;
+export type SourceItemState = z.infer<typeof ItemStateSchema>;
+export type SourceAvailability = z.infer<typeof AvailabilitySchema>;
+export type SourceConnectionStats = z.infer<typeof SourceConnectionStatsSchema>;
+export type SourceRun = z.infer<typeof SourceRunSchema>;
+export type SourceRunsResponse = z.infer<typeof SourceRunsResponseSchema>;
+export type SourceItemFact = z.infer<typeof SourceItemFactSchema>;
+export type SourceItemDocument = z.infer<typeof SourceItemDocumentSchema>;
+export type SourceItemAsset = z.infer<typeof SourceItemAssetSchema>;
+export type SourceItemInspectResponse = z.infer<typeof SourceItemInspectResponseSchema>;
+export type SourceAgent = z.infer<typeof SourceAgentSchema>;
+export type SourceAgentsResponse = z.infer<typeof SourceAgentsResponseSchema>;
+export type BrowseResponse = z.infer<typeof BrowseResponseSchema>;
+export type SourceOAuthProviderId = z.infer<typeof SourceOAuthProviderIdSchema>;
+export type SourceOAuthStartRequest = z.infer<typeof SourceOAuthStartRequestSchema>;
+export type SourceOAuthStartResponse = z.infer<typeof SourceOAuthStartResponseSchema>;
+export type SourceOAuthGrant = z.infer<typeof SourceOAuthGrantSchema>;
+export type SourceOAuthProviderState = z.infer<typeof SourceOAuthProviderStateSchema>;
+export type SourceOAuthGrantsResponse = z.infer<typeof SourceOAuthGrantsResponseSchema>;
+export type RevokeGrantResponse = z.infer<typeof RevokeGrantResponseSchema>;
+export type OAuthPopupMessage = z.infer<typeof OAuthPopupMessageSchema>;
+export type RecordsPreviewResponse = z.infer<typeof RecordsPreviewResponseSchema>;
+export type EntityMapping = { fields: Record<string, string>; text?: string[]; coreType?: string };
+export type RecordMapping = Record<string, EntityMapping>;

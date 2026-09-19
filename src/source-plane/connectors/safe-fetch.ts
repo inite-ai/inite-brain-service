@@ -1,5 +1,9 @@
 import { promises as dns } from 'node:dns';
-import { assertPublicHttpUrl, EgressDeniedError } from '../../common/egress-guard';
+import {
+  assertPublicHost,
+  assertPublicHttpUrl,
+  EgressDeniedError,
+} from '../../common/egress-guard';
 import { sourceEgressAllowPrivate } from '../../common/source-plane-flags';
 
 /**
@@ -89,6 +93,28 @@ export async function safeFetch(
 }
 
 /** The metadata range is refused under the opt-in too — literal or resolved. */
+/**
+ * The same fence for a socket that is not HTTP (an IMAP session): a
+ * public host, or — under the double opt-in — any host but the
+ * link-local range. Plain-text (no TLS) is the opt-in's to allow too,
+ * as plain http is.
+ */
+export async function assertConnectableHost(
+  host: string,
+  opts: { allowPrivate?: boolean | undefined; tls: boolean },
+): Promise<void> {
+  const bare = host.replace(/^\[|\]$/g, '');
+  const allowPrivate = opts.allowPrivate === true && sourceEgressAllowPrivate();
+  if (!allowPrivate && !opts.tls) {
+    throw new EgressDeniedError(`"${bare}": a connection without TLS needs the private opt-in`);
+  }
+  if (allowPrivate) {
+    await refuseLinkLocal(`tcp://${bare.includes(':') ? `[${bare}]` : bare}`);
+    return;
+  }
+  await assertPublicHost(bare);
+}
+
 async function refuseLinkLocal(rawUrl: string): Promise<void> {
   const host = new URL(rawUrl).hostname.replace(/^\[|\]$/g, '');
   let addrs: Array<{ address: string }>;

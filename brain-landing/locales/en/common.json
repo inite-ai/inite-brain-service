@@ -659,6 +659,10 @@
           "title": "Web",
           "body": "Sites read over HTTP — a documentation portal, a wiki, the company site — page by page from a sitemap or a crawl."
         },
+        "mail": {
+          "title": "Mail",
+          "body": "Mailboxes read as conversations — every message one turn of its thread, attachments to the evidence plane — a Gmail account or any mailbox over IMAP."
+        },
         "mcp": {
           "title": "MCP servers",
           "body": "Resources an MCP server serves — a wiki, a knowledge base, a CMS behind an MCP endpoint — signed in as an account when the server asks."
@@ -881,8 +885,16 @@
         "goneAt": "gone at",
         "error": "last error",
         "episode": "episode",
+        "turn": "the turn",
+        "turnFields": {
+          "speaker": "speaker",
+          "conversation": "conversation",
+          "messageId": "message id",
+          "at": "at"
+        },
         "documents": "documents",
         "documentsNone": "no document yet — the item was not fetched, or a processor still has to extract its text",
+        "documentsNoneTurn": "no document — a message is a turn of its conversation, not a document; its facts come from the turn",
         "document": {
           "kind": "kind",
           "status": "status",
@@ -1026,6 +1038,8 @@
           "longLivedToken": "Long-lived token",
           "longLivedTokenHint": "From the private integration in Settings → Integrations (valid for years). Stored encrypted, never shown again.",
           "longLivedTokenAlt": "or a long-lived token (private integration)",
+          "password": "Password",
+          "passwordHint": "The mailbox password — an app password where the provider issues one (Gmail, Outlook, Yandex). Stored encrypted, never shown again.",
           "jwtBearer": "or a JWT bearer (integration user)",
           "jwtBearerHint": "Paste a JSON { \"clientId\": \"<consumer key>\", \"username\": \"<integration user>\", \"privateKey\": \"-----BEGIN PRIVATE KEY-----…\", \"loginUrl\"?: \"https://test.salesforce.com\" } — the connected app must carry the certificate of that key and pre-authorize the user. No browser, no refresh token; stored encrypted, never shown again.",
           "mcpHint": "The brain signs in at the server itself (RFC 9728 discovery, dynamic registration, PKCE); the grant is bound to this server.",
@@ -1148,6 +1162,70 @@
             "maxBlocks": {
               "label": "Max blocks per page",
               "hint": "The block tree is cut there. Default 2000."
+            }
+          },
+          "gmail": {
+            "query": {
+              "label": "Gmail query",
+              "hint": "Gmail search syntax narrowing what is read (label:clients -category:promotions). Empty = everything."
+            },
+            "labelIds": {
+              "label": "Labels",
+              "hint": "Label ids every message must carry, one per line (INBOX, SENT, a user label’s id). Empty = any."
+            },
+            "since": {
+              "label": "Since",
+              "hint": "The first walk reads mail after this date (YYYY-MM-DD). Default: 90 days back."
+            },
+            "maxMessages": {
+              "label": "Max messages per run",
+              "hint": "Newest first. Default 2000."
+            },
+            "includeSpamTrash": {
+              "label": "Include spam and trash",
+              "hint": ""
+            },
+            "extensions": {
+              "label": "Attachment types",
+              "hint": "Attachments entry only: extensions admitted, comma or line separated. Empty = PDFs, office documents, images."
+            },
+            "maxFileBytes": {
+              "label": "Max attachment size (bytes)",
+              "hint": "Attachments entry only. Default 8 MB."
+            }
+          },
+          "imap": {
+            "host": {
+              "label": "IMAP host",
+              "hint": "imap.gmail.com, outlook.office365.com, imap.yandex.ru, or your own server."
+            },
+            "port": {
+              "label": "Port",
+              "hint": "993 with TLS (default), 143 without."
+            },
+            "tls": {
+              "label": "TLS",
+              "hint": "Off only for a server on your own network under the private opt-in — STARTTLS is not spoken."
+            },
+            "user": {
+              "label": "User",
+              "hint": "The login, usually the address."
+            },
+            "mailboxes": {
+              "label": "Mailboxes",
+              "hint": "One per line; INBOX when empty. Plain ASCII names only."
+            },
+            "since": {
+              "label": "Since",
+              "hint": "The first walk reads mail after this date (YYYY-MM-DD). Default: 90 days back."
+            },
+            "maxMessages": {
+              "label": "Max messages per mailbox per run",
+              "hint": "Newest first. Default 2000."
+            },
+            "allowPrivate": {
+              "label": "Allow private hosts",
+              "hint": "Loopback / LAN addresses (and a plain socket without TLS) — the deployment already opted in."
             }
           },
           "confluence": {
@@ -1495,7 +1573,8 @@
         "shape": {
           "document": "documents",
           "binary": "files",
-          "structure": "records"
+          "structure": "records",
+          "conversation": "messages"
         }
       },
       "kinds": {
@@ -1525,6 +1604,26 @@
           "shapes": {
             "document": "Pages",
             "documentHint": "pages and database rows as text",
+            "binary": "",
+            "binaryHint": ""
+          }
+        },
+        "gmail": {
+          "title": "Gmail",
+          "body": "The messages of a connected Gmail account, narrowed by your own Gmail query — each one a turn of its thread, the sender as the speaker, quoted replies stripped; attachments handed to the evidence plane.",
+          "shapes": {
+            "document": "Messages",
+            "documentHint": "each message one turn of its thread",
+            "binary": "Attachments",
+            "binaryHint": "PDFs and office documents on the same messages"
+          }
+        },
+        "imap": {
+          "title": "Mailbox (IMAP)",
+          "body": "Any mailbox over IMAP — host, user and an app password — read-only: the mailboxes you name, mail since a date, then only what is new; each message a turn of its thread.",
+          "shapes": {
+            "document": "Messages",
+            "documentHint": "each message one turn of its thread",
             "binary": "",
             "binaryHint": ""
           }

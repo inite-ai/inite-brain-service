@@ -45,7 +45,7 @@ export interface FieldSpec {
 }
 
 /** What the single credential is called when it is not a plain token (`form.credential.<label>` / `<label>Hint`). */
-export type CredentialLabel = 'webhookUrl' | 'longLivedToken'
+export type CredentialLabel = 'webhookUrl' | 'longLivedToken' | 'password'
 
 /**
  * What a connected-account connector also takes instead of an account:
@@ -492,6 +492,35 @@ function withAuthScheme(
 }
 
 /** The form for an entry, or null when this build knows no form for its connector (JSON editor). */
+/** Gmail (W4.6): the mailbox's own query, labels, a start date; the attachments entry shares the form (its file gate under Advanced); a connected Google account. */
+const GMAIL: ConnectorForm = {
+  fields: [
+    { key: 'query', type: 'text', mono: true, placeholder: 'label:clients -category:promotions' },
+    { key: 'labelIds', type: 'list', mono: true, placeholder: 'INBOX\nSENT' },
+    { key: 'since', type: 'text', mono: true, placeholder: '2026-01-01' },
+    { key: 'maxMessages', type: 'number', min: 1, advanced: true, placeholder: '2000' },
+    { key: 'includeSpamTrash', type: 'boolean', default: false, advanced: true },
+    { key: 'extensions', type: 'list', mono: true, advanced: true, placeholder: 'pdf, docx, xlsx' },
+    { key: 'maxFileBytes', type: 'number', min: 1, advanced: true },
+  ],
+  credential: { kind: 'oauth' },
+}
+
+/** IMAP (W4.6): host, port, TLS, user, the mailboxes, a start date; the password is the credential. */
+const IMAP: ConnectorForm = {
+  fields: [
+    { key: 'host', type: 'text', required: true, mono: true, placeholder: 'imap.example.com' },
+    { key: 'port', type: 'number', min: 1, mono: true, placeholder: '993' },
+    { key: 'tls', type: 'boolean', default: true },
+    { key: 'user', type: 'text', required: true, mono: true, placeholder: 'me@example.com' },
+    { key: 'mailboxes', type: 'list', mono: true, placeholder: 'INBOX\nClients' },
+    { key: 'since', type: 'text', mono: true, placeholder: '2026-01-01' },
+    { key: 'maxMessages', type: 'number', min: 1, advanced: true, placeholder: '2000' },
+    allowPrivate,
+  ],
+  credential: { kind: 'single', required: () => true, shown: () => true, label: 'password' },
+}
+
 export function formFor(entry: SourceCatalogEntry): ConnectorForm | null {
   if (entry.kind === 'external') return EXTERNAL
   if (entry.kind === 'mcp') {
@@ -521,6 +550,10 @@ export function formFor(entry: SourceCatalogEntry): ConnectorForm | null {
       return NOTION
     case 'confluence':
       return CONFLUENCE
+    case 'gmail':
+      return GMAIL
+    case 'imap':
+      return IMAP
     case 'salesforce':
       return SALESFORCE
     case 'bitrix24':

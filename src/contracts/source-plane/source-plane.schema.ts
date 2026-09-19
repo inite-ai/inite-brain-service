@@ -729,132 +729,6 @@ export const AgentConnectionsListResponseSchema = z.object({
 });
 export type AgentConnectionsListResponse = z.infer<typeof AgentConnectionsListResponseSchema>;
 
-// ── Inspection (the operator's drill-down) ─────────────────────────────
-
-/** What a connection has produced: catalogue rows by state, facts it grounds. */
-export const SourceConnectionStatsSchema = z.object({
-  connectionId: z.string(),
-  items: z.object({
-    seen: z.number().int(),
-    fetched: z.number().int(),
-    indexed: z.number().int(),
-    gone: z.number().int(),
-    total: z.number().int(),
-  }),
-  /**
-   * Facts whose `source.meta.source_connection` is this connection —
-   * null when the tenant's fact table was too large to count in time
-   * (the count is a scan; the answer is "many", not an error).
-   */
-  facts: z
-    .object({
-      active: z.number().int(),
-      stale: z.number().int(),
-      closed: z.number().int(),
-    })
-    .nullable(),
-});
-export type SourceConnectionStats = z.infer<typeof SourceConnectionStatsSchema>;
-
-export const SourceRunCountersSchema = z.object({
-  seen: z.number().int(),
-  new: z.number().int(),
-  changed: z.number().int(),
-  unchanged: z.number().int(),
-  gone: z.number().int(),
-  fetched: z.number().int(),
-  ingested: z.number().int(),
-  deduplicated: z.number().int(),
-  failed: z.number().int(),
-  closed: z.number().int(),
-});
-export type SourceRunCounters = z.infer<typeof SourceRunCountersSchema>;
-
-/** One sync run of a connection — a `source_sync` job_run, whoever ran it. */
-export const SourceRunSchema = z.object({
-  runId: z.string(),
-  status: z.enum(['running', 'succeeded', 'failed', 'cancelled', 'pending']),
-  /** 'server' (queue or inline), 'agent:<id>', or 'webhook:<scheme>' (a vendor's call fetched by name). */
-  ranBy: z.string(),
-  triggeredBy: z.enum(['cron', 'manual', 'startup']),
-  startedAt: z.string(),
-  finishedAt: z.string().nullable(),
-  durationMs: z.number().int().nullable(),
-  /** `webhook` = a fetch-one batch, not a walk. */
-  mode: z.enum(['full', 'incremental', 'webhook']).nullable(),
-  /** Final counters (from the result) or the live ones (from progress) — null before the first delta. */
-  counters: SourceRunCountersSchema.nullable(),
-  skipped: z.string().nullable(),
-  error: z.string().nullable(),
-});
-export type SourceRun = z.infer<typeof SourceRunSchema>;
-
-export const SourceRunsResponseSchema = z.object({
-  connectionId: z.string(),
-  /** False ⇒ JOB_RUN_PERSIST is off and no history is kept. */
-  persisted: z.boolean(),
-  runs: z.array(SourceRunSchema),
-});
-export type SourceRunsResponse = z.infer<typeof SourceRunsResponseSchema>;
-
-/** A fact this item grounds, with what the drift sweep sees. */
-export const SourceItemFactSchema = z.object({
-  id: z.string(),
-  entityId: z.string(),
-  predicate: z.string(),
-  object: z.string(),
-  confidence: z.number(),
-  /** The revision the fact was read at (its SourceVersionStamp), if stamped. */
-  version: z.string().nullable(),
-  staleAt: z.string().nullable(),
-  staleReason: z.string().nullable(),
-  validUntil: z.string().nullable(),
-  status: z.string(),
-});
-export type SourceItemFact = z.infer<typeof SourceItemFactSchema>;
-
-export const SourceItemDocumentSchema = z.object({
-  id: z.string(),
-  title: z.string().nullable(),
-  kind: z.string().nullable(),
-  status: z.string().nullable(),
-  originUri: z.string().nullable(),
-  createdAt: z.string().nullable(),
-});
-export type SourceItemDocument = z.infer<typeof SourceItemDocumentSchema>;
-
-export const SourceItemAssetSchema = z.object({
-  id: z.string(),
-  mediaType: z.string(),
-  modality: z.string(),
-  byteLength: z.number().int(),
-  availability: z.string(),
-  quarantineStatus: z.string().nullable(),
-  /** Current (not superseded) derived representations: what the processors extracted. */
-  representations: z.array(
-    z.object({
-      id: z.string(),
-      kind: z.string(),
-      producerVersion: z.string(),
-      chars: z.number().int(),
-      createdAt: z.string().nullable(),
-    }),
-  ),
-});
-export type SourceItemAsset = z.infer<typeof SourceItemAssetSchema>;
-
-/** One catalogue row opened: what the item became on the way to facts. */
-export const SourceItemInspectResponseSchema = z.object({
-  item: SourceItemSchema,
-  /** The document(s) the item became — one for text, the bridge's parts for binary. */
-  documents: z.array(SourceItemDocumentSchema),
-  asset: SourceItemAssetSchema.nullable(),
-  facts: z.array(SourceItemFactSchema),
-  /** True ⇒ more facts than the page shows. */
-  factsTruncated: z.boolean(),
-});
-export type SourceItemInspectResponse = z.infer<typeof SourceItemInspectResponseSchema>;
-
 // ── Agents: presence + the folders they can see ────────────────────────
 
 /**
@@ -1096,3 +970,8 @@ export function grantIdOfCredential(credential: string | null | undefined): stri
 export function isConnectionId(v: string): boolean {
   return CONNECTION_ID.test(v);
 }
+
+// ── Inspection (the operator's drill-down) lives in source-inspect.schema.ts;
+// re-exported last: it builds on SourceItemSchema above (a CommonJS cycle
+// resolved by order).
+export * from './source-inspect.schema';
