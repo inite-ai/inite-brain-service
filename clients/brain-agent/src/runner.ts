@@ -45,7 +45,8 @@ export async function runConnection(
     signal: opts.signal ?? new AbortController().signal,
     log: (line) => log(`[${target.connection.id}] ${line}`),
   };
-  const full = opts.full === true || connector.walksEverything === true;
+  const full =
+    opts.full === true || connector.walksEverything === true || connector.fullWalk?.(ctx) === true;
   const begun = await client.begin(target.connection.id, { agentId: opts.agentId, ...(full ? { full: true } : {}) });
   const runId = begun.runId;
   const toFetch: string[] = [];

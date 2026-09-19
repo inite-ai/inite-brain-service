@@ -18,6 +18,12 @@ export interface AgentConfig {
   /** Minutes between passes when run as a service. */
   everyMinutes: number;
   redact: boolean;
+  /**
+   * The databases this agent can read, by the name a `db` connection
+   * uses (`config.database`) → the DSN. The DSN lives here (mode 0600)
+   * or in BRAIN_AGENT_DB_<NAME>, never on the brain.
+   */
+  databases: Record<string, string>;
 }
 
 export const CONFIG_FILE = 'config.json';
@@ -55,7 +61,49 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentConfig | 
         ? parsed.everyMinutes
         : DEFAULT_EVERY_MINUTES,
     redact: parsed.redact !== false,
+    databases: databasesOf(parsed.databases),
   };
+}
+
+function databasesOf(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'string' && DATABASE_NAME.test(k)) out[k] = v;
+  }
+  return out;
+}
+
+/** What a `db` connection may call a database — a label, never a DSN. */
+export const DATABASE_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
+
+/** `BRAIN_AGENT_DB_<NAME>` — the environment's spelling of a database name. */
+export function databaseEnvName(name: string): string {
+  return `BRAIN_AGENT_DB_${name.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
+}
+
+/**
+ * The DSN for a database name: the environment first (a CI job), the
+ * config file second; null when this agent knows no such database.
+ */
+export function resolveDsn(
+  name: string,
+  config: Partial<AgentConfig>,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const fromEnv = env[databaseEnvName(name)]?.trim();
+  if (fromEnv) return fromEnv;
+  return config.databases?.[name] ?? null;
+}
+
+/** The database names this agent holds a DSN for (the file's and the environment's) — names only, for the check-in. */
+export function databaseNames(config: Partial<AgentConfig>, env: NodeJS.ProcessEnv = process.env): string[] {
+  const names = new Set(Object.keys(config.databases ?? {}));
+  for (const k of Object.keys(env)) {
+    const m = /^BRAIN_AGENT_DB_([A-Z0-9_]+)$/.exec(k);
+    if (m && env[k]?.trim()) names.add(m[1]!.toLowerCase());
+  }
+  return [...names].sort();
 }
 
 /** Atomic, owner-only: written next to the target, then renamed over it. */
@@ -96,6 +144,7 @@ export function resolveConfig(env: NodeJS.ProcessEnv = process.env): Partial<Age
   const file = loadConfig(env);
   const roots = env.BRAIN_AGENT_ROOTS;
   return {
+    databases: {},
     ...(file ?? {}),
     ...(env.BRAIN_URL ? { url: env.BRAIN_URL } : {}),
     ...(env.BRAIN_API_KEY ? { apiKey: env.BRAIN_API_KEY } : {}),

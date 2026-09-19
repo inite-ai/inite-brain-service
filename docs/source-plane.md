@@ -255,8 +255,9 @@ Agent connectors: `fs` (the brain's walking rules; `BRAIN_AGENT_ROOTS`
 fences it when the agent serves others), **`git`** — a repository's
 committed docs with the blob sha as revision and the last commit
 touching each file as its time (`code_memory/repo_docs`; git runs on the
-agent, never in the brain), and **`mcp` over stdio** — the server the
-pack names, spawned per run. Text is **redacted locally** before it
+agent, never in the brain), **`mcp` over stdio** — the server the
+pack names, spawned per run — and **`db`** (W4.4) — a database read as
+records (below). Text is **redacted locally** before it
 leaves (cloud keys, tokens, private keys, bearer headers, `secret=value`)
 — `--no-redact` opts out. The key is a tenant write key; an agent reaches
 only the connections an operator pointed at its host. A CI recipe (the
@@ -337,6 +338,48 @@ permitted: brain's own process reading arbitrary host paths is a
 capability an operator grants by name. A network share is connected by
 mounting it into that root; a laptop's folders by running the brain
 there (the local agent, W3, is the no-mount alternative).
+
+### `db` on the agent (W4.4) — a self-hosted CRM read where it lives
+
+`crm_memory/db` (agent-only, like `git`): a Postgres, MySQL / MariaDB or
+SQLite database on the agent's machine — or reachable from it — read as
+**records**. Each configured table or view is one record type, each row
+one envelope (`{ entityType, externalId: <type>/<id>, name, attributes,
+relations, updatedAt }`), a foreign-key column a relation (the target's
+name is read from the target's table), and the brain's records door
+turns the envelope into facts by the connection's `config.mapping` —
+the same mapping table the vendors use, on the columns the operator
+listed. **The DSN never leaves the machine**: the connection names the
+database (`config.database`, a label); the agent holds the DSN for that
+label in its own config (`brain-agent db add crm postgres://ro@…/crm`,
+mode 0600) or reads `BRAIN_AGENT_DB_<NAME>`; a config that carries `dsn`
+/ `url` / `password` / `host` / … is refused at create, and so is a
+server host. Sessions are **read-only at the database** (`SET
+default_transaction_read_only`, `SET SESSION TRANSACTION READ ONLY`,
+SQLite opened read-only); every identifier is validated and quoted per
+dialect, no SQL travels. Prefer a **view** that exposes exactly the
+columns the brain should see. `pg` / `mysql2` are installed beside the
+agent when a DSN asks for them; SQLite is Node's own (22.13+).
+
+Walks: a table with an `updatedAtColumn` is read incrementally
+(`updatedAt > since`, keyset by id, the maximum seen per type as the
+checkpoint `{ since: { <type>: … } }`) and its deletions surface on a
+full walk; a table without one is walked whole every run with the row
+hash as revision — a connection whose tables all lack one is a full
+walk by nature and the brain sweeps what it did not see. The agent's
+check-in names its databases (names only) so the connect form offers
+them; `brain-agent doctor` opens each read-only.
+
+```json
+{ "database": "crm",
+  "entities": [
+    { "type": "deal", "table": "deals_v", "nameColumn": "title", "updatedAtColumn": "updated_at",
+      "columns": ["stage", "amount", "currency"],
+      "relations": [{ "kind": "organization", "column": "company_id", "targetType": "organization" }] },
+    { "type": "organization", "table": "companies_v", "columns": ["industry", "website"] } ],
+  "mapping": { "deal": { "fields": { "stage": "deal_stage", "amount": "deal_amount", "currency": "currency" } },
+               "organization": { "fields": { "industry": "industry", "website": "website" } } } }
+```
 
 ## Records (W4.2) — a CRM row enters as facts
 

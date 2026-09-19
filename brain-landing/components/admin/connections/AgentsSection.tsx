@@ -107,6 +107,13 @@ export function AgentsSection({
                             {row.presence.roots.map((r) => r.path).join(', ')}
                           </div>
                         )}
+                        {row.presence.databases.length > 0 && (
+                          <div className="font-mono text-[var(--text-faint)]">
+                            {a.databases}
+                            {': '}
+                            {row.presence.databases.join(', ')}
+                          </div>
+                        )}
                       </>
                     ) : (
                       <span className="text-[var(--warning)]">{a.seenNever}</span>

@@ -9,6 +9,7 @@ import {
   Package,
   Plug,
   Server,
+  Table2,
   Upload,
 } from 'lucide-react'
 import { fill, type ConnectionsT } from './shared'
@@ -26,6 +27,7 @@ export const KIND_ICONS: Record<SourceFamily, Icon> = {
   onedrive: CloudCog,
   dropbox: Package,
   records: Database,
+  db: Table2,
   external: Upload,
   other: Plug,
 }

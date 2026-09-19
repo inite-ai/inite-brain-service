@@ -960,7 +960,8 @@
         },
         "seenNever": "never checked in",
         "seenAt": "{at} · {hostname} · {platform} · v{version}",
-        "roots": "can see"
+        "roots": "can see",
+        "databases": "databases"
       },
       "form": {
         "steps": {
@@ -1042,7 +1043,8 @@
           "header": "name the header",
           "jail": "must be under one of: {roots}",
           "account": "connect an account first",
-          "jwtBearer": "a JSON with clientId, username and a PEM privateKey"
+          "jwtBearer": "a JSON with clientId, username and a PEM privateKey",
+          "identifier": "SQL identifiers only (letters, digits, _; table or schema.table); relations as kind = column → type"
         },
         "fields": {
           "fs": {
@@ -1327,6 +1329,29 @@
               "hint": "Loopback / LAN addresses — the deployment already opted in."
             }
           },
+          "db": {
+            "database": {
+              "label": "Database",
+              "hint": "The name this agent knows the database by — brain-agent db add <name> <dsn> on that machine (or BRAIN_AGENT_DB_<NAME>). The connection string never reaches the brain."
+            },
+            "databaseKnown": "Databases this agent reported: {names}",
+            "databaseNone": "This agent has reported no databases yet — add one there and let it check in, or type the name it will have.",
+            "entities": {
+              "label": "Tables and views",
+              "hint": "One row per record type: the table or view (schema.table), the key column (default id), the name column (default name), the column that changes when a row does (incremental walks; empty = the whole table every run, rows hashed), the columns to read (empty = all — prefer a view that hides what the brain must not see), and foreign keys as relations."
+            },
+            "entityType": "record type",
+            "entityTable": "table / view",
+            "entityId": "key column",
+            "entityName": "name column",
+            "entityUpdated": "change column",
+            "entityColumns": "columns (comma-separated; empty = all)",
+            "entityRelations": "relations",
+            "relationsHint": "one per line: kind = column → target type, e.g. organization = company_id → organization",
+            "addEntity": "Add a table",
+            "removeEntity": "Remove",
+            "noPreview": "The preview runs on the brain; a database is read by the agent — connect, run Sync, then open the connection to see what came in."
+          },
           "rest_records": {
             "baseUrl": {
               "label": "API base URL",
@@ -1527,6 +1552,16 @@
           "shapes": {
             "document": "Records",
             "documentHint": "deals, persons, organizations",
+            "binary": "",
+            "binaryHint": ""
+          }
+        },
+        "db": {
+          "title": "Database (agent)",
+          "body": "A self-hosted CRM, ERP or ticketing backend read straight from its database by the local agent — each table or view one record type, each row one record, foreign keys as relations. The agent holds the connection string; the brain only knows the name.",
+          "shapes": {
+            "document": "Records",
+            "documentHint": "rows of the tables and views you name",
             "binary": "",
             "binaryHint": ""
           }

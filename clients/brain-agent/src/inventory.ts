@@ -14,12 +14,14 @@ export interface Inventory {
   hostname: string;
   platform: string;
   roots: Array<{ path: string; folders: string[] }>;
+  /** The databases this agent holds a DSN for — names only, never a DSN (the `db` form's picker). */
+  databases: string[];
 }
 
 const SKIP = new Set(['.git', 'node_modules', '__pycache__', '.cache', '.next', 'dist', 'build', 'target', 'Library', 'Applications']);
 const MAX_FOLDERS = 2000;
 
-export async function inventory(roots: string[], version: string): Promise<Inventory> {
+export async function inventory(roots: string[], version: string, databases: string[] = []): Promise<Inventory> {
   const bases = roots.length > 0 ? roots.map((r) => resolve(r)) : [homedir()];
   const depth = roots.length > 0 ? 3 : 2;
   return {
@@ -27,6 +29,7 @@ export async function inventory(roots: string[], version: string): Promise<Inven
     hostname: hostname().split('.')[0] ?? 'unknown',
     platform: platform(),
     roots: await Promise.all(bases.map(async (path) => ({ path, folders: await foldersUnder(path, depth) }))),
+    databases,
   };
 }
 

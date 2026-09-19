@@ -21,6 +21,7 @@ export type SourceFamily =
   | 'onedrive'
   | 'dropbox'
   | 'records'
+  | 'db'
   | 'external'
   | 'other'
 
@@ -57,6 +58,7 @@ export function groupOf(family: SourceFamily): SourceGroup {
     case 'repo':
       return 'code'
     case 'records':
+    case 'db':
       return 'records'
     case 'external':
       return 'external'
@@ -88,6 +90,8 @@ export function familyOf(e: { kind: string; connector: string }): SourceFamily {
     case 'salesforce':
     case 'rest_records':
       return 'records'
+    case 'db':
+      return 'db'
     default:
       return 'other'
   }
@@ -121,8 +125,9 @@ const FAMILY_ORDER: Record<SourceFamily, number> = {
   mcp: 6,
   repo: 7,
   records: 8,
-  external: 9,
-  other: 10,
+  db: 9,
+  external: 10,
+  other: 11,
 }
 const AVAILABILITY_RANK: Record<SourceAvailability, number> = {
   ready: 0,
@@ -154,7 +159,9 @@ export function cardWords(
   if (card.family === 'external') {
     return { title: first?.title ?? familyWords.title, body: own || familyWords.body }
   }
-  if (card.family === 'records') return { title: familyWords.title, body: own || familyWords.body }
+  if (card.family === 'records' || card.family === 'db') {
+    return { title: familyWords.title, body: own || familyWords.body }
+  }
   return { title: familyWords.title, body: familyWords.body || own }
 }
 

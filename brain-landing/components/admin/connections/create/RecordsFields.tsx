@@ -52,6 +52,7 @@ export function RecordsFields({
   value,
   credential,
   config,
+  previewable,
   t,
   onChange,
 }: {
@@ -59,6 +60,8 @@ export function RecordsFields({
   value: RecordsChoice
   credential: string | undefined
   config: Record<string, unknown>
+  /** False for a source the brain cannot read itself (a database on the agent): no preview button, a note instead. */
+  previewable?: boolean
   t: ConnectionsT
   onChange: (v: RecordsChoice) => void
 }) {
@@ -166,6 +169,8 @@ export function RecordsFields({
           </div>
         </Field>
       )}
+      {previewable === false && <p className="text-[10px] text-[var(--text-faint)]">{t.form.fields.db.noPreview}</p>}
+      {previewable !== false && (
       <div className="space-y-2">
         <button
           type="button"
@@ -214,6 +219,7 @@ export function RecordsFields({
             </div>
           ))}
       </div>
+      )}
     </div>
   )
 }

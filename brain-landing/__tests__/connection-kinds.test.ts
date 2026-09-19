@@ -51,6 +51,7 @@ describe('source kinds', () => {
     expect(familyOf({ kind: 'native', connector: 'git' })).toBe('repo')
     expect(familyOf({ kind: 'mcp', connector: 'mcp' })).toBe('mcp')
     expect(familyOf({ kind: 'external', connector: 'external' })).toBe('external')
+    expect(familyOf({ kind: 'native', connector: 'db' })).toBe('db')
     expect(familyOf({ kind: 'native', connector: 'webdav' })).toBe('other')
   })
 
@@ -159,6 +160,7 @@ describe('source groups', () => {
     expect(groupOf('mcp')).toBe('mcp')
     expect(groupOf('repo')).toBe('code')
     expect(groupOf('records')).toBe('records')
+    expect(groupOf('db')).toBe('records')
     expect(groupOf('external')).toBe('external')
     expect(groupOf('other')).toBe('other')
     expect(SOURCE_GROUPS).toEqual(['files', 'web', 'mcp', 'code', 'records', 'external', 'other'])

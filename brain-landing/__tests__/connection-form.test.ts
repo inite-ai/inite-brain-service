@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   configFrom,
   credentialFrom,
+  dbEntitiesError,
+  dbProposalOf,
   formFor,
   initialValues,
   validate,
   isJwtBearer,
+  parseDbEntities,
   visibleFields,
   type FormContext,
   type FormValues,
@@ -368,5 +371,66 @@ describe('connect form specs', () => {
     expect(formFor(stdio)!.fields).toEqual([])
     expect(formFor(entry({ kind: 'external', connector: 'external', hosts: ['server'] }))!.fields).toEqual([])
     expect(formFor(entry({ connector: 'webdav' }))).toBeNull()
+  })
+})
+
+/**
+ * A database on the agent (W4.4): the form asks for the database's name
+ * and the tables as record types — never a connection string — and the
+ * tables become the brain's `config.entities`; the listed columns are
+ * what the mapping table offers.
+ */
+describe('db source form', () => {
+  const db = entry({
+    packId: 'crm_memory',
+    sourceId: 'db',
+    connector: 'db',
+    shape: 'structure',
+    hosts: ['agent'],
+    records: { entities: [], preset: {}, predicates: [{ localId: 'deal_stage', label: 'deal stage' }] },
+  })
+  const drafts = JSON.stringify([
+    { type: 'deal', table: 'deals_v', idColumn: '', nameColumn: 'title', updatedAtColumn: 'updated_at', columns: 'stage, amount', relations: 'organization = company_id -> organization' },
+    { type: 'organization', table: 'crm.companies', idColumn: 'id', nameColumn: '', updatedAtColumn: '', columns: '', relations: '' },
+  ])
+
+  it('asks for the database name and at least one valid table; the generic field list shows only the advanced limits', () => {
+    const form = formFor(db)!
+    expect(form.credential).toBeNull()
+    expect(visibleFields(form, initialValues(form, db), ctxFor(db), false)).toEqual([])
+    expect(visibleFields(form, initialValues(form, db), ctxFor(db), true).map((f) => f.key)).toEqual(['pageSize', 'maxRows'])
+    expect(validate(form, {}, { ...ctxFor(db), host: 'agent' }, noSecret)).toEqual({ database: 'required', entities: 'required' })
+    expect(dbEntitiesError('[]')).toBe('required')
+    expect(dbEntitiesError(JSON.stringify([{ type: 'deal', table: 'deals; drop table x' }]))).toBe('identifier')
+    expect(dbEntitiesError(JSON.stringify([{ type: 'deal', table: 'deals', columns: 'a, b c' }]))).toBe('identifier')
+    expect(dbEntitiesError(JSON.stringify([{ type: 'deal', table: 'deals', relations: 'org company_id' }]))).toBe('identifier')
+    expect(dbEntitiesError(drafts)).toBeNull()
+    expect(validate(form, { database: 'crm', entities: drafts }, { ...ctxFor(db), host: 'agent' }, noSecret)).toEqual({})
+  })
+
+  it('assembles config.entities from the drafts — blanks left out, columns split, relations parsed — and never a DSN', () => {
+    const form = formFor(db)!
+    const config = configFrom(form, { database: 'crm', entities: drafts, pageSize: '500' }, { ...ctxFor(db), host: 'agent' })
+    expect(config).toEqual({
+      database: 'crm',
+      pageSize: 500,
+      entities: [
+        {
+          type: 'deal',
+          table: 'deals_v',
+          nameColumn: 'title',
+          updatedAtColumn: 'updated_at',
+          columns: ['stage', 'amount'],
+          relations: [{ kind: 'organization', column: 'company_id', targetType: 'organization' }],
+        },
+        { type: 'organization', table: 'crm.companies', idColumn: 'id' },
+      ],
+    })
+    expect(JSON.stringify(config)).not.toMatch(/dsn|password/)
+    expect(parseDbEntities('not json')).toEqual([])
+    expect(dbProposalOf(drafts)).toEqual([
+      { type: 'deal', label: 'deal', source: 'operator', confidence: 1, reason: 'deals_v', fields: [{ key: 'stage', label: 'stage' }, { key: 'amount', label: 'amount' }] },
+      { type: 'organization', label: 'organization', source: 'operator', confidence: 1, reason: 'crm.companies', fields: [] },
+    ])
   })
 })

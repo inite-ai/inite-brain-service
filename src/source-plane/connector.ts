@@ -196,6 +196,17 @@ export interface Connector {
   endRun?(ctx: ConnectorCtx): Promise<void>;
 }
 
+/**
+ * Natives that exist on the local agent only — git and db never run in
+ * the brain process (the clone, the DSN stay on the machine); the
+ * catalogue shows them as `agent`, a server-host connection of them is
+ * refused by name. Kept beside the agent's own registry
+ * (clients/brain-agent/src/index.ts).
+ */
+export const AGENT_ONLY_CONNECTORS: ReadonlySet<string> = new Set(['git', 'db']);
+/** Natives the agent ships as well as the brain (the machine or the server may walk them). */
+export const AGENT_CONNECTORS: ReadonlySet<string> = new Set(['fs', 'git', 'db']);
+
 /** Registry token: an ARRAY of platform connectors, resolved by `kind`. */
 export const SOURCE_CONNECTORS = Symbol('SOURCE_CONNECTORS');
 export type ConnectorRegistry = readonly Connector[];

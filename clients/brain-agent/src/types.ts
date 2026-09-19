@@ -97,6 +97,8 @@ export interface AgentConnector {
   /** No change feed: every enumerate re-emits every live item, so every
    *  run is a full walk and the brain marks what it did not see gone. */
   readonly walksEverything?: boolean;
+  /** The same, decided per connection (a database whose tables have no change column). */
+  fullWalk?(ctx: ConnectorCtx): boolean;
   enumerate(ctx: ConnectorCtx, opts: EnumerateOptions): AsyncIterable<ItemDelta>;
   fetch(ctx: ConnectorCtx, item: ItemDescriptor): Promise<FetchedItem>;
   endRun?(ctx: ConnectorCtx): Promise<void>;

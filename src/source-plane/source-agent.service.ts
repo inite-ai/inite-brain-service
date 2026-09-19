@@ -50,7 +50,7 @@ export class SourceAgentService {
         ...(inv.version ? { version: inv.version } : {}),
         ...(inv.hostname ? { hostname: inv.hostname } : {}),
         ...(inv.platform ? { platform: inv.platform } : {}),
-        inventory: { roots: inv.roots },
+        inventory: { roots: inv.roots, databases: inv.databases ?? [] },
       };
       if (existing) {
         const set = (k: 'version' | 'hostname' | 'platform') => (k in fields ? `$${k}` : 'NONE');
@@ -131,7 +131,10 @@ interface RawAgent {
   version?: string | null;
   hostname?: string | null;
   platform?: string | null;
-  inventory?: { roots?: Array<{ path: string; folders: string[] }> } | null;
+  inventory?: {
+    roots?: Array<{ path: string; folders: string[] }>;
+    databases?: string[];
+  } | null;
 }
 
 function toAgent(r: RawAgent): SourceAgent {
@@ -150,6 +153,7 @@ function toAgent(r: RawAgent): SourceAgent {
       path: String(x.path),
       folders: Array.isArray(x.folders) ? x.folders.map(String) : [],
     })),
+    databases: Array.isArray(r.inventory?.databases) ? r.inventory.databases.map(String) : [],
   };
 }
 
