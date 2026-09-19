@@ -223,7 +223,8 @@ export const QUESTIONS: Question[] = [
     prompt: 'What idiom do we use for enqueueing jobs in ledger-sync, and why?',
     keyPhrases: [
       ['idempotencyKey', 'idempotency key', 'idempotency'],
-      ['duplicate', 'double'],
+      // The corpus says it both ways: "ran twice" and "the duplicate payout".
+      ['duplicate', 'double', 'twice'],
     ],
   },
   {
