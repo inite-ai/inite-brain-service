@@ -201,7 +201,13 @@ export function ConnectionDetail({
         />
         <Meta
           k={d.credential}
-          v={connection.hasCredential ? d.credentialStored : d.credentialNone}
+          v={
+            connection.grantId
+              ? `${d.credentialAccount} · ${connection.grantId}`
+              : connection.hasCredential
+                ? d.credentialStored
+                : d.credentialNone
+          }
         />
       </dl>
 
@@ -555,7 +561,7 @@ function RunRow({ run, t, lang }: { run: SourceRun; t: ConnectionsT; lang: strin
           </div>
         )}
       </td>
-      <td className="px-3 py-1.5 font-mono tabular-nums text-[var(--text-muted)]">{counters}</td>
+      <td className="px-3 py-1.5 font-mono tabular-nums whitespace-nowrap text-[var(--text-muted)]">{counters}</td>
       <td className="px-3 py-1.5 text-right font-mono tabular-nums text-[var(--text-muted)]">
         {run.durationMs === null ? '—' : `${run.durationMs} ms`}
       </td>

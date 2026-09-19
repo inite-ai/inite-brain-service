@@ -66,3 +66,17 @@ export function availabilityTone(a: SourceAvailability): string {
       return 'text-[var(--text-muted)] bg-[var(--bg-overlay)]'
   }
 }
+
+/**
+ * What the token line says: a grant with a refresh token renews itself;
+ * one without lasts as long as its access token — until the expiry the
+ * provider named, or, when it named none (Notion's tokens do not
+ * expire), until the operator disconnects it.
+ */
+export function tokenWords(
+  g: { refreshable: boolean; accessExpiresAt: string | null },
+  a: { refreshable: string; notRefreshable: string; noExpiry: string },
+): string {
+  if (g.refreshable) return a.refreshable
+  return g.accessExpiresAt ? fill(a.notRefreshable, { at: stamp(g.accessExpiresAt) }) : a.noExpiry
+}

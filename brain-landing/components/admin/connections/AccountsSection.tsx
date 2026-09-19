@@ -8,7 +8,7 @@ import type {
   SourceOAuthGrant,
   SourceOAuthGrantsResponse,
 } from '../../../lib/contracts/admin-source-connections'
-import { PROXY, dangerBtn, errorMessage, fill, stamp, type ConnectionsT } from './shared'
+import { PROXY, dangerBtn, errorMessage, fill, stamp, tokenWords, type ConnectionsT } from './shared'
 
 /**
  * The accounts the brain reads cloud sources as (W4): one row per
@@ -145,13 +145,13 @@ export function AccountsSection({
                       )}
                     </td>
                     <td className="px-3 py-1.5 text-[var(--text-muted)]">
-                      {n > 0 ? fill(a.usedBy, { n }) : a.unused}
+                      {n === 0 ? a.unused : n === 1 ? a.usedByOne : fill(a.usedBy, { n })}
                     </td>
                     <td className="px-3 py-1.5 text-[var(--text-muted)]">
                       {g.status === 'active' && (
                         <>
                           <span title={g.accessExpiresAt ? fill(a.expiresAt, { at: stamp(g.accessExpiresAt) }) : undefined}>
-                            {g.refreshable ? a.refreshable : a.notRefreshable}
+                            {tokenWords(g, a)}
                           </span>
                           {g.lastRefreshAt && (
                             <div className="text-[10px] text-[var(--text-faint)]">{stamp(g.lastRefreshAt)}</div>

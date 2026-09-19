@@ -188,9 +188,7 @@ function ConnectionRow({
         )}
       </td>
       <td className="px-3 py-1.5 text-[var(--text-muted)]">
-        <span className="whitespace-nowrap">
-          <KindLabel family={familyOf(c)} connector={c.connector} t={t} />
-        </span>
+        <KindLabel family={familyOf(c)} connector={c.connector} t={t} />
         <span className="text-[var(--text-faint)]">
           {' · '}
           {c.shape === 'binary'
@@ -222,13 +220,13 @@ function ConnectionRow({
         {c.lastSyncAt ? stamp(c.lastSyncAt) : t.list.neverSynced}
         {c.lastSyncStatus && <span className={`ml-1 ${syncTone(c.lastSyncStatus)}`}>{c.lastSyncStatus}</span>}
         {c.lastError && (
-          <div className="text-[var(--danger)] max-w-[16rem] truncate" title={c.lastError}>
+          <div className="text-[var(--danger)] max-w-[12rem] truncate" title={c.lastError}>
             {c.lastError}
           </div>
         )}
       </td>
       <td className="px-3 py-1.5 text-right whitespace-nowrap">
-        <span className="inline-flex gap-1 justify-end">
+        <span className="inline-flex gap-0.5 justify-end">
           <IconButton
             label={t.list.sync}
             disabled={busy || c.status !== 'active' || !onServer}
@@ -296,7 +294,7 @@ function IconButton({
       title={hint ? `${label} — ${hint}` : label}
       disabled={disabled}
       onClick={onClick}
-      className={`${className} px-1.5 py-1`}
+      className={`${className} px-1 py-1`}
     >
       {children}
     </button>
