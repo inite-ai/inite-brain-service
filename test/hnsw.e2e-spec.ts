@@ -45,9 +45,9 @@ describe('HNSW vector leg (real SurrealDB)', () => {
     const results = await search('HNSW Probe Tenant');
     delete process.env.SEARCH_HNSW_ENABLED;
     expect(results.length).toBeGreaterThan(0);
-    // canonicalName defaults to the entityRef id at upsert time.
-    // Named by its `name` fact (entity-name.ts); the reference id is the stable handle.
-    expect(results[0]!.externalRefs).toMatchObject({ rent__hnsw_subject: 'hnsw_subject' });
+    // Named by its `name` fact (entity-name.ts) — 'HNSW Probe Tenant' — the
+    // reference id stays among the aliases.
+    expect(results[0]!.canonicalName).toBe('HNSW Probe Tenant');
   });
 
   /**
