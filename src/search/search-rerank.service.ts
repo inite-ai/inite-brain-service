@@ -115,17 +115,26 @@ export class SearchRerankService {
 
     let candidatesForRerank = wideCandidates.slice(0, RERANK_WINDOW);
 
-    if (this.crossEncoder.isEnabled() && wideCandidates.length > 1) {
+    // The entity pass runs when its order DECIDES something: it narrows
+    // the wide set to the rerank window, or it is the only reranker
+    // this search gets. Measured on prod (2026-09-18, 2 vCPU, 140 ms a
+    // pair): 20 candidates took 1.16 s in series before the LLM rerank
+    // — which then re-ordered the same 20 within the band, on a window
+    // the local path never narrows (both are 20). And with fewer
+    // candidates than the caller's limit the generator reads the set
+    // whole, so no order matters (the LLM rerank already skips there).
+    // The fact-level pass and the lanes that need the joint encoder are
+    // untouched; it is one CPU-bound pass per search that goes.
+    const skip = this.entityCrossEncoderSkip(wideCandidates, RERANK_WINDOW, ctx);
+    if (skip) {
+      this.metrics?.countCrossEncoder(skip);
+    } else {
       candidatesForRerank = await this.runCrossEncoder(
         wideCandidates,
         ctx.dto.query,
         RERANK_WINDOW,
         budgetsOf(ctx),
       );
-    } else if (!this.crossEncoder.isEnabled()) {
-      this.metrics?.countCrossEncoder('skipped_disabled');
-    } else {
-      this.metrics?.countCrossEncoder('skipped_singleton');
     }
 
     // The fact-level cross-encoder pass starts HERE, not after the LLM
@@ -140,6 +149,23 @@ export class SearchRerankService {
     const fact = await factPass;
     if (fact) remapWindowScores(fact.rows, fact.perm);
     return ordered;
+  }
+
+  /** Why the entity cross-encoder pass does not run for this search, or
+   *  null when it does (see runRerankStage). */
+  private entityCrossEncoderSkip(
+    wideCandidates: EntityBucket[],
+    rerankWindow: number,
+    ctx: PipelineContext,
+  ): 'skipped_disabled' | 'skipped_singleton' | 'skipped_all_fit' | 'skipped_llm_orders' | null {
+    if (!this.crossEncoder.isEnabled()) return 'skipped_disabled';
+    if (wideCandidates.length <= 1) return 'skipped_singleton';
+    if (wideCandidates.length <= ctx.limit) return 'skipped_all_fit';
+    // The LLM reranker will order this exact set — the pass narrows nothing.
+    if (this.reranker.isEnabled() && wideCandidates.length <= rerankWindow) {
+      return 'skipped_llm_orders';
+    }
+    return null;
   }
 
   /**

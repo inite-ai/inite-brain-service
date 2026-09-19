@@ -48,9 +48,12 @@ describe('rerank stage — the fact pass rides beside the LLM rerank', () => {
     const events: string[] = [];
     let releaseFact!: () => void;
     const factDone = new Promise<void>((r) => (releaseFact = r));
+    // Three candidates, limit 1: the rerank window is 2, so the entity
+    // pass narrows the wide set — it decides something and runs.
     const byEntity = new Map([
       ['a', bucket('a', [0.9, 0.2])],
       ['b', bucket('b', [0.8, 0.1])],
+      ['c', bucket('c', [0.05])],
     ]);
     const crossEncoder = {
       isEnabled: () => true,
@@ -89,9 +92,46 @@ describe('rerank stage — the fact pass rides beside the LLM rerank', () => {
     // The remap landed: the window's score SET is preserved and the
     // inverted permutation gave the lowest fused fact the highest value.
     const scores = [...byEntity.values()].flatMap((b) => b.facts.map((f) => f.score));
-    expect([...scores].sort((x, y) => y - x)).toEqual([0.9, 0.8, 0.2, 0.1]);
-    expect(byEntity.get('b')!.facts[1]!.score).toBe(0.9);
-    expect(byEntity.get('a')!.facts[0]!.score).toBe(0.1);
+    expect([...scores].sort((x, y) => y - x)).toEqual([0.9, 0.8, 0.2, 0.1, 0.05]);
+    expect(byEntity.get('c')!.facts[0]!.score).toBe(0.9);
+    expect(byEntity.get('a')!.facts[0]!.score).toBe(0.05);
+  });
+
+  it('the entity pass is skipped when the LLM reranker orders the same set, and when every candidate fits', async () => {
+    const byEntity = new Map([
+      ['a', bucket('a', [0.9, 0.2])],
+      ['b', bucket('b', [0.8, 0.1])],
+    ]);
+    const crossEncoder = {
+      isEnabled: () => true,
+      isLocalOnly: () => true,
+      rerank: jest.fn(async (_q: string, inputs: unknown[]) => inputs.map((_, i) => i)),
+    } as unknown as CrossEncoderService;
+    const llm = jest.fn(async (_q: string, inputs: unknown[]) => inputs.map((_, i) => i));
+    const metrics = { countRerank: jest.fn(), countCrossEncoder: jest.fn() };
+    // Two candidates, limit 1, window 2: the LLM reranker orders exactly
+    // this set — the entity pass would narrow nothing.
+    const withLlm = new SearchRerankService(
+      { isEnabled: () => true, rerank: llm } as unknown as RerankerService,
+      crossEncoder,
+      metrics as never,
+    );
+    await withLlm.runRerankStage({ byEntity, ctx: ctx(false) });
+    expect(crossEncoder.rerank).not.toHaveBeenCalled();
+    expect(llm).toHaveBeenCalledTimes(1);
+    expect(metrics.countCrossEncoder).toHaveBeenCalledWith('skipped_llm_orders');
+    // Two candidates, limit 5: the generator reads the set whole — no pass at all.
+    await withLlm.runRerankStage({ byEntity, ctx: { ...ctx(false), limit: 5 } as never });
+    expect(crossEncoder.rerank).not.toHaveBeenCalled();
+    expect(metrics.countCrossEncoder).toHaveBeenCalledWith('skipped_all_fit');
+    // No LLM reranker: the entity pass is the only reranker and runs.
+    const alone = new SearchRerankService(
+      { isEnabled: () => false } as unknown as RerankerService,
+      crossEncoder,
+      metrics as never,
+    );
+    await alone.runRerankStage({ byEntity, ctx: ctx(false) });
+    expect(crossEncoder.rerank).toHaveBeenCalledTimes(1);
   });
 
   it('the LLM reranker is skipped when every candidate fits the caller limit', async () => {

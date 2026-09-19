@@ -61,13 +61,18 @@ vector leg                  lexical leg
      group-by-entity ──→ PPR prior (HippoRAG-style, opt-in)
                    │
                    ▼
-     cross-encoder (Cohere Rerank v3.5, opt-in,
-                    identity-fallback on error)
+     cross-encoder (Cohere Rerank v3.5 when keyed, else the
+                    local ONNX worker; identity-fallback on error;
+                    the entity pass runs only when it DECIDES —
+                    it narrows the wide set to the rerank window,
+                    or no LLM reranker follows; a set that fits
+                    the caller's limit is never reranked)
                    │
                    ▼
      listwise LLM reranker
        (RankGPT-style + 1-hop SubgraphRAG neighbour context
-        + type-prior hint, N=3 self-consistency by Borda count)
+        + type-prior hint, N=3 self-consistency by Borda count;
+        the fact-level cross-encoder pass runs beside it)
                    │
                    ▼
      entity-fact backfill (native Surreal inline subquery

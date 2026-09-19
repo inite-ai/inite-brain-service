@@ -9,6 +9,7 @@ import {
 } from 'prom-client';
 import { isConclusive, type CapabilityName, type ProbeOutcome } from './capability-probe';
 import { PROCESS_IDENTITY } from '../common/process-identity';
+import type { CrossEncoderOutcome } from './cross-encoder-outcome';
 
 /** knowledge_fact.status enum (schema ASSERT) — every value gets a series. */
 export const FACT_STATUSES = [
@@ -1025,15 +1026,7 @@ export class MetricsService implements OnModuleInit {
     this.searchRerankCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
-  countCrossEncoder(
-    outcome:
-      | 'invoked'
-      | 'error'
-      | 'skipped_disabled'
-      | 'skipped_singleton'
-      | 'fact_invoked'
-      | 'fact_error',
-  ): void {
+  countCrossEncoder(outcome: CrossEncoderOutcome): void {
     this.searchCrossEncoderCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
