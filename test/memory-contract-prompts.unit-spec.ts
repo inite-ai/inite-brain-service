@@ -4,7 +4,7 @@
  *    entities[].known, facts[].eventTime and facts[].supersedes in lockstep;
  *  - the extractor's user message opens with the memory sections and
  *    ends with CURRENT TURN before the text, speaker framing first;
- *  - the auditor's prompt states the query's date and the six non-claims;
+ *  - the auditor's prompt states the query's date and the seven non-claims;
  *  - the generator's revision frame carries the previous answer and the
  *    named claims ahead of the evidence.
  */
@@ -92,17 +92,18 @@ describe("the auditor knows the query's date and the non-claims", () => {
     model: 'gpt-test',
   };
 
-  it('renders Today only when given; the rules cover calendar placement, evidence scope and layout', async () => {
+  it('renders Today only when given; the rules cover calendar placement, evidence scope, layout and currency', async () => {
     const users: string[] = [];
     const systems: string[] = [];
     await runVerifier({ ...base, dateContext: '2026-09-18', openai: capturing(users, systems) });
     await runVerifier({ ...base, openai: capturing(users, systems) });
     expect(users[0]).toContain("Today (the query's date): 2026-09-18");
     expect(users[1]).not.toContain('Today (');
-    expect(systems[0]).toContain('Six things are NOT unsupported claims');
+    expect(systems[0]).toContain('Seven things are NOT unsupported claims');
     expect(systems[0]).toContain('Placing the evidence on the calendar');
     expect(systems[0]).toContain('A statement about the evidence itself');
     expect(systems[0]).toContain('Layout is not a claim');
+    expect(systems[0]).toContain('The evidence IS the current state');
   });
 });
 
