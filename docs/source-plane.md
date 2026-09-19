@@ -208,6 +208,36 @@ accepted flags into the retry.
 | **`notion`** | `SOURCE_KIND_NOTION` + `SOURCE_OAUTH_CLIENT` | the pages a connected Notion integration can see (`web_memory/notion`): `POST /v1/search` is the catalogue (every page and database row, newest edit first); a page's block tree — children to a bounded depth — becomes markdown-shaped text (headings, lists, to-dos, code, quotes, tables, child-page and media markers), a database row's properties `key: value` lines above it; `rootPageIds` walks the named pages' subtrees (child pages followed) instead of search. An incremental run stops at the first page edited no later than the checkpoint; a full run walks everything and what search no longer lists (archived, trashed, unshared) is gone. The provider: a PUBLIC integration — token endpoint with HTTP Basic + a strictly validated JSON body, no PKCE, no refresh token (the token never expires; a revoked integration is a 401) | `lm:<last_edited_time>` | `{ rootPageIds?, maxPages?, maxBlocks? }`; credential `oauth:<grant id>` |
 | **`confluence`** | `SOURCE_KIND_CONFLUENCE` + `SOURCE_OAUTH_CLIENT` | the pages (and blog posts, `includeBlogposts`) of a Confluence Cloud site (`web_memory/confluence`) through the v2 REST API at `api.atlassian.com/ex/confluence/<cloud id>/wiki/api/v2`: the site from the account's accessible resources (`config.site` names one of several by host or name), `spaceKeys` resolved to space ids, the listing newest modification first — an incremental run stops at the checkpoint, a full run walks everything; storage-format XHTML (code macros from CDATA, page links by title, tasks) reduced to text by the shared HTML reducer. The provider: Atlassian 3LO — JSON token endpoint with the app's credentials in the body, `offline_access` for a rotating refresh token, one hour of access at a time, no PKCE | `v:<version.number>` | `{ site?, spaceKeys?, includeBlogposts?, maxPages? }`; credential `oauth:<grant id>` |
 
+### Mail (W4.6) — a mailbox is a conversation
+
+Mail is conversation-shaped (doctrine 2): every message is ONE TURN of its
+thread and enters through the mention door → episodes, the sender as the
+speaker. The two connectors share `connectors/mail-turn.ts`, which decides
+what a turn says: the sender's display name (else the local part of the
+address — an address in the text would be redacted as PII by the episode
+store) as the speaker; the body less what the sender did not write —
+quoted lines (`> …`), everything under an "On … wrote:" / "Original
+Message" / "Forwarded message" / Outlook `From: … Sent: …` block, the
+signature under `-- `; the subject on top for a thread starter only;
+attachments named in brackets, never inlined. The message's Message-ID is
+the turn's `messageId` (the mention door is idempotent on it); the
+thread is the Gmail thread id, else the first id in `References`, else
+`In-Reply-To`, else the message itself. `mail_memory` is the pack: its
+vocabulary is what people SAY in mail — `requested`, `committed_to`,
+`decided`, `deadline`, `discussed` — never what the headers say (`To` /
+`Cc` are not read into memory). The MIME parse is the dependency-free
+one the `.eml` adapter already has (`parseMail`), now exposing headers,
+body and attachments (bytes on request). A catalogue row of a
+conversation-shaped item links to the episode its turn was captured as
+(`episodeId`; the mention door's answer now carries it), and the item
+drawer shows the turn — speaker, conversation, text — with the facts the
+turn yielded (`source.episodeIds`) where a document's would be.
+
+| Kind | Flag | Reads | Revision | Config |
+|---|---|---|---|---|
+| **`gmail`** | `SOURCE_KIND_GMAIL` + `SOURCE_OAUTH_CLIENT` | a Gmail mailbox (`mail_memory/gmail`) through the Gmail REST API as the connected Google account (`gmail.readonly` — the same Google app as Drive, one more scope; the account picker flags a Drive-only grant as narrower). One catalogue row per MESSAGE: `messages.list` with the connection's own Gmail query plus `after:<since>` — the operator's `since` (default 90 days back) on a first walk, the checkpoint's walk time less a day of overlap on an incremental one (the engine drops what it already has) — newest first, capped by `maxMessages`; each message's Subject / From / Date by one metadata call. Fetch = `format=raw` → the MIME parse → one turn; the thread id is the conversation. Deletions ride `history.list` from the checkpoint's `historyId` (read from the profile at the START of the walk), `messageDeleted` only; an id too old to serve (404) is logged and deletions wait for a full walk. The `gmail_attachments` entry (binary) lists the same messages with `has:attachment`, one row per attachment (`<message id>#<part id>`) judged by the `fs` media table on name, reported type and size, bytes by `attachments.get` | `id:<message id>` — a delivered message never changes | `{ query?, labelIds?, since?, maxMessages?, includeSpamTrash?, extensions?, maxFileBytes? }`; credential `oauth:<grant id>` |
+| **`imap`** | `SOURCE_KIND_IMAP` | any mailbox over IMAP (`mail_memory/imap`) — a host, a user, the mailbox password (an app password where the provider issues one) as the credential — read-only, with a client of its own (`connectors/imap-client.ts`, no dependency): greeting, LOGIN, EXAMINE, UID SEARCH, UID FETCH, LOGOUT and nothing else; TLS on 993, a plain socket only under the double opt-in (`allowPrivate` + `SOURCE_EGRESS_ALLOW_PRIVATE`, the host through the same egress fence as HTTP, the link-local range refused even then). Per mailbox (`INBOX` by default; plain ASCII names): a first walk `UID SEARCH SINCE <since>`, the newest `maxMessages` of it, their headers in one `UID FETCH … BODY.PEEK[HEADER.FIELDS (…)]`; the checkpoint keeps each mailbox's UIDVALIDITY and highest UID, an incremental run fetches `<highest+1>:*` only, a mailbox whose UIDVALIDITY moved is walked again; what was deleted is found by a full walk (the connector never expunges). The Message-ID is the row's id (the same message in two mailboxes is one row); the RFC 5092 URL `imap://user@host/INBOX;UIDVALIDITY=n/;UID=m` is its origin AND how fetch (`BODY.PEEK[]`) finds it. Not spoken: STARTTLS, OAuth over IMAP, IDLE, CONDSTORE / QRESYNC, attachments as evidence (a binary entry is refused by name) | `m:<Message-ID>` (else `uid:<locator>`) | `{ host, port?, tls?, user, mailboxes?, since?, maxMessages?, allowPrivate? }`; credential = the password |
+
 ### `mcp` — the harvester (W2)
 
 | Kind | Flag | Reads | Revision | Config |
@@ -632,6 +662,7 @@ pack may only name it.
 | `SOURCE_KIND_PIPEDRIVE` | `0` | the first CRM connector on the records contract (W4.2); a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_PIPEDRIVE_CLIENT_ID`, an API token needs neither |
 | `SOURCE_KIND_HUBSPOT` | `0` | the `hubspot` connector (W4.2b); a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_HUBSPOT_CLIENT_ID`, a private-app token needs neither |
 | `SOURCE_KIND_NOTION`, `SOURCE_KIND_CONFLUENCE` | `0` | the `notion` and `confluence` connectors (W4.5); each needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_NOTION_CLIENT_ID` / `SOURCE_OAUTH_ATLASSIAN_CLIENT_ID` |
+| `SOURCE_KIND_GMAIL`, `SOURCE_KIND_IMAP` | `0` | the `gmail` and `imap` mail connectors (W4.6); `gmail` needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_GOOGLE_CLIENT_ID` (the Drive app, one more scope); `imap` takes the password as the credential |
 | `SOURCE_KIND_BITRIX24`, `SOURCE_KIND_KOMMO` | `0` | the `bitrix24` and `kommo` connectors (W4.2b): a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_BITRIX24_CLIENT_ID` / `SOURCE_OAUTH_KOMMO_CLIENT_ID` (W4.3b; `_LOGIN_URL` = a portal's origin / `https://www.amocrm.ru`); an inbound webhook URL / a long-lived token needs no app |
 | `SOURCE_KIND_SALESFORCE` | `0` | the `salesforce` connector (W4.2c); a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_SALESFORCE_CLIENT_ID` (`SOURCE_OAUTH_SALESFORCE_LOGIN_URL` for a sandbox / My Domain login host), a JWT bearer needs neither |
 | `SOURCE_KIND_REST_RECORDS` | `0` | the config-driven `rest_records` connector for any JSON list API (W4.2b′) |

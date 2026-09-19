@@ -12,6 +12,8 @@ import { AgentSyncService } from './agent-sync.service';
 import { SOURCE_CONNECTORS, type Connector } from './connector';
 import { Bitrix24Connector } from './connectors/bitrix24.connector';
 import { ConfluenceConnector } from './connectors/confluence.connector';
+import { GmailConnector } from './connectors/gmail.connector';
+import { ImapConnector } from './connectors/imap.connector';
 import { DropboxConnector } from './connectors/dropbox.connector';
 import { FsConnector } from './connectors/fs.connector';
 import { GDriveConnector } from './connectors/gdrive.connector';
@@ -104,6 +106,8 @@ import { SourceSyncService } from './source-sync.service';
     DropboxConnector,
     NotionConnector,
     ConfluenceConnector,
+    GmailConnector,
+    ImapConnector,
     PipedriveConnector,
     HubSpotConnector,
     Bitrix24Connector,
@@ -123,6 +127,8 @@ import { SourceSyncService } from './source-sync.service';
         DropboxConnector,
         NotionConnector,
         ConfluenceConnector,
+        GmailConnector,
+        ImapConnector,
         PipedriveConnector,
         HubSpotConnector,
         Bitrix24Connector,

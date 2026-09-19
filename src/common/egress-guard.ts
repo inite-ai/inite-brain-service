@@ -40,7 +40,15 @@ export async function assertPublicHttpUrl(
     throw new EgressDeniedError(`endpoint "${rawUrl}" must use https`);
   }
   // URL keeps IPv6 literals bracketed ("[::1]") — strip for lookup.
-  const host = url.hostname.replace(/^\[|\]$/g, '');
+  await assertPublicHost(url.hostname.replace(/^\[|\]$/g, ''));
+}
+
+/**
+ * The host half of the check, for a connection that is not HTTP (an
+ * IMAP session over TLS): every address the name resolves to must be
+ * public.
+ */
+export async function assertPublicHost(host: string): Promise<void> {
   let addrs: Array<{ address: string; family: number }>;
   try {
     addrs = await dns.lookup(host, { all: true });

@@ -5,7 +5,14 @@ import Link from 'next/link'
 import { Plug } from 'lucide-react'
 import type { SourceCatalogResponse } from '../../../lib/contracts/admin-source-connections'
 import { GROUP_ICONS, GroupHeading, KIND_ICONS, kindTitle } from './KindLabel'
-import { cardWords, cardsOf, groupCards, type SourceCard, type SourceGroup } from './kinds'
+import {
+  cardWords,
+  cardsOf,
+  groupCards,
+  isTextShape,
+  type SourceCard,
+  type SourceGroup,
+} from './kinds'
 import { accentBtn, availabilityTone, fill, type ConnectionsT } from './shared'
 
 /**
@@ -175,7 +182,7 @@ function SourceKindCard({
             </h3>
             <div className="text-[10px] text-[var(--text-faint)]">
               {shapes
-                .filter((sh) => sh === 'document' || sh === 'binary')
+                .filter((sh) => isTextShape(sh) || sh === 'binary')
                 .map((sh) => (sh === 'binary' ? k[card.family].shapes.binary : k[card.family].shapes.document))
                 .join(' · ')}
             </div>

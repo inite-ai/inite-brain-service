@@ -694,6 +694,14 @@ describe('admin-source-connections mirrors', () => {
             },
           ],
         },
+        episode: {
+          id: 'episode:t1',
+          conversationId: 'thread-1',
+          messageId: 'm1@acme.test',
+          speaker: null,
+          text: 'Anna Ivanova: Subject: Contract for the Q4 batch',
+          occurredAt: '2026-09-15T07:00:00.000Z',
+        },
         facts: [
           {
             id: 'knowledge_fact:f1',

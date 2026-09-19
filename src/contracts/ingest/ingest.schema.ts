@@ -167,6 +167,12 @@ export const IngestMentionResponseSchema = z.object({
   extractedEntityIds: z.array(z.string()),
   extractedFactIds: z.array(z.string()),
   extractedEdgeIds: z.array(z.string()).optional(),
+  /**
+   * The L0 episode turn this mention was captured as (EPISODE_SUBSTRATE_ENABLED)
+   * — what a conversation-shaped source links its catalogue row to; absent
+   * when capture is off.
+   */
+  episodeId: z.string().optional(),
 });
 
 export type IngestFactRequest = z.infer<typeof IngestFactRequestSchema>;

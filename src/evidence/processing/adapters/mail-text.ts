@@ -34,41 +34,76 @@ const DEFAULT_MAX_PARTS = 200;
 const DEFAULT_MAX_DEPTH = 8;
 const HEADER_LINES = ['From', 'To', 'Cc', 'Date', 'Subject'] as const;
 
-interface Headers {
+export interface MailHeaders {
+  /** The header's value, unfolded, RFC 2047 words NOT decoded (see `decodeWords`). */
   get(name: string): string | undefined;
 }
 
 interface Part {
-  headers: Headers;
+  headers: MailHeaders;
   body: Buffer;
+}
+
+export interface MailAttachment {
+  name: string;
+  mediaType: string;
+  size: number;
+  /** Present when the parse was asked to keep bytes (the mail connectors' attachment items). */
+  bytes?: Buffer | undefined;
+}
+
+/** A message parsed once: headers, the body as text, the attachments. */
+export interface ParsedMail {
+  headers: MailHeaders;
+  /** The first text/plain body, else the first text/html body reduced to text; '' when none. */
+  body: string;
+  attachments: MailAttachment[];
 }
 
 interface Found {
   plain?: string | undefined;
   html?: string | undefined;
-  attachments: string[];
+  attachments: MailAttachment[];
   parts: number;
+  keepBytes: boolean;
 }
 
 export function mailText(raw: Buffer, limits: MailLimits = {}): string {
-  const root = splitMessage(raw);
+  const parsed = parseMail(raw, limits);
   const lines: string[] = [];
   for (const name of HEADER_LINES) {
-    const v = root.headers.get(name);
+    const v = parsed.headers.get(name);
     if (v !== undefined && v.trim().length > 0) lines.push(`${name}: ${decodeWords(v)}`);
   }
-  const found: Found = { attachments: [], parts: 0 };
+  const out = [lines.join('\n')];
+  if (parsed.body.trim().length > 0) out.push(parsed.body.trim());
+  if (parsed.attachments.length > 0)
+    out.push(
+      parsed.attachments
+        .map((a) => `[attachment: ${a.name} (${a.mediaType}, ${String(a.size)} bytes)]`)
+        .join('\n'),
+    );
+  return out.filter((s) => s.length > 0).join('\n\n');
+}
+
+/**
+ * The parse behind `mailText`, for a caller that needs the parts apart
+ * (a mail connector: the headers for the thread, the body for the turn,
+ * an attachment's bytes for the evidence plane).
+ */
+export function parseMail(
+  raw: Buffer,
+  limits: MailLimits & { keepBytes?: boolean } = {},
+): ParsedMail {
+  const root = splitMessage(raw);
+  const found: Found = { attachments: [], parts: 0, keepBytes: limits.keepBytes === true };
   walk(root, found, {
     depth: 0,
     maxParts: limits.maxParts ?? DEFAULT_MAX_PARTS,
     maxDepth: limits.maxDepth ?? DEFAULT_MAX_DEPTH,
   });
   const body = found.plain ?? (found.html !== undefined ? htmlToText(found.html).body : '');
-  const out = [lines.join('\n')];
-  if (body.trim().length > 0) out.push(body.trim());
-  if (found.attachments.length > 0)
-    out.push(found.attachments.map((a) => `[attachment: ${a}]`).join('\n'));
-  return out.filter((s) => s.length > 0).join('\n\n');
+  return { headers: root.headers, body, attachments: found.attachments };
 }
 
 function walk(
@@ -97,9 +132,13 @@ function walk(
   const isAttachment =
     disposition.startsWith('attachment') || (filename !== undefined && ct.type !== 'text');
   if (isAttachment) {
-    found.attachments.push(
-      `${decodeWords(filename ?? 'unnamed')} (${ct.type}/${ct.subtype}, ${String(part.body.length)} bytes)`,
-    );
+    const bytes = found.keepBytes ? decodeTransfer(part) : null;
+    found.attachments.push({
+      name: decodeWords(filename ?? 'unnamed'),
+      mediaType: `${ct.type}/${ct.subtype}`,
+      size: bytes ? bytes.length : part.body.length,
+      ...(bytes ? { bytes } : {}),
+    });
     return;
   }
   if (ct.type !== 'text') return;

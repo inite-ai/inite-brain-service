@@ -3975,6 +3975,9 @@
       "IngestMentionResponse": {
         "additionalProperties": false,
         "properties": {
+          "episodeId": {
+            "type": "string"
+          },
           "extractedEdgeIds": {
             "items": {
               "type": "string"
@@ -8067,6 +8070,57 @@
             },
             "type": "array"
           },
+          "episode": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "conversationId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "messageId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "occurredAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "speaker": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "conversationId",
+                  "messageId",
+                  "speaker",
+                  "text",
+                  "occurredAt"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "facts": {
             "items": {
               "additionalProperties": false,
@@ -8141,6 +8195,7 @@
           "item",
           "documents",
           "asset",
+          "episode",
           "facts",
           "factsTruncated"
         ],

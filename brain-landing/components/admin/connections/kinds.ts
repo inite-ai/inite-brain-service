@@ -22,6 +22,8 @@ export type SourceFamily =
   | 'dropbox'
   | 'notion'
   | 'confluence'
+  | 'gmail'
+  | 'imap'
   | 'records'
   | 'db'
   | 'external'
@@ -31,13 +33,14 @@ export type SourceFamily =
  * Where a kind sits on the page. Seventeen cards in one grid is a heap;
  * the catalogue and the connections table both fold by these groups,
  * in this order: the documents you already have, then what you read
- * over the network, then records, then what is pushed in.
+ * over the network, then mail, then records, then what is pushed in.
  */
-export type SourceGroup = 'files' | 'web' | 'mcp' | 'code' | 'records' | 'external' | 'other'
+export type SourceGroup = 'files' | 'web' | 'mail' | 'mcp' | 'code' | 'records' | 'external' | 'other'
 
 export const SOURCE_GROUPS: readonly SourceGroup[] = [
   'files',
   'web',
+  'mail',
   'mcp',
   'code',
   'records',
@@ -57,6 +60,9 @@ export function groupOf(family: SourceFamily): SourceGroup {
     case 'notion':
     case 'confluence':
       return 'web'
+    case 'gmail':
+    case 'imap':
+      return 'mail'
     case 'mcp':
       return 'mcp'
     case 'repo':
@@ -88,6 +94,8 @@ export function familyOf(e: { kind: string; connector: string }): SourceFamily {
     case 'dropbox':
     case 'notion':
     case 'confluence':
+    case 'gmail':
+    case 'imap':
       return e.connector
     case 'pipedrive':
     case 'hubspot':
@@ -119,7 +127,8 @@ export interface SourceCard {
   ambiguous: boolean
 }
 
-const SHAPE_ORDER: Record<string, number> = { document: 0, binary: 1, conversation: 2, structure: 3 }
+/** The text-ish shape first (a mailbox's messages before its attachments), then files, then records. */
+const SHAPE_ORDER: Record<string, number> = { document: 0, conversation: 1, binary: 2, structure: 3 }
 /** How kinds sit inside a group: what you own first, then the cloud drives, then the rest. */
 const FAMILY_ORDER: Record<SourceFamily, number> = {
   folder: 0,
@@ -130,12 +139,14 @@ const FAMILY_ORDER: Record<SourceFamily, number> = {
   site: 5,
   notion: 6,
   confluence: 7,
-  mcp: 8,
-  repo: 9,
-  records: 10,
-  db: 11,
-  external: 12,
-  other: 13,
+  gmail: 8,
+  imap: 9,
+  mcp: 10,
+  repo: 11,
+  records: 12,
+  db: 13,
+  external: 14,
+  other: 15,
 }
 const AVAILABILITY_RANK: Record<SourceAvailability, number> = {
   ready: 0,
@@ -220,23 +231,27 @@ export function cardsOf(sources: SourceCatalogEntry[]): SourceCard[] {
   )
 }
 
-/** The choice the flow offers when a kind comes in more than one shape. */
+/** The choice the flow offers when a kind comes in more than one shape: its text (documents, or a mailbox's messages), its files, or both. */
 export type ShapeChoice = 'document' | 'binary' | 'both'
 
-export function shapeChoices(card: SourceCard): ShapeChoice[] {
-  const shapes = new Set(card.entries.map((e) => e.shape))
-  if (shapes.has('document') && shapes.has('binary')) return ['document', 'binary', 'both']
-  return []
+/** A document or a conversation: what the "document" choice stands for. */
+export function isTextShape(shape: string): boolean {
+  return shape === 'document' || shape === 'conversation'
 }
 
-/** The entries a choice creates connections for (no choice = the card's first, document-shaped, entry). */
+export function shapeChoices(card: SourceCard): ShapeChoice[] {
+  const text = card.entries.some((e) => isTextShape(e.shape))
+  const binary = card.entries.some((e) => e.shape === 'binary')
+  return text && binary ? ['document', 'binary', 'both'] : []
+}
+
+/** The entries a choice creates connections for (no choice = the card's first, text-shaped, entry). */
 export function entriesFor(card: SourceCard, choice: ShapeChoice | null): SourceCatalogEntry[] {
   if (choice === 'both') {
-    return card.entries.filter((e) => e.shape === 'document' || e.shape === 'binary')
+    return card.entries.filter((e) => isTextShape(e.shape) || e.shape === 'binary')
   }
-  if (choice === 'document' || choice === 'binary') {
-    return card.entries.filter((e) => e.shape === choice).slice(0, 1)
-  }
+  if (choice === 'document') return card.entries.filter((e) => isTextShape(e.shape)).slice(0, 1)
+  if (choice === 'binary') return card.entries.filter((e) => e.shape === 'binary').slice(0, 1)
   return card.entries.slice(0, 1)
 }
 
