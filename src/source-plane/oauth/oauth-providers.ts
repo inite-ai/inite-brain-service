@@ -23,7 +23,14 @@
  */
 
 export type OAuthProviderId =
-  'google' | 'microsoft' | 'dropbox' | 'pipedrive' | 'hubspot' | 'salesforce';
+  | 'google'
+  | 'microsoft'
+  | 'dropbox'
+  | 'pipedrive'
+  | 'hubspot'
+  | 'salesforce'
+  | 'bitrix24'
+  | 'kommo';
 
 export const OAUTH_PROVIDER_IDS: readonly OAuthProviderId[] = [
   'google',
@@ -32,7 +39,19 @@ export const OAUTH_PROVIDER_IDS: readonly OAuthProviderId[] = [
   'pipedrive',
   'hubspot',
   'salesforce',
+  'bitrix24',
+  'kommo',
 ];
+
+/**
+ * The account's host in a URL — `https://{host}/oauth2/access_token` —
+ * for a vendor whose endpoints live on the account's own domain (Kommo:
+ * the token endpoint and the API; Bitrix24: the portal's REST). Filled
+ * from the callback (`accountHost`) or from the grant's `apiBase`.
+ */
+export const HOST_PLACEHOLDER = '{host}';
+/** A syntactically valid stand-in so a template still parses as a URL. */
+const HOST_STANDIN = 'account.invalid';
 
 export interface OAuthProviderSpec {
   id: OAuthProviderId;
@@ -69,11 +88,28 @@ export interface OAuthProviderSpec {
   /**
    * The provider's login host is the operator's choice (Salesforce:
    * `login.salesforce.com`, `test.salesforce.com` for a sandbox, or a
-   * My Domain) — SOURCE_OAUTH_<P>_LOGIN_URL swaps the origin of the
-   * authorize / token / identity URLs, public hosts only (unlike the
-   * dev override, no private opt-in is involved).
+   * My Domain; Kommo: `www.amocrm.ru` for amoCRM; Bitrix24: the portal
+   * itself, to skip the portal prompt) — SOURCE_OAUTH_<P>_LOGIN_URL
+   * swaps the origin of the authorize / token / identity URLs, public
+   * hosts only (unlike the dev override, no private opt-in is
+   * involved). A URL on the account's host (`{host}`) is left alone.
    */
   loginUrlEnv?: string | undefined;
+  /**
+   * How the token endpoint takes its parameters: a form body (the
+   * standard, default), a JSON body (Kommo), or the query string of a
+   * GET (Bitrix24).
+   */
+  tokenRequest?: 'form' | 'json' | 'query' | undefined;
+  /**
+   * The callback names the account's host under this query parameter
+   * (Kommo `referer` = `<subdomain>.kommo.com`) and the token endpoint
+   * lives there; the host must end in one of the suffixes — the app's
+   * secret goes to that host, so a callback naming any other is refused.
+   */
+  accountHost?: { param: string; suffixes: string[] } | undefined;
+  /** The refresh request carries `redirect_uri` too (Kommo asks for it). */
+  refreshWithRedirectUri?: boolean | undefined;
 }
 
 const SPECS: Record<OAuthProviderId, OAuthProviderSpec> = {
@@ -182,6 +218,57 @@ const SPECS: Record<OAuthProviderId, OAuthProviderSpec> = {
     apiBaseKey: 'instance_url',
     loginUrlEnv: 'SOURCE_OAUTH_SALESFORCE_LOGIN_URL',
   },
+  bitrix24: {
+    id: 'bitrix24',
+    title: 'Bitrix24',
+    // The "full" authorization: oauth.bitrix.info asks which portal, the
+    // portal consents, the token endpoint is a GET with the parameters
+    // in the query and answers the portal's REST root (`client_endpoint`
+    // → the grant's apiBase). Scopes are fixed on the app (a local
+    // application or a Marketplace one); no PKCE at Bitrix24 — the
+    // verifier is ignored, the state + the app secret carry the flow.
+    // The refresh token lives 28 days: a connection that syncs at least
+    // monthly never needs reconnecting. SOURCE_OAUTH_BITRIX24_LOGIN_URL
+    // = the portal's own origin skips the portal prompt (its
+    // /oauth/authorize/ and /oauth/token/ speak the same protocol).
+    authorizeUrl: 'https://oauth.bitrix.info/oauth/authorize/',
+    tokenUrl: 'https://oauth.bitrix.info/oauth/token/',
+    tokenRequest: 'query',
+    authorizeParams: {},
+    baseScopes: [],
+    apiBase: 'https://oauth.bitrix.info',
+    identity: {
+      method: 'GET',
+      url: `https://${HOST_PLACEHOLDER}/rest/profile.json`,
+      pick: ['result.EMAIL', 'result.NAME', 'result.ID'],
+    },
+    apiBaseKey: 'client_endpoint',
+    loginUrlEnv: 'SOURCE_OAUTH_BITRIX24_LOGIN_URL',
+  },
+  kommo: {
+    id: 'kommo',
+    title: 'Kommo / amoCRM',
+    // The consent page is www.kommo.com (www.amocrm.ru for amoCRM —
+    // SOURCE_OAUTH_KOMMO_LOGIN_URL); the callback carries `referer`, the
+    // account's own host, where the token endpoint lives and takes JSON.
+    // Refresh tokens rotate on every use (24 h access, 3 months
+    // refresh) and the refresh asks for redirect_uri too. Scopes are
+    // the integration's; no PKCE.
+    authorizeUrl: 'https://www.kommo.com/oauth',
+    tokenUrl: `https://${HOST_PLACEHOLDER}/oauth2/access_token`,
+    tokenRequest: 'json',
+    authorizeParams: { mode: 'popup' },
+    baseScopes: [],
+    apiBase: 'https://www.kommo.com',
+    identity: {
+      method: 'GET',
+      url: `https://${HOST_PLACEHOLDER}/api/v4/account`,
+      pick: ['name', 'subdomain'],
+    },
+    accountHost: { param: 'referer', suffixes: ['.kommo.com', '.amocrm.ru', '.amocrm.com'] },
+    refreshWithRedirectUri: true,
+    loginUrlEnv: 'SOURCE_OAUTH_KOMMO_LOGIN_URL',
+  },
 };
 
 /** A provider as this deployment can use it: its spec with the operator's app and any dev override applied. */
@@ -235,6 +322,16 @@ const ENV_NAMES: Record<
     clientSecret: 'SOURCE_OAUTH_SALESFORCE_CLIENT_SECRET',
     baseUrl: 'SOURCE_OAUTH_SALESFORCE_BASE_URL',
   },
+  bitrix24: {
+    clientId: 'SOURCE_OAUTH_BITRIX24_CLIENT_ID',
+    clientSecret: 'SOURCE_OAUTH_BITRIX24_CLIENT_SECRET',
+    baseUrl: 'SOURCE_OAUTH_BITRIX24_BASE_URL',
+  },
+  kommo: {
+    clientId: 'SOURCE_OAUTH_KOMMO_CLIENT_ID',
+    clientSecret: 'SOURCE_OAUTH_KOMMO_CLIENT_SECRET',
+    baseUrl: 'SOURCE_OAUTH_KOMMO_BASE_URL',
+  },
 };
 
 /** The env name of a provider's client id — what an operator must set. */
@@ -264,7 +361,7 @@ export function providerEndpoints(
   const override = env[ENV_NAMES[id].baseUrl]?.trim();
   if (!override) return { ...spec, private: false };
   const origin = override.replace(/\/$/, '');
-  const re = (u: string) => `${origin}${new URL(u).pathname.replace(/\/$/, '')}`;
+  const re = (u: string) => `${origin}${pathOf(u).replace(/\/$/, '')}`;
   return {
     ...spec,
     authorizeUrl: re(spec.authorizeUrl),
@@ -277,7 +374,48 @@ export function providerEndpoints(
   };
 }
 
-/** The operator's login host (public https only) on the authorize / token / identity / revoke URLs. */
+/** The path of a URL that may carry the `{host}` placeholder. */
+function pathOf(u: string): string {
+  return new URL(u.replace(HOST_PLACEHOLDER, HOST_STANDIN)).pathname;
+}
+
+/** The URL with the account's host in place of the placeholder (a URL without one is returned as is). */
+export function fillHost(u: string, host: string | null | undefined): string {
+  if (!u.includes(HOST_PLACEHOLDER)) return u;
+  if (!host) throw new Error('the account host is not known');
+  return u.replace(HOST_PLACEHOLDER, host);
+}
+
+export function hasHostPlaceholder(u: string): boolean {
+  return u.includes(HOST_PLACEHOLDER);
+}
+
+/**
+ * The account's host a callback names (`spec.accountHost.param`),
+ * accepted only as a bare hostname (optionally with a port) under one
+ * of the vendor's suffixes — the app's secret is sent to it. Under the
+ * dev override (`private`) the token URL is rerouted anyway, so any
+ * hostname passes. Null when the spec names no such parameter.
+ */
+export function accountHostOf(
+  spec: OAuthProviderSpec & { private?: boolean },
+  params: Record<string, string | undefined>,
+): string | null {
+  if (!spec.accountHost) return null;
+  const raw = params[spec.accountHost.param]?.trim().toLowerCase() ?? '';
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$/.test(raw)) {
+    throw new Error(
+      `the callback names no account host (${spec.accountHost.param}) — start the sign-in again`,
+    );
+  }
+  const bare = raw.replace(/:\d+$/, '');
+  if (!spec.private && !spec.accountHost.suffixes.some((sfx) => bare.endsWith(sfx))) {
+    throw new Error(`the callback names an account host outside ${spec.title} (${bare})`);
+  }
+  return raw;
+}
+
+/** The operator's login host (public https only) on the authorize / token / identity / revoke URLs; a URL on the account's host is left alone. */
 function withLoginHost(spec: OAuthProviderSpec, env: NodeJS.ProcessEnv): OAuthProviderSpec {
   const raw = spec.loginUrlEnv ? env[spec.loginUrlEnv]?.trim() : undefined;
   if (!raw) return spec;
@@ -289,7 +427,7 @@ function withLoginHost(spec: OAuthProviderSpec, env: NodeJS.ProcessEnv): OAuthPr
   } catch {
     return spec;
   }
-  const re = (u: string) => `${origin}${new URL(u).pathname}`;
+  const re = (u: string) => (hasHostPlaceholder(u) ? u : `${origin}${pathOf(u)}`);
   return {
     ...spec,
     authorizeUrl: re(spec.authorizeUrl),
@@ -321,13 +459,17 @@ export function resolveProvider(
 export function identityUrl(
   spec: OAuthProviderSpec & { private?: boolean },
   accessToken: string,
-  tokenIdUrl?: string | undefined,
+  from: { tokenIdUrl?: string | undefined; accountHost?: string | null | undefined } = {},
 ): string {
+  const { tokenIdUrl, accountHost } = from;
   if (spec.identity.fromTokenId && tokenIdUrl && /^https?:\/\//i.test(tokenIdUrl)) {
     if (spec.private) return `${new URL(spec.identity.url).origin}${new URL(tokenIdUrl).pathname}`;
     if (/^https:\/\//i.test(tokenIdUrl)) return tokenIdUrl;
   }
-  return spec.identity.url.replace(/\{token\}|%7Btoken%7D/i, encodeURIComponent(accessToken));
+  return fillHost(spec.identity.url, accountHost).replace(
+    /\{token\}|%7Btoken%7D/i,
+    encodeURIComponent(accessToken),
+  );
 }
 
 /** The account label out of an identity response: the first named key that is a non-empty string. */

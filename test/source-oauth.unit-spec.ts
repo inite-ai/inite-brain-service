@@ -12,8 +12,12 @@
 import { randomBytes } from 'node:crypto';
 import { grantIdOfCredential } from '../src/contracts/source-plane/source-plane.schema';
 import {
+  accountHostOf,
+  fillHost,
+  identityUrl,
   pickAccount,
   providerEndpoints,
+  providerSpec,
   resolveProvider,
 } from '../src/source-plane/oauth/oauth-providers';
 import { callbackPage } from '../src/source-plane/oauth/source-oauth-callback.controller';
@@ -86,6 +90,76 @@ describe('provider registry', () => {
     expect(pickAccount({ userPrincipalName: 'a@b' }, ['userPrincipalName', 'mail'])).toBe('a@b');
     expect(pickAccount(null, ['email'])).toBeNull();
     expect(pickAccount({ email: 7 }, ['email'])).toBeNull();
+  });
+});
+
+/**
+ * A vendor on the account's own host (W4.3b): Kommo's token endpoint
+ * and API live at `<subdomain>.kommo.com`, named by the callback;
+ * Bitrix24's REST at the portal the token response named. The URL
+ * templates carry `{host}`; the login-host override leaves them alone,
+ * the dev override reroutes them like any other, and a callback naming
+ * a host outside the vendor is refused — the app's secret goes there.
+ */
+describe('a provider on the account host', () => {
+  it('the templates are filled from the account host; the login-host override leaves them alone; the dev override reroutes them', () => {
+    const kommo = providerSpec('kommo');
+    expect(fillHost(kommo.tokenUrl, 'acme.kommo.com')).toBe(
+      'https://acme.kommo.com/oauth2/access_token',
+    );
+    expect(() => fillHost(kommo.tokenUrl, null)).toThrow(/account host/);
+    expect(fillHost(providerSpec('google').tokenUrl, null)).toBe(
+      'https://oauth2.googleapis.com/token',
+    );
+    const amo = providerEndpoints('kommo', {
+      SOURCE_OAUTH_KOMMO_LOGIN_URL: 'https://www.amocrm.ru',
+    } as NodeJS.ProcessEnv);
+    expect(amo.authorizeUrl).toBe('https://www.amocrm.ru/oauth');
+    expect(amo.tokenUrl).toBe('https://{host}/oauth2/access_token');
+    expect(amo.identity.url).toBe('https://{host}/api/v4/account');
+    const fake = providerEndpoints('kommo', {
+      SOURCE_OAUTH_KOMMO_BASE_URL: 'http://127.0.0.1:4545',
+    } as NodeJS.ProcessEnv);
+    expect(fake.tokenUrl).toBe('http://127.0.0.1:4545/oauth2/access_token');
+    expect(fake.identity.url).toBe('http://127.0.0.1:4545/api/v4/account');
+    expect(fake.private).toBe(true);
+    const portal = providerEndpoints('bitrix24', {
+      SOURCE_OAUTH_BITRIX24_LOGIN_URL: 'https://acme.bitrix24.ru',
+    } as NodeJS.ProcessEnv);
+    expect(portal.authorizeUrl).toBe('https://acme.bitrix24.ru/oauth/authorize/');
+    expect(portal.tokenUrl).toBe('https://acme.bitrix24.ru/oauth/token/');
+    expect(portal.identity.url).toBe('https://{host}/rest/profile.json');
+  });
+
+  it('the identity URL takes the account host; without one a templated URL cannot be built', () => {
+    const kommo = providerSpec('kommo');
+    expect(identityUrl(kommo, 'tok', { accountHost: 'acme.kommo.com' })).toBe(
+      'https://acme.kommo.com/api/v4/account',
+    );
+    expect(() => identityUrl(kommo, 'tok', { accountHost: null })).toThrow(/account host/);
+    expect(identityUrl(providerSpec('bitrix24'), 'tok', { accountHost: 'acme.bitrix24.ru' })).toBe(
+      'https://acme.bitrix24.ru/rest/profile.json',
+    );
+  });
+
+  it('the callback host is accepted under the vendor’s suffixes only, as a bare hostname; anything else is refused by name', () => {
+    const kommo = providerSpec('kommo');
+    expect(accountHostOf(kommo, { referer: 'Acme.kommo.com' })).toBe('acme.kommo.com');
+    expect(accountHostOf(kommo, { referer: 'acme.amocrm.ru' })).toBe('acme.amocrm.ru');
+    expect(() => accountHostOf(kommo, { referer: 'evil.example.com' })).toThrow(/outside Kommo/);
+    expect(() => accountHostOf(kommo, { referer: 'acme.kommo.com.evil.example' })).toThrow(
+      /outside Kommo/,
+    );
+    expect(() => accountHostOf(kommo, { referer: 'https://acme.kommo.com/x' })).toThrow(
+      /names no account host/,
+    );
+    expect(() => accountHostOf(kommo, {})).toThrow(/names no account host/);
+    // Under the dev override the token URL is rerouted anyway: any hostname passes.
+    expect(accountHostOf({ ...kommo, private: true }, { referer: '127.0.0.1:4545' })).toBe(
+      '127.0.0.1:4545',
+    );
+    // A provider without the parameter has no host to take.
+    expect(accountHostOf(providerSpec('bitrix24'), { domain: 'acme.bitrix24.ru' })).toBeNull();
   });
 });
 

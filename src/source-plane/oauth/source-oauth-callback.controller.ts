@@ -34,6 +34,7 @@ export class SourceOAuthCallbackController {
         code: one('code'),
         error: one('error'),
         errorDescription: one('error_description'),
+        params: Object.fromEntries(Object.keys(query).map((k) => [k, one(k)])),
       });
       return callbackPage({
         ok: true,

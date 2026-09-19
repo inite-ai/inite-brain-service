@@ -1700,7 +1700,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `bitrix24` source connector (source plane, W4.2b — a CRM on the records contract): deals, leads, contacts and companies of a Bitrix24 portal through `crm.item.list` / `crm.item.get` (one entityTypeId per entity; `filter[>updatedTime]` + `start` offset for the incremental walk; stages / statuses / sources / industries resolved through crm.status.list, pipelines through crm.category.list, responsible users through user.get when the webhook has the `user` scope). The credential is an INBOUND WEBHOOK URL the portal admin makes (`https://<portal>/rest/<user>/<code>/`, scope crm) — stored encrypted, never echoed. A self-hosted portal on the LAN needs the double opt-in (`config.allowPrivate` + SOURCE_EGRESS_ALLOW_PRIVATE). Records enter the records door (crm_memory). Off (default) = 'not installed' — byte-identical.",
+      "The `bitrix24` source connector (source plane, W4.2b — a CRM on the records contract): deals, leads, contacts and companies of a Bitrix24 portal through `crm.item.list` / `crm.item.get` (one entityTypeId per entity; `filter[>updatedTime]` + `start` offset for the incremental walk; stages / statuses / sources / industries resolved through crm.status.list, pipelines through crm.category.list, responsible users through user.get when the webhook has the `user` scope). Runs as a CONNECTED ACCOUNT (W4.3b: SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_BITRIX24_CLIENT_ID — a local / Marketplace application; the portal from the grant's `client_endpoint`, the token as `auth` + bearer, refreshed by the engine) or on an INBOUND WEBHOOK URL the portal admin makes (`https://<portal>/rest/<user>/<code>/`, scope crm) — stored encrypted, never echoed. A self-hosted portal on the LAN needs the double opt-in (`config.allowPrivate` + SOURCE_EGRESS_ALLOW_PRIVATE). Records enter the records door (crm_memory). Off (default) = 'not installed' — byte-identical.",
   },
   {
     key: 'SOURCE_KIND_KOMMO',
@@ -1709,7 +1709,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `kommo` source connector (source plane, W4.2b — a CRM on the records contract): leads (deals), contacts and companies of a Kommo / amoCRM account through API v4 (`filter[updated_at][from]` + `page`, 250 a page, `with=contacts`; pipelines / statuses / users / loss reasons resolved to names once per run; the account currency on every lead). The credential is a LONG-LIVED TOKEN of a private integration (a bearer); `config.baseUrl` names the account (`https://<subdomain>.kommo.com` / `.amocrm.ru`). Records enter the records door (crm_memory). Off (default) = 'not installed' — byte-identical.",
+      "The `kommo` source connector (source plane, W4.2b — a CRM on the records contract): leads (deals), contacts and companies of a Kommo / amoCRM account through API v4 (`filter[updated_at][from]` + `page`, 250 a page, `with=contacts`; pipelines / statuses / users / loss reasons resolved to names once per run; the account currency on every lead). Runs as a CONNECTED ACCOUNT (W4.3b: SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_KOMMO_CLIENT_ID — an integration of the operator's; the account's host from the callback's `referer`, the 24-hour token refreshed there by the engine) or on a LONG-LIVED TOKEN of a private integration (a bearer) with `config.baseUrl` naming the account (`https://<subdomain>.kommo.com` / `.amocrm.ru`; it overrides the grant's host when both are given). Records enter the records door (crm_memory). Off (default) = 'not installed' — byte-identical.",
   },
   {
     key: 'SOURCE_KIND_SALESFORCE',
@@ -1756,6 +1756,80 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
     description:
       'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the Salesforce (login host + org API) counterpart.',
+  },
+  {
+    key: 'SOURCE_OAUTH_BITRIX24_CLIENT_ID',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The client id (`app.…`) of the Bitrix24 application the brain connects portals through — a local application on one portal or a Marketplace one, with the brain's callback URL as its handler path and the `crm` + `user` scopes. The flow is Bitrix24's 'full' authorization: oauth.bitrix.info asks which portal, the token endpoint (a GET) answers the portal's REST root, refresh tokens live 28 days. Unset = Bitrix24 is 'not configured' — an inbound webhook URL still works.",
+  },
+  {
+    key: 'SOURCE_OAUTH_BITRIX24_CLIENT_SECRET',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description:
+      'The client secret of the Bitrix24 application named by SOURCE_OAUTH_BITRIX24_CLIENT_ID.',
+  },
+  {
+    key: 'SOURCE_OAUTH_BITRIX24_LOGIN_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The portal's own origin (https://<portal>.bitrix24.ru) for a local application on one portal: the consent opens on the portal instead of the oauth.bitrix.info portal prompt and the token endpoint is the portal's. Unset = oauth.bitrix.info (any portal the user picks). Public https only — not the dev override.",
+  },
+  {
+    key: 'SOURCE_OAUTH_BITRIX24_BASE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the Bitrix24 (oauth.bitrix.info + portal REST) counterpart.',
+  },
+  {
+    key: 'SOURCE_OAUTH_KOMMO_CLIENT_ID',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The integration id of the Kommo / amoCRM integration the brain connects accounts through (an integration in the operator's account with the brain's callback URL as its redirect URI). The callback names the account's host (`referer`), the token endpoint lives there and takes JSON, refresh tokens rotate on every use (24 h access, 3 months refresh). Unset = Kommo is 'not configured' — a long-lived token still works.",
+  },
+  {
+    key: 'SOURCE_OAUTH_KOMMO_CLIENT_SECRET',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description:
+      'The secret key of the Kommo / amoCRM integration named by SOURCE_OAUTH_KOMMO_CLIENT_ID.',
+  },
+  {
+    key: 'SOURCE_OAUTH_KOMMO_LOGIN_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'The consent host: unset = https://www.kommo.com; https://www.amocrm.ru for amoCRM accounts. Public https only — not the dev override. The token endpoint is on the account’s own host either way.',
+  },
+  {
+    key: 'SOURCE_OAUTH_KOMMO_BASE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the Kommo (consent host + account API) counterpart.',
   },
   {
     key: 'SOURCE_KIND_REST_RECORDS',

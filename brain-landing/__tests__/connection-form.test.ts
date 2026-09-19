@@ -187,7 +187,7 @@ describe('connect form specs', () => {
     ])
   })
 
-  it('CRM vendors: HubSpot as an account or a pasted token; Bitrix24 takes the webhook URL as its credential; Kommo needs the account URL and a token', () => {
+  it('CRM vendors: HubSpot, Bitrix24 and Kommo as an account or a pasted alternative (a token, the webhook URL, a long-lived token with the account URL)', () => {
     const hubspot = entry({
       packId: 'crm_memory',
       sourceId: 'hubspot',
@@ -204,23 +204,44 @@ describe('connect form specs', () => {
     expect(credentialFrom(hf, { ...noSecret, single: 'pat-na1-x' })).toBe('pat-na1-x')
     expect(validate(hf, {}, ctxFor(hubspot), { ...noSecret, single: 'pat-na1-x' })).toEqual({})
 
-    const bitrix = entry({ packId: 'crm_memory', sourceId: 'bitrix24', connector: 'bitrix24', shape: 'structure', hosts: ['server'] })
+    // Bitrix24 (W4.3b): a connected account, or the inbound webhook URL pasted as the alternative.
+    const picked = { ...noSecret, grantId: 'source_oauth_grant:g1' }
+    const bitrix = entry({
+      packId: 'crm_memory',
+      sourceId: 'bitrix24',
+      connector: 'bitrix24',
+      shape: 'structure',
+      hosts: ['server'],
+      oauth: { provider: 'bitrix24', title: 'Bitrix24', scopes: ['crm', 'user'], configured: false },
+    })
     const bf = formFor(bitrix)!
-    expect(bf.credential).toMatchObject({ kind: 'single', label: 'webhookUrl' })
+    expect(bf.credential).toEqual({ kind: 'oauth', alternative: 'webhookUrl' })
     const bv = initialValues(bf, bitrix)
     expect(visibleFields(bf, bv, ctxFor(bitrix), true).map((f) => f.key)).toEqual([])
     expect(visibleFields(bf, bv, ctxFor(bitrix, { egressAllowPrivate: true }), true).map((f) => f.key)).toEqual(['allowPrivate'])
-    expect(validate(bf, bv, ctxFor(bitrix), noSecret)).toEqual({ credential: 'credential' })
+    expect(validate(bf, bv, ctxFor(bitrix), noSecret)).toEqual({ credential: 'account' })
     const hook = { ...noSecret, single: 'https://acme.bitrix24.ru/rest/1/abc/' }
     expect(validate(bf, bv, ctxFor(bitrix), hook)).toEqual({})
     expect(credentialFrom(bf, hook)).toBe('https://acme.bitrix24.ru/rest/1/abc/')
+    expect(validate(bf, bv, ctxFor(bitrix), picked)).toEqual({})
+    expect(credentialFrom(bf, picked)).toBe('oauth:source_oauth_grant:g1')
     expect(configFrom(bf, { ...bv, allowPrivate: true }, ctxFor(bitrix, { egressAllowPrivate: true }))).toEqual({ allowPrivate: true })
 
-    const kommo = entry({ packId: 'crm_memory', sourceId: 'kommo', connector: 'kommo', shape: 'structure', hosts: ['server'] })
+    // Kommo (W4.3b): a connected account names the host; a long-lived token needs baseUrl.
+    const kommo = entry({
+      packId: 'crm_memory',
+      sourceId: 'kommo',
+      connector: 'kommo',
+      shape: 'structure',
+      hosts: ['server'],
+      oauth: { provider: 'kommo', title: 'Kommo / amoCRM', scopes: [], configured: false },
+    })
     const kf = formFor(kommo)!
-    expect(kf.credential).toMatchObject({ kind: 'single', label: 'longLivedToken' })
+    expect(kf.credential).toEqual({ kind: 'oauth', alternative: 'longLivedToken' })
     const kv = initialValues(kf, kommo)
-    expect(validate(kf, kv, ctxFor(kommo), noSecret)).toEqual({ baseUrl: 'required', credential: 'credential' })
+    expect(validate(kf, kv, ctxFor(kommo), noSecret)).toEqual({ baseUrl: 'required', credential: 'account' })
+    expect(validate(kf, kv, ctxFor(kommo), { ...noSecret, single: 't' })).toEqual({ baseUrl: 'required' })
+    expect(validate(kf, kv, ctxFor(kommo), picked)).toEqual({})
     expect(validate(kf, { ...kv, baseUrl: 'acme.kommo.com' }, ctxFor(kommo), { ...noSecret, single: 't' })).toEqual({ baseUrl: 'url' })
     expect(configFrom(kf, { ...kv, baseUrl: 'https://acme.kommo.com' }, ctxFor(kommo))).toEqual({ baseUrl: 'https://acme.kommo.com' })
   })

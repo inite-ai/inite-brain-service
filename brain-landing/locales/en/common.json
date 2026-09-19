@@ -1020,8 +1020,10 @@
           "tokenHint": "Pasted once, stored encrypted; a connected account is preferred where the CRM offers one.",
           "webhookUrl": "Inbound webhook URL",
           "webhookUrlHint": "https://<portal>.bitrix24.ru/rest/<user>/<code>/ — made in Developer resources → Other → Inbound webhook, scope crm (+ user for owner names). The code is the secret: stored encrypted, never shown again.",
+          "webhookUrlAlt": "or an inbound webhook URL (one portal, no app)",
           "longLivedToken": "Long-lived token",
           "longLivedTokenHint": "From the private integration in Settings → Integrations (valid for years). Stored encrypted, never shown again.",
+          "longLivedTokenAlt": "or a long-lived token (private integration)",
           "jwtBearer": "or a JWT bearer (integration user)",
           "jwtBearerHint": "Paste a JSON { \"clientId\": \"<consumer key>\", \"username\": \"<integration user>\", \"privateKey\": \"-----BEGIN PRIVATE KEY-----…\", \"loginUrl\"?: \"https://test.salesforce.com\" } — the connected app must carry the certificate of that key and pre-authorize the user. No browser, no refresh token; stored encrypted, never shown again.",
           "mcpHint": "The brain signs in at the server itself (RFC 9728 discovery, dynamic registration, PKCE); the grant is bound to this server.",
@@ -1318,7 +1320,7 @@
           "kommo": {
             "baseUrl": {
               "label": "Account URL",
-              "hint": "https://<subdomain>.kommo.com or https://<subdomain>.amocrm.ru."
+              "hint": "https://<subdomain>.kommo.com or https://<subdomain>.amocrm.ru — not needed with a connected account (it names its host); required with a long-lived token."
             },
             "allowPrivate": {
               "label": "Allow private hosts",

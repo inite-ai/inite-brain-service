@@ -10,7 +10,15 @@
  *    encrypted, never echoed by the connection view, the sync walks
  *    the portal into facts;
  *  - Kommo on a long-lived token with `config.baseUrl`: the sync walks
- *    the account; a connection without baseUrl fails by name.
+ *    the account; a connection without baseUrl fails by name;
+ *  - Bitrix24 as a connected account (W4.3b): the "full" authorization
+ *    (a GET token endpoint, the portal from `client_endpoint`), the
+ *    token as `auth` + bearer on every method, an expired token
+ *    refreshed by the engine;
+ *  - Kommo as a connected account (W4.3b): the account's host from the
+ *    callback's `referer` (refused outside kommo.com / amocrm.ru), a
+ *    JSON token endpoint on that host, refresh with `redirect_uri` and
+ *    a rotated refresh token, no `config.baseUrl` needed.
  */
 import { randomBytes } from 'node:crypto';
 import type { AppFixture } from './app-fixture';
@@ -30,6 +38,12 @@ const ENV = [
   'SOURCE_OAUTH_HUBSPOT_CLIENT_ID',
   'SOURCE_OAUTH_HUBSPOT_CLIENT_SECRET',
   'SOURCE_OAUTH_HUBSPOT_BASE_URL',
+  'SOURCE_OAUTH_BITRIX24_CLIENT_ID',
+  'SOURCE_OAUTH_BITRIX24_CLIENT_SECRET',
+  'SOURCE_OAUTH_BITRIX24_BASE_URL',
+  'SOURCE_OAUTH_KOMMO_CLIENT_ID',
+  'SOURCE_OAUTH_KOMMO_CLIENT_SECRET',
+  'SOURCE_OAUTH_KOMMO_BASE_URL',
   'SOURCE_EGRESS_ALLOW_PRIVATE',
   'DOCUMENT_INGEST_ENABLED',
   'WORKER_LOOP_ENABLED',
@@ -56,6 +70,12 @@ describe('CRM vendors: hubspot / bitrix24 / kommo (e2e)', () => {
       SOURCE_OAUTH_HUBSPOT_CLIENT_ID: 'hs-client',
       SOURCE_OAUTH_HUBSPOT_CLIENT_SECRET: 'hs-secret',
       SOURCE_OAUTH_HUBSPOT_BASE_URL: crm.base,
+      SOURCE_OAUTH_BITRIX24_CLIENT_ID: 'b24-client',
+      SOURCE_OAUTH_BITRIX24_CLIENT_SECRET: 'b24-secret',
+      SOURCE_OAUTH_BITRIX24_BASE_URL: crm.base,
+      SOURCE_OAUTH_KOMMO_CLIENT_ID: 'km-client',
+      SOURCE_OAUTH_KOMMO_CLIENT_SECRET: 'km-secret',
+      SOURCE_OAUTH_KOMMO_BASE_URL: crm.base,
       SOURCE_EGRESS_ALLOW_PRIVATE: '1',
       DOCUMENT_INGEST_ENABLED: '1',
       BRAIN_PUBLIC_URL: 'https://brain.example.test',
@@ -228,6 +248,149 @@ describe('CRM vendors: hubspot / bitrix24 / kommo (e2e)', () => {
     const failed = await sync(bare.body.id);
     expect(failed.body.summary.status).toBe('failed');
     expect(failed.body.summary.error).toMatch(/config\.baseUrl/);
+  });
+
+  /** Start a provider's flow, follow the fake consent page's Allow link through the brain's callback, return the grant. */
+  async function consent(provider: string, connector: string, extra: Record<string, string> = {}) {
+    const start = await f.http
+      .post('/v1/admin/source-connections/oauth/start')
+      .set(auth())
+      .send({ provider, connector });
+    expect(start.status).toBe(201);
+    const authorize = new URL(start.body.authorizeUrl);
+    expect(authorize.origin).toBe(crm.base);
+    const page = await fetch(authorize.toString());
+    const href = /href="([^"]+)"/.exec(await page.text())?.[1]?.replace(/&amp;/g, '&');
+    const back = new URL(href!);
+    for (const [k, v] of Object.entries(extra)) back.searchParams.set(k, v);
+    const cb = await f.http.get(`${back.pathname}${back.search}`);
+    const grants = await f.http.get('/v1/admin/source-connections/oauth/grants').set(auth());
+    const grant = grants.body.grants.find(
+      (g: { provider: string; status: string }) => g.provider === provider && g.status === 'active',
+    );
+    return { cb, grant, state: authorize.searchParams.get('state')! };
+  }
+
+  /** The grant's token set with the access token expired — the same encrypted JSON the service writes. */
+  async function expireTokens(grantId: string): Promise<void> {
+    const [row] = await rows<{ tokens: string }>(
+      `SELECT tokens FROM source_oauth_grant WHERE id = <record>$id`,
+      { id: grantId },
+    );
+    const { decryptSecret, encryptSecret } = await import('../src/source-plane/credential-cipher');
+    const set = JSON.parse(decryptSecret(row!.tokens)) as Record<string, unknown>;
+    await rows(`UPDATE source_oauth_grant SET tokens = $tokens WHERE id = <record>$id`, {
+      id: grantId,
+      tokens: encryptSecret(
+        JSON.stringify({ ...set, expiresAt: new Date(Date.now() - 1000).toISOString() }),
+      ),
+    });
+  }
+
+  it('bitrix24 as a connected account: the GET token endpoint, the portal from client_endpoint, auth on every method, a refresh', async () => {
+    crm.calls.length = 0;
+    const { cb, grant } = await consent('bitrix24', 'bitrix24');
+    expect(cb.text).toContain('Connected anna@acme.test');
+    const exchange = crm.calls.find((c) => c.path.startsWith('/oauth/token?'))!;
+    expect(exchange.method).toBe('GET');
+    const q = new URL(exchange.path, crm.base).searchParams;
+    expect(q.get('grant_type')).toBe('authorization_code');
+    expect(q.get('client_secret')).toBe('b24-secret');
+    expect(exchange.body).toBe('');
+    expect(grant).toMatchObject({
+      account: 'anna@acme.test',
+      apiBase: crm.base,
+      refreshable: true,
+    });
+    expect(crm.calls.some((c) => c.path === '/rest/profile.json')).toBe(true);
+
+    const conn = await connect({
+      packId: 'crm_memory',
+      sourceId: 'bitrix24',
+      vertical: 'crm',
+      label: 'Bitrix24 (account)',
+      config: { allowPrivate: true, entities: ['deal', 'lead', 'person', 'organization'] },
+      credential: `oauth:${grant.id}`,
+    });
+    expect(conn.status).toBe(201);
+    expect(conn.body.grantId).toBe(grant.id);
+    crm.calls.length = 0;
+    const first = await sync(conn.body.id);
+    // The webhook connection above committed the same records: this walk sees them all and dedups them.
+    expect(first.body.summary).toMatchObject({ status: 'succeeded', seen: 4, failed: 0 });
+    expect(first.body.summary.ingested + first.body.summary.deduplicated).toBe(4);
+    const listCalls = crm.calls.filter((c) => c.path === '/rest/crm.item.list.json');
+    expect(listCalls.length).toBeGreaterThan(0);
+    for (const c of listCalls) {
+      const body = JSON.parse(c.body) as { auth?: string };
+      expect(body.auth?.startsWith('tok_')).toBe(true);
+      expect(c.auth).toBe(`Bearer ${body.auth}`);
+    }
+    // The 28-day token expires: the next run refreshes through the same GET endpoint.
+    await expireTokens(grant.id);
+    crm.calls.length = 0;
+    const again = await sync(conn.body.id);
+    expect(again.body.summary.status).toBe('succeeded');
+    const refresh = crm.calls.find((c) => c.path.startsWith('/oauth/token?'))!;
+    const rq = new URL(refresh.path, crm.base).searchParams;
+    expect(rq.get('grant_type')).toBe('refresh_token');
+    expect(rq.get('refresh_token')).toMatch(/^b24_rt_tok_/);
+  });
+
+  it('kommo as a connected account: the host from the callback, a JSON token endpoint on it, a rotated refresh with redirect_uri', async () => {
+    // A callback naming no account host is refused before any exchange (a host outside the vendor: source-oauth.unit-spec).
+    const bare = await consent('kommo', 'kommo', { referer: '' });
+    expect(bare.cb.text).toContain('names no account host');
+    expect(bare.grant).toBeUndefined();
+
+    crm.calls.length = 0;
+    const { cb, grant } = await consent('kommo', 'kommo');
+    expect(cb.text).toContain('Connected Acme');
+    const exchange = crm.calls.find((c) => c.path === '/oauth2/access_token')!;
+    expect(exchange.method).toBe('POST');
+    const sent = JSON.parse(exchange.body) as Record<string, string>;
+    expect(sent).toMatchObject({
+      grant_type: 'authorization_code',
+      client_id: 'km-client',
+      client_secret: 'km-secret',
+      redirect_uri: expect.stringContaining('/v1/source-connections/oauth/callback'),
+    });
+    expect(grant).toMatchObject({ account: 'Acme', apiBase: crm.base, refreshable: true });
+
+    const conn = await connect({
+      packId: 'crm_memory',
+      sourceId: 'kommo',
+      vertical: 'crm',
+      label: 'Kommo (account)',
+      config: { allowPrivate: true },
+      credential: `oauth:${grant.id}`,
+    });
+    expect(conn.status).toBe(201);
+    crm.calls.length = 0;
+    const first = await sync(conn.body.id);
+    expect(first.body.summary).toMatchObject({ status: 'succeeded', seen: 3, failed: 0 });
+    expect(first.body.summary.ingested + first.body.summary.deduplicated).toBe(3);
+    const leads = crm.calls.find((c) => c.path.startsWith('/api/v4/leads?'))!;
+    expect(leads.auth).toMatch(/^Bearer tok_/);
+
+    // The 24-hour token expires: the refresh goes to the account host with redirect_uri; the refresh token rotates and a spent one is refused.
+    await expireTokens(grant.id);
+    crm.calls.length = 0;
+    const again = await sync(conn.body.id);
+    expect(again.body.summary.status).toBe('succeeded');
+    const refresh = crm.calls.find((c) => c.path === '/oauth2/access_token')!;
+    const rsent = JSON.parse(refresh.body) as Record<string, string>;
+    expect(rsent.grant_type).toBe('refresh_token');
+    expect(rsent.refresh_token).toMatch(/^km_rt_tok_/);
+    expect(rsent.redirect_uri).toContain('/v1/source-connections/oauth/callback');
+    const [row] = await rows<{ tokens: string }>(
+      `SELECT tokens FROM source_oauth_grant WHERE id = <record>$id`,
+      { id: grant.id },
+    );
+    const { decryptSecret } = await import('../src/source-plane/credential-cipher');
+    const set = JSON.parse(decryptSecret(row!.tokens)) as { refreshToken: string };
+    expect(set.refreshToken).not.toBe(rsent.refresh_token);
+    expect(crm.kommo.refreshSpent.has(rsent.refresh_token!)).toBe(true);
   });
 });
 

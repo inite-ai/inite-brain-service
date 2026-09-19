@@ -9,6 +9,7 @@ import {
   type ListCursor,
   type ListPage,
 } from '../records/records-connector';
+import { providerEndpoints } from '../oauth/oauth-providers';
 import { bitrix24Webhook } from '../records/webhook-schemes';
 import { CloudHttpError, cloudHttp, type CloudHttp } from './cloud-http';
 import { isoOf, scalars } from './records-vendor';
@@ -25,17 +26,20 @@ import { isoOf, scalars } from './records-vendor';
  * through `user.get` when the webhook has the `user` scope — once per
  * run.
  *
- * The credential is an INBOUND WEBHOOK URL
- * (`https://<portal>/rest/<user>/<code>/`, made by a portal admin in
- * Developer resources → Other → Inbound webhook, with the `crm` scope
- * and, for owner names, `user`): every method is a POST under it. The
- * code inside the URL is the secret — it is stored encrypted like any
- * credential and never echoed in an error. A self-hosted portal on the
- * LAN needs the double opt-in (`config.allowPrivate` + the operator's
- * SOURCE_EGRESS_ALLOW_PRIVATE) like every network connector. OAuth
- * (a Marketplace / local application) is a later lane: its authorize
- * URL is per portal, which the platform-wide provider table does not
- * describe yet.
+ * Two credentials (W4.2b / W4.3b). A CONNECTED ACCOUNT
+ * (`oauth:<grant>`, the `bitrix24` provider — a local or Marketplace
+ * application with `crm` + `user` scopes): the grant learned the
+ * portal's REST root at the token endpoint (`client_endpoint` →
+ * `grant.apiBase`), every method is a POST under `<portal>/rest/` with
+ * the access token as the `auth` parameter in the body, and the engine
+ * refreshes the token (28-day refresh tokens). Or an INBOUND WEBHOOK
+ * URL (`https://<portal>/rest/<user>/<code>/`, made by a portal admin
+ * in Developer resources → Other → Inbound webhook, with the `crm`
+ * scope and, for owner names, `user`): every method is a POST under
+ * it; the code inside the URL is the secret — stored encrypted like
+ * any credential and never echoed in an error. A self-hosted portal on
+ * the LAN needs the double opt-in (`config.allowPrivate` + the
+ * operator's SOURCE_EGRESS_ALLOW_PRIVATE) like every network connector.
  */
 
 export interface Bitrix24Config {
@@ -105,7 +109,12 @@ export class Bitrix24Connector extends RecordsConnector {
   readonly kind = 'bitrix24';
   override readonly configExample = { entities: ['deal', 'person', 'organization'] };
   override readonly credentialHint =
-    'an inbound webhook URL of the portal (https://<portal>/rest/<user>/<code>/), scope crm (+ user for owner names)';
+    'a connected Bitrix24 account (oauth:<grant id>), or an inbound webhook URL of the portal (https://<portal>/rest/<user>/<code>/), scope crm (+ user for owner names)';
+  override readonly oauth = {
+    provider: 'bitrix24' as const,
+    scopes: ['crm', 'user'],
+    optional: true,
+  };
   override readonly webhook = bitrix24Webhook;
   readonly entities: EntitySpec[] = [
     {
@@ -480,19 +489,45 @@ export function webhookRoot(credential: string | null): string {
   return `${u.origin}${u.pathname.replace(/\/$/, '')}/`;
 }
 
-function apiOf(ctx: ConnectorCtx): Bitrix24Api {
+/**
+ * The method root and the secret that rides every call: for a connected
+ * account `<portal>/rest/` + the access token as the `auth` body
+ * parameter (the portal from the grant; the dev override's origin when
+ * one is in force); for a webhook the URL itself, its code the secret.
+ */
+export function restRoot(ctx: ConnectorCtx): { root: string; auth: string | null; secret: string } {
+  if (ctx.connection.credentialSource === 'grant') {
+    const token = ctx.connection.credential;
+    if (!token) throw new Error('bitrix24: the connected account handed no token');
+    const ep = providerEndpoints('bitrix24');
+    const portal = ep.private ? ep.apiBase : ctx.connection.grant?.apiBase;
+    if (!portal) throw new Error('bitrix24: the connected account names no portal — reconnect it');
+    return { root: `${portal.replace(/\/$/, '')}/rest/`, auth: token, secret: token };
+  }
   const root = webhookRoot(ctx.connection.credential);
-  const secret = root.split('/').filter(Boolean).at(-1) ?? '';
+  return { root, auth: null, secret: root.split('/').filter(Boolean).at(-1) ?? '' };
+}
+
+function apiOf(ctx: ConnectorCtx): Bitrix24Api {
+  const { root, auth, secret } = restRoot(ctx);
+  // A connected account's token rides both ways the portal takes it: as
+  // `Authorization: Bearer` and as the `auth` parameter in the body.
   const http: CloudHttp = cloudHttp({
-    token: '',
-    bearer: false,
-    private: (configOf(ctx) as Bitrix24Config).allowPrivate === true,
+    token: auth ?? '',
+    bearer: auth !== null,
+    // A self-hosted portal on the LAN (the connection's half of the opt-in), or the dev override on a connected account.
+    private:
+      (configOf(ctx) as Bitrix24Config).allowPrivate === true ||
+      (auth !== null && providerEndpoints('bitrix24').private),
     signal: ctx.signal,
   });
   return {
     async call(method, params) {
       try {
-        const got = (await http.postJson(`${root}${method}.json`, params)) as {
+        const got = (await http.postJson(`${root}${method}.json`, {
+          ...params,
+          ...(auth ? { auth } : {}),
+        })) as {
           error?: string;
           error_description?: string;
         } | null;
@@ -503,18 +538,21 @@ function apiOf(ctx: ConnectorCtx): Bitrix24Api {
         }
         return got;
       } catch (e) {
-        throw redacted(e, secret, method);
+        throw redacted(e, { secret, method, grant: auth !== null });
       }
     },
   };
 }
 
-/** An error with the webhook's code masked and the method named; 401 reworded for a webhook. */
-function redacted(e: unknown, secret: string, method: string): Error {
+/** An error with the secret masked and the method named; 401 reworded for the credential in use. */
+function redacted(e: unknown, on: { secret: string; method: string; grant: boolean }): Error {
+  const { secret, method, grant } = on;
   const err = e instanceof Error ? e : new Error(String(e));
   if (err instanceof CloudHttpError && err.status === 401) {
     return new Error(
-      `bitrix24: the inbound webhook was rejected (401) at ${method} — recreate it in the portal`,
+      grant
+        ? `bitrix24: the connected account was rejected (401) at ${method} — reconnect it`
+        : `bitrix24: the inbound webhook was rejected (401) at ${method} — recreate it in the portal`,
     );
   }
   const message = secret ? err.message.split(secret).join('***') : err.message;

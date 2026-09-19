@@ -19,7 +19,8 @@ import { ConnectorFields } from './create/ConnectorFields'
 import { FolderPicker } from './create/FolderPicker'
 import { RecordsFields, initialRecords, type RecordsChoice } from './create/RecordsFields'
 import { RestApiDescribe } from './create/RestApiDescribe'
-import { entriesFor, shapeChoices, type ShapeChoice, type SourceCard } from './kinds'
+import { kindTitle } from './KindLabel'
+import { cardWords, entriesFor, shapeChoices, type ShapeChoice, type SourceCard } from './kinds'
 import {
   AGENT_ID,
   EMPTY_SECRET,
@@ -33,6 +34,7 @@ import {
   type FieldError,
   type FormContext,
   type FormValues,
+  type OAuthAlternative,
   type SecretValues,
 } from './create/specs'
 
@@ -205,11 +207,15 @@ export function ConnectionCreateModal({
   ])
 
   const kind = t.kinds[card.family]
-  const title = fill(kind.title, { connector: card.connector })
+  // The same words as the card: the vendor's name, the pack's own line for a vendor or a push door.
+  const words = cardWords(card, {
+    title: kindTitle(t, card.family, card.connector),
+    body: kind.body,
+  })
   return (
-    <Modal title={fill(t.create.title, { title })} onClose={onClose} wide>
+    <Modal title={fill(t.create.title, { title: words.title })} onClose={onClose} wide>
       <div className="mb-3 text-[11px] text-[var(--text-muted)]">
-        {kind.body || entry.description}
+        {words.body || entry.description}
         <div className="mt-1 font-mono text-[10px] text-[var(--text-faint)]">
           {card.packId}
           {' '}
@@ -632,17 +638,19 @@ function SourceStep({
           onChange={(grantId) => onSecret({ ...secret, grantId })}
         />
       )}
-      {form.credential?.kind === 'oauth' && form.credential.alternative === 'token' && (
-        <Field label={f.credential.token} hint={f.credential.tokenHint}>
-          <input
-            type="password"
-            value={secret.single}
-            onChange={(e) => onSecret({ ...secret, single: e.target.value })}
-            autoComplete="new-password"
-            className={`${inputCls} font-mono`}
-          />
-        </Field>
-      )}
+      {form.credential?.kind === 'oauth' &&
+        form.credential.alternative &&
+        form.credential.alternative !== 'jwtBearer' && (
+          <Field label={alternativeLabel(f.credential, form.credential.alternative)} hint={alternativeHint(f.credential, form.credential.alternative)}>
+            <input
+              type="password"
+              value={secret.single}
+              onChange={(e) => onSecret({ ...secret, single: e.target.value })}
+              autoComplete="new-password"
+              className={`${inputCls} font-mono`}
+            />
+          </Field>
+        )}
       {form.credential?.kind === 'oauth' && form.credential.alternative === 'jwtBearer' && (
         <Field label={f.credential.jwtBearer} hint={f.credential.jwtBearerHint}>
           <textarea
@@ -785,4 +793,17 @@ function JsonEditor({
       />
     </Field>
   )
+}
+
+/** "or an API token" / "or an inbound webhook URL" / "or a long-lived token" — the alternative to a connected account, by its kind. */
+function alternativeLabel(c: ConnectionsT['form']['credential'], alt: OAuthAlternative): string {
+  if (alt === 'webhookUrl') return c.webhookUrlAlt
+  if (alt === 'longLivedToken') return c.longLivedTokenAlt
+  return c.token
+}
+
+function alternativeHint(c: ConnectionsT['form']['credential'], alt: OAuthAlternative): string {
+  if (alt === 'webhookUrl') return c.webhookUrlHint
+  if (alt === 'longLivedToken') return c.longLivedTokenHint
+  return c.tokenHint
 }

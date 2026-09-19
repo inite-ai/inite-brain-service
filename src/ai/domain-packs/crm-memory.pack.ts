@@ -36,7 +36,7 @@ const single = {
  */
 export const CRM_MEMORY_PACK: DomainPackManifest = {
   id: 'crm_memory',
-  version: '0.4.0',
+  version: '0.4.1',
   description:
     'What a CRM knows — people, organizations and deals as facts with the revision they were read at: title, company, owner, stage, amount, dates, source. Records enter deterministically through the records door (no model call); prose fields (notes) go to the ordinary extractor.',
   indexer: {
@@ -80,7 +80,7 @@ export const CRM_MEMORY_PACK: DomainPackManifest = {
       shape: 'structure',
       title: 'Bitrix24',
       description:
-        'Deals, leads, contacts and companies of a Bitrix24 portal through crm.item.list (filter[>updatedTime] + start), stages / sources / pipelines resolved to names, with an inbound webhook URL as the credential. config: { entities?, mapping?, allowPrivate? }.',
+        'Deals, leads, contacts and companies of a Bitrix24 portal through crm.item.list (filter[>updatedTime] + start), stages / sources / pipelines resolved to names, as a connected account (a local / Marketplace application) or with an inbound webhook URL as the credential. config: { entities?, mapping?, allowPrivate? }.',
       defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '1h' },
     },
     {
@@ -90,7 +90,7 @@ export const CRM_MEMORY_PACK: DomainPackManifest = {
       shape: 'structure',
       title: 'Kommo / amoCRM',
       description:
-        'Leads (deals), contacts and companies of a Kommo or amoCRM account through API v4 (filter[updated_at][from] + page), statuses / pipelines / users resolved to names, with a long-lived token of a private integration. config: { baseUrl, entities?, mapping? }.',
+        'Leads (deals), contacts and companies of a Kommo or amoCRM account through API v4 (filter[updated_at][from] + page), statuses / pipelines / users resolved to names, as a connected account or with a long-lived token of a private integration and the account URL. config: { baseUrl?, entities?, mapping? }.',
       defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '1h' },
     },
     {
