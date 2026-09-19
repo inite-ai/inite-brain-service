@@ -153,7 +153,10 @@ OUTPUT CONTRACT — JSON with four top-level fields, in this order:
 
   4. edges[] — entity-to-entity links: (X, works_at, Y), (X, owns, Y), (X, knows, Y),
      (X, lives_at, Y). kind = lowercase snake_case. Link two named people with an
-     EDGE, not a fact routed through scenery.
+     EDGE, not a fact routed through scenery. A possessive asserts a relation that
+     outlives the sentence: "my apartment in Riga", "our office in Lisbon", "her
+     Kawasaki" → an edge (owner, owns, thing) besides whatever the clause says
+     about the thing (listing it for sale does not end the ownership).
 
 predicate — COIN A SPECIFIC ONE (there is no fixed list to choose from):
   Write the most specific relationship label as lowercase snake_case, derived from

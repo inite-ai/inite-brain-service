@@ -360,7 +360,13 @@ async function runServeCheck(ctx: CheckContext, check: ServeCheck): Promise<Verd
     userId: ctx.cfg.userId,
   });
   const verdict = scoreServe(out.answer, out.reason, check);
-  return { status: verdict.status, detail: verdict.detail, answer: out.answer };
+  // The serving reason (verifier_failed, no_facts, …) is the forensic
+  // trail of a failed serve — keep it on the report.
+  const detail =
+    verdict.status === 'fail' && out.reason
+      ? `${verdict.detail} (reason: ${out.reason})`
+      : verdict.detail;
+  return { status: verdict.status, detail, answer: out.answer };
 }
 
 async function runBeliefCheck(ctx: CheckContext, check: BeliefCheck): Promise<Verdict> {
