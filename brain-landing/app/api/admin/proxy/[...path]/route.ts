@@ -189,6 +189,7 @@ const RESPONSE_SCHEMAS: Partial<
     'v1/admin/packs/from-registry': InstallPackResponseSchema,
     'v1/admin/source-connections': SourceConnectionSchema,
     'v1/admin/source-connections/oauth/start': SourceOAuthStartResponseSchema,
+    'v1/admin/source-connections/oauth/mcp/start': SourceOAuthStartResponseSchema,
     'v1/admin/source-connections/preview': RecordsPreviewResponseSchema,
     'v1/admin/source-connections/assist': MappingAssistResponseSchema,
   },

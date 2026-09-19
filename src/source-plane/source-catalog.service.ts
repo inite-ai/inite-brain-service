@@ -8,6 +8,7 @@ import {
 import {
   sourceEgressAllowPrivate,
   sourceFsRoots,
+  sourceMcpOAuthEnabled,
   sourceWebhooksEnabled,
 } from '../common/source-plane-flags';
 import { SurrealService, queryRows } from '../db/surreal.service';
@@ -115,7 +116,7 @@ export class SourceCatalogService {
         credentialHint: connector?.credentialHint ?? null,
         hosts: hostsOf(entry, kind),
         mcp: mcpOf(entry),
-        oauth: oauthOf(connector),
+        oauth: oauthOf(connector, entry),
         records: recordsOf(connector, manifest, entry),
         webhook: webhookOf(connector),
       };
@@ -171,8 +172,16 @@ function recordsOf(
   return null;
 }
 
-/** The connected account a connector runs as, and whether this deployment can make one. */
-function oauthOf(connector: Connector | null): SourceCatalogEntry['oauth'] {
+/** The connected account a connector runs as, and whether this deployment can make one; an `auth: 'oauth'` MCP entry signs in at its own server (W4.3). */
+function oauthOf(connector: Connector | null, entry: PackSourceSpec): SourceCatalogEntry['oauth'] {
+  if (entry.kind === 'mcp' && entry.transport === 'http' && entry.auth === 'oauth') {
+    return {
+      provider: 'mcp',
+      title: entry.url ? new URL(entry.url).host : 'the MCP server',
+      scopes: [],
+      configured: sourceMcpOAuthEnabled(),
+    };
+  }
   if (!connector?.oauth) return null;
   const { provider, scopes } = connector.oauth;
   return {

@@ -22,12 +22,17 @@ import { PROXY, errorMessage, fill, type ConnectionsT } from '../shared'
  */
 export function AccountPicker({
   entry,
+  serverUrl = '',
+  allowPrivate = false,
   value,
   error,
   t,
   onChange,
 }: {
   entry: SourceCatalogEntry
+  /** An MCP source that signs in (W4.3): the server the grant must be for — pinned by the pack or typed above. */
+  serverUrl?: string
+  allowPrivate?: boolean
   value: string
   error: string | null
   t: ConnectionsT
@@ -35,6 +40,16 @@ export function AccountPicker({
 }) {
   const c = t.form.credential
   const oauth = entry.oauth!
+  const mcp = oauth.provider === 'mcp'
+  const serverOrigin = useMemo(() => {
+    try {
+      return mcp && serverUrl ? new URL(serverUrl).origin : null
+    } catch {
+      return null
+    }
+  }, [mcp, serverUrl])
+  const [clientId, setClientId] = useState('')
+  const [clientSecret, setClientSecret] = useState('')
   const [data, setData] = useState<SourceOAuthGrantsResponse | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [waiting, setWaiting] = useState(false)
@@ -66,8 +81,17 @@ export function AccountPicker({
   }, [provider])
 
   const candidates = useMemo(
-    () => (data?.grants ?? []).filter((g) => g.provider === oauth.provider && g.status === 'active'),
-    [data, oauth.provider],
+    () =>
+      (data?.grants ?? []).filter((g) => {
+        if (g.provider !== oauth.provider || g.status !== 'active') return false
+        if (!mcp) return true
+        try {
+          return g.resource !== null && serverOrigin !== null && new URL(g.resource).origin === serverOrigin
+        } catch {
+          return false
+        }
+      }),
+    [data, oauth.provider, mcp, serverOrigin],
   )
 
   // The callback page's message — the brain's origin only, never the provider's.
@@ -113,15 +137,28 @@ export function AccountPicker({
     popupRef.current = popup
     setWaiting(true)
     try {
-      const res = await fetch(`${PROXY}/oauth/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: oauth.provider,
-          connector: entry.connector,
-          origin: window.location.origin,
-        }),
-      })
+      const res = mcp
+        ? await fetch(`${PROXY}/oauth/mcp/start`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              serverUrl,
+              allowPrivate,
+              origin: window.location.origin,
+              ...(clientId.trim()
+                ? { client: { clientId: clientId.trim(), ...(clientSecret ? { clientSecret } : {}) } }
+                : {}),
+            }),
+          })
+        : await fetch(`${PROXY}/oauth/start`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              provider: oauth.provider,
+              connector: entry.connector,
+              origin: window.location.origin,
+            }),
+          })
       const json = await res.json()
       if (!res.ok) throw new Error(errorMessage(json, res.status))
       popup.location.href = (json as { authorizeUrl: string }).authorizeUrl
@@ -130,40 +167,66 @@ export function AccountPicker({
       setWaiting(false)
       setFlowError((e as Error).message)
     }
-  }, [c.popupBlocked, entry.connector, oauth.provider])
+  }, [allowPrivate, c.popupBlocked, clientId, clientSecret, entry.connector, mcp, oauth.provider, serverUrl])
 
-  const flag = `SOURCE_OAUTH_${oauth.provider.toUpperCase()}_CLIENT_ID`
-  const hint = error ?? flowError ?? loadError ?? c.accountHint
+  const flag = mcp ? 'SOURCE_MCP_OAUTH' : `SOURCE_OAUTH_${oauth.provider.toUpperCase()}_CLIENT_ID`
+  const title = mcp ? (serverOrigin ?? oauth.title) : oauth.title
+  const hint = error ?? flowError ?? loadError ?? (mcp ? c.mcpHint : c.accountHint)
   return (
     <Field label={`${c.account} *`} hint={hint} error={!!(error || flowError || loadError)}>
       <div className="space-y-2 text-xs">
         {data && !data.ready && <p className="text-[11px] text-[var(--warning)]">{c.keyMissing}</p>}
-        {provider && !provider.configured && (
+        {mcp && !oauth.configured && (
+          <p className="text-[11px] text-[var(--warning)]">{fill(c.mcpOff, { flag })}</p>
+        )}
+        {mcp && !serverOrigin && <p className="text-[11px] text-[var(--warning)]">{c.mcpNoServer}</p>}
+        {!mcp && provider && !provider.configured && (
           <p className="text-[11px] text-[var(--warning)]">
-            {fill(c.notConfigured, { provider: oauth.title, flag })}
+            {fill(c.notConfigured, { provider: title, flag })}
             <br />
-            <span className="font-mono text-[10px]">{fill(c.redirectUri, { provider: oauth.title, uri: provider.redirectUri })}</span>
+            <span className="font-mono text-[10px]">{fill(c.redirectUri, { provider: title, uri: provider.redirectUri })}</span>
           </p>
         )}
         {candidates.length === 0 && data && (
-          <p className="text-[11px] text-[var(--text-muted)]">{fill(c.noAccounts, { provider: oauth.title })}</p>
+          <p className="text-[11px] text-[var(--text-muted)]">{fill(c.noAccounts, { provider: title })}</p>
         )}
         {candidates.map((g) => (
           <AccountRow key={g.id} grant={g} needed={oauth.scopes} selected={value === g.id} t={t} onPick={() => onChange(g.id)} />
         ))}
         <button
           type="button"
-          disabled={waiting || !data?.ready || provider?.configured === false}
+          disabled={waiting || !data?.ready || (mcp ? !oauth.configured || !serverOrigin : provider?.configured === false)}
           onClick={() => void connect()}
           className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 text-[11px] text-[var(--accent)] disabled:opacity-40"
         >
           {waiting ? <Loader2 className="w-3 h-3 animate-spin" /> : <ExternalLink className="w-3 h-3" />}
           {waiting
-            ? fill(c.connecting, { provider: oauth.title })
+            ? fill(c.connecting, { provider: title })
             : candidates.length > 0
               ? c.connectAnother
-              : fill(c.connectNew, { provider: oauth.title })}
+              : fill(c.connectNew, { provider: title })}
         </button>
+        {mcp && (
+          <details className="text-[10px] text-[var(--text-faint)]">
+            <summary className="cursor-pointer">{c.mcpClient}</summary>
+            <div className="mt-1 grid grid-cols-2 gap-2">
+              <input
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                placeholder={c.mcpClientId}
+                className="w-full rounded border border-[var(--border)] bg-[var(--bg)] px-2 py-1 font-mono text-[11px] text-[var(--text)]"
+              />
+              <input
+                type="password"
+                value={clientSecret}
+                onChange={(e) => setClientSecret(e.target.value)}
+                placeholder={c.mcpClientSecret}
+                autoComplete="new-password"
+                className="w-full rounded border border-[var(--border)] bg-[var(--bg)] px-2 py-1 font-mono text-[11px] text-[var(--text)]"
+              />
+            </div>
+          </details>
+        )}
         {!data && !loadError && <Loader2 className="w-3 h-3 animate-spin text-[var(--text-muted)]" />}
         {data && (
           <button type="button" onClick={() => void reload()} className="ml-2 inline-flex items-center gap-1 text-[10px] text-[var(--text-faint)]">

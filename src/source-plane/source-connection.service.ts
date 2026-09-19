@@ -121,6 +121,7 @@ export class SourceConnectionService {
       connector,
       host: dto.host ?? 'server',
       credential: dto.credential,
+      mcpOAuth: mcpOAuthResourceOf(entry, dto.config ?? {}),
     });
     const userId = dto.ownerUserId ?? undefined;
     const content = {
@@ -228,10 +229,12 @@ export class SourceConnectionService {
       throw new BadRequestException(`label must be at most ${LABEL_MAX} characters`);
     }
     if (patch.credential !== undefined) {
+      const { source } = await this.sourceContext(companyId, current);
       await this.assertCredential(companyId, {
         connector: current.connector,
         host: current.host,
         credential: patch.credential ?? undefined,
+        mcpOAuth: source ? mcpOAuthResourceOf(source, patch.config ?? current.config ?? {}) : null,
       });
     }
     const sets: string[] = [];
@@ -489,13 +492,23 @@ export class SourceConnectionService {
    */
   private async assertCredential(
     companyId: string,
-    p: { connector: string; host: string; credential: string | undefined },
+    p: {
+      connector: string;
+      host: string;
+      credential: string | undefined;
+      /** An `auth: 'oauth'` MCP entry: the server URL the grant must be for (W4.3). */
+      mcpOAuth: string | null;
+    },
   ): Promise<void> {
     const { connector, host, credential } = p;
     const spec = findConnector(this.connectors ?? [], connector);
     const grantId = grantIdOfCredential(credential);
     if (credential?.startsWith('oauth:') && !grantId) {
       throw new BadRequestException('credential: "oauth:" must name a grant id');
+    }
+    if (p.mcpOAuth && host === 'server') {
+      await this.assertMcpGrant(companyId, { resource: p.mcpOAuth, grantId });
+      return;
     }
     if (!spec?.oauth) {
       if (grantId) {
@@ -524,6 +537,36 @@ export class SourceConnectionService {
     if (grant.status !== 'active') {
       throw new BadRequestException(
         `connected account ${grantId} is ${grant.status} — reconnect it`,
+      );
+    }
+  }
+
+  /** An MCP source that signs in (W4.3): the grant must be a `mcp` grant for THIS server — same origin, active. */
+  private async assertMcpGrant(
+    companyId: string,
+    p: { resource: string; grantId: string | null },
+  ): Promise<void> {
+    if (!p.grantId) {
+      throw new BadRequestException(
+        `this MCP source signs in at ${p.resource} — sign in first and pass credential "oauth:<grant id>"`,
+      );
+    }
+    if (!this.oauth) return;
+    const grant = await this.oauth.get(companyId, p.grantId).catch(() => null);
+    if (!grant) throw new BadRequestException(`no connected account ${p.grantId} in this tenant`);
+    if (grant.provider !== 'mcp' || !grant.resource) {
+      throw new BadRequestException(
+        `connected account ${p.grantId} is a ${grant.provider} account, not a sign-in at an MCP server`,
+      );
+    }
+    if (new URL(grant.resource).origin !== new URL(p.resource).origin) {
+      throw new BadRequestException(
+        `connected account ${p.grantId} is for ${grant.resource}, not ${p.resource}`,
+      );
+    }
+    if (grant.status !== 'active') {
+      throw new BadRequestException(
+        `connected account ${p.grantId} is ${grant.status} — sign in again`,
       );
     }
   }
@@ -736,6 +779,13 @@ async function assertOperatorUrl(
     if (e instanceof EgressDeniedError) throw new BadRequestException(`config.url: ${e.message}`);
     throw e;
   }
+}
+
+/** The server an `auth: 'oauth'` http MCP entry signs in at (pinned, else operator-named), or null. */
+function mcpOAuthResourceOf(entry: PackSourceSpec, config: Record<string, unknown>): string | null {
+  if (entry.kind !== 'mcp' || entry.transport !== 'http' || entry.auth !== 'oauth') return null;
+  const url = entry.url ?? (typeof config.url === 'string' ? config.url : null);
+  return url && url.length > 0 ? url : null;
 }
 
 /** What the column holds: a grant pointer in the clear, anything else encrypted (when a key is set). */

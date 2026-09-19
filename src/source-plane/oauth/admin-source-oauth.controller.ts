@@ -21,9 +21,12 @@ import {
   sourceOAuthClientEnabled,
   sourceOAuthRedirectUrl,
   sourcePlaneEnabled,
+  sourceMcpOAuthEnabled,
 } from '../../common/source-plane-flags';
 import {
+  SourceOAuthMcpStartRequestSchema,
   SourceOAuthStartRequestSchema,
+  type SourceOAuthMcpStartResponse,
   isGrantId,
   type RevokeGrantResponse,
   type SourceOAuthGrantsResponse,
@@ -76,6 +79,31 @@ export class AdminSourceOAuthController {
     return this.oauth.start(req.brainAuth.companyId, {
       provider: dto.provider,
       scopes: connector.oauth.scopes,
+      redirectUri: redirectUriOf(req),
+      origin: dto.origin,
+      actor: req.brainAuth.actorId ?? req.brainAuth.userId ?? 'admin',
+      userId: dto.ownerUserId,
+    });
+  }
+
+  /**
+   * Sign in at an MCP server (W4.3): the server's authorization server
+   * is discovered and a client registered there unless the operator
+   * passes one. 404 until SOURCE_MCP_OAUTH.
+   */
+  @Post('mcp/start')
+  @RequireScopes('brain:admin')
+  async startMcp(
+    @Req() req: AuthenticatedRequest & Request,
+    @Body() body: unknown,
+  ): Promise<SourceOAuthMcpStartResponse> {
+    assertEnabled();
+    if (!sourceMcpOAuthEnabled()) throw new NotFoundException();
+    const dto = parseBody(SourceOAuthMcpStartRequestSchema, body);
+    return this.oauth.startMcp(req.brainAuth.companyId, {
+      serverUrl: dto.serverUrl,
+      allowPrivate: dto.allowPrivate === true,
+      client: dto.client,
       redirectUri: redirectUriOf(req),
       origin: dto.origin,
       actor: req.brainAuth.actorId ?? req.brainAuth.userId ?? 'admin',

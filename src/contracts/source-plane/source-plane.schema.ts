@@ -959,11 +959,42 @@ export const SourceOAuthGrantSchema = z.object({
   refreshable: z.boolean(),
   lastRefreshAt: z.string().nullable(),
   lastError: z.string().nullable(),
+  /** The MCP server URL a `mcp` grant is for (W4.3); null for a static provider's grant. */
+  resource: z.string().nullable(),
   /** The account's own API origin when the provider names one at the token endpoint (Salesforce `instance_url`, Pipedrive `api_domain`); a connector runs against it. */
   apiBase: z.string().nullable(),
   createdAt: z.string(),
 });
 export type SourceOAuthGrant = z.infer<typeof SourceOAuthGrantSchema>;
+
+/**
+ * POST /v1/admin/source-connections/oauth/mcp/start — sign in at an MCP
+ * server (W4.3): its authorization server is discovered (RFC 9728 →
+ * RFC 8414) and a client registered there (RFC 7591) unless the
+ * operator passes one the server issued.
+ */
+export const SourceOAuthMcpStartRequestSchema = z.object({
+  /** The MCP server URL (the pack's pinned url, or the operator-named one). */
+  serverUrl: z.string().url().max(2048),
+  /** The connection's half of the private-host double opt-in — the discovery runs under it. */
+  allowPrivate: z.boolean().optional(),
+  /** A client the operator registered at the server's authorization server, when it offers no dynamic registration. */
+  client: z
+    .object({
+      clientId: z.string().min(1).max(512),
+      clientSecret: z.string().max(2048).optional(),
+    })
+    .optional(),
+  origin: z.string().url().max(256).optional(),
+  ownerUserId: z.string().max(200).optional(),
+});
+export type SourceOAuthMcpStartRequest = z.infer<typeof SourceOAuthMcpStartRequestSchema>;
+
+export const SourceOAuthMcpStartResponseSchema = SourceOAuthStartResponseSchema.extend({
+  /** The canonical resource the grant will be for. */
+  resource: z.string(),
+});
+export type SourceOAuthMcpStartResponse = z.infer<typeof SourceOAuthMcpStartResponseSchema>;
 
 export const SourceOAuthProviderStateSchema = z.object({
   id: SourceOAuthProviderIdSchema,

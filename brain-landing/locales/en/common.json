@@ -954,7 +954,7 @@
         "pinnedUrl": "Server",
         "pinnedUrlHint": "pinned by the pack — the brain reads it, the operator cannot change it",
         "installSecret": "The brain authenticates with the pack's install secret; nothing to enter.",
-        "oauth": "This server needs an OAuth sign-in — not available yet.",
+        "oauth": "This server signs in: the brain discovers its authorization server, registers itself there and asks you to consent — pick or connect the account below.",
         "credential": {
           "title": "Credential",
           "single": "Token",
@@ -981,7 +981,13 @@
           "longLivedToken": "Long-lived token",
           "longLivedTokenHint": "From the private integration in Settings → Integrations (valid for years). Stored encrypted, never shown again.",
           "jwtBearer": "or a JWT bearer (integration user)",
-          "jwtBearerHint": "Paste a JSON { \"clientId\": \"<consumer key>\", \"username\": \"<integration user>\", \"privateKey\": \"-----BEGIN PRIVATE KEY-----…\", \"loginUrl\"?: \"https://test.salesforce.com\" } — the connected app must carry the certificate of that key and pre-authorize the user. No browser, no refresh token; stored encrypted, never shown again."
+          "jwtBearerHint": "Paste a JSON { \"clientId\": \"<consumer key>\", \"username\": \"<integration user>\", \"privateKey\": \"-----BEGIN PRIVATE KEY-----…\", \"loginUrl\"?: \"https://test.salesforce.com\" } — the connected app must carry the certificate of that key and pre-authorize the user. No browser, no refresh token; stored encrypted, never shown again.",
+          "mcpHint": "The brain signs in at the server itself (RFC 9728 discovery, dynamic registration, PKCE); the grant is bound to this server.",
+          "mcpOff": "MCP sign-in is off on this brain — set {flag}=1.",
+          "mcpNoServer": "Name the server URL above first.",
+          "mcpClient": "Registered client (only when the server offers no dynamic registration)",
+          "mcpClientId": "client id",
+          "mcpClientSecret": "client secret (if any)"
         },
         "errors": {
           "required": "required",

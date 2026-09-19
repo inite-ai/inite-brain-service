@@ -271,7 +271,7 @@ describe('McpConnector', () => {
     expect(upserts(await walk(c, pinned))).toHaveLength(4);
     await c.endRun(pinned);
     await expect(walk(c, ctx({}, { source: { ...ENTRY, auth: 'oauth' } }))).rejects.toThrow(
-      'not available yet (W4)',
+      'needs SOURCE_MCP_OAUTH',
     );
     await expect(walk(c, ctx({}, { source: null }))).rejects.toThrow(
       'no longer declares http MCP source',

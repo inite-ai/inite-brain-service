@@ -1823,6 +1823,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'The previous SOURCE_CREDENTIAL_ENCRYPTION_KEY during a rotation: values it encrypted still decrypt (each ciphertext names its key by id); every write uses the current key. Remove once every credential has been rewritten.',
   },
   {
+    key: 'SOURCE_MCP_OAUTH',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The brain as an OAuth client of ANY MCP server (source plane, W4.3 — docs/roadmap/crm-sources-2026-09.md § 4.5): `POST /v1/admin/source-connections/oauth/mcp/start` discovers the server's authorization server from its 401 (RFC 9728 protected-resource metadata, then RFC 8414 / OpenID metadata, path-aware), registers a client there dynamically (RFC 7591; a public PKCE client unless the server issues a secret) or takes one the operator registered, and sends the admin to consent with PKCE and the RFC 8707 `resource`; the grant (`provider: mcp`, its `resource`) refreshes and revokes through the client kept per resource (`source_oauth_client`, the secret encrypted). A pack's `auth: 'oauth'` http MCP source then runs as that grant — the same harvester, the bearer refreshed by the engine. Needs SOURCE_OAUTH_CLIENT + SOURCE_CREDENTIAL_ENCRYPTION_KEY. Off (default) = the route answers 404, no server is ever discovered, such a source fails by name — byte-identical.",
+  },
+  {
     key: 'SOURCE_OAUTH_REDIRECT_URL',
     category: 'pipeline',
     defaultValue: '',

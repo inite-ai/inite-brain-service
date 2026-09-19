@@ -459,6 +459,8 @@ export const SourceOAuthGrantSchema = z.object({
   refreshable: z.boolean(),
   lastRefreshAt: z.string().nullable(),
   lastError: z.string().nullable(),
+  /** The MCP server URL a `mcp` grant is for; null for a static provider's grant. */
+  resource: z.string().nullable(),
   /** The account's own API origin when the provider named one (Salesforce `instance_url`, Pipedrive `api_domain`). */
   apiBase: z.string().nullable(),
   createdAt: z.string(),

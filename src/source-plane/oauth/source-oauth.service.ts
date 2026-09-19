@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { sourceOAuthClientEnabled } from '../../common/source-plane-flags';
 import type {
   SourceOAuthGrant,
@@ -11,11 +11,18 @@ import { safeFetch } from '../connectors/safe-fetch';
 import {
   CredentialCipherError,
   credentialCipherReady,
-  credentialKeys,
   decryptSecret,
   encryptSecret,
 } from '../credential-cipher';
+import {
+  McpOAuthDiscoveryError,
+  discoverMcpAuth,
+  registerClient,
+  type RegisteredClient,
+} from './mcp-oauth-discovery';
 import { OAuthCallbackError } from './oauth-errors';
+import { OAuthClientRegistryService, type DynamicClient } from './oauth-client-registry.service';
+import { signState, verifyState } from './oauth-state';
 import {
   OAUTH_PROVIDER_IDS,
   identityUrl,
@@ -26,8 +33,12 @@ import {
   providerSpec,
   resolveProvider,
   type OAuthProviderId,
-  type ResolvedProvider,
+  type OAuthProviderSpec,
 } from './oauth-providers';
+
+/** The provider id a grant of a discovered MCP server carries. */
+export const MCP_PROVIDER = 'mcp';
+const MCP_CLIENT_NAME = 'INITE Brain';
 
 /** How long a started authorization may take before its state is dead. */
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -53,6 +64,8 @@ interface StateRow {
   id: unknown;
   nonce: string;
   provider: string;
+  /** The MCP server URL a `mcp` authorization is for. */
+  resource?: string | null;
   scopes: string[];
   codeVerifier: string;
   redirectUri: string;
@@ -65,6 +78,7 @@ interface StateRow {
 interface GrantRow {
   id: unknown;
   provider: string;
+  resource?: string | null;
   account?: string | null;
   scopes?: string[];
   tokens: string;
@@ -74,6 +88,28 @@ interface GrantRow {
   lastRefreshAt?: unknown;
   lastError?: string | null;
   createdAt: unknown;
+}
+
+/**
+ * What one token exchange needs — a static provider with the operator's
+ * app (oauth-providers.ts), or a discovered MCP server's authorization
+ * server with the client the brain registered there.
+ */
+interface TokenClient {
+  id: string;
+  tokenUrl: string;
+  tokenAuth?: 'body' | 'basic' | 'none' | undefined;
+  clientId: string;
+  clientSecret: string;
+  private: boolean;
+  /** Null = no identity lookup (the account label is the resource's host). */
+  identity: OAuthProviderSpec['identity'] | null;
+  revoke?: { url: string; style: 'token_param' | 'bearer' } | undefined;
+  apiBaseKey?: string | undefined;
+  /** Sent with every token request (RFC 8707 `resource`). */
+  tokenParams?: Record<string, string> | undefined;
+  /** The dev override / private opt-in and the spec's URL for identityUrl(). */
+  spec: (OAuthProviderSpec & { private: boolean }) | null;
 }
 
 /**
@@ -96,7 +132,10 @@ export class SourceOAuthService {
   private readonly logger = new Logger(SourceOAuthService.name);
   private readonly inflight = new Map<string, Promise<string>>();
 
-  constructor(private readonly surreal: SurrealService) {}
+  constructor(
+    private readonly surreal: SurrealService,
+    private readonly clients: OAuthClientRegistryService,
+  ) {}
 
   /** SOURCE_OAUTH_CLIENT on AND a credential key set — both, or no grant is ever made. */
   ready(): boolean {
@@ -131,18 +170,119 @@ export class SourceOAuthService {
         `provider "${p.provider}" is not configured (${providerClientIdEnv(p.provider)})`,
       );
     }
+    const scopes = [...new Set([...provider.baseScopes, ...p.scopes])];
+    return this.begin(companyId, {
+      provider: provider.id,
+      resource: null,
+      scopes,
+      authorizeUrl: provider.authorizeUrl,
+      clientId: provider.clientId,
+      authorizeParams: provider.authorizeParams,
+      redirectUri: p.redirectUri,
+      origin: p.origin,
+      actor: p.actor,
+      userId: p.userId,
+    });
+  }
+
+  /**
+   * Begin against an MCP server (W4.3): discover its authorization
+   * server (RFC 9728 → RFC 8414), hold a client there — the one kept
+   * for this resource, the operator's, or a fresh dynamic registration
+   * (RFC 7591) — and send the admin to consent with PKCE and the
+   * `resource` the tokens are bound to (RFC 8707).
+   */
+  async startMcp(
+    companyId: string,
+    p: {
+      serverUrl: string;
+      allowPrivate: boolean;
+      client?: { clientId: string; clientSecret?: string | undefined } | undefined;
+      redirectUri: string;
+      origin?: string | undefined;
+      actor: string;
+      userId?: string | undefined;
+    },
+  ): Promise<{ authorizeUrl: string; state: string; expiresAt: string; resource: string }> {
+    this.assertReady();
+    let discovered;
+    try {
+      discovered = await discoverMcpAuth(p.serverUrl, { allowPrivate: p.allowPrivate });
+    } catch (e) {
+      throw new BadRequestException((e as Error).message);
+    }
+    const resource = discovered.resource;
+    const scopes = discovered.prm?.scopesSupported ?? [];
+    let client = p.client ? null : await this.clients.find(companyId, resource);
+    if (!client) {
+      const registered: RegisteredClient = p.client
+        ? {
+            clientId: p.client.clientId,
+            clientSecret: p.client.clientSecret ?? null,
+            tokenAuth: p.client.clientSecret ? 'body' : 'none',
+          }
+        : await registerClient(
+            discovered.as,
+            { redirectUri: p.redirectUri, clientName: MCP_CLIENT_NAME, scopes },
+            { allowPrivate: p.allowPrivate },
+          ).catch((e: Error) => {
+            throw e instanceof McpOAuthDiscoveryError ? new BadRequestException(e.message) : e;
+          });
+      client = await this.clients.put(companyId, {
+        resource,
+        as: discovered.as,
+        client: registered,
+        registration: p.client ? 'operator' : 'dynamic',
+        scopes,
+        allowPrivate: p.allowPrivate,
+      });
+      this.logger.log(
+        `oauth client for ${resource} (${p.client ? 'operator' : 'dynamic'} registration at ${discovered.as.issuer}) for ${companyId}`,
+      );
+    }
+    const begun = await this.begin(companyId, {
+      provider: MCP_PROVIDER,
+      resource,
+      scopes: client.scopes,
+      authorizeUrl: client.authorizationEndpoint,
+      clientId: client.clientId,
+      authorizeParams: { resource },
+      redirectUri: p.redirectUri,
+      origin: p.origin,
+      actor: p.actor,
+      userId: p.userId,
+    });
+    return { ...begun, resource };
+  }
+
+  /** The state row and the consent URL — PKCE (S256), the signed state, the provider's own parameters. */
+  private async begin(
+    companyId: string,
+    p: {
+      provider: string;
+      resource: string | null;
+      scopes: string[];
+      authorizeUrl: string;
+      clientId: string;
+      authorizeParams: Record<string, string>;
+      redirectUri: string;
+      origin?: string | undefined;
+      actor: string;
+      userId?: string | undefined;
+    },
+  ): Promise<{ authorizeUrl: string; state: string; expiresAt: string }> {
     const nonce = randomBytes(24).toString('base64url');
     const verifier = randomBytes(48).toString('base64url');
     const challenge = createHash('sha256').update(verifier).digest('base64url');
-    const scopes = [...new Set([...provider.baseScopes, ...p.scopes])];
     const expiresAt = new Date(Date.now() + STATE_TTL_MS);
     const state = signState(companyId, nonce);
     await this.surreal.withCompany(companyId, (db) =>
       db.query(`CREATE source_oauth_state CONTENT $content`, {
         content: {
           nonce,
-          provider: provider.id,
-          scopes,
+          provider: p.provider,
+          ...(p.resource ? { resource: p.resource } : {}),
+          scopes: p.scopes,
           codeVerifier: encryptSecret(verifier),
           redirectUri: p.redirectUri,
           ...(p.origin ? { origin: p.origin } : {}),
@@ -152,15 +292,15 @@ export class SourceOAuthService {
         },
       }),
     );
-    const url = new URL(provider.authorizeUrl);
+    const url = new URL(p.authorizeUrl);
     url.searchParams.set('response_type', 'code');
-    url.searchParams.set('client_id', provider.clientId);
+    url.searchParams.set('client_id', p.clientId);
     url.searchParams.set('redirect_uri', p.redirectUri);
-    url.searchParams.set('scope', scopes.join(' '));
+    if (p.scopes.length > 0) url.searchParams.set('scope', p.scopes.join(' '));
     url.searchParams.set('state', state);
     url.searchParams.set('code_challenge', challenge);
     url.searchParams.set('code_challenge_method', 'S256');
-    for (const [k, v] of Object.entries(provider.authorizeParams)) url.searchParams.set(k, v);
+    for (const [k, v] of Object.entries(p.authorizeParams)) url.searchParams.set(k, v);
     return { authorizeUrl: url.toString(), state, expiresAt: expiresAt.toISOString() };
   }
 
@@ -204,9 +344,12 @@ export class SourceOAuthService {
       );
     }
     if (!q.code) throw new OAuthCallbackError('no authorization code in the callback', origin);
-    if (!isOAuthProviderId(row.provider)) throw new OAuthCallbackError('unknown provider', origin);
-    const provider = resolveProvider(row.provider);
-    if (!provider) throw new OAuthCallbackError('provider no longer configured', origin);
+    let provider: TokenClient;
+    try {
+      provider = await this.clientFor(companyId, row);
+    } catch (e) {
+      throw new OAuthCallbackError((e as Error).message, origin);
+    }
     let tokens: TokenSet;
     try {
       tokens = await this.exchange(provider, {
@@ -226,6 +369,7 @@ export class SourceOAuthService {
         {
           content: {
             provider: provider.id,
+            ...(row.resource ? { resource: row.resource } : {}),
             ...(account ? { account } : {}),
             scopes: row.scopes,
             tokens: encryptSecret(JSON.stringify(tokens)),
@@ -276,7 +420,7 @@ export class SourceOAuthService {
   ): Promise<{ revoked: boolean; providerRevoked: boolean }> {
     const row = await this.loadRow(companyId, grantId);
     let providerRevoked = false;
-    const provider = isOAuthProviderId(row.provider) ? resolveProvider(row.provider) : null;
+    const provider = await this.clientFor(companyId, row).catch(() => null);
     const tokens = this.tokensOf(row);
     // Best effort for a broken grant too: its refresh token may still be alive at the provider.
     if (provider?.revoke && tokens && row.status !== 'revoked') {
@@ -310,9 +454,7 @@ export class SourceOAuthService {
         `connected account ${grantId} expired without a refresh token — reconnect it`,
       );
     }
-    if (!isOAuthProviderId(row.provider)) throw new Error(`unknown provider ${row.provider}`);
-    const provider = resolveProvider(row.provider);
-    if (!provider) throw new Error(`provider ${row.provider} is no longer configured`);
+    const provider = await this.clientFor(companyId, row);
     let fresh: TokenSet;
     try {
       fresh = await this.exchange(provider, {
@@ -374,19 +516,40 @@ export class SourceOAuthService {
     }
   }
 
-  /** One POST to the token endpoint; the client authenticates in the body (every provider here accepts it). */
-  private async exchange(
-    provider: ResolvedProvider,
-    params: Record<string, string>,
-  ): Promise<TokenSet> {
+  /**
+   * The token client for a state or grant row: the static provider with
+   * the operator's app, or — for `mcp` — the client the brain holds at
+   * the resource's authorization server. Throws by name when neither.
+   */
+  private async clientFor(
+    companyId: string,
+    row: { provider: string; resource?: string | null | undefined },
+  ): Promise<TokenClient> {
+    if (row.provider === MCP_PROVIDER) {
+      if (!row.resource) throw new Error('the mcp grant names no resource');
+      const client = await this.clients.find(companyId, row.resource);
+      if (!client) throw new Error(`no oauth client registered for ${row.resource}`);
+      return mcpTokenClient(client);
+    }
+    if (!isOAuthProviderId(row.provider)) throw new Error(`unknown provider ${row.provider}`);
+    const provider = resolveProvider(row.provider);
+    if (!provider) throw new Error(`provider ${row.provider} is no longer configured`);
+    return { ...provider, spec: provider };
+  }
+
+  /** One POST to the token endpoint; the client authenticates as the provider takes it (body / basic / none). */
+  private async exchange(provider: TokenClient, params: Record<string, string>): Promise<TokenSet> {
     const basic = provider.tokenAuth === 'basic';
     const body = new URLSearchParams({
       ...params,
+      ...(provider.tokenParams ?? {}),
       ...(basic
         ? {}
         : {
             client_id: provider.clientId,
-            ...(provider.clientSecret ? { client_secret: provider.clientSecret } : {}),
+            ...(provider.clientSecret && provider.tokenAuth !== 'none'
+              ? { client_secret: provider.clientSecret }
+              : {}),
           }),
     });
     const res = await safeFetch(provider.tokenUrl, {
@@ -431,11 +594,14 @@ export class SourceOAuthService {
     };
   }
 
-  /** The account label — never fatal: a grant without a name is still a grant. */
-  private async identity(provider: ResolvedProvider, tokens: TokenSet): Promise<string | null> {
+  /** The account label — never fatal: a grant without a name is still a grant; an MCP grant is labelled by its server. */
+  private async identity(provider: TokenClient, tokens: TokenSet): Promise<string | null> {
+    if (!provider.identity || !provider.spec) {
+      return provider.tokenParams?.resource ? new URL(provider.tokenParams.resource).host : null;
+    }
     const accessToken = tokens.accessToken;
     try {
-      const res = await safeFetch(identityUrl(provider, accessToken, tokens.identityUrl), {
+      const res = await safeFetch(identityUrl(provider.spec, accessToken, tokens.identityUrl), {
         method: provider.identity.method,
         headers: {
           authorization: `Bearer ${accessToken}`,
@@ -455,7 +621,7 @@ export class SourceOAuthService {
     }
   }
 
-  private async revokeAtProvider(provider: ResolvedProvider, tokens: TokenSet): Promise<boolean> {
+  private async revokeAtProvider(provider: TokenClient, tokens: TokenSet): Promise<boolean> {
     const r = provider.revoke;
     if (!r) return false;
     try {
@@ -497,55 +663,6 @@ export class SourceOAuthService {
   }
 }
 
-// ── state token ──────────────────────────────────────────────────────
-
-const STATE_SIG_BYTES = 16;
-
-function stateKey(): Buffer {
-  const [key] = credentialKeys();
-  if (!key) throw new CredentialCipherError('SOURCE_CREDENTIAL_ENCRYPTION_KEY is unset');
-  return createHash('sha256').update('source-oauth-state').update(key).digest();
-}
-
-/** `<companyId>.<nonce>.<sig>` — base64url; the signature binds the tenant so a forged state opens nothing. */
-export function signState(companyId: string, nonce: string): string {
-  const sig = createHmac('sha256', stateKey())
-    .update(`${companyId}.${nonce}`)
-    .digest()
-    .subarray(0, STATE_SIG_BYTES)
-    .toString('base64url');
-  return Buffer.from(`${companyId}.${nonce}.${sig}`, 'utf8').toString('base64url');
-}
-
-export function verifyState(state: string): { companyId: string; nonce: string } | null {
-  let decoded: string;
-  try {
-    decoded = Buffer.from(state, 'base64url').toString('utf8');
-  } catch {
-    return null;
-  }
-  // Canonical form only: base64url decodes a dangling character leniently,
-  // and a non-canonical spelling of a valid state must not spend it.
-  if (Buffer.from(decoded, 'utf8').toString('base64url') !== state) return null;
-  const parts = decoded.split('.');
-  if (parts.length !== 3) return null;
-  const [companyId, nonce, sig] = parts as [string, string, string];
-  if (!/^[A-Za-z0-9_-]{1,64}$/.test(companyId) || !/^[A-Za-z0-9_-]{16,64}$/.test(nonce))
-    return null;
-  let expected: Buffer;
-  try {
-    expected = createHmac('sha256', stateKey())
-      .update(`${companyId}.${nonce}`)
-      .digest()
-      .subarray(0, STATE_SIG_BYTES);
-  } catch {
-    return null;
-  }
-  const given = Buffer.from(sig, 'base64url');
-  if (given.byteLength !== expected.byteLength || !timingSafeEqual(given, expected)) return null;
-  return { companyId, nonce };
-}
-
 function toGrant(r: GrantRow, tokens: TokenSet | null): SourceOAuthGrant {
   const iso = (v: unknown): string | null => {
     if (v === null || v === undefined) return null;
@@ -564,14 +681,33 @@ function toGrant(r: GrantRow, tokens: TokenSet | null): SourceOAuthGrant {
     refreshable: typeof tokens?.refreshToken === 'string',
     lastRefreshAt: iso(r.lastRefreshAt),
     lastError: r.lastError ?? null,
-    apiBase: tokens?.apiBase ?? null,
+    resource: r.resource ?? null,
+    apiBase: tokens?.apiBase ?? (r.resource ? new URL(r.resource).origin : null),
     createdAt: iso(r.createdAt) ?? new Date(0).toISOString(),
+  };
+}
+
+/** A discovered MCP server's client as a token client: PKCE public by default, `resource` on every token request, revocation when the server lists it. */
+function mcpTokenClient(c: DynamicClient): TokenClient {
+  return {
+    id: MCP_PROVIDER,
+    tokenUrl: c.tokenEndpoint,
+    tokenAuth: c.tokenAuth,
+    clientId: c.clientId,
+    clientSecret: c.clientSecret,
+    private: c.allowPrivate,
+    identity: null,
+    ...(c.revocationEndpoint
+      ? { revoke: { url: c.revocationEndpoint, style: 'token_param' as const } }
+      : {}),
+    tokenParams: { resource: c.resource },
+    spec: null,
   };
 }
 
 /** The identity URL the token response named (`id`) — https only, unless the dev override is in force (it reroutes the host anyway). */
 function identityUrlOf(
-  provider: ResolvedProvider,
+  provider: TokenClient,
   json: Record<string, unknown>,
 ): { identityUrl?: string } {
   if (typeof json.id !== 'string') return {};
@@ -580,10 +716,7 @@ function identityUrlOf(
 }
 
 /** The account's API origin the token response named — an https origin only, never a path a provider could smuggle. */
-function apiBaseOf(
-  provider: ResolvedProvider,
-  json: Record<string, unknown>,
-): { apiBase?: string } {
+function apiBaseOf(provider: TokenClient, json: Record<string, unknown>): { apiBase?: string } {
   if (!provider.apiBaseKey) return {};
   const raw = json[provider.apiBaseKey];
   if (typeof raw !== 'string') return {};
@@ -595,3 +728,5 @@ function apiBaseOf(
     return {};
   }
 }
+
+export { signState, verifyState } from './oauth-state';

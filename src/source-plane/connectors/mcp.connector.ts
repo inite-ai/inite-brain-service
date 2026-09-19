@@ -3,7 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { PackMcpHttpSourceSpec } from '../../ai/domain-packs/manifest';
-import { sourceKindEnabled } from '../../common/source-plane-flags';
+import { sourceKindEnabled, sourceMcpOAuthEnabled } from '../../common/source-plane-flags';
 import type {
   Connector,
   ConnectorCtx,
@@ -36,7 +36,9 @@ import { guardedFetch } from './safe-fetch';
  * catalogue is capped (`maxResources`), a resource's text is capped
  * (`maxBytes`), and the bearer is the connection credential — or, for
  * `auth: install_secret`, the pack's own install secret (the publisher-
- * operated case). `auth: oauth` is W4 and fails by name today.
+ * operated case); for `auth: oauth` (W4.3) the connection's grant at the
+ * server's own authorization server — a bearer the engine refreshes,
+ * a 401 from the server naming the account to sign in again.
  *
  * Polling, not subscriptions: `resources/list` is re-walked every run
  * (`walksEverything` — what the listing no longer carries is gone). A
@@ -209,8 +211,12 @@ export class McpConnector implements Connector {
     const url = entry.url ?? cfg.url;
     if (!url)
       throw new Error('mcp connector: the pack entry pins no url and config.url is not set');
-    if (entry.auth === 'oauth')
-      throw new Error('mcp connector: auth "oauth" is not available yet (W4)');
+    if (entry.auth === 'oauth' && !sourceMcpOAuthEnabled())
+      throw new Error('mcp connector: auth "oauth" needs SOURCE_MCP_OAUTH on this deployment');
+    if (entry.auth === 'oauth' && ctx.connection.credentialSource !== 'grant')
+      throw new Error(
+        'mcp connector: this source signs in at the server — no connected account on the connection',
+      );
     const client = new Client(CLIENT_INFO, { capabilities: {} });
     const transport = new StreamableHTTPClientTransport(new URL(url), {
       fetch: guardedFetch({ allowPrivate: cfg.allowPrivate, signal: ctx.signal }),
@@ -218,7 +224,17 @@ export class McpConnector implements Connector {
     });
     // The SDK's .d.ts is self-inconsistent under exactOptionalPropertyTypes
     // (see src/mcp/mcp.controller.ts); the value is a valid Transport.
-    await client.connect(transport as Transport);
+    try {
+      await client.connect(transport as Transport);
+    } catch (e) {
+      // The SDK names the status in its message; a 401 on a signed-in source is the account, not the server.
+      if (entry.auth === 'oauth' && /\b401\b/.test((e as Error).message)) {
+        throw new Error(
+          `mcp connector: ${url} rejected the connected account (401) — sign in again`,
+        );
+      }
+      throw e;
+    }
     this.sessions.set(ctx.connection.id, { client, transport });
     return client;
   }
