@@ -11,6 +11,7 @@ import { AgentSourceConnectionsController } from './agent-source-connections.con
 import { AgentSyncService } from './agent-sync.service';
 import { SOURCE_CONNECTORS, type Connector } from './connector';
 import { Bitrix24Connector } from './connectors/bitrix24.connector';
+import { ConfluenceConnector } from './connectors/confluence.connector';
 import { DropboxConnector } from './connectors/dropbox.connector';
 import { FsConnector } from './connectors/fs.connector';
 import { GDriveConnector } from './connectors/gdrive.connector';
@@ -21,6 +22,7 @@ import { OneDriveConnector } from './connectors/onedrive.connector';
 import { PipedriveConnector } from './connectors/pipedrive.connector';
 import { RestRecordsConnector } from './connectors/rest-records.connector';
 import { S3Connector } from './connectors/s3.connector';
+import { NotionConnector } from './connectors/notion.connector';
 import { SalesforceConnector } from './connectors/salesforce.connector';
 import { UrlConnector } from './connectors/url.connector';
 import { AdminSourceOAuthController } from './oauth/admin-source-oauth.controller';
@@ -100,6 +102,8 @@ import { SourceSyncService } from './source-sync.service';
     GDriveConnector,
     OneDriveConnector,
     DropboxConnector,
+    NotionConnector,
+    ConfluenceConnector,
     PipedriveConnector,
     HubSpotConnector,
     Bitrix24Connector,
@@ -117,6 +121,8 @@ import { SourceSyncService } from './source-sync.service';
         GDriveConnector,
         OneDriveConnector,
         DropboxConnector,
+        NotionConnector,
+        ConfluenceConnector,
         PipedriveConnector,
         HubSpotConnector,
         Bitrix24Connector,

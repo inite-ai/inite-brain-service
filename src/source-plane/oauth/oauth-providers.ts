@@ -30,7 +30,9 @@ export type OAuthProviderId =
   | 'hubspot'
   | 'salesforce'
   | 'bitrix24'
-  | 'kommo';
+  | 'kommo'
+  | 'notion'
+  | 'atlassian';
 
 export const OAUTH_PROVIDER_IDS: readonly OAuthProviderId[] = [
   'google',
@@ -41,6 +43,8 @@ export const OAUTH_PROVIDER_IDS: readonly OAuthProviderId[] = [
   'salesforce',
   'bitrix24',
   'kommo',
+  'notion',
+  'atlassian',
 ];
 
 /**
@@ -76,7 +80,14 @@ export interface OAuthProviderSpec {
    * names (`id`, Salesforce) — the right host for a sandbox or a My
    * Domain — over `url`.
    */
-  identity: { method: 'GET' | 'POST'; url: string; pick: string[]; fromTokenId?: boolean };
+  identity: {
+    method: 'GET' | 'POST';
+    url: string;
+    pick: string[];
+    fromTokenId?: boolean;
+    /** Headers the identity call needs beyond the bearer (Notion's API version). */
+    headers?: Record<string, string> | undefined;
+  };
   /** Best-effort revocation on disconnect; absent = the user revokes at the provider. */
   revoke?: { url: string; style: 'token_param' | 'bearer' } | undefined;
   /**
@@ -110,7 +121,17 @@ export interface OAuthProviderSpec {
   accountHost?: { param: string; suffixes: string[] } | undefined;
   /** The refresh request carries `redirect_uri` too (Kommo asks for it). */
   refreshWithRedirectUri?: boolean | undefined;
+  /**
+   * False = the provider's token endpoint validates its body strictly
+   * and knows no PKCE (Notion, Atlassian's 3LO): no challenge is sent,
+   * no verifier is exchanged — the signed state and the app's secret
+   * carry the flow.
+   */
+  pkce?: boolean | undefined;
 }
+
+/** The Notion API version every call names (the connector and the identity lookup). */
+export const NOTION_VERSION = '2022-06-28';
 
 const SPECS: Record<OAuthProviderId, OAuthProviderSpec> = {
   google: {
@@ -269,6 +290,52 @@ const SPECS: Record<OAuthProviderId, OAuthProviderSpec> = {
     refreshWithRedirectUri: true,
     loginUrlEnv: 'SOURCE_OAUTH_KOMMO_LOGIN_URL',
   },
+  notion: {
+    id: 'notion',
+    title: 'Notion',
+    // A public integration: the token endpoint wants the app's
+    // credentials as HTTP Basic and a JSON body it validates strictly
+    // (no PKCE); the token never expires and no refresh token is
+    // issued — a revoked integration is a 401 the connector names.
+    // Capabilities (read content, read user information) are set on the
+    // integration, not asked per grant; `owner=user` asks the person
+    // to pick the pages the integration may see.
+    authorizeUrl: 'https://api.notion.com/v1/oauth/authorize',
+    tokenUrl: 'https://api.notion.com/v1/oauth/token',
+    tokenAuth: 'basic',
+    tokenRequest: 'json',
+    pkce: false,
+    authorizeParams: { owner: 'user' },
+    baseScopes: [],
+    apiBase: 'https://api.notion.com',
+    identity: {
+      method: 'GET',
+      url: 'https://api.notion.com/v1/users/me',
+      pick: ['bot.workspace_name', 'name', 'id'],
+      headers: { 'notion-version': NOTION_VERSION },
+    },
+  },
+  atlassian: {
+    id: 'atlassian',
+    title: 'Atlassian (Confluence)',
+    // 3LO: consent at auth.atlassian.com for the api.atlassian.com
+    // audience, a JSON token endpoint with the app's credentials in the
+    // body, `offline_access` for a (rotating) refresh token — one hour
+    // of access at a time. No PKCE. The site (cloud id) is found through
+    // accessible-resources by the connector.
+    authorizeUrl: 'https://auth.atlassian.com/authorize',
+    tokenUrl: 'https://auth.atlassian.com/oauth/token',
+    tokenRequest: 'json',
+    pkce: false,
+    authorizeParams: { audience: 'api.atlassian.com', prompt: 'consent' },
+    baseScopes: ['offline_access'],
+    apiBase: 'https://api.atlassian.com',
+    identity: {
+      method: 'GET',
+      url: 'https://api.atlassian.com/me',
+      pick: ['email', 'name', 'account_id'],
+    },
+  },
 };
 
 /** A provider as this deployment can use it: its spec with the operator's app and any dev override applied. */
@@ -331,6 +398,16 @@ const ENV_NAMES: Record<
     clientId: 'SOURCE_OAUTH_KOMMO_CLIENT_ID',
     clientSecret: 'SOURCE_OAUTH_KOMMO_CLIENT_SECRET',
     baseUrl: 'SOURCE_OAUTH_KOMMO_BASE_URL',
+  },
+  notion: {
+    clientId: 'SOURCE_OAUTH_NOTION_CLIENT_ID',
+    clientSecret: 'SOURCE_OAUTH_NOTION_CLIENT_SECRET',
+    baseUrl: 'SOURCE_OAUTH_NOTION_BASE_URL',
+  },
+  atlassian: {
+    clientId: 'SOURCE_OAUTH_ATLASSIAN_CLIENT_ID',
+    clientSecret: 'SOURCE_OAUTH_ATLASSIAN_CLIENT_SECRET',
+    baseUrl: 'SOURCE_OAUTH_ATLASSIAN_BASE_URL',
   },
 };
 

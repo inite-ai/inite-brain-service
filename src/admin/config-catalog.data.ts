@@ -1621,6 +1621,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       "The `dropbox` source connector (source plane, W4): a Dropbox folder read recursively as documents or handed to the evidence plane (file_memory: `dropbox` / `dropbox_media`). The folder cursor is the change feed (`list_folder/continue` from the checkpointed cursor returns only what changed; a cursor Dropbox reset restarts the walk); `rev` is the revision. Runs as a connected Dropbox account (SOURCE_OAUTH_CLIENT). Off (default) = 'not installed' — byte-identical.",
   },
   {
+    key: 'SOURCE_KIND_NOTION',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `notion` source connector (source plane, W4.5 — a wiki): the pages a connected Notion integration can see (web_memory: `notion`) — `POST /v1/search` as the catalogue (newest edit first, last_edited_time the revision), the page's block tree rendered markdown-like with a database row's properties as lines above it; `rootPageIds` narrows the walk to subtrees (child pages followed). An incremental run stops at the checkpoint; a full run walks everything and what search no longer lists is gone. Runs as a connected Notion workspace (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_NOTION_CLIENT_ID). Off (default) = 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_KIND_CONFLUENCE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `confluence` source connector (source plane, W4.5 — a wiki): the pages (and blog posts when asked) of a Confluence Cloud site the connected Atlassian account reaches (web_memory: `confluence`), through the v2 REST API at api.atlassian.com/ex/confluence/<cloud id> — the site from accessible-resources (`config.site` names one of several), `spaceKeys` narrows the walk, the listing newest modification first (an incremental run stops at the checkpoint), the version number the revision, storage-format XHTML reduced to text. Runs as a connected Atlassian account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_ATLASSIAN_CLIENT_ID). Off (default) = 'not installed' — byte-identical.",
+  },
+  {
     key: 'SOURCE_KIND_PIPEDRIVE',
     category: 'pipeline',
     defaultValue: '0',
@@ -1830,6 +1848,62 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
     description:
       'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the Kommo (consent host + account API) counterpart.',
+  },
+  {
+    key: 'SOURCE_OAUTH_NOTION_CLIENT_ID',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The OAuth client id of the PUBLIC Notion integration the brain connects workspaces through (the brain's callback URL as its redirect URI; read-content and read-user capabilities). Notion's token endpoint takes the app's credentials as HTTP Basic and a JSON body, issues no refresh token (the token never expires) and knows no PKCE. Unset = Notion is 'not configured'.",
+  },
+  {
+    key: 'SOURCE_OAUTH_NOTION_CLIENT_SECRET',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description:
+      'The OAuth client secret of the Notion integration named by SOURCE_OAUTH_NOTION_CLIENT_ID.',
+  },
+  {
+    key: 'SOURCE_OAUTH_NOTION_BASE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the Notion (OAuth + API) counterpart.',
+  },
+  {
+    key: 'SOURCE_OAUTH_ATLASSIAN_CLIENT_ID',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The client id of the Atlassian OAuth 2.0 (3LO) app the brain connects Confluence Cloud sites through (developer.atlassian.com; the brain's callback URL as its callback; the Confluence scopes read:page:confluence, read:space:confluence, read:blogpost:confluence and offline_access). The token endpoint takes JSON with the app's credentials in the body; refresh tokens rotate. Unset = Atlassian is 'not configured'.",
+  },
+  {
+    key: 'SOURCE_OAUTH_ATLASSIAN_CLIENT_SECRET',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description:
+      'The client secret of the Atlassian app named by SOURCE_OAUTH_ATLASSIAN_CLIENT_ID.',
+  },
+  {
+    key: 'SOURCE_OAUTH_ATLASSIAN_BASE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the Atlassian (auth.atlassian.com + api.atlassian.com) counterpart.',
   },
   {
     key: 'SOURCE_KIND_REST_RECORDS',

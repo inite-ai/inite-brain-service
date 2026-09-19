@@ -448,6 +448,8 @@ export const SourceOAuthProviderIdSchema = z.enum([
   'salesforce',
   'bitrix24',
   'kommo',
+  'notion',
+  'atlassian',
 ])
 
 export const SourceOAuthStartRequestSchema = z.object({

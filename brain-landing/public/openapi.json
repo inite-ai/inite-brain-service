@@ -8294,7 +8294,9 @@
                     "hubspot",
                     "salesforce",
                     "bitrix24",
-                    "kommo"
+                    "kommo",
+                    "notion",
+                    "atlassian"
                   ],
                   "type": "string"
                 },
@@ -8420,7 +8422,9 @@
               "hubspot",
               "salesforce",
               "bitrix24",
-              "kommo"
+              "kommo",
+              "notion",
+              "atlassian"
             ],
             "type": "string"
           }
