@@ -5038,6 +5038,9 @@
                 "peer": {
                   "type": "string"
                 },
+                "peerId": {
+                  "type": "string"
+                },
                 "peerType": {
                   "type": "string"
                 }
@@ -5995,6 +5998,28 @@
           "generatedAt": {
             "type": "string"
           },
+          "identity": {
+            "additionalProperties": false,
+            "properties": {
+              "entityId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "entityId",
+              "name"
+            ],
+            "type": "object"
+          },
           "profileText": {
             "type": "string"
           },
@@ -6010,6 +6035,7 @@
         },
         "required": [
           "userId",
+          "identity",
           "generatedAt",
           "factCount",
           "sections",
