@@ -20,6 +20,8 @@ export type SourceFamily =
   | 'gdrive'
   | 'onedrive'
   | 'dropbox'
+  | 'notion'
+  | 'confluence'
   | 'records'
   | 'db'
   | 'external'
@@ -52,6 +54,8 @@ export function groupOf(family: SourceFamily): SourceGroup {
     case 'dropbox':
       return 'files'
     case 'site':
+    case 'notion':
+    case 'confluence':
       return 'web'
     case 'mcp':
       return 'mcp'
@@ -82,6 +86,8 @@ export function familyOf(e: { kind: string; connector: string }): SourceFamily {
     case 'gdrive':
     case 'onedrive':
     case 'dropbox':
+    case 'notion':
+    case 'confluence':
       return e.connector
     case 'pipedrive':
     case 'hubspot':
@@ -122,12 +128,14 @@ const FAMILY_ORDER: Record<SourceFamily, number> = {
   onedrive: 3,
   dropbox: 4,
   site: 5,
-  mcp: 6,
-  repo: 7,
-  records: 8,
-  db: 9,
-  external: 10,
-  other: 11,
+  notion: 6,
+  confluence: 7,
+  mcp: 8,
+  repo: 9,
+  records: 10,
+  db: 11,
+  external: 12,
+  other: 13,
 }
 const AVAILABILITY_RANK: Record<SourceAvailability, number> = {
   ready: 0,

@@ -52,6 +52,8 @@ describe('source kinds', () => {
     expect(familyOf({ kind: 'mcp', connector: 'mcp' })).toBe('mcp')
     expect(familyOf({ kind: 'external', connector: 'external' })).toBe('external')
     expect(familyOf({ kind: 'native', connector: 'db' })).toBe('db')
+    expect(familyOf({ kind: 'native', connector: 'notion' })).toBe('notion')
+    expect(familyOf({ kind: 'native', connector: 'confluence' })).toBe('confluence')
     expect(familyOf({ kind: 'native', connector: 'webdav' })).toBe('other')
   })
 
@@ -157,6 +159,8 @@ describe('source groups', () => {
     expect(groupOf('onedrive')).toBe('files')
     expect(groupOf('dropbox')).toBe('files')
     expect(groupOf('site')).toBe('web')
+    expect(groupOf('notion')).toBe('web')
+    expect(groupOf('confluence')).toBe('web')
     expect(groupOf('mcp')).toBe('mcp')
     expect(groupOf('repo')).toBe('code')
     expect(groupOf('records')).toBe('records')

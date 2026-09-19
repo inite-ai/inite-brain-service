@@ -252,6 +252,27 @@ const DROPBOX: ConnectorForm = {
 
 const HUBSPOT: ConnectorForm = { fields: [], credential: { kind: 'oauth', alternative: 'token' } }
 
+/** Notion (W4.5): everything the integration can see, or the subtrees under the named pages; a connected workspace. */
+const NOTION: ConnectorForm = {
+  fields: [
+    { key: 'rootPageIds', type: 'list', mono: true, placeholder: '1a2b3c4d-…' },
+    { key: 'maxPages', type: 'number', min: 1, advanced: true },
+    { key: 'maxBlocks', type: 'number', min: 1, advanced: true },
+  ],
+  credential: { kind: 'oauth' },
+}
+
+/** Confluence Cloud (W4.5): the site (when the account reaches several), the spaces, blog posts; a connected Atlassian account. */
+const CONFLUENCE: ConnectorForm = {
+  fields: [
+    { key: 'spaceKeys', type: 'list', mono: true, placeholder: 'ENG\nOPS' },
+    { key: 'site', type: 'text', mono: true, placeholder: 'acme.atlassian.net' },
+    { key: 'includeBlogposts', type: 'boolean', default: false },
+    { key: 'maxPages', type: 'number', min: 1, advanced: true },
+  ],
+  credential: { kind: 'oauth' },
+}
+
 /**
  * Salesforce: a connected account (the org comes from the grant) or a
  * JWT bearer for an integration user; the org, the login host, the API
@@ -496,6 +517,10 @@ export function formFor(entry: SourceCatalogEntry): ConnectorForm | null {
       return PIPEDRIVE
     case 'hubspot':
       return HUBSPOT
+    case 'notion':
+      return NOTION
+    case 'confluence':
+      return CONFLUENCE
     case 'salesforce':
       return SALESFORCE
     case 'bitrix24':

@@ -18,7 +18,7 @@ import type { DomainPackManifest } from './manifest';
  */
 export const WEB_MEMORY_PACK: DomainPackManifest = {
   id: 'web_memory',
-  version: '0.2.0',
+  version: '0.3.0',
   description:
     'Web pages as memory — what a page describes, links to and who wrote it, bound to the revision it was fetched at; the source pack that connects sites, sitemaps and self-hosted wikis.',
   predicates: [
@@ -147,6 +147,29 @@ chrome, cookie banners and footers. Copy names and URLs VERBATIM.`,
       description:
         'PDFs and office documents (docx, xlsx, pptx) a sitemap lists or that are named outright, handed to the evidence plane. Same config and credential as `site`.',
       defaults: { contentPolicy: 'bytes', deletePolicy: 'close', schedule: '24h' },
+    },
+    // ── Wikis (W4.5): a Notion workspace and a Confluence Cloud site as
+    // connected accounts — the pages the account can see, reduced to
+    // text, edited-time / version as the revision.
+    {
+      id: 'notion',
+      kind: 'native',
+      connector: 'notion',
+      shape: 'document',
+      title: 'Notion (pages)',
+      description:
+        "The pages a connected Notion integration can see — every page and database row, or the subtrees under `rootPageIds` — as text: the block tree rendered markdown-like, a row's properties as lines above it; last_edited_time is the revision. config: { rootPageIds?, maxPages?, maxBlocks? }; credential: a connected Notion workspace.",
+      defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '4h' },
+    },
+    {
+      id: 'confluence',
+      kind: 'native',
+      connector: 'confluence',
+      shape: 'document',
+      title: 'Confluence Cloud (pages)',
+      description:
+        'The pages (and blog posts when asked) of a Confluence Cloud site the connected Atlassian account reaches, storage format reduced to text; the version number is the revision, newest modification first. config: { site?, spaceKeys?, includeBlogposts?, maxPages? }; credential: a connected Atlassian account.',
+      defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '4h' },
     },
     // ── MCP (W2) — the only third-party seam. A wiki, a docs portal or a
     // knowledge base that speaks MCP exposes its pages as RESOURCES; the

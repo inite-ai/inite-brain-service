@@ -1135,6 +1135,38 @@
               "hint": "Loopback / LAN addresses — the deployment already opted in."
             }
           },
+          "notion": {
+            "rootPageIds": {
+              "label": "Only under these pages",
+              "hint": "Page ids (from a page’s URL or “Copy link”), one per line — their subtrees are walked instead of everything the integration can see. Empty = everything shared with the integration."
+            },
+            "maxPages": {
+              "label": "Max pages",
+              "hint": "Default 5000."
+            },
+            "maxBlocks": {
+              "label": "Max blocks per page",
+              "hint": "The block tree is cut there. Default 2000."
+            }
+          },
+          "confluence": {
+            "spaceKeys": {
+              "label": "Spaces",
+              "hint": "Space keys, one per line (ENG, OPS). Empty = every space the account can read."
+            },
+            "site": {
+              "label": "Site",
+              "hint": "acme.atlassian.net — only when the account reaches several sites."
+            },
+            "includeBlogposts": {
+              "label": "Include blog posts",
+              "hint": ""
+            },
+            "maxPages": {
+              "label": "Max pages",
+              "hint": "Default 5000."
+            }
+          },
           "s3": {
             "bucket": {
               "label": "Bucket",
@@ -1484,6 +1516,26 @@
             "documentHint": "HTML reduced to text, plain text, JSON",
             "binary": "Files",
             "binaryHint": "PDFs and office documents the sitemap lists"
+          }
+        },
+        "notion": {
+          "title": "Notion",
+          "body": "The pages a connected Notion integration can see — every page and database row, or the subtrees under the pages you name — rendered as text with a row’s properties above it; edited pages are re-read.",
+          "shapes": {
+            "document": "Pages",
+            "documentHint": "pages and database rows as text",
+            "binary": "",
+            "binaryHint": ""
+          }
+        },
+        "confluence": {
+          "title": "Confluence Cloud",
+          "body": "The pages (and blog posts) of a Confluence Cloud site the connected Atlassian account reaches, by space, reduced to text; the version is the revision.",
+          "shapes": {
+            "document": "Pages",
+            "documentHint": "pages and blog posts as text",
+            "binary": "",
+            "binaryHint": ""
           }
         },
         "bucket": {

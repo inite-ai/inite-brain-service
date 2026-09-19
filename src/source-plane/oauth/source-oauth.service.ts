@@ -117,6 +117,8 @@ interface TokenClient {
   /** The vendor's token endpoint lives on the account's host, named by the callback. */
   accountHost?: OAuthProviderSpec['accountHost'];
   refreshWithRedirectUri?: boolean | undefined;
+  /** False = no verifier is exchanged (the provider knows no PKCE and validates its body strictly). */
+  pkce?: boolean | undefined;
   /** The dev override / private opt-in and the spec's URL for identityUrl(). */
   spec: (OAuthProviderSpec & { private: boolean }) | null;
 }
@@ -187,6 +189,7 @@ export class SourceOAuthService {
       authorizeUrl: provider.authorizeUrl,
       clientId: provider.clientId,
       authorizeParams: provider.authorizeParams,
+      pkce: provider.pkce !== false,
       redirectUri: p.redirectUri,
       origin: p.origin,
       actor: p.actor,
@@ -274,6 +277,8 @@ export class SourceOAuthService {
       authorizeUrl: string;
       clientId: string;
       authorizeParams: Record<string, string>;
+      /** Default true; false = no challenge on the consent URL (the verifier is still kept, unused). */
+      pkce?: boolean | undefined;
       redirectUri: string;
       origin?: string | undefined;
       actor: string;
@@ -307,8 +312,10 @@ export class SourceOAuthService {
     url.searchParams.set('redirect_uri', p.redirectUri);
     if (p.scopes.length > 0) url.searchParams.set('scope', p.scopes.join(' '));
     url.searchParams.set('state', state);
-    url.searchParams.set('code_challenge', challenge);
-    url.searchParams.set('code_challenge_method', 'S256');
+    if (p.pkce !== false) {
+      url.searchParams.set('code_challenge', challenge);
+      url.searchParams.set('code_challenge_method', 'S256');
+    }
     for (const [k, v] of Object.entries(p.authorizeParams)) url.searchParams.set(k, v);
     return { authorizeUrl: url.toString(), state, expiresAt: expiresAt.toISOString() };
   }
@@ -375,7 +382,7 @@ export class SourceOAuthService {
           grant_type: 'authorization_code',
           code: q.code,
           redirect_uri: row.redirectUri,
-          code_verifier: decryptSecret(row.codeVerifier),
+          ...(provider.pkce === false ? {} : { code_verifier: decryptSecret(row.codeVerifier) }),
         },
         host,
       );
@@ -623,6 +630,7 @@ export class SourceOAuthService {
           authorization: `Bearer ${accessToken}`,
           accept: 'application/json',
           ...(provider.identity.method === 'POST' ? { 'content-type': 'application/json' } : {}),
+          ...(provider.identity.headers ?? {}),
         },
         ...(provider.identity.method === 'POST' ? { body: 'null' } : {}),
         allowPrivate: provider.private,
