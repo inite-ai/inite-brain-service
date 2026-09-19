@@ -14,7 +14,11 @@
  *    exactly as before; a Bearer header is the caller's own credential and
  *    is never refreshed;
  *  - the edge guard renews a page load the same way and keeps the admin
- *    check on the fresh token.
+ *    check on the fresh token;
+ *  - rotation is single-flight per refresh token with a grace window, and
+ *    `/api/auth/me` renews through a wrapper — the provider revokes the
+ *    whole token family when a rotated token is presented again, which is
+ *    exactly what concurrent fetches from one browser did on prod.
  */
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest'
 import { NextRequest, NextResponse } from 'next/server'
@@ -86,7 +90,7 @@ describe('withAdmin — silent renewal', () => {
       seen = await extractAccessToken(request)
       return NextResponse.json({ user: session.userId })
     })
-    const res = await handler(req({ refresh_token: 'OLD-REFRESH' }))
+    const res = await handler(req({ refresh_token: 'OLD-REFRESH-1' }))
     expect(res.status).toBe(200)
     expect(seen).toBe('FRESH-ACCESS')
     expect(setCookie(res, 'access_token')).toBe('FRESH-ACCESS')
@@ -98,7 +102,7 @@ describe('withAdmin — silent renewal', () => {
     const f = stubFetch('ok')
     const { withAdmin } = await import('@/lib/server-auth')
     const handler = withAdmin(async () => NextResponse.json({ ok: true }))
-    const res = await handler(req({ access_token: 'LIVE-ACCESS', refresh_token: 'OLD-REFRESH' }))
+    const res = await handler(req({ access_token: 'LIVE-ACCESS', refresh_token: 'OLD-REFRESH-2' }))
     expect(res.status).toBe(200)
     expect(f).not.toHaveBeenCalled()
     expect(setCookie(res, 'access_token')).toBeUndefined()
@@ -108,13 +112,65 @@ describe('withAdmin — silent renewal', () => {
     const f = stubFetch('denied')
     const { withUser } = await import('@/lib/server-auth')
     const handler = withUser(async () => NextResponse.json({ ok: true }))
-    expect((await handler(req({ refresh_token: 'OLD-REFRESH' }))).status).toBe(401)
+    expect((await handler(req({ refresh_token: 'OLD-REFRESH-3' }))).status).toBe(401)
     expect(f).toHaveBeenCalledTimes(1)
     const bearer = await handler(
-      req({ refresh_token: 'OLD-REFRESH' }, { authorization: 'Bearer STALE' }),
+      req({ refresh_token: 'OLD-REFRESH-3b' }, { authorization: 'Bearer STALE' }),
     )
     expect(bearer.status).toBe(401)
     expect(f).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('rotation is single-flight with a grace window — the provider revokes the family on a replay', () => {
+  it('concurrent requests carrying the same refresh cookie share one refresh and all get the new cookies', async () => {
+    const f = stubFetch('ok')
+    const { withAdmin } = await import('@/lib/server-auth')
+    const handler = withAdmin(async () => NextResponse.json({ ok: true }))
+    const [a, b, c] = await Promise.all([
+      handler(req({ refresh_token: 'OLD-REFRESH-5' })),
+      handler(req({ refresh_token: 'OLD-REFRESH-5' })),
+      handler(req({ access_token: 'EXPIRED', refresh_token: 'OLD-REFRESH-5' })),
+    ])
+    expect(f).toHaveBeenCalledTimes(1)
+    for (const res of [a, b, c]) {
+      expect(res.status).toBe(200)
+      expect(setCookie(res, 'access_token')).toBe('FRESH-ACCESS')
+      expect(setCookie(res, 'refresh_token')).toBe('FRESH-REFRESH')
+    }
+    // A request that fetched before the new cookie landed still presents
+    // the old token a moment later: it is served the same rotation, not a
+    // second refresh the provider would read as theft.
+    const late = await handler(req({ refresh_token: 'OLD-REFRESH-5' }))
+    expect(late.status).toBe(200)
+    expect(setCookie(late, 'refresh_token')).toBe('FRESH-REFRESH')
+    expect(f).toHaveBeenCalledTimes(1)
+  })
+
+  it('a refusal is not remembered — the next request tries the provider again', async () => {
+    const denied = stubFetch('denied')
+    const { withUser } = await import('@/lib/server-auth')
+    const handler = withUser(async () => NextResponse.json({ ok: true }))
+    expect((await handler(req({ refresh_token: 'OLD-REFRESH-6' }))).status).toBe(401)
+    expect(denied).toHaveBeenCalledTimes(1)
+    const ok = stubFetch('ok')
+    expect((await handler(req({ refresh_token: 'OLD-REFRESH-6' }))).status).toBe(200)
+    expect(ok).toHaveBeenCalledTimes(1)
+  })
+
+  it('/api/auth/me renews through a wrapper, so the rotated cookies reach the browser', async () => {
+    const f = stubFetch('ok')
+    const { GET } = await import('@/app/api/auth/me/route')
+    const res = await GET(req({ refresh_token: 'OLD-REFRESH-7' }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ isAuthenticated: true, userId: 'alice', isAdmin: true })
+    expect(setCookie(res, 'access_token')).toBe('FRESH-ACCESS')
+    expect(setCookie(res, 'refresh_token')).toBe('FRESH-REFRESH')
+    expect(f).toHaveBeenCalledTimes(1)
+    // Anonymous stays a 200 with no session and no cookies.
+    const anon = await GET(req({}))
+    expect(await anon.json()).toEqual({ isAuthenticated: false, isAdmin: false })
+    expect(setCookie(anon, 'access_token')).toBeUndefined()
   })
 })
 
@@ -123,7 +179,7 @@ describe('middleware — the page load renews too', () => {
     stubFetch('ok')
     const { middleware } = await import('@/middleware')
     const request = new NextRequest('https://brain.inite.ai/en/app/playground', {
-      headers: { cookie: 'access_token=EXPIRED; refresh_token=OLD-REFRESH' },
+      headers: { cookie: 'access_token=EXPIRED; refresh_token=OLD-REFRESH-4' },
     })
     const res = await middleware(request)
     expect(res.status).toBe(200)

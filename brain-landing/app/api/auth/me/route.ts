@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getUserSession } from '@/lib/server-auth'
+import { NextResponse } from 'next/server'
+import { withSession } from '@/lib/server-auth'
 
 /**
  * GET /api/auth/me
@@ -13,9 +13,14 @@ import { getUserSession } from '@/lib/server-auth'
  * `{ isAuthenticated: false, isAdmin: false }`, logged-in user →
  * `{ isAuthenticated: true, isAdmin: <bool> }`. Always 200 (never 401)
  * so the hook can branch cleanly.
+ *
+ * Through `withSession`, not the bare getter: this route is the first
+ * thing an open tab calls once the access token has expired, so it is
+ * the one most likely to renew — and a renewal whose cookies are not
+ * set leaves the browser holding a refresh token the provider has just
+ * revoked (see withSession).
  */
-export async function GET(request: NextRequest) {
-  const session = await getUserSession(request)
+export const GET = withSession(async (session) => {
   if (!session) {
     return NextResponse.json(
       { isAuthenticated: false, isAdmin: false },
@@ -28,4 +33,4 @@ export async function GET(request: NextRequest) {
     email: session.email,
     isAdmin: session.isAdmin,
   })
-}
+})

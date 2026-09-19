@@ -74,6 +74,12 @@ async function verifiedSession(request: NextRequest): Promise<{
   return fresh ? { decoded: fresh, renewed } : null
 }
 
+/**
+ * Session read WITHOUT the renewed cookies. For code that cannot set
+ * cookies on its response only; a route handler must use `withAdmin`,
+ * `withUser` or `withSession`, or a renewal here rotates the refresh
+ * token and loses it (see withSession).
+ */
 export async function getAdminSession(
   request: NextRequest,
 ): Promise<AdminSession | null> {
@@ -105,6 +111,7 @@ async function getAdminSessionWithRenewal(
  * Like {@link getAdminSession} but does NOT require admin. Returns a
  * session for any valid OAuth token (audience='brain-landing'). The
  * dev-bypass still applies so local development without auth works.
+ * Same hazard as getAdminSession: route handlers use `withSession`.
  */
 export async function getUserSession(
   request: NextRequest,
@@ -137,6 +144,30 @@ async function getUserSessionWithRenewal(
 function withRenewedCookies(res: NextResponse, renewed: RefreshedTokens | null): NextResponse {
   if (renewed) setSessionCookies(res, renewed)
   return res
+}
+
+/**
+ * Wraps a Next.js API handler that answers with or without a session
+ * (`/api/auth/me`): the handler gets the session or null and always
+ * runs. The point is the cookies: a session getter that renews without
+ * a wrapper rotates the refresh token at the provider and then DROPS
+ * the new one, so the browser keeps a revoked token and the next renewal
+ * is read as theft (the provider revokes the whole family). Every route
+ * that can renew must go through a wrapper that sets what was renewed.
+ */
+export function withSession(
+  handler: (
+    session: UserSession | null,
+    request: NextRequest,
+  ) => Promise<NextResponse>,
+) {
+  return async (request: NextRequest): Promise<NextResponse> => {
+    const resolved = await getUserSessionWithRenewal(request)
+    return withRenewedCookies(
+      await handler(resolved?.session ?? null, request),
+      resolved?.renewed ?? null,
+    )
+  }
 }
 
 /**

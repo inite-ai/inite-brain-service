@@ -37,13 +37,51 @@ export interface RefreshedTokens {
 }
 
 /**
+ * How long a rotated refresh token still answers with the tokens it was
+ * rotated into. The provider rotates on every refresh and treats a
+ * second use of the old token as theft — it revokes the whole family. A
+ * browser with the access token just expired sends several requests at
+ * once (the page's own fetches, a second tab), all carrying the SAME old
+ * refresh cookie, and the new cookie reaches it only with the first
+ * response; without this window the second request killed every session
+ * of the user (found on prod, 2026-09-19: the Playground's `/api/auth/me`
+ * and a proxy call raced, the family was revoked, and the admin was back
+ * on the consent screen). One minute covers a response in flight and a
+ * tab that fetched a moment before the cookie landed.
+ */
+const ROTATION_GRACE_MS = 60_000
+
+/** In-flight and just-finished rotations, keyed by the OLD refresh token. */
+const rotations = new Map<string, { at: number; result: Promise<RefreshedTokens | null> }>()
+
+/**
  * Exchange a refresh token for a new access token (RFC 6749 §6). Null on
  * any failure — no secret configured, provider says no, network error —
  * so a caller degrades to exactly the unauthenticated path it had.
+ *
+ * Single-flight per refresh token, remembered for ROTATION_GRACE_MS:
+ * every request that presents the same old token within the window
+ * gets the tokens that rotation produced, and the provider sees ONE
+ * refresh per token.
  */
-export async function refreshAccessToken(
-  refreshToken: string,
-): Promise<RefreshedTokens | null> {
+export function refreshAccessToken(refreshToken: string): Promise<RefreshedTokens | null> {
+  const now = Date.now()
+  for (const [key, entry] of rotations) {
+    if (now - entry.at > ROTATION_GRACE_MS) rotations.delete(key)
+  }
+  const known = rotations.get(refreshToken)
+  if (known) return known.result
+  const result = requestRefresh(refreshToken)
+  rotations.set(refreshToken, { at: now, result })
+  // A refusal is not a rotation — the next request may try again (the
+  // provider may have been briefly down), and nothing was revoked.
+  result.then((tokens) => {
+    if (!tokens) rotations.delete(refreshToken)
+  })
+  return result
+}
+
+async function requestRefresh(refreshToken: string): Promise<RefreshedTokens | null> {
   const clientSecret = process.env.OAUTH_CLIENT_SECRET || ''
   if (!clientSecret) return null
   try {
