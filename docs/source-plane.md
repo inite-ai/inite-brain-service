@@ -110,12 +110,24 @@ registers at boot — flip the flag, then restart.
 ### Admin UI — `/admin/connections`
 
 The landing's admin shell mirrors the surface one-to-one (Platform →
-Connections; `brain-landing/components/admin/ConnectionsPanel.tsx`):
+Connections; `brain-landing/components/admin/ConnectionsPanel.tsx`),
+as four tabs — **Connected**, **Add a source**, **Local agents**,
+**Accounts** — with a tenant that has nothing connected yet opening on
+the catalogue. Both the connections and the catalogue fold by **source
+group**, one fixed order (`kinds.ts` `groupOf`): *Files* (folder,
+bucket, Google Drive, OneDrive, Dropbox), *Web* (sites), *MCP servers*,
+*Code* (repositories), *CRM & records* (the vendors and custom REST),
+*Pushed in* (the doors a publisher writes through).
 
 - **Deployment fences** — the shipped connectors and their switches, the
   `fs` root jail, the private-egress opt-in — from `/catalog`, so an
-  operator sees *why* a source cannot be connected before trying.
-- **Connected** — every connection with schedule, status and last sync;
+  operator sees *why* a source cannot be connected before trying
+  (folded under the catalogue).
+- **Connected** — every connection with schedule, status and last sync,
+  by group with a header row per group, alphabetical inside; the title
+  carries the counts that matter (how many, how many paused, how many
+  whose last sync failed) and a filter over label / pack / source /
+  connector / host. The verbs are icons with the word in the tooltip:
   **Sync** / **Full** enqueue a `source_sync` job (the notice names the
   run), **Pause** / **Resume** PATCH the status, **Delete** asks for the
   label back.
@@ -144,13 +156,17 @@ Connections; `brain-landing/components/admin/ConnectionsPanel.tsx`):
   their last activity and the command to run the agent on that machine
   (a `brain:write` key of the tenant, never an admin key). Sync / Full
   are disabled on agent-host rows: the agent runs them.
-- **Connect a source** — one card per KIND of thing the packs here can
-  read (Folder, Website, S3 bucket, MCP server, Git repository, pushed
-  by a publisher), in plain words, with whether it can be connected now
-  and what to do if not (the switch to set, the agent to run, the pack
-  to reinstall); a pack's per-shape entries (text documents vs. files)
-  fold into one card and become the flow's "what's in it" question
-  (`components/admin/connections/kinds.ts`). **Connect** opens a
+- **Add a source** — one card per KIND of thing the packs here can
+  read (Folder, Website, S3 bucket, MCP server, Git repository, a CRM,
+  pushed by a publisher), by group with chips that narrow to one group,
+  in plain words, with whether it can be connected now and what to do
+  if not (the switch to set, the agent to run, the pack to reinstall);
+  a pack's per-shape entries (text documents vs. files) fold into one
+  card and become the flow's "what's in it" question
+  (`components/admin/connections/kinds.ts`). The generic kinds speak in
+  the page's own words; a vendor connector or a push door — where six
+  cards would otherwise carry one sentence — shows the pack's own title
+  and description, less its `config: {…}` tail. **Connect** opens a
   three-step flow: *where it runs* (the brain or a local agent —
   offered only when the entry's `hosts` allows both; agent id when on an
   agent), *the source* (the connector's own typed fields — a folder and

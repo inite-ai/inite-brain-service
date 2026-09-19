@@ -24,6 +24,47 @@ export type SourceFamily =
   | 'external'
   | 'other'
 
+/**
+ * Where a kind sits on the page. Seventeen cards in one grid is a heap;
+ * the catalogue and the connections table both fold by these groups,
+ * in this order: the documents you already have, then what you read
+ * over the network, then records, then what is pushed in.
+ */
+export type SourceGroup = 'files' | 'web' | 'mcp' | 'code' | 'records' | 'external' | 'other'
+
+export const SOURCE_GROUPS: readonly SourceGroup[] = [
+  'files',
+  'web',
+  'mcp',
+  'code',
+  'records',
+  'external',
+  'other',
+]
+
+export function groupOf(family: SourceFamily): SourceGroup {
+  switch (family) {
+    case 'folder':
+    case 'bucket':
+    case 'gdrive':
+    case 'onedrive':
+    case 'dropbox':
+      return 'files'
+    case 'site':
+      return 'web'
+    case 'mcp':
+      return 'mcp'
+    case 'repo':
+      return 'code'
+    case 'records':
+      return 'records'
+    case 'external':
+      return 'external'
+    default:
+      return 'other'
+  }
+}
+
 export function familyOf(e: { kind: string; connector: string }): SourceFamily {
   if (e.kind === 'external') return 'external'
   if (e.kind === 'mcp') return 'mcp'
@@ -69,6 +110,20 @@ export interface SourceCard {
 }
 
 const SHAPE_ORDER: Record<string, number> = { document: 0, binary: 1, conversation: 2, structure: 3 }
+/** How kinds sit inside a group: what you own first, then the cloud drives, then the rest. */
+const FAMILY_ORDER: Record<SourceFamily, number> = {
+  folder: 0,
+  bucket: 1,
+  gdrive: 2,
+  onedrive: 3,
+  dropbox: 4,
+  site: 5,
+  mcp: 6,
+  repo: 7,
+  records: 8,
+  external: 9,
+  other: 10,
+}
 const AVAILABILITY_RANK: Record<SourceAvailability, number> = {
   ready: 0,
   agent: 1,
@@ -81,6 +136,31 @@ const AVAILABILITY_RANK: Record<SourceAvailability, number> = {
 function kindKeyOf(e: SourceCatalogEntry): string {
   const family = familyOf(e)
   return `${family}/${family === 'mcp' ? (e.mcp?.transport ?? 'http') : e.connector}`
+}
+
+/**
+ * What a card says about itself. The generic kinds (a folder, a site, a
+ * bucket) speak in the page's own words; a vendor connector or a push
+ * door — where six cards would otherwise carry one sentence — shows the
+ * pack's title and description, less the `config: {…}` tail meant for
+ * the API reader.
+ */
+export function cardWords(
+  card: SourceCard,
+  familyWords: { title: string; body: string },
+): { title: string; body: string } {
+  const first = card.entries[0]
+  const own = first?.description ? leadOf(first.description) : ''
+  if (card.family === 'external') {
+    return { title: first?.title ?? familyWords.title, body: own || familyWords.body }
+  }
+  if (card.family === 'records') return { title: familyWords.title, body: own || familyWords.body }
+  return { title: familyWords.title, body: familyWords.body || own }
+}
+
+function leadOf(description: string): string {
+  const cut = description.search(/\s*config:\s*\{/)
+  return (cut >= 0 ? description.slice(0, cut) : description).trim().replace(/[,;:]$/, '')
 }
 
 /** One card per (pack, kind), ready ones first, then agent, external, switched-off, missing. */
@@ -120,7 +200,7 @@ export function cardsOf(sources: SourceCatalogEntry[]): SourceCard[] {
   return cards.sort(
     (a, b) =>
       AVAILABILITY_RANK[a.availability] - AVAILABILITY_RANK[b.availability] ||
-      a.family.localeCompare(b.family) ||
+      FAMILY_ORDER[a.family] - FAMILY_ORDER[b.family] ||
       a.packId.localeCompare(b.packId),
   )
 }
@@ -148,4 +228,49 @@ export function entriesFor(card: SourceCard, choice: ShapeChoice | null): Source
 /** The kind + shape line a connection reads as (`Folder · files`). */
 export function connectionFamily(c: SourceConnection): SourceFamily {
   return familyOf(c)
+}
+
+export interface Grouped<T> {
+  group: SourceGroup
+  items: T[]
+}
+
+/** The non-empty groups in page order, each keeping the order its items came in. */
+function groupBy<T>(items: T[], groupOfItem: (item: T) => SourceGroup): Grouped<T>[] {
+  const byGroup = new Map<SourceGroup, T[]>()
+  for (const item of items) {
+    const g = groupOfItem(item)
+    const list = byGroup.get(g) ?? []
+    list.push(item)
+    byGroup.set(g, list)
+  }
+  return SOURCE_GROUPS.flatMap((group) => {
+    const list = byGroup.get(group)
+    return list ? [{ group, items: list }] : []
+  })
+}
+
+/** The catalogue's cards by group; inside a group `cardsOf`'s order holds (ready first). */
+export function groupCards(cards: SourceCard[]): Grouped<SourceCard>[] {
+  return groupBy(cards, (c) => groupOf(c.family))
+}
+
+/** What a connection is called on the page: its label, else `pack/source`. */
+export function labelOf(c: SourceConnection): string {
+  return c.label ?? `${c.packId}/${c.sourceId}`
+}
+
+/** A tenant's connections by group, alphabetical by label inside a group — the API's order is insertion order. */
+export function groupConnections(connections: SourceConnection[]): Grouped<SourceConnection>[] {
+  const sorted = [...connections].sort((a, b) => labelOf(a).localeCompare(labelOf(b)))
+  return groupBy(sorted, (c) => groupOf(familyOf(c)))
+}
+
+/** The rows a filter keeps: label, pack, source id or connector contains the query, case-insensitively. */
+export function matchesQuery(c: SourceConnection, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return [labelOf(c), c.packId, c.sourceId, c.connector, c.host].some((v) =>
+    v.toLowerCase().includes(q),
+  )
 }

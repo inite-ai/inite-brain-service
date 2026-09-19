@@ -124,7 +124,9 @@ export function AccountsSection({
                 return (
                   <tr key={g.id} className="border-t border-[var(--border)] align-top">
                     <td className="px-3 py-1.5 text-[var(--text)]">
-                      {data.providers.find((p) => p.id === g.provider)?.title ?? g.provider}
+                      {g.provider === 'mcp'
+                        ? a.mcpProvider
+                        : (data.providers.find((p) => p.id === g.provider)?.title ?? g.provider)}
                     </td>
                     <td className="px-3 py-1.5 font-mono text-[var(--text)]">
                       {g.account ?? g.id}

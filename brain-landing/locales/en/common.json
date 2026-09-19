@@ -644,6 +644,42 @@
         "title": "Source plane is off",
         "body": "This deployment answers 404 on /v1/admin/source-connections. Set SOURCE_PLANE_ENABLED=1 (and SOURCE_KIND_<KIND>=1 per connector) and restart; the scheduler registers at boot."
       },
+      "tabs": {
+        "connections": "Connected",
+        "catalog": "Add a source",
+        "agents": "Local agents",
+        "accounts": "Accounts"
+      },
+      "groups": {
+        "files": {
+          "title": "Files",
+          "body": "Documents and files where they already live — a folder on the brain’s host or a laptop, an S3 bucket, Google Drive, OneDrive, Dropbox."
+        },
+        "web": {
+          "title": "Web",
+          "body": "Sites read over HTTP — a documentation portal, a wiki, the company site — page by page from a sitemap or a crawl."
+        },
+        "mcp": {
+          "title": "MCP servers",
+          "body": "Resources an MCP server serves — a wiki, a knowledge base, a CMS behind an MCP endpoint — signed in as an account when the server asks."
+        },
+        "code": {
+          "title": "Code",
+          "body": "Committed documentation of a repository, read on the machine that has the clone."
+        },
+        "records": {
+          "title": "CRM & records",
+          "body": "People, organizations and deals of a CRM as facts — read from the vendor’s API, or from any REST API you describe."
+        },
+        "external": {
+          "title": "Pushed in",
+          "body": "An indexer or tool pushes here through the doors; connecting only creates the identity its writes are attributed to."
+        },
+        "other": {
+          "title": "Other",
+          "body": "Kinds this build names but the page does not know how to draw."
+        }
+      },
       "fences": {
         "title": "Deployment fences",
         "connectors": "connectors",
@@ -667,7 +703,12 @@
           "lastSync": "last sync",
           "actions": "actions"
         },
-        "empty": "No connections yet — pick a source from the catalogue below.",
+        "empty": "No connections yet — open “Add a source”.",
+        "filter": "filter by name, pack, source…",
+        "addSource": "Add a source",
+        "noMatch": "Nothing matches the filter.",
+        "pausedCount": "{n} paused",
+        "failedCount": "{n} failing",
         "personal": "personal",
         "neverSynced": "never",
         "sync": "Sync",
@@ -765,6 +806,7 @@
         "notAccepted": "sources not accepted — reinstall the pack with acceptSources",
         "reinstall": "open Packs",
         "connect": "Connect",
+        "all": "All",
         "empty": "No pack in this tenant declares sources. Install file_memory or web_memory from Packs (accept modalities + sources).",
         "availability": {
           "ready": "ready",
@@ -1561,6 +1603,7 @@
           "actions": "actions"
         },
         "none": "No accounts connected. You connect one while adding a Google Drive, OneDrive or Dropbox source.",
+        "mcpProvider": "MCP server",
         "status": {
           "active": "active",
           "revoked": "disconnected",
