@@ -28,6 +28,8 @@ export interface Citation {
    *  caller chase the citation to get_source_reputation. Absent on
    *  pre-0044 facts. */
   sourceKey?: string;
+  /** ISO validFrom of the fact — what the belief plane's revision date is arbitrated against. */
+  validFrom?: string | undefined;
 }
 
 export interface FactIndexResult {
@@ -179,6 +181,7 @@ export function buildFactIndex(
         slot: f.predicateAlias ?? f.predicate,
         object: f.object,
         ...(f.sourceKey ? { sourceKey: f.sourceKey } : {}),
+        ...(f.validFrom ? { validFrom: f.validFrom } : {}),
       };
       factIndex.set(f.factId, citation);
       const t = f.validFrom ? Date.parse(f.validFrom) : NaN;

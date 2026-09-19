@@ -39,7 +39,7 @@ import {
 import { resolveAndCountFragmentCitations } from './fragment-citations';
 import { resolveAndCountBeliefCitations, type CitableBelief } from './belief-citations';
 import { resolveAndCountSceneCitations } from './scene-citations';
-import { applyBeliefFactDamping } from './belief-damping';
+import { applyBeliefFactDamping, arbitrateBeliefsAndFacts } from './belief-damping';
 import { auditAndRevise, type AuditPorts } from './revise-round';
 import { FragmentLaneService } from './fragment-lane.service';
 import { resolveAnswerIntegrity, type FinalizeContext } from './answer-integrity';
@@ -354,7 +354,7 @@ export class SynthesizeService {
     // contract (V9 quality pass; all lanes concurrent inside). Running
     // it AFTER the empty/abstention exits also stops the pre-V9 waste
     // of an abandoned in-flight instruction probe on those paths.
-    const collected = await this.collectSections({
+    const collectedRaw = await this.collectSections({
       profile,
       lane,
       companyId,
@@ -365,6 +365,20 @@ export class SynthesizeService {
       instructionProbe,
       asker,
     });
+    // Time arbitration between the belief plane and the fact plane
+    // (belief-damping.ts): the damping pass names the beliefs a newer
+    // fact outdated, and they leave the rendered section HERE — before
+    // the cache snapshot, the generator, the auditor and the citation
+    // resolver read it — so every consumer sees the same beliefs.
+    const factDamping = beliefFactDampingEnabled();
+    const arbitrated = arbitrateBeliefsAndFacts({
+      enabled: factDamping,
+      factLines: prepared.factLines,
+      factIndex,
+      collected: collectedRaw,
+      metrics: this.metrics,
+    });
+    const { collected } = arbitrated;
     // The other rendered sections stay on `collected` — the verify stage
     // (verifyAndZoom) and produceAnswer read them from there directly.
     const { fragmentsById, beliefsById, scenesById, updateStories, groundingQuotes } = collected;
@@ -393,14 +407,7 @@ export class SynthesizeService {
     // the generator, the verifier, the fragment-zoom re-verify and L3
     // alike (three-consumer parity by construction). Off ⇒
     // byte-identical lines.
-    const factDamping = beliefFactDampingEnabled();
-    let promptFactLines = applyBeliefFactDamping({
-      enabled: factDamping,
-      factLines: applyFactSuffixes(prepared.factLines, [updateStories, groundingQuotes], factIndex),
-      factIndex,
-      beliefsById,
-      metrics: this.metrics,
-    });
+    let promptFactLines = arbitrated.factLines;
 
     // V13 answer-side frames, both profile-gated and both pure:
     // the computed date table (generator and verifier read the same
@@ -988,7 +995,7 @@ export class SynthesizeService {
       // computation (see the round-1 site): suffix maps first, then the
       // BELIEFS_FACT_DAMPING pass over the refined evidence set —
       // damping off / no matched beliefs ⇒ byte-identical lines.
-      const promptFactLines = applyBeliefFactDamping({
+      const { factLines: promptFactLines } = applyBeliefFactDamping({
         enabled: args.factDamping === true,
         factLines: applyFactSuffixes(
           prepared.factLines,
@@ -996,6 +1003,8 @@ export class SynthesizeService {
           prepared.factIndex,
         ),
         factIndex: prepared.factIndex,
+        // The beliefs that survived round 1's arbitration; a refined
+        // fact set keeps the same rendered section (parity with round 1).
         beliefsById: args.beliefsById,
         metrics: this.metrics,
       });

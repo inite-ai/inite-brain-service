@@ -44,6 +44,7 @@ const fullCitation: Required<Citation> = {
   predicate: 'complained_about',
   slot: 'complained_about',
   object: 'late maintenance',
+  validFrom: '2026-09-01T00:00:00.000Z',
   sourceKey: 'rent:tenant_bot',
 };
 

@@ -1127,7 +1127,7 @@ export class MetricsService implements OnModuleInit {
     }
   }
 
-  countBeliefDamping(outcome: 'damped' | 'clean', n = 1): void {
+  countBeliefDamping(outcome: 'damped' | 'clean' | 'stale_belief', n = 1): void {
     if (n > 0) {
       this.beliefDampingCount.inc({ outcome } as LabelValues<'outcome'>, n);
     }

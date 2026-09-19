@@ -484,6 +484,9 @@
           },
           "sourceKey": {
             "type": "string"
+          },
+          "validFrom": {
+            "type": "string"
           }
         },
         "required": [

@@ -185,7 +185,7 @@ function buildVerifierUserMessage({
   // so every no-lane audit prompt stays byte-identical.
   if (beliefLines && beliefLines.length > 0) {
     sections.push(
-      `Current-state record (distilled belief lines — each states the CURRENT value of its subject/field and supersedes older values in the other sections for present-tense claims; equally valid support):\n` +
+      `Current-state record (distilled belief lines — each states the CURRENT value of its subject/field and supersedes OLDER values in the other sections for present-tense claims — a fact dated after a belief's revision is newer than the belief and has already replaced it here; equally valid support):\n` +
         beliefLines.join('\n'),
     );
   }
