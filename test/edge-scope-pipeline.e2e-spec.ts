@@ -53,8 +53,8 @@ describe('knowledge_edge scope through the ingest pipeline and the read surfaces
   const scriptWorksAt = () =>
     f.extractor.setScript({
       entities: [
-        { name: 'Maria Costa', type: 'person' },
-        { name: 'Orbital Dynamics', type: 'organization' },
+        { name: 'Maria Costa', type: 'staff' },
+        { name: 'Orbital Dynamics', type: 'customer' },
       ],
       facts: [{ entityIndex: 0, predicate: 'role', object: 'engineer', confidence: 0.9 }],
       edges: [{ fromEntityIndex: 0, toEntityIndex: 1, kind: 'works_at', confidence: 0.9 }],
@@ -145,8 +145,8 @@ describe('knowledge_edge scope through the ingest pipeline and the read surfaces
     process.env.INGEST_MENTION_VIA_DOCUMENT = '1';
     f.extractor.setScript({
       entities: [
-        { name: 'Maria Costa', type: 'person' },
-        { name: 'Pedro Lima', type: 'person' },
+        { name: 'Maria Costa', type: 'staff' },
+        { name: 'Pedro Lima', type: 'staff' },
       ],
       facts: [],
       edges: [{ fromEntityIndex: 0, toEntityIndex: 1, kind: 'mentors', confidence: 0.9 }],
@@ -228,8 +228,8 @@ describe('knowledge_edge scope through the ingest pipeline and the read surfaces
     process.env.INGEST_MENTION_VIA_DOCUMENT = '1';
     f.extractor.setScript({
       entities: [
-        { name: 'Maria Costa', type: 'person' },
-        { name: 'Helix Labs', type: 'organization' },
+        { name: 'Maria Costa', type: 'staff' },
+        { name: 'Helix Labs', type: 'customer' },
       ],
       facts: [],
       edges: [{ fromEntityIndex: 0, toEntityIndex: 1, kind: 'advises', confidence: 0.9 }],
