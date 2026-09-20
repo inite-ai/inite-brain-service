@@ -52,9 +52,18 @@ export class ExtractorLlmService {
     this.limiter = new Semaphore(
       parseInt(this.configService.get<string>('OPENAI_CONCURRENCY', '8'), 10),
     );
+    // Three re-rolls, unioned by semantic cluster (extractor-internals/
+    // merge.ts). The write is the one stochastic step that is never
+    // re-run — a fact the single sample missed is missed for good — and
+    // the reasoning model samples at its default temperature (it takes
+    // no other). Measured 2026-09-20 on gpt-5.6-luna, prod parity:
+    // memory-fitness 31 → 32/32, state-transitions 10 → 11/12 (the
+    // ownership edge of "listed, not sold" from ~85% to every run), T0 =
+    // baseline; latency unchanged (the passes run in parallel), three
+    // extractor calls per turn instead of one.
     this.scPasses = Math.max(
       1,
-      parseInt(this.configService.get<string>('EXTRACTOR_SC_PASSES', '1'), 10),
+      parseInt(this.configService.get<string>('EXTRACTOR_SC_PASSES', '3'), 10),
     );
   }
 

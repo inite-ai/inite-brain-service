@@ -230,6 +230,14 @@ jobs:
           EXTRACTOR_DIALOGUE_PROFILE=1
           EXTRACTOR_ROUTING_ENABLED=0
           EXTRACTOR_DROP_SAID=1
+          # Three self-consistency samples per extraction, unioned by
+          # semantic cluster. The write is the one stochastic step that is
+          # never re-run, and the reasoning model samples at its default
+          # temperature. Measured 2026-09-20 (prod parity, gpt-5.6-luna):
+          # memory-fitness 31 -> 32/32, state-transitions 10 -> 11/12,
+          # multilingual T0 = baseline; latency unchanged (parallel),
+          # three extractor calls per turn.
+          EXTRACTOR_SC_PASSES=3
           INGEST_INLINE_RESOLUTION_ENABLED=1
           INGEST_CONTEXTUAL_FACT_EMBEDDING=1
           INGEST_EVENT_TIME_EXTRACTION=1

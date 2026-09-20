@@ -27,11 +27,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'EXTRACTOR_SC_PASSES',
     category: 'extractor',
-    defaultValue: '1',
+    defaultValue: '3',
     runtimeMutable: false,
     isBooleanFlag: false,
     description:
-      'Self-consistency N-pass count for semantic-entropy gating. 1 = single pass; raise (e.g. 3) for high-stakes corpora.',
+      'Self-consistency passes per extraction: N samples of the same prompt, unioned by semantic cluster with per-fact agreement/entropy. 3 (default since 2026-09-20; measured memory-fitness 32/32, state-transitions 11/12, T0 = baseline) — the write is the one stochastic step never re-run, so it gets the votes; 1 = a single sample (cheaper, misses ~15% of edges run to run).',
   },
   {
     key: 'EXTRACTOR_LOCAL_NER_ENABLED',
