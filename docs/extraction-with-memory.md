@@ -138,6 +138,21 @@ for end users) — under the user's OWN scope: a personal entity, visible
 to the user alone, deleted with their memory on forget. Both paths mint
 it through the same scoped key (`scopedRefKey`), so a first-person turn
 and a typed fact on `{vertical: 'user', id: <userId>}` land on one node.
+It is the ONLY private node. **Identity is tenant-wide; scope is on the
+fact.** Every other reference — a CRM record, a project, a vendor —
+names one node for the whole tenant, the node the mention path resolves
+that name to, and a user's fact about it is personal by its own userId
+(0055). Until 2026-09-20 a scoped typed fact minted a private copy of
+the node instead, and one referent lived as two: the copy held the
+record_fact history, the tenant node the mention facts, and the
+conflict pairing, the timeline and the connections each saw half
+(memfit D2 "old value missing from history", D6 "no competing group"
+were exactly this). `ScopedEntityConsolidationService` folds the
+legacy copies back once per tenant: a copy with a tenant twin is merged
+into it (facts, edges and references travel; facts keep their scope), a
+copy without one becomes the tenant node itself. A user's private
+`name` fact never renames a shared node — `entity-name.ts` follows a
+name fact only into a node of the same scope.
 **Its name is memory, not a claim.** A credential says who the subject
 is (`sub`/`org`); what they are called the memory learns — the way Zep's
 user node carries a summary the graph builds and Letta's `human` block

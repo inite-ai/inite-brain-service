@@ -91,12 +91,15 @@ export class IngestFactDto {
   source!: FactSource;
 
   /**
-   * Per-user scope (migration 0055). Stamps the fact — and, for a
-   * vertical+id entityRef, the entity dedup key — with this end-user:
+   * Per-user scope (migration 0055). Stamps the fact with this end-user:
    * invisible to every other user of the tenant and to requests that
-   * don't assert a userId (fail-closed reads). A bare entityId ref
-   * attaches the personal fact to that entity whatever its scope.
-   * Conflict resolution is scope-local: a user's fact never
+   * don't assert a userId (fail-closed reads). Identity stays
+   * tenant-wide: a vertical+id entityRef names the same node for every
+   * user (the one the mention path resolves that name to), and the
+   * personal fact rides on it — only the user's own reference
+   * (`{vertical: 'user', id: <userId>}`) is a private node. A bare
+   * entityId ref attaches the personal fact to that entity whatever its
+   * scope. Conflict resolution is scope-local: a user's fact never
    * supersedes, competes with, or corroborates the tenant-global
    * timeline. The caller — a trusted backend holding the tenant key —
    * asserts the user.

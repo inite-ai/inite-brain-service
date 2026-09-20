@@ -117,7 +117,12 @@ export function walkProvenance(
 export interface EvolutionEvent {
   predicate: string;
   object: string;
-  /** ISO timestamp the event was recorded/valid at. */
+  /**
+   * ISO timestamp the value held from (valid time). Evolution is the
+   * world's order, not the ledger's: a value that arrived late (a
+   * document ingested after the fact, a typed record written after the
+   * conversation that mentioned it) still precedes what replaced it.
+   */
   at: string;
 }
 

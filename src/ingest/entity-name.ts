@@ -19,6 +19,13 @@
  * identity is whatever they last said it is. Both conditions are read
  * off the row itself in the one UPDATE, so nothing is fetched first.
  *
+ * And the fact's scope must be the entity's: identity is tenant-wide
+ * while a fact may be personal (0055), so a user's private `name` fact
+ * on a shared node stays theirs — the node's visible name never comes
+ * from one user's private words. The user's own node is personal and
+ * follows their personal fact; a tenant-global name fact names a
+ * tenant-global node.
+ *
  * Pure SQL helper — one statement, called from the fact resolver's
  * post-write tail on the outcomes that make the fact the current one.
  */
@@ -57,12 +64,14 @@ export async function followNameFact(
       WHERE canonicalName != $name
         AND (canonicalName IN object::values(externalRefs ?? {})
              OR $userKey IN object::keys(externalRefs ?? {}))
+        AND (IF $factUser IS NONE THEN userId IS NONE ELSE userId = $factUser END)
       RETURN id`,
     {
       id: new StringRecordId(p.entityId),
       name,
       keys: nameKeysFor([name]),
       userKey: p.userId ? userEntityKey(p.userId) : '',
+      factUser: p.userId,
     },
   );
   return (rows?.[0]?.length ?? 0) > 0;

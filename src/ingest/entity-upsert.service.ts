@@ -11,6 +11,7 @@ import { EntityResolverService } from './entity-resolver.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { EntityRef, IngestFactDto } from './dto/ingest-fact.dto';
 import { externalRefKey, idTailOf, scopedRefKey } from './ingest-utils';
+import { isUserEntityRef } from './user-entity';
 import { isCodeSymbolShaped, pathNeedlesForSymbol, symbolAliasForPath } from './code-alias';
 import { scopeForUser } from '../auth/scope-tags';
 import { scopeFenceSql } from '../auth/scope-visibility';
@@ -123,34 +124,40 @@ export class EntityUpsertService {
       return dto.entityRef.entityId;
     }
     const ref = dto.entityRef as { vertical: string; id: string };
-    // User scope (0055): the scope is folded into the UNIQUE external-ref
-    // key (scopedRefKey) and stamped on the minted entity.
-    const refKey = scopedRefKey(ref.vertical, ref.id, userId);
+    // IDENTITY IS TENANT-WIDE; SCOPE IS ON THE FACT. A (vertical, id)
+    // reference names one thing for the whole tenant — the same node the
+    // mention path resolves "Meridian" to — and a user's fact about it
+    // is personal by its own userId (0055), not by living on a private
+    // copy of the node. The one reference that IS private is the user's
+    // own (`user:<userId>`): nobody else refers to it, so its key folds
+    // the scope and the node carries it.
+    //
+    // Until 2026-09-20 every scoped ref minted its own copy
+    // (`<key>::u::<user>`), which split one referent across two nodes:
+    // the copy held the record_fact history, the tenant node the
+    // mention facts, and the conflict machinery, the timeline and the
+    // connections each saw half (memfit D2/D6 — "old value missing from
+    // history", "no competing group"). ScopedEntityConsolidationService
+    // folds the legacy copies back.
+    const own = isUserEntityRef(ref, userId);
+    const refKey = own
+      ? scopedRefKey(ref.vertical, ref.id, userId)
+      : externalRefKey(ref.vertical, ref.id);
     return this.upsertEntityByExternalRef(db, refKey, {
       factory: () => ({
         type: 'other',
         canonicalName: ref.id,
         externalRefs: { [refKey]: ref.id },
-        // G6 step 1: mirror the per-user scope as a scope tag (0093) next
-        // to the userId stamp. The named-entity path stays tenant-global
-        // (no userId → the scope field DEFAULT [] holds).
-        ...(userId ? { userId, scope: scopeForUser(userId) } : {}),
+        // G6 step 1: the user's own node carries the scope as userId +
+        // scope tag (0093); every other reference mints tenant-global.
+        ...(own && userId ? { userId, scope: scopeForUser(userId) } : {}),
       }),
       // The ref id IS a name the caller chose for this thing; if the
-      // graph already knows exactly that name, it is the same thing.
-      //
-      // TENANT-GLOBAL REFS ONLY, and this is load-bearing. 0055 gives a
-      // user-scoped ref its OWN entity rather than hanging personal
-      // facts off the shared node, and user-forget deletes that entity
-      // (`entitiesDeleted`) — so adopting the tenant-global node for a
-      // scoped ref would either orphan the erasure or point it at a
-      // shared entity. `resolveExistingByName`'s fence is the search-lane
-      // union (`userId IS NONE OR userId = $scopeUserId`), which is
-      // correct for READING and too wide for MINTING, so the scoped case
-      // keeps the historical mint instead of borrowing that fence.
-      ...(userId === undefined
-        ? { adopt: () => this.resolveExistingByName(db, { name: ref.id }) }
-        : {}),
+      // graph already knows exactly that name (tenant-global — the
+      // lookup pins `userId IS NONE`, so nobody's private node is ever
+      // adopted), it is the same thing. Not for the user's own node: its
+      // identity is the key, never a name.
+      ...(own ? {} : { adopt: () => this.resolveExistingByName(db, { name: ref.id }) }),
     });
   }
 

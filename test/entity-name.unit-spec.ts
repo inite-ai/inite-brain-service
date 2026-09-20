@@ -45,6 +45,12 @@ describe('followNameFact', () => {
     expect(q!.sql).toContain('array::union(aliases ?? [], [canonicalName, $name])');
     expect(q!.params).toMatchObject({ name: 'Sasha', userKey: 'user__u42::u::u42' });
     expect(q!.params['keys']).toEqual(expect.arrayContaining([expect.any(String)]));
+    // The fact's scope must be the entity's: a personal name fact renames
+    // only a personal node, a tenant-global one only a tenant-global node.
+    expect(q!.sql).toContain(
+      'IF $factUser IS NONE THEN userId IS NONE ELSE userId = $factUser END',
+    );
+    expect(q!.params).toMatchObject({ factUser: 'u42' });
   });
 
   it('a coined predicate aliased onto `name` counts; other predicates, non-current outcomes and empty names do not', async () => {
@@ -64,6 +70,7 @@ describe('followNameFact', () => {
     const { db: d, calls } = db(0);
     expect(await followNameFact(d, { ...base, userId: undefined })).toBe(false);
     expect(calls[0]!.params['userKey']).toBe('');
+    expect(calls[0]!.params['factUser']).toBeUndefined();
   });
 });
 

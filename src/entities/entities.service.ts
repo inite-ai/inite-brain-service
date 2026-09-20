@@ -183,6 +183,7 @@ interface FactTimelineRow extends PolicyFilterableRow {
   id: unknown;
   object: string;
   confidence: number;
+  validFrom: string | Date;
   recordedAt: string | Date;
   retractedAt?: string | Date | null;
   retractedBy?: unknown;
@@ -213,7 +214,14 @@ interface EdgeRow {
 
 export interface TimelineRecordedEvent {
   type: 'fact.recorded';
+  /** Transaction time — when the memory learned it. */
   at: string;
+  /**
+   * Valid time — from when the value held in the world. The timeline is
+   * ordered by `at`; a reader that wants the world's order (a backdated
+   * arrival, a document ingested late) sorts by this.
+   */
+  validFrom: string;
   factId: string;
   predicate: string;
   object: string;
@@ -520,6 +528,7 @@ export class EntitiesService {
         events.push({
           type: 'fact.recorded',
           at: new Date(f.recordedAt).toISOString(),
+          validFrom: new Date(f.validFrom).toISOString(),
           factId: String(f.id),
           predicate: f.predicate,
           object: f.object,

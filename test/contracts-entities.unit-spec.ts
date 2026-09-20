@@ -60,6 +60,7 @@ const fullProfile: Required<EntityProfile> = {
 const fullRecorded: Required<TimelineRecordedEvent> = {
   type: 'fact.recorded',
   at: '2026-09-01T10:00:00.000Z',
+  validFrom: '2026-08-15T00:00:00.000Z',
   factId: 'knowledge_fact:abc',
   predicate: 'complained_about',
   object: 'late maintenance',

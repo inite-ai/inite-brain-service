@@ -33,10 +33,20 @@ import type { DecisionContext } from './decision-emit';
  * (Chain-of-Verification / Self-Refine): the generator sees its own
  * answer and those spans against the same evidence, keeps what was
  * supported, drops or corrects the rest, and the auditor judges the
- * rewrite. One round, only on `partial`, only when the auditor says the
- * evidence answers the question at all — an `unsupported` verdict is a
- * hallucination and stays an abstention, and a question the evidence
- * does not answer cannot be revised into one it does.
+ * rewrite. One round, only on `partial` — an `unsupported` verdict is a
+ * hallucination and stays an abstention.
+ *
+ * The auditor's `questionAnswered` does not gate the round. It is one
+ * sampled judgment, and on 2026-09-20 it said "no" to evidence that did
+ * answer (`moved_to: Braga` for "where does he live") — the same
+ * question, asked again, got "yes" and an answer. A `partial` with
+ * named unsupported spans already means the auditor found supported
+ * claims; the rewrite keeps those and the auditor judges the rewrite
+ * afresh, `questionAnswered` included. If the evidence truly does not
+ * answer, the rewrite abstains or the second audit says so — the round
+ * costs one generator and one auditor call in that case and changes
+ * nothing; when the first "no" was the sample's noise, it is the
+ * difference between an answer and a null.
  */
 export interface ReviseRoundDeps {
   metrics?: MetricsService | undefined;
@@ -58,12 +68,7 @@ export interface ReviseRoundArgs {
 
 /** Whether a verdict is the shape a revision can repair. */
 function revisable(verdict: VerifierOutput, nliMode: boolean): boolean {
-  return (
-    !nliMode &&
-    verdict.verdict === 'partial' &&
-    (verdict.unsupportedClaims?.length ?? 0) > 0 &&
-    verdict.questionAnswered !== false
-  );
+  return !nliMode && verdict.verdict === 'partial' && (verdict.unsupportedClaims?.length ?? 0) > 0;
 }
 
 /**

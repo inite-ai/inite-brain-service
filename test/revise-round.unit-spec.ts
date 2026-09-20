@@ -188,9 +188,31 @@ describe('auditAndRevise', () => {
     expect(out.generated.answer).toBe('rewritten');
   });
 
+  it('partial with "question not answered" still revises — the second audit judges coverage afresh', async () => {
+    // The auditor's questionAnswered is one sampled judgment; on a
+    // `partial` it already found supported claims. The rewrite keeps
+    // those and the re-audit decides — here it says the evidence does
+    // answer, and the rewrite is served instead of a null.
+    verdicts(
+      { verdict: verdict('partial', ['«currently» is inferred'], false) },
+      { verdict: verdict('supported', [], true) },
+    );
+    const generate = jest.fn(async () => ({
+      answer: 'He moved to Braga [knowledge_fact:a]',
+      citedFactIds: ['knowledge_fact:a'],
+    }));
+    const out = (await auditAndRevise(ports(generate), args())) as {
+      verdict: VerifierOutput;
+      generated: { answer: string };
+    };
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(out.verdict.verdict).toBe('supported');
+    expect(out.verdict.questionAnswered).toBe(true);
+    expect(out.generated.answer).toBe('He moved to Braga [knowledge_fact:a]');
+  });
+
   it.each([
     ['unsupported', verdict('unsupported', ['all of it'], true)],
-    ['partial, question not answered', verdict('partial', ['x'], false)],
     ['partial without claims', verdict('partial', [], true)],
   ])('%s ⇒ no regeneration', async (_label, v) => {
     verdicts({ verdict: v });

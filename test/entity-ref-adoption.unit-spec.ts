@@ -115,16 +115,41 @@ describe('resolveOrCreateEntity — external-ref adoption', () => {
     expect(captured.creates).toEqual([]);
   });
 
-  it('a USER-SCOPED ref never adopts — it mints its own entity (0055 + user-forget)', async () => {
-    // The load-bearing negative. 0055 gives a scoped ref its own entity
-    // instead of hanging personal facts off the shared node, and
-    // user-forget deletes that entity; adopting the tenant-global one
-    // would point the erasure at a shared entity. So the probe must not
-    // even run.
+  it('a USER-SCOPED ref names the same tenant node — adopted by name, keyed tenant-wide', async () => {
+    // Identity is tenant-wide, scope is on the fact (2026-09-20): the
+    // reference resolves and adopts exactly like a tenant-global write —
+    // the plain key, the same tenant-global-only probe — and the personal
+    // fact rides on the shared node with its own userId. The 0055 private
+    // copy split one referent across two nodes (memfit D2/D6).
     const { db, captured } = makeDb({ nameRows: [{ id: 'knowledge_entity:meridian' }] });
     const id = await new EntityUpsertService().resolveOrCreateEntity(db, dto('meridian'), 'user_a');
+    expect(id).toBe('knowledge_entity:meridian');
+    expect(captured.creates).toEqual([
+      {
+        table: 'entity_external_ref',
+        content: { key: 'ledger__meridian', entity: expect.anything() },
+      },
+    ]);
+    const probe = captured.queries.find((q) => q.sql.includes('FROM knowledge_entity'))!;
+    expect(probe.sql).toContain('userId IS NONE');
+    expect(captured.transactions).toBe(0);
+  });
+
+  it("the user's OWN reference stays private: scoped key, no adoption, personal node", async () => {
+    const { db, captured } = makeDb({ nameRows: [{ id: 'knowledge_entity:someone' }] });
+    const id = await new EntityUpsertService().resolveOrCreateEntity(
+      db,
+      {
+        entityRef: { vertical: 'user', id: 'user_a' },
+        predicate: 'name',
+        object: 'Sasha',
+      } as IngestFactDto,
+      'user_a',
+    );
     expect(id).toBe('knowledge_entity:minted');
     expect(captured.queries.filter((q) => q.sql.includes('FROM knowledge_entity'))).toEqual([]);
+    const lookup = captured.queries.find((q) => q.sql.includes('FROM entity_external_ref'))!;
+    expect(lookup.params).toMatchObject({ key: 'user__user_a::u::user_a' });
     expect(captured.transactions).toBe(1);
   });
 

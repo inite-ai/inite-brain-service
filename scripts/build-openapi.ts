@@ -1291,7 +1291,9 @@ function entitiesPaths(): Json {
         description:
           '`fact.recorded` / `fact.retracted` events on the ' +
           'TRANSACTION-time axis — when the graph learned and unlearned ' +
-          'things, not when they were true. `since` / `until` page the ' +
+          'things, not when they were true; each recorded event also ' +
+          'carries `validFrom`, the valid-time instant, for readers that ' +
+          'want the world’s order. `since` / `until` page the ' +
           'window; `recordedAt` cuts to events known by T. `userId` is ' +
           'honoured only while READ_SURFACE_USER_SCOPE is on (this ' +
           'surface predates migration 0055 and otherwise pins ' +

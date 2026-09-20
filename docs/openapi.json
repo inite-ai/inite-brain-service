@@ -5790,11 +5790,15 @@
           "type": {
             "const": "fact.recorded",
             "type": "string"
+          },
+          "validFrom": {
+            "type": "string"
           }
         },
         "required": [
           "type",
           "at",
+          "validFrom",
           "factId",
           "predicate",
           "object",
@@ -7433,7 +7437,7 @@
     },
     "/v1/entities/{id}/timeline": {
       "get": {
-        "description": "`fact.recorded` / `fact.retracted` events on the TRANSACTION-time axis — when the graph learned and unlearned things, not when they were true. `since` / `until` page the window; `recordedAt` cuts to events known by T. `userId` is honoured only while READ_SURFACE_USER_SCOPE is on (this surface predates migration 0055 and otherwise pins `userId IS NONE`); a user-bound token is pinned to its own end user, and a mismatch is 403.\n\nRequired scope: `brain:read`.",
+        "description": "`fact.recorded` / `fact.retracted` events on the TRANSACTION-time axis — when the graph learned and unlearned things, not when they were true; each recorded event also carries `validFrom`, the valid-time instant, for readers that want the world’s order. `since` / `until` page the window; `recordedAt` cuts to events known by T. `userId` is honoured only while READ_SURFACE_USER_SCOPE is on (this surface predates migration 0055 and otherwise pins `userId IS NONE`); a user-bound token is pinned to its own end user, and a mismatch is 403.\n\nRequired scope: `brain:read`.",
         "operationId": "getEntityTimeline",
         "parameters": [
           {
