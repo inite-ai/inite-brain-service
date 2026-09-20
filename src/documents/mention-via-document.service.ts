@@ -12,7 +12,13 @@ import { participantsOf } from '../ingest/participants';
 
 export interface MentionCompatResult {
   skipped: boolean;
-  reason?: 'empty' | 'no_entities';
+  /**
+   * Why nothing was recorded: an empty text, an extraction with no
+   * entities, or a turn whose text this user already sent — the document
+   * store keys on the content hash, so a replay is deduplicated before
+   * any indexer runs and nothing new is committed.
+   */
+  reason?: 'empty' | 'no_entities' | 'duplicate';
   extractedEntityIds: string[];
   extractedFactIds: string[];
   extractedEdgeIds?: string[];
@@ -149,7 +155,9 @@ export class MentionViaDocumentService {
         this.metrics?.countIngestMention('skipped');
         return {
           skipped: true,
-          reason: 'no_entities',
+          // A deduplicated document with nothing committed is a replayed
+          // turn, not an extraction that found nothing.
+          reason: res.deduplicated ? 'duplicate' : 'no_entities',
           extractedEntityIds: [],
           extractedFactIds: [],
         };

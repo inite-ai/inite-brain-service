@@ -1026,9 +1026,12 @@ function memoryCorePaths(): Json {
           'Only `text` is required: `contextRef` defaults to the `chat` ' +
           'vertical and `emittedAt` to the moment the request arrives. ' +
           '`userId` stamps the per-user memory scope on the episode and ' +
-          'every extracted fact. `skipped: true` means the extractor ' +
-          'found nothing worth recording (`reason` says which check ' +
-          'stopped it) — that is a normal outcome, not an error. ' +
+          'every extracted fact and edge. `skipped: true` means nothing ' +
+          'new was recorded — `reason` says why: `empty` text, ' +
+          '`no_entities` (the extractor found nothing worth recording), ' +
+          'or `duplicate` (this user already sent this exact text; the ' +
+          'document store keys on the content hash and a replay commits ' +
+          'nothing new) — a normal outcome, not an error. ' +
           'Prefer `POST /v1/ingest/document` for anything long enough ' +
           'to need chunking. ' +
           'Source: src/ingest/ingest.controller.ts.',

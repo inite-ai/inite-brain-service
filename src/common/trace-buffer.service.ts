@@ -67,6 +67,14 @@ export class TraceBufferService {
   private bufferBytes = 0;
   private readonly dbCapacity: number;
   private readonly persistEnabled: boolean;
+  /**
+   * Persists run one after another. Each write evicts down to the cap
+   * by COUNT, so two writes in flight at once could both count before
+   * either evicted and leave the table one over the cap until the next
+   * request — a race a busy database widened into a visible one. One
+   * chain per process keeps the eviction exact; traces are low volume.
+   */
+  private persistChain: Promise<void> = Promise.resolve();
   /** Fan-out for SSE subscribers — keyed-by-companyId filter applied in the controller. */
   private readonly stream = new Subject<TraceListItem>();
 
@@ -104,11 +112,13 @@ export class TraceBufferService {
     const { spans: _s, artifacts: _a, ...meta } = snapshot;
     this.stream.next(meta);
     if (this.persistEnabled && snapshot.companyId) {
-      void this.persist(snapshot).catch((e) => {
-        this.logger.warn(
-          `debug_trace persist failed (${snapshot.requestId}): ${(e as Error).message}`,
-        );
-      });
+      this.persistChain = this.persistChain.then(() =>
+        this.persist(snapshot).catch((e) => {
+          this.logger.warn(
+            `debug_trace persist failed (${snapshot.requestId}): ${(e as Error).message}`,
+          );
+        }),
+      );
     }
   }
 
