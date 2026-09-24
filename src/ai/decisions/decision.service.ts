@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JevClient } from './jev.client';
+import { MetricsService } from '../../metrics/metrics.service';
 import {
   certaintyOf,
   type DecisionAnswer,
@@ -55,6 +56,7 @@ export class DecisionService {
   constructor(
     private readonly config: ConfigService,
     @Optional() private readonly jev?: JevClient,
+    @Optional() private readonly metrics?: MetricsService,
   ) {
     this.lanes = new Set(
       (config.get<string>('DECISIONS_LANES', '') || '')
@@ -85,15 +87,24 @@ export class DecisionService {
     return value;
   }
 
-  /** True when this answer is certain enough for the lane to act on. */
+  /**
+   * True when this answer is certain enough for the lane to act on — and the
+   * one place the outcome is counted, so `brain_decisions_total` tells acted
+   * from escalated without every lane remembering to say so.
+   */
   confident(lane: DecisionLane, answer: DecisionAnswer): boolean {
-    return certaintyOf(answer) >= this.floorFor(lane);
+    const ok = certaintyOf(answer) >= this.floorFor(lane);
+    this.metrics?.countDecision(lane, ok ? 'acted' : 'escalated');
+    return ok;
   }
 
   async decide(lane: DecisionLane, req: DecisionRequest): Promise<DecisionResponse | null> {
     if (!this.enabled(lane)) return null;
     const res = await this.jev!.decide(req, lane);
-    if (res === null) this.logger.debug(`[${lane}] decision plane returned nothing — falling back`);
+    if (res === null) {
+      this.logger.debug(`[${lane}] decision plane returned nothing — falling back`);
+      this.metrics?.countDecision(lane, 'unanswered');
+    }
     return res;
   }
 }

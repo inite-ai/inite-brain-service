@@ -3,6 +3,7 @@ import { DecisionService } from '../src/ai/decisions/decision.service';
 import { JevClient } from '../src/ai/decisions/jev.client';
 import { certaintyOf } from '../src/ai/decisions/decision.types';
 import type { DecisionResponse } from '../src/ai/decisions/decision.types';
+import type { MetricsService } from '../src/metrics/metrics.service';
 
 /**
  * The decision plane's two contracts, which every lane depends on:
@@ -85,6 +86,32 @@ describe('decision plane — the confidence floor', () => {
     expect(s.floorFor('entity_judge')).toBeCloseTo(0.6);
     expect(s.confident('entity_judge', { type: 'noul', noul: 0.85 })).toBe(true); // .7 ≥ .6
     expect(s.confident('verifier', { type: 'noul', noul: 0.85 })).toBe(false); // .7 < .9
+  });
+
+  it('every decision is counted as acted, escalated or unanswered', async () => {
+    // Without this split the plane is invisible on prod: a cheap decision and
+    // the expensive fallback it triggered land in the same token counter.
+    const counted: Array<[string, string]> = [];
+    const metrics = {
+      countDecision: (lane: string, outcome: string) => counted.push([lane, outcome]),
+    } as unknown as MetricsService;
+
+    const s = new DecisionService(
+      cfg({ DECISIONS_LANES: 'all', DECISIONS_CONFIDENCE_FLOOR: '0.8' }),
+      jevStub(true, null),
+      metrics,
+    );
+    s.confident('entity_judge', { type: 'noul', noul: 0.99 });
+    s.confident('entity_judge', { type: 'noul', noul: 0.55 });
+    await s.decide('verifier', {
+      state: 'x',
+      questions: { q: { type: 'noul', instructions: '?' } },
+    });
+    expect(counted).toEqual([
+      ['entity_judge', 'acted'],
+      ['entity_judge', 'escalated'],
+      ['verifier', 'unanswered'],
+    ]);
   });
 
   it('a malformed floor falls back instead of disabling the gate', () => {
