@@ -341,12 +341,25 @@ async function main(): Promise<void> {
       none.body.reason !== undefined,
     `reason=${String(none.body.reason)} answer=${answer(none).slice(0, 60)}`,
   );
-  const verdicts = calls.flatMap((c) =>
-    (c.artifacts.get('synthesize.verifier_output') ?? []).map(
+  // The audit can be settled two ways, and the row asserts that it WAS
+  // settled: the auditor LLM (`synthesize.verifier_output`), or the decision
+  // plane clearing the answer outright (`synthesize.verifier_decision`, which
+  // only ever emits 'supported' — it may clear an answer, never condemn one).
+  // Reading only the first artifact made an enabled `verifier` lane look like
+  // a missing verification.
+  const verdicts = calls.flatMap((c) => [
+    ...(c.artifacts.get('synthesize.verifier_output') ?? []).map(
       (v) => (v as { verdict: string }).verdict,
     ),
+    ...(c.artifacts.get('synthesize.verifier_decision') ?? []).map(
+      (v) => `${(v as { verdict: string }).verdict} (decision plane)`,
+    ),
+  ]);
+  check(
+    'verify: supported',
+    verdicts.some((v) => v.startsWith('supported')),
+    verdicts.join(', ') || 'no verifier',
   );
-  check('verify: supported', verdicts.includes('supported'), verdicts.join(', ') || 'no verifier');
   const cacheDecisions = (date2.artifacts.get('synthesize.answer_cache') ?? []).map(
     (v) => (v as { decision: string }).decision,
   );

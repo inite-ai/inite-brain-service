@@ -238,6 +238,14 @@ jobs:
           # multilingual T0 = baseline; latency unchanged (parallel),
           # three extractor calls per turn.
           EXTRACTOR_SC_PASSES=3
+          # The three decision lanes measured on the prod-parity stand
+          # (2026-09-24): with all of them on, memory-fitness 32/32 and
+          # state-transitions ru 11/12 · 24/25 — identical to the same assembly
+          # without the plane, at a thirtieth of the price per judgement and a
+          # fraction of the latency. Named explicitly rather than `all` so a
+          # lane added later cannot switch itself on unmeasured. Inert until
+          # TYPESAFE_API_KEY is set.
+          DECISIONS_LANES=entity_judge,predicate_identity,verifier
           INGEST_INLINE_RESOLUTION_ENABLED=1
           INGEST_CONTEXTUAL_FACT_EMBEDDING=1
           INGEST_EVENT_TIME_EXTRACTION=1
@@ -513,6 +521,10 @@ jobs:
           BRAIN_SURREAL_PASS: ${{ secrets.BRAIN_SURREAL_PASS }}
           BRAIN_SURREAL_SCOPED_PASS: ${{ secrets.BRAIN_SURREAL_SCOPED_PASS }}
           BRAIN_OPENAI_API_KEY: ${{ secrets.BRAIN_OPENAI_API_KEY }}
+          # The decision plane's key (OpenRouter, which proxies the System One
+          # protocol). Unset ⇒ every decision lane is inert and each judge runs
+          # on the chat model exactly as before.
+          BRAIN_TYPESAFE_API_KEY: ${{ secrets.BRAIN_TYPESAFE_API_KEY }}
           BRAIN_FORGET_HMAC_KEY: ${{ secrets.BRAIN_FORGET_HMAC_KEY }}
           BRAIN_BILLING_API_KEY: ${{ secrets.BRAIN_BILLING_API_KEY }}
         run: |
@@ -761,6 +773,8 @@ jobs:
                 # cost tier of the newest generation); pin a different
                 # id here only to measure against it.
                 - OPENAI_API_KEY=${BRAIN_OPENAI_API_KEY}
+                - TYPESAFE_API_KEY=${BRAIN_TYPESAFE_API_KEY}
+                - TYPESAFE_BASE_URL=https://openrouter.ai/api
                 # OpenAI client budget — same as eval. Per-stage budgets
                 # in search.service.ts (SEARCH_STAGE_BUDGET_MS) cap the
                 # end-to-end pipeline regardless of what individual calls
