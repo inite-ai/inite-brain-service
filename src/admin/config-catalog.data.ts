@@ -2190,6 +2190,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Lexical-leg (BM25) query shape of the two coverage-first scan lanes — mention-scan over episode_segment and query_arc over knowledge_fact: phrase (one matcher per indexed field fed the whole extracted topic phrase — the legacy default; the matches operator @N@ is AND-semantics over analyzed tokens on SurrealDB 3.x, so a 2-5 token topic must appear IN FULL and the lexical leg rarely fires, leaving the hybrid pool dense-driven — the V11 audit A2 finding) | or_terms (per-term matchers over the stripped topic terms OR-ed with unique match refs, bounded at 8 terms; a row mentioning ANY topic word is a lexical hit, scored as the sum over terms of the best per-field BM25 so multi-term rows rank higher). Also overlayable per tenant via RETRIEVAL_PROFILE_OVERRIDES (coverageLexMode). Measured-behavior change: flip after the eval pair, not by default.',
   },
   {
+    key: 'RETRIEVAL_VERIFIER_EFFORT',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "How hard the auditor may think: none | low | medium | high | xhigh. Unset (default) = the shared guard's `low`. It exists because the audit is the one call where MORE deliberation measured worse — gpt-6-luna at `low` spends reasoning tokens where gpt-5.6-luna spends none and reads the same evidence more strictly — so the audit model and its effort have to be chosen together. Measured 2026-09-24: auditing with gpt-6-luna at `none` scored state-transitions 10/12 against 11/12 with the pinned older model, i.e. dropping the effort does not buy the newer generation back.",
+  },
+  {
     key: 'RETRIEVAL_VERIFIER_MODEL',
     category: 'pipeline',
     defaultValue: 'gpt-5.6-luna',

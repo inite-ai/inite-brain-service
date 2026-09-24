@@ -26,7 +26,13 @@ import type { Citation } from '../synthesize/fact-index';
  *  lifecycle stamp moved while its row stayed servable (a belief revised in
  *  place, a scene recomposed, an asset's quarantine state changed). */
 export type InvalidationCause =
-  'superseded' | 'retracted' | 'expired_validity' | 'missing' | 'newer_fact' | 'dependency_changed';
+  | 'superseded'
+  | 'retracted'
+  | 'expired_validity'
+  | 'missing'
+  | 'newer_fact'
+  | 'newer_belief'
+  | 'dependency_changed';
 
 /**
  * The non-fact evidence a cached answer rests on (0136, audit F3) — one
@@ -79,6 +85,10 @@ export interface DependencyRow {
   segmenterVersion?: unknown;
   assetUserId?: unknown;
   assetAvailability?: unknown;
+  /** The belief's free-text subject — the ONLY anchor a belief-grounded
+   *  answer has for the additive freshness probe, since semantic_belief keys
+   *  its subject as text rather than as a knowledge_entity reference. */
+  subject?: string | null;
   /** Edge columns — the relation citation is rebuilt from them on read. */
   invalidatedAt?: Date | string | null;
   kind?: string | null;
@@ -177,7 +187,7 @@ export function isCachedDependency(v: unknown): v is CachedDependency {
 export function dependencySelect(kind: CachedDependencyKind): string {
   switch (kind) {
     case 'belief':
-      return `SELECT id, revision, status, supersededBy, validUntil, userId
+      return `SELECT id, revision, status, supersededBy, validUntil, userId, subject
                 FROM semantic_belief WHERE id INSIDE $belief`;
     case 'episode':
       return `SELECT id, userId, piiClass FROM episode WHERE id INSIDE $episode`;

@@ -1,0 +1,17 @@
+-- 0155_answer_cache_belief_subjects — the anchor a belief-grounded answer
+-- needs before it may be cached at all.
+--
+-- Admission required at least one CITED FACT, and said so in as many words:
+-- an answer with no fact citations "has nothing for the entity-scoped
+-- freshness probe to anchor on". That is true — `semantic_belief` keys its
+-- subject as FREE TEXT, deliberately not as a knowledge_entity reference
+-- (0120), so there is no entity to probe. The consequence was that an answer
+-- the belief plane alone could support was re-synthesized on every ask, the
+-- one class of answer whose evidence is a single small row.
+--
+-- The subject text IS an anchor, just a different one: a belief added or
+-- revised on the same subject after the answer was stored is exactly the
+-- additive write the entity probe catches for facts. Admission stamps the
+-- cited beliefs' subjects here and the read path probes them; a row without
+-- them (every row written before this migration) still fails closed.
+DEFINE FIELD IF NOT EXISTS beliefSubjects ON answer_cache TYPE array<string> DEFAULT [];

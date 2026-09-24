@@ -1,5 +1,5 @@
 import type OpenAI from 'openai';
-import { chatCallParams } from '../ai/openai-client';
+import { chatCallParams, type ReasoningEffort } from '../ai/openai-client';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
 import { traceArtifact } from '../common/debug-trace';
@@ -142,6 +142,15 @@ export interface VerifyRequest {
   /** Who is asking (asker.ts) — the same asker the generator was told. */
   asker?: Asker | undefined;
   model: string;
+  /**
+   * How hard the auditor may think. It is configurable because the audit is
+   * the one call where more deliberation measured WORSE: gpt-6-luna at `low`
+   * spends reasoning tokens where gpt-5.6-luna spends none, reads the same
+   * evidence more strictly, and turned supported answers into abstentions.
+   * Resolved from the profile (RETRIEVAL_VERIFIER_EFFORT), so the audit model
+   * and its deliberation are chosen together.
+   */
+  effort?: ReasoningEffort | undefined;
   /**
    * The decision plane, when the `verifier` lane is on. It can only CLEAR an
    * answer (see `decideGrounding`); anything contested still goes to the
@@ -349,7 +358,12 @@ export async function runVerifier(req: VerifyRequest): Promise<VerifierOutput> {
               },
             },
           },
-          ...chatCallParams(model, { temperature: 0, visibleCap: 256, reasoningCap: 2048 }),
+          ...chatCallParams(model, {
+            temperature: 0,
+            visibleCap: 256,
+            reasoningCap: 2048,
+            reasoningEffort: req.effort,
+          }),
         },
         { signal: getAbortSignal() },
       ),
@@ -456,7 +470,11 @@ export async function runPlausibilityJudge(req: PlausibilityRequest): Promise<Pl
               },
             },
           },
-          ...chatCallParams(model, { temperature: 0, visibleCap: 256, reasoningCap: 2048 }),
+          ...chatCallParams(model, {
+            temperature: 0,
+            visibleCap: 256,
+            reasoningCap: 2048,
+          }),
         },
         { signal: getAbortSignal() },
       ),

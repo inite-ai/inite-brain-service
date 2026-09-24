@@ -195,6 +195,7 @@ describe('genre presets — full effective profile per genre (snapshot)', () => 
     abstentionCalibration: 'off',
     verifierTopicCoverage: false,
     verifierModel: DEFAULT_VERIFIER_MODEL,
+    verifierEffort: '',
     digestEvidence: false,
     digestLanes: 'all',
     rawWindow: false,

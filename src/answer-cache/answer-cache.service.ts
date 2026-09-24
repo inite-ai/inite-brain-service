@@ -239,6 +239,10 @@ interface CacheRow {
   /** 0136 typed non-fact dependencies; absent on a pre-0136 row, which
    *  therefore cannot be revalidated and fails closed. */
   dependencies?: CachedDependency[] | null;
+  /** 0155: the cited beliefs' subjects — the additive probe's anchor for an
+   *  answer with no cited facts. Empty on every row written before 0155,
+   *  which is why such a row without cited facts reads as 'missing'. */
+  beliefSubjects?: string[] | null;
 }
 
 /** The two read fences the fact read path applies, threaded together
@@ -412,31 +416,39 @@ export class AnswerCacheService {
    * non-supported one failed the grounding audit.
    *
    * Evidence citations are admission-bearing ONLY as tracked dependencies
-   * (0136, audit F3). Fact citations remain the admission gate — an
-   * answer with zero fact citations (episode-only L3, belief-only
-   * current-state) has citations.length 0 and is rejected below, since
-   * the entity-scoped freshness probe has nothing to anchor on. A MIXED
-   * answer (≥1 fact plus belief / episode / fragment / scene citations)
-   * used to be admitted with only its fact half recorded, so a belief
-   * revision left the cached text serving until TTL; it is now admitted
-   * with every non-fact arm stored as {kind, id, rev} and revalidated on
-   * read, and it is NOT admitted at all when any arm is untrackable or
-   * already dead at admission time (fail closed — the answer is stale
-   * before it is stored).
+   * (0136, audit F3). A MIXED answer (≥1 fact plus belief / episode /
+   * fragment / scene citations) used to be admitted with only its fact half
+   * recorded, so a belief revision left the cached text serving until TTL; it
+   * is now admitted with every non-fact arm stored as {kind, id, rev} and
+   * revalidated on read, and it is NOT admitted at all when any arm is
+   * untrackable or already dead at admission time (fail closed — the answer
+   * is stale before it is stored).
+   *
+   * 0155 — A FACT-LESS ANSWER. Cited facts used to be the admission gate
+   * outright, because the additive freshness probe (audit F1) is entity-scoped
+   * and an answer citing no fact carries no entity to probe. True, and it made
+   * the belief plane's own answers the only ones re-synthesized on every ask.
+   * `semantic_belief` keys its subject as free text rather than as an entity
+   * (0120), so the anchor is the SUBJECT: a belief added or revised on the
+   * same subject after admission is exactly the additive write the entity
+   * probe catches for facts. A fact-less answer is therefore admitted when —
+   * and only when — it rests on belief arms whose subjects all came back, the
+   * request is user-scoped (beliefs are single-user by construction, so the
+   * probe needs that scope), and it takes the SHORT TTL: the belief plane
+   * lags the fact plane, and a fact that would change the answer is the one
+   * additive write no probe here can see.
    */
   async admit(
     ctx: AnswerCacheStoreContext,
     result: SynthesizeResult,
     verdict: 'supported' | 'partial' | 'unsupported',
   ): Promise<void> {
-    if (
-      verdict !== 'supported' ||
-      result.answer === null ||
-      result.reason !== undefined ||
-      result.citations.length === 0
-    ) {
-      return;
-    }
+    if (verdict !== 'supported' || result.answer === null || result.reason !== undefined) return;
+    // A fact-less answer is admissible only under the belief-subject anchor
+    // below, and only for a user-scoped request — the probe has no other
+    // scope to run in.
+    const factless = result.citations.length === 0;
+    if (factless && !ctx.userId) return;
     const arms = dependenciesOf(result.evidenceCitations);
     if (arms === null) {
       // A citation with no trackable arm — the cache cannot promise to
@@ -470,7 +482,9 @@ export class AnswerCacheService {
     // TTL. Off (default threshold) never shortens a small factoid answer.
     const broadAnswer =
       citedFactIds.length >= this.readPositiveInt('SYNTHESIZE_ANSWER_CACHE_ENUM_MIN_CITATIONS', 5);
-    const ttlHours = this.ttlHours(ctx.isEnumeration || broadAnswer);
+    // A fact-less answer takes the short TTL for the reason in the doc above:
+    // its probe sees the belief plane only.
+    const ttlHours = this.ttlHours(ctx.isEnumeration || broadAnswer || factless);
     const expiresAt = new Date(Date.now() + ttlHours * 3_600_000);
     try {
       const stored = await this.surreal.withCompany(ctx.companyId, async (db) => {
@@ -479,8 +493,12 @@ export class AnswerCacheService {
         // compares to. A dependency that is already missing, fenced, or
         // dead at admission means the answer is stale before it is
         // stored — never written (fail closed).
-        const dependencies = await this.stampDependencies(db, wanted, ctx);
-        if (dependencies === null) return false;
+        const stamped = await this.stampDependencies(db, wanted, ctx);
+        if (stamped === null) return false;
+        const { dependencies, beliefSubjects } = stamped;
+        // No anchor, no admission: a fact-less answer resting on episode or
+        // fragment arms alone has nothing the additive probe can watch.
+        if (factless && beliefSubjects.length === 0) return false;
         // Record id = queryHash, so re-admission after invalidation or
         // TTL expiry REPLACES the row in place (the unique
         // (companyId, queryHash) index stays trivially consistent).
@@ -497,6 +515,7 @@ export class AnswerCacheService {
              citedFactIds: $citedFactIds,
              entityIds: $entityIds,
              dependencies: $dependencies,
+             beliefSubjects: $beliefSubjects,
              profileHash: $profileHash,
              modelId: $modelId,
              promptVersion: $promptVersion,
@@ -517,6 +536,7 @@ export class AnswerCacheService {
             citedFactIds,
             entityIds,
             dependencies,
+            beliefSubjects,
             profileHash: ctx.profileHash,
             modelId: ctx.model,
             promptVersion: ANSWER_CACHE_PROMPT_VERSION,
@@ -677,7 +697,7 @@ export class AnswerCacheService {
       // clause double-fences both (a user-scoped query must never hit
       // a global entry and vice versa).
       const [rows] = await db.query<[CacheRow[]]>(
-        `SELECT id, answer, citedFactIds, entityIds, dependencies, createdAt,
+        `SELECT id, answer, citedFactIds, entityIds, dependencies, beliefSubjects, createdAt,
                 expiresAt, invalidatedAt
            FROM type::record($tb, $key)
           WHERE companyId = $companyId
@@ -757,7 +777,14 @@ export class AnswerCacheService {
       .filter(isCachedDependency)
       .filter((d) => d.kind === 'edge')
       .map((d) => d.id);
-    if (ids.length === 0 && edgeIds.length === 0) return { cause: 'missing' };
+    // 0155: an answer rests on cited facts, cited relations, or — with no
+    // fact at all — on belief arms whose subjects the additive probe below
+    // watches. A row carrying none of the three cannot be revalidated: a
+    // pre-0155 fact-less row has no stored subjects and fails closed here.
+    const beliefSubjects = (row.beliefSubjects ?? []).filter((x) => typeof x === 'string' && x);
+    if (ids.length === 0 && edgeIds.length === 0 && beliefSubjects.length === 0) {
+      return { cause: 'missing' };
+    }
     const entityIds = row.entityIds ?? [];
     const answerCreatedAt =
       row.createdAt instanceof Date ? row.createdAt : new Date(String(row.createdAt));
@@ -772,10 +799,8 @@ export class AnswerCacheService {
       ? 'AND (userId IS NONE OR userId = $probeScopeUserId)'
       : 'AND userId IS NONE';
     const trackable = dependencies.filter(isCachedDependency);
-    const { facts, names, newer, dependencyRows, world } = await this.surreal.withScopedCompany(
-      ctx.companyId,
-      callerScopes,
-      async (db) => {
+    const { facts, names, newer, newerBeliefs, dependencyRows, world } =
+      await this.surreal.withScopedCompany(ctx.companyId, callerScopes, async (db) => {
         // 0136: the non-fact dependencies' live rows, on the SAME scoped
         // connection (one extra round trip only when the row has any),
         // plus the tenant-level fence state those rows are judged against.
@@ -804,15 +829,39 @@ export class AnswerCacheService {
             ...(ctx.userId ? { probeScopeUserId: ctx.userId } : {}),
           },
         );
+        // 0155 — the belief plane's own additive probe, on the subjects the
+        // answer cited. A belief REVISED in place is already caught by its
+        // dependency stamp; this catches the sibling a revision does not
+        // touch: a new belief about the same subject, which is what changes
+        // the current state the answer described. Only for rows that carry
+        // subjects, so an ordinary fact answer pays nothing.
+        const newerBeliefs =
+          beliefSubjects.length > 0
+            ? ((
+                await db.query<[Array<{ id: unknown }>]>(
+                  `SELECT id FROM semantic_belief
+                    WHERE subject INSIDE $subjects
+                      AND status = 'active'
+                      AND createdAt > $answerCreatedAt
+                      AND userId = $beliefScopeUserId
+                    LIMIT 1`,
+                  {
+                    subjects: beliefSubjects,
+                    answerCreatedAt,
+                    beliefScopeUserId: ctx.userId ?? '',
+                  },
+                )
+              )[0] ?? [])
+            : [];
         return {
           facts: factRows ?? [],
           names: entityRows ?? [],
           newer: newerRows ?? [],
+          newerBeliefs,
           dependencyRows,
           world,
         };
-      },
-    );
+      });
     const byId = new Map(facts.map((f) => [String(f.id), f]));
     const nameById = new Map(names.map((e) => [String(e.id), e.canonicalName]));
     // Same user-scope semantics as loadVisibleFact: a user-bound token
@@ -840,6 +889,7 @@ export class AnswerCacheService {
       const dependencyCause = this.evaluateDependencies(dependencies, dependencyRows, depFences);
       if (dependencyCause) result = { cause: dependencyCause };
       else if (this.hasNewerVisibleFact(newer, fences)) result = { cause: 'newer_fact' };
+      else if (newerBeliefs.length > 0) result = { cause: 'newer_belief' };
       else if (edgeIds.length > 0) {
         // The relation citations, rebuilt from the live rows the
         // dependency gate just validated, follow the fact citations.
@@ -875,8 +925,8 @@ export class AnswerCacheService {
     db: Pick<Surreal, 'query'>,
     wanted: ReadonlyArray<Pick<CachedDependency, 'kind' | 'id'>>,
     ctx: AnswerCacheStoreContext,
-  ): Promise<CachedDependency[] | null> {
-    if (wanted.length === 0) return [];
+  ): Promise<{ dependencies: CachedDependency[]; beliefSubjects: string[] } | null> {
+    if (wanted.length === 0) return { dependencies: [], beliefSubjects: [] };
     const fences: EvidenceFences = {
       caller: { callerScopes: ctx.callerScopes, userId: ctx.userId },
       world: await this.fetchWorldState(db, wanted),
@@ -884,6 +934,7 @@ export class AnswerCacheService {
     const rows = await this.fetchDependencyRows(db, wanted);
     const snapshot = ctx.renderedStamps;
     const out: CachedDependency[] = [];
+    const subjects = new Set<string>();
     for (const dep of wanted) {
       const row = rows.get(`${dep.kind}|${dep.id}`);
       if (!row) return null;
@@ -894,9 +945,15 @@ export class AnswerCacheService {
         const observed = snapshot.get(`${dep.kind}|${dep.id}`);
         if (observed === undefined || observed !== rev) return null;
       }
+      if (dep.kind === 'belief') {
+        const subject = typeof row.subject === 'string' ? row.subject.trim() : '';
+        // A belief whose subject did not come back cannot be probed, so it
+        // cannot anchor a fact-less answer — admission checks the set below.
+        if (subject !== '') subjects.add(subject);
+      }
       out.push({ kind: dep.kind, id: dep.id, rev });
     }
-    return out;
+    return { dependencies: out, beliefSubjects: [...subjects] };
   }
 
   /**

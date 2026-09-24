@@ -184,6 +184,9 @@ function makeHarness(opts: {
    *  per-kind dependency SELECTs (one batch, kinds in declared order)
    *  return at admission and on read. Absent kind ⇒ no rows ⇒ 'missing'. */
   dependencyRows?: Partial<Record<CachedDependencyKind, Array<Record<string, unknown>>>>;
+  /** 0155: rows the belief-subject additive probe finds — a belief created
+   *  on a cited subject after the answer was stored. */
+  beliefProbeRows?: Array<Record<string, unknown>>;
   /** Live `scenes` projection version — the scene fence's world clause.
    *  Absent ⇒ no live world ⇒ a scene dependency is invisible. */
   sceneWorld?: string;
@@ -221,6 +224,11 @@ function makeHarness(opts: {
           out.push(opts.mediaConsent === false ? [] : [CONSENTED_PACK]);
         }
         return out;
+      }
+      // 0155 belief-subject probe — matched BEFORE the dependency tables,
+      // since it reads the same table with a different question.
+      if (/FROM semantic_belief/.test(sql) && /subject INSIDE/.test(sql)) {
+        return [opts.beliefProbeRows ?? []];
       }
       const depKinds = (Object.keys(DEP_TABLES) as CachedDependencyKind[]).filter((k) =>
         sql.includes(DEP_TABLES[k]),
@@ -561,6 +569,77 @@ describe('AnswerCacheService.begin — additive-write freshness probe (F1)', () 
     expect(h.calls.some((c) => /invalidatedAt = time::now\(\)/.test(c.sql))).toBe(false);
   });
 
+  it('0155: a belief-only row serves when no belief landed on its subject since', async () => {
+    const h = makeHarness({
+      cacheRow: liveCacheRow({
+        citedFactIds: [],
+        entityIds: [],
+        beliefSubjects: ['Alice'],
+        dependencies: [{ kind: 'belief', id: 'semantic_belief:old', rev: '3' }],
+      }),
+      dependencyRows: {
+        belief: [
+          {
+            id: 'semantic_belief:old',
+            revision: 3,
+            status: 'active',
+            supersededBy: null,
+            validUntil: null,
+            userId: 'user_a',
+            subject: 'Alice',
+          },
+        ],
+      },
+      beliefProbeRows: [],
+    });
+    const out = await h.svc.begin(beginArgs({ userId: 'user_a' }));
+    expect(out?.hit?.cached).toBe(true);
+    expect(h.outcomes).toEqual(['hit']);
+  });
+
+  it('0155: a NEW belief on the cited subject invalidates — cause=newer_belief', async () => {
+    // The belief-plane twin of cat→dog: the cited belief is untouched (its
+    // revision still matches), but the subject acquired another one, so the
+    // current state the answer described is no longer the whole of it.
+    const h = makeHarness({
+      cacheRow: liveCacheRow({
+        citedFactIds: [],
+        entityIds: [],
+        beliefSubjects: ['Alice'],
+        dependencies: [{ kind: 'belief', id: 'semantic_belief:old', rev: '3' }],
+      }),
+      dependencyRows: {
+        belief: [
+          {
+            id: 'semantic_belief:old',
+            revision: 3,
+            status: 'active',
+            supersededBy: null,
+            validUntil: null,
+            userId: 'user_a',
+            subject: 'Alice',
+          },
+        ],
+      },
+      beliefProbeRows: [{ id: 'semantic_belief:new' }],
+    });
+    const out = await h.svc.begin(beginArgs({ userId: 'user_a' }));
+    expect(out?.hit).toBeUndefined();
+    const invalidation = h.calls.find((c) => /invalidatedAt = time::now\(\)/.test(c.sql));
+    expect(invalidation?.params.cause).toBe('newer_belief');
+    expect(h.outcomes).toEqual(['rejected_stale']);
+  });
+
+  it('0155: a pre-0155 fact-less row carries no subjects and fails closed', async () => {
+    const h = makeHarness({
+      cacheRow: liveCacheRow({ citedFactIds: [], entityIds: [], dependencies: [] }),
+    });
+    const out = await h.svc.begin(beginArgs({ userId: 'user_a' }));
+    expect(out?.hit).toBeUndefined();
+    const invalidation = h.calls.find((c) => /invalidatedAt = time::now\(\)/.test(c.sql));
+    expect(invalidation?.params.cause).toBe('missing');
+  });
+
   it('probe query scopes to the answer partition (user-pinned → global + own)', async () => {
     // Needs a live row so check-on-read (and its probe) actually runs.
     const h = makeHarness({
@@ -803,10 +882,10 @@ describe('AnswerCacheService.admit — admission rules', () => {
     ['abstention (null answer)', { ...grounded, answer: null }, 'supported'],
     ['reason-tagged return (low_coverage)', { ...grounded, reason: 'low_coverage' }, 'supported'],
     ['zero citations', { ...grounded, citations: [] }, 'supported'],
-    // FOVEA_L3_EPISODE_CITATIONS: an episode-only-cited L3 answer (zero
-    // FACT citations) is DELIBERATELY not admitted — check-on-read cannot
-    // invalidate episode citations, so caching it would be
-    // uninvalidatable (see admit()'s docblock).
+    // An episode-only-cited L3 answer (zero FACT citations) is still not
+    // admitted: 0155 opened the fact-less door for BELIEF arms only, because
+    // a belief carries a subject the additive probe can watch and an episode
+    // carries nothing of the kind.
     [
       'episode-only-cited (evidence citations, zero fact citations)',
       {
@@ -914,6 +993,58 @@ describe('AnswerCacheService.admit — dependencies are stamped, or the answer i
     ]);
     expect(upsert.params.citedFactIds).toEqual(['knowledge_fact:f']);
     expect(h.outcomes).toEqual(['stored']);
+  });
+
+  /** 0155: the belief plane's own answer — no fact citations at all. */
+  const beliefOnly: SynthesizeResult = {
+    answer: 'Alice lives in A.',
+    citations: [],
+    evidenceCitations: [{ beliefId: 'semantic_belief:old', excerpt: 'Alice — residence: A' }],
+    results: [],
+  };
+
+  it('0155: a belief-only answer IS admitted, anchored on the belief subject', async () => {
+    // It used to be refused for having no fact to anchor the additive probe
+    // on — which made the belief plane's own answers the only class
+    // re-synthesized on every ask.
+    const h = makeHarness({ dependencyRows: { belief: [liveBelief({ subject: 'Alice' })] } });
+    await h.svc.admit(ctx, beliefOnly, 'supported');
+    const upsert = h.calls.find((c) => /UPSERT/.test(c.sql))!;
+    expect(upsert.params.citedFactIds).toEqual([]);
+    expect(upsert.params.beliefSubjects).toEqual(['Alice']);
+    expect(upsert.params.dependencies).toEqual([
+      { kind: 'belief', id: 'semantic_belief:old', rev: '3' },
+    ]);
+    expect(h.outcomes).toEqual(['stored']);
+  });
+
+  it('0155: a belief-only answer takes the SHORT ttl (its probe sees one plane)', async () => {
+    const h = makeHarness({
+      ttl: '24',
+      enumTtl: '1',
+      dependencyRows: { belief: [liveBelief({ subject: 'Alice' })] },
+    });
+    const before = Date.now();
+    await h.svc.admit(ctx, beliefOnly, 'supported');
+    const upsert = h.calls.find((c) => /UPSERT/.test(c.sql))!;
+    expect((upsert.params.expiresAt as Date).getTime()).toBeLessThanOrEqual(
+      before + 3_600_000 + 60_000,
+    );
+  });
+
+  it('0155: a belief whose subject did not come back anchors nothing — not admitted', async () => {
+    const h = makeHarness({ dependencyRows: { belief: [liveBelief({ subject: '' })] } });
+    await h.svc.admit(ctx, beliefOnly, 'supported');
+    expect(h.calls.some((c) => /UPSERT/.test(c.sql))).toBe(false);
+  });
+
+  it('0155: a fact-less answer on an UNSCOPED request is not admitted', async () => {
+    // Beliefs are single-user by construction (0120), so without the answer's
+    // user there is no scope the probe could run in.
+    const h = makeHarness({ dependencyRows: { belief: [liveBelief({ subject: 'Alice' })] } });
+    const { userId: _drop, ...unscoped } = ctx;
+    await h.svc.admit(unscoped as AnswerCacheStoreContext, beliefOnly, 'supported');
+    expect(h.calls.some((c) => /UPSERT/.test(c.sql))).toBe(false);
   });
 
   it('a fact-only answer stores an empty dependency list and issues no dependency query', async () => {

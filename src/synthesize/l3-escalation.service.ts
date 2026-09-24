@@ -21,6 +21,7 @@ import {
 } from './attention-hints';
 import { runVerifier, type VerifierOutput } from './verifier';
 import { DecisionService } from '../ai/decisions/decision.service';
+import type { ReasoningEffort } from '../ai/openai-client';
 import { resolveCitations, expandCitationHandles } from './synthesize.helpers';
 import type { Citation } from './fact-index';
 import type { EvidenceCitation, GeneratorOutput } from './synthesize.types';
@@ -957,6 +958,9 @@ export class L3EscalationService {
       dateMathLines: input.dateMathLines,
       asker: input.asker,
       model: input.profile.verifierModel || input.model,
+      ...(input.profile.verifierEffort
+        ? { effort: input.profile.verifierEffort as ReasoningEffort }
+        : {}),
     });
   }
 }

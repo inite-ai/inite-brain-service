@@ -11,6 +11,7 @@ import { withSpan } from '../common/tracing';
 import { getAbortSignal } from '../common/request-context';
 import { runVerifier, type VerifierOutput } from './verifier';
 import type { DecisionService } from '../ai/decisions/decision.service';
+import type { ReasoningEffort } from '../ai/openai-client';
 import { miniCheckVerdict } from './minicheck-client';
 import { verifierErrorResult } from './synthesize.helpers';
 import { verifierPasses } from './l3-escalation';
@@ -218,6 +219,9 @@ export async function verifyAndZoom(
                 // V11 §2 arm (a): the audit may run on a stronger judge
                 // than the generator; empty override = same model.
                 model: profile.verifierModel || model,
+                ...(profile.verifierEffort
+                  ? { effort: profile.verifierEffort as ReasoningEffort }
+                  : {}),
               }),
             ),
           { 'synthesize.facts': args.factCount },
@@ -329,6 +333,9 @@ async function tryFragmentZoom(
               asker: collected.asker,
               capabilityEvidenceLines: zoomedLines,
               model: profile.verifierModel || model,
+              ...(profile.verifierEffort
+                ? { effort: profile.verifierEffort as ReasoningEffort }
+                : {}),
             }),
           ),
         metrics: deps.metrics,

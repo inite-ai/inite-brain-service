@@ -146,7 +146,7 @@ export function chatCallParams(
      * field. Unset = DEFAULT_REASONING_EFFORT; a judge or classifier
      * whose answer is one token asks for `none`.
      */
-    reasoningEffort?: ReasoningEffort;
+    reasoningEffort?: ReasoningEffort | undefined;
     /**
      * Ask for a non-standard processing tier. Only for calls no user is
      * waiting on — see `offlineServiceTier`.

@@ -415,6 +415,8 @@ export interface RetrievalProfile {
    * on a stronger judge model, priced per tenant.
    */
   verifierModel: string;
+  /** Reasoning effort for the audit call; '' = the model's own default. */
+  verifierEffort: string;
   /**
    * V12 §2 read side: surface the rolling conversation digests
    * (conversation_digest, written under DERIVER_DIGEST) into the
@@ -624,6 +626,17 @@ function nonNegativeFloatEnv(env: NodeJS.ProcessEnv, name: string, dflt: number)
  *  anything else — including an unset env — resolves to '' (inherit). */
 const MODEL_ID_RE = /^[A-Za-z0-9._:/-]{1,64}$/;
 
+/**
+ * Reasoning effort for the audit call. Its own reader because the audit is the
+ * one call where MORE deliberation measured worse (see DEFAULT_VERIFIER_MODEL),
+ * so model and effort are chosen together; anything unrecognised resolves to
+ * '' — the shared guard's default — rather than to a value the API rejects.
+ */
+function verifierEffortEnv(env: NodeJS.ProcessEnv): string {
+  const v = (env['RETRIEVAL_VERIFIER_EFFORT'] ?? '').trim();
+  return ['none', 'low', 'medium', 'high', 'xhigh'].includes(v) ? v : '';
+}
+
 function modelIdEnv(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
   const v = (env[name] ?? '').trim();
   return MODEL_ID_RE.test(v) ? v : fallback;
@@ -800,6 +813,7 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
     // more strictly. Generation, extraction and every other call keep the
     // newer model. RETRIEVAL_VERIFIER_MODEL still overrides.
     verifierModel: modelIdEnv(env, 'RETRIEVAL_VERIFIER_MODEL', DEFAULT_VERIFIER_MODEL),
+    verifierEffort: verifierEffortEnv(env),
     digestEvidence: presetFlag(env, 'RETRIEVAL_DIGEST_EVIDENCE', preset.digestEvidence),
     digestLanes:
       enumEnv(env, 'RETRIEVAL_DIGEST_LANES', ['all', 'summary_ku'] as const) ??
