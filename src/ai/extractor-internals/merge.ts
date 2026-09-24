@@ -20,13 +20,20 @@ import type { ExtractionResult } from './types';
  * Deduplication: entities by (type, lowercased name); facts by semantic cluster
  * key; edges by (from-entity identity, kind, to-entity identity) — identity,
  * not position, for the same reason.
+ *
+ * Re-rolls of one prompt (`selfConsistency`) identify an entity by its NAME
+ * alone. They type the same thing differently ("@nestjs/config" as `other`
+ * in one pass, `asset` in the next), and keyed by type as well it became
+ * two entities — measured on a production document, 57 entities where 34
+ * were meant. The first pass's type stands. Facet passes keep the type in
+ * the key: they look for different things by design.
  */
 export function mergeExtractions(
   passes: ExtractionResult[],
   opts: { selfConsistency?: boolean } = {},
 ): ExtractionResult & { clusterCount: number } {
   const entityKey = (e: { name: string; type: string }) =>
-    `${e.type}:${e.name.toLowerCase().trim()}`;
+    opts.selfConsistency ? e.name.toLowerCase().trim() : `${e.type}:${e.name.toLowerCase().trim()}`;
 
   // Merged entity table + per-pass index → merged index.
   const entities: ExtractionResult['entities'] = [];

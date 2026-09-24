@@ -12,6 +12,8 @@ import { ExtractorLlmService } from './extractor-llm.service';
 import { ExtractorLocalService } from './extractor-local.service';
 import { ExtractorRefineService } from './extractor-refine.service';
 import { mergeExtractions } from './extractor-internals/merge';
+import { checkExtraction } from './extractor-internals/fact-check';
+import { DecisionService } from './decisions/decision.service';
 import { detectFacets, type Facet } from './extractor-internals/facet-router';
 import type { ExtractedEntity, ExtractedFact, ExtractionResult } from './extractor-internals/types';
 import {
@@ -93,6 +95,7 @@ export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplica
     private readonly local: ExtractorLocalService,
     private readonly refine: ExtractorRefineService,
     @Optional() private readonly embedder?: EmbedderService,
+    @Optional() private readonly decisions?: DecisionService,
   ) {}
 
   modelId(): string {
@@ -307,18 +310,34 @@ export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplica
     // tells the caller to skip the cache (see run()'s contract).
     if (surviving.length === 0) return null;
 
-    const { clusterCount, ...merged } = mergeExtractions(surviving, {
+    const { clusterCount, ...union } = mergeExtractions(surviving, {
       selfConsistency: true,
     });
+    const checked = await checkExtraction({
+      result: union,
+      text: args.trimmed,
+      context: args.contextPrefix,
+      decisions: this.decisions,
+    });
+    if (checked.rejected > 0) {
+      this.logger.log(
+        `extraction check: dropped ${checked.rejected} of ${union.facts.length} facts the document does not state (${checked.asked} asked)`,
+      );
+    }
 
     traceArtifact('extractor.sc_passes', {
       passes: surviving.length,
       temperatures,
       clusterCount,
-      clusterEntropy: merged.facts[0]?.extractionEntropy ?? 0,
+      clusterEntropy: union.facts[0]?.extractionEntropy ?? 0,
+      // The document check (fact-check.ts): facts put to the decision
+      // plane, and facts it confidently found the document does not state.
+      factsChecked: checked.asked,
+      factsRejected: checked.rejected,
+      droppedFacts: checked.droppedFacts ?? [],
     });
 
-    return merged;
+    return checked.result;
   }
 
   /**

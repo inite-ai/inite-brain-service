@@ -1324,7 +1324,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: false,
     isBooleanFlag: false,
     description:
-      'Comma-separated lanes served by the decision plane, or `all`. Known lanes: entity_judge, verifier, predicate_identity, predicate_semantics, reranker, chat_router, dream_resolver, dream_corroborate. Empty (default) = every lane stays on the chat model. Opted in one at a time on purpose: whether a lane is better on the decision plane is a measurement per lane AND per language — the model documents non-English as weaker, and this graph is multilingual.',
+      'Comma-separated lanes served by the decision plane, or `all`. Known lanes: entity_judge, verifier, predicate_identity, predicate_semantics, reranker, chat_router, dream_resolver, dream_corroborate, extraction_check (every extracted fact checked against the text and its context before it is written — a confident "not stated" drops it). Empty (default) = every lane stays on the chat model. Opted in one at a time on purpose: whether a lane is better on the decision plane is a measurement per lane AND per language — the model documents non-English as weaker, and this graph is multilingual.',
   },
   {
     key: 'DECISIONS_CONFIDENCE_FLOOR',

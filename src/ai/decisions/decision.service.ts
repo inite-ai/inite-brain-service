@@ -23,7 +23,8 @@ export type DecisionLane =
   | 'reranker'
   | 'chat_router'
   | 'dream_resolver'
-  | 'dream_corroborate';
+  | 'dream_corroborate'
+  | 'extraction_check';
 
 /**
  * Routes a lane's decision to the System One plane, and tells the caller when

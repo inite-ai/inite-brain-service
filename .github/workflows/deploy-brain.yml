@@ -246,7 +246,17 @@ jobs:
           # fraction of the latency. Named explicitly rather than `all` so a
           # lane added later cannot switch itself on unmeasured. Inert until
           # TYPESAFE_API_KEY is set.
-          DECISIONS_LANES=entity_judge,predicate_identity,verifier
+          # extraction_check (2026-09-24): every extracted fact is put to the
+          # plane — "does the text, read with the extractor's own context,
+          # say this of this subject?" — one request per document, and a
+          # confident no drops it. It exists because re-rolled passes
+          # misnumber entities alike (a production answer named GitHub for
+          # a connector the text said was fs). On the document behind that
+          # answer: 89 facts in 700 ms for $0.00044, the seven confident noes
+          # were exactly the misbound facts. Batteries, same stand, A = main
+          # / B = with the lane: memory-fitness 30/32 → 31/32,
+          # state-transitions 10/12 · 23/25 → 10/12 · 23/25.
+          DECISIONS_LANES=entity_judge,predicate_identity,verifier,extraction_check
           INGEST_INLINE_RESOLUTION_ENABLED=1
           INGEST_CONTEXTUAL_FACT_EMBEDDING=1
           INGEST_EVENT_TIME_EXTRACTION=1
