@@ -15,6 +15,7 @@ import type { EmbedderProvider } from './embedder/embedder-provider.interface';
 import { createOpenAiClient, createOpenAiClientOrThrow } from './openai-client';
 import { OpenAIEmbedderProvider } from './embedder/openai-embedder.provider';
 import { BgeM3EmbedderProvider } from './embedder/bge-m3-embedder.provider';
+import { RemoteBgeM3 } from './embedder/bge-m3-remote';
 import { envFlagNotDisabled } from '../common/env-validation';
 import type { WarmupStatus } from '../common/warmup-status';
 import {
@@ -159,7 +160,8 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
    */
   private kickWarmup(trigger: 'boot' | 'retry' | 'readiness' | 'serve'): void {
     const primary = this.primary;
-    if (!primary.warmup || this.stopped || primary.isReady() || this.warmupInFlight) return;
+    const needs = primary.needsWarmup ? primary.needsWarmup() : !primary.isReady();
+    if (!primary.warmup || this.stopped || !needs || this.warmupInFlight) return;
     if (Date.now() < this.nextWarmupAt) return;
     const attempt = this.warmupFailures + 1;
     this.warmupInFlight = primary
@@ -664,8 +666,14 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
   }
 
   private buildBgeM3Provider(): BgeM3EmbedderProvider {
+    const space = declaredSpace('bge-m3');
     return new BgeM3EmbedderProvider({
-      space: declaredSpace('bge-m3'),
+      space,
+      // The same model over HTTP serves first when a key is configured
+      // (bge-m3-remote.ts has the measurements); the local runtime below
+      // stays loaded as the fallback. No key ⇒ local only, as before — a
+      // self-hosted deployment never phones out unless it is told to.
+      remote: this.buildRemoteBgeM3(space.dim),
       concurrency: parseInt(this.configService.get<string>('BGE_M3_CONCURRENCY', '4'), 10),
       // Inference runs in a worker_thread unless BGE_M3_WORKER=0. It
       // shipped opt-in ("tests assume in-thread") while every document
@@ -677,6 +685,20 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
       // logs). Tests construct the provider directly and stub the
       // pipeline; nothing in them reads this default.
       useWorker: envFlagNotDisabled(this.configService.get<string>('BGE_M3_WORKER')),
+    });
+  }
+
+  private buildRemoteBgeM3(dim: number): RemoteBgeM3 | undefined {
+    const apiKey = this.configService.get<string>('BGE_M3_REMOTE_API_KEY')?.trim();
+    if (!apiKey) return undefined;
+    return new RemoteBgeM3({
+      url: this.configService.get<string>(
+        'BGE_M3_REMOTE_URL',
+        'https://openrouter.ai/api/v1/embeddings',
+      ),
+      model: this.configService.get<string>('BGE_M3_REMOTE_MODEL', 'baai/bge-m3'),
+      apiKey,
+      dim,
     });
   }
 

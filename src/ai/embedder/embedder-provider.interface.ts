@@ -39,6 +39,13 @@ export interface EmbedderProvider {
    */
   warmup?(): Promise<void>;
 
+  /**
+   * Optional: whether `warmup()` still has something to load even though
+   * `isReady()` is true — a provider that can serve from a remote runtime
+   * while its local fallback is cold. Absent ⇒ `!isReady()`.
+   */
+  needsWarmup?(): boolean;
+
   /** Embed a single string. Empty / whitespace → zero vector. */
   embed(text: string): Promise<number[]>;
 

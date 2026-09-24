@@ -837,6 +837,12 @@ jobs:
                 - OPENAI_API_KEY=${BRAIN_OPENAI_API_KEY}
                 - TYPESAFE_API_KEY=${BRAIN_TYPESAFE_API_KEY}
                 - TYPESAFE_BASE_URL=https://openrouter.ai/api
+                # bge-m3 over HTTP from the same OpenRouter account: the
+                # local model's 51 s of queued single embeds per ingest
+                # (2 vCPU) becomes one 0.8 s request. The local model stays
+                # loaded as the fallback. Same key, same account — the
+                # embeddings cost $0.01 per million tokens.
+                - BGE_M3_REMOTE_API_KEY=${BRAIN_TYPESAFE_API_KEY}
                 # OpenAI client budget — same as eval. Per-stage budgets
                 # in search.service.ts (SEARCH_STAGE_BUDGET_MS) cap the
                 # end-to-end pipeline regardless of what individual calls

@@ -122,6 +122,34 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'With EMBEDDER_PROVIDER=bge-m3: ONNX inference runs in a dedicated worker_thread so the main event loop keeps serving HTTP while embeds compute. 0 = in-thread inference — the event loop stops for every embed (hundreds of ms per call on a small host; an ingest embeds a batch), which is what production ran until 2026-09.',
   },
+  {
+    key: 'BGE_M3_REMOTE_API_KEY',
+    category: 'embedder',
+    defaultValue: '',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    secret: true,
+    description:
+      'With EMBEDDER_PROVIDER=bge-m3: the key for the same model served over HTTP (BGE_M3_REMOTE_URL). Set ⇒ the remote serves first — concurrent embeds coalesce into one request — and the local model stays loaded as the fallback, taking over for 60 s after any remote failure. Measured on the 2-vCPU droplet: 100 texts in 0.8 s remote vs 51 s local under ingest load; a single query embed 0.2–0.47 s, level with local; $0.01 per million tokens. Same space: cosine 0.985–0.989 with the local q8 vectors, retrieval order preserved, so no reindex is required. Unset ⇒ local only, and nothing leaves the host.',
+  },
+  {
+    key: 'BGE_M3_REMOTE_URL',
+    category: 'embedder',
+    defaultValue: 'https://openrouter.ai/api/v1/embeddings',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'OpenAI-compatible embeddings endpoint for the remote bge-m3 runtime. Only read when BGE_M3_REMOTE_API_KEY is set.',
+  },
+  {
+    key: 'BGE_M3_REMOTE_MODEL',
+    category: 'embedder',
+    defaultValue: 'baai/bge-m3',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Model id at BGE_M3_REMOTE_URL. It must BE bge-m3 — the vectors land in the bge-m3 space, and a response that is not 1024 finite numbers is refused, but a different 1024-wide model would pass that check and silently mix spaces.',
+  },
   // ── Dreams ────────────────────────────────────────────
   {
     key: 'DREAMS_ENABLED',

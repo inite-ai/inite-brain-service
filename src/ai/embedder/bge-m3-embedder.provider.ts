@@ -6,6 +6,7 @@ import { Semaphore } from '../../common/semaphore';
 import type { EmbedderProvider } from './embedder-provider.interface';
 import { providerIdOf, type EmbeddingSpaceConfig } from './embedding-space';
 import { applyTransformersCacheDir } from '../transformers-cache';
+import type { RemoteBgeM3 } from './bge-m3-remote';
 
 export interface FeatureExtractionPipeline {
   (
@@ -49,6 +50,13 @@ export interface BgeM3EmbedderConfig {
    * be driven without a model. Production leaves it unset.
    */
   createWorker?: (workerPath: string) => InferenceWorker;
+  /**
+   * The same model over HTTP (bge-m3-remote.ts). When set it serves first
+   * and the local runtime becomes the fallback: a remote failure opens a
+   * breaker for `remoteCooldownMs` and the local model answers meanwhile.
+   */
+  remote?: RemoteBgeM3 | undefined;
+  remoteCooldownMs?: number;
 }
 
 /**
@@ -75,6 +83,8 @@ export interface BgeM3EmbedderConfig {
 // disk/network so it gets a generous budget; embed calls are sub-second.
 const WORKER_WARMUP_TIMEOUT_MS = 120_000;
 const WORKER_EMBED_TIMEOUT_MS = 30_000;
+/** How long a failed remote stays out of the path before it is tried again. */
+const REMOTE_COOLDOWN_MS = 60_000;
 
 export class BgeM3EmbedderProvider implements EmbedderProvider {
   readonly providerId: string;
@@ -85,6 +95,9 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
   private readonly useWorker: boolean;
   private readonly loadPipeline: () => Promise<FeatureExtractionPipeline>;
   private readonly createWorker: (workerPath: string) => InferenceWorker;
+  private readonly remote: RemoteBgeM3 | undefined;
+  private readonly remoteCooldownMs: number;
+  private remoteDownUntil = 0;
 
   // In-thread fallback
   private pipeline: FeatureExtractionPipeline | null = null;
@@ -108,6 +121,8 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
     // via setPipelineForTesting().
     this.useWorker = cfg.useWorker === true;
     this.createWorker = cfg.createWorker ?? ((workerPath) => new Worker(workerPath));
+    this.remote = cfg.remote;
+    this.remoteCooldownMs = cfg.remoteCooldownMs ?? REMOTE_COOLDOWN_MS;
     this.loadPipeline =
       cfg.loadPipeline ??
       (async () => {
@@ -124,8 +139,34 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
     return this.dimensions;
   }
 
+  /** Ready when either runtime can answer: the remote (breaker closed) or the local model. */
   isReady(): boolean {
+    return this.remoteUsable() || this.localReady();
+  }
+
+  /**
+   * The local model still wants loading even while the remote serves — it
+   * is the fallback, and a fallback that starts loading only once the
+   * remote has failed is 10–60 s of refused embeds.
+   */
+  needsWarmup(): boolean {
+    return !this.localReady();
+  }
+
+  private localReady(): boolean {
     return this.useWorker ? this.workerReady : this.pipeline !== null;
+  }
+
+  private remoteUsable(): boolean {
+    return this.remote !== undefined && Date.now() >= this.remoteDownUntil;
+  }
+
+  /** Open the breaker; the local model answers until it closes. */
+  private remoteFailed(e: unknown): void {
+    this.remoteDownUntil = Date.now() + this.remoteCooldownMs;
+    this.logger.warn(
+      `remote bge-m3 failed (${(e as Error).message}); local model serves for ${Math.round(this.remoteCooldownMs / 1000)}s`,
+    );
   }
 
   /** Test seam — drive the BGE path without loading the real model. */
@@ -143,20 +184,51 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
   }
 
   async embed(text: string): Promise<number[]> {
+    const trimmed = text.trim();
+    if (!trimmed) return new Array(this.dimensions).fill(0);
+    if (this.remoteUsable()) {
+      try {
+        return await this.remote!.embed(trimmed);
+      } catch (e) {
+        this.remoteFailed(e);
+        if (!this.localReady()) throw e;
+      }
+    }
+    return this.embedLocal(trimmed);
+  }
+
+  /**
+   * Many texts at once. Remote: one request per `maxBatch`. Local: the
+   * per-text path under the concurrency limiter, as before.
+   */
+  async embedMany(texts: string[]): Promise<number[][]> {
+    const trimmed = texts.map((t) => t.trim());
+    const live = trimmed.filter((t) => t !== '');
+    let vectors: number[][] | null = null;
+    if (live.length > 0 && this.remoteUsable()) {
+      try {
+        vectors = await this.remote!.embedBatch(live);
+      } catch (e) {
+        this.remoteFailed(e);
+        if (!this.localReady()) throw e;
+      }
+    }
+    vectors ??= await Promise.all(live.map((t) => this.embedLocal(t)));
+    let next = 0;
+    return trimmed.map((t) => (t === '' ? new Array(this.dimensions).fill(0) : vectors[next++]!));
+  }
+
+  private async embedLocal(text: string): Promise<number[]> {
     if (this.useWorker) {
       if (!this.workerReady) {
         throw new Error('BGE-M3 worker not ready — caller must check isReady()');
       }
-      const trimmed = text.trim();
-      if (!trimmed) return new Array(this.dimensions).fill(0);
-      return this.limiter.run(() => this.rpc<number[]>('embed', { text: trimmed }));
+      return this.limiter.run(() => this.rpc<number[]>('embed', { text }));
     }
     if (!this.pipeline) {
       throw new Error('BGE-M3 pipeline not ready — caller must check isReady()');
     }
-    const trimmed = text.trim();
-    if (!trimmed) return new Array(this.dimensions).fill(0);
-    return this.limiter.run(() => this.inThreadEmbed(trimmed));
+    return this.limiter.run(() => this.inThreadEmbed(text));
   }
 
   private async warmupInThread(): Promise<void> {
