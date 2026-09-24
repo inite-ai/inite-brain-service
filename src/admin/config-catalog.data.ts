@@ -2062,6 +2062,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the GitHub (github.com OAuth + api.github.com) counterpart. A GitHub Enterprise deployment is named per connection (`config.baseUrl`), not here.',
   },
   {
+    key: 'SOURCE_PROGRESSIVE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Progressive indexing (source plane, W6 — doctrine 5, "manifest always, content by policy"): a connection whose `contentPolicy` is `manifest` walks a whole drive for the price of a listing and reads nothing, until a query matches one of its catalogue rows by TITLE or PATH — then that row alone is fetched and ingested as a `source_sync` job with a `deepen` payload (`ranBy: deepen`), and the NEXT query sees the content. The probe runs after retrieval, off the answer\'s path, never changes the answer it rode in on, and never throws: a search must not fail because a catalogue read did. A hit is not a read — `hitCount` on the row is the evidence that reading would have been worth it, and only SOURCE_DEEPEN_PER_QUERY rows per query are actually fetched, so a flood of queries against a million-item drive costs counter updates, not a million fetches. A deepening reads only what the walk already catalogued: no walk, no checkpoint, no gone policy. Off (default) = no probe ever runs, no hit is ever counted — byte-identical.',
+  },
+  {
+    key: 'SOURCE_DEEPEN_PER_QUERY',
+    category: 'pipeline',
+    defaultValue: '3',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'How many catalogue rows one query may send for deepening under SOURCE_PROGRESSIVE (default 3, hard cap 20). The bound that keeps "every query probes the catalogue" from meaning "every query fetches the internet".',
+  },
+  {
     key: 'SOURCE_PRINCIPALS',
     category: 'pipeline',
     defaultValue: '0',
@@ -2069,6 +2087,61 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: true,
     description:
       "The membership plane (source plane, W5 — G6 steps 3–5): after every sync of an ORG connection (one with no owning user), the connector's `principals()` walk runs and its groups and accounts land as `external_identity` rows and `external_principal` tuples (migration 0161), and an item's `acl.groups` become `team:<connection>:<group>` tags on the document, asset, episode and derived facts it produces. An external account NOBODY has linked to a brain user grants no visibility at all — the link is an operator's decision (`POST .../principals/link`) or an address another linked identity already carries, never a guess. Revocation is a timestamp and moves the tenant's `scope_epoch`, so a cached expansion cannot outlive the change that invalidated it (the new-enemy problem). An ACL too large to mirror is a sync ERROR, never a truncation. The READ half is SCOPE_TAGS_ENABLED: with this on and that off, tags are written and ignored — the safe order to switch the two on in. Off (default) = no `principals()` is ever called, no tuple is ever written, every org connection's rows stay tenant-global — byte-identical.",
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The quality tier of document text (evidence plane, W6): a document-understanding SERVICE (docling, marker, unstructured, a vendor's) as the first platform processor allowed to make a network call. Every text adapter that ships is local by construction — pdf2json for a PDF's text layer, officeparser for OOXML, tesseract for pixels — and they are also the FLOOR: a PDF whose layout carries meaning comes out of a text-layer dump as prose soup. The remote adapter sits FIRST in the registry, so for the media types the operator named (EVIDENCE_PARSER_REMOTE_MEDIA_TYPES, default PDF) it wins, and for everything else the local one is untouched. The contract is ours, not a vendor's — one endpoint, `POST { mediaType, profile?, contentBase64 }` → `{ text | markdown | content }`, which a small shim the operator owns puts in front of the real parser (and where they add their own redaction before bytes leave). Every call goes through the egress guard; the bearer never appears in an error; a failure is a RUN failure, never a quiet fallthrough to the local adapter. Off (default), or the URL unset = the adapter accepts nothing and the registry is byte-identical to the local-only one.",
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'The endpoint EVIDENCE_PARSER_REMOTE posts to. Unset = the adapter is off however the flag reads. It rides the adapter fingerprint: pointing at a different parser forks the idempotency key, so a representation made by the old one is never served as the new one.',
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE_TOKEN',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description:
+      'The bearer the parser service expects, when it wants one. A credential, not a knob: it never rides the fingerprint and never appears in an error message.',
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE_MEDIA_TYPES',
+    category: 'pipeline',
+    defaultValue: 'application/pdf',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'What the operator lets the parser service see, comma-separated. Unset = `application/pdf` only: the format whose local floor is furthest from its ceiling. A type not named here goes to the local adapter exactly as before.',
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE_PROFILE',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "A label passed to the service when it has modes (docling's pipeline, a model name). It changes the OUTPUT, so it rides the adapter fingerprint: flipping it re-parses instead of serving a representation made under the old mode.",
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE_ALLOW_PRIVATE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The parser service runs inside the operator's own network: the connection half of the egress double opt-in for it (the other half is SOURCE_EGRESS_ALLOW_PRIVATE). Either alone changes nothing.",
   },
   {
     key: 'SOURCE_KIND_GITLAB',

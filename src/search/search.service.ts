@@ -52,6 +52,7 @@ import { getActiveRetrievalProfile, resolveSearchTuning } from './retrieval-prof
 import { JobWorkerPool } from '../jobs/job-worker-pool.service';
 import { MemoryOutcomeService } from '../outcomes/memory-outcome.service';
 import { outcomeRetrievedEventsEnabled } from '../common/outcome-flags';
+import { SourceSyncQueueService } from '../source-plane/source-sync-queue.service';
 
 export type { SearchHit } from './search.types';
 export type { GraphRetrieveHit } from './internals/graph-retrieve';
@@ -159,6 +160,11 @@ export class SearchService {
     // positional unit constructions omit it; double-gated at the call
     // site (OUTCOME_RETRIEVED_EVENTS) and inside the service (master).
     @Optional() private readonly outcomes?: MemoryOutcomeService,
+    // Ninth: progressive indexing (W6). A query that matched a
+    // manifest-only catalogue row schedules that row's deepening —
+    // fire-and-forget, off the answer's path, gated twice. Optional so
+    // positional unit constructions omit it.
+    @Optional() private readonly deepening?: SourceSyncQueueService,
   ) {}
 
   /**
@@ -629,6 +635,15 @@ export class SearchService {
         });
       }
     }
+
+    // Progressive indexing (W6) — deliberately NOT a numbered conveyor
+    // stage: a stage has to leave something behind for this query, and
+    // this leaves nothing. It matches the CATALOGUE of a manifest-only
+    // connection against the question and queues the best rows for a
+    // real fetch, so the NEXT question has content where this one found
+    // only a filename. Blocking a search on a network fetch of an
+    // unknown file is not a trade anyone asked for.
+    void this.deepening?.probeAndQueue(ctx.companyId, ctx.dto.query).catch(() => undefined);
 
     // 2. Identity-merge re-attribution + scope/ABAC row filter. One
     // filter instance covers the whole pipeline (fusion + edge

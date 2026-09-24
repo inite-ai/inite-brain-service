@@ -857,3 +857,70 @@ export function validateOcrEnvValues(env: NodeJS.ProcessEnv, errors: string[]): 
     );
   }
 }
+
+/**
+ * EVIDENCE_PARSER_REMOTE — the quality tier of document text (W6).
+ *
+ * Every text adapter that ships is local by construction: pdf2json for a
+ * PDF's text layer, officeparser for OOXML, tesseract for pixels. They
+ * are deterministic, free and offline, and they are also the FLOOR — a
+ * PDF whose layout matters (a table, a two-column paper, a scanned form
+ * with structure) comes out of a text-layer dump as prose soup. The
+ * quality tier is a document-understanding SERVICE (docling, marker,
+ * unstructured, a vendor's), and that is a different kind of thing: it
+ * costs money, it may be a third party, and it sees the bytes.
+ *
+ * So it is never on by default and never inferred. The operator names a
+ * URL, the media types it may take, and (optionally) a bearer; every
+ * call leaves through the egress guard like any other network hop; and
+ * the adapter sits FIRST in the registry, so for the types the operator
+ * named it wins over the local one and for everything else the local one
+ * is untouched.
+ *
+ * Off (default) ⇒ the adapter refuses every input and the registry is
+ * byte-identical to the local-only one. Read at call time.
+ */
+export function evidenceRemoteParserEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_PARSER_REMOTE);
+}
+
+/** EVIDENCE_PARSER_REMOTE_URL — the service's endpoint; unset = off however the flag reads. */
+export function evidenceRemoteParserUrl(): string {
+  return (process.env.EVIDENCE_PARSER_REMOTE_URL ?? '').trim();
+}
+
+/** EVIDENCE_PARSER_REMOTE_TOKEN — the bearer the service expects, when it wants one. */
+export function evidenceRemoteParserToken(): string {
+  return (process.env.EVIDENCE_PARSER_REMOTE_TOKEN ?? '').trim();
+}
+
+/**
+ * EVIDENCE_PARSER_REMOTE_MEDIA_TYPES — what the operator lets the
+ * service see, comma-separated (`application/pdf,application/vnd.openxml…`).
+ * Unset = PDF only: the format whose local floor is furthest from its
+ * ceiling, and the one an operator almost certainly meant.
+ */
+export function evidenceRemoteParserMediaTypes(): string[] {
+  const raw = (process.env.EVIDENCE_PARSER_REMOTE_MEDIA_TYPES ?? '').trim();
+  if (raw.length === 0) return ['application/pdf'];
+  return raw
+    .split(',')
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length > 0);
+}
+
+/**
+ * EVIDENCE_PARSER_REMOTE_PROFILE — a label the operator sets when the
+ * service has modes (docling's pipeline, a model name). It changes the
+ * OUTPUT, so it rides the adapter's fingerprint: flipping it forks the
+ * idempotency key and the next run re-parses instead of serving a
+ * representation made under the old mode (#386 discipline).
+ */
+export function evidenceRemoteParserProfile(): string {
+  return (process.env.EVIDENCE_PARSER_REMOTE_PROFILE ?? '').trim().slice(0, 64);
+}
+
+/** EVIDENCE_PARSER_REMOTE_ALLOW_PRIVATE — the service runs inside the operator's own network. */
+export function evidenceRemoteParserAllowPrivate(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_PARSER_REMOTE_ALLOW_PRIVATE);
+}

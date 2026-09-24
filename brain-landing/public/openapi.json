@@ -8004,6 +8004,12 @@
           "connectionId": {
             "type": "string"
           },
+          "deepenedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "documentId": {
             "type": [
               "string",
@@ -8033,6 +8039,11 @@
               "string",
               "null"
             ]
+          },
+          "hitCount": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
           },
           "id": {
             "type": "string"
@@ -8123,7 +8134,9 @@
           "firstSeenAt",
           "lastSeenAt",
           "goneAt",
-          "lastError"
+          "lastError",
+          "hitCount",
+          "deepenedAt"
         ],
         "type": "object"
       },
@@ -9500,6 +9513,15 @@
           },
           "inline": {
             "type": "boolean"
+          },
+          "itemIds": {
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
           }
         },
         "type": "object"

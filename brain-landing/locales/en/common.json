@@ -789,8 +789,10 @@
           "revision": "revision",
           "size": "size",
           "lastSeen": "last seen",
-          "error": "error"
+          "error": "error",
+          "hits": "Hits"
         },
+        "deepened": "read on demand at {at}",
         "empty": "Nothing catalogued yet — run a sync.",
         "prev": "previous",
         "next": "next",
@@ -937,7 +939,10 @@
           "closed": "closed",
           "retracted": "{status}"
         },
-        "driftHint": "read at an older revision than the catalogue now holds — the drift sweep marks it stale on its next pass"
+        "driftHint": "read at an older revision than the catalogue now holds — the drift sweep marks it stale on its next pass",
+        "readNow": "Read it now",
+        "readHint": "This connection only catalogues. Reading fetches THIS row and nothing else — the same deepening a query schedules.",
+        "readAlready": "read on demand at {at}"
       },
       "agents": {
         "title": "Local agents",

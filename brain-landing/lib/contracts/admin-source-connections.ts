@@ -85,6 +85,9 @@ export const SourceItemSchema = z.object({
   lastSeenAt: z.string(),
   goneAt: z.string().nullable(),
   lastError: z.string().nullable(),
+  /** Progressive indexing (W6): how often a query matched this row. */
+  hitCount: z.number().optional(),
+  deepenedAt: z.string().nullable().optional(),
 });
 
 export const SourceItemsListResponseSchema = z.object({

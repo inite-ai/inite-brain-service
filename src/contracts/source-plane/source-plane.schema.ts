@@ -132,6 +132,10 @@ export const SourceItemSchema = z.object({
   lastSeenAt: z.string(),
   goneAt: z.string().nullable(),
   lastError: z.string().nullable(),
+  /** Progressive indexing (W6): how often a query matched this row's title or path. */
+  hitCount: z.number().int(),
+  /** Set = the row was fetched on demand after a hit, rather than by a walk. */
+  deepenedAt: z.string().nullable(),
 });
 export type SourceItem = z.infer<typeof SourceItemSchema>;
 
@@ -179,6 +183,12 @@ export const SyncNowRequestSchema = z.object({
   full: z.boolean().optional(),
   /** Run inline and return the summary (default: enqueue a job). */
   inline: z.boolean().optional(),
+  /**
+   * Read THESE catalogue rows and nothing else (W6) — no walk, no
+   * checkpoint, no gone policy. The operator's own deepening of a
+   * `manifest` connection, the same thing a retrieval hit schedules.
+   */
+  itemIds: z.array(z.string().min(1).max(200)).max(50).optional(),
 });
 export type SyncNowRequest = z.infer<typeof SyncNowRequestSchema>;
 

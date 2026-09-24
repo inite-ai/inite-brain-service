@@ -37,18 +37,26 @@ export class SourceRunHistoryService {
   async runInline(
     companyId: string,
     connectionId: string,
-    opts: SyncOptions & { actor?: string | undefined },
+    opts: SyncOptions & { actor?: string | undefined; itemIds?: string[] | undefined },
   ): Promise<SourceSyncSummary> {
+    const deepening = (opts.itemIds ?? []).length > 0;
     const job = await this.jobs.start({
       jobType: 'source_sync',
       companyId,
       triggeredBy: 'manual',
       triggeredByActor: opts.actor ?? 'admin',
-      initialProgress: { connectionId, inline: true, full: opts.full === true },
+      initialProgress: {
+        connectionId,
+        inline: true,
+        full: opts.full === true,
+        ...(deepening ? { deepen: { itemIds: opts.itemIds } } : {}),
+      },
     });
     let summary: SourceSyncSummary;
     try {
-      summary = await this.sync.sync(companyId, connectionId, { full: opts.full });
+      summary = deepening
+        ? await this.sync.deepen(companyId, connectionId, { itemIds: opts.itemIds ?? [] })
+        : await this.sync.sync(companyId, connectionId, { full: opts.full });
     } catch (err) {
       await this.jobs.finish(job, {
         status: 'failed',

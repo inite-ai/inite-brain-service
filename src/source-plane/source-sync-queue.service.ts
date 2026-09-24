@@ -6,6 +6,7 @@ import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService, type JobContext } from '../jobs/worker-loop.service';
 import { idTailOf } from '../ingest/ingest-utils';
 import { RecordsWebhookService, type WebhookJobPayload } from './records/records-webhook.service';
+import { SourceDeepenService } from './source-deepen.service';
 import { SourceSyncService } from './source-sync.service';
 
 /**
@@ -30,6 +31,7 @@ export class SourceSyncQueueService implements OnModuleInit {
     private readonly sync: SourceSyncService,
     private readonly apiKeys: ApiKeyService,
     private readonly webhooks: RecordsWebhookService,
+    private readonly deepen: SourceDeepenService,
     @Optional() private readonly workerLoop?: WorkerLoopService,
     @Optional() private readonly claim?: JobClaimService,
   ) {}
@@ -59,6 +61,46 @@ export class SourceSyncQueueService implements OnModuleInit {
       dedupKey: `source_sync_${idTailOf(p.connectionId)}_${slot}`,
       payload: { connectionId: p.connectionId, full: p.full === true },
     });
+  }
+
+  /**
+   * Queue the deepening a query asked for (W6). One job per
+   * (connection, item set, hour): a question asked twice in a minute
+   * queues one fetch, not two.
+   */
+  async enqueueDeepen(
+    companyId: string,
+    p: { connectionId: string; itemIds: string[] },
+  ): Promise<{ runId: string; created: boolean } | null> {
+    if (!this.claim || p.itemIds.length === 0) return null;
+    return this.claim.enqueue({
+      jobType: 'source_sync',
+      companyId,
+      triggeredBy: 'cron',
+      dedupKey: SourceDeepenService.dedupKey(p.connectionId, p.itemIds),
+      payload: { connectionId: p.connectionId, deepen: { itemIds: p.itemIds } },
+    });
+  }
+
+  /**
+   * The search pipeline's hook: probe the catalogue with the query and
+   * queue what it matched. Fire-and-forget by contract — it never
+   * throws, never blocks, and never changes the answer it rode in on.
+   */
+  async probeAndQueue(companyId: string, query: string): Promise<number> {
+    if (!this.claim || !this.deepen.enabled()) return 0;
+    const groups = await this.deepen.probe(companyId, query);
+    let queued = 0;
+    for (const group of groups) {
+      try {
+        const r = await this.enqueueDeepen(companyId, group);
+        if (r?.created) queued += group.itemIds.length;
+      } catch (e) {
+        this.logger.warn(`enqueue deepen for ${companyId} failed: ${(e as Error).message}`);
+      }
+    }
+    if (queued > 0) this.logger.log(`deepening ${String(queued)} catalogue rows for ${companyId}`);
+    return queued;
   }
 
   /** Every 5 minutes at :02 — a minute no other cron uses. */
@@ -94,13 +136,22 @@ export class SourceSyncQueueService implements OnModuleInit {
 
   /**
    * One queued `source_sync` job: a walk (the payload names the
-   * connection and whether it is full) or a webhook batch (the payload
-   * carries the events a vendor's call named — W4.2c, `ranBy: webhook`).
+   * connection and whether it is full), a webhook batch (the events a
+   * vendor's call named — W4.2c, `ranBy: webhook`), or a DEEPENING (the
+   * catalogue rows a query matched — W6, `ranBy: deepen`).
    * Public so a test can run a queued job without the worker loop.
    */
   async executeFromQueue(ctx: JobContext): Promise<Record<string, unknown>> {
     const connectionId = String(ctx.payload?.connectionId ?? '');
     if (!connectionId) return { skipped: 'missing_connectionId' };
+    const deepen = (ctx.payload as { deepen?: { itemIds?: unknown } } | undefined)?.deepen;
+    if (deepen && Array.isArray(deepen.itemIds)) {
+      const summary = await this.sync.deepen(ctx.companyId, connectionId, {
+        itemIds: deepen.itemIds.filter((i): i is string => typeof i === 'string'),
+        signal: ctx.abortSignal,
+      });
+      return { ...summary, ranBy: 'deepen' };
+    }
     const webhook = (ctx.payload as Partial<WebhookJobPayload> | undefined)?.webhook;
     if (webhook && Array.isArray(webhook.events)) {
       const summary = await this.webhooks.apply(ctx.companyId, {

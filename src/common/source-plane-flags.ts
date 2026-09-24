@@ -139,3 +139,28 @@ export function sourceMcpOAuthEnabled(): boolean {
 export function sourcePrincipalsEnabled(): boolean {
   return envFlagEnabled(process.env.SOURCE_PRINCIPALS);
 }
+
+/**
+ * SOURCE_PROGRESSIVE — progressive indexing (W6): a connection whose
+ * `contentPolicy` is `manifest` catalogues everything and reads nothing
+ * until a query matches one of its rows, and then that row alone is
+ * fetched and ingested (a `source_sync` job with a `deepen` payload).
+ * Off (default) ⇒ no probe ever runs, no hit is ever counted, a
+ * manifest connection stays a catalogue — byte-identical. Read at call
+ * time.
+ */
+export function sourceProgressiveEnabled(): boolean {
+  return envFlagEnabled(process.env.SOURCE_PROGRESSIVE);
+}
+
+/**
+ * SOURCE_DEEPEN_PER_QUERY — how many catalogue rows one query may send
+ * for deepening (default 3). The bound that keeps "every query probes
+ * the catalogue" from meaning "every query fetches the internet": a hit
+ * is counted for every match, but only the best few are read.
+ */
+export function sourceDeepenPerQuery(): number {
+  const raw = Number(process.env.SOURCE_DEEPEN_PER_QUERY);
+  if (!Number.isFinite(raw) || raw < 0) return 3;
+  return Math.min(Math.trunc(raw), 20);
+}
