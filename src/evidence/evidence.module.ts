@@ -17,6 +17,7 @@ import { MailTextAdapter } from './processing/adapters/mail-text.adapter';
 import { OfficeTextAdapter } from './processing/adapters/office-text.adapter';
 import { ImageMetadataAdapter } from './processing/adapters/image-metadata.adapter';
 import { OcrAdapter } from './processing/adapters/ocr.adapter';
+import { RemoteParserAdapter } from './processing/adapters/remote-parser.adapter';
 import { TextExtractionPassthroughAdapter } from './processing/adapters/text-extraction-passthrough.adapter';
 import {
   EVIDENCE_PROCESSOR_ADAPTERS,
@@ -108,6 +109,7 @@ import { EvidenceStorageModule } from './storage/evidence-storage.module';
     EvidenceGrantService,
     EvidenceStoreService,
     EvidenceReadService,
+    RemoteParserAdapter,
     TextExtractionPassthroughAdapter,
     DocumentTextAdapter,
     OfficeTextAdapter,
@@ -122,6 +124,10 @@ import { EvidenceStorageModule } from './storage/evidence-storage.module';
       // max-params ceiling the next adapter would hit again.
       useFactory: (...adapters: ProcessorAdapter[]): ProcessorAdapterRegistry => adapters,
       inject: [
+        // FIRST, deliberately (W6): for the media types an operator
+        // named it wins over the local floor, and with the flag off it
+        // accepts nothing — so the list is the local-only one again.
+        RemoteParserAdapter,
         TextExtractionPassthroughAdapter,
         DocumentTextAdapter,
         OfficeTextAdapter,

@@ -28,6 +28,8 @@ export interface SourceItemRow {
   state: SourceItem['state'];
   firstSeenAt?: unknown;
   lastSeenAt?: unknown;
+  hitCount?: number | null;
+  deepenedAt?: unknown;
   goneAt?: unknown;
   lastError?: string | null;
   userId?: string | null;
@@ -204,6 +206,53 @@ export class SourceItemService {
     });
   }
 
+  /** The named rows of one connection — the deepening half of W6. */
+  async byIds(
+    companyId: string,
+    connectionId: string,
+    itemIds: readonly string[],
+  ): Promise<SourceItemRow[]> {
+    if (itemIds.length === 0) return [];
+    return this.surreal.withCompany(companyId, (db) =>
+      queryRows<SourceItemRow>(
+        db,
+        `SELECT * FROM source_item
+          WHERE connectionId = type::record('source_connection', $tail)
+            AND id IN $ids AND state != 'gone' LIMIT 100`,
+        {
+          tail: idTailOf(connectionId),
+          ids: itemIds.slice(0, 100).map((id) => new StringRecordId(id)),
+        },
+      ),
+    );
+  }
+
+  /**
+   * A retrieval hit on a catalogue row: the counter that decides which
+   * manifest-only items are worth reading (W6). Bumping it is not
+   * reading the item — the deepening is a separate, budgeted step.
+   */
+  async recordHits(companyId: string, itemIds: readonly string[]): Promise<void> {
+    if (itemIds.length === 0) return;
+    await this.surreal.withCompany(companyId, async (db) => {
+      await db.query(`UPDATE $ids SET hitCount += 1, lastHitAt = $at`, {
+        ids: itemIds.map((id) => new StringRecordId(id)),
+        at: new Date(),
+      });
+    });
+  }
+
+  /** Stamp the rows a deepening run read, so a second hit does not re-queue them. */
+  async markDeepened(companyId: string, itemIds: readonly string[]): Promise<void> {
+    if (itemIds.length === 0) return;
+    await this.surreal.withCompany(companyId, async (db) => {
+      await db.query(`UPDATE $ids SET deepenedAt = $at`, {
+        ids: itemIds.map((id) => new StringRecordId(id)),
+        at: new Date(),
+      });
+    });
+  }
+
   /** Rows a run marked gone (explicitly or by the unseen sweep) since it started. */
   async goneSince(
     companyId: string,
@@ -329,6 +378,8 @@ export function toItemView(row: SourceItemRow): SourceItem {
     lastSeenAt: toIso(row.lastSeenAt) ?? new Date(0).toISOString(),
     goneAt: toIso(row.goneAt),
     lastError: row.lastError ?? null,
+    hitCount: row.hitCount ?? 0,
+    deepenedAt: toIso(row.deepenedAt),
   };
 }
 
