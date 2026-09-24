@@ -164,3 +164,24 @@ export function sourceDeepenPerQuery(): number {
   if (!Number.isFinite(raw) || raw < 0) return 3;
   return Math.min(Math.trunc(raw), 20);
 }
+
+/**
+ * SOURCE_LINKED — the linked lane (W7): a connection in `mode: 'linked'`
+ * is never walked and never catalogued; instead its connector's
+ * `search()` is called at query time and the hits are returned beside
+ * the answer, each anchored to the `tool_observation` the call wrote.
+ * Off (default) ⇒ no connector is ever asked, no observation is ever
+ * written, and a search response carries no `linked` section —
+ * byte-identical. It also needs TOOL_OBSERVATIONS_ENABLED: a hit that
+ * nothing can cite is not served. Read at call time.
+ */
+export function sourceLinkedEnabled(): boolean {
+  return envFlagEnabled(process.env.SOURCE_LINKED);
+}
+
+/** SOURCE_LINKED_PER_QUERY — hits per linked connection per query (default 5, hard cap 25). */
+export function sourceLinkedPerQuery(): number {
+  const raw = Number(process.env.SOURCE_LINKED_PER_QUERY);
+  if (!Number.isFinite(raw) || raw < 1) return 5;
+  return Math.min(Math.trunc(raw), 25);
+}

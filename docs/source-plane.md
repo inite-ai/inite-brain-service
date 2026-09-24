@@ -661,6 +661,47 @@ the server naming the account to sign in again. Flag: `SOURCE_MCP_OAUTH`
 the official CRM servers' tools (§ 2.1 of the CRM plan) — W7's linked
 lane calls their `search` at retrieval time.
 
+## Asked, not copied (W7) — the linked lane
+
+Everything else in this plane COPIES: it walks a source, catalogues what
+is there, fetches what changed, commits it through the doors. That is
+the right trade for a wiki and the wrong one for a ticket system with a
+million rows and a search engine of its own.
+
+A connection in **`mode: 'linked'`** is never walked and never
+catalogued. It has no schedule, no checkpoint and no catalogue rows —
+syncing one is refused by name (`skipped: linked_mode`), because a
+"sync" that copied nothing would be a lie about what happened. Instead
+`SOURCE_LINKED` calls the connector's `search()` at query time, and the
+hits ride in the search response's `linked` section.
+
+**Beside the ranking, never inside it.** Another system's opinion is not
+this brain's memory. Mixing the two would make a citation mean two
+different things — "a fact we hold, with its provenance" and "a row
+someone else's index returned" — so `linked` is its own array and
+`results` is untouched.
+
+**Anchored, or not served.** Every call writes a content-free
+`tool_observation` (0111) — the tool name, digests of the arguments and
+the result, the duration — and each result set carries its
+`observationRef`. Hand that ref to `ingest_document` and the chain
+closes: tool result → document → fact, each pointing back. A hit whose
+observation could not be written is **not returned at all**; an
+unattributable claim is worse than a missing one, so the lane would
+rather answer nothing. That is also why `TOOL_OBSERVATIONS_ENABLED` is a
+second requirement rather than a nice-to-have.
+
+**Bounded, because it is a network call on the query path.** One round
+per connection (25 at most), `SOURCE_LINKED_PER_QUERY` hits each
+(default 5), an eight-second deadline, and every failure named in the
+lane's own `degraded` list rather than raised — a lane that can fail a
+search is a lane an operator turns off. A connector with no `search()`
+says so by name instead of returning a silent zero.
+
+| Kind | What it asks | What comes back |
+|---|---|---|
+| **`gitlab`** | the project search, one call per scope — `issues` and `blobs` | issues as `issue/<iid>` with the description as the snippet, files as `file/<path>` with GitLab's own excerpt. ⚡Interleaved, not concatenated: a project whose issues all match would otherwise bury every file under the cap |
+
 ## What it reads, and when (W6) — progressive indexing
 
 Doctrine 5: *manifest always, content by policy*. A connection whose
@@ -835,6 +876,7 @@ pack may only name it.
 | `SOURCE_KIND_GITLAB` | `0` | the `gitlab` forge connector (W4.9): one project's issues, merge requests and docs over the v4 API; a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_GITLAB_CLIENT_ID` (and `SOURCE_OAUTH_GITLAB_LOGIN_URL` for a self-managed instance), else a token is the credential |
 | `SOURCE_PRINCIPALS` | `0` | the membership plane (W5): an org connection's `principals()` runs after each sync, its groups and accounts land as identities and tuples, and an item's `acl.groups` become `team:` tags on the rows it produces. The read half is `SCOPE_TAGS_ENABLED` |
 | `SOURCE_PROGRESSIVE` | `0` | progressive indexing (W6): a query that matches a manifest-only catalogue row counts a hit and queues that row's fetch; `SOURCE_DEEPEN_PER_QUERY` (default 3) bounds how many per query |
+| `SOURCE_LINKED` | `0` | the linked lane (W7): a `mode: 'linked'` connection is asked at query time instead of walked, and its hits ride beside the ranking, each anchored to the tool observation the call wrote. Needs `TOOL_OBSERVATIONS_ENABLED` too; `SOURCE_LINKED_PER_QUERY` (default 5) bounds each |
 | `EVIDENCE_PARSER_REMOTE` | `0` | the quality tier of document text (W6): a parser service for the media types `EVIDENCE_PARSER_REMOTE_MEDIA_TYPES` names, at `EVIDENCE_PARSER_REMOTE_URL`, first in the adapter registry |
 | `SOURCE_KIND_BITRIX24`, `SOURCE_KIND_KOMMO` | `0` | the `bitrix24` and `kommo` connectors (W4.2b): a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_BITRIX24_CLIENT_ID` / `SOURCE_OAUTH_KOMMO_CLIENT_ID` (W4.3b; `_LOGIN_URL` = a portal's origin / `https://www.amocrm.ru`); an inbound webhook URL / a long-lived token needs no app |
 | `SOURCE_KIND_SALESFORCE` | `0` | the `salesforce` connector (W4.2c); a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_SALESFORCE_CLIENT_ID` (`SOURCE_OAUTH_SALESFORCE_LOGIN_URL` for a sandbox / My Domain login host), a JWT bearer needs neither |

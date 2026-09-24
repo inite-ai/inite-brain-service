@@ -8,6 +8,7 @@ import type {
   FetchedItem,
   ItemDelta,
   ItemDescriptor,
+  LinkedHit,
   PrincipalDelta,
 } from '../connector';
 import { providerEndpoints } from '../oauth/oauth-providers';
@@ -231,6 +232,31 @@ export class GitlabConnector implements Connector {
     }
   }
 
+  /**
+   * Ask GitLab its own question (W7, linked mode). GitLab's project
+   * search is one endpoint per SCOPE, so a thread question and a file
+   * question are two calls; both are asked, the answers are interleaved
+   * and capped, and nothing is stored — the lane's tool observation is
+   * the only trace.
+   */
+  async search(ctx: ConnectorCtx, query: string, k: number): Promise<LinkedHit[]> {
+    const cfg = configOf(ctx);
+    const http = httpOf(ctx);
+    const per = Math.max(1, Math.ceil(k / 2));
+    const [issues, blobs] = await Promise.all([
+      searchScope({ http, cfg, scope: 'issues', query, per }),
+      searchScope({ http, cfg, scope: 'blobs', query, per }),
+    ]);
+    // Interleaved, not concatenated: a project whose issues all match
+    // would otherwise bury every file under the cap.
+    const out: LinkedHit[] = [];
+    for (let i = 0; out.length < k && (i < issues.length || i < blobs.length); i++) {
+      if (issues[i]) out.push(issues[i]!);
+      if (out.length < k && blobs[i]) out.push(blobs[i]!);
+    }
+    return out;
+  }
+
   async fetch(ctx: ConnectorCtx, item: ItemDescriptor): Promise<FetchedItem> {
     const cfg = configOf(ctx);
     const http = httpOf(ctx);
@@ -389,6 +415,60 @@ async function fetchDocument(p: {
     title: p.item.title,
     occurredAt: p.item.modifiedAt,
     kind: 'repo_document',
+  };
+}
+
+interface GitlabSearchRow {
+  id?: number;
+  iid?: number;
+  title?: string;
+  description?: string;
+  web_url?: string;
+  updated_at?: string;
+  /** blobs scope */
+  basename?: string;
+  filename?: string;
+  path?: string;
+  data?: string;
+  ref?: string;
+}
+
+/** One scope of GitLab's project search, as linked hits. */
+async function searchScope(p: {
+  http: CloudHttp;
+  cfg: GitlabConnectorConfig;
+  scope: 'issues' | 'blobs';
+  query: string;
+  per: number;
+}): Promise<LinkedHit[]> {
+  const url = new URL(`${base(p.cfg)}/search`);
+  url.searchParams.set('scope', p.scope);
+  url.searchParams.set('search', p.query);
+  url.searchParams.set('per_page', String(Math.min(p.per, 20)));
+  const rows = (await p.http.getJson(url.toString())) as GitlabSearchRow[];
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => (p.scope === 'issues' ? issueHit(p.cfg, row) : blobHit(p.cfg, row)));
+}
+
+function issueHit(cfg: GitlabConnectorConfig, row: GitlabSearchRow): LinkedHit {
+  const n = String(row.iid ?? row.id ?? '?');
+  return {
+    externalId: `issue/${n}`,
+    title: `#${n} ${row.title ?? ''}`.trim(),
+    ...(row.web_url !== undefined ? { originUri: row.web_url } : {}),
+    ...(row.description ? { snippet: row.description } : {}),
+    ...(row.updated_at !== undefined ? { modifiedAt: row.updated_at } : {}),
+  };
+}
+
+function blobHit(cfg: GitlabConnectorConfig, row: GitlabSearchRow): LinkedHit {
+  const path = row.path ?? row.filename ?? row.basename ?? '?';
+  const ref = row.ref ?? 'HEAD';
+  return {
+    externalId: `file/${path}`,
+    title: row.basename ?? path,
+    originUri: `https://gitlab.com/${cfg.project}/-/blob/${ref}/${path}`,
+    ...(row.data ? { snippet: row.data } : {}),
   };
 }
 

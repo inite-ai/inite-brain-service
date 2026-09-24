@@ -94,6 +94,14 @@ export function ConnectionCreateModal({
     entry.defaults.contentPolicy === 'manifest' ? 'manifest' : 'content',
   );
   const [deletePolicy, setDeletePolicy] = useState<SourceDeletePolicy>(entry.defaults.deletePolicy);
+  // W7: a source that keeps its own index can be ASKED instead of
+  // walked. Offered only when the deployment allows it AND the
+  // connector actually has a `search()` — a linked connection of a
+  // connector that cannot answer is a connection that never answers.
+  const linkable =
+    catalog.linked === true &&
+    catalog.connectors.some((c) => c.kind === entry.connector && c.linked === true);
+  const [mode, setMode] = useState<'synced' | 'linked'>('synced');
   const [fetchBudget, setFetchBudget] = useState('');
   const [ownerUserId, setOwnerUserId] = useState('');
   const [vertical, setVertical] = useState(entry.packId);
@@ -187,7 +195,9 @@ export function ConnectionCreateModal({
                     ...(records.endpoints ? { endpoints: records.endpoints } : {}),
                   }
                 : config,
-          schedule,
+          // A linked connection is never walked: it has no schedule.
+          mode,
+          schedule: mode === 'linked' ? 'manual' : schedule,
           // "Content" means text for a document entry and bytes for a
           // binary one; "catalogue only" is manifest for both.
           contentPolicy:
@@ -233,6 +243,7 @@ export function ConnectionCreateModal({
     onCreated,
     ownerUserId,
     schedule,
+    mode,
     secret,
     take,
     targetEntries,
@@ -356,6 +367,22 @@ export function ConnectionCreateModal({
 
         {step === 'sync' && (
           <div className="space-y-4">
+            {linkable && (
+              <Cards<'synced' | 'linked'>
+                title={f.mode.title}
+                value={mode}
+                options={[
+                  { value: 'synced', title: f.mode.synced.title, body: f.mode.synced.body },
+                  { value: 'linked', title: f.mode.linked.title, body: f.mode.linked.body },
+                ]}
+                onChange={setMode}
+                columns={2}
+              />
+            )}
+            {mode === 'linked' ? (
+              <p className="text-[11px] text-[var(--text-muted)]">{f.mode.linkedHint}</p>
+            ) : (
+              <>
             <Cards<SourceSchedule>
               title={f.schedule.title}
               value={schedule}
@@ -427,6 +454,8 @@ export function ConnectionCreateModal({
                 </Field>
               </div>
             </details>
+              </>
+            )}
           </div>
         )}
       </div>
