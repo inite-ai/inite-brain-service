@@ -14,7 +14,7 @@ import {
   decryptSecret,
   encryptSecret,
   isEncrypted,
-} from '../src/source-plane/credential-cipher';
+} from '../src/common/secret-cipher';
 
 const keyA = randomBytes(32).toString('base64');
 const keyB = randomBytes(32).toString('hex');

@@ -9,7 +9,7 @@
 import { randomBytes } from 'node:crypto';
 import { NotFoundException, UnauthorizedException } from '@nestjs/common';
 import type { ConnectorCtx, RecordEnvelope } from '../src/source-plane/connector';
-import { encryptSecret } from '../src/source-plane/credential-cipher';
+import { encryptSecret } from '../src/common/secret-cipher';
 import {
   RecordsConnector,
   type EntitySpec,

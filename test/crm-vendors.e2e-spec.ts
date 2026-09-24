@@ -277,7 +277,7 @@ describe('CRM vendors: hubspot / bitrix24 / kommo (e2e)', () => {
       `SELECT tokens FROM source_oauth_grant WHERE id = <record>$id`,
       { id: grantId },
     );
-    const { decryptSecret, encryptSecret } = await import('../src/source-plane/credential-cipher');
+    const { decryptSecret, encryptSecret } = await import('../src/common/secret-cipher');
     const set = JSON.parse(decryptSecret(row!.tokens)) as Record<string, unknown>;
     await rows(`UPDATE source_oauth_grant SET tokens = $tokens WHERE id = <record>$id`, {
       id: grantId,
@@ -387,7 +387,7 @@ describe('CRM vendors: hubspot / bitrix24 / kommo (e2e)', () => {
       `SELECT tokens FROM source_oauth_grant WHERE id = <record>$id`,
       { id: grant.id },
     );
-    const { decryptSecret } = await import('../src/source-plane/credential-cipher');
+    const { decryptSecret } = await import('../src/common/secret-cipher');
     const set = JSON.parse(decryptSecret(row!.tokens)) as { refreshToken: string };
     expect(set.refreshToken).not.toBe(rsent.refresh_token);
     expect(crm.kommo.refreshSpent.has(rsent.refresh_token!)).toBe(true);

@@ -29,7 +29,7 @@ import {
   type SourceConnection,
   type UpdateSourceConnectionRequest,
 } from '../contracts/source-plane/source-plane.schema';
-import { decryptSecret, encryptSecret } from './credential-cipher';
+import { decryptSecret, encryptSecret } from '../common/secret-cipher';
 import { CredentialProvider } from './oauth/credential-provider';
 import { SourceOAuthService } from './oauth/source-oauth.service';
 import type { Connector, ConnectorConnectionView, ConnectorRegistry } from './connector';
@@ -94,7 +94,7 @@ const LABEL_MAX = 120;
  * absent = an org connection (G6 steps 3–5 carry its ACLs).
  *
  * Secrets: `credential` is encrypted at rest when SOURCE_CREDENTIAL_ENCRYPTION_KEY
- * is set (credential-cipher.ts; a legacy clear value stays readable and
+ * is set (secret-cipher.ts; a legacy clear value stays readable and
  * is re-encrypted on its next write); an `oauth:<grant id>` value is a
  * POINTER to a connected account — not a secret, stored in the clear —
  * and the grant holds the encrypted tokens. Never serialised outward:

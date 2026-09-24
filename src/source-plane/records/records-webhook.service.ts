@@ -17,7 +17,7 @@ import { idTailOf } from '../../ingest/ingest-utils';
 import { JobClaimService } from '../../jobs/job-claim.service';
 import { JobRunService } from '../../jobs/job-run.service';
 import type { ConnectorCtx } from '../connector';
-import { credentialCipherReady } from '../credential-cipher';
+import { credentialCipherReady } from '../../common/secret-cipher';
 import { resolveProvider } from '../oauth/oauth-providers';
 import { SourceConnectionService, type SourceConnectionRow } from '../source-connection.service';
 import { SourceItemEffectsService } from '../source-item-effects.service';

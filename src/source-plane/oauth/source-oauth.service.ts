@@ -13,7 +13,7 @@ import {
   credentialCipherReady,
   decryptSecret,
   encryptSecret,
-} from '../credential-cipher';
+} from '../../common/secret-cipher';
 import {
   McpOAuthDiscoveryError,
   discoverMcpAuth,

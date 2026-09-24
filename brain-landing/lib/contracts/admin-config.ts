@@ -1,7 +1,8 @@
 import { z } from 'zod'
 
 /**
- * Wire contract for GET /v1/admin/config.
+ * Wire contract for the operator's configuration —
+ * GET /v1/admin/config, PUT and DELETE /v1/admin/config/:key.
  *
  * **Duplicate** of src/contracts/admin/config.schema.ts.
  */
@@ -43,11 +44,25 @@ const ConfigEntrySchema = z.object({
   isBooleanFlag: z.boolean(),
   description: z.string().optional(),
   secret: z.boolean().optional(),
+  overridden: z.boolean(),
+  deployValue: z.string().nullable().optional(),
+  settable: z.boolean(),
+  updatedAt: z.string().optional(),
+  updatedBy: z.string().optional(),
+  note: z.string().nullable().optional(),
 })
 
 export const ConfigResponseSchema = z.object({
   entries: z.array(ConfigEntrySchema),
+  secretsWritable: z.boolean(),
+})
+
+export const ConfigWriteResponseSchema = z.object({
+  key: z.string(),
+  outcome: z.enum(['set', 'cleared', 'absent']),
+  restartRequired: z.boolean(),
 })
 
 export type ConfigResponse = z.infer<typeof ConfigResponseSchema>
 export type ConfigEntry = z.infer<typeof ConfigEntrySchema>
+export type ConfigWriteResponse = z.infer<typeof ConfigWriteResponseSchema>

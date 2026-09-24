@@ -16,6 +16,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { validateEnv } from './common/env-validation';
 import { applyProcessRole } from './common/process-role';
+import { applyStoredSettings, loadStoredSettings } from './common/platform-settings';
 import { requestLogger } from './common/request-logger';
 import { debugTraceMiddleware } from './common/debug-trace';
 import { correlationIdMiddleware } from './common/correlation-id.middleware';
@@ -30,6 +31,18 @@ async function bootstrap() {
   // validation and the role log come out in the same format as the rest.
   const logger = appLogger();
   Logger.overrideLogger(logger);
+
+  // The operator's own configuration (migration 0161), applied over the
+  // environment BEFORE anything reads it — including validateEnv below
+  // and every constructor that captures a flag at module init. The
+  // deploy's environment is the floor; a store that cannot be read
+  // leaves it standing.
+  const settingsLog = new Logger('PlatformSettings');
+  const stored = await loadStoredSettings(process.env);
+  if (stored.warning) {
+    settingsLog.warn(`store unreadable, the deploy's environment stands: ${stored.warning}`);
+  }
+  for (const line of applyStoredSettings(process.env, stored.rows)) settingsLog.log(line);
 
   // Fail fast on missing/invalid env before NestJS or Surreal even start.
   validateEnv();

@@ -1,5 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
-import { CredentialCipherError, credentialKeys } from '../credential-cipher';
+import { CredentialCipherError, credentialKeys } from '../../common/secret-cipher';
 
 /**
  * The OAuth `state` — self-authenticating: `<companyId>.<nonce>.<sig>`

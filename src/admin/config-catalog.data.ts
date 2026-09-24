@@ -2,7 +2,10 @@
 import type { ConfigEntry } from './config-inspector.service';
 
 /** One catalogue row — a ConfigEntry before the live value is projected. */
-export type ConfigCatalogSpec = Omit<ConfigEntry, 'currentValue'> & {
+export type ConfigCatalogSpec = Omit<
+  ConfigEntry,
+  'currentValue' | 'overridden' | 'settable' | 'deployValue' | 'updatedAt' | 'updatedBy' | 'note'
+> & {
   defaultValue: string | null;
 };
 

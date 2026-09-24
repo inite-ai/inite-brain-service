@@ -25,7 +25,7 @@ function makeController(seen?: { req?: unknown }): AdminOpsController {
     },
   } as unknown as AdminService;
   const undef = undefined as unknown as never;
-  return new AdminOpsController(admin, undef, undef);
+  return new AdminOpsController(admin, undef);
 }
 
 describe('AdminOpsController.dlq() — wire contract', () => {

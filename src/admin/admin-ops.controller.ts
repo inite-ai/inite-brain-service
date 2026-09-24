@@ -3,13 +3,11 @@ import type { Response } from 'express';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { AdminService } from './admin.service';
-import { ConfigInspectorService } from './config-inspector.service';
 import { OperatorActionService } from './operator-action.service';
 import type { DlqResponse } from '../contracts/admin/dlq.schema';
 import type { ForgottenResponse } from '../contracts/admin/forgotten.schema';
 import type { OperatorActionsResponse } from '../contracts/admin/operator-actions.schema';
 import type { PiiInventoryResponse } from '../contracts/admin/pii.schema';
-import type { ConfigResponse } from '../contracts/admin/config.schema';
 import type { DlqDeleteResponse } from '../contracts/admin/write-responses.schema';
 
 /**
@@ -29,17 +27,8 @@ import type { DlqDeleteResponse } from '../contracts/admin/write-responses.schem
 export class AdminOpsController {
   constructor(
     private readonly admin: AdminService,
-    private readonly config: ConfigInspectorService,
     private readonly actions: OperatorActionService,
   ) {}
-
-  // ── Config viewer ────────────────────────────────────────
-
-  @Get('config')
-  @RequireScopes('brain:admin')
-  configList(): ConfigResponse {
-    return { entries: this.config.list() } satisfies ConfigResponse;
-  }
 
   // ── Dead-letter ───────────────────────────────────────────
 

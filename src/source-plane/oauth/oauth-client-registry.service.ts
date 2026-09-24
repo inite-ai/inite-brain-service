@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { SurrealService, queryFirst, queryRows } from '../../db/surreal.service';
-import { decryptSecret, encryptSecret } from '../credential-cipher';
+import { decryptSecret, encryptSecret } from '../../common/secret-cipher';
 import type { AuthorizationServerMetadata, RegisteredClient } from './mcp-oauth-discovery';
 
 /**

@@ -14,6 +14,7 @@ import { AdminDemoController } from './admin-demo.controller';
 import { AdminEvalController } from './admin-eval.controller';
 import { AdminPredicatesController } from './admin-predicates.controller';
 import { AdminJobsController } from './admin-jobs.controller';
+import { AdminConfigController } from './admin-config.controller';
 import { AdminOpsController } from './admin-ops.controller';
 import { AdminInfraController } from './admin-infra.controller';
 import { AdminInfraService } from './admin-infra.service';
@@ -83,6 +84,7 @@ import { ChatRouterCacheService } from './chat-router-cache.service';
 import { CollapsePatternService } from './collapse-pattern.service';
 import { IntentClassifierService } from './intent-classifier.service';
 import { ConfigInspectorService } from './config-inspector.service';
+import { PlatformSettingsService } from './platform-settings.service';
 
 @Module({
   imports: [
@@ -117,6 +119,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     AdminEvalController,
     AdminPredicatesController,
     AdminJobsController,
+    AdminConfigController,
     AdminOpsController,
     AdminInfraController,
     AdminPacksController,
@@ -185,6 +188,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     ChatRoutePlannerService,
     PredicatePlanService,
     ConfigInspectorService,
+    PlatformSettingsService,
     OperatorActionService,
     ThrottlerObservabilityService,
     {

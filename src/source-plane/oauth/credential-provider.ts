@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { grantIdOfCredential } from '../../contracts/source-plane/source-plane.schema';
-import { decryptSecret } from '../credential-cipher';
+import { decryptSecret } from '../../common/secret-cipher';
 import { SourceOAuthService } from './source-oauth.service';
 
 /**

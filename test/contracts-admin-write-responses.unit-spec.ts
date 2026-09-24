@@ -101,7 +101,7 @@ describe('write-side wire contracts', () => {
     const admin = {
       deleteDeadLetter: async () => true,
     } as never;
-    const ctl = new AdminOpsController(admin, undef, undef);
+    const ctl = new AdminOpsController(admin, undef);
     const payload = await ctl.dlqDelete('tenant-a', 'dlq:1');
     assertParses(DlqDeleteResponseSchema, payload, 'dlq DELETE');
   });

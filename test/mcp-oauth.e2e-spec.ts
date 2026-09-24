@@ -298,7 +298,7 @@ describe('MCP client OAuth (e2e)', () => {
       `SELECT tokens FROM source_oauth_grant WHERE id = <record>$id`,
       { id: grantId },
     );
-    const { decryptSecret, encryptSecret } = await import('../src/source-plane/credential-cipher');
+    const { decryptSecret, encryptSecret } = await import('../src/common/secret-cipher');
     const set = JSON.parse(decryptSecret(row!.tokens)) as Record<string, unknown>;
     return encryptSecret(
       JSON.stringify({ ...set, expiresAt: new Date(Date.now() - 1000).toISOString() }),

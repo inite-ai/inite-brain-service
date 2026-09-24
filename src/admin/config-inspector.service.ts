@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CONFIG_CATALOG, type ConfigCatalogSpec } from './config-catalog.data';
+import {
+  deployValueOf,
+  hasDeployValue,
+  SETTINGS_ENV_ONLY,
+  type StoredSettingRow,
+} from '../common/platform-settings';
 
 export type ConfigCategory =
   | 'pipeline'
@@ -37,6 +43,15 @@ export interface ConfigEntry {
   description?: string | undefined;
   /** Whether the current value exposes a secret (API key, etc) — masked in the UI. */
   secret?: boolean | undefined;
+  /** An operator override from `platform_setting` is standing over the deploy. */
+  overridden: boolean;
+  /** What the deploy's environment holds beneath the override (null = it set none). */
+  deployValue?: string | null | undefined;
+  /** Whether this key may be written at all — a bootstrap key is environment-only. */
+  settable: boolean;
+  updatedAt?: string | undefined;
+  updatedBy?: string | undefined;
+  note?: string | null | undefined;
 }
 
 /**
@@ -48,17 +63,25 @@ export interface ConfigEntry {
  * NEW knobs: add an entry below. `runtimeMutable: true` means the
  * reading code re-reads process.env on each use, so a live env change
  * takes effect without a restart; `false` means the value is captured
- * once at boot (constructor/module init). There is no write endpoint —
- * the admin UI renders this as informational metadata only.
+ * once at boot (constructor/module init) and an override needs a
+ * restart to bite.
+ *
+ * The catalogue is also the WRITE contract: PlatformSettingsService will
+ * only store a key that appears here, and takes `secret` from here
+ * rather than from the caller. A key the operator cannot be allowed to
+ * move (the database credentials, the key the store's own secrets are
+ * encrypted under) is listed in SETTINGS_ENV_ONLY and reported
+ * `settable: false`.
  */
 @Injectable()
 export class ConfigInspectorService {
   constructor(private readonly config: ConfigService) {}
 
-  list(): ConfigEntry[] {
+  list(overrides: ReadonlyMap<string, StoredSettingRow> = new Map()): ConfigEntry[] {
     return this.catalogue().map((spec) => {
       const raw = this.config.get<string>(spec.key);
       const current = raw ?? '';
+      const override = overrides.get(spec.key);
       return {
         key: spec.key,
         category: spec.category,
@@ -74,6 +97,21 @@ export class ConfigInspectorService {
         isBooleanFlag: spec.isBooleanFlag === true,
         description: spec.description,
         secret: spec.secret,
+        overridden: override !== undefined,
+        // Only meaningful under an override — and a secret's deploy value
+        // is still a secret, so it is reported as presence, never read back.
+        deployValue:
+          override === undefined || !hasDeployValue(spec.key)
+            ? undefined
+            : spec.secret
+              ? deployValueOf(spec.key)
+                ? '••• set'
+                : null
+              : (deployValueOf(spec.key) ?? null),
+        settable: !SETTINGS_ENV_ONLY.has(spec.key),
+        updatedAt: override?.updatedAt,
+        updatedBy: override?.updatedBy,
+        note: override?.note,
       };
     });
   }

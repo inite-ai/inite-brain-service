@@ -24,7 +24,7 @@ function makeController(): AdminOpsController {
     ],
   } as unknown as OperatorActionService;
   const undef = undefined as unknown as never;
-  return new AdminOpsController(undef, undef, actions);
+  return new AdminOpsController(undef, actions);
 }
 
 describe('AdminOpsController.operatorActions() — wire contract', () => {
