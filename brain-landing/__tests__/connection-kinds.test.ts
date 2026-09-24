@@ -62,6 +62,7 @@ describe('source kinds', () => {
     expect(familyOf({ kind: 'native', connector: 'slack' })).toBe('slack');
     expect(familyOf({ kind: 'native', connector: 'telegram' })).toBe('telegram');
     expect(familyOf({ kind: 'native', connector: 'github' })).toBe('github');
+    expect(familyOf({ kind: 'native', connector: 'gitlab' })).toBe('gitlab');
     expect(familyOf({ kind: 'native', connector: 'webdav' })).toBe('other');
   });
 
@@ -124,6 +125,35 @@ describe('source kinds', () => {
     expect(entriesFor(mailbox, 'both').map((x) => x.sourceId)).toEqual([
       'gmail',
       'gmail_attachments',
+    ]);
+  });
+
+  it('a forge holds BOTH text shapes — the conversation is its own choice, and the first one', () => {
+    const cards = cardsOf([
+      e({
+        packId: 'code_memory',
+        sourceId: 'gitlab_docs',
+        connector: 'gitlab',
+        shape: 'document',
+      }),
+      e({
+        packId: 'code_memory',
+        sourceId: 'gitlab_issues',
+        connector: 'gitlab',
+        shape: 'conversation',
+      }),
+    ]);
+    expect(cards).toHaveLength(1);
+    const forge = cards[0]!;
+    expect(forge.family).toBe('gitlab');
+    // Without a choice of its own the whole conversation half of a
+    // forge would be unreachable: the card's first entry is the docs.
+    expect(shapeChoices(forge)).toEqual(['conversation', 'document', 'both']);
+    expect(entriesFor(forge, 'conversation').map((x) => x.sourceId)).toEqual(['gitlab_issues']);
+    expect(entriesFor(forge, 'document').map((x) => x.sourceId)).toEqual(['gitlab_docs']);
+    expect(entriesFor(forge, 'both').map((x) => x.sourceId)).toEqual([
+      'gitlab_docs',
+      'gitlab_issues',
     ]);
   });
 
@@ -232,6 +262,7 @@ describe('source groups', () => {
     expect(groupOf('mcp')).toBe('mcp');
     expect(groupOf('repo')).toBe('code');
     expect(groupOf('github')).toBe('code');
+    expect(groupOf('gitlab')).toBe('code');
     expect(groupOf('records')).toBe('records');
     expect(groupOf('db')).toBe('records');
     expect(groupOf('external')).toBe('external');

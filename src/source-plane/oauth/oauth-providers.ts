@@ -34,7 +34,8 @@ export type OAuthProviderId =
   | 'notion'
   | 'atlassian'
   | 'slack'
-  | 'github';
+  | 'github'
+  | 'gitlab';
 
 export const OAUTH_PROVIDER_IDS: readonly OAuthProviderId[] = [
   'google',
@@ -49,6 +50,7 @@ export const OAUTH_PROVIDER_IDS: readonly OAuthProviderId[] = [
   'atlassian',
   'slack',
   'github',
+  'gitlab',
 ];
 
 /**
@@ -110,6 +112,15 @@ export interface OAuthProviderSpec {
    * involved). A URL on the account's host (`{host}`) is left alone.
    */
   loginUrlEnv?: string | undefined;
+  /**
+   * The login host moves the API origin with it (GitLab): an app
+   * registered on one instance issues tokens only that instance
+   * honours, so authorize, token, identity AND api are one host. For a
+   * provider whose API origin is the account's own (Salesforce's
+   * `instance_url`, Bitrix24's `client_endpoint`) this stays off — the
+   * token response names it.
+   */
+  loginUrlMovesApi?: boolean | undefined;
   /**
    * How the token endpoint takes its parameters: a form body (the
    * standard, default), a JSON body (Kommo), or the query string of a
@@ -384,6 +395,31 @@ const SPECS: Record<OAuthProviderId, OAuthProviderSpec> = {
       headers: { accept: 'application/vnd.github+json' },
     },
   },
+  gitlab: {
+    id: 'gitlab',
+    title: 'GitLab',
+    // A standard authorization-code app WITH PKCE and a rotating
+    // refresh token (a GitLab access token lives two hours, and the
+    // refresh token it came with is spent on first use — the engine's
+    // rotation is what keeps a connection alive). `read_api` is the
+    // scope a project's issues, merge requests and tree need.
+    // SOURCE_OAUTH_GITLAB_LOGIN_URL points the whole provider at a
+    // self-managed instance — its API too, because the app that issued
+    // the token lives there.
+    authorizeUrl: 'https://gitlab.com/oauth/authorize',
+    tokenUrl: 'https://gitlab.com/oauth/token',
+    authorizeParams: {},
+    baseScopes: ['read_user'],
+    apiBase: 'https://gitlab.com/api/v4',
+    identity: {
+      method: 'GET',
+      url: 'https://gitlab.com/api/v4/user',
+      pick: ['username', 'name', 'email'],
+    },
+    revoke: { url: 'https://gitlab.com/oauth/revoke', style: 'token_param' },
+    loginUrlEnv: 'SOURCE_OAUTH_GITLAB_LOGIN_URL',
+    loginUrlMovesApi: true,
+  },
 };
 
 /** A provider as this deployment can use it: its spec with the operator's app and any dev override applied. */
@@ -466,6 +502,11 @@ const ENV_NAMES: Record<
     clientId: 'SOURCE_OAUTH_GITHUB_CLIENT_ID',
     clientSecret: 'SOURCE_OAUTH_GITHUB_CLIENT_SECRET',
     baseUrl: 'SOURCE_OAUTH_GITHUB_BASE_URL',
+  },
+  gitlab: {
+    clientId: 'SOURCE_OAUTH_GITLAB_CLIENT_ID',
+    clientSecret: 'SOURCE_OAUTH_GITLAB_CLIENT_SECRET',
+    baseUrl: 'SOURCE_OAUTH_GITLAB_BASE_URL',
   },
 };
 
@@ -567,6 +608,7 @@ function withLoginHost(spec: OAuthProviderSpec, env: NodeJS.ProcessEnv): OAuthPr
     ...spec,
     authorizeUrl: re(spec.authorizeUrl),
     tokenUrl: re(spec.tokenUrl),
+    ...(spec.loginUrlMovesApi === true ? { apiBase: re(spec.apiBase) } : {}),
     identity: { ...spec.identity, url: re(spec.identity.url) },
     revoke: spec.revoke ? { ...spec.revoke, url: re(spec.revoke.url) } : undefined,
   };
