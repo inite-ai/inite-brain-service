@@ -196,6 +196,7 @@ jobs:
         env:
           PROJECT_DIR: /opt/projects/${{ env.PROJECT_NAME }}
           EVIDENCE_URL_SECRET: ${{ secrets.BRAIN_EVIDENCE_URL_SECRET }}
+          SOURCE_CREDENTIAL_KEY: ${{ secrets.BRAIN_SOURCE_CREDENTIAL_KEY }}
         run: |
           mkdir -p "${PROJECT_DIR}"
           tee "${PROJECT_DIR}/enablement.env" > /dev/null << 'EOF'
@@ -485,6 +486,60 @@ jobs:
           # values again); transitions baseline-identical with the s07
           # contradiction pair intact. Includes stuck-COMPETING
           # re-admission and same-origin restatement dedup. ──
+          # ── Source plane (W0–W4.8): a source is a connection the
+          # operator makes once, and what stands behind it — a bucket, a
+          # mailbox, a CRM, a wiki, a repository — enters as documents and
+          # conversations on the pipeline that was already there. The
+          # master registers the sync handlers and answers the admin
+          # surface; a kind that is off is "not installed" to the engine,
+          # so every connector this deployment may run is named.
+          # fs is deliberately absent: the hosted brain has no folders of
+          # its own to read (SOURCE_FS_ROOTS would have to name a
+          # directory on this droplet) — a machine's folders are read by
+          # @inite/brain-agent, which runs where they live. ──
+          SOURCE_PLANE_ENABLED=1
+          SOURCE_KIND_URL=1
+          SOURCE_KIND_S3=1
+          SOURCE_KIND_MCP=1
+          SOURCE_KIND_GITHUB=1
+          SOURCE_KIND_GDRIVE=1
+          SOURCE_KIND_ONEDRIVE=1
+          SOURCE_KIND_DROPBOX=1
+          SOURCE_KIND_NOTION=1
+          SOURCE_KIND_CONFLUENCE=1
+          SOURCE_KIND_GMAIL=1
+          SOURCE_KIND_IMAP=1
+          SOURCE_KIND_SLACK=1
+          SOURCE_KIND_TELEGRAM=1
+          SOURCE_KIND_PIPEDRIVE=1
+          SOURCE_KIND_HUBSPOT=1
+          SOURCE_KIND_BITRIX24=1
+          SOURCE_KIND_KOMMO=1
+          SOURCE_KIND_SALESFORCE=1
+          SOURCE_KIND_REST_RECORDS=1
+          # The brain as an outbound OAuth client, and the same client
+          # against any MCP server (RFC 7591 dynamic registration, so an
+          # MCP server needs no app of ours). A PLATFORM provider still
+          # needs the operator's own app in SOURCE_OAUTH_<PROVIDER>_CLIENT_ID
+          # / _CLIENT_SECRET; until one is set the catalogue reports that
+          # provider as not configured rather than pretending, which is
+          # why the kinds above can be on before the apps exist.
+          SOURCE_OAUTH_CLIENT=1
+          SOURCE_MCP_OAUTH=1
+          # Inbound webhooks per vendor: the address is an HMAC of the
+          # credential key, the vendor's secret is stored encrypted under
+          # it, and the call only NAMES records — the data still arrives
+          # through the same records door a sync uses.
+          SOURCE_WEBHOOKS=1
+          # The model half of the mapping assistant: a rest_records config
+          # refined from an OpenAPI document or a sample answer. Off leaves
+          # the deterministic proposal the endpoint answers anyway; on it
+          # is one admin-triggered call, never a serving-path cost.
+          SOURCE_MAPPING_ASSISTANT=1
+          # NOT set: SOURCE_EGRESS_ALLOW_PRIVATE. Reaching loopback,
+          # private or link-local hosts is a DOUBLE opt-in — the operator
+          # half here and the connection's own `allowPrivate` — and this
+          # deployment shares its network with nothing a source should read.
           CONFLICT_TEMPORAL_TIEBREAKER=1
           EOF
           # The heredoc carries the YAML block's 10-space indent into the
@@ -497,6 +552,13 @@ jobs:
           # BRAIN_EVIDENCE_URL_SECRET repo secret (>= 32 chars) to
           # activate signed URLs. A short secret is a boot ERROR.
           echo "EVIDENCE_SIGNED_URL_SECRET=${EVIDENCE_URL_SECRET}" >> "${PROJECT_DIR}/enablement.env"
+          # The key a connection's credential and every OAuth token set are
+          # encrypted with at rest (AES-256-GCM, `enc:v1:<kid>:…`), appended
+          # via shell for the same reason. SOURCE_OAUTH_CLIENT above needs
+          # it: without a key no grant can be made and operator secrets
+          # would be stored as they arrive. Rotate by moving the old value
+          # to SOURCE_CREDENTIAL_ENCRYPTION_KEY_PREVIOUS.
+          echo "SOURCE_CREDENTIAL_ENCRYPTION_KEY=${SOURCE_CREDENTIAL_KEY}" >> "${PROJECT_DIR}/enablement.env"
           echo "[ok] wrote $(grep -c . "${PROJECT_DIR}/enablement.env") enablement.env lines"
 
       - name: Deploy to server
