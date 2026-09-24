@@ -8352,7 +8352,8 @@
                     "kommo",
                     "notion",
                     "atlassian",
-                    "slack"
+                    "slack",
+                    "github"
                   ],
                   "type": "string"
                 },
@@ -8481,7 +8482,8 @@
               "kommo",
               "notion",
               "atlassian",
-              "slack"
+              "slack",
+              "github"
             ],
             "type": "string"
           }

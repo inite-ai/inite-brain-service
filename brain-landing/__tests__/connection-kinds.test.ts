@@ -61,6 +61,7 @@ describe('source kinds', () => {
     expect(familyOf({ kind: 'native', connector: 'imap' })).toBe('imap');
     expect(familyOf({ kind: 'native', connector: 'slack' })).toBe('slack');
     expect(familyOf({ kind: 'native', connector: 'telegram' })).toBe('telegram');
+    expect(familyOf({ kind: 'native', connector: 'github' })).toBe('github');
     expect(familyOf({ kind: 'native', connector: 'webdav' })).toBe('other');
   });
 
@@ -230,6 +231,7 @@ describe('source groups', () => {
     expect(groupOf('telegram')).toBe('chat');
     expect(groupOf('mcp')).toBe('mcp');
     expect(groupOf('repo')).toBe('code');
+    expect(groupOf('github')).toBe('code');
     expect(groupOf('records')).toBe('records');
     expect(groupOf('db')).toBe('records');
     expect(groupOf('external')).toBe('external');

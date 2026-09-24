@@ -33,7 +33,8 @@ export type OAuthProviderId =
   | 'kommo'
   | 'notion'
   | 'atlassian'
-  | 'slack';
+  | 'slack'
+  | 'github';
 
 export const OAUTH_PROVIDER_IDS: readonly OAuthProviderId[] = [
   'google',
@@ -47,6 +48,7 @@ export const OAUTH_PROVIDER_IDS: readonly OAuthProviderId[] = [
   'notion',
   'atlassian',
   'slack',
+  'github',
 ];
 
 /**
@@ -360,6 +362,28 @@ const SPECS: Record<OAuthProviderId, OAuthProviderSpec> = {
     },
     revoke: { url: 'https://slack.com/api/auth.revoke', style: 'bearer' },
   },
+  github: {
+    id: 'github',
+    title: 'GitHub',
+    // An OAuth app: a form token endpoint that answers HTML unless it is
+    // asked for JSON (the `accept` header rides on every token request),
+    // a token that does not expire (a GitHub App's user token would, and
+    // would refresh — not what a source connection asks for here), and
+    // no PKCE. The scope a repository needs is `repo`; the account is
+    // the login behind the token.
+    authorizeUrl: 'https://github.com/login/oauth/authorize',
+    tokenUrl: 'https://github.com/login/oauth/access_token',
+    pkce: false,
+    authorizeParams: {},
+    baseScopes: ['read:user'],
+    apiBase: 'https://api.github.com',
+    identity: {
+      method: 'GET',
+      url: 'https://api.github.com/user',
+      pick: ['login', 'name', 'email'],
+      headers: { accept: 'application/vnd.github+json' },
+    },
+  },
 };
 
 /** A provider as this deployment can use it: its spec with the operator's app and any dev override applied. */
@@ -437,6 +461,11 @@ const ENV_NAMES: Record<
     clientId: 'SOURCE_OAUTH_SLACK_CLIENT_ID',
     clientSecret: 'SOURCE_OAUTH_SLACK_CLIENT_SECRET',
     baseUrl: 'SOURCE_OAUTH_SLACK_BASE_URL',
+  },
+  github: {
+    clientId: 'SOURCE_OAUTH_GITHUB_CLIENT_ID',
+    clientSecret: 'SOURCE_OAUTH_GITHUB_CLIENT_SECRET',
+    baseUrl: 'SOURCE_OAUTH_GITHUB_BASE_URL',
   },
 };
 

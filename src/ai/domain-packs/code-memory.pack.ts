@@ -55,7 +55,7 @@ import { composePredicateId, type DomainPackManifest } from './manifest';
  */
 export const CODE_MEMORY_PACK: DomainPackManifest = {
   id: 'code_memory',
-  version: '0.9.0',
+  version: '0.10.0',
   description:
     'Non-derivable engineering "why" of a codebase — decisions, rationale, invariants, gotchas, ownership, flag/config defaults, dependency pins, and decision supersession anchored to code, with a domain extraction profile and memory model.',
   // Retro-declaration, documentation-true: code-memory has ALWAYS been an
@@ -92,6 +92,29 @@ export const CODE_MEMORY_PACK: DomainPackManifest = {
       description:
         'The committed text documents of a repository — README, docs/**, ADRs, changelogs — read by the local agent (host agent:<id>) with the blob sha as revision and the last commit touching each file as its time. config: { repo, ref?, extensions?, include?, maxFiles?, maxFileBytes? }.',
       defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: 'manual' },
+    },
+    // ── The forge (W4.8): the same repository over the API, without a
+    // clone — what was DISCUSSED about the code (issues and pull
+    // requests as conversations) and the docs of its tree.
+    {
+      id: 'github_issues',
+      kind: 'native',
+      connector: 'github',
+      shape: 'conversation',
+      title: 'GitHub issues and pull requests',
+      description:
+        'Every issue and pull request of a GitHub repository as one conversation — the body and then every comment, each speaking as its author; `updated_at` is the revision, so a new comment brings the thread back whole. config: { repo, baseUrl?, includePullRequests?, labels?, since?, maxItems? }; credential: a connected GitHub account or a token with read access.',
+      defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '1h' },
+    },
+    {
+      id: 'github_docs',
+      kind: 'native',
+      connector: 'github',
+      shape: 'document',
+      title: 'GitHub repository docs',
+      description:
+        'The text documents of a GitHub repository read over the API (no clone) — README, docs/**, ADRs, changelogs — from one recursive tree call, the blob sha as the revision. config: { repo, baseUrl?, ref?, paths?, extensions?, maxFiles?, maxFileBytes? }; same credential as `github_issues`.',
+      defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '4h' },
     },
   ],
   predicates: [

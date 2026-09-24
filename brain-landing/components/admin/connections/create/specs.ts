@@ -606,6 +606,31 @@ const TELEGRAM: ConnectorForm = {
   credential: { kind: 'single', required: () => true, shown: () => true, label: 'botToken' },
 };
 
+/** GitHub (W4.8): one repository over the API — the same form for its issues and its docs. */
+const GITHUB: ConnectorForm = {
+  fields: [
+    { key: 'repo', type: 'text', required: true, mono: true, placeholder: 'acme/handbook' },
+    { key: 'since', type: 'text', mono: true, placeholder: '2026-01-01' },
+    { key: 'includePullRequests', type: 'boolean', default: true },
+    { key: 'labels', type: 'list', mono: true, placeholder: 'bug\nneeds-decision' },
+    { key: 'paths', type: 'list', mono: true, placeholder: 'docs/\nadr/' },
+    { key: 'ref', type: 'text', mono: true, advanced: true, placeholder: 'main' },
+    {
+      key: 'baseUrl',
+      type: 'url',
+      mono: true,
+      advanced: true,
+      placeholder: 'https://ghe.acme.test/api/v3',
+    },
+    { key: 'extensions', type: 'list', mono: true, advanced: true },
+    { key: 'maxItems', type: 'number', min: 1, advanced: true },
+    { key: 'maxFiles', type: 'number', min: 1, advanced: true },
+    { key: 'maxFileBytes', type: 'number', min: 1, advanced: true },
+    allowPrivate,
+  ],
+  credential: { kind: 'oauth', alternative: 'token' },
+};
+
 export function formFor(entry: SourceCatalogEntry): ConnectorForm | null {
   if (entry.kind === 'external') return EXTERNAL;
   if (entry.kind === 'mcp') {
@@ -639,6 +664,8 @@ export function formFor(entry: SourceCatalogEntry): ConnectorForm | null {
       return GMAIL;
     case 'imap':
       return IMAP;
+    case 'github':
+      return GITHUB;
     case 'slack':
       return SLACK;
     case 'telegram':

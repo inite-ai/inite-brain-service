@@ -26,6 +26,7 @@ export type SourceFamily =
   | 'imap'
   | 'slack'
   | 'telegram'
+  | 'github'
   | 'records'
   | 'db'
   | 'external'
@@ -74,6 +75,7 @@ export function groupOf(family: SourceFamily): SourceGroup {
     case 'mcp':
       return 'mcp';
     case 'repo':
+    case 'github':
       return 'code';
     case 'records':
     case 'db':
@@ -106,6 +108,7 @@ export function familyOf(e: { kind: string; connector: string }): SourceFamily {
     case 'imap':
     case 'slack':
     case 'telegram':
+    case 'github':
       return e.connector;
     case 'pipedrive':
     case 'hubspot':
@@ -160,10 +163,11 @@ const FAMILY_ORDER: Record<SourceFamily, number> = {
   telegram: 11,
   mcp: 12,
   repo: 13,
-  records: 14,
-  db: 15,
-  external: 16,
-  other: 17,
+  github: 14,
+  records: 15,
+  db: 16,
+  external: 17,
+  other: 18,
 };
 const AVAILABILITY_RANK: Record<SourceAvailability, number> = {
   ready: 0,

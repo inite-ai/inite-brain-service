@@ -1924,6 +1924,42 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the Atlassian (auth.atlassian.com + api.atlassian.com) counterpart.',
   },
   {
+    key: 'SOURCE_KIND_GITHUB',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `github` source connector (source plane, W4.8 — the forge): one GitHub repository over the REST API, as a connected GitHub account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_GITHUB_CLIENT_ID) or with a token that can read it. Two shapes of the same repository (code_memory): `github_issues` — every issue and pull request as one conversation (body + every comment, each speaking as its author, `updated_at` the revision) through the mention door; `github_docs` — the text files of the default branch (or `ref`) from one recursive tree call, the blob sha the revision, judged by the same media table as a folder. Read-only: the brain never comments, labels or closes. A GitHub Enterprise host is reached with `config.baseUrl` (+ `allowPrivate` for a host inside the network). Off (default) = 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_OAUTH_GITHUB_CLIENT_ID',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The client id of the GitHub OAuth app the brain connects accounts through (github.com/settings/developers; the brain's callback URL as the authorization callback; the `repo` scope for private repositories). The token endpoint is a form that answers JSON when asked, the token does not expire, there is no PKCE. Unset = GitHub is 'not configured' — a token can still be pasted as the credential.",
+  },
+  {
+    key: 'SOURCE_OAUTH_GITHUB_CLIENT_SECRET',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description: 'The client secret of the GitHub app named by SOURCE_OAUTH_GITHUB_CLIENT_ID.',
+  },
+  {
+    key: 'SOURCE_OAUTH_GITHUB_BASE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the GitHub (github.com OAuth + api.github.com) counterpart. A GitHub Enterprise deployment is named per connection (`config.baseUrl`), not here.',
+  },
+  {
     key: 'SOURCE_KIND_SLACK',
     category: 'pipeline',
     defaultValue: '0',

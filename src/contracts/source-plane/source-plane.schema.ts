@@ -854,6 +854,7 @@ export const SourceOAuthProviderIdSchema = z.enum([
   'notion',
   'atlassian',
   'slack',
+  'github',
 ]);
 export type SourceOAuthProviderId = z.infer<typeof SourceOAuthProviderIdSchema>;
 

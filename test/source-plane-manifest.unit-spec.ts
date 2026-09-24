@@ -180,13 +180,27 @@ describe('sources consent', () => {
     expect(wantsInstallSecret(base(undefined))).toBe(false);
   });
 
-  it('code_memory is the first source pack — the external structure source and the agent-run docs entry', () => {
+  it('code_memory is the first source pack — the structure source, the agent-run docs entry and the forge (W4.8)', () => {
     expect(CODE_MEMORY_PACK.sources).toEqual([
       expect.objectContaining({ id: 'repository', kind: 'external', shape: 'structure' }),
       expect.objectContaining({
         id: 'repo_docs',
         kind: 'native',
         connector: 'git',
+        shape: 'document',
+      }),
+      // The same repository over the API: what was discussed about the
+      // code (conversations) and the docs of its tree, no clone.
+      expect.objectContaining({
+        id: 'github_issues',
+        kind: 'native',
+        connector: 'github',
+        shape: 'conversation',
+      }),
+      expect.objectContaining({
+        id: 'github_docs',
+        kind: 'native',
+        connector: 'github',
         shape: 'document',
       }),
     ]);
