@@ -27,21 +27,25 @@ import type { EvidenceStorageAdapter } from '../src/evidence/storage/storage-ada
 // Pinned: an object store's compatibility surface is exactly what this
 // suite is measuring, so `latest` would make a green run unrepeatable.
 //
-// From quay.io, MinIO's own registry, and pinned BY DIGEST. The tag alone
-// on Docker Hub stopped resolving mid-2026-09 — `pull access denied for
-// minio/minio, repository does not exist` on a tag that had been pulling
-// for months, which failed every PR that touched this shard. quay.io
-// still serves the identical image; the digest means a tag that is moved
-// or withdrawn again fails loudly at pull time instead of silently
-// changing what this contract is measured against.
-const MINIO_IMAGE =
-  'quay.io/minio/minio:RELEASE.2025-01-20T14-49-07Z@sha256:ed9be66eb5f2636c18289c34c3b725ddf57815f2777c77b5938543b78a44f144';
-const ACCESS_KEY = 'minioadmin';
-const SECRET_KEY = 'minioadmin';
+// THIRD registry for this one image. MinIO's tag on Docker Hub stopped
+// resolving mid-2026-09 (`pull access denied … repository does not
+// exist`); the move to quay.io held until 2026-09-24, when that
+// repository stopped serving anonymous pulls too — a pull token now
+// comes back 401 for every tag AND for the pinned digest, so every e2e
+// shard 1 on every branch went red at once. An S3 surface we cannot pull
+// is not a contract we can measure, so the suite now runs against
+// adobe/s3mock: Apache-2.0, on Docker Hub, and built for exactly this.
+// Pinned by digest so a moved tag fails loudly at pull time instead of
+// silently changing what the contract is measured against.
+const S3_IMAGE =
+  'adobe/s3mock:5.2.3@sha256:ab01a6946750f451ca215a47e91030695b260e4003b8a5a6201d25029b8fca92';
+const S3_PORT = 9090;
+const ACCESS_KEY = 'contractaccess';
+const SECRET_KEY = 'contractsecret';
 const BUCKET = 'brain-evidence-contract';
 const PREFIX = 'contract';
 
-let minio: StartedTestContainer | undefined;
+let s3: StartedTestContainer | undefined;
 let endpoint = '';
 let fsRoot = '';
 const savedEnv: Record<string, string | undefined> = {};
@@ -64,14 +68,13 @@ beforeAll(async () => {
   fsRoot = await mkdtemp(join(tmpdir(), 'evidence-contract-fs-'));
   process.env.EVIDENCE_FS_ROOT = fsRoot;
 
-  minio = await new GenericContainer(MINIO_IMAGE)
-    .withEnvironment({ MINIO_ROOT_USER: ACCESS_KEY, MINIO_ROOT_PASSWORD: SECRET_KEY })
-    .withCommand(['server', '/data'])
-    .withExposedPorts(9000)
-    .withWaitStrategy(Wait.forHttp('/minio/health/live', 9000).forStatusCode(200))
+  s3 = await new GenericContainer(S3_IMAGE)
+    .withEnvironment({ COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: BUCKET })
+    .withExposedPorts(S3_PORT)
+    .withWaitStrategy(Wait.forHttp('/', S3_PORT).forStatusCode(200))
     .withStartupTimeout(120_000)
     .start();
-  endpoint = `http://${minio.getHost()}:${minio.getMappedPort(9000)}`;
+  endpoint = `http://${s3.getHost()}:${s3.getMappedPort(S3_PORT)}`;
 
   process.env.EVIDENCE_S3_ENDPOINT = endpoint;
   process.env.EVIDENCE_S3_BUCKET = BUCKET;
@@ -79,21 +82,23 @@ beforeAll(async () => {
   process.env.EVIDENCE_S3_PREFIX = PREFIX;
   process.env.EVIDENCE_S3_ACCESS_KEY_ID = ACCESS_KEY;
   process.env.EVIDENCE_S3_SECRET_ACCESS_KEY = SECRET_KEY;
-  // MinIO-class hosts have no per-bucket DNS.
+  // A mock host has no per-bucket DNS.
   process.env.EVIDENCE_S3_FORCE_PATH_STYLE = '1';
 
+  // The bucket is created by the container's initial-buckets setting; this
+  // is the belt-and-braces path for an image that ignores it.
   const client = new S3Client({
     region: 'us-east-1',
     endpoint,
     forcePathStyle: true,
     credentials: { accessKeyId: ACCESS_KEY, secretAccessKey: SECRET_KEY },
   });
-  await client.send(new CreateBucketCommand({ Bucket: BUCKET }));
+  await client.send(new CreateBucketCommand({ Bucket: BUCKET })).catch(() => undefined);
   client.destroy();
 }, 180_000);
 
 afterAll(async () => {
-  if (minio) await minio.stop();
+  if (s3) await s3.stop();
   if (fsRoot) await rm(fsRoot, { recursive: true, force: true });
   for (const k of ENV_KEYS) {
     if (savedEnv[k] === undefined) delete process.env[k];
