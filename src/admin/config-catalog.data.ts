@@ -2062,6 +2062,51 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the GitHub (github.com OAuth + api.github.com) counterpart. A GitHub Enterprise deployment is named per connection (`config.baseUrl`), not here.',
   },
   {
+    key: 'SOURCE_KIND_GITLAB',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `gitlab` source connector (source plane, W4.9 — the other forge): one GitLab project over the v4 API, as a connected GitLab account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_GITLAB_CLIENT_ID) or with an access token that has `read_api` on it. Two shapes of the same project (code_memory): `gitlab_issues` — every issue AND merge request as one conversation (the description + every note, each speaking as its author, `updated_at` the revision) through the mention door, GitLab's own activity notes dropped and an issue #5 kept apart from a merge request !5; `gitlab_docs` — the text files of the default branch (or `ref`) from the recursive tree listing, the blob id the revision, judged by the same media table as a folder. Read-only. A self-managed instance is reached with `config.baseUrl` (+ `allowPrivate` for a host inside the network); connecting an ACCOUNT there is SOURCE_OAUTH_GITLAB_LOGIN_URL. Off (default) = 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_OAUTH_GITLAB_CLIENT_ID',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The application id of the GitLab OAuth application the brain connects accounts through (gitlab.com/-/user_settings/applications, or Admin → Applications on a self-managed instance; the brain's callback URL as the redirect URI; the `read_api` scope). Standard authorization code with PKCE; the refresh token ROTATES on every use, which the engine handles. Unset = GitLab is 'not configured' — a token can still be pasted as the credential.",
+  },
+  {
+    key: 'SOURCE_OAUTH_GITLAB_CLIENT_SECRET',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description: 'The secret of the GitLab application named by SOURCE_OAUTH_GITLAB_CLIENT_ID.',
+  },
+  {
+    key: 'SOURCE_OAUTH_GITLAB_LOGIN_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The self-managed GitLab the brain connects accounts on ('https://gitlab.acme.com'): its origin replaces gitlab.com on the authorize, token, identity AND API URLs together — an application registered on one instance issues tokens only that instance honours. Public https only. Unset = gitlab.com. A project on an instance the brain reads with a pasted token needs no flag: `config.baseUrl` on the connection names it.",
+  },
+  {
+    key: 'SOURCE_OAUTH_GITLAB_BASE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the GitLab counterpart (one origin for the OAuth endpoints and /api/v4). A self-managed deployment is SOURCE_OAUTH_GITLAB_LOGIN_URL or a connection's `config.baseUrl`, not this.",
+  },
+  {
     key: 'SOURCE_KIND_SLACK',
     category: 'pipeline',
     defaultValue: '0',

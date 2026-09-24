@@ -634,7 +634,8 @@ const MEDIA_CONTRACT: MediaExpectation[] = [
     // to move deliberately on every version bump. 0.9.0: the `repo_docs`
     // git entry the local agent runs. 0.10.0: the forge entries
     // (`github_issues` as conversations, `github_docs` over the API).
-    version: '0.10.0',
+    // 0.11.0: the same pair on GitLab.
+    version: '0.11.0',
     modalities: ['text', 'image', 'document'],
     processors: [IMAGE_METADATA, DOCUMENT_TEXT, IMAGE_OCR],
     rawEvidence: undefined, // a builtin seeds into every tenant unasked

@@ -13,7 +13,7 @@ import {
   type SourceCard,
   type SourceGroup,
 } from './kinds'
-import { accentBtn, availabilityTone, fill, type ConnectionsT } from './shared'
+import { accentBtn, availabilityTone, fill, shapeWords, type ConnectionsT } from './shared'
 
 /**
  * The catalogue of what this tenant could connect — every pack's
@@ -183,7 +183,8 @@ function SourceKindCard({
             <div className="text-[10px] text-[var(--text-faint)]">
               {shapes
                 .filter((sh) => isTextShape(sh) || sh === 'binary')
-                .map((sh) => (sh === 'binary' ? k[card.family].shapes.binary : k[card.family].shapes.document))
+                .map((sh) => shapeWords(k[card.family].shapes, sh as 'document' | 'conversation' | 'binary').title)
+                .filter((w) => w.length > 0)
                 .join(' · ')}
             </div>
           </div>

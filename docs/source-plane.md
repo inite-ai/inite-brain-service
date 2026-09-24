@@ -115,9 +115,22 @@ as four tabs — **Connected**, **Add a source**, **Local agents**,
 **Accounts** — with a tenant that has nothing connected yet opening on
 the catalogue. Both the connections and the catalogue fold by **source
 group**, one fixed order (`kinds.ts` `groupOf`): *Files* (folder,
-bucket, Google Drive, OneDrive, Dropbox), *Web* (sites), *MCP servers*,
-*Code* (repositories), *CRM & records* (the vendors and custom REST),
-*Pushed in* (the doors a publisher writes through).
+bucket, Google Drive, OneDrive, Dropbox), *Web* (sites), *Mail*, *Chat*,
+*MCP servers*, *Code* (repositories and the forges), *CRM & records*
+(the vendors and custom REST), *Pushed in* (the doors a publisher writes
+through).
+
+**One card per kind, a choice per shape.** A kind that a pack declares
+in more than one shape is ONE card, and the flow asks "what's in it?"
+(`kinds.ts` `shapeChoices`): text and files for a folder or a mailbox
+(documents / files / both), and — for a forge, where the same
+repository is at once what was discussed in it and what is committed to
+it — its conversations, its docs, or both, the conversation first
+because it is the half no other host can read. The chosen shapes decide
+which fields the form shows: a thread walk asks for `since`, labels and
+which kinds of thread, a tree walk for `paths`, `ref` and what counts as
+text, and "both" asks for all of them and creates one connection per
+shape, each labelled with its own noun.
 
 - **Deployment fences** — the shipped connectors and their switches, the
   `fs` root jail, the private-egress opt-in — from `/catalog`, so an
@@ -238,16 +251,17 @@ turn yielded (`source.episodeIds`) where a document's would be.
 | **`gmail`** | `SOURCE_KIND_GMAIL` + `SOURCE_OAUTH_CLIENT` | a Gmail mailbox (`mail_memory/gmail`) through the Gmail REST API as the connected Google account (`gmail.readonly` — the same Google app as Drive, one more scope; the account picker flags a Drive-only grant as narrower). One catalogue row per MESSAGE: `messages.list` with the connection's own Gmail query plus `after:<since>` — the operator's `since` (default 90 days back) on a first walk, the checkpoint's walk time less a day of overlap on an incremental one (the engine drops what it already has) — newest first, capped by `maxMessages`; each message's Subject / From / Date by one metadata call. Fetch = `format=raw` → the MIME parse → one turn; the thread id is the conversation. Deletions ride `history.list` from the checkpoint's `historyId` (read from the profile at the START of the walk), `messageDeleted` only; an id too old to serve (404) is logged and deletions wait for a full walk. The `gmail_attachments` entry (binary) lists the same messages with `has:attachment`, one row per attachment (`<message id>#<part id>`) judged by the `fs` media table on name, reported type and size, bytes by `attachments.get` | `id:<message id>` — a delivered message never changes | `{ query?, labelIds?, since?, maxMessages?, includeSpamTrash?, extensions?, maxFileBytes? }`; credential `oauth:<grant id>` |
 | **`imap`** | `SOURCE_KIND_IMAP` | any mailbox over IMAP (`mail_memory/imap`) — a host, a user, the mailbox password (an app password where the provider issues one) as the credential — read-only, with a client of its own (`connectors/imap-client.ts`, no dependency): greeting, LOGIN, EXAMINE, UID SEARCH, UID FETCH, LOGOUT and nothing else; TLS on 993, a plain socket only under the double opt-in (`allowPrivate` + `SOURCE_EGRESS_ALLOW_PRIVATE`, the host through the same egress fence as HTTP, the link-local range refused even then). Per mailbox (`INBOX` by default; plain ASCII names): a first walk `UID SEARCH SINCE <since>`, the newest `maxMessages` of it, their headers in one `UID FETCH … BODY.PEEK[HEADER.FIELDS (…)]`; the checkpoint keeps each mailbox's UIDVALIDITY and highest UID, an incremental run fetches `<highest+1>:*` only, a mailbox whose UIDVALIDITY moved is walked again; what was deleted is found by a full walk (the connector never expunges). The Message-ID is the row's id (the same message in two mailboxes is one row); the RFC 5092 URL `imap://user@host/INBOX;UIDVALIDITY=n/;UID=m` is its origin AND how fetch (`BODY.PEEK[]`) finds it. Not spoken: STARTTLS, OAuth over IMAP, IDLE, CONDSTORE / QRESYNC, attachments as evidence (a binary entry is refused by name) | `m:<Message-ID>` (else `uid:<locator>`) | `{ host, port?, tls?, user, mailboxes?, since?, maxMessages?, allowPrivate? }`; credential = the password |
 
-### The forge (W4.8) — a repository without a clone
+### The forge (W4.8, W4.9) — a repository without a clone
 
 `code_memory` already had a repository in two shapes on the local agent
 (the indexer's structure, `repo_docs`' documents). The forge adds the
 same repository over the API, and the third thing a repository holds:
-what was **discussed** about the code.
+what was **discussed** about the code. Two forges, one shape.
 
 | Kind | Flag | Reads | Revision | Config |
 |---|---|---|---|---|
 | **`github`** | `SOURCE_KIND_GITHUB` (+ `SOURCE_OAUTH_CLIENT` for a connected account) | one GitHub repository (or GitHub Enterprise Server, `config.baseUrl`) through the REST API as a connected GitHub account or a token that can read it — read-only: the brain never comments, labels or closes. **Conversation** (`code_memory/github_issues`): every ISSUE and PULL REQUEST is one conversation `gh:<owner>/<repo>#<n>` whose turns are the body (the title rides on it) and then every comment, each speaking as its author — a name, else the login, a bot said to be one. The listing is `/issues?state=all&sort=updated&since=…` (GitHub models a PR as an issue, so `includePullRequests: false` is what drops them; `labels` narrows further), `updated_at` is the revision — a new comment, an edit or a state change re-runs the door and the thread lands whole. **Document** (`code_memory/github_docs`): the text files of the default branch (or `ref`) from ONE recursive tree call, filtered by `paths` and judged by the same media table as a folder, fetched through the blob API; the blob sha is the revision, so an unchanged file is not read again. A full walk marks what is gone (a deleted issue, a removed file) | `u:<updated_at>` · `blob:<sha>` | `{ repo, baseUrl?, ref?, includePullRequests?, labels?, since?, maxItems?, paths?, extensions?, maxFiles?, maxFileBytes?, allowPrivate? }`; credential `oauth:<grant id>` or a token |
+| **`gitlab`** | `SOURCE_KIND_GITLAB` (+ `SOURCE_OAUTH_CLIENT` for a connected account) | one GitLab project (gitlab.com or self-managed, `config.baseUrl`) through the v4 API as a connected GitLab account or an access token with `read_api` — read-only. **Conversation** (`code_memory/gitlab_issues`): every ISSUE and MERGE REQUEST is one conversation whose turns are the description (the title rides on it) and then every note, each speaking as its author. ⚡GitLab counts the two SEPARATELY and lists them at separate endpoints — issue #5 and merge request !5 are two different threads, so the conversation id carries GitLab's own sigil (`gl:<project>#5` vs `gl:<project>!5`) and the two listings are walked one after the other under ONE `maxItems` cap (`includeMergeRequests: false` drops the second, `labels` narrows both). ⚡A note may be the activity feed rather than a comment ("changed the description", "assigned to @x"): GitLab marks those `system: true` and they are not turns. `updated_at` is the revision. **Document** (`code_memory/gitlab_docs`): the text files of the default branch (or `ref`) from the recursive tree listing, filtered by `paths` and judged by the same media table as a folder, fetched through the blobs API; the blob id is the revision. ⚡A GitLab tree entry carries no size, so the byte cap lands on the blob when it arrives rather than before it is asked for. A full walk marks what is gone | `u:<updated_at>` · `blob:<id>` | `{ project, baseUrl?, ref?, includeMergeRequests?, labels?, since?, maxItems?, paths?, extensions?, maxFiles?, maxFileBytes?, allowPrivate? }`; credential `oauth:<grant id>` or a token |
 
 ### Chat (W4.7) — a channel is a conversation
 
@@ -689,6 +703,7 @@ pack may only name it.
 | `SOURCE_KIND_GMAIL`, `SOURCE_KIND_IMAP` | `0` | the `gmail` and `imap` mail connectors (W4.6); `gmail` needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_GOOGLE_CLIENT_ID` (the Drive app, one more scope); `imap` takes the password as the credential |
 | `SOURCE_KIND_SLACK`, `SOURCE_KIND_TELEGRAM` | `0` | the `slack` and `telegram` chat connectors (W4.7); `slack` takes a connected workspace (`SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_SLACK_CLIENT_ID`) or a bot token; `telegram` takes the bot token. `SOURCE_TELEGRAM_API_BASE` points the Bot API at a fake (dev/test only) |
 | `SOURCE_KIND_GITHUB` | `0` | the `github` forge connector (W4.8): one repository's issues, pull requests and docs over the API; a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_GITHUB_CLIENT_ID`, else a token is the credential |
+| `SOURCE_KIND_GITLAB` | `0` | the `gitlab` forge connector (W4.9): one project's issues, merge requests and docs over the v4 API; a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_GITLAB_CLIENT_ID` (and `SOURCE_OAUTH_GITLAB_LOGIN_URL` for a self-managed instance), else a token is the credential |
 | `SOURCE_KIND_BITRIX24`, `SOURCE_KIND_KOMMO` | `0` | the `bitrix24` and `kommo` connectors (W4.2b): a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_BITRIX24_CLIENT_ID` / `SOURCE_OAUTH_KOMMO_CLIENT_ID` (W4.3b; `_LOGIN_URL` = a portal's origin / `https://www.amocrm.ru`); an inbound webhook URL / a long-lived token needs no app |
 | `SOURCE_KIND_SALESFORCE` | `0` | the `salesforce` connector (W4.2c); a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_SALESFORCE_CLIENT_ID` (`SOURCE_OAUTH_SALESFORCE_LOGIN_URL` for a sandbox / My Domain login host), a JWT bearer needs neither |
 | `SOURCE_KIND_REST_RECORDS` | `0` | the config-driven `rest_records` connector for any JSON list API (W4.2b′) |

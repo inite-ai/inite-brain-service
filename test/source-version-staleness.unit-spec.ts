@@ -120,8 +120,8 @@ describe('the declared derivable class', () => {
     }
   });
 
-  it('the pack minor is bumped for each new declaration (0.7.0 drift rule, 0.8.0 sources entry, 0.9.0 repo_docs, 0.10.0 the forge)', () => {
-    expect(CODE_MEMORY_PACK.version).toBe('0.10.0');
+  it('the pack minor is bumped for each new declaration (0.7.0 drift rule, 0.8.0 sources entry, 0.9.0 repo_docs, 0.10.0 the forge, 0.11.0 the other forge)', () => {
+    expect(CODE_MEMORY_PACK.version).toBe('0.11.0');
   });
 
   it('a source_version_match rule MUST name its predicate class', () => {
