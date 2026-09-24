@@ -1216,11 +1216,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'OPENAI_CHAT_MODEL',
     category: 'auth',
-    defaultValue: 'gpt-5.6-luna',
+    defaultValue: 'gpt-6-luna',
     runtimeMutable: false,
     isBooleanFlag: false,
     description:
-      'The chat model behind extraction, generation, verification, the deriver, scenes, beliefs, the router and every judge that does not name its own. Default = the cost tier of the newest generation (gpt-5.6-luna, $0.20 / $1.20 per 1M). It replaced gpt-4o-mini on 2026-09-17: measured on the prod tenant, mini flip-flopped on identical entity pairs between runs and mis-cited twelve-line evidence sets. Every call goes through the shared reasoning guard (chatCallParams): a gpt-5.x / o-series model rejects `temperature`, so the guard drops it and sets reasoning effort — `low` by default, `none` for one-token classifiers.',
+      'The chat model behind extraction, generation, the deriver, scenes, beliefs, the router and every judge that does not name its own — NOT the verifier, which pins its own (RETRIEVAL_VERIFIER_MODEL). Default = the cost tier of the newest generation (gpt-6-luna, $0.10 / $0.50 per 1M). It replaced gpt-5.6-luna on 2026-09-24, measured on the prod-parity stand: gpt-5.6-luna everywhere scored memory-fitness 31/32 and state-transitions 10/12; gpt-6-luna everywhere 30/32 and 11/12; gpt-6-luna with the audit left on the older model 32/32 and 11/12. Every call goes through the shared reasoning guard (chatCallParams): a gpt-5.x / gpt-6 / o-series model rejects `temperature`, so the guard drops it and sets reasoning effort — `low` by default, `none` for one-token classifiers. Before gpt-5.6-luna it was gpt-4o-mini, which flip-flopped on identical entity pairs between runs.',
   },
   {
     key: 'ENTITY_JUDGE_MODEL',
@@ -2192,11 +2192,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_VERIFIER_MODEL',
     category: 'pipeline',
-    defaultValue: '',
+    defaultValue: 'gpt-5.6-luna',
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      "Model override for the verifier/auditor LLM call only — the generator keeps the synthesis model. Empty (default) = the verifier inherits the synthesis model, byte-identical legacy behavior. The V11 §2 strong-judge arm: under abstentionCalibration='verifier' the abstention decision quality is bounded by the audit model's judgment, so a tenant can pay for a stronger judge (e.g. gpt-5-mini) on exactly one call per answer without touching generation cost. Also overlayable per tenant via RETRIEVAL_PROFILE_OVERRIDES (verifierModel).",
+      "Model for the verifier/auditor LLM call only — the generator keeps the synthesis model. Unset (default) = gpt-5.6-luna, the generation BEFORE the synthesis default, pinned deliberately: measured 2026-09-24 on the prod-parity stand, auditing with gpt-6-luna cost two memory-fitness points and both losses were abstentions on answers the evidence did support (it spends reasoning tokens at `low` effort where the older model spends none, and reads the same evidence more strictly). The V11 §2 strong-judge arm: under abstentionCalibration='verifier' the abstention decision quality is bounded by the audit model's judgment, so a tenant can pay for a stronger judge (e.g. gpt-5-mini) on exactly one call per answer without touching generation cost. Also overlayable per tenant via RETRIEVAL_PROFILE_OVERRIDES (verifierModel).",
   },
   {
     key: 'RETRIEVAL_SCAN_HNSW_EF',

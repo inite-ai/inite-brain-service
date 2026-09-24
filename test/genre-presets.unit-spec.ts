@@ -1,3 +1,4 @@
+import { DEFAULT_VERIFIER_MODEL } from '../src/ai/openai-client';
 import {
   resolveRetrievalProfile,
   resolveRetrievalProfileFor,
@@ -193,7 +194,7 @@ describe('genre presets — full effective profile per genre (snapshot)', () => 
     orderingFrame: false,
     abstentionCalibration: 'off',
     verifierTopicCoverage: false,
-    verifierModel: '',
+    verifierModel: DEFAULT_VERIFIER_MODEL,
     digestEvidence: false,
     digestLanes: 'all',
     rawWindow: false,

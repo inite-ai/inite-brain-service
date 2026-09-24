@@ -1,4 +1,5 @@
 import { getRequestContext } from '../common/request-context';
+import { DEFAULT_VERIFIER_MODEL } from '../ai/openai-client';
 import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
 import { resolveStageBudgets, type StageBudgets } from './internals/stage-budget';
 import { resolveExpansionConfig, type ExpansionConfig } from './internals/edge-expansion';
@@ -623,9 +624,9 @@ function nonNegativeFloatEnv(env: NodeJS.ProcessEnv, name: string, dflt: number)
  *  anything else — including an unset env — resolves to '' (inherit). */
 const MODEL_ID_RE = /^[A-Za-z0-9._:/-]{1,64}$/;
 
-function modelIdEnv(env: NodeJS.ProcessEnv, name: string): string {
+function modelIdEnv(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
   const v = (env[name] ?? '').trim();
-  return MODEL_ID_RE.test(v) ? v : '';
+  return MODEL_ID_RE.test(v) ? v : fallback;
 }
 
 /** Speaker-suffix shape for the assistant lane (word chars, `_`, `-`);
@@ -791,7 +792,14 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
       'RETRIEVAL_VERIFIER_TOPIC_COVERAGE',
       preset.verifierTopicCoverage,
     ),
-    verifierModel: modelIdEnv(env, 'RETRIEVAL_VERIFIER_MODEL'),
+    // Pinned to the previous generation by default (DEFAULT_VERIFIER_MODEL).
+    // Measured 2026-09-24 on the prod-parity stand: with gpt-6-luna auditing
+    // too, memory-fitness fell 32 → 30 and BOTH losses were abstentions on
+    // answers the evidence did support — it spends reasoning tokens at `low`
+    // effort where the older model spends none, and reads the same evidence
+    // more strictly. Generation, extraction and every other call keep the
+    // newer model. RETRIEVAL_VERIFIER_MODEL still overrides.
+    verifierModel: modelIdEnv(env, 'RETRIEVAL_VERIFIER_MODEL', DEFAULT_VERIFIER_MODEL),
     digestEvidence: presetFlag(env, 'RETRIEVAL_DIGEST_EVIDENCE', preset.digestEvidence),
     digestLanes:
       enumEnv(env, 'RETRIEVAL_DIGEST_LANES', ['all', 'summary_ku'] as const) ??

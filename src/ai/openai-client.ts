@@ -3,14 +3,35 @@ import OpenAI from 'openai';
 
 /**
  * The chat model every LLM call runs on unless OPENAI_CHAT_MODEL says
- * otherwise: the cost tier of the newest generation (gpt-5.6-luna, July
- * 2026 — $0.20 / $1.20 per 1M, structured outputs, reasoning effort
- * selectable, `temperature` rejected). It replaced gpt-4o-mini, which
- * flip-flopped on identical entity pairs between runs and mis-cited
- * twelve-line evidence sets. One constant: twenty-two readers used to
- * carry their own `'gpt-4o-mini'` fallback.
+ * otherwise: the cost tier of the newest generation (gpt-6-luna — $0.10 /
+ * $0.50 per 1M, structured outputs, reasoning effort selectable,
+ * `temperature` rejected). It replaced gpt-5.6-luna on 2026-09-24, measured
+ * on the prod-parity stand:
+ *
+ *   arm                                   memory-fitness   state-transitions (ru)
+ *   gpt-5.6-luna                          31/32            10/12 · 23/25
+ *   gpt-6-luna everywhere                 30/32            11/12 · 24/25
+ *   gpt-6-luna + verifier on gpt-5.6      32/32            11/12 · 24/25
+ *
+ * The middle row is why the verifier keeps the older model
+ * (RETRIEVAL_VERIFIER_MODEL): gpt-6-luna spends reasoning tokens at `low`
+ * effort where gpt-5.6-luna spends none, and audits the same evidence more
+ * strictly — both of its memory-fitness losses were abstentions on answers
+ * the evidence did support. Everywhere else the newer model is at least as
+ * good at half the input price and 2.4× less per output token.
+ *
+ * Before it: gpt-4o-mini, which flip-flopped on identical entity pairs
+ * between runs and mis-cited twelve-line evidence sets. One constant:
+ * twenty-two readers used to carry their own `'gpt-4o-mini'` fallback.
  */
-export const DEFAULT_CHAT_MODEL = 'gpt-5.6-luna';
+export const DEFAULT_CHAT_MODEL = 'gpt-6-luna';
+
+/**
+ * What the verifier runs on when nothing overrides it. Its own default
+ * because the audit is the one call where the newer model measured WORSE —
+ * see the table above. RETRIEVAL_VERIFIER_MODEL still wins when set.
+ */
+export const DEFAULT_VERIFIER_MODEL = 'gpt-5.6-luna';
 
 /** OPENAI_CHAT_MODEL, else the platform default. */
 export function chatModel(config: ConfigService): string {
