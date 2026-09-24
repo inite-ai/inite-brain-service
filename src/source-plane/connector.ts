@@ -165,6 +165,12 @@ export interface Connector {
    * treats every run as full and marks what it did not see gone.
    */
   readonly walksEverything?: boolean;
+  /**
+   * True for a feed with no history to re-read (a Telegram bot's
+   * getUpdates): the engine never treats a run as full — nothing unseen
+   * is marked gone, every run resumes from the checkpoint.
+   */
+  readonly readsOnlyNew?: boolean;
   /** Runtime switch (SOURCE_KIND_<KIND>); absent = always on. A kind that
    *  answers false is "not installed" to the engine. */
   enabled?(): boolean;

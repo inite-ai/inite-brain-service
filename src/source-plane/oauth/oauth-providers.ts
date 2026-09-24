@@ -32,7 +32,8 @@ export type OAuthProviderId =
   | 'bitrix24'
   | 'kommo'
   | 'notion'
-  | 'atlassian';
+  | 'atlassian'
+  | 'slack';
 
 export const OAUTH_PROVIDER_IDS: readonly OAuthProviderId[] = [
   'google',
@@ -45,6 +46,7 @@ export const OAUTH_PROVIDER_IDS: readonly OAuthProviderId[] = [
   'kommo',
   'notion',
   'atlassian',
+  'slack',
 ];
 
 /**
@@ -336,6 +338,28 @@ const SPECS: Record<OAuthProviderId, OAuthProviderSpec> = {
       pick: ['email', 'name', 'account_id'],
     },
   },
+  slack: {
+    id: 'slack',
+    title: 'Slack',
+    // OAuth v2: the bot scopes ride as `scope`, the token endpoint takes
+    // a form body with the app's credentials, the answer is the BOT
+    // token (`token_type: bot`) for the workspace — no expiry unless the
+    // app opted into token rotation (not supported here), so no refresh.
+    // Slack answers HTTP 200 with `ok: false` on failure (exchange
+    // checks). No PKCE. The workspace (`auth.test` → team) is the account.
+    authorizeUrl: 'https://slack.com/oauth/v2/authorize',
+    tokenUrl: 'https://slack.com/api/oauth.v2.access',
+    pkce: false,
+    authorizeParams: {},
+    baseScopes: [],
+    apiBase: 'https://slack.com/api',
+    identity: {
+      method: 'GET',
+      url: 'https://slack.com/api/auth.test',
+      pick: ['team', 'user', 'team_id'],
+    },
+    revoke: { url: 'https://slack.com/api/auth.revoke', style: 'bearer' },
+  },
 };
 
 /** A provider as this deployment can use it: its spec with the operator's app and any dev override applied. */
@@ -408,6 +432,11 @@ const ENV_NAMES: Record<
     clientId: 'SOURCE_OAUTH_ATLASSIAN_CLIENT_ID',
     clientSecret: 'SOURCE_OAUTH_ATLASSIAN_CLIENT_SECRET',
     baseUrl: 'SOURCE_OAUTH_ATLASSIAN_BASE_URL',
+  },
+  slack: {
+    clientId: 'SOURCE_OAUTH_SLACK_CLIENT_ID',
+    clientSecret: 'SOURCE_OAUTH_SLACK_CLIENT_SECRET',
+    baseUrl: 'SOURCE_OAUTH_SLACK_BASE_URL',
   },
 };
 

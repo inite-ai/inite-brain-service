@@ -1924,6 +1924,60 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the Atlassian (auth.atlassian.com + api.atlassian.com) counterpart.',
   },
   {
+    key: 'SOURCE_KIND_SLACK',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `slack` source connector (source plane, W4.7 — chat): the channels a Slack app is a member of, through the Web API as the connected workspace's bot token (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_SLACK_CLIENT_ID) or a bot token pasted as the credential. One catalogue row per message (ts + edit ts as the revision), `conversations.history` newest first from `since` on a first walk and from the checkpoint's newest ts after, roots with replies followed into `conversations.replies`; every message enters the mention door as one turn of its channel or thread (chat_memory: `slack`) — the author as the speaker, mrkdwn reduced to text, mentions resolved to names, files named. Off (default) = 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_KIND_TELEGRAM',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `telegram` source connector (source plane, W4.7 — chat): the groups, supergroups and channels a Telegram bot is in, read through the Bot API's getUpdates with the bot token as the credential — a FEED: Telegram keeps an update 24 hours and the brain acknowledges what it read by moving the offset, so nothing is re-read and nothing is ever marked gone (readsOnlyNew; a full walk is an incremental one). Every message enters the mention door as one turn of its chat or forum topic (chat_memory: `telegram`), the sender as the speaker, media named. A bot with a webhook set answers 409 — remove it to poll. Off (default) = 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_TELEGRAM_API_BASE',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Dev/test only — swaps https://api.telegram.org for a fake Bot API (the `telegram` connector); the fetches then need the private-egress opt-in (SOURCE_EGRESS_ALLOW_PRIVATE). Unset in production.',
+  },
+  {
+    key: 'SOURCE_OAUTH_SLACK_CLIENT_ID',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The client id of the Slack app the brain connects workspaces through (api.slack.com/apps; the brain's callback URL as a redirect URL; the bot scopes channels:history, channels:read, groups:history, groups:read, users:read). OAuth v2: the answer is the workspace's bot token, no expiry (token rotation is not supported), no PKCE. Unset = Slack is 'not configured' — a bot token can still be pasted as the credential.",
+  },
+  {
+    key: 'SOURCE_OAUTH_SLACK_CLIENT_SECRET',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description: 'The client secret of the Slack app named by SOURCE_OAUTH_SLACK_CLIENT_ID.',
+  },
+  {
+    key: 'SOURCE_OAUTH_SLACK_BASE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the Slack (slack.com OAuth + Web API) counterpart.',
+  },
+  {
     key: 'SOURCE_KIND_REST_RECORDS',
     category: 'pipeline',
     defaultValue: '0',

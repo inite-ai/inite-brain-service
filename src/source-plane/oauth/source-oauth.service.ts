@@ -605,7 +605,8 @@ export class SourceOAuthService {
     } catch {
       throw new Error(`token endpoint answered ${res.status} with a non-JSON body`);
     }
-    if (res.status !== 200 || typeof json.access_token !== 'string') {
+    // Slack answers 200 with `ok: false` and the error beside it.
+    if (res.status !== 200 || typeof json.access_token !== 'string' || json.ok === false) {
       const err = typeof json.error === 'string' ? json.error : `http ${res.status}`;
       const desc = typeof json.error_description === 'string' ? `: ${json.error_description}` : '';
       throw new Error(`${err}${desc}`);

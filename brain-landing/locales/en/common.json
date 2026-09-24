@@ -663,6 +663,10 @@
           "title": "Mail",
           "body": "Mailboxes read as conversations — every message one turn of its thread, attachments to the evidence plane — a Gmail account or any mailbox over IMAP."
         },
+        "chat": {
+          "title": "Chat",
+          "body": "Channels and groups as conversations — every message one turn of its channel or thread — a Slack workspace, or a Telegram bot in your groups."
+        },
         "mcp": {
           "title": "MCP servers",
           "body": "Resources an MCP server serves — a wiki, a knowledge base, a CMS behind an MCP endpoint — signed in as an account when the server asks."
@@ -1031,13 +1035,17 @@
           "keyMissing": "The brain has no SOURCE_CREDENTIAL_ENCRYPTION_KEY — tokens are never stored in the clear, so no account can be connected until it is set.",
           "scopesShort": "This account was connected with narrower permissions; connect it again.",
           "token": "or an API token",
-          "tokenHint": "Pasted once, stored encrypted; a connected account is preferred where the CRM offers one.",
+          "tokenHint": "Pasted once, stored encrypted; a connected account is preferred where the vendor offers one.",
           "webhookUrl": "Inbound webhook URL",
           "webhookUrlHint": "https://<portal>.bitrix24.ru/rest/<user>/<code>/ — made in Developer resources → Other → Inbound webhook, scope crm (+ user for owner names). The code is the secret: stored encrypted, never shown again.",
           "webhookUrlAlt": "or an inbound webhook URL (one portal, no app)",
           "longLivedToken": "Long-lived token",
           "longLivedTokenHint": "From the private integration in Settings → Integrations (valid for years). Stored encrypted, never shown again.",
           "longLivedTokenAlt": "or a long-lived token (private integration)",
+          "botTokenAlt": "or a bot token (xoxb-…) of an app already installed",
+          "botTokenAltHint": "Pasted once, stored encrypted. The app still needs its bot scopes and an /invite into each channel.",
+          "botToken": "Bot token",
+          "botTokenHint": "From @BotFather (123456:ABC-…). Give the bot the group and turn its privacy mode off (or make it an admin) so it sees the messages. Stored encrypted, never shown again.",
           "password": "Password",
           "passwordHint": "The mailbox password — an app password where the provider issues one (Gmail, Outlook, Yandex). Stored encrypted, never shown again.",
           "jwtBearer": "or a JWT bearer (integration user)",
@@ -1192,6 +1200,34 @@
             "maxFileBytes": {
               "label": "Max attachment size (bytes)",
               "hint": "Attachments entry only. Default 8 MB."
+            }
+          },
+          "slack": {
+            "channels": {
+              "label": "Channels",
+              "hint": "Channel names or ids, one per line. Empty = every channel the app is a member of. Invite it first: /invite @your-app."
+            },
+            "since": {
+              "label": "Since",
+              "hint": "The first walk reads messages after this date (YYYY-MM-DD). Default: 30 days back."
+            },
+            "includeThreads": {
+              "label": "Follow threads",
+              "hint": "Replies land in the same conversation as their root."
+            },
+            "maxMessages": {
+              "label": "Max messages per channel per run",
+              "hint": "Newest first. Default 2000."
+            }
+          },
+          "telegram": {
+            "chats": {
+              "label": "Chats",
+              "hint": "Chat ids, @usernames or titles, one per line. Empty = every chat the bot is in."
+            },
+            "maxMessages": {
+              "label": "Max updates per run",
+              "hint": "Default 2000."
             }
           },
           "imap": {
@@ -1624,6 +1660,26 @@
           "shapes": {
             "document": "Messages",
             "documentHint": "each message one turn of its thread",
+            "binary": "",
+            "binaryHint": ""
+          }
+        },
+        "slack": {
+          "title": "Slack",
+          "body": "The channels a Slack app is a member of — every message one turn of its channel or thread, the author as the speaker, mentions and links resolved, files named.",
+          "shapes": {
+            "document": "Messages",
+            "documentHint": "each message one turn of its channel or thread",
+            "binary": "",
+            "binaryHint": ""
+          }
+        },
+        "telegram": {
+          "title": "Telegram (bot)",
+          "body": "The groups and channels your bot is in, read as they arrive — a feed: what the bot did not catch is gone from Telegram, and nothing here is ever marked missing.",
+          "shapes": {
+            "document": "Messages",
+            "documentHint": "each message one turn of its chat or topic",
             "binary": "",
             "binaryHint": ""
           }

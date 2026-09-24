@@ -467,6 +467,7 @@ export const SourceOAuthProviderIdSchema = z.enum([
   'kommo',
   'notion',
   'atlassian',
+  'slack',
 ]);
 
 export const SourceOAuthStartRequestSchema = z.object({

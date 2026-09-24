@@ -85,7 +85,11 @@ export class SourceSyncService {
       await this.connections.recordSync(companyId, connectionId, { status: 'failed', error });
       return { ...base('incremental'), status: 'failed', error };
     }
-    const full = opts.full === true || row.checkpoint == null || connector.walksEverything === true;
+    // A feed with no history (readsOnlyNew) is never walked fully: what it
+    // did not re-emit is not gone, it is merely past.
+    const full =
+      connector.readsOnlyNew !== true &&
+      (opts.full === true || row.checkpoint == null || connector.walksEverything === true);
     const summary = base(full ? 'full' : 'incremental');
     const runStartedAt = new Date();
     // The credential is resolved before the run — a revoked account, a

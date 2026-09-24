@@ -1,8 +1,8 @@
-'use client'
+'use client';
 
-import { useCallback, useMemo, useState } from 'react'
-import { Check, ChevronLeft, ChevronRight, Laptop, Loader2, Plug, Server } from 'lucide-react'
-import { Field, Modal, inputCls } from '../policies/ui'
+import { useCallback, useMemo, useState } from 'react';
+import { Check, ChevronLeft, ChevronRight, Laptop, Loader2, Plug, Server } from 'lucide-react';
+import { Field, Modal, inputCls } from '../policies/ui';
 import {
   SOURCE_DELETE_POLICIES,
   SOURCE_SCHEDULES,
@@ -12,16 +12,16 @@ import {
   type SourceContentPolicy,
   type SourceDeletePolicy,
   type SourceSchedule,
-} from '../../../lib/contracts/admin-source-connections'
-import { PROXY, errorMessage, fill, type ConnectionsT } from './shared'
-import { AccountPicker } from './create/AccountPicker'
-import { ConnectorFields } from './create/ConnectorFields'
-import { DbEntitiesFields } from './create/DbEntitiesFields'
-import { FolderPicker } from './create/FolderPicker'
-import { RecordsFields, initialRecords, type RecordsChoice } from './create/RecordsFields'
-import { RestApiDescribe } from './create/RestApiDescribe'
-import { kindTitle } from './KindLabel'
-import { cardWords, entriesFor, shapeChoices, type ShapeChoice, type SourceCard } from './kinds'
+} from '../../../lib/contracts/admin-source-connections';
+import { PROXY, errorMessage, fill, type ConnectionsT } from './shared';
+import { AccountPicker } from './create/AccountPicker';
+import { ConnectorFields } from './create/ConnectorFields';
+import { DbEntitiesFields } from './create/DbEntitiesFields';
+import { FolderPicker } from './create/FolderPicker';
+import { RecordsFields, initialRecords, type RecordsChoice } from './create/RecordsFields';
+import { RestApiDescribe } from './create/RestApiDescribe';
+import { kindTitle } from './KindLabel';
+import { cardWords, entriesFor, shapeChoices, type ShapeChoice, type SourceCard } from './kinds';
 import {
   AGENT_ID,
   EMPTY_SECRET,
@@ -38,10 +38,10 @@ import {
   type FormValues,
   type OAuthAlternative,
   type SecretValues,
-} from './create/specs'
+} from './create/specs';
 
-type Step = 'where' | 'source' | 'sync'
-const STEPS: Step[] = ['where', 'source', 'sync']
+type Step = 'where' | 'source' | 'sync';
+const STEPS: Step[] = ['where', 'source', 'sync'];
 
 /**
  * Connecting a source is three questions, asked in order: where it runs
@@ -59,46 +59,46 @@ export function ConnectionCreateModal({
   onClose,
   onCreated,
 }: {
-  card: SourceCard
-  catalog: SourceCatalogResponse
+  card: SourceCard;
+  catalog: SourceCatalogResponse;
   /** The agents that have checked in — offered under the agent id field, not required. */
-  knownAgents?: string[]
-  t: ConnectionsT
-  onClose: () => void
+  knownAgents?: string[];
+  t: ConnectionsT;
+  onClose: () => void;
   /** One connection, or two when the operator wanted documents AND files. */
-  onCreated: (created: SourceConnection[]) => void
+  onCreated: (created: SourceConnection[]) => void;
 }) {
-  const f = t.form
-  const choices = useMemo(() => shapeChoices(card), [card])
-  const [shape, setShape] = useState<ShapeChoice | null>(choices.length > 0 ? 'document' : null)
+  const f = t.form;
+  const choices = useMemo(() => shapeChoices(card), [card]);
+  const [shape, setShape] = useState<ShapeChoice | null>(choices.length > 0 ? 'document' : null);
   // The entry the form is built on: same connector for every shape, so the
   // fields are the same; policies are read per entry at submit.
-  const entry = useMemo(() => entriesFor(card, shape)[0] ?? card.entries[0]!, [card, shape])
-  const form = useMemo(() => formFor(entry), [entry])
-  const canChoose = entry.hosts.length > 1
-  const [step, setStep] = useState<Step>('where')
-  const [host, setHost] = useState<'server' | 'agent'>(entry.hosts[0] ?? 'server')
-  const [agentId, setAgentId] = useState('')
-  const [label, setLabel] = useState('')
-  const [values, setValues] = useState<FormValues>(() => (form ? initialValues(form, entry) : {}))
-  const [secret, setSecret] = useState<SecretValues>(EMPTY_SECRET)
-  const [records, setRecords] = useState<RecordsChoice>(() => initialRecords(entry))
-  const [advanced, setAdvanced] = useState(false)
-  const [json, setJson] = useState<string | null>(null)
-  const [touched, setTouched] = useState(false)
-  const [schedule, setSchedule] = useState<SourceSchedule>(entry.defaults.schedule)
+  const entry = useMemo(() => entriesFor(card, shape)[0] ?? card.entries[0]!, [card, shape]);
+  const form = useMemo(() => formFor(entry), [entry]);
+  const canChoose = entry.hosts.length > 1;
+  const [step, setStep] = useState<Step>('where');
+  const [host, setHost] = useState<'server' | 'agent'>(entry.hosts[0] ?? 'server');
+  const [agentId, setAgentId] = useState('');
+  const [label, setLabel] = useState('');
+  const [values, setValues] = useState<FormValues>(() => (form ? initialValues(form, entry) : {}));
+  const [secret, setSecret] = useState<SecretValues>(EMPTY_SECRET);
+  const [records, setRecords] = useState<RecordsChoice>(() => initialRecords(entry));
+  const [advanced, setAdvanced] = useState(false);
+  const [json, setJson] = useState<string | null>(null);
+  const [touched, setTouched] = useState(false);
+  const [schedule, setSchedule] = useState<SourceSchedule>(entry.defaults.schedule);
   // "Content" is text for a document entry and bytes for a binary one —
   // the operator chooses between taking content and cataloguing only.
   const [take, setTake] = useState<'content' | 'manifest'>(
     entry.defaults.contentPolicy === 'manifest' ? 'manifest' : 'content',
-  )
-  const [deletePolicy, setDeletePolicy] = useState<SourceDeletePolicy>(entry.defaults.deletePolicy)
-  const [fetchBudget, setFetchBudget] = useState('')
-  const [ownerUserId, setOwnerUserId] = useState('')
-  const [vertical, setVertical] = useState(entry.packId)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [picking, setPicking] = useState(false)
+  );
+  const [deletePolicy, setDeletePolicy] = useState<SourceDeletePolicy>(entry.defaults.deletePolicy);
+  const [fetchBudget, setFetchBudget] = useState('');
+  const [ownerUserId, setOwnerUserId] = useState('');
+  const [vertical, setVertical] = useState(entry.packId);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
 
   const ctx: FormContext = useMemo(
     () => ({
@@ -109,48 +109,48 @@ export function ConnectionCreateModal({
       ...(host === 'agent' && AGENT_ID.test(agentId.trim()) ? { agentId: agentId.trim() } : {}),
     }),
     [host, entry, catalog, agentId],
-  )
+  );
   const errors: Record<string, FieldError> = useMemo(
     () => (form && json === null ? validate(form, values, ctx, secret) : {}),
     [form, values, ctx, secret, json],
-  )
-  const whereOk = host === 'server' || AGENT_ID.test(agentId.trim())
-  const sourceOk = Object.keys(errors).length === 0
-  const shownErrors = touched ? errors : {}
+  );
+  const whereOk = host === 'server' || AGENT_ID.test(agentId.trim());
+  const sourceOk = Object.keys(errors).length === 0;
+  const shownErrors = touched ? errors : {};
 
   const assembledConfig = useCallback((): Record<string, unknown> => {
-    if (json !== null) return JSON.parse(json) as Record<string, unknown>
-    return form ? configFrom(form, values, ctx) : {}
-  }, [form, values, ctx, json])
+    if (json !== null) return JSON.parse(json) as Record<string, unknown>;
+    return form ? configFrom(form, values, ctx) : {};
+  }, [form, values, ctx, json]);
 
   const next = useCallback(() => {
-    if (step === 'where' && !whereOk) return
+    if (step === 'where' && !whereOk) return;
     if (step === 'source' && !sourceOk) {
-      setTouched(true)
-      return
+      setTouched(true);
+      return;
     }
-    setError(null)
-    setStep(STEPS[Math.min(STEPS.indexOf(step) + 1, STEPS.length - 1)] ?? 'sync')
-  }, [step, whereOk, sourceOk])
+    setError(null);
+    setStep(STEPS[Math.min(STEPS.indexOf(step) + 1, STEPS.length - 1)] ?? 'sync');
+  }, [step, whereOk, sourceOk]);
 
   const back = useCallback(() => {
-    setError(null)
-    setStep(STEPS[Math.max(STEPS.indexOf(step) - 1, 0)] ?? 'where')
-  }, [step])
+    setError(null);
+    setStep(STEPS[Math.max(STEPS.indexOf(step) - 1, 0)] ?? 'where');
+  }, [step]);
 
   const submit = useCallback(async () => {
-    let config: Record<string, unknown>
+    let config: Record<string, unknown>;
     try {
-      config = assembledConfig()
+      config = assembledConfig();
     } catch {
-      setError(f.invalidJson)
-      return
+      setError(f.invalidJson);
+      return;
     }
-    setBusy(true)
-    setError(null)
+    setBusy(true);
+    setError(null);
     try {
-      const targets = entriesFor(card, shape)
-      const created: SourceConnection[] = []
+      const targets = entriesFor(card, shape);
+      const created: SourceConnection[] = [];
       for (const target of targets) {
         const body: Record<string, unknown> = {
           packId: target.packId,
@@ -172,34 +172,35 @@ export function ConnectionCreateModal({
           schedule,
           // "Content" means text for a document entry and bytes for a
           // binary one; "catalogue only" is manifest for both.
-          contentPolicy: take === 'manifest' ? 'manifest' : target.shape === 'binary' ? 'bytes' : 'text',
+          contentPolicy:
+            take === 'manifest' ? 'manifest' : target.shape === 'binary' ? 'bytes' : 'text',
           deletePolicy,
           ...(host === 'agent' ? { host: `agent:${agentId.trim()}` } : {}),
-        }
+        };
         if (label.trim()) {
           body.label =
             targets.length > 1
               ? `${label.trim()} · ${target.shape === 'binary' ? f.shape.binary : f.shape.document}`
-              : label.trim()
+              : label.trim();
         }
-        const credential = form ? credentialFrom(form, secret) : undefined
-        if (credential) body.credential = credential
-        if (fetchBudget.trim()) body.fetchBudget = Number(fetchBudget)
-        if (ownerUserId.trim()) body.ownerUserId = ownerUserId.trim()
+        const credential = form ? credentialFrom(form, secret) : undefined;
+        if (credential) body.credential = credential;
+        if (fetchBudget.trim()) body.fetchBudget = Number(fetchBudget);
+        if (ownerUserId.trim()) body.ownerUserId = ownerUserId.trim();
         const res = await fetch(PROXY, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
-        })
-        const out = await res.json()
-        if (!res.ok) throw new Error(errorMessage(out, res.status))
-        created.push(out as SourceConnection)
+        });
+        const out = await res.json();
+        if (!res.ok) throw new Error(errorMessage(out, res.status));
+        created.push(out as SourceConnection);
       }
-      onCreated(created)
+      onCreated(created);
     } catch (e) {
-      setError((e as Error).message)
+      setError((e as Error).message);
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }, [
     records,
@@ -219,22 +220,20 @@ export function ConnectionCreateModal({
     shape,
     take,
     vertical,
-  ])
+  ]);
 
-  const kind = t.kinds[card.family]
+  const kind = t.kinds[card.family];
   // The same words as the card: the vendor's name, the pack's own line for a vendor or a push door.
   const words = cardWords(card, {
     title: kindTitle(t, card.family, card.connector),
     body: kind.body,
-  })
+  });
   return (
     <Modal title={fill(t.create.title, { title: words.title })} onClose={onClose} wide>
       <div className="mb-3 text-[11px] text-[var(--text-muted)]">
         {words.body || entry.description}
         <div className="mt-1 font-mono text-[10px] text-[var(--text-faint)]">
-          {card.packId}
-          {' '}
-          {card.packVersion}
+          {card.packId} {card.packVersion}
         </div>
       </div>
 
@@ -262,7 +261,11 @@ export function ConnectionCreateModal({
               </div>
             ) : (
               <div className="flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--bg)] p-3 text-xs text-[var(--text)]">
-                {host === 'agent' ? <Laptop className="w-4 h-4 text-[var(--accent)]" /> : <Server className="w-4 h-4 text-[var(--accent)]" />}
+                {host === 'agent' ? (
+                  <Laptop className="w-4 h-4 text-[var(--accent)]" />
+                ) : (
+                  <Server className="w-4 h-4 text-[var(--accent)]" />
+                )}
                 <span>{host === 'agent' ? f.host.agentOnly : f.host.serverOnly}</span>
               </div>
             )}
@@ -287,7 +290,11 @@ export function ConnectionCreateModal({
                 </Field>
               )}
               <Field label={f.label} hint={f.labelHint}>
-                <input value={label} onChange={(e) => setLabel(e.target.value)} className={inputCls} />
+                <input
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  className={inputCls}
+                />
               </Field>
             </div>
           </div>
@@ -301,7 +308,10 @@ export function ConnectionCreateModal({
               options={choices.map((c) => ({
                 value: c,
                 title: c === 'both' ? t.kinds.both : kind.shapes[c],
-                body: c === 'both' ? t.kinds.bothHint : kind.shapes[c === 'binary' ? 'binaryHint' : 'documentHint'],
+                body:
+                  c === 'both'
+                    ? t.kinds.bothHint
+                    : kind.shapes[c === 'binary' ? 'binaryHint' : 'documentHint'],
               }))}
               onChange={setShape}
               columns={3}
@@ -335,7 +345,11 @@ export function ConnectionCreateModal({
             <Cards<SourceSchedule>
               title={f.schedule.title}
               value={schedule}
-              options={SOURCE_SCHEDULES.map((s) => ({ value: s, title: f.schedule[s].title, body: f.schedule[s].body }))}
+              options={SOURCE_SCHEDULES.map((s) => ({
+                value: s,
+                title: f.schedule[s].title,
+                body: f.schedule[s].body,
+              }))}
               onChange={setSchedule}
               columns={5}
             />
@@ -351,7 +365,11 @@ export function ConnectionCreateModal({
                       ? `${f.content.text.body} ${f.content.bytes.body}`
                       : f.content[contentOf(entry)].body,
                 },
-                { value: 'manifest', title: f.content.manifest.title, body: f.content.manifest.body },
+                {
+                  value: 'manifest',
+                  title: f.content.manifest.title,
+                  body: f.content.manifest.body,
+                },
               ]}
               onChange={setTake}
               columns={2}
@@ -359,7 +377,11 @@ export function ConnectionCreateModal({
             <Cards<SourceDeletePolicy>
               title={f.onDelete.title}
               value={deletePolicy}
-              options={SOURCE_DELETE_POLICIES.map((p) => ({ value: p, title: f.onDelete[p].title, body: f.onDelete[p].body }))}
+              options={SOURCE_DELETE_POLICIES.map((p) => ({
+                value: p,
+                title: f.onDelete[p].title,
+                body: f.onDelete[p].body,
+              }))}
               onChange={setDeletePolicy}
               columns={3}
             />
@@ -407,8 +429,8 @@ export function ConnectionCreateModal({
           t={t}
           onClose={() => setPicking(false)}
           onPick={(root, include) => {
-            setValues((prev) => ({ ...prev, root, include: include.join('\n') }))
-            setPicking(false)
+            setValues((prev) => ({ ...prev, root, include: include.join('\n') }));
+            setPicking(false);
           }}
         />
       )}
@@ -456,21 +478,21 @@ export function ConnectionCreateModal({
         </div>
       </div>
     </Modal>
-  )
+  );
 }
 
 /** What "content" means for the entry's shape: text for documents, bytes for files. */
 function contentOf(entry: SourceCatalogEntry): SourceContentPolicy {
-  return entry.shape === 'binary' ? 'bytes' : 'text'
+  return entry.shape === 'binary' ? 'bytes' : 'text';
 }
 
 function Stepper({ step, t }: { step: Step; t: ConnectionsT }) {
-  const idx = STEPS.indexOf(step)
+  const idx = STEPS.indexOf(step);
   return (
     <ol className="flex items-center gap-2 text-[11px]">
       {STEPS.map((s, i) => {
-        const done = i < idx
-        const active = i === idx
+        const done = i < idx;
+        const active = i === idx;
         return (
           <li key={s} className="flex items-center gap-2">
             <span
@@ -484,13 +506,15 @@ function Stepper({ step, t }: { step: Step; t: ConnectionsT }) {
             >
               {done ? <Check className="w-3 h-3" /> : i + 1}
             </span>
-            <span className={active ? 'text-[var(--text)]' : 'text-[var(--text-muted)]'}>{t.form.steps[s]}</span>
+            <span className={active ? 'text-[var(--text)]' : 'text-[var(--text-muted)]'}>
+              {t.form.steps[s]}
+            </span>
             {i < STEPS.length - 1 && <span className="w-6 border-t border-[var(--border)]" />}
           </li>
-        )
+        );
       })}
     </ol>
-  )
+  );
 }
 
 function HostCard({
@@ -500,11 +524,11 @@ function HostCard({
   selected,
   onSelect,
 }: {
-  icon: React.ReactNode
-  title: string
-  body: string
-  selected: boolean
-  onSelect: () => void
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+  selected: boolean;
+  onSelect: () => void;
 }) {
   return (
     <button
@@ -517,12 +541,14 @@ function HostCard({
       }`}
     >
       <div className="flex items-center gap-2 text-xs font-medium text-[var(--text)]">
-        <span className={selected ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'}>{icon}</span>
+        <span className={selected ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'}>
+          {icon}
+        </span>
         {title}
       </div>
       <p className="mt-1 text-[10px] text-[var(--text-muted)]">{body}</p>
     </button>
-  )
+  );
 }
 
 function Cards<T extends string>({
@@ -532,19 +558,22 @@ function Cards<T extends string>({
   onChange,
   columns,
 }: {
-  title: string
-  value: T
-  options: Array<{ value: T; title: string; body: string }>
-  onChange: (v: T) => void
-  columns: number
+  title: string;
+  value: T;
+  options: Array<{ value: T; title: string; body: string }>;
+  onChange: (v: T) => void;
+  columns: number;
 }) {
-  const cols = columns >= 5 ? 'md:grid-cols-5' : columns === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'
+  const cols =
+    columns >= 5 ? 'md:grid-cols-5' : columns === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2';
   return (
     <div>
-      <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)]">{title}</div>
+      <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)]">
+        {title}
+      </div>
       <div className={`grid grid-cols-1 ${cols} gap-2`}>
         {options.map((o) => {
-          const selected = o.value === value
+          const selected = o.value === value;
           return (
             <button
               key={o.value}
@@ -557,13 +586,15 @@ function Cards<T extends string>({
               }`}
             >
               <div className="text-xs text-[var(--text)]">{o.title}</div>
-              {o.body && <div className="mt-0.5 text-[10px] text-[var(--text-muted)]">{o.body}</div>}
+              {o.body && (
+                <div className="mt-0.5 text-[10px] text-[var(--text-muted)]">{o.body}</div>
+              )}
             </button>
-          )
+          );
         })}
       </div>
     </div>
-  )
+  );
 }
 
 function SourceStep({
@@ -585,27 +616,27 @@ function SourceStep({
   onJson,
   assembledConfig,
 }: {
-  entry: SourceCatalogEntry
-  ctx: FormContext
-  form: ReturnType<typeof formFor>
-  values: FormValues
-  errors: Record<string, FieldError>
-  secret: SecretValues
-  advanced: boolean
-  json: string | null
-  t: ConnectionsT
-  onValue: (key: string, value: string | boolean) => void
-  onBrowse: () => void
-  onSecret: (s: SecretValues) => void
-  records: RecordsChoice
-  onRecords: (r: RecordsChoice) => void
-  onAdvanced: (v: boolean) => void
-  onJson: (v: string | null) => void
-  assembledConfig: () => Record<string, unknown>
+  entry: SourceCatalogEntry;
+  ctx: FormContext;
+  form: ReturnType<typeof formFor>;
+  values: FormValues;
+  errors: Record<string, FieldError>;
+  secret: SecretValues;
+  advanced: boolean;
+  json: string | null;
+  t: ConnectionsT;
+  onValue: (key: string, value: string | boolean) => void;
+  onBrowse: () => void;
+  onSecret: (s: SecretValues) => void;
+  records: RecordsChoice;
+  onRecords: (r: RecordsChoice) => void;
+  onAdvanced: (v: boolean) => void;
+  onJson: (v: string | null) => void;
+  assembledConfig: () => Record<string, unknown>;
 }) {
-  const f = t.form
+  const f = t.form;
   if (entry.kind === 'external') {
-    return <p className="text-xs text-[var(--text-muted)]">{f.external}</p>
+    return <p className="text-xs text-[var(--text-muted)]">{f.external}</p>;
   }
   if (entry.mcp?.transport === 'stdio') {
     return (
@@ -615,7 +646,7 @@ function SourceStep({
           {[entry.mcp.command, ...entry.mcp.args].join(' ')}
         </pre>
       </div>
-    )
+    );
   }
   if (!form) {
     return (
@@ -625,20 +656,24 @@ function SourceStep({
         onChange={onJson}
         t={t}
       />
-    )
+    );
   }
   if (json !== null) {
     return (
       <div className="space-y-2">
         <JsonEditor hint={f.jsonHint} value={json} onChange={onJson} t={t} />
-        <button type="button" onClick={() => onJson(null)} className="text-[11px] text-[var(--accent)]">
+        <button
+          type="button"
+          onClick={() => onJson(null)}
+          className="text-[11px] text-[var(--accent)]"
+        >
           {f.editForm}
         </button>
       </div>
-    )
+    );
   }
-  const fields = visibleFields(form, values, ctx, advanced)
-  const dbProposal = entry.connector === 'db' ? dbProposalOf(String(values['entities'] ?? '')) : []
+  const fields = visibleFields(form, values, ctx, advanced);
+  const dbProposal = entry.connector === 'db' ? dbProposalOf(String(values['entities'] ?? '')) : [];
   return (
     <div className="space-y-3">
       {entry.mcp?.transport === 'http' && entry.mcp.url && (
@@ -649,11 +684,27 @@ function SourceStep({
       {entry.mcp?.auth === 'install_secret' && (
         <p className="text-[11px] text-[var(--text-muted)]">{f.installSecret}</p>
       )}
-      {entry.mcp?.auth === 'oauth' && <p className="text-[11px] text-[var(--text-muted)]">{f.oauth}</p>}
-      {entry.connector === 'db' && (
-        <DbEntitiesFields values={values} errors={errors} agentId={ctx.agentId ?? ''} t={t} onChange={onValue} />
+      {entry.mcp?.auth === 'oauth' && (
+        <p className="text-[11px] text-[var(--text-muted)]">{f.oauth}</p>
       )}
-      <ConnectorFields fields={fields} values={values} errors={errors} ctx={ctx} t={t} onChange={onValue} onBrowse={onBrowse} />
+      {entry.connector === 'db' && (
+        <DbEntitiesFields
+          values={values}
+          errors={errors}
+          agentId={ctx.agentId ?? ''}
+          t={t}
+          onChange={onValue}
+        />
+      )}
+      <ConnectorFields
+        fields={fields}
+        values={values}
+        errors={errors}
+        ctx={ctx}
+        t={t}
+        onChange={onValue}
+        onBrowse={onBrowse}
+      />
       {form.credential?.kind === 'oauth' && entry.oauth && ctx.host === 'server' && (
         <AccountPicker
           entry={entry}
@@ -668,7 +719,10 @@ function SourceStep({
       {form.credential?.kind === 'oauth' &&
         form.credential.alternative &&
         form.credential.alternative !== 'jwtBearer' && (
-          <Field label={alternativeLabel(f.credential, form.credential.alternative)} hint={alternativeHint(f.credential, form.credential.alternative)}>
+          <Field
+            label={alternativeLabel(f.credential, form.credential.alternative)}
+            hint={alternativeHint(f.credential, form.credential.alternative)}
+          >
             <input
               type="password"
               value={secret.single}
@@ -694,7 +748,13 @@ function SourceStep({
         </Field>
       )}
       {entry.records && entry.connector === 'rest_records' && (
-        <RestApiDescribe entry={entry} value={records} config={assembledConfig()} t={t} onChange={onRecords} />
+        <RestApiDescribe
+          entry={entry}
+          value={records}
+          config={assembledConfig()}
+          t={t}
+          onChange={onRecords}
+        />
       )}
       {entry.records && entry.connector === 'db' && dbProposal.length > 0 && (
         <RecordsFields
@@ -707,16 +767,18 @@ function SourceStep({
           onChange={onRecords}
         />
       )}
-      {entry.records && entry.connector !== 'db' && (entry.records.entities.length > 0 || records.proposal) && (
-        <RecordsFields
-          entry={entry}
-          value={records}
-          credential={form ? credentialFrom(form, secret) : undefined}
-          config={assembledConfig()}
-          t={t}
-          onChange={onRecords}
-        />
-      )}
+      {entry.records &&
+        entry.connector !== 'db' &&
+        (entry.records.entities.length > 0 || records.proposal) && (
+          <RecordsFields
+            entry={entry}
+            value={records}
+            credential={form ? credentialFrom(form, secret) : undefined}
+            config={assembledConfig()}
+            t={t}
+            onChange={onRecords}
+          />
+        )}
       {form.credential && form.credential.kind !== 'oauth' && form.credential.shown(values) && (
         <CredentialFields
           kind={form.credential.kind}
@@ -728,16 +790,20 @@ function SourceStep({
         />
       )}
       <div className="flex items-center gap-3 text-[11px]">
-        <button type="button" onClick={() => onAdvanced(!advanced)} className="text-[var(--accent)]">
+        <button
+          type="button"
+          onClick={() => onAdvanced(!advanced)}
+          className="text-[var(--accent)]"
+        >
           {advanced ? f.advancedHide : f.advanced}
         </button>
         <button
           type="button"
           onClick={() => {
             try {
-              onJson(JSON.stringify(assembledConfig(), null, 2))
+              onJson(JSON.stringify(assembledConfig(), null, 2));
             } catch {
-              onJson('{}')
+              onJson('{}');
             }
           }}
           className="text-[var(--text-muted)] hover:text-[var(--text)]"
@@ -746,7 +812,7 @@ function SourceStep({
         </button>
       </div>
     </div>
-  )
+  );
 }
 
 function CredentialFields({
@@ -757,14 +823,14 @@ function CredentialFields({
   t,
   onChange,
 }: {
-  kind: 'single' | 'pair'
-  label?: CredentialLabel | undefined
-  secret: SecretValues
-  error: string | null
-  t: ConnectionsT
-  onChange: (s: SecretValues) => void
+  kind: 'single' | 'pair';
+  label?: CredentialLabel | undefined;
+  secret: SecretValues;
+  error: string | null;
+  t: ConnectionsT;
+  onChange: (s: SecretValues) => void;
 }) {
-  const c = t.form.credential
+  const c = t.form.credential;
   if (kind === 'pair') {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -786,10 +852,10 @@ function CredentialFields({
           />
         </Field>
       </div>
-    )
+    );
   }
-  const named = label ? c[label] : c.single
-  const namedHint = label ? c[`${label}Hint`] : c.singleHint
+  const named = label ? c[label] : c.single;
+  const namedHint = label ? c[`${label}Hint`] : c.singleHint;
   return (
     <Field label={named} hint={error ?? namedHint} error={!!error}>
       <input
@@ -800,7 +866,7 @@ function CredentialFields({
         className={`${inputCls} font-mono`}
       />
     </Field>
-  )
+  );
 }
 
 function JsonEditor({
@@ -809,16 +875,16 @@ function JsonEditor({
   onChange,
   t,
 }: {
-  hint: string
-  value: string
-  onChange: (v: string) => void
-  t: ConnectionsT
+  hint: string;
+  value: string;
+  onChange: (v: string) => void;
+  t: ConnectionsT;
 }) {
-  let invalid = false
+  let invalid = false;
   try {
-    JSON.parse(value)
+    JSON.parse(value);
   } catch {
-    invalid = true
+    invalid = true;
   }
   return (
     <Field label="config" hint={invalid ? t.form.invalidJson : hint} error={invalid}>
@@ -830,18 +896,20 @@ function JsonEditor({
         className={`${inputCls} font-mono`}
       />
     </Field>
-  )
+  );
 }
 
 /** "or an API token" / "or an inbound webhook URL" / "or a long-lived token" — the alternative to a connected account, by its kind. */
 function alternativeLabel(c: ConnectionsT['form']['credential'], alt: OAuthAlternative): string {
-  if (alt === 'webhookUrl') return c.webhookUrlAlt
-  if (alt === 'longLivedToken') return c.longLivedTokenAlt
-  return c.token
+  if (alt === 'webhookUrl') return c.webhookUrlAlt;
+  if (alt === 'longLivedToken') return c.longLivedTokenAlt;
+  if (alt === 'botToken') return c.botTokenAlt;
+  return c.token;
 }
 
 function alternativeHint(c: ConnectionsT['form']['credential'], alt: OAuthAlternative): string {
-  if (alt === 'webhookUrl') return c.webhookUrlHint
-  if (alt === 'longLivedToken') return c.longLivedTokenHint
-  return c.tokenHint
+  if (alt === 'webhookUrl') return c.webhookUrlHint;
+  if (alt === 'longLivedToken') return c.longLivedTokenHint;
+  if (alt === 'botToken') return c.botTokenAltHint;
+  return c.tokenHint;
 }

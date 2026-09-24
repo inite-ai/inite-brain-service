@@ -8351,7 +8351,8 @@
                     "bitrix24",
                     "kommo",
                     "notion",
-                    "atlassian"
+                    "atlassian",
+                    "slack"
                   ],
                   "type": "string"
                 },
@@ -8479,7 +8480,8 @@
               "bitrix24",
               "kommo",
               "notion",
-              "atlassian"
+              "atlassian",
+              "slack"
             ],
             "type": "string"
           }

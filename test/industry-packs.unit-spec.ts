@@ -57,6 +57,7 @@ describe('first-party pack library', () => {
   it('lists the industry packs + real_estate', () => {
     const ids = FIRST_PARTY_PACKS.map((p) => p.id).sort();
     expect(ids).toEqual([
+      'chat_memory',
       'crm_memory',
       'file_memory',
       'fintech',

@@ -1,0 +1,239 @@
+{
+  "id": "chat_memory",
+  "version": "0.1.0",
+  "description": "Chat as memory — what people ask, agree, decide, take on and are blocked by in their channels and threads; the source pack that connects a Slack workspace or a Telegram bot.",
+  "predicates": [
+    {
+      "localId": "asked",
+      "displayLabel": "asked",
+      "description": "TYPE   subject is a person (the author); value is what they asked the channel for\nADMIT  the message asks for something concrete — a review, a decision, a file,\n       an answer (\"can someone review the PR\", \"who owns the invoice job?\")\nVALUE  the request, short (\"a review of the PR\")",
+      "datatype": "string",
+      "semantics": "append_only",
+      "decayHalfLifeDays": 30,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "agreed",
+      "displayLabel": "agreed",
+      "description": "TYPE   subject is a person; value is what they agreed to\nADMIT  the author says yes to a proposal, a plan, a date (\"ok, Thursday works\",\n       \"agreed, let's ship v2 first\") — a plain acknowledgement (\"ok\") is NOT an agreement\nVALUE  what was agreed (\"ship v2 first\")",
+      "datatype": "string",
+      "semantics": "append_only",
+      "decayHalfLifeDays": 60,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "decided",
+      "displayLabel": "decided",
+      "description": "TYPE   subject is a person or a team; value is the decision they state\nADMIT  the message states a decision as made — \"we're going with Postgres\",\n       \"launch moves to the 3rd\", \"approved\"\nVALUE  the decision, short (\"go with Postgres\")",
+      "datatype": "string",
+      "semantics": "append_only",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "took_on",
+      "displayLabel": "took on",
+      "description": "TYPE   subject is a person; value is the task they took on\nADMIT  the author takes a task (\"I'll take the migration\", \"on it\", \"mine\") or is\n       explicitly assigned one and does not object\nVALUE  the task (\"the migration\")",
+      "datatype": "string",
+      "semantics": "append_only",
+      "decayHalfLifeDays": 60,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "blocked_by",
+      "displayLabel": "blocked by",
+      "description": "TYPE   subject is a person or a task; value is what blocks it\nADMIT  the message names a blocker — \"blocked on the API key\", \"waiting for legal\",\n       \"can't deploy until the cert is renewed\"\nVALUE  the blocker (\"the API key\")",
+      "datatype": "string",
+      "semantics": "append_only",
+      "decayHalfLifeDays": 30,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "discussed",
+      "displayLabel": "discussed",
+      "description": "TYPE   subject is a person (the author); value is the matter the message is about\nADMIT  the message is clearly about a named matter — a feature, an incident, a\n       customer, a release (\"the checkout bug\", \"the Northwind renewal\")\nVALUE  the matter as named (\"the checkout bug\")",
+      "datatype": "string",
+      "semantics": "append_only",
+      "decayHalfLifeDays": 90,
+      "piiClass": "none",
+      "status": "active"
+    }
+  ],
+  "extractionProfile": {
+    "guidance": "Inputs are CHAT MESSAGES as turns — a channel or a thread, every turn one\nmessage, the author as the speaker, mentions already resolved to names. Treat\neach AUTHOR as one entity and extract what they ASK (chat_memory__asked), AGREE\nTO (chat_memory__agreed), DECIDE (chat_memory__decided), TAKE ON\n(chat_memory__took_on), name as a BLOCKER (chat_memory__blocked_by) and what\nMATTER they write about (chat_memory__discussed). Only what the message SAYS;\na bare \"ok\" or an emoji is nothing. Attachments are named in brackets — a\nnamed file is not a request. Copy names VERBATIM.",
+    "fewShot": [
+      {
+        "text": "Grace Hopper: Can someone review the checkout PR today? I'll take the migration after. We're going with Postgres, decided. Blocked on the API key for staging.",
+        "note": "author 'Grace Hopper' → chat_memory__asked='a review of the checkout PR', chat_memory__took_on='the migration', chat_memory__decided='go with Postgres', chat_memory__blocked_by='the API key for staging', chat_memory__discussed='the checkout PR'."
+      }
+    ]
+  },
+  "evalFixtures": [
+    {
+      "id": "asked",
+      "description": "a request to the channel is captured on the author",
+      "text": "Grace Hopper: Can someone review the checkout PR today?",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "asked",
+            "objectIncludes": "checkout PR"
+          }
+        ]
+      }
+    },
+    {
+      "id": "took_on",
+      "description": "a task the author takes is captured",
+      "text": "Linus Berg: I'll take the migration.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "took_on",
+            "objectIncludes": "migration"
+          }
+        ]
+      }
+    },
+    {
+      "id": "blocked_by",
+      "description": "a named blocker is captured",
+      "text": "Ada Lovelace: Blocked on the API key for staging.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "blocked_by",
+            "objectIncludes": "API key"
+          }
+        ]
+      }
+    }
+  ],
+  "memoryModel": {
+    "attentionHints": [
+      {
+        "cue": "can someone",
+        "prefer": [
+          "asked"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.5
+      },
+      {
+        "cue": "agreed",
+        "prefer": [
+          "agreed",
+          "decided"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.5
+      },
+      {
+        "cue": "decided",
+        "prefer": [
+          "decided"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.6
+      },
+      {
+        "cue": "i'll take",
+        "prefer": [
+          "took_on"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.6
+      },
+      {
+        "cue": "blocked",
+        "prefer": [
+          "blocked_by"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.6
+      },
+      {
+        "cue": "waiting for",
+        "prefer": [
+          "blocked_by"
+        ],
+        "zoom": [
+          "facts"
+        ],
+        "weight": 0.4
+      }
+    ],
+    "retentionHints": [
+      {
+        "predicateOrScene": "asked",
+        "hint": "ephemeral"
+      },
+      {
+        "predicateOrScene": "agreed",
+        "hint": "standard"
+      },
+      {
+        "predicateOrScene": "decided",
+        "hint": "durable"
+      },
+      {
+        "predicateOrScene": "took_on",
+        "hint": "standard"
+      },
+      {
+        "predicateOrScene": "blocked_by",
+        "hint": "ephemeral"
+      },
+      {
+        "predicateOrScene": "discussed",
+        "hint": "ephemeral"
+      }
+    ],
+    "modalities": [
+      "text"
+    ]
+  },
+  "sources": [
+    {
+      "id": "slack",
+      "kind": "native",
+      "connector": "slack",
+      "shape": "conversation",
+      "title": "Slack (channels as conversations)",
+      "description": "The channels a Slack app is a member of — every message one turn of its channel or thread through the mention door: the author as the speaker, mrkdwn reduced to text, mentions resolved, files named; newest first from `since`, then only what is newer than the checkpoint. config: { channels?, since?, maxMessages?, includeThreads? }; credential: a connected workspace, or a bot token (xoxb-…).",
+      "defaults": {
+        "contentPolicy": "text",
+        "deletePolicy": "close",
+        "schedule": "1h"
+      }
+    },
+    {
+      "id": "telegram",
+      "kind": "native",
+      "connector": "telegram",
+      "shape": "conversation",
+      "title": "Telegram (a bot in your groups)",
+      "description": "The groups, supergroups and channels a Telegram bot is in, read through getUpdates as the bot — a feed: what arrives after the bot joined, acknowledged as it is read, never re-read and never marked gone; every message one turn of its chat or topic, the sender as the speaker, media named. config: { chats?, maxMessages? }; credential: the bot token from @BotFather.",
+      "defaults": {
+        "contentPolicy": "text",
+        "deletePolicy": "keep",
+        "schedule": "15m"
+      }
+    }
+  ]
+}

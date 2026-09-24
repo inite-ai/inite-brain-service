@@ -47,6 +47,7 @@ export * from './file-memory.pack';
 export * from './web-memory.pack';
 export * from './crm-memory.pack';
 export * from './mail-memory.pack';
+export * from './chat-memory.pack';
 
 import { REAL_ESTATE_PACK } from './real-estate.pack';
 import { FINTECH_PACK } from './fintech.pack';
@@ -58,6 +59,7 @@ import { FILE_MEMORY_PACK } from './file-memory.pack';
 import { WEB_MEMORY_PACK } from './web-memory.pack';
 import { CRM_MEMORY_PACK } from './crm-memory.pack';
 import { MAIL_MEMORY_PACK } from './mail-memory.pack';
+import { CHAT_MEMORY_PACK } from './chat-memory.pack';
 
 /** First-party distributable packs shipped in-repo (packs/*.json). The industry
  *  ontology library — distinct from BUILTIN_PACKS (globally seeded). */
@@ -72,6 +74,7 @@ export const FIRST_PARTY_PACKS: DomainPackManifest[] = [
   WEB_MEMORY_PACK,
   CRM_MEMORY_PACK,
   MAIL_MEMORY_PACK,
+  CHAT_MEMORY_PACK,
 ];
 
 // Every distributable manifest is validated at module load too (builtins get
