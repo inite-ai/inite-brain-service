@@ -58,6 +58,7 @@ const deployEnv = new Map<string, string | undefined>();
 
 /** Remember what `key` held before the store touches it (first time wins). */
 export function rememberDeployValue(key: string, env: NodeJS.ProcessEnv): void {
+  if (!isSettingKey(key)) return;
   if (!deployEnv.has(key)) deployEnv.set(key, env[key]);
 }
 
@@ -73,6 +74,7 @@ export function hasDeployValue(key: string): boolean {
 
 /** Put the deploy's own value back, for a cleared override. */
 export function restoreDeployValue(key: string, env: NodeJS.ProcessEnv): void {
+  if (!isSettingKey(key)) return;
   const was = deployEnv.get(key);
   if (was === undefined) delete env[key];
   else env[key] = was;
@@ -80,6 +82,20 @@ export function restoreDeployValue(key: string, env: NodeJS.ProcessEnv): void {
 
 /** A write the store refused, with the reason the operator should read. */
 export class SettingRefused extends Error {}
+
+/**
+ * The shape of an environment variable's name, and the only thing this
+ * module will ever write a property for. A row is data — it can be written
+ * straight into the table by anything holding the database — so the name
+ * is checked rather than trusted: `__proto__` and friends are not
+ * environment variables, and `process.env` is still an object.
+ */
+const SETTING_KEY = /^[A-Z][A-Z0-9_]{0,127}$/;
+
+/** Whether `key` is a name this module may write. */
+export function isSettingKey(key: string): boolean {
+  return SETTING_KEY.test(key);
+}
 
 /** One stored override, as the table holds it. */
 export interface StoredSetting {
@@ -106,6 +122,10 @@ export function applyStoredSettings(
 ): string[] {
   const lines: string[] = [];
   for (const row of rows) {
+    if (!isSettingKey(row.key)) {
+      lines.push(`refused a stored row: '${row.key}' is not an environment variable name`);
+      continue;
+    }
     if (SETTINGS_ENV_ONLY.has(row.key)) {
       lines.push(`${row.key}: refused — this key is environment-only`);
       continue;
@@ -169,6 +189,7 @@ export function decodeStoredRows(raw: unknown, env: NodeJS.ProcessEnv): StoredSe
   for (const row of raw) {
     const r = row as Record<string, unknown>;
     if (typeof r.key !== 'string' || typeof r.value !== 'string') continue;
+    if (!isSettingKey(r.key)) continue;
     const secret = r.secret === true;
     // A secret written while the cipher had no key is stored as it
     // arrived; `isEncrypted` tells the two apart so a rotation or a

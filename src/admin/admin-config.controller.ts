@@ -97,12 +97,17 @@ export class AdminConfigController {
     @Param('key') key: string,
     @Req() req: AuthenticatedRequest,
   ): Promise<ConfigWriteResponse> {
-    const cleared = await this.settings.clear(key, actorOf(req));
-    return {
-      key,
-      outcome: cleared ? 'cleared' : 'absent',
-      restartRequired: cleared && !this.settings.runtimeMutable(key),
-    } satisfies ConfigWriteResponse;
+    try {
+      const cleared = await this.settings.clear(key, actorOf(req));
+      return {
+        key,
+        outcome: cleared ? 'cleared' : 'absent',
+        restartRequired: cleared && !this.settings.runtimeMutable(key),
+      } satisfies ConfigWriteResponse;
+    } catch (e) {
+      if (e instanceof SettingRefused) throw new BadRequestException(e.message);
+      throw e;
+    }
   }
 }
 

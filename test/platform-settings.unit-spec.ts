@@ -55,6 +55,20 @@ describe('platform settings applied over the environment', () => {
     }
   });
 
+  it('refuses a stored row whose key is not an environment variable name', () => {
+    const env: NodeJS.ProcessEnv = {};
+    const lines = applyStoredSettings(env, [
+      row('__proto__', '{"polluted":true}'),
+      row('constructor', 'x'),
+      row('lower_case', 'x'),
+      row('WITH.DOT', 'x'),
+    ]);
+    expect(lines).toHaveLength(4);
+    expect(lines.every((l) => l.includes('not an environment variable name'))).toBe(true);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(env).toEqual({});
+  });
+
   it('never logs a secret value', () => {
     const env: NodeJS.ProcessEnv = {};
     const lines = applyStoredSettings(env, [

@@ -8,6 +8,7 @@ import {
   hasDeployValue,
   rememberDeployValue,
   restoreDeployValue,
+  isSettingKey,
   SETTINGS_ENV_ONLY,
   SETTINGS_SELECT,
   SettingRefused,
@@ -104,6 +105,8 @@ export class PlatformSettingsService implements OnModuleInit, OnApplicationShutd
    * key in the clear by claiming it is not one.
    */
   async set({ key, value, actor, note }: SettingWrite): Promise<boolean> {
+    if (!isSettingKey(key))
+      throw new SettingRefused(`'${key}' is not an environment variable name`);
     const spec = this.catalogue.get(key);
     if (!spec) throw new SettingRefused(`${key} is not a catalogued setting`);
     if (SETTINGS_ENV_ONLY.has(key)) {
@@ -143,6 +146,8 @@ export class PlatformSettingsService implements OnModuleInit, OnApplicationShutd
 
   /** Drop an override; the deploy's own value stands again. */
   async clear(key: string, actor: string): Promise<boolean> {
+    if (!isSettingKey(key))
+      throw new SettingRefused(`'${key}' is not an environment variable name`);
     const existed = await this.surreal.withAdminDb(async (db) => {
       const res = await db.query<[unknown[]]>(
         `DELETE type::record('platform_setting', $key) RETURN BEFORE`,
