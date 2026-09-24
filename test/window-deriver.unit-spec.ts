@@ -11,7 +11,7 @@ import {
   WINDOW_DERIVER_VERSION,
   type EpisodeRow,
 } from '../src/admin/window-deriver.service';
-import { chatCallParams, isReasoningModel } from '../src/ai/openai-client';
+import { chatCallParams, isReasoningModel, offlineServiceTier } from '../src/ai/openai-client';
 import { buildBaseWhere } from '../src/search/internals/where-builder';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { FactEmbeddingService } from '../src/ingest/fact-embedding.service';
@@ -830,6 +830,40 @@ describe('chatCallParams (the ONE reasoning-model guard)', () => {
     });
     expect(isReasoningModel('gpt-5-mini')).toBe(true);
     expect(isReasoningModel('gpt-5')).toBe(true);
+  });
+
+  it('an offline lane can ask for the flex tier; the request path never does', () => {
+    // Same model, Batch price, slower service and a 429 when capacity is
+    // short (not charged). Only for work nobody is waiting on.
+    expect(chatCallParams('gpt-6-luna', { temperature: 0, visibleCap: 512, tier: 'flex' })).toEqual(
+      {
+        service_tier: 'flex',
+        max_completion_tokens: 2048,
+        reasoning_effort: 'low',
+      },
+    );
+    expect(chatCallParams('gpt-6-luna', { temperature: 0, visibleCap: 512 })).toEqual({
+      max_completion_tokens: 2048,
+      reasoning_effort: 'low',
+    });
+  });
+
+  it('OPENAI_OFFLINE_SERVICE_TIER names the tier once, and rejects anything else', () => {
+    const prev = process.env.OPENAI_OFFLINE_SERVICE_TIER;
+    try {
+      delete process.env.OPENAI_OFFLINE_SERVICE_TIER;
+      expect(offlineServiceTier()).toBeUndefined();
+      process.env.OPENAI_OFFLINE_SERVICE_TIER = 'flex';
+      expect(offlineServiceTier()).toBe('flex');
+      process.env.OPENAI_OFFLINE_SERVICE_TIER = 'auto';
+      expect(offlineServiceTier()).toBe('auto');
+      // A typo must not become a tier the API rejects at call time.
+      process.env.OPENAI_OFFLINE_SERVICE_TIER = 'batch';
+      expect(offlineServiceTier()).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.OPENAI_OFFLINE_SERVICE_TIER;
+      else process.env.OPENAI_OFFLINE_SERVICE_TIER = prev;
+    }
   });
 
   it('the generation after gpt-5 is the same class — probed against the live API', () => {

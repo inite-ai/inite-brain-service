@@ -2,7 +2,12 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Surreal, StringRecordId } from 'surrealdb';
 import OpenAI from 'openai';
-import { chatCallParams, chatModel, createOpenAiClient } from '../ai/openai-client';
+import {
+  chatCallParams,
+  offlineServiceTier,
+  chatModel,
+  createOpenAiClient,
+} from '../ai/openai-client';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
@@ -288,6 +293,7 @@ Output strictly the JSON shape requested.`;
               },
             },
             ...chatCallParams(this.model, {
+              tier: offlineServiceTier(),
               temperature: 0,
               visibleCap: 200,
               reasoningEffort: 'none',

@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { chatCallParams, DEFAULT_CHAT_MODEL } from '../../ai/openai-client';
+import { chatCallParams, offlineServiceTier, DEFAULT_CHAT_MODEL } from '../../ai/openai-client';
 import type { CommitInput, DecisionCandidate, DecisionExtractor, DecisionKind } from './types';
 
 /**
@@ -120,7 +120,7 @@ export function makeOpenAiCompleter(opts: { apiKey: string; model?: string }): C
         { role: 'user', content: user },
       ],
       response_format: { type: 'json_object' },
-      ...chatCallParams(model, { temperature: 0, visibleCap: 800 }),
+      ...chatCallParams(model, { tier: offlineServiceTier(), temperature: 0, visibleCap: 800 }),
     });
     return res.choices[0]?.message?.content ?? '';
   };

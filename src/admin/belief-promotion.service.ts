@@ -4,7 +4,12 @@ import type OpenAI from 'openai';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { retryOnUniqueViolation } from '../db/surreal-retry';
-import { chatCallParams, chatModel, createOpenAiClient } from '../ai/openai-client';
+import {
+  chatCallParams,
+  offlineServiceTier,
+  chatModel,
+  createOpenAiClient,
+} from '../ai/openai-client';
 import {
   sceneBeliefFieldFoldEnabled,
   sceneBeliefLlmSynthesisEnabled,
@@ -1342,7 +1347,11 @@ export class BeliefPromotionService {
     try {
       const res = await this.openai.chat.completions.create({
         model: this.model,
-        ...chatCallParams(this.model, { temperature: 0, visibleCap: SYNTHESIS_VISIBLE_CAP }),
+        ...chatCallParams(this.model, {
+          tier: offlineServiceTier(),
+          temperature: 0,
+          visibleCap: SYNTHESIS_VISIBLE_CAP,
+        }),
         messages: [
           { role: 'system', content: system },
           {

@@ -1305,6 +1305,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'How certain a decision must be before the lane acts on it. Below the floor the lane escalates to the reasoning model it used before — that escalation is what makes a cheap first pass safe. A noul answer is measured by its distance from the coin flip (0.95 → 0.9), a choice or score by the concentration the model reports. Override per lane with DECISIONS_CONFIDENCE_FLOOR_<LANE>.',
   },
   {
+    key: 'OPENAI_OFFLINE_SERVICE_TIER',
+    category: 'auth',
+    defaultValue: null,
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Processing tier for the calls nobody is waiting on — scene building, belief promotion, the composers, the dream jobs, strategy distillation, code indexing. `flex` is the SAME model at the Batch price (half) in exchange for slower service and an occasional 429 when capacity is short, which is not charged; `auto` falls back to standard on a retry. Unset (default) = the standard tier and a byte-identical request. The request path — extraction, search, synthesis — never asks for it: there latency is the product. Probed 2026-09-23: gpt-5.6-luna, gpt-6-luna and gpt-6-sol all accept it.',
+  },
+  {
     key: 'OPENAI_TIMEOUT_MS',
     category: 'auth',
     defaultValue: '30000',

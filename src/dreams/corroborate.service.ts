@@ -2,7 +2,12 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Surreal, StringRecordId } from 'surrealdb';
 import OpenAI from 'openai';
-import { chatCallParams, chatModel, createOpenAiClient } from '../ai/openai-client';
+import {
+  chatCallParams,
+  offlineServiceTier,
+  chatModel,
+  createOpenAiClient,
+} from '../ai/openai-client';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
@@ -446,6 +451,7 @@ B (recorded ${pair.younger.recordedAt}): ${pair.younger.object}`;
               },
             },
             ...chatCallParams(this.model, {
+              tier: offlineServiceTier(),
               temperature: 0,
               visibleCap: 128,
               reasoningEffort: 'none',

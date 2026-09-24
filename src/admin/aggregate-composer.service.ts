@@ -3,7 +3,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { StringRecordId } from 'surrealdb';
-import { chatCallParams, chatModel, createOpenAiClientOrThrow } from '../ai/openai-client';
+import {
+  chatCallParams,
+  offlineServiceTier,
+  chatModel,
+  createOpenAiClientOrThrow,
+} from '../ai/openai-client';
 import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
 import { summaryEpisodeStampEnabled } from '../common/provenance-flags';
@@ -155,7 +160,11 @@ export class AggregateComposerService {
   private async callComposer(name: string, factLines: string[]): Promise<AggregateProposal[]> {
     const res = await this.openai.chat.completions.create({
       model: this.model,
-      ...chatCallParams(this.model, { temperature: 0.1, visibleCap: 1500 }),
+      ...chatCallParams(this.model, {
+        tier: offlineServiceTier(),
+        temperature: 0.1,
+        visibleCap: 1500,
+      }),
       messages: [
         { role: 'system', content: COMPOSER_SYSTEM },
         {

@@ -92,6 +92,27 @@ export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
  */
 const DEFAULT_REASONING_EFFORT: ReasoningEffort = 'low';
 
+/**
+ * The processing tier a call asks for. `flex` is the SAME model at the Batch
+ * price — half — in exchange for slower service and a 429 when capacity is
+ * short (the request is not charged when that happens). `auto` falls back to
+ * standard on a retry. Probed 2026-09-23: gpt-5.6-luna, gpt-6-luna and
+ * gpt-6-sol all accept it and answer `service_tier: "flex"`.
+ */
+export type ServiceTier = 'flex' | 'auto';
+
+/**
+ * The tier for work nobody is waiting on — scene building, belief promotion,
+ * the dream jobs, the composers, code indexing. `OPENAI_OFFLINE_SERVICE_TIER`
+ * names it once rather than each cron picking its own; unset means the
+ * standard tier and a byte-identical request. A lane on the REQUEST path never
+ * asks for it: there, latency is the product.
+ */
+export function offlineServiceTier(): ServiceTier | undefined {
+  const raw = (process.env.OPENAI_OFFLINE_SERVICE_TIER ?? '').trim();
+  return raw === 'flex' || raw === 'auto' ? raw : undefined;
+}
+
 export function chatCallParams(
   model: string,
   opts: {
@@ -105,12 +126,24 @@ export function chatCallParams(
      * whose answer is one token asks for `none`.
      */
     reasoningEffort?: ReasoningEffort;
+    /**
+     * Ask for a non-standard processing tier. Only for calls no user is
+     * waiting on — see `offlineServiceTier`.
+     */
+    tier?: ServiceTier | undefined;
   },
-): { temperature?: number; max_completion_tokens: number; reasoning_effort?: ReasoningEffort } {
+): {
+  temperature?: number;
+  max_completion_tokens: number;
+  reasoning_effort?: ReasoningEffort;
+  service_tier?: ServiceTier;
+} {
+  const tier = opts.tier === undefined ? {} : { service_tier: opts.tier };
   return isReasoningModel(model)
     ? {
+        ...tier,
         max_completion_tokens: opts.reasoningCap ?? opts.visibleCap * 4,
         reasoning_effort: opts.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
       }
-    : { temperature: opts.temperature, max_completion_tokens: opts.visibleCap };
+    : { ...tier, temperature: opts.temperature, max_completion_tokens: opts.visibleCap };
 }

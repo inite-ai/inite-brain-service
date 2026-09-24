@@ -5,7 +5,12 @@ import type OpenAI from 'openai';
 import { SurrealService } from '../db/surreal.service';
 import { EpisodeReadStoreService, type EpisodeDb } from '../episodes/episode-read-store.service';
 import { EntityUpsertService } from '../ingest/entity-upsert.service';
-import { chatCallParams, chatModel, createOpenAiClient } from '../ai/openai-client';
+import {
+  chatCallParams,
+  offlineServiceTier,
+  chatModel,
+  createOpenAiClient,
+} from '../ai/openai-client';
 import {
   sceneEntityLinksEnabled,
   sceneLlmEnrichmentEnabled,
@@ -727,7 +732,11 @@ export class SceneEnricherService {
   ): Promise<SceneEnrichment | null> {
     const res = await this.openai!.chat.completions.create({
       model: this.model,
-      ...chatCallParams(this.model, { temperature: 0, visibleCap: ENRICH_VISIBLE_CAP }),
+      ...chatCallParams(this.model, {
+        tier: offlineServiceTier(),
+        temperature: 0,
+        visibleCap: ENRICH_VISIBLE_CAP,
+      }),
       messages: [
         {
           role: 'system',

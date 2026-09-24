@@ -1,7 +1,12 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { chatCallParams, chatModel, createOpenAiClient } from '../ai/openai-client';
+import {
+  chatCallParams,
+  offlineServiceTier,
+  chatModel,
+  createOpenAiClient,
+} from '../ai/openai-client';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
@@ -98,6 +103,7 @@ Rules:
             { role: 'user', content: user },
           ],
           ...chatCallParams(this.model, {
+            tier: offlineServiceTier(),
             temperature: 0,
             visibleCap: 200,
             reasoningEffort: 'none',
