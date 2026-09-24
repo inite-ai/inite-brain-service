@@ -8,7 +8,8 @@ import type { AddressInfo } from 'node:net';
  * as the identity) and the v4 API the connector speaks —
  * `/projects/:id`, `/issues` and `/merge_requests` (state / order /
  * updated_after / labels / paging, numbered SEPARATELY), their
- * `/notes` (system notes among them), `/repository/tree` and
+ * `/notes` (system notes among them), `/members/all` (the inherited
+ * member list the ACL mirror reads), `/repository/tree` and
  * `/repository/blobs/:sha`.
  *
  * Reached through SOURCE_OAUTH_GITLAB_BASE_URL under
@@ -32,6 +33,15 @@ export interface GitlabFakeThread {
   }>;
 }
 
+export interface GitlabFakeMember {
+  id: number;
+  username?: string;
+  name?: string;
+  email?: string;
+  access_level?: number;
+  state?: string;
+}
+
 export interface FakeGitlab {
   base: string;
   close(): Promise<void>;
@@ -44,6 +54,8 @@ export interface FakeGitlab {
   project: { pathWithNamespace: string; defaultBranch: string };
   issues: GitlabFakeThread[];
   mergeRequests: GitlabFakeThread[];
+  /** What `/members/all` answers — the project's readers. */
+  members: GitlabFakeMember[];
   /** path → contents of the default branch's tree. */
   files: Map<string, string>;
 }
@@ -61,6 +73,7 @@ export async function startFakeGitlab(): Promise<FakeGitlab> {
     project: { pathWithNamespace: 'acme/handbook', defaultBranch: 'main' },
     issues: [],
     mergeRequests: [],
+    members: [],
     files: new Map(),
   };
   const server: Server = createServer((req, res) => {
@@ -160,6 +173,11 @@ function projectRoute(f: FakeGitlab, rest: string, url: URL, res: ServerResponse
         })),
       );
     }
+  }
+  if (rest === '/members/all') {
+    const per = Number(url.searchParams.get('per_page') ?? 20);
+    const page = Number(url.searchParams.get('page') ?? 1);
+    return json(res, 200, f.members.slice((page - 1) * per, page * per));
   }
   if (rest === '/repository/tree') return tree(f, url, res);
   const blob = /^\/repository\/blobs\/([^/]+)$/.exec(rest);

@@ -5,6 +5,7 @@ import type { Connector, ConnectorCtx, ItemDelta } from './connector';
 import { SourceConnectionService, type SourceConnectionRow } from './source-connection.service';
 import { SourceItemEffectsService } from './source-item-effects.service';
 import { SourceItemService, type SourceItemRow } from './source-item.service';
+import { SourcePrincipalsService } from './source-principals.service';
 
 export interface SyncOptions {
   /** Re-enumerate everything and mark what is missing gone. */
@@ -42,10 +43,12 @@ const ENUMERATE_HARD_CAP = 50_000;
 export class SourceSyncService {
   private readonly logger = new Logger(SourceSyncService.name);
 
+  // eslint-disable-next-line max-params
   constructor(
     private readonly connections: SourceConnectionService,
     private readonly catalogue: SourceItemService,
     private readonly effects: SourceItemEffectsService,
+    private readonly principals: SourcePrincipalsService,
   ) {}
 
   /** Exposed for the scheduler (which holds no connection service of its own). */
@@ -144,6 +147,12 @@ export class SourceSyncService {
       }
       await this.fetchChanged({ companyId, ctx, connector, row, summary, toFetch });
       summary.closed = await this.gonePolicy(companyId, row, goneRows);
+      // W5: the ACL mirror runs AFTER the items, so a new item's groups
+      // already exist as tuples by the time anyone reads it. A failure
+      // here fails the run — an ACL that silently stopped updating is
+      // the one failure mode this plane cannot have.
+      const principals = await this.principals.sync({ ctx, connector });
+      if (principals) summary.principals = principals;
       summary.status = 'succeeded';
       await this.connections.recordSync(companyId, connectionId, {
         status: 'succeeded',

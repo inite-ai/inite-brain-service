@@ -124,3 +124,18 @@ export function sourceWebhooksEnabled(): boolean {
 export function sourceMcpOAuthEnabled(): boolean {
   return envFlagEnabled(process.env.SOURCE_MCP_OAUTH);
 }
+
+/**
+ * SOURCE_PRINCIPALS — the membership walk (W5, G6 steps 3–5): an org
+ * connection's `principals()` runs after a sync, its groups and accounts
+ * land as `external_identity` rows and `external_principal` tuples, and
+ * an item's `acl.groups` become `team:` tags on the rows it produces.
+ * Off (default) ⇒ no connector's `principals()` is ever called, no tuple
+ * is ever written and every org connection's rows stay tenant-global —
+ * byte-identical to before. The READ half is `SCOPE_TAGS_ENABLED`: with
+ * this on and that off, tags are written and ignored (which is the safe
+ * order to switch them on in). Read at call time.
+ */
+export function sourcePrincipalsEnabled(): boolean {
+  return envFlagEnabled(process.env.SOURCE_PRINCIPALS);
+}

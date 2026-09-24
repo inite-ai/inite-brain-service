@@ -146,3 +146,47 @@ export const SourceItemInspectResponseSchema = z.object({
   factsTruncated: z.boolean(),
 });
 export type SourceItemInspectResponse = z.infer<typeof SourceItemInspectResponseSchema>;
+
+// ── The ACL mirror (W5) ──────────────────────────────────────────────
+//
+// What a connection's `principals()` walk saw, and what an operator has
+// said about it. An identity with `userId: null` is an account nobody
+// has claimed: it grants no visibility at all, which is why the surface
+// shows it rather than hiding it.
+
+export const SourceExternalIdentitySchema = z.object({
+  externalId: z.string(),
+  handle: z.string().nullable(),
+  displayName: z.string().nullable(),
+  email: z.string().nullable(),
+  /** The brain user this account IS, when someone has said. */
+  userId: z.string().nullable(),
+  /** 'operator' (an admin said so) | 'email' (followed a link already made). */
+  linkedBy: z.string().nullable(),
+});
+export type SourceExternalIdentity = z.infer<typeof SourceExternalIdentitySchema>;
+
+export const SourceMembershipTupleSchema = z.object({
+  subject: z.string(),
+  object: z.string(),
+  source: z.string(),
+  recordedAt: z.string(),
+  /** Set = the membership ENDED then; the row stays so March is answerable. */
+  revokedAt: z.string().nullable(),
+});
+export type SourceMembershipTuple = z.infer<typeof SourceMembershipTupleSchema>;
+
+export const SourcePrincipalsResponseSchema = z.object({
+  /** The tenant's consistency token: every cached expansion keys on it. */
+  epoch: z.number().int(),
+  identities: z.array(SourceExternalIdentitySchema),
+  tuples: z.array(SourceMembershipTupleSchema),
+});
+export type SourcePrincipalsResponse = z.infer<typeof SourcePrincipalsResponseSchema>;
+
+export const SourcePrincipalLinkRequestSchema = z.object({
+  externalId: z.string().min(1).max(200),
+  /** null = unlink: the account is nobody's again. */
+  userId: z.string().min(1).max(200).nullable(),
+});
+export type SourcePrincipalLinkRequest = z.infer<typeof SourcePrincipalLinkRequestSchema>;

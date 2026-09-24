@@ -76,8 +76,32 @@ export interface ItemDescriptor {
   revision?: string | undefined;
   /** ISO 8601 — the source's own clock, becomes `occurredAt`. */
   modifiedAt?: string | undefined;
-  /** ACL snapshot for org connections (G6 consumes it; W0 stores it). */
-  acl?: Record<string, unknown> | undefined;
+  /**
+   * Who may see this item, in the source's own group ids (W5): the
+   * engine writes `team:<connection>:<group>` on every row the item
+   * produces. Absent (or empty) on an org connection = tenant-global,
+   * which is what a public repository or an open channel IS.
+   */
+  acl?: { groups?: string[] } | undefined;
+}
+
+/**
+ * One thing a `principals()` walk saw. A GROUP is the unit an item can
+ * be shared with; a MEMBER is one account in one group. Accounts are
+ * carried whole (handle, display name, address) because the engine has
+ * to show an operator who they are before anyone links them to a brain
+ * user — the link is never guessed.
+ */
+export type PrincipalDelta =
+  | { type: 'group'; group: string; title?: string | undefined }
+  | { type: 'member'; group: string; account: PrincipalAccount };
+
+export interface PrincipalAccount {
+  externalId: string;
+  handle?: string | undefined;
+  displayName?: string | undefined;
+  /** Only ever used to follow a link an operator already made elsewhere. */
+  email?: string | undefined;
 }
 
 export type ItemDelta =
@@ -197,6 +221,14 @@ export interface Connector {
   };
   enumerate(ctx: ConnectorCtx, opts: EnumerateOptions): AsyncIterable<ItemDelta>;
   fetch(ctx: ConnectorCtx, item: ItemDescriptor): Promise<FetchedItem>;
+  /**
+   * Who may see what this connection reads (W5, G6 steps 3–5): the
+   * source's own groups and the accounts in them. The engine turns them
+   * into membership tuples; an item names the groups that may see it in
+   * its `acl.groups`. A connector without this verb has no ACL to
+   * mirror, and its org connection stays tenant-global.
+   */
+  principals?(ctx: ConnectorCtx): AsyncIterable<PrincipalDelta>;
   /** Called once a run is over (success or failure) — release a session
    *  the connector kept across enumerate + fetch (an MCP client). */
   endRun?(ctx: ConnectorCtx): Promise<void>;
