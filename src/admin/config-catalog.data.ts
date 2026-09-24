@@ -2062,6 +2062,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the GitHub (github.com OAuth + api.github.com) counterpart. A GitHub Enterprise deployment is named per connection (`config.baseUrl`), not here.',
   },
   {
+    key: 'SOURCE_LINKED',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The linked lane (source plane, W7): a connection in `mode: 'linked'` is never walked and never catalogued — its connector's `search()` is called at QUERY time and the hits ride beside the ranking in the search response's `linked` section, never mixed into `results` (another system's opinion is not this brain's memory, and mixing them would make a citation mean two things). Every call writes a content-free `tool_observation` (0111) and the hits carry its ref, so a document made of them — and every fact derived from that document — points back at the call that produced it; a hit whose observation could not be written is NOT served, which is why this also needs TOOL_OBSERVATIONS_ENABLED. Bounded because it is a network call on the query path: one round per connection (25 connections at most), `SOURCE_LINKED_PER_QUERY` hits each, an 8s deadline, and every failure named rather than a failed search. A connector without `search()` says so by name. Off (default) = no connector is ever asked, no observation written, no `linked` section — byte-identical.",
+  },
+  {
+    key: 'SOURCE_LINKED_PER_QUERY',
+    category: 'pipeline',
+    defaultValue: '5',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Hits per linked connection per query (default 5, hard cap 25). The bound on how much of another system’s opinion rides along with an answer.',
+  },
+  {
     key: 'SOURCE_PROGRESSIVE',
     category: 'pipeline',
     defaultValue: '0',

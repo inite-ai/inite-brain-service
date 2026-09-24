@@ -7091,6 +7091,61 @@
             },
             "type": "array"
           },
+          "linked": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "connectionId": {
+                  "type": "string"
+                },
+                "connector": {
+                  "type": "string"
+                },
+                "hits": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "externalId": {
+                        "type": "string"
+                      },
+                      "modifiedAt": {
+                        "type": "string"
+                      },
+                      "originUri": {
+                        "type": "string"
+                      },
+                      "score": {
+                        "type": "number"
+                      },
+                      "snippet": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "externalId",
+                      "title"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "observationRef": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "connectionId",
+                "connector",
+                "observationRef",
+                "hits"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "results": {
             "items": {
               "$ref": "#/components/schemas/SearchHit"
@@ -7219,6 +7274,9 @@
                 "kind": {
                   "type": "string"
                 },
+                "linked": {
+                  "type": "boolean"
+                },
                 "state": {
                   "enum": [
                     "ready",
@@ -7244,6 +7302,9 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "linked": {
+            "type": "boolean"
           },
           "principals": {
             "type": "boolean"
@@ -7612,7 +7673,8 @@
           "fsRoots",
           "egressAllowPrivate",
           "webhooks",
-          "principals"
+          "principals",
+          "linked"
         ],
         "type": "object"
       },

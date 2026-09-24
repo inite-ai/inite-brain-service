@@ -53,6 +53,8 @@ import { JobWorkerPool } from '../jobs/job-worker-pool.service';
 import { MemoryOutcomeService } from '../outcomes/memory-outcome.service';
 import { outcomeRetrievedEventsEnabled } from '../common/outcome-flags';
 import { SourceSyncQueueService } from '../source-plane/source-sync-queue.service';
+import { SourceLinkedService } from '../source-plane/source-linked.service';
+import type { LinkedSourceResult } from '../contracts/search/search.schema';
 
 export type { SearchHit } from './search.types';
 export type { GraphRetrieveHit } from './internals/graph-retrieve';
@@ -165,6 +167,9 @@ export class SearchService {
     // fire-and-forget, off the answer's path, gated twice. Optional so
     // positional unit constructions omit it.
     @Optional() private readonly deepening?: SourceSyncQueueService,
+    // Tenth: the linked lane (W7) — sources asked at query time rather
+    // than walked. Optional so positional unit constructions omit it.
+    @Optional() private readonly linked?: SourceLinkedService,
   ) {}
 
   /**
@@ -378,7 +383,11 @@ export class SearchService {
     companyId: string,
     dto: SearchDto,
     callerScopes: string[],
-  ): Promise<{ results: SearchHit[]; degraded?: SearchDegradation[] }> {
+  ): Promise<{
+    results: SearchHit[];
+    degraded?: SearchDegradation[];
+    linked?: LinkedSourceResult[];
+  }> {
     // Defence-in-depth clamp. SearchDto.@MaxLength catches caller-direct
     // requests, but multi-hop / synthesize / admin-demo / mcp call this
     // method with raw shapes that may bypass class-validator. Clamping
@@ -490,6 +499,17 @@ export class SearchService {
           })),
         ),
       });
+    }
+    // The linked lane (W7): sources that keep their own index are ASKED,
+    // never walked — and their answers ride BESIDE the ranking, never
+    // inside it. Another system's opinion is not this brain's memory,
+    // and mixing the two would make a citation mean two different
+    // things. Awaited, because a caller cannot use what arrives after
+    // the response; bounded and failure-swallowing, because a lane that
+    // can fail a search is a lane an operator turns off.
+    if (this.linked?.enabled()) {
+      const lane = await this.linked.search(companyId, dto.query, limit);
+      if (lane.results.length > 0) return { ...out, linked: lane.results };
     }
     return out;
   }

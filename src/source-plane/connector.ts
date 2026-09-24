@@ -104,6 +104,25 @@ export interface PrincipalAccount {
   email?: string | undefined;
 }
 
+/**
+ * One answer from a source's own search. It is NOT a catalogue row:
+ * nothing was fetched, nothing was stored, and the only durable trace
+ * is the tool observation the lane writes for the call.
+ */
+export interface LinkedHit {
+  /** What the source calls it — an issue key, a file path, a record id. */
+  externalId: string;
+  title: string;
+  /** Where a human (or a later fetch) can go; absent when the source has no URL for it. */
+  originUri?: string | undefined;
+  /** The source's own excerpt. Capped and sanitized by the lane, never stored. */
+  snippet?: string | undefined;
+  /** The source's own relevance, when it gives one; the lane never invents one. */
+  score?: number | undefined;
+  /** ISO 8601 — when the thing itself last changed, when the source says. */
+  modifiedAt?: string | undefined;
+}
+
 export type ItemDelta =
   | { type: 'upsert'; item: ItemDescriptor }
   | { type: 'gone'; externalId: string }
@@ -229,6 +248,15 @@ export interface Connector {
    * mirror, and its org connection stays tenant-global.
    */
   principals?(ctx: ConnectorCtx): AsyncIterable<PrincipalDelta>;
+  /**
+   * Ask the SOURCE its own question, at query time (W7, linked mode).
+   * A connection in `mode: 'linked'` is never walked and never
+   * catalogued: the source keeps its index, the brain asks it, and the
+   * answer is evidence anchored to the call that produced it. A
+   * connector without this verb cannot be linked, and the engine says
+   * so by name rather than silently returning nothing.
+   */
+  search?(ctx: ConnectorCtx, query: string, k: number): Promise<LinkedHit[]>;
   /** Called once a run is over (success or failure) — release a session
    *  the connector kept across enumerate + fetch (an MCP client). */
   endRun?(ctx: ConnectorCtx): Promise<void>;

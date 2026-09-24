@@ -99,6 +99,34 @@ export class ToolObservationService {
   }
 
   /**
+   * The same row, AWAITED, for a caller that has to cite it (W7's
+   * linked lane: a hit is only evidence if something can point at the
+   * call that produced it). Returns the `tool_observation:<id>` ref, or
+   * null when the flag is off or the write failed — a null ref is a hit
+   * without provenance, which the lane then refuses to serve rather
+   * than serve unattributably.
+   */
+  async recordCited(companyId: string, input: ToolObservationInput): Promise<string | null> {
+    if (!toolObservationsEnabled()) return null;
+    const row = shapeObservationRow(input);
+    try {
+      return await this.surreal.withCompany(companyId, async (db) => {
+        const [created] = await db.query<[Array<{ id: unknown }>]>(
+          'INSERT INTO tool_observation $row RETURN id',
+          { row },
+        );
+        const id = created?.[0]?.id;
+        return id === undefined || id === null ? null : String(id);
+      });
+    } catch (e) {
+      this.logger.warn(
+        `tool observation insert failed (tool=${row.tool}): ${(e as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  /**
    * Validate a `tool_observation:<id>` ref for the ingest path: the row
    * must exist in THIS tenant. Returns the content-free note material
    * (tool name + ISO timestamp) or null when the ref is unknown/foreign.

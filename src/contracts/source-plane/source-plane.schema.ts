@@ -361,6 +361,8 @@ export const SourceConnectorStateSchema = z.object({
   state: z.enum(['ready', 'disabled']),
   /** The env switch that turns it on. */
   flag: z.string(),
+  /** The connector can be ASKED rather than walked (W7): it has a `search()`. */
+  linked: z.boolean().optional(),
 });
 export type SourceConnectorState = z.infer<typeof SourceConnectorStateSchema>;
 
@@ -379,6 +381,8 @@ export const SourceCatalogResponseSchema = z.object({
   webhooks: z.boolean(),
   /** SOURCE_PRINCIPALS is on: an org connection mirrors its source's ACL (W5). */
   principals: z.boolean(),
+  /** SOURCE_LINKED is on: a connection may be asked at query time instead of walked (W7). */
+  linked: z.boolean(),
 });
 export type SourceCatalogResponse = z.infer<typeof SourceCatalogResponseSchema>;
 

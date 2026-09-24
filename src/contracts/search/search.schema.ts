@@ -120,8 +120,41 @@ export const SearchHitSchema = z.object({
   score: z.number(),
 });
 
+/**
+ * One answer a SOURCE gave, at query time (W7, linked mode). It is not
+ * memory: nothing was walked, catalogued or stored. What makes it
+ * citable is `observationRef` — the content-free `tool_observation`
+ * (0111) the call wrote, which a document made of these hits, and then
+ * every fact derived from it, points back at.
+ */
+export const LinkedHitSchema = z.object({
+  externalId: z.string(),
+  title: z.string(),
+  originUri: z.string().optional(),
+  snippet: z.string().optional(),
+  score: z.number().optional(),
+  modifiedAt: z.string().optional(),
+});
+
+export const LinkedSourceResultSchema = z.object({
+  connectionId: z.string(),
+  connector: z.string(),
+  /** `tool_observation:<id>` — pass it to `ingest_document` to keep the chain. */
+  observationRef: z.string(),
+  hits: z.array(LinkedHitSchema),
+});
+export type LinkedSourceResult = z.infer<typeof LinkedSourceResultSchema>;
+
 export const SearchResponseSchema = z.object({
   results: z.array(SearchHitSchema),
+  /**
+   * Sources that were ASKED rather than remembered (SOURCE_LINKED).
+   * Present only when a linked connection answered. These are not
+   * ranked with `results` and never mixed into them: they are another
+   * system's opinion, offered beside the brain's own, each anchored to
+   * the call that produced it.
+   */
+  linked: z.array(LinkedSourceResultSchema).optional(),
   /**
    * Retrieval stages that were skipped on this request. Present only when
    * non-empty. `vector_leg`: the query could not be embedded (embedder

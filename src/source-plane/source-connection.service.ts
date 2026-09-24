@@ -350,6 +350,21 @@ export class SourceConnectionService {
   }
 
   /**
+   * The connections a question may be put TO rather than walked (W7):
+   * `mode: 'linked'`, active, on this host. A linked connection has no
+   * catalogue and no schedule — it is only ever asked.
+   */
+  async linked(companyId: string): Promise<SourceConnectionRow[]> {
+    return this.surreal.withCompany(companyId, (db) =>
+      queryRows<SourceConnectionRow>(
+        db,
+        `SELECT * FROM source_connection
+          WHERE status = 'active' AND mode = 'linked' AND host = 'server' LIMIT 25`,
+      ),
+    );
+  }
+
+  /**
    * What the connected account says about itself beyond the token — the
    * API origin a provider names at its token endpoint (Salesforce
    * `instance_url`, Pipedrive `api_domain`): a connector runs against
