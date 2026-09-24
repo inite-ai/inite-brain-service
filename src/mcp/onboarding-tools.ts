@@ -42,7 +42,7 @@ export function registerOnboardingTools(opts: {
     {
       title: 'What this connection is attached to, and what is left to set up',
       description:
-        'The tenant this credential writes to (companyId, its display name, whether it is a personal workspace), what is already in its memory (entities, active facts, facts recorded in the last 7 days), how many Domain Packs are installed, and `nextSteps` — the setup actions that would actually change something, derived from that state rather than a stored checklist. Call it right after connecting, when a user asks "which workspace am I writing to?", or when memory answers look emptier than expected.',
+        'The tenant this credential writes to (companyId, its display name, whether it is a personal workspace), what is already in its memory (entities, active facts, facts recorded in the last 7 days), how many Domain Packs are installed, for a user-bound connection who the user is in this memory (`user.name` — the name the memory has learned from them, null until it has), and `nextSteps` — the setup actions that would actually change something, derived from that state rather than a stored checklist (including asking the user how to address them, once, and recording it). Call it right after connecting, when a user asks "which workspace am I writing to?", or when memory answers look emptier than expected.',
       inputSchema: {},
     },
     async () => {

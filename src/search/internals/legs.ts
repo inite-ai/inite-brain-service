@@ -100,7 +100,7 @@ export async function runVectorLeg({
   }
   const sql = `
       SELECT
-        id, entityId, predicate, predicateAlias, object, confidence,
+        id, entityId, predicate, predicateAlias, object, objectMeta, confidence,
         validFrom, validUntil, recordedAt, retractedAt, status, source,
         trustSnapshot, corroboration, userId, lang,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
@@ -149,7 +149,7 @@ async function runVectorLegKnn({
   const ef = tuning.hnswEf;
   const kOver = Math.min(k * tuning.hnswOverfetch, 1000);
   const projection = `
-        id, entityId, predicate, predicateAlias, object, confidence,
+        id, entityId, predicate, predicateAlias, object, objectMeta, confidence,
         validFrom, validUntil, recordedAt, retractedAt, status, source,
         trustSnapshot, corroboration, userId, lang,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity`;
@@ -231,7 +231,7 @@ export async function runLexicalLeg({
   // with status='retracted' on a query that hit searchHaystack.
   const sql = `
       SELECT
-        id, entityId, predicate, predicateAlias, object, confidence,
+        id, entityId, predicate, predicateAlias, object, objectMeta, confidence,
         validFrom, validUntil, recordedAt, retractedAt, status, source,
         trustSnapshot, corroboration, userId, lang,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,

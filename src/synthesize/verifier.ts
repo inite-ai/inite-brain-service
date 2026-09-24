@@ -1,9 +1,11 @@
 import type OpenAI from 'openai';
-import { chatCallParams } from '../ai/openai-client';
+import { chatCallParams, type ReasoningEffort } from '../ai/openai-client';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
 import { traceArtifact } from '../common/debug-trace';
 import type { MetricsService } from '../metrics/metrics.service';
+import { askerVerifierLine, type Asker } from './asker';
+import type { DecisionService } from '../ai/decisions/decision.service';
 
 /**
  * Corrective-RAG verifier: audits a synthesized answer against the
@@ -53,9 +55,14 @@ Definitions:
 
 Be strict on "supported" — a paraphrase that adds detail beyond the evidence is "partial" at best. Cite each unsupported / partially-supported claim by quoting the offending span verbatim.
 
-Two things are NOT unsupported claims:
+Seven things are NOT unsupported claims:
 - The graph is multilingual, and the answer is written in the language of the query, not of the evidence. A claim that is a faithful translation of a piece of evidence is directly supported by it: "leads engineering" is supported by "works_as: руководитель инженерного отдела", "CTO" by "职位: 首席技术官". Judge the meaning, not the script.
 - Wording the answer repeats from the query itself is framing, not a claim. If the query asks "who leads engineering at Orbital Dynamics?", then "at Orbital Dynamics" in the answer restates the question; the claim to check is who. Only information the answer ADDS beyond the query needs evidence.
+- Arithmetic on the evidence is not a new claim. A date or period the answer completes from a piece of evidence and that evidence's own date stamp: a RELATIVE expression resolved against the stamp ("next month" stated (as of 2026-09-15) supports "October 2026"; "two weeks ago" stated (as of 2026-03-20) supports "early March 2026"), or a date given without its year taking the year of the stamp ("22 сентября" stated (as of 2026-09-16) supports "22 September 2026"). Likewise a quantity computed from numbers the evidence states — a percentage of a stated amount ("prepayment 30%" of "85 000 евро" supports "25 500 евро"), a sum or difference of stated figures, the span between two stated dates. The generator is instructed to resolve time expressions against the stamp of the fact that states them and to do simple date arithmetic. Such a completion is unsupported only when the arithmetic is wrong, or when the evidence carries no figure or stamp to compute from.
+- Placing the evidence on the calendar relative to the query's date is the same arithmetic. When the message gives Today, a dated piece of evidence is "this week", "next week", "in three days", "the nearest", "the latest", "already past" by plain calendar reckoning from that date — supported whenever the reckoning holds, unsupported only when it is wrong.
+- A statement about the evidence itself is not a claim about the world. "Nothing else is recorded for this week", "the earlier amount is not stated", "no other meeting is mentioned" describe what the evidence contains; they need no supporting line. Such a statement is unsupported only when the evidence DOES contain what the answer says it lacks.
+- Layout is not a claim. A heading, a grouping, an ordering, a connective or an emphasis ("this week: …; later: …", "first …, then …", "key deadline", "one important date", "the main item") the answer imposes on supported items adds no fact; judge the items. It is unsupported only when the grouping itself asserts something the evidence contradicts (a date placed under a week it does not fall in).
+- The evidence IS the current state. Every fact and relation shown was selected as valid on Today by the memory's own validity window — a value that was replaced, retracted or expired is not in the list. So "currently", "still", "now", "as of today" on a shown fact or relation restates how it was selected and needs no further line; the answer would need one only to claim that something has ENDED. Unsupported only when a shown fact itself dates its end before Today. A fact that records a TRANSITION states the state it produced, for the same reason: "moved_to: Braga" shown as current supports "lives in Braga", "joined: the chess club" supports "is a member", "bought: a Kawasaki" supports "owns a Kawasaki" — the memory would show the reversing fact (moved away, quit, sold) if it held one.
 
 Output strictly the JSON shape requested by the schema.`;
 
@@ -126,12 +133,97 @@ export interface VerifyRequest {
    * (answer-integrity.ts citedCapabilities).
    */
   capabilityEvidenceLines?: string[] | undefined;
+  /**
+   * The date the generator was told is "today" (the same
+   * dateContext), so calendar placement relative to it can be judged
+   * rather than flagged. Absent ⇒ no Today line.
+   */
+  dateContext?: string | undefined;
+  /** Who is asking (asker.ts) — the same asker the generator was told. */
+  asker?: Asker | undefined;
   model: string;
+  /**
+   * How hard the auditor may think. It is configurable because the audit is
+   * the one call where more deliberation measured WORSE: gpt-6-luna at `low`
+   * spends reasoning tokens where gpt-5.6-luna spends none, reads the same
+   * evidence more strictly, and turned supported answers into abstentions.
+   * Resolved from the profile (RETRIEVAL_VERIFIER_EFFORT), so the audit model
+   * and its deliberation are chosen together.
+   */
+  effort?: ReasoningEffort | undefined;
+  /**
+   * The decision plane, when the `verifier` lane is on. It can only CLEAR an
+   * answer (see `decideGrounding`); anything contested still goes to the
+   * auditor below, which is also the only thing that can name the offending
+   * spans.
+   */
+  decisions?: DecisionService | undefined;
+}
+
+/**
+ * The cheap first pass: put the audit to the System One plane as a typed
+ * choice over the very evidence the auditor would read.
+ *
+ * It answers only one way — "supported", and only above the lane's confidence
+ * floor. A "partial" or "unsupported" hunch, or any answer the model is not
+ * sure of, returns null and the full auditor runs: that is the call whose
+ * contract includes `unsupportedClaims`, and a contested answer is exactly
+ * when those spans are worth paying for. So the plane can save the common
+ * case, and can never by itself condemn an answer or wave a shaky one through.
+ */
+async function decideGrounding(req: VerifyRequest): Promise<VerifierOutput | null> {
+  const decisions = req.decisions;
+  if (!decisions?.enabled('verifier')) return null;
+  const res = await decisions.decide('verifier', {
+    state: { question: req.query, answer: req.answer, evidence: buildVerifierUserMessage(req) },
+    questions: {
+      grounding: {
+        type: 'choice',
+        instructions:
+          'Is every distinct claim in the ANSWER directly supported by at least one piece of the EVIDENCE? The evidence sections all count as support. A faithful translation of a piece of evidence is supported by it; wording the answer repeats from the question is framing, not a claim; date or amount arithmetic over stated evidence is not a new claim.',
+        criteria: {
+          supported: 'Every distinct claim is directly stated by at least one piece of evidence.',
+          partial:
+            'Some claims are supported, but at least one is paraphrased or inferred beyond what the evidence states.',
+          unsupported: 'One or more central claims are not in the evidence at all.',
+        },
+      },
+      ...(req.topicCoverage === true
+        ? {
+            question_answered: {
+              type: 'noul' as const,
+              instructions:
+                'Does the EVIDENCE contain an actual answer to the QUESTION — not merely facts about its topic?',
+            },
+          }
+        : {}),
+    },
+  });
+  const grounding = res?.answers['grounding'];
+  if (!grounding || grounding.type !== 'choice') return null;
+  if (grounding.choice !== 'supported') return null;
+  if (!decisions.confident('verifier', grounding)) return null;
+  const answered = res?.answers['question_answered'];
+  const out: VerifierOutput = { verdict: 'supported', unsupportedClaims: [] };
+  if (req.topicCoverage === true) {
+    if (!answered || answered.type !== 'noul') return null;
+    out.questionAnswered = answered.noul >= 0.5;
+  }
+  traceArtifact('synthesize.verifier_decision', {
+    model: res?.model,
+    verdict: grounding.choice,
+    confidence: grounding.confidence,
+    probabilities: grounding.probabilities,
+    ...(out.questionAnswered !== undefined ? { questionAnswered: out.questionAnswered } : {}),
+  });
+  return out;
 }
 
 /** Compose the auditor's evidence sections; empty ones are omitted. */
 function buildVerifierUserMessage({
   query,
+  dateContext,
+  asker,
   answer,
   factLines,
   transcriptLines,
@@ -143,6 +235,8 @@ function buildVerifierUserMessage({
   capabilityEvidenceLines,
 }: {
   query: string;
+  dateContext?: string | undefined;
+  asker?: Asker | undefined;
   answer: string;
   factLines: string[];
   transcriptLines?: string[] | undefined;
@@ -167,7 +261,7 @@ function buildVerifierUserMessage({
   // so every no-lane audit prompt stays byte-identical.
   if (beliefLines && beliefLines.length > 0) {
     sections.push(
-      `Current-state record (distilled belief lines — each states the CURRENT value of its subject/field and supersedes older values in the other sections for present-tense claims; equally valid support):\n` +
+      `Current-state record (distilled belief lines — each states the CURRENT value of its subject/field and supersedes OLDER values in the other sections for present-tense claims — a fact dated after a belief's revision is newer than the belief and has already replaced it here; equally valid support):\n` +
         beliefLines.join('\n'),
     );
   }
@@ -197,7 +291,8 @@ function buildVerifierUserMessage({
         capabilityEvidenceLines.join('\n'),
     );
   }
-  return `Query: ${query}\n\nAnswer:\n${answer}\n\n${sections.join('\n\n')}`;
+  const today = dateContext ? `Today (the query's date): ${dateContext}\n` : '';
+  return `Query: ${query}\n${today}${askerVerifierLine(asker)}\nAnswer:\n${answer}\n\n${sections.join('\n\n')}`;
 }
 
 /**
@@ -210,6 +305,8 @@ function buildVerifierUserMessage({
  */
 
 export async function runVerifier(req: VerifyRequest): Promise<VerifierOutput> {
+  const cleared = await decideGrounding(req);
+  if (cleared) return cleared;
   const { openai, metrics, model, topicCoverage } = req;
   const system = topicCoverage ? VERIFIER_SYSTEM + TOPIC_COVERAGE_ADDENDUM : VERIFIER_SYSTEM;
   const user = buildVerifierUserMessage(req);
@@ -261,7 +358,12 @@ export async function runVerifier(req: VerifyRequest): Promise<VerifierOutput> {
               },
             },
           },
-          ...chatCallParams(model, { temperature: 0, visibleCap: 256, reasoningCap: 2048 }),
+          ...chatCallParams(model, {
+            temperature: 0,
+            visibleCap: 256,
+            reasoningCap: 2048,
+            reasoningEffort: req.effort,
+          }),
         },
         { signal: getAbortSignal() },
       ),
@@ -368,7 +470,11 @@ export async function runPlausibilityJudge(req: PlausibilityRequest): Promise<Pl
               },
             },
           },
-          ...chatCallParams(model, { temperature: 0, visibleCap: 256, reasoningCap: 2048 }),
+          ...chatCallParams(model, {
+            temperature: 0,
+            visibleCap: 256,
+            reasoningCap: 2048,
+          }),
         },
         { signal: getAbortSignal() },
       ),

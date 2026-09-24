@@ -4,8 +4,11 @@ import type { LaneId, RetrievalProfile } from '../search/retrieval-profile';
 import type { SearchDto } from '../search/dto/search.dto';
 import { getAbortSignal } from '../common/request-context';
 import { withSpan } from '../common/tracing';
-import { INSTRUCTION_PROBE_QUERY, extractStandingInstructions } from './answer-router';
-import { buildSecondaryDto } from './synthesize.helpers';
+import { extractStandingInstructions } from './answer-router';
+import { InstructionLaneService } from './instruction-lane.service';
+
+/** Standing instructions rendered per prompt. */
+const INSTRUCTIONS_CAP = 8;
 import {
   wantsInsightEvidence,
   wantsTimelineEvidence,
@@ -28,6 +31,8 @@ import type { CitableBelief } from './belief-citations';
 import type { CitableScene } from './scene-citations';
 import type { ZoomCandidate } from './fragment-zoom';
 import type { CoverageScanTuning } from '../search/internals/scan-leg';
+import type { Asker } from './asker';
+import { UserEntityService } from '../ingest/user-entity.service';
 
 /** Grounding anchors the raw-window lane expands (top evidence order). */
 const RAW_WINDOW_MAX_ANCHORS = 4;
@@ -72,6 +77,13 @@ function scanTuning(profile: RetrievalProfile): CoverageScanTuning {
  */
 
 export interface CollectedEvidence {
+  /**
+   * Who is asking (asker.ts): the caller's user as an entity of the
+   * memory, when their turns have minted one. The generator, the
+   * auditor and the L3 round read the same asker — evidence parity.
+   * Undefined without a userId or before the user has spoken.
+   */
+  asker?: Asker | undefined;
   /** Deduped verbatim lines for the transcript section. */
   transcriptLines: string[];
   /** Derived-insight lines (V8 §1), own budget slot. */
@@ -93,7 +105,7 @@ export interface CollectedEvidence {
   updateStories?: Map<string, string> | undefined;
   /**
    * Multiworld §10 facts-as-keys: factId → rendered grounding quote
-   * (" [source YYYY-MM-DD speaker: …]") for the top evidence facts;
+   * (" (source YYYY-MM-DD speaker: …)") for the top evidence facts;
    * undefined when the profile has the lane off or nothing resolves.
    * Applied by the caller to the SAME fact lines both prompts read —
    * exactly the updateStories contract.
@@ -206,6 +218,7 @@ export function emptyCollectedEvidence(
   query: string,
 ): CollectedEvidence {
   return {
+    asker: undefined,
     transcriptLines: [],
     insightLines: [],
     instructions: undefined,
@@ -246,6 +259,8 @@ export class EvidenceCollectorService {
     @Optional() private readonly fragmentLane?: FragmentLaneService,
     @Optional() private readonly beliefLane?: BeliefLaneService,
     @Optional() private readonly sceneLane?: SceneLaneService,
+    @Optional() private readonly instructionLane?: InstructionLaneService,
+    @Optional() private readonly users?: UserEntityService,
   ) {}
 
   /**
@@ -275,10 +290,18 @@ export class EvidenceCollectorService {
      *  beside beliefLane — shapes the lane's rendered date token and is
      *  echoed on CollectedEvidence for the generator header. */
     beliefDateDisambiguation?: boolean | undefined;
+    /** The instruction read already in flight (startInstructionProbe),
+     *  when the caller launched it beside its main search; absent → it
+     *  runs here. */
+    instructionProbe?: Promise<string[]> | undefined;
+    /** The asker already resolved (startAskerProbe) — the orchestrator
+     *  needs it before the evidence lines render; absent → read here. */
+    asker?: Asker | undefined;
   }): Promise<CollectedEvidence> {
     const { profile, query } = opts;
     const timelineEvidence = wantsTimelineEvidence(profile, query);
     const [
+      asker,
       instructions,
       transcriptLines,
       insightLines,
@@ -290,6 +313,7 @@ export class EvidenceCollectorService {
       beliefEvidence,
       sceneEvidence,
     ] = await Promise.all([
+      opts.asker ? Promise.resolve(opts.asker) : this.collectAsker(opts),
       this.collectStandingInstructions(opts),
       this.collectTranscriptLines(opts, timelineEvidence),
       this.collectInsightLines(opts),
@@ -317,6 +341,7 @@ export class EvidenceCollectorService {
           ])
         : [transcriptLines, insightSlot];
     return {
+      asker,
       transcriptLines: filteredTranscript,
       insightLines: filteredInsights,
       instructions,
@@ -755,51 +780,95 @@ export class EvidenceCollectorService {
   }
 
   /**
-   * T7: standing user instructions for the prompt's dedicated section.
-   * UNCONDITIONAL (IF questions are deliberately neutral — no lexical
-   * route can fire): a fixed probe pulls instruction-shaped facts,
-   * merged with any already in the evidence. undefined when the lane is
-   * off or nothing qualifies; probe failures degrade to evidence-only.
+   * T7 instruction lane — the read half: the standing instructions the
+   * memory files under the `instruction` predicate for this caller
+   * (InstructionLaneService — one indexed read, no search). Launched
+   * beside the main search by the orchestrator; collectSections awaits
+   * it. Resolves [] when the lane is off, the request is already
+   * aborted, the service is not wired, or the read fails — never
+   * rejects.
    */
-  private async collectStandingInstructions({
+  startInstructionProbe({
     profile,
     companyId,
     callerScopes,
-    evidence,
     dto,
   }: {
     profile: RetrievalProfile;
     companyId: string;
     callerScopes: string[];
-    evidence: SearchHit[];
-    dto?: SearchDto;
-  }): Promise<string[] | undefined> {
-    if (!profile.lanes.has('instruction')) return undefined;
-    // Structured cancellation: the probe is a full second search — if
-    // the request already died, don't spend it. (Per-query aborts are
-    // not supported by the DB SDK; stage-boundary checks are the
-    // honest granularity.)
-    if (getAbortSignal()?.aborted) return undefined;
-    let probeHits: SearchHit[] = [];
-    try {
-      // Audit 2026-08-19 P1: the probe inherits the caller's filter
-      // contract (user scope included) — only its query/limit are fixed.
-      const probe = await withSpan('synthesize.instruction_probe', () =>
-        this.search.search(
-          companyId,
-          dto
-            ? buildSecondaryDto(dto, { query: INSTRUCTION_PROBE_QUERY, limit: 8 })
-            : ({ query: INSTRUCTION_PROBE_QUERY, limit: 8 } as SearchDto),
-          callerScopes,
-        ),
-      );
-      probeHits = probe.results;
-    } catch (e) {
+    dto?: SearchDto | undefined;
+  }): Promise<string[]> {
+    if (!profile.lanes.has('instruction') || !this.instructionLane) return Promise.resolve([]);
+    if (getAbortSignal()?.aborted) return Promise.resolve([]);
+    return withSpan('synthesize.instruction_probe', () =>
+      (this.instructionLane as InstructionLaneService).instructionLines({
+        companyId,
+        callerScopes,
+        userId: dto?.userId,
+      }),
+    ).catch((e: unknown) => {
       this.logger.warn(
         `instruction probe failed (companyId=${companyId}): ${(e as Error).message}`,
       );
+      return [];
+    });
+  }
+
+  /**
+   * Who is asking (asker.ts): the caller's user as the memory knows them
+   * (ingest/user-entity.ts) — the same read the ingest path names the
+   * speaker with. No userId, no entity yet, or a failed read ⇒ undefined.
+   * The name is null until the memory has learned one (the userId
+   * placeholder is not a name).
+   */
+  private async collectAsker(opts: {
+    companyId: string;
+    userId?: string | undefined;
+  }): Promise<Asker | undefined> {
+    if (!opts.userId || !this.users) return undefined;
+    const own = await this.users.resolve(opts.companyId, opts.userId);
+    return own ? { entityId: own.id, name: own.named ? own.name : null } : undefined;
+  }
+
+  /** The asker read, launched beside the main search (the instruction-probe idiom). */
+  startAskerProbe(opts: {
+    companyId: string;
+    userId?: string | undefined;
+  }): Promise<Asker | undefined> {
+    return this.collectAsker(opts).catch((e: unknown) => {
+      this.logger.warn(`asker read failed (companyId=${opts.companyId}): ${(e as Error).message}`);
+      return undefined;
+    });
+  }
+
+  /**
+   * T7: standing user instructions for the prompt's dedicated section.
+   * UNCONDITIONAL (IF questions are deliberately neutral — no lexical
+   * route can fire): the probe's instruction-shaped facts merge with any
+   * already in the evidence. undefined when the lane is off or nothing
+   * qualifies; probe failures degrade to evidence-only.
+   */
+  private async collectStandingInstructions(opts: {
+    profile: RetrievalProfile;
+    companyId: string;
+    callerScopes: string[];
+    evidence: SearchHit[];
+    dto?: SearchDto;
+    instructionProbe?: Promise<string[]> | undefined;
+  }): Promise<string[] | undefined> {
+    if (!opts.profile.lanes.has('instruction')) return undefined;
+    const filed = await (opts.instructionProbe ?? this.startInstructionProbe(opts));
+    // The filed instructions first, then any instruction-shaped fact the
+    // evidence itself carries, deduplicated on the text.
+    const seen = new Set<string>();
+    const list: string[] = [];
+    for (const text of [...filed, ...extractStandingInstructions(opts.evidence)]) {
+      const key = text.trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      list.push(text.trim());
     }
-    const list = extractStandingInstructions([...evidence, ...probeHits]);
-    return list.length > 0 ? list : undefined;
+    return list.length > 0 ? list.slice(0, INSTRUCTIONS_CAP) : undefined;
   }
 }

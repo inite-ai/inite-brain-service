@@ -348,9 +348,10 @@ export function resolveEventTime(
   return null;
 }
 
-/** Run one chrono parser; return the first result carrying a real date, rolled
- *  back a year if it landed in the future (a bare "12 September" resolves to the
- *  nearest occurrence, which our past-only semantics must not accept forward). */
+/** Run one chrono parser; return the first result carrying a real date. A
+ *  date that lands after the reference is handed on as is — clampPast then
+ *  refuses it and the caller keeps the message time (see below on why a
+ *  bare forward date is no longer rolled back a year). */
 function parseWith(
   parser: ChronoLike,
   clause: string,
@@ -365,7 +366,7 @@ function parseWith(
     return null;
   }
   for (const r of results) {
-    let d = r.start.date();
+    const d = r.start.date();
     if (Number.isNaN(d.getTime())) continue;
     const certain = (c: string): boolean => r.start.isCertain?.(c) === true;
     // A TIME OF DAY is not an event date. "the payout cutoff is 16:30
@@ -412,14 +413,19 @@ function parseWith(
     // which is the right validFrom for "the launch is 2026-04-15" said
     // in March anyway. The date named there is the VALUE, not the moment
     // the statement became true.
-    const yearStated = certain('year');
-    if (!yearStated && d.getTime() > ref.getTime()) {
-      // Future → roll back one year (bare-date nearest-occurrence case).
-      const rolled = new Date(d);
-      rolled.setUTCFullYear(rolled.getUTCFullYear() - 1);
-      d = rolled;
-      if (d.getTime() > ref.getTime()) continue;
-    }
+    //
+    // A BARE date that lands forward used to be rolled back a year on the
+    // reading "12 September, said in March, means last September". The
+    // same rule stamped "собеседование назначено на 22 сентября", said on
+    // 16 September, as 2025-09-22 — an interview filed a year in the past
+    // on the prod tenant, and every scheduling statement with a bare date
+    // ("the meeting is on the 22nd", "запуск 9 апреля") carried the same
+    // fabricated year. chrono cannot read tense; between "we shipped it on
+    // December 20" (last year) and "the review is on December 20" (this
+    // year) the text alone does not decide, and a wrong validFrom in the
+    // past is a lie the bitemporal axis then serves, while a forward date
+    // simply falls to the message time — the same honest fallback a
+    // stated future year gets. So: no inference from a bare date either.
     return { date: d, expr: r.text };
   }
   return null;
@@ -495,4 +501,45 @@ export function factValidFrom(
     ),
   });
   return event.date;
+}
+
+/**
+ * The fact's timing on the write path, from the extractor's own
+ * resolution first (memory-context contract: `eventTime` is the
+ * calendar day the value refers to, resolved by the model against the
+ * turn date — any language, any calendar phrasing, past or future),
+ * with the chrono lane above as the fallback for a fact that carries
+ * none.
+ *
+ * A day at or before the turn is an occurrence: validFrom takes it,
+ * exactly as the chrono lane stamps a resolved past date. A day after
+ * the turn is a scheduled thing — a deadline, a meeting, a launch — and
+ * the fact is valid from the moment it was said, not from the day it
+ * points at (a plan asserted in September must not surface as unknown
+ * in an asOf read of October). Either way the day rides the row as
+ * `objectMeta.date`, so the read side can place "19 сентября" on a
+ * calendar without parsing it again.
+ */
+export function factTiming(
+  f: { predicate: string; clause?: string | undefined; eventTime?: string | undefined },
+  emittedAt: string | Date,
+  opts: EventTimeResolveOpts,
+): { validFrom: Date; objectMeta?: { date: string } } {
+  const said = emittedAt instanceof Date ? emittedAt : new Date(emittedAt);
+  const day = f.eventTime;
+  if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    const at = new Date(`${day}T00:00:00Z`);
+    if (!Number.isNaN(at.getTime())) {
+      const occurred = at.getTime() <= said.getTime();
+      traceArtifact('ingest.fact.event_time', {
+        predicate: f.predicate,
+        expr: 'extractor',
+        resolved: day,
+        emittedAt: said.toISOString().slice(0, 10),
+        scheduled: !occurred,
+      });
+      return { validFrom: occurred ? at : said, objectMeta: { date: day } };
+    }
+  }
+  return { validFrom: factValidFrom(f, emittedAt, opts) };
 }

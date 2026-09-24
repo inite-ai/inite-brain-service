@@ -9,7 +9,7 @@ import { withStageBudget, type StageBudgets } from './internals/stage-budget';
 import { resolveSearchTuning } from './retrieval-profile';
 import { fetchNeighbours, type Neighbour } from './internals/neighbours';
 import { shouldSkipRerankByMargin } from './internals/rerank-skip';
-import { collectFactWindow, remapWindowScores } from './internals/fact-rerank';
+import { collectFactWindow, remapWindowScores, type WindowedFact } from './internals/fact-rerank';
 import { PipelineContext } from './pipeline-context';
 
 /**
@@ -115,27 +115,81 @@ export class SearchRerankService {
 
     let candidatesForRerank = wideCandidates.slice(0, RERANK_WINDOW);
 
-    if (this.crossEncoder.isEnabled() && wideCandidates.length > 1) {
+    // The entity pass runs when its order DECIDES something: it narrows
+    // the wide set to the rerank window, or it is the only reranker
+    // this search gets. Measured on prod (2026-09-18, 2 vCPU, 140 ms a
+    // pair): 20 candidates took 1.16 s in series before the LLM rerank
+    // — which then re-ordered the same 20 within the band, on a window
+    // the local path never narrows (both are 20). And with fewer
+    // candidates than the caller's limit the generator reads the set
+    // whole, so no order matters (the LLM rerank already skips there).
+    // The fact-level pass and the lanes that need the joint encoder are
+    // untouched; it is one CPU-bound pass per search that goes.
+    const skip = this.entityCrossEncoderSkip(wideCandidates, RERANK_WINDOW, ctx);
+    if (skip) {
+      this.metrics?.countCrossEncoder(skip);
+    } else {
       candidatesForRerank = await this.runCrossEncoder(
         wideCandidates,
         ctx.dto.query,
         RERANK_WINDOW,
         budgetsOf(ctx),
       );
-    } else if (!this.crossEncoder.isEnabled()) {
-      this.metrics?.countCrossEncoder('skipped_disabled');
-    } else {
-      this.metrics?.countCrossEncoder('skipped_singleton');
     }
 
+    // The fact-level cross-encoder pass starts HERE, not after the LLM
+    // rerank: the entity pass above has just released the (single,
+    // serial) local worker, and the LLM rerank below is a network wait
+    // the fact pass hides under. Its window is collected now — before
+    // anything downstream reads scores — and its remap is applied after
+    // the LLM rerank returns, so the scores every stage in between reads
+    // are the fused ones, exactly as when the pass ran last.
+    const factPass = this.startFactRerank({ byEntity, ctx });
+    const ordered = await this.orderWithinBand({ candidatesForRerank, ctx, neighboursByEntity });
+    const fact = await factPass;
+    if (fact) remapWindowScores(fact.rows, fact.perm);
+    return ordered;
+  }
+
+  /** Why the entity cross-encoder pass does not run for this search, or
+   *  null when it does (see runRerankStage). */
+  private entityCrossEncoderSkip(
+    wideCandidates: EntityBucket[],
+    rerankWindow: number,
+    ctx: PipelineContext,
+  ): 'skipped_disabled' | 'skipped_singleton' | 'skipped_all_fit' | 'skipped_llm_orders' | null {
+    if (!this.crossEncoder.isEnabled()) return 'skipped_disabled';
+    if (wideCandidates.length <= 1) return 'skipped_singleton';
+    if (wideCandidates.length <= ctx.limit) return 'skipped_all_fit';
+    // The LLM reranker will order this exact set — the pass narrows nothing.
+    if (this.reranker.isEnabled() && wideCandidates.length <= rerankWindow) {
+      return 'skipped_llm_orders';
+    }
+    return null;
+  }
+
+  /**
+   * The band contract, the margin skip and the LLM rerank over the
+   * cross-encoder's window — the part of the stage that waits on the
+   * network, split out so the fact pass can run beside it.
+   */
+  private async orderWithinBand({
+    candidatesForRerank: crossEncoded,
+    ctx,
+    neighboursByEntity,
+  }: {
+    candidatesForRerank: EntityBucket[];
+    ctx: PipelineContext;
+    neighboursByEntity: Map<string, Neighbour[]> | undefined;
+  }): Promise<EntityBucket[]> {
     // Release blocker (audit 2026-08-21 P1): the cross-encoder's
     // permutation used to override fused-score ORDER unconditionally,
     // erasing every score-side prior — trust (SEARCH_TRUST_BETA) above
     // all: the beta moved the score but could never move the ranking.
     // Contract: rerankers refine order only WITHIN a fused-score band;
     // a gap wider than the band survives every rerank stage.
-    candidatesForRerank = this.applyScoreBandOrder(
-      candidatesForRerank,
+    const candidatesForRerank = this.applyScoreBandOrder(
+      crossEncoded,
       ctx.tuning?.rerankTrustBand ?? 0,
     );
 
@@ -158,6 +212,15 @@ export class SearchRerankService {
       this.metrics?.countRerank('skipped_singleton');
       return candidatesForRerank;
     }
+    // Every candidate is returned when there are no more of them than
+    // the caller asked for: the reranker could only permute a set the
+    // generator reads whole. Three reranker calls per search for that
+    // was the largest fixed cost of a small tenant's answer (measured
+    // 2026-09-18: 1.2–1.8 s of a 4.5 s synthesize).
+    if (candidatesForRerank.length <= ctx.limit) {
+      this.metrics?.countRerank('skipped_all_fit');
+      return candidatesForRerank;
+    }
     if (skipByMargin) {
       this.metrics?.countRerank('skipped_margin');
       return candidatesForRerank;
@@ -177,23 +240,26 @@ export class SearchRerankService {
    * Fact-level cross-encoder pass (July A3, profile.factRerank):
    * rescore the top-`factRerankWindow` facts of the fused pool so the
    * fact-centric budget cut selects by joint-encoder relevance instead
-   * of fused score alone. Mutates window-row scores IN PLACE via the
-   * rank-preserving remap (see internals/fact-rerank.ts) — bucket
-   * order, the window/tail boundary and the top-1 score value are all
-   * unchanged. Identity fallback on timeout/failure, same contract as
-   * every rerank stage.
+   * of fused score alone. Resolves to the window and the permutation
+   * for the caller to apply via the rank-preserving remap (see
+   * internals/fact-rerank.ts) — bucket order, the window/tail boundary
+   * and the top-1 score value are all unchanged by it. Null when the
+   * pass is off, has nothing to rank, or timed out (identity — same
+   * contract as every rerank stage).
    */
-  async rerankFactsGlobal({
+  private async startFactRerank({
     byEntity,
     ctx,
   }: {
     byEntity: Map<string, EntityBucket>;
     ctx: PipelineContext;
-  }): Promise<void> {
-    if (!ctx.profile.factRerank || !this.crossEncoder.isEnabled()) return;
+  }): Promise<{ rows: WindowedFact[]; perm: number[] } | null> {
+    // profile is optional-chained for the same reason budgetsOf() tolerates
+    // a partial ctx: unit specs cast a bare context into the stage.
+    if (!ctx.profile?.factRerank || !this.crossEncoder.isEnabled()) return null;
     const window = ctx.tuning?.factRerankWindow ?? 64;
     const rows = collectFactWindow([...byEntity.values()], window);
-    if (rows.length <= 1) return;
+    if (rows.length <= 1) return null;
     const inputs = rows.map(({ row }) => {
       const ent = row.row.entity ?? {
         type: 'other',
@@ -222,7 +288,7 @@ export class SearchRerankService {
       { 'fact_rerank.candidates': inputs.length },
     );
     this.metrics?.countCrossEncoder(timedOut ? 'fact_error' : 'fact_invoked');
-    if (!timedOut) remapWindowScores(rows, perm);
+    return timedOut ? null : { rows, perm };
   }
 
   /**

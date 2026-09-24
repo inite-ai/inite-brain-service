@@ -453,6 +453,8 @@ const ALLOWED_PREFIXES = [
   'v1/search',
   'v1/synthesize',
   'v1/entities/',
+  'v1/scenes',
+  'v1/beliefs',
   'v1/ingest/mention',
   'v1/ingest/fact',
   'v1/ingest/link',

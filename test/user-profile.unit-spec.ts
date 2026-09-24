@@ -253,8 +253,12 @@ describe('UserProfileService — assembly', () => {
       readPin: null,
     });
     const res = await svc.getProfile({ ...baseOpts });
+    // The identity line first — the memory has no name for this user yet
+    // (no UserEntityService wired here), so it says so — then the facts.
+    expect(res.identity).toEqual({ entityId: null, name: null });
     expect(res.profileText).toBe(
-      '- [identity] Alex is a vegetarian (as of 2026-01-15)\n' +
+      '- [identity] name: not learned yet — ask how to address the user and record it as a `name` fact on their own entity\n' +
+        '- [identity] Alex is a vegetarian (as of 2026-01-15)\n' +
         '- [work] Alex works at Acme (as of 2026-02-03)',
     );
   });

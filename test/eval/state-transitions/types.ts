@@ -63,11 +63,14 @@ export interface FactHistoryCheck {
 
 /**
  * `serve` — synthesize serves CURRENT truth. Marker semantics follow
- * the sibling's D1 forbid-lesson: prefer expectAnyOf on the current
- * marker; use forbidAnyOf only where naming the old value at all is an
- * unambiguous stale leak. Scoring is marker-FIRST: an honest negative
- * answer ("you don't have a bike anymore") trips the shared decline
- * regex, so abstention only fails a serve when no expect marker hit.
+ * the sibling's D1 lesson: prefer expectAnyOf on the current marker;
+ * name the replaced value in priorAnyOf, where it may follow the
+ * current one as history ("MacBook now; previously the ThinkPad" is
+ * the current state told honestly) but never lead; use forbidAnyOf
+ * only for phrasings that occur solely in a wrongly flipped answer.
+ * Scoring is marker-FIRST: an honest negative answer ("you don't have
+ * a bike anymore") trips the shared decline regex, so abstention only
+ * fails a serve when no expect marker hit.
  */
 export interface ServeCheck {
   kind: 'serve';
@@ -75,6 +78,12 @@ export interface ServeCheck {
   query: string;
   /** Pass requires ≥1 of these in the answer (unless conflictSides). */
   expectAnyOf?: string[];
+  /**
+   * The superseded value. May appear — but only after an expect marker
+   * (the sibling's checkOrdering): leading with it is what a memory
+   * ordered by arrival would do.
+   */
+  priorAnyOf?: string[];
   /** Any of these in the answer fails the check (checked first). */
   forbidAnyOf?: string[];
   /** Pass iff the answer is an abstention (never combined with expect). */

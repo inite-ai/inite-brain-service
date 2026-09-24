@@ -1,4 +1,10 @@
-import type { ExtractedEntity, ExtractedFact, RawExtractedFact } from './types';
+import { knownEntityId, supersededFactIds, type MemoryContext } from './memory-context';
+import {
+  parseCardinality,
+  type ExtractedEntity,
+  type ExtractedFact,
+  type RawExtractedFact,
+} from './types';
 import type { ExtractionPipelineProfile } from '../extraction-profile';
 
 /**
@@ -71,10 +77,43 @@ export function isGroundedSpan(normalizedInput: string, normalizedSpan: string):
 }
 
 /**
+ * Inflection-tolerant grounding for ENTITY NAMES in spaced scripts. The
+ * extractor files an entity under its dictionary form — "Мария Петрова"
+ * for the mention "Марией Петровой", "Лиссабон" for "Лиссабона" — and the
+ * verbatim gate then dropped the entity as a hallucination, with its facts.
+ * On the prod tenant the interviewee vanished from her own interview. A
+ * fusional language inflects by SUFFIX, so a name token is present when an
+ * input token shares its stem: a common prefix of at least four letters
+ * (three on a three-letter token) covering 70% of the shorter token
+ * ("мария"/"марией" → "мари", 4 of 5; "петрова"/"петровой" → "петров", 6
+ * of 7; "bern"/"berlin" → "ber", 3 of 4: no). Every token of the name must
+ * find one; short tokens (initials, "de", "of") are skipped rather than
+ * matched loosely. Unspaced scripts keep the verbatim gate (no suffixes to
+ * tolerate), and so does every fact valueSpan — a citation must quote.
+ */
+export function isGroundedInflected(normalizedInput: string, normalizedName: string): boolean {
+  const inputTokens = normalizedInput.split(/[^\p{L}\p{N}]+/u).filter((t) => t.length >= 3);
+  if (inputTokens.length === 0) return false;
+  const nameTokens = normalizedName.split(/[^\p{L}\p{N}]+/u).filter((t) => t.length >= 3);
+  if (nameTokens.length === 0) return false;
+  return nameTokens.every((nt) => {
+    if (!SPACED_WORD_CHAR.test(nt[0]!)) return false;
+    return inputTokens.some((it) => {
+      const shorter = Math.min(nt.length, it.length);
+      const need = Math.max(Math.min(4, shorter), Math.ceil(0.7 * shorter));
+      let i = 0;
+      while (i < nt.length && i < it.length && nt[i] === it[i]) i++;
+      return i >= need;
+    });
+  });
+}
+
+/**
  * Span-grounding gate for ENTITY NAMES — the parser accepts whatever name
  * the model emits, so a hallucinated entity (name never in the source) would
  * otherwise be created with full downstream effect. Returns a parallel
- * boolean mask: true = the entity's name is grounded in the input.
+ * boolean mask: true = the entity's name is grounded in the input, verbatim
+ * or as an inflected form of it (isGroundedInflected).
  */
 export function groundEntities(
   trimmedInput: string,
@@ -92,8 +131,18 @@ export function groundEntities(
   const normalizedInput = normalizeForGrounding(trimmedInput);
   const allowed = new Set(allowedNames.map((n) => normalizeForGrounding(n)).filter(Boolean));
   return entities.map((e) => {
+    // A mention pinned to a KNOWN ENTITY (memory-context.ts) is grounded
+    // by construction: the pin is a resolution the graph issued the
+    // handle for, and the extractor routinely writes the entity's known
+    // name for a short mention ("Rui" → "Rui Almeida"). Dropping it
+    // here lost every fact of the turn (measured 2026-09-18).
+    if (e.known) return true;
     const normName = normalizeForGrounding(e.name);
-    return allowed.has(normName) || isGroundedSpan(normalizedInput, normName);
+    return (
+      allowed.has(normName) ||
+      isGroundedSpan(normalizedInput, normName) ||
+      isGroundedInflected(normalizedInput, normName)
+    );
   });
 }
 
@@ -115,19 +164,35 @@ export function normalizeEntityType(t: unknown): ExtractedEntity['type'] {
 }
 
 /** Parse the entities[] array from the raw LLM JSON. */
-export function parseEntities(parsed: unknown): ExtractedEntity[] {
+export function parseEntities(parsed: unknown, memory?: MemoryContext): ExtractedEntity[] {
   const entities = isRecord(parsed) ? parsed.entities : undefined;
   if (!Array.isArray(entities)) return [];
   const out: ExtractedEntity[] = [];
   for (const e of entities as unknown[]) {
     if (!isRecord(e) || typeof e.name !== 'string') continue;
+    // A handle the memory context did not issue maps to nothing — the
+    // mention then resolves like any other.
+    const known = knownEntityId(memory, e.known);
     out.push({
       name: e.name.trim(),
       type: normalizeEntityType(e.type),
       canonical: typeof e.canonical === 'string' ? e.canonical.trim() : undefined,
+      ...(known ? { known } : {}),
     });
   }
   return out;
+}
+
+/** A calendar day the extractor resolved, or undefined for anything else. */
+export function parseEventTime(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw.trim());
+  if (!m) return undefined;
+  const day = `${m[1]}-${m[2]}-${m[3]}`;
+  const ms = Date.parse(`${day}T00:00:00Z`);
+  // A real day only: "2026-02-30" parses to March on some engines.
+  if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== day) return undefined;
+  return day;
 }
 
 /** Parse the clauses[] array — verbatim string sub-spans. */
@@ -141,7 +206,11 @@ export function parseClauses(parsed: unknown): string[] {
  * Pull raw facts out of the LLM JSON with shallow shape validation —
  * entityIndex in bounds, predicate is a string, valueSpan is a string.
  */
-export function parseRawFacts(parsed: unknown, entityCount: number): RawExtractedFact[] {
+export function parseRawFacts(
+  parsed: unknown,
+  entityCount: number,
+  memory?: MemoryContext,
+): RawExtractedFact[] {
   const facts = isRecord(parsed) ? parsed.facts : undefined;
   if (!Array.isArray(facts)) return [];
   const out: RawExtractedFact[] = [];
@@ -157,6 +226,10 @@ export function parseRawFacts(parsed: unknown, entityCount: number): RawExtracte
     ) {
       continue;
     }
+    const eventTime = parseEventTime(f.eventTime);
+    const cardinality = parseCardinality(f.cardinality);
+    // Handles are mapped to record ids here; invented ones vanish.
+    const supersedes = supersededFactIds(memory, f.supersedes);
     out.push({
       entityIndex: f.entityIndex,
       clauseIndex:
@@ -167,6 +240,9 @@ export function parseRawFacts(parsed: unknown, entityCount: number): RawExtracte
       valueSpan: f.valueSpan.trim(),
       confidence: typeof f.confidence === 'number' ? Math.max(0, Math.min(1, f.confidence)) : 0.5,
       ...(typeof f.object === 'string' && f.object.trim() ? { object: f.object.trim() } : {}),
+      ...(eventTime ? { eventTime } : {}),
+      ...(supersedes.length > 0 ? { supersedes } : {}),
+      ...(cardinality ? { cardinality } : {}),
     });
   }
   return out;
@@ -288,6 +364,9 @@ export function applyGroundingGate(
       confidence: rf.confidence,
       clause: clauseText,
       valueSpan: rf.valueSpan,
+      ...(rf.eventTime ? { eventTime: rf.eventTime } : {}),
+      ...(rf.supersedes && rf.supersedes.length > 0 ? { supersedes: rf.supersedes } : {}),
+      ...(rf.cardinality ? { cardinality: rf.cardinality } : {}),
     });
   }
 

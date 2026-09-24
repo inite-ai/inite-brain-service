@@ -4,12 +4,21 @@ import { IngestMentionDto } from '../ingest/dto/ingest-mention.dto';
 import { EpisodeStoreService } from '../ingest/episode-store.service';
 import { failClosedCaptureEnabled } from '../common/evidence-flags';
 import { DocumentIngestService } from './document-ingest.service';
-import { internalDocumentMeta } from './document-meta';
+import { internalDocumentMeta, joinKnownNames } from './document-meta';
 import { pinUserScope } from '../auth/user-scope';
+import { MemoryContextService } from '../ingest/memory-context.service';
+import { UserEntityService } from '../ingest/user-entity.service';
+import { participantsOf } from '../ingest/participants';
 
 export interface MentionCompatResult {
   skipped: boolean;
-  reason?: 'empty' | 'no_entities';
+  /**
+   * Why nothing was recorded: an empty text, an extraction with no
+   * entities, or a turn whose text this user already sent — the document
+   * store keys on the content hash, so a replay is deduplicated before
+   * any indexer runs and nothing new is committed.
+   */
+  reason?: 'empty' | 'no_entities' | 'duplicate';
   extractedEntityIds: string[];
   extractedFactIds: string[];
   extractedEdgeIds?: string[];
@@ -43,17 +52,23 @@ export interface MentionCompatResult {
  * had nothing to segment, because the only writer of its input lived on
  * the path the deployment does not run.
  *
- * Known difference that remains: `knownEntities` hints are not threaded
- * into entity resolution, and skip detection for 'no_entities' happens
- * AFTER the document + candidates are staged (the document is the audit
- * trail of the empty read).
+ * The participants (`knownEntities` by role) ride the internal channel
+ * too — speaker/addressee names for the extractor's coreference framing
+ * and their externalRefs for the commit writer's anchor — so this path
+ * files a first-person turn under its speaker exactly as the direct
+ * path does. Known difference that remains: skip detection for
+ * 'no_entities' happens AFTER the document + candidates are staged (the
+ * document is the audit trail of the empty read).
  */
 @Injectable()
 export class MentionViaDocumentService {
+  // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token
   constructor(
     private readonly documents: DocumentIngestService,
     @Optional() private readonly episodes?: EpisodeStoreService,
     @Optional() private readonly metrics?: MetricsService,
+    @Optional() private readonly memory?: MemoryContextService,
+    @Optional() private readonly users?: UserEntityService,
   ) {}
 
   async ingest(companyId: string, dto: IngestMentionDto): Promise<MentionCompatResult> {
@@ -72,6 +87,10 @@ export class MentionViaDocumentService {
         extractedFactIds: [],
       };
     }
+    // The user is the speaker of their own turn unless the caller says
+    // who else is (participants.ts) — the same normalisation as the
+    // direct path, before the episode and the internal meta read it.
+    dto = (await this.users?.participants(companyId, { ...dto, userId })) ?? dto;
     // L0 episode capture (EPISODE_SUBSTRATE_ENABLED) runs BEFORE the
     // document is staged, so an indexer failure or an empty read no
     // longer loses the turn. Non-fatal by contract; idempotent on retry.
@@ -87,12 +106,18 @@ export class MentionViaDocumentService {
     }
     // Bounded BEFORE the pipeline runs: an over-long or non-string id is a
     // 400 at the door, not a failed extraction.
+    const { speaker, addressee } = participantsOf(dto);
     const internal = internalDocumentMeta({
       conversationId: dto.contextRef.conversationId,
       messageId: dto.contextRef.messageId,
       eventId: dto.contextRef.eventId,
       episodeId,
       timezone: dto.timezone,
+      speakerName: speaker?.name,
+      speakerRef: speaker ? `${speaker.vertical}:${speaker.id}` : undefined,
+      addresseeName: addressee?.name,
+      addresseeRef: addressee ? `${addressee.vertical}:${addressee.id}` : undefined,
+      knownNames: joinKnownNames((dto.knownEntities ?? []).map((k) => k.name)),
     });
     try {
       const res = await this.documents.ingestDocument(
@@ -130,12 +155,15 @@ export class MentionViaDocumentService {
         this.metrics?.countIngestMention('skipped');
         return {
           skipped: true,
-          reason: 'no_entities',
+          // A deduplicated document with nothing committed is a replayed
+          // turn, not an extraction that found nothing.
+          reason: res.deduplicated ? 'duplicate' : 'no_entities',
           extractedEntityIds: [],
           extractedFactIds: [],
         };
       }
       this.metrics?.countIngestMention('extracted');
+      this.memory?.remember(companyId, dto.contextRef.conversationId, res.committed.entityIds);
       return {
         skipped: false,
         extractedEntityIds: res.committed.entityIds,

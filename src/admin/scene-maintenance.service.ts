@@ -16,6 +16,7 @@ import {
   sceneMaintenanceTimeBudgetMs,
   sceneScheduledMaintenanceEnabled,
   sceneSegmentationEnabled,
+  sceneMaintenanceSettleMs,
 } from '../common/scene-flags';
 import { SceneComposerService } from './scene-composer.service';
 import { BeliefPromotionService } from './belief-promotion.service';
@@ -29,7 +30,7 @@ import {
   type BatchOutcome,
 } from '../common/batch-outcome';
 
-/** One tenant's slice of a nightly run. */
+/** One tenant's slice of a scheduled run. */
 export interface SceneMaintenanceTenantResult {
   companyId: string;
   /** Dirty conversations the budget admitted (0 ⇒ nothing had moved). */
@@ -88,7 +89,7 @@ const EMPTY_RUN: SceneMaintenanceRunResult = {
 /**
  * SceneMaintenanceService — the missing SCHEDULER for the scene plane.
  *
- * THE HOLE THIS CLOSES. Every other nightly derivation owns a cron:
+ * THE HOLE THIS CLOSES. Every other scheduled derivation owns a cron:
  * recompose 03:05, compaction 03:17, memory quality 03:35, outcome prune
  * 03:41, calibration refit 03:42/03:51, candidate sweeper 03:45, strategy
  * distill 03:52, dreams 04:00. Scenes owned none. `SceneComposerService.run`
@@ -100,15 +101,17 @@ const EMPTY_RUN: SceneMaintenanceRunResult = {
  *     dirty page → compose → [enrich → backlink → evidence links, inside the
  *     composer's post-swap chain] → belief promotion → clear the marks
  *
- * CRON SLOT — 04:20 UTC. Every :0x–:5x minute of the 03:00 hour is spoken
- * for (see the list above), and 04:00 is dreams. 04:20 is the first free
- * slot AFTER dreams has had its full worker lease (dreams enqueues per-tenant
- * jobs with ttlSeconds 1200 = 20 min), which matters for more than tidiness:
- * dreams and scene enrichment are the two LLM-heavy nightly passes, and
- * overlapping them would have them bid against each other for the same
- * rate limit on the same key. It is also clear of the hourly registry mirror
- * (:26). The pass reads a substrate that compaction and dreams have already
- * settled — the same reasoning that put dreams 43 minutes after compaction.
+ * CADENCE — every ten minutes, over conversations that have SETTLED
+ * (no turn for SCENES_MAINTENANCE_SETTLE_MS, default 10 min). The pass was
+ * scheduled at 04:20 UTC at first; a memory that consolidates once a day is
+ * one nobody sees happen — a user who finished a conversation in the
+ * morning had no scene and no belief until the next day. The dirty page
+ * makes the sweep proportional to what moved: on a quiet tenant a tick is
+ * one indexed read and nothing else, and the settle fence keeps the paid
+ * enrichment at once per finished scene instead of once per tick on a
+ * moving tail (the mark is bumped on every turn, so an active session is
+ * simply not on the page yet). The 03:00–04:20 scheduled LLM passes (dreams,
+ * compaction) overlap at most one small tick.
  *
  * BUDGETS ARE NOT OPTIONAL. Composing a conversation costs one embedding
  * batch when SCENES_TOPIC_BOUNDARY is on, and the post-swap enrichment
@@ -123,20 +126,20 @@ const EMPTY_RUN: SceneMaintenanceRunResult = {
  *     mid-flight: interrupting a compose between the paid step and the swap
  *     is exactly the failure mode the composer's ordering exists to avoid.
  * Nothing is lost when a budget bites — unconsumed marks are still there
- * tomorrow, and the tenants that were skipped are counted, not forgotten.
+ * next tick, and the tenants that were skipped are counted, not forgotten.
  *
  * ISOLATION. One tenant's failure is caught, counted and logged; the roster
  * continues (the dreams fan-out rule). One tenant's marks are cleared only
  * for conversations whose swap did NOT report a skip, so a partial failure
- * re-composes exactly the failed conversations next night.
+ * re-composes exactly the failed conversations next tick.
  *
  * OVERLAP. Guarded by the distributed lease (one pod runs it, and never
  * concurrently with itself) with a local InFlightGuard as the fallback when
- * JobsModule is not wired — a 30-minute pass and a daily cron leave plenty
- * of room for a slow night to still be running at the next firing.
+ * JobsModule is not wired — a tick that finds the previous pass still in
+ * flight skips, and the marks wait for the next one.
  *
- * Default off (SCENES_SCHEDULED_MAINTENANCE): the cron returns before a
- * single query and no mark is ever written — byte-identical prod.
+ * SCENES_SCHEDULED_MAINTENANCE=0: the cron returns before a single query
+ * and no mark is ever written; the admin routes stay the only trigger.
  */
 @Injectable()
 export class SceneMaintenanceService {
@@ -161,13 +164,13 @@ export class SceneMaintenanceService {
   ) {}
 
   /**
-   * Cron entry — daily at 04:20 UTC (slot rationale in the class docblock).
+   * Cron entry — every ten minutes (cadence rationale in the class docblock).
    *
    * Returns the run summary so a caller (tests, a future admin trigger) can
    * see what happened; the @nestjs/schedule loop ignores it.
    */
-  @Cron('20 4 * * *', { timeZone: 'UTC' })
-  async runNightly(): Promise<SceneMaintenanceRunResult> {
+  @Cron('*/10 * * * *', { timeZone: 'UTC' })
+  async runScheduled(): Promise<SceneMaintenanceRunResult> {
     // Double gate: the master flag decides whether scenes exist at all, the
     // maintenance flag whether they are built on a schedule. Read at call
     // time so both are runtime-mutable, and checked BEFORE the guard so a
@@ -180,7 +183,7 @@ export class SceneMaintenanceService {
       // The guard's null is "someone else has it" — either the previous
       // night's pass is still going on this pod or another pod holds the
       // lease. Never an error: skipping is the correct outcome.
-      this.logger.warn('scene maintenance skipped — a previous run is still in flight');
+      this.logger.log('scene maintenance skipped — a previous run is still in flight');
       return EMPTY_RUN;
     }
     return run;
@@ -207,7 +210,7 @@ export class SceneMaintenanceService {
     for (const companyId of roster) {
       if (Date.now() >= deadline) {
         // Budget bite: count what we did not start rather than silently
-        // dropping it. The marks survive; tomorrow's run picks them up.
+        // dropping it. The marks survive; next tick's run picks them up.
         result.budgetExhausted = true;
         result.skippedForBudget += 1;
         this.metrics?.countSceneMaintenance('skipped_budget');
@@ -220,7 +223,7 @@ export class SceneMaintenanceService {
       } catch (e) {
         // Per-tenant isolation (the dreams fan-out rule): a Surreal hiccup
         // or a composer throw on tenant N must not cost tenant N+1 its
-        // night. The tenant keeps its marks and retries tomorrow.
+        // night. The tenant keeps its marks and retries next tick.
         const message = (e as Error).message;
         this.logger.warn(`scene maintenance failed for ${companyId}: ${message}`);
         this.metrics?.countSceneMaintenance('failed');
@@ -258,7 +261,7 @@ export class SceneMaintenanceService {
    * `readAt` is captured BEFORE the dirty read on purpose — it is the race
    * fence handed to `clearDirtyConversations`. A turn arriving during the
    * (long, paid) compose bumps its mark past this instant, the mark survives
-   * the clear, and that conversation recomposes tomorrow. Never the reverse.
+   * the clear, and that conversation recomposes next tick. Never the reverse.
    */
   async runTenant(
     companyId: string,
@@ -266,8 +269,9 @@ export class SceneMaintenanceService {
   ): Promise<SceneMaintenanceTenantResult> {
     const startedAt = Date.now();
     const readAt = new Date();
+    const settledBefore = new Date(readAt.getTime() - sceneMaintenanceSettleMs());
     const dirty = await this.surreal.withCompany(companyId, (db) =>
-      selectDirtyConversations(db, maxConversations),
+      selectDirtyConversations(db, maxConversations, settledBefore),
     );
     if (dirty.length === 0) {
       // The steady state on a quiet tenant, and the series that proves the

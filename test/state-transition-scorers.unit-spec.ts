@@ -198,6 +198,36 @@ describe('state-transition scorers', () => {
       expect(v.detail).toMatch(/forbidden marker/);
     });
 
+    it('prior marker: the replaced value may follow the current one as history', () => {
+      const spec = { expectAnyOf: ['MacBook'], priorAnyOf: ['ThinkPad'] };
+      const v = scoreServe(
+        'You use a MacBook Pro for work right now. Previously, you used a ThinkPad X1 Carbon.',
+        undefined,
+        spec,
+      );
+      expect(v.status).toBe('pass');
+      expect(v.detail).toMatch(/current value leads/);
+      expect(scoreServe('A MacBook Pro.', undefined, spec).status).toBe('pass');
+    });
+
+    it('prior marker: leading with the replaced value fails', () => {
+      const v = scoreServe('A ThinkPad X1 Carbon; a MacBook Pro was mentioned later.', undefined, {
+        expectAnyOf: ['MacBook'],
+        priorAnyOf: ['ThinkPad'],
+      });
+      expect(v.status).toBe('fail');
+      expect(v.detail).toMatch(/leads with the superseded value/);
+    });
+
+    it('prior marker: an abstention still fails as abstention, not as ordering', () => {
+      const v = scoreServe('I do not have information about that.', 'no_facts', {
+        expectAnyOf: ['MacBook'],
+        priorAnyOf: ['ThinkPad'],
+      });
+      expect(v.status).toBe('fail');
+      expect(v.detail).toMatch(/abstained/);
+    });
+
     it('fails a substantive answer that misses every expect marker', () => {
       const v = scoreServe('You quit the chess club on August 9th.', undefined, {
         expectAnyOf: ['member', 'rejoined'],

@@ -25,7 +25,17 @@ export interface SearchHit {
    * asserting an employer the verifier could not find, and dropping the
    * answer.
    */
-  relations?: Array<{ kind: string; peer: string; peerType: string }>;
+  relations?: Array<{
+    kind: string;
+    peer: string;
+    peerType: string;
+    /** The peer entity's id — the asker's own entity renders as "you" by it. */
+    peerId?: string | undefined;
+    /** The knowledge_edge record behind the relation (citable). */
+    edgeId?: string | undefined;
+    /** 'out' = this entity is the subject of the relation; 'in' = its object. */
+    direction?: 'out' | 'in' | undefined;
+  }>;
   facts: Array<{
     factId: string;
     /** As written — the coinage this fact was stored under. */
@@ -38,6 +48,12 @@ export interface SearchHit {
      */
     predicateAlias?: string | undefined;
     object: string;
+    /**
+     * The calendar day (YYYY-MM-DD) the value refers to — a deadline, a
+     * meeting, an occurrence — as the extractor resolved it at write
+     * time (objectMeta.date). Absent when the value names no day.
+     */
+    date?: string | undefined;
     confidence: number;
     validFrom: string;
     validUntil?: string | undefined;

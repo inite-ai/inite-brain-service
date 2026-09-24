@@ -28,6 +28,24 @@ export function externalRefKey(vertical: string, id: string): string {
   return `${safe(vertical)}__${safe(id)}`;
 }
 
+/**
+ * The external-ref key of a (vertical, id) reference under a per-user
+ * scope (migration 0055). The UNIQUE key is the dedup axis, so a
+ * user-scoped ref must never collide with the tenant-global one — or
+ * another user's — for the same (vertical, id): the scope is folded into
+ * the key. The separator MUST be a byte externalRefKey never emits, or a
+ * dotted id folds into the marker and a tenant-global ref collides with
+ * a user-scoped one (global "x.u.bob" → "x__u__bob" == scoped ("x", user
+ * "bob") under the old "__u__" marker — no crafted input needed).
+ * externalRefKey only ever produces [word]/`__`, never a colon, so
+ * "::u::" cannot be forged from the (vertical, id) side. No userId → the
+ * plain tenant-global key.
+ */
+export function scopedRefKey(vertical: string, id: string, userId: string | undefined): string {
+  const base = externalRefKey(vertical, id);
+  return userId ? `${base}::u::${userId}` : base;
+}
+
 /** PII classes the redactor can find — stored as episode.piiClass. */
 export type PiiClass = 'email' | 'phone' | 'number';
 

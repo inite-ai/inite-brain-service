@@ -9,6 +9,7 @@ import {
   laneInstructionFor,
   type LaneId,
 } from './answer-router';
+import { askerGeneratorLine, type Asker } from './asker';
 
 /**
  * Generator user-message assembly, exported for byte-equality tests.
@@ -44,9 +45,15 @@ export function buildGeneratorUserMessage({
   sceneCitations,
   fragmentLines,
   fragmentCitations,
+  revise,
+  asker,
 }: {
   query: string;
   factLines: string[];
+  /** Revision round: the audited previous answer (generator-client.ts). */
+  revise?: { answer: string; unsupportedClaims: string[] } | undefined;
+  /** Who is asking (asker.ts) — the query's first person; the auditor reads the same. */
+  asker?: Asker | undefined;
   /** Episodic-lane quotes (P2) — separate typed section after the facts. */
   transcriptLines?: string[] | undefined;
   /**
@@ -239,7 +246,27 @@ export function buildGeneratorUserMessage({
     dateMathLines && dateMathLines.length > 0
       ? `\n\nDate table (computed from the fact date stamps — trust it over your own arithmetic; gaps are between EVIDENCE dates, not from today):\n${dateMathLines.join('\n')}`
       : '';
-  return `Query: ${query}\n${dateInstruction}${shapeInstruction ?? ''}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${beliefSection}${sceneSection}${fragmentSection}${dateMathSection}${renderStrategySection(strategyNotes)}${langInstruction}`;
+  return `Query: ${query}\n${askerGeneratorLine(asker)}${renderRevisionSection(revise)}${dateInstruction}${shapeInstruction ?? ''}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${beliefSection}${sceneSection}${fragmentSection}${dateMathSection}${renderStrategySection(strategyNotes)}${langInstruction}`;
+}
+
+/**
+ * The revision round's frame (revise-round.ts). A grounding audit of the
+ * previous answer named the claims the evidence does not carry; the
+ * generator rewrites from the SAME evidence — the supported claims
+ * stay, cited as before, the named ones go or get corrected to what the
+ * evidence states, and nothing new comes in. The base rules (cite only
+ * handles from the list, the exact abstention string when nothing
+ * answers) still govern the rewrite.
+ */
+const REVISION_INSTRUCTION =
+  'REVISION. A grounding audit of your previous answer found claims the evidence below does not support. Rewrite the answer from that evidence: keep every supported claim with its citation, remove or correct each claim listed here, and add nothing new. If no supported claim answers the query, follow the rule for an unanswerable question.\n';
+
+function renderRevisionSection(
+  revise: { answer: string; unsupportedClaims: string[] } | undefined,
+): string {
+  if (!revise) return '';
+  const claims = revise.unsupportedClaims.map((c) => `- ${c}`).join('\n');
+  return `${REVISION_INSTRUCTION}Previous answer:\n${revise.answer}\nClaims the evidence does not support:\n${claims}\n\n`;
 }
 
 /** Belief lane (BELIEFS_SERVING_LANE): distilled current-state lines in
@@ -274,8 +301,8 @@ function renderBeliefSection(
   if (!beliefLines || beliefLines.length === 0) return '';
   const dateClause = beliefDateDisambiguation ? BELIEF_DATE_DISAMBIGUATION_CLAUSE : '';
   const header = beliefCitations
-    ? `Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any older or conflicting fact above; each line is headed by its [semantic_belief:...] id. For questions asking the CURRENT state, prefer these lines ONLY when one covers the asked subject/field; when a claim rests on one, copy its id EXACTLY into citedBeliefIds. For questions about history, sequence, or why something changed, use the facts and transcript instead; cite factIds for fact-grounded claims as before.${BELIEF_EVIDENCE_ONLY_CLAUSE}${dateClause}):`
-    : `Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any older or conflicting fact above. For questions asking the CURRENT state, prefer these lines ONLY when one covers the asked subject/field; for questions about history, sequence, or why something changed, use the facts and transcript instead; cite fact handles only.${BELIEF_EVIDENCE_ONLY_CLAUSE}${dateClause}):`;
+    ? `Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any OLDER conflicting fact above (a fact dated after a belief's revision is newer than the belief and has already replaced it in this section); each line is headed by its [semantic_belief:...] id. For questions asking the CURRENT state, prefer these lines ONLY when one covers the asked subject/field; when a claim rests on one, copy its id EXACTLY into citedBeliefIds. For questions about history, sequence, or why something changed, use the facts and transcript instead; cite factIds for fact-grounded claims as before.${BELIEF_EVIDENCE_ONLY_CLAUSE}${dateClause}):`
+    : `Current-state record (distilled beliefs — each line states what is CURRENTLY true for its subject/field and supersedes any OLDER conflicting fact above (a fact dated after a belief's revision is newer than the belief and has already replaced it in this section). For questions asking the CURRENT state, prefer these lines ONLY when one covers the asked subject/field; for questions about history, sequence, or why something changed, use the facts and transcript instead; cite fact handles only.${BELIEF_EVIDENCE_ONLY_CLAUSE}${dateClause}):`;
   return `\n\n${header}\n${beliefLines.join('\n')}`;
 }
 

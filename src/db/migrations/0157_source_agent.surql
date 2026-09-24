@@ -1,4 +1,4 @@
--- 0151_source_agent — the local agents a tenant has heard from
+-- 0157_source_agent — the local agents a tenant has heard from
 -- (docs/source-plane.md § The local agent). One row per agent id: when
 -- it last checked in, what it runs, and the folders it can see — the
 -- inventory the admin's folder picker browses for an agent-host

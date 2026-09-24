@@ -7,38 +7,38 @@
 import type { Question } from './types';
 
 export const QUESTIONS: Question[] = [
-  // ── D1 — state currency: current value served, stale value absent ──
+  // ── D1 — state currency: current value leads; the old one may follow as history ──
   {
     id: 'd1-queue',
     dimension: 'D1',
     kind: 'currency',
     prompt: 'What is the current job queue backend for ledger-sync?',
-    expectAnyOf: ['JetStream', 'NATS'],
-    forbidAnyOf: ['Redis'],
+    currentMarkers: ['JetStream', 'NATS'],
+    priorMarkers: ['Redis'],
   },
   {
     id: 'd1-retry',
     dimension: 'D1',
     kind: 'currency',
     prompt: 'What retry policy does ledger-sync use for jobs right now?',
-    expectAnyOf: ['exponential'],
-    forbidAnyOf: ['fixed', '30s delay', '30 second'],
+    currentMarkers: ['exponential'],
+    priorMarkers: ['30s', '30 second', '30-second'],
   },
   {
     id: 'd1-launch',
     dimension: 'D1',
     kind: 'currency',
     prompt: 'When is the ledger-sync pilot launching?',
-    expectAnyOf: ['2026-05-06', 'May 6', '6 May'],
-    forbidAnyOf: ['2026-04-15', 'April 15', '15 April'],
+    currentMarkers: ['2026-05-06', 'May 6', '6 May'],
+    priorMarkers: ['2026-04-15', 'April 15', '15 April'],
   },
   {
     id: 'd1-deploy',
     dimension: 'D1',
     kind: 'currency',
     prompt: 'Where does ledger-sync deploy to?',
-    expectAnyOf: ['ECS', 'Fargate'],
-    forbidAnyOf: ['Fly.io'],
+    currentMarkers: ['ECS', 'Fargate'],
+    priorMarkers: ['Fly.io'],
   },
 
   // ── D2 — evolution history: old + new both retained, ordered ──────
@@ -223,7 +223,8 @@ export const QUESTIONS: Question[] = [
     prompt: 'What idiom do we use for enqueueing jobs in ledger-sync, and why?',
     keyPhrases: [
       ['idempotencyKey', 'idempotency key', 'idempotency'],
-      ['duplicate', 'double'],
+      // The corpus says it both ways: "ran twice" and "the duplicate payout".
+      ['duplicate', 'double', 'twice'],
     ],
   },
   {

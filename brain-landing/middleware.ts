@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { jwtVerify, createRemoteJWKSet } from 'jose'
+import { refreshAccessToken, setSessionCookies } from '@/lib/token-refresh'
 
 /**
  * Edge guard for /(en|ru)/admin/** and /(en|ru)/app/**.
@@ -81,17 +82,25 @@ export async function middleware(req: NextRequest) {
   }
 
   const token = req.cookies.get('access_token')?.value
-  if (!token) {
-    return loginRedirect(req)
+  const current = token ? await verifyToken(token) : { valid: false, isAdmin: false }
+  if (current.valid) {
+    // /app/** needs any valid session; /admin/** additionally needs admin.
+    return isAdminPath && !current.isAdmin ? loginRedirect(req) : NextResponse.next()
   }
 
-  const { valid, isAdmin } = await verifyToken(token)
-  // /app/** needs any valid session; /admin/** additionally needs admin.
-  if (!valid || (isAdminPath && !isAdmin)) {
+  // The access token is gone or expired; the refresh token outlives it
+  // by a week. Renew silently and carry the new cookies on this very
+  // response, so the page loads instead of bouncing to a consent screen.
+  const refreshToken = req.cookies.get('refresh_token')?.value
+  const renewed = refreshToken ? await refreshAccessToken(refreshToken) : null
+  if (!renewed) return loginRedirect(req)
+  const fresh = await verifyToken(renewed.access_token)
+  if (!fresh.valid || (isAdminPath && !fresh.isAdmin)) {
     return loginRedirect(req)
   }
-
-  return NextResponse.next()
+  const res = NextResponse.next()
+  setSessionCookies(res, renewed)
+  return res
 }
 
 export const config = {

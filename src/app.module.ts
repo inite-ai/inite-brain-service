@@ -21,12 +21,14 @@ import { MultiHopModule } from './multi-hop/multi-hop.module';
 import { AgentQaModule } from './agent-qa/agent-qa.module';
 import { FactsModule } from './facts/facts.module';
 import { BeliefsModule } from './beliefs/beliefs.module';
+import { ScenesModule } from './scenes/scenes.module';
 import { EntitiesModule } from './entities/entities.module';
 import { ArtifactsModule } from './artifacts/artifacts.module';
 import { McpModule } from './mcp/mcp.module';
 import { CompactionModule } from './compaction/compaction.module';
 import { DreamsModule } from './dreams/dreams.module';
 import { MetricsModule } from './metrics/metrics.module';
+import { DecisionsModule } from './ai/decisions/decisions.module';
 import { AdminModule } from './admin/admin.module';
 import { AuditModule } from './audit/audit.module';
 import { JobsModule } from './jobs/jobs.module';
@@ -98,6 +100,7 @@ import { MriModule } from './mri/mri.module';
     AgentQaModule,
     FactsModule,
     BeliefsModule,
+    ScenesModule,
     EntitiesModule,
     ArtifactsModule,
     FeedbackModule,
@@ -106,6 +109,7 @@ import { MriModule } from './mri/mri.module';
     CompactionModule,
     DreamsModule,
     MetricsModule,
+    DecisionsModule,
     AdminModule,
     AuditModule,
     JobsModule,

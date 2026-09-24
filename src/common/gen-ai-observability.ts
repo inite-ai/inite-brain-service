@@ -32,6 +32,23 @@ interface OpenAiLikeUsage {
   completion_tokens?: number;
   // Embeddings endpoint reports total_tokens only.
   total_tokens?: number;
+  /**
+   * How much of the prompt was served from the provider's prefix cache.
+   * Chat completions report it here; the responses API names the same number
+   * `input_tokens_details`. Cached input bills at a tenth of the rate, so a
+   * call plane that does not count it cannot tell an expensive prompt from a
+   * free one — and every prefix-stability change becomes unmeasurable.
+   */
+  prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
+  input_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
+  /**
+   * What the call actually cost, when the gateway reports it (OpenRouter does,
+   * on both chat completions and the decisions endpoint). Recorded as a span
+   * attribute rather than a metric: it is money per call, not a rate, and the
+   * per-model arithmetic that would otherwise reconstruct it drifts the moment
+   * a price changes.
+   */
+  cost?: number;
 }
 
 interface OpenAiLikeResponse {
@@ -51,6 +68,44 @@ export interface GenAiCallSpec {
   // Extra attributes to attach (e.g. tenant scope, leg). Avoid raw user
   // text or fact contents — those are debug-trace concerns, not OTel.
   attrs?: Record<string, string | number | boolean>;
+}
+
+/**
+ * The usage numbers worth keeping off one response, in both the shape the
+ * metric wants and the span attributes. Split out of the wrapper because the
+ * shapes multiplied: chat vs embed naming, the two cached-token spellings, and
+ * a gateway-reported cost.
+ */
+function readUsage(
+  res: unknown,
+  kind: GenAiKind,
+): {
+  tokens: { promptTokens?: number; completionTokens?: number; cachedPromptTokens?: number };
+  attrs: Record<string, number>;
+} {
+  const usage = (res as OpenAiLikeResponse | undefined)?.usage;
+  // For chat: prompt_tokens / completion_tokens. For embed OpenAI returns
+  // total_tokens — fold it into prompt to keep the labelled counter
+  // monotonically meaningful.
+  const promptTokens = usage?.prompt_tokens ?? (kind === 'embed' ? usage?.total_tokens : undefined);
+  const completionTokens = usage?.completion_tokens;
+  const details = usage?.prompt_tokens_details ?? usage?.input_tokens_details;
+  const cachedPromptTokens = details?.cached_tokens;
+  const attrs: Record<string, number> = {};
+  if (typeof promptTokens === 'number') attrs['gen_ai.usage.input_tokens'] = promptTokens;
+  if (typeof completionTokens === 'number') attrs['gen_ai.usage.output_tokens'] = completionTokens;
+  if (typeof cachedPromptTokens === 'number') {
+    attrs['gen_ai.usage.cached_input_tokens'] = cachedPromptTokens;
+  }
+  if (typeof usage?.cost === 'number') attrs['gen_ai.usage.cost'] = usage.cost;
+  return {
+    tokens: {
+      ...(promptTokens !== undefined ? { promptTokens } : {}),
+      ...(completionTokens !== undefined ? { completionTokens } : {}),
+      ...(cachedPromptTokens !== undefined ? { cachedPromptTokens } : {}),
+    },
+    attrs,
+  };
 }
 
 /**
@@ -77,27 +132,17 @@ export async function withGenAiCall<R extends OpenAiLikeResponse | unknown>(
       try {
         const res = await fn();
         const elapsed = (Date.now() - startedAt) / 1000;
-        const usage = (res as OpenAiLikeResponse | undefined)?.usage;
+        const counted = readUsage(res, spec.kind);
         const responseId = (res as OpenAiLikeResponse | undefined)?.id;
         if (responseId) span.setAttribute('gen_ai.response.id', responseId);
-        // For chat: prompt_tokens / completion_tokens. For embed
-        // OpenAI returns total_tokens — fold it into prompt to keep the
-        // labelled counter monotonically meaningful.
-        const promptTokens =
-          usage?.prompt_tokens ?? (spec.kind === 'embed' ? usage?.total_tokens : undefined);
-        const completionTokens = usage?.completion_tokens;
-        if (typeof promptTokens === 'number') {
-          span.setAttribute('gen_ai.usage.input_tokens', promptTokens);
-        }
-        if (typeof completionTokens === 'number') {
-          span.setAttribute('gen_ai.usage.output_tokens', completionTokens);
+        for (const [attr, value] of Object.entries(counted.attrs)) {
+          span.setAttribute(attr, value);
         }
         metrics?.recordOpenAiCall({
           kind: spec.kind,
           outcome: 'ok',
           durationSeconds: elapsed,
-          ...(promptTokens !== undefined ? { promptTokens } : {}),
-          ...(completionTokens !== undefined ? { completionTokens } : {}),
+          ...counted.tokens,
         });
         return res;
       } catch (err) {

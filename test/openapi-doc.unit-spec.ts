@@ -71,6 +71,8 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   ['/v1/facts/{id}/retract', 'post'],
   ['/v1/beliefs', 'get'],
   ['/v1/beliefs/{id}', 'get'],
+  ['/v1/scenes', 'get'],
+  ['/v1/scenes/{id}', 'get'],
   ['/v1/users/{userId}/profile', 'get'],
   ['/v1/ingest/document', 'post'],
   ['/v1/ingest/evidence-asset', 'post'],

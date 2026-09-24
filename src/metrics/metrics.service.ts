@@ -9,6 +9,7 @@ import {
 } from 'prom-client';
 import { isConclusive, type CapabilityName, type ProbeOutcome } from './capability-probe';
 import { PROCESS_IDENTITY } from '../common/process-identity';
+import type { CrossEncoderOutcome } from './cross-encoder-outcome';
 
 /** knowledge_fact.status enum (schema ASSERT) — every value gets a series. */
 export const FACT_STATUSES = [
@@ -1013,20 +1014,19 @@ export class MetricsService implements OnModuleInit {
   }
 
   countRerank(
-    outcome: 'invoked' | 'error' | 'skipped_disabled' | 'skipped_singleton' | 'skipped_margin',
-  ): void {
-    this.searchRerankCount.inc({ outcome } as LabelValues<'outcome'>);
-  }
-
-  countCrossEncoder(
     outcome:
       | 'invoked'
       | 'error'
       | 'skipped_disabled'
       | 'skipped_singleton'
-      | 'fact_invoked'
-      | 'fact_error',
+      | 'skipped_margin'
+      // No more candidates than the caller's limit — nothing to cut.
+      | 'skipped_all_fit',
   ): void {
+    this.searchRerankCount.inc({ outcome } as LabelValues<'outcome'>);
+  }
+
+  countCrossEncoder(outcome: CrossEncoderOutcome): void {
     this.searchCrossEncoderCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
@@ -1072,6 +1072,9 @@ export class MetricsService implements OnModuleInit {
       // Tier 5: the answer was STILL not in the target language after that
       // retry (the bounded "then flag" — served best-effort).
       | 'answer_lang_unresolved'
+      // The revision round ran on a partial verdict (revise-round.ts);
+      // the final outcome is still counted by the exits above.
+      | 'revised'
       | 'verifier_error',
   ): void {
     this.synthesizeCount.inc({ outcome } as LabelValues<'outcome'>);
@@ -1124,7 +1127,7 @@ export class MetricsService implements OnModuleInit {
     }
   }
 
-  countBeliefDamping(outcome: 'damped' | 'clean', n = 1): void {
+  countBeliefDamping(outcome: 'damped' | 'clean' | 'stale_belief', n = 1): void {
     if (n > 0) {
       this.beliefDampingCount.inc({ outcome } as LabelValues<'outcome'>, n);
     }
@@ -1292,6 +1295,8 @@ export class MetricsService implements OnModuleInit {
     durationSeconds: number;
     promptTokens?: number;
     completionTokens?: number;
+    /** The part of promptTokens the provider served from its prefix cache. */
+    cachedPromptTokens?: number;
   }): void {
     this.openaiCalls.inc({ kind: args.kind, outcome: args.outcome } as LabelValues<
       'kind' | 'outcome'
@@ -1310,6 +1315,14 @@ export class MetricsService implements OnModuleInit {
       this.openaiTokens.inc(
         { kind: args.kind, type: 'completion' } as LabelValues<'kind' | 'type'>,
         args.completionTokens,
+      );
+    }
+    // A SUBSET of `prompt`, not a third bucket to add up: cached input bills
+    // at a tenth of the rate, so the hit ratio is cached_prompt / prompt.
+    if (args.cachedPromptTokens && args.cachedPromptTokens > 0) {
+      this.openaiTokens.inc(
+        { kind: args.kind, type: 'cached_prompt' } as LabelValues<'kind' | 'type'>,
+        args.cachedPromptTokens,
       );
     }
   }

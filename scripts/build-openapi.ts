@@ -274,6 +274,10 @@ import {
   BeliefsListResponseSchema,
 } from '../src/contracts/beliefs/beliefs.schema';
 import {
+  SceneReadResponseSchema,
+  ScenesListResponseSchema,
+} from '../src/contracts/scenes/scenes.schema';
+import {
   ApiKeySummarySchema,
   IssueKeyRequestSchema,
   IssuedKeyResponseSchema,
@@ -507,6 +511,9 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   // --- belief reads (src/contracts/beliefs/beliefs.schema.ts)
   BeliefReadResponse: BeliefReadResponseSchema,
   BeliefsListResponse: BeliefsListResponseSchema,
+  // --- scene reads (src/contracts/scenes/scenes.schema.ts)
+  SceneReadResponse: SceneReadResponseSchema,
+  ScenesListResponse: ScenesListResponseSchema,
   // --- self-serve API keys (src/contracts/keys/keys.schema.ts)
   ApiKeySummary: ApiKeySummarySchema,
   IssueKeyRequest: IssueKeyRequestSchema,
@@ -1100,9 +1107,12 @@ function memoryCorePaths(): Json {
           'Only `text` is required: `contextRef` defaults to the `chat` ' +
           'vertical and `emittedAt` to the moment the request arrives. ' +
           '`userId` stamps the per-user memory scope on the episode and ' +
-          'every extracted fact. `skipped: true` means the extractor ' +
-          'found nothing worth recording (`reason` says which check ' +
-          'stopped it) — that is a normal outcome, not an error. ' +
+          'every extracted fact and edge. `skipped: true` means nothing ' +
+          'new was recorded — `reason` says why: `empty` text, ' +
+          '`no_entities` (the extractor found nothing worth recording), ' +
+          'or `duplicate` (this user already sent this exact text; the ' +
+          'document store keys on the content hash and a replay commits ' +
+          'nothing new) — a normal outcome, not an error. ' +
           'Prefer `POST /v1/ingest/document` for anything long enough ' +
           'to need chunking. ' +
           'Source: src/ingest/ingest.controller.ts.',
@@ -1362,7 +1372,9 @@ function entitiesPaths(): Json {
         description:
           '`fact.recorded` / `fact.retracted` events on the ' +
           'TRANSACTION-time axis — when the graph learned and unlearned ' +
-          'things, not when they were true. `since` / `until` page the ' +
+          'things, not when they were true; each recorded event also ' +
+          'carries `validFrom`, the valid-time instant, for readers that ' +
+          'want the world’s order. `since` / `until` page the ' +
           'window; `recordedAt` cuts to events known by T. `userId` is ' +
           'honoured only while READ_SURFACE_USER_SCOPE is on (this ' +
           'surface predates migration 0055 and otherwise pins ' +
@@ -1394,12 +1406,18 @@ function entitiesPaths(): Json {
           'both directions (`direction` says which). `kind` filters to ' +
           'one edge type; `asOf` restricts to edges live at that ' +
           'instant. `neighbour` is absent when the far end could not be ' +
-          'projected.',
+          'projected. Edges carry the per-user scope of the turn that ' +
+          'wrote them (migration 0153): without `userId` the read is ' +
+          'tenant-global only; with one it adds that user’s own edges ' +
+          'and neighbours. Honoured while READ_SURFACE_USER_SCOPE is on; ' +
+          'a user-bound token is pinned to its own end user, and a ' +
+          'mismatch is 403.',
         scope: 'brain:read',
         parameters: [
           pathParam('id', 'Entity id — short or fully-qualified.'),
           queryParam('kind', 'Only edges of this kind.'),
           queryParam('asOf', 'ISO-8601 instant the edge must be live at.'),
+          queryParam('userId', 'Per-user scope (READ_SURFACE_USER_SCOPE only).'),
         ],
         responses: {
           '200': jsonResponse('The typed edges.', ref('EntityConnectionsResponse')),
@@ -2652,8 +2670,8 @@ function memoryReadPaths(): Json {
           'lifecycle status (default active) and user scope. A ' +
           'user-bound token is pinned to its own user (userId mismatch ' +
           'is 403); M2M keys may scope to any user or list tenant-wide. ' +
-          'Page capped at 100 (default 25). 404 until ' +
-          'BELIEFS_API_ENABLED=1. Source: ' +
+          'Page capped at 100 (default 25). On by default; ' +
+          'BELIEFS_API_ENABLED=0 makes it a 404. Source: ' +
           'src/beliefs/beliefs.controller.ts.',
         scope: 'brain:read',
         parameters: [
@@ -2688,13 +2706,76 @@ function memoryReadPaths(): Json {
           'scene provenance (sourceSceneIds) and corroboration ' +
           'counters. Superseded revisions still resolve. Every ' +
           'visibility fence (tenant, fail-closed single-user scope) ' +
-          'answers 404 — existence never leaks. 404 until ' +
-          'BELIEFS_API_ENABLED=1. Source: ' +
+          'answers 404 — existence never leaks. On by default; ' +
+          'BELIEFS_API_ENABLED=0 makes it a 404. Source: ' +
           'src/beliefs/beliefs.controller.ts.',
         scope: 'brain:read',
         parameters: [pathParam('id', 'Belief record id (`semantic_belief:…`).')],
         responses: {
           '200': jsonResponse('The belief.', ref('BeliefReadResponse')),
+          ...DRIVER_404,
+        },
+      }),
+    },
+    '/v1/scenes': {
+      get: operation({
+        operationId: 'listScenes',
+        tag: 'Scenes',
+        summary: 'List scenes — what happened, together, when',
+        description:
+          'Scenes of the current segmenter world (memory_episode: coherent ' +
+          'multi-turn groupings the composer derives from raw turns), newest ' +
+          'first, with their member episodes, knowledge-graph backlinks, ' +
+          'enrichment-owned state deltas (the beliefs are promoted from ' +
+          'these) and per-dimension memory value. Filter by conversationId, ' +
+          'entityId, since/until (overlap) and user scope. A user-bound ' +
+          'token is pinned to its own user (userId mismatch is 403) and sees ' +
+          'its own scenes plus tenant-global ones whose member set contains ' +
+          'it; an M2M key scopes to any user with userId, and without one ' +
+          'lists tenant-global scenes only (gists quote verbatim turns — the ' +
+          'episodes contract). Scenes carrying PII need brain:read_pii. ' +
+          'Page capped at 100 (default 25). `world` names the version ' +
+          'served (empty until a world has been composed). On by default; ' +
+          'SCENES_API_ENABLED=0 makes it a 404. Source: ' +
+          'src/scenes/scenes.controller.ts.',
+        scope: 'brain:read',
+        parameters: [
+          queryParam('conversationId', 'Only scenes covering this conversation.'),
+          queryParam('entityId', 'Only scenes back-linked to this entity (`knowledge_entity:…`).'),
+          queryParam(
+            'userId',
+            'End-user scope key. M2M keys may assert any user; ' +
+              'user-bound tokens are pinned to their own.',
+          ),
+          queryParam('since', 'ISO date-time: scenes ending at or after this instant.'),
+          queryParam('until', 'ISO date-time: scenes starting at or before this instant.'),
+          queryParam('limit', 'Page size (default 25, max 100).', {
+            type: 'integer',
+          }),
+        ],
+        responses: {
+          '200': jsonResponse('The visible scenes.', ref('ScenesListResponse')),
+          '400': errorRef('BadRequest'),
+          ...DRIVER_404,
+        },
+      }),
+    },
+    '/v1/scenes/{id}': {
+      get: operation({
+        operationId: 'getScene',
+        tag: 'Scenes',
+        summary: 'Read one scene by id',
+        description:
+          "One memory_episode scene as stored — the record a belief's " +
+          'sourceSceneIds and a scene citation point at. Resolves in any ' +
+          "world (a superseded world's scene still opens). Every " +
+          'visibility fence (tenant, user scope, PII) answers 404 — ' +
+          'existence never leaks. On by default; SCENES_API_ENABLED=0 ' +
+          'makes it a 404. Source: src/scenes/scenes.controller.ts.',
+        scope: 'brain:read',
+        parameters: [pathParam('id', 'Scene record id (`memory_episode:…`).')],
+        responses: {
+          '200': jsonResponse('The scene.', ref('SceneReadResponse')),
           ...DRIVER_404,
         },
       }),
@@ -3517,7 +3598,16 @@ export function buildOpenApiDocument(): Json {
           'the brain currently holds about a free-text (subject, field) ' +
           'key, with its supersede chain and inline scene provenance. ' +
           'Read-only — the scene promotion pass is the only writer. ' +
-          'Flag: BELIEFS_API_ENABLED (off → 404).',
+          'Flag: BELIEFS_API_ENABLED (on by default; =0 → 404).',
+      },
+      {
+        name: 'Scenes',
+        description:
+          'Scene-level reads over the memory_episode substrate: coherent ' +
+          'multi-turn groupings of raw turns — what happened, together, ' +
+          'when — with their member episodes, backlinks, state deltas and ' +
+          'memory value. Read-only — the scene composer is the only ' +
+          'writer. Flag: SCENES_API_ENABLED (on by default; =0 → 404).',
       },
       {
         name: 'Evidence',

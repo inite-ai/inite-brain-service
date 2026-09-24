@@ -571,6 +571,13 @@ function registerEntityReadTools({
           .describe(
             'Bitemporal edge cutoff — connections as they were believed at this ISO 8601 moment (mirrors GET /v1/entities/:id/connections?asOf=)',
           ),
+        userId: z
+          .string()
+          .max(200)
+          .optional()
+          .describe(
+            "Per-user memory scope: results include tenant-global relations plus this user's personal ones; omit for tenant-global only (fail-closed)",
+          ),
       },
     },
     async (args) => {
@@ -585,6 +592,7 @@ function registerEntityReadTools({
         kind: args.kind,
         scopes,
         asOf: args.asOf,
+        ...(args.userId !== undefined ? { userId: args.userId } : {}),
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],

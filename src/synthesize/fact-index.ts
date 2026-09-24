@@ -1,5 +1,6 @@
 import type { SearchHit } from '../search/search.service';
 import { formatElapsed } from './answer-router';
+import { ASKER_LABEL } from './asker';
 
 /**
  * Fact-line rendering for the generator/verifier prompts, split out of
@@ -27,6 +28,8 @@ export interface Citation {
    *  caller chase the citation to get_source_reputation. Absent on
    *  pre-0044 facts. */
   sourceKey?: string;
+  /** ISO validFrom of the fact — what the belief plane's revision date is arbitrated against. */
+  validFrom?: string | undefined;
 }
 
 export interface FactIndexResult {
@@ -51,6 +54,26 @@ export function handlesOf(factIndex: ReadonlyMap<string, Citation>): ReadonlyMap
 }
 
 /**
+ * The id of the fact (or edge) a rendered line stands for, from its
+ * opening bracket: a handle resolves through the index's table, a raw id
+ * stands as written; null for a line without a bracket.
+ *
+ * Every consumer that keys a rendered line back to its record goes
+ * through here. The two that read the bracket themselves — the history
+ * suffix and the belief damping — kept doing so after the lines switched
+ * from ids to handles (#613), and matched nothing from that day: no
+ * "previously: …" on a superseded value, no damping (found on a
+ * history question that abstained, 2026-09-18).
+ */
+export function lineFactId(line: string, factIndex: ReadonlyMap<string, Citation>): string | null {
+  if (!line.startsWith('[')) return null;
+  const close = line.indexOf(']');
+  if (close <= 1) return null;
+  const key = line.slice(1, close);
+  return handlesOf(factIndex).get(key) ?? key;
+}
+
+/**
  * The citation handle of the n-th rendered fact line (0-based).
  *
  * WHY HANDLES. The generator used to be shown `[knowledge_fact:<20 random
@@ -70,9 +93,19 @@ export function factHandle(index: number): string {
   return `f${index + 1}`;
 }
 
-/** `f12` / `[f12]` → `f12`; anything else → null. */
+/** A citation that names a knowledge_edge (a relation line), not a fact. */
+export function isEdgeCitation(c: Pick<Citation, 'factId'>): boolean {
+  return c.factId.startsWith('knowledge_edge:');
+}
+
+/** The citation handle of the n-th rendered relation line (0-based). */
+function relationHandle(index: number): string {
+  return `r${index + 1}`;
+}
+
+/** `f12` / `[f12]` / `r3` → the handle; anything else → null. */
 export function parseFactHandle(raw: string): string | null {
-  const m = /^\[?(f\d{1,4})\]?$/u.exec(raw.trim());
+  const m = /^\[?([fr]\d{1,4})\]?$/u.exec(raw.trim());
   return m ? m[1]! : null;
 }
 
@@ -121,6 +154,12 @@ export function buildFactIndex(
      * the dual-trace encoding wrote. Unstamped facts render nothing.
      */
     sceneTraces?: boolean | undefined;
+    /**
+     * The asker's own entity (asker.ts): its lines — subject or relation
+     * peer — are headed "you" instead of its name, so the query's first
+     * person meets its evidence without a name to match.
+     */
+    askerEntityId?: string | undefined;
   },
 ): FactIndexResult {
   const factIndex = new Map<string, Citation>();
@@ -142,13 +181,14 @@ export function buildFactIndex(
         slot: f.predicateAlias ?? f.predicate,
         object: f.object,
         ...(f.sourceKey ? { sourceKey: f.sourceKey } : {}),
+        ...(f.validFrom ? { validFrom: f.validFrom } : {}),
       };
       factIndex.set(f.factId, citation);
       const t = f.validFrom ? Date.parse(f.validFrom) : NaN;
       const validT = Number.isNaN(t) || t === 0 ? Number.POSITIVE_INFINITY : t;
       entries.push({
         // The handle is prefixed once the order is final (below).
-        line: `${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${factLineSuffixes(f, opts)}`,
+        line: `${subjectLabel(r, opts?.askerEntityId)} — ${f.predicate}: ${f.object}${factLineSuffixes(f, opts)}`,
         t: validT,
         slot: `${r.entityId}::${f.predicateAlias ?? f.predicate}`,
         obj: f.object,
@@ -161,51 +201,107 @@ export function buildFactIndex(
     // fact for Thomas and an edge for Maria in the same corpus), and an
     // answer plane that read only facts had the generator asserting an
     // employer the verifier could not find — and dropping the answer.
-    // No bracket on a relation line: a relation is support, not a
-    // citation. Tagged `[relation]`, the generator cited the tag — on the
-    // prod tenant "relocating to Porto" rested on the edge alone and came
-    // back as `citedFactIds: ["relation"]`, which resolves to nothing, so
-    // a correct answer was dropped for want of a citation. With nothing
-    // to copy the model cites the fact handle beside it, or abstains.
+    // A relation is knowledge with a record behind it (knowledge_edge),
+    // so it is CITABLE like a fact: its line carries a handle and the
+    // citation names the edge. Without one, a claim resting on the edge
+    // alone ("Pedro Lima covers for Ana Costa" — the extractor emits the
+    // link as an edge, as told) had nothing to cite and the generator
+    // abstained on a question the graph answered (measured 2026-09-18).
+    // The line reads in the edge's own direction: an incoming edge is
+    // "peer — kind → entity", never the inverse.
+    // One edge joins two hits, and the search returns it on both — the
+    // same record rendered twice, under two handles, so the line stands
+    // once: the first hit to carry the edge keeps it.
     for (const rel of r.relations ?? []) {
-      entries.push({
-        line: `(relation) ${r.canonicalName} (${r.entityType}) — ${rel.kind}: ${rel.peer} (${rel.peerType})`,
-        t: Number.POSITIVE_INFINITY,
-        slot: `${r.entityId}::relation::${rel.kind}::${rel.peer}`,
-        obj: rel.peer,
-      });
+      const entry = relationEntry(r, rel, opts?.askerEntityId);
+      if (entry.citation) {
+        if (factIndex.has(entry.citation.factId)) continue;
+        factIndex.set(entry.citation.factId, entry.citation);
+      }
+      entries.push(entry);
     }
   }
-  if (opts?.markRecency) {
-    const bySlot = new Map<string, typeof entries>();
-    for (const e of entries) {
-      bySlot.set(e.slot, [...(bySlot.get(e.slot) ?? []), e]);
-    }
-    for (const group of bySlot.values()) {
-      const dated = group.filter((e) => Number.isFinite(e.t));
-      if (dated.length < 2) continue;
-      if (new Set(group.map((e) => e.obj)).size < 2) continue;
-      const newest = dated.reduce((a, b) => (b.t >= a.t ? b : a));
-      newest.line += ' [most recent for this slot]';
-    }
-  }
+  if (opts?.markRecency) markMostRecentPerSlot(entries);
   if (opts?.chronological) {
     // Stable by construction: Array.prototype.sort is stable, undated
     // entries share +Infinity and keep their relative retrieval order.
     entries.sort((a, b) => a.t - b.t);
   }
-  // Handles follow the rendered order, so "[f3]" is the third line the
-  // model reads. Relation lines carry no handle: support, not a citation.
+  // Handles follow the rendered order, so "[f3]" is the third fact line
+  // the model reads and "[r2]" the second relation line. A relation
+  // without an edge record (a caller-supplied hit) carries no handle.
   let n = 0;
+  let m = 0;
   const handles = new Map<string, string>();
   const factLines = entries.map((e) => {
     if (!e.citation) return e.line;
-    const handle = factHandle(n++);
+    const edge = e.citation.slot.startsWith('edge:');
+    const handle = edge ? relationHandle(m++) : factHandle(n++);
     handles.set(handle, e.citation.factId);
     return `[${handle}] ${e.line}`;
   });
   HANDLES.set(factIndex, handles);
   return { factIndex, factLines };
+}
+
+/** T5 update arbitration: on a slot holding ≥2 dated, disagreeing
+ *  statements, tag the newest line (see buildFactIndex markRecency). */
+function markMostRecentPerSlot(
+  entries: Array<{ line: string; t: number; slot: string; obj: string }>,
+): void {
+  const bySlot = new Map<string, typeof entries>();
+  for (const e of entries) {
+    bySlot.set(e.slot, [...(bySlot.get(e.slot) ?? []), e]);
+  }
+  for (const group of bySlot.values()) {
+    const dated = group.filter((e) => Number.isFinite(e.t));
+    if (dated.length < 2) continue;
+    if (new Set(group.map((e) => e.obj)).size < 2) continue;
+    const newest = dated.reduce((a, b) => (b.t >= a.t ? b : a));
+    newest.line += ' [most recent for this slot]';
+  }
+}
+
+/** How an entity is named on its evidence lines: the asker's own is "you". */
+function subjectLabel(
+  e: { entityId: string; canonicalName: string; entityType: string },
+  askerEntityId: string | undefined,
+): string {
+  return e.entityId === askerEntityId ? ASKER_LABEL : `${e.canonicalName} (${e.entityType})`;
+}
+
+/** One relation line and, when the edge record is known, its citation. */
+function relationEntry(
+  r: SearchHit,
+  rel: NonNullable<SearchHit['relations']>[number],
+  askerEntityId: string | undefined,
+): { line: string; t: number; slot: string; obj: string; citation?: Citation } {
+  const subject = subjectLabel(r, askerEntityId);
+  const object =
+    rel.peerId !== undefined && rel.peerId === askerEntityId
+      ? ASKER_LABEL
+      : `${rel.peer} (${rel.peerType})`;
+  const line =
+    rel.direction === 'in'
+      ? `${object} — ${rel.kind} → ${subject}`
+      : `${subject} — ${rel.kind} → ${object}`;
+  const citation: Citation | undefined = rel.edgeId
+    ? {
+        factId: rel.edgeId,
+        entityId: r.entityId,
+        canonicalName: r.canonicalName,
+        predicate: rel.kind,
+        slot: `edge:${rel.kind}`,
+        object: rel.peer,
+      }
+    : undefined;
+  return {
+    line: citation ? line : `(relation) ${line}`,
+    t: Number.POSITIVE_INFINITY,
+    slot: `${r.entityId}::relation::${rel.kind}::${rel.peer}`,
+    obj: rel.peer,
+    ...(citation ? { citation } : {}),
+  };
 }
 
 /** The flag-gated suffix chain of one fact line: validity, mention
@@ -222,7 +318,11 @@ function factLineSuffixes(
   const elapsed = opts?.elapsedAsOf ? formatElapsed(f.validFrom, opts.elapsedAsOf) : '';
   const mention = opts?.mentionDates ? formatMentionDate(f.mentionedAt, f.validFrom) : '';
   const scene = opts?.sceneTraces && f.scene?.trim() ? ` (context: ${f.scene.trim()})` : '';
-  return `${formatFactValidity(f.validFrom, f.validUntil)}${mention}${scene}${elapsed}`;
+  // The day the value points at, as resolved at write time — "19
+  // сентября" said in September 2026 reads (on 2026-09-19), so the
+  // generator and the date table place it without parsing.
+  const on = f.date && toValidityDate(f.date) ? ` (on ${f.date})` : '';
+  return `${on}${formatFactValidity(f.validFrom, f.validUntil)}${mention}${scene}${elapsed}`;
 }
 
 /**

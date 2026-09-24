@@ -2,7 +2,12 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Surreal, StringRecordId } from 'surrealdb';
 import OpenAI from 'openai';
-import { createOpenAiClient } from '../ai/openai-client';
+import {
+  chatCallParams,
+  offlineServiceTier,
+  chatModel,
+  createOpenAiClient,
+} from '../ai/openai-client';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
@@ -108,7 +113,7 @@ export class DreamsCorroborateService {
     this.openai = createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
     this.model = this.configService.get<string>(
       'DREAMS_CORROBORATE_MODEL',
-      this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
+      chatModel(this.configService),
     );
     this.maxPairs = parseInt(
       this.configService.get<string>('DREAMS_CORROBORATE_MAX_PAIRS', '20'),
@@ -445,8 +450,12 @@ B (recorded ${pair.younger.recordedAt}): ${pair.younger.object}`;
                 },
               },
             },
-            max_completion_tokens: 128,
-            temperature: 0,
+            ...chatCallParams(this.model, {
+              tier: offlineServiceTier(),
+              temperature: 0,
+              visibleCap: 128,
+              reasoningEffort: 'none',
+            }),
           }),
       );
       const content = res.choices[0]?.message?.content;

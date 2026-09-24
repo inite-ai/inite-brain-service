@@ -1,10 +1,11 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { createOpenAiClient } from './openai-client';
+import { chatCallParams, chatModel, createOpenAiClient } from './openai-client';
 import { MetricsService } from '../metrics/metrics.service';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
+import { DecisionService } from './decisions/decision.service';
 
 /**
  * PredicateIdentityJudgeService — does a newly coined predicate name an
@@ -52,12 +53,10 @@ export class PredicateIdentityJudgeService {
   constructor(
     private readonly config: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
+    @Optional() private readonly decisions?: DecisionService,
   ) {
     this.openai = createOpenAiClient(this.config) ?? (undefined as unknown as OpenAI);
-    this.model = this.config.get<string>(
-      'PREDICATE_IDENTITY_MODEL',
-      this.config.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
-    );
+    this.model = this.config.get<string>('PREDICATE_IDENTITY_MODEL', chatModel(this.config));
     this.limiter = new Semaphore(
       parseInt(this.config.get<string>('PREDICATE_IDENTITY_CONCURRENCY', '4'), 10) || 4,
     );
@@ -85,7 +84,10 @@ export class PredicateIdentityJudgeService {
     contextText: string,
     candidates: readonly string[],
   ): Promise<string | null> {
-    if (!this.openai || candidates.length === 0) return null;
+    if (candidates.length === 0) return null;
+    const decided = await this.decide(predicate, contextText, candidates);
+    if (decided !== undefined) return decided;
+    if (!this.openai) return null;
     try {
       return await this.limiter.run(() => this.callLLM(predicate, contextText, candidates));
     } catch (err) {
@@ -94,6 +96,44 @@ export class PredicateIdentityJudgeService {
       );
       return null;
     }
+  }
+
+  /**
+   * The shortlist as a typed choice: one option per candidate plus `none`.
+   * Returns `undefined` — not null — when the lane is off or the answer is
+   * below the floor, because null is itself a verdict here ("no existing
+   * predicate names this attribute") and must not be invented by a plane that
+   * simply did not answer. Merging two distinct attributes silently destroys
+   * one of them, so an uncertain decision goes to the reasoning judge.
+   */
+  private async decide(
+    predicate: string,
+    contextText: string,
+    candidates: readonly string[],
+  ): Promise<string | null | undefined> {
+    if (!this.decisions?.enabled('predicate_identity')) return undefined;
+    const criteria: Record<string, string> = {
+      none: 'No existing predicate names the same attribute — this is a new field.',
+    };
+    for (const c of candidates) criteria[c] = `The existing predicate "${c}".`;
+    const res = await this.decisions.decide('predicate_identity', {
+      state: { new_predicate: predicate, example_use: contextText, existing: [...candidates] },
+      questions: {
+        same_attribute: {
+          type: 'choice',
+          instructions:
+            'Which existing predicate names the SAME ATTRIBUTE as the new one — the field a person filling in a form would put them both under, where a subject holds only one value at a time? A verb phrasing, a redundant qualifier, the CHANGE to it or a PAST value of it are the same attribute. Sub-attributes of one topic, a rate or interval versus the thing it applies to, and a relation to another entity are DIFFERENT attributes. Answer `none` unless one candidate clearly matches.',
+          criteria,
+        },
+      },
+    });
+    const answer = res?.answers['same_attribute'];
+    if (!answer || answer.type !== 'choice') return undefined;
+    if (!this.decisions.confident('predicate_identity', answer)) return undefined;
+    if (answer.choice === 'none') return null;
+    // Only an id that was actually offered can win — the same fence the
+    // generated path applies, for the same reason.
+    return candidates.includes(answer.choice) ? answer.choice : null;
   }
 
   private async callLLM(
@@ -153,8 +193,12 @@ Reply with the EXACT id of the one existing predicate that names the same attrib
               },
             },
           },
-          max_completion_tokens: 32,
-          temperature: 0,
+          ...chatCallParams(this.model, {
+            temperature: 0,
+            visibleCap: 32,
+            reasoningCap: 256,
+            reasoningEffort: 'none',
+          }),
         }),
     );
     const content = res.choices[0]?.message?.content;

@@ -16,6 +16,7 @@ import type { GenerateRequest } from './generator-client';
 import type { MetricsService } from '../metrics/metrics.service';
 import type { MemoryDecisionService } from '../outcomes/memory-decision.service';
 import { captureVerdictDecision, type DecisionContext } from './decision-emit';
+import type { Asker } from './asker';
 
 /**
  * Pure helpers of the synthesize orchestrator, split out of
@@ -173,6 +174,8 @@ export function buildGeneratorArgs(
     /** Round 1's index; a later round passes its own via `o.factIndex`. */
     factIndex?: ReadonlyMap<string, Citation> | undefined;
     collected: {
+      /** Who is asking (asker.ts) — the auditor reads the same. */
+      asker?: Asker | undefined;
       transcriptLines: string[];
       insightLines: string[];
       instructions?: string[] | undefined;
@@ -202,12 +205,15 @@ export function buildGeneratorArgs(
     dateMathLines?: string[] | undefined;
     allowRefine?: boolean | undefined;
     answerLangStrict?: boolean | undefined;
+    /** Revision round: the audited previous answer (revise-round.ts). */
+    revise?: { answer: string; unsupportedClaims: string[] } | undefined;
   },
 ): Omit<GenerateRequest, 'openai' | 'metrics' | 'logger'> {
   const { profile, dto, collected } = ctx;
   return {
     factIndex: o.factIndex ?? ctx.factIndex,
     query: dto.query,
+    revise: o.revise,
     factLines: o.promptFactLines,
     transcriptLines: collected.transcriptLines,
     insightLines: collected.insightLines,
@@ -219,6 +225,8 @@ export function buildGeneratorArgs(
     neverAbstain: ctx.guardrails === 'answer',
     // Date context anchors "today"; the temporal lane forces it from asOf.
     dateContext: resolveLaneDateContext(profile, ctx.lane, dto.asOf),
+    // Who is asking — the query's first person (asker.ts).
+    asker: collected.asker,
     lane: ctx.lane,
     enumStrict: profile.enumStrict,
     instructions: collected.instructions,
@@ -251,7 +259,7 @@ export function buildGeneratorArgs(
 
 /** Temporal lane forces the Today anchor from asOf; others follow the
  *  profile's dateAnchoring. */
-function resolveLaneDateContext(
+export function resolveLaneDateContext(
   profile: RetrievalProfile,
   lane: LaneId | null,
   asOf: string | undefined,
@@ -289,7 +297,10 @@ export function salvageTruncatedAnswer(content: string): GeneratorOutput | null 
  * matching on the tail is unambiguous.
  */
 function citationTail(id: string): string {
-  return id.replace(/^knowledge_fact[:_]/i, '').replace(/^fact[:_]/i, '');
+  return id
+    .replace(/^knowledge_fact[:_]/i, '')
+    .replace(/^knowledge_edge[:_]/i, '')
+    .replace(/^fact[:_]/i, '');
 }
 
 /**
@@ -310,7 +321,7 @@ export function expandCitationHandles<T extends { answer: string; citedFactIds: 
     const handle = parseFactHandle(raw);
     return handle ? handles.get(handle) : undefined;
   };
-  const answer = generated.answer.replace(/\[(f\d{1,4})\]/gu, (whole, handle: string) => {
+  const answer = generated.answer.replace(/\[([fr]\d{1,4})\]/gu, (whole, handle: string) => {
     const id = idOf(handle);
     return id ? `[${id}]` : whole;
   });
@@ -328,7 +339,8 @@ export function expandCitationHandles<T extends { answer: string; citedFactIds: 
  */
 function extractInlineCitations(answer: string): string[] {
   const ids: string[] = [];
-  const re = /\[((?:knowledge_fact[:_]|fact[:_])?[A-Za-z0-9]{6,}|f\d{1,4})\]/g;
+  const re =
+    /\[((?:knowledge_fact[:_]|knowledge_edge[:_]|fact[:_])?[A-Za-z0-9]{6,}|[fr]\d{1,4})\]/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(answer)) !== null) ids.push(m[1]!); // group 1 is mandatory
   return ids;
@@ -535,4 +547,48 @@ export function verifierErrorResult({
     );
   }
   return attachDecisionLog({ answer, reason: 'verifier_error', citations, results }, decisionLog);
+}
+
+/**
+ * The per-request evidence-rendering options (SynthesizeService
+ * .prepareEvidence), derived once from the lane, the profile and the
+ * asker. Pure: the lane frames (temporal elapsed stamps, chronological
+ * order, recency marker), the profile switches, and the asker's own
+ * entity, whose lines are headed "you" (asker.ts).
+ */
+export function buildPrepareOpts(args: {
+  answerMode: boolean;
+  explain: boolean;
+  lane: LaneId | null;
+  asOf: string | undefined;
+  profile: RetrievalProfile;
+  asker: Asker | undefined;
+}): {
+  answerMode: boolean;
+  explain: boolean;
+  askerEntityId: string | undefined;
+  elapsedAsOf: string | undefined;
+  chronological: boolean;
+  markRecency: boolean;
+  mentionDates: boolean;
+  sceneTraces: boolean;
+} {
+  const { answerMode, explain, lane, asOf, profile, asker } = args;
+  return {
+    answerMode,
+    explain,
+    askerEntityId: asker?.entityId,
+    elapsedAsOf: lane === 'temporal' ? asOf : undefined,
+    // T2 and T6 both read off a code-sorted timeline.
+    chronological: lane === 'enumeration' || lane === 'summary',
+    // T5: recency marker on the newest fact of multi-statement slots
+    // (knowledge-update misses answer STALE values) — active for any
+    // routed request, independent of lane.
+    markRecency: profile.lanes.has('recency'),
+    // V12 mention anchoring: "(mentioned YYYY-MM-DD)" on stamped
+    // facts whose anchor disagrees with validFrom by day.
+    mentionDates: profile.mentionDates,
+    // V13 dual-trace read side: "(context: …)" scene suffixes.
+    sceneTraces: profile.sceneTraces,
+  };
 }

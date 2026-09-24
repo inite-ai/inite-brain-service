@@ -1,3 +1,4 @@
+import type { InstructionLaneService } from '../src/synthesize/instruction-lane.service';
 import { EvidenceCollectorService } from '../src/synthesize/evidence-collector.service';
 import type { SearchService, SearchHit } from '../src/search/search.service';
 import type { SegmentLaneService } from '../src/synthesize/segment-lane.service';
@@ -26,6 +27,30 @@ function profileWith(over: Partial<RetrievalProfile>): RetrievalProfile {
 const noSearch = {
   search: async () => ({ results: [] }),
 } as unknown as SearchService;
+
+/** The collector with only the instruction lane wired (the 14th dep). */
+function withInstructionLane(
+  search: SearchService,
+  lane: InstructionLaneService,
+): EvidenceCollectorService {
+  const none = undefined;
+  return new EvidenceCollectorService(
+    search,
+    none,
+    none,
+    none,
+    none,
+    none,
+    none,
+    none,
+    none,
+    none,
+    none,
+    none,
+    none,
+    lane,
+  );
+}
 
 function collectorArgs(profile: RetrievalProfile) {
   return {
@@ -93,7 +118,7 @@ describe('EvidenceCollectorService branches', () => {
     const updateStory = {
       previousStories: async (o: { factIds: string[] }) => {
         storyCalls.push(o.factIds);
-        return new Map([['f1', ' [previously: old]']]);
+        return new Map([['f1', ' (previously: old)']]);
       },
     } as unknown as UpdateStoryService;
     const make = () =>
@@ -121,24 +146,101 @@ describe('EvidenceCollectorService branches', () => {
       ...collectorArgs(profileWith({ updateStoryRendering: true })),
       factIds: ['f1'],
     });
-    expect(on.updateStories?.get('f1')).toBe(' [previously: old]');
+    expect(on.updateStories?.get('f1')).toBe(' (previously: old)');
     expect(storyCalls).toEqual([['f1']]);
   });
 
-  it('an instruction-probe failure degrades to evidence-only', async () => {
-    const search = {
-      search: async () => {
-        throw new Error('probe down');
+  it('an instruction-lane failure degrades to evidence-only', async () => {
+    const lane = {
+      instructionLines: async () => {
+        throw new Error('lane down');
       },
-    } as unknown as SearchService;
-    const svc = new EvidenceCollectorService(search);
+    } as unknown as InstructionLaneService;
+    const svc = withInstructionLane(noSearch, lane);
     const profile = profileWith({});
     (profile as { lanes: ReadonlySet<string> }).lanes = new Set(['instruction']);
     const out = await svc.collect(collectorArgs(profile));
-    // No instructions section (probe died, evidence empty) — but the
+    // No instructions section (lane died, evidence empty) — but the
     // collect itself succeeded.
     expect(out.instructions).toBeUndefined();
     expect(out.transcriptLines).toEqual([]);
+  });
+
+  it('the instruction read launched beside the main search is awaited here, not re-run; no search is issued', async () => {
+    // The orchestrator starts the read before its own search (it depends
+    // on nothing the search produces); collect() takes the in-flight
+    // promise and never issues a second read — and the lane is a direct
+    // predicate read, so the search service is never asked.
+    const searchCalls: string[] = [];
+    let laneCalls = 0;
+    const search = {
+      search: async (_c: string, dto: { query: string }) => {
+        searchCalls.push(dto.query);
+        return { results: [] };
+      },
+    } as unknown as SearchService;
+    const lane = {
+      instructionLines: async () => {
+        laneCalls += 1;
+        return ['always answer in Portuguese when I ask about Lisbon'];
+      },
+    } as unknown as InstructionLaneService;
+    const svc = withInstructionLane(search, lane);
+    const profile = profileWith({});
+    (profile as { lanes: ReadonlySet<string> }).lanes = new Set(['instruction']);
+    const instructionProbe = svc.startInstructionProbe({
+      profile,
+      companyId: 'c1',
+      callerScopes: [],
+    });
+    expect(laneCalls).toBe(1);
+    const out = await svc.collect({ ...collectorArgs(profile), instructionProbe });
+    expect(laneCalls).toBe(1);
+    expect(searchCalls).toEqual([]);
+    expect(out.instructions).toEqual(['always answer in Portuguese when I ask about Lisbon']);
+  });
+
+  it('filed instructions come first and merge with instruction-shaped evidence, deduplicated', async () => {
+    const lane = {
+      instructionLines: async () => ['Write reports for Boomerang in Portuguese.'],
+    } as unknown as InstructionLaneService;
+    const svc = withInstructionLane(noSearch, lane);
+    const profile = profileWith({});
+    (profile as { lanes: ReadonlySet<string> }).lanes = new Set(['instruction']);
+    const evidence = [
+      {
+        entityId: 'e',
+        canonicalName: 'user',
+        facts: [
+          { predicate: 'instruction', object: 'write reports for boomerang in portuguese.' },
+          { predicate: 'preferences', object: 'always answer briefly when I ask for status' },
+          { predicate: 'hobby', object: 'hiking' },
+        ],
+      },
+    ] as unknown as SearchHit[];
+    const out = await svc.collect({ ...collectorArgs(profile), evidence });
+    expect(out.instructions).toEqual([
+      'Write reports for Boomerang in Portuguese.',
+      'always answer briefly when I ask for status',
+    ]);
+  });
+
+  it('startInstructionProbe resolves [] when the lane is off or not wired, and never rejects', async () => {
+    const svc = new EvidenceCollectorService({
+      search: async () => {
+        throw new Error('probe down');
+      },
+    } as unknown as SearchService);
+    const off = profileWith({});
+    (off as { lanes: ReadonlySet<string> }).lanes = new Set();
+    await expect(
+      svc.startInstructionProbe({ profile: off, companyId: 'c1', callerScopes: [] }),
+    ).resolves.toEqual([]);
+    const on = profileWith({});
+    (on as { lanes: ReadonlySet<string> }).lanes = new Set(['instruction']);
+    await expect(
+      svc.startInstructionProbe({ profile: on, companyId: 'c1', callerScopes: [] }),
+    ).resolves.toEqual([]);
   });
 
   it('assistant lane gates on its own flag and joins the transcript set', async () => {
@@ -280,7 +382,7 @@ describe('EvidenceCollectorService branches', () => {
     const episodeLane = {
       groundingQuotes: async (o: { factIds: string[] }) => {
         seen.push(o.factIds);
-        return new Map([['f1', ' [source 2023-05-01 Mel: "dog face"]']]);
+        return new Map([['f1', ' (source 2023-05-01 Mel: "dog face")']]);
       },
     } as unknown as import('../src/synthesize/episode-lane.service').EpisodeLaneService;
     const make = () => new EvidenceCollectorService(noSearch, episodeLane);
@@ -297,7 +399,7 @@ describe('EvidenceCollectorService branches', () => {
       ...collectorArgs(profileWith({ factsAsKeys: true, factsAsKeysCap: 2 })),
       factIds: ['f1', 'f2', 'f3'],
     });
-    expect(on.groundingQuotes?.get('f1')).toBe(' [source 2023-05-01 Mel: "dog face"]');
+    expect(on.groundingQuotes?.get('f1')).toBe(' (source 2023-05-01 Mel: "dog face")');
     // Cap applies to the BEST evidence facts (input order).
     expect(seen).toEqual([['f1', 'f2']]);
   });
@@ -311,6 +413,63 @@ describe('EvidenceCollectorService branches', () => {
  * content leaks into the assembled evidence and the assertions below
  * catch it in that section.
  */
+describe('the asker (asker.ts)', () => {
+  function withUsers(users: unknown): EvidenceCollectorService {
+    const none = undefined;
+    return new EvidenceCollectorService(
+      noSearch,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      users as never,
+    );
+  }
+
+  it("is the caller's user as the memory names them; absent without a userId, an entity, or the reader", async () => {
+    const resolve = jest.fn(async (_c: string, userId: string) =>
+      userId === 'u42'
+        ? { id: 'knowledge_entity:x', name: 'Sasha', named: true }
+        : userId === 'u44'
+          ? { id: 'knowledge_entity:y', name: 'u44', named: false }
+          : null,
+    );
+    const svc = withUsers({ resolve });
+    const profile = profileWith({});
+    expect((await svc.collect({ ...collectorArgs(profile), userId: 'u42' })).asker).toEqual({
+      entityId: 'knowledge_entity:x',
+      name: 'Sasha',
+    });
+    // A placeholder-named entity is an asker without a name.
+    expect((await svc.collect({ ...collectorArgs(profile), userId: 'u44' })).asker).toEqual({
+      entityId: 'knowledge_entity:y',
+      name: null,
+    });
+    // An asker resolved by the orchestrator is taken as is, not re-read.
+    const given = { entityId: 'knowledge_entity:z', name: null };
+    expect(
+      (await svc.collect({ ...collectorArgs(profile), userId: 'u42', asker: given })).asker,
+    ).toBe(given);
+    expect(resolve).toHaveBeenCalledWith('c1', 'u42');
+    expect((await svc.collect({ ...collectorArgs(profile), userId: 'u43' })).asker).toBeUndefined();
+    expect((await svc.collect(collectorArgs(profile))).asker).toBeUndefined();
+    expect(resolve).toHaveBeenCalledTimes(3);
+    const unwired = withUsers(undefined);
+    expect(
+      (await unwired.collect({ ...collectorArgs(profile), userId: 'u42' })).asker,
+    ).toBeUndefined();
+  });
+});
+
 describe('cross-user evidence isolation (V11 item 10)', () => {
   const A_SECRET = 'A-SECRET: user A rents a flat in Lisbon';
   const laneCalls: Array<{ lane: string; userId?: string | undefined }> = [];

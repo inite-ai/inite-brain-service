@@ -15,7 +15,7 @@ import type { EmbedderProvider } from './embedder/embedder-provider.interface';
 import { createOpenAiClient, createOpenAiClientOrThrow } from './openai-client';
 import { OpenAIEmbedderProvider } from './embedder/openai-embedder.provider';
 import { BgeM3EmbedderProvider } from './embedder/bge-m3-embedder.provider';
-import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import type { WarmupStatus } from '../common/warmup-status';
 import {
   DEFAULT_EMBEDDER_PROVIDER,
@@ -667,11 +667,16 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
     return new BgeM3EmbedderProvider({
       space: declaredSpace('bge-m3'),
       concurrency: parseInt(this.configService.get<string>('BGE_M3_CONCURRENCY', '4'), 10),
-      // Off-by-default for now (1) tests assume in-thread; (2) the
-      // worker bootstraps @xenova/transformers fresh per worker which
-      // doubles peak memory during warmup. Operators flip
-      // BGE_M3_WORKER=1 to run inference off the main event loop.
-      useWorker: envFlagEnabled(this.configService.get<string>('BGE_M3_WORKER')),
+      // Inference runs in a worker_thread unless BGE_M3_WORKER=0. It
+      // shipped opt-in ("tests assume in-thread") while every document
+      // said default-on, and production ran the in-thread path for
+      // months: on its 2-vCPU host a 1024-dim embed costs hundreds of
+      // milliseconds and every ingest embeds a batch, so the main event
+      // loop — HTTP, the health probe, the scoped-pool re-signin — stood
+      // still for seconds at a time ("scoped signin timed out" in the
+      // logs). Tests construct the provider directly and stub the
+      // pipeline; nothing in them reads this default.
+      useWorker: envFlagNotDisabled(this.configService.get<string>('BGE_M3_WORKER')),
     });
   }
 

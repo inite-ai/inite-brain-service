@@ -275,6 +275,12 @@ describe('evidence blob upload surface (e2e)', () => {
     expect(res.body).toMatchObject({ quarantineStatus: 'clean', dispatched: true });
 
     expect(await eventually(async () => (await countRows('processing_run')) >= 1)).toBe(true);
+    // The run row lands at start; the representation is the run's OUTPUT
+    // and arrives a beat later — wait for it too, or the read races the
+    // broker (twice on CI shard 3).
+    expect(await eventually(async () => (await countRows('derived_representation')) >= 1)).toBe(
+      true,
+    );
     const surreal = f.app.get(SurrealService);
     const repr = await surreal.withCompany(COMPANY, async (db) => {
       const [rows] = await db.query<[Array<Record<string, unknown>>]>(

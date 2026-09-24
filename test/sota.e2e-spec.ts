@@ -292,16 +292,19 @@ describe('SOTA e2e — SurrealDB-native features', () => {
           source: { vertical: 'cross' },
         });
 
-      // Resolve the real surreal record ids via search. Entity canonicalName
-      // defaults to the externalRef.id (e.g. 'edge_a'), NOT the fact's
-      // `object` value — the latter is just the value of the `name`
-      // predicate and isn't the entity's identity.
+      // Resolve the real surreal record ids via search. A reference-minted
+      // entity is born named by its externalRef.id ('edge_a') and its
+      // canonical name FOLLOWS its `name` fact (entity-name.ts) — so the
+      // hit is named 'EdgeA' now, with the reference id kept as an alias.
       const resolveId = async (refId: string, factObject: string): Promise<string> => {
         const v = await f.http
           .post('/v1/search')
           .set(auth())
           .send({ query: `name: ${factObject}`, limit: 50, searchMode: 'vector' });
-        const hit = v.body.results.find((r: any) => r.canonicalName === refId);
+        const hit = v.body.results.find(
+          (r: any) =>
+            r.canonicalName === factObject && r.externalRefs?.[`cross__${refId}`] === refId,
+        );
         if (!hit) throw new Error(`Could not resolve ${refId}`);
         return hit.entityId;
       };
@@ -362,9 +365,11 @@ describe('SOTA e2e — SurrealDB-native features', () => {
       expect(conn.status).toBe(200);
       const out = conn.body.edges.find((e: any) => e.direction === 'outbound');
       expect(out).toBeDefined();
+      // The neighbour is named by its `name` fact (entity-name.ts), the
+      // reference id stays among its aliases.
       expect(out.neighbour).toMatchObject({
         type: expect.any(String),
-        canonicalName: 'edge_b',
+        canonicalName: 'EdgeB',
       });
     });
 

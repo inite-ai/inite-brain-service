@@ -24,6 +24,7 @@ const USER = 'cache_deps_u1';
 const QUERY = 'which database does the inventory service use, and what was decided first?';
 /** Own key: the scene case must not share a cache entry with QUERY. */
 const SCENE_QUERY = 'when did the switch to SurrealDB happen?';
+const BELIEF_QUERY = 'what database is the inventory service on right now?';
 const VERIFY_SUPPORTED = JSON.stringify({ verdict: 'supported', unsupportedClaims: [] });
 const FLAG_KEYS = [
   'SYNTHESIZE_ANSWER_CACHE',
@@ -74,7 +75,7 @@ describe('0136 answer-cache dependencies e2e (a belief revision invalidates a mi
   const cacheRows = () =>
     db(async (d) => {
       const [rows] = await d.query<[CacheRow[]]>(
-        `SELECT answer, hitCount, invalidationCause, dependencies FROM answer_cache`,
+        `SELECT answer, hitCount, invalidationCause, dependencies, beliefSubjects FROM answer_cache`,
       );
       return rows ?? [];
     });
@@ -321,5 +322,71 @@ describe('0136 answer-cache dependencies e2e (a belief revision invalidates a mi
     } finally {
       delete process.env.RETRIEVAL_SCENE_LANE;
     }
+  }, 60000);
+
+  /**
+   * 0155: the belief plane's OWN answer — no fact citations at all. It used
+   * to be refused at admission for having no entity to anchor the additive
+   * probe on, which made the one class of answer whose evidence is a single
+   * small row the only one re-synthesized on every ask. The anchor is the
+   * belief's free-text subject, and a belief landing on that subject
+   * afterwards is the additive write.
+   */
+  it('a belief-only answer is cached, and a NEW belief on the same subject invalidates it', async () => {
+    const active = (await beliefs()).find((r) => r.status === 'active')!;
+    const beliefId = String(active.id);
+    const answer = `The inventory service uses ${active.value}. [${beliefId}]`;
+    const round = () =>
+      mockSynthesizeOpenAi(f.app, [
+        JSON.stringify({ answer, citedFactIds: [], citedBeliefIds: [beliefId] }),
+        VERIFY_SUPPORTED,
+      ]);
+    const ask = () =>
+      f.http
+        .post('/v1/synthesize')
+        .set(auth())
+        .send({ query: BELIEF_QUERY, userId: USER, limit: 5 });
+
+    const first = round();
+    const res1 = await ask();
+    expect(res1.status).toBe(201);
+    expect(res1.body.answer).toBe(answer);
+    expect(res1.body.citations).toEqual([]);
+    expect(first.calls).toHaveLength(2);
+
+    const stored = (await cacheRows()).find((r) => r.answer === answer);
+    expect(stored?.dependencies?.[0]).toMatchObject({ kind: 'belief', id: beliefId });
+
+    // It serves from the cache — the whole point of the change.
+    const second = round();
+    const res2 = await ask();
+    expect(res2.body.cached).toBe(true);
+    expect(res2.body.answer).toBe(answer);
+    expect(second.calls).toHaveLength(0);
+
+    // A SIBLING belief on the same subject — not a revision of the cited
+    // one, so the answer's own evidence stays valid while the current state
+    // it described stops being the whole of it. Written directly: what is
+    // under test is the cache's probe, not the promoter.
+    await db(async (d) => {
+      await d.query(
+        `CREATE type::record('semantic_belief', 'cachedeps_sibling') CONTENT {
+           userId: $u, subject: 'inventory service', field: 'owner',
+           value: 'platform team', priorValue: NONE,
+           statement: 'The inventory service is owned by the platform team.',
+           statementSource: 'template', confidence: 0.9,
+           revision: 1, status: 'active', promoterVersion: 'test-seed',
+           validFrom: time::now(), validUntil: NONE,
+           sourceSceneIds: [], conversationIds: [$conv],
+           corroborationCount: 1, conversationCount: 1,
+           createdAt: time::now(), updatedAt: time::now() }`,
+        { u: USER, conv: 'proj:cachedeps_sibling' },
+      );
+    });
+
+    const third = round();
+    const res3 = await ask();
+    expect(res3.body.cached).toBeUndefined();
+    expect(third.calls).toHaveLength(2);
   }, 60000);
 });

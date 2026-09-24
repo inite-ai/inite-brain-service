@@ -131,17 +131,24 @@ export class StatsService {
         this.cache.set(cacheKey, { stats, at: nowMs });
         return stats;
       }
-      // Per-user (audit F3): every user-scopable table (knowledge_entity /
-      // knowledge_fact carry userId — migration 0055) is filtered to the
-      // caller's own rows PLUS tenant-global rows via the SAME read
-      // predicate the fact/entity/search lanes use. `gate` is a constant
-      // literal; $userId is a bound parameter. community_node has no
-      // userId, so its tenant-wide count is reported as an explicit null
-      // ("N/A" in the UI) rather than a misleading 0 or the leaked
-      // tenant-global figure.
+      // Per-user (audit F3): knowledge_fact rows are filtered to the
+      // caller's own PLUS tenant-global via the SAME read predicate the
+      // fact/entity/search lanes use. `gate` is a constant literal; $userId
+      // is a bound parameter. community_node has no userId, so its
+      // tenant-wide count is reported as an explicit null ("N/A" in the
+      // UI) rather than a misleading 0 or the leaked tenant-global figure.
+      //
+      // Entities are counted through the facts the caller can see, plus
+      // the caller's own private nodes: identity is tenant-wide (a shared
+      // node exists whoever first wrote about it — 2026-09-20), so the
+      // node table alone would report every user's activity to every
+      // user. What a user can reach is an entity with a fact they may
+      // read, and that is the number.
       const gate = '(userId IS NONE OR userId = $userId)';
       const sql = `
-        SELECT count() AS c FROM knowledge_entity WHERE ${gate} GROUP ALL;
+        RETURN { c: array::len(array::distinct(array::concat(
+          (SELECT VALUE entityId FROM knowledge_fact WHERE ${gate}),
+          (SELECT VALUE id FROM knowledge_entity WHERE userId = $userId)))) };
         SELECT count() AS c FROM knowledge_fact WHERE status = 'active' AND ${gate} GROUP ALL;
         SELECT count() AS c FROM knowledge_fact WHERE status = 'competing' AND ${gate} GROUP ALL;
         SELECT count() AS c FROM knowledge_fact WHERE status = 'retracted' AND ${gate} GROUP ALL;
@@ -198,10 +205,11 @@ export class StatsService {
   }
 }
 
+/** `{ c }` from a GROUP ALL row set, or from a RETURN { c } object. */
 function countOf(stmtResult: unknown): number {
-  if (!Array.isArray(stmtResult) || stmtResult.length === 0) return 0;
-  const first = stmtResult[0] as { c?: unknown };
-  return typeof first?.c === 'number' ? first.c : 0;
+  const first = Array.isArray(stmtResult) ? stmtResult[0] : stmtResult;
+  const c = (first as { c?: unknown } | undefined)?.c;
+  return typeof c === 'number' ? c : 0;
 }
 
 /** Single-row GROUP ALL view: absent row (empty source) reads as 0. */

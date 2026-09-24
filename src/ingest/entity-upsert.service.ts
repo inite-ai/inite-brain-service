@@ -10,7 +10,8 @@ import {
 import { EntityResolverService } from './entity-resolver.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { EntityRef, IngestFactDto } from './dto/ingest-fact.dto';
-import { externalRefKey, idTailOf } from './ingest-utils';
+import { externalRefKey, idTailOf, scopedRefKey } from './ingest-utils';
+import { isUserEntityRef } from './user-entity';
 import { isCodeSymbolShaped, pathNeedlesForSymbol, symbolAliasForPath } from './code-alias';
 import { scopeForUser } from '../auth/scope-tags';
 import { scopeFenceSql } from '../auth/scope-visibility';
@@ -18,6 +19,8 @@ import { envFlagEnabled } from '../common/env-validation';
 import { analyzeConfusables } from '../common/text-sanitizer';
 import { nameKey, nameKeysFor } from '../common/name-key';
 import { traceArtifact } from '../common/debug-trace';
+import { isPronounReference } from '../common/coreference';
+import type { ParticipantHint } from './participants';
 
 /**
  * Leading English articles the extractor inconsistently keeps on coined
@@ -53,6 +56,24 @@ export function articleNameVariants(nameLc: string): string[] {
 }
 
 /**
+ * The names a participant's entity is born with when the hint mints it:
+ * the caller's display name first (canonical), then the mention's own
+ * forms — unless the mention is a bare pronoun, which is why the hint
+ * fired and names nothing. Pure, exported for tests.
+ */
+export function participantSurfaces(
+  e: { name: string; canonical?: string | undefined },
+  hint: { name?: string | undefined },
+): { canonical: string; aliases: string[] } {
+  const pronoun = isPronounReference(e.name);
+  const forms = [hint.name, pronoun ? undefined : e.canonical, pronoun ? undefined : e.name]
+    .map((n) => n?.trim())
+    .filter((n): n is string => !!n);
+  const canonical = forms[0] ?? e.canonical ?? e.name;
+  return { canonical, aliases: [...new Set(forms.length > 0 ? forms : [canonical])] };
+}
+
+/**
  * Entity-resolution slice of the ingest pipeline: turn a caller-supplied
  * reference (externalRef / canonical name / bare entityId) into a concrete
  * knowledge_entity id, minting one when absent. Every method takes the live
@@ -72,7 +93,7 @@ export function articleNameVariants(nameLc: string): string[] {
 /** The rung of the naming ladder that settled an entity — see the trace
  *  artifact `ingest.entity.resolution`. */
 type ResolutionStep =
-  'hint' | 'exact' | 'article-variant' | 'translit' | 'code-alias' | 'judge' | 'created';
+  'hint' | 'known' | 'exact' | 'article-variant' | 'translit' | 'code-alias' | 'judge' | 'created';
 
 @Injectable()
 export class EntityUpsertService {
@@ -103,43 +124,40 @@ export class EntityUpsertService {
       return dto.entityRef.entityId;
     }
     const ref = dto.entityRef as { vertical: string; id: string };
-    // User scope (0055): the UNIQUE external-ref key is the dedup axis, so
-    // a user-scoped ref must never collide with the tenant-global one (or
-    // another user's) for the same (vertical, id). Fold the scope into the
-    // key and stamp it on the minted entity.
-    const baseKey = externalRefKey(ref.vertical, ref.id);
-    // Scope separator MUST be a byte externalRefKey never emits, or a
-    // dotted id folds into the marker and a tenant-global ref collides
-    // with a user-scoped one (e.g. global "x.u.bob" → "x__u__bob" ==
-    // scoped ("x", user "bob") under the old "__u__" marker — no crafted
-    // input needed). externalRefKey only ever produces [word]/`__`, never
-    // a colon, so "::u::" cannot be forged from the (vertical, id) side.
-    const refKey = userId ? `${baseKey}::u::${userId}` : baseKey;
+    // IDENTITY IS TENANT-WIDE; SCOPE IS ON THE FACT. A (vertical, id)
+    // reference names one thing for the whole tenant — the same node the
+    // mention path resolves "Meridian" to — and a user's fact about it
+    // is personal by its own userId (0055), not by living on a private
+    // copy of the node. The one reference that IS private is the user's
+    // own (`user:<userId>`): nobody else refers to it, so its key folds
+    // the scope and the node carries it.
+    //
+    // Until 2026-09-20 every scoped ref minted its own copy
+    // (`<key>::u::<user>`), which split one referent across two nodes:
+    // the copy held the record_fact history, the tenant node the
+    // mention facts, and the conflict machinery, the timeline and the
+    // connections each saw half (memfit D2/D6 — "old value missing from
+    // history", "no competing group"). ScopedEntityConsolidationService
+    // folds the legacy copies back.
+    const own = isUserEntityRef(ref, userId);
+    const refKey = own
+      ? scopedRefKey(ref.vertical, ref.id, userId)
+      : externalRefKey(ref.vertical, ref.id);
     return this.upsertEntityByExternalRef(db, refKey, {
       factory: () => ({
         type: 'other',
         canonicalName: ref.id,
         externalRefs: { [refKey]: ref.id },
-        // G6 step 1: mirror the per-user scope as a scope tag (0093) next
-        // to the userId stamp. The named-entity path stays tenant-global
-        // (no userId → the scope field DEFAULT [] holds).
-        ...(userId ? { userId, scope: scopeForUser(userId) } : {}),
+        // G6 step 1: the user's own node carries the scope as userId +
+        // scope tag (0093); every other reference mints tenant-global.
+        ...(own && userId ? { userId, scope: scopeForUser(userId) } : {}),
       }),
       // The ref id IS a name the caller chose for this thing; if the
-      // graph already knows exactly that name, it is the same thing.
-      //
-      // TENANT-GLOBAL REFS ONLY, and this is load-bearing. 0055 gives a
-      // user-scoped ref its OWN entity rather than hanging personal
-      // facts off the shared node, and user-forget deletes that entity
-      // (`entitiesDeleted`) — so adopting the tenant-global node for a
-      // scoped ref would either orphan the erasure or point it at a
-      // shared entity. `resolveExistingByName`'s fence is the search-lane
-      // union (`userId IS NONE OR userId = $scopeUserId`), which is
-      // correct for READING and too wide for MINTING, so the scoped case
-      // keeps the historical mint instead of borrowing that fence.
-      ...(userId === undefined
-        ? { adopt: () => this.resolveExistingByName(db, { name: ref.id }) }
-        : {}),
+      // graph already knows exactly that name (tenant-global — the
+      // lookup pins `userId IS NONE`, so nobody's private node is ever
+      // adopted), it is the same thing. Not for the user's own node: its
+      // identity is the key, never a name.
+      ...(own ? {} : { adopt: () => this.adoptByReferenceId(db, ref.id) }),
     });
   }
 
@@ -194,13 +212,31 @@ export class EntityUpsertService {
     });
   }
 
+  /**
+   * The entity a reference key names — FOLLOWING the merge chain.
+   *
+   * A reference row keeps pointing at the entity it was created for, and an
+   * `identity_of` merge only stamps `mergedInto` on that entity. Without the
+   * hop, every write arriving through the loser's key after the merge landed
+   * on a husk that every read filters out (`mergedInto IS NONE`): the ingest
+   * answered 201, the fact was stored, and nothing could ever serve it. The
+   * chain is walked server-side, bounded at 32 hops like the cycle guard in
+   * 0037, so a chain of merges resolves in one round trip.
+   */
   private async lookupExternalRef(db: Surreal, key: string): Promise<string | null> {
-    const arr = await queryRows<unknown>(
+    const row = await queryFirst<{ entity: unknown; chain?: unknown }>(
       db,
-      `SELECT VALUE entity FROM entity_external_ref WHERE key = $key LIMIT 1`,
+      // ONE statement: a LET + RETURN pair is a multi-statement query, and on
+      // this path (inside the ref-upsert retry, next to the RELATE) 3.2.4
+      // answered it with "read or write conflict" — a 500 on every link.
+      `SELECT entity, entity.{1..32+collect}.mergedInto AS chain
+         FROM entity_external_ref WHERE key = $key LIMIT 1`,
       { key },
     );
-    return arr[0] ? String(arr[0]) : null;
+    if (!row?.entity) return null;
+    const chain = Array.isArray(row.chain) ? row.chain : [];
+    const survivor = chain.length > 0 ? chain[chain.length - 1] : row.entity;
+    return String(survivor);
   }
 
   async resolveOrCreateNamedEntity({
@@ -211,8 +247,8 @@ export class EntityUpsertService {
     incomingFacts = [],
   }: {
     db: Surreal;
-    e: { name: string; type: string; canonical?: string | undefined };
-    hint: { vertical: string; id: string; role?: string } | undefined;
+    e: { name: string; type: string; canonical?: string | undefined; known?: string | undefined };
+    hint: ParticipantHint | undefined;
     _contextRef: { vertical: string };
     incomingFacts?: string[];
   }): Promise<string> {
@@ -235,31 +271,66 @@ export class EntityUpsertService {
       return entityId;
     };
 
-    // 1. Caller hint wins — same atomic upsert as fact ingest.
+    // 1. Caller hint wins — same atomic upsert as fact ingest. The
+    // user's own reference (participants.ts) carries the user's scope:
+    // its key is the scoped one and the entity is personal (0055), the
+    // same node a typed fact on {vertical: 'user', id: <userId>} lands on.
     if (hint) {
-      const hintKey = externalRefKey(hint.vertical, hint.id);
+      const hintKey = scopedRefKey(hint.vertical, hint.id, hint.userId);
       // Tier 3 reversible audit: a keyed reuse is deterministic (caller-
       // authoritative externalRef), but still logged so the merge trail is
       // complete. Existence is pre-checked ONLY under the flag (off ⇒ no
       // extra query, byte-identical).
       await this.auditExternalRefReuse(db, hintKey, e);
-      return resolved(
-        'hint',
-        await this.upsertEntityByExternalRef(db, hintKey, {
-          factory: () => ({
-            type: this.normalizeEntityType(e.type),
-            canonicalName: e.canonical ?? e.name,
-            aliases: [e.name],
-            nameKeys: nameKeysFor([e.name, e.canonical]),
-            externalRefs: { [hintKey]: hint.id },
-          }),
-          // Same identity check as the structured path: a hint says WHICH
-          // key to file this under, not that the name is new. Without it
-          // step 2's canonical-name match — the thing that would have found
-          // the existing entity — is skipped whenever a hint is present.
-          adopt: () => this.resolveExistingByName(db, { name: e.canonical ?? e.name }),
+      // The participant's name is the caller's and authoritative; the
+      // mention that anchored here is a surface of it — or a pronoun,
+      // which names nothing (isPronounReference) and is kept off the
+      // entity. Without a caller name the mention's own form stands.
+      const named = participantSurfaces(e, hint);
+      const id = await this.upsertEntityByExternalRef(db, hintKey, {
+        factory: () => ({
+          type: this.normalizeEntityType(e.type),
+          canonicalName: named.canonical,
+          aliases: named.aliases,
+          nameKeys: nameKeysFor(named.aliases),
+          externalRefs: { [hintKey]: hint.id },
+          ...(hint.userId ? { userId: hint.userId, scope: scopeForUser(hint.userId) } : {}),
         }),
-      );
+        // Same identity check as the structured path: a hint says WHICH
+        // key to file this under, not that the name is new. Without it
+        // step 2's canonical-name match — the thing that would have found
+        // the existing entity — is skipped whenever a hint is present.
+        // Tenant-global hints only — a scoped ref never adopts a shared
+        // node (the resolveOrCreateEntity rule).
+        ...(hint.userId === undefined
+          ? { adopt: () => this.resolveExistingByName(db, { name: e.canonical ?? e.name }) }
+          : {}),
+      });
+      await this.nameParticipant(db, id, hint);
+      return resolved('hint', id);
+    }
+
+    // 1a. The extractor's own pin (memory context): the mention was
+    // written with the entity in front of it and refers to it by
+    // handle — "Ana" after "Ana Costa", "Rui" after "Rui Almeida", a
+    // transliteration, a role the conversation tied to them. That is
+    // the resolution decision, made where the sentence was read; the
+    // ladder below exists for mentions the memory did not hold. The
+    // row is re-read so a stale or merged id cannot be filed under.
+    if (e.known) {
+      const pinned = await this.followKnown(db, e.known);
+      if (pinned) {
+        await this.stampNameKeys(db, pinned, [e.name, e.canonical]);
+        // The surface form that named it this time becomes an alias, so
+        // the next exact lookup hits without a model in the loop.
+        await this.stampAlias(db, pinned, e.name);
+        await this.auditKeyedReuse(db, pinned, {
+          mention: e.name,
+          type: this.normalizeEntityType(e.type),
+          matchKind: 'known',
+        });
+        return resolved('known', pinned);
+      }
     }
 
     // 2. Canonical-name match. Hits `entity_canonical_lc_idx` directly
@@ -385,9 +456,12 @@ export class EntityUpsertService {
     // match reuses the existing entity, so the duplicate is never created.
     // Falls through to create-new when disabled, no match, or any error.
     if (this.entityResolver?.isEnabled()) {
+      // The form the entity is known by, not the surface it was mentioned
+      // in: the key scans and the judge's name hint work on "Мария
+      // Петрова", never on "Марией Петровой".
       const judged = await this.entityResolver.resolveByName({
         db,
-        name: e.name,
+        name: e.canonical ?? e.name,
         type: this.normalizeEntityType(e.type),
         incomingFacts,
       });
@@ -609,6 +683,76 @@ export class EntityUpsertService {
     return matched.size === 1 ? [...matched][0]! : null;
   }
 
+  /**
+   * Adoption for a STRUCTURED reference `{vertical, id}`: the id is the name
+   * the caller chose for the thing, so the graph's own name index decides
+   * whether it already knows it — with ONE exclusion.
+   *
+   * An external id is not a name. When the only thing tying this id to the
+   * candidate is that the candidate was itself minted from ANOTHER vertical's
+   * reference spelled the same way, the two are not the same referent:
+   * `rent/jonas` and `events/jonas` are two id-spaces that happen to collide
+   * on a key. Adopting across that collision fuses two people into a node no
+   * reader can take apart again — and it silently turned the operator's own
+   * `identity_of` declaration between them into a 400 self-merge, since both
+   * ends already resolved to one entity (the nightly quality eval has been
+   * failing on exactly that since the adoption rung landed).
+   *
+   * So adoption needs a name the graph LEARNED — coined by extraction, stated
+   * by a `name` fact, carried as an alias — never a sibling key. The check is
+   * script-independent (`nameKey`) for the same reason the lookup is: a
+   * transliterated key collides just as blindly as an ASCII one.
+   */
+  private async adoptByReferenceId(db: Surreal, refId: string): Promise<string | null> {
+    const candidate = await this.resolveExistingByName(db, { name: refId });
+    if (!candidate) return null;
+    const token = EntityUpsertService.token(refId);
+    const siblings = await this.externalRefIdsOf(db, candidate);
+    // `null` = the candidate's keys could not be read. No evidence that this
+    // is not a key collision is not evidence that it is a name, so decline.
+    if (siblings === null || siblings.some((s) => EntityUpsertService.token(s) === token)) {
+      this.logger.log(
+        `[entity.adopt_declined] "${refId}" matches ${candidate} only through its own external ` +
+          `reference id — an id-space collision is not an identity`,
+      );
+      return null;
+    }
+    return candidate;
+  }
+
+  /**
+   * The ids this entity is externally keyed by (the VALUES of `externalRefs`).
+   * `null` when the row could not be read — the caller must not read that as
+   * "keyed by nothing".
+   */
+  private async externalRefIdsOf(db: Surreal, entityId: string): Promise<string[] | null> {
+    try {
+      const [res] = await db.query<[unknown]>(
+        `SELECT VALUE externalRefs FROM ONLY type::record('knowledge_entity', $tail)`,
+        { tail: idTailOf(entityId) },
+      );
+      const refs = (Array.isArray(res) ? res[0] : res) as Record<string, unknown> | undefined;
+      if (refs === undefined || refs === null) return [];
+      if (typeof refs !== 'object') return [];
+      return Object.values(refs).filter((v): v is string => typeof v === 'string');
+    } catch (err) {
+      this.logger.warn(
+        `[entity.adopt] external-ref lookup failed for ${entityId}: ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * The comparison token for an id-space collision check: case- and
+   * script-independent, so `Jonas`/`jonas` and `Иван`/`Ivan` collide the same
+   * way the name lookup itself does. Falls back to the lowercased raw id for
+   * strings `nameKey` cannot key (pure punctuation, digits).
+   */
+  private static token(raw: string): string {
+    return nameKey(raw) || raw.trim().toLowerCase();
+  }
+
   async resolveOrCreateBareRef(db: Surreal, ref: EntityRef): Promise<string> {
     if ('entityId' in ref && ref.entityId) {
       return ref.entityId.includes(':') ? ref.entityId : `knowledge_entity:${ref.entityId}`;
@@ -624,7 +768,7 @@ export class EntityUpsertService {
       // Link endpoints get the same identity check: a relation drawn to
       // "meridian" must land on the Meridian the graph already has, or
       // the edge points at a node nothing else references.
-      adopt: () => this.resolveExistingByName(db, { name: r.id }),
+      adopt: () => this.adoptByReferenceId(db, r.id),
     });
   }
 
@@ -758,6 +902,41 @@ export class EntityUpsertService {
     return entityId;
   }
 
+  /**
+   * The display name a caller gave a participant reaches the entity it
+   * anchored: an alias the next exact lookup hits, its transliteration
+   * key — and, when the entity was minted from its reference and is still
+   * named by the reference id (`canonicalName: ref.id`, the fact path's
+   * and the user entity's birth name), the name itself. A reference id is
+   * not a name; the first name a caller gives becomes the canonical one.
+   * The hint path used to stamp nothing, so a speaker anchored under a
+   * ref for months kept the ref id as its name. Idempotent; called from
+   * the hint rung here and, for the user's own entity, by
+   * UserEntityService when the caller names the user on a turn whose
+   * extraction did not pass through the hint (a `known` pin, say).
+   */
+  async nameParticipant(
+    db: Surreal,
+    entityId: string,
+    hint: { id: string; name?: string | undefined },
+  ): Promise<void> {
+    const name = hint.name?.trim();
+    if (!name || name === hint.id) return;
+    await this.stampAlias(db, entityId, name);
+    await this.stampNameKeys(db, entityId, [name]);
+    try {
+      await db.query(`UPDATE $id SET canonicalName = $name WHERE canonicalName = $refId`, {
+        id: new StringRecordId(entityId),
+        name,
+        refId: hint.id,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[ingest.participant] naming ${entityId} "${name}" failed: ${(err as Error).message}`,
+      );
+    }
+  }
+
   /** Append the newly-seen surface to the reused entity's aliases so the
    *  NEXT mention of it hits the step-2 exact match directly. Best-effort:
    *  a stamp failure never blocks resolution (the reuse already stands). */
@@ -864,6 +1043,25 @@ export class EntityUpsertService {
     );
   }
 
+  /**
+   * The entity an extractor pin names, or null when the id is stale.
+   * A merged row forwards to its survivor.
+   */
+  private async followKnown(db: Surreal, known: string): Promise<string | null> {
+    try {
+      const row = await queryFirst<{ id: unknown; mergedInto?: unknown }>(
+        db,
+        `SELECT id, mergedInto FROM $id`,
+        { id: new StringRecordId(known) },
+      );
+      if (!row) return null;
+      return row.mergedInto ? String(row.mergedInto) : String(row.id);
+    } catch (err) {
+      this.logger.warn(`[entity.known] ${known} unreadable: ${(err as Error).message}`);
+      return null;
+    }
+  }
+
   /** Audit a deterministic keyed reuse to entity_merge_log (0102), gated on
    *  MULTILINGUAL_ENTITY_REVERSIBLE. No-op when the resolver isn't wired or
    *  the flag is off. */
@@ -873,7 +1071,7 @@ export class EntityUpsertService {
     meta: {
       mention: string;
       type: string;
-      matchKind: 'exact' | 'externalRef' | 'article-variant' | 'translit';
+      matchKind: 'exact' | 'externalRef' | 'article-variant' | 'translit' | 'known';
     },
   ): Promise<void> {
     if (!this.entityResolver?.isReversible()) return;

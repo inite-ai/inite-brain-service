@@ -69,6 +69,15 @@ describe('ExtractorCacheService.computeKey', () => {
     );
   });
 
+  it('the speaker, and whether the speaker is the user, partition the key', () => {
+    const spoken = svc.computeKey({ ...baseInput, speaker: 'Sasha' });
+    expect(spoken).not.toBe(svc.computeKey(baseInput));
+    expect(spoken).not.toBe(
+      svc.computeKey({ ...baseInput, speaker: 'Sasha', speakerIsUser: true }),
+    );
+    expect(spoken).toBe(svc.computeKey({ ...baseInput, speaker: 'Sasha', speakerIsUser: false }));
+  });
+
   it('omitted scPasses maps to the single-pass bucket', () => {
     expect(svc.computeKey(baseInput)).toBe(svc.computeKey({ ...baseInput, scPasses: 1 }));
   });

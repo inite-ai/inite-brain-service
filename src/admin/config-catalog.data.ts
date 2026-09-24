@@ -27,11 +27,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'EXTRACTOR_SC_PASSES',
     category: 'extractor',
-    defaultValue: '1',
+    defaultValue: '3',
     runtimeMutable: false,
     isBooleanFlag: false,
     description:
-      'Self-consistency N-pass count for semantic-entropy gating. 1 = single pass; raise (e.g. 3) for high-stakes corpora.',
+      'Self-consistency passes per extraction: N samples of the same prompt, unioned by semantic cluster with per-fact agreement/entropy. 3 (default since 2026-09-20; measured memory-fitness 32/32, state-transitions 11/12, T0 = baseline) — the write is the one stochastic step never re-run, so it gets the votes; 1 = a single sample (cheaper, misses ~15% of edges run to run).',
   },
   {
     key: 'EXTRACTOR_LOCAL_NER_ENABLED',
@@ -109,6 +109,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     defaultValue: '2',
     runtimeMutable: false,
     isBooleanFlag: false,
+  },
+  {
+    key: 'BGE_M3_WORKER',
+    category: 'embedder',
+    defaultValue: '1',
+    runtimeMutable: false,
+    isBooleanFlag: true,
+    description:
+      'With EMBEDDER_PROVIDER=bge-m3: ONNX inference runs in a dedicated worker_thread so the main event loop keeps serving HTTP while embeds compute. 0 = in-thread inference — the event loop stops for every embed (hundreds of ms per call on a small host; an ingest embeds a batch), which is what production ran until 2026-09.',
   },
   // ── Dreams ────────────────────────────────────────────
   {
@@ -669,11 +678,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     // Read at call time (scene-flags.sceneScheduledMaintenanceEnabled) by
     // the cron entry point and by the ingest dirty-mark seam — never
     // captured in a constructor — so a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Scheduled scene maintenance (migration 0130): a nightly 04:20 UTC pass runs the scene chain (compose → enrich → backlink → evidence links → beliefs) per tenant over DIRTY conversations only — the ingest seam marks a conversation when turns land, the pass clears the mark after a successful swap, so the run is proportional to what moved instead of the O(all conversations) full rebuild. Bounded by SCENES_MAINTENANCE_MAX_CONVERSATIONS per tenant per run and SCENES_MAINTENANCE_TIME_BUDGET_MS overall, distributed-lease guarded (one pod, never overlapping itself), per-tenant error isolated. Off = the cron returns before a single query, no dirty mark is ever written, the admin routes stay the only trigger — byte-identical prod.',
+      'Scheduled scene maintenance (migration 0130): every ten minutes a pass runs the scene chain (compose → enrich → backlink → evidence links → beliefs) per tenant over DIRTY conversations that have SETTLED — the ingest seam marks a conversation when turns land (bumping the mark on every turn), the pass takes only marks older than SCENES_MAINTENANCE_SETTLE_MS, so an active session is left alone until it goes quiet and the paid enrichment is spent once per finished scene; the mark is cleared after a successful swap, so the run is proportional to what moved instead of the O(all conversations) full rebuild, and a quiet tenant costs one indexed read per tick. Was nightly at 04:20 UTC and shipped OFF: every scene and belief on the prod tenant existed only for conversations an operator had curled by hand. Bounded by SCENES_MAINTENANCE_MAX_CONVERSATIONS per tenant per run and SCENES_MAINTENANCE_TIME_BUDGET_MS overall, distributed-lease guarded (one pod, never overlapping itself), per-tenant error isolated. `=0` = the cron returns before a single query, no dirty mark is ever written, the admin routes stay the only trigger.',
   },
   {
     key: 'SCENES_MAINTENANCE_MAX_CONVERSATIONS',
@@ -698,6 +707,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
     description:
       'Scheduled scene maintenance: whole-run wall-clock budget in ms. Once elapsed the pass stops starting NEW tenants (the tenant in flight always finishes — no compose is aborted mid-swap) and the roster resumes next night with the marks intact. Guarantees the pass cannot still be running when the next night’s crons fire. Positive integer; default 1800000 (30 min).',
+  },
+  {
+    key: 'SCENES_MAINTENANCE_SETTLE_MS',
+    category: 'scenes',
+    defaultValue: '600000',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Quiet period before the scheduled scene pass composes a dirty conversation (milliseconds, default 10 min): a conversation whose latest turn landed more recently than this is not on the page yet. The session gap is the scene boundary anyway, so composing a session while it is still being written would only re-enrich its moving tail on every tick. 0 = compose on the next tick regardless (the e2e fixtures).',
   },
   {
     key: 'SCENES_LLM_ENRICHMENT',
@@ -1108,14 +1126,14 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'COST_CHAT_PROMPT_USD_PER_MTOK',
     category: 'cost',
-    defaultValue: '0.15',
+    defaultValue: '0.2',
     runtimeMutable: false,
     isBooleanFlag: false,
   },
   {
     key: 'COST_CHAT_COMPLETION_USD_PER_MTOK',
     category: 'cost',
-    defaultValue: '0.6',
+    defaultValue: '1.2',
     runtimeMutable: false,
     isBooleanFlag: false,
   },
@@ -1198,9 +1216,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
   {
     key: 'OPENAI_CHAT_MODEL',
     category: 'auth',
-    defaultValue: 'gpt-4o-mini',
+    defaultValue: 'gpt-6-luna',
     runtimeMutable: false,
     isBooleanFlag: false,
+    description:
+      'The chat model behind extraction, generation, the deriver, scenes, beliefs, the router and every judge that does not name its own — NOT the verifier, which pins its own (RETRIEVAL_VERIFIER_MODEL). Default = the cost tier of the newest generation (gpt-6-luna, $0.10 / $0.50 per 1M). It replaced gpt-5.6-luna on 2026-09-24, measured on the prod-parity stand: gpt-5.6-luna everywhere scored memory-fitness 31/32 and state-transitions 10/12; gpt-6-luna everywhere 30/32 and 11/12; gpt-6-luna with the audit left on the older model 32/32 and 11/12. Every call goes through the shared reasoning guard (chatCallParams): a gpt-5.x / gpt-6 / o-series model rejects `temperature`, so the guard drops it and sets reasoning effort — `low` by default, `none` for one-token classifiers. Before gpt-5.6-luna it was gpt-4o-mini, which flip-flopped on identical entity pairs between runs.',
   },
   {
     key: 'ENTITY_JUDGE_MODEL',
@@ -1210,6 +1230,88 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
     description:
       'The model behind the same-entity judge (inline entity resolution at ingest and the dreams dedup). Its own default, not OPENAI_CHAT_MODEL: measured on identical cross-script pairs gpt-4o-mini flip-flopped between runs while a current model answered consistently, and the judge is one call per new entity with a neighbour, so it gets the cheapest current-generation model. Reasoning models are called through the shared guard at low effort.',
+  },
+  {
+    key: 'TYPESAFE_API_KEY',
+    category: 'auth',
+    defaultValue: null,
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    secret: true,
+    description:
+      'Key for the System One decision plane (TypeSafe Jev, POST /v1/systemone). Without it every decision lane is off and each judge runs on the chat model exactly as before — the plane can never degrade a judgement into a default verdict. Jev bills input only ($0.042 / 1M, output free) and answers every question of a request in parallel, which is why a lane on this plane may ask ten typed questions where the chat model was asked one.',
+  },
+  {
+    key: 'TYPESAFE_BASE_URL',
+    category: 'auth',
+    defaultValue: 'https://api.typesafe.ai',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Where the decision plane sends `POST <base>/v1/systemone`. Two places serve the same protocol: the vendor (default) and OpenRouter — set `https://openrouter.ai/api` and put the OpenRouter key in TYPESAFE_API_KEY to bill decisions to that account instead of a second vendor account. OpenRouter maps a bare model id (`jev-latest`, `jev-1.13`) into its `typesafe/` namespace and returns the same answer shape plus `usage.cost`, which lands on the call span as `gen_ai.usage.cost`.',
+  },
+  {
+    key: 'TYPESAFE_MODEL',
+    category: 'auth',
+    defaultValue: 'jev-latest',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'The System One model id. `jev-latest` tracks the current stable release; pin an exact version (e.g. jev-1.13.0) when a measurement has to stay reproducible.',
+  },
+  {
+    key: 'TYPESAFE_TIMEOUT_MS',
+    category: 'auth',
+    defaultValue: '10000',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Per-decision timeout. A decision is a sub-second call by design, so this is a failure bound, not a budget: on a timeout the lane falls back to the chat-model path it had.',
+  },
+  {
+    key: 'TYPESAFE_MAX_RETRIES',
+    category: 'auth',
+    defaultValue: '3',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Retries for 429 (rate limit) and 529 (overloaded) with exponential backoff. 401/422 are never retried — an invalid key or a malformed question does not become valid by asking again.',
+  },
+  {
+    key: 'TYPESAFE_CONCURRENCY',
+    category: 'auth',
+    defaultValue: '16',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'In-flight decisions cap. Higher than the OpenAI one because a decision is ~0.1 s and the published limits are 1,200 requests/minute and 250k tokens/second.',
+  },
+  {
+    key: 'DECISIONS_LANES',
+    category: 'auth',
+    defaultValue: null,
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Comma-separated lanes served by the decision plane, or `all`. Known lanes: entity_judge, verifier, predicate_identity, predicate_semantics, reranker, chat_router, dream_resolver, dream_corroborate. Empty (default) = every lane stays on the chat model. Opted in one at a time on purpose: whether a lane is better on the decision plane is a measurement per lane AND per language — the model documents non-English as weaker, and this graph is multilingual.',
+  },
+  {
+    key: 'DECISIONS_CONFIDENCE_FLOOR',
+    category: 'auth',
+    defaultValue: '0.7',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'How certain a decision must be before the lane acts on it. Below the floor the lane escalates to the reasoning model it used before — that escalation is what makes a cheap first pass safe. A noul answer is measured by its distance from the coin flip (0.95 → 0.9), a choice or score by the concentration the model reports. Override per lane with DECISIONS_CONFIDENCE_FLOOR_<LANE>.',
+  },
+  {
+    key: 'OPENAI_OFFLINE_SERVICE_TIER',
+    category: 'auth',
+    defaultValue: null,
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Processing tier for the calls nobody is waiting on — scene building, belief promotion, the composers, the dream jobs, strategy distillation, code indexing. `flex` is the SAME model at the Batch price (half) in exchange for slower service and an occasional 429 when capacity is short, which is not charged; `auto` falls back to standard on a retry. Unset (default) = the standard tier and a byte-identical request. The request path — extraction, search, synthesis — never asks for it: there latency is the product. Probed 2026-09-23: gpt-5.6-luna, gpt-6-luna and gpt-6-sol all accept it.',
   },
   {
     key: 'OPENAI_TIMEOUT_MS',
@@ -2229,7 +2331,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "Evidence plane, claim-state write side: after fn::resolve_fact returns, stamp knowledge_fact.groundingStatus ('grounded'|'ungrounded') computed from the presence of observational source (episode: ids in source.episodeIds, non-empty source.evidence[], or source.conversationId) — the stampFactScope post-resolve idiom, best-effort, warn-never-fail. Absent field = legacy row (pre-flag), never backfilled. Off (default) → no extra UPDATE is issued, rows are byte-identical.",
+      "Evidence plane, claim-state write side: after fn::resolve_fact returns, stamp knowledge_fact.groundingStatus ('grounded'|'ungrounded') computed from the presence of observational source (episode: ids in source.episodeIds, non-empty source.evidence[], source.conversationId, or an identified source.recorder — a direct record by a named party is the observation) — the stampFactScope post-resolve idiom, best-effort, warn-never-fail. Absent field = legacy row (pre-flag), never backfilled. Off (default) → no extra UPDATE is issued, rows are byte-identical.",
   },
   {
     key: 'EVIDENCE_FAIL_CLOSED_CAPTURE',
@@ -2395,6 +2497,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
     description:
       "How much of X-Forwarded-For to believe, in Express's `trust proxy` form. Unset/0 = off (the default): every request is attributed to the socket address, so behind a reverse proxy EVERY anonymous caller shares one rate-limit bucket — the mechanism behind the 2026-09-10 outage. `1` = trust one hop (one Traefik/nginx in front of the app), `2` = two, `loopback` or a CIDR list = trust those addresses, `true` = trust the whole chain (only on a closed network; the leftmost entry is client-controlled). Read once at boot: it configures the Express app.",
+  },
+  {
+    key: 'LOG_FORMAT',
+    category: 'misc',
+    defaultValue: null,
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      '`json` = one JSON object per line for every log line the process writes — the request log AND the Nest logger (level, context, message) — the shape a log shipper files by level; `text` = human-readable lines for `tail -f`. Unset: json in production, text elsewhere. Production also drops debug/verbose lines regardless of format (a 60-second capability probe and the throttle sweep each wrote one per tick).',
   },
   // ── MCP tool profiles ─────────────────────────────────────
   {
@@ -2735,13 +2846,22 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Lexical-leg (BM25) query shape of the two coverage-first scan lanes — mention-scan over episode_segment and query_arc over knowledge_fact: phrase (one matcher per indexed field fed the whole extracted topic phrase — the legacy default; the matches operator @N@ is AND-semantics over analyzed tokens on SurrealDB 3.x, so a 2-5 token topic must appear IN FULL and the lexical leg rarely fires, leaving the hybrid pool dense-driven — the V11 audit A2 finding) | or_terms (per-term matchers over the stripped topic terms OR-ed with unique match refs, bounded at 8 terms; a row mentioning ANY topic word is a lexical hit, scored as the sum over terms of the best per-field BM25 so multi-term rows rank higher). Also overlayable per tenant via RETRIEVAL_PROFILE_OVERRIDES (coverageLexMode). Measured-behavior change: flip after the eval pair, not by default.',
   },
   {
-    key: 'RETRIEVAL_VERIFIER_MODEL',
+    key: 'RETRIEVAL_VERIFIER_EFFORT',
     category: 'pipeline',
     defaultValue: '',
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      "Model override for the verifier/auditor LLM call only — the generator keeps the synthesis model. Empty (default) = the verifier inherits the synthesis model, byte-identical legacy behavior. The V11 §2 strong-judge arm: under abstentionCalibration='verifier' the abstention decision quality is bounded by the audit model's judgment, so a tenant can pay for a stronger judge (e.g. gpt-5-mini) on exactly one call per answer without touching generation cost. Also overlayable per tenant via RETRIEVAL_PROFILE_OVERRIDES (verifierModel).",
+      "How hard the auditor may think: none | low | medium | high | xhigh. Unset (default) = the shared guard's `low`. It exists because the audit is the one call where MORE deliberation measured worse — gpt-6-luna at `low` spends reasoning tokens where gpt-5.6-luna spends none and reads the same evidence more strictly — so the audit model and its effort have to be chosen together. Measured 2026-09-24: auditing with gpt-6-luna at `none` scored state-transitions 10/12 against 11/12 with the pinned older model, i.e. dropping the effort does not buy the newer generation back.",
+  },
+  {
+    key: 'RETRIEVAL_VERIFIER_MODEL',
+    category: 'pipeline',
+    defaultValue: 'gpt-5.6-luna',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "Model for the verifier/auditor LLM call only — the generator keeps the synthesis model. Unset (default) = gpt-5.6-luna, the generation BEFORE the synthesis default, pinned deliberately: measured 2026-09-24 on the prod-parity stand, auditing with gpt-6-luna cost two memory-fitness points and both losses were abstentions on answers the evidence did support (it spends reasoning tokens at `low` effort where the older model spends none, and reads the same evidence more strictly). The V11 §2 strong-judge arm: under abstentionCalibration='verifier' the abstention decision quality is bounded by the audit model's judgment, so a tenant can pay for a stronger judge (e.g. gpt-5-mini) on exactly one call per answer without touching generation cost. Also overlayable per tenant via RETRIEVAL_PROFILE_OVERRIDES (verifierModel).",
   },
   {
     key: 'RETRIEVAL_SCAN_HNSW_EF',
@@ -2768,7 +2888,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "V10 §2 update-story rendering (profile field updateStoryRendering): evidence facts that superseded an older value get a compact history suffix on their prompt line — '[previously: <value> — until <date>]' — built from the reverse supersededBy links (indexed since 0059; ≤3 chain generations, ≤3 entries per line). Restores the update STORY that knowledge_update golds ask for WITHOUT re-including superseded rows in retrieval — the v9lifecycle diagnosis: the bitemporal closure hid the old value at asOf and made the row worse. Prompt-side only: retrieval, ranking and citations untouched; the generator and the verifier read the same augmented lines. Off = byte-identical prompt.",
+      "V10 §2 update-story rendering (profile field updateStoryRendering): evidence facts that superseded an older value get a compact history suffix on their prompt line — '(previously: <value> — until <date>)' — built from the reverse supersededBy links (indexed since 0059; ≤3 chain generations, ≤3 entries per line). Restores the update STORY that knowledge_update golds ask for WITHOUT re-including superseded rows in retrieval — the v9lifecycle diagnosis: the bitemporal closure hid the old value at asOf and made the row worse. Prompt-side only: retrieval, ranking and citations untouched; the generator and the verifier read the same augmented lines. Off = byte-identical prompt.",
   },
   {
     key: 'RETRIEVAL_ORDERING_FRAME',
@@ -2938,7 +3058,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Multiworld §10 facts-as-keys (profile field factsAsKeys; the LongMemEval design-study shape — facts as additional index KEYS +9.4% recall, facts as replacement VALUES hurt): each top evidence fact line carries ONE verbatim quote of its first grounding turn (" [source YYYY-MM-DD speaker: …]", 240-char cap) — the fact acts as the key, the raw turn is the served content. Generator and verifier read the same augmented lines (evidence parity). Off = byte-identical.',
+      'Multiworld §10 facts-as-keys (profile field factsAsKeys; the LongMemEval design-study shape — facts as additional index KEYS +9.4% recall, facts as replacement VALUES hurt): each top evidence fact line carries ONE verbatim quote of its first grounding turn (" (source YYYY-MM-DD speaker: …)", 240-char cap) — the fact acts as the key, the raw turn is the served content. Generator and verifier read the same augmented lines (evidence parity). Off = byte-identical.',
   },
   {
     key: 'RETRIEVAL_FACTS_AS_KEYS_CAP',
@@ -3310,6 +3430,17 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: true,
     description:
       "Belief read API (Belief-B): GET /v1/beliefs/:id serves one semantic_belief revision as stored (free-text subject/field key, value/priorValue, statement, confidence, revision/status/supersededBy supersede chain, validFrom/validUntil, inline sourceSceneIds provenance, corroboration counters, promoterVersion) and GET /v1/beliefs lists by subject/field/status/userId with a capped page (default 25, max 100). Read-only — the Belief-A promotion pass (SCENES_BELIEF_PROMOTION) stays the only writer. Every miss is a 404 — tenant fence + fail-closed single-user scope (#387: a belief is always one user's; a user-bound token sees only its own, an unstamped row serves to no one); beliefs carry no piiClass and no registry predicate, so no PII/row-policy fence applies. On by default. Off → routes answer 404.",
+  },
+  {
+    key: 'SCENES_API_ENABLED',
+    category: 'pipeline',
+    // Read at call time (ScenesController.assertEnabled) — never
+    // captured in a constructor — so a flip takes effect without restart.
+    defaultValue: '1',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Scene read API: GET /v1/scenes/:id serves one memory_episode scene as stored (label, canonical and enriched gist, time span, member episodes in order, conversation ids, knowledge-graph backlinks, consolidated facts, unexpected details, enrichment-owned state deltas, per-dimension memory value, confidence, segmenter world) and GET /v1/scenes lists the CURRENT world — the version the projection registry marks live, else the newest built one — newest scene first, filtered by conversationId / entityId / since / until / userId with a capped page (default 25, max 100). Read-only: the composer (SCENES_SEGMENTATION_ENABLED) stays the only writer. Before this surface the episodic plane had no reader outside the answer lane, so a belief's sourceSceneIds pointed at records nothing could open and the product UI could show no scene at all. Fences: tenant; user scope via pinUserScope (a user-bound token sees its own scenes plus tenant-global ones whose persisted member set is empty or contains it — the scene lane's 0117 gate; an unscoped M2M caller sees tenant-global scenes only and scopes to a user with ?userId= — the episode read port's contract, a gist quotes verbatim turns; an unstamped row serves to no one, fail-closed); text PII (piiClass IS NONE without brain:read_pii); 0093 scope tags. Every miss is a 404. `=0` → both routes 404 indistinguishably from an absent route.",
   },
   {
     key: 'BELIEFS_SERVING_LANE',
@@ -3915,7 +4046,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: false,
     isBooleanFlag: false,
     description:
-      'Model for the predicate CARDINALITY judge: when the extractor coins a predicate the registry has never seen, one small strict-JSON call decides whether it is `single_active` (a state with one true value at a time — deploy_target, pilot_launch_date, payout_cutoff: a new value RETIRES the old one) or `append_only` (an event / preference / multi-valued field, where history is the point). Before this pass existed every coined predicate was append_only, which means no conflict is possible at ingest — the prior value stayed active forever beside the new one, so supersession and the competing-facts surface only ever worked for the ~15 seeded single_active predicates. Ambiguity, a missing OPENAI_API_KEY, a throw or an unparseable answer all resolve to append_only (the historical behaviour), so the pass only ever ADDS supersession where the judge is confident. Runs ONCE per novel predicate per tenant — the row is then cached in the registry — and never re-classifies an aliased, seeded or operator-edited predicate. Empty (default) = OPENAI_CHAT_MODEL, else gpt-4o-mini.',
+      'Model for the predicate CARDINALITY judge: when the extractor coins a predicate the registry has never seen, one small strict-JSON call decides whether it is `single_active` (a state with one true value at a time — deploy_target, pilot_launch_date, payout_cutoff: a new value RETIRES the old one) or `append_only` (an event / preference / multi-valued field, where history is the point). Before this pass existed every coined predicate was append_only, which means no conflict is possible at ingest — the prior value stayed active forever beside the new one, so supersession and the competing-facts surface only ever worked for the ~15 seeded single_active predicates. Ambiguity, a missing OPENAI_API_KEY, a throw or an unparseable answer all resolve to append_only (the historical behaviour), so the pass only ever ADDS supersession where the judge is confident. Runs ONCE per novel predicate per tenant — the row is then cached in the registry — and never re-classifies an aliased, seeded or operator-edited predicate. Empty (default) = OPENAI_CHAT_MODEL.',
   },
   {
     key: 'PREDICATE_SEMANTICS_CONCURRENCY',
@@ -3934,7 +4065,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: false,
     isBooleanFlag: false,
     description:
-      'Model for the predicate IDENTITY judge, used by the consolidation pass (POST /v1/admin/predicates/consolidate) to decide whether two names in a tenant\u2019s vocabulary denote the same attribute. Empty (default) = OPENAI_CHAT_MODEL, else gpt-4o-mini.',
+      'Model for the predicate IDENTITY judge, used by the consolidation pass (POST /v1/admin/predicates/consolidate) to decide whether two names in a tenant\u2019s vocabulary denote the same attribute. Empty (default) = OPENAI_CHAT_MODEL.',
   },
   {
     key: 'PREDICATE_IDENTITY_CONCURRENCY',

@@ -97,7 +97,6 @@ describe('SearchService empty-query short-circuit + embed prewarm', () => {
     } as never;
     const rerank = {
       runRerankStage: jest.fn(async () => []),
-      rerankFactsGlobal: jest.fn(async () => undefined),
       prefetchNeighbours: jest.fn(async () => new Map()),
     } as never;
     return { svc: new SearchService(surreal, retrieval, rerank), withScopedCompany, prewarm };

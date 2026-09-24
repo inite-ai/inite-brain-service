@@ -580,6 +580,43 @@ describe('T7 instruction lane', () => {
     ]);
   });
 
+  it('reads standing instructions in the languages the battery covers, not English alone', () => {
+    // On a Russian tenant the lane's probe was a full search that could
+    // never fire: the triggers were English words behind an ASCII `\b`.
+    const out = extractStandingInstructions([
+      hitWith([
+        ['preference', 'Всегда отвечай мне кратко, одним абзацем.'],
+        ['preference', 'Никогда не используй markdown-таблицы.'],
+        ['work', 'Когда я спрашиваю про Лиссабон, отвечай по-португальски.'],
+        ['preference', 'Sempre responda em português quando eu perguntar sobre Lisboa.'],
+        ['preference', '总是用中文回答我关于合同的问题。'],
+        // plain facts in the same languages stay out
+        ['work', 'Ольга подтвердила: контракт подписан 18 сентября.'],
+        ['work', 'Я всегдашний участник конференции.'],
+        // a bare weak trigger on a non-preference aspect is still a plain fact
+        ['work', 'Он никогда не работал с Flask.'],
+      ]),
+    ]);
+    expect(out).toEqual([
+      'Всегда отвечай мне кратко, одним абзацем.',
+      'Никогда не используй markdown-таблицы.',
+      'Когда я спрашиваю про Лиссабон, отвечай по-португальски.',
+      'Sempre responda em português quando eu perguntar sobre Lisboa.',
+      '总是用中文回答我关于合同的问题。',
+    ]);
+  });
+
+  it('the preference tier applies under either registry spelling of the aspect', () => {
+    const out = extractStandingInstructions([
+      hitWith([
+        ['preference', 'u never wants tables in answers.'],
+        ['preferences', 'u never wants emoji in answers.'],
+        ['work', 'u never used tables.'],
+      ]),
+    ]);
+    expect(out).toEqual(['u never wants tables in answers.', 'u never wants emoji in answers.']);
+  });
+
   it('dedups case-insensitively and honors the cap', () => {
     const dup = 'u prefers bullet points whenever the user asks about planning.';
     const out = extractStandingInstructions(
@@ -889,35 +926,96 @@ describe('enumeration strict clause (§8 item 3, profile.enumStrict)', () => {
 });
 
 describe('buildFactIndex renders graph relations as evidence', () => {
-  it('adds an uncitable (relation) line per relation, beside the facts', () => {
-    const hit: SearchHit = {
-      entityId: 'e1',
-      entityType: 'staff',
-      canonicalName: 'Мария Альварес',
-      externalRefs: {},
-      score: 1,
-      relations: [{ kind: 'works_at', peer: 'Orbital Dynamics', peerType: 'org' }],
-      facts: [
+  const hitWith = (relations: NonNullable<SearchHit['relations']>): SearchHit => ({
+    entityId: 'e1',
+    entityType: 'staff',
+    canonicalName: 'Мария Альварес',
+    externalRefs: {},
+    score: 1,
+    relations,
+    facts: [
+      {
+        factId: 'knowledge_fact:aaa',
+        predicate: 'works_as',
+        object: 'руководитель инженерного отдела',
+        confidence: 0.9,
+        score: 1,
+        validFrom: '2026-09-16T00:00:00.000Z',
+        status: 'active',
+      },
+    ],
+  });
+
+  it('a relation with its edge record is a citable line with an [r#] handle, in the edge direction', () => {
+    const { factIndex, factLines } = buildFactIndex([
+      hitWith([
         {
-          factId: 'knowledge_fact:aaa',
-          predicate: 'works_as',
-          object: 'руководитель инженерного отдела',
-          confidence: 0.9,
-          score: 1,
-          validFrom: '2026-09-16T00:00:00.000Z',
-          status: 'active',
+          kind: 'works_at',
+          peer: 'Orbital Dynamics',
+          peerType: 'org',
+          edgeId: 'knowledge_edge:e1',
+          direction: 'out',
         },
-      ],
-    };
-    const { factIndex, factLines } = buildFactIndex([hit]);
-    expect(factLines).toHaveLength(2);
+        {
+          kind: 'covers_for',
+          peer: 'Pedro Lima',
+          peerType: 'staff',
+          edgeId: 'knowledge_edge:e2',
+          direction: 'in',
+        },
+      ]),
+    ]);
+    expect(factLines).toHaveLength(3);
     expect(factLines[0]!.startsWith('[f1] ')).toBe(true);
     expect(handlesOf(factIndex).get('f1')).toBe('knowledge_fact:aaa');
+    expect(factLines[1]).toBe('[r1] Мария Альварес (staff) — works_at → Orbital Dynamics (org)');
+    // An incoming edge reads in ITS direction: the peer is the subject.
+    expect(factLines[2]).toBe('[r2] Pedro Lima (staff) — covers_for → Мария Альварес (staff)');
+    expect(handlesOf(factIndex).get('r1')).toBe('knowledge_edge:e1');
+    expect(handlesOf(factIndex).get('r2')).toBe('knowledge_edge:e2');
+    expect(factIndex.get('knowledge_edge:e2')).toMatchObject({
+      factId: 'knowledge_edge:e2',
+      entityId: 'e1',
+      predicate: 'covers_for',
+      slot: 'edge:covers_for',
+      object: 'Pedro Lima',
+    });
+    expect(factIndex.size).toBe(3);
+  });
+
+  it('one edge returned on both of its hits renders once, under the first hit', () => {
+    const edge = {
+      kind: 'works_at',
+      peer: 'Orbital Dynamics',
+      peerType: 'org',
+      edgeId: 'knowledge_edge:e1',
+    };
+    const { factIndex, factLines } = buildFactIndex([
+      hitWith([{ ...edge, direction: 'out' }]),
+      {
+        entityId: 'e2',
+        entityType: 'org',
+        canonicalName: 'Orbital Dynamics',
+        externalRefs: {},
+        score: 1,
+        facts: [],
+        relations: [{ ...edge, peer: 'Мария Альварес', peerType: 'staff', direction: 'in' }],
+      },
+    ]);
+    expect(factLines.filter((l) => l.includes('works_at'))).toEqual([
+      '[r1] Мария Альварес (staff) — works_at → Orbital Dynamics (org)',
+    ]);
+    expect(factIndex.size).toBe(2);
+  });
+
+  it('a relation without an edge record stays an uncitable (relation) line', () => {
+    const { factIndex, factLines } = buildFactIndex([
+      hitWith([{ kind: 'works_at', peer: 'Orbital Dynamics', peerType: 'org' }]),
+    ]);
+    expect(factLines).toHaveLength(2);
     expect(factLines[1]).toBe(
-      '(relation) Мария Альварес (staff) — works_at: Orbital Dynamics (org)',
+      '(relation) Мария Альварес (staff) — works_at → Orbital Dynamics (org)',
     );
-    // A relation is support, never a citation: it is not in the index.
-    expect(factIndex.has('relation')).toBe(false);
     expect(factIndex.size).toBe(1);
   });
 });

@@ -29,11 +29,13 @@ export const ProfileSectionSchema = z.object({
 
 export const UserProfileResponseSchema = z.object({
   userId: z.string(),
+  /** Who the user is in the memory: their own entity and the name it has learned (null until it has). */
+  identity: z.object({ entityId: z.string().nullable(), name: z.string().nullable() }),
   generatedAt: z.string(),
   /** Facts included after the per-aspect and global caps. */
   factCount: z.number().int(),
   sections: z.array(ProfileSectionSchema),
-  /** One line per fact: `- [aspect] statement (as of YYYY-MM-DD)`. */
+  /** The identity line, then one line per fact: `- [aspect] statement (as of YYYY-MM-DD)`. */
   profileText: z.string(),
 });
 

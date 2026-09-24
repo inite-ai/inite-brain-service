@@ -4,6 +4,7 @@ import { ReadPinService, derivedVersionFence } from '../episodes/read-pin.servic
 import { makeRowPolicyFilter, type PolicyFilterableRow } from '../policy/row-filter';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { envFlagEnabled } from '../common/env-validation';
+import { UserEntityService } from '../ingest/user-entity.service';
 import {
   PER_ASPECT_CAP,
   type ProfileFactWire,
@@ -128,9 +129,17 @@ function assembleSections(rows: ProfileRow[], maxFacts: number): ProfileSectionW
 }
 
 /** `- [aspect] statement (as of YYYY-MM-DD)` — one line per fact, in
- *  the exact section/fact order of the structured response. */
-function renderProfileText(sections: ProfileSectionWire[]): string {
-  const lines: string[] = [];
+ *  the exact section/fact order of the structured response, after the
+ *  identity line: the name the memory learned, or that it has none yet. */
+function renderProfileText(
+  sections: ProfileSectionWire[],
+  identity: { name: string | null },
+): string {
+  const lines: string[] = [
+    identity.name
+      ? `- [identity] name: ${identity.name}`
+      : '- [identity] name: not learned yet — ask how to address the user and record it as a `name` fact on their own entity',
+  ];
   for (const s of sections) {
     for (const f of s.facts) {
       lines.push(`- [${s.aspect}] ${f.statement} (as of ${f.validFrom.slice(0, 10)})`);
@@ -143,11 +152,13 @@ function renderProfileText(sections: ProfileSectionWire[]): string {
 export class UserProfileService {
   private readonly logger = new Logger(UserProfileService.name);
 
+  // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token
   constructor(
     private readonly surreal: SurrealService,
     @Optional() private readonly readPin?: ReadPinService,
     @Optional()
     private readonly predicateRegistry?: PredicateRegistryService,
+    @Optional() private readonly users?: UserEntityService,
   ) {}
 
   async getProfile(opts: {
@@ -242,12 +253,18 @@ export class UserProfileService {
     }
 
     const sections = assembleSections(visible, maxFacts);
+    const own = await this.users?.resolve(companyId, userId);
+    const identity = {
+      entityId: own?.id ?? null,
+      name: own?.named ? own.name : null,
+    };
     return {
       userId,
+      identity,
       generatedAt: new Date().toISOString(),
       factCount: sections.reduce((n, s) => n + s.facts.length, 0),
       sections,
-      profileText: renderProfileText(sections),
+      profileText: renderProfileText(sections, identity),
     };
   }
 }

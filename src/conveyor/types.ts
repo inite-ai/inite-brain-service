@@ -24,6 +24,7 @@
 export type Artifact =
   // ── ingest side ───────────────────────────────────────────────────
   | 'turn-text' // what the caller sent
+  | 'participants' // who spoke and to whom — the user unless the caller says otherwise
   | 'episode' // the captured raw turn (L0)
   | 'extraction' // entities + facts + edges the extractor read out
   | 'fact-embedding' // per-fact vectors

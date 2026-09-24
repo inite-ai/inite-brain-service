@@ -6,6 +6,7 @@ import { applyMap, fitIsotonic, type CalibrationMap } from './isotonic';
 import { BOOTSTRAP_GOLD_SET } from './gold-set';
 import { SurrealService } from '../../db/surreal.service';
 import { ApiKeyService } from '../../auth/api-key.service';
+import { chatModel } from '../openai-client';
 
 /**
  * CalibrationService — owns the (extractorModel, promptHash) →
@@ -51,7 +52,7 @@ export class CalibrationService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly apiKeys?: ApiKeyService,
   ) {
     this.disabled = !envFlagNotDisabled(this.configService.get<string>('CALIBRATION_USE_GOLD_SET'));
-    this.extractorModel = this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini');
+    this.extractorModel = chatModel(this.configService);
     this.bootstrapMap = fitIsotonic(BOOTSTRAP_GOLD_SET);
     if (!this.disabled) {
       this.logger.log(

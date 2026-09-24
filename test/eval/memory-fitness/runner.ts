@@ -254,7 +254,13 @@ interface MultiHopOut {
   synthesis?: { answer: string | null; reason?: string };
 }
 interface TimelineOut {
-  events?: Array<{ type: string; at: string; predicate?: string; object?: string }>;
+  events?: Array<{
+    type: string;
+    at: string;
+    validFrom?: string;
+    predicate?: string;
+    object?: string;
+  }>;
 }
 interface CompetingOut {
   groups?: Array<{ predicate: string; facts?: Array<{ object: string }> }>;
@@ -431,21 +437,25 @@ async function resolveEntityId(
 
 type Verdict = Pick<QuestionResult, 'status' | 'detail'> & { answer?: string | null };
 
+/** A failed serve keeps the serving reason (verifier_partial, no_facts, …) as its forensic trail. */
+function abstained(detail: string, reason: string | undefined): string {
+  return reason ? `${detail} (reason: ${reason})` : detail;
+}
+
 async function askOne(ctx: AskContext, q: Question): Promise<Verdict> {
   switch (q.kind) {
     case 'currency': {
       const out = await synthesizeAnswer(ctx, q.prompt);
       if (isAbstention(out.answer, out.reason)) {
-        return { status: 'fail', detail: 'abstained on a known value', answer: out.answer };
+        return {
+          status: 'fail',
+          detail: abstained('abstained on a known value', out.reason),
+          answer: out.answer,
+        };
       }
       const answer = out.answer ?? '';
-      const stale = findForbidden(answer, q.forbidAnyOf);
-      if (stale !== null) {
-        return { status: 'fail', detail: `stale value served: "${stale}"`, answer };
-      }
-      return containsAnyOf(answer, q.expectAnyOf)
-        ? { status: 'pass', detail: 'current value served, stale value absent', answer }
-        : { status: 'fail', detail: `expected one of [${q.expectAnyOf.join(', ')}]`, answer };
+      const verdict = checkOrdering(answer, q.currentMarkers, q.priorMarkers);
+      return { status: verdict.pass ? 'pass' : 'fail', detail: verdict.detail, answer };
     }
     case 'evolution': {
       const entityId = await resolveEntityId(ctx, q.entityQuery, q.predicate);
@@ -456,7 +466,11 @@ async function askOne(ctx: AskContext, q: Question): Promise<Verdict> {
       });
       const events: EvolutionEvent[] = (timeline.events ?? [])
         .filter((e) => e.type === 'fact.recorded')
-        .map((e) => ({ predicate: e.predicate ?? '', object: e.object ?? '', at: e.at }));
+        .map((e) => ({
+          predicate: e.predicate ?? '',
+          object: e.object ?? '',
+          at: e.validFrom ?? e.at,
+        }));
       const verdict = checkEvolution(events, q.predicate, q.oldMarkers, q.newMarkers);
       return { status: verdict.pass ? 'pass' : 'fail', detail: verdict.detail };
     }
@@ -528,7 +542,11 @@ async function askOne(ctx: AskContext, q: Question): Promise<Verdict> {
     case 'temporal': {
       const out = await synthesizeAnswer(ctx, q.prompt);
       if (isAbstention(out.answer, out.reason)) {
-        return { status: 'fail', detail: 'abstained on a dated decision', answer: out.answer };
+        return {
+          status: 'fail',
+          detail: abstained('abstained on a dated decision', out.reason),
+          answer: out.answer,
+        };
       }
       const answer = out.answer ?? '';
       return matchesDate(answer, q.expectDate)
@@ -638,7 +656,11 @@ async function askOne(ctx: AskContext, q: Question): Promise<Verdict> {
         reason = out.reason;
       }
       if (isAbstention(answer, reason)) {
-        return { status: 'fail', detail: 'abstained on a cross-session join', answer };
+        return {
+          status: 'fail',
+          detail: abstained('abstained on a cross-session join', reason),
+          answer,
+        };
       }
       return containsAnyOf(answer ?? '', q.expectAnyOf)
         ? { status: 'pass', detail: 'joined across conversations', answer }
@@ -647,7 +669,11 @@ async function askOne(ctx: AskContext, q: Question): Promise<Verdict> {
     case 'replay': {
       const out = await synthesizeAnswer(ctx, q.prompt);
       if (isAbstention(out.answer, out.reason)) {
-        return { status: 'fail', detail: 'abstained on working knowledge', answer: out.answer };
+        return {
+          status: 'fail',
+          detail: abstained('abstained on working knowledge', out.reason),
+          answer: out.answer,
+        };
       }
       const missing = missingKeyPhrases(out.answer ?? '', q.keyPhrases);
       return missing.length === 0

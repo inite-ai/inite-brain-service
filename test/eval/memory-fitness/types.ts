@@ -57,13 +57,22 @@ interface QuestionBase {
   prompt: string;
 }
 
-/** D1 — state currency: current value served, stale value absent. */
+/**
+ * D1 — state currency: the served answer holds the CURRENT value.
+ *
+ * Scored by order, like D9: the current value must be present and lead;
+ * the superseded value may follow it as history. "NATS JetStream,
+ * replacing Redis Streams" is the current state told honestly, and the
+ * memory is expected to know what it replaced. A forbid on the old
+ * string failed exactly those answers (the D9 lesson below, learned
+ * again on this axis).
+ */
 export interface CurrencyQuestion extends QuestionBase {
   kind: 'currency';
-  /** Answer passes when it contains at least one of these. */
-  expectAnyOf: string[];
-  /** Answer fails when it contains any of these (the stale value). */
-  forbidAnyOf: string[];
+  /** The value that is current. Must be present, and first. */
+  currentMarkers: string[];
+  /** The superseded value. May appear — but only after the current one. */
+  priorMarkers: string[];
 }
 
 /** D2 — evolution history via the entity timeline (old + new, ordered). */

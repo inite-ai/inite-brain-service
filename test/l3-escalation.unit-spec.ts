@@ -1331,6 +1331,31 @@ describe('L3EscalationService — evidence citations', () => {
     // Transcript lines carry no [episode:...] headers.
     expect(req.messages[1]!.content).toContain('[2026-04-01] user: my tier is sapphire');
     expect(req.messages[1]!.content).not.toContain('[episode:');
+    // No asker given → no asker line.
+    expect(req.messages[1]!.content).not.toContain('Asker:');
+  });
+
+  it('the asker rides into the L3 generation and its re-verification (parity with the primary round)', async () => {
+    const captured: unknown[] = [];
+    const { service } = makeService(oneTurnSetup());
+    const openai = fakeOpenAi(
+      [
+        JSON.stringify({ answer: 'Your tier is sapphire.', citedFactIds: [FACT_ID] }),
+        JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      ],
+      captured,
+    );
+    await service.escalate({
+      ...baseInput(openai, makeProfile({})),
+      asker: { entityId: 'knowledge_entity:u', name: 'Sasha' },
+    });
+    const [gen, verify] = captured as CapturedL3Request[];
+    expect(gen!.messages[1]!.content).toContain(
+      '\nAsker: the evidence lines headed "you" are about the person asking (Sasha)',
+    );
+    expect(verify!.messages[1]!.content).toContain(
+      'Asker: "you" in the evidence is the person asking (Sasha)',
+    );
   });
 
   it('flag ON → [episode:...] headers, citedEpisodes in schema+required, spans resolved, hallucinated id dropped', async () => {

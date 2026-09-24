@@ -8,6 +8,14 @@ export interface ExtractedEntity {
   type: 'customer' | 'staff' | 'asset' | 'project' | 'topic' | 'location' | 'other';
   /** Optional canonical clue ("Apple Inc.", "Acme Corp"). */
   canonical?: string | undefined;
+  /**
+   * The knowledge_entity this mention refers to, when the extractor
+   * pinned it to one of the KNOWN ENTITIES of its memory context
+   * (memory-context.ts). The persister files the mention under it
+   * directly — no resolution ladder, no judge. Absent for a mention the
+   * memory did not already hold.
+   */
+  known?: string | undefined;
 }
 
 export interface ExtractedFact {
@@ -26,6 +34,29 @@ export interface ExtractedFact {
   confidence: number;
   /** The clause this fact was anchored to (verbatim sub-span). */
   clause?: string | undefined;
+  /**
+   * The calendar day (YYYY-MM-DD) the value refers to — a deadline, a
+   * meeting, when something happened — resolved by the extractor
+   * against the turn's date. Absent when the clause names no date.
+   */
+  eventTime?: string | undefined;
+  /**
+   * knowledge_fact ids this fact replaces: the KNOWN FACTS of the memory
+   * context the extractor judged to be the previous value of the same
+   * attribute (a cut budget, a moved date, a changed state). The
+   * persister closes them the moment the new fact lands, whatever
+   * predicate they were spelled under. Empty/absent = nothing changes.
+   */
+  supersedes?: string[] | undefined;
+  /**
+   * How many values of this attribute the subject holds at one time, as
+   * the extractor read it in the sentence: "one" — a setting or a state,
+   * a later value replaces the earlier one; "many" — several coexist.
+   * Decides a coined predicate's semantics at registration (single_active
+   * / append_only) without a second model call; absent for an extractor
+   * without the contract, and the registry's judge decides then.
+   */
+  cardinality?: FactCardinality | undefined;
   /**
    * The verbatim grounded span the object was derived from. Equal to
    * `object` unless object normalization rewrote the stored value
@@ -80,6 +111,19 @@ export interface RawExtractedFact {
    * back to the span. Absent when the flag is off.
    */
   object?: string;
+  /** YYYY-MM-DD the value refers to (memory-context contract); absent when none. */
+  eventTime?: string;
+  /** knowledge_fact ids this one replaces — handles already mapped by the parser. */
+  supersedes?: string[];
+  /** "one" | "many" — the attribute's cardinality over time (memory-context contract). */
+  cardinality?: FactCardinality;
+}
+
+/** How many values of an attribute its subject holds at one time. */
+export type FactCardinality = 'one' | 'many';
+
+export function parseCardinality(raw: unknown): FactCardinality | undefined {
+  return raw === 'one' || raw === 'many' ? raw : undefined;
 }
 
 export const ENTITY_TYPE_VOCABULARY = [

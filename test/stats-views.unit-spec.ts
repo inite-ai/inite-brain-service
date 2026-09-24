@@ -140,7 +140,7 @@ describe('StatsService per-user scope (audit F3)', () => {
    *  no community_node). */
   function userScopedResults(): unknown[] {
     return [
-      [{ c: 4 }], // entities (own + tenant-global)
+      { c: 4 }, // entities reachable through visible facts + own nodes (RETURN { c })
       [{ c: 3 }], // active
       [{ c: 1 }], // competing
       [{ c: 0 }], // retracted
@@ -184,8 +184,8 @@ describe('StatsService per-user scope (audit F3)', () => {
   it('cache key is per-user: user B is never served user A cached counts', async () => {
     process.env.STATS_VIEWS_ENABLED = '0';
     const perUser: Record<string, unknown[]> = {
-      user_a: [[{ c: 4 }], [{ c: 3 }], [{ c: 1 }], [{ c: 0 }], [{ c: 2 }]],
-      user_b: [[{ c: 9 }], [{ c: 8 }], [{ c: 0 }], [{ c: 1 }], [{ c: 5 }]],
+      user_a: [{ c: 4 }, [{ c: 3 }], [{ c: 1 }], [{ c: 0 }], [{ c: 2 }]],
+      user_b: [{ c: 9 }, [{ c: 8 }], [{ c: 0 }], [{ c: 1 }], [{ c: 5 }]],
     };
     let current = 'user_a';
     const query = jest.fn(async (_sql: string) => perUser[current]!);

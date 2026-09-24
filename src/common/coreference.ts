@@ -48,6 +48,12 @@ export function isSecondPersonReference(name: string): boolean {
   return SECOND_PERSON.has(normalizeToken(name));
 }
 
+/** True when the entity name is a bare first- or second-person pronoun — a
+ *  reference to a participant, never a name of one. */
+export function isPronounReference(name: string): boolean {
+  return isFirstPersonSelfReference(name) || isSecondPersonReference(name);
+}
+
 /**
  * Case-insensitive match of an extracted entity name against a known
  * participant's display name — catches a speaker who refers to themselves

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { LRUCache } from '../common/lru-cache';
 import { envFlagEnabled } from '../common/env-validation';
 import { applyTransformersCacheDir } from './transformers-cache';
+import { aggregateNerTokens, type NerSpan, type NerToken } from './ner-aggregate';
 
 /**
  * Local multilingual NER via @xenova/transformers token-classification.
@@ -42,28 +43,13 @@ import { applyTransformersCacheDir } from './transformers-cache';
  * No hardcoded entity vocabulary — labels come from the model.
  */
 
-type TokenClassificationPipeline = (
-  text: string,
-  options?: { aggregation_strategy?: string },
-) => Promise<RawSpan[]>;
+/**
+ * transformers.js 2.x token classification: one row per wordpiece,
+ * IOB-tagged, no offsets — `aggregateNerTokens` builds the spans.
+ */
+type TokenClassificationPipeline = (text: string) => Promise<NerToken[]>;
 
-/** One aggregated span as the pipeline (in-thread or worker) returns it. */
-interface RawSpan {
-  entity_group?: string;
-  entity?: string;
-  word: string;
-  start: number;
-  end: number;
-  score: number;
-}
-
-export interface LocalEntity {
-  text: string;
-  type: string;
-  start: number;
-  end: number;
-  score: number;
-}
+export type LocalEntity = NerSpan;
 
 const CACHE_SIZE = 1000;
 const DEFAULT_MODEL = 'Xenova/bert-base-multilingual-cased-ner-hrl';
@@ -183,14 +169,25 @@ export class LocalNerService implements OnModuleInit, OnApplicationShutdown {
       await stale.terminate().catch(() => undefined);
     }
     const workerPath = this.resolveWorkerPath();
-    this.worker = new Worker(workerPath);
-    this.worker.on('message', (m: unknown) => this.handleReply(m));
-    this.worker.on('error', (err) => {
+    const w = new Worker(workerPath);
+    this.worker = w;
+    // Every listener checks it still speaks for the CURRENT worker:
+    // terminate() and a re-warmup both null/replace `this.worker` before
+    // the old thread exits (a terminated worker exits with code 1), and a
+    // thread we no longer own must neither log its exit as a failure nor
+    // mark the service not-ready.
+    w.on('message', (m: unknown) => {
+      if (this.worker !== w) return;
+      this.handleReply(m);
+    });
+    w.on('error', (err) => {
+      if (this.worker !== w) return;
       this.logger.warn(`local NER worker error: ${err.message}`);
       this.failAllPending(err);
       this.workerReady = false;
     });
-    this.worker.on('exit', (code) => {
+    w.on('exit', (code) => {
+      if (this.worker !== w) return;
       if (code !== 0) this.logger.warn(`local NER worker exited (${code})`);
       this.failAllPending(new Error('worker exited'));
       this.workerReady = false;
@@ -265,31 +262,19 @@ export class LocalNerService implements OnModuleInit, OnApplicationShutdown {
     if (cached) return cached;
     const raw = await this.classify(trimmed);
     if (raw === null) return [];
-    const entities: LocalEntity[] = [];
-    for (const r of raw) {
-      if (r.score < this.minScore) continue;
-      entities.push({
-        text: r.word,
-        type: (r.entity_group ?? r.entity ?? 'MISC').toUpperCase(),
-        start: r.start,
-        end: r.end,
-        score: r.score,
-      });
-    }
+    const entities = aggregateNerTokens(trimmed, raw).filter((s) => s.score >= this.minScore);
     this.cache.set(trimmed, entities);
     return entities;
   }
 
   /** Run the pipeline on the active path; null means "unavailable" (the
    *  caller returns [] uncached — the feature's existing disabled behavior). */
-  private async classify(trimmed: string): Promise<RawSpan[] | null> {
+  private async classify(trimmed: string): Promise<NerToken[] | null> {
     // In-thread pipeline (EXTRACTOR_LOCAL_NER_WORKER=0 or the test seam)
     // takes precedence — in worker mode it is never loaded, so no conflict.
     if (this.classifier) {
       try {
-        return await this.classifier(trimmed, {
-          aggregation_strategy: 'simple',
-        });
+        return await this.classifier(trimmed);
       } catch (e) {
         this.logger.warn(
           `Local NER extract failed for "${trimmed.slice(0, 60)}": ${(e as Error).message}; returning []`,
@@ -305,7 +290,7 @@ export class LocalNerService implements OnModuleInit, OnApplicationShutdown {
       return null;
     }
     try {
-      return await this.rpc<RawSpan[]>('extract', { text: trimmed });
+      return await this.rpc<NerToken[]>('extract', { text: trimmed });
     } catch (e) {
       this.logger.warn(
         `Local NER extract failed for "${trimmed.slice(0, 60)}": ${(e as Error).message}; returning []`,

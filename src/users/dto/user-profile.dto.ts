@@ -35,6 +35,13 @@ export interface ProfileSectionWire {
 
 export interface UserProfileWire {
   userId: string;
+  /**
+   * Who this user is in the memory (ingest/user-entity.ts): their own
+   * entity and the name the memory has learned for them — from their
+   * words or an onboarding `name` fact — null while it has none. An
+   * agent that sees `name: null` asks once and records the answer.
+   */
+  identity: { entityId: string | null; name: string | null };
   generatedAt: string;
   /** Facts included after the per-aspect and global caps. */
   factCount: number;

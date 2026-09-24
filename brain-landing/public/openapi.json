@@ -892,6 +892,9 @@
           },
           "sourceKey": {
             "type": "string"
+          },
+          "validFrom": {
+            "type": "string"
           }
         },
         "required": [
@@ -6672,6 +6675,174 @@
         ],
         "type": "object"
       },
+      "SceneReadResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "type": "number"
+          },
+          "conversationIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "enriched": {
+            "type": "boolean"
+          },
+          "enrichedGist": {
+            "type": "string"
+          },
+          "entityIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "episodeIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "factIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "gist": {
+            "type": "string"
+          },
+          "memoryValue": {
+            "additionalProperties": false,
+            "properties": {
+              "contradiction": {
+                "type": "number"
+              },
+              "estimatedUtility": {
+                "type": "number"
+              },
+              "explicitness": {
+                "type": "number"
+              },
+              "identity": {
+                "type": "number"
+              },
+              "novelty": {
+                "type": "number"
+              },
+              "scorerVersion": {
+                "type": "string"
+              },
+              "stateChange": {
+                "type": "number"
+              }
+            },
+            "type": "object"
+          },
+          "occurredFrom": {
+            "type": "string"
+          },
+          "occurredTo": {
+            "type": "string"
+          },
+          "recordedAt": {
+            "type": "string"
+          },
+          "sceneId": {
+            "type": "string"
+          },
+          "sceneLabel": {
+            "type": "string"
+          },
+          "segmenterVersion": {
+            "type": "string"
+          },
+          "stateDeltas": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "subject",
+                "field"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "unexpectedDetails": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "userIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "sceneId",
+          "userIds",
+          "sceneLabel",
+          "gist",
+          "occurredFrom",
+          "occurredTo",
+          "recordedAt",
+          "conversationIds",
+          "episodeIds",
+          "entityIds",
+          "factIds",
+          "unexpectedDetails",
+          "stateDeltas",
+          "confidence",
+          "segmenterVersion",
+          "enriched"
+        ],
+        "type": "object"
+      },
+      "ScenesListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "found": {
+            "type": "number"
+          },
+          "scenes": {
+            "items": {
+              "$ref": "#/components/schemas/SceneReadResponse"
+            },
+            "type": "array"
+          },
+          "world": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scenes",
+          "found",
+          "world"
+        ],
+        "type": "object"
+      },
       "ScoreBreakdown": {
         "additionalProperties": {},
         "propertyNames": {
@@ -6687,6 +6858,9 @@
           },
           "confidence": {
             "type": "number"
+          },
+          "date": {
+            "type": "string"
           },
           "factId": {
             "type": "string"
@@ -6767,10 +6941,23 @@
             "items": {
               "additionalProperties": false,
               "properties": {
+                "direction": {
+                  "enum": [
+                    "out",
+                    "in"
+                  ],
+                  "type": "string"
+                },
+                "edgeId": {
+                  "type": "string"
+                },
                 "kind": {
                   "type": "string"
                 },
                 "peer": {
+                  "type": "string"
+                },
+                "peerId": {
                   "type": "string"
                 },
                 "peerType": {
@@ -9386,11 +9573,15 @@
           "type": {
             "const": "fact.recorded",
             "type": "string"
+          },
+          "validFrom": {
+            "type": "string"
           }
         },
         "required": [
           "type",
           "at",
+          "validFrom",
           "factId",
           "predicate",
           "object",
@@ -9678,6 +9869,28 @@
           "generatedAt": {
             "type": "string"
           },
+          "identity": {
+            "additionalProperties": false,
+            "properties": {
+              "entityId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "entityId",
+              "name"
+            ],
+            "type": "object"
+          },
           "profileText": {
             "type": "string"
           },
@@ -9693,6 +9906,7 @@
         },
         "required": [
           "userId",
+          "identity",
           "generatedAt",
           "factCount",
           "sections",
@@ -11729,7 +11943,7 @@
     },
     "/v1/beliefs": {
       "get": {
-        "description": "Beliefs the brain currently holds (semantic_belief, promoted from enriched scenes), filtered by exact subject/field key, lifecycle status (default active) and user scope. A user-bound token is pinned to its own user (userId mismatch is 403); M2M keys may scope to any user or list tenant-wide. Page capped at 100 (default 25). 404 until BELIEFS_API_ENABLED=1. Source: src/beliefs/beliefs.controller.ts.\n\nRequired scope: `brain:read`.",
+        "description": "Beliefs the brain currently holds (semantic_belief, promoted from enriched scenes), filtered by exact subject/field key, lifecycle status (default active) and user scope. A user-bound token is pinned to its own user (userId mismatch is 403); M2M keys may scope to any user or list tenant-wide. Page capped at 100 (default 25). On by default; BELIEFS_API_ENABLED=0 makes it a 404. Source: src/beliefs/beliefs.controller.ts.\n\nRequired scope: `brain:read`.",
         "operationId": "listBeliefs",
         "parameters": [
           {
@@ -11810,7 +12024,7 @@
     },
     "/v1/beliefs/{id}": {
       "get": {
-        "description": "One semantic_belief revision as stored: the held value, its rendered statement, confidence, the supersede chain (revision/status/supersededBy/validFrom/validUntil), inline scene provenance (sourceSceneIds) and corroboration counters. Superseded revisions still resolve. Every visibility fence (tenant, fail-closed single-user scope) answers 404 — existence never leaks. 404 until BELIEFS_API_ENABLED=1. Source: src/beliefs/beliefs.controller.ts.\n\nRequired scope: `brain:read`.",
+        "description": "One semantic_belief revision as stored: the held value, its rendered statement, confidence, the supersede chain (revision/status/supersededBy/validFrom/validUntil), inline scene provenance (sourceSceneIds) and corroboration counters. Superseded revisions still resolve. Every visibility fence (tenant, fail-closed single-user scope) answers 404 — existence never leaks. On by default; BELIEFS_API_ENABLED=0 makes it a 404. Source: src/beliefs/beliefs.controller.ts.\n\nRequired scope: `brain:read`.",
         "operationId": "getBelief",
         "parameters": [
           {
@@ -12127,7 +12341,7 @@
     },
     "/v1/entities/{id}/connections": {
       "get": {
-        "description": "The entity’s 1-hop neighbourhood over `knowledge_edge`, in both directions (`direction` says which). `kind` filters to one edge type; `asOf` restricts to edges live at that instant. `neighbour` is absent when the far end could not be projected.\n\nRequired scope: `brain:read`.",
+        "description": "The entity’s 1-hop neighbourhood over `knowledge_edge`, in both directions (`direction` says which). `kind` filters to one edge type; `asOf` restricts to edges live at that instant. `neighbour` is absent when the far end could not be projected. Edges carry the per-user scope of the turn that wrote them (migration 0153): without `userId` the read is tenant-global only; with one it adds that user’s own edges and neighbours. Honoured while READ_SURFACE_USER_SCOPE is on; a user-bound token is pinned to its own end user, and a mismatch is 403.\n\nRequired scope: `brain:read`.",
         "operationId": "getEntityConnections",
         "parameters": [
           {
@@ -12152,6 +12366,15 @@
             "description": "ISO-8601 instant the edge must be live at.",
             "in": "query",
             "name": "asOf",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Per-user scope (READ_SURFACE_USER_SCOPE only).",
+            "in": "query",
+            "name": "userId",
             "required": false,
             "schema": {
               "type": "string"
@@ -12190,7 +12413,7 @@
     },
     "/v1/entities/{id}/timeline": {
       "get": {
-        "description": "`fact.recorded` / `fact.retracted` events on the TRANSACTION-time axis — when the graph learned and unlearned things, not when they were true. `since` / `until` page the window; `recordedAt` cuts to events known by T. `userId` is honoured only while READ_SURFACE_USER_SCOPE is on (this surface predates migration 0055 and otherwise pins `userId IS NONE`); a user-bound token is pinned to its own end user, and a mismatch is 403.\n\nRequired scope: `brain:read`.",
+        "description": "`fact.recorded` / `fact.retracted` events on the TRANSACTION-time axis — when the graph learned and unlearned things, not when they were true; each recorded event also carries `validFrom`, the valid-time instant, for readers that want the world’s order. `since` / `until` page the window; `recordedAt` cuts to events known by T. `userId` is honoured only while READ_SURFACE_USER_SCOPE is on (this surface predates migration 0055 and otherwise pins `userId IS NONE`); a user-bound token is pinned to its own end user, and a mismatch is 403.\n\nRequired scope: `brain:read`.",
         "operationId": "getEntityTimeline",
         "parameters": [
           {
@@ -13584,7 +13807,7 @@
     },
     "/v1/ingest/mention": {
       "post": {
-        "description": "The simplest write, and the one to reach for when the caller has prose rather than a structured claim: a chat turn, a meeting note, an email body. The text is captured as an episode, an LLM extracts entities, facts and edges from it, and each extracted fact goes through the same bitemporal resolver as `POST /v1/ingest/fact` — so extraction is noisy by design and conflict resolution cleans up at read time. Only `text` is required: `contextRef` defaults to the `chat` vertical and `emittedAt` to the moment the request arrives. `userId` stamps the per-user memory scope on the episode and every extracted fact. `skipped: true` means the extractor found nothing worth recording (`reason` says which check stopped it) — that is a normal outcome, not an error. Prefer `POST /v1/ingest/document` for anything long enough to need chunking. Source: src/ingest/ingest.controller.ts.\n\nRequired scope: `brain:write`.",
+        "description": "The simplest write, and the one to reach for when the caller has prose rather than a structured claim: a chat turn, a meeting note, an email body. The text is captured as an episode, an LLM extracts entities, facts and edges from it, and each extracted fact goes through the same bitemporal resolver as `POST /v1/ingest/fact` — so extraction is noisy by design and conflict resolution cleans up at read time. Only `text` is required: `contextRef` defaults to the `chat` vertical and `emittedAt` to the moment the request arrives. `userId` stamps the per-user memory scope on the episode and every extracted fact and edge. `skipped: true` means nothing new was recorded — `reason` says why: `empty` text, `no_entities` (the extractor found nothing worth recording), or `duplicate` (this user already sent this exact text; the document store keys on the content hash and a replay commits nothing new) — a normal outcome, not an error. Prefer `POST /v1/ingest/document` for anything long enough to need chunking. Source: src/ingest/ingest.controller.ts.\n\nRequired scope: `brain:write`.",
         "operationId": "ingestMention",
         "requestBody": {
           "content": {
@@ -14233,6 +14456,138 @@
         "summary": "A publisher's public page as JSON",
         "tags": [
           "Registry"
+        ]
+      }
+    },
+    "/v1/scenes": {
+      "get": {
+        "description": "Scenes of the current segmenter world (memory_episode: coherent multi-turn groupings the composer derives from raw turns), newest first, with their member episodes, knowledge-graph backlinks, enrichment-owned state deltas (the beliefs are promoted from these) and per-dimension memory value. Filter by conversationId, entityId, since/until (overlap) and user scope. A user-bound token is pinned to its own user (userId mismatch is 403) and sees its own scenes plus tenant-global ones whose member set contains it; an M2M key scopes to any user with userId, and without one lists tenant-global scenes only (gists quote verbatim turns — the episodes contract). Scenes carrying PII need brain:read_pii. Page capped at 100 (default 25). `world` names the version served (empty until a world has been composed). On by default; SCENES_API_ENABLED=0 makes it a 404. Source: src/scenes/scenes.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "listScenes",
+        "parameters": [
+          {
+            "description": "Only scenes covering this conversation.",
+            "in": "query",
+            "name": "conversationId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only scenes back-linked to this entity (`knowledge_entity:…`).",
+            "in": "query",
+            "name": "entityId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "End-user scope key. M2M keys may assert any user; user-bound tokens are pinned to their own.",
+            "in": "query",
+            "name": "userId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ISO date-time: scenes ending at or after this instant.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ISO date-time: scenes starting at or before this instant.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size (default 25, max 100).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScenesListResponse"
+                }
+              }
+            },
+            "description": "The visible scenes."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "List scenes — what happened, together, when",
+        "tags": [
+          "Scenes"
+        ]
+      }
+    },
+    "/v1/scenes/{id}": {
+      "get": {
+        "description": "One memory_episode scene as stored — the record a belief's sourceSceneIds and a scene citation point at. Resolves in any world (a superseded world's scene still opens). Every visibility fence (tenant, user scope, PII) answers 404 — existence never leaks. On by default; SCENES_API_ENABLED=0 makes it a 404. Source: src/scenes/scenes.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "getScene",
+        "parameters": [
+          {
+            "description": "Scene record id (`memory_episode:…`).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SceneReadResponse"
+                }
+              }
+            },
+            "description": "The scene."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read one scene by id",
+        "tags": [
+          "Scenes"
         ]
       }
     },
@@ -15201,8 +15556,12 @@
       "name": "Facts"
     },
     {
-      "description": "Belief-level reads over the semantic_belief substrate: what the brain currently holds about a free-text (subject, field) key, with its supersede chain and inline scene provenance. Read-only — the scene promotion pass is the only writer. Flag: BELIEFS_API_ENABLED (off → 404).",
+      "description": "Belief-level reads over the semantic_belief substrate: what the brain currently holds about a free-text (subject, field) key, with its supersede chain and inline scene provenance. Read-only — the scene promotion pass is the only writer. Flag: BELIEFS_API_ENABLED (on by default; =0 → 404).",
       "name": "Beliefs"
+    },
+    {
+      "description": "Scene-level reads over the memory_episode substrate: coherent multi-turn groupings of raw turns — what happened, together, when — with their member episodes, backlinks, state deltas and memory value. Read-only — the scene composer is the only writer. Flag: SCENES_API_ENABLED (on by default; =0 → 404).",
+      "name": "Scenes"
     },
     {
       "description": "The multimodal evidence substrate, both directions. IN: the metadata-only ingest surface — register asset headers + citation-target fragments (originUri required, storageRef rejected, no bytes — the MM-6 boundary); flags EVIDENCE_INGEST_ENABLED (off → 404) and EVIDENCE_SUBSTRATE_ENABLED (off → 503). OUT: the raw-evidence read gateway — original observation bytes back out via direct stream, signed short-lived URLs, fragment twins — behind the full deny-overrides gate ladder (scope, ABAC, tenant/availability/quarantine, ownership grants, pack modality consent, media-PII polarity), every attempt audited content-free; flag EVIDENCE_RAW_READ_ENABLED (off → 404). ACCESS: the sharing surface — grant, list and revoke the ownership rows (migration 0122) the read side spends, behind the same ownership + media-PII fences and the same uniform 404 (no existence oracle; assets are named by record id, never by content hash); flag EVIDENCE_GRANTS_API_ENABLED (off → 404).",

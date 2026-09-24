@@ -276,20 +276,6 @@ export const STRATEGY_ADVISORY_INSTRUCTION =
  */
 const PREFERENCE_PROBE_QUERY = 'preferences likes dislikes favorite style enjoys prefers avoids';
 
-/**
- * T7 instruction lane: standing user instructions ("always format code
- * with syntax highlighting when I ask about implementation") are
- * captured by the substrate as preference facts. BEAM's IF questions
- * are deliberately neutral, so no lexical route can fire — the lane is
- * UNCONDITIONAL, like T3: a fixed probe pulls instruction-shaped facts
- * and they render as a separate standing-instructions section. LIGHT's
- * relevance-gated scratchpad filters exactly these out (its IF never
- * exceeds 0.5); unconditional injection is the structural fix.
- */
-export const INSTRUCTION_PROBE_QUERY =
-  'always include format style make sure when I ask prefers ' +
-  'instructions how to answer respond';
-
 /** PRF query: base query + ≤2 top entity names + ≤4 dominant aspects. */
 export function buildWideProbeQuery(query: string, hits: SearchHit[]): string {
   const names = hits.slice(0, 2).map((h) => h.canonicalName);
@@ -464,10 +450,71 @@ export function laneProbeDto(
  * instruction): preference-aspect facts match on any trigger word;
  * other aspects need a STRONG imperative trigger (bare "never"/"when
  * asking" is not enough).
+ *
+ * The triggers are the standing-instruction markers of each language
+ * the multilingual battery covers — the lane used to read English only,
+ * so on a Russian tenant its probe was a full search that could never
+ * fire. Boundaries are letter/digit lookarounds, not `\b`: JavaScript's
+ * `\b` is ASCII and «всегда» has no word boundary under it.
  */
-const INSTRUCTION_TRIGGER_RE =
-  /\b(?:always|never|whenever|when(?:ever)? (?:i|they|the user) asks?|when asking|make sure)\b/i;
-const INSTRUCTION_STRONG_RE = /\b(?:always|make sure|when(?:ever)? (?:i|they|the user) asks?)\b/i;
+const STRONG_TRIGGERS = [
+  // en
+  'always',
+  'make sure',
+  'when(?:ever)? (?:i|they|the user) asks?',
+  // ru
+  'всегда',
+  'обязательно',
+  'каждый раз,? когда',
+  'когда я (?:спрашиваю|прошу|задаю)',
+  'не забывай',
+  // pt
+  'sempre',
+  'sempre que',
+  'quando (?:eu )?(?:perguntar|pedir)',
+  'certifique-se',
+  // es
+  'siempre',
+  'cada vez que',
+  'cuando (?:te |le )?(?:pregunte|pida)',
+  'asegúrate',
+  // de
+  'immer',
+  'jedes mal,? wenn',
+  'wenn ich (?:frage|bitte)',
+  'achte darauf',
+  // fr
+  'toujours',
+  'chaque fois que',
+  'quand je (?:demande|pose)',
+  'assure-toi',
+];
+/** zh / ja markers: the scripts carry no word boundaries — matched bare. */
+const STRONG_TRIGGERS_UNSPACED = ['总是', '每次', '当我问', '务必', 'いつも', '必ず'];
+const WEAK_TRIGGERS = [
+  'never',
+  'whenever',
+  'when asking',
+  'никогда',
+  'nunca',
+  'jamais',
+  'nie(?:mals)?',
+];
+const WEAK_TRIGGERS_UNSPACED = ['从不', '永远不', '決して'];
+const triggerRe = (spaced: string[], unspaced: string[]): RegExp =>
+  new RegExp(
+    `(?<![\\p{L}\\p{N}])(?:${spaced.join('|')})(?![\\p{L}\\p{N}])|(?:${unspaced.join('|')})`,
+    'iu',
+  );
+const INSTRUCTION_STRONG_RE = triggerRe(STRONG_TRIGGERS, STRONG_TRIGGERS_UNSPACED);
+const INSTRUCTION_TRIGGER_RE = triggerRe(
+  [...STRONG_TRIGGERS, ...WEAK_TRIGGERS],
+  [...STRONG_TRIGGERS_UNSPACED, ...WEAK_TRIGGERS_UNSPACED],
+);
+
+/** The preference aspect under either registry spelling. */
+const PREFERENCE_PREDICATES = new Set(['preference', 'preferences']);
+const INSTRUCTION_PREDICATE = 'instruction';
 
 /** Dedup + cap standing instructions found across evidence and probe. */
 export function extractStandingInstructions(hits: SearchHit[], cap = 8): string[] {
@@ -475,8 +522,15 @@ export function extractStandingInstructions(hits: SearchHit[], cap = 8): string[
   const seen = new Set<string>();
   for (const h of hits) {
     for (const f of h.facts) {
-      const re = f.predicate === 'preferences' ? INSTRUCTION_TRIGGER_RE : INSTRUCTION_STRONG_RE;
-      if (!re.test(f.object)) continue;
+      // A fact the extractor filed as an instruction IS one — no trigger
+      // words needed (the memory contract in extractor prompts). The
+      // triggers remain for instruction-shaped text under other
+      // predicates.
+      const filed = (f.predicateAlias ?? f.predicate) === INSTRUCTION_PREDICATE;
+      const re = PREFERENCE_PREDICATES.has(f.predicate)
+        ? INSTRUCTION_TRIGGER_RE
+        : INSTRUCTION_STRONG_RE;
+      if (!filed && !re.test(f.object)) continue;
       const key = f.object.trim().toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);

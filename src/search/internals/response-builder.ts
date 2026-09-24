@@ -72,9 +72,14 @@ export function assembleHits({
         if (refs) Object.assign(mergedRefs, refs);
       }
       const nbrs = neighboursByEntity?.get(e.entityId) ?? [];
-      const relations = nbrs
-        .slice(0, RELATIONS_PER_HIT)
-        .map((n) => ({ kind: n.kind, peer: n.canonicalName, peerType: n.type }));
+      const relations = nbrs.slice(0, RELATIONS_PER_HIT).map((n) => ({
+        kind: n.kind,
+        peer: n.canonicalName,
+        peerType: n.type,
+        peerId: n.peerId,
+        edgeId: n.edgeId,
+        direction: n.direction,
+      }));
       const matchedRender = matchedSorted.map(({ row, score, breakdown }) => ({
         factId: String(row.id),
         predicate: row.predicate,
@@ -83,6 +88,7 @@ export function assembleHits({
         // shows what was written, comparisons use the slot.
         ...(row.predicateAlias ? { predicateAlias: row.predicateAlias } : {}),
         object: row.object,
+        ...(typeof row.objectMeta?.date === 'string' ? { date: row.objectMeta.date } : {}),
         confidence: row.confidence,
         validFrom: row.validFrom,
         validUntil: row.validUntil ?? undefined,

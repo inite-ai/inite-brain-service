@@ -219,7 +219,7 @@ export class CommunityBuilderService {
       const [rows] = await db.query<[Array<{ c: number; maxAt: unknown }>]>(
         `SELECT count() AS c, time::max(createdAt) AS maxAt
            FROM knowledge_edge
-          WHERE invalidatedAt IS NONE
+          WHERE invalidatedAt IS NONE AND userId IS NONE
           GROUP ALL`,
       );
       const row = ((rows as Array<{ c: number; maxAt: unknown }>) ?? [])[0];
@@ -274,12 +274,17 @@ export class CommunityBuilderService {
     }
   }
 
-  /** Load every live entity-entity edge. Mirrors ppr.ts edge-load. */
+  /**
+   * Load every live tenant-global entity-entity edge. Mirrors ppr.ts
+   * edge-load. Communities are a tenant-wide structure, so a user's
+   * personal edges (0153) do not shape them — the fail-closed half of
+   * the 0055 fence.
+   */
   private async loadEdges(db: Surreal): Promise<EdgeRow[]> {
     type Raw = { in: unknown; out: unknown; weight?: number; createdAt?: unknown };
     const [rows] = await db.query<[Raw[]]>(
       `SELECT in, out, weight, createdAt FROM knowledge_edge
-         WHERE invalidatedAt IS NONE`,
+         WHERE invalidatedAt IS NONE AND userId IS NONE`,
     );
     return ((rows as Raw[]) ?? []).map((r) => ({
       from: String(r.in),

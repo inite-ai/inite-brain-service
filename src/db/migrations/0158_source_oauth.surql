@@ -1,4 +1,4 @@
--- 0152_source_oauth — the brain as an OUTBOUND OAuth client
+-- 0158_source_oauth — the brain as an OUTBOUND OAuth client
 -- (docs/roadmap/raw-evidence-sources-2026-09.md W4; docs/source-plane.md
 -- § Connected accounts). Two tables, both in the tenant namespace:
 --

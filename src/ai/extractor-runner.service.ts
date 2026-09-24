@@ -1,4 +1,10 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  Optional,
+  type OnApplicationBootstrap,
+  type OnApplicationShutdown,
+} from '@nestjs/common';
 import { traceArtifact } from '../common/debug-trace';
 import { PredicateDefinition } from './predicate-registry.service';
 import type { PackExtractionProfile } from './predicate-registry-internals/types';
@@ -63,9 +69,14 @@ export interface RunOverrides {
  * flag-gated transition-classifier lane (absent embedder → lane skipped,
  * never a boot failure).
  */
+/** How often the boot warm polls embedder readiness, and for how long. */
+const BANK_WARM_POLL_MS = 2_000;
+const BANK_WARM_WINDOW_MS = 5 * 60_000;
+
 @Injectable()
-export class ExtractorRunnerService {
+export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new Logger(ExtractorRunnerService.name);
+  private warmTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Lazily-built prototype classifier for the transition lane
@@ -86,6 +97,42 @@ export class ExtractorRunnerService {
 
   modelId(): string {
     return this.llm.modelId();
+  }
+
+  /**
+   * Warm the transition lane's prototype bank once the embedder is
+   * ready, so the first ingest after a boot does not pay for it inside
+   * its own request (measured 5–6 s on the production host — the whole
+   * gap between the extractor call and the commit on that ingest). The
+   * embedder warms asynchronously with retries of its own, so this polls
+   * readiness rather than racing it; bounded, and a no-op with the lane
+   * off or no embedder wired.
+   */
+  onApplicationBootstrap(): void {
+    if (!this.embedder || !resolveExtractionProfile().transitionClassifier) return;
+    const deadline = Date.now() + BANK_WARM_WINDOW_MS;
+    this.warmTimer = setInterval(() => {
+      if (Date.now() > deadline) return this.stopWarmTimer();
+      if (!this.embedder?.isReady()) return;
+      this.stopWarmTimer();
+      const started = Date.now();
+      void this.transitionClassifier()
+        ?.warm()
+        .then(() => this.logger.log(`transition prototype bank warm — ${Date.now() - started}ms`))
+        .catch((e: unknown) =>
+          this.logger.warn(`transition prototype bank warm failed: ${(e as Error).message}`),
+        );
+    }, BANK_WARM_POLL_MS);
+    this.warmTimer.unref?.();
+  }
+
+  onApplicationShutdown(): void {
+    this.stopWarmTimer();
+  }
+
+  private stopWarmTimer(): void {
+    if (this.warmTimer) clearInterval(this.warmTimer);
+    this.warmTimer = null;
   }
 
   /**
@@ -354,9 +401,9 @@ export class ExtractorRunnerService {
   }): Promise<ExtractionResult> {
     const { companyId, trimmed, snapshot, rawJson, context } = args;
 
-    const parsedEntities: ExtractedEntity[] = parseEntities(rawJson);
+    const parsedEntities: ExtractedEntity[] = parseEntities(rawJson, context?.memory);
     const clauses = parseClauses(rawJson);
-    const rawFacts = parseRawFacts(rawJson, parsedEntities.length);
+    const rawFacts = parseRawFacts(rawJson, parsedEntities.length, context?.memory);
     // Dialogue profile (Phase 4): values are normalized, not verbatim spans, so
     // the substring-drop gate would delete every normalized fact. Keep them.
     const {

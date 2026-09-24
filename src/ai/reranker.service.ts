@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { createOpenAiClient } from './openai-client';
+import { chatCallParams, chatModel, createOpenAiClient } from './openai-client';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
@@ -49,7 +49,7 @@ export class RerankerService {
     this.openai = createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
     this.model = this.configService.get<string>(
       'SEARCH_RERANKER_MODEL',
-      this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
+      chatModel(this.configService),
     );
     this.limiter = new Semaphore(
       parseInt(this.configService.get<string>('SEARCH_RERANKER_CONCURRENCY', '4'), 10),
@@ -175,8 +175,11 @@ Return ONLY a JSON object of the shape {"ranking": [<index>, ...]} listing every
                     },
                   },
                 },
-                max_completion_tokens: 256,
-                temperature: 0,
+                ...chatCallParams(this.model, {
+                  temperature: 0,
+                  visibleCap: 256,
+                  reasoningEffort: 'none',
+                }),
               },
               { signal: getAbortSignal() },
             ),

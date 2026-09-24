@@ -169,7 +169,7 @@ export function registerWriteTools({
     {
       title: 'Declare a typed edge between two entities',
       description:
-        'Insert an edge between two entities. `kind` is the edge type — `identity_of` merges the `from` entity into `to` (cross-vertical identity reconciliation), other typed edges (`paid_for`, `mentioned_in`, `worked_with`, …) are surfaced by find_related_entities and contribute to PPR / SubgraphRAG context. Use sparingly from agents — most edges come from event ingestion. identity_of rejects self-merges and contradictory cycles.',
+        'Insert an edge between two entities. `kind` is the edge type — `identity_of` merges the `from` entity into `to` (cross-vertical identity reconciliation), other typed edges (`paid_for`, `mentioned_in`, `worked_with`, …) are surfaced by find_related_entities and contribute to PPR / SubgraphRAG context. Use sparingly from agents — most edges come from event ingestion. identity_of rejects a request that names the same end twice and any merge that would close a cycle; declaring an identity that already holds answers `alreadyIdentical: true` with no edge, so a replay is safe.',
       inputSchema: {
         from: z.union([
           z.object({ vertical: z.string(), id: z.string() }),

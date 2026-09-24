@@ -1,4 +1,4 @@
--- 0154_source_mcp_oauth — the brain as an OAuth client of ANY MCP server
+-- 0160_source_mcp_oauth — the brain as an OAuth client of ANY MCP server
 -- (docs/roadmap/crm-sources-2026-09.md § 4.5, W4.3; docs/source-plane.md
 -- § MCP client OAuth). The static providers (Google, HubSpot, …) are
 -- platform code with the operator's app in env; a hosted MCP server is

@@ -81,17 +81,11 @@ export const RETRIEVAL_CONVEYOR: Conveyor = {
     },
     {
       step: '7',
-      title: 'Cross-encoder and listwise LLM rerank, with one-hop neighbour context',
+      title:
+        'Cross-encoder and listwise LLM rerank, with one-hop neighbour context; the fact-level cross-encoder rescoring (profile.factRerank) rides beside the LLM call',
       consumes: ['entity-buckets'],
       produces: ['entity-buckets'],
       gate: { profile: 'rerank' },
-    },
-    {
-      step: '7b',
-      title: 'Fact-level cross-encoder rescoring — order within each entity',
-      consumes: ['entity-buckets'],
-      produces: ['entity-buckets'],
-      gate: { profile: 'factRerank' },
     },
     {
       step: '8',

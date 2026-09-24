@@ -6,18 +6,13 @@ import { traceArtifact, traceSpan } from '../common/debug-trace';
 import { redactPii } from './ingest-utils';
 import { EntityUpsertService } from './entity-upsert.service';
 import { FactResolverService } from './fact-resolver.service';
-import { createEdgeBetween } from './edge-writer';
+import { createEdgeBetween, edgeScopeKey } from './edge-writer';
 import { MentionSource } from './mention-extraction.service';
 import type { ExtractionResult } from '../ai/extractor.service';
 import type { ResolveOutcome } from './conflict-resolver';
-import {
-  isFirstPersonSelfReference,
-  isSecondPersonReference,
-  matchesParticipantName,
-} from '../common/coreference';
-import type { KnownEntity } from './dto/ingest-mention.dto';
+import { coreferentParticipant, participantHint, participantsOf } from './participants';
 import { envFlagEnabled } from '../common/env-validation';
-import { factValidFrom, resolveEventTimeOpts, type EventTimeResolveOpts } from './event-time';
+import { factTiming, resolveEventTimeOpts, type EventTimeResolveOpts } from './event-time';
 
 export interface MentionPersistResult {
   extractedEntityIds: string[];
@@ -71,38 +66,6 @@ export class MentionPersistService {
     });
   }
 
-  /**
-   * Decide which known participant (if any) an extracted entity corefers
-   * to, so resolveOrCreateNamedEntity can anchor it to that participant's
-   * externalRef instead of minting a pronoun/duplicate node:
-   *   - first-person singular ("I", "me", "my") or the speaker's own name
-   *     → the speaker;
-   *   - second-person ("you", "your") or the addressee's own name
-   *     → the addressee;
-   *   - anything else → no hint (normal name/embedding resolution).
-   * Returns undefined when no participant matches, preserving the prior
-   * behaviour for third-party named entities.
-   */
-  private hintFor(
-    e: { name: string },
-    speaker: KnownEntity | undefined,
-    addressee: KnownEntity | undefined,
-  ): KnownEntity | undefined {
-    if (
-      speaker &&
-      (isFirstPersonSelfReference(e.name) || matchesParticipantName(e.name, speaker.name))
-    ) {
-      return speaker;
-    }
-    if (
-      addressee &&
-      (isSecondPersonReference(e.name) || matchesParticipantName(e.name, addressee.name))
-    ) {
-      return addressee;
-    }
-    return undefined;
-  }
-
   private async persistEntities(
     db: Surreal,
     p: { extraction: ExtractionResult; dto: IngestMentionDto },
@@ -114,13 +77,12 @@ export class MentionPersistService {
     // extractor actually emitted for a first-person statement — so "I decided
     // to transition" minted a junk "I" node instead of attaching to the
     // speaker. Resolve by ROLE instead, then hint each extracted entity by
-    // coreference (see hintFor).
-    const speakerHint = dto.knownEntities?.find((k) => k.role === 'speaker');
-    const addresseeHint = dto.knownEntities?.find((k) => k.role === 'addressee');
+    // coreference (participants.ts).
+    const participants = participantsOf(dto);
     const entityIds: string[] = [];
     for (let i = 0; i < extraction.entities.length; i++) {
       const e = extraction.entities[i]!;
-      const knownHint = this.hintFor(e, speakerHint, addresseeHint);
+      const knownHint = participantHint(coreferentParticipant(e.name, participants), dto.userId);
       // The entity's freshly-extracted facts feed the inline-resolution judge
       // (the "new" side — these aren't written yet). Its EDGES go too, as
       // `kind: <other entity's name>` lines: the extractor files "works at
@@ -175,7 +137,7 @@ export class MentionPersistService {
       const f = extraction.facts[i]!;
       const eid = entityIds[f.entityIndex];
       if (!eid) continue;
-      const validFrom = factValidFrom(f, dto.emittedAt, timeOpts);
+      const { validFrom, objectMeta } = factTiming(f, dto.emittedAt, timeOpts);
       const factId = await traceSpan(
         'ingest.fact.upsert',
         () =>
@@ -185,6 +147,7 @@ export class MentionPersistService {
             f,
             source,
             validFrom,
+            objectMeta,
             precomputedEmbedding: factEmbeddings[i],
             userId: dto.userId,
             // Subject entity's extraction type — read only by the
@@ -226,6 +189,7 @@ export class MentionPersistService {
       const f = extraction.facts[i]!;
       const eid = entityIds[f.entityIndex];
       if (!eid) continue;
+      const { validFrom, objectMeta } = factTiming(f, dto.emittedAt, timeOpts);
       specs.push({
         f,
         input: {
@@ -235,7 +199,9 @@ export class MentionPersistService {
           predicateAlias: f.predicateAlias,
           object: f.object,
           confidence: f.confidence,
-          validFrom: factValidFrom(f, dto.emittedAt, timeOpts),
+          validFrom,
+          objectMeta,
+          supersedes: f.supersedes,
           source,
           entropy: typeof f.extractionEntropy === 'number' ? f.extractionEntropy : undefined,
           precomputedEmbedding: factEmbeddings[i],
@@ -287,9 +253,11 @@ export class MentionPersistService {
         object: string;
         confidence: number;
         extractionEntropy?: number | undefined;
+        supersedes?: string[] | undefined;
       };
       source: MentionSource;
       validFrom: Date;
+      objectMeta?: { date: string } | undefined;
       precomputedEmbedding: number[] | undefined;
       /** Per-user scope (audit 2026-08-21 P0) — stamps the fact row. */
       userId?: string | undefined;
@@ -307,6 +275,8 @@ export class MentionPersistService {
       object: f.object,
       confidence: f.confidence,
       validFrom: p.validFrom,
+      objectMeta: p.objectMeta,
+      supersedes: f.supersedes,
       source: p.source,
       entropy,
       precomputedEmbedding: p.precomputedEmbedding,
@@ -379,6 +349,8 @@ export class MentionPersistService {
                 messageId: dto.contextRef.messageId,
                 confidence: e.confidence,
               },
+              // The relation is as personal as the facts of the same turn.
+              userId: dto.userId,
             }),
           { kind: e.kind, from: fromEid, to: toEid },
         );
@@ -439,14 +411,16 @@ export class MentionPersistService {
     return traceSpan(
       'ingest.edge.batch',
       async () => {
-        // 1. One round-trip existence check (N SELECTs, one query).
-        const existParams: Record<string, unknown> = {};
+        // 1. One round-trip existence check (N SELECTs, one query), within
+        //    the turn's scope: a personal edge never stands in for the
+        //    tenant-global one, nor the other way round.
+        const existParams: Record<string, unknown> = { scopeKey: edgeScopeKey(dto.userId) };
         const existStmts = cands
           .map((c, i) => {
             existParams[`f${i}`] = new StringRecordId(c.from);
             existParams[`t${i}`] = new StringRecordId(c.to);
             existParams[`k${i}`] = c.kind;
-            return `SELECT id FROM knowledge_edge WHERE in=$f${i} AND out=$t${i} AND kind=$k${i} LIMIT 1;`;
+            return `SELECT id FROM knowledge_edge WHERE in=$f${i} AND out=$t${i} AND kind=$k${i} AND scopeKey=$scopeKey LIMIT 1;`;
           })
           .join('\n');
         const existResults = await db.query<unknown[]>(existStmts, existParams);
@@ -462,14 +436,14 @@ export class MentionPersistService {
 
         // 2. One round-trip RELATE for the missing edges.
         try {
-          const relParams: Record<string, unknown> = {};
+          const relParams: Record<string, unknown> = { userId: dto.userId };
           const relStmts = missing
             .map((c, i) => {
               relParams[`f${i}`] = new StringRecordId(c.from);
               relParams[`t${i}`] = new StringRecordId(c.to);
               relParams[`k${i}`] = c.kind;
               relParams[`s${i}`] = sourceOf(c);
-              return `RELATE $f${i}->knowledge_edge->$t${i} CONTENT { kind: $k${i}, weight: 1.0, source: $s${i} } RETURN AFTER;`;
+              return `RELATE $f${i}->knowledge_edge->$t${i} CONTENT { kind: $k${i}, weight: 1.0, source: $s${i}, userId: $userId } RETURN AFTER;`;
             })
             .join('\n');
           const relResults = await db.query<unknown[]>(relStmts, relParams);
@@ -493,6 +467,7 @@ export class MentionPersistService {
                 toEntityId: c.to,
                 kind: c.kind,
                 source: sourceOf(c),
+                userId: dto.userId,
               });
               if (id) edgeIds.push(id);
             } catch (e2) {

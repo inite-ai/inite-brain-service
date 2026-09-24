@@ -1,14 +1,8 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { StringRecordId } from 'surrealdb';
-import {
-  SurrealService,
-  isUniqueViolation,
-  queryFirst,
-  queryRows,
-  retryOnUniqueViolation,
-} from '../db/surreal.service';
-import { IngestLinkDto } from './dto/ingest-link.dto';
-import { idTailOf } from './ingest-utils';
+import { SurrealService, retryOnUniqueViolation } from '../db/surreal.service';
+import { IngestLinkDto, LinkRef } from './dto/ingest-link.dto';
+import { createEdgeBetween } from './edge-writer';
+import { externalRefKey, idTailOf } from './ingest-utils';
 import { EntityUpsertService } from './entity-upsert.service';
 
 /**
@@ -17,6 +11,30 @@ import { EntityUpsertService } from './entity-upsert.service';
  * (creating bare entities if absent) then RELATEs idempotently; identity merges
  * route through fn::merge_identity with its atomic cycle guard.
  */
+/** What `ingestLink` returns. `edgeId` is null exactly when no edge was
+ *  written — the `identity_of` no-op below. */
+export interface IngestLinkResult {
+  edgeId: string | null;
+  fromEntityId: string;
+  toEntityId: string;
+  kind: string;
+  /** Set when both references already named one entity, so nothing was merged. */
+  alreadyIdentical?: boolean;
+}
+
+/**
+ * Do these two ends name the SAME reference? Not "do they resolve to the same
+ * entity" — that is the interesting case and legal — but "did the caller write
+ * the same thing twice", which is the only genuine self-merge.
+ */
+function sameReference(a: LinkRef, b: LinkRef): boolean {
+  if (a.entityId && b.entityId) return idTailOf(a.entityId) === idTailOf(b.entityId);
+  if (a.vertical && a.id && b.vertical && b.id) {
+    return externalRefKey(a.vertical, a.id) === externalRefKey(b.vertical, b.id);
+  }
+  return false;
+}
+
 @Injectable()
 export class LinkIngestService {
   private readonly logger = new Logger(LinkIngestService.name);
@@ -26,7 +44,7 @@ export class LinkIngestService {
     private readonly entities: EntityUpsertService,
   ) {}
 
-  async ingestLink(companyId: string, dto: IngestLinkDto) {
+  async ingestLink(companyId: string, dto: IngestLinkDto): Promise<IngestLinkResult> {
     return this.surreal.withCompany(companyId, async (db) => {
       const fromId = await this.entities.resolveOrCreateBareRef(db, dto.from);
       const toId = await this.entities.resolveOrCreateBareRef(db, dto.to);
@@ -49,7 +67,28 @@ export class LinkIngestService {
       // nothing, and we throw before creating the edge.
       if (dto.kind === 'identity_of') {
         if (fromId === toId) {
-          throw new BadRequestException('identity_of cannot merge an entity into itself');
+          // The same END named twice is a malformed request and stays a 400.
+          // But TWO DIFFERENT references that resolve to ONE entity are not:
+          // the identity the caller is declaring already holds — the graph
+          // adopted the id under a name it had learned, or an earlier link
+          // merged the pair. Re-declaring it is a no-op, not an error, and no
+          // client should have to pre-resolve both ends to find that out. The
+          // edge is skipped deliberately: an `identity_of` self-loop would
+          // show up as the entity being its own neighbour in every relation
+          // read.
+          if (sameReference(dto.from, dto.to)) {
+            throw new BadRequestException('identity_of cannot merge an entity into itself');
+          }
+          this.logger.log(
+            `[knowledge.entity.merge_noop] companyId=${companyId} entity=${fromId} — both references already name one entity`,
+          );
+          return {
+            edgeId: null,
+            fromEntityId: fromId,
+            toEntityId: toId,
+            kind: dto.kind,
+            alreadyIdentical: true,
+          };
         }
         const merge = await retryOnUniqueViolation(async () => {
           const [r] = await db.query<[{ merged: boolean; reason: string | null }]>(
@@ -84,39 +123,17 @@ export class LinkIngestService {
         );
       }
 
-      // Idempotent edge insert. UNIQUE on (in, out, kind) means the second
-      // insert of the same conceptual edge raises a unique violation; we
-      // catch it and return the existing edge so duplicate webhook replays
-      // don't pollute the graph with N copies of the same relationship.
-      const fromRid = new StringRecordId(fromId);
-      const toRid = new StringRecordId(toId);
-      let edgeId: string | null = null;
-      try {
-        const edgeRows = await queryRows<{ id: unknown }>(
-          db,
-          `RELATE $from->knowledge_edge->$to CONTENT { kind: $kind, weight: $weight, source: $source } RETURN AFTER`,
-          {
-            from: fromRid,
-            to: toRid,
-            kind: dto.kind,
-            weight: dto.weight ?? 1.0,
-            source: dto.source,
-          },
-        );
-        const edge = edgeRows[0];
-        edgeId = edge ? String(edge.id) : null;
-      } catch (err) {
-        if (!isUniqueViolation(err)) throw err;
-        const existing = await queryFirst<{ id: unknown }>(
-          db,
-          `SELECT id FROM knowledge_edge WHERE in = $from AND out = $to AND kind = $kind LIMIT 1`,
-          { from: fromRid, to: toRid, kind: dto.kind },
-        );
-        edgeId = existing ? String(existing.id) : null;
-        this.logger.debug(
-          `[knowledge.edge.idempotent] companyId=${companyId} kind=${dto.kind} ${fromId} → ${toId} (already existed)`,
-        );
-      }
+      // Idempotent edge insert through the shared primitive: a replayed
+      // webhook returns the existing edge instead of a second copy. The
+      // link API declares tenant-global relations (no per-user scope on
+      // this surface), so the edge lands in the '' scope.
+      const edgeId = await createEdgeBetween(db, {
+        fromEntityId: fromId,
+        toEntityId: toId,
+        kind: dto.kind,
+        weight: dto.weight ?? 1.0,
+        source: { ...dto.source },
+      });
 
       this.logger.log(
         `[knowledge.edge.created] companyId=${companyId} kind=${dto.kind} ${fromId} → ${toId}`,

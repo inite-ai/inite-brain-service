@@ -4,6 +4,8 @@ import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { traceSpan } from '../common/debug-trace';
 import { MentionExtractionService } from './mention-extraction.service';
 import { MentionPersistService } from './mention-persist.service';
+import { MemoryContextService } from './memory-context.service';
+import { UserEntityService } from './user-entity.service';
 import { EpisodeStoreService } from './episode-store.service';
 import { MentionProjectionService } from './mention-projection.service';
 import { envFlagEnabled } from '../common/env-validation';
@@ -31,6 +33,8 @@ export class MentionIngestService {
     @Optional() private readonly metrics?: MetricsService,
     @Optional() private readonly episodes?: EpisodeStoreService,
     @Optional() private readonly projections?: MentionProjectionService,
+    @Optional() private readonly memory?: MemoryContextService,
+    @Optional() private readonly users?: UserEntityService,
   ) {}
 
   async ingestMention(companyId: string, dto: IngestMentionDto) {
@@ -40,6 +44,10 @@ export class MentionIngestService {
     // pinned value rides the dto into episode capture and every
     // extracted fact (same seam as fact-ingest / search / synthesize).
     dto = { ...dto, userId: pinUserScope(dto.userId) };
+    // The user is the speaker of their own turn unless the caller says
+    // who else is (participants.ts): the episode, the extractor's
+    // framing and the entity anchor all read the same participants.
+    dto = (await this.users?.participants(companyId, dto)) ?? dto;
     // G9 write-anomaly signal: one increment per mention write attempt,
     // fired at the surface entry (before extraction can fail) so a
     // poisoning burst is visible as a rate spike on the `mention` path.
@@ -131,6 +139,7 @@ export class MentionIngestService {
         source,
         factEmbeddings: prep.factEmbeddings,
       });
+      this.memory?.remember(companyId, dto.contextRef.conversationId, out.extractedEntityIds);
 
       // Capture-path pack memory projections (0110,
       // PACK_MEMORY_PROJECTIONS_ENABLED): the mention-origin producer for

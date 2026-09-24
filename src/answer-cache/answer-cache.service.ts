@@ -12,22 +12,34 @@ import { MetricsService } from '../metrics/metrics.service';
 import { ReadPinService, type ReadPin } from '../episodes/read-pin.service';
 import { detectEnumerationShape } from '../synthesize/answer-router';
 import { hasCurrentModalityConsent, type ModalityConsentRow } from '../ai/domain-packs';
+import type { EvidenceFences, EvidenceWorldState } from '../synthesize/evidence-visibility';
+import { isRecordId, toMs } from './record-id';
 import {
-  beliefLaneVisible,
-  beliefStamp,
-  episodeStamp,
-  episodeVisible,
-  fragmentStamp,
-  fragmentVisible,
-  sceneStamp,
-  sceneVisible,
-  type EvidenceFences,
-  type EvidenceWorldState,
-} from '../synthesize/evidence-visibility';
+  DEPENDENCY_KINDS,
+  MUTABLE_DEPENDENCY_KINDS,
+  citationOfDependency,
+  dependenciesOf,
+  dependencyLifecycle,
+  dependencyRev,
+  dependencySelect,
+  dependencyVisible,
+  edgeCitation,
+  isCachedDependency,
+  type CachedDependency,
+  type CachedDependencyKind,
+  type DependencyRow,
+  type InvalidationCause,
+} from './dependencies';
+export {
+  dependenciesOf,
+  type CachedDependency,
+  type CachedDependencyKind,
+  type InvalidationCause,
+} from './dependencies';
 import type { RetrievalProfile } from '../search/retrieval-profile';
 import type { SynthesizeDto } from '../synthesize/dto/synthesize.dto';
 import type { EvidenceCitation, SynthesizeResult } from '../synthesize/synthesize.types';
-import type { Citation } from '../synthesize/fact-index';
+import { isEdgeCitation, type Citation } from '../synthesize/fact-index';
 
 /**
  * Generator/verifier PROMPT SHAPE version baked into the cache key.
@@ -47,239 +59,6 @@ export const ANSWER_CACHE_PROMPT_VERSION = 2;
 
 /** Table + record-id namespace of the cache rows (migration 0091). */
 const TABLE = 'answer_cache';
-
-/** Mirrors the migration-0091/0097/0136 ASSERT on
- *  answer_cache.invalidationCause. `newer_fact` (0097) = the additive-write
- *  freshness cause: a NEW active fact appeared on a cited entity after the
- *  answer was built. `dependency_changed` (0136) = a non-fact dependency's
- *  lifecycle stamp moved while its row stayed servable (a belief revised in
- *  place, a scene recomposed, an asset's quarantine state changed). */
-export type InvalidationCause =
-  'superseded' | 'retracted' | 'expired_validity' | 'missing' | 'newer_fact' | 'dependency_changed';
-
-/**
- * The non-fact evidence a cached answer rests on (0136, audit F3) — one
- * entry per EvidenceCitation arm, in the order the arms are declared.
- * Every kind here is revalidated on EVERY read; an arm this list does not
- * name is untrackable, and an answer citing one is never admitted.
- */
-export type CachedDependencyKind = 'belief' | 'episode' | 'fragment' | 'scene';
-
-export interface CachedDependency {
-  kind: CachedDependencyKind;
-  /** Full record id — `semantic_belief:…`, `episode:…`,
-   *  `evidence_fragment:…`, `memory_episode:…`. */
-  id: string;
-  /**
-   * Lifecycle stamp observed at admission, compared byte-for-byte on
-   * read: a belief's `revision`, a scene's gist hash, a fragment's asset
-   * quarantine state; '' for an episode (immutable text — existence IS
-   * its lifecycle). A changed stamp is `dependency_changed`.
-   */
-  rev: string;
-}
-
-const DEPENDENCY_KINDS: readonly CachedDependencyKind[] = [
-  'belief',
-  'episode',
-  'fragment',
-  'scene',
-];
-
-/** A dependency row as the per-kind SELECT returns it (see dependencySelect). */
-interface DependencyRow {
-  id: unknown;
-  userId?: string | null;
-  revision?: number | string | null;
-  status?: string | null;
-  supersededBy?: unknown;
-  validUntil?: Date | string | null;
-  quarantineStatus?: string | null;
-  gist?: string | null;
-  enrichedGist?: string | null;
-  unexpectedDetails?: unknown;
-  /** Visibility-fence columns — see the per-kind predicates in
-   *  synthesize/evidence-visibility.ts. */
-  userIds?: unknown;
-  piiClass?: unknown;
-  piiClasses?: unknown;
-  segmenterVersion?: unknown;
-  assetUserId?: unknown;
-  assetAvailability?: unknown;
-}
-
-/**
- * The typed dependency set of a result's evidence citations, or null when
- * a citation carries no arm this cache can revalidate (the ONE-OF
- * invariant means exactly one id is present on a well-formed citation;
- * a malformed one is untrackable and blocks admission — fail closed).
- * De-duplicated per (kind, id); kind order is the declared arm order.
- */
-export function dependenciesOf(
-  evidenceCitations: EvidenceCitation[] | undefined,
-): Array<Pick<CachedDependency, 'kind' | 'id'>> | null {
-  const out: Array<Pick<CachedDependency, 'kind' | 'id'>> = [];
-  const seen = new Set<string>();
-  for (const c of evidenceCitations ?? []) {
-    const dep = dependencyArm(c);
-    if (!dep) return null;
-    const key = `${dep.kind}|${dep.id}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(dep);
-  }
-  return out.sort((a, b) => DEPENDENCY_KINDS.indexOf(a.kind) - DEPENDENCY_KINDS.indexOf(b.kind));
-}
-
-function dependencyArm(c: EvidenceCitation): Pick<CachedDependency, 'kind' | 'id'> | null {
-  if (isRecordId(c.beliefId)) return { kind: 'belief', id: c.beliefId };
-  if (isRecordId(c.episodeId)) return { kind: 'episode', id: c.episodeId };
-  if (isRecordId(c.fragmentId)) return { kind: 'fragment', id: c.fragmentId };
-  if (isRecordId(c.sceneId)) return { kind: 'scene', id: c.sceneId };
-  return null;
-}
-
-/** 3.x does not coerce string↔record: only a `table:key` string can be
- *  bound as a record id, so anything else is untrackable. */
-function isRecordId(v: unknown): v is string {
-  return typeof v === 'string' && v.includes(':') && v.length > 2;
-}
-
-/** The id-only evidence citation a served hit returns for a dependency —
- *  the arm the answer was admitted with, nothing rendered. */
-function citationOfDependency(dep: CachedDependency): EvidenceCitation {
-  switch (dep.kind) {
-    case 'belief':
-      return { beliefId: dep.id };
-    case 'episode':
-      return { episodeId: dep.id };
-    case 'fragment':
-      return { fragmentId: dep.id };
-    case 'scene':
-      return { sceneId: dep.id };
-  }
-}
-
-/** A stored dependency entry as the 0136 ASSERTs shape it; anything else
- *  is a malformed row and fails closed on read. */
-function isCachedDependency(v: unknown): v is CachedDependency {
-  if (v === null || typeof v !== 'object') return false;
-  const d = v as Record<string, unknown>;
-  return (
-    typeof d.kind === 'string' &&
-    (DEPENDENCY_KINDS as readonly string[]).includes(d.kind) &&
-    isRecordId(d.id) &&
-    typeof d.rev === 'string'
-  );
-}
-
-/**
- * One SELECT per kind, bound on `$<kind>` (a record-id array). The
- * projection is exactly what `dependencyRev` and `dependencyLifecycle`
- * read PLUS every column the serving lane's visibility fence reads
- * (round-2 audit F1): the stamp alone said nothing about media PII,
- * modality consent, asset ownership, availability, text PII, scene
- * membership or the live scene world, so re-checking only the stamp
- * served closed evidence to a key that never held the scope. Nothing
- * content-bearing leaves the DB — piiClasses/piiClass are
- * classifications, not content.
- */
-function dependencySelect(kind: CachedDependencyKind): string {
-  switch (kind) {
-    case 'belief':
-      return `SELECT id, revision, status, supersededBy, validUntil, userId
-                FROM semantic_belief WHERE id INSIDE $belief`;
-    case 'episode':
-      return `SELECT id, userId, piiClass FROM episode WHERE id INSIDE $episode`;
-    case 'fragment':
-      // The fragment row is immutable; its parent asset's quarantine
-      // state is the lifecycle (a rejected asset must not keep serving
-      // through a cached answer). A dangling asset link reads as NONE.
-      return `SELECT id, piiClasses,
-                     assetId.quarantineStatus AS quarantineStatus,
-                     assetId.userId AS assetUserId,
-                     assetId.availability AS assetAvailability
-                FROM evidence_fragment WHERE id INSIDE $fragment`;
-    case 'scene':
-      return `SELECT id, gist, enrichedGist, unexpectedDetails, userId, userIds,
-                     piiClass, segmenterVersion
-                FROM memory_episode WHERE id INSIDE $scene`;
-  }
-}
-
-/** The stamp that must not move for the cached answer to stay valid —
- *  the SAME functions the serving lanes stamp their rendered rows with. */
-function dependencyRev(kind: CachedDependencyKind, row: DependencyRow): string {
-  switch (kind) {
-    case 'belief':
-      return beliefStamp(row);
-    case 'episode':
-      return episodeStamp();
-    case 'fragment':
-      return fragmentStamp(row);
-    case 'scene':
-      return sceneStamp(row);
-  }
-}
-
-/** Kinds whose stamp can move under a running request — the ones the
- *  retrieval snapshot has to cover (round-2 audit F4). An episode's text
- *  is immutable, so its stamp is constant and needs no snapshot. */
-const MUTABLE_DEPENDENCY_KINDS: readonly CachedDependencyKind[] = ['belief', 'fragment', 'scene'];
-
-/**
- * The serving lane's OWN per-row visibility fence, re-applied to a
- * dependency row (round-2 audit F1). False = invisible to this caller,
- * which reads as 'missing' — existence never leaks. This is the half a
- * lifecycle stamp cannot carry: revoking modality consent, reclassifying
- * a fragment's piiClasses, stamping a scene's piiClass, promoting a new
- * scene world or erasing an asset's bytes all leave every stamp intact.
- */
-function dependencyVisible(
-  kind: CachedDependencyKind,
-  row: DependencyRow,
-  fences: EvidenceFences,
-): boolean {
-  const { caller, world } = fences;
-  switch (kind) {
-    case 'belief':
-      return beliefLaneVisible(row, caller);
-    case 'episode':
-      return episodeVisible(row, caller);
-    case 'fragment':
-      return fragmentVisible(row, caller, world);
-    case 'scene':
-      return sceneVisible(row, caller, world);
-  }
-}
-
-/**
- * The lifecycle gate a dependency row must pass to be servable — the
- * cited-fact gate's counterpart per kind. Null = servable. The scope
- * fences live in `dependencyVisible`, which runs first.
- *
- * A belief never reads 'retracted': migration 0120 asserts
- * `status INSIDE ['active','superseded']`, so retraction is not a state a
- * belief can reach (a value change is a new revision). The cause stays in
- * the typed union because a retracted cited FACT still emits it.
- */
-function dependencyLifecycle(
-  kind: CachedDependencyKind,
-  row: DependencyRow,
-): InvalidationCause | null {
-  if (kind === 'belief') {
-    if (
-      row.status === 'superseded' ||
-      (row.supersededBy !== undefined && row.supersededBy !== null)
-    ) {
-      return 'superseded';
-    }
-    if (row.status !== 'active') return 'missing';
-    if (row.validUntil && toMs(row.validUntil) <= Date.now()) return 'expired_validity';
-  }
-  if (kind === 'fragment' && row.quarantineStatus === 'rejected') return 'missing';
-  return null;
-}
 
 /** Cap on freshness-probe candidate rows pulled per read. The probe only
  *  needs existence of ONE scope+policy-visible newer fact.
@@ -460,6 +239,10 @@ interface CacheRow {
   /** 0136 typed non-fact dependencies; absent on a pre-0136 row, which
    *  therefore cannot be revalidated and fails closed. */
   dependencies?: CachedDependency[] | null;
+  /** 0155: the cited beliefs' subjects — the additive probe's anchor for an
+   *  answer with no cited facts. Empty on every row written before 0155,
+   *  which is why such a row without cited facts reads as 'missing'. */
+  beliefSubjects?: string[] | null;
 }
 
 /** The two read fences the fact read path applies, threaded together
@@ -633,41 +416,58 @@ export class AnswerCacheService {
    * non-supported one failed the grounding audit.
    *
    * Evidence citations are admission-bearing ONLY as tracked dependencies
-   * (0136, audit F3). Fact citations remain the admission gate — an
-   * answer with zero fact citations (episode-only L3, belief-only
-   * current-state) has citations.length 0 and is rejected below, since
-   * the entity-scoped freshness probe has nothing to anchor on. A MIXED
-   * answer (≥1 fact plus belief / episode / fragment / scene citations)
-   * used to be admitted with only its fact half recorded, so a belief
-   * revision left the cached text serving until TTL; it is now admitted
-   * with every non-fact arm stored as {kind, id, rev} and revalidated on
-   * read, and it is NOT admitted at all when any arm is untrackable or
-   * already dead at admission time (fail closed — the answer is stale
-   * before it is stored).
+   * (0136, audit F3). A MIXED answer (≥1 fact plus belief / episode /
+   * fragment / scene citations) used to be admitted with only its fact half
+   * recorded, so a belief revision left the cached text serving until TTL; it
+   * is now admitted with every non-fact arm stored as {kind, id, rev} and
+   * revalidated on read, and it is NOT admitted at all when any arm is
+   * untrackable or already dead at admission time (fail closed — the answer
+   * is stale before it is stored).
+   *
+   * 0155 — A FACT-LESS ANSWER. Cited facts used to be the admission gate
+   * outright, because the additive freshness probe (audit F1) is entity-scoped
+   * and an answer citing no fact carries no entity to probe. True, and it made
+   * the belief plane's own answers the only ones re-synthesized on every ask.
+   * `semantic_belief` keys its subject as free text rather than as an entity
+   * (0120), so the anchor is the SUBJECT: a belief added or revised on the
+   * same subject after admission is exactly the additive write the entity
+   * probe catches for facts. A fact-less answer is therefore admitted when —
+   * and only when — it rests on belief arms whose subjects all came back, the
+   * request is user-scoped (beliefs are single-user by construction, so the
+   * probe needs that scope), and it takes the SHORT TTL: the belief plane
+   * lags the fact plane, and a fact that would change the answer is the one
+   * additive write no probe here can see.
    */
   async admit(
     ctx: AnswerCacheStoreContext,
     result: SynthesizeResult,
     verdict: 'supported' | 'partial' | 'unsupported',
   ): Promise<void> {
-    if (
-      verdict !== 'supported' ||
-      result.answer === null ||
-      result.reason !== undefined ||
-      result.citations.length === 0
-    ) {
-      return;
-    }
-    const wanted = dependenciesOf(result.evidenceCitations);
-    if (wanted === null) {
+    if (verdict !== 'supported' || result.answer === null || result.reason !== undefined) return;
+    // A fact-less answer is admissible only under the belief-subject anchor
+    // below, and only for a user-scoped request — the probe has no other
+    // scope to run in.
+    const factless = result.citations.length === 0;
+    if (factless && !ctx.userId) return;
+    const arms = dependenciesOf(result.evidenceCitations);
+    if (arms === null) {
       // A citation with no trackable arm — the cache cannot promise to
       // notice when it dies, so the answer is served fresh every time.
       this.metrics?.countAnswerCache('not_admitted');
       traceArtifact('synthesize.answer_cache', { decision: 'not_admitted' });
       return;
     }
+    // A relation citation names a knowledge_edge (fact-index.ts). Its
+    // lifecycle is `invalidatedAt`, so it is tracked as a dependency arm;
+    // the cited-fact re-check reads knowledge_fact only.
+    const wanted = [
+      ...arms,
+      ...result.citations
+        .filter(isEdgeCitation)
+        .map((c) => ({ kind: 'edge' as const, id: c.factId })),
+    ];
     const answer = result.answer;
-    const citedFactIds = result.citations.map((c) => c.factId);
+    const citedFactIds = result.citations.filter((c) => !isEdgeCitation(c)).map((c) => c.factId);
     const entityIds = [...new Set(result.citations.map((c) => c.entityId).filter(Boolean))];
     // Gap 3 — language-agnostic enum guard. ctx.isEnumeration keys on the
     // English ENUMERATION_PATTERNS ("list all X" / "how many …"), so a
@@ -682,7 +482,9 @@ export class AnswerCacheService {
     // TTL. Off (default threshold) never shortens a small factoid answer.
     const broadAnswer =
       citedFactIds.length >= this.readPositiveInt('SYNTHESIZE_ANSWER_CACHE_ENUM_MIN_CITATIONS', 5);
-    const ttlHours = this.ttlHours(ctx.isEnumeration || broadAnswer);
+    // A fact-less answer takes the short TTL for the reason in the doc above:
+    // its probe sees the belief plane only.
+    const ttlHours = this.ttlHours(ctx.isEnumeration || broadAnswer || factless);
     const expiresAt = new Date(Date.now() + ttlHours * 3_600_000);
     try {
       const stored = await this.surreal.withCompany(ctx.companyId, async (db) => {
@@ -691,8 +493,12 @@ export class AnswerCacheService {
         // compares to. A dependency that is already missing, fenced, or
         // dead at admission means the answer is stale before it is
         // stored — never written (fail closed).
-        const dependencies = await this.stampDependencies(db, wanted, ctx);
-        if (dependencies === null) return false;
+        const stamped = await this.stampDependencies(db, wanted, ctx);
+        if (stamped === null) return false;
+        const { dependencies, beliefSubjects } = stamped;
+        // No anchor, no admission: a fact-less answer resting on episode or
+        // fragment arms alone has nothing the additive probe can watch.
+        if (factless && beliefSubjects.length === 0) return false;
         // Record id = queryHash, so re-admission after invalidation or
         // TTL expiry REPLACES the row in place (the unique
         // (companyId, queryHash) index stays trivially consistent).
@@ -709,6 +515,7 @@ export class AnswerCacheService {
              citedFactIds: $citedFactIds,
              entityIds: $entityIds,
              dependencies: $dependencies,
+             beliefSubjects: $beliefSubjects,
              profileHash: $profileHash,
              modelId: $modelId,
              promptVersion: $promptVersion,
@@ -729,6 +536,7 @@ export class AnswerCacheService {
             citedFactIds,
             entityIds,
             dependencies,
+            beliefSubjects,
             profileHash: ctx.profileHash,
             modelId: ctx.model,
             promptVersion: ANSWER_CACHE_PROMPT_VERSION,
@@ -889,7 +697,7 @@ export class AnswerCacheService {
       // clause double-fences both (a user-scoped query must never hit
       // a global entry and vice versa).
       const [rows] = await db.query<[CacheRow[]]>(
-        `SELECT id, answer, citedFactIds, entityIds, dependencies, createdAt,
+        `SELECT id, answer, citedFactIds, entityIds, dependencies, beliefSubjects, createdAt,
                 expiresAt, invalidatedAt
            FROM type::record($tb, $key)
           WHERE companyId = $companyId
@@ -922,7 +730,9 @@ export class AnswerCacheService {
     // back as id-only evidence citations (the rendered excerpt is not
     // stored); absent when there are none, per the SynthesizeResult
     // contract.
-    const evidenceCitations = (row.dependencies ?? []).map(citationOfDependency);
+    const evidenceCitations = (row.dependencies ?? [])
+      .map(citationOfDependency)
+      .filter((c): c is EvidenceCitation => c !== null);
     return {
       answer: row.answer,
       citations: verdict.citations,
@@ -957,12 +767,24 @@ export class AnswerCacheService {
     callerScopes: string[],
   ): Promise<{ cause: InvalidationCause } | { citations: Citation[] }> {
     const ids = row.citedFactIds ?? [];
-    if (ids.length === 0) return { cause: 'missing' };
     // 0136: a pre-0136 row carries no dependency list, so what it rests on
     // beyond its cited facts is unknown — fail closed (the key-version
     // bump already makes such a row miss; this is the belt to that brace).
     const dependencies = row.dependencies;
     if (!Array.isArray(dependencies)) return { cause: 'missing' };
+    // An answer rests on cited facts, cited relations (edge arms), or both.
+    const edgeIds = dependencies
+      .filter(isCachedDependency)
+      .filter((d) => d.kind === 'edge')
+      .map((d) => d.id);
+    // 0155: an answer rests on cited facts, cited relations, or — with no
+    // fact at all — on belief arms whose subjects the additive probe below
+    // watches. A row carrying none of the three cannot be revalidated: a
+    // pre-0155 fact-less row has no stored subjects and fails closed here.
+    const beliefSubjects = (row.beliefSubjects ?? []).filter((x) => typeof x === 'string' && x);
+    if (ids.length === 0 && edgeIds.length === 0 && beliefSubjects.length === 0) {
+      return { cause: 'missing' };
+    }
     const entityIds = row.entityIds ?? [];
     const answerCreatedAt =
       row.createdAt instanceof Date ? row.createdAt : new Date(String(row.createdAt));
@@ -977,10 +799,8 @@ export class AnswerCacheService {
       ? 'AND (userId IS NONE OR userId = $probeScopeUserId)'
       : 'AND userId IS NONE';
     const trackable = dependencies.filter(isCachedDependency);
-    const { facts, names, newer, dependencyRows, world } = await this.surreal.withScopedCompany(
-      ctx.companyId,
-      callerScopes,
-      async (db) => {
+    const { facts, names, newer, newerBeliefs, dependencyRows, world } =
+      await this.surreal.withScopedCompany(ctx.companyId, callerScopes, async (db) => {
         // 0136: the non-fact dependencies' live rows, on the SAME scoped
         // connection (one extra round trip only when the row has any),
         // plus the tenant-level fence state those rows are judged against.
@@ -1009,15 +829,39 @@ export class AnswerCacheService {
             ...(ctx.userId ? { probeScopeUserId: ctx.userId } : {}),
           },
         );
+        // 0155 — the belief plane's own additive probe, on the subjects the
+        // answer cited. A belief REVISED in place is already caught by its
+        // dependency stamp; this catches the sibling a revision does not
+        // touch: a new belief about the same subject, which is what changes
+        // the current state the answer described. Only for rows that carry
+        // subjects, so an ordinary fact answer pays nothing.
+        const newerBeliefs =
+          beliefSubjects.length > 0
+            ? ((
+                await db.query<[Array<{ id: unknown }>]>(
+                  `SELECT id FROM semantic_belief
+                    WHERE subject INSIDE $subjects
+                      AND status = 'active'
+                      AND createdAt > $answerCreatedAt
+                      AND userId = $beliefScopeUserId
+                    LIMIT 1`,
+                  {
+                    subjects: beliefSubjects,
+                    answerCreatedAt,
+                    beliefScopeUserId: ctx.userId ?? '',
+                  },
+                )
+              )[0] ?? [])
+            : [];
         return {
           facts: factRows ?? [],
           names: entityRows ?? [],
           newer: newerRows ?? [],
+          newerBeliefs,
           dependencyRows,
           world,
         };
-      },
-    );
+      });
     const byId = new Map(facts.map((f) => [String(f.id), f]));
     const nameById = new Map(names.map((e) => [String(e.id), e.canonicalName]));
     // Same user-scope semantics as loadVisibleFact: a user-bound token
@@ -1045,6 +889,17 @@ export class AnswerCacheService {
       const dependencyCause = this.evaluateDependencies(dependencies, dependencyRows, depFences);
       if (dependencyCause) result = { cause: dependencyCause };
       else if (this.hasNewerVisibleFact(newer, fences)) result = { cause: 'newer_fact' };
+      else if (newerBeliefs.length > 0) result = { cause: 'newer_belief' };
+      else if (edgeIds.length > 0) {
+        // The relation citations, rebuilt from the live rows the
+        // dependency gate just validated, follow the fact citations.
+        result = {
+          citations: [
+            ...result.citations,
+            ...edgeIds.map((id) => edgeCitation(id, dependencyRows.get(`edge|${id}`)!)),
+          ],
+        };
+      }
     }
     rowPolicy.finish();
     return result;
@@ -1070,8 +925,8 @@ export class AnswerCacheService {
     db: Pick<Surreal, 'query'>,
     wanted: ReadonlyArray<Pick<CachedDependency, 'kind' | 'id'>>,
     ctx: AnswerCacheStoreContext,
-  ): Promise<CachedDependency[] | null> {
-    if (wanted.length === 0) return [];
+  ): Promise<{ dependencies: CachedDependency[]; beliefSubjects: string[] } | null> {
+    if (wanted.length === 0) return { dependencies: [], beliefSubjects: [] };
     const fences: EvidenceFences = {
       caller: { callerScopes: ctx.callerScopes, userId: ctx.userId },
       world: await this.fetchWorldState(db, wanted),
@@ -1079,6 +934,7 @@ export class AnswerCacheService {
     const rows = await this.fetchDependencyRows(db, wanted);
     const snapshot = ctx.renderedStamps;
     const out: CachedDependency[] = [];
+    const subjects = new Set<string>();
     for (const dep of wanted) {
       const row = rows.get(`${dep.kind}|${dep.id}`);
       if (!row) return null;
@@ -1089,9 +945,15 @@ export class AnswerCacheService {
         const observed = snapshot.get(`${dep.kind}|${dep.id}`);
         if (observed === undefined || observed !== rev) return null;
       }
+      if (dep.kind === 'belief') {
+        const subject = typeof row.subject === 'string' ? row.subject.trim() : '';
+        // A belief whose subject did not come back cannot be probed, so it
+        // cannot anchor a fact-less answer — admission checks the set below.
+        if (subject !== '') subjects.add(subject);
+      }
       out.push({ kind: dep.kind, id: dep.id, rev });
     }
-    return out;
+    return { dependencies: out, beliefSubjects: [...subjects] };
   }
 
   /**
@@ -1318,8 +1180,4 @@ export class AnswerCacheService {
       );
     }
   }
-}
-
-function toMs(v: Date | string): number {
-  return v instanceof Date ? v.getTime() : Date.parse(String(v));
 }

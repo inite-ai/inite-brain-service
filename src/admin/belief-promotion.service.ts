@@ -4,7 +4,12 @@ import type OpenAI from 'openai';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { retryOnUniqueViolation } from '../db/surreal-retry';
-import { chatCallParams, createOpenAiClient } from '../ai/openai-client';
+import {
+  chatCallParams,
+  offlineServiceTier,
+  chatModel,
+  createOpenAiClient,
+} from '../ai/openai-client';
 import {
   sceneBeliefFieldFoldEnabled,
   sceneBeliefLlmSynthesisEnabled,
@@ -767,10 +772,7 @@ export class BeliefPromotionService {
     private readonly predicates: PredicateRegistryService,
   ) {
     this.openai = createOpenAiClient(configService);
-    this.model = configService.get<string>(
-      'SCENES_BELIEF_MODEL',
-      configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
-    );
+    this.model = configService.get<string>('SCENES_BELIEF_MODEL', chatModel(configService));
   }
 
   /**
@@ -815,11 +817,9 @@ export class BeliefPromotionService {
       const id = predicateIdFromFieldName(field);
       if (id === '') continue;
       try {
-        const decision = await this.predicates.canonicalize(
-          companyId,
-          id,
-          sample === '' ? id : `${id}: ${sample}`,
-        );
+        const decision = await this.predicates.canonicalize(companyId, id, {
+          text: sample === '' ? id : `${id}: ${sample}`,
+        });
         slots.set(field, decision.canonicalId);
       } catch (e) {
         this.logger.warn(
@@ -1347,7 +1347,11 @@ export class BeliefPromotionService {
     try {
       const res = await this.openai.chat.completions.create({
         model: this.model,
-        ...chatCallParams(this.model, { temperature: 0, visibleCap: SYNTHESIS_VISIBLE_CAP }),
+        ...chatCallParams(this.model, {
+          tier: offlineServiceTier(),
+          temperature: 0,
+          visibleCap: SYNTHESIS_VISIBLE_CAP,
+        }),
         messages: [
           { role: 'system', content: system },
           {

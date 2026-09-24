@@ -10,11 +10,14 @@ import { fragmentZoomEnabled, fragmentZoomMaxChars } from '../common/fovea-flags
 import { withSpan } from '../common/tracing';
 import { getAbortSignal } from '../common/request-context';
 import { runVerifier, type VerifierOutput } from './verifier';
+import type { DecisionService } from '../ai/decisions/decision.service';
+import type { ReasoningEffort } from '../ai/openai-client';
 import { miniCheckVerdict } from './minicheck-client';
 import { verifierErrorResult } from './synthesize.helpers';
 import { verifierPasses } from './l3-escalation';
 import { runFragmentZoom, type ZoomCandidate } from './fragment-zoom';
 import { captureZoomDecision, type DecisionContext } from './decision-emit';
+import type { Asker } from './asker';
 
 /**
  * The corrective-VERIFIER stage + the MM-zoom PR3 fragment-zoom step
@@ -70,6 +73,11 @@ export interface FragmentZoomSeamDeps {
   limiter: { run<T>(fn: () => Promise<T>): Promise<T> };
   fragmentLane?: FragmentZoomFetchPort | undefined;
   decisions?: MemoryDecisionService | undefined;
+  /**
+   * The System One plane (ai/decisions). Named apart from `decisions` above,
+   * which is the memory-decision LOG — this one decides, that one records.
+   */
+  decisionPlane?: DecisionService | undefined;
   /** The local NLI endpoint for abstention='minicheck' (V11 §2 arm b). */
   minicheck: { baseUrl: string; model: string };
 }
@@ -91,6 +99,8 @@ export interface VerifyStageArgs {
   /** The collector's rendered sections (evidence parity: generator,
    *  primary audit and zoom re-verify all read the same lines). */
   collected: {
+    /** Who is asking (asker.ts) — parity with the generator. */
+    asker?: Asker | undefined;
     fragmentLines: string[];
     fragmentZoom: ZoomCandidate[];
     transcriptLines: string[];
@@ -105,6 +115,8 @@ export interface VerifyStageArgs {
   };
   promptFactLines: string[];
   dateMathLines?: string[] | undefined;
+  /** The generator's "today" (dateContext) — the auditor sees the same. */
+  dateContext?: string | undefined;
   citations: Citation[];
   results: SearchHit[];
   decisionLog: Parameters<typeof verifierErrorResult>[0]['decisionLog'];
@@ -160,6 +172,7 @@ export async function verifyAndZoom(
               runVerifier({
                 openai: deps.openai,
                 metrics: deps.metrics,
+                decisions: deps.decisionPlane,
                 query: dto.query,
                 answer: generated.answer,
                 factLines: args.promptFactLines,
@@ -189,6 +202,12 @@ export async function verifyAndZoom(
                 // V13 date-table parity: the auditor sees the same
                 // computed table the generator saw.
                 dateMathLines: args.dateMathLines,
+                // And the same "today", so calendar placement relative
+                // to it is judged, not flagged.
+                dateContext: args.dateContext,
+                // And the same asker (asker.ts), so the query's first
+                // person and the answer's second person are one person.
+                asker: collected.asker,
                 // MM-zoom PR2 parity: the same media lines the
                 // generator saw (the 0113 capabilityEvidenceLines seam).
                 capabilityEvidenceLines: collected.fragmentLines,
@@ -200,6 +219,9 @@ export async function verifyAndZoom(
                 // V11 §2 arm (a): the audit may run on a stronger judge
                 // than the generator; empty override = same model.
                 model: profile.verifierModel || model,
+                ...(profile.verifierEffort
+                  ? { effort: profile.verifierEffort as ReasoningEffort }
+                  : {}),
               }),
             ),
           { 'synthesize.facts': args.factCount },
@@ -229,6 +251,7 @@ export async function verifyAndZoom(
     collected,
     promptFactLines: args.promptFactLines,
     dateMathLines: args.dateMathLines,
+    dateContext: args.dateContext,
     decisionCtx: args.decisionCtx,
   });
   return { verdict: zoomed ?? verdict };
@@ -244,6 +267,7 @@ interface FragmentZoomSeamArgs {
   /** The collector's rendered sections (evidence parity: the re-verify
    *  reuses them verbatim, only the fragment lines are enriched). */
   collected: {
+    asker?: Asker | undefined;
     fragmentLines: string[];
     fragmentZoom: ZoomCandidate[];
     transcriptLines: string[];
@@ -256,6 +280,7 @@ interface FragmentZoomSeamArgs {
   };
   promptFactLines: string[];
   dateMathLines?: string[] | undefined;
+  dateContext?: string | undefined;
   decisionCtx: DecisionContext;
 }
 
@@ -289,6 +314,7 @@ async function tryFragmentZoom(
             runVerifier({
               openai: deps.openai,
               metrics: deps.metrics,
+              decisions: deps.decisionPlane,
               query: dto.query,
               answer: args.generated.answer,
               factLines: args.promptFactLines,
@@ -303,8 +329,13 @@ async function tryFragmentZoom(
               timelineEvidence: collected.timelineEvidence,
               topicCoverage: profile.verifierTopicCoverage,
               dateMathLines: args.dateMathLines,
+              dateContext: args.dateContext,
+              asker: collected.asker,
               capabilityEvidenceLines: zoomedLines,
               model: profile.verifierModel || model,
+              ...(profile.verifierEffort
+                ? { effort: profile.verifierEffort as ReasoningEffort }
+                : {}),
             }),
           ),
         metrics: deps.metrics,

@@ -1,4 +1,6 @@
 import { applyFactSuffixes, renderUpdateStory } from '../src/synthesize/update-story';
+import { buildFactIndex } from '../src/synthesize/fact-index';
+import type { SearchHit } from '../src/search/search.types';
 import { UpdateStoryService } from '../src/synthesize/update-story.service';
 import { buildGeneratorUserMessage } from '../src/synthesize/generator-prompt';
 import type { SurrealService } from '../src/db/surreal.service';
@@ -25,7 +27,7 @@ describe('renderUpdateStory', () => {
         { object: 'works at Bar', validUntil: '2026-01-15T09:30:00Z' },
       ]),
     ).toBe(
-      ' [previously: works at Foo — until 2026-03-01; earlier: works at Bar — until 2026-01-15]',
+      ' (previously: works at Foo — until 2026-03-01; earlier: works at Bar — until 2026-01-15)',
     );
   });
 
@@ -36,7 +38,7 @@ describe('renderUpdateStory', () => {
       { object: 'v1' },
       { object: 'v0' },
     ]);
-    expect(s).toBe(' [previously: v3; earlier: v2; earlier: v1]');
+    expect(s).toBe(' (previously: v3; earlier: v2; earlier: v1)');
   });
 
   it('empty history renders nothing', () => {
@@ -51,31 +53,75 @@ describe('renderUpdateStory', () => {
 });
 
 describe('applyFactSuffixes', () => {
-  const lines = [
-    '[knowledge_fact:w1] Alex (person) — work: works at Baz (as of 2026-03-01)',
-    '[knowledge_fact:o1] Alex (person) — preferences: likes tea (as of 2026-01-01)',
-  ];
+  // The lines the generator reads: rendered by buildFactIndex, opening
+  // with a handle — the maps are keyed by the fact id behind it.
+  const { factLines: lines, factIndex } = buildFactIndex([
+    {
+      entityId: 'knowledge_entity:alex',
+      entityType: 'person',
+      canonicalName: 'Alex',
+      externalRefs: {},
+      score: 1,
+      facts: [
+        {
+          factId: 'knowledge_fact:w1',
+          predicate: 'work',
+          object: 'works at Baz',
+          confidence: 0.9,
+          score: 1,
+          validFrom: '2026-03-01T00:00:00.000Z',
+          status: 'active',
+        },
+        {
+          factId: 'knowledge_fact:o1',
+          predicate: 'preferences',
+          object: 'likes tea',
+          confidence: 0.9,
+          score: 1,
+          validFrom: '2026-01-01T00:00:00.000Z',
+          status: 'active',
+        },
+      ],
+    } as unknown as SearchHit,
+  ]);
 
-  it('appends the suffix to matching lines only', () => {
-    const out = applyFactSuffixes(lines, [
-      new Map([['knowledge_fact:w1', ' [previously: works at Foo — until 2026-03-01]']]),
-    ]);
-    expect(out[0]).toBe(lines[0] + ' [previously: works at Foo — until 2026-03-01]');
+  it('the lines open with handles, and the id-keyed suffix lands on the matching line only', () => {
+    expect(lines.map((l) => l.slice(0, 5))).toEqual(['[f1] ', '[f2] ']);
+    const out = applyFactSuffixes(
+      lines,
+      [new Map([['knowledge_fact:w1', ' (previously: works at Foo — until 2026-03-01)']])],
+      factIndex,
+    );
+    expect(out[0]).toBe(lines[0] + ' (previously: works at Foo — until 2026-03-01)');
     expect(out[1]).toBe(lines[1]);
   });
 
   it('stacks maps in order on the same line (stories then quotes)', () => {
-    const out = applyFactSuffixes(lines, [
-      new Map([['knowledge_fact:w1', ' [previously: works at Foo]']]),
-      new Map([['knowledge_fact:w1', ' [source 2026-02-01 Alex: "joined Baz"]']]),
-    ]);
+    const out = applyFactSuffixes(
+      lines,
+      [
+        new Map([['knowledge_fact:w1', ' (previously: works at Foo)']]),
+        new Map([['knowledge_fact:w1', ' (source 2026-02-01 Alex: "joined Baz")']]),
+      ],
+      factIndex,
+    );
     expect(out[0]).toBe(
-      lines[0] + ' [previously: works at Foo]' + ' [source 2026-02-01 Alex: "joined Baz"]',
+      lines[0] + ' (previously: works at Foo)' + ' (source 2026-02-01 Alex: "joined Baz")',
     );
   });
 
+  it('a line that opens with a raw id (no handle table) matches by that id', () => {
+    const raw = ['[knowledge_fact:w1] Alex (person) — work: works at Baz'];
+    const out = applyFactSuffixes(
+      raw,
+      [new Map([['knowledge_fact:w1', ' (previously: Foo)']])],
+      new Map(),
+    );
+    expect(out[0]).toBe(raw[0] + ' (previously: Foo)');
+  });
+
   it('empty and absent maps pass lines through byte-identical', () => {
-    expect(applyFactSuffixes(lines, [new Map(), undefined])).toEqual(lines);
+    expect(applyFactSuffixes(lines, [new Map(), undefined], factIndex)).toEqual(lines);
   });
 });
 
@@ -123,7 +169,7 @@ describe('UpdateStoryService', () => {
       callerScopes: [],
     });
     expect(out.get('knowledge_fact:w1')).toBe(
-      ' [previously: works at Foo — until 2026-03-01; earlier: works at Bar — until 2026-01-15]',
+      ' (previously: works at Foo — until 2026-03-01; earlier: works at Bar — until 2026-01-15)',
     );
     expect(out.has('knowledge_fact:noHistory')).toBe(false);
   });
@@ -161,14 +207,14 @@ describe('UpdateStoryService', () => {
       factIds: ['knowledge_fact:w1'],
       callerScopes: [],
     });
-    expect(without.get('knowledge_fact:w1')).toBe(' [previously: works at Foo — until 2026-03-01]');
+    expect(without.get('knowledge_fact:w1')).toBe(' (previously: works at Foo — until 2026-03-01)');
     const withScope = await makeService(byWinner, undefined, registry).previousStories({
       companyId: 'c1',
       factIds: ['knowledge_fact:w1'],
       callerScopes: ['sec:internal'],
     });
     expect(withScope.get('knowledge_fact:w1')).toBe(
-      ' [previously: works at Foo — until 2026-03-01; earlier: secret prior value — until 2026-02-01]',
+      ' (previously: works at Foo — until 2026-03-01; earlier: secret prior value — until 2026-02-01)',
     );
   });
 

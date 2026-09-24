@@ -11,6 +11,7 @@ import { salvageTruncatedAnswer } from './synthesize.helpers';
 import type { GeneratorOutput } from './synthesize.types';
 import type { Citation } from './fact-index';
 import { expandCitationHandles } from './synthesize.helpers';
+import type { Asker } from './asker';
 
 /**
  * Generator client — the synthesis LLM call, split out of
@@ -24,10 +25,11 @@ import { expandCitationHandles } from './synthesize.helpers';
 
 const GENERATOR_SYSTEM = `You are an answer synthesizer for a knowledge graph.
 
-Given a user query and a set of retrieved facts (each prefixed with a short handle in square brackets, e.g. "[f3] ..."), generate a CONCISE answer that:
+Given a user query and a set of retrieved facts (each prefixed with a short handle in square brackets, e.g. "[f3] ..." — a relation between two entities reads "[r2] A — kind → B" and is a fact like any other), generate a CONCISE answer that:
 1. Uses ONLY information present in the provided facts. Do NOT speculate, fill in missing details, or use outside knowledge.
-2. After each claim in the answer, inline the handle of the fact that supports it, in square brackets, EXACTLY as it appears at the start of that fact's line. Example: "Maya complained about a broken washing machine [f3]". Cite only handles that appear in the fact list. Mirror every handle you cite inline into the citedFactIds array (e.g. ["f3"]).
+2. After each claim in the answer, inline the handle of the fact that supports it, in square brackets, EXACTLY as it appears at the start of that fact's line. Example: "Maya complained about a broken washing machine [f3]"; "Pedro covers for Ana [r2]". Cite only handles that appear in the fact list. Mirror every handle you cite inline into the citedFactIds array (e.g. ["f3", "r2"]).
 3. If the facts do not answer the question, output the exact answer string "I don't have grounded evidence for that." with citedFactIds set to [].
+4. A question about the current state gets the current value alone; a former value belongs only in an answer about history or change.
 
 Output strictly the JSON shape requested by the schema. Do not include preamble, follow-ups, or chain-of-thought.`;
 
@@ -39,7 +41,7 @@ Output strictly the JSON shape requested by the schema. Do not include preamble,
  */
 const GENERATOR_SYSTEM_ANSWER = `You are an answer synthesizer for a knowledge graph.
 
-Given a user query and a set of retrieved facts (each prefixed with a short handle in square brackets, e.g. "[f3] ..."), generate a SHORT, CONCRETE answer that:
+Given a user query and a set of retrieved facts (each prefixed with a short handle in square brackets, e.g. "[f3] ..." — a relation between two entities reads "[r2] A — kind → B" and is a fact like any other), generate a SHORT, CONCRETE answer that:
 1. Is grounded in the provided facts — prefer specifics stated in them; do not invent named entities, dates, or numbers that no fact supports.
 2. After each claim, inline the handle of the supporting fact in square brackets EXACTLY as it appears at the start of that fact's line (e.g. "[f3]"), and mirror every cited handle into citedFactIds.
 3. ALWAYS commit to an answer. If the facts do not fully resolve the question, give the single most likely short answer they point to — do NOT refuse, do NOT output "I don't have grounded evidence", do NOT hedge with "the facts don't say". Answer in as few words as the question allows.
@@ -79,6 +81,15 @@ export interface GenerateRequest {
   neverAbstain?: boolean | undefined;
   /** ISO date the answer should treat as "today" (SYNTHESIZE_DATE_CONTEXT). */
   dateContext?: string | undefined;
+  /** Who is asking (asker.ts): the query's first person is this entity. */
+  asker?: Asker | undefined;
+  /**
+   * The revision round (revise-round.ts): the previous answer and the
+   * claims the grounding audit found unsupported. The user message
+   * opens with them and the generator rewrites from the same evidence,
+   * keeping what was supported and dropping or correcting the rest.
+   */
+  revise?: { answer: string; unsupportedClaims: string[] } | undefined;
   /** T1 typed dispatch lane, when the router matched. */
   lane?: LaneId | null | undefined;
   /** §8 item 3: enumeration scope discipline (profile.enumStrict). */

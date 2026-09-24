@@ -117,7 +117,10 @@ describe('per-user memory scope', () => {
     });
   });
 
-  it('a vertical+id ref with userId mints a scoped entity, not the global one', async () => {
+  it('a vertical+id ref with userId lands on the tenant node — the fact is personal, the identity is shared', async () => {
+    // Identity is tenant-wide, scope is on the fact: the same reference
+    // names the same thing for every user; a private copy of the node
+    // would split its history and its conflicts (2026-09-20).
     const personal = await ingest({
       entityRef: { vertical: 'rent', id: 'scope_subject' },
       predicate: 'name',
@@ -126,21 +129,41 @@ describe('per-user memory scope', () => {
     });
     const surreal = f.app.get(SurrealService);
     await surreal.withCompany(f.companyId, async (db) => {
-      const [rows] = await db.query<[Array<{ entityId: unknown; userId: string | null }>]>(
-        `SELECT entityId, entityId.userId AS userId FROM type::record('knowledge_fact', $tail)`,
+      const [rows] = await db.query<
+        [
+          Array<{
+            entityId: unknown;
+            entityUserId: string | null;
+            entityName: string;
+            factUserId: string | null;
+          }>,
+        ]
+      >(
+        `SELECT entityId, entityId.userId AS entityUserId, entityId.canonicalName AS entityName,
+                userId AS factUserId
+           FROM type::record('knowledge_fact', $tail)`,
         { tail: (personal.factId as string).split(':')[1] },
       );
-      const row = (rows as Array<{ entityId: unknown; userId: string | null }>)[0]!;
-      expect(String(row.entityId)).not.toBe(sharedEntityId);
-      expect(row.userId).toBe('user_a');
+      const row = (rows as Array<Record<string, unknown>>)[0]!;
+      expect(String(row.entityId)).toBe(sharedEntityId);
+      expect(row.entityUserId ?? null).toBeNull();
+      expect(row.factUserId).toBe('user_a');
+      // A user's private `name` fact never renames the shared node.
+      expect(row.entityName).toBe('Scope Probe Subject');
     });
+    // The private name is still the user's own memory.
+    expect(await searchObjects('Private View', 'user_a')).toContain('My Private View Of Subject');
+    expect(await searchObjects('Private View', 'user_b')).not.toContain(
+      'My Private View Of Subject',
+    );
   });
 
   it('user forget erases exactly that user, nothing else', async () => {
     const forget = await f.http.post('/v1/users/user_a/forget').set(auth()).send({});
     expect([200, 201]).toContain(forget.status);
     expect(forget.body.factsDeleted).toBeGreaterThanOrEqual(3);
-    expect(forget.body.entitiesDeleted).toBeGreaterThanOrEqual(1);
+    // The shared node stays — only user_a's facts on it go.
+    expect(forget.body.entitiesDeleted).toBe(0);
 
     expect(await searchObjects('quiet upper floors', 'user_a')).not.toContain(
       'prefers quiet upper floors',

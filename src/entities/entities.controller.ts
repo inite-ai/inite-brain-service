@@ -84,6 +84,7 @@ export class EntitiesController {
     @Param('id') id: string,
     @Query('kind') kind?: string,
     @Query('asOf') asOf?: string,
+    @Query('userId') userId?: string,
   ) {
     return this.entities.getConnections({
       companyId: req.brainAuth.companyId,
@@ -91,6 +92,9 @@ export class EntitiesController {
       kind,
       scopes: req.brainAuth.scopes,
       asOf,
+      // Per-user scope (READ_SURFACE_USER_SCOPE gated; pinned to a
+      // user-bound token's end-user inside the service).
+      userId,
     });
   }
 

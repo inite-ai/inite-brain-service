@@ -6,6 +6,7 @@
  */
 import {
   checkEvolution,
+  checkOrdering,
   classifyConflictAnswer,
   containsAnyOf,
   dateVariants,
@@ -26,6 +27,40 @@ describe('memory-fitness scorers', () => {
     it('names the first forbidden needle present', () => {
       expect(findForbidden('The queue is Redis Streams.', ['Redis'])).toBe('Redis');
       expect(findForbidden('The queue is NATS.', ['Redis'])).toBeNull();
+    });
+  });
+
+  describe('checkOrdering (D1 currency and D9 event-time order)', () => {
+    const current = ['JetStream', 'NATS'];
+    const prior = ['Redis'];
+
+    it('passes the current value told with what it replaced', () => {
+      // The answer the old D1 forbid failed: current state, honestly told.
+      const v = checkOrdering(
+        'The current job queue backend for ledger-sync is NATS JetStream, replacing Redis Streams.',
+        current,
+        prior,
+      );
+      expect(v.pass).toBe(true);
+      expect(v.detail).toMatch(/current value leads/);
+    });
+
+    it('passes the current value alone', () => {
+      expect(checkOrdering('ledger-sync uses NATS JetStream.', current, prior).pass).toBe(true);
+    });
+
+    it('fails an answer that leads with the superseded value', () => {
+      const v = checkOrdering(
+        'The queue backend is Redis Streams; a move to NATS JetStream was discussed.',
+        current,
+        prior,
+      );
+      expect(v.pass).toBe(false);
+      expect(v.detail).toMatch(/leads with the superseded value/);
+    });
+
+    it('fails when the current value is absent', () => {
+      expect(checkOrdering('The queue backend is Redis Streams.', current, prior).pass).toBe(false);
     });
   });
 

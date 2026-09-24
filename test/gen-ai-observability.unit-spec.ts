@@ -12,6 +12,7 @@ interface RecordedCall {
   durationSeconds: number;
   promptTokens?: number;
   completionTokens?: number;
+  cachedPromptTokens?: number;
 }
 
 class FakeMetrics {
@@ -78,6 +79,40 @@ describe('withGenAiCall', () => {
       async () => ({ id: 'r' }),
     );
     expect((res as any).id).toBe('r');
+  });
+
+  it('counts the cached part of the prompt — chat shape', async () => {
+    // Cached input bills at a tenth of the rate. Without this number a
+    // prefix-stability change is unmeasurable: the token counter looks the
+    // same whether the prompt was paid for once or every time.
+    const m = new FakeMetrics();
+    await withGenAiCall(
+      { kind: 'chat', spanName: 'gen_ai.chat.cached', system: 'openai', model: 'x' },
+      m as any,
+      async () => ({
+        id: 'r',
+        usage: {
+          prompt_tokens: 4096,
+          completion_tokens: 120,
+          prompt_tokens_details: { cached_tokens: 3072 },
+        },
+      }),
+    );
+    expect(m.recorded[0]!.promptTokens).toBe(4096);
+    expect(m.recorded[0]!.cachedPromptTokens).toBe(3072);
+  });
+
+  it('counts it under the responses-API name too', async () => {
+    const m = new FakeMetrics();
+    await withGenAiCall(
+      { kind: 'chat', spanName: 'gen_ai.chat.cached2', system: 'openai', model: 'x' },
+      m as any,
+      async () => ({
+        id: 'r',
+        usage: { prompt_tokens: 2048, input_tokens_details: { cached_tokens: 1024 } },
+      }),
+    );
+    expect(m.recorded[0]!.cachedPromptTokens).toBe(1024);
   });
 
   it('handles responses with no usage block (e.g. cached / partial)', async () => {

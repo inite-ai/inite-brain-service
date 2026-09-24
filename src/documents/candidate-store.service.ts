@@ -414,6 +414,10 @@ export class CandidateStoreService {
             type: e.type,
             canonical: e.canonical,
             ...(e.externalId ? { externalId: e.externalId } : {}),
+            // The memory-context pin (extractor-internals/memory-context):
+            // the knowledge_entity this mention refers to. Absent when the
+            // extractor pinned nothing, so the row is unchanged for those.
+            ...(e.known ? { known: e.known } : {}),
             ungrounded: e.ungrounded,
             indexerId: prov.indexerId,
             packVersion: prov.packVersion,
@@ -430,6 +434,10 @@ export class CandidateStoreService {
             predicate: f.predicate,
             object: f.object,
             clause: f.clause,
+            // Memory-context fields: the day the value refers to and the
+            // known facts this one replaces. Absent = absent.
+            ...(f.eventTime ? { eventTime: f.eventTime } : {}),
+            ...(f.supersedes && f.supersedes.length > 0 ? { supersedes: f.supersedes } : {}),
             ungrounded: f.ungrounded,
             extractionEntropy: f.extractionEntropy,
             extractionAgreement: f.extractionAgreement,

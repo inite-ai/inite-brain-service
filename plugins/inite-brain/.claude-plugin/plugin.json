@@ -31,7 +31,7 @@
     "user_id": {
       "type": "string",
       "title": "Personal memory scope (optional)",
-      "description": "Tags what the hooks write and read with this end-user id, so a shared workspace key still keeps your memory yours. Leave empty to use the workspace-wide scope."
+      "description": "Tags what the hooks write and read with this end-user id, so a shared workspace key still keeps your memory yours — and brain files what you say in the first person under you, so \"what did I ask for\" later means you. Leave empty to use the workspace-wide scope."
     },
     "recall_on_start": {
       "type": "boolean",

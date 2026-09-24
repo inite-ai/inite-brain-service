@@ -211,8 +211,41 @@ jobs:
           AUDIT_CHANGEFEED_ENABLED=1
           # ── Ingest / extraction quality ──
           EXTRACTION_OBJECT_NORMALIZE=1
-          EXTRACTOR_ROUTING_ENABLED=1
+          # The open (dialogue) extraction profile: the model coins a
+          # specific predicate per clause; the closed CRM vocabulary is
+          # applied downstream by canonicalization. Production ran the
+          # CLOSED profile until 2026-09-18 — every business fact was
+          # squeezed into name/status/intent/state_change and contract
+          # amounts and dates were dropped outright (the co_admin
+          # registry: 27 `name` facts of 61, 17 coined Russian-word
+          # predicates). Measured on gpt-5.6-luna, same build:
+          # multilingual T0 temporal-exact-day 0.57 (closed) → 1.00
+          # (open), extraction-f1 0.76 both; memory-fitness 26/32 closed,
+          # 25/32 open, 24/32 open+facets (D1 state currency fails in
+          # every arm — a supersession problem, not a profile one).
+          # Facet routing (EXTRACTOR_ROUTING_ENABLED) only runs under
+          # this profile: it was dead here for months, and measured it
+          # doubles the extractor call for +0.00 f1 and duplicate
+          # predicates — it stays off. Requires re-ingest for old rows.
+          EXTRACTOR_DIALOGUE_PROFILE=1
+          EXTRACTOR_ROUTING_ENABLED=0
           EXTRACTOR_DROP_SAID=1
+          # Three self-consistency samples per extraction, unioned by
+          # semantic cluster. The write is the one stochastic step that is
+          # never re-run, and the reasoning model samples at its default
+          # temperature. Measured 2026-09-20 (prod parity, gpt-5.6-luna):
+          # memory-fitness 31 -> 32/32, state-transitions 10 -> 11/12,
+          # multilingual T0 = baseline; latency unchanged (parallel),
+          # three extractor calls per turn.
+          EXTRACTOR_SC_PASSES=3
+          # The three decision lanes measured on the prod-parity stand
+          # (2026-09-24): with all of them on, memory-fitness 32/32 and
+          # state-transitions ru 11/12 · 24/25 — identical to the same assembly
+          # without the plane, at a thirtieth of the price per judgement and a
+          # fraction of the latency. Named explicitly rather than `all` so a
+          # lane added later cannot switch itself on unmeasured. Inert until
+          # TYPESAFE_API_KEY is set.
+          DECISIONS_LANES=entity_judge,predicate_identity,verifier
           INGEST_INLINE_RESOLUTION_ENABLED=1
           INGEST_CONTEXTUAL_FACT_EMBEDDING=1
           INGEST_EVENT_TIME_EXTRACTION=1
@@ -384,16 +417,22 @@ jobs:
           CONFLICT_DIRECT_FACT_SLOT=1
           BELIEFS_LANE_DATE_DISAMBIGUATION=1
           PROVENANCE_EPISODE_NEIGHBOURS=1
-          # ── Literal harvest + belief transitions (#423/#426, measured:
-          # memory-fitness 70% -> 90% with the harvest lane; Compass
-          # acceptance green — negation revision + field fold) ──
-          EXTRACTOR_LITERAL_HARVEST=1
+          # ── Belief transitions (#423/#426; Compass acceptance green —
+          # negation revision + field fold). The literal harvest lane that
+          # shipped with them is OFF since the extractor reads the memory
+          # (extraction-with-memory.md): measured 2026-09-18 on the same
+          # build, lanes on vs off — memory-fitness 26/32 vs 26/32,
+          # state-transitions ru 8/12 (21/25) vs 8/12 (21/25) — while the
+          # regex lane wrote `identifier: Fly.io` on every turn naming a
+          # host. Same for the state-verb and transition-classifier lanes
+          # below. ──
+          EXTRACTOR_LITERAL_HARVEST=0
           SCENES_BELIEF_NEGATION_DELTAS=1
           SCENES_BELIEF_FIELD_FOLD=1
-          # ── State-verb harvest (#429/#431, measured: state-transition
-          # battery 4/12 -> 8/12 scenarios, checks 84%; held-out
-          # adversarial set 18/18; unit 29/29 incl. holder binding) ──
-          EXTRACTOR_STATE_VERB_HARVEST=1
+          # ── State-verb harvest (#429/#431): a lexicon lane the memory
+          # contract makes redundant — the extractor's `supersedes` closes
+          # the state the lane used to flip (measured null above). ──
+          EXTRACTOR_STATE_VERB_HARVEST=0
           # ── Answer conditioning (V13 G2 shape instructions; existing
           # flag, was never enabled — the aggregation shape's coverage
           # instruction fixes broad-question domain dropout. Measured on
@@ -412,7 +451,9 @@ jobs:
           # status vs duration_limit — so no single_active collision
           # exists to pair; slot canonicalization is the follow-up). ──
           CONFLICT_MENTION_FACT_SLOT=1
-          EXTRACTOR_TRANSITION_CLASSIFIER=1
+          # Prototype-bank transition lane: measured null under the memory
+          # contract (see EXTRACTOR_LITERAL_HARVEST above); off.
+          EXTRACTOR_TRANSITION_CLASSIFIER=0
           # ── s07/k07/k10 root-cause wave (#450 #454 #455 #456, all
           # live-verified on the stand 2026-09-06):
           # - slot canonicalization: calendar-anchored duration claims
@@ -480,6 +521,10 @@ jobs:
           BRAIN_SURREAL_PASS: ${{ secrets.BRAIN_SURREAL_PASS }}
           BRAIN_SURREAL_SCOPED_PASS: ${{ secrets.BRAIN_SURREAL_SCOPED_PASS }}
           BRAIN_OPENAI_API_KEY: ${{ secrets.BRAIN_OPENAI_API_KEY }}
+          # The decision plane's key (OpenRouter, which proxies the System One
+          # protocol). Unset ⇒ every decision lane is inert and each judge runs
+          # on the chat model exactly as before.
+          BRAIN_TYPESAFE_API_KEY: ${{ secrets.BRAIN_TYPESAFE_API_KEY }}
           BRAIN_FORGET_HMAC_KEY: ${{ secrets.BRAIN_FORGET_HMAC_KEY }}
           BRAIN_BILLING_API_KEY: ${{ secrets.BRAIN_BILLING_API_KEY }}
         run: |
@@ -724,8 +769,12 @@ jobs:
                 - SURREALDB_SCOPED_USER=brain_caller
                 - SURREALDB_SCOPED_PASS=${BRAIN_SURREAL_SCOPED_PASS}
                 # OpenAI for embeddings + extraction + faithfulness verifier.
+                # Chat model = the platform default (gpt-5.6-luna, the
+                # cost tier of the newest generation); pin a different
+                # id here only to measure against it.
                 - OPENAI_API_KEY=${BRAIN_OPENAI_API_KEY}
-                - OPENAI_CHAT_MODEL=gpt-4o-mini-2024-07-18
+                - TYPESAFE_API_KEY=${BRAIN_TYPESAFE_API_KEY}
+                - TYPESAFE_BASE_URL=https://openrouter.ai/api
                 # OpenAI client budget — same as eval. Per-stage budgets
                 # in search.service.ts (SEARCH_STAGE_BUDGET_MS) cap the
                 # end-to-end pipeline regardless of what individual calls

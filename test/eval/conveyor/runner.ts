@@ -104,6 +104,7 @@ const at = (minute: number) => new Date(Date.UTC(2026, 8, 16, 10, minute)).toISO
  */
 const FOOTPRINT: Record<string, string[]> = {
   // ingest
+  'ingest.participants': ['ingest.participants'],
   'ingest.capture': ['ingest.episode.captured'],
   'ingest.extract': ['ingest.nlu.extract', 'indexer.run.extract'],
   'ingest.embed': ['gen_ai.embed'],
@@ -124,8 +125,7 @@ const FOOTPRINT: Record<string, string[]> = {
   'retrieval.5': ['search.edge_expansion'],
   'retrieval.6': ['search.ppr'],
   'retrieval.6b': ['search.segment_leg'],
-  'retrieval.7': ['search.rerank', 'search.cross_encoder'],
-  'retrieval.7b': ['search.fact_rerank'],
+  'retrieval.7': ['search.rerank', 'search.cross_encoder', 'search.fact_rerank'],
   'retrieval.8': ['search.fact_centric'],
   // synthesize
   'synthesize.cache': ['synthesize.answer_cache'],
@@ -273,16 +273,23 @@ async function main(): Promise<void> {
     ),
   );
   check('resolution ladder on the trace', steps.length > 0, steps.join(' | ') || 'no artifact');
+  // Cross-script identity is decided either by the extractor's own pin
+  // (memory context: the mention resolves `known`, no judge needed) or by
+  // the judge for a mention the memory did not hold. Either decision must
+  // be on the trace; a judge call for a mention the extractor already
+  // pinned would be the waste the pin exists to remove.
   const judged = calls.flatMap((c) => c.artifacts.get('ingest.entity.judge') ?? []);
+  const pinned = steps.filter((s) => s.endsWith('→known'));
   check(
-    'judge question and verdict on the trace',
-    judged.length > 0,
-    judged
-      .map((v) => {
+    'cross-script identity decided on the trace (extractor pin or judge)',
+    judged.length > 0 || pinned.length > 0,
+    [
+      ...pinned,
+      ...judged.map((v) => {
         const j = v as { name: string; verdict: string; candidate: { canonicalName?: string } };
         return `${j.name} vs ${j.candidate.canonicalName ?? '?'} → ${j.verdict}`;
-      })
-      .join(' | ') || 'no judge call',
+      }),
+    ].join(' | ') || 'neither a pin nor a judge call',
   );
   const eventTimes = calls.flatMap((c) => c.artifacts.get('ingest.fact.event_time') ?? []);
   const march = eventTimes.some((v) => (v as { resolved: string }).resolved === '2026-03-03');
@@ -334,12 +341,25 @@ async function main(): Promise<void> {
       none.body.reason !== undefined,
     `reason=${String(none.body.reason)} answer=${answer(none).slice(0, 60)}`,
   );
-  const verdicts = calls.flatMap((c) =>
-    (c.artifacts.get('synthesize.verifier_output') ?? []).map(
+  // The audit can be settled two ways, and the row asserts that it WAS
+  // settled: the auditor LLM (`synthesize.verifier_output`), or the decision
+  // plane clearing the answer outright (`synthesize.verifier_decision`, which
+  // only ever emits 'supported' — it may clear an answer, never condemn one).
+  // Reading only the first artifact made an enabled `verifier` lane look like
+  // a missing verification.
+  const verdicts = calls.flatMap((c) => [
+    ...(c.artifacts.get('synthesize.verifier_output') ?? []).map(
       (v) => (v as { verdict: string }).verdict,
     ),
+    ...(c.artifacts.get('synthesize.verifier_decision') ?? []).map(
+      (v) => `${(v as { verdict: string }).verdict} (decision plane)`,
+    ),
+  ]);
+  check(
+    'verify: supported',
+    verdicts.some((v) => v.startsWith('supported')),
+    verdicts.join(', ') || 'no verifier',
   );
-  check('verify: supported', verdicts.includes('supported'), verdicts.join(', ') || 'no verifier');
   const cacheDecisions = (date2.artifacts.get('synthesize.answer_cache') ?? []).map(
     (v) => (v as { decision: string }).decision,
   );

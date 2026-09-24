@@ -156,6 +156,13 @@ function cosine(a: readonly number[], b: readonly number[]): number {
 
 export interface TransitionClassifier {
   classify(clauses: string[]): Promise<TransitionVerdict[]>;
+  /**
+   * Embed the prototype bank now instead of on the first classify().
+   * The bank is ~40 sentences; on the production host that is 5–6 s of
+   * embedding, paid by the first ingest after every deploy until the
+   * runner started warming it at boot. Rejects like classify() would.
+   */
+  warm(): Promise<void>;
 }
 
 /**
@@ -186,6 +193,9 @@ export function createTransitionClassifier(embed: EmbedFn): TransitionClassifier
   };
 
   return {
+    async warm(): Promise<void> {
+      await bankVectors();
+    },
     async classify(clauses: string[]): Promise<TransitionVerdict[]> {
       if (clauses.length === 0) return [];
       const bank = await bankVectors();

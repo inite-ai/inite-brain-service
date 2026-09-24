@@ -4,9 +4,11 @@ import { SurrealService } from '../db/surreal.service';
 import { EntityUpsertService } from '../ingest/entity-upsert.service';
 import { FactResolverService } from '../ingest/fact-resolver.service';
 import { createEdgeBetween } from '../ingest/edge-writer';
-import { factValidFrom, resolveEventTimeOpts } from '../ingest/event-time';
+import { factTiming, resolveEventTimeOpts } from '../ingest/event-time';
 import { traceSpan } from '../common/debug-trace';
 import { originKeyOf, StoredDocument } from './document-store.service';
+import { internalMetaString, participantsFromMeta } from './document-meta';
+import { coreferentParticipant, participantHint } from '../ingest/participants';
 import { sanitizeSourceMeta } from '../policy/source-meta';
 import { sourceVersionFromHeader } from './document-meta';
 import { incomingFactsFor, MergedFact, MergedRelation, MergeResult } from './candidate-merge';
@@ -73,17 +75,26 @@ export class CommitWriterService {
     p: { doc: StoredDocument; merge: MergeResult },
   ): Promise<Map<string, string>> {
     const entityIds = new Map<string, string>();
+    const participants = participantsFromMeta(p.doc.meta);
     for (const me of p.merge.entities) {
       const eid = await traceSpan(
         'brain.commit.entity',
         () =>
           this.entities.resolveOrCreateNamedEntity({
             db,
-            e: { name: me.name, type: me.type, canonical: me.canonical },
-            // A system-of-record id names WHICH entity this is (a CRM
-            // contact by its id, whatever it is called today); prose
-            // candidates carry none and resolve by name.
-            hint: me.externalId ? { vertical: p.doc.vertical, id: me.externalId } : undefined,
+            e: { name: me.name, type: me.type, canonical: me.canonical, known: me.known },
+            // Two anchors, most specific first. A system-of-record id names
+            // WHICH entity this is (a CRM contact by its id, whatever it is
+            // called today) and cannot be guessed from prose, so it wins when
+            // the records door supplied one. Otherwise the participant this
+            // mention corefers to (first person / the speaker's own name →
+            // the speaker; second person / the addressee's name → the
+            // addressee) anchors it to the caller's externalRef — the same
+            // rule as the direct path (participants.ts), and the user's own
+            // ref carries their scope.
+            hint: me.externalId
+              ? { vertical: p.doc.vertical, id: me.externalId }
+              : participantHint(coreferentParticipant(me.name, participants), p.doc.userId),
             _contextRef: { vertical: p.doc.vertical },
             incomingFacts: incomingFactsFor(p.merge, me.key),
           }),
@@ -107,7 +118,7 @@ export class CommitWriterService {
     const outcomes: FactWriteOutcome[] = [];
     // The speaker's session timezone rides the internal document channel
     // (mention-via-document); a document posted directly has none.
-    const timeOpts = resolveEventTimeOpts(internalString(p.doc, 'timezone'));
+    const timeOpts = resolveEventTimeOpts(internalMetaString(p.doc.meta, 'timezone'));
     for (const [i, mf] of p.factsToWrite.entries()) {
       const entityId = p.entityIds.get(mf.entityKey);
       if (!entityId) {
@@ -122,6 +133,12 @@ export class CommitWriterService {
       // pipeline's own motto: one broken pack must not hold a document's
       // memory hostage.
       try {
+        // The day the extractor resolved, else the occurrence date the
+        // clause names, else the document's time — the same rule, from
+        // the same function, as the direct mention path. This used to be
+        // `p.doc.occurredAt` unconditionally, which stamped every fact a
+        // stock deployment ingests with the day it was SAID.
+        const { validFrom, objectMeta } = factTiming(mf, p.doc.occurredAt, timeOpts);
         const { result } = await traceSpan(
           'brain.commit.fact',
           () =>
@@ -131,12 +148,9 @@ export class CommitWriterService {
               predicate: mf.predicate,
               object: mf.object,
               confidence: mf.confidence,
-              // The occurrence date the clause names, else the document's
-              // time — the same rule, from the same function, as the
-              // direct mention path. This used to be `p.doc.occurredAt`
-              // unconditionally, which stamped every fact a stock
-              // deployment ingests with the day it was SAID.
-              validFrom: factValidFrom(mf, p.doc.occurredAt, timeOpts),
+              validFrom,
+              objectMeta,
+              supersedes: mf.supersedes,
               source: this.factSource(p.doc, mf),
               entropy: mf.entropy,
               precomputedEmbedding: p.embeddings[i],
@@ -194,6 +208,8 @@ export class CommitWriterService {
                 originKey: originKeyOf(p.doc.contentHash),
                 confidence: mr.confidence,
               },
+              // Same scope as the document's facts (0055).
+              userId: p.doc.userId,
             }),
           { kind: mr.kind, from: fromId, to: toId },
         );
@@ -220,7 +236,7 @@ export class CommitWriterService {
     // The L0 turn the mention wrapper captured for this document. Stamped
     // exactly as the direct path stamps it, so GET /v1/facts/:id/provenance
     // walks a document-path fact back to its episode too.
-    const episodeId = internalString(doc, 'episodeId');
+    const episodeId = internalMetaString(doc.meta, 'episodeId');
     return {
       vertical: doc.vertical,
       recorder: mf.recorder,
@@ -321,14 +337,4 @@ export function sourceVersionOf(mf: MergedFact, doc?: StoredDocument): Record<st
     sourceVersionFromHeader(doc?.meta as Record<string, unknown> | undefined) ??
     undefined;
   return stamp ? { sourceVersion: stamp } : {};
-}
-
-/**
- * A brain-owned string off the RAW document header (document-meta.ts:
- * the internal channel never passes the caller gate, so it is read
- * here, not from the sanitized projection).
- */
-function internalString(doc: StoredDocument, key: 'episodeId' | 'timezone'): string | undefined {
-  const v = (doc.meta as Record<string, unknown> | undefined)?.[key];
-  return typeof v === 'string' && v.length > 0 ? v : undefined;
 }

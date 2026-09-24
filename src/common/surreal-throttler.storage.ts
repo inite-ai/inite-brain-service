@@ -6,6 +6,7 @@ import {
   retryOnUniqueViolation,
   runTransaction,
 } from '../db/surreal.service';
+import { retryOnReadConflict } from '../db/surreal-retry';
 
 type StorageRecord = Awaited<ReturnType<ThrottlerStorage['increment']>>;
 
@@ -98,7 +99,12 @@ export class SurrealThrottlerStorage implements ThrottlerStorage, OnApplicationS
            LIMIT 5000`,
       );
       if (ids.length === 0) return 0;
-      await db.query(`DELETE $ids`, { ids });
+      // The buckets being swept are exactly the ones a fresh hit may be
+      // re-creating this instant (the health probe's expires every window);
+      // that race surfaces as "Transaction conflict: Resource busy" and is
+      // the store asking for a retry, not a failure to report — the old
+      // sweep warned once per conflict and left the rows for next time.
+      await retryOnReadConflict(() => db.query(`DELETE $ids`, { ids }));
       return ids.length;
     });
   }

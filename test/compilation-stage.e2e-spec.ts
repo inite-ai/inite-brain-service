@@ -89,7 +89,9 @@ describe('Compilation stage — artifacts + KnowQL-lite', () => {
       .post('/v1/search')
       .set(auth())
       .send({ query: 'name: Anya Volkova', limit: 50, searchMode: 'vector' });
-    const hit = v.body.results.find((r: any) => r.canonicalName === 'art_cust');
+    const hit = v.body.results.find((r: any) =>
+      Object.values(r.externalRefs ?? {}).includes('art_cust'),
+    );
     entityId = hit?.entityId ?? '';
     expect(entityId).toBeTruthy();
   };
@@ -244,7 +246,9 @@ describe('Compilation stage — artifacts + KnowQL-lite', () => {
           .post('/v1/search')
           .set(lAuth())
           .send({ query: 'name: Bob Test', limit: 50, searchMode: 'vector' });
-        const eId = v.body.results.find((r: any) => r.canonicalName === 'pii_cust')?.entityId;
+        const eId = v.body.results.find((r: any) =>
+          Object.values(r.externalRefs ?? {}).includes('pii_cust'),
+        )?.entityId;
         expect(eId).toBeTruthy();
 
         const dossier = await limited.http
@@ -302,7 +306,9 @@ describe('Compilation stage — artifacts + KnowQL-lite', () => {
         limit: 50,
         searchMode: 'vector',
       });
-      const eId = v.body.results.find((r: any) => r.canonicalName === 'rent_tenant')?.entityId;
+      const eId = v.body.results.find((r: any) =>
+        Object.values(r.externalRefs ?? {}).includes('rent_tenant'),
+      )?.entityId;
       expect(eId).toBeTruthy();
 
       const dossier = await f.http
@@ -355,7 +361,9 @@ describe('Compilation stage — artifacts + KnowQL-lite', () => {
         limit: 50,
         searchMode: 'vector',
       });
-      const eId = v.body.results.find((r: any) => r.canonicalName === 'shop_buyer')?.entityId;
+      const eId = v.body.results.find((r: any) =>
+        Object.values(r.externalRefs ?? {}).includes('shop_buyer'),
+      )?.entityId;
       expect(eId).toBeTruthy();
 
       const history = await f.http
@@ -407,7 +415,9 @@ describe('Compilation stage — artifacts + KnowQL-lite', () => {
         limit: 50,
         searchMode: 'vector',
       });
-      const eId = v.body.results.find((r: any) => r.canonicalName === 'edu_student')?.entityId;
+      const eId = v.body.results.find((r: any) =>
+        Object.values(r.externalRefs ?? {}).includes('edu_student'),
+      )?.entityId;
       expect(eId).toBeTruthy();
 
       const progress = await f.http

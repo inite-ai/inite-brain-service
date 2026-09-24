@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { createOpenAiClientOrThrow } from '../ai/openai-client';
+import { chatCallParams, chatModel, createOpenAiClientOrThrow } from '../ai/openai-client';
 import { traceArtifact } from '../common/debug-trace';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
@@ -33,7 +33,7 @@ export class ChatRouterLlmService {
     @Optional() private readonly metrics?: MetricsService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.config);
-    this.model = this.config.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini');
+    this.model = chatModel(this.config);
   }
 
   async call(message: string, ctx: RouteContext): Promise<LlmRouteResult> {
@@ -73,8 +73,11 @@ message: ${message}`;
                 schema: buildSchema(ctx.predicateVocab),
               },
             },
-            temperature: 0,
-            max_completion_tokens: 800,
+            ...chatCallParams(this.model, {
+              temperature: 0,
+              visibleCap: 800,
+              reasoningEffort: 'none',
+            }),
           }),
       );
     } catch (e) {

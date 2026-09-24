@@ -51,8 +51,10 @@ export const EntityProfileResponseSchema = z.object({
 /** A fact entered the graph. */
 export const TimelineRecordedEventSchema = z.object({
   type: z.literal('fact.recorded'),
-  /** Transaction-time instant (ISO-8601). */
+  /** Transaction-time instant (ISO-8601) — when the memory learned it. */
   at: z.string(),
+  /** Valid-time instant (ISO-8601) — from when the value held in the world. */
+  validFrom: z.string(),
   factId: z.string(),
   predicate: z.string(),
   object: z.string(),

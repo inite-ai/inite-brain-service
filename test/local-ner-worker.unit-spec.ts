@@ -102,10 +102,13 @@ describe('LocalNerService — worker runtime', () => {
       kind: 'extract',
       payload: { text: 'Maria Petrov is CTO at Acme' },
     });
+    // What transformers.js 2.x actually posts back: one IOB row per
+    // wordpiece, no offsets — the parent aggregates.
     replyToLast(w, true, [
-      { word: 'Maria Petrov', entity_group: 'PER', start: 0, end: 12, score: 0.95 },
-      { word: 'Acme', entity_group: 'org', start: 23, end: 27, score: 0.85 },
-      { word: 'low', entity_group: 'MISC', start: 0, end: 3, score: 0.5 },
+      { entity: 'B-PER', score: 0.96, index: 1, word: 'Maria' },
+      { entity: 'I-PER', score: 0.94, index: 2, word: 'Petrov' },
+      { entity: 'B-MISC', score: 0.5, index: 4, word: 'CTO' },
+      { entity: 'B-ORG', score: 0.85, index: 6, word: 'Acme' },
     ]);
     const out = await pending;
     expect(out).toEqual([
@@ -149,9 +152,7 @@ describe('LocalNerService — worker runtime', () => {
 
   it('the test seam (in-thread classifier) takes precedence over the worker', async () => {
     const svc = new LocalNerService(mkConfig());
-    const pipe = jest.fn(async () => [
-      { word: 'Berlin', entity_group: 'LOC', start: 0, end: 6, score: 0.9 },
-    ]);
+    const pipe = jest.fn(async () => [{ entity: 'B-LOC', score: 0.9, index: 1, word: 'Berlin' }]);
     svc.setClassifierForTesting(pipe as any);
     const out = await svc.extract('Berlin');
     expect(out).toHaveLength(1);

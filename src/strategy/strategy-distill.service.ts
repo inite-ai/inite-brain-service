@@ -2,7 +2,12 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import type OpenAI from 'openai';
-import { chatCallParams, createOpenAiClientOrThrow } from '../ai/openai-client';
+import {
+  chatCallParams,
+  offlineServiceTier,
+  chatModel,
+  createOpenAiClientOrThrow,
+} from '../ai/openai-client';
 import { ApiKeyService } from '../auth/api-key.service';
 import { DistributedLeaseGuard, noteUnguarded } from '../common/distributed-lease.guard';
 import { envFlagEnabled } from '../common/env-validation';
@@ -239,7 +244,7 @@ export class StrategyDistillService {
     @Optional() private readonly guard?: DistributedLeaseGuard,
   ) {
     this.openai = createOpenAiClientOrThrow(config);
-    this.model = config.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini');
+    this.model = chatModel(config);
     this.cronEnabled = envFlagEnabled(config.get<string>('STRATEGY_DISTILL_CRON_ENABLED'));
   }
 
@@ -470,7 +475,11 @@ export class StrategyDistillService {
           },
         },
       },
-      ...chatCallParams(this.model, { temperature: 0, visibleCap: 1200 }),
+      ...chatCallParams(this.model, {
+        tier: offlineServiceTier(),
+        temperature: 0,
+        visibleCap: 1200,
+      }),
     });
     const raw = res.choices?.[0]?.message?.content;
     let items: DistilledItemShape[] = [];
@@ -628,7 +637,11 @@ export class StrategyDistillService {
           },
         },
       },
-      ...chatCallParams(this.model, { temperature: 0, visibleCap: 600 }),
+      ...chatCallParams(this.model, {
+        tier: offlineServiceTier(),
+        temperature: 0,
+        visibleCap: 600,
+      }),
     });
     return parseMergeDecision(
       res.choices?.[0]?.message?.content,

@@ -78,6 +78,8 @@ export const SearchFactSchema = z.object({
   /** The canon it was aliased onto (0083); identity is `predicateAlias ?? predicate`. Absent = its own canon. */
   predicateAlias: z.string().optional(),
   object: z.string(),
+  /** The calendar day (YYYY-MM-DD) the value refers to, as resolved at write time (objectMeta.date). */
+  date: z.string().optional(),
   confidence: z.number(),
   validFrom: z.string(),
   validUntil: z.string().optional(),
@@ -99,6 +101,12 @@ export const SearchRelationSchema = z.object({
   kind: z.string(),
   peer: z.string(),
   peerType: z.string(),
+  /** The peer entity's record id. */
+  peerId: z.string().optional(),
+  /** The knowledge_edge record behind the relation — what a citation of it names. */
+  edgeId: z.string().optional(),
+  /** 'out' = the hit's entity is the subject of the relation; 'in' = its object. */
+  direction: z.enum(['out', 'in']).optional(),
 });
 
 export const SearchHitSchema = z.object({

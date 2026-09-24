@@ -6,6 +6,9 @@ import {
   reservedKeysIn,
   INTERNAL_DOCUMENT_META_KEYS,
   INTERNAL_DOCUMENT_META_MAX_CHARS,
+  KNOWN_NAMES_SEPARATOR,
+  joinKnownNames,
+  splitKnownNames,
   type DocumentIngestOrigin,
 } from '../src/documents/document-meta';
 import { DocumentStoreService } from '../src/documents/document-store.service';
@@ -132,6 +135,11 @@ describe('mergeDocumentMeta', () => {
       'eventId',
       'episodeId',
       'timezone',
+      'speakerName',
+      'speakerRef',
+      'addresseeName',
+      'addresseeRef',
+      'knownNames',
       'toolObservationRef',
       'toolObservationNote',
       'evidenceAssetId',
@@ -342,5 +350,22 @@ describe('MentionViaDocumentService routes contextRef ids off the caller channel
       svc.ingest('co_x', mentionDto({ vertical: 'crm' })),
     );
     expect(calls[0]!.origin).toEqual({ channel: 'mention', internal: undefined });
+  });
+});
+
+describe('knownNames — the caller anchors as one bounded internal value', () => {
+  it('joins trimmed names in order and splits them back', () => {
+    const joined = joinKnownNames([' Argus ', undefined, 'ledger-sync', '', 'Meridian']);
+    expect(joined).toBe(['Argus', 'ledger-sync', 'Meridian'].join(KNOWN_NAMES_SEPARATOR));
+    expect(splitKnownNames(joined)).toEqual(['Argus', 'ledger-sync', 'Meridian']);
+    expect(joinKnownNames([])).toBeUndefined();
+    expect(splitKnownNames(undefined)).toEqual([]);
+  });
+
+  it('stops before the name that would cross the short-scalar limit — never a cut name', () => {
+    const long = 'x'.repeat(INTERNAL_DOCUMENT_META_MAX_CHARS - 3);
+    const joined = joinKnownNames(['abc', long, 'tail']);
+    expect(splitKnownNames(joined)).toEqual(['abc']);
+    expect(joinKnownNames([long, 'tail'])).toBe(long);
   });
 });

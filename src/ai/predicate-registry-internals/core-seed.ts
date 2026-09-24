@@ -476,6 +476,32 @@ VALUE  the verb phrase with its object VERBATIM (e.g. "quit the chess club")`,
     createdBy: 'system',
   },
 
+  // ── Standing instructions (the memory-context contract) ─────────────
+  // The extractor files an instruction to the assistant under this
+  // predicate and the T7 lane reads it directly; both name it, so it is a
+  // platform predicate, not a coinage — and its cardinality is part of
+  // the contract: instructions accumulate. Left to a per-turn reading it
+  // registered single_active on a live stand (2026-09-18), which would
+  // have closed "always answer in Portuguese" the moment "keep it short"
+  // arrived.
+  {
+    predicateId: 'instruction',
+    displayLabel: 'instruction',
+    description: `TYPE   subject is the speaker, or the one named party the instruction concerns;
+       value is a standing instruction to the assistant
+ADMIT  "remember: …", "always …", "never …", "when I ask …", "write reports
+       for X in Portuguese" — how to act, answer, write or format from now on
+NOT FOR a fact about the world, a one-off request, or a preference stated as
+       description ("I like short answers") → preference
+VALUE  the instruction as ONE self-contained sentence`,
+    datatype: 'string',
+    semantics: 'append_only',
+    decayHalfLifeDays: null,
+    piiClass: 'none',
+    status: 'active',
+    createdBy: 'system',
+  },
+
   // NB: code-memory predicates (decided/because/invariant/gotcha) used to live
   // here (Phase 0 PoC). They are now the `code_memory` Domain Pack
   // (src/ai/domain-packs/code-memory.pack.ts), namespaced code_memory__*, and

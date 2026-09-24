@@ -67,6 +67,14 @@ export class TraceBufferService {
   private bufferBytes = 0;
   private readonly dbCapacity: number;
   private readonly persistEnabled: boolean;
+  /**
+   * Persists run one after another. Each write evicts down to the cap
+   * by COUNT, so two writes in flight at once could both count before
+   * either evicted and leave the table one over the cap until the next
+   * request — a race a busy database widened into a visible one. One
+   * chain per process keeps the eviction exact; traces are low volume.
+   */
+  private persistChain: Promise<void> = Promise.resolve();
   /** Fan-out for SSE subscribers — keyed-by-companyId filter applied in the controller. */
   private readonly stream = new Subject<TraceListItem>();
 
@@ -104,11 +112,13 @@ export class TraceBufferService {
     const { spans: _s, artifacts: _a, ...meta } = snapshot;
     this.stream.next(meta);
     if (this.persistEnabled && snapshot.companyId) {
-      void this.persist(snapshot).catch((e) => {
-        this.logger.warn(
-          `debug_trace persist failed (${snapshot.requestId}): ${(e as Error).message}`,
-        );
-      });
+      this.persistChain = this.persistChain.then(() =>
+        this.persist(snapshot).catch((e) => {
+          this.logger.warn(
+            `debug_trace persist failed (${snapshot.requestId}): ${(e as Error).message}`,
+          );
+        }),
+      );
     }
   }
 
@@ -216,12 +226,18 @@ export class TraceBufferService {
           errored: snapshot.errored,
         },
       );
+      // SurrealDB 3.x: the ORDER BY field must be in the projection
+      // ("Missing order idiom `ts`") — with `id` alone the eviction
+      // failed on every write past the cap and the table grew unbounded
+      // while each request logged a persist warning. The delete goes by
+      // id (the SELECT-then-DELETE idiom; a DELETE … WHERE over an
+      // indexed field can silently match nothing on 3.2).
       await db.query(
         `LET $cap = ${this.dbCapacity};
          LET $extra = (SELECT count() AS c FROM debug_trace GROUP ALL)[0].c - $cap;
          IF $extra > 0 {
-           LET $stale = (SELECT id FROM debug_trace ORDER BY ts ASC LIMIT $extra);
-           DELETE $stale.*;
+           LET $stale = (SELECT VALUE id FROM (SELECT id, ts FROM debug_trace ORDER BY ts ASC LIMIT $extra));
+           DELETE $stale;
          };`,
       );
     });

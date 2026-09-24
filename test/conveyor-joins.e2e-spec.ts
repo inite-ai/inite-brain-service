@@ -18,6 +18,7 @@
  * option<object>, a string for a datetime), which no unit spec could see
  * because they fake the store.
  */
+import { Logger } from '@nestjs/common';
 import { SurrealService } from '../src/db/surreal.service';
 import { TraceBufferService } from '../src/common/trace-buffer.service';
 import type { AppFixture } from './app-fixture';
@@ -42,6 +43,9 @@ describe('conveyor joins on the document path', () => {
     process.env.SCENES_SEGMENTATION_ENABLED = '1';
     process.env.SCENES_SCHEDULED_MAINTENANCE = '1';
     process.env.DEBUG_TRACE_PERSIST = '1';
+    // Two persisted traces are enough to cross the cap and exercise the
+    // eviction statement (the one that failed the 3.x order idiom).
+    process.env.DEBUG_TRACE_DB_CAPACITY = '1';
     f = await createApp({ companyId: 'co_conveyor_joins_e2e' });
   });
 
@@ -54,6 +58,7 @@ describe('conveyor joins on the document path', () => {
       'SCENES_SEGMENTATION_ENABLED',
       'SCENES_SCHEDULED_MAINTENANCE',
       'DEBUG_TRACE_PERSIST',
+      'DEBUG_TRACE_DB_CAPACITY',
     ]) {
       delete process.env[k];
     }
@@ -140,5 +145,30 @@ describe('conveyor joins on the document path', () => {
     // Date) — not the string the old statement tried to store.
     expect(JSON.stringify(rows[0]!.ts)).toMatch(/^"20\d\d-\d\d-\d\dT/);
     expect(rows[0]!.errored ?? undefined).toBeUndefined();
+  });
+
+  it('evicts past DEBUG_TRACE_DB_CAPACITY, oldest first — the 3.x order idiom no longer fails it', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn');
+    for (const q of ['second trace', 'third trace']) {
+      await f.http
+        .post('/v1/search')
+        .set(auth())
+        .set('X-Brain-Debug', '1')
+        .send({ query: q, limit: 3 })
+        .expect(201);
+    }
+    let rows: Array<{ requestId: string }> = [];
+    for (let i = 0; i < 60; i++) {
+      rows = await query(`SELECT requestId FROM debug_trace WHERE companyId = $cid`, {
+        cid: f.companyId,
+      });
+      if (rows.length === 1) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(rows).toHaveLength(1);
+    expect(warn.mock.calls.some(([m]) => String(m).includes('debug_trace persist failed'))).toBe(
+      false,
+    );
+    warn.mockRestore();
   });
 });

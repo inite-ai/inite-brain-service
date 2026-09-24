@@ -9,6 +9,7 @@ import { normalizeEntityId, blockedPredicates, activeFactWhere } from './entity-
 import { makeRowPolicyFilter, PolicyFilterableRow } from '../policy/row-filter';
 import { readSurfaceUserScopeEnabled } from '../common/read-scope-flags';
 import { pinUserScope } from '../auth/user-scope';
+import { buildEdgeFence } from '../search/internals/edge-fence';
 
 // Centralised SELECT-clause field lists. Adding a new field to a table
 // touches one place here, not every read site. The strings below are
@@ -120,6 +121,12 @@ export interface GetConnectionsOptions {
   kind: string | undefined;
   scopes?: BrainScope[];
   asOf?: string | undefined;
+  /**
+   * Per-user memory scope (0055/0153), READ_SURFACE_USER_SCOPE gated and
+   * pinned like the timeline's: tenant-global edges plus this user's
+   * own, over peers this user may see; without one, tenant-global only.
+   */
+  userId?: string | undefined;
 }
 
 export interface ForgetOptions {
@@ -176,6 +183,7 @@ interface FactTimelineRow extends PolicyFilterableRow {
   id: unknown;
   object: string;
   confidence: number;
+  validFrom: string | Date;
   recordedAt: string | Date;
   retractedAt?: string | Date | null;
   retractedBy?: unknown;
@@ -198,13 +206,22 @@ interface EdgeRow {
   source: unknown;
   createdAt: string | Date;
   invalidatedAt?: unknown;
+  /** The far entity's scope — the peer half of the edge fence. */
+  peerUserId?: unknown;
   toEntity?: EdgeEntityProjection | null;
   fromEntity?: EdgeEntityProjection | null;
 }
 
 export interface TimelineRecordedEvent {
   type: 'fact.recorded';
+  /** Transaction time — when the memory learned it. */
   at: string;
+  /**
+   * Valid time — from when the value held in the world. The timeline is
+   * ordered by `at`; a reader that wants the world's order (a backdated
+   * arrival, a document ingested late) sorts by this.
+   */
+  validFrom: string;
   factId: string;
   predicate: string;
   object: string;
@@ -511,6 +528,7 @@ export class EntitiesService {
         events.push({
           type: 'fact.recorded',
           at: new Date(f.recordedAt).toISOString(),
+          validFrom: new Date(f.validFrom).toISOString(),
           factId: String(f.id),
           predicate: f.predicate,
           object: f.object,
@@ -540,8 +558,13 @@ export class EntitiesService {
     kind,
     scopes = [],
     asOf,
+    userId,
   }: GetConnectionsOptions): Promise<{ entityId: string; edges: ConnectionEdge[] }> {
     const ref = normalizeEntityId(entityIdRaw);
+    // The edge fence of the search lanes (edge-fence.ts): the edge row's
+    // scope in the traversal, the peer's scope on the hydrated far end.
+    const scopeUserId = readSurfaceUserScopeEnabled() ? pinUserScope(userId) : undefined;
+    const fence = buildEdgeFence(scopeUserId);
 
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       // Native graph traversal via SurrealDB's `->` / `<-` operators
@@ -565,20 +588,25 @@ export class EntitiesService {
         : ' AND invalidatedAt IS NONE';
       const outSql = `
         SELECT id, kind, weight, source, createdAt, invalidatedAt, in, out,
+               out.userId AS peerUserId,
                out.{id, type, canonicalName} AS toEntity
         FROM type::record('knowledge_entity', $rid)->knowledge_edge
-        WHERE 1=1${asOfParam}${kindParam}
+        WHERE ${fence.scopeCond}${asOfParam}${kindParam}
       `;
       const inSql = `
         SELECT id, kind, weight, source, createdAt, invalidatedAt, in, out,
+               in.userId AS peerUserId,
                in.{id, type, canonicalName} AS fromEntity
         FROM type::record('knowledge_entity', $rid)<-knowledge_edge
-        WHERE 1=1${asOfParam}${kindParam}
+        WHERE ${fence.scopeCond}${asOfParam}${kindParam}
       `;
-      const [outRows, inRows] = await Promise.all([
-        queryRows<EdgeRow>(db, outSql, { rid: ref.id, kind, asOf }),
-        queryRows<EdgeRow>(db, inSql, { rid: ref.id, kind, asOf }),
+      const params = { rid: ref.id, kind, asOf, ...fence.params };
+      const [outRowsAll, inRowsAll] = await Promise.all([
+        queryRows<EdgeRow>(db, outSql, params),
+        queryRows<EdgeRow>(db, inSql, params),
       ]);
+      const outRows = outRowsAll.filter((e) => fence.allowsPeer(e.peerUserId));
+      const inRows = inRowsAll.filter((e) => fence.allowsPeer(e.peerUserId));
       const edges: ConnectionEdge[] = [
         ...outRows.map((e) => ({
           edgeId: String(e.id),

@@ -46,6 +46,7 @@
  */
 import { BadRequestException } from '@nestjs/common';
 import { SOURCE_META_MAX_VALUE_CHARS } from '../policy/source-meta';
+import type { KnownEntity } from '../ingest/dto/ingest-mention.dto';
 
 /** Keys the pipeline synthesises for itself. Callers may not assert them. */
 export const INTERNAL_DOCUMENT_META_KEYS = [
@@ -59,6 +60,18 @@ export const INTERNAL_DOCUMENT_META_KEYS = [
   // event-time resolver anchors the local calendar day on.
   'episodeId',
   'timezone',
+  // Mention-via-document: the turn's participants (IngestMentionDto
+  // .knownEntities by role) — the extractor's coreference framing and
+  // the commit writer's externalRef anchor for a first-time speaker.
+  // The refs are `vertical:id` pairs.
+  'speakerName',
+  'speakerRef',
+  'addresseeName',
+  'addresseeRef',
+  // Mention-via-document: the names of every knownEntities anchor the
+  // caller attached (participants included), unit-separated — what the
+  // extractor's memory context looks up first.
+  'knownNames',
   // 0111 tool-observation provenance hop (DocumentIngestService).
   'toolObservationRef',
   'toolObservationNote',
@@ -232,4 +245,79 @@ export function mergeDocumentMeta(
     if (!RESERVED.has(key)) out[key] = value;
   }
   return Object.assign(out, internal ?? {});
+}
+
+/**
+ * A brain-owned string off the RAW document header. The internal
+ * channel never passes the caller gate, so it is read here, not from
+ * the sanitized projection; a missing or non-string value is undefined.
+ */
+export function internalMetaString(
+  meta: Record<string, unknown> | undefined,
+  key: InternalDocumentMetaKey,
+): string | undefined {
+  const v = meta?.[key];
+  return typeof v === 'string' && v.length > 0 ? v : undefined;
+}
+
+/**
+ * The turn's participants back out of the internal channel, in the
+ * shape the mention wrapper threaded them (IngestMentionDto
+ * .knownEntities by role): the `vertical:id` ref and the display name.
+ * Absent or malformed → no participant of that role.
+ */
+export function participantsFromMeta(meta: Record<string, unknown> | undefined): {
+  speaker?: KnownEntity | undefined;
+  addressee?: KnownEntity | undefined;
+} {
+  const speaker = participantFromMeta(meta, 'speaker');
+  const addressee = participantFromMeta(meta, 'addressee');
+  return {
+    ...(speaker ? { speaker } : {}),
+    ...(addressee ? { addressee } : {}),
+  };
+}
+
+function participantFromMeta(
+  meta: Record<string, unknown> | undefined,
+  role: 'speaker' | 'addressee',
+): KnownEntity | undefined {
+  const ref = internalMetaString(meta, role === 'speaker' ? 'speakerRef' : 'addresseeRef');
+  if (!ref) return undefined;
+  const cut = ref.indexOf(':');
+  if (cut <= 0 || cut === ref.length - 1) return undefined;
+  const name = internalMetaString(meta, role === 'speaker' ? 'speakerName' : 'addresseeName');
+  return {
+    vertical: ref.slice(0, cut),
+    id: ref.slice(cut + 1),
+    role,
+    ...(name ? { name } : {}),
+  };
+}
+
+/** The separator between names in the `knownNames` internal key. */
+export const KNOWN_NAMES_SEPARATOR = '\u001f';
+
+/**
+ * The caller's anchor names as one bounded internal value: names in
+ * order, unit-separated, cut before the name that would cross the
+ * short-scalar limit (a truncated name would be a wrong name).
+ */
+export function joinKnownNames(names: ReadonlyArray<string | undefined>): string | undefined {
+  const out: string[] = [];
+  let length = 0;
+  for (const raw of names) {
+    const name = raw?.trim();
+    if (!name) continue;
+    const next = length + name.length + (out.length > 0 ? 1 : 0);
+    if (next > INTERNAL_DOCUMENT_META_MAX_CHARS) break;
+    out.push(name);
+    length = next;
+  }
+  return out.length > 0 ? out.join(KNOWN_NAMES_SEPARATOR) : undefined;
+}
+
+/** The names back out of the `knownNames` internal value. */
+export function splitKnownNames(value: string | undefined): string[] {
+  return value ? value.split(KNOWN_NAMES_SEPARATOR).filter((n) => n.length > 0) : [];
 }

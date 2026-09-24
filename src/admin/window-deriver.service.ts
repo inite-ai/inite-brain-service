@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { createOpenAiClientOrThrow } from '../ai/openai-client';
+import { chatModel, createOpenAiClientOrThrow } from '../ai/openai-client';
 import { resolveExtractionProfile } from '../ai/extraction-profile';
 import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
@@ -144,7 +144,7 @@ export class WindowDeriverService {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.model = this.configService.get<string>(
       'WINDOW_DERIVER_MODEL',
-      this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
+      chatModel(this.configService),
     );
   }
 

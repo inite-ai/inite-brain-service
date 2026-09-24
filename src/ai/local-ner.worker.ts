@@ -19,19 +19,10 @@ interface WorkerConfig {
   modelId: string;
 }
 
+/** transformers.js 2.x: one IOB-tagged row per wordpiece, no offsets. */
 type TokenClassificationPipeline = (
   text: string,
-  options?: { aggregation_strategy?: string },
-) => Promise<
-  Array<{
-    entity_group?: string;
-    entity?: string;
-    word: string;
-    start: number;
-    end: number;
-    score: number;
-  }>
->;
+) => Promise<Array<{ entity: string; score: number; index: number; word: string }>>;
 
 type Inbound =
   | { id: number; kind: 'warmup'; payload: WorkerConfig }
@@ -74,17 +65,16 @@ async function warmup(cfg: WorkerConfig): Promise<void> {
 
 async function extract(p: { text: string }): Promise<unknown[]> {
   if (!classifier) throw new Error('local NER not ready');
-  const raw = await classifier(p.text, { aggregation_strategy: 'simple' });
+  const raw = await classifier(p.text);
   // Copy into plain objects: keeps the reply structured-clone-safe even if
   // the pipeline returns class instances or tensor-backed fields, and drops
-  // everything the parent doesn't consume.
+  // everything the parent doesn't consume. Span aggregation happens on
+  // the parent (ner-aggregate.ts) — the pipeline returns raw wordpieces.
   return raw.map((r) => ({
-    entity_group: r.entity_group,
     entity: r.entity,
-    word: r.word,
-    start: r.start,
-    end: r.end,
     score: Number(r.score),
+    index: r.index,
+    word: r.word,
   }));
 }
 

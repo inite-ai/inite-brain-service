@@ -21,8 +21,16 @@ import { debugTraceMiddleware } from './common/debug-trace';
 import { correlationIdMiddleware } from './common/correlation-id.middleware';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { applyProxyTrust } from './common/proxy-trust';
+import { appLogger } from './common/app-logger';
 
 async function bootstrap() {
+  // One logger for the process (app-logger.ts): JSON with a level field
+  // where the request logger writes JSON, and no debug chatter in
+  // production. Installed before the first line is written so env
+  // validation and the role log come out in the same format as the rest.
+  const logger = appLogger();
+  Logger.overrideLogger(logger);
+
   // Fail fast on missing/invalid env before NestJS or Surreal even start.
   validateEnv();
 
@@ -57,7 +65,10 @@ async function bootstrap() {
   // signature over the bytes it sent (HubSpot v3 signs method + URL +
   // body + timestamp); the parsers below keep them on `req.rawBody` for
   // the request's lifetime, bounded by the same body cap.
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+    logger,
+  });
 
   // Rate limits on unauthenticated callers key on the client IP, and
   // behind a reverse proxy every request arrives from the proxy's
@@ -79,7 +90,7 @@ async function bootstrap() {
   // concurrently with Nest's own run of the same hooks.
   app.enableShutdownHooks();
   const configService = app.get(ConfigService);
-  const logger = new Logger('Bootstrap');
+  const bootLog = new Logger('Bootstrap');
 
   // Bound the JSON body. Express defaults to 100kb, but the app installs its
   // own parser; set an explicit cap so a hostile client can't post a huge
@@ -139,8 +150,8 @@ async function bootstrap() {
   const port = configService.get<number>('PORT', 3000);
   await app.listen(port);
 
-  logger.log(`INITE Brain Service running on port ${port}`);
-  logger.log(`SurrealDB: ${configService.get<string>('SURREALDB_URL')}`);
+  bootLog.log(`INITE Brain Service running on port ${port}`);
+  bootLog.log(`SurrealDB: ${configService.get<string>('SURREALDB_URL')}`);
 }
 
 bootstrap().catch((err) => {

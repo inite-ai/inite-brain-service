@@ -6,6 +6,7 @@
 import 'server-only'
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAccessToken, isAdminFromToken } from './jwt-verify'
+import { renewSession, setSessionCookies, type RefreshedTokens } from './token-refresh'
 
 export interface AdminSession {
   userId: string
@@ -52,23 +53,57 @@ function devBypass(): AdminSession | null {
   return DEV_BYPASS_SESSION
 }
 
+/**
+ * The verified token of a request — the one it carries, or, when that is
+ * missing or no longer valid, the one a silent refresh just minted (the
+ * renewed cookies are reported so the wrapper can set them on the
+ * response). Null when neither exists.
+ */
+async function verifiedSession(request: NextRequest): Promise<{
+  decoded: NonNullable<Awaited<ReturnType<typeof verifyAccessToken>>>
+  renewed: RefreshedTokens | null
+} | null> {
+  const token = await extractAccessToken(request)
+  const decoded = token ? await verifyAccessToken(token) : null
+  if (decoded) return { decoded, renewed: null }
+  // A bearer header is the caller's own credential — never refreshed.
+  if (request.headers.get('authorization')?.startsWith('Bearer ')) return null
+  const renewed = await renewSession(request)
+  if (!renewed) return null
+  const fresh = await verifyAccessToken(renewed.access_token)
+  return fresh ? { decoded: fresh, renewed } : null
+}
+
+/**
+ * Session read WITHOUT the renewed cookies. For code that cannot set
+ * cookies on its response only; a route handler must use `withAdmin`,
+ * `withUser` or `withSession`, or a renewal here rotates the refresh
+ * token and loses it (see withSession).
+ */
 export async function getAdminSession(
   request: NextRequest,
 ): Promise<AdminSession | null> {
+  return (await getAdminSessionWithRenewal(request))?.session ?? null
+}
+
+async function getAdminSessionWithRenewal(
+  request: NextRequest,
+): Promise<{ session: AdminSession; renewed: RefreshedTokens | null } | null> {
   const bypass = devBypass()
-  if (bypass) return bypass
+  if (bypass) return { session: bypass, renewed: null }
 
-  const token = await extractAccessToken(request)
-  if (!token) return null
-
-  const decoded = await verifyAccessToken(token)
-  if (!decoded) return null
+  const verified = await verifiedSession(request)
+  if (!verified) return null
+  const { decoded, renewed } = verified
   if (!isAdminFromToken(decoded)) return null
 
   return {
-    userId: decoded.sub,
-    email: (decoded.email as string) ?? null,
-    isAdmin: true,
+    session: {
+      userId: decoded.sub,
+      email: (decoded.email as string) ?? null,
+      isAdmin: true,
+    },
+    renewed,
   }
 }
 
@@ -76,23 +111,62 @@ export async function getAdminSession(
  * Like {@link getAdminSession} but does NOT require admin. Returns a
  * session for any valid OAuth token (audience='brain-landing'). The
  * dev-bypass still applies so local development without auth works.
+ * Same hazard as getAdminSession: route handlers use `withSession`.
  */
 export async function getUserSession(
   request: NextRequest,
 ): Promise<UserSession | null> {
+  return (await getUserSessionWithRenewal(request))?.session ?? null
+}
+
+async function getUserSessionWithRenewal(
+  request: NextRequest,
+): Promise<{ session: UserSession; renewed: RefreshedTokens | null } | null> {
   const bypass = devBypass()
-  if (bypass) return bypass
+  if (bypass) return { session: bypass, renewed: null }
 
-  const token = await extractAccessToken(request)
-  if (!token) return null
-
-  const decoded = await verifyAccessToken(token)
-  if (!decoded) return null
+  const verified = await verifiedSession(request)
+  if (!verified) return null
+  const { decoded, renewed } = verified
 
   return {
-    userId: decoded.sub,
-    email: (decoded.email as string) ?? null,
-    isAdmin: isAdminFromToken(decoded),
+    session: {
+      userId: decoded.sub,
+      email: (decoded.email as string) ?? null,
+      isAdmin: isAdminFromToken(decoded),
+    },
+    renewed,
+  }
+}
+
+/** A handler's response, carrying the renewed session cookies when a
+ *  silent refresh ran for this request. */
+function withRenewedCookies(res: NextResponse, renewed: RefreshedTokens | null): NextResponse {
+  if (renewed) setSessionCookies(res, renewed)
+  return res
+}
+
+/**
+ * Wraps a Next.js API handler that answers with or without a session
+ * (`/api/auth/me`): the handler gets the session or null and always
+ * runs. The point is the cookies: a session getter that renews without
+ * a wrapper rotates the refresh token at the provider and then DROPS
+ * the new one, so the browser keeps a revoked token and the next renewal
+ * is read as theft (the provider revokes the whole family). Every route
+ * that can renew must go through a wrapper that sets what was renewed.
+ */
+export function withSession(
+  handler: (
+    session: UserSession | null,
+    request: NextRequest,
+  ) => Promise<NextResponse>,
+) {
+  return async (request: NextRequest): Promise<NextResponse> => {
+    const resolved = await getUserSessionWithRenewal(request)
+    return withRenewedCookies(
+      await handler(resolved?.session ?? null, request),
+      resolved?.renewed ?? null,
+    )
   }
 }
 
@@ -109,11 +183,11 @@ export function withUser(
   ) => Promise<NextResponse>,
 ) {
   return async (request: NextRequest): Promise<NextResponse> => {
-    const session = await getUserSession(request)
-    if (!session) {
+    const resolved = await getUserSessionWithRenewal(request)
+    if (!resolved) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    return handler(session, request)
+    return withRenewedCookies(await handler(resolved.session, request), resolved.renewed)
   }
 }
 
@@ -128,10 +202,10 @@ export function withAdmin(
   ) => Promise<NextResponse>,
 ) {
   return async (request: NextRequest): Promise<NextResponse> => {
-    const session = await getAdminSession(request)
-    if (!session) {
+    const resolved = await getAdminSessionWithRenewal(request)
+    if (!resolved) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    return handler(session, request)
+    return withRenewedCookies(await handler(resolved.session, request), resolved.renewed)
   }
 }

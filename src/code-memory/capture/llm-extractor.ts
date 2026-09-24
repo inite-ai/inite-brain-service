@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { chatCallParams, offlineServiceTier, DEFAULT_CHAT_MODEL } from '../../ai/openai-client';
 import type { CommitInput, DecisionCandidate, DecisionExtractor, DecisionKind } from './types';
 
 /**
@@ -110,7 +111,7 @@ function safeParse(raw: string): unknown {
  */
 export function makeOpenAiCompleter(opts: { apiKey: string; model?: string }): ChatComplete {
   const client = new OpenAI({ apiKey: opts.apiKey });
-  const model = opts.model ?? 'gpt-4o-mini';
+  const model = opts.model ?? DEFAULT_CHAT_MODEL;
   return async ({ system, user }) => {
     const res = await client.chat.completions.create({
       model,
@@ -119,8 +120,7 @@ export function makeOpenAiCompleter(opts: { apiKey: string; model?: string }): C
         { role: 'user', content: user },
       ],
       response_format: { type: 'json_object' },
-      temperature: 0,
-      max_completion_tokens: 800,
+      ...chatCallParams(model, { tier: offlineServiceTier(), temperature: 0, visibleCap: 800 }),
     });
     return res.choices[0]?.message?.content ?? '';
   };

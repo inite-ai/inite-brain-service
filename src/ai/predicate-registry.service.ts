@@ -5,6 +5,8 @@ import { EmbedderService } from './embedder.service';
 import { PredicateSemanticsJudgeService } from './predicate-semantics-judge.service';
 import { cosineSimilarity } from '../common/vector-math';
 import { LRUCache } from '../common/lru-cache';
+import { traceArtifact } from '../common/debug-trace';
+import type { FactCardinality } from './extractor-internals/types';
 
 import {
   type CanonicalizeDecision,
@@ -28,6 +30,18 @@ import {
   embeddingTextFor,
   serializeForInsert,
 } from './predicate-registry-internals/db-mapping';
+
+/**
+ * What a writer knows about a predicate it asks the registry about: the
+ * text the coinage is embedded from (predicate, object, clause) and, from
+ * a writer on the memory-context contract, the extractor's reading of the
+ * attribute's cardinality — "one" registers a novel coinage as
+ * single_active, "many" as append_only, and the judge is not asked.
+ */
+export interface CanonicalizeContext {
+  text: string;
+  cardinality?: FactCardinality | undefined;
+}
 
 export {
   type CanonicalizeDecision,
@@ -687,8 +701,9 @@ export class PredicateRegistryService {
   async canonicalize(
     companyId: string,
     predicate: string,
-    contextText: string,
+    context: CanonicalizeContext,
   ): Promise<CanonicalizeDecision> {
+    const contextText = context.text;
     const snapshot = await this.getSnapshot(companyId);
 
     // Direct hit on an active predicate, a known alias chain, or (0082)
@@ -787,30 +802,59 @@ export class PredicateRegistryService {
       };
     }
 
-    // Below threshold — propose. The policy used to be DEFAULT_FALLBACK
-    // unconditionally, "until an operator (or a future LLM-classify
-    // pass) sets the proper one" — and that pass is this one. Leaving it
-    // unbuilt meant every coined predicate was append_only, i.e. one for
-    // which no conflict is possible at ingest: on a live tenant 186 of
-    // 223 predicates were auto-coined and all 186 append_only, so
-    // `deploy_target`, `queue_backend` and friends kept every superseded
-    // value active forever and "what is it NOW" had nothing to answer
-    // with. Ambiguity still resolves to append_only, and so does every
-    // failure — no key, throw, bad parse — so this only ever ADDS
-    // supersession where the judge is confident.
-    const semantics = await this.classifyProposedSemantics({
-      predicate,
-      contextText,
-      best,
-      snapshot,
-    });
+    return this.proposePredicate({ companyId, predicate, context, best, queryEmb, snapshot });
+  }
+
+  /**
+   * Below the alias threshold — propose. The policy used to be
+   * DEFAULT_FALLBACK unconditionally, "until an operator (or a future
+   * LLM-classify pass) sets the proper one". Leaving it unbuilt meant
+   * every coined predicate was append_only, i.e. one for which no
+   * conflict is possible at ingest: on a live tenant 186 of 223
+   * predicates were auto-coined and all 186 append_only, so
+   * `deploy_target`, `queue_backend` and friends kept every superseded
+   * value active forever and "what is it NOW" had nothing to answer with.
+   *
+   * The cardinality is a reading of the sentence, and the extractor that
+   * coined the predicate has just read it — with the turn, the memory and
+   * the vocabulary in front of it — so its verdict decides (the
+   * memory-context contract). Measured on the stand: the judge was
+   * 1–3.6 s of every turn that coined something, in series after the
+   * extraction, on a tenant young enough that every turn did. The judge
+   * remains for writers without the contract (a direct fact, a harvest
+   * lane). Ambiguity resolves to append_only either way, and so does
+   * every failure — so a proposal only ever ADDS supersession where the
+   * reader is confident.
+   */
+  private async proposePredicate(args: {
+    companyId: string;
+    predicate: string;
+    context: CanonicalizeContext;
+    best: { predicateId: string; similarity: number } | undefined;
+    queryEmb: number[] | null;
+    snapshot: PredicateSnapshot;
+  }): Promise<CanonicalizeDecision> {
+    const { companyId, predicate, context, best, queryEmb, snapshot } = args;
+    const decidedBy = context.cardinality ? 'extractor' : 'judge';
+    const semantics: Semantics =
+      context.cardinality === 'one'
+        ? 'single_active'
+        : context.cardinality === 'many'
+          ? 'append_only'
+          : await this.classifyProposedSemantics({
+              predicate,
+              contextText: context.text,
+              best,
+              snapshot,
+            });
+    traceArtifact('registry.predicate_proposed', { predicate, semantics, decidedBy });
     try {
       await this.surreal.withCompany(companyId, async (db) => {
         await db.query(`CREATE knowledge_predicate CONTENT $content`, {
           content: {
             predicateId: predicate,
             displayLabel: predicate.replace(/_/g, ' '),
-            description: `(auto-proposed as ${semantics}; awaiting review. Closest existing: ${
+            description: `(auto-proposed as ${semantics} by the ${decidedBy}; awaiting review. Closest existing: ${
               best ? `${best.predicateId} @ cosine ${best.similarity.toFixed(3)}` : 'none'
             })`,
             datatype: 'string',

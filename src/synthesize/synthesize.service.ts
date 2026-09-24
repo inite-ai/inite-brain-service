@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { createOpenAiClientOrThrow } from '../ai/openai-client';
+import { chatModel, createOpenAiClientOrThrow } from '../ai/openai-client';
 import { SearchService, SearchHit } from '../search/search.service';
 import { Semaphore } from '../common/semaphore';
 import { withSpan } from '../common/tracing';
@@ -23,6 +23,7 @@ import {
   resolveRoutedLane,
   serveCacheHit,
   servingBoundary,
+  buildPrepareOpts,
 } from './synthesize.helpers';
 import { applyEvidenceUnion } from './evidence-union';
 import type { LaneId } from './answer-router';
@@ -38,8 +39,8 @@ import {
 import { resolveAndCountFragmentCitations } from './fragment-citations';
 import { resolveAndCountBeliefCitations, type CitableBelief } from './belief-citations';
 import { resolveAndCountSceneCitations } from './scene-citations';
-import { applyBeliefFactDamping } from './belief-damping';
-import { verifyAndZoom } from './fragment-zoom-seam';
+import { applyBeliefFactDamping, arbitrateBeliefsAndFacts } from './belief-damping';
+import { auditAndRevise, type AuditPorts } from './revise-round';
 import { FragmentLaneService } from './fragment-lane.service';
 import { resolveAnswerIntegrity, type FinalizeContext } from './answer-integrity';
 import { makeGroundingFetchPort } from './grounding-fetch';
@@ -58,7 +59,7 @@ import {
 } from './evidence-collector.service';
 import { L3EscalationService } from './l3-escalation.service';
 import { FocusSignalService } from './focus-signal.service';
-import { queryClassOf, type FocusVerdict } from './focus-signal';
+import { queryClassOf } from './focus-signal';
 import { resolveAdaptiveAbstain, resolveAdaptiveL3 } from './adaptive-gates';
 import {
   buildL3DecisionCallback,
@@ -74,6 +75,7 @@ import {
 } from '../answer-cache/answer-cache.service';
 import { MemoryOutcomeService } from '../outcomes/memory-outcome.service';
 import { MemoryDecisionService } from '../outcomes/memory-decision.service';
+import { DecisionService } from '../ai/decisions/decision.service';
 import {
   emitAnswerUse,
   emitBeliefAnswerUse,
@@ -114,6 +116,7 @@ export type {
   TokenUsage,
 } from './synthesize.types';
 import type { GeneratorOutput, SynthesizeResult } from './synthesize.types';
+import type { Asker } from './asker';
 
 /**
  * SynthesizeService — orchestrates the corrective-RAG flow:
@@ -169,6 +172,7 @@ export class SynthesizeService {
     // fixtures stay valid; absent (or flag off) ⇒ no decision rows, no
     // join columns, byte-identical serving.
     @Optional() private readonly decisions?: MemoryDecisionService,
+    @Optional() private readonly decisionPlane?: DecisionService,
     // MM-zoom PR3 (FOVEA_FRAGMENT_ZOOM): the fenced fuller-text read for
     // the zoom step. @Optional so positional unit fixtures stay valid —
     // absent ⇒ the zoom seam no-ops (static behavior).
@@ -177,7 +181,7 @@ export class SynthesizeService {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
       'SYNTHESIZE_MODEL',
-      this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
+      chatModel(this.configService),
     );
     this.limiter = new Semaphore(
       parseInt(this.configService.get<string>('SYNTHESIZE_CONCURRENCY', '4'), 10),
@@ -290,6 +294,11 @@ export class SynthesizeService {
     captureLaneRouteDecision(this.decisions, companyId, { profile, lane, query: dto.query });
 
     onProgress({ stage: 'search', message: 'hybrid retrieval' });
+    // The T7 instruction read and the asker read (asker.ts) are launched
+    // beside the main search; the asker is needed before the evidence
+    // lines are rendered — their own entity is headed "you".
+    const instructionProbe = this.launchInstructionProbe({ profile, companyId, callerScopes, dto });
+    const askerProbe = this.launchAskerProbe(companyId, dto.userId);
     const searchResult = await withSpan(
       'synthesize.search',
       () => this.search.search(companyId, dto, callerScopes),
@@ -319,12 +328,14 @@ export class SynthesizeService {
       profile.extraEvidenceCap,
     );
 
-    const prepareOpts = this.buildPrepareOpts({
+    const asker = await askerProbe;
+    const prepareOpts = buildPrepareOpts({
       answerMode: guardrails === 'answer',
       explain,
       lane,
       asOf: dto.asOf,
       profile,
+      asker,
     });
     const prepared = this.prepareEvidence(evidence, prepareOpts);
     if ('empty' in prepared) return prepared.empty;
@@ -345,7 +356,7 @@ export class SynthesizeService {
     // contract (V9 quality pass; all lanes concurrent inside). Running
     // it AFTER the empty/abstention exits also stops the pre-V9 waste
     // of an abandoned in-flight instruction probe on those paths.
-    const collected = await this.collectSections({
+    const collectedRaw = await this.collectSections({
       profile,
       lane,
       companyId,
@@ -353,7 +364,23 @@ export class SynthesizeService {
       callerScopes,
       factIds: [...factIndex.keys()],
       evidence,
+      instructionProbe,
+      asker,
     });
+    // Time arbitration between the belief plane and the fact plane
+    // (belief-damping.ts): the damping pass names the beliefs a newer
+    // fact outdated, and they leave the rendered section HERE — before
+    // the cache snapshot, the generator, the auditor and the citation
+    // resolver read it — so every consumer sees the same beliefs.
+    const factDamping = beliefFactDampingEnabled();
+    const arbitrated = arbitrateBeliefsAndFacts({
+      enabled: factDamping,
+      factLines: prepared.factLines,
+      factIndex,
+      collected: collectedRaw,
+      metrics: this.metrics,
+    });
+    const { collected } = arbitrated;
     // The other rendered sections stay on `collected` — the verify stage
     // (verifyAndZoom) and produceAnswer read them from there directly.
     const { fragmentsById, beliefsById, scenesById, updateStories, groundingQuotes } = collected;
@@ -382,14 +409,7 @@ export class SynthesizeService {
     // the generator, the verifier, the fragment-zoom re-verify and L3
     // alike (three-consumer parity by construction). Off ⇒
     // byte-identical lines.
-    const factDamping = beliefFactDampingEnabled();
-    let promptFactLines = applyBeliefFactDamping({
-      enabled: factDamping,
-      factLines: applyFactSuffixes(prepared.factLines, [updateStories, groundingQuotes]),
-      factIndex,
-      beliefsById,
-      metrics: this.metrics,
-    });
+    let promptFactLines = arbitrated.factLines;
 
     // V13 answer-side frames, both profile-gated and both pure:
     // the computed date table (generator and verifier read the same
@@ -406,7 +426,7 @@ export class SynthesizeService {
     // Generation + the V13 constrained refine round, one seam: a
     // 'failed' result is the generator_error early-return; otherwise
     // the tuple is whichever round answered last.
-    const produced = await this.produceAnswer({
+    const produceArgs = {
       companyId,
       callerScopes,
       dto,
@@ -434,23 +454,22 @@ export class SynthesizeService {
       collected: {
         ...collected,
         // MM-zoom PR2: citation affordance (populated fence map ⟺
-        // switch on AND rendered); round 2 carries both.
+        // switch on AND rendered); round 2 carries both. The belief and
+        // scene lanes follow the same construction.
         fragmentCitations: fragmentsById !== undefined,
-        // BELIEFS_SERVING_LANE: same construction — citations ride the
-        // master flag, so affordance ⟺ the lane rendered anything.
         beliefCitations: beliefsById !== undefined,
-        // RETRIEVAL_SCENE_LANE: same construction — scene citations
-        // ride the lane flag, so affordance ⟺ the lane rendered.
         sceneCitations: scenesById !== undefined,
       },
-    });
+    };
+    const produced = await this.produceAnswer(produceArgs);
     if ('failed' in produced) return produced.failed;
-    const { generated } = produced;
+    let { generated } = produced;
     ({ results, factIndex, promptFactLines, dateMathLines } = produced);
 
-    const citations = resolveCitations(generated.citedFactIds, generated.answer, factIndex);
-    const citedSet = new Set(citations.map((c) => c.factId));
-    const decisionLog = explain ? buildDecisionLog(results, citedSet) : undefined;
+    let citations = resolveCitations(generated.citedFactIds, generated.answer, factIndex);
+    let decisionLog = explain
+      ? buildDecisionLog(results, new Set(citations.map((c) => c.factId)))
+      : undefined;
 
     const unverified = unverifiedServe(
       { metrics: this.metrics, outcomes: this.outcomes },
@@ -460,45 +479,25 @@ export class SynthesizeService {
     if (unverified) return unverified;
 
     onProgress({ stage: 'verify', message: 'verifier checking claim grounding' });
-    // Verifier — the corrective guardrail — plus the MM-zoom PR3
-    // fragment-zoom step (FOVEA_FRAGMENT_ZOOM), ONE stage behind one
-    // seam (fragment-zoom-seam.ts, moved whole for the size gates: the
-    // primary audit and the zoom re-verify build their VerifyRequest in
-    // one module, so evidence parity between them holds by
-    // construction). Strict gates the answer behind a 'supported'
-    // verdict; lenient surfaces the verdict but returns the answer
-    // either way; 'minicheck' delegates to the local NLI. A verifier
-    // throw returns the historical verifier_error result. On a
-    // zoom flip the returned verdict is the RE-verified one — the L3
-    // trigger below then reads 'skip_verdict_ok' and the normal
-    // supported serve runs; otherwise (and always with the flag off)
-    // it is the primary verdict, byte for byte.
-    //
-    // Optics-1 focus capture rides the onPrimaryVerdict callback so the
-    // sample sees the PRE-zoom verdict (fit-shape discipline; see
-    // maybeCaptureFocusSignal — SERVING-NEUTRAL guarded no-op).
-    // `dto.query` carries the Tier 5 language key onto the verdict
-    // sample; the 0119 primary decision id joins sample → decision row.
-    const verified = await verifyAndZoom(this.verifyDeps(), {
+    // The audit stage (revise-round.ts): the verifier + the MM-zoom step
+    // (fragment-zoom-seam.ts), then the revision round on a partial
+    // verdict — the pair returned is the answer to serve with the
+    // verdict that judged it. The exit matrix is finalizeVerdict's.
+    const audited = await auditAndRevise(this.auditPorts(), {
       ctx: cacheArgs,
+      lane,
+      explain,
+      produceArgs,
+      round: { results, factIndex, promptFactLines, dateMathLines },
       generated,
-      collected,
-      promptFactLines,
-      dateMathLines,
       citations,
-      results,
       decisionLog,
-      factCount: factIndex.size,
+      collected,
       decisionCtx,
-      onPrimaryVerdict: (v) =>
-        this.maybeCaptureFocusSignal(
-          companyId,
-          { results, verdict: v.verdict, lane, decisionId: decisionCtx.primaryDecisionId },
-          dto.query,
-        ),
     });
-    if ('failed' in verified) return verified.failed;
-    const { verdict } = verified;
+    if ('failed' in audited) return audited.failed;
+    const { verdict } = audited;
+    ({ generated, citations, decisionLog } = audited);
 
     // G2 L3 escalation — the pre-abstention seam. On a verifier-fail with
     // an anchoring session it escalates ONCE to full-raw-session context
@@ -524,6 +523,7 @@ export class SynthesizeService {
       factIndex,
       promptFactLines,
       dateMathLines,
+      asker: collected.asker,
       guardrails,
       explain,
       decisionCtx,
@@ -584,18 +584,14 @@ export class SynthesizeService {
     callerScopes: string[];
     factIds: string[];
     evidence: SearchHit[];
+    instructionProbe?: Promise<string[]> | undefined;
+    asker?: Asker | undefined;
   }): Promise<CollectedEvidence> {
     if (!this.evidenceCollector) return emptyCollectedEvidence(opts.profile, opts.dto.query);
     return this.evidenceCollector.collect({
-      profile: opts.profile,
-      lane: opts.lane,
-      companyId: opts.companyId,
+      ...opts,
       query: opts.dto.query,
-      callerScopes: opts.callerScopes,
       userId: opts.dto.userId,
-      dto: opts.dto,
-      factIds: opts.factIds,
-      evidence: opts.evidence,
       fragmentCitations: fragmentCitationsEnabled(),
       // BELIEFS_SERVING_LANE, resolved ONCE per request (the same
       // single-resolution idiom): the lane, the rendered headers, the
@@ -607,27 +603,6 @@ export class SynthesizeService {
       // header key off the same resolution (echoed on CollectedEvidence).
       beliefDateDisambiguation: beliefLaneDateDisambiguationEnabled(),
     });
-  }
-
-  /**
-   * Optics-1 focus-signal capture — a guarded no-op when the flag is off
-   * (or the service is absent). Extracted so synthesize() keeps a single
-   * capture call on the serving path and stays within its line budget.
-   * SERVING-NEUTRAL: nothing consumes the captured signal yet.
-   */
-  private async maybeCaptureFocusSignal(
-    companyId: string,
-    signal: {
-      results: SearchHit[];
-      verdict: FocusVerdict;
-      lane: LaneId | null;
-      /** 0119 join key — present only under OUTCOME_DECISION_CAPTURE. */
-      decisionId?: string | undefined;
-    },
-    query: string,
-  ): Promise<void> {
-    if (!this.focusSignal || !FocusSignalService.captureEnabled()) return;
-    await this.focusSignal.maybeCapture(companyId, { ...signal, query });
   }
 
   /**
@@ -655,6 +630,7 @@ export class SynthesizeService {
     factIndex: ReturnType<typeof buildFactIndex>['factIndex'];
     promptFactLines: string[];
     dateMathLines?: string[] | undefined;
+    asker?: Asker | undefined;
     guardrails: SynthesisGuardrails;
     explain: boolean;
     decisionCtx: DecisionContext;
@@ -687,6 +663,7 @@ export class SynthesizeService {
       factLines: args.promptFactLines,
       answerLang: args.answerLang,
       dateMathLines: args.dateMathLines,
+      asker: args.asker,
       ...(adaptiveL3 ? { adaptiveL3 } : {}),
       ...(onDecision ? { onDecision } : {}),
     });
@@ -729,18 +706,45 @@ export class SynthesizeService {
     );
   }
 
-  /** The verify-stage ports, bundled once (fragment-zoom-seam.ts owns
-   *  the primary audit + the MM-zoom PR3 step; this service only lends
-   *  its ports — the resolveAnswerIntegrity deps idiom). */
-  private verifyDeps() {
+  private launchInstructionProbe(
+    opts: Parameters<EvidenceCollectorService['startInstructionProbe']>[0],
+  ): Promise<string[]> | undefined {
+    return this.evidenceCollector?.startInstructionProbe(opts);
+  }
+
+  /** The asker read (asker.ts), launched beside the main search. */
+  private launchAskerProbe(
+    companyId: string,
+    userId: string | undefined,
+  ): Promise<Asker | undefined> {
+    return (
+      this.evidenceCollector?.startAskerProbe({ companyId, userId }) ?? Promise.resolve(undefined)
+    );
+  }
+
+  /** The audit-stage ports (revise-round.ts + fragment-zoom-seam.ts). */
+  private auditPorts(): AuditPorts {
+    const { openai, metrics, logger, limiter, fragmentLane, decisions, decisionPlane } = this;
     return {
-      openai: this.openai,
-      metrics: this.metrics,
-      logger: this.logger,
-      limiter: this.limiter,
-      fragmentLane: this.fragmentLane,
-      decisions: this.decisions,
-      minicheck: { baseUrl: this.minicheckUrl, model: this.minicheckModel },
+      metrics,
+      logger,
+      verifyDeps: {
+        openai,
+        metrics,
+        logger,
+        limiter,
+        fragmentLane,
+        decisions,
+        decisionPlane,
+        minicheck: { baseUrl: this.minicheckUrl, model: this.minicheckModel },
+      },
+      generate: (args) => limiter.run(() => this.callGenerator(args)),
+      // Optics-1 focus capture — SERVING-NEUTRAL: nothing consumes the
+      // captured signal yet; a guarded no-op unless the flag is on.
+      captureFocus: async (companyId, sample, query) => {
+        if (!this.focusSignal || !FocusSignalService.captureEnabled()) return;
+        await this.focusSignal.maybeCapture(companyId, { ...sample, query });
+      },
     };
   }
 
@@ -752,13 +756,10 @@ export class SynthesizeService {
    *
    * `ctx.dto`+`ctx.profile` are supplied by BOTH serving paths — the primary
    * serve AND the L3 flip — so both resolve the default-off verifier
-   * answer-integrity arm (Parts A + C — answer-integrity.ts) over the supported
-   * verdict and merge the gate flags into finalizeVerdict. BOTH flags off ⇒
-   * empty gate ⇒ byte-identical serve on either path (no LLM call, no flag
-   * effect). A gate downgrade produces a low_coverage/zero-citation result that
-   * admit() rejects, so a downgraded answer is never cached. The auditor model
-   * (profile.verifierModel || synthesis model) is resolved here so the caller
-   * carries no branch.
+   * answer-integrity arm (Parts A + C — answer-integrity.ts) and merge the
+   * gate flags into finalizeVerdict; both flags off ⇒ empty gate ⇒
+   * byte-identical serve. A gate downgrade yields a low_coverage/zero-citation
+   * result that admit() rejects, so a downgraded answer is never cached.
    */
   private async finalizeAndAdmit(
     ctx: FinalizeContext,
@@ -766,8 +767,7 @@ export class SynthesizeService {
     args: Omit<Parameters<typeof finalizeVerdict>[1], 'verdict' | 'questionAnswered'>,
   ): Promise<SynthesizeResult> {
     // The gate-resolution also folds in the evidence-capability flag
-    // (FOVEA_EVIDENCE_CAPABILITY, 0113 — resolveEvidenceCapability, the
-    // resolveAnswerIntegrity sibling in answer-integrity.ts): does the
+    // (FOVEA_EVIDENCE_CAPABILITY, 0113 — resolveEvidenceCapability): does the
     // supported answer's cited predicate set REQUIRE non-text evidence no
     // citation carries? Flag off / no registry ⇒ absent ⇒ byte-identical.
     const fetchGrounding = makeGroundingFetchPort(this.surreal);
@@ -807,9 +807,7 @@ export class SynthesizeService {
       verdict: servedVerdict,
       decisionId: ctx.decisionId,
     });
-    if (ctx.cache?.ctx) {
-      await this.answerCache?.admit(ctx.cache.ctx, final, verdict.verdict);
-    }
+    if (ctx.cache?.ctx) await this.answerCache?.admit(ctx.cache.ctx, final, verdict.verdict);
     return final;
   }
 
@@ -998,13 +996,16 @@ export class SynthesizeService {
       // computation (see the round-1 site): suffix maps first, then the
       // BELIEFS_FACT_DAMPING pass over the refined evidence set —
       // damping off / no matched beliefs ⇒ byte-identical lines.
-      const promptFactLines = applyBeliefFactDamping({
+      const { factLines: promptFactLines } = applyBeliefFactDamping({
         enabled: args.factDamping === true,
-        factLines: applyFactSuffixes(prepared.factLines, [
-          args.updateStories,
-          args.groundingQuotes,
-        ]),
+        factLines: applyFactSuffixes(
+          prepared.factLines,
+          [args.updateStories, args.groundingQuotes],
+          prepared.factIndex,
+        ),
         factIndex: prepared.factIndex,
+        // The beliefs that survived round 1's arbitration; a refined
+        // fact set keeps the same rendered section (parity with round 1).
         beliefsById: args.beliefsById,
         metrics: this.metrics,
       });
@@ -1116,32 +1117,6 @@ export class SynthesizeService {
    * lane + profile. Extracted from synthesize() to keep it under the
    * function-size gate; the field semantics live here.
    */
-  private buildPrepareOpts(args: {
-    answerMode: boolean;
-    explain: boolean;
-    lane: LaneId | null;
-    asOf: string | undefined;
-    profile: RetrievalProfile;
-  }) {
-    const { answerMode, explain, lane, asOf, profile } = args;
-    return {
-      answerMode,
-      explain,
-      elapsedAsOf: lane === 'temporal' ? asOf : undefined,
-      // T2 and T6 both read off a code-sorted timeline.
-      chronological: lane === 'enumeration' || lane === 'summary',
-      // T5: recency marker on the newest fact of multi-statement slots
-      // (knowledge-update misses answer STALE values) — active for any
-      // routed request, independent of lane.
-      markRecency: profile.lanes.has('recency'),
-      // V12 mention anchoring: "(mentioned YYYY-MM-DD)" on stamped
-      // facts whose anchor disagrees with validFrom by day.
-      mentionDates: profile.mentionDates,
-      // V13 dual-trace read side: "(context: …)" scene suffixes.
-      sceneTraces: profile.sceneTraces,
-    };
-  }
-
   private prepareEvidence(
     evidence: SearchHit[],
     opts: {
@@ -1157,6 +1132,8 @@ export class SynthesizeService {
       mentionDates?: boolean | undefined;
       /** V13: "(context: …)" scene suffix (profile.sceneTraces). */
       sceneTraces?: boolean | undefined;
+      /** The asker's own entity — its lines are headed "you" (asker.ts). */
+      askerEntityId?: string | undefined;
     },
   ): { empty: SynthesizeResult } | ({ results: SearchHit[] } & ReturnType<typeof buildFactIndex>) {
     const {
@@ -1167,6 +1144,7 @@ export class SynthesizeService {
       markRecency,
       mentionDates,
       sceneTraces,
+      askerEntityId,
     } = opts;
     const guardrail = applyConformalGuardrail(evidence, {
       // 'answer' mode disables the CONFIDENCE floor by design: the whole
@@ -1199,6 +1177,7 @@ export class SynthesizeService {
       markRecency,
       mentionDates,
       sceneTraces,
+      askerEntityId,
     });
     if (factIndex.size === 0) {
       // Search returned entities but they were stripped to ids by

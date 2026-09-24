@@ -166,8 +166,8 @@ function makeMetrics() {
 }
 
 describe('SceneMaintenanceService — flag gate', () => {
-  it('PIN: with SCENES_SCHEDULED_MAINTENANCE off the cron does nothing at all', async () => {
-    delete process.env.SCENES_SCHEDULED_MAINTENANCE;
+  it('PIN: with SCENES_SCHEDULED_MAINTENANCE=0 the cron does nothing at all', async () => {
+    process.env.SCENES_SCHEDULED_MAINTENANCE = '0';
     const roster = jest.fn(() => ['co_a']);
     const { composer, calls } = makeComposer(async () => composed());
     const svc = new SceneMaintenanceService(
@@ -176,7 +176,7 @@ describe('SceneMaintenanceService — flag gate', () => {
       composer,
       makeBeliefs().beliefs,
     );
-    await expect(svc.runNightly()).resolves.toEqual({
+    await expect(svc.runScheduled()).resolves.toEqual({
       tenants: [],
       budgetExhausted: false,
       skippedForBudget: 0,
@@ -195,7 +195,7 @@ describe('SceneMaintenanceService — flag gate', () => {
       makeComposer(async () => composed()).composer,
       makeBeliefs().beliefs,
     );
-    await svc.runNightly();
+    await svc.runScheduled();
     expect(roster).not.toHaveBeenCalled();
   });
 });
@@ -215,8 +215,8 @@ describe('SceneMaintenanceService — reentrancy guard', () => {
       composer,
       makeBeliefs().beliefs,
     );
-    const first = svc.runNightly();
-    const second = await svc.runNightly();
+    const first = svc.runScheduled();
+    const second = await svc.runScheduled();
     // The overlapping tick returns the empty summary, not a partial run.
     expect(second.tenants).toHaveLength(0);
     release();
@@ -234,8 +234,8 @@ describe('SceneMaintenanceService — reentrancy guard', () => {
       composer,
       makeBeliefs().beliefs,
     );
-    await svc.runNightly();
-    await svc.runNightly();
+    await svc.runScheduled();
+    await svc.runScheduled();
     expect(calls).toHaveLength(2);
   });
 });

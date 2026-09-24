@@ -46,6 +46,8 @@ export const CitationSchema = z.object({
   object: z.string(),
   /** Write-time sourceKey (trustSnapshot) — absent on pre-0044 facts. */
   sourceKey: z.string().optional(),
+  /** ISO validFrom of the cited fact — absent on an undated fact or a relation. */
+  validFrom: z.string().optional(),
 });
 
 /** Why the pipeline declined to answer (absent on a served answer). */

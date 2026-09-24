@@ -1,3 +1,4 @@
+import { DEFAULT_VERIFIER_MODEL } from '../src/ai/openai-client';
 import { runVerifier } from '../src/synthesize/verifier';
 import { NOT_IN_MEMORY_ANSWER } from '../src/synthesize/abstention';
 import { SynthesizeService } from '../src/synthesize/synthesize.service';
@@ -343,8 +344,13 @@ describe('RETRIEVAL_VERIFIER_TOPIC_COVERAGE profile point', () => {
 });
 
 describe('RETRIEVAL_VERIFIER_MODEL profile point (V11 §2 arm a)', () => {
-  it("defaults to '' (inherit the synthesis model)", () => {
-    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).verifierModel).toBe('');
+  it('defaults to the pinned audit model, not to the synthesis model', () => {
+    // Measured 2026-09-24: auditing with the newer generation cost two
+    // memory-fitness points, both of them abstentions on answers the evidence
+    // supported. The audit is the one call that keeps the older model.
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).verifierModel).toBe(
+      DEFAULT_VERIFIER_MODEL,
+    );
   });
 
   it('accepts a plain model id and rejects malformed values', () => {
@@ -353,12 +359,13 @@ describe('RETRIEVAL_VERIFIER_MODEL profile point (V11 §2 arm a)', () => {
         RETRIEVAL_VERIFIER_MODEL: 'gpt-5-mini',
       } as NodeJS.ProcessEnv).verifierModel,
     ).toBe('gpt-5-mini');
-    // Not a model id → fall back to inherit, never a broken override.
+    // Not a model id → fall back to the pinned default, never a broken
+    // override.
     expect(
       resolveRetrievalProfile({
         RETRIEVAL_VERIFIER_MODEL: 'gpt 5 mini; DROP',
       } as NodeJS.ProcessEnv).verifierModel,
-    ).toBe('');
+    ).toBe(DEFAULT_VERIFIER_MODEL);
   });
 
   it('overlays per tenant, empty string restores inherit', () => {

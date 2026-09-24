@@ -6,6 +6,8 @@ import { chatCallParams, createOpenAiClient } from './openai-client';
 import { MetricsService } from '../metrics/metrics.service';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
+import { DecisionService } from './decisions/decision.service';
+import type { ChoiceAnswer } from './decisions/decision.types';
 
 export type EntityVerdict = 'same' | 'different' | 'unsure';
 
@@ -32,7 +34,7 @@ export interface JudgeContext {
    * similarity. Named so the prompt does not call a string distance a
    * cosine.
    */
-  similarity?: 'embedding' | 'transliteration';
+  similarity?: 'embedding' | 'transliteration' | 'name-part';
   /** The two surface names, when the caller has them. */
   names?: { a?: string | undefined; b?: string | undefined };
 }
@@ -63,6 +65,21 @@ function similarityLine(ctx: JudgeContext): string {
       `person — a surname that differs by an ending is often a relative or the other ` +
       `gender — so when the names are NOT identical after transliteration, require at ` +
       `least one fact in common beyond the employer before answering "same".`
+    );
+  }
+  if (ctx.similarity === 'name-part') {
+    // One name is a whole part of the other — a first name against the
+    // full name, a short company name against its full one — and it is
+    // the ONLY entity in this memory whose name contains that part.
+    // People are referred to by first name once introduced; the question
+    // is whether the facts contradict, not whether they overlap.
+    return (
+      `\n\nOne of the names is a whole part of the other (${(ctx.cosine * 100).toFixed(0)}% ` +
+      `of the longer name), and no other known entity shares that part. A person is ` +
+      `commonly referred to by first name alone once introduced, and a company by its ` +
+      `short name, so answer "same" unless a fact CONTRADICTS it — a different employer, ` +
+      `role at the same time, date of birth or email is "different". Few or unrelated ` +
+      `facts are not a contradiction.`
     );
   }
   return `\n\nCosine name-similarity: ${ctx.cosine.toFixed(3)}.`;
@@ -96,6 +113,7 @@ export class EntityJudgeService {
   constructor(
     private readonly config: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
+    @Optional() private readonly decisions?: DecisionService,
   ) {
     this.openai = createOpenAiClient(this.config) ?? (undefined as unknown as OpenAI);
     // The judge's own default, not the tenant's chat model. Measured on
@@ -176,6 +194,8 @@ export class EntityJudgeService {
    * @param ctx.cosine optional name cosine-similarity hint for the prompt
    */
   async judge(left: string, right: string, ctx: JudgeContext = {}): Promise<EntityVerdict> {
+    const decided = await this.decide(left, right, ctx);
+    if (decided) return decided;
     if (!this.openai) return 'unsure';
     try {
       return await this.limiter.run(() => this.callLLM(left, right, ctx));
@@ -183,6 +203,48 @@ export class EntityJudgeService {
       this.logger.warn(`entity judge failed: ${(err as Error).message}`);
       return 'unsure';
     }
+  }
+
+  /**
+   * Same-or-different on the decision plane. Two options, not three: "unsure"
+   * is not a verdict a calibrated model has to be asked for — it is what a
+   * confidence below the lane's floor MEANS. Below the floor this returns
+   * null, and the reasoning model above gets the hard pair, which is the only
+   * reason a cheap first pass is safe here at all.
+   */
+  private async decide(
+    left: string,
+    right: string,
+    ctx: JudgeContext,
+  ): Promise<EntityVerdict | null> {
+    if (!this.decisions?.enabled('entity_judge')) return null;
+    const res = await this.decisions.decide('entity_judge', {
+      state: {
+        entity_a: { name: ctx.names?.a ?? null, facts: left },
+        entity_b: { name: ctx.names?.b ?? null, facts: right },
+        ...(typeof ctx.cosine === 'number'
+          ? { name_similarity: { scale: ctx.similarity ?? 'embedding', value: ctx.cosine } }
+          : {}),
+      },
+      questions: {
+        identity: {
+          type: 'choice',
+          instructions:
+            'Are these two knowledge-graph entities the SAME real-world thing, or two different things with similar names? The graph is multilingual: the same facts stated in two languages AGREE, and two spellings of one name in two scripts are one name.',
+          criteria: {
+            same: 'Facts identify them as one thing (matching employer, role, dob, email, address), or the facts are non-contradictory and the names are identical, clear aliases, or one name in two scripts.',
+            different:
+              'Facts contradict — a different employer, role, dob or email holding at the same time — or the names denote different things.',
+          },
+        },
+      },
+    });
+    const answer = res?.answers['identity'];
+    if (!answer || answer.type !== 'choice') return null;
+    // Below the floor the pair is one of the hard ones — escalate rather than
+    // answer "unsure", which the caller reads as a decision it may keep.
+    if (!this.decisions.confident('entity_judge', answer)) return null;
+    return (answer as ChoiceAnswer).choice === 'same' ? 'same' : 'different';
   }
 
   private async callLLM(left: string, right: string, ctx: JudgeContext): Promise<EntityVerdict> {
