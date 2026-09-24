@@ -3,7 +3,7 @@ import { DecisionService } from '../src/ai/decisions/decision.service';
 import { JevClient } from '../src/ai/decisions/jev.client';
 import { certaintyOf } from '../src/ai/decisions/decision.types';
 import type { DecisionResponse } from '../src/ai/decisions/decision.types';
-import type { MetricsService } from '../src/metrics/metrics.service';
+import type { DecisionMetrics } from '../src/ai/decisions/decision.metrics';
 
 /**
  * The decision plane's two contracts, which every lane depends on:
@@ -93,8 +93,8 @@ describe('decision plane — the confidence floor', () => {
     // the expensive fallback it triggered land in the same token counter.
     const counted: Array<[string, string]> = [];
     const metrics = {
-      countDecision: (lane: string, outcome: string) => counted.push([lane, outcome]),
-    } as unknown as MetricsService;
+      count: (lane: string, outcome: string) => counted.push([lane, outcome]),
+    } as unknown as DecisionMetrics;
 
     const s = new DecisionService(
       cfg({ DECISIONS_LANES: 'all', DECISIONS_CONFIDENCE_FLOOR: '0.8' }),

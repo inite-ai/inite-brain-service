@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { JevClient } from './jev.client';
 import { DecisionService } from './decision.service';
+import { DecisionMetrics } from './decision.metrics';
 
 /**
  * The decision plane. Global for the same reason the metrics module is: the
@@ -11,7 +12,7 @@ import { DecisionService } from './decision.service';
  */
 @Global()
 @Module({
-  providers: [JevClient, DecisionService],
+  providers: [JevClient, DecisionService, DecisionMetrics],
   exports: [JevClient, DecisionService],
 })
 export class DecisionsModule {}

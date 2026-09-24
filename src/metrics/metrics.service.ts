@@ -435,13 +435,6 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
-  readonly decisionCount = new Counter({
-    name: 'brain_decisions_total',
-    help: 'System One decisions by lane and what the lane did with the answer',
-    labelNames: ['lane', 'outcome'] as const,
-    registers: [this.registry],
-  });
-
   // L3 escalation outcomes (G2, sota-gap-build-2026-08):
   //   fired                 — the ladder escalated (anchor present, ran)
   //   flipped               — escalation changed the verdict fail→pass;
@@ -1091,18 +1084,6 @@ export class MetricsService implements OnModuleInit {
     outcome: 'hit' | 'miss' | 'rejected_stale' | 'stored' | 'bypass' | 'not_admitted',
   ): void {
     this.answerCacheCount.inc({ outcome } as LabelValues<'outcome'>);
-  }
-
-  /**
-   * One decision, from the lane's point of view. `acted` — the lane used the
-   * answer; `escalated` — it came back below the lane's confidence floor and
-   * the reasoning model got the case; `unanswered` — the plane returned
-   * nothing (off, no key, a failed call, a short answer map) and the lane took
-   * the path it had. Without this split the plane is invisible on prod: the
-   * cheap calls and the expensive fallbacks land in the same token counter.
-   */
-  countDecision(lane: string, outcome: 'acted' | 'escalated' | 'unanswered'): void {
-    this.decisionCount.inc({ lane, outcome } as LabelValues<'lane' | 'outcome'>);
   }
 
   countL3Escalation(

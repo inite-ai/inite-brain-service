@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JevClient } from './jev.client';
-import { MetricsService } from '../../metrics/metrics.service';
+import { DecisionMetrics } from './decision.metrics';
 import {
   certaintyOf,
   type DecisionAnswer,
@@ -56,7 +56,7 @@ export class DecisionService {
   constructor(
     private readonly config: ConfigService,
     @Optional() private readonly jev?: JevClient,
-    @Optional() private readonly metrics?: MetricsService,
+    @Optional() private readonly metrics?: DecisionMetrics,
   ) {
     this.lanes = new Set(
       (config.get<string>('DECISIONS_LANES', '') || '')
@@ -94,7 +94,7 @@ export class DecisionService {
    */
   confident(lane: DecisionLane, answer: DecisionAnswer): boolean {
     const ok = certaintyOf(answer) >= this.floorFor(lane);
-    this.metrics?.countDecision(lane, ok ? 'acted' : 'escalated');
+    this.metrics?.count(lane, ok ? 'acted' : 'escalated');
     return ok;
   }
 
@@ -103,7 +103,7 @@ export class DecisionService {
     const res = await this.jev!.decide(req, lane);
     if (res === null) {
       this.logger.debug(`[${lane}] decision plane returned nothing — falling back`);
-      this.metrics?.countDecision(lane, 'unanswered');
+      this.metrics?.count(lane, 'unanswered');
     }
     return res;
   }
