@@ -252,7 +252,7 @@ function dbCommand(): void {
     for (const name of names) {
       const dsn = resolveDsn(name, cfg) ?? '';
       const from = process.env[databaseEnvName(name)] ? databaseEnvName(name) : 'config';
-      let dialect = '?';
+      let dialect: string;
       try {
         dialect = dialectOf(dsn);
       } catch {

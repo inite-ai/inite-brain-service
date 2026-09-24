@@ -773,7 +773,7 @@ function SourceStep({
           <RecordsFields
             entry={entry}
             value={records}
-            credential={form ? credentialFrom(form, secret) : undefined}
+            credential={credentialFrom(form, secret)}
             config={assembledConfig()}
             t={t}
             onChange={onRecords}

@@ -1,4 +1,5 @@
-import { lstat, readdir, readFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { lstat, open, readdir, readFile } from 'node:fs/promises';
 import { basename, extname, join, posix, relative, resolve, sep } from 'node:path';
 import type { AgentConnector, ConnectorCtx, EnumerateOptions, FetchedItem, ItemDelta, ItemDescriptor, Modality } from '../types.js';
 import { DEFAULT_IGNORE_FILES, PathFilter } from './path-rules.js';
@@ -133,22 +134,19 @@ export class FsAgentConnector implements AgentConnector {
     const cfg = configOf(ctx);
     const root = await this.jailedRoot(cfg.root);
     const full = containedPath(root, item.externalId);
-    const st = await lstat(full);
-    if (!st.isFile()) throw new Error(`not a regular file: ${item.externalId}`);
-    if (st.size > fileByteCap(cfg)) throw new Error(`file over maxFileBytes: ${item.externalId}`);
     const ext = extOf(basename(full));
-    const bytes = await readFile(full);
+    const { bytes, mtime } = await readChecked(full, item.externalId, fileByteCap(cfg));
     if (ctx.connection.shape === 'binary') {
       return {
         shape: 'binary',
         bytesBase64: bytes.toString('base64'),
         mediaType: MEDIA_TYPES[ext] ?? 'application/octet-stream',
         modality: BINARY_MODALITIES[ext] ?? 'image',
-        occurredAt: st.mtime.toISOString(),
+        occurredAt: mtime.toISOString(),
       };
     }
     if (looksBinary(bytes)) throw new Error(`binary content in a text-shaped item: ${item.externalId}`);
-    return { shape: 'document', text: bytes.toString('utf8'), title: basename(full), occurredAt: st.mtime.toISOString(), kind: 'file' };
+    return { shape: 'document', text: bytes.toString('utf8'), title: basename(full), occurredAt: mtime.toISOString(), kind: 'file' };
   }
 
   private async jailedRoot(configRoot: string): Promise<string> {
@@ -159,6 +157,29 @@ export class FsAgentConnector implements AgentConnector {
     const st = await lstat(root);
     if (!st.isDirectory()) throw new Error(`fs: root ${root} is not a directory`);
     return root;
+  }
+}
+
+/**
+ * Read a jailed path through ONE open handle, so the checks hold for the
+ * bytes actually returned: a path stat'ed and then read is two different
+ * files if anything swaps the entry in between, and on a user's own machine
+ * that entry is writable by whatever else runs there. O_NOFOLLOW keeps the
+ * "symlinks are never followed" rule lstat used to give us.
+ */
+async function readChecked(full: string, externalId: string, cap: number): Promise<{ bytes: Buffer; mtime: Date }> {
+  const fh = await open(full, constants.O_RDONLY | constants.O_NOFOLLOW).catch((e: unknown) => {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'ELOOP' || code === 'EISDIR') throw new Error(`not a regular file: ${externalId}`);
+    throw e;
+  });
+  try {
+    const st = await fh.stat();
+    if (!st.isFile()) throw new Error(`not a regular file: ${externalId}`);
+    if (st.size > cap) throw new Error(`file over maxFileBytes: ${externalId}`);
+    return { bytes: await fh.readFile(), mtime: st.mtime };
+  } finally {
+    await fh.close();
   }
 }
 
