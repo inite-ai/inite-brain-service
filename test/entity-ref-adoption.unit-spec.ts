@@ -30,7 +30,13 @@ interface Captured {
  * canonical-name probe. CREATE and the mint transaction are captured
  * rather than executed.
  */
-function makeDb(opts: { refRows?: unknown[]; nameRows?: unknown[] }): {
+function makeDb(opts: {
+  /** Rows of the external-ref lookup: an id, or { entity, chain } verbatim. */
+  refRows?: unknown[];
+  nameRows?: unknown[];
+  /** `externalRefs` of the entity the name probe returns. */
+  candidateRefs?: Record<string, string>;
+}): {
   db: Surreal;
   captured: Captured;
 } {
@@ -46,7 +52,15 @@ function makeDb(opts: { refRows?: unknown[]; nameRows?: unknown[] }): {
         captured.transactions += 1;
         return [null, null, null, { id: 'knowledge_entity:minted' }, null];
       }
-      if (sql.includes('FROM entity_external_ref')) return [opts.refRows ?? []];
+      if (sql.includes('FROM entity_external_ref')) {
+        // The lookup now projects the merge chain beside the entity, so a
+        // reference to an absorbed entity resolves to its survivor.
+        return [
+          (opts.refRows ?? []).map((r) => (typeof r === 'string' ? { entity: r, chain: [] } : r)),
+        ];
+      }
+      // The adoption guard's own read: which ids is the candidate keyed by?
+      if (sql.includes('VALUE externalRefs')) return [opts.candidateRefs ?? {}];
       if (sql.includes('FROM knowledge_entity')) return [opts.nameRows ?? []];
       // dbCreate goes through `CREATE type::table($t) CONTENT $d`.
       if (sql.includes('CREATE type::table($t)')) {
@@ -87,6 +101,42 @@ describe('resolveOrCreateEntity — external-ref adoption', () => {
     await new EntityUpsertService().resolveOrCreateEntity(db, dto('MERIDIAN'));
     const probe = captured.queries.find((q) => q.sql.includes('FROM knowledge_entity'))!;
     expect(probe.params).toMatchObject({ name: 'meridian', rawName: 'MERIDIAN' });
+  });
+
+  it('declines a candidate that carries that id as its OWN external reference', async () => {
+    // `rent/jonas` and `events/jonas` are two id-spaces that collide on a
+    // key, not one person. Adopting across the collision fuses two referents
+    // into a node nothing can take apart again — and it turned the operator's
+    // own identity_of declaration between them into a 400 self-merge.
+    const { db, captured } = makeDb({
+      nameRows: [{ id: 'knowledge_entity:rent_jonas' }],
+      candidateRefs: { rent__jonas: 'jonas' },
+    });
+    const id = await new EntityUpsertService().resolveOrCreateEntity(db, dto('jonas'));
+    expect(id).toBe('knowledge_entity:minted');
+    expect(captured.transactions).toBe(1);
+  });
+
+  it('declines across scripts too — a transliterated key collides just as blindly', async () => {
+    const { db } = makeDb({
+      nameRows: [{ id: 'knowledge_entity:crm_ivan' }],
+      candidateRefs: { crm__Иван: 'Иван' },
+    });
+    const id = await new EntityUpsertService().resolveOrCreateEntity(db, dto('Ivan'));
+    expect(id).toBe('knowledge_entity:minted');
+  });
+
+  it('adopts when the match is a name the graph LEARNED, not a sibling key', async () => {
+    // The candidate is keyed by `acme` and known as "Acme Corp" (coined by
+    // extraction, or stated by a name fact). A reference spelling the learned
+    // name is the #593 case and still adopts.
+    const { db, captured } = makeDb({
+      nameRows: [{ id: 'knowledge_entity:acme' }],
+      candidateRefs: { ledger__acme: 'acme' },
+    });
+    const id = await new EntityUpsertService().resolveOrCreateEntity(db, dto('Acme Corp'));
+    expect(id).toBe('knowledge_entity:acme');
+    expect(captured.transactions).toBe(0);
   });
 
   it('mints when the name is unknown (historical behaviour)', async () => {

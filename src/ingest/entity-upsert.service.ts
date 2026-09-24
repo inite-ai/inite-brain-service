@@ -157,7 +157,7 @@ export class EntityUpsertService {
       // lookup pins `userId IS NONE`, so nobody's private node is ever
       // adopted), it is the same thing. Not for the user's own node: its
       // identity is the key, never a name.
-      ...(own ? {} : { adopt: () => this.resolveExistingByName(db, { name: ref.id }) }),
+      ...(own ? {} : { adopt: () => this.adoptByReferenceId(db, ref.id) }),
     });
   }
 
@@ -212,13 +212,31 @@ export class EntityUpsertService {
     });
   }
 
+  /**
+   * The entity a reference key names — FOLLOWING the merge chain.
+   *
+   * A reference row keeps pointing at the entity it was created for, and an
+   * `identity_of` merge only stamps `mergedInto` on that entity. Without the
+   * hop, every write arriving through the loser's key after the merge landed
+   * on a husk that every read filters out (`mergedInto IS NONE`): the ingest
+   * answered 201, the fact was stored, and nothing could ever serve it. The
+   * chain is walked server-side, bounded at 32 hops like the cycle guard in
+   * 0037, so a chain of merges resolves in one round trip.
+   */
   private async lookupExternalRef(db: Surreal, key: string): Promise<string | null> {
-    const arr = await queryRows<unknown>(
+    const row = await queryFirst<{ entity: unknown; chain?: unknown }>(
       db,
-      `SELECT VALUE entity FROM entity_external_ref WHERE key = $key LIMIT 1`,
+      // ONE statement: a LET + RETURN pair is a multi-statement query, and on
+      // this path (inside the ref-upsert retry, next to the RELATE) 3.2.4
+      // answered it with "read or write conflict" — a 500 on every link.
+      `SELECT entity, entity.{1..32+collect}.mergedInto AS chain
+         FROM entity_external_ref WHERE key = $key LIMIT 1`,
       { key },
     );
-    return arr[0] ? String(arr[0]) : null;
+    if (!row?.entity) return null;
+    const chain = Array.isArray(row.chain) ? row.chain : [];
+    const survivor = chain.length > 0 ? chain[chain.length - 1] : row.entity;
+    return String(survivor);
   }
 
   async resolveOrCreateNamedEntity({
@@ -665,6 +683,76 @@ export class EntityUpsertService {
     return matched.size === 1 ? [...matched][0]! : null;
   }
 
+  /**
+   * Adoption for a STRUCTURED reference `{vertical, id}`: the id is the name
+   * the caller chose for the thing, so the graph's own name index decides
+   * whether it already knows it — with ONE exclusion.
+   *
+   * An external id is not a name. When the only thing tying this id to the
+   * candidate is that the candidate was itself minted from ANOTHER vertical's
+   * reference spelled the same way, the two are not the same referent:
+   * `rent/jonas` and `events/jonas` are two id-spaces that happen to collide
+   * on a key. Adopting across that collision fuses two people into a node no
+   * reader can take apart again — and it silently turned the operator's own
+   * `identity_of` declaration between them into a 400 self-merge, since both
+   * ends already resolved to one entity (the nightly quality eval has been
+   * failing on exactly that since the adoption rung landed).
+   *
+   * So adoption needs a name the graph LEARNED — coined by extraction, stated
+   * by a `name` fact, carried as an alias — never a sibling key. The check is
+   * script-independent (`nameKey`) for the same reason the lookup is: a
+   * transliterated key collides just as blindly as an ASCII one.
+   */
+  private async adoptByReferenceId(db: Surreal, refId: string): Promise<string | null> {
+    const candidate = await this.resolveExistingByName(db, { name: refId });
+    if (!candidate) return null;
+    const token = EntityUpsertService.token(refId);
+    const siblings = await this.externalRefIdsOf(db, candidate);
+    // `null` = the candidate's keys could not be read. No evidence that this
+    // is not a key collision is not evidence that it is a name, so decline.
+    if (siblings === null || siblings.some((s) => EntityUpsertService.token(s) === token)) {
+      this.logger.log(
+        `[entity.adopt_declined] "${refId}" matches ${candidate} only through its own external ` +
+          `reference id — an id-space collision is not an identity`,
+      );
+      return null;
+    }
+    return candidate;
+  }
+
+  /**
+   * The ids this entity is externally keyed by (the VALUES of `externalRefs`).
+   * `null` when the row could not be read — the caller must not read that as
+   * "keyed by nothing".
+   */
+  private async externalRefIdsOf(db: Surreal, entityId: string): Promise<string[] | null> {
+    try {
+      const [res] = await db.query<[unknown]>(
+        `SELECT VALUE externalRefs FROM ONLY type::record('knowledge_entity', $tail)`,
+        { tail: idTailOf(entityId) },
+      );
+      const refs = (Array.isArray(res) ? res[0] : res) as Record<string, unknown> | undefined;
+      if (refs === undefined || refs === null) return [];
+      if (typeof refs !== 'object') return [];
+      return Object.values(refs).filter((v): v is string => typeof v === 'string');
+    } catch (err) {
+      this.logger.warn(
+        `[entity.adopt] external-ref lookup failed for ${entityId}: ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * The comparison token for an id-space collision check: case- and
+   * script-independent, so `Jonas`/`jonas` and `Иван`/`Ivan` collide the same
+   * way the name lookup itself does. Falls back to the lowercased raw id for
+   * strings `nameKey` cannot key (pure punctuation, digits).
+   */
+  private static token(raw: string): string {
+    return nameKey(raw) || raw.trim().toLowerCase();
+  }
+
   async resolveOrCreateBareRef(db: Surreal, ref: EntityRef): Promise<string> {
     if ('entityId' in ref && ref.entityId) {
       return ref.entityId.includes(':') ? ref.entityId : `knowledge_entity:${ref.entityId}`;
@@ -680,7 +768,7 @@ export class EntityUpsertService {
       // Link endpoints get the same identity check: a relation drawn to
       // "meridian" must land on the Meridian the graph already has, or
       // the edge points at a node nothing else references.
-      adopt: () => this.resolveExistingByName(db, { name: r.id }),
+      adopt: () => this.adoptByReferenceId(db, r.id),
     });
   }
 
