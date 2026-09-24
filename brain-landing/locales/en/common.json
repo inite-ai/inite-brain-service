@@ -2110,6 +2110,20 @@
         },
         "flagOff": "The webhook lane is off on this brain — set SOURCE_WEBHOOKS=1 (and SOURCE_CREDENTIAL_ENCRYPTION_KEY).",
         "unsupported": "This connector has no webhook lane."
+      },
+      "principals": {
+        "title": "Who may see this",
+        "subtitle": "The accounts this source knows and the groups they are in. An account nobody has linked grants no visibility at all — say who it is, and that person holds the groups it is in. Unlinking takes them back.",
+        "epoch": "epoch {epoch}",
+        "empty": "No accounts yet — the ACL is read on each sync.",
+        "account": "Account",
+        "groups": "Groups",
+        "user": "Is",
+        "userPlaceholder": "brain user id",
+        "link": "Link",
+        "unlink": "Unlink",
+        "byOperator": "linked by an operator",
+        "byEmail": "matched an address already linked"
       }
     },
     "marketplace": {

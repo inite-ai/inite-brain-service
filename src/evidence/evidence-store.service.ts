@@ -18,6 +18,7 @@ import {
   queryRows,
 } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
+import { scopeForUser } from '../auth/scope-tags';
 import {
   evidenceMaxBytes,
   evidenceQuarantineEnabled,
@@ -222,7 +223,9 @@ export class EvidenceStoreService {
           originUri: input.originUri,
           availability,
           userId: input.userId,
-          scope: input.scope ?? [],
+          // A caller that names a scope wins; otherwise the owner's tag,
+          // or the scope the ingest declared around itself (W5).
+          scope: input.scope ?? scopeForUser(input.userId ?? undefined),
           piiClasses: input.piiClasses,
           vertical: input.vertical,
           recorder: input.recorder,

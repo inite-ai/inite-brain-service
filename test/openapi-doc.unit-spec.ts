@@ -102,6 +102,8 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   ['/v1/admin/source-connections/{id}/sync', 'post'],
   ['/v1/admin/source-connections/{id}/stats', 'get'],
   ['/v1/admin/source-connections/{id}/runs', 'get'],
+  ['/v1/admin/source-connections/{id}/principals', 'get'],
+  ['/v1/admin/source-connections/{id}/principals/link', 'post'],
   ['/v1/admin/source-connections/{id}/items/{itemId}', 'get'],
   ['/v1/admin/source-connections/agents', 'get'],
   ['/v1/admin/source-connections/browse', 'get'],
