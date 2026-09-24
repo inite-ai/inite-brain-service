@@ -174,6 +174,54 @@ function projectRoute(f: FakeGitlab, rest: string, url: URL, res: ServerResponse
       );
     }
   }
+  if (rest === '/search') {
+    const scope = url.searchParams.get('scope') ?? '';
+    // A search engine matches TERMS, not the whole sentence — the fake
+    // does the least that makes it one.
+    const terms = (url.searchParams.get('search') ?? '')
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((t) => t.length > 2);
+    const hit = (text: string): boolean => {
+      const hay = text.toLowerCase();
+      return terms.length > 0 && terms.some((t) => hay.includes(t));
+    };
+    const per = Number(url.searchParams.get('per_page') ?? 20);
+    if (scope === 'issues') {
+      return json(
+        res,
+        200,
+        f.issues
+          .filter((i) => hit(`${i.title} ${i.description ?? ''}`))
+          .slice(0, per)
+          .map((i) => ({
+            id: i.iid * 100,
+            iid: i.iid,
+            title: i.title,
+            description: i.description ?? null,
+            web_url: `https://gitlab.com/${f.project.pathWithNamespace}/-/issues/${String(i.iid)}`,
+            updated_at: i.updatedAt,
+          })),
+      );
+    }
+    if (scope === 'blobs') {
+      return json(
+        res,
+        200,
+        [...f.files.entries()]
+          .filter(([path, content]) => hit(`${path} ${content}`))
+          .slice(0, per)
+          .map(([path, content]) => ({
+            basename: path.split('/').pop(),
+            filename: path,
+            path,
+            ref: f.project.defaultBranch,
+            data: content.slice(0, 200),
+          })),
+      );
+    }
+    return json(res, 200, []);
+  }
   if (rest === '/members/all') {
     const per = Number(url.searchParams.get('per_page') ?? 20);
     const page = Number(url.searchParams.get('page') ?? 1);

@@ -98,7 +98,10 @@ describe('search wire contracts', () => {
     expectKeys(SearchRequestSchema.shape, fullSearchRequest);
     expectKeys(SearchHitSchema.shape, fullSearchHit);
     expectKeys(SearchFactSchema.shape, fullFact);
-    expect(Object.keys(SearchResponseSchema.shape)).toEqual(['results', 'degraded']);
+    // `linked` (W7) is another system's answer, offered BESIDE the
+    // ranking and never inside it — present only when a linked
+    // connection answered.
+    expect(Object.keys(SearchResponseSchema.shape)).toEqual(['results', 'linked', 'degraded']);
   });
 
   it('rejects an unknown request key (the pipe forbids non-whitelisted)', () => {

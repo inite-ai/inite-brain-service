@@ -1675,6 +1675,18 @@
             "body": "Docs, sites, archives."
           }
         },
+        "mode": {
+          "title": "How does the brain get it?",
+          "synced": {
+            "title": "Copy it",
+            "body": "walk the source on a schedule, catalogue what is there and read what changed"
+          },
+          "linked": {
+            "title": "Ask it",
+            "body": "never walked, never copied — the source keeps its index and is asked at query time"
+          },
+          "linkedHint": "A linked connection has no schedule, no catalogue and no content policy: nothing is stored. Its answers ride beside the ranking, each anchored to the call that produced it."
+        },
         "content": {
           "title": "What to take",
           "text": {

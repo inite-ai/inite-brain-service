@@ -264,6 +264,10 @@ export class SourceSyncService {
   > {
     const row = await this.connections.load(companyId, connectionId);
     if (row.status !== 'active') return { skipped: `status_${row.status}` };
+    // A linked connection is ASKED, never walked (W7): the source keeps
+    // its index and the brain keeps no copy, so there is nothing here to
+    // enumerate and a "sync" of it would be a lie about what happened.
+    if (row.mode === 'linked') return { skipped: 'linked_mode' };
     if (row.host !== 'server') return { skipped: 'agent_host' };
     const connector = this.connections.resolveConnector(row);
     if (!connector) {
