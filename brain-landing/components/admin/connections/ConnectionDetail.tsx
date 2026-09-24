@@ -311,6 +311,7 @@ export function ConnectionDetail({
                   {t.items.headers.revision}
                 </th>
                 <th className="text-right px-3 py-1.5">{t.items.headers.size}</th>
+                <th className="text-right px-3 py-1.5">{t.items.headers.hits}</th>
                 <th className="text-left px-3 py-1.5">
                   {t.items.headers.lastSeen}
                 </th>
@@ -340,6 +341,13 @@ export function ConnectionDetail({
                   </td>
                   <td className="px-3 py-1.5 text-right font-mono tabular-nums text-[var(--text-muted)]">
                     {row.size === null ? '—' : row.size}
+                  </td>
+                  <td
+                    className="px-3 py-1.5 text-right font-mono tabular-nums text-[10px] text-[var(--text-muted)]"
+                    title={row.deepenedAt ? fill(t.items.deepened, { at: stamp(row.deepenedAt) }) : undefined}
+                  >
+                    {row.hitCount ? row.hitCount : '—'}
+                    {row.deepenedAt && <span className="ml-1 text-[var(--success)]">{'↓'}</span>}
                   </td>
                   <td className="px-3 py-1.5 font-mono text-[10px] text-[var(--text-muted)]">
                     {stamp(row.lastSeenAt)}
@@ -393,8 +401,12 @@ export function ConnectionDetail({
         <ItemInspect
           connectionId={connection.id}
           item={inspecting}
+          catalogueOnly={connection.contentPolicy === 'manifest'}
           t={t}
           onClose={() => setInspecting(null)}
+          onRead={async () => {
+            await reload()
+          }}
         />
       )}
     </section>

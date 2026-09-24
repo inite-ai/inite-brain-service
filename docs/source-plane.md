@@ -661,6 +661,77 @@ the server naming the account to sign in again. Flag: `SOURCE_MCP_OAUTH`
 the official CRM servers' tools (§ 2.1 of the CRM plan) — W7's linked
 lane calls their `search` at retrieval time.
 
+## What it reads, and when (W6) — progressive indexing
+
+Doctrine 5: *manifest always, content by policy*. A connection whose
+`contentPolicy` is `manifest` walks a whole org drive for the price of a
+listing and reads nothing — cheap, and useless until something asks.
+`SOURCE_PROGRESSIVE` is the half that makes it useful: **a retrieval hit
+on a manifest-only item schedules its deepening**.
+
+Every query, after retrieval, is matched against the CATALOGUE — the
+titles and paths the walk already recorded for free. A match counts a
+hit on the row; the best few (`SOURCE_DEEPEN_PER_QUERY`, default 3) are
+queued as a `source_sync` job with a `deepen` payload, which fetches
+*those rows alone* and puts them through the ordinary doors. The next
+question finds content where this one found only a filename.
+
+Three properties it is built to keep, and the reasons:
+
+- **It never changes the answer it rides on.** The probe runs off the
+  request's critical path and its result is a job. Blocking a search on
+  a network fetch of an unknown file is not a trade anyone asked for,
+  and pretending the content is already there would be a lie.
+- **A hit is not a read.** `hitCount` on the row is the evidence that
+  reading would have been worth it. Deepening is budgeted separately, so
+  a flood of queries against a million-item drive costs counter updates,
+  not a million fetches. A row already deepened is not a candidate again
+  — the ordinary revision diff keeps it current from then on.
+- **It reads only what it already catalogued.** No walk, no checkpoint,
+  no gone policy: a deepening can change what a connection has READ,
+  never what it has SEEN.
+
+The probe is deliberately **not** a numbered stage of the retrieval
+conveyor: a stage has to leave something behind for its query, and this
+one leaves nothing.
+
+### The quality tier of document text (W6)
+
+Every text processor that ships is local by construction — pdf2json for
+a PDF's text layer, officeparser for OOXML, tesseract for pixels:
+deterministic, free, offline. They are also the **floor**. A PDF whose
+layout carries meaning (a table, a two-column paper, a form) comes out
+of a text-layer dump as prose soup, and reconstructing document
+structure is a model's job.
+
+`EVIDENCE_PARSER_REMOTE` is the first platform processor allowed to make
+a network call, and it is the operator's explicit decision four times
+over: the flag, the URL, the media types it may take
+(`EVIDENCE_PARSER_REMOTE_MEDIA_TYPES`, default PDF only), and the
+private-host opt-in when the service runs inside their network. It sits
+FIRST in the adapter registry, so for the types they named it wins and
+for everything else the local floor is untouched; with the flag off it
+accepts nothing, and first-match dispatch over an adapter that accepts
+nothing is the same list without it.
+
+**The contract is ours, not a vendor's** — one endpoint, JSON in, JSON
+out:
+
+```
+POST <EVIDENCE_PARSER_REMOTE_URL>   { mediaType, profile?, contentBase64 }
+200                                 { text } | { markdown } | { content }
+```
+
+Docling speaks multipart, not this, so a real parser needs a small shim
+in front of it. That is deliberate: a ten-line shim the operator owns is
+a smaller surface than a matrix of vendor protocols in platform code,
+and it is the seam where they add their own redaction before bytes
+leave. The URL and the profile ride the adapter's fingerprint (pointing
+at a different parser re-parses instead of serving the old text); the
+bearer never does. A failure is a **run** failure, never a quiet
+fallthrough to the local adapter — "the good parser was down so the
+tables became soup" is exactly the silence this plane refuses.
+
 ## Who may see it (W5) — the membership plane
 
 Personal connections needed no work: a connection owned by a user writes
@@ -763,6 +834,8 @@ pack may only name it.
 | `SOURCE_KIND_GITHUB` | `0` | the `github` forge connector (W4.8): one repository's issues, pull requests and docs over the API; a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_GITHUB_CLIENT_ID`, else a token is the credential |
 | `SOURCE_KIND_GITLAB` | `0` | the `gitlab` forge connector (W4.9): one project's issues, merge requests and docs over the v4 API; a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_GITLAB_CLIENT_ID` (and `SOURCE_OAUTH_GITLAB_LOGIN_URL` for a self-managed instance), else a token is the credential |
 | `SOURCE_PRINCIPALS` | `0` | the membership plane (W5): an org connection's `principals()` runs after each sync, its groups and accounts land as identities and tuples, and an item's `acl.groups` become `team:` tags on the rows it produces. The read half is `SCOPE_TAGS_ENABLED` |
+| `SOURCE_PROGRESSIVE` | `0` | progressive indexing (W6): a query that matches a manifest-only catalogue row counts a hit and queues that row's fetch; `SOURCE_DEEPEN_PER_QUERY` (default 3) bounds how many per query |
+| `EVIDENCE_PARSER_REMOTE` | `0` | the quality tier of document text (W6): a parser service for the media types `EVIDENCE_PARSER_REMOTE_MEDIA_TYPES` names, at `EVIDENCE_PARSER_REMOTE_URL`, first in the adapter registry |
 | `SOURCE_KIND_BITRIX24`, `SOURCE_KIND_KOMMO` | `0` | the `bitrix24` and `kommo` connectors (W4.2b): a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_BITRIX24_CLIENT_ID` / `SOURCE_OAUTH_KOMMO_CLIENT_ID` (W4.3b; `_LOGIN_URL` = a portal's origin / `https://www.amocrm.ru`); an inbound webhook URL / a long-lived token needs no app |
 | `SOURCE_KIND_SALESFORCE` | `0` | the `salesforce` connector (W4.2c); a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_SALESFORCE_CLIENT_ID` (`SOURCE_OAUTH_SALESFORCE_LOGIN_URL` for a sandbox / My Domain login host), a JWT bearer needs neither |
 | `SOURCE_KIND_REST_RECORDS` | `0` | the config-driven `rest_records` connector for any JSON list API (W4.2b′) |

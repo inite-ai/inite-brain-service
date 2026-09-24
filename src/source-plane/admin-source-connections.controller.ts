@@ -214,9 +214,20 @@ export class AdminSourceConnectionsController {
     const inline = () =>
       this.history.runInline(req.brainAuth.companyId, connectionId, {
         full: dto.full,
+        ...(dto.itemIds ? { itemIds: dto.itemIds } : {}),
         actor: req.brainAuth.actorId ?? req.brainAuth.userId ?? 'admin',
       });
     if (dto.inline === true) return { enqueued: false, summary: await inline() };
+    // Named rows are a DEEPENING, never a walk (W6): the operator asked
+    // to read these, not to re-enumerate the source.
+    if (dto.itemIds && dto.itemIds.length > 0) {
+      const d = await this.queue.enqueueDeepen(req.brainAuth.companyId, {
+        connectionId,
+        itemIds: dto.itemIds,
+      });
+      if (!d) return { enqueued: false, summary: await inline() };
+      return { enqueued: true, runId: d.runId, created: d.created };
+    }
     const r = await this.queue.enqueue(req.brainAuth.companyId, {
       connectionId,
       full: dto.full,

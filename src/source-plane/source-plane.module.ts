@@ -53,6 +53,7 @@ import { SourceInspectService } from './source-inspect.service';
 import { SourceItemEffectsService } from './source-item-effects.service';
 import { SourceItemIngestService } from './source-item-ingest.service';
 import { SourceItemService } from './source-item.service';
+import { SourceDeepenService } from './source-deepen.service';
 import { SourcePrincipalsService } from './source-principals.service';
 import { SourceRunHistoryService } from './source-run-history.service';
 import { SourceSyncQueueService } from './source-sync-queue.service';
@@ -170,6 +171,7 @@ import { SourceSyncService } from './source-sync.service';
     SourceItemEffectsService,
     SourceSyncService,
     SourceSyncQueueService,
+    SourceDeepenService,
     SourcePrincipalsService,
     SourceRunHistoryService,
     SourceInspectService,
@@ -180,6 +182,9 @@ import { SourceSyncService } from './source-sync.service';
     SourceConnectionService,
     SourceItemService,
     SourceSyncService,
+    // The search pipeline's deepening hook (W6) — injected @Optional(),
+    // so a brain without the source plane simply never probes.
+    SourceSyncQueueService,
     SourceOAuthService,
     SOURCE_CONNECTORS,
   ],
