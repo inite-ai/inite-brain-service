@@ -831,4 +831,19 @@ describe('chatCallParams (the ONE reasoning-model guard)', () => {
     expect(isReasoningModel('gpt-5-mini')).toBe(true);
     expect(isReasoningModel('gpt-5')).toBe(true);
   });
+
+  it('the generation after gpt-5 is the same class — probed against the live API', () => {
+    // gpt-6-luna / gpt-6-sol reject `temperature: 0` exactly like gpt-5.x and
+    // take reasoning_effort; a model the guard fails to recognise takes the
+    // deterministic branch and 400s on every call.
+    expect(isReasoningModel('gpt-6-luna')).toBe(true);
+    expect(isReasoningModel('gpt-6-sol')).toBe(true);
+    expect(isReasoningModel('gpt-6-astra')).toBe(true);
+    expect(chatCallParams('gpt-6-luna', { temperature: 0, visibleCap: 512 })).toEqual({
+      max_completion_tokens: 2048,
+      reasoning_effort: 'low',
+    });
+    // …and a chat variant of that generation would still keep temperature.
+    expect(isReasoningModel('gpt-6-chat-latest')).toBe(false);
+  });
 });

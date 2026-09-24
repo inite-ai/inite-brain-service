@@ -75,6 +75,7 @@ import {
 } from '../answer-cache/answer-cache.service';
 import { MemoryOutcomeService } from '../outcomes/memory-outcome.service';
 import { MemoryDecisionService } from '../outcomes/memory-decision.service';
+import { DecisionService } from '../ai/decisions/decision.service';
 import {
   emitAnswerUse,
   emitBeliefAnswerUse,
@@ -171,6 +172,7 @@ export class SynthesizeService {
     // fixtures stay valid; absent (or flag off) ⇒ no decision rows, no
     // join columns, byte-identical serving.
     @Optional() private readonly decisions?: MemoryDecisionService,
+    @Optional() private readonly decisionPlane?: DecisionService,
     // MM-zoom PR3 (FOVEA_FRAGMENT_ZOOM): the fenced fuller-text read for
     // the zoom step. @Optional so positional unit fixtures stay valid —
     // absent ⇒ the zoom seam no-ops (static behavior).
@@ -722,7 +724,7 @@ export class SynthesizeService {
 
   /** The audit-stage ports (revise-round.ts + fragment-zoom-seam.ts). */
   private auditPorts(): AuditPorts {
-    const { openai, metrics, logger, limiter, fragmentLane, decisions } = this;
+    const { openai, metrics, logger, limiter, fragmentLane, decisions, decisionPlane } = this;
     return {
       metrics,
       logger,
@@ -733,6 +735,7 @@ export class SynthesizeService {
         limiter,
         fragmentLane,
         decisions,
+        decisionPlane,
         minicheck: { baseUrl: this.minicheckUrl, model: this.minicheckModel },
       },
       generate: (args) => limiter.run(() => this.callGenerator(args)),
@@ -804,9 +807,7 @@ export class SynthesizeService {
       verdict: servedVerdict,
       decisionId: ctx.decisionId,
     });
-    if (ctx.cache?.ctx) {
-      await this.answerCache?.admit(ctx.cache.ctx, final, verdict.verdict);
-    }
+    if (ctx.cache?.ctx) await this.answerCache?.admit(ctx.cache.ctx, final, verdict.verdict);
     return final;
   }
 

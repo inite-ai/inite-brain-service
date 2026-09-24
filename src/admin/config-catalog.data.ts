@@ -1232,6 +1232,79 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'The model behind the same-entity judge (inline entity resolution at ingest and the dreams dedup). Its own default, not OPENAI_CHAT_MODEL: measured on identical cross-script pairs gpt-4o-mini flip-flopped between runs while a current model answered consistently, and the judge is one call per new entity with a neighbour, so it gets the cheapest current-generation model. Reasoning models are called through the shared guard at low effort.',
   },
   {
+    key: 'TYPESAFE_API_KEY',
+    category: 'auth',
+    defaultValue: null,
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    secret: true,
+    description:
+      'Key for the System One decision plane (TypeSafe Jev, POST /v1/systemone). Without it every decision lane is off and each judge runs on the chat model exactly as before — the plane can never degrade a judgement into a default verdict. Jev bills input only ($0.042 / 1M, output free) and answers every question of a request in parallel, which is why a lane on this plane may ask ten typed questions where the chat model was asked one.',
+  },
+  {
+    key: 'TYPESAFE_BASE_URL',
+    category: 'auth',
+    defaultValue: 'https://api.typesafe.ai',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Where the decision plane sends `POST <base>/v1/systemone`. Two places serve the same protocol: the vendor (default) and OpenRouter — set `https://openrouter.ai/api` and put the OpenRouter key in TYPESAFE_API_KEY to bill decisions to that account instead of a second vendor account. OpenRouter maps a bare model id (`jev-latest`, `jev-1.13`) into its `typesafe/` namespace and returns the same answer shape plus `usage.cost`, which lands on the call span as `gen_ai.usage.cost`.',
+  },
+  {
+    key: 'TYPESAFE_MODEL',
+    category: 'auth',
+    defaultValue: 'jev-latest',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'The System One model id. `jev-latest` tracks the current stable release; pin an exact version (e.g. jev-1.13.0) when a measurement has to stay reproducible.',
+  },
+  {
+    key: 'TYPESAFE_TIMEOUT_MS',
+    category: 'auth',
+    defaultValue: '10000',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Per-decision timeout. A decision is a sub-second call by design, so this is a failure bound, not a budget: on a timeout the lane falls back to the chat-model path it had.',
+  },
+  {
+    key: 'TYPESAFE_MAX_RETRIES',
+    category: 'auth',
+    defaultValue: '3',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Retries for 429 (rate limit) and 529 (overloaded) with exponential backoff. 401/422 are never retried — an invalid key or a malformed question does not become valid by asking again.',
+  },
+  {
+    key: 'TYPESAFE_CONCURRENCY',
+    category: 'auth',
+    defaultValue: '16',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'In-flight decisions cap. Higher than the OpenAI one because a decision is ~0.1 s and the published limits are 1,200 requests/minute and 250k tokens/second.',
+  },
+  {
+    key: 'DECISIONS_LANES',
+    category: 'auth',
+    defaultValue: null,
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Comma-separated lanes served by the decision plane, or `all`. Known lanes: entity_judge, verifier, predicate_identity, predicate_semantics, reranker, chat_router, dream_resolver, dream_corroborate. Empty (default) = every lane stays on the chat model. Opted in one at a time on purpose: whether a lane is better on the decision plane is a measurement per lane AND per language — the model documents non-English as weaker, and this graph is multilingual.',
+  },
+  {
+    key: 'DECISIONS_CONFIDENCE_FLOOR',
+    category: 'auth',
+    defaultValue: '0.7',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'How certain a decision must be before the lane acts on it. Below the floor the lane escalates to the reasoning model it used before — that escalation is what makes a cheap first pass safe. A noul answer is measured by its distance from the coin flip (0.95 → 0.9), a choice or score by the concentration the model reports. Override per lane with DECISIONS_CONFIDENCE_FLOOR_<LANE>.',
+  },
+  {
     key: 'OPENAI_TIMEOUT_MS',
     category: 'auth',
     defaultValue: '30000',

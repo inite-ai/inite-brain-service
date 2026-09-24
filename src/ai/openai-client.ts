@@ -62,8 +62,16 @@ export function createOpenAiClientOrThrow(config: ConfigService): OpenAI {
  * temperature) — the negative lookahead keeps them on the
  * deterministic branch, where an over-match would silently run
  * temperature-1.0 replicates through a ±few-pp measurement program.
+ *
+ * The range covers the generation AFTER gpt-5 as well: probed against the
+ * live API on 2026-09-23, `gpt-6-luna` and `gpt-6-sol` reject
+ * `temperature: 0` with the same 400 ("Only the default (1) value is
+ * supported") and accept `reasoning_effort` none|low|medium|high|xhigh —
+ * the docs' `max` is rejected on chat completions. A generation the guard
+ * does not recognise takes the deterministic branch and 400s on every
+ * call, so the class, not the exact version, is what it matches.
  */
-const REASONING_MODEL_RE = /^(gpt-5(?!-chat)|o\d)/;
+const REASONING_MODEL_RE = /^(gpt-[5-9](?!-chat)|o\d)/;
 
 export function isReasoningModel(model: string): boolean {
   return REASONING_MODEL_RE.test(model);

@@ -10,6 +10,7 @@ import { fragmentZoomEnabled, fragmentZoomMaxChars } from '../common/fovea-flags
 import { withSpan } from '../common/tracing';
 import { getAbortSignal } from '../common/request-context';
 import { runVerifier, type VerifierOutput } from './verifier';
+import type { DecisionService } from '../ai/decisions/decision.service';
 import { miniCheckVerdict } from './minicheck-client';
 import { verifierErrorResult } from './synthesize.helpers';
 import { verifierPasses } from './l3-escalation';
@@ -71,6 +72,11 @@ export interface FragmentZoomSeamDeps {
   limiter: { run<T>(fn: () => Promise<T>): Promise<T> };
   fragmentLane?: FragmentZoomFetchPort | undefined;
   decisions?: MemoryDecisionService | undefined;
+  /**
+   * The System One plane (ai/decisions). Named apart from `decisions` above,
+   * which is the memory-decision LOG — this one decides, that one records.
+   */
+  decisionPlane?: DecisionService | undefined;
   /** The local NLI endpoint for abstention='minicheck' (V11 §2 arm b). */
   minicheck: { baseUrl: string; model: string };
 }
@@ -165,6 +171,7 @@ export async function verifyAndZoom(
               runVerifier({
                 openai: deps.openai,
                 metrics: deps.metrics,
+                decisions: deps.decisionPlane,
                 query: dto.query,
                 answer: generated.answer,
                 factLines: args.promptFactLines,
@@ -303,6 +310,7 @@ async function tryFragmentZoom(
             runVerifier({
               openai: deps.openai,
               metrics: deps.metrics,
+              decisions: deps.decisionPlane,
               query: dto.query,
               answer: args.generated.answer,
               factLines: args.promptFactLines,

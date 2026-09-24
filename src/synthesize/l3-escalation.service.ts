@@ -20,6 +20,7 @@ import {
   type AttentionHintSource,
 } from './attention-hints';
 import { runVerifier, type VerifierOutput } from './verifier';
+import { DecisionService } from '../ai/decisions/decision.service';
 import { resolveCitations, expandCitationHandles } from './synthesize.helpers';
 import type { Citation } from './fact-index';
 import type { EvidenceCitation, GeneratorOutput } from './synthesize.types';
@@ -250,6 +251,7 @@ export class L3EscalationService {
     @Optional() private readonly metrics?: MetricsService,
     @Optional() private readonly segments?: SegmentLaneService,
     @Optional() private readonly memoryModels?: MemoryModelReaderService,
+    @Optional() private readonly decisionPlane?: DecisionService,
   ) {}
 
   /**
@@ -946,6 +948,7 @@ export class L3EscalationService {
     return runVerifier({
       openai: input.openai,
       metrics: this.metrics,
+      decisions: this.decisionPlane,
       query: input.dto.query,
       answer,
       factLines: input.factLines,

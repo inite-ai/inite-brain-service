@@ -28,6 +28,7 @@ import { McpModule } from './mcp/mcp.module';
 import { CompactionModule } from './compaction/compaction.module';
 import { DreamsModule } from './dreams/dreams.module';
 import { MetricsModule } from './metrics/metrics.module';
+import { DecisionsModule } from './ai/decisions/decisions.module';
 import { AdminModule } from './admin/admin.module';
 import { AuditModule } from './audit/audit.module';
 import { JobsModule } from './jobs/jobs.module';
@@ -107,6 +108,7 @@ import { MriModule } from './mri/mri.module';
     CompactionModule,
     DreamsModule,
     MetricsModule,
+    DecisionsModule,
     AdminModule,
     AuditModule,
     JobsModule,

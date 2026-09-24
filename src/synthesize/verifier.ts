@@ -5,6 +5,7 @@ import { getAbortSignal } from '../common/request-context';
 import { traceArtifact } from '../common/debug-trace';
 import type { MetricsService } from '../metrics/metrics.service';
 import { askerVerifierLine, type Asker } from './asker';
+import type { DecisionService } from '../ai/decisions/decision.service';
 
 /**
  * Corrective-RAG verifier: audits a synthesized answer against the
@@ -141,6 +142,72 @@ export interface VerifyRequest {
   /** Who is asking (asker.ts) — the same asker the generator was told. */
   asker?: Asker | undefined;
   model: string;
+  /**
+   * The decision plane, when the `verifier` lane is on. It can only CLEAR an
+   * answer (see `decideGrounding`); anything contested still goes to the
+   * auditor below, which is also the only thing that can name the offending
+   * spans.
+   */
+  decisions?: DecisionService | undefined;
+}
+
+/**
+ * The cheap first pass: put the audit to the System One plane as a typed
+ * choice over the very evidence the auditor would read.
+ *
+ * It answers only one way — "supported", and only above the lane's confidence
+ * floor. A "partial" or "unsupported" hunch, or any answer the model is not
+ * sure of, returns null and the full auditor runs: that is the call whose
+ * contract includes `unsupportedClaims`, and a contested answer is exactly
+ * when those spans are worth paying for. So the plane can save the common
+ * case, and can never by itself condemn an answer or wave a shaky one through.
+ */
+async function decideGrounding(req: VerifyRequest): Promise<VerifierOutput | null> {
+  const decisions = req.decisions;
+  if (!decisions?.enabled('verifier')) return null;
+  const res = await decisions.decide('verifier', {
+    state: { question: req.query, answer: req.answer, evidence: buildVerifierUserMessage(req) },
+    questions: {
+      grounding: {
+        type: 'choice',
+        instructions:
+          'Is every distinct claim in the ANSWER directly supported by at least one piece of the EVIDENCE? The evidence sections all count as support. A faithful translation of a piece of evidence is supported by it; wording the answer repeats from the question is framing, not a claim; date or amount arithmetic over stated evidence is not a new claim.',
+        criteria: {
+          supported: 'Every distinct claim is directly stated by at least one piece of evidence.',
+          partial:
+            'Some claims are supported, but at least one is paraphrased or inferred beyond what the evidence states.',
+          unsupported: 'One or more central claims are not in the evidence at all.',
+        },
+      },
+      ...(req.topicCoverage === true
+        ? {
+            question_answered: {
+              type: 'noul' as const,
+              instructions:
+                'Does the EVIDENCE contain an actual answer to the QUESTION — not merely facts about its topic?',
+            },
+          }
+        : {}),
+    },
+  });
+  const grounding = res?.answers['grounding'];
+  if (!grounding || grounding.type !== 'choice') return null;
+  if (grounding.choice !== 'supported') return null;
+  if (!decisions.confident('verifier', grounding)) return null;
+  const answered = res?.answers['question_answered'];
+  const out: VerifierOutput = { verdict: 'supported', unsupportedClaims: [] };
+  if (req.topicCoverage === true) {
+    if (!answered || answered.type !== 'noul') return null;
+    out.questionAnswered = answered.noul >= 0.5;
+  }
+  traceArtifact('synthesize.verifier_decision', {
+    model: res?.model,
+    verdict: grounding.choice,
+    confidence: grounding.confidence,
+    probabilities: grounding.probabilities,
+    ...(out.questionAnswered !== undefined ? { questionAnswered: out.questionAnswered } : {}),
+  });
+  return out;
 }
 
 /** Compose the auditor's evidence sections; empty ones are omitted. */
@@ -229,6 +296,8 @@ function buildVerifierUserMessage({
  */
 
 export async function runVerifier(req: VerifyRequest): Promise<VerifierOutput> {
+  const cleared = await decideGrounding(req);
+  if (cleared) return cleared;
   const { openai, metrics, model, topicCoverage } = req;
   const system = topicCoverage ? VERIFIER_SYSTEM + TOPIC_COVERAGE_ADDENDUM : VERIFIER_SYSTEM;
   const user = buildVerifierUserMessage(req);

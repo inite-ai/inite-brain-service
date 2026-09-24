@@ -1295,6 +1295,8 @@ export class MetricsService implements OnModuleInit {
     durationSeconds: number;
     promptTokens?: number;
     completionTokens?: number;
+    /** The part of promptTokens the provider served from its prefix cache. */
+    cachedPromptTokens?: number;
   }): void {
     this.openaiCalls.inc({ kind: args.kind, outcome: args.outcome } as LabelValues<
       'kind' | 'outcome'
@@ -1313,6 +1315,14 @@ export class MetricsService implements OnModuleInit {
       this.openaiTokens.inc(
         { kind: args.kind, type: 'completion' } as LabelValues<'kind' | 'type'>,
         args.completionTokens,
+      );
+    }
+    // A SUBSET of `prompt`, not a third bucket to add up: cached input bills
+    // at a tenth of the rate, so the hit ratio is cached_prompt / prompt.
+    if (args.cachedPromptTokens && args.cachedPromptTokens > 0) {
+      this.openaiTokens.inc(
+        { kind: args.kind, type: 'cached_prompt' } as LabelValues<'kind' | 'type'>,
+        args.cachedPromptTokens,
       );
     }
   }
