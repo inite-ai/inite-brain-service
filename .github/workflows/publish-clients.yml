@@ -29,7 +29,7 @@ on:
           - brain-memory-tool
           - brain-mcp
       ref:
-        description: Branch, tag or commit to publish from (default: the default branch).
+        description: 'Branch, tag or commit to publish from (default: the default branch).'
         required: false
         type: string
       dry_run:
