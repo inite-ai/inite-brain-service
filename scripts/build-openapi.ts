@@ -124,6 +124,8 @@ import {
   SourceConnectionStatsSchema,
   SourceRunsResponseSchema,
   SourceItemInspectResponseSchema,
+  SourcePrincipalLinkRequestSchema,
+  SourcePrincipalsResponseSchema,
   SourceAgentsResponseSchema,
   BrowseResponseSchema,
   SourceOAuthStartRequestSchema,
@@ -390,6 +392,8 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   SourceConnectionStats: SourceConnectionStatsSchema,
   SourceRunsResponse: SourceRunsResponseSchema,
   SourceItemInspectResponse: SourceItemInspectResponseSchema,
+  SourcePrincipalsResponse: SourcePrincipalsResponseSchema,
+  SourcePrincipalLinkRequest: SourcePrincipalLinkRequestSchema,
   SourceAgentsResponse: SourceAgentsResponseSchema,
   BrowseResponse: BrowseResponseSchema,
   SourceOAuthStartRequest: SourceOAuthStartRequestSchema,
@@ -2155,6 +2159,53 @@ function inspectPaths(idParam: Json): Json {
         ],
         responses: {
           '200': jsonResponse('The runs.', ref('SourceRunsResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/source-connections/{id}/principals': {
+      get: operation({
+        operationId: 'listSourcePrincipals',
+        tag: 'Source Plane',
+        summary: 'The ACL the connection mirrors',
+        description:
+          'Every account the connection’s `principals()` walk saw and the ' +
+          'membership tuples it wrote (W5). An identity with `userId: ' +
+          'null` is an account NOBODY has linked: it grants no visibility ' +
+          'at all, which is why the surface shows it rather than guessing ' +
+          'who it is. `epoch` is the tenant’s consistency token — every ' +
+          'cached expansion of a membership keys on it, so a revocation ' +
+          'takes effect on the next request. Needs SOURCE_PRINCIPALS. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        parameters: [idParam],
+        responses: {
+          '200': jsonResponse('The mirror.', ref('SourcePrincipalsResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/source-connections/{id}/principals/link': {
+      post: operation({
+        operationId: 'linkSourcePrincipal',
+        tag: 'Source Plane',
+        summary: 'Say who an external account is',
+        description:
+          'Binds one external account to a brain user, so that user holds ' +
+          'the `team:` tags of every group the account is in — or unbinds ' +
+          'it (`userId: null`), which takes those tags back. A membership ' +
+          'edit is an access-control edit: it moves the tenant’s epoch, ' +
+          'and the change is in force on the next request. ' +
+          SOURCE_PLANE_NOTE,
+        scope: 'brain:admin',
+        parameters: [idParam],
+        requestBody: jsonBody(ref('SourcePrincipalLinkRequest')),
+        responses: {
+          '201': jsonResponse('The mirror after the edit.', ref('SourcePrincipalsResponse')),
           '400': errorRef('BadRequest'),
           ...AUTH_ERRORS,
           '404': errorRef('NotFound'),

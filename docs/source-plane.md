@@ -661,6 +661,61 @@ the server naming the account to sign in again. Flag: `SOURCE_MCP_OAUTH`
 the official CRM servers' tools (§ 2.1 of the CRM plan) — W7's linked
 lane calls their `search` at retrieval time.
 
+## Who may see it (W5) — the membership plane
+
+Personal connections needed no work: a connection owned by a user writes
+`scope: ['user:<id>']` on its asset, its document, its episode and every
+fact derived from them, and the 0055 / 0093 fence does the rest. An ORG
+connection is the hard half, and it is what G6 designed steps 3–5 for —
+with, at last, a real membership source.
+
+**A connector that knows its own ACL says so.** `principals()` streams
+the groups a source has and the accounts in them; an item names the
+groups that may see it in `acl.groups`. The engine turns the first into
+Zanzibar-style relation tuples (`external_principal`, migration 0161)
+and the second into `team:<connection>:<group>` tags on every row the
+item produces.
+
+**An account nobody has linked is nobody.** The walk records every
+account it saw as an `external_identity`, unlinked. An unlinked account
+grants no visibility at all — the only automatic link is an address that
+another identity in this tenant is ALREADY linked by, which follows a
+link an operator once made rather than inventing one. Everything else is
+`POST /v1/admin/source-connections/:id/principals/link`. Guessing who
+someone is by display name is how an ACL mirror leaks, so it does not.
+
+**Revocation is a timestamp, and it moves the epoch.** A membership that
+ends is stamped, never deleted (a bitemporal store has to be able to
+answer "was she a member in March?"), and every write moves the tenant's
+`scope_epoch`. Every cached expansion of a membership keys on that
+counter, so a stale expansion cannot survive the write that invalidated
+it — the new-enemy problem, named in the G6 design and closed here.
+
+**The read side.** The fences (`scopeFenceSql`, `visibleUnderScope`) are
+synchronous, deep inside SQL builders, so the expansion is resolved ONCE
+per request by the API-key guard and left in the request context. A miss
+— a background job, an unwarmed context, the flag off — falls back to
+the single `user:<id>` tag, which is narrower: a miss can hide rows,
+never reveal them. Tenant-wide authority (an M2M credential) is the
+tenant boundary itself and carries no scope clause.
+
+**What is not built.** One row carries ONE group: an item shared with
+two groups is written for the first, because the AND-set shape cannot
+express an OR of clauses and guessing wider is the failure this plane
+exists to prevent. Share-up through staging (step 4's real work) and
+group nesting beyond the tuple walk's own depth cap are follow-ups. An
+ACL too large to mirror is a sync ERROR, never a truncation — fewer tags
+is more access.
+
+Two flags, and the order matters: `SOURCE_PRINCIPALS` writes the tags,
+`SCOPE_TAGS_ENABLED` reads them. With the first on and the second off
+the tags are written and ignored, which is the safe order to switch them
+on in.
+
+| Kind | `principals()` | Groups | The item's `acl` |
+|---|---|---|---|
+| **`gitlab`** | `/members/all` — the inherited member list, so a person who is a member through a parent group is one here too; a blocked or deactivated account is not a reader | one: `members`. GitLab's own model is finer (project, group and ancestor memberships, each at an access level) but every one of them can read every issue and every file, which is the only question the fence asks | `config.membersOnly: true` = a private project: every row is written for `team:<connection>:members`. Absent = the project is public, and a public project IS tenant-global |
+
 ## Writing a connector (platform code)
 
 ```ts
@@ -675,6 +730,9 @@ interface Connector {
   readonly configExample?: Record<string, unknown>;  // what the admin form pre-fills — keys with example values, never secrets
   readonly credentialHint?: string;                  // one line on what `credential` is, when the connector takes one
   readonly oauth?: { provider; scopes };             // runs as a connected account (W4): `credential` arrives as a fresh access token
+  principals?(ctx): AsyncIterable<                   // the source's own ACL (W5): who may see what this connection reads
+    | { type: 'group'; group: string; title? }
+    | { type: 'member'; group: string; account: { externalId, handle?, displayName?, email? } }>;
 }
 ```
 
@@ -704,6 +762,7 @@ pack may only name it.
 | `SOURCE_KIND_SLACK`, `SOURCE_KIND_TELEGRAM` | `0` | the `slack` and `telegram` chat connectors (W4.7); `slack` takes a connected workspace (`SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_SLACK_CLIENT_ID`) or a bot token; `telegram` takes the bot token. `SOURCE_TELEGRAM_API_BASE` points the Bot API at a fake (dev/test only) |
 | `SOURCE_KIND_GITHUB` | `0` | the `github` forge connector (W4.8): one repository's issues, pull requests and docs over the API; a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_GITHUB_CLIENT_ID`, else a token is the credential |
 | `SOURCE_KIND_GITLAB` | `0` | the `gitlab` forge connector (W4.9): one project's issues, merge requests and docs over the v4 API; a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_GITLAB_CLIENT_ID` (and `SOURCE_OAUTH_GITLAB_LOGIN_URL` for a self-managed instance), else a token is the credential |
+| `SOURCE_PRINCIPALS` | `0` | the membership plane (W5): an org connection's `principals()` runs after each sync, its groups and accounts land as identities and tuples, and an item's `acl.groups` become `team:` tags on the rows it produces. The read half is `SCOPE_TAGS_ENABLED` |
 | `SOURCE_KIND_BITRIX24`, `SOURCE_KIND_KOMMO` | `0` | the `bitrix24` and `kommo` connectors (W4.2b): a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_BITRIX24_CLIENT_ID` / `SOURCE_OAUTH_KOMMO_CLIENT_ID` (W4.3b; `_LOGIN_URL` = a portal's origin / `https://www.amocrm.ru`); an inbound webhook URL / a long-lived token needs no app |
 | `SOURCE_KIND_SALESFORCE` | `0` | the `salesforce` connector (W4.2c); a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_SALESFORCE_CLIENT_ID` (`SOURCE_OAUTH_SALESFORCE_LOGIN_URL` for a sandbox / My Domain login host), a JWT bearer needs neither |
 | `SOURCE_KIND_REST_RECORDS` | `0` | the config-driven `rest_records` connector for any JSON list API (W4.2b′) |

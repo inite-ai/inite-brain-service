@@ -4,6 +4,7 @@ import { ApiKeyStoreService } from './api-key-store.service';
 import { ApiKeyGuard } from './api-key.guard';
 import { CredentialResolverService } from './credential-resolver.service';
 import { JwksService } from './jwks.service';
+import { MembershipService } from './membership.service';
 import { ProtectedResourceController } from './protected-resource.controller';
 import { RevocationCacheService } from './revocation-cache.service';
 import { SsfReceiverService } from './ssf-receiver.service';
@@ -18,6 +19,7 @@ import { TenantRegistryService } from './tenant-registry.service';
     JwksService,
     CredentialResolverService,
     ApiKeyGuard,
+    MembershipService,
     RevocationCacheService,
     SsfReceiverService,
     TenantRegistryService,
@@ -28,6 +30,7 @@ import { TenantRegistryService } from './tenant-registry.service';
     JwksService,
     CredentialResolverService,
     ApiKeyGuard,
+    MembershipService,
     RevocationCacheService,
     TenantRegistryService,
   ],

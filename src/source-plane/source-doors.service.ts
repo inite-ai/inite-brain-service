@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import { scopeForSource } from '../auth/scope-tags';
+import { runWithWriteScope } from '../auth/write-scope';
 import type { SourceVersionStamp } from '../common/source-version';
 import { DocumentIngestService } from '../documents/document-ingest.service';
 import { internalDocumentMeta } from '../documents/document-meta';
@@ -61,6 +63,23 @@ export class SourceDoorsService {
   ) {}
 
   async ingest(p: {
+    companyId: string;
+    connection: ConnectorConnectionView;
+    itemId: string;
+    item: ItemDescriptor;
+    fetched: FetchedItem;
+    stamp: SourceVersionStamp | null;
+  }): Promise<DoorOutcome> {
+    // W5: who may see what this item produces. A personal connection is
+    // user-fenced by construction and needs nothing; an org connection
+    // whose item names its groups declares them here, and every
+    // tenant-global write below — document, chunks, episode, entities,
+    // facts — takes the scope from the ambient span rather than from a
+    // `scope` argument threaded through five signatures.
+    return runWithWriteScope(scopeOfItem(p.connection, p.item), () => this.door(p));
+  }
+
+  private async door(p: {
     companyId: string;
     connection: ConnectorConnectionView;
     itemId: string;
@@ -200,7 +219,7 @@ export class SourceDoorsService {
         // bridge folds it into every document it makes of the asset, so
         // the facts are stamped for the drift sweep and the gone policy
         // can find them (source-plane.md § binary).
-        meta: sourceAssetMeta(p),
+        meta: sourceAssetMeta({ ...p, item: p.item }),
       },
     );
     return { assetId: r.assetId, byteHash: r.byteHash, deduplicated: r.deduped };
@@ -233,6 +252,20 @@ export class SourceDoorsService {
   }
 }
 
+/**
+ * The scope the rows of one item belong to: the owner's tag for a
+ * personal connection, the groups the item names for an org one, and
+ * the empty array — tenant-global — for an item that names none, which
+ * is what a public repository or an open channel IS.
+ */
+export function scopeOfItem(connection: ConnectorConnectionView, item: ItemDescriptor): string[] {
+  if (connection.userId) return [];
+  return scopeForSource({
+    connectionId: connection.id,
+    groups: item.acl?.groups ?? [],
+  });
+}
+
 /** `originUri` fallback: a stable, brain-owned pointer per catalogue row. */
 export function originUriOf(connection: ConnectorConnectionView, item: ItemDescriptor): string {
   const uri =
@@ -256,11 +289,17 @@ function toIso(v: string | undefined): string {
 export function sourceAssetMeta(p: {
   connection: ConnectorConnectionView;
   itemId: string;
+  item?: ItemDescriptor | undefined;
   stamp: SourceVersionStamp | null;
 }): Record<string, unknown> {
+  // The binary door's work continues in a JOB — the broker, the
+  // processors, the G3 bridge — long after this stack is gone, so the
+  // scope cannot ride the ambient span: it rides the asset.
+  const scope = p.item ? scopeOfItem(p.connection, p.item) : [];
   return {
     sourceConnectionId: p.connection.id,
     sourceItemId: p.itemId,
+    ...(scope.length > 0 ? { sourceScope: scope } : {}),
     source_connection: idTailOf(p.connection.id),
     source_pack: p.connection.packId,
     source_id: p.connection.sourceId,

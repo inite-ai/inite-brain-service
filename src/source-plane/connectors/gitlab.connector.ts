@@ -8,6 +8,7 @@ import type {
   FetchedItem,
   ItemDelta,
   ItemDescriptor,
+  PrincipalDelta,
 } from '../connector';
 import { providerEndpoints } from '../oauth/oauth-providers';
 import { cloudHttp, type CloudHttp } from './cloud-http';
@@ -70,6 +71,13 @@ export interface GitlabConnectorConfig {
   since?: string | undefined;
   /** Conversation entry: threads per run at most (newest change first). Default 1000. */
   maxItems?: number | undefined;
+  /**
+   * The project is PRIVATE: every row it produces is written for the
+   * project's members (W5), not for the tenant. Off (default) = the
+   * project is public or the operator does not mirror its ACL, and the
+   * rows are tenant-global as before.
+   */
+  membersOnly?: boolean | undefined;
   /** Document entry: path prefixes to keep (`docs/`, `adr/`); empty = the whole tree. */
   paths?: string[] | undefined;
   extensions?: string[] | undefined;
@@ -105,6 +113,15 @@ interface GitlabNote {
   created_at: string;
 }
 
+interface GitlabMember {
+  id: number;
+  username?: string;
+  name?: string;
+  email?: string;
+  access_level?: number;
+  state?: string;
+}
+
 interface GitlabTreeEntry {
   id: string;
   path: string;
@@ -136,6 +153,8 @@ const NOTES_MAX = 500;
 const TREE_PAGES_MAX = 200;
 const TURN_MAX = 16_000;
 const PROJECT = /^(\d+|[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+)$/;
+/** The one group a project has, from the read fence's point of view. */
+const MEMBERS_GROUP = 'members';
 
 @Injectable()
 export class GitlabConnector implements Connector {
@@ -172,6 +191,44 @@ export class GitlabConnector implements Connector {
       walkedAt: new Date().toISOString(),
     };
     yield { type: 'checkpoint', checkpoint: next as Record<string, unknown> };
+  }
+
+  /**
+   * Who may see this project: its members, as ONE group (`members`).
+   * GitLab's own model is finer — a project's members come from the
+   * project, its groups and their ancestors, each at an access level —
+   * but every one of them can read every issue and every file, which is
+   * the only question the read fence asks. `/members/all` is the
+   * inherited list, so a person who is a member through a parent group
+   * is a member here too.
+   */
+  async *principals(ctx: ConnectorCtx): AsyncIterable<PrincipalDelta> {
+    const cfg = configOf(ctx);
+    const http = httpOf(ctx);
+    yield { type: 'group', group: MEMBERS_GROUP, title: `${cfg.project} members` };
+    for (let page = 1; ; page++) {
+      if (ctx.signal.aborted) throw new Error('aborted');
+      const url = new URL(`${base(cfg)}/members/all`);
+      url.searchParams.set('per_page', String(PAGE));
+      url.searchParams.set('page', String(page));
+      const batch = (await http.getJson(url.toString())) as GitlabMember[];
+      if (!Array.isArray(batch) || batch.length === 0) return;
+      for (const member of batch) {
+        // A blocked or deactivated account is not a reader.
+        if (member.state !== undefined && member.state !== 'active') continue;
+        yield {
+          type: 'member',
+          group: MEMBERS_GROUP,
+          account: {
+            externalId: String(member.id),
+            ...(member.username !== undefined ? { handle: member.username } : {}),
+            ...(member.name !== undefined ? { displayName: member.name } : {}),
+            ...(member.email !== undefined ? { email: member.email } : {}),
+          },
+        };
+      }
+      if (batch.length < PAGE) return;
+    }
   }
 
   async fetch(ctx: ConnectorCtx, item: ItemDescriptor): Promise<FetchedItem> {
@@ -337,6 +394,15 @@ async function fetchDocument(p: {
 
 // ── rows and turns ────────────────────────────────────────────────────
 
+/**
+ * The groups an item is visible to. A project the operator called
+ * private is visible to its members and nobody else; one they did not
+ * is tenant-global, because a public project IS.
+ */
+function aclOf(cfg: GitlabConnectorConfig): { acl?: { groups: string[] } } {
+  return cfg.membersOnly === true ? { acl: { groups: [MEMBERS_GROUP] } } : {};
+}
+
 /** GitLab's own notation: `group/project#5` is an issue, `group/project!5` a merge request. */
 export function conversationId(cfg: GitlabConnectorConfig, kind: ThreadKind, iid: number): string {
   return `gl:${cfg.project}${KINDS[kind].sigil}${String(iid)}`;
@@ -356,6 +422,7 @@ function describeThread(
     mediaType: 'text/markdown',
     revision: `u:${thread.updated_at}`,
     modifiedAt: thread.updated_at,
+    ...aclOf(cfg),
   };
 }
 
@@ -371,6 +438,7 @@ function describeFile(
     originUri: `https://gitlab.com/${cfg.project}/-/blob/${ref}/${entry.path}`,
     mediaType: 'text/plain',
     revision: `blob:${entry.id}`,
+    ...aclOf(cfg),
   };
 }
 

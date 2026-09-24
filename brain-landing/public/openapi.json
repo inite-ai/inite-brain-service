@@ -7245,6 +7245,9 @@
             },
             "type": "array"
           },
+          "principals": {
+            "type": "boolean"
+          },
           "sources": {
             "items": {
               "additionalProperties": false,
@@ -7608,7 +7611,8 @@
           "connectors",
           "fsRoots",
           "egressAllowPrivate",
-          "webhooks"
+          "webhooks",
+          "principals"
         ],
         "type": "object"
       },
@@ -8703,6 +8707,133 @@
         ],
         "type": "object"
       },
+      "SourcePrincipalLinkRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "externalId": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "userId": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "externalId",
+          "userId"
+        ],
+        "type": "object"
+      },
+      "SourcePrincipalsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "epoch": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "identities": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "displayName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "email": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "externalId": {
+                  "type": "string"
+                },
+                "handle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "linkedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "userId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "externalId",
+                "handle",
+                "displayName",
+                "email",
+                "userId",
+                "linkedBy"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "tuples": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "recordedAt": {
+                  "type": "string"
+                },
+                "revokedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "subject",
+                "object",
+                "source",
+                "recordedAt",
+                "revokedAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "epoch",
+          "identities",
+          "tuples"
+        ],
+        "type": "object"
+      },
       "SourceRunsResponse": {
         "additionalProperties": false,
         "properties": {
@@ -8949,6 +9080,42 @@
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
+          },
+          "principals": {
+            "additionalProperties": false,
+            "properties": {
+              "accounts": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "changed": {
+                "type": "boolean"
+              },
+              "epoch": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "groups": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "linked": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "groups",
+              "accounts",
+              "linked",
+              "changed",
+              "epoch"
+            ],
+            "type": "object"
           },
           "seen": {
             "maximum": 9007199254740991,
@@ -11684,6 +11851,106 @@
           }
         },
         "summary": "One catalogue row, followed to its facts",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/admin/source-connections/{id}/principals": {
+      "get": {
+        "description": "Every account the connection’s `principals()` walk saw and the membership tuples it wrote (W5). An identity with `userId: null` is an account NOBODY has linked: it grants no visibility at all, which is why the surface shows it rather than guessing who it is. `epoch` is the tenant’s consistency token — every cached expansion of a membership keys on it, so a revocation takes effect on the next request. Needs SOURCE_PRINCIPALS. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
+        "operationId": "listSourcePrincipals",
+        "parameters": [
+          {
+            "description": "Connection id (`source_connection:<tail>`; the bare tail is accepted).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcePrincipalsResponse"
+                }
+              }
+            },
+            "description": "The mirror."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "The ACL the connection mirrors",
+        "tags": [
+          "Source Plane"
+        ]
+      }
+    },
+    "/v1/admin/source-connections/{id}/principals/link": {
+      "post": {
+        "description": "Binds one external account to a brain user, so that user holds the `team:` tags of every group the account is in — or unbinds it (`userId: null`), which takes those tags back. A membership edit is an access-control edit: it moves the tenant’s epoch, and the change is in force on the next request. Source plane operator surface (docs/roadmap/raw-evidence-sources-2026-09.md) — answers a bare 404 until `SOURCE_PLANE_ENABLED=1`.\n\nRequired scope: `brain:admin`.",
+        "operationId": "linkSourcePrincipal",
+        "parameters": [
+          {
+            "description": "Connection id (`source_connection:<tail>`; the bare tail is accepted).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourcePrincipalLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcePrincipalsResponse"
+                }
+              }
+            },
+            "description": "The mirror after the edit."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Say who an external account is",
         "tags": [
           "Source Plane"
         ]

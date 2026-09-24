@@ -164,9 +164,12 @@ describe('ApiKeyGuard — WWW-Authenticate challenge', () => {
     } as unknown as ExecutionContext;
 
     // Credential resolver is never reached on the missing-header path.
-    const guard = new ApiKeyGuard({ resolve: async () => null } as never, new Reflector(), {
-      gate: async () => undefined,
-    } as never);
+    const guard = new ApiKeyGuard(
+      { resolve: async () => null } as never,
+      new Reflector(),
+      { gate: async () => undefined } as never,
+      { tagsFor: async () => [] } as never,
+    );
 
     await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
     expect(headersSet['WWW-Authenticate']).toBe(

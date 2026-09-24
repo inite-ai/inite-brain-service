@@ -55,6 +55,13 @@ export interface RequestContext {
    */
   authUserId?: string;
   /**
+   * The scope tags the request's principal holds, expanded once by the
+   * guard (G6 step 3) so the synchronous read fences never have to.
+   * Absent = nothing was resolved, and the fences fall back to the
+   * single `user:<id>` tag — narrower, never wider.
+   */
+  scopeTags?: import('../auth/scope-principal').ScopeTagMemo;
+  /**
    * Acting client (agent) identity from the token (`act`/`client_id`),
    * stamped by ApiKeyGuard. Fact ingest attributes writes to it via
    * source.meta.actor — provenance without signature threading.

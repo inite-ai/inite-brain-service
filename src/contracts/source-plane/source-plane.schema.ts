@@ -160,6 +160,16 @@ export const SourceSyncSummarySchema = z.object({
   failed: z.number().int(),
   closed: z.number().int(),
   durationMs: z.number().int(),
+  /** The ACL mirror (W5), when the connection has one and it ran. */
+  principals: z
+    .object({
+      groups: z.number().int(),
+      accounts: z.number().int(),
+      linked: z.number().int(),
+      changed: z.boolean(),
+      epoch: z.number().int(),
+    })
+    .optional(),
   error: z.string().optional(),
 });
 export type SourceSyncSummary = z.infer<typeof SourceSyncSummarySchema>;
@@ -357,6 +367,8 @@ export const SourceCatalogResponseSchema = z.object({
   egressAllowPrivate: z.boolean(),
   /** SOURCE_WEBHOOKS is on: connections of a vendor with a lane can be given an address (W4.2c). */
   webhooks: z.boolean(),
+  /** SOURCE_PRINCIPALS is on: an org connection mirrors its source's ACL (W5). */
+  principals: z.boolean(),
 });
 export type SourceCatalogResponse = z.infer<typeof SourceCatalogResponseSchema>;
 

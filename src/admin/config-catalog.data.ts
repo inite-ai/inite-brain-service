@@ -1464,7 +1464,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'G6 hierarchical scope-tag fence (migration 0093). When on, the scope-tag visibility evaluator runs as an ADDITIONAL AND-fence alongside the untouched migration-0055 userId filter at every per-user read seam (episode L0 reads, fact search legs, get-fact/provenance) — a row must pass BOTH. Composed with AND it can only narrow, never open, what userId filtering already returns; for current single-tag data (every row scope is [] or [user:<id>]) the two fences keep provably identical row sets, so enabling it changes nothing (the parity property that makes it safe to ship on). Fail-closed: a record scope with an unparseable or unknown-namespace tag is hidden from a scoped principal. Off (default) → the scope column is written by backfill/ingest but never read for filtering; enforcement is byte-identical pre-0093. Steps 3-5 (ABAC widen / share-up staging / revocation tokens) are a follow-up.',
+      'G6 hierarchical scope-tag fence (migration 0093). When on, the scope-tag visibility evaluator runs as an ADDITIONAL AND-fence alongside the untouched migration-0055 userId filter at every per-user read seam (episode L0 reads, fact search legs, get-fact/provenance) — a row must pass BOTH. Composed with AND it can only narrow, never open, what userId filtering already returns; for current single-tag data (every row scope is [] or [user:<id>]) the two fences keep provably identical row sets, so enabling it changes nothing (the parity property that makes it safe to ship on). Fail-closed: a record scope with an unparseable or unknown-namespace tag is hidden from a scoped principal. Off (default) → the scope column is written by backfill/ingest but never read for filtering; enforcement is byte-identical pre-0093. W5 (step 3) added the READ half of group tags: a user-bound principal is fenced by the tags they HOLD (their own, plus every `team:` group the membership plane expanded for them — resolved once per request by the guard), and tenant-wide authority (an M2M credential, a background job) is the tenant boundary itself and carries no scope clause at all. Group tags only exist when SOURCE_PRINCIPALS wrote them, so with that off this is still the single-tag parity above. Steps 4-5 (share-up staging beyond one group per row) remain a follow-up.',
   },
   {
     key: 'PRIVACY_SEGMENT_USER_FENCE',
@@ -2060,6 +2060,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
     description:
       'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the GitHub (github.com OAuth + api.github.com) counterpart. A GitHub Enterprise deployment is named per connection (`config.baseUrl`), not here.',
+  },
+  {
+    key: 'SOURCE_PRINCIPALS',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The membership plane (source plane, W5 — G6 steps 3–5): after every sync of an ORG connection (one with no owning user), the connector's `principals()` walk runs and its groups and accounts land as `external_identity` rows and `external_principal` tuples (migration 0161), and an item's `acl.groups` become `team:<connection>:<group>` tags on the document, asset, episode and derived facts it produces. An external account NOBODY has linked to a brain user grants no visibility at all — the link is an operator's decision (`POST .../principals/link`) or an address another linked identity already carries, never a guess. Revocation is a timestamp and moves the tenant's `scope_epoch`, so a cached expansion cannot outlive the change that invalidated it (the new-enemy problem). An ACL too large to mirror is a sync ERROR, never a truncation. The READ half is SCOPE_TAGS_ENABLED: with this on and that off, tags are written and ignored — the safe order to switch the two on in. Off (default) = no `principals()` is ever called, no tuple is ever written, every org connection's rows stay tenant-global — byte-identical.",
   },
   {
     key: 'SOURCE_KIND_GITLAB',
