@@ -4,6 +4,8 @@ import { WorkerLoopService, JobContext } from '../jobs/worker-loop.service';
 import { DocumentStoreService } from './document-store.service';
 import { IndexerDispatchService } from './indexer-dispatch.service';
 import { CandidateCommitService } from './candidate-commit.service';
+import { SurrealService } from '../db/surreal.service';
+import { GENERAL_INDEXER_ID, GENERAL_INDEXER_VERSION } from '../indexers/candidate.types';
 
 /**
  * Re-index/backfill: run ONE pack's extraction over the tenant's stored
@@ -30,9 +32,26 @@ export class DocumentReindexService implements OnModuleInit {
     private readonly commit: CandidateCommitService,
     @Optional() private readonly workerLoop?: WorkerLoopService,
     @Optional() private readonly claim?: JobClaimService,
+    @Optional() private readonly surreal?: SurrealService,
   ) {}
 
   onModuleInit(): void {
+    // A new extraction contract re-reads the memory it was written by:
+    // each tenant's stored documents are read again by the generalist
+    // pass once per GENERAL_INDEXER_VERSION (the job's stable dedup key
+    // is the once; the run ledger skips a document already read at that
+    // version, so a restart mid-pass resumes rather than repeats).
+    // Without it a contract change (edges gaining the period they held,
+    // 0164) reached only what was written after the deploy, and every
+    // earlier document kept the timeless reading.
+    this.surreal?.onTenantSchemaReady((companyId) => {
+      void this.enqueueReindex(companyId, {
+        packId: GENERAL_INDEXER_ID,
+        packVersion: GENERAL_INDEXER_VERSION,
+      }).catch((e: Error) =>
+        this.logger.warn(`[reindex] ${companyId}: general pass not enqueued: ${e.message}`),
+      );
+    });
     if (!this.workerLoop) return;
     this.workerLoop.register(
       'reindex_documents',
@@ -51,6 +70,14 @@ export class DocumentReindexService implements OnModuleInit {
     companyId: string,
     packId: string,
   ): Promise<{ enqueued: boolean; packVersion: string } | null> {
+    if (packId === GENERAL_INDEXER_ID) {
+      const { enqueued } = await this.enqueueReindex(companyId, {
+        packId,
+        packVersion: GENERAL_INDEXER_VERSION,
+        nonce: new Date().toISOString().slice(0, 13),
+      });
+      return { enqueued, packVersion: GENERAL_INDEXER_VERSION };
+    }
     const binding = await this.dispatch.bindingFor(companyId, packId);
     if (!binding) return null;
     const { enqueued } = await this.enqueueReindex(companyId, {

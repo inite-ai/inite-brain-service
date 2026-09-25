@@ -17,6 +17,15 @@ import type { SourceVersionStamp } from '../common/source-version';
 
 /** The pack-less generalist (union) pass — today's extractor, as an indexer. */
 export const GENERAL_INDEXER_ID = '_general';
+/**
+ * The generalist pass's version in the indexer_run ledger — bumped when
+ * the extraction CONTRACT changes, so every stored document is read again
+ * under it (the reindex ledger skips a (doc, pack, version) it already
+ * ran; DocumentReindexService re-reads each tenant's documents once per
+ * version). History: '0' the union extractor; '1' edges carry the period
+ * they held (eventTime/endTime, 0164).
+ */
+export const GENERAL_INDEXER_VERSION = '1';
 /** Attribution bucket for unprefixed (core-vocabulary) predicates. */
 export const CORE_INDEXER_ID = 'core';
 

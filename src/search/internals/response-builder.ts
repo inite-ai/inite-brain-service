@@ -71,7 +71,10 @@ export function assembleHits({
         const refs = sf.row.entity?.externalRefs;
         if (refs) Object.assign(mergedRefs, refs);
       }
-      const nbrs = neighboursByEntity?.get(e.entityId) ?? [];
+      // An edge the relation leg already brought as one of the hit's rows
+      // (relation-leg.ts) is not listed a second time as its relation.
+      const asRows = new Set(e.facts.map((sf) => String(sf.row.id)));
+      const nbrs = (neighboursByEntity?.get(e.entityId) ?? []).filter((n) => !asRows.has(n.edgeId));
       const relations = nbrs.slice(0, RELATIONS_PER_HIT).map((n) => ({
         kind: n.kind,
         peer: n.canonicalName,

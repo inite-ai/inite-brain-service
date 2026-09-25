@@ -9,6 +9,7 @@ import { isUserEntityRef } from '../ingest/user-entity';
 import {
   CandidateBatch,
   GENERAL_INDEXER_ID,
+  GENERAL_INDEXER_VERSION,
   IndexerExecutionMode,
 } from '../indexers/candidate.types';
 import { CandidateStoreService } from './candidate-store.service';
@@ -86,7 +87,7 @@ export class IndexerRunService {
       doc: p.doc,
       chunks: p.chunks,
       packId: GENERAL_INDEXER_ID,
-      packVersion: '0',
+      packVersion: GENERAL_INDEXER_VERSION,
       executionMode: 'virtual',
       model: this.extractor.modelId(),
       registryVersionHash: await this.extractor.vocabularyVersionHash(p.companyId),

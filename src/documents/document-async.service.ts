@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService, JobContext } from '../jobs/worker-loop.service';
-import { GENERAL_INDEXER_ID } from '../indexers/candidate.types';
+import { GENERAL_INDEXER_ID, GENERAL_INDEXER_VERSION } from '../indexers/candidate.types';
 import { DocumentStoreService, StoredDocument } from './document-store.service';
 import { IndexerDispatchService } from './indexer-dispatch.service';
 import { CandidateCommitService } from './candidate-commit.service';
@@ -115,7 +115,7 @@ export class DocumentAsyncService implements OnModuleInit {
       indexers: dto.indexers,
     });
     const specs = [
-      { packId: GENERAL_INDEXER_ID, packVersion: '0' },
+      { packId: GENERAL_INDEXER_ID, packVersion: GENERAL_INDEXER_VERSION },
       ...dedicated.map((b) => ({ packId: b.indexerId, packVersion: b.packVersion })),
     ];
 
