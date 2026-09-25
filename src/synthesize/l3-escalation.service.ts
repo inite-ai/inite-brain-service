@@ -461,6 +461,14 @@ export class L3EscalationService {
     const verdict = await this.verify(input, generated.answer, ctx);
     if (!verifierPasses(verdict, profile.verifierTopicCoverage)) {
       this.metrics?.countL3Escalation('no_flip');
+      // The one place the ladder's verdict is visible to an operator: a
+      // tier that fires and never flips is indistinguishable from one that
+      // is not wired, and the counter alone cannot say which half failed.
+      this.logger.log(
+        `[l3] no flip: ${ctx.transcriptLines.length} transcript line(s), verdict=${verdict.verdict}` +
+          `${verdict.questionAnswered === false ? ' (question not answered)' : ''}, ` +
+          `answer=${generated.answer.slice(0, 120).replace(/\s+/g, ' ')}`,
+      );
       return null;
     }
     this.metrics?.countL3Escalation('flipped');
