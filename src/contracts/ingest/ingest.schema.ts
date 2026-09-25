@@ -64,6 +64,8 @@ export const IngestFactRequestSchema = z.strictObject({
   /** ISO-8601 start of the fact's validity window. */
   validFrom: z.string(),
   validUntil: z.string().optional(),
+  /** When a temporary state is expected to be over (0166) — not an end; not together with validUntil. */
+  expectedUntil: z.string().optional(),
   confidence: z.number().min(0).max(1).optional(),
   source: FactSourceSchema,
   /**

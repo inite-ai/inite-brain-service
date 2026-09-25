@@ -305,7 +305,7 @@ function registerMemoryDiffTool({
     {
       title: 'Diff brain memory between two points in time',
       description:
-        'Returns everything brain learned, unlearned, or replaced between two ISO 8601 cursors [from, to). createdFacts = new active facts; retractedFacts = facts marked retracted in-window with no successor; changedFacts = facts that were superseded by another (carries before+after); newEntities = entities created in-window; forgottenEntities = GDPR-erased tombstones. Driving use case: "what changed since the last conversation?" Scope with entityIds and/or predicates to narrow the diff to a feature surface. Window is half-open; consecutive diffs over adjacent windows never double-count.',
+        'Returns everything brain learned, unlearned, or replaced between two ISO 8601 cursors [from, to). createdFacts = new active facts; retractedFacts = facts marked retracted in-window with no successor; changedFacts = facts that were superseded by another (carries before+after); newEntities = entities created in-window; forgottenEntities = GDPR-erased tombstones; lapsedExpectations = temporary states (ill, away) whose expected end passed in-window with nothing confirming or ending them — worth asking about. Driving use case: "what changed since the last conversation?" Scope with entityIds and/or predicates to narrow the diff to a feature surface. Window is half-open; consecutive diffs over adjacent windows never double-count.',
       inputSchema: {
         from: isoDateTime().describe('Inclusive lower bound (ISO 8601)'),
         to: isoDateTime().describe('Exclusive upper bound (ISO 8601)'),

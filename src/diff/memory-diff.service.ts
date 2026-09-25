@@ -127,6 +127,15 @@ export class MemoryDiffService {
         { from, to, cap },
       );
 
+      // LAPSED EXPECTATIONS (0166) — temporary states whose expected end
+      // passed inside the window with nothing closing or restating them.
+      const lapsedRows = await queryRows<FactRow>(db, LAPSED_EXPECTATIONS_SQL(scoping.factClause), {
+        from,
+        to,
+        cap,
+        ...scoping.params,
+      });
+
       let truncated = false;
       const clip = <T>(rows: T[] | undefined | null): T[] => {
         const list = rows ?? [];
@@ -140,6 +149,9 @@ export class MemoryDiffService {
       const retractedClipped = clip(retractedRows);
       const newEntityClipped = clip(newEntityRows);
       const forgottenClipped = clip(forgottenRows);
+      const lapsedExpectations = clip(lapsedRows)
+        .filter((r) => rowFilter.filter(r))
+        .map(rowToFactRef);
 
       const createdFacts: FactRef[] = createdClipped
         .filter((r) => rowFilter.filter(r))
@@ -241,7 +253,7 @@ export class MemoryDiffService {
         `[memory.diff] companyId=${companyId} window=${from.toISOString()}..${to.toISOString()} ` +
           `created=${netCreated.length} retracted=${retractedFacts.length} ` +
           `changed=${changedFacts.length} newEntities=${newEntities.length} ` +
-          `forgotten=${forgottenEntities.length}`,
+          `forgotten=${forgottenEntities.length} lapsed=${lapsedExpectations.length}`,
       );
 
       return {
@@ -252,6 +264,7 @@ export class MemoryDiffService {
         changedFacts,
         newEntities,
         forgottenEntities,
+        lapsedExpectations,
         truncated,
       };
     });
@@ -259,8 +272,23 @@ export class MemoryDiffService {
 }
 
 const FACT_FIELDS =
-  'id, entityId, predicate, object, confidence, validFrom, validUntil, ' +
+  'id, entityId, predicate, object, confidence, validFrom, validUntil, expectedUntil, ' +
   'recordedAt, retractedAt, userId, source, trustSnapshot, corroboration';
+
+/**
+ * Open facts whose expectation (0166) passed in [from, to) — and has
+ * passed by now: a window reaching into the future does not report an
+ * expectation that is still ahead. A restatement moves the expectation
+ * and a stated end closes the fact, so a row here is a temporary state
+ * nothing has confirmed or ended since.
+ */
+const LAPSED_EXPECTATIONS_SQL = (factClause: string) =>
+  `SELECT ${FACT_FIELDS}
+     FROM knowledge_fact
+     WHERE expectedUntil >= $from AND expectedUntil < $to AND expectedUntil <= time::now()
+       AND validUntil IS NONE AND retractedAt IS NONE AND status IN ['active', 'competing']
+       ${factClause}
+     ORDER BY expectedUntil ASC LIMIT $cap`;
 
 /**
  * Max rows returned per diff section. The window is caller-controlled;
@@ -281,6 +309,7 @@ interface FactRow extends PolicyFilterableRow {
   confidence: unknown;
   validFrom: unknown;
   validUntil?: unknown;
+  expectedUntil?: unknown;
   recordedAt: unknown;
   retractedAt?: unknown;
   /** Present only on the retracted-bucket SELECT (`, supersededBy`). */
@@ -353,6 +382,7 @@ function rowToFactRef(r: FactRow): FactRef {
     confidence: typeof r.confidence === 'number' ? r.confidence : 0,
     validFrom: toIso(r.validFrom),
     validUntil: r.validUntil ? toIso(r.validUntil) : undefined,
+    ...(r.expectedUntil ? { expectedUntil: toIso(r.expectedUntil) } : {}),
     recordedAt: toIso(r.recordedAt),
     retractedAt: r.retractedAt ? toIso(r.retractedAt) : undefined,
   };
@@ -389,6 +419,8 @@ export interface FactRef {
   confidence: number;
   validFrom: string;
   validUntil?: string | undefined;
+  /** When a temporary state was expected to be over (0166). */
+  expectedUntil?: string | undefined;
   recordedAt: string;
   retractedAt?: string | undefined;
 }
@@ -423,6 +455,12 @@ export interface MemoryDiffResult {
   changedFacts: ChangedFact[];
   newEntities: EntityRef[];
   forgottenEntities: ForgottenRef[];
+  /**
+   * Temporary states whose expected end passed in the window with nothing
+   * confirming or ending them since (0166) — "your flu was expected to be
+   * over by the 2nd": something to ask about, not something that changed.
+   */
+  lapsedExpectations: FactRef[];
   /** True when any section hit its row cap — narrow the window to see the rest. */
   truncated: boolean;
 }

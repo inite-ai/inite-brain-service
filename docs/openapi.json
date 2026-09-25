@@ -3853,6 +3853,9 @@
           "entityRef": {
             "$ref": "#/components/schemas/EntityRef"
           },
+          "expectedUntil": {
+            "type": "string"
+          },
           "explain": {
             "type": "boolean"
           },

@@ -61,6 +61,7 @@ const fullRequest: Required<IngestFactDto> = {
   object: 'late maintenance',
   validFrom: '2026-09-01T10:00:00.000Z',
   validUntil: '2026-10-01T00:00:00.000Z',
+  expectedUntil: '2026-09-28T00:00:00.000Z',
   confidence: 0.9,
   source: fullSource,
   userId: 'user_42',

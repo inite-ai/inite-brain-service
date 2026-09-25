@@ -5,6 +5,7 @@
  */
 import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
+import { MemoryDiffService } from '../src/diff/memory-diff.service';
 
 describe('fact expectation (e2e)', () => {
   let f: AppFixture;
@@ -133,5 +134,60 @@ describe('fact expectation (e2e)', () => {
     expect(r.status).toBe(201);
     const rows = await rowsOf('trip to Lisbon');
     expect(rows.map((x) => [x.status, day(x.expectedUntil)])).toEqual([['active', '2026-09-28']]);
+  });
+
+  const recordFact = (object: string, days: Record<string, string>) =>
+    f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'crm', id: 'lead_expect' },
+        predicate: 'availability',
+        object,
+        confidence: 0.9,
+        source: { vertical: 'crm', recorder: 'agent' },
+        ...days,
+      });
+
+  it('record_fact carries an expectation; with a stated end or before the start it is refused', async () => {
+    const ok = await recordFact('on parental leave', {
+      validFrom: '2026-01-05T00:00:00Z',
+      expectedUntil: '2026-01-19T00:00:00Z',
+    });
+    expect([200, 201]).toContain(ok.status);
+    expect(day((await rowsOf('on parental leave'))[0]?.expectedUntil)).toBe('2026-01-19');
+
+    const both = await recordFact('at a conference', {
+      validFrom: '2026-01-05T00:00:00Z',
+      validUntil: '2026-01-07T00:00:00Z',
+      expectedUntil: '2026-01-07T00:00:00Z',
+    });
+    expect(both.status).toBe(400);
+    const before = await recordFact('travelling', {
+      validFrom: '2026-01-05T00:00:00Z',
+      expectedUntil: '2026-01-04T00:00:00Z',
+    });
+    expect(before.status).toBe(400);
+  });
+
+  it('memory_diff reports a lapsed expectation in its window, and not one still ahead', async () => {
+    await recordFact('on a sailing trip', {
+      validFrom: '2026-09-01T00:00:00Z',
+      expectedUntil: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+    });
+    const diff = (from: string, to: string) =>
+      f.app
+        .get(MemoryDiffService)
+        .diff(f.companyId, { from, to }, ['brain:read', 'brain:read_pii']);
+    const january = await diff('2026-01-01T00:00:00Z', '2026-02-01T00:00:00Z');
+    expect(january.lapsedExpectations.map((x) => x.object)).toEqual(['on parental leave']);
+    expect(january.lapsedExpectations[0]?.expectedUntil).toBe('2026-01-19T00:00:00.000Z');
+    const february = await diff('2026-02-01T00:00:00Z', '2026-03-01T00:00:00Z');
+    expect(february.lapsedExpectations).toEqual([]);
+    const ahead = await diff(
+      '2026-09-01T00:00:00Z',
+      new Date(Date.now() + 30 * 86_400_000).toISOString(),
+    );
+    expect(ahead.lapsedExpectations.map((x) => x.object)).not.toContain('on a sailing trip');
   });
 });
