@@ -64,6 +64,8 @@ interface CompetingFactRow {
   validFrom: string;
   recordedAt: string;
   source: unknown;
+  /** The memory slice the fact belongs to — absent for tenant-global. */
+  userId?: string | null;
 }
 
 @Injectable()
@@ -180,21 +182,24 @@ export class DreamsResolverService {
     // of that world's group — it hides the SAME fact re-derived into
     // other worlds, which used to masquerade as a 3-way disagreement.
     const [rows] = await db.query<[CompetingFactRow[]]>(
-      `SELECT id, entityId, predicate, object, confidence, validFrom, recordedAt, source
+      `SELECT id, entityId, predicate, object, confidence, validFrom, recordedAt, source, userId
        FROM knowledge_fact
        WHERE status = 'competing'
          AND retractedAt IS NONE
-         AND userId IS NONE
          ${fence.clause}
        ORDER BY entityId, predicate, recordedAt ASC`,
       fence.params,
     );
     const all = (rows as CompetingFactRow[]) ?? [];
 
-    // Group by (entityId, predicate).
+    // Group by (scope, entityId, predicate). A disagreement lives inside one
+    // memory slice: the tenant's, or one user's. This pass used to read the
+    // tenant-global slice only (`userId IS NONE`), so on a deployment whose
+    // memory is personal — every fact a user-bound key writes — it never
+    // saw a single competing pair. Two users' facts are never one pair.
     const byKey = new Map<string, CompetingFactRow[]>();
     for (const r of all) {
-      const key = `${String(r.entityId)}::${r.predicate}`;
+      const key = `${r.userId ?? ''}::${String(r.entityId)}::${r.predicate}`;
       const arr = byKey.get(key);
       if (arr) arr.push(r);
       else byKey.set(key, [r]);
@@ -234,7 +239,11 @@ export class DreamsResolverService {
     // the LLM context — sometimes the resolution depends on what's
     // around the conflict (e.g. status: active vs churned, where a
     // recent payment fact tilts toward "active").
-    const ctxFacts = await this.fetchEntityContext(db, String(pair.a.entityId), derivedVersion);
+    const ctxFacts = await this.fetchEntityContext(
+      db,
+      { entityId: String(pair.a.entityId), userId: pair.a.userId ?? undefined },
+      derivedVersion,
+    );
     const sys = `You resolve a CONTRADICTION between two facts in a knowledge graph.
 
 Both facts share the same entity and the same predicate but disagree on the object value (e.g. status=active vs status=churned). Decide which is more likely TRUE based on:
@@ -317,21 +326,28 @@ Output strictly the JSON shape requested.`;
 
   private async fetchEntityContext(
     db: Surreal,
-    entityId: string,
+    subject: { entityId: string; userId?: string | undefined },
     derivedVersion: string | null,
   ): Promise<string> {
     const fence = derivedVersionFence(derivedVersion);
     type R = { predicate: string; object: string; recordedAt: string };
+    // The judge reads what the pair's own slice can read: the tenant's
+    // facts, plus the user's when the pair is personal.
+    const scope = subject.userId ? '(userId IS NONE OR userId = $scopeUserId)' : 'userId IS NONE';
     const [rows] = await db.query<[R[]]>(
       `SELECT predicate, object, recordedAt FROM knowledge_fact
        WHERE entityId = $eid
          AND status = 'active'
          AND retractedAt IS NONE
-         AND userId IS NONE
+         AND ${scope}
          ${fence.clause}
        ORDER BY recordedAt DESC
        LIMIT 6`,
-      { eid: new StringRecordId(entityId), ...fence.params },
+      {
+        eid: new StringRecordId(subject.entityId),
+        ...(subject.userId ? { scopeUserId: subject.userId } : {}),
+        ...fence.params,
+      },
     );
     const r = (rows as R[]) ?? [];
     if (r.length === 0) return '(no other active facts)';

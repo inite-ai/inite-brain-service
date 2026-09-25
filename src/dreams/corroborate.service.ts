@@ -235,18 +235,19 @@ export class DreamsCorroborateService {
 
   private async markGroupChecked(
     db: Surreal,
-    group: { entityId: unknown; predicate: string },
+    group: { entityId: unknown; predicate: string; scope: string },
     memberCount: number,
   ): Promise<void> {
     try {
       await db.query(
         `UPSERT corroborate_checked SET
-           entityId = $entity, predicate = $predicate,
+           entityId = $entity, predicate = $predicate, scopeKey = $scope,
            memberCount = $n, checkedAt = time::now()
-         WHERE entityId = $entity AND predicate = $predicate`,
+         WHERE entityId = $entity AND predicate = $predicate AND scopeKey = $scope`,
         {
           entity: new StringRecordId(String(group.entityId)),
           predicate: group.predicate,
+          scope: group.scope,
           n: memberCount,
         },
       );
@@ -268,30 +269,39 @@ export class DreamsCorroborateService {
     db: Surreal,
     derivedVersion: string | null,
   ): Promise<{
-    groups: Array<{ entityId: unknown; predicate: string }>;
+    groups: Array<{ entityId: unknown; predicate: string; scope: string }>;
     backlog: number;
   }> {
     const fence = derivedVersionFence(derivedVersion);
     const [rawRows] = await db.query<
-      [Array<{ entityId: unknown; canonPredicate: string; n: number }>]
+      [Array<{ entityId: unknown; canonPredicate: string; scope: string; n: number }>]
     >(
       // 0082: groups key on the CANONICAL predicate so coinages of one
       // canon land in the same group; fetchGroupMembers mirrors the key.
+      // Each memory slice is swept on its own — the tenant's ('') and each
+      // user's. This read the tenant-global slice only, so a deployment
+      // whose memory is personal never had a group to corroborate; two
+      // users' re-worded duplicates are never one group.
       `SELECT entityId, predicateAlias ?? predicate AS canonPredicate,
-              count() AS n FROM knowledge_fact
+              userId ?? '' AS scope, count() AS n FROM knowledge_fact
        WHERE status = 'active' AND retractedAt IS NONE AND embedding != NONE
-         AND userId IS NONE
          ${fence.clause}
-       GROUP BY entityId, canonPredicate`,
+       GROUP BY entityId, canonPredicate, scope`,
       fence.params,
     );
     const rows = (
       (rawRows as Array<{
         entityId: unknown;
         canonPredicate: string;
+        scope: string;
         n: number;
       }>) ?? []
-    ).map((r) => ({ entityId: r.entityId, predicate: r.canonPredicate, n: r.n }));
+    ).map((r) => ({
+      entityId: r.entityId,
+      predicate: r.canonPredicate,
+      scope: r.scope ?? '',
+      n: r.n,
+    }));
     // Negative-result memo (0060): a group already judged at the SAME
     // member count is excluded before the window is cut. Without this,
     // the deterministic most-populated-first order re-selected the same
@@ -308,7 +318,7 @@ export class DreamsCorroborateService {
         const seed = PREDICATE_POLICIES[g.predicate];
         return seed ? seed.semantics === 'bitemporal' : true;
       })
-      .filter((g) => checked.get(`${String(g.entityId)}|${g.predicate}`) !== g.n)
+      .filter((g) => checked.get(`${String(g.entityId)}|${g.predicate}|${g.scope}`) !== g.n)
       .sort((a, b) => {
         if (b.n !== a.n) return b.n - a.n; // most-conflicted first
         const ka = `${String(a.entityId)}\u0000${a.predicate}`;
@@ -323,14 +333,15 @@ export class DreamsCorroborateService {
     const memo = new Map<string, number>();
     try {
       const [rows] = await db.query<
-        [Array<{ entityId: unknown; predicate: string; memberCount: number }>]
-      >(`SELECT entityId, predicate, memberCount FROM corroborate_checked`);
+        [Array<{ entityId: unknown; predicate: string; scopeKey?: string; memberCount: number }>]
+      >(`SELECT entityId, predicate, scopeKey, memberCount FROM corroborate_checked`);
       for (const r of (rows as Array<{
         entityId: unknown;
         predicate: string;
+        scopeKey?: string;
         memberCount: number;
       }>) ?? []) {
-        memo.set(`${String(r.entityId)}|${r.predicate}`, r.memberCount);
+        memo.set(`${String(r.entityId)}|${r.predicate}|${r.scopeKey ?? ''}`, r.memberCount);
       }
     } catch (e) {
       this.logger.warn(
@@ -342,7 +353,7 @@ export class DreamsCorroborateService {
 
   private async fetchGroupMembers(
     db: Surreal,
-    group: { entityId: unknown; predicate: string },
+    group: { entityId: unknown; predicate: string; scope: string },
     derivedVersion: string | null,
   ): Promise<ActiveFactRow[]> {
     const fence = derivedVersionFence(derivedVersion);
@@ -357,12 +368,13 @@ export class DreamsCorroborateService {
        FROM knowledge_fact
        WHERE entityId = $entity AND (predicateAlias ?? predicate) = $predicate
          AND status = 'active' AND retractedAt IS NONE AND embedding != NONE
-         AND userId IS NONE
+         AND ${group.scope ? 'userId = $scopeUserId' : 'userId IS NONE'}
          ${fence.clause}
        ORDER BY recordedAt ASC`,
       {
         entity: new StringRecordId(String(group.entityId)),
         predicate: group.predicate,
+        ...(group.scope ? { scopeUserId: group.scope } : {}),
         ...fence.params,
       },
     );
