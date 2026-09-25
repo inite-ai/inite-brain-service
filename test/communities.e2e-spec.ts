@@ -25,11 +25,12 @@ describe('Communities — build + read surfaces', () => {
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
   let entityA = '';
 
-  const ingestName = async (id: string, name: string) => {
+  const ingestName = async (id: string, name: string, userId?: string) => {
     const res = await f.http
       .post('/v1/ingest/fact')
       .set(auth())
       .send({
+        ...(userId ? { userId } : {}),
         entityRef: { vertical: 'rent', id },
         predicate: 'name',
         object: name,
@@ -73,6 +74,17 @@ describe('Communities — build + read surfaces', () => {
     await link('comm_y', 'comm_z');
     await link('comm_x', 'comm_z');
 
+    // Cluster 3 — tenant-global links between entities whose only facts
+    // are one user's. The pass reads tenant-global facts, so there is
+    // nothing to summarise: it used to write a community with a NULL
+    // embedding, which failed the whole nightly dreams job on production.
+    await ingestName('comm_p', 'Private One', 'u_private');
+    await ingestName('comm_q', 'Private Two', 'u_private');
+    await ingestName('comm_r', 'Private Three', 'u_private');
+    await link('comm_p', 'comm_q');
+    await link('comm_q', 'comm_r');
+    await link('comm_p', 'comm_r');
+
     const surreal = f.app.get(SurrealService);
     entityA = await surreal.withCompany(f.companyId, async (db) => {
       const [rows] = await db.query<any[][]>(
@@ -85,8 +97,9 @@ describe('Communities — build + read surfaces', () => {
 
     // Build communities through the dreams leg.
     const stats = await f.app.get(DreamsService).runForTenant(f.companyId, ['communities']);
+    expect(stats.error).toBeUndefined();
     expect(stats.communities?.communitiesBuilt).toBe(2);
-    expect(stats.communities?.entitiesClustered).toBe(6);
+    expect(stats.communities?.entitiesClustered).toBe(9);
   });
 
   afterAll(async () => {

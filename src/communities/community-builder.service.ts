@@ -145,12 +145,12 @@ export class CommunityBuilderService {
         await this.deleteCommunity(db, prior.id);
         matchedExistingIds.add(prior.id);
       }
-      await withSpan(
+      const built = await withSpan(
         'communities.build_one',
         () => this.buildCommunity(db, members, maxEdgeAt[i] ?? null, derivedVersion),
         { 'community.size': members.length },
       );
-      result.communitiesBuilt++;
+      if (built) result.communitiesBuilt++;
     }
 
     // Remove communities whose member set no longer corresponds to any
@@ -332,11 +332,18 @@ export class CommunityBuilderService {
     members: string[],
     maxEdgeAt: string | null,
     derivedVersion: string | null,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const { label, summaryInput } = await this.gatherMemberContext(db, members, derivedVersion);
     const summary = await this.summaryGenerator.generate(summaryInput);
+    // A cluster whose members hold no fact this pass can read has nothing
+    // to summarise, and a community with no summary is nothing a reader
+    // can find. It used to be written anyway, with a NULL embedding that
+    // option<array<float>> rejects — and that one row failed the whole
+    // nightly dreams job, every night, on a tenant whose memory is
+    // personal (the pass reads tenant-global facts).
+    if (!summary) return false;
     // Write-guarded: persisted as community_node.summaryEmbedding.
-    const summaryEmbedding = summary ? await this.embedder.embedForWrite(summary) : null;
+    const summaryEmbedding = await this.embedder.embedForWrite(summary);
 
     // lastBuiltMaxEdgeAt is option<datetime>: OMIT it (leave NONE) when the
     // cluster has no dated internal edge, rather than passing NULL — a JS
@@ -347,9 +354,15 @@ export class CommunityBuilderService {
     const params: Record<string, unknown> = {
       label,
       summary,
-      embedding: summaryEmbedding,
       count: members.length,
     };
+    // Same rule as lastBuiltMaxEdgeAt below: an absent vector is omitted
+    // (NONE), never bound as NULL.
+    let embeddingClause = '';
+    if (Array.isArray(summaryEmbedding)) {
+      embeddingClause = '\n         summaryEmbedding: $embedding,';
+      params.embedding = summaryEmbedding;
+    }
     let edgeClause = '';
     if (maxEdgeAt) {
       edgeClause = ',\n         lastBuiltMaxEdgeAt: $maxEdgeAt';
@@ -358,8 +371,7 @@ export class CommunityBuilderService {
     const [created] = await db.query<[Array<{ id: unknown }>]>(
       `CREATE community_node CONTENT {
          label: $label,
-         summary: $summary,
-         summaryEmbedding: $embedding,
+         summary: $summary,${embeddingClause}
          memberCount: $count,
          algorithm: 'label_propagation',
          builtAt: time::now(),
@@ -385,6 +397,7 @@ export class CommunityBuilderService {
         .join('\n');
       await db.query(stmts, relateParams);
     }
+    return true;
   }
 
   /**
