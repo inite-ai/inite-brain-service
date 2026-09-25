@@ -54,8 +54,11 @@ import { isEdgeCitation, type Citation } from '../synthesize/fact-index';
  *   1 — 0091 shape.
  *   2 — 0136: a row carries its typed non-fact `dependencies`; a pre-0136
  *       row cannot be revalidated and must never be served.
+ *   3 — admission requires an answer that ANSWERS: rows admitted before
+ *       could be "the facts do not say why" and were served as the answer
+ *       after the raw text that does say why became readable.
  */
-export const ANSWER_CACHE_PROMPT_VERSION = 2;
+export const ANSWER_CACHE_PROMPT_VERSION = 3;
 
 /** Table + record-id namespace of the cache rows (migration 0091). */
 const TABLE = 'answer_cache';
@@ -441,9 +444,28 @@ export class AnswerCacheService {
   async admit(
     ctx: AnswerCacheStoreContext,
     result: SynthesizeResult,
-    verdict: 'supported' | 'partial' | 'unsupported',
+    audit:
+      | 'supported'
+      | 'partial'
+      | 'unsupported'
+      | {
+          verdict: 'supported' | 'partial' | 'unsupported';
+          questionAnswered?: boolean | undefined;
+        },
   ): Promise<void> {
+    const verdict = typeof audit === 'string' ? audit : audit.verdict;
     if (verdict !== 'supported' || result.answer === null || result.reason !== undefined) return;
+    // Supported claims that do not answer the question ("the facts do not
+    // say why") are true of the evidence the request happened to retrieve,
+    // not an answer to keep: cited facts outlive the moment the reason
+    // becomes readable, so the entry would be served over it. Measured on
+    // production — four questions kept answering "причина не указана" from
+    // the cache after the documents' raw text could answer them.
+    if (typeof audit !== 'string' && audit.questionAnswered === false) {
+      this.metrics?.countAnswerCache('not_admitted');
+      traceArtifact('synthesize.answer_cache', { decision: 'not_admitted', why: 'unanswered' });
+      return;
+    }
     // A fact-less answer is admissible only under the belief-subject anchor
     // below, and only for a user-scoped request — the probe has no other
     // scope to run in.

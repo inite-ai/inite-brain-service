@@ -743,7 +743,9 @@ export class SynthesizeService {
       verdict: servedVerdict,
       decisionId: ctx.decisionId,
     });
-    if (ctx.cache?.ctx) await this.answerCache?.admit(ctx.cache.ctx, final, verdict.verdict);
+    if (ctx.cache?.ctx) {
+      await this.answerCache?.admit(ctx.cache.ctx, final, verdict);
+    }
     return final;
   }
 

@@ -152,9 +152,9 @@ describe('computeCacheKey', () => {
   });
 
   it('bakes the prompt version in (a bump misses every old entry)', () => {
-    // 2 = 0136: a row carries its typed non-fact dependencies, so every
-    // pre-0136 entry (which cannot be revalidated) misses by key.
-    expect(ANSWER_CACHE_PROMPT_VERSION).toBe(2);
+    // 3: admission requires an answer that answers, so every entry admitted
+    // before (possibly "the facts do not say why") misses by key.
+    expect(ANSWER_CACHE_PROMPT_VERSION).toBe(3);
   });
 });
 
@@ -775,6 +775,16 @@ describe('AnswerCacheService.admit — admission rules', () => {
     expect(upsert!.sql).toContain('hitCount: 0');
     expect(upsert!.sql).toContain('invalidatedAt: NONE');
     expect(h.outcomes).toEqual(['stored']);
+  });
+
+  it('a supported answer that does not answer the question is never stored', async () => {
+    const h = makeHarness({});
+    await h.svc.admit(ctx, grounded, { verdict: 'supported', questionAnswered: false });
+    expect(h.calls.find((c) => /UPSERT/.test(c.sql))).toBeUndefined();
+    expect(h.outcomes).toEqual(['not_admitted']);
+    const answered = makeHarness({});
+    await answered.svc.admit(ctx, grounded, { verdict: 'supported', questionAnswered: true });
+    expect(answered.outcomes).toEqual(['stored']);
   });
 
   it('honors the TTL env for expiresAt', async () => {
