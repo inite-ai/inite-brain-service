@@ -23,9 +23,10 @@ export const GENERAL_INDEXER_ID = '_general';
  * under it (the reindex ledger skips a (doc, pack, version) it already
  * ran; DocumentReindexService re-reads each tenant's documents once per
  * version). History: '0' the union extractor; '1' edges carry the period
- * they held (eventTime/endTime, 0164).
+ * they held (eventTime/endTime, 0164); '2' facts carry the day they
+ * stopped holding (endTime).
  */
-export const GENERAL_INDEXER_VERSION = '1';
+export const GENERAL_INDEXER_VERSION = '2';
 /** Attribution bucket for unprefixed (core-vocabulary) predicates. */
 export const CORE_INDEXER_ID = 'core';
 

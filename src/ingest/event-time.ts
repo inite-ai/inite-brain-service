@@ -504,6 +504,24 @@ export function factValidFrom(
 }
 
 /**
+ * The start of a fact whose start nobody stated. knowledge_fact.validFrom
+ * is a required datetime, so a value stated only as having ENDED ("until
+ * the 24th it ran on A") takes the epoch — the same new Date(0) the
+ * derive rows fall back to, and the one the prompt renderer
+ * (toValidityDate) prints as nothing, so the line reads "(until B)" and
+ * never "1970". An asOf read inside the interval still finds the row.
+ */
+export const UNKNOWN_START = new Date(0);
+
+/** A fact's valid-time interval on the write path. */
+export interface FactTiming {
+  validFrom: Date;
+  /** When the value stopped holding; absent = still holds. */
+  validUntil?: Date;
+  objectMeta?: { date: string };
+}
+
+/**
  * The fact's timing on the write path, from the extractor's own
  * resolution first (memory-context contract: `eventTime` is the
  * calendar day the value refers to, resolved by the model against the
@@ -519,27 +537,52 @@ export function factValidFrom(
  * in an asOf read of October). Either way the day rides the row as
  * `objectMeta.date`, so the read side can place "19 сентября" on a
  * calendar without parsing it again.
+ *
+ * `endTime` is the day the value stopped holding ("до 24 сентября
+ * работал на A"): validUntil at 00:00Z, the same rule as an edge's. A
+ * value stated only as having ended held before it was said, so its
+ * start is UNKNOWN_START — not the turn, and not a chrono read of the
+ * clause, which names the end and would be taken for the beginning. A
+ * start that is not before the end is unknown for the same reason.
  */
 export function factTiming(
+  f: {
+    predicate: string;
+    clause?: string | undefined;
+    eventTime?: string | undefined;
+    endTime?: string | undefined;
+  },
+  emittedAt: string | Date,
+  opts: EventTimeResolveOpts,
+): FactTiming {
+  const validUntil = dayStart(f.endTime);
+  if (!validUntil) return factStart(f, emittedAt, opts);
+  if (!dayStart(f.eventTime)) return { validFrom: UNKNOWN_START, validUntil };
+  const start = factStart(f, emittedAt, opts);
+  return start.validFrom.getTime() < validUntil.getTime()
+    ? { ...start, validUntil }
+    : { ...start, validFrom: UNKNOWN_START, validUntil };
+}
+
+/** The start half of factTiming: the stated day, else chrono, else the turn. */
+function factStart(
   f: { predicate: string; clause?: string | undefined; eventTime?: string | undefined },
   emittedAt: string | Date,
   opts: EventTimeResolveOpts,
-): { validFrom: Date; objectMeta?: { date: string } } {
+): FactTiming {
   const said = emittedAt instanceof Date ? emittedAt : new Date(emittedAt);
   const day = f.eventTime;
-  if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
-    const at = new Date(`${day}T00:00:00Z`);
-    if (!Number.isNaN(at.getTime())) {
-      const occurred = at.getTime() <= said.getTime();
-      traceArtifact('ingest.fact.event_time', {
-        predicate: f.predicate,
-        expr: 'extractor',
-        resolved: day,
-        emittedAt: said.toISOString().slice(0, 10),
-        scheduled: !occurred,
-      });
-      return { validFrom: occurred ? at : said, objectMeta: { date: day } };
-    }
+  const at = dayStart(day);
+  if (day && at) {
+    const occurred = at.getTime() <= said.getTime();
+    traceArtifact('ingest.fact.event_time', {
+      predicate: f.predicate,
+      expr: 'extractor',
+      resolved: day,
+      emittedAt: said.toISOString().slice(0, 10),
+      scheduled: !occurred,
+    });
+    return { validFrom: occurred ? at : said, objectMeta: { date: day } };
   }
   return { validFrom: factValidFrom(f, emittedAt, opts) };
 }

@@ -1,6 +1,7 @@
 import type { SearchHit } from '../search/search.service';
 import { formatElapsed } from './answer-router';
 import { ASKER_LABEL } from './asker';
+import { UNKNOWN_START } from '../ingest/event-time';
 
 /**
  * Fact-line rendering for the generator/verifier prompts, split out of
@@ -364,9 +365,10 @@ function toValidityDate(value?: string): string | undefined {
   if (!value) return undefined;
   const t = Date.parse(value);
   if (Number.isNaN(t)) return undefined;
-  // Drop ONLY the epoch sentinel (new Date(0), the unknown-date fallback) so it
-  // never reads as 1970. `=== 0`, not `<= 0`: a real pre-1970 validFrom (an
-  // older person's dob, a historical event) must still render its date.
-  if (t === 0) return undefined;
+  // Drop ONLY the epoch sentinel (UNKNOWN_START, the unknown-date fallback —
+  // a fact stated only as having ended carries it) so it never reads as
+  // 1970. `===`, not `<=`: a real pre-1970 validFrom (an older person's
+  // dob, a historical event) must still render its date.
+  if (t === UNKNOWN_START.getTime()) return undefined;
   return new Date(t).toISOString().slice(0, 10);
 }

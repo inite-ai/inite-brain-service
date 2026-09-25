@@ -41,6 +41,12 @@ export interface ExtractedFact {
    */
   eventTime?: string | undefined;
   /**
+   * YYYY-MM-DD the value stopped holding — "until the 24th", "no longer",
+   * "moved from X to Y on …" — resolved like eventTime; the row's
+   * validUntil. Absent while it still holds.
+   */
+  endTime?: string | undefined;
+  /**
    * knowledge_fact ids this fact replaces: the KNOWN FACTS of the memory
    * context the extractor judged to be the previous value of the same
    * attribute (a cut budget, a moved date, a changed state). The
@@ -124,6 +130,8 @@ export interface RawExtractedFact {
   object?: string;
   /** YYYY-MM-DD the value refers to (memory-context contract); absent when none. */
   eventTime?: string;
+  /** YYYY-MM-DD the value stopped holding; absent while it still holds. */
+  endTime?: string;
   /** knowledge_fact ids this one replaces — handles already mapped by the parser. */
   supersedes?: string[];
   /** "one" | "many" — the attribute's cardinality over time (memory-context contract). */

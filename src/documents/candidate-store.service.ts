@@ -434,9 +434,11 @@ export class CandidateStoreService {
             predicate: f.predicate,
             object: f.object,
             clause: f.clause,
-            // Memory-context fields: the day the value refers to and the
-            // known facts this one replaces. Absent = absent.
+            // Memory-context fields: the day the value refers to, the day
+            // it stopped holding, and the known facts this one replaces.
+            // Absent = absent.
             ...(f.eventTime ? { eventTime: f.eventTime } : {}),
+            ...(f.endTime ? { endTime: f.endTime } : {}),
             ...(f.supersedes && f.supersedes.length > 0 ? { supersedes: f.supersedes } : {}),
             ungrounded: f.ungrounded,
             extractionEntropy: f.extractionEntropy,

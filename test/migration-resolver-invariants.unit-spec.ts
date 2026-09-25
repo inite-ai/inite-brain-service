@@ -97,11 +97,11 @@ describe('GATE: live fn::resolve_fact invariants', () => {
     // 0051 derives corroboration.count from the deduped origin set so one
     // source repeating itself cannot inflate the read-time γ boost. A stale
     // baseline would reinstate the unconditional `corroboration.count + 1`.
+    // The branch's own return — 0165's ended-value branch returns
+    // CORROBORATED earlier in the body.
+    const start = head.body.indexOf('IF $corroborated != NONE');
     const corroborationBranch = stripComments(
-      head.body.slice(
-        head.body.indexOf('IF $corroborated != NONE'),
-        head.body.indexOf("outcome: 'CORROBORATED'"),
-      ),
+      head.body.slice(start, head.body.indexOf("outcome: 'CORROBORATED'", start)),
     );
     expect(corroborationBranch).toContain('count: array::len(array::union(');
     expect(corroborationBranch).not.toContain('corroboration.count + 1');

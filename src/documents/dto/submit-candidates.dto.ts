@@ -31,6 +31,10 @@ export interface SubmittedFact {
   object: string;
   confidence?: number;
   clause?: string;
+  /** YYYY-MM-DD the value began to hold; absent = when the document says it. */
+  eventTime?: string;
+  /** YYYY-MM-DD the value stopped holding; absent = still holds. */
+  endTime?: string;
 }
 
 export interface SubmittedRelation {

@@ -15,6 +15,7 @@ import {
 import { traceArtifact, traceSpan } from '../common/debug-trace';
 import { EntityUpsertService } from './entity-upsert.service';
 import { UserEntityService } from './user-entity.service';
+import { UNKNOWN_START } from './event-time';
 
 /** Names looked up per turn — the turn's own plus the conversation's. */
 const MAX_NAMES = 16;
@@ -275,10 +276,11 @@ export class MemoryContextService {
           predicate: string;
           object: string;
           validFrom: unknown;
+          validUntil?: unknown;
         }>,
       ]
     >(
-      `SELECT id, entityId, predicate, object, validFrom FROM knowledge_fact
+      `SELECT id, entityId, predicate, object, validFrom, validUntil FROM knowledge_fact
         WHERE entityId IN $ids AND status IN ['active', 'competing'] AND retractedAt IS NONE
           AND ${userGate}
         ORDER BY validFrom DESC LIMIT $k`,
@@ -299,7 +301,11 @@ export class MemoryContextService {
         entityHandle,
         predicate: r.predicate,
         object: r.object,
-        since: toIso(r.validFrom).slice(0, 10) || undefined,
+        since: sinceDay(r.validFrom),
+        // A value that has ENDED is listed with its end, not hidden: a
+        // turn may correct that period, and the extractor must see it is
+        // history rather than read it as the current value.
+        until: toIso(r.validUntil).slice(0, 10) || undefined,
       });
     }
     return out;
@@ -394,6 +400,17 @@ export class MemoryContextService {
     this.predicateCache.set(companyId, { at: Date.now(), predicates });
     return predicates;
   }
+}
+
+/**
+ * A known fact's start day, or undefined when it has none worth showing:
+ * a value stated only with its end starts at UNKNOWN_START, which would
+ * read to the model as "since 1970".
+ */
+function sinceDay(v: unknown): string | undefined {
+  const iso = toIso(v);
+  if (!iso || Date.parse(iso) === UNKNOWN_START.getTime()) return undefined;
+  return iso.slice(0, 10);
 }
 
 function toIso(v: unknown): string {

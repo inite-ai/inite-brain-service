@@ -147,7 +147,7 @@ export class CommitWriterService {
         // the same function, as the direct mention path. This used to be
         // `p.doc.occurredAt` unconditionally, which stamped every fact a
         // stock deployment ingests with the day it was SAID.
-        const { validFrom, objectMeta } = factTiming(mf, p.doc.occurredAt, timeOpts);
+        const { validFrom, validUntil, objectMeta } = factTiming(mf, p.doc.occurredAt, timeOpts);
         const { result } = await traceSpan(
           'brain.commit.fact',
           () =>
@@ -158,6 +158,7 @@ export class CommitWriterService {
               object: mf.object,
               confidence: mf.confidence,
               validFrom,
+              validUntil,
               objectMeta,
               supersedes: mf.supersedes,
               source: this.factSource(p.doc, mf, episodeOf(p.turns, mf)),

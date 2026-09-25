@@ -227,6 +227,7 @@ export function parseRawFacts(
       continue;
     }
     const eventTime = parseEventTime(f.eventTime);
+    const endTime = parseEventTime(f.endTime);
     const cardinality = parseCardinality(f.cardinality);
     // Handles are mapped to record ids here; invented ones vanish.
     const supersedes = supersededFactIds(memory, f.supersedes);
@@ -241,6 +242,7 @@ export function parseRawFacts(
       confidence: typeof f.confidence === 'number' ? Math.max(0, Math.min(1, f.confidence)) : 0.5,
       ...(typeof f.object === 'string' && f.object.trim() ? { object: f.object.trim() } : {}),
       ...(eventTime ? { eventTime } : {}),
+      ...(endTime ? { endTime } : {}),
       ...(supersedes.length > 0 ? { supersedes } : {}),
       ...(cardinality ? { cardinality } : {}),
     });
@@ -365,6 +367,7 @@ export function applyGroundingGate(
       clause: clauseText,
       valueSpan: rf.valueSpan,
       ...(rf.eventTime ? { eventTime: rf.eventTime } : {}),
+      ...(rf.endTime ? { endTime: rf.endTime } : {}),
       ...(rf.supersedes && rf.supersedes.length > 0 ? { supersedes: rf.supersedes } : {}),
       ...(rf.cardinality ? { cardinality: rf.cardinality } : {}),
     });

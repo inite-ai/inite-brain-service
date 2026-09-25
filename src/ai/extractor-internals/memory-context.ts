@@ -58,6 +58,8 @@ export interface MemoryFact {
   object: string;
   /** Calendar day the fact has been valid from (YYYY-MM-DD), for display. */
   since?: string | undefined;
+  /** Calendar day the value stopped holding (YYYY-MM-DD); absent while it holds. */
+  until?: string | undefined;
   /**
    * Set for a relation (a knowledge_edge): 'out' — the known entity is
    * the subject (`e2 — runs_on → Fly.io`), 'in' — the peer is
@@ -68,9 +70,16 @@ export interface MemoryFact {
   edge?: 'out' | 'in' | undefined;
 }
 
+/** " (since A)", " (since A until B)", " (until B)" or nothing. */
+function period(f: MemoryFact): string {
+  if (f.since && f.until) return ` (since ${f.since} until ${f.until})`;
+  if (f.until) return ` (until ${f.until})`;
+  return f.since ? ` (since ${f.since})` : '';
+}
+
 /** One KNOWN FACTS line: a fact as `e2 · predicate: value`, a relation in its own direction. */
 export function renderMemoryFact(f: MemoryFact): string {
-  const since = f.since ? ` (since ${f.since})` : '';
+  const since = period(f);
   if (f.edge === 'out')
     return `[${f.handle}] ${f.entityHandle} — ${f.predicate} → ${clip(f.object, 160)}${since}`;
   if (f.edge === 'in')

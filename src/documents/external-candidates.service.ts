@@ -452,11 +452,17 @@ function validateRelation(r: SubmittedRelation, i: number): void {
       `relations[${i}] must carry integer endpoints and a non-empty kind`,
     );
   }
-  // A malformed day is refused, not dropped: a submitter that stated a
-  // period and silently lost it would read its relation as timeless.
+  validateDays(r, `relations[${i}]`);
+}
+
+/**
+ * A malformed day is refused, not dropped: a submitter that stated a
+ * period and silently lost it would read its fact or relation as timeless.
+ */
+function validateDays(item: { eventTime?: string; endTime?: string }, at: string): void {
   for (const field of ['eventTime', 'endTime'] as const) {
-    if (r[field] !== undefined && !parseEventTime(r[field])) {
-      throw new BadRequestException(`relations[${i}].${field} must be a YYYY-MM-DD day`);
+    if (item[field] !== undefined && !parseEventTime(item[field])) {
+      throw new BadRequestException(`${at}.${field} must be a YYYY-MM-DD day`);
     }
   }
 }
@@ -501,6 +507,7 @@ function validateFact(f: SubmittedFact, i: number, indexerId: string): void {
       `facts[${i}].object must be a non-empty string of at most ${MAX_OBJECT} chars`,
     );
   }
+  validateDays(f, `facts[${i}]`);
 }
 
 /** Per-item scene checks (0110): bounded strings, declared schemaId,
@@ -637,6 +644,7 @@ function toFact(f: SubmittedFact): CandidateFact {
     object: f.object,
     confidence: clamp01(f.confidence ?? 0.7),
     clause: f.clause,
+    ...submittedDays(f),
   };
 }
 
@@ -646,12 +654,15 @@ function toRelation(r: SubmittedRelation): CandidateRelation {
     toEntityIndex: r.toEntityIndex,
     kind: r.kind,
     confidence: clamp01(r.confidence ?? 0.7),
-    ...relationDays(r),
+    ...submittedDays(r),
   };
 }
 
 /** The submitted period, normalised to bare days (validated upstream). */
-function relationDays(r: SubmittedRelation): { eventTime?: string; endTime?: string } {
+function submittedDays(r: { eventTime?: string; endTime?: string }): {
+  eventTime?: string;
+  endTime?: string;
+} {
   const eventTime = parseEventTime(r.eventTime);
   const endTime = parseEventTime(r.endTime);
   return { ...(eventTime ? { eventTime } : {}), ...(endTime ? { endTime } : {}) };

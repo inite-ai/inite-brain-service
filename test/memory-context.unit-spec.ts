@@ -104,6 +104,20 @@ describe('renderMemoryContext', () => {
     ).toEqual(['knowledge_fact:b4000', 'knowledge_edge:x1']);
   });
 
+  it('a known value that ended is listed with its period, not as current', () => {
+    const out = renderMemoryContext({
+      ...ctx,
+      facts: [
+        { ...ctx.facts[0]!, since: '2026-08-01', until: '2026-09-24' },
+        { ...ctx.facts[0]!, handle: 'm2', since: undefined, until: '2026-09-20' },
+      ],
+    });
+    expect(out).toContain(
+      '[m1] e1 · monthly_budget: 4000 евро в месяц (since 2026-08-01 until 2026-09-24)',
+    );
+    expect(out).toContain('[m2] e1 · monthly_budget: 4000 евро в месяц (until 2026-09-20)');
+  });
+
   it('is empty for no context and for an empty one — the input is byte-identical', () => {
     expect(renderMemoryContext(undefined)).toBe('');
     expect(renderMemoryContext({ recentTurns: [], entities: [], facts: [], predicates: [] })).toBe(

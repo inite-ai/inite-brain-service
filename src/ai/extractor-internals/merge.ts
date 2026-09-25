@@ -71,7 +71,7 @@ export function mergeExtractions(
       )
     : null;
 
-  const seenClusters = new Set<string>();
+  const seenClusters = new Map<string, ExtractionResult['facts'][number]>();
   const facts: ExtractionResult['facts'] = [];
   passes.forEach((pass, p) => {
     for (const f of pass.facts) {
@@ -82,10 +82,17 @@ export function mergeExtractions(
         object: f.object,
         entity: entityIndex,
       });
-      if (seenClusters.has(k)) continue;
-      seenClusters.add(k);
+      const kept = seenClusters.get(k);
+      if (kept) {
+        // The edge rule below: a day only a later pass resolved still
+        // bounds the value — without it "until the 24th" read by two
+        // passes of three became a timeless fact whenever pass 0 missed it.
+        if (!kept.eventTime && f.eventTime) kept.eventTime = f.eventTime;
+        if (!kept.endTime && f.endTime) kept.endTime = f.endTime;
+        continue;
+      }
       const stats = sc?.get(k);
-      facts.push({
+      const merged = {
         ...f,
         entityIndex,
         ...(stats
@@ -94,7 +101,9 @@ export function mergeExtractions(
               extractionAgreement: stats.agreement,
             }
           : {}),
-      });
+      };
+      seenClusters.set(k, merged);
+      facts.push(merged);
     }
   });
 

@@ -208,6 +208,14 @@ export const SubmittedFactSchema = z.object({
   object: z.string(),
   confidence: z.number().optional(),
   clause: z.string().optional(),
+  eventTime: z
+    .string()
+    .optional()
+    .describe('YYYY-MM-DD the value began to hold; absent = from when the document says it.'),
+  endTime: z
+    .string()
+    .optional()
+    .describe('YYYY-MM-DD the value stopped holding; absent = still holds.'),
 });
 
 /** Mirror of SubmittedRelation. */

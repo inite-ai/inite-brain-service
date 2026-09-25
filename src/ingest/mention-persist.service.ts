@@ -149,7 +149,7 @@ export class MentionPersistService {
       const f = extraction.facts[i]!;
       const eid = entityIds[f.entityIndex];
       if (!eid) continue;
-      const { validFrom, objectMeta } = factTiming(f, dto.emittedAt, timeOpts);
+      const { validFrom, validUntil, objectMeta } = factTiming(f, dto.emittedAt, timeOpts);
       const factId = await traceSpan(
         'ingest.fact.upsert',
         () =>
@@ -159,6 +159,7 @@ export class MentionPersistService {
             f,
             source,
             validFrom,
+            validUntil,
             objectMeta,
             precomputedEmbedding: factEmbeddings[i],
             userId: dto.userId,
@@ -201,7 +202,7 @@ export class MentionPersistService {
       const f = extraction.facts[i]!;
       const eid = entityIds[f.entityIndex];
       if (!eid) continue;
-      const { validFrom, objectMeta } = factTiming(f, dto.emittedAt, timeOpts);
+      const { validFrom, validUntil, objectMeta } = factTiming(f, dto.emittedAt, timeOpts);
       specs.push({
         f,
         input: {
@@ -212,6 +213,7 @@ export class MentionPersistService {
           object: f.object,
           confidence: f.confidence,
           validFrom,
+          validUntil,
           objectMeta,
           supersedes: f.supersedes,
           source,
@@ -269,6 +271,7 @@ export class MentionPersistService {
       };
       source: MentionSource;
       validFrom: Date;
+      validUntil?: Date | undefined;
       objectMeta?: { date: string } | undefined;
       precomputedEmbedding: number[] | undefined;
       /** Per-user scope (audit 2026-08-21 P0) — stamps the fact row. */
@@ -287,6 +290,7 @@ export class MentionPersistService {
       object: f.object,
       confidence: f.confidence,
       validFrom: p.validFrom,
+      validUntil: p.validUntil,
       objectMeta: p.objectMeta,
       supersedes: f.supersedes,
       source: p.source,

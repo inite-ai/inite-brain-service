@@ -51,6 +51,8 @@ export interface MergedFact {
   clause?: string | undefined;
   /** YYYY-MM-DD the value refers to (memory context); leader's, else any contributor's. */
   eventTime?: string | undefined;
+  /** YYYY-MM-DD the value stopped holding; leader's, else any contributor's. */
+  endTime?: string | undefined;
   /** knowledge_fact ids this fact replaces — the union across contributors. */
   supersedes?: string[] | undefined;
   /** Leader's indexer — becomes the committed fact's source.recorder. */
@@ -276,6 +278,7 @@ function foldFactIntoGroup(p: {
       entropy: numOrUndefined(payload.extractionEntropy),
       clause: typeof payload.clause === 'string' ? payload.clause : undefined,
       eventTime: strOrUndefined(payload.eventTime),
+      endTime: strOrUndefined(payload.endTime),
       supersedes: idList(payload.supersedes),
       recorder: contributor.indexerId,
       leaderId: row.id,
@@ -292,7 +295,9 @@ function foldFactIntoGroup(p: {
     if (!group.supersedes) group.supersedes = [];
     if (!group.supersedes.includes(id)) group.supersedes.push(id);
   }
-  if (row.confidence > group.confidence) {
+  const leads = row.confidence > group.confidence;
+  foldDays(group, payload, leads);
+  if (leads) {
     // New leader: previous leader folds to merged.
     group.mergedIds.push(group.leaderId);
     group.leaderId = row.id;
@@ -302,9 +307,7 @@ function foldFactIntoGroup(p: {
     group.entropy = numOrUndefined(payload.extractionEntropy);
     group.clause =
       (typeof payload.clause === 'string' ? payload.clause : undefined) ?? group.clause;
-    group.eventTime = strOrUndefined(payload.eventTime) ?? group.eventTime;
   } else {
-    group.eventTime ??= strOrUndefined(payload.eventTime);
     group.mergedIds.push(row.id);
   }
 }
@@ -335,7 +338,7 @@ function mergeRelations(rows: CandidateRow[], ctx: MergeContext): MergedRelation
         mergedIds: [],
       });
     } else {
-      foldRelationDays(group, p, row.confidence > group.confidence);
+      foldDays(group, p, row.confidence > group.confidence);
       group.confidence = Math.max(group.confidence, row.confidence);
       group.mergedIds.push(row.id);
     }
@@ -344,13 +347,13 @@ function mergeRelations(rows: CandidateRow[], ctx: MergeContext): MergedRelation
 }
 
 /**
- * The period of a relation several chunks or indexers stated — the same
- * rule as a fact's eventTime: a more confident contributor's stated day
- * wins, and otherwise a day any contributor stated fills a gap. A stated
- * period beats none; an unstated one never erases it.
+ * The period of a fact or a relation several chunks or indexers stated: a
+ * more confident contributor's stated day wins, and otherwise a day any
+ * contributor stated fills a gap. A stated period beats none; an unstated
+ * one never erases it.
  */
-function foldRelationDays(
-  group: MergedRelation,
+function foldDays(
+  group: { eventTime?: string | undefined; endTime?: string | undefined },
   payload: Record<string, unknown>,
   leads: boolean,
 ): void {

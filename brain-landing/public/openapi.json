@@ -9282,10 +9282,18 @@
           "confidence": {
             "type": "number"
           },
+          "endTime": {
+            "description": "YYYY-MM-DD the value stopped holding; absent = still holds.",
+            "type": "string"
+          },
           "entityIndex": {
             "maximum": 9007199254740991,
             "minimum": 0,
             "type": "integer"
+          },
+          "eventTime": {
+            "description": "YYYY-MM-DD the value began to hold; absent = from when the document says it.",
+            "type": "string"
           },
           "object": {
             "type": "string"

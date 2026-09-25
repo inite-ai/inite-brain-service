@@ -202,8 +202,8 @@ BE EXHAUSTIVE (recall matters more than brevity):
 /**
  * The memory contract — appended to BOTH headers. It explains the three
  * output fields that tie an extraction to what the graph already holds
- * (`known`, `supersedes`, `eventTime` — and an edge's `eventTime`/`endTime`,
- * the period the relation held), the entity policy those fields
+ * (`known`, `supersedes`, and the `eventTime`/`endTime` period a fact's
+ * value or an edge's relation held), the entity policy those fields
  * assume, and the one predicate the serving side reads by name
  * (`instruction`). The matching user-message sections are rendered by
  * renderMemoryContext; the schema fields are added by
@@ -238,23 +238,28 @@ CURRENT TURN only; the rest is what the memory already holds.
   value ("moved to Hetzner" closes "runs_on → Fly.io") — even when the known
   fact's predicate is spelled differently. A fact that adds a different
   attribute supersedes nothing.
-  Empty when nothing changes. A statement that something is NO LONGER the case
-  ("Redis is no longer the queue", "this supersedes the March decision") is not
-  a fact carrying that value — it closes the known fact through the new
-  value's supersedes and yields no positive fact of its own.
+  Empty when nothing changes. When a KNOWN FACT stops holding ("Redis is no
+  longer the queue", "I sold the Kawasaki", "this supersedes the March
+  decision"), the fact the turn states — the new value, or what ended it
+  (sold: "Kawasaki") — lists that known fact's handle in supersedes; the
+  ended value is not restated as a positive fact of its own. endTime is for
+  a past value first stated in the CURRENT TURN together with its end. A
+  KNOWN FACT shown "until" a day is history: supersede it only to correct it.
 
   eventTime (per fact) — the calendar day (YYYY-MM-DD) the value refers to: a
   deadline, a meeting, a start, when something happened or will happen —
   resolved against TURN DATE. null when the clause names no day. The value
   itself stays as written ("19 сентября"); eventTime carries the resolved day.
 
-  eventTime, endTime (per edge) — the period the relation held, resolved
-  against TURN DATE. eventTime: the day it began ("since the 24th", "joined
-  in March"); null when the clause names no day. endTime: the day it stopped
-  — "until the 24th", "no longer", "moved from X to Y on the 24th" closes
-  the X link that day; null while it still holds. "Until the 24th X ran on
-  A; from the 24th on B" → (X, runs_on, A) endTime 24th, (X, runs_on, B)
-  eventTime 24th.
+  eventTime, endTime (per fact and per edge) — the period the value or the
+  relation held, resolved against TURN DATE. eventTime as above ("since the
+  24th", "joined in March"). endTime: the day THIS value or relation stopped
+  holding — "ran on A until the 24th", "moved from X to Y on the 24th" ends
+  A / X that day; null while it still holds. A value that itself says
+  something ended or is gone ("sold", "no bike anymore", "the experiment is
+  over") holds FROM that day: eventTime, never endTime. "Until the 24th X
+  ran on A; from the 24th on B" → both are emitted: A with endTime 24th, B
+  with eventTime 24th (as facts, and as (X, runs_on, …) edges).
 
   cardinality (per fact) — can the subject hold several of these at once?
   "one": no — a SETTING or a STATE it is in (where it runs, its budget, a
@@ -533,6 +538,11 @@ export function buildExtractionSchema(opts?: {
               description:
                 'YYYY-MM-DD the value refers to (deadline, meeting, occurrence), resolved against TURN DATE; null when the clause names no day.',
             },
+            endTime: {
+              type: ['string', 'null'],
+              description:
+                "YYYY-MM-DD this value stopped holding when the clause says it ended or was replaced ('ran on A until the 24th', 'moved from X to Y on …' ends X); null while it holds, and null for a value that itself states an ending ('sold', 'no longer has it', 'is over' — that value begins then: eventTime).",
+            },
             supersedes: {
               type: 'array',
               description:
@@ -554,6 +564,7 @@ export function buildExtractionSchema(opts?: {
             ...(opts?.objectNormalization ? ['object'] : []),
             'confidence',
             'eventTime',
+            'endTime',
             'supersedes',
             'cardinality',
           ],

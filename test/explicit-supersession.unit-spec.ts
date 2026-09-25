@@ -13,7 +13,7 @@
  *    follows a merged row, and falls through on a stale id.
  */
 import { FactResolverService } from '../src/ingest/fact-resolver.service';
-import { factTiming } from '../src/ingest/event-time';
+import { UNKNOWN_START, factTiming } from '../src/ingest/event-time';
 import { mergeCandidates } from '../src/documents/candidate-merge';
 import { EntityUpsertService } from '../src/ingest/entity-upsert.service';
 
@@ -67,14 +67,27 @@ describe('FactResolverService — explicit supersession', () => {
     expect(String(close.params.winner)).toBe('knowledge_fact:new');
     expect((close.params.ids as unknown[]).map(String)).toEqual(['knowledge_fact:old']);
     expect(close.params.valid_from).toEqual(new Date('2026-09-16T11:00:00Z'));
-    // The fn's shape, with the inverted-interval guard.
+    // The fn's shape, with the inverted-interval guard — and a known fact
+    // that had already ended keeps its own, earlier end.
     expect(close.sql).toContain("retractionReason = 'superseded'");
     expect(close.sql).toContain('supersededBy = $winner');
-    expect(close.sql).toContain(
-      'IF $valid_from > $loser.validFrom THEN $valid_from ELSE $loser.validFrom END',
+    expect(close.sql).toContain('IF $loser.validUntil != NONE AND $loser.validUntil < $valid_from');
+    expect(close.sql).toMatch(
+      /ELSE IF \$valid_from > \$loser\.validFrom THEN \$valid_from\s+ELSE \$loser\.validFrom END/,
     );
     expect(result.outcome).toBe('SUPERSEDED');
     expect(result.supersededFactIds).toEqual(['knowledge_fact:old']);
+  });
+
+  it('a winner stated only with its end closes the named rows at that end, not the epoch', async () => {
+    const { svc, db, queries } = make({ closed: ['knowledge_fact:old'] });
+    await svc.resolve(db as never, {
+      ...input(['knowledge_fact:old']),
+      validFrom: UNKNOWN_START,
+      validUntil: new Date('2026-08-10T00:00:00Z'),
+    });
+    const close = queries.find((q) => q.sql.includes("status = 'superseded'"))!;
+    expect(close.params.valid_from).toEqual(new Date('2026-08-10T00:00:00Z'));
   });
 
   it("a named relation is invalidated from the new value's day; an edge alone does not fold the outcome", async () => {

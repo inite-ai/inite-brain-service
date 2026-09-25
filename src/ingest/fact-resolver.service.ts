@@ -37,6 +37,7 @@ import { FactEmbeddingService } from './fact-embedding.service';
 import { factIndexText } from './fact-index-text';
 import { MemoryOutcomeService, type OutcomeEventInput } from '../outcomes/memory-outcome.service';
 import { followNameFact } from './entity-name';
+import { UNKNOWN_START } from './event-time';
 
 /**
  * V9 §1 — aspect classes for the derived-world lifecycle. The deriver's
@@ -864,10 +865,18 @@ export class FactResolverService {
    * (invalidatedAt — the current-state fence). A relation whose start is
    * not before that day was stated only as having ended ("until the
    * 24th"): its start is unknown, not the day it was written (0164).
+   *
+   * A winner whose own start is unknown (UNKNOWN_START — the value was
+   * stated only with its end, "until the 24th it ran on A") closes what
+   * it names at that end: closing at the epoch would erase the known
+   * row's whole history. A known fact that had already ended keeps the
+   * earlier of its own end and this one — KNOWN FACTS lists ended values
+   * (so a turn can correct one), and replacing the current value must
+   * not stretch a past one up to today.
    */
   private async applyExplicitSupersession(
     db: Surreal,
-    p: { supersedes?: string[] | undefined; validFrom: Date },
+    p: { supersedes?: string[] | undefined; validFrom: Date; validUntil?: Date | undefined },
     result: ResolveOutcome,
   ): Promise<void> {
     const winner = result?.factId ? String(result.factId) : null;
@@ -890,7 +899,10 @@ export class FactResolverService {
                retractedBy = 'system',
                supersededBy = $winner,
                priorValidUntil = $loser.validUntil,
-               validUntil = IF $valid_from > $loser.validFrom THEN $valid_from ELSE $loser.validFrom END;
+               validUntil = IF $loser.validUntil != NONE AND $loser.validUntil < $valid_from
+                 THEN $loser.validUntil
+                 ELSE IF $valid_from > $loser.validFrom THEN $valid_from
+                 ELSE $loser.validFrom END;
            };
            UPDATE $winner SET status = 'active'
              WHERE status = 'competing' AND array::len($losers) > 0;
@@ -904,7 +916,10 @@ export class FactResolverService {
             ids: factIds.map((id) => new StringRecordId(id)),
             edge_ids: edgeIds.map((id) => new StringRecordId(id)),
             winner: new StringRecordId(winner),
-            valid_from: p.validFrom,
+            valid_from:
+              p.validUntil && p.validFrom.getTime() === UNKNOWN_START.getTime()
+                ? p.validUntil
+                : p.validFrom,
           },
         );
         return {
