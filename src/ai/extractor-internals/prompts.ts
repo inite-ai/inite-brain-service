@@ -277,6 +277,11 @@ CURRENT TURN only; the rest is what the memory already holds.
   "when I ask …", "write reports for X in Portuguese") is a fact with predicate
   "instruction", attached to the speaker (or, when it concerns one named party,
   to that party), value = the instruction as one self-contained sentence.
+  Standing means it governs every later answer of its kind. A one-off task —
+  a reminder, a to-do, something to do once by a day or after an event
+  ("напомни 30-го проверить счёт", "revoke the key after the check") — is not
+  an instruction: it is an ordinary fact about the task, with its day as
+  eventTime.
 `;
 
 export function renderPredicateCard(p: PredicateDefinition): string {
