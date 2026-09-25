@@ -243,6 +243,65 @@ describe('SynthesizeService', () => {
     expect(out.citations.map((c) => c.factId)).toEqual(['f1']);
   });
 
+  describe('the one refine round', () => {
+    beforeEach(() => {
+      process.env.RETRIEVAL_SEARCH_LOOP = '1';
+    });
+    afterEach(() => {
+      delete process.env.RETRIEVAL_SEARCH_LOOP;
+    });
+
+    it('a refine round that abstains never replaces the answer round 1 gave', async () => {
+      // Production: "о чём просили напомнить?" answered in round 1, asked
+      // for one more search, and round 2 returned the sentinel in its place.
+      const search = makeSearch([
+        makeHit('mikhail', [
+          { factId: 'f1', predicate: 'reminder', object: '30 сентября проверить счёт OpenRouter' },
+        ]),
+      ]);
+      const round1 = {
+        answer: 'Проверить счёт OpenRouter 30 сентября [f1].',
+        citedFactIds: ['f1'],
+        refineQuery: 'напоминания Михаила',
+      };
+      const abstain = { answer: "I don't have grounded evidence for that.", citedFactIds: [] };
+      const { svc } = makeSvc(search, {}, [
+        JSON.stringify(round1),
+        JSON.stringify(abstain),
+        JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
+      ]);
+      const out = await svc.synthesize({
+        companyId: 'co_x',
+        dto: { query: 'О чём просили напомнить?' },
+        callerScopes: ['brain:read'],
+      });
+      expect(out.answer).toContain('OpenRouter');
+      expect(out.reason).toBeUndefined();
+      expect(out.citations.map((c) => c.factId)).toEqual(['f1']);
+    });
+
+    it('a refine round that answers where round 1 abstained is kept', async () => {
+      const search = makeSearch([
+        makeHit('mikhail', [{ factId: 'f1', predicate: 'reminder', object: 'проверить счёт' }]),
+      ]);
+      const { svc } = makeSvc(search, {}, [
+        JSON.stringify({
+          answer: "I don't have grounded evidence for that.",
+          citedFactIds: [],
+          refineQuery: 'напоминания Михаила',
+        }),
+        JSON.stringify({ answer: 'Проверить счёт [f1].', citedFactIds: ['f1'] }),
+        JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
+      ]);
+      const out = await svc.synthesize({
+        companyId: 'co_x',
+        dto: { query: 'О чём просили напомнить?' },
+        callerScopes: ['brain:read'],
+      });
+      expect(out.answer).toContain('Проверить счёт');
+    });
+  });
+
   it('resolves an inline [factId] citation even when citedFactIds is empty', async () => {
     // The generator reliably inlines a bracketed citation (system prompt
     // rule #2) but only intermittently mirrors it into the structured

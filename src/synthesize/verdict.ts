@@ -377,6 +377,28 @@ function evidenceField(evidenceCitations: EvidenceCitation[] | undefined): {
  * grounded best-effort answer directly — verifier skipped. Returns
  * null when the verifier should run.
  */
+/** The generator's abstention sentinel — the exact string its prompt makes it return. */
+export const NO_GROUNDED_EVIDENCE = "I don't have grounded evidence for that.";
+
+export function isAbstention(answer: string): boolean {
+  return answer.trim() === NO_GROUNDED_EVIDENCE;
+}
+
+/**
+ * The search loop's round 2, unless it would lose an answer: a round 2
+ * that abstains over round 1's evidence plus more does not replace the
+ * answer round 1 gave (null = keep round 1). Measured on production —
+ * "о чём просили напомнить?" answered in round 1, asked for one more
+ * search, and round 2 returned the abstention sentinel in its place.
+ */
+export function refineKeepsAnswer<R extends { generated: GeneratorOutput }>(
+  round1: GeneratorOutput,
+  round2: R | null,
+): R | null {
+  if (round2 && isAbstention(round2.generated.answer) && !isAbstention(round1.answer)) return null;
+  return round2;
+}
+
 export function unverifiedReturn(
   deps: VerdictDeps,
   {
@@ -393,10 +415,7 @@ export function unverifiedReturn(
     decisionLog?: DecisionLogEntry[] | undefined;
   },
 ): SynthesizeResult | null {
-  if (
-    guardrails !== 'answer' &&
-    generated.answer.trim() === "I don't have grounded evidence for that."
-  ) {
+  if (guardrails !== 'answer' && isAbstention(generated.answer)) {
     deps.metrics?.countSynthesize('no_grounded_evidence');
     return attachDecisionLog(
       {

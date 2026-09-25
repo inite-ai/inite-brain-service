@@ -11,7 +11,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { SynthesisGuardrails, SynthesizeDto } from './dto/synthesize.dto';
 import { buildDecisionLog } from './decision-log';
 import { applyConformalGuardrail } from './conformal-guardrail';
-import { coverageAbstention, finalizeVerdict } from './verdict';
+import { coverageAbstention, finalizeVerdict, refineKeepsAnswer } from './verdict';
 import {
   attachDecisionLog,
   buildGeneratorArgs,
@@ -874,7 +874,8 @@ export class SynthesizeService {
         ),
       };
     }
-    const second = await this.refineRound({ ...args, generated });
+    // The loop may add evidence, never lose an answer (refineKeepsAnswer).
+    const second = refineKeepsAnswer(generated, await this.refineRound({ ...args, generated }));
     const round = second
       ? { ...second, refined: true }
       : {
