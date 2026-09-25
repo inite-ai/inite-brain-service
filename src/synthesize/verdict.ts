@@ -378,9 +378,9 @@ function evidenceField(evidenceCitations: EvidenceCitation[] | undefined): {
  * null when the verifier should run.
  */
 /** The generator's abstention sentinel — the exact string its prompt makes it return. */
-export const NO_GROUNDED_EVIDENCE = "I don't have grounded evidence for that.";
+const NO_GROUNDED_EVIDENCE = "I don't have grounded evidence for that.";
 
-export function isAbstention(answer: string): boolean {
+function isAbstention(answer: string): boolean {
   return answer.trim() === NO_GROUNDED_EVIDENCE;
 }
 
