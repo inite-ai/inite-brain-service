@@ -14,6 +14,7 @@
 import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
 import { StringRecordId } from 'surrealdb';
+import { RawTurnsBackfillService } from '../src/documents/raw-turns-backfill.service';
 
 describe('document raw turns (e2e)', () => {
   let f: AppFixture;
@@ -97,6 +98,44 @@ describe('document raw turns (e2e)', () => {
       .set(auth());
     expect(listed.status).toBe(200);
     expect(listed.body.episodes).toHaveLength(3);
+  });
+
+  it('a document stored before documents kept raw turns gets them, and its facts point at them', async () => {
+    script();
+    process.env.EPISODE_SUBSTRATE_ENABLED = '0';
+    const r = await post({ text: `${CHAT}\nClaude: записал.` });
+    process.env.EPISODE_SUBSTRATE_ENABLED = '1';
+    expect(r.status).toBe(201);
+    const conv = `document:${String(r.body.documentId).replace(/^source_document:/, '')}`;
+    const ids = (r.body.committed.factIds as string[]).map((id) => new StringRecordId(id));
+    const before = await query<{ eps?: unknown[] }>(
+      'SELECT source.episodeIds AS eps FROM knowledge_fact WHERE id INSIDE $ids',
+      { ids },
+    );
+    expect(before.every((x) => !x.eps)).toBe(true);
+
+    const backfill = f.app.get(RawTurnsBackfillService);
+    const out = await backfill.backfill(f.companyId);
+    expect(out.documents).toBeGreaterThanOrEqual(1);
+    const turns = await query<{ id: unknown; text: string }>(
+      'SELECT id, text, occurredAt FROM episode WHERE conversationId = $conv',
+      { conv },
+    );
+    expect(turns).toHaveLength(4);
+    const after = await query<{ object: string; eps?: unknown[] }>(
+      'SELECT object, source.episodeIds AS eps FROM knowledge_fact WHERE id INSIDE $ids',
+      { ids },
+    );
+    const turnOf = (object: string) =>
+      turns.find((t) => String(t.id) === String(after.find((x) => x.object === object)?.eps?.[0]))
+        ?.text;
+    expect(turnOf('2 vCPU')).toContain('сейчас 2 vCPU');
+
+    // A second pass finds nothing left to do.
+    const again = await backfill.backfill(f.companyId);
+    const held = await query('SELECT id FROM episode WHERE conversationId = $conv', { conv });
+    expect(held).toHaveLength(4);
+    expect(again.turns).toBe(0);
   });
 
   it('a document stored without its content keeps no raw turns', async () => {

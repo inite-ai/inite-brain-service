@@ -196,7 +196,7 @@ export class CommitWriterService {
    * stamped with the turn its clause sits in. A wrapped mention keeps its
    * own turn; a document stored without content has no text to keep.
    */
-  private async captureTurns(
+  async captureTurns(
     db: Surreal,
     companyId: string,
     doc: StoredDocument,
@@ -420,7 +420,7 @@ export function sourceVersionOf(mf: MergedFact, doc?: StoredDocument): Record<st
   return stamp ? { sourceVersion: stamp } : {};
 }
 
-interface CapturedTurns {
+export interface CapturedTurns {
   turns: Array<DocumentTurn & { chunkSeq: number }>;
   /** Aligned with `turns`; null where the turn was not stored. */
   ids: Array<string | null>;
@@ -432,9 +432,17 @@ interface CapturedTurns {
  * document. No match, no stamp — a guessed turn would be a false quote.
  */
 function episodeOf(captured: CapturedTurns | null, mf: MergedFact): string | null {
+  return episodeForSpans(captured, [mf.clause, mf.object], mf.leaderChunkSeq);
+}
+
+/** The stored turn holding the first of `spans` found — its own chunk first, then anywhere. */
+export function episodeForSpans(
+  captured: CapturedTurns | null,
+  spans: Array<string | undefined>,
+  chunkSeq?: number,
+): string | null {
   if (!captured) return null;
-  const spans = [mf.clause, mf.object];
-  const own = captured.turns.filter((t) => t.chunkSeq === mf.leaderChunkSeq);
+  const own = captured.turns.filter((t) => t.chunkSeq === chunkSeq);
   for (const pool of [own, captured.turns]) {
     for (const span of spans) {
       const i = turnOfSpan(pool, span);

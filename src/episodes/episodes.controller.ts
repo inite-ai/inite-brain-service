@@ -17,6 +17,7 @@ import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
 import { AuthenticatedRequest } from '../auth/api-key.types';
 import { envFlagNotDisabled } from '../common/env-validation';
+import { pinUserScope } from '../auth/user-scope';
 import { EpisodeReadStoreService, type EpisodePageRow } from './episode-read-store.service';
 import {
   EpisodeSubscriptionService,
@@ -145,7 +146,10 @@ export class EpisodesController {
       speaker: q.speaker,
       sinceIso: parseIsoOrThrow('since', q.since),
       untilIso: parseIsoOrThrow('until', q.until),
-      userId: q.userId,
+      // A user-bound token reads its own turns (and the tenant's), like
+      // every other read surface; an M2M caller names the user or reads
+      // tenant-global only.
+      userId: pinUserScope(q.userId),
       after: q.cursor !== undefined ? decodeCursor(q.cursor) : undefined,
     });
     const lastRow = rows[rows.length - 1];
@@ -178,7 +182,10 @@ export class EpisodesController {
       speaker: q.speaker,
       sinceIso: parseIsoOrThrow('since', q.since),
       untilIso: parseIsoOrThrow('until', q.until),
-      userId: q.userId,
+      // A user-bound token reads its own turns (and the tenant's), like
+      // every other read surface; an M2M caller names the user or reads
+      // tenant-global only.
+      userId: pinUserScope(q.userId),
     };
     res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="episodes.ndjson"');
