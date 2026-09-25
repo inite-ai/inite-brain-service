@@ -93,10 +93,15 @@ export function l3TriggerDecision(input: L3TriggerInput): L3TriggerReason {
     // Adaptive path: the calibrated-confidence floor replaces coverage.
     // A confident answer (conf ≥ threshold) is NOT escalation-eligible.
     if (input.adaptive.confidence >= input.adaptive.threshold) return 'skip_confident';
-  } else if (input.covered) {
+  } else if (input.covered && input.questionAnswered !== false) {
     // Static path: coverage < floor is required — escalation addresses the
     // residual where the extracted facts are thin, not where a well-covered
-    // set merely phrased the answer past the auditor.
+    // set merely phrased the answer past the auditor. An answer that does
+    // not answer the question is past that point whatever the coverage:
+    // the facts scored well and still did not hold it, so the raw text is
+    // the only place left to look. Measured on production — "почему fs
+    // выключен?" answered "причина не указана" over well-scored facts
+    // while the reason sat verbatim in the document.
     return 'skip_covered';
   }
   if (input.searchLoop && !input.refineAttempted) return 'skip_no_refine';

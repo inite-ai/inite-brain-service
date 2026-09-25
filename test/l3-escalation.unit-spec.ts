@@ -26,6 +26,7 @@ import {
   type L3SessionAnchor,
 } from '../src/synthesize/l3-escalation';
 import { hasUsableCalibration } from '../src/synthesize/focus-signal';
+import { refineSettled } from '../src/synthesize/l3-seam';
 import type { PerClassCalibration } from '../src/synthesize/focus-signal';
 import { L3EscalationService } from '../src/synthesize/l3-escalation.service';
 import type { MemoryModelReaderService } from '../src/ai/memory-model-reader.service';
@@ -85,6 +86,19 @@ describe('l3TriggerDecision — the monotone trigger matrix', () => {
 
   it('skips when coverage is above the floor', () => {
     expect(l3TriggerDecision({ ...base, covered: true })).toBe('skip_covered');
+  });
+
+  it('an answer that does not answer escalates whatever the coverage', () => {
+    // «почему fs выключен?» → «причина не указана» over well-scored facts,
+    // while the reason sat verbatim in the document.
+    expect(l3TriggerDecision({ ...base, covered: true, questionAnswered: false })).toBe('fire');
+  });
+
+  it('a refine is settled when it ran or when round 1 never asked for one', () => {
+    expect(refineSettled({ refined: true, generated: { refineQuery: 'x' } })).toBe(true);
+    expect(refineSettled({ refined: false, generated: { refineQuery: null } })).toBe(true);
+    expect(refineSettled({ refined: false, generated: {} })).toBe(true);
+    expect(refineSettled({ refined: false, generated: { refineQuery: 'more' } })).toBe(false);
   });
 
   it('requires a refine first when the search loop is on', () => {

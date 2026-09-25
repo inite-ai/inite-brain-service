@@ -1,5 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Surreal } from 'surrealdb';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { StringRecordId, Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { EntityUpsertService } from '../ingest/entity-upsert.service';
 import { FactResolverService } from '../ingest/fact-resolver.service';
@@ -12,6 +12,9 @@ import { coreferentParticipant, participantHint } from '../ingest/participants';
 import { sanitizeSourceMeta } from '../policy/source-meta';
 import { sourceVersionFromHeader } from './document-meta';
 import { incomingFactsFor, MergedFact, MergedRelation, MergeResult } from './candidate-merge';
+import { EpisodeStoreService } from '../ingest/episode-store.service';
+import { splitDocumentTurns, turnOfSpan, type DocumentTurn } from './document-turns';
+import { idTailOf } from '../ingest/ingest-utils';
 
 export interface FactWriteOutcome {
   fact: MergedFact;
@@ -47,10 +50,14 @@ export interface WriteMergedResult {
 export class CommitWriterService {
   private readonly logger = new Logger(CommitWriterService.name);
 
+  // Nest DI: each collaborator is a constructor parameter; the episode
+  // store is @Optional so positional unit fixtures stay valid.
+  // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     private readonly entities: EntityUpsertService,
     private readonly factResolver: FactResolverService,
+    @Optional() private readonly episodes?: EpisodeStoreService,
   ) {}
 
   async writeMerged(p: {
@@ -64,7 +71,8 @@ export class CommitWriterService {
   }): Promise<WriteMergedResult> {
     return this.surreal.withCompany(p.companyId, async (db) => {
       const entityIds = await this.resolveEntities(db, p);
-      const facts = await this.writeFacts(db, { ...p, entityIds });
+      const turns = await this.captureTurns(db, p.companyId, p.doc);
+      const facts = await this.writeFacts(db, { ...p, entityIds, turns });
       const relations = await this.writeRelations(db, { ...p, entityIds });
       return { entityIds, facts, relations };
     });
@@ -113,6 +121,7 @@ export class CommitWriterService {
       factsToWrite: MergedFact[];
       embeddings: number[][];
       entityIds: Map<string, string>;
+      turns: CapturedTurns | null;
     },
   ): Promise<FactWriteOutcome[]> {
     const outcomes: FactWriteOutcome[] = [];
@@ -151,7 +160,7 @@ export class CommitWriterService {
               validFrom,
               objectMeta,
               supersedes: mf.supersedes,
-              source: this.factSource(p.doc, mf),
+              source: this.factSource(p.doc, mf, episodeOf(p.turns, mf)),
               entropy: mf.entropy,
               precomputedEmbedding: p.embeddings[i],
               // Per-user scope (0128): a user-scoped document's facts carry
@@ -176,6 +185,73 @@ export class CommitWriterService {
       }
     }
     return outcomes;
+  }
+
+  /**
+   * A document posted directly has no L0 turn behind it — only the
+   * mention wrapper captures one — so every raw read lane (excerpts, raw
+   * windows, grounding quotes, the episodic lane, L3 sessions) came back
+   * empty for its facts. Its stored chunks are cut into turns and
+   * captured as the conversation `document:<id>`; each fact is then
+   * stamped with the turn its clause sits in. A wrapped mention keeps its
+   * own turn; a document stored without content has no text to keep.
+   */
+  private async captureTurns(
+    db: Surreal,
+    companyId: string,
+    doc: StoredDocument,
+  ): Promise<CapturedTurns | null> {
+    if (!this.episodes?.isEnabled() || !doc.hasContent) return null;
+    if (internalMetaString(doc.meta, 'episodeId')) return null;
+    try {
+      const docRef = new StringRecordId(`source_document:${idTailOf(doc.id)}`);
+      const [chunks, header] = await db.query<
+        [Array<{ seq: number; text: string }>, Array<{ title?: string }>]
+      >(
+        `SELECT seq, text FROM source_chunk WHERE docId = $doc ORDER BY seq;
+         SELECT title FROM $doc;`,
+        { doc: docRef },
+      );
+      const turns = (chunks ?? []).flatMap((c) =>
+        splitDocumentTurns(c.text).map((t) => ({ ...t, chunkSeq: c.seq })),
+      );
+      if (turns.length === 0) return null;
+      const conversationId = `document:${idTailOf(doc.id)}`;
+      const fallbackSpeaker = header?.[0]?.title ?? doc.vertical;
+      // The mention path's own capture, one turn at a time: same row,
+      // redaction, scope and idempotence — the unique (conversationId,
+      // messageId) key makes a re-commit a no-op. Whole seconds apart so
+      // every reader orders the conversation as it was written.
+      const at = doc.occurredAt.getTime();
+      const ids: Array<string | null> = [];
+      for (const [i, t] of turns.entries()) {
+        ids.push(
+          await this.episodes.captureTurn(companyId, {
+            text: t.text,
+            emittedAt: new Date(at + i * 1000).toISOString(),
+            contextRef: {
+              vertical: doc.vertical,
+              conversationId,
+              messageId: `turn:${i}`,
+              ...(doc.recorder ? { recorder: doc.recorder } : {}),
+            },
+            knownEntities: [
+              {
+                vertical: doc.vertical,
+                id: conversationId,
+                role: 'speaker',
+                name: t.speaker ?? fallbackSpeaker,
+              },
+            ],
+            ...(doc.userId !== undefined ? { userId: doc.userId } : {}),
+          }),
+        );
+      }
+      return { turns, ids };
+    } catch (err) {
+      this.logger.warn(`[brain.commit.turns] doc=${doc.id} failed: ${(err as Error).message}`);
+      return null;
+    }
   }
 
   private async writeRelations(
@@ -231,12 +307,17 @@ export class CommitWriterService {
    * ABAC `source.meta.*` rules can match at read time (sanitized —
    * snake_case keys, short scalars, ≤16 entries).
    */
-  private factSource(doc: StoredDocument, mf: MergedFact): Record<string, unknown> {
+  private factSource(
+    doc: StoredDocument,
+    mf: MergedFact,
+    turnEpisodeId?: string | null,
+  ): Record<string, unknown> {
     const { meta } = sanitizeSourceMeta(doc.meta);
-    // The L0 turn the mention wrapper captured for this document. Stamped
+    // The L0 turn the mention wrapper captured for this document — stamped
     // exactly as the direct path stamps it, so GET /v1/facts/:id/provenance
-    // walks a document-path fact back to its episode too.
-    const episodeId = internalMetaString(doc.meta, 'episodeId');
+    // walks a document-path fact back to its episode too — else the
+    // document's own turn the fact's clause sits in (captureTurns).
+    const episodeId = internalMetaString(doc.meta, 'episodeId') ?? turnEpisodeId ?? undefined;
     return {
       vertical: doc.vertical,
       recorder: mf.recorder,
@@ -337,4 +418,28 @@ export function sourceVersionOf(mf: MergedFact, doc?: StoredDocument): Record<st
     sourceVersionFromHeader(doc?.meta as Record<string, unknown> | undefined) ??
     undefined;
   return stamp ? { sourceVersion: stamp } : {};
+}
+
+interface CapturedTurns {
+  turns: Array<DocumentTurn & { chunkSeq: number }>;
+  /** Aligned with `turns`; null where the turn was not stored. */
+  ids: Array<string | null>;
+}
+
+/**
+ * The stored turn a fact came from: its clause (a verbatim span, by the
+ * grounding gate) looked up in its own chunk first, then anywhere in the
+ * document. No match, no stamp — a guessed turn would be a false quote.
+ */
+function episodeOf(captured: CapturedTurns | null, mf: MergedFact): string | null {
+  if (!captured) return null;
+  const spans = [mf.clause, mf.object];
+  const own = captured.turns.filter((t) => t.chunkSeq === mf.leaderChunkSeq);
+  for (const pool of [own, captured.turns]) {
+    for (const span of spans) {
+      const i = turnOfSpan(pool, span);
+      if (i >= 0) return captured.ids[captured.turns.indexOf(pool[i]!)] ?? null;
+    }
+  }
+  return null;
 }

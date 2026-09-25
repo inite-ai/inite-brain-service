@@ -58,21 +58,26 @@ import {
   type CollectedEvidence,
 } from './evidence-collector.service';
 import { L3EscalationService } from './l3-escalation.service';
+import {
+  escalateToL3,
+  isNoAnswer,
+  NO_EVIDENCE,
+  refineSettled,
+  UNANSWERED,
+  type L3Common,
+  type L3SeamArgs,
+} from './l3-seam';
 import { FocusSignalService } from './focus-signal.service';
 import { queryClassOf } from './focus-signal';
-import { resolveAdaptiveAbstain, resolveAdaptiveL3 } from './adaptive-gates';
+import { resolveAdaptiveAbstain } from './adaptive-gates';
 import {
-  buildL3DecisionCallback,
   captureAbstainDecision,
   captureLaneRouteDecision,
   type DecisionContext,
 } from './decision-emit';
 import { LensSuppressionService } from './lens-suppression.service';
 import { MultilingualLaneClassifierService } from './multilingual-lane-classifier.service';
-import {
-  AnswerCacheService,
-  type AnswerCacheBeginResult,
-} from '../answer-cache/answer-cache.service';
+import { AnswerCacheService } from '../answer-cache/answer-cache.service';
 import { MemoryOutcomeService } from '../outcomes/memory-outcome.service';
 import { MemoryDecisionService } from '../outcomes/memory-decision.service';
 import { DecisionService } from '../ai/decisions/decision.service';
@@ -338,7 +343,12 @@ export class SynthesizeService {
       asker,
     });
     const prepared = this.prepareEvidence(evidence, prepareOpts);
-    if ('empty' in prepared) return prepared.empty;
+    // What every L3 attempt of this request shares.
+    const l3Common: L3Common = {
+      ...{ cache, companyId, callerScopes, dto, profile, lane, model, asker },
+      ...{ answerLang: resolveAnswerLang(dto, profile), guardrails, explain, decisionCtx },
+    };
+    if ('empty' in prepared) return this.orRaw(prepared.empty, { ...l3Common, ...NO_EVIDENCE });
     // `let`: the V13 search loop may replace the evidence set with the
     // refined round's union before citations resolve.
     let { results, factIndex } = prepared;
@@ -349,7 +359,8 @@ export class SynthesizeService {
       { lane, query: dto.query, decisionCtx },
       { profile, guardrails, results, explain },
     );
-    if (abstained) return abstained;
+    const early = { ...l3Common, results, factIndex, promptFactLines: prepared.factLines };
+    if (abstained) return this.orRaw(abstained, early);
 
     // Every non-fact prompt section — transcript quotes, insights,
     // standing instructions — comes from the collector behind one
@@ -476,7 +487,9 @@ export class SynthesizeService {
       companyId,
       { guardrails, generated, citations, results, decisionLog },
     );
-    if (unverified) return unverified;
+    if (unverified) {
+      return this.orRaw(unverified, { ...l3Common, results, factIndex, promptFactLines });
+    }
 
     onProgress({ stage: 'verify', message: 'verifier checking claim grounding' });
     // The audit stage (revise-round.ts): the verifier + the MM-zoom step
@@ -509,24 +522,17 @@ export class SynthesizeService {
     // path runs it too (its raw-transcript answer is the most exposed, so the
     // gate is end-to-end).
     const escalated = await this.tryL3Escalation({
-      cache,
+      ...l3Common,
       verdict,
-      companyId,
-      callerScopes,
-      dto,
-      profile,
-      lane,
-      model,
-      answerLang,
-      refineAttempted: produced.refined,
+      // The cheaper tier first: the refine round, when the generator asked
+      // for one. A generator that did not ask has nothing cheaper left to
+      // try, and waiting on a refine that never comes kept L3 dark.
+      refineAttempted: refineSettled(produced),
       results,
       factIndex,
       promptFactLines,
       dateMathLines,
       asker: collected.asker,
-      guardrails,
-      explain,
-      decisionCtx,
     });
     if (escalated) return escalated;
     // decisionId read AFTER the L3 evaluation: a skip/no-flip escalation
@@ -606,103 +612,33 @@ export class SynthesizeService {
   }
 
   /**
-   * G2 L3 escalation seam, extracted from synthesize() (function-size
-   * budget). Returns the finalised L3 answer when the ladder fired AND
-   * the re-verification flipped the verdict fail→pass; null otherwise
-   * (the caller then takes the normal abstention exit). Monotone
-   * single-shot ladder: the flow is linear so `escalated` is false at
-   * this one call site and the tier cannot re-enter (the invariant is
-   * enforced in l3TriggerDecision). A flipped answer is admitted to the
-   * G1 cache exactly like any other supported grounded answer.
+   * Where memory would answer "I don't know" — an empty retrieval, the
+   * coverage floor, the generator's abstention — the raw sessions are
+   * read first (L3, verdict UNANSWERED); only a no-flip keeps the
+   * abstention. Any other early result (guardrails off/answer) is served
+   * as it is.
    */
-  private async tryL3Escalation(args: {
-    cache: AnswerCacheBeginResult | undefined;
-    verdict: VerifierOutput;
-    companyId: string;
-    callerScopes: string[];
-    dto: SynthesizeDto;
-    profile: RetrievalProfile;
-    lane: LaneId | null;
-    model: string;
-    answerLang: string | null;
-    refineAttempted: boolean;
-    results: SearchHit[];
-    factIndex: ReturnType<typeof buildFactIndex>['factIndex'];
-    promptFactLines: string[];
-    dateMathLines?: string[] | undefined;
-    asker?: Asker | undefined;
-    guardrails: SynthesisGuardrails;
-    explain: boolean;
-    decisionCtx: DecisionContext;
-  }): Promise<SynthesizeResult | null> {
-    const { profile, companyId, decisionCtx } = args;
-    if (!this.l3 || !profile.l3Escalation) return null;
-    const adaptiveL3 = await resolveAdaptiveL3(
-      { focusSignal: this.focusSignal, logger: this.logger },
-      args.companyId,
-    );
-    // 0119 decision capture: the service invokes the callback ONCE per
-    // escalate() evaluation (an optional callback — the L3 engine dir
-    // never reads env and never grows a MemoryDecisionService dep, S5.2).
-    // Escalate() awaits before finalize, so a minted id is visible to the
-    // L3-flip finalizeAndAdmit below via decisionCtx.
-    const onDecision = buildL3DecisionCallback(this.decisions, companyId, decisionCtx);
-    const l3 = await this.l3.escalate({
-      openai: this.openai,
-      model: args.model,
-      companyId: args.companyId,
-      dto: args.dto,
-      callerScopes: args.callerScopes,
-      profile,
-      lane: args.lane,
-      verdict: args.verdict,
-      refineAttempted: args.refineAttempted,
-      escalated: false,
-      results: args.results,
-      factIndex: args.factIndex,
-      factLines: args.promptFactLines,
-      answerLang: args.answerLang,
-      dateMathLines: args.dateMathLines,
-      asker: args.asker,
-      ...(adaptiveL3 ? { adaptiveL3 } : {}),
-      ...(onDecision ? { onDecision } : {}),
-    });
-    if (!l3) return null;
-    // Route the L3 supported answer through the SAME answer-integrity gate as
-    // the primary serve (Parts A + C) by carrying dto/profile/model into the
-    // finalize context. The L3 answer grounds on the RAW TRANSCRIPT — the path
-    // most exposed to belief distortion and to uncited "supported" answers — so
-    // the gate MUST be end-to-end here. Both flags off ⇒ empty gate ⇒ the L3
-    // serve is byte-identical to before (resolveAnswerIntegrity makes no LLM
-    // call and returns {} when PLAUSIBILITY_CHECK is off, and REQUIRE_CITATIONS
-    // off is a no-op). Cache-admit ordering is unchanged: gate → finalizeVerdict
-    // → admit(final); a downgraded L3 abstain (reason=low_coverage, citations=[])
-    // is rejected by admit()'s existing gate, so it is never cached.
-    return this.finalizeAndAdmit(
+  private async orRaw(
+    result: SynthesizeResult,
+    args: L3Common & Pick<L3SeamArgs, 'results' | 'factIndex' | 'promptFactLines'>,
+  ): Promise<SynthesizeResult> {
+    const abstention = result.answer === null || isNoAnswer(result.answer);
+    if (!abstention || args.guardrails === 'answer') return result;
+    const raw = await this.tryL3Escalation({ ...args, verdict: UNANSWERED, refineAttempted: true });
+    return raw ?? result;
+  }
+
+  private tryL3Escalation(args: L3SeamArgs): Promise<SynthesizeResult | null> {
+    return escalateToL3(
       {
-        cache: args.cache,
-        dto: args.dto,
-        profile: args.profile,
-        model: args.model,
-        companyId,
-        decisionId: decisionCtx.primaryDecisionId,
+        l3: this.l3,
+        focusSignal: this.focusSignal,
+        logger: this.logger,
+        decisions: this.decisions,
+        openai: this.openai,
+        finalize: (ctx, verdict, a) => this.finalizeAndAdmit(ctx, verdict, a),
       },
-      l3.verdict,
-      {
-        answer: l3.answer,
-        citations: l3.citations,
-        // L3 evidence citations (FOVEA_L3_EPISODE_CITATIONS): episode-level
-        // refs for transcript-grounded claims — [] when the flag is off, so
-        // finalizeVerdict never spreads the field. The primary serve path
-        // passes nothing here.
-        evidenceCitations: l3.evidenceCitations,
-        results: args.results,
-        guardrails: args.guardrails,
-        decisionLog: args.explain
-          ? buildDecisionLog(args.results, new Set(l3.citations.map((c) => c.factId)))
-          : undefined,
-        abstention: profile.abstentionCalibration,
-      },
+      args,
     );
   }
 
