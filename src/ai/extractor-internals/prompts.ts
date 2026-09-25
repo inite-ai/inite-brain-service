@@ -465,8 +465,27 @@ export function renderExtractionProfiles(profiles: PackExtractionProfile[]): str
  * schema (strict mode forces every property into `required`, so the
  * field cannot simply be optional).
  */
+/**
+ * valueSpan under each profile. The span-grounded profile keeps the
+ * value verbatim — its grounding gate drops anything that is not a
+ * substring. The dialogue profile's gate keeps ungrounded values and its
+ * header asks for a self-contained value with pronouns resolved, but the
+ * field's own description said VERBATIM, and a strict-schema model
+ * follows the field: measured on HaluMem sessions (gpt-6-luna, 6
+ * sessions × 2), 24.6% of values were first-person ("a staple in my
+ * diet", "my mental health occasionally feels strained") — a value that
+ * names no one once the conversation is gone. With this description:
+ * 0.0%, the fact count level (458 → 491), values short.
+ */
+const VALUE_SPAN_VERBATIM =
+  'VERBATIM substring of the input naming the object value. Server validates substring containment; ungrounded facts are dropped.';
+const VALUE_SPAN_SELF_CONTAINED =
+  'The value the predicate points at — not a sentence about the subject (the subject is the entity). Self-contained: any pronoun inside it is replaced with who it refers to, the speaker\'s own things by the speaker\'s name ("my mental health" → "Martin\'s mental health"). Keep every concrete noun, number, name and qualifier; never generalize.';
+
 export function buildExtractionSchema(opts?: {
   objectNormalization?: boolean;
+  /** The dialogue profile: values are self-contained, not verbatim (see VALUE_SPAN_SELF_CONTAINED). */
+  dialogue?: boolean;
 }): Record<string, unknown> {
   const objectProperty = opts?.objectNormalization
     ? {
@@ -523,8 +542,7 @@ export function buildExtractionSchema(opts?: {
             },
             valueSpan: {
               type: 'string',
-              description:
-                'VERBATIM substring of the input naming the object value. Server validates substring containment; ungrounded facts are dropped.',
+              description: opts?.dialogue ? VALUE_SPAN_SELF_CONTAINED : VALUE_SPAN_VERBATIM,
             },
             ...objectProperty,
             confidence: { type: 'number', minimum: 0, maximum: 1 },

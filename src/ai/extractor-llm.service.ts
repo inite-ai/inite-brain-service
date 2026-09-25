@@ -80,10 +80,7 @@ export class ExtractorLlmService {
     // open/normalized one. Only when the operator hasn't pinned a custom header
     // via EXTRACTION_SYSTEM_PROMPT (that escape hatch still wins). Off →
     // byte-identical to before.
-    const dialogue =
-      this.systemPromptHeader === EXTRACTION_PROMPT_HEADER &&
-      resolveExtractionProfile().vocabulary === 'open';
-    const base = dialogue
+    const base = this.dialogueActive()
       ? buildDialogueSystemPrompt(snapshot.active)
       : this.systemPromptHeader === EXTRACTION_PROMPT_HEADER
         ? buildSystemPrompt(snapshot.active, {
@@ -91,6 +88,14 @@ export class ExtractorLlmService {
           })
         : this.systemPromptHeader + snapshot.active.map(renderPredicateCard).join('\n');
     return base + renderExtractionProfiles(snapshot.extractionProfiles ?? []);
+  }
+
+  /** The Phase 4 dialogue profile is in force (open vocabulary, no pinned custom header). */
+  private dialogueActive(): boolean {
+    return (
+      this.systemPromptHeader === EXTRACTION_PROMPT_HEADER &&
+      resolveExtractionProfile().vocabulary === 'open'
+    );
   }
 
   /**
@@ -156,6 +161,7 @@ export class ExtractorLlmService {
                   // object field only exists when the prompt explains it.
                   schema: buildExtractionSchema({
                     objectNormalization: this.objectNormalizationActive(),
+                    dialogue: this.dialogueActive(),
                   }),
                 },
               },
