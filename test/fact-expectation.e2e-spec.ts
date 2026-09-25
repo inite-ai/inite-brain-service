@@ -119,6 +119,28 @@ describe('fact expectation (e2e)', () => {
     expect(rows.map((r) => r.expectedUntil ?? null)).toEqual([null]);
   });
 
+  it('a value with a stated end carries no expectation — its end is known (0165)', async () => {
+    f.extractor.setScript({
+      ...script('Ana', 'in Porto', '2026-10-10'),
+      facts: [
+        {
+          entityIndex: 0,
+          predicate: 'health_state',
+          object: 'in Porto',
+          confidence: 0.9,
+          cardinality: 'one' as const,
+          endTime: '2026-09-28',
+          expectedEnd: '2026-10-10',
+        },
+      ],
+    });
+    await mention('Ana: I am in Porto until the 28th.', '2026-09-25T10:00:00.000Z', 'm-end');
+    const rows = await rowsOf('in Porto');
+    expect(rows.map((r) => [day(r.validUntil), r.expectedUntil ?? null])).toEqual([
+      ['2026-09-28', null],
+    ]);
+  });
+
   it('the document path stamps it too', async () => {
     f.extractor.setScript(script('Pedro', 'trip to Lisbon', '2026-09-28'));
     const r = await f.http

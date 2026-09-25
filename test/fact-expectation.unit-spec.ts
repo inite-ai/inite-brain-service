@@ -189,7 +189,11 @@ describe('the extraction contract', () => {
     });
     expect(schema.properties.facts.items.required).toContain('expectedEnd');
     expect(MEMORY_CONTRACT_SECTION).toContain('expectedEnd (per fact)');
-    expect(MEMORY_CONTRACT_SECTION).toContain('(expected\n  until …)');
+    expect(MEMORY_CONTRACT_SECTION).toMatch(/FACT marked "\(expected until …\)"/);
+    // A stated end is endTime's (0165); the expectation is for an unstated one.
+    expect(MEMORY_CONTRACT_SECTION).toMatch(
+      /a stated end —\s+"until Friday", "this week" — is endTime/,
+    );
   });
 
   it('the parser keeps a day and drops anything else', () => {
