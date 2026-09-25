@@ -1,3 +1,4 @@
+import { DocumentsModule } from '../documents/documents.module';
 import { Module } from '@nestjs/common';
 import { SearchModule } from '../search/search.module';
 import { EpisodesModule } from '../episodes/episodes.module';
@@ -38,6 +39,9 @@ import { IngestCoreModule } from '../ingest/ingest-core.module';
     // read by the collector through the same service the ingest path
     // names the speaker with.
     IngestCoreModule,
+    // Relearn from raw: the document pipeline an L3 answer's turns are
+    // read again through.
+    DocumentsModule,
   ],
   controllers: [SynthesizeController, FocusAdminController, LensAdminController],
   providers: [

@@ -123,7 +123,11 @@ export class StubExtractor implements Pick<
     return 'stub-vocab';
   }
 
-  async extract(text: string, _companyId?: string): Promise<ExtractionResult> {
+  /** The context of every extract call, in order — what the extractor was told. */
+  readonly contexts: unknown[] = [];
+
+  async extract(text: string, _companyId?: string, context?: unknown): Promise<ExtractionResult> {
+    this.contexts.push(context);
     if (this.script) return this.script;
     if (!text.trim()) return { entities: [], facts: [], edges: [] };
     return {

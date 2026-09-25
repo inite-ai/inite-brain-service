@@ -136,11 +136,22 @@ export class IndexerRunService {
         ),
       ],
     });
+    // Relearn from raw: the question this turn answered only when read
+    // raw rides the document header into the extractor's context.
+    const question = internalMetaString(doc.meta, 'focusQuestion');
+    const answer = internalMetaString(doc.meta, 'focusAnswer');
+    const focus = question && answer ? { question, answer } : undefined;
+    const withFocus = focus
+      ? {
+          ...(memory ?? { recentTurns: [], entities: [], facts: [], predicates: [] }),
+          focus,
+        }
+      : memory;
     return {
       ...(speakerName ? { speakerName } : {}),
       ...(isUserEntityRef(speaker, doc.userId) ? { speakerIsUser: true } : {}),
       ...(addresseeName ? { addresseeName } : {}),
-      ...(memory ? { memory } : {}),
+      ...(withFocus ? { memory: withFocus } : {}),
     };
   }
 

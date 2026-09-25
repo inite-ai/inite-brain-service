@@ -20,6 +20,7 @@ import { IndexerRunService } from './indexer-run.service';
 import { IndexerDispatchService } from './indexer-dispatch.service';
 import { CommitWriterService } from './commit-writer.service';
 import { RawTurnsBackfillService } from './raw-turns-backfill.service';
+import { RelearnFromRawService } from './relearn-from-raw.service';
 import { CandidateCommitService } from './candidate-commit.service';
 import { DocumentIngestService } from './document-ingest.service';
 import { DocumentAsyncService } from './document-async.service';
@@ -65,6 +66,7 @@ import { EvidenceDocumentBridgeQueueService } from './evidence-document-bridge-q
     IndexerDispatchService,
     CommitWriterService,
     RawTurnsBackfillService,
+    RelearnFromRawService,
     CandidateCommitService,
     DocumentIngestService,
     DocumentAsyncService,
@@ -83,6 +85,7 @@ import { EvidenceDocumentBridgeQueueService } from './evidence-document-bridge-q
   ],
   exports: [
     DocumentIngestService,
+    RelearnFromRawService,
     DocumentStoreService,
     CandidateStoreService,
     ExternalCandidatesService,

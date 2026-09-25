@@ -90,6 +90,11 @@ export const INTERNAL_DOCUMENT_META_KEYS = [
   'sourceVersionRef',
   'sourceVersionValue',
   'sourceVersionReadAt',
+  // Relearn from raw (relearn-from-raw.service.ts): the question a turn
+  // answered only when read raw, and the answer read there — the
+  // extractor's focus when the turn is read again.
+  'focusQuestion',
+  'focusAnswer',
 ] as const;
 
 export type InternalDocumentMetaKey = (typeof INTERNAL_DOCUMENT_META_KEYS)[number];
@@ -162,7 +167,7 @@ export interface DocumentWriteOrigin {
  */
 export type DocumentIngestOrigin =
   | { channel: 'api' | 'mcp' | 'pack_seed' }
-  | { channel: 'mention' | 'evidence'; internal: InternalDocumentMeta | undefined }
+  | { channel: 'mention' | 'evidence' | 'relearn'; internal: InternalDocumentMeta | undefined }
   | {
       channel: 'source';
       internal: InternalDocumentMeta | undefined;
@@ -185,6 +190,7 @@ export type DocumentIngestOrigin =
 export function originInternalMeta(origin: DocumentIngestOrigin): InternalDocumentMeta | undefined {
   return origin.channel === 'mention' ||
     origin.channel === 'evidence' ||
+    origin.channel === 'relearn' ||
     origin.channel === 'source'
     ? origin.internal
     : undefined;

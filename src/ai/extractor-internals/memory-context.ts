@@ -87,6 +87,13 @@ export interface MemoryContext {
   facts: MemoryFact[];
   /** The tenant's own predicate vocabulary, most used first. */
   predicates: string[];
+  /**
+   * A question this turn answered when it was read raw — the facts
+   * extracted from it did not hold the answer, the turn itself did
+   * (relearn-from-raw.service.ts). The extractor reads the turn again
+   * knowing what it must not miss this time.
+   */
+  focus?: { question: string; answer: string } | undefined;
 }
 
 /** Prompt-side caps: enough to anchor a turn, small enough to stay cheap. */
@@ -115,6 +122,14 @@ export function renderMemoryContext(ctx: MemoryContext | undefined): string {
     parts.push(
       `TURN DATE: ${day}\n` +
         `Resolve every relative or partial date in the turn against it ("19 сентября" → ${day.slice(0, 4)}-09-19, "next month", "yesterday").`,
+    );
+  }
+  if (ctx.focus) {
+    parts.push(
+      `A QUESTION THIS TURN ANSWERS: «${ctx.focus.question}»\n` +
+        `The answer, read from this turn: «${ctx.focus.answer}»\n` +
+        'The memory extracted from this turn before did not hold it. Extract, with everything else the turn states, ' +
+        'the facts that state this answer — on the entity it is about, with its reason and its dates when the turn gives them.',
     );
   }
   if (ctx.recentTurns.length > 0) {
@@ -163,6 +178,7 @@ export function memoryContextDigest(ctx: MemoryContext | undefined): string {
     ctx.entities.map((e) => e.id).join(','),
     ctx.facts.map((f) => f.id).join(','),
     ctx.predicates.join(','),
+    ctx.focus ? `${ctx.focus.question}|${ctx.focus.answer}` : '',
   ].join('\n');
 }
 

@@ -58,6 +58,7 @@ import {
   type CollectedEvidence,
 } from './evidence-collector.service';
 import { L3EscalationService } from './l3-escalation.service';
+import { RelearnFromRawService } from '../documents/relearn-from-raw.service';
 import {
   escalateToL3,
   isNoAnswer,
@@ -182,6 +183,8 @@ export class SynthesizeService {
     // the zoom step. @Optional so positional unit fixtures stay valid —
     // absent ⇒ the zoom seam no-ops (static behavior).
     @Optional() private readonly fragmentLane?: FragmentLaneService,
+    // Relearn from raw: an L3 answer's raw turns are extracted again.
+    @Optional() private readonly relearn?: RelearnFromRawService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
@@ -635,6 +638,7 @@ export class SynthesizeService {
         focusSignal: this.focusSignal,
         logger: this.logger,
         decisions: this.decisions,
+        relearn: this.relearn,
         openai: this.openai,
         finalize: (ctx, verdict, a) => this.finalizeAndAdmit(ctx, verdict, a),
       },

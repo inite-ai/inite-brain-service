@@ -150,6 +150,8 @@ describe('mergeDocumentMeta', () => {
       'sourceVersionRef',
       'sourceVersionValue',
       'sourceVersionReadAt',
+      'focusQuestion',
+      'focusAnswer',
     ]);
   });
 });
