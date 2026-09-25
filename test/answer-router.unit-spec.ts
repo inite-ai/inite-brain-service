@@ -946,6 +946,25 @@ describe('buildFactIndex renders graph relations as evidence', () => {
     ],
   });
 
+  it('an asOf request leaves the relations out — an edge states the current graph, not what held then', () => {
+    const { factIndex, factLines } = buildFactIndex(
+      [
+        hitWith([
+          {
+            kind: 'runs_on',
+            peer: 'gpt-6-luna',
+            peerType: 'asset',
+            edgeId: 'knowledge_edge:e9',
+            direction: 'out',
+          },
+        ]),
+      ],
+      { omitRelations: true },
+    );
+    expect(factLines).toHaveLength(1);
+    expect([...factIndex.values()].some((c) => c.factId === 'knowledge_edge:e9')).toBe(false);
+  });
+
   it('a relation with its edge record is a citable line with an [r#] handle, in the edge direction', () => {
     const { factIndex, factLines } = buildFactIndex([
       hitWith([

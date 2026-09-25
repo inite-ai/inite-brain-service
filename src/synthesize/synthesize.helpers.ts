@@ -264,7 +264,11 @@ export function resolveLaneDateContext(
   lane: LaneId | null,
   asOf: string | undefined,
 ): string | undefined {
-  if (lane === 'temporal' && asOf) return asOf.slice(0, 10);
+  // An explicit asOf is the date the question is asked AT, whatever the
+  // genre's anchoring: without it the generator answers "what runs now"
+  // for "what ran on the 20th" (the 'none' anchoring is about DEFAULT
+  // session dates — no benchmark harness passes asOf).
+  if (asOf) return asOf.slice(0, 10);
   return resolveDateContext(profile.dateAnchoring, asOf);
 }
 
@@ -572,11 +576,15 @@ export function buildPrepareOpts(args: {
   markRecency: boolean;
   mentionDates: boolean;
   sceneTraces: boolean;
+  omitRelations: boolean;
 } {
   const { answerMode, explain, lane, asOf, profile, asker } = args;
   return {
     answerMode,
     explain,
+    // Edges carry no valid time: on an asOf request they are today's
+    // graph, not evidence of what held then (fact-index.ts).
+    omitRelations: asOf !== undefined,
     askerEntityId: asker?.entityId,
     elapsedAsOf: lane === 'temporal' ? asOf : undefined,
     // T2 and T6 both read off a code-sorted timeline.

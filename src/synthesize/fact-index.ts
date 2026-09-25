@@ -124,6 +124,15 @@ export function buildFactIndex(
      */
     elapsedAsOf?: string | undefined;
     /**
+     * Leave the graph relations out. An edge carries knowledge time only
+     * (createdAt/invalidatedAt, no validFrom/validUntil), so it states
+     * the CURRENT structure: on an asOf request it is not evidence of
+     * what held then — "brain runs_on gpt-6-luna" answered a question
+     * about the 22nd, two days before the switch. Same rule as the belief
+     * lane (beliefLaneForRequest).
+     */
+    omitRelations?: boolean | undefined;
+    /**
      * Enumeration lane (T2): render fact lines in chronological
      * validFrom order (undated last, otherwise stable) so exhaustive
      * list answers read off an ordered timeline. Sorting happens here —
@@ -212,7 +221,7 @@ export function buildFactIndex(
     // One edge joins two hits, and the search returns it on both — the
     // same record rendered twice, under two handles, so the line stands
     // once: the first hit to carry the edge keeps it.
-    for (const rel of r.relations ?? []) {
+    for (const rel of opts?.omitRelations ? [] : (r.relations ?? [])) {
       const entry = relationEntry(r, rel, opts?.askerEntityId);
       if (entry.citation) {
         if (factIndex.has(entry.citation.factId)) continue;

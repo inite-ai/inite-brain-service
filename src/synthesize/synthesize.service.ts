@@ -1077,6 +1077,8 @@ export class SynthesizeService {
       sceneTraces?: boolean | undefined;
       /** The asker's own entity — its lines are headed "you" (asker.ts). */
       askerEntityId?: string | undefined;
+      /** asOf: edges state the current graph, not what held then. */
+      omitRelations?: boolean | undefined;
     },
   ): { empty: SynthesizeResult } | ({ results: SearchHit[] } & ReturnType<typeof buildFactIndex>) {
     const {
@@ -1088,6 +1090,7 @@ export class SynthesizeService {
       mentionDates,
       sceneTraces,
       askerEntityId,
+      omitRelations,
     } = opts;
     const guardrail = applyConformalGuardrail(evidence, {
       // 'answer' mode disables the CONFIDENCE floor by design: the whole
@@ -1121,6 +1124,7 @@ export class SynthesizeService {
       mentionDates,
       sceneTraces,
       askerEntityId,
+      omitRelations,
     });
     if (factIndex.size === 0) {
       // Search returned entities but they were stripped to ids by
