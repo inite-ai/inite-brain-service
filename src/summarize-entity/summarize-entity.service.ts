@@ -1,3 +1,4 @@
+import { userReadFence } from '../auth/user-scope';
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { EntitiesService } from '../entities/entities.service';
@@ -48,13 +49,17 @@ export class SummarizeEntityService {
     args: SummarizeArgs,
     scopes: BrainScope[],
   ): Promise<SummarizeResult> {
-    const cacheKey = buildCacheKey(companyId, args, scopes);
+    // Resolved once: the profile, its watermark and the cache key must all
+    // read the same user's slice, or one user's summary is served to another.
+    const userId = userReadFence(args.userId).userId;
+    const cacheKey = buildCacheKey(companyId, { ...args, userId }, scopes);
     // Freshness probe FIRST — one cheap indexed aggregate. Its wall-clock
     // watermark decides whether a cache hit is still valid.
     const watermark = await this.entities.freshnessWatermark({
       companyId,
       entityIdRaw: args.entityId,
       asOfRaw: args.asOf,
+      userId,
       scopes,
     });
 
@@ -71,6 +76,7 @@ export class SummarizeEntityService {
       companyId,
       entityIdRaw: args.entityId,
       asOfRaw: args.asOf,
+      userId,
       scopes,
     });
 
@@ -151,7 +157,7 @@ function buildCacheKey(
   // axes into the key. Absent policy context (ABAC off) → scopes decide.
   const visibility =
     [...scopes].sort().join(',') + '::' + (getPolicyContext()?.keyHash ?? 'no-policy');
-  const raw = `${companyId}::${args.entityId}::${asOf}::${style}::${visibility}`;
+  const raw = `${companyId}::${args.entityId}::${asOf}::${style}::${visibility}::${args.userId ?? ''}`;
   return createHash('sha256').update(raw).digest('hex').slice(0, 32);
 }
 
@@ -206,6 +212,8 @@ export interface SummarizeArgs {
   entityId: string;
   asOf?: string;
   styleHint?: SummarizeStyle;
+  /** Per-user scope: tenant-global plus this user's facts (pinned to a user-bound token). */
+  userId?: string | undefined;
 }
 
 export interface SummarizeResult {

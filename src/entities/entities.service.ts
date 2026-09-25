@@ -8,7 +8,7 @@ import { EntityForgetService } from './entity-forget.service';
 import { normalizeEntityId, blockedPredicates, activeFactWhere } from './entity-read.helpers';
 import { makeRowPolicyFilter, PolicyFilterableRow } from '../policy/row-filter';
 import { readSurfaceUserScopeEnabled } from '../common/read-scope-flags';
-import { pinUserScope } from '../auth/user-scope';
+import { pinUserScope, userReadFence } from '../auth/user-scope';
 import { buildEdgeFence } from '../search/internals/edge-fence';
 
 // Centralised SELECT-clause field lists. Adding a new field to a table
@@ -83,6 +83,12 @@ export interface GetProfileOptions {
   asOfRaw: string | undefined;
   /** Transaction-time cutoff — replay what the graph believed at T. */
   recordedAtRaw?: string | undefined;
+  /**
+   * Per-user memory scope, pinned and gated exactly like the timeline's:
+   * tenant-global facts plus this user's own. A user-bound token pins it
+   * to its end-user even when omitted — that token's memory IS personal.
+   */
+  userId?: string | undefined;
   scopes: BrainScope[];
 }
 
@@ -90,6 +96,8 @@ export interface FreshnessWatermarkOptions {
   companyId: string;
   entityIdRaw: string;
   asOfRaw: string | undefined;
+  /** Same scope as the profile the watermark guards. */
+  userId?: string | undefined;
   scopes: BrainScope[];
 }
 
@@ -276,11 +284,13 @@ export class EntitiesService {
     entityIdRaw,
     asOfRaw,
     recordedAtRaw,
+    userId,
     scopes,
   }: GetProfileOptions): Promise<EntityProfile> {
     const ref = normalizeEntityId(entityIdRaw);
     const asOf = asOfRaw ? new Date(asOfRaw) : null;
     const txAt = recordedAtRaw ? new Date(recordedAtRaw) : null;
+    const user = userReadFence(userId);
 
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       const entity = await queryFirst<EntityProfileRow>(
@@ -302,12 +312,10 @@ export class EntitiesService {
       const { clauses: asOfClauses, params: asOfParams } = activeFactWhere(asOf, txAt);
       const baseClauses = [
         `entityId = type::record('knowledge_entity', $rid)`,
-        // User scope (0055): entity reads are tenant-global v1 — a
-        // personal fact never leaks into profile/timeline surfaces.
-        `userId IS NONE`,
+        user.clause,
         ...asOfClauses,
       ];
-      const params: Record<string, unknown> = { rid: ref.id, ...asOfParams };
+      const params: Record<string, unknown> = { rid: ref.id, ...asOfParams, ...user.params };
       const factRows = await queryRows<FactProfileRow>(
         db,
         `SELECT ${FACT_PROFILE_FIELDS}
@@ -357,12 +365,14 @@ export class EntitiesService {
     vertical,
     id,
     asOfRaw,
+    userId,
     scopes,
   }: {
     companyId: string;
     vertical: string;
     id: string;
     asOfRaw: string | undefined;
+    userId?: string | undefined;
     scopes: BrainScope[];
   }): Promise<EntityProfile | null> {
     // externalRef key format mirrors externalRefKey() in
@@ -380,7 +390,7 @@ export class EntitiesService {
       return rows[0] ? String(rows[0]) : null;
     });
     if (!entityId) return null;
-    return this.getProfile({ companyId, entityIdRaw: entityId, asOfRaw, scopes });
+    return this.getProfile({ companyId, entityIdRaw: entityId, asOfRaw, userId, scopes });
   }
 
   /**
@@ -402,6 +412,7 @@ export class EntitiesService {
     companyId,
     entityIdRaw,
     asOfRaw,
+    userId,
     scopes,
   }: FreshnessWatermarkOptions): Promise<{
     maxRecordedAt: string | null;
@@ -409,16 +420,15 @@ export class EntitiesService {
   }> {
     const ref = normalizeEntityId(entityIdRaw);
     const asOf = asOfRaw ? new Date(asOfRaw) : null;
+    const user = userReadFence(userId);
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       const { clauses: asOfClauses, params: asOfParams } = activeFactWhere(asOf);
       const baseClauses = [
         `entityId = type::record('knowledge_entity', $rid)`,
-        // User scope (0055): entity reads are tenant-global v1 — a
-        // personal fact never leaks into profile/timeline surfaces.
-        `userId IS NONE`,
+        user.clause,
         ...asOfClauses,
       ];
-      const params: Record<string, unknown> = { rid: ref.id, ...asOfParams };
+      const params: Record<string, unknown> = { rid: ref.id, ...asOfParams, ...user.params };
       // Mirror getProfile's PII gate: a fact the caller can't see must
       // not move the watermark, else a low-scope caller's cache gets
       // invalidated exactly when a restricted fact lands (a timing oracle

@@ -57,6 +57,13 @@ export function registerCodeMemoryReadTools(opts: {
         asOf: isoDateTime()
           .optional()
           .describe('Bitemporal cursor — recall what was known as of this instant'),
+        userId: z
+          .string()
+          .max(200)
+          .optional()
+          .describe(
+            "Per-user memory scope: tenant-global decisions plus this user's own; omit for tenant-global only",
+          ),
       },
     },
     async (args) => {
@@ -65,6 +72,7 @@ export function registerCodeMemoryReadTools(opts: {
         vertical: CODE_VERTICAL,
         id: args.symbol,
         asOfRaw: args.asOf,
+        ...(args.userId !== undefined ? { userId: args.userId } : {}),
         scopes,
       });
       const codeIds = new Set(CODE_MEMORY_PREDICATE_IDS);

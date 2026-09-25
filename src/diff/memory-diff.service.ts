@@ -3,6 +3,7 @@ import { StringRecordId } from 'surrealdb';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { makeRowPolicyFilter, PolicyFilterableRow } from '../policy/row-filter';
+import { userReadFence } from '../auth/user-scope';
 
 /**
  * memory_diff — return everything brain learned (and unlearned) between
@@ -308,11 +309,14 @@ interface ScopingClauses {
 }
 
 function buildScoping(args: MemoryDiffArgs): ScopingClauses {
-  const params: Record<string, unknown> = {};
-  // User scope (0055): the diff surface is tenant-global v1 —
-  // personal rows never appear in another caller's window.
-  const factParts: string[] = ['userId IS NONE'];
-  const entityParts: string[] = ['userId IS NONE'];
+  // User scope: tenant-global rows plus the pinned user's own — never a
+  // third user's. It was `userId IS NONE` alone, so a user-bound token
+  // asking "what changed since we last spoke?" got every entity it had
+  // created and not one of the facts: all of them were its own.
+  const fence = userReadFence(args.userId);
+  const params: Record<string, unknown> = { ...fence.params };
+  const factParts: string[] = [fence.clause];
+  const entityParts: string[] = [fence.clause];
 
   if (args.entityIds && args.entityIds.length > 0) {
     // Bind actual record ids (StringRecordId) and filter with INSIDE —
@@ -358,6 +362,11 @@ function toIso(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
   if (typeof value === 'string') return value;
   if (typeof value === 'number') return new Date(value).toISOString();
+  // The driver's own DateTime (surrealdb 2.x) — every datetime column
+  // arrives as one, and without this branch each came back as "".
+  if (value && typeof (value as { toDate?: unknown }).toDate === 'function') {
+    return (value as { toDate: () => Date }).toDate().toISOString();
+  }
   return '';
 }
 
@@ -368,6 +377,8 @@ export interface MemoryDiffArgs {
   entityIds?: string[];
   /** Restrict to a set of predicates. */
   predicates?: string[];
+  /** Per-user scope: tenant-global plus this user's rows (pinned to a user-bound token). */
+  userId?: string | undefined;
 }
 
 export interface FactRef {

@@ -15,6 +15,7 @@
 
 import { ForbiddenException } from '@nestjs/common';
 import { getRequestContext } from '../common/request-context';
+import { readSurfaceUserScopeEnabled } from '../common/read-scope-flags';
 
 /**
  * Resolve the effective per-user scope for a request.
@@ -35,4 +36,28 @@ export function pinUserScope(requested: string | undefined): string | undefined 
     );
   }
   return authUserId;
+}
+
+/**
+ * The `knowledge_fact.userId` fence for a read surface: tenant-global
+ * rows plus the pinned user's own (the search-lane union), or
+ * tenant-global only when no user is in play or READ_SURFACE_USER_SCOPE
+ * is cleared. Resolving the user here — not at the MCP edge — is what
+ * makes a user-bound token read its own memory on every surface: before,
+ * the profile, `why` and memory_diff fenced `userId IS NONE` and a user's
+ * token saw an entity with none of the facts it had just written.
+ */
+export function userReadFence(requested: string | undefined): {
+  userId: string | undefined;
+  clause: string;
+  params: Record<string, unknown>;
+} {
+  const userId = readSurfaceUserScopeEnabled() ? pinUserScope(requested) : undefined;
+  return userId === undefined
+    ? { userId, clause: 'userId IS NONE', params: {} }
+    : {
+        userId,
+        clause: '(userId IS NONE OR userId = $scopeUserId)',
+        params: { scopeUserId: userId },
+      };
 }

@@ -40,6 +40,7 @@ export interface SummarizeViaClientSamplingOptions {
   companyId: string;
   entityId: string;
   asOf: string | undefined;
+  userId?: string | undefined;
   scopes: BrainScope[];
 }
 
@@ -49,17 +50,19 @@ export async function summarizeViaClientSampling({
   companyId,
   entityId,
   asOf,
+  userId,
   scopes,
 }: SummarizeViaClientSamplingOptions): Promise<SamplingSummarizeResult> {
   const profile = await deps.entities.getProfile({
     companyId,
     entityIdRaw: entityId,
     asOfRaw: asOf,
+    userId,
     scopes,
   });
   const caps = server.server.getClientCapabilities();
   if (!caps?.sampling) {
-    return fallback({ summarizer: deps.summarizer, companyId, entityId, asOf, scopes });
+    return fallback({ summarizer: deps.summarizer, companyId, entityId, asOf, userId, scopes });
   }
   const topFacts = profile.facts
     .filter((f) => f.status === 'active' || f.status === 'competing')
@@ -95,7 +98,7 @@ export async function summarizeViaClientSampling({
     };
   } catch (err) {
     log.warn(`summarize_entity sampling fell back to template: ${(err as Error).message}`);
-    return fallback({ summarizer: deps.summarizer, companyId, entityId, asOf, scopes });
+    return fallback({ summarizer: deps.summarizer, companyId, entityId, asOf, userId, scopes });
   }
 }
 
@@ -104,17 +107,24 @@ async function fallback({
   companyId,
   entityId,
   asOf,
+  userId,
   scopes,
 }: {
   summarizer: SummarizeEntityService;
   companyId: string;
   entityId: string;
   asOf: string | undefined;
+  userId?: string | undefined;
   scopes: BrainScope[];
 }): Promise<SamplingSummarizeResult> {
   const out = await summarizer.summarize(
     companyId,
-    { entityId, ...(asOf !== undefined ? { asOf } : {}), styleHint: 'neutral' },
+    {
+      entityId,
+      ...(asOf !== undefined ? { asOf } : {}),
+      ...(userId !== undefined ? { userId } : {}),
+      styleHint: 'neutral',
+    },
     scopes,
   );
   return {

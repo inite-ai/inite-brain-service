@@ -16,6 +16,18 @@ import { summarizeViaClientSampling } from './sampling';
 import { asStructuredContent } from './structured';
 
 /**
+ * The per-user scope argument every read tool takes. A user-bound token
+ * is pinned to its own user whether or not it passes one.
+ */
+const userScopeArg = z
+  .string()
+  .max(200)
+  .optional()
+  .describe(
+    "Per-user memory scope: results include tenant-global facts plus this user's personal ones; omit for tenant-global only (fail-closed)",
+  );
+
+/**
  * Collaborators the read surface needs. Mirrors the constructor seam of
  * McpService — one service per tool family — so buildServer can hand them
  * straight through. `embedderDescription` is passed as a thunk so the
@@ -117,13 +129,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
             'Valid-time as-of: facts true at this ISO 8601 moment (a retraction dated before it hides the fact; a fact learned after it still shows — not a knowledge snapshot)',
           ),
         minConfidence: z.number().min(0).max(1).optional(),
-        userId: z
-          .string()
-          .max(200)
-          .optional()
-          .describe(
-            "Per-user memory scope: results include tenant-global facts plus this user's personal ones; omit for tenant-global only (fail-closed)",
-          ),
+        userId: userScopeArg,
       },
     },
     async (args) => {
@@ -308,6 +314,7 @@ function registerMemoryDiffTool({
           .optional()
           .describe('Scope to these entities (short or full ids)'),
         predicates: z.array(z.string()).optional().describe('Scope to these predicates'),
+        userId: userScopeArg,
       },
     },
     async (args) => {
@@ -318,6 +325,7 @@ function registerMemoryDiffTool({
           to: args.to,
           ...(args.entityIds !== undefined ? { entityIds: args.entityIds } : {}),
           ...(args.predicates !== undefined ? { predicates: args.predicates } : {}),
+          ...(args.userId !== undefined ? { userId: args.userId } : {}),
         },
         scopes,
       );
@@ -401,6 +409,7 @@ function registerEntityReadTools({
           .describe(
             'Valid-time as-of: facts true at this ISO 8601 moment (not a knowledge snapshot)',
           ),
+        userId: userScopeArg,
       },
     },
     async (args) => {
@@ -408,6 +417,7 @@ function registerEntityReadTools({
         companyId,
         entityIdRaw: args.entityId,
         asOfRaw: args.asOf,
+        ...(args.userId !== undefined ? { userId: args.userId } : {}),
         scopes,
       });
       return {
@@ -428,13 +438,7 @@ function registerEntityReadTools({
         entityId: z.string(),
         since: isoDateTime().optional(),
         until: isoDateTime().optional(),
-        userId: z
-          .string()
-          .max(200)
-          .optional()
-          .describe(
-            "Per-user memory scope: results include tenant-global facts plus this user's personal ones; omit for tenant-global only (fail-closed)",
-          ),
+        userId: userScopeArg,
       },
     },
     async (args) => {
@@ -469,6 +473,7 @@ function registerEntityReadTools({
           .describe(
             "Phrasing register — 'neutral' (default), 'sales', 'support', or 'client_llm' (delegate to client-side LLM via MCP sampling; falls back to neutral template if client doesn't support sampling)",
           ),
+        userId: userScopeArg,
       },
     },
     async (args) => {
@@ -479,6 +484,7 @@ function registerEntityReadTools({
           companyId,
           entityId: args.entityId,
           asOf: args.asOf,
+          userId: args.userId,
           scopes,
         });
         return {
@@ -492,6 +498,7 @@ function registerEntityReadTools({
           entityId: args.entityId,
           ...(args.asOf !== undefined ? { asOf: args.asOf } : {}),
           ...(args.styleHint !== undefined ? { styleHint: args.styleHint } : {}),
+          ...(args.userId !== undefined ? { userId: args.userId } : {}),
         },
         scopes,
       );
