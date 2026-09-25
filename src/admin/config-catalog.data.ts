@@ -1345,6 +1345,50 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Processing tier for the calls nobody is waiting on — scene building, belief promotion, the composers, the dream jobs, strategy distillation, code indexing. `flex` is the SAME model at the Batch price (half) in exchange for slower service and an occasional 429 when capacity is short, which is not charged; `auto` falls back to standard on a retry. Unset (default) = the standard tier and a byte-identical request. The request path — extraction, search, synthesis — never asks for it: there latency is the product. Probed 2026-09-23: gpt-5.6-luna, gpt-6-luna and gpt-6-sol all accept it.',
   },
   {
+    key: 'OPENAI_BASE_URL',
+    category: 'auth',
+    defaultValue: null,
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Primary chat provider endpoint (OpenAI-compatible). Unset = OpenAI itself. Pair with OPENAI_MODEL_PREFIX when the endpoint serves the models under a vendor namespace (OpenRouter: `openai/`).',
+  },
+  {
+    key: 'OPENAI_MODEL_PREFIX',
+    category: 'auth',
+    defaultValue: null,
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Namespace prepended to every chat model id on the primary provider (`openai/` on OpenRouter). Unset = the ids as configured.',
+  },
+  {
+    key: 'OPENAI_FALLBACK_BASE_URL',
+    category: 'auth',
+    defaultValue: null,
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Chat fallback provider (OpenAI-compatible, e.g. https://openrouter.ai/api/v1). A call the primary refuses for a reason about the account or the provider — 429 insufficient_quota, 401/403, 5xx past the SDK retries — is re-sent here with the model id namespaced (OPENAI_FALLBACK_MODEL_PREFIX); after a quota refusal the primary is skipped for 10 minutes. A refusal about the request itself (400, a plain rate limit) is not failed over. Unset (with the key) = no fallback, the plain SDK client.',
+  },
+  {
+    key: 'OPENAI_FALLBACK_API_KEY',
+    category: 'auth',
+    defaultValue: null,
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    secret: true,
+    description: 'API key for OPENAI_FALLBACK_BASE_URL.',
+  },
+  {
+    key: 'OPENAI_FALLBACK_MODEL_PREFIX',
+    category: 'auth',
+    defaultValue: 'openai/',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description: 'Namespace of the chat model ids on the fallback provider.',
+  },
+  {
     key: 'OPENAI_TIMEOUT_MS',
     category: 'auth',
     defaultValue: '30000',

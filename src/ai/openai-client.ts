@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 
@@ -39,11 +40,123 @@ export function chatModel(config: ConfigService): string {
 }
 
 function buildClient(config: ConfigService, apiKey: string): OpenAI {
-  return new OpenAI({
+  const timeout = parseInt(config.get<string>('OPENAI_TIMEOUT_MS', '30000'), 10);
+  const baseURL = config.get<string>('OPENAI_BASE_URL') || undefined;
+  const primary = new OpenAI({
     apiKey,
-    timeout: parseInt(config.get<string>('OPENAI_TIMEOUT_MS', '30000'), 10),
+    timeout,
     maxRetries: parseInt(config.get<string>('OPENAI_MAX_RETRIES', '3'), 10),
+    ...(baseURL ? { baseURL } : {}),
   });
+  const fallbackKey = config.get<string>('OPENAI_FALLBACK_API_KEY');
+  const fallbackBase = config.get<string>('OPENAI_FALLBACK_BASE_URL');
+  const fallback: ChatRoute | undefined =
+    fallbackKey && fallbackBase
+      ? {
+          client: new OpenAI({
+            apiKey: fallbackKey,
+            baseURL: fallbackBase,
+            timeout,
+            maxRetries: 1,
+          }),
+          modelPrefix: config.get<string>('OPENAI_FALLBACK_MODEL_PREFIX', 'openai/'),
+        }
+      : undefined;
+  const modelPrefix = config.get<string>('OPENAI_MODEL_PREFIX', '');
+  if (!modelPrefix && !fallback) return primary;
+  routeChat(primary, { client: primary, modelPrefix }, fallback);
+  return primary;
+}
+
+/**
+ * One chat provider: the SDK client and the namespace its model ids live
+ * under ('' on OpenAI itself; 'openai/' on an aggregator such as
+ * OpenRouter, which serves the same models under the vendor's prefix).
+ */
+interface ChatRoute {
+  client: OpenAI;
+  modelPrefix: string;
+}
+
+/** How long the primary is skipped after it said its account cannot pay. */
+const FAILOVER_WINDOW_MS = 10 * 60_000;
+let primaryDownUntil = 0;
+const failoverLog = new Logger('LlmFailover');
+
+/**
+ * Chat completions through a primary provider with a fallback.
+ *
+ * Every LLM call in brain runs on one OpenAI account. When its credit ran
+ * out (three times on 2026-09-25) the whole answer plane returned
+ * `generator_error` — extraction, synthesis, verification, all of it — for
+ * as long as nobody topped it up. The same models are served by an
+ * aggregator under a vendor prefix, so a call the primary refuses for a
+ * reason that is about the ACCOUNT or the provider (no credit, a revoked
+ * key, an outage past the SDK's own retries) is re-sent there with the
+ * model id namespaced; after a quota refusal the primary is skipped for a
+ * window instead of costing every request a failed round trip. A refusal
+ * about the REQUEST (400, a plain rate limit the SDK already retried) is
+ * the caller's to see — the fallback would refuse it too.
+ *
+ * Patched onto the primary client's own `chat.completions.create`, so the
+ * 13 services that call it see one client, exactly as before.
+ */
+function routeChat(target: OpenAI, primary: ChatRoute, fallback: ChatRoute | undefined): void {
+  // Bound BEFORE the patch below replaces it: the primary route calls the
+  // SDK's own method, never the router.
+  const sdkCreate = new Map<ChatRoute, ChatCreate>(
+    [primary, ...(fallback ? [fallback] : [])].map((r) => [
+      r,
+      (r.client.chat.completions.create as unknown as ChatCreate).bind(r.client.chat.completions),
+    ]),
+  );
+  const call = (route: ChatRoute, body: ChatBody, opts: unknown) =>
+    sdkCreate.get(route)!(namespaced(body, route.modelPrefix, route !== primary), opts);
+  const create: ChatCreate = async (body, opts) => {
+    if (fallback && Date.now() < primaryDownUntil) return call(fallback, body, opts);
+    try {
+      return await call(primary, body, opts);
+    } catch (err) {
+      if (!fallback || !providerSideFailure(err)) throw err;
+      if (quotaRefusal(err)) primaryDownUntil = Date.now() + FAILOVER_WINDOW_MS;
+      failoverLog.warn(
+        `[llm] primary provider refused (${String((err as { status?: number }).status)}); ` +
+          `falling back to ${fallback.client.baseURL}`,
+      );
+      return call(fallback, body, opts);
+    }
+  };
+  (target.chat.completions as unknown as { create: ChatCreate }).create = create;
+}
+
+type ChatBody = { model: string; service_tier?: unknown } & Record<string, unknown>;
+type ChatCreate = (body: ChatBody, opts?: unknown) => Promise<unknown>;
+
+/** The body with the route's model namespace; the fallback drops the tier knob. */
+function namespaced(body: ChatBody, prefix: string, isFallback: boolean): ChatBody {
+  const model = prefix && !body.model.includes('/') ? `${prefix}${body.model}` : body.model;
+  if (!isFallback) return model === body.model ? body : { ...body, model };
+  // `service_tier` is OpenAI's own pricing knob; an aggregator has none.
+  const { service_tier: _tier, ...rest } = body;
+  return { ...rest, model };
+}
+
+/** The account cannot pay: OpenAI's 429 insufficient_quota. */
+function quotaRefusal(err: unknown): boolean {
+  const e = err as { status?: number; code?: string; error?: { code?: string } };
+  return e?.status === 429 && (e.code ?? e.error?.code) === 'insufficient_quota';
+}
+
+/** A refusal about the account or the provider, not about this request. */
+function providerSideFailure(err: unknown): boolean {
+  const status = (err as { status?: number })?.status;
+  if (quotaRefusal(err)) return true;
+  return status === 401 || status === 403 || (typeof status === 'number' && status >= 500);
+}
+
+/** Test seam: forget a quota refusal. */
+export function resetProviderFailover(): void {
+  primaryDownUntil = 0;
 }
 
 /**
@@ -95,7 +208,8 @@ export function createOpenAiClientOrThrow(config: ConfigService): OpenAI {
 const REASONING_MODEL_RE = /^(gpt-[5-9](?!-chat)|o\d)/;
 
 export function isReasoningModel(model: string): boolean {
-  return REASONING_MODEL_RE.test(model);
+  // An aggregator's namespaced id (`openai/gpt-6-luna`) is the same model.
+  return REASONING_MODEL_RE.test(model.replace(/^[\w.-]+\//, ''));
 }
 
 /**

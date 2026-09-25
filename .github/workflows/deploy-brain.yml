@@ -850,10 +850,16 @@ jobs:
                 - SURREALDB_SCOPED_USER=brain_caller
                 - SURREALDB_SCOPED_PASS=${BRAIN_SURREAL_SCOPED_PASS}
                 # OpenAI for embeddings + extraction + faithfulness verifier.
-                # Chat model = the platform default (gpt-5.6-luna, the
+                # Chat model = the platform default (gpt-6-luna, the
                 # cost tier of the newest generation); pin a different
                 # id here only to measure against it.
                 - OPENAI_API_KEY=${BRAIN_OPENAI_API_KEY}
+                # Chat fallback when the OpenAI account cannot pay or the
+                # provider is down: the same models through OpenRouter
+                # (openai-client.ts routeChat). On 2026-09-25 the credit ran
+                # out three times and every answer was generator_error.
+                - OPENAI_FALLBACK_API_KEY=${BRAIN_TYPESAFE_API_KEY}
+                - OPENAI_FALLBACK_BASE_URL=https://openrouter.ai/api/v1
                 - TYPESAFE_API_KEY=${BRAIN_TYPESAFE_API_KEY}
                 - TYPESAFE_BASE_URL=https://openrouter.ai/api
                 # bge-m3 over HTTP from the same OpenRouter account: the
