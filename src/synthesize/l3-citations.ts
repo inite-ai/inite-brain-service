@@ -94,5 +94,18 @@ function parseEntry(raw: unknown): { episodeId: string; quote: string } | null {
   const episodeId = (raw as { episodeId?: unknown }).episodeId;
   if (typeof episodeId !== 'string' || episodeId.length === 0) return null;
   const quote = (raw as { quote?: unknown }).quote;
-  return { episodeId, quote: typeof quote === 'string' ? quote : '' };
+  return { episodeId: episodeRef(episodeId), quote: typeof quote === 'string' ? quote : '' };
+}
+
+/**
+ * The record id a generator-emitted episode handle names. The transcript
+ * shows `[episode:<id>]`, and the model cites the bare `<id>` about as
+ * often as the prefixed one — measured on a stand, every one of 14
+ * citations in a run was bare and every one was dropped, which left the
+ * flipped answers wholly uncited and the citation guard turned them back
+ * into abstentions.
+ */
+export function episodeRef(handle: string): string {
+  const id = handle.trim().replace(/^\[|\]$/g, '');
+  return id.includes(':') ? id : `episode:${id}`;
 }

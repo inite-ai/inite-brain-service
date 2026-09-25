@@ -3206,7 +3206,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'L3 anchor independence (profile field l3DirectAnchor): auxiliary anchor source consulted ONLY when zero retrieved facts name a session (the skipped_no_anchor residual — L3 is most needed exactly where extraction missed the info, which is when no fact anchor exists). BM25 episode hits on the query text (PII/user-fenced, top 20) anchor their conversations; the merged aux anchors then feed the UNCHANGED ranking/caps/ladder. skipped_no_anchor then means "every enabled anchor source came up empty". brain_l3_anchor_source_total{source} traces which source fed each fired escalation. Off (with the sibling aux flags off) = byte-identical skipped_no_anchor.',
+      'L3 anchor independence (profile field l3DirectAnchor): query-side anchor source consulted on every fired escalation beside the fact anchors (a fact naming a session is no proof that session holds the answer — the facts were retrieved by the same miss that made the escalation necessary). Recall-first BM25 episode hits on the query text (any of its words — lex-leg or_terms; PII/user-fenced, top 20) anchor their conversations; the merged aux anchors then feed the UNCHANGED ranking/caps/ladder. skipped_no_anchor then means "every enabled anchor source came up empty". brain_l3_anchor_source_total{source} traces which source fed each fired escalation. Off (with the sibling aux flags off) = byte-identical skipped_no_anchor.',
   },
   {
     key: 'RETRIEVAL_L3_SEGMENT_ANCHOR',
@@ -3215,7 +3215,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'L3 anchor independence (profile field l3SegmentAnchor): auxiliary anchor source consulted ONLY when zero retrieved facts name a session. Dense+BM25 RRF-fused episode_segment hits (top 12, NO rerank — anchors need recall, not precision) anchor their conversations; merged anchors feed the unchanged L3 ranking/caps/ladder. Degrades to no contribution on any failure. Off = this source contributes nothing.',
+      'L3 anchor independence (profile field l3SegmentAnchor): query-side anchor source consulted on every fired escalation beside the fact anchors. Dense + recall-first BM25 (or_terms) RRF-fused episode_segment hits (the windows the scheduled scene pass composes for every dirty conversation) (top 12, NO rerank — anchors need recall, not precision) anchor their conversations; merged anchors feed the unchanged L3 ranking/caps/ladder. Degrades to no contribution on any failure. Off = this source contributes nothing.',
   },
   {
     key: 'RETRIEVAL_L3_TEMPORAL_ANCHOR',
@@ -3224,7 +3224,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'L3 anchor independence (profile field l3TemporalAnchor): auxiliary anchor source consulted ONLY when zero retrieved facts name a session. When the query names an absolute period (code-parsed, the RETRIEVAL_TIME_FILTER parser — no LLM), the conversations active in that period (top 10 by turn count, PII/user-fenced GROUP BY) anchor, scored by turn count. A query with no parseable period contributes nothing. Off = this source contributes nothing.',
+      'L3 anchor independence (profile field l3TemporalAnchor): query-side anchor source consulted on every fired escalation beside the fact anchors. When the query names an absolute period (code-parsed, the RETRIEVAL_TIME_FILTER parser — no LLM), the conversations active in that period (top 10 by turn count, PII/user-fenced GROUP BY) anchor, scored by turn count. A query with no parseable period contributes nothing. Off = this source contributes nothing.',
   },
   {
     key: 'MINICHECK_URL',

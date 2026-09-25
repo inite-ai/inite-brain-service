@@ -154,7 +154,7 @@ describe('computeCacheKey', () => {
   it('bakes the prompt version in (a bump misses every old entry)', () => {
     // 3: admission requires an answer that answers, so every entry admitted
     // before (possibly "the facts do not say why") misses by key.
-    expect(ANSWER_CACHE_PROMPT_VERSION).toBe(3);
+    expect(ANSWER_CACHE_PROMPT_VERSION).toBe(4);
   });
 });
 

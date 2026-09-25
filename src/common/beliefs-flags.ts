@@ -75,3 +75,13 @@ export function beliefFactDampingEnabled(): boolean {
 export function beliefLaneDateDisambiguationEnabled(): boolean {
   return envFlagEnabled(process.env.BELIEFS_LANE_DATE_DISAMBIGUATION);
 }
+
+/**
+ * The belief lane for one request. A belief is the CURRENT state; a
+ * question asked as of a moment (`asOf`) is answered by the fact plane's
+ * valid-time read. Serving beliefs into it answered "which model on 20
+ * September" with today's model — measured on production.
+ */
+export function beliefLaneForRequest(dto: { asOf?: string | undefined }): boolean {
+  return beliefServingLaneEnabled() && !dto.asOf;
+}

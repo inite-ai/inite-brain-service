@@ -202,6 +202,15 @@ export class EpisodeReadStoreService {
      * `<convSlug>__<role>` while production tenants stamp bare roles.
      */
     speakerSuffix?: string;
+    /**
+     * The lexical leg over `text`, composed by the caller (synthesize's
+     * lex-leg.ts; this layer imports nothing above it). Omitted, the
+     * matches operator is fed the whole query — AND over its tokens, so
+     * a question matches only a turn containing every word of it; a
+     * caller that must FIND the turn (an L3 anchor) passes the
+     * recall-first disjunction.
+     */
+    lex?: { where: string; score: string; params: Record<string, string> };
     db?: EpisodeDb;
   }): Promise<Array<EpisodeQuoteRow & { score?: number }>> {
     const speakerGate = opts.speakerSuffix
@@ -210,17 +219,22 @@ export class EpisodeReadStoreService {
     const speakerParams = opts.speakerSuffix
       ? { speakerSuffix: opts.speakerSuffix.toLowerCase() }
       : {};
+    const lex = opts.lex ?? {
+      where: 'text @1@ $q',
+      score: 'search::score(1)',
+      params: { q: opts.query },
+    };
     return this.run(opts.companyId, opts.db, async (db) => {
       const scope = this.scopeGate(opts.userId);
       const [rows] = await db.query<[Array<EpisodeQuoteRow & { score?: number }>]>(
         `SELECT id, conversationId, speaker, text, occurredAt, piiClass, userId,
-                search::score(1) AS score
+                ${lex.score} AS score
            FROM episode
-          WHERE text @1@ $q ${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)} ${scope.clause} ${speakerGate}
+          WHERE ${lex.where} ${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)} ${scope.clause} ${speakerGate}
           ORDER BY score DESC
           LIMIT $k`,
         {
-          q: opts.query,
+          ...lex.params,
           k: opts.limit,
           ...this.userParams(opts.userId),
           ...scope.params,

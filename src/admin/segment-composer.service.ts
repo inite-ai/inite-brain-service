@@ -74,7 +74,15 @@ export class SegmentComposerService {
     private readonly episodes: EpisodeReadStoreService,
   ) {}
 
-  async run(companyId: string): Promise<SegmentRunResult> {
+  /**
+   * Compose the tenant's windows — every conversation, or exactly
+   * `conversationIds` (the scheduled pass's dirty page: the
+   * conversations whose turns moved since they were last composed).
+   */
+  async run(
+    companyId: string,
+    opts: { conversationIds?: string[] } = {},
+  ): Promise<SegmentRunResult> {
     const result: SegmentRunResult = {
       conversations: 0,
       segments: 0,
@@ -85,9 +93,10 @@ export class SegmentComposerService {
     // on the old generation = the ones whose swap never landed).
     const generation = new Date().toISOString();
     await this.surreal.withCompany(companyId, async (db) => {
-      const convs = await this.episodes.conversationCounts(db);
-      for (const conv of convs) {
-        const conversationId = conv.conversationId;
+      const ids =
+        opts.conversationIds ??
+        (await this.episodes.conversationCounts(db)).map((c) => c.conversationId);
+      for (const conversationId of ids) {
         try {
           await this.composeConversation({
             db,

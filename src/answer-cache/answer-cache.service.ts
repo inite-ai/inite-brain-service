@@ -57,8 +57,11 @@ import { isEdgeCitation, type Citation } from '../synthesize/fact-index';
  *   3 — admission requires an answer that ANSWERS: rows admitted before
  *       could be "the facts do not say why" and were served as the answer
  *       after the raw text that does say why became readable.
+ *   4 — the verifier judges a claim's subject: rows admitted before could
+ *       carry a value read off another subject ("the OpenRouter budget"
+ *       served as the OpenAI one).
  */
-export const ANSWER_CACHE_PROMPT_VERSION = 3;
+export const ANSWER_CACHE_PROMPT_VERSION = 4;
 
 /** Table + record-id namespace of the cache rows (migration 0091). */
 const TABLE = 'answer_cache';

@@ -32,6 +32,18 @@ describe('resolveEpisodeCitations — fence, spans, dedupe, cap', () => {
     expect(counts.span_anchored).toBe(1);
   });
 
+  it('resolves a bare or bracketed handle to the episode the transcript showed', () => {
+    const { citations, counts } = resolveEpisodeCitations(
+      [
+        { episodeId: 'ep1', quote: 'tier is sapphire' },
+        { episodeId: '[ep2]', quote: 'twice' },
+      ],
+      TURNS,
+    );
+    expect(citations.map((c) => c.episodeId)).toEqual(['episode:ep1', 'episode:ep2']);
+    expect(counts.dropped_unknown).toBe(0);
+  });
+
   it('counts malformed entries (no string episodeId) as dropped', () => {
     const { citations, counts } = resolveEpisodeCitations(
       [null, 42, { quote: 'no id' }, { episodeId: '' }],

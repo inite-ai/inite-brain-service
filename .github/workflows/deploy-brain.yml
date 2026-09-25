@@ -483,6 +483,15 @@ jobs:
           CONFLICT_SLOT_CANONICALIZATION=1
           INGEST_ARTICLE_NORMALIZATION=1
           MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE=1
+          # ── One memory holds several languages (Russian conversations,
+          # English code decisions): the hard same-language exclusion hid
+          # every English fact from a confidently-Russian question once the
+          # Russian pass found anything at all — "почему REASONING_MODEL_RE
+          # должен совпадать с gpt-6?" never saw the English gotcha that
+          # answers it. Soft mode demotes a cross-lingual fact, never hides
+          # it (bge-m3 is one multilingual space). Measured on the dogfood
+          # battery on a prod-parity stand. ──
+          MULTILINGUAL_SOFT_LANG_FILTER=1
           # ── Temporal tiebreaker (#465, migration 0129): the promoted
           # conflict machinery was pairing legitimate UPDATES (queue
           # Redis -> NATS) into permanent COMPETING mush — score margin

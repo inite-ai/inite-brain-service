@@ -32,7 +32,7 @@ import { getActiveRetrievalProfile, type RetrievalProfile } from '../search/retr
 import { buildFactIndex } from './fact-index';
 import { fragmentCitationsEnabled } from '../common/evidence-flags';
 import {
-  beliefServingLaneEnabled,
+  beliefLaneForRequest,
   beliefLaneDateDisambiguationEnabled,
   beliefFactDampingEnabled,
 } from '../common/beliefs-flags';
@@ -606,7 +606,7 @@ export class SynthesizeService {
       // single-resolution idiom): the lane, the rendered headers, the
       // generator affordance and the resolver all key off the resulting
       // fence map (populated ⟺ flag on AND beliefs rendered).
-      beliefLane: beliefServingLaneEnabled(),
+      beliefLane: beliefLaneForRequest(opts.dto),
       // BELIEFS_LANE_DATE_DISAMBIGUATION, resolved ONCE beside the lane
       // flag: the lane's rendered date token and the generator's belief
       // header key off the same resolution (echoed on CollectedEvidence).

@@ -142,6 +142,16 @@ describe('l3TriggerDecision — the adaptive confidence gate replaces coverage',
     );
   });
 
+  it('fires on an unanswered question however confident the retrieval was', () => {
+    expect(
+      l3TriggerDecision({
+        ...base,
+        questionAnswered: false,
+        adaptive: { confidence: 0.9, threshold: 0.5 },
+      }),
+    ).toBe('fire');
+  });
+
   it('KEEPS the anchor-adjacent hard guards on the adaptive path', () => {
     const low = { confidence: 0.1, threshold: 0.5 };
     // monotone single-shot: already-escalated never re-enters, even low-conf.
@@ -985,7 +995,7 @@ describe('L3EscalationService — auxiliary anchor sources', () => {
   ];
   const rangeRows = [{ conversationId: 'conv_range', atMs: Date.UTC(2023, 4, 3), turns: 4 }];
 
-  it('aux sources are NOT consulted when fact anchors exist (fact path unchanged)', async () => {
+  it('aux sources are consulted beside fact anchors — a fact naming a session is not proof it holds the answer', async () => {
     const { service, mocks } = makeService({
       factEps: [{ id: FACT_ID, eps: ['episode:ep1'] }],
       episodesByIds: [
@@ -1012,11 +1022,10 @@ describe('L3EscalationService — auxiliary anchor sources', () => {
     });
     const out = await service.escalate(baseInput(flipScript(), profile));
     expect(out?.answer).toBe('The tier is sapphire.');
-    // Every aux probe stayed cold; the fact source fed the ranked set.
-    expect(mocks.searchTextCalls).toBe(0);
-    expect(mocks.segmentAnchorCalls).toBe(0);
-    expect(mocks.conversationsInRangeCalls).toBe(0);
-    expect(mocks.anchorSources).toEqual(['fact']);
+    // The question read the raw turns too; the fact source still fed the ranked set.
+    expect(mocks.searchTextCalls).toBe(1);
+    expect(mocks.segmentAnchorCalls).toBe(1);
+    expect(mocks.anchorSources).toContain('fact');
   });
 
   it('all aux flags off + no fact anchors → byte-identical skipped_no_anchor, no aux IO', async () => {

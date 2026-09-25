@@ -91,8 +91,15 @@ export function l3TriggerDecision(input: L3TriggerInput): L3TriggerReason {
   if (!verdictFail) return 'skip_verdict_ok';
   if (input.adaptive) {
     // Adaptive path: the calibrated-confidence floor replaces coverage.
-    // A confident answer (conf ≥ threshold) is NOT escalation-eligible.
-    if (input.adaptive.confidence >= input.adaptive.threshold) return 'skip_confident';
+    // A confident answer (conf ≥ threshold) is NOT escalation-eligible —
+    // unless it is no answer at all: the confidence is the RETRIEVAL's
+    // (how well the facts matched the query), and an abstention over
+    // well-matched facts is the same residual as the static path's below
+    // (measured on the replayed production writes: the asOf questions a
+    // document answered verbatim abstained without reading it).
+    if (input.adaptive.confidence >= input.adaptive.threshold && input.questionAnswered !== false) {
+      return 'skip_confident';
+    }
   } else if (input.covered && input.questionAnswered !== false) {
     // Static path: coverage < floor is required — escalation addresses the
     // residual where the extracted facts are thin, not where a well-covered

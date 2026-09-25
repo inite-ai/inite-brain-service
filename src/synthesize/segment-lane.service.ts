@@ -5,6 +5,7 @@ import { RerankerService } from '../ai/reranker.service';
 import { segmentUserGate } from '../auth/segment-scope';
 import { resolveSearchTuning } from '../search/retrieval-profile';
 import { runDenseScanLeg, type CoverageScanTuning } from '../search/internals/scan-leg';
+import { buildLexMatchLeg } from './lex-leg';
 
 interface SegmentRow {
   id: unknown;
@@ -147,13 +148,17 @@ export class SegmentLaneService {
           tuning: segmentScanTuning(),
           logger: this.logger,
         });
+        // Recall-first lexical leg (lex-leg.ts): the matches operator fed
+        // the whole question is AND over its words, and a question's words
+        // are almost never all in one window.
+        const lex = buildLexMatchLeg({ fields: ['text'], topic: opts.query, mode: 'or_terms' });
         const [bm25] = await db.query<[SegmentAnchorRow[]]>(
-          `SELECT id, conversationId, occurredAt, search::score(1) AS score
+          `SELECT id, conversationId, occurredAt, ${lex.score} AS score
                FROM episode_segment
-              WHERE text @1@ $q ${piiGate} ${gate.clause}
+              WHERE ${lex.where} ${piiGate} ${gate.clause}
               ORDER BY score DESC
               LIMIT $k`,
-          { q: opts.query, k: opts.limit, ...gate.params },
+          { ...lex.params, k: opts.limit, ...gate.params },
         );
         return rrfFuseScored([dense ?? [], bm25 ?? []]);
       });

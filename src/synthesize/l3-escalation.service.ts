@@ -25,7 +25,7 @@ import type { ReasoningEffort } from '../ai/openai-client';
 import { resolveCitations, expandCitationHandles } from './synthesize.helpers';
 import type { Citation } from './fact-index';
 import type { EvidenceCitation, GeneratorOutput } from './synthesize.types';
-import { resolveEpisodeCitations, type CitableTurn } from './l3-citations';
+import { episodeRef, resolveEpisodeCitations, type CitableTurn } from './l3-citations';
 import { SegmentLaneService } from './segment-lane.service';
 import { askerGeneratorLine, type Asker } from './asker';
 import {
@@ -51,6 +51,8 @@ import {
   type FocusSignal,
   type PerClassCalibration,
 } from './focus-signal';
+import { buildLexMatchLeg } from './lex-leg';
+import { resolveDateContext } from './evidence-union';
 
 /**
  * G2 L3 escalation lane (docs/roadmap/sota-gap-build-2026-08.md).
@@ -381,36 +383,30 @@ export class L3EscalationService {
     const includePii = input.callerScopes.includes('brain:read_pii');
     const userId = dto.userId || undefined;
     const fences = { includePii, userId };
-    const fact = await this.resolveAnchors(input, fences);
-    const factAnchors = fact.anchors;
-    let sources: L3AnchorSource[] = [{ source: 'fact', anchors: factAnchors }];
-    let anchors = factAnchors;
-    // The degrade-path window centers travel with the anchors from
-    // whichever source produced them, so no anchored session lacks one.
-    let centers = fact.centers;
-    if (factAnchors.length === 0) {
-      // L3 anchor independence: the aux sources run ONLY on the empty-
-      // fact-anchor residual, so a fact-anchored escalation is byte-
-      // identical to before, and skipped_no_anchor below now means
-      // "every ENABLED anchor source came up empty". No hint boost here:
-      // aux anchors carry no predicate, so there is nothing to match.
-      const aux = await this.resolveAuxiliaryAnchors(input, fences);
-      sources = aux.sources;
-      anchors = mergeAnchorSources(sources);
-      centers = aux.centers;
-    } else {
-      // Attention hints (FOVEA_ATTENTION_HINTS): resolved lazily — the
-      // memory-model reader is consulted ONLY here, flag on, on a fired
-      // escalation with fact anchors. A null boost (flag off, no packs,
-      // no cue match, garbage hints) keeps `anchors = factAnchors`
-      // untouched — the exact pre-hint code path. A non-null boost routes
-      // the fact anchors through the SAME merge the aux path uses (per-
-      // source max normalization is order-preserving within one source)
-      // with the boost applied post-normalization: same anchor set out,
-      // ordering-only by construction.
-      const hintBoost = await this.resolveAttentionBoost(input);
-      if (hintBoost) anchors = mergeAnchorSources(sources, hintBoost);
-    }
+    // The sessions the answer may sit in come from two directions at
+    // once: the facts retrieval served (their grounding turns) and the
+    // question itself read against the raw turns (the aux probes). The
+    // probes used to run only when no fact named a session — but a fact
+    // naming a session is no sign it is the RIGHT one: the facts that
+    // could not answer were retrieved by the same miss that makes the
+    // escalation necessary, and on production writes replayed on a stand
+    // 8 of 11 escalations read only the sessions those facts pointed at
+    // and did not find the answer the raw text held. A session both
+    // directions name ranks first (rankL3Sessions counts hits).
+    const [fact, aux] = await Promise.all([
+      this.resolveAnchors(input, fences),
+      this.resolveAuxiliaryAnchors(input, fences),
+    ]);
+    const sources: L3AnchorSource[] = [
+      ...(fact.anchors.length > 0 ? [{ source: 'fact' as const, anchors: fact.anchors }] : []),
+      ...aux.sources,
+    ];
+    const centers = [...fact.centers, ...aux.centers];
+    // Attention hints (FOVEA_ATTENTION_HINTS) boost fact anchors by their
+    // predicate; aux anchors carry none, so a hint cannot move them. The
+    // memory-model reader is consulted only when a fact anchored.
+    const hintBoost = fact.anchors.length > 0 ? await this.resolveAttentionBoost(input) : null;
+    const anchors = mergeAnchorSources(sources, hintBoost);
     if (anchors.length === 0) {
       this.metrics?.countL3Escalation('skipped_no_anchor');
       return null;
@@ -459,8 +455,13 @@ export class L3EscalationService {
 
     const generated = await this.generate(input, ctx.transcriptLines, episodeCitations);
     const citations = resolveCitations(generated.citedFactIds, generated.answer, input.factIndex);
+    // A turn cited inline by its handle lands in citedFactIds when the
+    // model files it there; it is an episode citation all the same.
+    const turnsCitedAsFacts = generated.citedFactIds
+      .filter((id) => ctx.turnsById.has(episodeRef(id)))
+      .map((episodeId) => ({ episodeId, quote: '' }));
     const evidenceCitations = episodeCitations
-      ? this.resolveEvidence(generated.citedEpisodes, ctx.turnsById)
+      ? this.resolveEvidence([...generated.citedEpisodes, ...turnsCitedAsFacts], ctx.turnsById)
       : [];
     const verdict = await this.verify(input, generated.answer, ctx);
     if (!verifierPasses(verdict, profile.verifierTopicCoverage)) {
@@ -618,10 +619,10 @@ export class L3EscalationService {
   }
 
   /**
-   * L3 anchor independence — auxiliary anchor DISCOVERY, consulted only
-   * when the fact grounding stamps yielded zero anchors (L3 is most
-   * needed exactly where extraction missed the info, and that is when
-   * no fact anchor exists). Three independent probes, each behind its
+   * L3 anchor independence — query-side anchor DISCOVERY, consulted on
+   * every fired escalation beside the fact grounding stamps (L3 is
+   * needed exactly where extraction missed the info, and the facts that
+   * missed it are no guide to where it is). Three independent probes, each behind its
    * own profile flag, each individually fail-soft (warn + contribute
    * nothing):
    *   direct   — BM25 episode hits on the query text, via the SAME
@@ -682,6 +683,8 @@ export class L3EscalationService {
       companyId: input.companyId,
       query: input.dto.query,
       limit: L3_DIRECT_ANCHOR_TOPK,
+      // Recall-first: a turn holding ANY of the question's words anchors.
+      lex: buildLexMatchLeg({ fields: ['text'], topic: input.dto.query, mode: 'or_terms' }),
       includePii: fences.includePii,
       ...(fences.userId !== undefined ? { userId: fences.userId } : {}),
     });
@@ -867,7 +870,15 @@ export class L3EscalationService {
       sections.push(`Computed date table:\n${input.dateMathLines.join('\n')}`);
     }
     const langLine = input.answerLang ? `\n\nAnswer in ${input.answerLang}.` : '';
-    const user = `Query: ${input.dto.query}\n${askerGeneratorLine(input.asker)}\n${sections.join('\n\n')}${langLine}`;
+    // The query's date, as the main generator is given it. An asOf query
+    // asks for the state that held THEN, and the raw text that answers it
+    // is usually written later ("until the 24th it ran on X") — without
+    // the date L3 read that turn and answered with today's state.
+    const dateContext = l3DateContext(input);
+    const dateLine = dateContext
+      ? `\nToday (the query's date): ${dateContext}. Answer for the state that held on that date; later turns may describe it in the past tense.`
+      : '';
+    const user = `Query: ${input.dto.query}${dateLine}\n${askerGeneratorLine(input.asker)}\n${sections.join('\n\n')}${langLine}`;
     const system = l3SystemPrompt(episodeCitations);
     traceArtifact('synthesize.l3_prompt', {
       system,
@@ -968,6 +979,7 @@ export class L3EscalationService {
       transcriptLines: ctx.transcriptLines,
       topicCoverage: input.profile.verifierTopicCoverage,
       dateMathLines: input.dateMathLines,
+      dateContext: l3DateContext(input),
       asker: input.asker,
       model: input.profile.verifierModel || input.model,
       ...(input.profile.verifierEffort
@@ -975,6 +987,13 @@ export class L3EscalationService {
         : {}),
     });
   }
+}
+
+/** The date the query is asked at: its asOf, else the profile's anchoring. */
+function l3DateContext(input: L3EscalateInput): string | undefined {
+  return input.dto.asOf
+    ? input.dto.asOf.slice(0, 10)
+    : resolveDateContext(input.profile.dateAnchoring, undefined);
 }
 
 function toMs(v: Date | string | undefined): number | undefined {

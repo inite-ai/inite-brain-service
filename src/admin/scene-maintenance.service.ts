@@ -19,6 +19,7 @@ import {
   sceneMaintenanceSettleMs,
 } from '../common/scene-flags';
 import { SceneComposerService } from './scene-composer.service';
+import { SegmentComposerService } from './segment-composer.service';
 import { BeliefPromotionService } from './belief-promotion.service';
 import {
   POST_PASS_KEY,
@@ -161,6 +162,7 @@ export class SceneMaintenanceService {
     // production MetricsModule and JobsModule are both @Global.
     @Optional() private readonly metrics?: MetricsService,
     @Optional() private readonly guard?: DistributedLeaseGuard,
+    @Optional() private readonly segments?: SegmentComposerService,
   ) {}
 
   /**
@@ -300,6 +302,15 @@ export class SceneMaintenanceService {
       conversationIds: dirty.map((d) => d.conversationId),
     });
 
+    // The raw windows (episode_segment) are the other projection a turn
+    // moves: the embedded verbatim text the segment lane and the L3
+    // segment anchor read the raw turns by meaning through. Their only
+    // writer was the admin route, so on production they existed for no
+    // conversation anyone had not curled, and a question worded unlike
+    // the turn that answers it found no raw text at all. Same page, same
+    // settle fence; a failure degrades the pass and keeps the marks.
+    const segmentsFailed = await this.composeSegments(companyId, dirty);
+
     // Beliefs are the reason any of this is user-visible (the serving lane
     // reads semantic_belief), so the promotion leg runs every pass — but it
     // degrades, never fails: the scene swap has already landed and must not
@@ -307,7 +318,7 @@ export class SceneMaintenanceService {
     // composer's own post-swap chain — and, like there, the failure lands
     // in the outcome's `degradedBy` rather than only in a log line.
     let beliefs = 0;
-    const degradedBy = [...composed.outcome.degradedBy];
+    const degradedBy = [...composed.outcome.degradedBy, ...segmentsFailed.degradedBy];
     if (sceneBeliefPromotionEnabled()) {
       try {
         const promoted = await this.beliefs.run(companyId, {});
@@ -327,7 +338,7 @@ export class SceneMaintenanceService {
     const cleared = await this.clearConsumed({
       companyId,
       dirty,
-      skipped: composed.skipped,
+      skipped: [...composed.skipped, ...segmentsFailed.skipped],
       readAt,
     });
     const durationSeconds = (Date.now() - startedAt) / 1000;
@@ -365,6 +376,35 @@ export class SceneMaintenanceService {
    * it, so the ONLY thing that would make the failure permanent is clearing
    * its mark here.
    */
+  /** The dirty page's raw windows; per-conversation failures keep their marks. */
+  private async composeSegments(
+    companyId: string,
+    dirty: DirtyConversationRow[],
+  ): Promise<{
+    skipped: Array<{ conversationId: string }>;
+    degradedBy: Array<{ key: string; error: string }>;
+  }> {
+    if (!this.segments) return { skipped: [], degradedBy: [] };
+    try {
+      const run = await this.segments.run(companyId, {
+        conversationIds: dirty.map((d) => d.conversationId),
+      });
+      return {
+        skipped: run.skipped,
+        degradedBy: run.skipped.map((s) => ({
+          key: `${POST_PASS_KEY}segments:${s.conversationId}`,
+          error: s.reason,
+        })),
+      };
+    } catch (e) {
+      this.logger.warn(`segment compose failed for ${companyId}: ${errorMessage(e)}`);
+      return {
+        skipped: dirty.map((d) => ({ conversationId: d.conversationId })),
+        degradedBy: [{ key: `${POST_PASS_KEY}segments`, error: errorMessage(e) }],
+      };
+    }
+  }
+
   private async clearConsumed(args: {
     companyId: string;
     dirty: DirtyConversationRow[];

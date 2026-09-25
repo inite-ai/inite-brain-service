@@ -89,6 +89,7 @@ const TOPIC_COVERAGE_ADDENDUM = `
 
 Two additional rules for this audit:
 - Relationship claims: any asserted CONNECTION between facts — causal ("because", "led to", "which made"), motivational, attributive, or part-whole — is itself a claim. It counts as supported only when some piece of evidence states that connection directly. An answer whose individual facts are each supported but whose connecting link appears nowhere in the evidence is "partial" at best.
+- Subject claims: a claim includes its subject. A value the evidence gives for a different subject than the one the answer — or the question it answers — puts it on (another product, vendor, person, place or period: "the OpenRouter budget" read as "the OpenAI budget") is not supported, however exactly the value matches.
 - Additionally output "questionAnswered": true only when the evidence contains an actual answer to the query — a statement (or directly-linked statements) that resolves what the query asks. Evidence that is merely on the same topic, or answers a neighboring question, does not count. Judge the EVIDENCE against the query, independently of how confident the answer sounds.`;
 
 export interface VerifyRequest {
@@ -190,7 +191,7 @@ async function decideGrounding(req: VerifyRequest): Promise<VerifierOutput | nul
       grounding: {
         type: 'choice',
         instructions:
-          'Is every distinct claim in the ANSWER directly supported by at least one piece of the EVIDENCE? The evidence sections all count as support. A faithful translation of a piece of evidence is supported by it; wording the answer repeats from the question is framing, not a claim; date or amount arithmetic over stated evidence is not a new claim.',
+          'Is every distinct claim in the ANSWER directly supported by at least one piece of the EVIDENCE? The evidence sections all count as support. A faithful translation of a piece of evidence is supported by it; wording the answer repeats from the question is framing, not a claim; date or amount arithmetic over stated evidence is not a new claim. A claim includes its subject: a value the evidence gives for a different subject than the one the answer — or the question it answers — puts it on (another product, vendor, person, place or period) is not supported.',
         criteria: {
           supported: 'Every distinct claim is directly stated by at least one piece of evidence.',
           partial:
