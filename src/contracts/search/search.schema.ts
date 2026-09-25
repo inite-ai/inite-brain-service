@@ -83,6 +83,8 @@ export const SearchFactSchema = z.object({
   confidence: z.number(),
   validFrom: z.string(),
   validUntil: z.string().optional(),
+  /** When a temporary state is expected to be over (0166) — an expectation inferred at write time, not an end. */
+  expectedUntil: z.string().optional(),
   status: z.string(),
   /** Write-time source key (trustSnapshot, 0044) — chase a citation to its claimer. */
   sourceKey: z.string().optional(),

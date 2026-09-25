@@ -514,6 +514,28 @@ describe('AnswerCacheService.begin — check-on-read rejection matrix', () => {
     expect(invalidation?.params.cause).toBe('expired_validity');
   });
 
+  it('an expectation that passed after the answer was cached → cause=expired_validity (0166)', async () => {
+    // Cached an hour ago as "you have the flu"; the flu was expected to
+    // be over a minute ago, so the line now reads "not confirmed since".
+    const { invalidation } = await reject([
+      activeFact({ expectedUntil: new Date(Date.now() - 60_000) }),
+    ]);
+    expect(invalidation?.params.cause).toBe('expired_validity');
+  });
+
+  it.each([
+    ['still ahead', () => new Date(Date.now() + 86_400_000)],
+    ['already passed when the answer was cached', () => new Date(Date.now() - 7_200_000)],
+  ])('an expectation %s leaves the answer servable (0166)', async (_label, at) => {
+    const h = makeHarness({
+      cacheRow: liveCacheRow(),
+      factRows: [activeFact({ expectedUntil: at() })],
+      entityRows: [{ id: 'knowledge_entity:e1', canonicalName: 'Acme' }],
+    });
+    const out = await h.svc.begin(beginArgs());
+    expect(out?.hit).toBeDefined();
+  });
+
   it('cited fact missing entirely → cause=missing', async () => {
     const { invalidation } = await reject([]);
     expect(invalidation?.params.cause).toBe('missing');

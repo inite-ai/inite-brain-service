@@ -21,7 +21,7 @@ const ENTITY_PROFILE_FIELDS = 'id, type, canonicalName, externalRefs, mergedAt, 
 // (policy/row-filter.ts); the response mappers never surface them unless
 // the field was already part of the wire shape (timeline's `source`).
 const FACT_PROFILE_FIELDS =
-  'id, predicate, object, confidence, validFrom, validUntil, ' +
+  'id, predicate, object, confidence, validFrom, validUntil, expectedUntil, ' +
   'recordedAt, retractedAt, status, source, trustSnapshot, corroboration';
 
 const FACT_TIMELINE_FIELDS =
@@ -48,6 +48,8 @@ export interface EntityProfile {
     confidence: number;
     validFrom: string;
     validUntil?: string | undefined;
+    /** When a temporary state is expected to be over (0166) — an expectation, not an end. */
+    expectedUntil?: string | undefined;
     status: string;
   }>;
 }
@@ -184,6 +186,7 @@ interface FactProfileRow extends PolicyFilterableRow {
   confidence: number;
   validFrom: string | Date;
   validUntil?: string | Date;
+  expectedUntil?: string | Date | null;
   status: string;
 }
 
@@ -348,6 +351,7 @@ export class EntitiesService {
           confidence: f.confidence,
           validFrom: new Date(f.validFrom).toISOString(),
           validUntil: f.validUntil ? new Date(f.validUntil).toISOString() : undefined,
+          ...(f.expectedUntil ? { expectedUntil: new Date(f.expectedUntil).toISOString() } : {}),
           status: f.status,
         })),
       };

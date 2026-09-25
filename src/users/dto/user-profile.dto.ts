@@ -23,6 +23,8 @@ export interface ProfileFactWire {
   lastSeenAt?: string;
   /** Typed-atom kind (`source.kind`, DERIVER_TYPED_ATOMS), when stamped. */
   kind?: string;
+  /** ISO instant a temporary state is expected to be over (0166), when inferred. */
+  expectedUntil?: string;
 }
 
 export interface ProfileSectionWire {

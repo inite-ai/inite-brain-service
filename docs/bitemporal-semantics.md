@@ -39,6 +39,35 @@ Two patterns:
 
 The two patterns compose cleanly through Allen's interval algebra (see below): a Pattern-A fact with explicit `validUntil` followed by a Pattern-B fact starting at that boundary forms a clean timeline, NOT a conflict.
 
+### Temporary states carry an expectation, not an end (0166)
+
+"I have the flu" is Pattern B: nobody said when it stopped. If nobody ever
+says "I'm better", memory would keep answering "you have the flu" a month
+later. Writing a guessed `validUntil` would be worse, because it would make
+a state the user may still be in disappear. So the extractor sets
+`expectedEnd` for a temporary state: an illness, a trip, a stay, being away
+or busy for a while. It is the day the state would ordinarily be over, and it
+is stored as `expectedUntil`:
+
+- **Valid time is untouched.** The fact stays current. `asOf`, "actual now"
+  and every lifecycle rule read it as before.
+- **The answer plane renders it.** A line reads `(temporary — expected until
+  D)` while D is ahead of the query's `asOf` (else now), and `(temporary —
+  expected over by D; not confirmed since)` once D has passed. The code makes
+  that comparison, not the model. When a line carries an expectation, the
+  generator is told not to state a lapsed one as the current state. The user
+  profile text uses the same suffix.
+- **A restatement moves it.** "Still sick" sets the new expectation on every
+  open row of the same value (same entity, slot, object and user). This covers
+  both cases: a corroborated single-value fact, and an append-only second row.
+  A re-read of an older statement moves nothing.
+- **Cached answers follow it.** An answer that cites a fact whose expectation
+  passed after the answer was cached is invalidated as `expired_validity`.
+
+Search hits, the entity profile and the user profile return `expectedUntil`
+when a fact has one. The write-time guard drops an expectation that is not
+after both the turn and the value's start, or that is more than a year out.
+
 ## Allen's interval algebra in conflict resolution
 
 The conflict resolver (`fn::resolve_fact`) checks `(entity, predicate, semantics)` against existing active facts. For **bitemporal** predicates, "competing" candidates are now **double-gated**:

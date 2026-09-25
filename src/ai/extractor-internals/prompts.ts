@@ -200,10 +200,11 @@ BE EXHAUSTIVE (recall matters more than brevity):
 `;
 
 /**
- * The memory contract — appended to BOTH headers. It explains the three
+ * The memory contract — appended to BOTH headers. It explains the
  * output fields that tie an extraction to what the graph already holds
- * (`known`, `supersedes`, and the `eventTime`/`endTime` period a fact's
- * value or an edge's relation held), the entity policy those fields
+ * (`known`, `supersedes`, the `eventTime`/`endTime` period a fact's value
+ * or an edge's relation held, and a temporary state's `expectedEnd`), the
+ * entity policy those fields
  * assume, and the one predicate the serving side reads by name
  * (`instruction`). The matching user-message sections are rendered by
  * renderMemoryContext; the schema fields are added by
@@ -260,6 +261,19 @@ CURRENT TURN only; the rest is what the memory already holds.
   over") holds FROM that day: eventTime, never endTime. "Until the 24th X
   ran on A; from the 24th on B" → both are emitted: A with endTime 24th, B
   with eventTime 24th (as facts, and as (X, runs_on, …) edges).
+
+  expectedEnd (per fact) — only for a TEMPORARY state the subject is in: an
+  illness or injury, a trip, a stay or visit somewhere, being away, on leave or
+  busy with something for a while, when the clause names no end (a stated end —
+  "until Friday", "this week" — is endTime). The day it would ordinarily be
+  over, judged from what the state is and resolved against TURN DATE (a cold:
+  about a week; a conference trip: its usual few days). null for everything
+  that holds until something changes it (a job, a home, a relationship, a
+  preference, a setting, a plan, a decision), for something that happened,
+  for a state with no ordinary length, and whenever endTime is set. A KNOWN
+  FACT marked "(expected until …)" is such a state: a turn saying it still
+  holds states it again with a new expectedEnd; a turn saying it is over
+  supersedes it.
 
   cardinality (per fact) — can the subject hold several of these at once?
   "one": no — a SETTING or a STATE it is in (where it runs, its budget, a
@@ -543,6 +557,11 @@ export function buildExtractionSchema(opts?: {
               description:
                 "YYYY-MM-DD this value stopped holding when the clause says it ended or was replaced ('ran on A until the 24th', 'moved from X to Y on …' ends X); null while it holds, and null for a value that itself states an ending ('sold', 'no longer has it', 'is over' — that value begins then: eventTime).",
             },
+            expectedEnd: {
+              type: ['string', 'null'],
+              description:
+                'YYYY-MM-DD a TEMPORARY state (illness, trip, stay, being away or busy) whose end the clause does not name would ordinarily be over, resolved against TURN DATE; null for anything that holds until changed, and when endTime is set.',
+            },
             supersedes: {
               type: 'array',
               description:
@@ -565,6 +584,7 @@ export function buildExtractionSchema(opts?: {
             'confidence',
             'eventTime',
             'endTime',
+            'expectedEnd',
             'supersedes',
             'cardinality',
           ],

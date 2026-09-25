@@ -60,6 +60,14 @@ export interface SearchHit {
     confidence: number;
     validFrom: string;
     validUntil?: string | undefined;
+    /**
+     * When the temporary state this fact states is expected to be over
+     * (0166): inferred at write time from what the state is — an
+     * illness, a trip. An expectation, not an end; the answer plane
+     * renders it and, once past, says nothing has confirmed the state
+     * since. Absent for everything that holds until changed.
+     */
+    expectedUntil?: string | undefined;
     status: string;
     /** Write-time source key (trustSnapshot, migration 0044) — lets a
      *  caller chase a citation back to WHO claimed it. Absent on

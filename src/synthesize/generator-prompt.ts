@@ -10,6 +10,7 @@ import {
   type LaneId,
 } from './answer-router';
 import { askerGeneratorLine, type Asker } from './asker';
+import { EXPECTATION_MARK } from '../ingest/fact-expectation';
 
 /**
  * Generator user-message assembly, exported for byte-equality tests.
@@ -216,6 +217,7 @@ export function buildGeneratorUserMessage({
           .map((i) => `- ${i}`)
           .join('\n')}\n`
       : '';
+  const expectationInstruction = expectationInstructionFor(factLines);
   const conflictNote = dateArbitratedConflicts
     ? CONTRADICTION_DATE_ARBITRATION_INSTRUCTION
     : CONTRADICTION_NOTE_INSTRUCTION;
@@ -246,8 +248,21 @@ export function buildGeneratorUserMessage({
     dateMathLines && dateMathLines.length > 0
       ? `\n\nDate table (computed from the fact date stamps — trust it over your own arithmetic; gaps are between EVIDENCE dates, not from today):\n${dateMathLines.join('\n')}`
       : '';
-  return `Query: ${query}\n${askerGeneratorLine(asker)}${renderRevisionSection(revise)}${dateInstruction}${shapeInstruction ?? ''}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${beliefSection}${sceneSection}${fragmentSection}${dateMathSection}${renderStrategySection(strategyNotes)}${langInstruction}`;
+  return `Query: ${query}\n${askerGeneratorLine(asker)}${renderRevisionSection(revise)}${dateInstruction}${expectationInstruction}${shapeInstruction ?? ''}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${beliefSection}${sceneSection}${fragmentSection}${dateMathSection}${renderStrategySection(strategyNotes)}${langInstruction}`;
 }
+
+/**
+ * 0166: how to read a temporary state's expectation. Added only when a
+ * fact line carries one (fact-index formatExpectation), so every other
+ * prompt stays byte-identical. The comparison against the query's date
+ * is already made in code; the rule only says what each reading means.
+ */
+function expectationInstructionFor(factLines: string[]): string {
+  return factLines.some((l) => l.includes(EXPECTATION_MARK)) ? EXPECTATION_INSTRUCTION : '';
+}
+
+const EXPECTATION_INSTRUCTION =
+  'Some facts are temporary states. "(temporary — expected until D)": as far as the memory knows, the state still holds. "(temporary — expected over by D; not confirmed since)": the state was expected to be over by D and nothing has said it still holds — never state it as the current state; say it was the case as of its date and was expected to be over by D.\n';
 
 /**
  * The revision round's frame (revise-round.ts). A grounding audit of the

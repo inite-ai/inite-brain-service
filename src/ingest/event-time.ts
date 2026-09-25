@@ -637,3 +637,35 @@ function dayStart(day: string | undefined): Date | undefined {
   const at = new Date(`${day}T00:00:00Z`);
   return Number.isNaN(at.getTime()) ? undefined : at;
 }
+
+/**
+ * Longest expectation a temporary state keeps (0166). The extractor is told
+ * to set expectedEnd only for a state with an ordinary length — an
+ * illness, a trip, a stay — so a day further out than this is a reading
+ * of something permanent, and it is dropped rather than rendered as
+ * "expected over by" a year from now.
+ */
+export const MAX_EXPECTATION_DAYS = 366;
+
+/**
+ * When a temporary state is expected to be over (0166): the extractor's
+ * expectedEnd day at 00:00Z — the same convention as validUntil. It is an
+ * expectation, never an end, so it only exists while it is ahead of the
+ * state: after the value's start and after the moment it was said (an
+ * expectation already past when the state was reported contradicts the
+ * report), and no further out than MAX_EXPECTATION_DAYS from the turn.
+ * Undefined when the state carries none.
+ */
+export function factExpectation(
+  expectedEnd: string | undefined,
+  emittedAt: string | Date,
+  validFrom: Date,
+): Date | undefined {
+  const at = dayStart(expectedEnd);
+  if (!at) return undefined;
+  const said = (emittedAt instanceof Date ? emittedAt : new Date(emittedAt)).getTime();
+  if (Number.isNaN(said)) return undefined;
+  if (at.getTime() <= said || at.getTime() <= validFrom.getTime()) return undefined;
+  if (at.getTime() - said > MAX_EXPECTATION_DAYS * 86_400_000) return undefined;
+  return at;
+}

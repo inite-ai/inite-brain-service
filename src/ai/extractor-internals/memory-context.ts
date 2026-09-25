@@ -61,6 +61,12 @@ export interface MemoryFact {
   /** Calendar day the value stopped holding (YYYY-MM-DD); absent while it holds. */
   until?: string | undefined;
   /**
+   * Day a temporary state is expected to be over (0166), for display —
+   * the extractor re-states a state the turn says still holds with a new
+   * expectedEnd, and supersedes one the turn says is over.
+   */
+  expectedUntil?: string | undefined;
+  /**
    * Set for a relation (a knowledge_edge): 'out' — the known entity is
    * the subject (`e2 — runs_on → Fly.io`), 'in' — the peer is
    * (`Pedro Lima — covers_for → e1`). A relation is knowledge the graph
@@ -79,7 +85,7 @@ function period(f: MemoryFact): string {
 
 /** One KNOWN FACTS line: a fact as `e2 · predicate: value`, a relation in its own direction. */
 export function renderMemoryFact(f: MemoryFact): string {
-  const since = period(f);
+  const since = period(f) + (f.expectedUntil ? ` (expected until ${f.expectedUntil})` : '');
   if (f.edge === 'out')
     return `[${f.handle}] ${f.entityHandle} — ${f.predicate} → ${clip(f.object, 160)}${since}`;
   if (f.edge === 'in')

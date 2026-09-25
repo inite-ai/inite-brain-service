@@ -30,6 +30,8 @@ export const EntityProfileFactSchema = z.object({
   confidence: z.number(),
   validFrom: z.string(),
   validUntil: z.string().optional(),
+  /** When a temporary state is expected to be over (0166) — an expectation inferred at write time, not an end. */
+  expectedUntil: z.string().optional(),
   status: z.string(),
 });
 

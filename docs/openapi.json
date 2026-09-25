@@ -1521,6 +1521,9 @@
           "confidence": {
             "type": "number"
           },
+          "expectedUntil": {
+            "type": "string"
+          },
           "factId": {
             "type": "string"
           },
@@ -5455,6 +5458,9 @@
           "confidence": {
             "type": "number"
           },
+          "expectedUntil": {
+            "type": "string"
+          },
           "factId": {
             "type": "string"
           },
@@ -6860,6 +6866,9 @@
             "type": "number"
           },
           "date": {
+            "type": "string"
+          },
+          "expectedUntil": {
             "type": "string"
           },
           "factId": {

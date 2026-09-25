@@ -4,7 +4,12 @@ import { SurrealService } from '../db/surreal.service';
 import { EntityUpsertService } from '../ingest/entity-upsert.service';
 import { FactResolverService } from '../ingest/fact-resolver.service';
 import { createEdgeBetween } from '../ingest/edge-writer';
-import { edgeTiming, factTiming, resolveEventTimeOpts } from '../ingest/event-time';
+import {
+  edgeTiming,
+  factExpectation,
+  factTiming,
+  resolveEventTimeOpts,
+} from '../ingest/event-time';
 import { traceSpan } from '../common/debug-trace';
 import { originKeyOf, StoredDocument } from './document-store.service';
 import { internalMetaString, participantsFromMeta } from './document-meta';
@@ -148,6 +153,10 @@ export class CommitWriterService {
         // `p.doc.occurredAt` unconditionally, which stamped every fact a
         // stock deployment ingests with the day it was SAID.
         const { validFrom, validUntil, objectMeta } = factTiming(mf, p.doc.occurredAt, timeOpts);
+        // A value with a stated end carries no expectation (0166).
+        const expectedUntil = validUntil
+          ? undefined
+          : factExpectation(mf.expectedEnd, p.doc.occurredAt, validFrom);
         const { result } = await traceSpan(
           'brain.commit.fact',
           () =>
@@ -159,6 +168,7 @@ export class CommitWriterService {
               confidence: mf.confidence,
               validFrom,
               validUntil,
+              expectedUntil,
               objectMeta,
               supersedes: mf.supersedes,
               source: this.factSource(p.doc, mf, episodeOf(p.turns, mf)),

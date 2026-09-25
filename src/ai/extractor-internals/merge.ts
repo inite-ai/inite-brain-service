@@ -89,6 +89,7 @@ export function mergeExtractions(
         // passes of three became a timeless fact whenever pass 0 missed it.
         if (!kept.eventTime && f.eventTime) kept.eventTime = f.eventTime;
         if (!kept.endTime && f.endTime) kept.endTime = f.endTime;
+        if (!kept.expectedEnd && f.expectedEnd) kept.expectedEnd = f.expectedEnd;
         continue;
       }
       const stats = sc?.get(k);

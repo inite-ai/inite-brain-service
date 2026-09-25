@@ -24,9 +24,10 @@ export const GENERAL_INDEXER_ID = '_general';
  * ran; DocumentReindexService re-reads each tenant's documents once per
  * version). History: '0' the union extractor; '1' edges carry the period
  * they held (eventTime/endTime, 0164); '2' facts carry the day they
- * stopped holding (endTime).
+ * stopped holding (endTime); '3' a temporary state carries the day it is
+ * expected to be over (expectedEnd, 0166).
  */
-export const GENERAL_INDEXER_VERSION = '2';
+export const GENERAL_INDEXER_VERSION = '3';
 /** Attribution bucket for unprefixed (core-vocabulary) predicates. */
 export const CORE_INDEXER_ID = 'core';
 

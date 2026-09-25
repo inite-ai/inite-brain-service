@@ -576,6 +576,7 @@ export function buildPrepareOpts(args: {
   markRecency: boolean;
   mentionDates: boolean;
   sceneTraces: boolean;
+  expectationsAt: string;
 } {
   const { answerMode, explain, lane, asOf, profile, asker } = args;
   return {
@@ -594,5 +595,8 @@ export function buildPrepareOpts(args: {
     mentionDates: profile.mentionDates,
     // V13 dual-trace read side: "(context: …)" scene suffixes.
     sceneTraces: profile.sceneTraces,
+    // 0166: a temporary state's expectation is judged at the query's
+    // valid-time instant — what was expected as of asOf, else now.
+    expectationsAt: asOf ?? new Date().toISOString(),
   };
 }

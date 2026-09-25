@@ -435,10 +435,11 @@ export class CandidateStoreService {
             object: f.object,
             clause: f.clause,
             // Memory-context fields: the day the value refers to, the day
-            // it stopped holding, and the known facts this one replaces.
-            // Absent = absent.
+            // it stopped holding, the day a temporary state is expected to
+            // be over, and the known facts this one replaces. Absent = absent.
             ...(f.eventTime ? { eventTime: f.eventTime } : {}),
             ...(f.endTime ? { endTime: f.endTime } : {}),
+            ...(f.expectedEnd ? { expectedEnd: f.expectedEnd } : {}),
             ...(f.supersedes && f.supersedes.length > 0 ? { supersedes: f.supersedes } : {}),
             ungrounded: f.ungrounded,
             extractionEntropy: f.extractionEntropy,

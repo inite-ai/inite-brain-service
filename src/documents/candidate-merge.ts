@@ -53,6 +53,8 @@ export interface MergedFact {
   eventTime?: string | undefined;
   /** YYYY-MM-DD the value stopped holding; leader's, else any contributor's. */
   endTime?: string | undefined;
+  /** YYYY-MM-DD a temporary state is expected to be over (0166); leader's, else any contributor's. */
+  expectedEnd?: string | undefined;
   /** knowledge_fact ids this fact replaces — the union across contributors. */
   supersedes?: string[] | undefined;
   /** Leader's indexer — becomes the committed fact's source.recorder. */
@@ -279,6 +281,7 @@ function foldFactIntoGroup(p: {
       clause: typeof payload.clause === 'string' ? payload.clause : undefined,
       eventTime: strOrUndefined(payload.eventTime),
       endTime: strOrUndefined(payload.endTime),
+      expectedEnd: strOrUndefined(payload.expectedEnd),
       supersedes: idList(payload.supersedes),
       recorder: contributor.indexerId,
       leaderId: row.id,
@@ -353,18 +356,26 @@ function mergeRelations(rows: CandidateRow[], ctx: MergeContext): MergedRelation
  * one never erases it.
  */
 function foldDays(
-  group: { eventTime?: string | undefined; endTime?: string | undefined },
+  group: {
+    eventTime?: string | undefined;
+    endTime?: string | undefined;
+    expectedEnd?: string | undefined;
+  },
   payload: Record<string, unknown>,
   leads: boolean,
 ): void {
   const eventTime = strOrUndefined(payload.eventTime);
   const endTime = strOrUndefined(payload.endTime);
+  // A relation carries no expectation; a fact's folds by the same rule (0166).
+  const expectedEnd = strOrUndefined(payload.expectedEnd);
   if (leads) {
     group.eventTime = eventTime ?? group.eventTime;
     group.endTime = endTime ?? group.endTime;
+    if (expectedEnd) group.expectedEnd = expectedEnd;
   } else {
     group.eventTime ??= eventTime;
     group.endTime ??= endTime;
+    if (expectedEnd) group.expectedEnd ??= expectedEnd;
   }
 }
 

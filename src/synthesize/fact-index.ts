@@ -2,6 +2,7 @@ import type { SearchHit } from '../search/search.service';
 import { formatElapsed } from './answer-router';
 import { ASKER_LABEL } from './asker';
 import { UNKNOWN_START } from '../ingest/event-time';
+import { formatExpectation } from '../ingest/fact-expectation';
 
 /**
  * Fact-line rendering for the generator/verifier prompts, split out of
@@ -161,6 +162,13 @@ export function buildFactIndex(
      * person meets its evidence without a name to match.
      */
     askerEntityId?: string | undefined;
+    /**
+     * The instant a temporary state's expectation (0166) is judged
+     * against — the query's asOf, else now. The comparison happens here,
+     * in code: a line reads "expected until D" while D is ahead and
+     * "expected over by D; not confirmed since" once it has passed.
+     */
+    expectationsAt?: string | undefined;
   },
 ): FactIndexResult {
   const factIndex = new Map<string, Citation>();
@@ -317,16 +325,18 @@ function factLineSuffixes(
     elapsedAsOf?: string | undefined;
     mentionDates?: boolean | undefined;
     sceneTraces?: boolean | undefined;
+    expectationsAt?: string | undefined;
   },
 ): string {
   const elapsed = opts?.elapsedAsOf ? formatElapsed(f.validFrom, opts.elapsedAsOf) : '';
+  const expected = formatExpectation(f.expectedUntil, opts?.expectationsAt);
   const mention = opts?.mentionDates ? formatMentionDate(f.mentionedAt, f.validFrom) : '';
   const scene = opts?.sceneTraces && f.scene?.trim() ? ` (context: ${f.scene.trim()})` : '';
   // The day the value points at, as resolved at write time — "19
   // сентября" said in September 2026 reads (on 2026-09-19), so the
   // generator and the date table place it without parsing.
   const on = f.date && toValidityDate(f.date) ? ` (on ${f.date})` : '';
-  return `${on}${formatFactValidity(f.validFrom, f.validUntil)}${mention}${scene}${elapsed}`;
+  return `${on}${formatFactValidity(f.validFrom, f.validUntil)}${expected}${mention}${scene}${elapsed}`;
 }
 
 /**
