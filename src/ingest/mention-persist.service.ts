@@ -17,6 +17,7 @@ import { MentionSource } from './mention-extraction.service';
 import type { ExtractionResult } from '../ai/extractor.service';
 import type { ResolveOutcome } from './conflict-resolver';
 import { coreferentParticipant, participantHint, participantsOf } from './participants';
+import { relativeHint } from './relative-role';
 import { envFlagEnabled } from '../common/env-validation';
 import {
   edgeTiming,
@@ -94,7 +95,11 @@ export class MentionPersistService {
     const entityIds: string[] = [];
     for (let i = 0; i < extraction.entities.length; i++) {
       const e = extraction.entities[i]!;
-      const knownHint = participantHint(coreferentParticipant(e.name, participants), dto.userId);
+      // A relative named by role ("Father", "my mom") is the speaker's own
+      // and anchors personal under the user's scope (relative-role.ts).
+      const knownHint =
+        participantHint(coreferentParticipant(e.name, participants), dto.userId) ??
+        relativeHint(e, dto.userId);
       // The entity's freshly-extracted facts feed the inline-resolution judge
       // (the "new" side — these aren't written yet). Its EDGES go too, as
       // `kind: <other entity's name>` lines: the extractor files "works at
