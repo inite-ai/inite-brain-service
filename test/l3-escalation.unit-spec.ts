@@ -101,6 +101,11 @@ describe('l3TriggerDecision — the monotone trigger matrix', () => {
     expect(refineSettled({ refined: false, generated: { refineQuery: 'more' } })).toBe(false);
   });
 
+  it('an answer that does not give what was asked never counts as a flip', () => {
+    expect(verifierPasses({ verdict: 'supported', answerGiven: false }, true)).toBe(false);
+    expect(verifierPasses({ verdict: 'supported', answerGiven: true }, true)).toBe(true);
+  });
+
   it('requires a refine first when the search loop is on', () => {
     expect(l3TriggerDecision({ ...base, searchLoop: true, refineAttempted: false })).toBe(
       'skip_no_refine',

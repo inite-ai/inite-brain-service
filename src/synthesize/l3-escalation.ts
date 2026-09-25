@@ -151,6 +151,8 @@ export function l3Covered(
 export function verifierPasses(verdict: VerifierOutput, topicCoverage: boolean): boolean {
   if (verdict.verdict !== 'supported') return false;
   if (topicCoverage && verdict.questionAnswered === false) return false;
+  // "Not stated" read from the raw text is not a flip.
+  if (verdict.answerGiven === false) return false;
   return true;
 }
 

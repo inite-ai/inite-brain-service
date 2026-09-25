@@ -42,6 +42,16 @@ export interface VerifierOutput {
    * Undefined when the audit ran without topic coverage.
    */
   questionAnswered?: boolean;
+  /**
+   * Whether the ANSWER itself gives what the query asks — as opposed to
+   * saying it is not stated, unknown, or giving only part of it.
+   * `questionAnswered` judges the evidence; this judges the answer. They
+   * part exactly where the generator missed what the evidence holds, or
+   * the evidence is honestly silent: both are where the raw text is read
+   * next (L3) and neither is an answer to keep (answer cache). Undefined
+   * when the audit did not judge it.
+   */
+  answerGiven?: boolean;
 }
 
 const VERIFIER_SYSTEM = `You are a fact-grounding auditor for a knowledge-graph answer system.
@@ -195,6 +205,11 @@ async function decideGrounding(req: VerifyRequest): Promise<VerifierOutput | nul
               instructions:
                 'Does the EVIDENCE contain an actual answer to the QUESTION — not merely facts about its topic?',
             },
+            answer_given: {
+              type: 'noul' as const,
+              instructions:
+                'Does the ANSWER itself give what the QUESTION asks for — rather than saying it is not stated, not known or not in the data, or giving only part of what was asked (the what without the why, the who without the when)?',
+            },
           }
         : {}),
     },
@@ -208,6 +223,8 @@ async function decideGrounding(req: VerifyRequest): Promise<VerifierOutput | nul
   if (req.topicCoverage === true) {
     if (!answered || answered.type !== 'noul') return null;
     out.questionAnswered = answered.noul >= 0.5;
+    const given = res?.answers['answer_given'];
+    if (given?.type === 'noul') out.answerGiven = given.noul >= 0.5;
   }
   traceArtifact('synthesize.verifier_decision', {
     model: res?.model,
@@ -215,6 +232,7 @@ async function decideGrounding(req: VerifyRequest): Promise<VerifierOutput | nul
     confidence: grounding.confidence,
     probabilities: grounding.probabilities,
     ...(out.questionAnswered !== undefined ? { questionAnswered: out.questionAnswered } : {}),
+    ...(out.answerGiven !== undefined ? { answerGiven: out.answerGiven } : {}),
   });
   return out;
 }

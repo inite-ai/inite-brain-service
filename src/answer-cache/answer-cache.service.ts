@@ -451,6 +451,7 @@ export class AnswerCacheService {
       | {
           verdict: 'supported' | 'partial' | 'unsupported';
           questionAnswered?: boolean | undefined;
+          answerGiven?: boolean | undefined;
         },
   ): Promise<void> {
     const verdict = typeof audit === 'string' ? audit : audit.verdict;
@@ -461,7 +462,10 @@ export class AnswerCacheService {
     // becomes readable, so the entry would be served over it. Measured on
     // production — four questions kept answering "причина не указана" from
     // the cache after the documents' raw text could answer them.
-    if (typeof audit !== 'string' && audit.questionAnswered === false) {
+    if (
+      typeof audit !== 'string' &&
+      (audit.questionAnswered === false || audit.answerGiven === false)
+    ) {
       this.metrics?.countAnswerCache('not_admitted');
       traceArtifact('synthesize.answer_cache', { decision: 'not_admitted', why: 'unanswered' });
       return;

@@ -782,6 +782,9 @@ describe('AnswerCacheService.admit — admission rules', () => {
     await h.svc.admit(ctx, grounded, { verdict: 'supported', questionAnswered: false });
     expect(h.calls.find((c) => /UPSERT/.test(c.sql))).toBeUndefined();
     expect(h.outcomes).toEqual(['not_admitted']);
+    const notGiven = makeHarness({});
+    await notGiven.svc.admit(ctx, grounded, { verdict: 'supported', answerGiven: false });
+    expect(notGiven.outcomes).toEqual(['not_admitted']);
     const answered = makeHarness({});
     await answered.svc.admit(ctx, grounded, { verdict: 'supported', questionAnswered: true });
     expect(answered.outcomes).toEqual(['stored']);

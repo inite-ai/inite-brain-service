@@ -269,7 +269,11 @@ export class L3EscalationService {
     const reason = l3TriggerDecision({
       l3Escalation: profile.l3Escalation,
       verdict: input.verdict.verdict,
-      questionAnswered: input.verdict.questionAnswered,
+      // An answer that does not give what was asked is unanswered whatever
+      // the evidence holds: the generator missed it, or it is in the raw
+      // text only — either way the raw text is the next place to read.
+      questionAnswered:
+        input.verdict.answerGiven === false ? false : input.verdict.questionAnswered,
       covered: l3Covered(input.results, {
         minTopScore: profile.abstentionMinTopScore,
         minEvidence: profile.abstentionMinEvidence,
