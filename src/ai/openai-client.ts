@@ -141,17 +141,37 @@ function namespaced(body: ChatBody, prefix: string, isFallback: boolean): ChatBo
   return { ...rest, model };
 }
 
-/** The account cannot pay: OpenAI's 429 insufficient_quota. */
+/**
+ * The account cannot pay. OpenAI says so in the error TYPE
+ * (`insufficient_quota`); the CODE changed under it — on 2026-09-25 it was
+ * `credit_balance_exhausted`, and a code-only match never failed over.
+ */
+const QUOTA_MARKERS = new Set(['insufficient_quota', 'credit_balance_exhausted']);
+
 function quotaRefusal(err: unknown): boolean {
-  const e = err as { status?: number; code?: string; error?: { code?: string } };
-  return e?.status === 429 && (e.code ?? e.error?.code) === 'insufficient_quota';
+  const e = err as {
+    status?: number;
+    code?: string;
+    type?: string;
+    error?: { code?: string; type?: string };
+  };
+  if (e?.status !== 429) return false;
+  return [e.code, e.type, e.error?.code, e.error?.type].some((m) => !!m && QUOTA_MARKERS.has(m));
 }
 
-/** A refusal about the account or the provider, not about this request. */
+/**
+ * A refusal about the account or the provider, not about this request:
+ * no credit, a revoked key, an outage — or a rate limit that outlived the
+ * SDK's own retries (the provider has no capacity for us right now).
+ */
 function providerSideFailure(err: unknown): boolean {
   const status = (err as { status?: number })?.status;
-  if (quotaRefusal(err)) return true;
-  return status === 401 || status === 403 || (typeof status === 'number' && status >= 500);
+  return (
+    status === 429 ||
+    status === 401 ||
+    status === 403 ||
+    (typeof status === 'number' && status >= 500)
+  );
 }
 
 /** Test seam: forget a quota refusal. */
