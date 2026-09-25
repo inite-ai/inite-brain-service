@@ -33,9 +33,11 @@ function stubCreate(impl: (baseURL: string, body: Record<string, unknown>) => un
   return { calls, spy };
 }
 
+// The body OpenAI returned on 2026-09-25: the type says quota, the code is new.
 const quota = Object.assign(new Error('429 You have no credits remaining'), {
   status: 429,
-  code: 'insufficient_quota',
+  type: 'insufficient_quota',
+  code: 'credit_balance_exhausted',
 });
 
 const env = {
