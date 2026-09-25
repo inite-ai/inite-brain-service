@@ -120,21 +120,37 @@ async function status(check) {
   return (await probe(check)).status;
 }
 
+/** Gateway statuses: the load balancer answered, but has no ready backend. */
+const NOT_ROUTED = new Set([502, 503, 504]);
+
 /**
- * Wait for the host to answer at all before judging individual routes.
- * On a first deploy, DNS and the Let's Encrypt cert can take a minute,
- * and that is not the same failure as a broken route.
+ * Wait for the host to answer — through a backend — before judging
+ * individual routes. On a first deploy, DNS and the Let's Encrypt cert can
+ * take a minute, and that is not the same failure as a broken route.
+ *
+ * A gateway status is not an answer either: right after the container
+ * swap Traefik has not yet health-checked the new replica into rotation
+ * and returns 503 for every path. Judging the routes in that window failed
+ * two deploys on 2026-09-25 whose replica the internal readiness gate had
+ * already cleared (5 of 5 checks 503 eleven seconds after READY), and the
+ * rollback took production back to the previous image for nothing. A
+ * replica that never becomes routable still fails — after the wait.
  */
 async function waitForReachable() {
   const probe = checks[0];
   for (let attempt = 1; attempt <= REACH_ATTEMPTS; attempt += 1) {
     try {
-      await status(probe);
-      return true;
+      const code = await status(probe);
+      if (!NOT_ROUTED.has(code)) return true;
+      console.log(
+        `[smoke] ${BASE} answered ${code} — not routed to a backend yet (${attempt}/${REACH_ATTEMPTS})`,
+      );
     } catch (err) {
-      console.log(`[smoke] ${BASE} not reachable yet (${attempt}/${REACH_ATTEMPTS}): ${err.message}`);
-      await sleep(REACH_DELAY_SECONDS * 1000);
+      console.log(
+        `[smoke] ${BASE} not reachable yet (${attempt}/${REACH_ATTEMPTS}): ${err.message}`,
+      );
     }
+    await sleep(REACH_DELAY_SECONDS * 1000);
   }
   return false;
 }
