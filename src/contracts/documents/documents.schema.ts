@@ -216,6 +216,14 @@ export const SubmittedRelationSchema = z.object({
   toEntityIndex: z.number().int().nonnegative(),
   kind: z.string(),
   confidence: z.number().optional(),
+  eventTime: z
+    .string()
+    .optional()
+    .describe('YYYY-MM-DD the relation began to hold; absent = from when the document says it.'),
+  endTime: z
+    .string()
+    .optional()
+    .describe('YYYY-MM-DD the relation stopped holding; absent = still holds.'),
 });
 
 /** Mirror of SubmittedScene (0110, PACK_MEMORY_PROJECTIONS_ENABLED). */

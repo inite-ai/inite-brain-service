@@ -20,11 +20,11 @@ AND status NOT IN ['superseded', 'compacted']            -- not explicitly retir
 
 Why this default — 95% of memory-layer callers (LLM agents, customer-data dashboards, support tooling) want "what's true right now". The audit shape — every active-status fact ever ingested — is the exception, served by an explicit parameter:
 
-| Caller intent | Pass |
-|---|---|
-| "What's true right now?" | (default — no extra flags) |
-| "What was true on date X?" | `asOf: "2026-04-01T00:00:00Z"` |
-| "Show me everything we have" | `includeStale: true` |
+| Caller intent                 | Pass                                               |
+| ----------------------------- | -------------------------------------------------- |
+| "What's true right now?"      | (default — no extra flags)                         |
+| "What was true on date X?"    | `asOf: "2026-04-01T00:00:00Z"`                     |
+| "Show me everything we have"  | `includeStale: true`                               |
 | "Show me retracted facts too" | `includeRetracted: true` (composes with the above) |
 
 This is a **breaking change** from the v0.1.0 default which returned every active-status fact regardless of validity window. Existing audit-style callers must opt in via `includeStale: true` or use the entity timeline endpoint.
@@ -50,12 +50,12 @@ Sequential intervals (older's `validUntil` ≤ newer's `validFrom`) are NOT comp
 
 Open-ended intervals (`validUntil IS NONE`) are treated as extending to +∞:
 
-| New interval | Old interval | Overlap? |
-|---|---|---|
-| `[Apr1, ∞)` | `[Jan1, Apr1)` | No — sequential, no conflict |
-| `[Apr1, ∞)` | `[Jan1, ∞)` | Yes — both open-ended, conflict (margin / supersede) |
-| `[Mar15, ∞)` | `[Jan1, Apr1)` | Yes — overlap on `[Mar15, Apr1)`, conflict |
-| `[Apr1, May1)` | `[Apr15, ∞)` | Yes — overlap on `[Apr15, May1)`, conflict |
+| New interval   | Old interval   | Overlap?                                             |
+| -------------- | -------------- | ---------------------------------------------------- |
+| `[Apr1, ∞)`    | `[Jan1, Apr1)` | No — sequential, no conflict                         |
+| `[Apr1, ∞)`    | `[Jan1, ∞)`    | Yes — both open-ended, conflict (margin / supersede) |
+| `[Mar15, ∞)`   | `[Jan1, Apr1)` | Yes — overlap on `[Mar15, Apr1)`, conflict           |
+| `[Apr1, May1)` | `[Apr15, ∞)`   | Yes — overlap on `[Apr15, May1)`, conflict           |
 
 Single-active predicates (`name`, `email`, `phone`, `dob`) bypass the overlap check — by definition only one row at a time, every prior active conflicts with the new one. Append-only (`said`, `complained_about`, `interacted_with`) never conflict — but since migration 0082 they DO corroborate: an exact-object claim from a different origin strengthens the incumbent (`status='corroborating'`) instead of piling up as a duplicate active row.
 
@@ -63,7 +63,7 @@ Single-active predicates (`name`, `email`, `phone`, `dob`) bypass the overlap ch
 
 The dialogue extraction profile (open vocabulary) keeps the SPECIFIC predicate the extractor coined — `painted_seascape`, not `hobby`. Two consequences, both engine-wide invariants:
 
-1. **Resolution keys on the canonical form.** The EDC canonicalization the extraction prompt promises runs as an *alias pass*: the coinage stays in `predicate`, the registry's canonical id lands in `knowledge_fact.predicateAlias`, and the resolver (plus dedup, the diversity cap, chatter demotion, and the dreams sweeps) key on `predicateAlias ?? predicate`. Closed-vocabulary tenants never populate the alias, so their keys are byte-identical to pre-0082.
+1. **Resolution keys on the canonical form.** The EDC canonicalization the extraction prompt promises runs as an _alias pass_: the coinage stays in `predicate`, the registry's canonical id lands in `knowledge_fact.predicateAlias`, and the resolver (plus dedup, the diversity cap, chatter demotion, and the dreams sweeps) key on `predicateAlias ?? predicate`. Closed-vocabulary tenants never populate the alias, so their keys are byte-identical to pre-0082.
 2. **Unknown predicates default to `append_only`, not `bitemporal`.** A predicate absent from the registry is an open-vocabulary observation; supersede/compete semantics were designed for closed CRM predicates and made every coined fact take the serialized per-fact mutex path. Seed and operator-declared predicates keep their per-predicate policies. Two seed-keyed carve-outs deliberately do NOT follow the fallback: dreams-corroborate sweeps coined groups (fuzzy same-assertion is what collapses re-worded coinages) while still skipping seed append_only event history, and episodic promotion folds ONLY seed append_only predicates (a `summary_<coinage>` row would trade recall drivers for a paraphrase).
 
 ## What changes for callers
@@ -105,12 +105,30 @@ is `src/search/internals/where-builder.ts`, `src/entities/entity-read.helpers.ts
 (`activeFactWhere`) and the connections query in `src/entities/entities.service.ts`.
 Nothing here is renamed — consumers already depend on it.
 
-| Surface | `asOf` means | Knowledge-time control |
-|---|---|---|
-| `POST /v1/search`, `/v1/search/multi-hop`, `/v1/synthesize`; MCP `search_knowledge`, `search_multi_hop`, `graph_retrieve`, `synthesize` | **Valid time.** `validFrom <= asOf < validUntil`, plus `retractedAt IS NONE OR retractedAt > asOf`. `recordedAt` is deliberately **not** bounded: a fact brain learned after `asOf` (a backdated ingest) still answers "what was true then". | **None.** There is no knowledge-time snapshot on search. |
-| `GET /v1/entities/:id`; MCP `get_entity_profile` | **Valid time**, same closure as search. | `?recordedAt=` (REST only) — transaction time: only facts recorded by T, retractions/supersedes after T ignored. Combines with `asOf`. |
-| `GET /v1/entities/:id/timeline`; MCP `get_entity_timeline` | n/a — the timeline is the transaction-time axis itself. | `?recordedAt=` (REST only) cuts the event list to what was known by T; the MCP tool returns the full audit shape. |
-| `GET /v1/entities/:id/connections`; MCP `find_related_entities` | **Transaction time on edges**: `createdAt <= asOf AND (invalidatedAt IS NONE OR invalidatedAt > asOf)` — "connections as they were believed at T". Edges carry no valid-time interval. | (that is what `asOf` already is here) |
+| Surface                                                                                                                                 | `asOf` means                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Knowledge-time control                                                                                                                 |
+| --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/search`, `/v1/search/multi-hop`, `/v1/synthesize`; MCP `search_knowledge`, `search_multi_hop`, `graph_retrieve`, `synthesize` | **Valid time.** `validFrom <= asOf < validUntil`, plus `retractedAt IS NONE OR retractedAt > asOf`. `recordedAt` is deliberately **not** bounded: a fact brain learned after `asOf` (a backdated ingest) still answers "what was true then". Graph relations (hit `relations`, graph expansion, `graph_retrieve`'s 1-hop walk) take the same valid-time cut on the edge: `(validFrom IS NONE OR validFrom <= asOf) AND (validUntil IS NONE OR validUntil > asOf)`. | **None.** There is no knowledge-time snapshot on search.                                                                               |
+| `GET /v1/entities/:id`; MCP `get_entity_profile`                                                                                        | **Valid time**, same closure as search.                                                                                                                                                                                                                                                                                                                                                                                                                            | `?recordedAt=` (REST only) — transaction time: only facts recorded by T, retractions/supersedes after T ignored. Combines with `asOf`. |
+| `GET /v1/entities/:id/timeline`; MCP `get_entity_timeline`                                                                              | n/a — the timeline is the transaction-time axis itself.                                                                                                                                                                                                                                                                                                                                                                                                            | `?recordedAt=` (REST only) cuts the event list to what was known by T; the MCP tool returns the full audit shape.                      |
+| `GET /v1/entities/:id/connections`; MCP `find_related_entities`                                                                         | **Transaction time on edges**: `createdAt <= asOf AND (invalidatedAt IS NONE OR invalidatedAt > asOf)` — "connections as they were believed at T". The edge's valid-time interval (below) is not consulted here.                                                                                                                                                                                                                                                   | (that is what `asOf` already is here)                                                                                                  |
+
+### Edges are bitemporal too (0164)
+
+A `knowledge_edge` carries both axes, like a fact:
+
+- **Valid time.** `validFrom` is when the relation began to hold: the extractor's
+  per-edge `eventTime`, resolved like a fact's, or the moment it was said when no
+  day is named. `validUntil` is when it stopped: the extractor's `endTime`
+  ("until the 24th"), or the `validFrom` of the fact that superseded it.
+  `validFrom` NONE means the relation began before anything recorded says. That
+  is the case for a relation stated only as having ended.
+- **Knowledge time.** `createdAt` is when brain recorded the relation, and
+  `invalidatedAt` is when brain learned that it ended. Current-state reads fence
+  on `invalidatedAt IS NONE`.
+
+Before 0164 an edge had knowledge time only, and the one closure path wrote the
+superseding fact's valid time into `invalidatedAt`. The migration moves that
+value into `validUntil`.
 
 Two consequences worth stating plainly:
 

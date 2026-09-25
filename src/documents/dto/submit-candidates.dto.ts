@@ -38,6 +38,10 @@ export interface SubmittedRelation {
   toEntityIndex: number;
   kind: string;
   confidence?: number;
+  /** YYYY-MM-DD the relation began to hold; absent = when the document says it. */
+  eventTime?: string;
+  /** YYYY-MM-DD it stopped holding; absent = still holds. */
+  endTime?: string;
 }
 
 /**

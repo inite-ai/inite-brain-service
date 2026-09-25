@@ -99,16 +99,24 @@ export function mergeExtractions(
   });
 
   const edges: ExtractionResult['edges'] = [];
-  const seenEdges = new Set<string>();
+  const seenEdges = new Map<string, ExtractionResult['edges'][number]>();
   passes.forEach((pass, p) => {
     for (const ed of pass.edges) {
       const from = remaps[p]!.get(ed.fromEntityIndex);
       const to = remaps[p]!.get(ed.toEntityIndex);
       if (from === undefined || to === undefined) continue;
       const k = `${from}-${ed.kind}-${to}`;
-      if (seenEdges.has(k)) continue;
-      seenEdges.add(k);
-      edges.push({ ...ed, fromEntityIndex: from, toEntityIndex: to });
+      const kept = seenEdges.get(k);
+      if (kept) {
+        // The first pass wins the edge, but a day only a later pass
+        // resolved still bounds the relation — a stated period beats none.
+        if (!kept.eventTime && ed.eventTime) kept.eventTime = ed.eventTime;
+        if (!kept.endTime && ed.endTime) kept.endTime = ed.endTime;
+        continue;
+      }
+      const merged = { ...ed, fromEntityIndex: from, toEntityIndex: to };
+      seenEdges.set(k, merged);
+      edges.push(merged);
     }
   });
 

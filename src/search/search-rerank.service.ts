@@ -96,6 +96,7 @@ export class SearchRerankService {
           logger: this.logger,
           entityIds: wideCandidates.map((e) => e.entityId),
           userId: ctx.dto.userId,
+          asOf: ctx.dto.asOf,
         }),
       { 'neighbours.candidates': wideCandidates.length },
     );

@@ -1,3 +1,4 @@
+import { parseEventTime } from './grounding';
 import type { ExtractedEdge } from './types';
 
 /**
@@ -65,7 +66,22 @@ export function validateEdges(
       kind,
       confidence,
       ...(clauseText ? { clause: clauseText } : {}),
+      ...edgeDays(e),
     });
   }
   return { edges, dropped };
+}
+
+/**
+ * The relation's valid-time days as the extractor resolved them. A
+ * malformed day is dropped rather than failing the edge: the link still
+ * holds, only its period is unknown (the writer then stamps the turn).
+ */
+function edgeDays(e: Record<string, unknown>): { eventTime?: string; endTime?: string } {
+  const eventTime = parseEventTime(e.eventTime);
+  const endTime = parseEventTime(e.endTime);
+  return {
+    ...(eventTime ? { eventTime } : {}),
+    ...(endTime ? { endTime } : {}),
+  };
 }

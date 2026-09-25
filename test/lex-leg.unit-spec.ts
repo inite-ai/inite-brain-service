@@ -1,4 +1,4 @@
-import { buildLexMatchLeg } from '../src/synthesize/lex-leg';
+import { buildLexMatchLeg } from '../src/search/internals/lex-leg';
 import {
   resolveRetrievalProfile,
   resolveRetrievalProfileFor,

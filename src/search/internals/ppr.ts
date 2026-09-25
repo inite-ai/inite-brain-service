@@ -35,9 +35,14 @@ type PprEdge = { in: unknown; out: unknown; weight?: number };
 
 /** PPR step 1 — fetch in-subgraph edges. Both endpoints are already in
  *  the (fact-fenced) candidate set, so only the edge-row fence applies. */
-async function fetchPprEdges(db: Surreal, ids: string[], userId?: string): Promise<PprEdge[]> {
+async function fetchPprEdges(
+  db: Surreal,
+  ids: string[],
+  cut: { userId?: string | undefined; asOf?: string | undefined },
+): Promise<PprEdge[]> {
+  const { userId, asOf } = cut;
   const ridIds = ids.map((s) => new StringRecordId(s));
-  const fence = buildEdgeFence(userId);
+  const fence = buildEdgeFence(userId, asOf);
   const [edgeRows] = await db.query<[PprEdge[]]>(
     `SELECT in, out, weight FROM knowledge_edge
        WHERE in INSIDE $ids AND out INSIDE $ids
@@ -157,11 +162,11 @@ function applyPprBoost(byEntity: Map<string, EntityBucket>, r: Map<string, numbe
 export async function applyPprPrior(
   db: Surreal,
   byEntity: Map<string, EntityBucket>,
-  userId?: string,
+  cut: { userId?: string | undefined; asOf?: string | undefined } = {},
 ): Promise<void> {
   const ids = [...byEntity.keys()];
   if (ids.length < 2) return;
-  const edges = await fetchPprEdges(db, ids, userId);
+  const edges = await fetchPprEdges(db, ids, cut);
   if (edges.length === 0) return;
 
   const { adj, outWeight } = buildPprAdjacency(ids, edges);

@@ -1,6 +1,7 @@
 import { Surreal, StringRecordId } from 'surrealdb';
 import type { GraphEntity, GraphFactRow } from './graph-retrieve';
 import { buildEdgeFence } from './edge-fence';
+import { buildLexMatchLeg } from './lex-leg';
 
 /**
  * DB layer for graph-retrieve. Three queries:
@@ -65,6 +66,10 @@ export async function resolveSeedEntities(
   //   - `search::score(1)` reads the score for that matcher
   //   - We keep `mergedInto IS NONE` so identity-merged entities don't
   //     resurface.
+  // Any word of the message names an entity: the matches operator fed
+  // the whole message is AND over its words, and a message is almost
+  // never a subset of one entity's name (lex-leg.ts).
+  const lex = buildLexMatchLeg({ fields: ['canonicalName'], topic: targetLc, mode: 'or_terms' });
   const [allRows] = await db.query<
     [
       Array<{
@@ -77,14 +82,14 @@ export async function resolveSeedEntities(
     ]
   >(
     `SELECT id, type, canonicalName, externalRefs,
-            search::score(1) AS bm25
+            ${lex.score} AS bm25
        FROM knowledge_entity
       WHERE mergedInto IS NONE
         AND userId IS NONE
-        AND canonicalName @1@ $q
+        AND ${lex.where}
       ORDER BY bm25 DESC
       LIMIT 5`,
-    { q: targetLc },
+    lex.params,
   );
   return (allRows ?? []).map(toGraphEntity);
 }
@@ -98,12 +103,17 @@ export async function resolveSeedEntities(
  * Returns FULL entity ids (with the table prefix `knowledge_entity:`)
  * so they round-trip through the next query's WHERE INSIDE clause.
  */
-export async function fetchOneHopNeighbourIds(db: Surreal, seedIds: string[]): Promise<string[]> {
+export async function fetchOneHopNeighbourIds(
+  db: Surreal,
+  seedIds: string[],
+  asOf?: string,
+): Promise<string[]> {
   if (seedIds.length === 0) return [];
   const rids = seedIds.map((s) => new StringRecordId(s));
   // Tenant-global surface (seeds and facts already filter userId IS
-  // NONE) — the edge walk carries the same fail-closed fence.
-  const fence = buildEdgeFence();
+  // NONE) — the edge walk carries the same fail-closed fence, and the
+  // same valid-time cut as the facts it reaches.
+  const fence = buildEdgeFence(undefined, asOf);
   type Row = {
     id: unknown;
     outNeighbours: Array<{
@@ -119,7 +129,7 @@ export async function fetchOneHopNeighbourIds(db: Surreal, seedIds: string[]): P
         ->(knowledge_edge WHERE ${fence.cond}).{ peer: out.{id, userId} } AS outNeighbours,
         <-(knowledge_edge WHERE ${fence.cond}).{ peer: in.{id, userId} } AS inNeighbours
       FROM $ids`,
-    { ids: rids },
+    { ids: rids, ...fence.params },
   );
   const out = new Set<string>();
   for (const row of rows ?? []) {

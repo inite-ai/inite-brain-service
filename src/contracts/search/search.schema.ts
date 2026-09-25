@@ -107,6 +107,10 @@ export const SearchRelationSchema = z.object({
   edgeId: z.string().optional(),
   /** 'out' = the hit's entity is the subject of the relation; 'in' = its object. */
   direction: z.enum(['out', 'in']).optional(),
+  /** Valid time: when the relation began holding (absent = before anything recorded says). */
+  validFrom: z.string().optional(),
+  /** Valid time: when it stopped holding (absent = still holds). */
+  validUntil: z.string().optional(),
 });
 
 export const SearchHitSchema = z.object({

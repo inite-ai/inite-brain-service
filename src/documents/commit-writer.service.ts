@@ -4,7 +4,7 @@ import { SurrealService } from '../db/surreal.service';
 import { EntityUpsertService } from '../ingest/entity-upsert.service';
 import { FactResolverService } from '../ingest/fact-resolver.service';
 import { createEdgeBetween } from '../ingest/edge-writer';
-import { factTiming, resolveEventTimeOpts } from '../ingest/event-time';
+import { edgeTiming, factTiming, resolveEventTimeOpts } from '../ingest/event-time';
 import { traceSpan } from '../common/debug-trace';
 import { originKeyOf, StoredDocument } from './document-store.service';
 import { internalMetaString, participantsFromMeta } from './document-meta';
@@ -286,6 +286,8 @@ export class CommitWriterService {
               },
               // Same scope as the document's facts (0055).
               userId: p.doc.userId,
+              // Valid time (0164) against the same instant the facts use.
+              ...edgeTiming(mr, p.doc.occurredAt),
             }),
           { kind: mr.kind, from: fromId, to: toId },
         );

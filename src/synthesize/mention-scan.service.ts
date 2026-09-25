@@ -14,7 +14,7 @@ import {
   type ScanRow,
 } from './mention-scan';
 import { BRUTE_ONLY, runDenseScanLeg, type CoverageScanTuning } from '../search/internals/scan-leg';
-import { buildLexMatchLeg } from './lex-leg';
+import { buildLexMatchLeg } from '../search/internals/lex-leg';
 import type { CoverageLexMode } from '../search/retrieval-profile';
 
 interface SegmentScanRow {

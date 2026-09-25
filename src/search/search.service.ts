@@ -269,7 +269,7 @@ export class SearchService {
         if (seeds.length === 0) return { results: [] };
         const seedIds = seeds.map((s) => s.entityId);
 
-        const neighbourIds = await fetchOneHopNeighbourIds(db, seedIds);
+        const neighbourIds = await fetchOneHopNeighbourIds(db, seedIds, asOf);
         // Neighbour hydration and the facts fetch are independent once
         // the neighbour ids are known — run them in one round-trip
         // window instead of serially.
@@ -360,11 +360,13 @@ export class SearchService {
     entityIds: string[];
     callerScopes: string[];
     userId?: string;
+    /** Valid-time cut on the edges walked (edge-fence.ts). */
+    asOf?: string | undefined;
   }): Promise<string[]> {
-    const { companyId, entityIds, callerScopes, userId } = opts;
+    const { companyId, entityIds, callerScopes, userId, asOf } = opts;
     if (entityIds.length === 0) return entityIds;
     return this.surreal.withScopedCompany(companyId, callerScopes, (db) =>
-      expandEntityIdsViaEdgesDb({ db, logger: this.logger, entityIds, userId }),
+      expandEntityIdsViaEdgesDb({ db, logger: this.logger, entityIds, userId, asOf }),
     );
   }
 
@@ -464,7 +466,9 @@ export class SearchService {
         surreal: this.surreal,
         logger: this.logger,
         companyId,
-        factIds: out.results.flatMap((h) => (h.facts ?? []).map((f) => f.factId)),
+        // fact_usage.factId is record<knowledge_fact>: a segment or edge
+        // row in the same INSERT failed the whole batch.
+        factIds: surfacedFactIds(out.results),
       });
     }
     // Outcome telemetry (0107, default off): the raw `retrieved` stream
@@ -476,13 +480,11 @@ export class SearchService {
     if (this.outcomes && outcomeRetrievedEventsEnabled()) {
       this.outcomes.recordOutcomes({
         companyId,
-        events: out.results.flatMap((h) =>
-          (h.facts ?? []).map((f) => ({
-            subjectKind: 'fact' as const,
-            subjectId: f.factId,
-            event: 'retrieved' as const,
-          })),
-        ),
+        events: surfacedFactIds(out.results).map((subjectId) => ({
+          subjectKind: 'fact' as const,
+          subjectId,
+          event: 'retrieved' as const,
+        })),
       });
     }
     return out;
@@ -722,6 +724,15 @@ export class SearchService {
       }
     }
 
+    // 6c. Relation leg: an entity the query names that the fact legs
+    // did not bring — it had no fact to show at the asked time — comes
+    // in on its edges that held then. An entity the facts did bring
+    // keeps its relations as the attachment they are (step 7's
+    // neighbours, asOf-fenced): as rows beside its facts they crowded
+    // the fact-centric cut (measured: a stale `owns` edge outranked
+    // "sold the motorcycle").
+    addAbsentBuckets(byEntity, await this.retrieval.runRelationLegStage(db, ctx));
+
     // Last DB touch: prefetch the 1-hop neighbourhoods the LLM rerank
     // body wants, so the rerank stage needs no connection at all.
     const neighboursByEntity = await this.rerank.prefetchNeighbours(db, byEntity, ctx);
@@ -846,9 +857,13 @@ export class SearchService {
     const pprAutoThreshold = ctx.tuning.pprAutoThreshold;
     const pprAuto = pprAutoThreshold > 0 && byEntity.size >= pprAutoThreshold;
     if (!(pprForced || pprAuto) || byEntity.size <= 1) return;
-    await withSpan('search.ppr', () => applyPprPrior(db, byEntity, ctx.dto.userId), {
-      'ppr.entities': byEntity.size,
-    });
+    await withSpan(
+      'search.ppr',
+      () => applyPprPrior(db, byEntity, { userId: ctx.dto.userId, asOf: ctx.dto.asOf }),
+      {
+        'ppr.entities': byEntity.size,
+      },
+    );
   }
 }
 
@@ -859,4 +874,20 @@ export interface GraphRetrieveOptions {
   predicateHints: string[];
   asOf: string | undefined;
   callerScopes: string[];
+}
+
+/** The knowledge_fact rows a search surfaced — not the segment or edge
+ *  rows the verbatim and relation legs bring as fact-shaped hits. */
+function surfacedFactIds(results: SearchHit[]): string[] {
+  return results.flatMap((h) =>
+    (h.facts ?? []).flatMap((f) => (f.factId.startsWith('knowledge_fact:') ? [f.factId] : [])),
+  );
+}
+
+/** Open a bucket for each entity `byEntity` does not already hold. */
+function addAbsentBuckets(
+  byEntity: Map<string, EntityBucket>,
+  extra: Map<string, EntityBucket>,
+): void {
+  for (const [id, bucket] of extra) if (!byEntity.has(id)) byEntity.set(id, bucket);
 }

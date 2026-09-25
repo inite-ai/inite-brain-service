@@ -34,6 +34,18 @@ describe('buildEdgeFence', () => {
     expect(f.allowsPeer('alice')).toBe(true);
     expect(f.allowsPeer('bob')).toBe(false);
   });
+
+  it('asOf is a valid-time cut: what held at T, however it was closed later', () => {
+    const f = buildEdgeFence('alice', '2026-09-22T12:00:00Z');
+    expect(f.cond).toBe(
+      '(validFrom IS NONE OR validFrom <= $edgeAsOf) AND (validUntil IS NONE OR validUntil > $edgeAsOf) AND (userId IS NONE OR userId = $edgeScopeUserId)',
+    );
+    expect(f.cond).not.toContain('invalidatedAt');
+    expect(f.params).toEqual({
+      edgeScopeUserId: 'alice',
+      edgeAsOf: new Date('2026-09-22T12:00:00Z'),
+    });
+  });
 });
 
 function captureDb(results: unknown[][]): {
@@ -198,6 +210,44 @@ describe('rerank neighbours under the fence', () => {
     const names = (map.get('knowledge_entity:a') ?? []).map((n) => n.canonicalName);
     expect(names).toEqual(['Acme']);
   });
+
+  it('an asOf read walks the edges that held then and carries their interval', async () => {
+    const { db, sql, params } = captureDb([
+      [
+        [
+          {
+            id: 'knowledge_entity:brain',
+            outNeighbours: [
+              {
+                id: 'knowledge_edge:old',
+                kind: 'runs_on',
+                validUntil: new Date('2026-09-24T00:00:00Z'),
+                peer: {
+                  id: 'knowledge_entity:luna56',
+                  type: 'asset',
+                  canonicalName: 'gpt-5.6-luna',
+                  userId: null,
+                },
+              },
+            ],
+            inNeighbours: null,
+          },
+        ],
+      ],
+    ]);
+    const map = await fetchNeighbours({
+      db,
+      logger: warnless,
+      entityIds: ['knowledge_entity:brain'],
+      asOf: '2026-09-22T12:00:00Z',
+    });
+    expect(sql[0]).toContain('validUntil > $edgeAsOf');
+    expect(params[0]).toHaveProperty('edgeAsOf');
+    expect(map.get('knowledge_entity:brain')?.[0]).toMatchObject({
+      canonicalName: 'gpt-5.6-luna',
+      validUntil: '2026-09-24T00:00:00.000Z',
+    });
+  });
 });
 
 describe('multi-hop id expansion under the fence', () => {
@@ -240,7 +290,7 @@ describe('PPR under the fence', () => {
         { entityId: 'knowledge_entity:b', rankScore: 1, bestScore: 1, facts: [] },
       ],
     ]);
-    await applyPprPrior(db, byEntity as never, 'alice');
+    await applyPprPrior(db, byEntity as never, { userId: 'alice' });
     expect(sql[0]).toContain(
       'invalidatedAt IS NONE AND (userId IS NONE OR userId = $edgeScopeUserId)',
     );

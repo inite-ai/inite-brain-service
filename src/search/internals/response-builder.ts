@@ -79,6 +79,8 @@ export function assembleHits({
         peerId: n.peerId,
         edgeId: n.edgeId,
         direction: n.direction,
+        ...(n.validFrom ? { validFrom: n.validFrom } : {}),
+        ...(n.validUntil ? { validUntil: n.validUntil } : {}),
       }));
       const matchedRender = matchedSorted.map(({ row, score, breakdown }) => ({
         factId: String(row.id),

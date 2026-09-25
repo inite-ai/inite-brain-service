@@ -5,7 +5,7 @@ import { RerankerService } from '../ai/reranker.service';
 import { segmentUserGate } from '../auth/segment-scope';
 import { resolveSearchTuning } from '../search/retrieval-profile';
 import { runDenseScanLeg, type CoverageScanTuning } from '../search/internals/scan-leg';
-import { buildLexMatchLeg } from './lex-leg';
+import { buildLexMatchLeg } from '../search/internals/lex-leg';
 
 interface SegmentRow {
   id: unknown;

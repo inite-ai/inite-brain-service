@@ -35,6 +35,9 @@ export interface SearchHit {
     edgeId?: string | undefined;
     /** 'out' = this entity is the subject of the relation; 'in' = its object. */
     direction?: 'out' | 'in' | undefined;
+    /** Valid time (0164): when the relation began / stopped holding. */
+    validFrom?: string | undefined;
+    validUntil?: string | undefined;
   }>;
   facts: Array<{
     factId: string;

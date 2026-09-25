@@ -40,6 +40,8 @@ interface EdgeRow {
   userId?: string | null;
   createdAt: unknown;
   invalidatedAt?: unknown;
+  validFrom?: Date | null;
+  validUntil?: Date | null;
 }
 
 /**
@@ -264,7 +266,7 @@ export class ScopedEntityConsolidationService {
     const copy = new StringRecordId(p.copy);
     const rows = await queryRows<EdgeRow>(
       db,
-      `SELECT id, in, out, kind, weight, source, userId, createdAt, invalidatedAt
+      `SELECT id, in, out, kind, weight, source, userId, createdAt, invalidatedAt, validFrom, validUntil
          FROM knowledge_edge WHERE in = $copy OR out = $copy`,
       { copy },
     );
@@ -283,6 +285,9 @@ export class ScopedEntityConsolidationService {
         source: e.source ?? {},
         weight: e.weight,
         userId: e.userId ?? undefined,
+        // The period the relation held travels with it (0164).
+        ...(e.validFrom ? { validFrom: toDate(e.validFrom) } : {}),
+        ...(e.validUntil ? { validUntil: toDate(e.validUntil) } : {}),
       });
       if (newId && newId !== String(e.id)) {
         // The earlier of the two creation times, and a closed edge stays
@@ -344,4 +349,11 @@ export class ScopedEntityConsolidationService {
 
 function recordId(v: unknown): StringRecordId {
   return new StringRecordId(String(v));
+}
+
+/** A Surreal datetime (DateTime or Date) as a JS Date. */
+function toDate(v: unknown): Date {
+  if (v instanceof Date) return v;
+  const d = v as { toDate?: () => Date };
+  return typeof d.toDate === 'function' ? d.toDate() : new Date(String(v));
 }

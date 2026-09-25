@@ -310,6 +310,7 @@ export class MultiHopChainService {
             entityIds: priorEntityIds,
             callerScopes,
             ...(dto.userId !== undefined ? { userId: dto.userId } : {}),
+            asOf: dto.asOf,
           });
         } catch (err) {
           this.logger.warn(

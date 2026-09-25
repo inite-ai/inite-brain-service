@@ -462,6 +462,9 @@ export class CandidateStoreService {
             toEntityIndex: r.toEntityIndex,
             kind: r.kind,
             clause: r.clause,
+            // The period the relation held (0164). Absent = absent.
+            ...(r.eventTime ? { eventTime: r.eventTime } : {}),
+            ...(r.endTime ? { endTime: r.endTime } : {}),
             indexerId: prov.indexerId,
             packVersion: prov.packVersion,
             executionMode: prov.executionMode,

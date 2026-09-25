@@ -946,6 +946,24 @@ describe('buildFactIndex renders graph relations as evidence', () => {
     ],
   });
 
+  it('a relation reads with its validity, like a fact', () => {
+    const { factLines } = buildFactIndex([
+      hitWith([
+        {
+          kind: 'runs_on',
+          peer: 'gpt-5.6-luna',
+          peerType: 'asset',
+          edgeId: 'knowledge_edge:e9',
+          direction: 'out',
+          validUntil: '2026-09-24T00:00:00.000Z',
+        },
+      ]),
+    ]);
+    expect(factLines[1]).toBe(
+      '[r1] Мария Альварес (staff) — runs_on → gpt-5.6-luna (asset) (until 2026-09-24)',
+    );
+  });
+
   it('a relation with its edge record is a citable line with an [r#] handle, in the edge direction', () => {
     const { factIndex, factLines } = buildFactIndex([
       hitWith([

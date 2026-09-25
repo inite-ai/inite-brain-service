@@ -543,3 +543,54 @@ export function factTiming(
   }
   return { validFrom: factValidFrom(f, emittedAt, opts) };
 }
+
+/** An edge's valid-time interval; an absent side is open (NONE on the row). */
+export interface EdgeTiming {
+  /** When the relation began to hold; absent = before anything recorded says. */
+  validFrom?: Date;
+  /** When it stopped holding; absent = still holds. */
+  validUntil?: Date;
+}
+
+/**
+ * The relation's valid time on the write path (0164), from the days the
+ * extractor resolved for the edge.
+ *
+ * The start follows factTiming exactly — a stated day at or before the
+ * turn is when it began, a future day or none means "from when it was
+ * said" — so a fact and the edge that carries the same statement agree
+ * on when it started. The chrono lane is deliberately not consulted: an
+ * edge clause names its END as often as its start ("до 24 сентября
+ * работал на X"), and chrono would read that day as the beginning.
+ *
+ * The end is the stated endTime at 00:00Z. A relation stated ONLY as
+ * having ended held before it was said, so its start is unknown, not
+ * the turn — validFrom stays unset rather than inventing a zero-length
+ * (or inverted) interval. For the same reason a start that is not
+ * before the end is dropped.
+ */
+export function edgeTiming(
+  e: { kind: string; eventTime?: string | undefined; endTime?: string | undefined },
+  emittedAt: string | Date,
+): EdgeTiming {
+  const validUntil = dayStart(e.endTime);
+  if (validUntil && !dayStart(e.eventTime)) return { validUntil };
+  const { validFrom } = factTiming(
+    { predicate: e.kind, eventTime: e.eventTime },
+    emittedAt,
+    // No clause, so the chrono fallback never runs; the knobs are inert.
+    { on: false },
+  );
+  // An unparseable emittedAt yields no start rather than an Invalid Date
+  // the row would reject.
+  if (Number.isNaN(validFrom.getTime())) return validUntil ? { validUntil } : {};
+  if (!validUntil) return { validFrom };
+  return validFrom.getTime() < validUntil.getTime() ? { validFrom, validUntil } : { validUntil };
+}
+
+/** A YYYY-MM-DD day as its UTC midnight, or undefined for anything else. */
+function dayStart(day: string | undefined): Date | undefined {
+  if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return undefined;
+  const at = new Date(`${day}T00:00:00Z`);
+  return Number.isNaN(at.getTime()) ? undefined : at;
+}

@@ -17,7 +17,12 @@ describe('MentionPersistService batched edge persistence', () => {
    * @param existingIdx  statement indices the existence check reports as present
    * @param relateThrows batch RELATE trips UNIQUE (concurrent-race simulation)
    */
-  function fakeDb(opts: { existingIdx?: number[]; relateThrows?: boolean }) {
+  function fakeDb(opts: {
+    existingIdx?: number[];
+    relateThrows?: boolean;
+    /** Stored period of every existing edge (0164). */
+    stored?: { validFrom?: string; validUntil?: string };
+  }) {
     const queries: Q[] = [];
     const existing = new Set(opts.existingIdx ?? []);
     const db = {
@@ -30,10 +35,13 @@ describe('MentionPersistService batched edge persistence', () => {
           return i;
         };
         // Multi-statement existence check (batched, indexed params f0/t0/k0…).
-        if (s.startsWith('SELECT id FROM knowledge_edge') && params.f0 !== undefined) {
+        if (
+          s.startsWith('SELECT id, validFrom, validUntil FROM knowledge_edge') &&
+          params.f0 !== undefined
+        ) {
           const n = indexedCount();
           return Array.from({ length: n }, (_v, i) =>
-            existing.has(i) ? [{ id: `knowledge_edge:exist_${i}` }] : [],
+            existing.has(i) ? [{ id: `knowledge_edge:exist_${i}`, ...opts.stored }] : [],
           );
         }
         // Multi-statement RELATE (batched, indexed params).
@@ -102,7 +110,11 @@ describe('MentionPersistService batched edge persistence', () => {
     const ids = await run(make(), db, extraction, ['entity:a', 'entity:b', 'entity:c']);
     expect(ids).toEqual(['knowledge_edge:new_0', 'knowledge_edge:new_1']);
     expect(queries).toHaveLength(2);
-    expect(queries[0]!.sql.trimStart().startsWith('SELECT id FROM knowledge_edge')).toBe(true);
+    expect(
+      queries[0]!.sql
+        .trimStart()
+        .startsWith('SELECT id, validFrom, validUntil FROM knowledge_edge'),
+    ).toBe(true);
     expect(queries[1]!.sql.trimStart().startsWith('RELATE')).toBe(true);
     // Edge content threaded through: kind + source with confidence.
     expect(queries[1]!.params.k0).toBe('knows');
@@ -240,6 +252,88 @@ describe('MentionPersistService batched edge persistence', () => {
     ).persistEdges(db, { extraction, entityIds: ['entity:a', 'entity:b'], dto });
     expect(ids).toEqual(['knowledge_edge:new_0']);
     // Batched shape (existence check first), not the per-edge loop.
-    expect(queries[0]!.sql.trimStart().startsWith('SELECT id FROM knowledge_edge')).toBe(true);
+    expect(
+      queries[0]!.sql
+        .trimStart()
+        .startsWith('SELECT id, validFrom, validUntil FROM knowledge_edge'),
+    ).toBe(true);
+  });
+
+  describe('valid time (0164)', () => {
+    const timed = { ...dto, emittedAt: '2026-09-25T10:00:00.000Z' } as IngestMentionDto;
+    const runTimed = (db: unknown, extraction: unknown, entityIds: string[]) =>
+      (
+        make() as unknown as {
+          persistEdgesBatched: (db: unknown, p: unknown) => Promise<string[]>;
+        }
+      ).persistEdgesBatched(db, { extraction, entityIds, dto: timed });
+
+    it('a new edge carries its period in the RELATE content', async () => {
+      const { db, queries } = fakeDb({ existingIdx: [] });
+      const extraction = {
+        edges: [
+          {
+            fromEntityIndex: 0,
+            toEntityIndex: 1,
+            kind: 'runs_on',
+            confidence: 0.9,
+            eventTime: '2026-09-24',
+          },
+          {
+            fromEntityIndex: 0,
+            toEntityIndex: 2,
+            kind: 'runs_on',
+            confidence: 0.9,
+            endTime: '2026-09-24',
+          },
+        ],
+      };
+      await runTimed(db, extraction, ['entity:brain', 'entity:new', 'entity:old']);
+      const relate = queries[1]!;
+      expect(relate.sql).toContain('validFrom: $validFrom0');
+      expect(relate.params.validFrom0).toEqual(new Date('2026-09-24T00:00:00Z'));
+      // Stated only as having ended: unknown start, closed on both axes.
+      expect(relate.params.validFrom1).toBeUndefined();
+      expect(relate.params.validUntil1).toEqual(new Date('2026-09-24T00:00:00Z'));
+      expect(relate.sql).toContain('invalidatedAt: $invalidatedAt1');
+    });
+
+    it('an existing edge whose period the turn does not change costs no write', async () => {
+      const { db, queries } = fakeDb({
+        existingIdx: [0],
+        stored: { validFrom: '2026-09-01T00:00:00Z' },
+      });
+      const extraction = {
+        edges: [{ fromEntityIndex: 0, toEntityIndex: 1, kind: 'knows', confidence: 0.9 }],
+      };
+      await runTimed(db, extraction, ['entity:a', 'entity:b']);
+      expect(queries).toHaveLength(1);
+    });
+
+    it('an existing edge learns an earlier start and a stated end', async () => {
+      const { db, queries } = fakeDb({
+        existingIdx: [0],
+        stored: { validFrom: '2026-09-20T00:00:00Z' },
+      });
+      const extraction = {
+        edges: [
+          {
+            fromEntityIndex: 0,
+            toEntityIndex: 1,
+            kind: 'runs_on',
+            confidence: 0.9,
+            eventTime: '2026-09-01',
+            endTime: '2026-09-24',
+          },
+        ],
+      };
+      await runTimed(db, extraction, ['entity:brain', 'entity:old']);
+      expect(queries).toHaveLength(2);
+      const fold = queries[1]!;
+      expect(fold.sql).toContain('SET validFrom = $validFrom0 WHERE validFrom IS NOT NONE');
+      expect(fold.sql).toContain('SET validUntil = $validUntil0');
+      expect(fold.sql).toContain('WHERE validUntil IS NONE');
+      expect(fold.params.validFrom0).toEqual(new Date('2026-09-01T00:00:00Z'));
+    });
   });
 });

@@ -31,26 +31,39 @@ export interface EdgeFence {
    */
   scopeCond: string;
   /** Bind params the conditions reference. */
-  params: Record<string, string>;
+  params: Record<string, string | Date>;
   /** Peer-entity visibility: tenant-global always, own-scope when set. */
   allowsPeer(peerUserId: unknown): boolean;
 }
 
-export function buildEdgeFence(userId?: string): EdgeFence {
-  if (userId) {
-    const scopeCond = '(userId IS NONE OR userId = $edgeScopeUserId)';
-    return {
-      cond: `invalidatedAt IS NONE AND ${scopeCond}`,
-      scopeCond,
-      params: { edgeScopeUserId: userId },
-      allowsPeer: (peerUserId) => peerUserId == null || peerUserId === userId,
-    };
+/**
+ * `asOf` asks what held at T — VALID time, as on every fact read (0164):
+ * an edge counts when `validFrom <= T < validUntil`, an unknown start
+ * (validFrom NONE — a relation recorded only as having ended) or end
+ * (validUntil NONE — still holds) open on that side. The knowledge-time
+ * close (invalidatedAt) does not hide it: a relation that ended after T
+ * held at T. Without `asOf` the fence is the current state, as before.
+ */
+export function buildEdgeFence(userId?: string, asOf?: string | Date): EdgeFence {
+  const scoped = userId
+    ? {
+        scopeCond: '(userId IS NONE OR userId = $edgeScopeUserId)',
+        params: { edgeScopeUserId: userId } as Record<string, string | Date>,
+        allowsPeer: (peerUserId: unknown) => peerUserId == null || peerUserId === userId,
+      }
+    : {
+        scopeCond: 'userId IS NONE',
+        params: {} as Record<string, string | Date>,
+        allowsPeer: (peerUserId: unknown) => peerUserId == null,
+      };
+  if (asOf === undefined) {
+    return { ...scoped, cond: `invalidatedAt IS NONE AND ${scoped.scopeCond}` };
   }
-  const scopeCond = 'userId IS NONE';
   return {
-    cond: `invalidatedAt IS NONE AND ${scopeCond}`,
-    scopeCond,
-    params: {},
-    allowsPeer: (peerUserId) => peerUserId == null,
+    ...scoped,
+    cond:
+      '(validFrom IS NONE OR validFrom <= $edgeAsOf) AND (validUntil IS NONE OR validUntil > $edgeAsOf) AND ' +
+      scoped.scopeCond,
+    params: { ...scoped.params, edgeAsOf: asOf instanceof Date ? asOf : new Date(asOf) },
   };
 }

@@ -11,6 +11,9 @@ export type Neighbour = {
   edgeId: string;
   /** 'out' = the entity is the edge's subject; 'in' = its object. */
   direction: 'out' | 'in';
+  /** Valid time (0164): when the relation began / stopped holding. */
+  validFrom?: string | undefined;
+  validUntil?: string | undefined;
 };
 
 /**
@@ -30,20 +33,25 @@ export async function fetchNeighbours({
   logger,
   entityIds,
   userId,
+  asOf,
 }: {
   db: Surreal;
   logger: { warn: (msg: string) => void };
   entityIds: string[];
   /** Caller's end-user scope; omitted → tenant-global edges/peers only. */
   userId?: string | undefined;
+  /** Valid-time cut: the relations that held at T (edge-fence.ts). */
+  asOf?: string | undefined;
 }): Promise<Map<string, Neighbour[]>> {
   const out = new Map<string, Neighbour[]>();
   if (entityIds.length === 0) return out;
   const rids = entityIds.map((s) => new StringRecordId(s));
-  const fence = buildEdgeFence(userId);
+  const fence = buildEdgeFence(userId, asOf);
   type Side = Array<{
     id: unknown;
     kind: string;
+    validFrom?: unknown;
+    validUntil?: unknown;
     peer: {
       id: unknown;
       type: string;
@@ -56,8 +64,8 @@ export async function fetchNeighbours({
     const [rows] = await db.query<[Row[]]>(
       `SELECT
            id,
-           ->(knowledge_edge WHERE ${fence.cond}).{ id, kind, peer: out.{id, type, canonicalName, userId} } AS outNeighbours,
-           <-(knowledge_edge WHERE ${fence.cond}).{ id, kind, peer: in.{id, type, canonicalName, userId} } AS inNeighbours
+           ->(knowledge_edge WHERE ${fence.cond}).{ id, kind, validFrom, validUntil, peer: out.{id, type, canonicalName, userId} } AS outNeighbours,
+           <-(knowledge_edge WHERE ${fence.cond}).{ id, kind, validFrom, validUntil, peer: in.{id, type, canonicalName, userId} } AS inNeighbours
          FROM $ids`,
       { ids: rids, ...fence.params },
     );
@@ -87,6 +95,8 @@ export async function fetchNeighbours({
             kind: e.kind,
             edgeId: String(e.id),
             direction,
+            ...isoField('validFrom', e.validFrom),
+            ...isoField('validUntil', e.validUntil),
           });
         }
       };
@@ -121,19 +131,22 @@ export async function expandEntityIdsViaEdges({
   logger,
   entityIds,
   userId,
+  asOf,
 }: {
   db: Surreal;
   logger: { warn: (msg: string) => void };
   entityIds: string[];
   /** Caller's end-user scope; omitted → tenant-global edges/peers only. */
   userId?: string | undefined;
+  /** Valid-time cut: the relations that held at T (edge-fence.ts). */
+  asOf?: string | undefined;
 }): Promise<string[]> {
   if (entityIds.length === 0) return entityIds;
   const rids = entityIds.map((raw) => {
     const id = raw.startsWith('knowledge_entity:') ? raw.slice('knowledge_entity:'.length) : raw;
     return new StringRecordId(`knowledge_entity:${id}`);
   });
-  const fence = buildEdgeFence(userId);
+  const fence = buildEdgeFence(userId, asOf);
   type Row = {
     id: unknown;
     outNeighbours: Array<{
@@ -182,4 +195,16 @@ export async function expandEntityIdsViaEdges({
     return entityIds;
   }
   return [...out];
+}
+
+/** A datetime column as `{ [key]: ISO }`, or nothing when unset. */
+function isoField(key: 'validFrom' | 'validUntil', v: unknown): Record<string, string> {
+  if (v === undefined || v === null) return {};
+  const d =
+    v instanceof Date
+      ? v
+      : typeof (v as { toDate?: unknown }).toDate === 'function'
+        ? (v as { toDate: () => Date }).toDate()
+        : new Date(String(v));
+  return Number.isNaN(d.getTime()) ? {} : { [key]: d.toISOString() };
 }

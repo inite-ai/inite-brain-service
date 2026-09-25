@@ -6,13 +6,25 @@ import { traceArtifact, traceSpan } from '../common/debug-trace';
 import { redactPii } from './ingest-utils';
 import { EntityUpsertService } from './entity-upsert.service';
 import { FactResolverService } from './fact-resolver.service';
-import { createEdgeBetween, edgeScopeKey } from './edge-writer';
+import {
+  createEdgeBetween,
+  edgeScopeKey,
+  edgeTimeContent,
+  edgeTimingWidens,
+  edgeWidenStatements,
+} from './edge-writer';
 import { MentionSource } from './mention-extraction.service';
 import type { ExtractionResult } from '../ai/extractor.service';
 import type { ResolveOutcome } from './conflict-resolver';
 import { coreferentParticipant, participantHint, participantsOf } from './participants';
 import { envFlagEnabled } from '../common/env-validation';
-import { factTiming, resolveEventTimeOpts, type EventTimeResolveOpts } from './event-time';
+import {
+  edgeTiming,
+  factTiming,
+  resolveEventTimeOpts,
+  type EdgeTiming,
+  type EventTimeResolveOpts,
+} from './event-time';
 
 export interface MentionPersistResult {
   extractedEntityIds: string[];
@@ -351,6 +363,8 @@ export class MentionPersistService {
               },
               // The relation is as personal as the facts of the same turn.
               userId: dto.userId,
+              // Valid time from the days the extractor resolved (0164).
+              ...edgeTiming(e, dto.emittedAt),
             }),
           { kind: e.kind, from: fromEid, to: toEid },
         );
@@ -388,7 +402,9 @@ export class MentionPersistService {
     // same (from,to,kind) twice, which the per-edge loop would resolve to
     // the same id twice. One entry keeps the RELATE batch collision-free.
     const seen = new Set<string>();
-    const cands: Array<{ from: string; to: string; kind: string; confidence: number }> = [];
+    const cands: Array<
+      { from: string; to: string; kind: string; confidence: number } & EdgeTiming
+    > = [];
     for (const e of extraction.edges) {
       const from = entityIds[e.fromEntityIndex];
       const to = entityIds[e.toEntityIndex];
@@ -396,7 +412,13 @@ export class MentionPersistService {
       const key = `${from} ${to} ${e.kind}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      cands.push({ from, to, kind: e.kind, confidence: e.confidence });
+      cands.push({
+        from,
+        to,
+        kind: e.kind,
+        confidence: e.confidence,
+        ...edgeTiming(e, dto.emittedAt),
+      });
     }
     if (cands.length === 0) return [];
 
@@ -420,18 +442,29 @@ export class MentionPersistService {
             existParams[`f${i}`] = new StringRecordId(c.from);
             existParams[`t${i}`] = new StringRecordId(c.to);
             existParams[`k${i}`] = c.kind;
-            return `SELECT id FROM knowledge_edge WHERE in=$f${i} AND out=$t${i} AND kind=$k${i} AND scopeKey=$scopeKey LIMIT 1;`;
+            return `SELECT id, validFrom, validUntil FROM knowledge_edge WHERE in=$f${i} AND out=$t${i} AND kind=$k${i} AND scopeKey=$scopeKey LIMIT 1;`;
           })
           .join('\n');
         const existResults = await db.query<unknown[]>(existStmts, existParams);
 
         const edgeIds: string[] = [];
         const missing: typeof cands = [];
+        const widen: Array<{ id: string; c: (typeof cands)[number] }> = [];
         cands.forEach((c, i) => {
-          const row = ((existResults[i] as Array<{ id: unknown }>) ?? [])[0];
-          if (row?.id) edgeIds.push(String(row.id));
-          else missing.push(c);
+          const row = ((existResults[i] as ExistingEdgeRow[]) ?? [])[0];
+          if (!row?.id) {
+            missing.push(c);
+            return;
+          }
+          edgeIds.push(String(row.id));
+          // A restated period the row already holds costs no write.
+          if (edgeTimingWidens(row, c)) widen.push({ id: String(row.id), c });
         });
+        // Best-effort: the edges exist either way; a failed fold leaves
+        // their period as it was, never loses the link.
+        await widenExisting(db, widen).catch((err: unknown) =>
+          this.logger.warn(`[ingest.edge] period fold failed: ${(err as Error).message}`),
+        );
         if (missing.length === 0) return edgeIds;
 
         // 2. One round-trip RELATE for the missing edges.
@@ -443,7 +476,9 @@ export class MentionPersistService {
               relParams[`t${i}`] = new StringRecordId(c.to);
               relParams[`k${i}`] = c.kind;
               relParams[`s${i}`] = sourceOf(c);
-              return `RELATE $f${i}->knowledge_edge->$t${i} CONTENT { kind: $k${i}, weight: 1.0, source: $s${i}, userId: $userId } RETURN AFTER;`;
+              const time = edgeTimeContent(c, String(i));
+              Object.assign(relParams, time.params);
+              return `RELATE $f${i}->knowledge_edge->$t${i} CONTENT { kind: $k${i}, weight: 1.0, source: $s${i}, userId: $userId${time.fields} } RETURN AFTER;`;
             })
             .join('\n');
           const relResults = await db.query<unknown[]>(relStmts, relParams);
@@ -468,6 +503,8 @@ export class MentionPersistService {
                 kind: c.kind,
                 source: sourceOf(c),
                 userId: dto.userId,
+                validFrom: c.validFrom,
+                validUntil: c.validUntil,
               });
               if (id) edgeIds.push(id);
             } catch (e2) {
@@ -482,4 +519,30 @@ export class MentionPersistService {
       { edges: cands.length },
     );
   }
+}
+
+/** An existing edge as the batched existence check projects it. */
+interface ExistingEdgeRow {
+  id: unknown;
+  validFrom?: unknown;
+  validUntil?: unknown;
+}
+
+/**
+ * A re-stated relation may bound the period its row holds — the same
+ * fold the per-edge primitive applies on its UNIQUE hit, for every
+ * existing edge of the batch in one round-trip.
+ */
+async function widenExisting(
+  db: Surreal,
+  existing: Array<{ id: string; c: EdgeTiming }>,
+): Promise<void> {
+  const stmts: string[] = [];
+  const params: Record<string, unknown> = {};
+  existing.forEach(({ id, c }, i) => {
+    const w = edgeWidenStatements(id, c, { suffix: String(i) });
+    stmts.push(...w.stmts);
+    Object.assign(params, w.params);
+  });
+  if (stmts.length > 0) await db.query(stmts.join('\n'), params);
 }

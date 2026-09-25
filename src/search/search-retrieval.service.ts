@@ -12,6 +12,7 @@ import { fuse } from './internals/fusion';
 import { scoreRows, bucketByEntity } from './internals/scoring';
 import type { QueryTimeRange } from './internals/scoring';
 import { runSegmentLegs } from './internals/segment-leg';
+import { runRelationLeg } from './internals/relation-leg';
 import { PipelineContext } from './pipeline-context';
 import { resolveSearchTuning, type SearchTuning } from './retrieval-profile';
 
@@ -87,7 +88,7 @@ export class SearchRetrievalService {
                   baseWhere,
                   logger: this.logger,
                   tuning: ctx.tuning,
-                  edgeFence: buildEdgeFence(ctx.dto.userId),
+                  edgeFence: buildEdgeFence(ctx.dto.userId, ctx.dto.asOf),
                 });
               } catch (e) {
                 if (ctx.mode === 'vector') throw e;
@@ -166,6 +167,46 @@ export class SearchRetrievalService {
    * degrade to an empty map: verbatim is additive evidence, never a
    * reason to fail the search.
    */
+  /**
+   * Relation leg (relation-leg.ts): the edges of the entities the query
+   * names, at the asked time, scored and bucketed like fact rows so an
+   * entity whose only knowledge at T is a relation still reaches the
+   * answer plane. Fail-soft: a failure costs the leg, never the search.
+   */
+  async runRelationLegStage(db: Surreal, ctx: PipelineContext): Promise<Map<string, EntityBucket>> {
+    try {
+      return await withSpan('search.relation_leg', async (span) => {
+        const rows = await runRelationLeg({
+          db,
+          queryText: ctx.dto.query,
+          userId: ctx.dto.userId,
+          asOf: ctx.dto.asOf,
+          fetchK: ctx.candidateK,
+        });
+        span.setAttribute('candidates', rows.length);
+        traceArtifact(
+          'search.relation_hits',
+          rows.slice(0, 10).map((r) => ({
+            edgeId: String(r.id),
+            line: `${r.entity?.canonicalName ?? ''} — ${r.predicate} → ${r.object}`,
+            validFrom: r.validFrom,
+            validUntil: r.validUntil,
+          })),
+        );
+        if (rows.length === 0) return new Map();
+        return this.scoreAndBucket(fuse([], rows, 'lexical'), {
+          temporalAnchor: ctx.profile.temporalMode === 'overlap_boost' ? ctx.asOf : null,
+          tuning: ctx.tuning,
+          salienceScoring: ctx.profile.salienceScoring,
+          queryRange: ctx.queryRange ?? null,
+        });
+      });
+    } catch (e) {
+      this.logger.warn(`relation leg failed (companyId=${ctx.companyId}): ${(e as Error).message}`);
+      return new Map();
+    }
+  }
+
   async runSegmentLegStage(db: Surreal, ctx: PipelineContext): Promise<Map<string, EntityBucket>> {
     try {
       return await withSpan('search.segment_leg', async (span) => {

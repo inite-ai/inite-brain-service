@@ -335,10 +335,11 @@ export class MemoryContextService {
           fromName: string | null;
           toName: string | null;
           createdAt: unknown;
+          validFrom?: unknown;
         }>,
       ]
     >(
-      `SELECT id, in, out, kind, in.canonicalName AS fromName, out.canonicalName AS toName, createdAt
+      `SELECT id, in, out, kind, in.canonicalName AS fromName, out.canonicalName AS toName, createdAt, validFrom
          FROM knowledge_edge
         WHERE (in IN $ids OR out IN $ids) AND invalidatedAt IS NONE AND ${userGate}
         ORDER BY createdAt DESC LIMIT $k`,
@@ -365,7 +366,9 @@ export class MemoryContextService {
         entityHandle,
         predicate: r.kind,
         object: peer,
-        since: toIso(r.createdAt).slice(0, 10) || undefined,
+        // Since when it holds (0164) — the write instant only for a
+        // relation that predates valid time on edges.
+        since: toIso(r.validFrom ?? r.createdAt).slice(0, 10) || undefined,
         edge,
       });
     }

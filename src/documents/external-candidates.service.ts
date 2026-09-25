@@ -6,7 +6,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { IndexerRouterService } from '../indexers/indexer-router.service';
-import { normalizeEntityType } from '../ai/extractor-internals/grounding';
+import { normalizeEntityType, parseEventTime } from '../ai/extractor-internals/grounding';
 import { PACK_NAMESPACE_SEP } from '../ai/domain-packs/manifest';
 import { policyFor } from '../ingest/conflict-resolver';
 import { RETRACT_ADMIN_PREDICATES } from '../facts/facts.service';
@@ -438,16 +438,25 @@ function validateShapes(dto: SubmitCandidatesDto, indexerId: string): void {
     }
   }
   dto.facts.forEach((f, i) => validateFact(f, i, indexerId));
-  for (const [i, r] of relations.entries()) {
-    if (
-      !Number.isInteger(r?.fromEntityIndex) ||
-      !Number.isInteger(r?.toEntityIndex) ||
-      typeof r.kind !== 'string' ||
-      !r.kind.trim()
-    ) {
-      throw new BadRequestException(
-        `relations[${i}] must carry integer endpoints and a non-empty kind`,
-      );
+  relations.forEach(validateRelation);
+}
+
+function validateRelation(r: SubmittedRelation, i: number): void {
+  if (
+    !Number.isInteger(r?.fromEntityIndex) ||
+    !Number.isInteger(r?.toEntityIndex) ||
+    typeof r.kind !== 'string' ||
+    !r.kind.trim()
+  ) {
+    throw new BadRequestException(
+      `relations[${i}] must carry integer endpoints and a non-empty kind`,
+    );
+  }
+  // A malformed day is refused, not dropped: a submitter that stated a
+  // period and silently lost it would read its relation as timeless.
+  for (const field of ['eventTime', 'endTime'] as const) {
+    if (r[field] !== undefined && !parseEventTime(r[field])) {
+      throw new BadRequestException(`relations[${i}].${field} must be a YYYY-MM-DD day`);
     }
   }
 }
@@ -637,7 +646,15 @@ function toRelation(r: SubmittedRelation): CandidateRelation {
     toEntityIndex: r.toEntityIndex,
     kind: r.kind,
     confidence: clamp01(r.confidence ?? 0.7),
+    ...relationDays(r),
   };
+}
+
+/** The submitted period, normalised to bare days (validated upstream). */
+function relationDays(r: SubmittedRelation): { eventTime?: string; endTime?: string } {
+  const eventTime = parseEventTime(r.eventTime);
+  const endTime = parseEventTime(r.endTime);
+  return { ...(eventTime ? { eventTime } : {}), ...(endTime ? { endTime } : {}) };
 }
 
 function clamp01(n: number): number {

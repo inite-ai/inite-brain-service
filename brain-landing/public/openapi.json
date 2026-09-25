@@ -6962,6 +6962,12 @@
                 },
                 "peerType": {
                   "type": "string"
+                },
+                "validFrom": {
+                  "type": "string"
+                },
+                "validUntil": {
+                  "type": "string"
                 }
               },
               "required": [
@@ -9301,6 +9307,14 @@
         "properties": {
           "confidence": {
             "type": "number"
+          },
+          "endTime": {
+            "description": "YYYY-MM-DD the relation stopped holding; absent = still holds.",
+            "type": "string"
+          },
+          "eventTime": {
+            "description": "YYYY-MM-DD the relation began to hold; absent = from when the document says it.",
+            "type": "string"
           },
           "fromEntityIndex": {
             "maximum": 9007199254740991,

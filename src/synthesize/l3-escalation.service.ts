@@ -51,7 +51,7 @@ import {
   type FocusSignal,
   type PerClassCalibration,
 } from './focus-signal';
-import { buildLexMatchLeg } from './lex-leg';
+import { buildLexMatchLeg } from '../search/internals/lex-leg';
 import { resolveDateContext } from './evidence-union';
 
 /**

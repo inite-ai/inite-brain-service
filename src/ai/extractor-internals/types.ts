@@ -88,6 +88,17 @@ export interface ExtractedEdge {
   confidence: number;
   /** Optional verbatim clause that warranted this edge. */
   clause?: string;
+  /**
+   * YYYY-MM-DD the relation began to hold, resolved by the extractor
+   * against the turn date (memory-context contract, like a fact's
+   * eventTime); absent when the clause names no day.
+   */
+  eventTime?: string;
+  /**
+   * YYYY-MM-DD the relation stopped holding — "until the 24th", "no
+   * longer", "moved from X to Y on …"; absent while it still holds.
+   */
+  endTime?: string;
 }
 
 export interface ExtractionResult {

@@ -66,6 +66,10 @@ export interface MergedRelation {
   toKey: string;
   kind: string;
   confidence: number;
+  /** YYYY-MM-DD the relation began (0164); leader's, else any contributor's. */
+  eventTime?: string | undefined;
+  /** YYYY-MM-DD it stopped holding; leader's, else any contributor's. */
+  endTime?: string | undefined;
   leaderId: string;
   mergedIds: string[];
 }
@@ -325,15 +329,40 @@ function mergeRelations(rows: CandidateRow[], ctx: MergeContext): MergedRelation
         toKey,
         kind: String(p.kind),
         confidence: row.confidence,
+        eventTime: strOrUndefined(p.eventTime),
+        endTime: strOrUndefined(p.endTime),
         leaderId: row.id,
         mergedIds: [],
       });
     } else {
+      foldRelationDays(group, p, row.confidence > group.confidence);
       group.confidence = Math.max(group.confidence, row.confidence);
       group.mergedIds.push(row.id);
     }
   }
   return [...relationGroups.values()];
+}
+
+/**
+ * The period of a relation several chunks or indexers stated — the same
+ * rule as a fact's eventTime: a more confident contributor's stated day
+ * wins, and otherwise a day any contributor stated fills a gap. A stated
+ * period beats none; an unstated one never erases it.
+ */
+function foldRelationDays(
+  group: MergedRelation,
+  payload: Record<string, unknown>,
+  leads: boolean,
+): void {
+  const eventTime = strOrUndefined(payload.eventTime);
+  const endTime = strOrUndefined(payload.endTime);
+  if (leads) {
+    group.eventTime = eventTime ?? group.eventTime;
+    group.endTime = endTime ?? group.endTime;
+  } else {
+    group.eventTime ??= eventTime;
+    group.endTime ??= endTime;
+  }
 }
 
 /** "predicate: object" strings per entity — feeds the inline-resolution judge. */

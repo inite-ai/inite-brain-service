@@ -281,10 +281,13 @@ function relationEntry(
     rel.peerId !== undefined && rel.peerId === askerEntityId
       ? ASKER_LABEL
       : `${rel.peer} (${rel.peerType})`;
+  // A relation holds for a period like a fact does (0164), and reads
+  // with the same validity suffix — "brain — runs_on → gpt-5.6-luna
+  // (until 2026-09-24)" is what an asOf question needs to see.
   const line =
-    rel.direction === 'in'
+    (rel.direction === 'in'
       ? `${object} — ${rel.kind} → ${subject}`
-      : `${subject} — ${rel.kind} → ${object}`;
+      : `${subject} — ${rel.kind} → ${object}`) + formatFactValidity(rel.validFrom, rel.validUntil);
   const citation: Citation | undefined = rel.edgeId
     ? {
         factId: rel.edgeId,
@@ -297,7 +300,7 @@ function relationEntry(
     : undefined;
   return {
     line: citation ? line : `(relation) ${line}`,
-    t: Number.POSITIVE_INFINITY,
+    t: rel.validFrom ? Date.parse(rel.validFrom) : Number.POSITIVE_INFINITY,
     slot: `${r.entityId}::relation::${rel.kind}::${rel.peer}`,
     obj: rel.peer,
     ...(citation ? { citation } : {}),

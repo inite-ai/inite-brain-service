@@ -858,9 +858,12 @@ export class FactResolverService {
    * the ids, as they would from the fn.
    *
    * A relation the extractor named (the memory context lists the known
-   * entities' edges under the same handles) is invalidated from the new
-   * value's day — the edge fence every read runs behind — never before
-   * it was written.
+   * entities' edges under the same handles) is closed on both axes, like
+   * the losing facts: in valid time it held until the new value's day
+   * (validUntil), and in knowledge time brain learned that now
+   * (invalidatedAt — the current-state fence). A relation whose start is
+   * not before that day was stated only as having ended ("until the
+   * 24th"): its start is unknown, not the day it was written (0164).
    */
   private async applyExplicitSupersession(
     db: Surreal,
@@ -893,7 +896,9 @@ export class FactResolverService {
              WHERE status = 'competing' AND array::len($losers) > 0;
            SELECT id FROM $losers;
            UPDATE knowledge_edge SET
-               invalidatedAt = IF $valid_from > createdAt THEN $valid_from ELSE createdAt END
+               validUntil = $valid_from,
+               validFrom = IF validFrom != NONE AND validFrom < $valid_from THEN validFrom ELSE NONE END,
+               invalidatedAt = time::now()
              WHERE id IN $edge_ids AND invalidatedAt IS NONE RETURN id;`,
           {
             ids: factIds.map((id) => new StringRecordId(id)),

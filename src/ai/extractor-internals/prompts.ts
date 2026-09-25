@@ -46,6 +46,8 @@ You output JSON with four top-level fields, in this order:
                          lives_at, affiliated_with, owns, knows, ...)
        clauseIndex     — 0-based index into clauses[]
        confidence      — 0..1
+       eventTime       — YYYY-MM-DD the relation began to hold, or null
+       endTime         — YYYY-MM-DD it stopped holding, or null (see MEMORY)
 
      Emit an edge whenever the text places one named entity in relation to
      another. "X is the CTO at Y" → edge (X, works_at, Y). "X joined Y" →
@@ -157,6 +159,7 @@ OUTPUT CONTRACT — JSON with four top-level fields, in this order:
      outlives the sentence: "my apartment in Riga", "our office in Lisbon", "her
      Kawasaki" → an edge (owner, owns, thing) besides whatever the clause says
      about the thing (listing it for sale does not end the ownership).
+     Each edge also carries eventTime and endTime (see MEMORY).
 
 predicate — COIN A SPECIFIC ONE (there is no fixed list to choose from):
   Write the most specific relationship label as lowercase snake_case, derived from
@@ -199,7 +202,8 @@ BE EXHAUSTIVE (recall matters more than brevity):
 /**
  * The memory contract — appended to BOTH headers. It explains the three
  * output fields that tie an extraction to what the graph already holds
- * (`known`, `supersedes`, `eventTime`), the entity policy those fields
+ * (`known`, `supersedes`, `eventTime` — and an edge's `eventTime`/`endTime`,
+ * the period the relation held), the entity policy those fields
  * assume, and the one predicate the serving side reads by name
  * (`instruction`). The matching user-message sections are rendered by
  * renderMemoryContext; the schema fields are added by
@@ -243,6 +247,14 @@ CURRENT TURN only; the rest is what the memory already holds.
   deadline, a meeting, a start, when something happened or will happen —
   resolved against TURN DATE. null when the clause names no day. The value
   itself stays as written ("19 сентября"); eventTime carries the resolved day.
+
+  eventTime, endTime (per edge) — the period the relation held, resolved
+  against TURN DATE. eventTime: the day it began ("since the 24th", "joined
+  in March"); null when the clause names no day. endTime: the day it stopped
+  — "until the 24th", "no longer", "moved from X to Y on the 24th" closes
+  the X link that day; null while it still holds. "Until the 24th X ran on
+  A; from the 24th on B" → (X, runs_on, A) endTime 24th, (X, runs_on, B)
+  eventTime 24th.
 
   cardinality (per fact) — can the subject hold several of these at once?
   "one": no — a SETTING or a STATE it is in (where it runs, its budget, a
@@ -564,8 +576,26 @@ export function buildExtractionSchema(opts?: {
             },
             clauseIndex: { type: 'integer', minimum: 0 },
             confidence: { type: 'number', minimum: 0, maximum: 1 },
+            eventTime: {
+              type: ['string', 'null'],
+              description:
+                'YYYY-MM-DD the relation began to hold, resolved against TURN DATE; null when the clause names no day.',
+            },
+            endTime: {
+              type: ['string', 'null'],
+              description:
+                "YYYY-MM-DD the relation stopped holding when the clause says it ended or was replaced ('until the 24th', 'no longer', 'moved from X to Y on …'); null while it still holds.",
+            },
           },
-          required: ['fromEntityIndex', 'toEntityIndex', 'kind', 'clauseIndex', 'confidence'],
+          required: [
+            'fromEntityIndex',
+            'toEntityIndex',
+            'kind',
+            'clauseIndex',
+            'confidence',
+            'eventTime',
+            'endTime',
+          ],
         },
       },
     },

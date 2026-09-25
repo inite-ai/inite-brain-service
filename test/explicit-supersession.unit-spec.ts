@@ -87,7 +87,10 @@ describe('FactResolverService — explicit supersession', () => {
     expect((close.params.ids as unknown[]).map(String)).toEqual(['knowledge_fact:old']);
     expect((close.params.edge_ids as unknown[]).map(String)).toEqual(['knowledge_edge:e9']);
     expect(close.sql).toContain('UPDATE knowledge_edge SET');
-    expect(close.sql).toContain('IF $valid_from > createdAt THEN $valid_from ELSE createdAt END');
+    // Closed on both axes (0164): valid time at the new value's day,
+    // knowledge time now.
+    expect(close.sql).toContain('validUntil = $valid_from');
+    expect(close.sql).toContain('invalidatedAt = time::now()');
     expect(close.sql).toContain('invalidatedAt IS NONE');
     expect(result.outcome).toBe('INSERTED');
     expect(result.supersededFactIds).toBeUndefined();

@@ -1,5 +1,5 @@
-import type { CoverageLexMode } from '../search/retrieval-profile';
-import { topicTerms } from './mention-scan';
+import type { CoverageLexMode } from '../retrieval-profile';
+import { topicTerms } from './topic-terms';
 
 /**
  * Lexical (BM25) leg composer shared by the two coverage-first scan

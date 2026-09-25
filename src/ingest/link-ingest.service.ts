@@ -133,6 +133,10 @@ export class LinkIngestService {
         kind: dto.kind,
         weight: dto.weight ?? 1.0,
         source: { ...dto.source },
+        // The link API states no period: the relation holds from when it
+        // was declared (0164), as a timeless extracted edge holds from
+        // when it was said. A re-declared link never moves the start later.
+        validFrom: new Date(),
       });
 
       this.logger.log(

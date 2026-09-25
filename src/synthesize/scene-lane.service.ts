@@ -4,7 +4,7 @@ import { EmbedderService } from '../ai/embedder.service';
 import { sceneUserGate } from '../auth/segment-scope';
 import { scopeFenceSql } from '../auth/scope-visibility';
 import { sceneStamp, sceneVisible, type EvidenceCaller } from './evidence-visibility';
-import { buildLexMatchLeg } from './lex-leg';
+import { buildLexMatchLeg } from '../search/internals/lex-leg';
 import { rrfFuse } from './segment-lane.service';
 import type { CitableScene } from './scene-citations';
 

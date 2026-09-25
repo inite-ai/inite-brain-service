@@ -229,7 +229,7 @@ export async function expandViaEdges({
   });
   if (uncovered.length > 0) {
     const seedRids = uncovered.map((s) => new StringRecordId(s.entityId));
-    const fence = buildEdgeFence(dto.userId);
+    const fence = buildEdgeFence(dto.userId, dto.asOf);
     try {
       const [rows] = await db.query<[EdgeRow[]]>(
         `SELECT

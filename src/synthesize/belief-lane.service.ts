@@ -4,7 +4,7 @@ import { EmbedderService } from '../ai/embedder.service';
 import { beliefVisible } from '../beliefs/beliefs.service';
 import { beliefStamp } from './evidence-visibility';
 import { rrfFuse } from './segment-lane.service';
-import { buildLexMatchLeg } from './lex-leg';
+import { buildLexMatchLeg } from '../search/internals/lex-leg';
 import type { CitableBelief } from './belief-citations';
 
 /** Belief lines per prompt (design constant, BELIEFS_SERVING_LANE —

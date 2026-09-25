@@ -80,6 +80,14 @@ export const RETRIEVAL_CONVEYOR: Conveyor = {
       gate: { profile: 'verbatimEvidence' },
     },
     {
+      step: '6c',
+      title:
+        'Relation leg — the edges of the entities the query names, holding at the asked time, retrieved as first-class hits',
+      consumes: ['query', 'edge', 'entity-buckets'],
+      produces: ['entity-buckets'],
+      gate: 'always',
+    },
+    {
       step: '7',
       title:
         'Cross-encoder and listwise LLM rerank, with one-hop neighbour context; the fact-level cross-encoder rescoring (profile.factRerank) rides beside the LLM call',
