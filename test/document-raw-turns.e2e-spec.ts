@@ -42,7 +42,7 @@ describe('document raw turns (e2e)', () => {
     f.extractor.setScript({
       entities: [
         { name: 'дроплет brain', type: 'asset' },
-        { name: 'OpenRouter', type: 'vendor' },
+        { name: 'OpenRouter', type: 'other' },
       ],
       facts: [
         { entityIndex: 0, predicate: 'cpu', object: '2 vCPU', confidence: 0.9 },
