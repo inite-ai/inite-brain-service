@@ -78,7 +78,12 @@ export class CommitWriterService {
     return this.surreal.withCompany(p.companyId, async (db) => {
       const entityIds = await this.resolveEntities(db, p);
       const turns = await this.captureTurns(db, p.companyId, p.doc);
-      const facts = await this.writeFacts(db, { ...p, entityIds, turns });
+      const facts = await this.writeFacts(db, {
+        ...p,
+        entityIds,
+        turns,
+        entityTypes: new Map(p.merge.entities.map((me) => [me.key, me.type])),
+      });
       const relations = await this.writeRelations(db, { ...p, entityIds });
       return { entityIds, facts, relations };
     });
@@ -152,6 +157,8 @@ export class CommitWriterService {
       factsToWrite: MergedFact[];
       embeddings: number[][];
       entityIds: Map<string, string>;
+      /** The subject's extraction type, per entity key. */
+      entityTypes: Map<string, string>;
       turns: CapturedTurns | null;
     },
   ): Promise<FactWriteOutcome[]> {
@@ -206,6 +213,10 @@ export class CommitWriterService {
               // path's machinery (mention-persist passes dto.userId here).
               // Tenant-global docs leave it undefined — byte-identical.
               userId: p.doc.userId,
+              // The subject's extraction type — read by the slot
+              // canonicalization's non-person guard, as on the direct
+              // path; absent, a guarded alias never reaches its slot.
+              entityType: p.entityTypes.get(mf.entityKey),
             }),
           { predicate: mf.predicate, entityId },
         );
