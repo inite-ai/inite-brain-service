@@ -371,7 +371,14 @@ export class CandidateStoreService {
    */
   async listAwaitingRuns(
     companyId: string,
-    p: { packId: string; packVersion: string; includeFailed: boolean; limit: number },
+    p: {
+      packId: string;
+      packVersion: string;
+      includeFailed: boolean;
+      limit: number;
+      /** Documents this pass already took — not listed again. */
+      exclude?: string[];
+    },
   ): Promise<Array<{ docId: string; arrivedAt: Date; priority: number }>> {
     return this.surreal.withCompany(companyId, async (db) => {
       const rows = await queryRows<{ docId: unknown; createdAt: unknown; priority?: unknown }>(
@@ -379,13 +386,14 @@ export class CandidateStoreService {
         // What something asked for first (0168), then in the order it happened.
         `SELECT docId, createdAt, priority ?? 0 AS priority, docId.occurredAt AS at FROM indexer_run
            WHERE packId = $pack AND packVersion = $ver AND external != true
-             AND status IN $statuses
+             AND status IN $statuses AND docId NOTINSIDE $exclude
            ORDER BY priority DESC, at ASC LIMIT $limit`,
         {
           pack: p.packId,
           ver: p.packVersion,
           statuses: p.includeFailed ? ['pending', 'failed'] : ['pending'],
           limit: p.limit,
+          exclude: (p.exclude ?? []).map((id) => recordRef('source_document', id)),
         },
       );
       // The run row is written when the document arrives: its createdAt is
@@ -411,32 +419,33 @@ export class CandidateStoreService {
       packId: string;
       packVersion: string;
       priority: number;
-      docIds?: string[];
-      conversation?: { conversationId: string; userId?: string | undefined };
+      target: PromotionTarget;
     },
   ): Promise<number> {
-    const byDoc = p.docIds !== undefined;
-    if (byDoc && p.docIds!.length === 0) return 0;
-    const target = byDoc
-      ? 'docId IN $docs'
-      : `docId.meta.conversationId = $conv AND ${p.conversation?.userId ? 'docId.userId = $u' : 'docId.userId IS NONE'}`;
+    const { target } = p;
+    if ('docIds' in target && target.docIds.length === 0) return 0;
+    const where =
+      'docIds' in target
+        ? 'docId IN $docs'
+        : `docId.meta.conversationId = $conv AND ${target.userId ? 'docId.userId = $u' : 'docId.userId IS NONE'}`;
     return this.surreal.withCompany(companyId, async (db) => {
       const res = await db.query<[Array<unknown>, Array<unknown>]>(
         `UPDATE indexer_run SET status = 'pending', priority = $p, error = NONE, finishedAt = NONE
-           WHERE packId = $pack AND packVersion = $ver AND ${target}
+           WHERE packId = $pack AND packVersion = $ver AND ${where}
              AND status = 'skipped' AND stats.depth = 'raw'
            RETURN VALUE id;
          UPDATE indexer_run SET priority = $p
-           WHERE packId = $pack AND packVersion = $ver AND ${target}
+           WHERE packId = $pack AND packVersion = $ver AND ${where}
              AND status = 'pending' AND (priority ?? 0) < $p
            RETURN VALUE id;`,
         {
           pack: p.packId,
           ver: p.packVersion,
           p: p.priority,
-          docs: (p.docIds ?? []).map((id) => recordRef('source_document', id)),
-          conv: p.conversation?.conversationId,
-          u: p.conversation?.userId,
+          docs:
+            'docIds' in target ? target.docIds.map((id) => recordRef('source_document', id)) : [],
+          conv: 'conversationId' in target ? target.conversationId : undefined,
+          u: 'conversationId' in target ? target.userId : undefined,
         },
       );
       return (res[0] ?? []).length + (res[1] ?? []).length;
@@ -812,3 +821,7 @@ export function externalPendingTtlMs(): number {
   const days = Number(process.env.INDEXER_EXTERNAL_PENDING_TTL_DAYS);
   return (Number.isFinite(days) && days > 0 ? days : 7) * 86_400_000;
 }
+
+/** What a promotion reopens: named documents, or the raw-kept turns of one conversation of one scope. */
+export type PromotionTarget =
+  { docIds: string[] } | { conversationId: string; userId?: string | undefined };

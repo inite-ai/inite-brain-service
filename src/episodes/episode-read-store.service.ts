@@ -313,11 +313,16 @@ export class EpisodeReadStoreService {
     db?: EpisodeDb | undefined;
   }): Promise<EpisodeQuoteRow[]> {
     return this.run(opts.companyId, opts.db, async (db) => {
+      // The asker's own waiting documents and the tenant's, newest first:
+      // a backlog of other scopes (a source import) must not crowd out
+      // what this user just said.
       const [runs] = await db.query<[Array<{ docId: unknown; ep?: unknown }>]>(
-        `SELECT docId, docId.meta.episodeId AS ep FROM indexer_run
+        `SELECT docId, docId.meta.episodeId AS ep, createdAt FROM indexer_run
           WHERE packId = $pack AND status IN ['pending', 'running'] AND external != true
+            AND ${opts.userId ? '(docId.userId IS NONE OR docId.userId = $scopeUserId)' : 'docId.userId IS NONE'}
+          ORDER BY createdAt DESC
           LIMIT ${PENDING_DOCS_CAP}`,
-        { pack: GENERAL_INDEXER_ID },
+        { pack: GENERAL_INDEXER_ID, ...this.userParams(opts.userId) },
       );
       if (!runs || runs.length === 0) return [];
       const ids = runs

@@ -119,7 +119,7 @@ export class ExtractionBatchService implements OnModuleInit {
       /** Read every waiting conversation now, quiet or not (an operator drain). */
       force?: boolean;
     } = {},
-  ): Promise<{ read: number; failed: number; committed: number; retry: number }> {
+  ): Promise<PassOutcome> {
     return this.exclusive(companyId, opts.force === true, () => this.pass(companyId, opts));
   }
 
@@ -131,11 +131,11 @@ export class ExtractionBatchService implements OnModuleInit {
    * commits. A scheduled pass that finds another replica holding the
    * tenant steps back and asks again later; a drain waits for it.
    */
-  private async exclusive<T extends { retry: number }>(
+  private async exclusive(
     companyId: string,
     wait: boolean,
-    body: () => Promise<T & { read: number; failed: number; committed: number }>,
-  ): Promise<T & { read: number; failed: number; committed: number }> {
+    body: () => Promise<PassOutcome>,
+  ): Promise<PassOutcome> {
     const previous = this.running.get(companyId) ?? Promise.resolve();
     let release!: () => void;
     const mine = new Promise<void>((r) => (release = r));
@@ -148,11 +148,7 @@ export class ExtractionBatchService implements OnModuleInit {
       while (this.lease && !(await this.lease.tryAcquire(name, LEASE_TTL_SECONDS))) {
         if (!wait || Date.now() > deadline) {
           await this.schedule(companyId, { delayMs: LEASE_TTL_SECONDS * 1000 });
-          return { read: 0, failed: 0, committed: 0, retry: 0 } as T & {
-            read: number;
-            failed: number;
-            committed: number;
-          };
+          return { read: 0, failed: 0, committed: 0, retry: 0 };
         }
         await new Promise((r) => setTimeout(r, 5000));
       }
@@ -167,7 +163,7 @@ export class ExtractionBatchService implements OnModuleInit {
   private async pass(
     companyId: string,
     opts: { retry?: number; abortSignal?: AbortSignal | undefined; force?: boolean },
-  ): Promise<{ read: number; failed: number; committed: number; retry: number }> {
+  ): Promise<PassOutcome> {
     const retry = opts.retry ?? 0;
     // A drain reads until nothing is left; a scheduled pass stops within
     // its job lease and a fresh pass continues.
@@ -194,16 +190,13 @@ export class ExtractionBatchService implements OnModuleInit {
         await this.schedule(ctx.companyId, { delayMs: 1000 });
         break;
       }
-      const waiting = (
-        await this.candidates.listAwaitingRuns(ctx.companyId, {
-          packId: GENERAL_INDEXER_ID,
-          packVersion: GENERAL_INDEXER_VERSION,
-          includeFailed: retry > 0,
-          limit: PASS_DOCS + attempted.size,
-        })
-      )
-        .filter((w) => !attempted.has(w.docId))
-        .slice(0, PASS_DOCS);
+      const waiting = await this.candidates.listAwaitingRuns(ctx.companyId, {
+        packId: GENERAL_INDEXER_ID,
+        packVersion: GENERAL_INDEXER_VERSION,
+        includeFailed: retry > 0,
+        limit: PASS_DOCS,
+        exclude: [...attempted],
+      });
       if (waiting.length === 0) break;
       for (const w of waiting) attempted.add(w.docId);
       const outcome = await this.readDocuments(ctx, waiting, opts.force === true);
@@ -275,9 +268,7 @@ export class ExtractionBatchService implements OnModuleInit {
       // holds or how it answers.
       urgent: isPromoted(d, priority) || isUrgent([stamps.get(d.id)], floor),
       // A re-read aimed at one question reads its turn alone.
-      ...(internalMetaString(d.meta, 'focusQuestion')
-        ? { chunkCount: Number.MAX_SAFE_INTEGER }
-        : {}),
+      solo: !!internalMetaString(d.meta, 'focusQuestion'),
     }));
     const budget = groupBudget();
     const { ready, nextAt } = force
@@ -537,7 +528,7 @@ export class ExtractionBatchService implements OnModuleInit {
         packId: GENERAL_INDEXER_ID,
         packVersion: GENERAL_INDEXER_VERSION,
         priority: PRIORITY_NEIGHBOUR,
-        conversation: { conversationId, userId: group[0]?.userId },
+        target: { conversationId, userId: group[0]?.userId },
       })
       .catch(() => 0);
     this.metrics?.promoted('neighbour', reopened);
@@ -580,6 +571,14 @@ function passConcurrency(): number {
   const n = Number(process.env.EXTRACTION_PASS_CONCURRENCY);
   return Number.isInteger(n) && n > 0 ? n : 4;
 }
+
+/** What one pass did. */
+type PassOutcome = {
+  read: number;
+  failed: number;
+  committed: number;
+  retry: number;
+};
 
 /** One loaded page of waiting documents. */
 interface Page {

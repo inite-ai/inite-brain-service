@@ -37,6 +37,8 @@ export interface GroupDoc {
   arrivedAt?: Date | undefined;
   /** Read now, whatever the settle rule says (an urgent or a promoted turn). */
   urgent?: boolean | undefined;
+  /** Read alone, never grouped (a re-read aimed at one question). */
+  solo?: boolean | undefined;
 }
 
 export interface GroupBudget {
@@ -50,7 +52,8 @@ export interface GroupBudget {
  * Partition documents into extraction groups. A group is the turns of ONE
  * conversation of one user scope, read together, in order, up to the
  * budget. A standalone document (no conversation), one cut into several
- * chunks, or one larger than the budget is read alone, chunk by chunk.
+ * chunks, one larger than the budget, or one marked `solo` is read alone,
+ * chunk by chunk.
  */
 export function planExtractionGroups(docs: GroupDoc[], budget: GroupBudget): GroupDoc[][] {
   const byKey = new Map<string, GroupDoc[]>();
@@ -74,7 +77,7 @@ export function planExtractionGroups(docs: GroupDoc[], budget: GroupBudget): Gro
       // standalone documents read in one call lose facts to each other
       // (measured on the dogfood battery — 8 unrelated notes in one read
       // dropped one document's decision and swapped another's number).
-      if (!d.conversationId || d.chunkCount > 1 || d.text.length > budget.maxChars) {
+      if (d.solo || !d.conversationId || d.chunkCount > 1 || d.text.length > budget.maxChars) {
         flush();
         groups.push([d]);
         continue;

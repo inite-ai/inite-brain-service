@@ -44,7 +44,6 @@ interface EpisodeRow {
 
 /** Priority of a read an answer cited before it was understood (0168). */
 const PRIORITY_ANSWER = 2;
-const NO_PROMOTION = { promote: async (): Promise<number> => 0 };
 
 /** Turns relearned per answer — the ones the answer cites, not the session. */
 const MAX_TURNS = 4;
@@ -86,9 +85,9 @@ export class RelearnFromRawService implements OnModuleInit {
     private readonly runs: IndexerRunService,
     private readonly commit: CandidateCommitService,
     private readonly store: DocumentStoreService,
+    private readonly candidates: CandidateStoreService,
     @Optional() private readonly workerLoop?: WorkerLoopService,
     @Optional() private readonly claim?: JobClaimService,
-    @Optional() private readonly candidates?: CandidateStoreService,
     @Optional() private readonly batch?: ExtractionBatchService,
     @Optional() private readonly metrics?: ExtractionMetrics,
   ) {}
@@ -204,12 +203,12 @@ export class RelearnFromRawService implements OnModuleInit {
     // Cited before it was understood (unread, or kept raw): it is read in
     // full, ahead of the backlog — the question is answered, and the read
     // it was waiting for is what the memory lacks (§4.2 T-3).
-    const promoted = await (this.candidates ?? NO_PROMOTION)
+    const promoted = await this.candidates
       .promote(req.companyId, {
         packId: GENERAL_INDEXER_ID,
         packVersion: GENERAL_INDEXER_VERSION,
         priority: PRIORITY_ANSWER,
-        docIds: [doc.id],
+        target: { docIds: [doc.id] },
       })
       .catch(() => 0);
     if (promoted > 0) {
