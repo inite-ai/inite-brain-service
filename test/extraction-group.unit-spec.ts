@@ -34,24 +34,27 @@ describe('planExtractionGroups', () => {
         doc('a', 'x', 1, { conversationId: 'c', userId: 'u1' }),
         doc('b', 'y', 2, { conversationId: 'c', userId: 'u2' }),
         doc('c', 'z', 3, { conversationId: 'd', userId: 'u1' }),
+        doc('d', 'w', 4, { conversationId: 'c', userId: 'u1' }),
       ],
       budget,
     );
-    expect(groups.map((g) => g.map((d) => d.id)).sort()).toEqual([['a'], ['b'], ['c']]);
+    expect(groups.map((g) => g.map((d) => d.id)).sort()).toEqual([['a', 'd'], ['b'], ['c']]);
   });
 
-  it('splits at the size and count budget; a big or chunked document reads alone', () => {
+  it('splits at the size and count budget; a big or chunked turn reads alone', () => {
+    const t = (id: string, text: string, day: number, extra: Partial<GroupDoc> = {}) =>
+      doc(id, text, day, { conversationId: 'c', ...extra });
     const groups = planExtractionGroups(
       [
-        doc('a', 'x'.repeat(40), 1),
-        doc('b', 'x'.repeat(40), 2),
-        doc('c', 'x'.repeat(40), 3),
-        doc('big', 'x'.repeat(150), 4),
-        doc('chunked', 'x', 5, { chunkCount: 3 }),
-        doc('d', 'x', 6),
-        doc('e', 'x', 7),
-        doc('f', 'x', 8),
-        doc('g', 'x', 9),
+        t('a', 'x'.repeat(40), 1),
+        t('b', 'x'.repeat(40), 2),
+        t('c', 'x'.repeat(40), 3),
+        t('big', 'x'.repeat(150), 4),
+        t('chunked', 'x', 5, { chunkCount: 3 }),
+        t('d', 'x', 6),
+        t('e', 'x', 7),
+        t('f', 'x', 8),
+        t('g', 'x', 9),
       ],
       budget,
     );
@@ -63,6 +66,11 @@ describe('planExtractionGroups', () => {
       ['d', 'e', 'f'],
       ['g'],
     ]);
+  });
+
+  it('reads every standalone document alone — unrelated notes are not one text', () => {
+    const groups = planExtractionGroups([doc('n1', 'x', 1), doc('n2', 'y', 2)], budget);
+    expect(groups.map((g) => g.map((d) => d.id))).toEqual([['n1'], ['n2']]);
   });
 });
 

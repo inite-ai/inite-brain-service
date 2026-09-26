@@ -43,11 +43,10 @@ export interface GroupBudget {
 }
 
 /**
- * Partition documents into extraction groups. A group never mixes user
- * scopes (a user's words must not be read as another's) or conversations
- * (the turns of one conversation are read together, in order). A document
- * that does not fit the budget on its own — or was cut into several
- * chunks — is read alone, chunk by chunk, as before.
+ * Partition documents into extraction groups. A group is the turns of ONE
+ * conversation of one user scope, read together, in order, up to the
+ * budget. A standalone document (no conversation), one cut into several
+ * chunks, or one larger than the budget is read alone, chunk by chunk.
  */
 export function planExtractionGroups(docs: GroupDoc[], budget: GroupBudget): GroupDoc[][] {
   const byKey = new Map<string, GroupDoc[]>();
@@ -67,7 +66,11 @@ export function planExtractionGroups(docs: GroupDoc[], budget: GroupBudget): Gro
       chars = 0;
     };
     for (const d of list) {
-      if (d.chunkCount > 1 || d.text.length > budget.maxChars) {
+      // Only the turns of one conversation are one text: several
+      // standalone documents read in one call lose facts to each other
+      // (measured on the dogfood battery — 8 unrelated notes in one read
+      // dropped one document's decision and swapped another's number).
+      if (!d.conversationId || d.chunkCount > 1 || d.text.length > budget.maxChars) {
         flush();
         groups.push([d]);
         continue;

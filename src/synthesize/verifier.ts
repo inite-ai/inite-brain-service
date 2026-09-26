@@ -1,4 +1,5 @@
 import type OpenAI from 'openai';
+import { PENDING_MARK } from './pending-mark';
 import { chatCallParams, type ReasoningEffort } from '../ai/openai-client';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
@@ -271,7 +272,10 @@ function buildVerifierUserMessage({
     const header = timelineEvidence
       ? `Source conversation turns (verbatim, chronological — the MENTION RECORD: the sequence of these excerpts is valid support for order-of-mention claims, and overrides fact date stamps):`
       : `Source conversation turns (verbatim, equally valid support):`;
-    sections.push(`${header}\n` + transcriptLines.join('\n'));
+    const pending = transcriptLines.some((l) => l.includes(PENDING_MARK))
+      ? ` Lines marked "${PENDING_MARK}" are the newest statements — newer than every source fact — and support the current value they state.`
+      : '';
+    sections.push(`${header}${pending}\n` + transcriptLines.join('\n'));
   }
   if (insightLines && insightLines.length > 0) {
     sections.push(`Derived insights (equally valid support):\n` + insightLines.join('\n'));

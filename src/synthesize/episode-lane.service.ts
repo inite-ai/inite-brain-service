@@ -2,7 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
-import { episodeVisible, type EvidenceCaller } from './evidence-visibility';
+import { episodeVisible, ownerVisible, type EvidenceCaller } from './evidence-visibility';
+import { GENERAL_INDEXER_ID } from '../indexers/candidate.types';
+import { PENDING_MARK } from './pending-mark';
+import { idTailOf } from '../ingest/ingest-utils';
 
 interface EpisodeQuoteRow {
   id?: unknown;
@@ -26,6 +29,10 @@ const FACT_EPISODES_BY_ID_SQL = `SELECT id, source.episodeIds AS eps FROM knowle
 /** Per-fact grounding-quote budget (facts-as-keys renders inline on the
  *  fact line — an unbudgeted turn would blow up every line it rides). */
 const GROUNDING_QUOTE_CHAR_CAP = 240;
+
+/** Documents still waiting that one answer looks at, and turns it renders. */
+const PENDING_DOCS_CAP = 50;
+const PENDING_TURNS_CAP = 8;
 
 /** Per-line budget of the assistant lane (audit 2026-08-21 #7): a turn
  *  is up to 16K chars at ingest; topK uncapped lines could dominate the
@@ -92,6 +99,64 @@ export class EpisodeLaneService {
     private readonly surreal: SurrealService,
     private readonly episodes: EpisodeReadStoreService,
   ) {}
+
+  /**
+   * What was said and remembered but not yet READ — the turns of the
+   * scope's documents whose generalist extraction is still waiting
+   * (extraction-batch.service.ts). Nothing of them is a fact yet, so no
+   * relevance lane can be relied on to surface them, and they are the
+   * newest thing the memory holds: an instruction or a correction said a
+   * few seconds ago must hold for the very next answer. Newest last,
+   * marked, each capped like an assistant turn; [] on any failure.
+   */
+  async pendingTurns(opts: {
+    companyId: string;
+    callerScopes: string[];
+    /** Scope key of the asking end-user; omitted → tenant-global only. */
+    userId?: string | undefined;
+  }): Promise<string[]> {
+    try {
+      const caller: EvidenceCaller = { callerScopes: opts.callerScopes, userId: opts.userId };
+      const rows = await this.surreal.withCompany(opts.companyId, async (db) => {
+        const [runs] = await db.query<[Array<{ docId: unknown; ep?: unknown; u?: unknown }>]>(
+          `SELECT docId, docId.meta.episodeId AS ep, docId.userId AS u FROM indexer_run
+            WHERE packId = $pack AND status IN ['pending', 'running'] AND external != true
+            LIMIT ${PENDING_DOCS_CAP}`,
+          { pack: GENERAL_INDEXER_ID },
+        );
+        const mine = (runs ?? []).filter((r) => ownerVisible(r.u, opts.userId));
+        if (mine.length === 0) return [];
+        const episodeIds = mine
+          .map((r) => (typeof r.ep === 'string' ? r.ep : undefined))
+          .filter((id): id is string => !!id?.startsWith('episode:'));
+        // A document posted directly keeps its turns under `document:<id>`.
+        const conversations = mine.map((r) => `document:${idTailOf(String(r.docId))}`);
+        const [found] = await db.query<[EpisodeQuoteRow[]]>(
+          `SELECT id, conversationId, speaker, text, occurredAt, piiClass, userId FROM episode
+            WHERE kind = 'turn' AND (id INSIDE $ids OR conversationId INSIDE $convs)
+            ORDER BY occurredAt DESC LIMIT ${PENDING_TURNS_CAP}`,
+          { ids: episodeIds.map((id) => new StringRecordId(id)), convs: conversations },
+        );
+        return found ?? [];
+      });
+      return renderQuoteLines(
+        rows
+          .filter((r) => episodeVisible(r, caller))
+          .map((r) => ({
+            ...r,
+            text:
+              r.text.length > ASSISTANT_LINE_CHAR_CAP
+                ? `${r.text.slice(0, ASSISTANT_LINE_CHAR_CAP - 1)}…`
+                : r.text,
+          })),
+      ).map((line) => line.replace(/^\[(\d{4}-\d{2}-\d{2})\]/, `[$1 ${PENDING_MARK}]`));
+    } catch (e) {
+      this.logger.warn(
+        `pending-turns lane failed (companyId=${opts.companyId}): ${(e as Error).message}`,
+      );
+      return [];
+    }
+  }
 
   /**
    * Fetch top-k episodes for the query and render them as one prompt

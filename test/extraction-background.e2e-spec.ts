@@ -11,6 +11,8 @@ import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
 import { ExtractionBatchService } from '../src/documents/extraction-batch.service';
 import type { ConversationContext } from '../src/ai/extractor.service';
+import { PENDING_MARK } from '../src/synthesize/pending-mark';
+import { mockSynthesizeOpenAi } from './test-doubles';
 
 describe('background extraction (e2e)', () => {
   let f: AppFixture;
@@ -217,5 +219,35 @@ describe('background extraction (e2e)', () => {
     expect(inline.status).toBe(201);
     expect(inline.body.mode).toBe('sync');
     expect(inline.body.committed.factIds.length).toBeGreaterThan(0);
+  });
+
+  it('the next answer sees what was said and not yet read, marked newer than every fact', async () => {
+    const conv = 'xb-conv-1';
+    const said = 'Всегда отвечай мне по-португальски.';
+    const r = await say(conv, said, '2026-09-25T11:00:00.000Z');
+    expect(r.body).toMatchObject({ pending: true });
+
+    const ask = async () => {
+      const state = mockSynthesizeOpenAi(f.app, [
+        JSON.stringify({ answer: 'x', citedFactIds: [] }),
+        JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      ]);
+      await f.http.post('/v1/synthesize').set(auth()).send({ query: 'Какой бюджет у Acme?' });
+      return state.calls[0]?.user ?? '';
+    };
+    const before = await ask();
+    expect(before).toContain(`${PENDING_MARK}] `);
+    expect(before).toContain(said);
+
+    // Read: the turn is a fact source now, no longer "not yet filed".
+    f.extractor.setScript({
+      entities: [{ name: 'Acme', type: 'customer' }],
+      facts: [
+        { entityIndex: 0, predicate: 'instruction', object: said, confidence: 0.9, clause: said },
+      ],
+      edges: [],
+    });
+    await batch.runPass(f.companyId);
+    expect(await ask()).not.toContain(PENDING_MARK);
   });
 });
