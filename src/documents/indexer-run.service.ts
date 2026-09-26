@@ -17,6 +17,7 @@ import { CandidateStoreService } from './candidate-store.service';
 import type { DocumentChunk } from './chunker';
 import type { StoredDocument } from './document-store.service';
 import { renderGroup, splitGroupResult, type GroupDoc } from './extraction-group';
+import { Semaphore } from '../common/semaphore';
 
 export interface IndexerRunResult {
   runId: string;
@@ -371,8 +372,12 @@ export class IndexerRunService {
     }
 
     const stats = { chunks: 0, entities: 0, facts: 0, relations: 0, durationMs: 0 };
+    // The chunks of one document are read at once: each is read against
+    // the same memory (nothing is committed until every chunk is staged),
+    // so reading them one after another only added their latencies.
+    const limiter = new Semaphore(CHUNK_CONCURRENCY);
     try {
-      for (const chunk of spec.chunks) {
+      const readChunk = async (chunk: DocumentChunk): Promise<void> => {
         if (spec.abortSignal?.aborted) {
           // Pod shutdown / lost claim mid-run: fail fast so the run row
           // becomes terminal (reap-able / reopenable) instead of stuck.
@@ -403,7 +408,14 @@ export class IndexerRunService {
         stats.entities += counts.entities;
         stats.facts += counts.facts;
         stats.relations += counts.relations;
-      }
+      };
+      // Every read settles before the run is finalized: a failed chunk
+      // fails the run only once nothing of it is still being staged.
+      const settled = await Promise.allSettled(
+        spec.chunks.map((chunk) => limiter.run(() => readChunk(chunk))),
+      );
+      const failure = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (failure) throw failure.reason;
       stats.durationMs = Date.now() - startedAt;
       await this.candidates.finalizeRun(spec.companyId, {
         runId: run.runId,
@@ -441,6 +453,9 @@ export function groupDocOf(doc: StoredDocument, text: string): GroupDoc {
     addresseeName: addressee?.name,
   };
 }
+
+/** Chunks of one document read at once. */
+const CHUNK_CONCURRENCY = 4;
 
 /** The ledger's pack id of a focused re-read (runFocused). */
 export const RELEARN_INDEXER_ID = '_relearn';
