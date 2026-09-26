@@ -8,6 +8,7 @@ import { CandidateStoreService } from './candidate-store.service';
 import { markFactsProvenancePurged, purgeDocumentChunks } from './document-purge.util';
 import { idTailOf as idTail } from '../ingest/ingest-utils';
 import { EvidenceStoreService } from '../evidence/evidence-store.service';
+import { ExtractionBatchService } from './extraction-batch.service';
 
 /** count()…GROUP ALL projection — `c` is the group count. */
 interface CountRow {
@@ -41,6 +42,7 @@ export class CandidateSweeperService implements OnModuleInit {
     @Optional() private readonly workerLoop?: WorkerLoopService,
     @Optional() private readonly claim?: JobClaimService,
     @Optional() private readonly evidence?: EvidenceStoreService,
+    @Optional() private readonly batch?: ExtractionBatchService,
   ) {}
 
   onModuleInit(): void {
@@ -150,6 +152,11 @@ export class CandidateSweeperService implements OnModuleInit {
    */
   async reconcileRuns(companyId: string): Promise<Record<string, unknown>> {
     const reapedRuns = await this.candidates.reapStaleRuns(companyId);
+    // The background reader's safety net: a retry pass reads what waits
+    // (a pass that was never scheduled or died) and what failed, whatever
+    // failed last — a read is never left for good because the pass that
+    // would have retried it did not happen.
+    await this.batch?.schedule(companyId, { retry: 1 }).catch(() => undefined);
     const docs = await this.candidates.findDocsNeedingCommit(companyId);
     let recommitted = 0;
     if (this.claim) {

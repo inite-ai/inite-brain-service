@@ -9,7 +9,11 @@ import {
 } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { idTailOf } from '../ingest/ingest-utils';
-import type { CandidateBatch, CandidateKind } from '../indexers/candidate.types';
+import {
+  GENERAL_INDEXER_ID,
+  type CandidateBatch,
+  type CandidateKind,
+} from '../indexers/candidate.types';
 import { indexerIdOfPredicate } from '../indexers/virtual-attributor';
 
 /**
@@ -272,7 +276,11 @@ export class CandidateStoreService {
     //     go BACK to 'pending' so the work is rediscoverable by the next
     //     poll; marking them failed would silently drop the work item
     //     from discovery forever.
-    const failWhere = `(external != true AND status IN ['running', 'pending']
+    // A waiting generalist read is not stuck: the background reader lists
+    // it until it is read (0168 promotion reopens old ones too), so only a
+    // claimed-and-abandoned one ('running') or a job-driven pack read is.
+    const failWhere = `(external != true
+             AND (status = 'running' OR (status = 'pending' AND packId != $general))
              AND createdAt < time::now() - duration::from_millis($ms))
           OR (external = true AND status = 'pending'
              AND createdAt < time::now() - duration::from_millis($extMs))`;
@@ -282,7 +290,7 @@ export class CandidateStoreService {
       const [failRows, releaseRows] = await db.query<[CountRow[], CountRow[]]>(
         `SELECT count() AS c FROM indexer_run WHERE ${failWhere} GROUP ALL;
          SELECT count() AS c FROM indexer_run WHERE ${releaseWhere} GROUP ALL`,
-        { ms: staleRunMs(), extMs: externalPendingTtlMs() },
+        { ms: staleRunMs(), extMs: externalPendingTtlMs(), general: GENERAL_INDEXER_ID },
       );
       const failed = Number(failRows?.[0]?.c ?? 0);
       const released = Number(releaseRows?.[0]?.c ?? 0);
@@ -293,7 +301,7 @@ export class CandidateStoreService {
              error = { message: 'stale_reaped' }
            WHERE ${failWhere}
            RETURN NONE`,
-          { ms: staleRunMs(), extMs: externalPendingTtlMs() },
+          { ms: staleRunMs(), extMs: externalPendingTtlMs(), general: GENERAL_INDEXER_ID },
         );
         this.metrics?.countIndexerRun('stale_reaped');
       }
@@ -363,20 +371,29 @@ export class CandidateStoreService {
    */
   async listAwaitingRuns(
     companyId: string,
-    p: { packId: string; packVersion: string; includeFailed: boolean; limit: number },
-  ): Promise<Array<{ docId: string; arrivedAt: Date }>> {
+    p: {
+      packId: string;
+      packVersion: string;
+      includeFailed: boolean;
+      limit: number;
+      /** Documents this pass already took — not listed again. */
+      exclude?: string[];
+    },
+  ): Promise<Array<{ docId: string; arrivedAt: Date; priority: number }>> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const rows = await queryRows<{ docId: unknown; createdAt: unknown }>(
+      const rows = await queryRows<{ docId: unknown; createdAt: unknown; priority?: unknown }>(
         db,
-        `SELECT docId, createdAt, docId.occurredAt AS at FROM indexer_run
+        // What something asked for first (0168), then in the order it happened.
+        `SELECT docId, createdAt, priority ?? 0 AS priority, docId.occurredAt AS at FROM indexer_run
            WHERE packId = $pack AND packVersion = $ver AND external != true
-             AND status IN $statuses
-           ORDER BY at ASC LIMIT $limit`,
+             AND status IN $statuses AND docId NOTINSIDE $exclude
+           ORDER BY priority DESC, at ASC LIMIT $limit`,
         {
           pack: p.packId,
           ver: p.packVersion,
           statuses: p.includeFailed ? ['pending', 'failed'] : ['pending'],
           limit: p.limit,
+          exclude: (p.exclude ?? []).map((id) => recordRef('source_document', id)),
         },
       );
       // The run row is written when the document arrives: its createdAt is
@@ -384,7 +401,54 @@ export class CandidateStoreService {
       return rows.map((r) => ({
         docId: String(r.docId),
         arrivedAt: new Date(String(r.createdAt)),
+        priority: Number(r.priority ?? 0) || 0,
       }));
+    });
+  }
+
+  /**
+   * Ask for documents to be read (0168): a read kept raw (a `skipped`
+   * run of depth `raw`) is reopened as waiting, and a waiting one is moved
+   * up — never down. Documents are named by id, or as the raw-kept turns
+   * of one conversation of one scope (a correction's neighbours). Returns
+   * how many reads were reopened or moved up.
+   */
+  async promote(
+    companyId: string,
+    p: {
+      packId: string;
+      packVersion: string;
+      priority: number;
+      target: PromotionTarget;
+    },
+  ): Promise<number> {
+    const { target } = p;
+    if ('docIds' in target && target.docIds.length === 0) return 0;
+    const where =
+      'docIds' in target
+        ? 'docId IN $docs'
+        : `docId.meta.conversationId = $conv AND ${target.userId ? 'docId.userId = $u' : 'docId.userId IS NONE'}`;
+    return this.surreal.withCompany(companyId, async (db) => {
+      const res = await db.query<[Array<unknown>, Array<unknown>]>(
+        `UPDATE indexer_run SET status = 'pending', priority = $p, error = NONE, finishedAt = NONE
+           WHERE packId = $pack AND packVersion = $ver AND ${where}
+             AND status = 'skipped' AND stats.depth = 'raw'
+           RETURN VALUE id;
+         UPDATE indexer_run SET priority = $p
+           WHERE packId = $pack AND packVersion = $ver AND ${where}
+             AND status = 'pending' AND (priority ?? 0) < $p
+           RETURN VALUE id;`,
+        {
+          pack: p.packId,
+          ver: p.packVersion,
+          p: p.priority,
+          docs:
+            'docIds' in target ? target.docIds.map((id) => recordRef('source_document', id)) : [],
+          conv: 'conversationId' in target ? target.conversationId : undefined,
+          u: 'conversationId' in target ? target.userId : undefined,
+        },
+      );
+      return (res[0] ?? []).length + (res[1] ?? []).length;
     });
   }
 
@@ -757,3 +821,7 @@ export function externalPendingTtlMs(): number {
   const days = Number(process.env.INDEXER_EXTERNAL_PENDING_TTL_DAYS);
   return (Number.isFinite(days) && days > 0 ? days : 7) * 86_400_000;
 }
+
+/** What a promotion reopens: named documents, or the raw-kept turns of one conversation of one scope. */
+export type PromotionTarget =
+  { docIds: string[] } | { conversationId: string; userId?: string | undefined };

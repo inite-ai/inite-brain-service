@@ -11,6 +11,10 @@ import { SurrealService, queryRows } from '../db/surreal.service';
 import { DocumentIngestService } from './document-ingest.service';
 import { internalDocumentMeta, INTERNAL_DOCUMENT_META_MAX_CHARS } from './document-meta';
 import { traceArtifact } from '../common/debug-trace';
+import { CandidateStoreService } from './candidate-store.service';
+import { ExtractionBatchService } from './extraction-batch.service';
+import { ExtractionMetrics } from './extraction.metrics';
+import { GENERAL_INDEXER_ID, GENERAL_INDEXER_VERSION } from '../indexers/candidate.types';
 
 export interface RelearnRequest {
   companyId: string;
@@ -19,6 +23,12 @@ export interface RelearnRequest {
   episodeIds: string[];
   question: string;
   answer: string;
+  /**
+   * The answer also cited facts: the memory carried it, so a turn whose
+   * document was already read has nothing to teach — only an unread or
+   * raw-kept one is promoted. Absent = the answer rested on raw text.
+   */
+  factCited?: boolean | undefined;
 }
 
 interface EpisodeRow {
@@ -31,6 +41,9 @@ interface EpisodeRow {
   userId?: string | null;
   vertical?: string | null;
 }
+
+/** Priority of a read an answer cited before it was understood (0168). */
+const PRIORITY_ANSWER = 2;
 
 /** Turns relearned per answer — the ones the answer cites, not the session. */
 const MAX_TURNS = 4;
@@ -72,8 +85,11 @@ export class RelearnFromRawService implements OnModuleInit {
     private readonly runs: IndexerRunService,
     private readonly commit: CandidateCommitService,
     private readonly store: DocumentStoreService,
+    private readonly candidates: CandidateStoreService,
     @Optional() private readonly workerLoop?: WorkerLoopService,
     @Optional() private readonly claim?: JobClaimService,
+    @Optional() private readonly batch?: ExtractionBatchService,
+    @Optional() private readonly metrics?: ExtractionMetrics,
   ) {}
 
   onModuleInit(): void {
@@ -87,6 +103,7 @@ export class RelearnFromRawService implements OnModuleInit {
           episodeId: String(p.episodeId ?? ''),
           question: String(p.question ?? ''),
           answer: String(p.answer ?? ''),
+          factCited: p.factCited === true,
         });
         return { ...out };
       },
@@ -115,6 +132,7 @@ export class RelearnFromRawService implements OnModuleInit {
             episodeId,
             question: clip(req.question),
             answer: clip(req.answer),
+            ...(req.factCited ? { factCited: true } : {}),
             ...(req.userId !== undefined ? { userId: req.userId } : {}),
           },
         })
@@ -145,6 +163,7 @@ export class RelearnFromRawService implements OnModuleInit {
     episodeId: string;
     question: string;
     answer: string;
+    factCited?: boolean | undefined;
   }): Promise<{ turns: number; facts: number }> {
     const turn = await this.turnOf(req.companyId, req.episodeId);
     if (!turn) return { turns: 0, facts: 0 };
@@ -181,6 +200,24 @@ export class RelearnFromRawService implements OnModuleInit {
       );
       return { turns: 1, facts: 0 };
     }
+    // Cited before it was understood (unread, or kept raw): it is read in
+    // full, ahead of the backlog — the question is answered, and the read
+    // it was waiting for is what the memory lacks (§4.2 T-3).
+    const promoted = await this.candidates
+      .promote(req.companyId, {
+        packId: GENERAL_INDEXER_ID,
+        packVersion: GENERAL_INDEXER_VERSION,
+        priority: PRIORITY_ANSWER,
+        target: { docIds: [doc.id] },
+      })
+      .catch(() => 0);
+    if (promoted > 0) {
+      this.metrics?.promoted('answer', promoted);
+      await this.batch?.schedule(req.companyId, { delayMs: 1000 });
+      return { turns: 1, facts: 0 };
+    }
+    // Read already, and the answer rested on facts too: nothing to teach.
+    if (req.factCited) return { turns: 0, facts: 0 };
     const run = await this.runs.runFocused({
       companyId: req.companyId,
       doc,

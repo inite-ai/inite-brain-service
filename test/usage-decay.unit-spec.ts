@@ -1,7 +1,8 @@
 /**
- * Usage-based reinforcement, scoring side (migration 0053): an attached
- * lastReadAt restarts the decay clock at the most recent retrieval; rows
- * without a usage stamp decay from recordedAt byte-identically to before.
+ * Usage-based reinforcement, scoring side (migration 0053, legacy
+ * SEARCH_USAGE_DECAY_ENABLED): an attached lastReadAt is a trace in the
+ * fact's activation (activation.ts); rows without a usage stamp fade from
+ * recordedAt alone.
  *
  * Predicate is deliberately absent from CORE_PREDICATES so policyFor
  * falls back to DEFAULT_POLICY (half-life 60 days) — deterministic.
@@ -31,16 +32,16 @@ function row(over: Partial<FusedRow> = {}): FusedRow {
 }
 
 describe('scoreRows — usage-aware decay', () => {
-  it('restarts the decay clock at lastReadAt', () => {
+  it('a recent read keeps the fact available', () => {
     const ranked = scoreRows({
       rows: [row(), row({ lastReadAt: new Date(NOW - DAY).toISOString() })],
       now: NOW,
     });
     const stale = ranked[0]!;
     const used = ranked[1]!;
-    // 120 days at half-life 60 → 0.25; read a day ago → ~0.988.
-    expect(stale.breakdown.decay).toBeCloseTo(0.25, 2);
-    expect(used.breakdown.decay).toBeGreaterThan(0.95);
+    // 120 days at half-life 60 → (1 + 120/20)^-0.5; read a day ago → 1.
+    expect(stale.breakdown.decay).toBeCloseTo((1 + 120 / 20) ** -0.5, 10);
+    expect(used.breakdown.decay).toBe(1);
     expect(used.score).toBeGreaterThan(stale.score);
   });
 
@@ -60,28 +61,19 @@ describe('scoreRows — usage-aware decay', () => {
     expect(freshWithStaleRead.score).toBe(fresh.score);
   });
 
-  it('no usage stamp → byte-identical to the pre-0053 formula', () => {
+  it('no usage stamp → the trace of its creation alone', () => {
     const scored = scoreRows({
       rows: [row()],
       now: NOW,
     })[0]!;
-    expect(scored.breakdown.decay).toBeCloseTo(Math.exp((-Math.LN2 * 120) / 60), 10);
+    expect(scored.breakdown.decay).toBeCloseTo((1 + 120 / 20) ** -0.5, 10);
   });
 
-  it('0107 verified-use options absent → output byte-identical (fields and scores)', () => {
-    // The verified-use wave adds lastVerifiedUseAt / policyResolver /
-    // verifiedUseBeta as default-inert options; with none of the new
-    // fields attached the legacy decay behavior is pinned unchanged.
+  it('policyResolver null → the same output as omitted', () => {
     const rows = [row(), row({ lastReadAt: new Date(NOW - DAY).toISOString() })];
     const legacy = scoreRows({ rows, now: NOW });
-    const withDefaults = scoreRows({
-      rows,
-      now: NOW,
-      verifiedUseBeta: 0,
-      policyResolver: null,
-    });
+    const withDefaults = scoreRows({ rows, now: NOW, policyResolver: null });
     expect(withDefaults.map((s) => s.score)).toEqual(legacy.map((s) => s.score));
     expect(withDefaults.map((s) => s.breakdown)).toEqual(legacy.map((s) => s.breakdown));
-    for (const s of legacy) expect(s.breakdown.verifiedUse).toBeUndefined();
   });
 });

@@ -22,6 +22,8 @@ function make(opts: { fail?: boolean; predicates?: string[]; own?: string } = {}
     query: jest.fn(async (sql: string, params?: Record<string, unknown>) => {
       queries.push({ sql, params });
       if (opts.fail) throw new Error('db down');
+      // The in-use read (inUse): nothing in conflict, expected or used.
+      if (sql.includes('FROM memory_outcome_stat')) return [[], []];
       if (sql.includes('FROM episode')) {
         if (params?.c !== 'conv') return [[]];
         return [
@@ -215,6 +217,48 @@ describe('MemoryContextService.build', () => {
     ).toEqual(['m2:e1:in:covers_for:Pedro Lima', 'm3:e1:out:works_at:RK Imóveis']);
     expect(rels[0]?.id).toBe('knowledge_edge:x2');
     expect(rels[0]?.since).toBe('2026-09-17');
+  });
+
+  it('shows only what was said by the text: before, or the saidBy a group reads up to', async () => {
+    const { svc, queries } = make();
+    await svc.build({ companyId: 'co', text: 'current', before: '2026-03-01T00:00:00.000Z' });
+    const factQ = () => queries.filter((q) => q.sql.includes('FROM knowledge_fact')).at(-1)!;
+    const edgeQ = () => queries.filter((q) => q.sql.includes('FROM knowledge_edge')).at(-1)!;
+    // Said = the occurrence of the document it was read from, else the write.
+    expect(factQ().sql).toContain(
+      '((IF source.documentId != NONE THEN type::record(source.documentId).occurredAt END) ?? recordedAt) <= type::datetime($said)',
+    );
+    expect(edgeQ().sql).toContain('?? createdAt) <= type::datetime($said)');
+    expect(factQ().params?.said).toBe('2026-03-01T00:00:00.000Z');
+    expect(edgeQ().params?.said).toBe('2026-03-01T00:00:00.000Z');
+    await svc.build({
+      companyId: 'co',
+      text: 'current',
+      before: '2026-03-01T00:00:00.000Z',
+      saidBy: new Date('2026-03-02T00:00:00.000Z'),
+    });
+    expect(factQ().params?.said).toBe('2026-03-02T00:00:00.000Z');
+    // A live read without a cutoff shows everything, as before.
+    await svc.build({ companyId: 'co', text: 'current' });
+    expect(factQ().sql).not.toContain('$said');
+    expect(edgeQ().sql).not.toContain('$said');
+  });
+
+  it('inUse: asks about the entities the text names — never the user — and reads either signal', async () => {
+    const { svc, queries, users } = make({ own: 'knowledge_entity:me' });
+    // 'current' names Rui (NER) → knowledge_entity:rui; the store answers
+    // nothing for the in-use query → not in use.
+    expect(await svc.inUse({ companyId: 'co', text: 'current', userId: 'u1' })).toBe(false);
+    const q = queries.find((x) => x.sql.includes('FROM memory_outcome_stat'))!;
+    expect(q.sql).toContain("status = 'competing'");
+    expect(q.sql).toContain('expectedUntil > time::now()');
+    expect(q.sql).toContain('verifiedUseCount + confirmedCount > 0');
+    expect((q.params?.ids as unknown[]).map(String)).toEqual(['knowledge_entity:rui']);
+    expect(users.lookup).not.toHaveBeenCalled();
+    // A text naming nothing known asks nothing.
+    const before = queries.length;
+    expect(await svc.inUse({ companyId: 'co', text: 'nothing named' })).toBe(false);
+    expect(queries.length).toBe(before);
   });
 
   it("the user's own entity is known first on every turn of theirs, resolved by key", async () => {

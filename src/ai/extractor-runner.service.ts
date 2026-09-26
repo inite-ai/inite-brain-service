@@ -240,7 +240,7 @@ export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplica
     const profile = resolveExtractionProfile();
     const facets = profile.facetRouting ? detectFacets(trimmed) : [];
     if (facets.length > 0) {
-      return this.runFacetExtract({
+      const faceted = await this.runFacetExtract({
         companyId,
         trimmed,
         snapshot,
@@ -250,6 +250,7 @@ export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplica
         context,
         overrides,
       });
+      return faceted && (await this.checkRead(faceted, trimmed, contextPrefix)).result;
     }
 
     const rawJson = await this.llm.callLlm({
@@ -261,7 +262,34 @@ export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplica
       tier: overrides?.tier,
     });
     if (!rawJson) return null;
-    return this.assembleResult({ companyId, trimmed, snapshot, rawJson, context });
+    const single = await this.assembleResult({ companyId, trimmed, snapshot, rawJson, context });
+    // One sample is checked against the text like the samples' union is.
+    return (await this.checkRead(single, trimmed, contextPrefix)).result;
+  }
+
+  /**
+   * The document check (fact-check.ts): every fact and relation of a read
+   * put back to the decision plane against the text it was read from;
+   * what the text confidently does not state is dropped. The lane off →
+   * the read unchanged.
+   */
+  private async checkRead(
+    result: ExtractionResult,
+    text: string,
+    contextPrefix: string | undefined,
+  ): Promise<Awaited<ReturnType<typeof checkExtraction>>> {
+    const checked = await checkExtraction({
+      result,
+      text,
+      context: contextPrefix,
+      decisions: this.decisions,
+    });
+    if (checked.rejected > 0) {
+      this.logger.log(
+        `extraction check: dropped ${checked.rejected} of ${result.facts.length} facts the document does not state (${checked.asked} asked)`,
+      );
+    }
+    return checked;
   }
 
   private async runMultiPassExtract(args: {
@@ -318,17 +346,7 @@ export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplica
     const { clusterCount, ...union } = mergeExtractions(surviving, {
       selfConsistency: true,
     });
-    const checked = await checkExtraction({
-      result: union,
-      text: args.trimmed,
-      context: args.contextPrefix,
-      decisions: this.decisions,
-    });
-    if (checked.rejected > 0) {
-      this.logger.log(
-        `extraction check: dropped ${checked.rejected} of ${union.facts.length} facts the document does not state (${checked.asked} asked)`,
-      );
-    }
+    const checked = await this.checkRead(union, args.trimmed, args.contextPrefix);
 
     traceArtifact('extractor.sc_passes', {
       passes: surviving.length,

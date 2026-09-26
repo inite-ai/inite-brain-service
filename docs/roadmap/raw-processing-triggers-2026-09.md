@@ -1,6 +1,7 @@
 # Raw-first memory: processing triggers, depths and residency (2026-09)
 
-Status: RESEARCH + DESIGN. No code changes. Companion to
+Status: BUILT on `feat/raw-heatmap` (2026-09-26), NOT YET MEASURED — see
+§5. Companion to
 [memory-research-2026-08](memory-research-2026-08.md) (§ experiments E1–E3),
 [fovea-optics-2026-08](fovea-optics-2026-08.md) (read-side focusing),
 [importance-scoring-design-2026-08](importance-scoring-design-2026-08.md)
@@ -324,3 +325,35 @@ the hope that the classifier is right.
 - **Decision-plane language skew.** The Jev documentation says non-English is
   weaker; gate recall must be reported per language (RU/EN at least), and the
   floor may be per language.
+
+## 5. What is built (2026-09-26, `feat/raw-heatmap`) and what is not
+
+Built — one A/B leg against main, not yet run:
+
+| Design item                                                                                                                                                                                        | Where                                                                                 |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| D1 triage on every waiting text (a conversation as its unread turns together), judged again when a turn arrives                                                                                    | `ExtractionBatchService.triageWaiting`                                                |
+| E-1/E-2 urgency: change / correction / instruction / identity ≥ floor reads its conversation at once                                                                                               | `read-depth.ts isUrgent`, `releaseSettled` (`urgent`)                                 |
+| T-2 depth: raw (noise on every question, incidental) / single sample (routine durable) / full                                                                                                      | `read-depth.ts readDepth`, runs record `stats.depth`, raw = run `skipped`             |
+| T-5 in use: text naming an entity with an open conflict, a pending `expectedUntil`, or a verified use is read in full                                                                              | `MemoryContextService.inUse`                                                          |
+| T-3 generalised: ANY served answer citing raw turns → an unread / raw-kept document is promoted (priority 2), a read one the facts did not carry is re-read with focus                             | `raw-lesson.ts`, `RelearnFromRawService` (the L3-only trigger is gone)                |
+| T-8 retroactive capture: an urgent read reopens the raw-kept turns of its conversation (priority 1)                                                                                                | `ExtractionBatchService.captureNeighbours`                                            |
+| Priority queue: asked-for first, then in the order said                                                                                                                                            | 0168 `indexer_run.priority`, `listAwaitingRuns`                                       |
+| Residency, continuous: ACT-R base-level activation from creation + verified uses (d = 0.5, τ from the predicate half-life) replaces the exponential decay and the separate verified-use multiplier | `search/internals/activation.ts`                                                      |
+| Safety: waiting generalist reads are not reaped; the nightly sweep schedules a retry pass                                                                                                          | `reapStaleRuns`, `CandidateSweeperService.reconcileRuns`                              |
+| D2a is checked against the text like D2b (`extraction_check` on the single-sample and facet reads too)                                                                                             | `ExtractorRunnerService.checkRead`                                                    |
+| Metrics: depth distribution, promotions by reason                                                                                                                                                  | `brain_extraction_depth_documents_total`, `brain_extraction_promoted_documents_total` |
+
+Not built, deliberately:
+
+- **T-4 as its own counter** — a turn cited again by a question the facts
+  could not carry is re-read (T-3) each time; a separate distinct-question
+  count adds nothing until T-3's fire rate is measured.
+- **T-6 idle backlog / T-7 learned priority** — what is kept raw is noise by
+  construction (every question below the floor, incidental); reading it
+  idle is the cost the gate saves. A learned priority needs the outcome
+  labels this build starts producing.
+- **Cold tier (out of the vector leg)** — needs a capacity budget or a
+  quantile, i.e. a number nobody has measured; activation already ranks
+  a cooled fact down. Revisit when a tenant's active set strains the
+  vector index.
