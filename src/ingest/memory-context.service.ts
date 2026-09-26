@@ -36,6 +36,12 @@ export interface MemoryContextInput {
   conversationId?: string | undefined;
   /** The current turn's own message id, excluded from the earlier turns. */
   messageId?: string | undefined;
+  /**
+   * Earlier turns are the ones said BEFORE this instant. A turn is
+   * captured when it arrives and read later, so the conversation may
+   * already hold turns that came after it.
+   */
+  before?: string | Date | undefined;
   /** Scope key of the end user; omitted → tenant-global memory only. */
   userId?: string | undefined;
   /** Participant names the caller asserted (speaker / addressee). */
@@ -160,8 +166,15 @@ export class MemoryContextService {
       `SELECT speaker, text, occurredAt, messageId FROM episode
         WHERE conversationId = $c AND kind = 'turn' AND ${userGate}
           ${p.messageId ? 'AND messageId != $m' : ''}
+          ${p.before ? 'AND occurredAt < type::datetime($before)' : ''}
         ORDER BY occurredAt DESC LIMIT $k`,
-      { c: p.conversationId, m: p.messageId, u: p.userId, k: MEMORY_RECENT_TURNS },
+      {
+        c: p.conversationId,
+        m: p.messageId,
+        u: p.userId,
+        k: MEMORY_RECENT_TURNS,
+        before: p.before instanceof Date ? p.before.toISOString() : p.before,
+      },
     );
     return (rows ?? [])
       .map((r) => ({

@@ -1,3 +1,6 @@
+import { CommitWriterService } from './commit-writer.service';
+import { DocumentAsyncService } from './document-async.service';
+import { ExtractionBatchService } from './extraction-batch.service';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { traceSpan } from '../common/debug-trace';
 import { DocumentStoreService } from './document-store.service';
@@ -18,7 +21,12 @@ export interface DocumentIngestResponse {
   documentId: string;
   deduplicated: boolean;
   chunkCount: number;
-  mode: 'sync';
+  /**
+   * 'sync' = read and committed before this response; 'background' = the
+   * document is remembered (stored, raw turns captured, answerable from
+   * raw) and its extraction is queued — `committed` is empty then.
+   */
+  mode: 'sync' | 'background';
   runs: Array<{ runId: string; packId: string; status: string }>;
   committed: {
     entityIds: string[];
@@ -47,6 +55,9 @@ export class DocumentIngestService {
     // @Optional so positionally-constructed unit fixtures stay valid
     // (the OutcomesModule injection discipline).
     @Optional() private readonly toolObservations?: ToolObservationService,
+    @Optional() private readonly writer?: CommitWriterService,
+    @Optional() private readonly queue?: DocumentAsyncService,
+    @Optional() private readonly batch?: ExtractionBatchService,
   ) {}
 
   /**
@@ -85,6 +96,34 @@ export class DocumentIngestService {
         channel: 'ingest_sync',
         internal,
       });
+      // Remembered before it is understood: the raw turns land now, the
+      // extraction reads them later (commit-writer captureDocumentTurns).
+      await this.writer?.captureDocumentTurns(companyId, doc);
+      const general = !(origin.channel === 'source' && origin.extraction === 'none');
+      if (general && this.queue && this.batch?.enabled() && dto.mode !== 'sync' && doc.hasContent) {
+        // Understood later, in the background: the reads are queued and
+        // the caller has its answer now. A replay of a document already
+        // committed queues nothing.
+        const runs =
+          deduplicated && doc.status === 'committed'
+            ? []
+            : await this.queue.fanOut({
+                companyId,
+                doc,
+                chunks,
+                indexers: dto.indexers,
+                general,
+              });
+        return {
+          documentId: doc.id,
+          deduplicated,
+          chunkCount: chunks.length,
+          mode: 'background',
+          runs: runs.map((r) => ({ runId: '', packId: r.packId, status: r.status })),
+          committed: { entityIds: [], factIds: [], edgeIds: [] },
+          counts: { pending: 0, committed: 0, merged: 0, rejected: 0 },
+        };
+      }
 
       try {
         await this.store.setStatus({ companyId, docId: doc.id, status: 'indexing' });
@@ -93,7 +132,7 @@ export class DocumentIngestService {
           doc,
           chunks,
           indexers: dto.indexers,
-          general: !(origin.channel === 'source' && origin.extraction === 'none'),
+          general,
         });
         // External packs get pull-API work items instead of in-process
         // runs; they never defer this commit (external runs are excluded

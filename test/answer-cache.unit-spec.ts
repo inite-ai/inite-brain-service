@@ -187,6 +187,8 @@ function makeHarness(opts: {
   /** 0155: rows the belief-subject additive probe finds — a belief created
    *  on a cited subject after the answer was stored. */
   beliefProbeRows?: Array<Record<string, unknown>>;
+  /** Generalist runs still waiting in the answer's scope (a remembered, unread document). */
+  pendingRuns?: Array<Record<string, unknown>>;
   /** Live `scenes` projection version — the scene fence's world clause.
    *  Absent ⇒ no live world ⇒ a scene dependency is invisible. */
   sceneWorld?: string;
@@ -225,6 +227,7 @@ function makeHarness(opts: {
         }
         return out;
       }
+      if (/FROM indexer_run/.test(sql)) return [opts.pendingRuns ?? []];
       // 0155 belief-subject probe — matched BEFORE the dependency tables,
       // since it reads the same table with a different question.
       if (/FROM semantic_belief/.test(sql) && /subject INSIDE/.test(sql)) {
@@ -462,6 +465,23 @@ describe('AnswerCacheService.begin — serving', () => {
     const touch = h.calls.find((c) => /hitCount \+= 1/.test(c.sql));
     expect(touch).toBeDefined();
     expect(/lastServedAt = time::now\(\)/.test(touch!.sql)).toBe(true);
+  });
+
+  it('a document of the scope waiting for its read → miss, the entry kept (no invalidation)', async () => {
+    const h = makeHarness({
+      cacheRow: liveCacheRow(),
+      factRows: [activeFact()],
+      entityRows: [{ id: 'knowledge_entity:e1', canonicalName: 'Acme' }],
+      pendingRuns: [{ id: 'indexer_run:r1' }],
+    });
+    const out = await h.svc.begin(beginArgs({ userId: 'user_a' }));
+    expect(out?.hit).toBeUndefined();
+    expect(h.outcomes).toEqual(['miss']);
+    expect(h.calls.some((c) => /invalidatedAt = time::now\(\)/.test(c.sql))).toBe(false);
+    const probe = h.calls.find((c) => /FROM indexer_run/.test(c.sql))!;
+    // The answer's own scope: its user's documents and tenant-global ones.
+    expect(probe.sql).toContain('docId.userId IS NONE OR docId.userId = $userId');
+    expect(probe.params.userId).toBe('user_a');
   });
 
   it('tenant + user double-fence in the lookup WHERE clause', async () => {

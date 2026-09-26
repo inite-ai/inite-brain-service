@@ -13,7 +13,13 @@ import { AppModule } from '../src/app.module';
 import { EmbedderService } from '../src/ai/embedder.service';
 import { ExtractorService } from '../src/ai/extractor.service';
 import { LocalCrossEncoderProvider } from '../src/ai/cross-encoder/local-cross-encoder.provider';
-import { StubEmbedder, StubExtractor, StubLocalCrossEncoder } from './test-doubles';
+import {
+  InlineExtractionBatch,
+  StubEmbedder,
+  StubExtractor,
+  StubLocalCrossEncoder,
+} from './test-doubles';
+import { ExtractionBatchService } from '../src/documents/extraction-batch.service';
 import { randomUUID, createHash } from 'node:crypto';
 import supertest from 'supertest';
 
@@ -55,6 +61,8 @@ describe('POST /v1/facts/:id/retract — predicate-class auth', () => {
       // real ~279MB reranker worker. See test/jest-e2e.json.
       .overrideProvider(LocalCrossEncoderProvider)
       .useValue(new StubLocalCrossEncoder())
+      .overrideProvider(ExtractionBatchService)
+      .useValue(new InlineExtractionBatch())
       .compile();
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));

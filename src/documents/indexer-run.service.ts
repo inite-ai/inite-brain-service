@@ -15,6 +15,7 @@ import {
 import { CandidateStoreService } from './candidate-store.service';
 import type { DocumentChunk } from './chunker';
 import type { StoredDocument } from './document-store.service';
+import { groupVisibleCap, renderGroup, splitGroupResult, type GroupDoc } from './extraction-group';
 
 export interface IndexerRunResult {
   runId: string;
@@ -81,6 +82,8 @@ export class IndexerRunService {
     doc: StoredDocument;
     chunks: DocumentChunk[];
     abortSignal?: AbortSignal;
+    /** Queued extraction of a captured document (extractor `background`). */
+    background?: boolean;
   }): Promise<IndexerRunResult> {
     return this.runIndexer({
       companyId: p.companyId,
@@ -91,12 +94,12 @@ export class IndexerRunService {
       executionMode: 'virtual',
       model: this.extractor.modelId(),
       registryVersionHash: await this.extractor.vocabularyVersionHash(p.companyId),
-      extract: async (chunkText) =>
-        this.extractor.extract(
-          chunkText,
-          p.companyId,
-          await this.extractionContext(p.companyId, p.doc, chunkText),
-        ),
+      extract: async (chunkText) => {
+        const context = await this.extractionContext(p.companyId, p.doc, chunkText);
+        return p.background
+          ? this.extractor.extractBackground({ text: chunkText, companyId: p.companyId, context })
+          : this.extractor.extract(chunkText, p.companyId, context);
+      },
       abortSignal: p.abortSignal,
     });
   }
@@ -122,6 +125,7 @@ export class IndexerRunService {
       companyId,
       text: chunkText,
       occurredAt: doc.occurredAt,
+      before: doc.occurredAt,
       conversationId: internalMetaString(doc.meta, 'conversationId'),
       messageId: internalMetaString(doc.meta, 'messageId'),
       userId: doc.userId,
@@ -154,6 +158,127 @@ export class IndexerRunService {
       ...(addresseeName ? { addresseeName } : {}),
       ...(withFocus ? { memory: withFocus } : {}),
     };
+  }
+
+  /**
+   * The generalist pass over SEVERAL captured documents in one extraction
+   * (extraction-group.ts): each document's pending run is claimed, the
+   * group is read once as CURRENT TURNS, and every document stages the
+   * candidates whose clauses its own text holds — on its own run, so the
+   * commit, the ledger and a later re-read stay per document. Documents
+   * whose run another worker already holds are left to it. A failed read
+   * fails every claimed run (they are reopened on the next pass).
+   */
+  async runGeneralGroup(p: {
+    companyId: string;
+    docs: StoredDocument[];
+    texts: Map<string, string>;
+    abortSignal?: AbortSignal;
+  }): Promise<IndexerRunResult[]> {
+    const startedAt = Date.now();
+    const model = this.extractor.modelId();
+    const registryVersionHash = await this.extractor.vocabularyVersionHash(p.companyId);
+    const claimed: Array<{ doc: StoredDocument; runId: string }> = [];
+    const results: IndexerRunResult[] = [];
+    for (const doc of p.docs) {
+      const run = await this.candidates.createRun(p.companyId, {
+        docId: doc.id,
+        packId: GENERAL_INDEXER_ID,
+        packVersion: GENERAL_INDEXER_VERSION,
+        model,
+        registryVersionHash,
+      });
+      if (run.created) claimed.push({ doc, runId: run.runId });
+      else results.push({ runId: run.runId, packId: GENERAL_INDEXER_ID, status: 'skipped' });
+    }
+    if (claimed.length === 0) return results;
+
+    const groupDocs = claimed.map(({ doc }) => groupDocOf(doc, p.texts.get(doc.id) ?? ''));
+    try {
+      if (p.abortSignal?.aborted) throw new Error('aborted');
+      const rendered = renderGroup(groupDocs);
+      const extraction = await traceSpan(
+        'indexer.run.extract_group',
+        async () =>
+          this.extractor.extractBackground({
+            text: rendered.text,
+            companyId: p.companyId,
+            context: {
+              turns: rendered.turns,
+              ...(await this.groupMemory(p.companyId, claimed, groupDocs)),
+            },
+            visibleCap: groupVisibleCap(claimed.length),
+          }),
+        { packId: GENERAL_INDEXER_ID, documents: claimed.length },
+      );
+      const perDoc = splitGroupResult(groupDocs, extraction);
+      for (const [i, { doc, runId }] of claimed.entries()) {
+        const part = perDoc[i] as ExtractionResult;
+        const counts = await this.candidates.insertBatch(p.companyId, {
+          docId: doc.id,
+          runId,
+          chunkSeq: 0,
+          batch: {
+            provenance: {
+              indexerId: GENERAL_INDEXER_ID,
+              packVersion: GENERAL_INDEXER_VERSION,
+              executionMode: 'virtual',
+              model,
+            },
+            entities: part.entities.map((e, k) => ({ ...e, entityIndex: k })),
+            facts: part.facts,
+            relations: part.edges,
+          },
+        });
+        const stats = { chunks: 1, ...counts, durationMs: Date.now() - startedAt };
+        await this.candidates.finalizeRun(p.companyId, { runId, status: 'succeeded', stats });
+        this.metrics?.countIndexerRun('succeeded');
+        results.push({ runId, packId: GENERAL_INDEXER_ID, status: 'succeeded', stats });
+      }
+      return results;
+    } catch (err) {
+      for (const { runId } of claimed) {
+        await this.candidates
+          .finalizeRun(p.companyId, {
+            runId,
+            status: 'failed',
+            error: { message: (err as Error).message },
+          })
+          .catch(() => undefined);
+        this.metrics?.countIndexerRun('failed');
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * The memory a group is read against: what the graph holds about every
+   * name its turns carry, and the conversation BEFORE its first turn.
+   */
+  private async groupMemory(
+    companyId: string,
+    claimed: Array<{ doc: StoredDocument }>,
+    groupDocs: GroupDoc[],
+  ): Promise<Pick<ConversationContext, 'memory'>> {
+    const first = claimed[0]?.doc as StoredDocument;
+    const names = claimed.flatMap(({ doc }) => {
+      const { speaker, addressee } = participantsFromMeta(doc.meta);
+      return [
+        speaker?.name,
+        addressee?.name,
+        ...splitKnownNames(internalMetaString(doc.meta, 'knownNames')),
+      ];
+    });
+    const memory = await this.memory.build({
+      companyId,
+      text: groupDocs.map((d) => d.text).join('\n\n'),
+      occurredAt: first.occurredAt,
+      before: first.occurredAt,
+      conversationId: groupDocs[0]?.conversationId,
+      userId: first.userId,
+      participants: [...new Set(names.filter((n): n is string => !!n))],
+    });
+    return memory ? { memory } : {};
   }
 
   /**
@@ -247,4 +372,20 @@ export class IndexerRunService {
       throw err;
     }
   }
+}
+
+/** A stored document as an extraction-group member. */
+export function groupDocOf(doc: StoredDocument, text: string): GroupDoc {
+  const { speaker, addressee } = participantsFromMeta(doc.meta);
+  return {
+    id: doc.id,
+    text,
+    occurredAt: doc.occurredAt,
+    chunkCount: doc.chunkCount,
+    userId: doc.userId,
+    conversationId: internalMetaString(doc.meta, 'conversationId'),
+    speakerName: speaker?.name,
+    speakerIsUser: isUserEntityRef(speaker, doc.userId) || undefined,
+    addresseeName: addressee?.name,
+  };
 }

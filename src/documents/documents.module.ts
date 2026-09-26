@@ -24,6 +24,8 @@ import { RelearnFromRawService } from './relearn-from-raw.service';
 import { CandidateCommitService } from './candidate-commit.service';
 import { DocumentIngestService } from './document-ingest.service';
 import { DocumentAsyncService } from './document-async.service';
+import { ExtractionBatchService } from './extraction-batch.service';
+import { ExtractionAdminController } from './extraction-admin.controller';
 import { DocumentReindexService } from './document-reindex.service';
 import { PackSeedIngestService } from './pack-seed-ingest.service';
 import { CandidateSweeperService } from './candidate-sweeper.service';
@@ -58,6 +60,7 @@ import { EvidenceDocumentBridgeQueueService } from './evidence-document-bridge-q
     ExternalCandidatesController,
     IndexerWorkController,
     IndexerAdminController,
+    ExtractionAdminController,
   ],
   providers: [
     DocumentStoreService,
@@ -70,6 +73,7 @@ import { EvidenceDocumentBridgeQueueService } from './evidence-document-bridge-q
     CandidateCommitService,
     DocumentIngestService,
     DocumentAsyncService,
+    ExtractionBatchService,
     DocumentReindexService,
     PackSeedIngestService,
     CandidateSweeperService,

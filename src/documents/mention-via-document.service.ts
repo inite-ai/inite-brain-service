@@ -3,7 +3,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { IngestMentionDto } from '../ingest/dto/ingest-mention.dto';
 import { EpisodeStoreService } from '../ingest/episode-store.service';
 import { failClosedCaptureEnabled } from '../common/evidence-flags';
-import { DocumentIngestService } from './document-ingest.service';
+import { DocumentIngestService, type DocumentIngestResponse } from './document-ingest.service';
 import { internalDocumentMeta, joinKnownNames } from './document-meta';
 import { pinUserScope } from '../auth/user-scope';
 import { MemoryContextService } from '../ingest/memory-context.service';
@@ -19,6 +19,8 @@ export interface MentionCompatResult {
    * any indexer runs and nothing new is committed.
    */
   reason?: 'empty' | 'no_entities' | 'duplicate';
+  /** The turn is remembered and its extraction is queued (background extraction). */
+  pending?: boolean;
   extractedEntityIds: string[];
   extractedFactIds: string[];
   extractedEdgeIds?: string[];
@@ -147,32 +149,51 @@ export class MentionViaDocumentService {
           // even for requests that sent no conversationId/messageId/
           // eventId whatsoever.
           indexers: 'general',
-          mode: 'sync',
         },
         { channel: 'mention', internal },
       );
-      if (res.committed.entityIds.length === 0) {
-        this.metrics?.countIngestMention('skipped');
-        return {
-          skipped: true,
-          // A deduplicated document with nothing committed is a replayed
-          // turn, not an extraction that found nothing.
-          reason: res.deduplicated ? 'duplicate' : 'no_entities',
-          extractedEntityIds: [],
-          extractedFactIds: [],
-        };
-      }
-      this.metrics?.countIngestMention('extracted');
-      this.memory?.remember(companyId, dto.contextRef.conversationId, res.committed.entityIds);
-      return {
-        skipped: false,
-        extractedEntityIds: res.committed.entityIds,
-        extractedFactIds: res.committed.factIds,
-        extractedEdgeIds: res.committed.edgeIds,
-      };
+      return this.shape(companyId, dto.contextRef.conversationId, res);
     } catch (err) {
       this.metrics?.countIngestMention('failed');
       throw err;
     }
+  }
+
+  /** The mention contract over what the document pipeline answered. */
+  private shape(
+    companyId: string,
+    conversationId: string | undefined,
+    res: DocumentIngestResponse,
+  ): MentionCompatResult {
+    if (res.mode === 'background') {
+      // Remembered now (the turn, its episode, its raw text); understood
+      // when the batch pass reads it with the turns around it.
+      this.metrics?.countIngestMention('captured');
+      return {
+        skipped: false,
+        pending: true,
+        extractedEntityIds: [],
+        extractedFactIds: [],
+      };
+    }
+    if (res.committed.entityIds.length === 0) {
+      this.metrics?.countIngestMention('skipped');
+      return {
+        skipped: true,
+        // A deduplicated document with nothing committed is a replayed
+        // turn, not an extraction that found nothing.
+        reason: res.deduplicated ? 'duplicate' : 'no_entities',
+        extractedEntityIds: [],
+        extractedFactIds: [],
+      };
+    }
+    this.metrics?.countIngestMention('extracted');
+    this.memory?.remember(companyId, conversationId, res.committed.entityIds);
+    return {
+      skipped: false,
+      extractedEntityIds: res.committed.entityIds,
+      extractedFactIds: res.committed.factIds,
+      extractedEdgeIds: res.committed.edgeIds,
+    };
   }
 }

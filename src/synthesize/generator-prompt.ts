@@ -1,3 +1,4 @@
+import { PENDING_MARK } from './pending-mark';
 import {
   TEMPORAL_LANE_INSTRUCTION,
   CONTRADICTION_NOTE_INSTRUCTION,
@@ -227,13 +228,7 @@ export function buildGeneratorUserMessage({
           .map((c) => `- ${c.label}: ${c.factIds.join(' vs ')}`)
           .join('\n')}\n${conflictNote}`
       : '';
-  const transcriptHeader = timelineEvidence
-    ? 'Transcript excerpts (verbatim, chronological — this is the MENTION RECORD: derive the order in which topics were raised from the sequence of excerpts and their dates, preferring it over fact date stamps; cite fact handles only):'
-    : 'Transcript excerpts (verbatim, chronological — use them to answer, but cite fact handles only):';
-  const transcriptSection =
-    transcriptLines && transcriptLines.length > 0
-      ? `\n\n${transcriptHeader}\n${transcriptLines.join('\n')}`
-      : '';
+  const transcriptSection = renderTranscriptSection(transcriptLines, timelineEvidence);
   const insightHeader = arcInsights
     ? 'Topic record (dated beats retrieved for the asked topic, chronological — use them to structure the narrative/overview, prefer the atomic facts for specifics, cite fact handles only):'
     : 'Derived insights (summaries composed from the facts — use them for overview/enumeration structure, prefer the atomic facts for specifics, cite fact handles only):';
@@ -374,4 +369,24 @@ function renderStrategySection(strategyNotes?: string[]): string {
     `\n\n=== ADVISORY STRATEGY NOTES (guidance, not evidence — never cite) ===\n` +
     `${STRATEGY_ADVISORY_INSTRUCTION}${notes}\n=== END ADVISORY STRATEGY NOTES ===`
   );
+}
+
+/**
+ * The verbatim transcript section. Lines marked PENDING_MARK were said
+ * after every fact in the prompt was recorded (the working memory between
+ * a write and its facts): they carry the current value and any
+ * instruction on how to answer.
+ */
+function renderTranscriptSection(
+  transcriptLines: string[] | undefined,
+  timelineEvidence: boolean | undefined,
+): string {
+  if (!transcriptLines || transcriptLines.length === 0) return '';
+  const header = timelineEvidence
+    ? 'Transcript excerpts (verbatim, chronological — this is the MENTION RECORD: derive the order in which topics were raised from the sequence of excerpts and their dates, preferring it over fact date stamps; cite fact handles only):'
+    : 'Transcript excerpts (verbatim, chronological — use them to answer, but cite fact handles only):';
+  const pendingNote = transcriptLines.some((l) => l.includes(PENDING_MARK))
+    ? `\nLines marked "${PENDING_MARK}" were said AFTER every fact above was recorded: where one changes or corrects a fact, it is the current value; where it tells you how to answer, follow it.`
+    : '';
+  return `\n\n${header}${pendingNote}\n${transcriptLines.join('\n')}`;
 }

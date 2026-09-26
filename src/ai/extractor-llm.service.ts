@@ -1,7 +1,12 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { chatCallParams, chatModel, createOpenAiClientOrThrow } from './openai-client';
+import {
+  chatCallParams,
+  chatModel,
+  createOpenAiClientOrThrow,
+  type ServiceTier,
+} from './openai-client';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
@@ -129,6 +134,10 @@ export class ExtractorLlmService {
      * containment. Empty/absent → byte-identical to the pre-coreference call.
      */
     contextPrefix?: string | undefined;
+    /** Offline processing tier — background extraction only. */
+    tier?: ServiceTier | undefined;
+    /** Visible-output allowance; a multi-turn read needs more than one turn's 1500. */
+    visibleCap?: number | undefined;
   }): Promise<unknown> {
     const { trimmed, systemPrompt } = args;
     const temperature = args.temperature ?? 0.1;
@@ -165,7 +174,11 @@ export class ExtractorLlmService {
                   }),
                 },
               },
-              ...chatCallParams(model, { temperature, visibleCap: 1500 }),
+              ...chatCallParams(model, {
+                temperature,
+                visibleCap: args.visibleCap ?? 1500,
+                tier: args.tier,
+              }),
             },
             { signal: getAbortSignal() },
           ),

@@ -157,6 +157,8 @@ describe('IndexerRunService.runGeneral builds the extraction context', () => {
       companyId: 'co',
       text: 'the turn',
       occurredAt: doc.occurredAt,
+      // Earlier turns are the ones said before it (it may be read later).
+      before: doc.occurredAt,
       conversationId: 'conv',
       messageId: 'm4',
       userId: 'u1',

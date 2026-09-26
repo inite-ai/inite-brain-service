@@ -214,7 +214,11 @@ export const MEMORY_CONTRACT_SECTION = `
 MEMORY
 The user message may open with TURN DATE, CONVERSATION SO FAR, KNOWN ENTITIES,
 KNOWN FACTS and KNOWN PREDICATES sections, then CURRENT TURN. Extract from the
-CURRENT TURN only; the rest is what the memory already holds.
+CURRENT TURN only; the rest is what the memory already holds. Several turns
+read at once come as CURRENT TURNS, each opening with a header line
+"[#n · YYYY-MM-DD · who]": extract from every one of them, and wherever this
+contract says TURN DATE, read the date in the header of the turn the clause
+sits in.
 
   known (per entity) — the handle of the KNOWN ENTITY this mention refers to
   ("e2"), else null. The same person or organisation by a shorter, inflected or
@@ -350,6 +354,17 @@ export function buildFacetSystemPrompt(facet: string): string {
   );
 }
 
+/**
+ * One of several turns read in a single extraction (extraction-group.ts):
+ * its header label as it opens the turn in the input, and who spoke it.
+ */
+export interface TurnHeader {
+  label: string;
+  speakerName?: string | undefined;
+  speakerIsUser?: boolean | undefined;
+  addresseeName?: string | undefined;
+}
+
 /** Conversation participants for one turn — drives coreference resolution. */
 export interface ConversationContext {
   /** Who is speaking this turn. First-person refers to them. */
@@ -369,6 +384,12 @@ export interface ConversationContext {
    * the extraction as `known` / `supersedes`.
    */
   memory?: MemoryContext | undefined;
+  /**
+   * Several turns read at once, oldest first: the input holds each under
+   * its header. Replaces the single-turn speaker framing — every turn
+   * names its own speaker.
+   */
+  turns?: TurnHeader[] | undefined;
 }
 
 /**
@@ -383,7 +404,37 @@ export interface ConversationContext {
  * byte-identical to the pre-coreference behaviour.
  */
 export function buildConversationContext(ctx: ConversationContext): string {
+  if (ctx.turns && ctx.turns.length > 0) {
+    return buildTurnsFraming(ctx.turns) + renderMemoryContext(ctx.memory, { turns: true });
+  }
   return buildSpeakerFraming(ctx) + renderMemoryContext(ctx.memory);
+}
+
+/**
+ * The framing for several turns read in one call: who speaks each one,
+ * and the rules that keep a clause, its first person and its dates inside
+ * the turn it was written in — the server files every fact under the turn
+ * its clause is copied from.
+ */
+function buildTurnsFraming(turns: TurnHeader[]): string {
+  const who = turns
+    .filter((t) => t.speakerName)
+    .map((t) => {
+      const to = t.addresseeName ? `, addressing "${t.addresseeName}"` : '';
+      const user = t.speakerIsUser ? ' (the user this memory belongs to)' : '';
+      return `${t.label}: "${t.speakerName}"${user}${to}`;
+    });
+  return (
+    `CONVERSATION CONTEXT\n` +
+    `The input holds ${turns.length} turns, oldest first, each opening with its header line. ` +
+    `Every clause is copied from the text of ONE turn — never from a header, never across two turns. ` +
+    `Inside a turn, first person ("I", "me", "my") refers to that turn's speaker and second person to ` +
+    `whom it addresses: emit the speaker's name as the entity, NEVER a bare "I"/"me"/"user" node. ` +
+    `Words a turn attributes to someone else are that person's. A later turn that changes what an ` +
+    `earlier one stated: emit what each turn states, each from its own turn.` +
+    (who.length > 0 ? `\nSpeakers:\n${who.join('\n')}` : '') +
+    `\n\n`
+  );
 }
 
 function buildSpeakerFraming(ctx: ConversationContext): string {
