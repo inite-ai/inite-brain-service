@@ -64,6 +64,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Characters of turn text one extraction call reads. A longer stretch is split; a single turn or document over it is read alone, chunk by chunk.',
   },
   {
+    key: 'EXTRACTION_PASS_CONCURRENCY',
+    category: 'extractor',
+    defaultValue: '4',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Groups one extract_documents pass reads at once. The reads are independent (commits follow, in the order the documents were said); a backlog of 150 documents read one at a time took over an hour. The LLM concurrency cap (OPENAI_CONCURRENCY) still bounds the calls.',
+  },
+  {
     key: 'EXTRACTION_GROUP_MAX_DOCS',
     category: 'extractor',
     defaultValue: '16',

@@ -16,6 +16,8 @@ import { MemoryContextService } from '../ingest/memory-context.service';
 import { DecisionService } from '../ai/decisions/decision.service';
 import { triageText } from './triage';
 import { ExtractionMetrics } from './extraction.metrics';
+import { Semaphore } from '../common/semaphore';
+import { retryOnReadConflict } from '../db/surreal-retry';
 import { IndexerRunService, groupDocOf } from './indexer-run.service';
 
 /**
@@ -192,71 +194,102 @@ export class ExtractionBatchService implements OnModuleInit {
       ? { ready: candidates, nextAt: undefined }
       : releaseSettled(candidates, new Date(), { ...settleRule(), maxChars: budget.maxChars });
     const groups = planExtractionGroups(ready, budget);
-    let read = 0;
-    let failed = 0;
-    const done: StoredDocument[] = [];
-    for (const group of groups) {
-      const members = group.map((g) => byId.get(g.id) as StoredDocument);
-      // D1 triage, in shadow: stamped beside the read, deciding nothing.
-      const triaged = this.triage(ctx.companyId, group);
-      try {
-        if (members.length === 1) {
-          const doc = members[0] as StoredDocument;
-          const chunks = await this.store.getChunks(ctx.companyId, doc.id);
-          await this.runs.runGeneral({
-            companyId: ctx.companyId,
-            doc,
-            chunks,
-            background: true,
-            ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
-          });
-        } else {
-          await this.runs.runGeneralGroup({
-            companyId: ctx.companyId,
-            docs: members,
-            texts,
-            ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
-          });
-        }
-        read += members.length;
-        done.push(...members);
-        this.metrics?.read(
-          members.length > 1 ? 'group' : 'solo',
-          members.length,
-          group.reduce((n, d) => n + d.text.length, 0),
-        );
-        await triaged;
-      } catch (err) {
-        failed += members.length;
-        this.logger.warn(
-          `extract_documents ${ctx.companyId}: a group of ${members.length} failed: ${(err as Error).message}`,
-        );
+    // Groups are read concurrently (each is independent: the commits come
+    // after every read of the page, in the order the documents were said).
+    const limiter = new Semaphore(passConcurrency());
+    const reads = await Promise.all(
+      groups.map((group) => limiter.run(() => this.readGroup(ctx, group, { byId, texts }))),
+    );
+    const done = reads.flatMap((r) => (r.ok ? r.members : []));
+    const failed = reads.reduce((n, r) => n + (r.ok ? 0 : r.members.length), 0);
+    const committed = await this.commitInOrder(ctx.companyId, done);
+    return { read: done.length, failed, committed, ...(nextAt ? { nextAt } : {}) };
+  }
+
+  /** One group's read (with its shadow triage beside it). Never throws. */
+  private async readGroup(
+    ctx: { companyId: string; abortSignal?: AbortSignal | undefined },
+    group: GroupDoc[],
+    page: { byId: Map<string, StoredDocument>; texts: Map<string, string> },
+  ): Promise<{ ok: boolean; members: StoredDocument[] }> {
+    const members = group.map((g) => page.byId.get(g.id) as StoredDocument);
+    const { texts } = page;
+    // D1 triage, in shadow: stamped beside the read, deciding nothing.
+    const triaged = this.triage(ctx.companyId, group);
+    try {
+      if (members.length === 1) {
+        const doc = members[0] as StoredDocument;
+        const chunks = await this.store.getChunks(ctx.companyId, doc.id);
+        await this.runs.runGeneral({
+          companyId: ctx.companyId,
+          doc,
+          chunks,
+          background: true,
+          ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
+        });
+      } else {
+        await this.runs.runGeneralGroup({
+          companyId: ctx.companyId,
+          docs: members,
+          texts,
+          ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
+        });
       }
+      this.metrics?.read(
+        members.length > 1 ? 'group' : 'solo',
+        members.length,
+        group.reduce((n, d) => n + d.text.length, 0),
+      );
+      return { ok: true, members };
+    } catch (err) {
+      this.logger.warn(
+        `extract_documents ${ctx.companyId}: a group of ${members.length} failed: ${(err as Error).message}`,
+      );
+      return { ok: false, members };
+    } finally {
+      await triaged;
     }
+  }
+
+  /**
+   * Commit the read documents in the order they were said. Each commit is
+   * its own: a write conflict (another pass committing the same tenant)
+   * is retried, and a commit that still fails is left to the candidate
+   * sweeper (its candidates stay pending) instead of failing the pass.
+   */
+  private async commitInOrder(companyId: string, done: StoredDocument[]): Promise<number> {
     let committed = 0;
-    for (const doc of done.sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime())) {
-      const result = await this.commit.commitIfRunsSettled(ctx.companyId, doc);
-      if (!result.deferred && !result.committed) {
-        // Read, and nothing in it to remember beyond its raw text.
-        await this.store
-          .setStatus({ companyId: ctx.companyId, docId: doc.id, status: 'indexed' })
-          .catch(() => undefined);
-      }
-      if (result.committed) {
-        committed += 1;
-        // What the conversation is about, for the extraction of its next
-        // turns (the mention path's memory, kept by whoever commits).
-        this.memory?.remember(
-          ctx.companyId,
-          internalMetaString(doc.meta, 'conversationId'),
-          result.entityIds,
+    for (const doc of [...done].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime())) {
+      try {
+        const result = await retryOnReadConflict(() =>
+          this.commit.commitIfRunsSettled(companyId, doc),
         );
-        await this.store
-          .setStatus({ companyId: ctx.companyId, docId: doc.id, status: 'committed' })
-          .catch(() => undefined);
+        if (!result.deferred && !result.committed) {
+          // Read, and nothing in it to remember beyond its raw text.
+          await this.store
+            .setStatus({ companyId, docId: doc.id, status: 'indexed' })
+            .catch(() => undefined);
+        }
+        if (result.committed) {
+          committed += 1;
+          // What the conversation is about, for the extraction of its next
+          // turns (the mention path's memory, kept by whoever commits).
+          this.memory?.remember(
+            companyId,
+            internalMetaString(doc.meta, 'conversationId'),
+            result.entityIds,
+          );
+          await this.store
+            .setStatus({ companyId, docId: doc.id, status: 'committed' })
+            .catch(() => undefined);
+        }
+      } catch (err) {
+        this.logger.warn(
+          `extract_documents ${companyId}: commit of ${doc.id} failed (left to the sweeper): ${(err as Error).message}`,
+        );
       }
     }
-    return { read, failed, committed, ...(nextAt ? { nextAt } : {}) };
+    return committed;
   }
 
   /**
@@ -308,6 +341,12 @@ function settleRule(): { settleMs: number; maxWaitMs: number } {
     settleMs: (Number.isFinite(settle) && settle >= 0 ? settle : 120) * 1000,
     maxWaitMs: (Number.isFinite(wait) && wait >= 0 ? wait : 600) * 1000,
   };
+}
+
+/** EXTRACTION_PASS_CONCURRENCY: groups one pass reads at once (default 4). */
+function passConcurrency(): number {
+  const n = Number(process.env.EXTRACTION_PASS_CONCURRENCY);
+  return Number.isInteger(n) && n > 0 ? n : 4;
 }
 
 /** Documents one page of a pass lists. */

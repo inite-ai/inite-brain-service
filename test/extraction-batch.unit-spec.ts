@@ -49,3 +49,70 @@ describe('ExtractionBatchService.schedule', () => {
     expect(enqueued[0]!.visibleAfter.getTime()).toBe(1_790_000_020_000);
   });
 });
+
+describe('ExtractionBatchService pass', () => {
+  const doc = (id: string, minute: number) => ({
+    id,
+    occurredAt: new Date(Date.UTC(2026, 8, 26, 10, minute)),
+    chunkCount: 1,
+    meta: {},
+    status: 'indexing',
+  });
+
+  it('reads groups concurrently, retries a conflicted commit, and a failed commit does not fail the pass', async () => {
+    const docs = new Map([
+      ['source_document:a', doc('source_document:a', 1)],
+      ['source_document:b', doc('source_document:b', 2)],
+      ['source_document:c', doc('source_document:c', 3)],
+    ]);
+    let listed = false;
+    const candidates = {
+      listAwaitingRuns: async () => {
+        if (listed) return [];
+        listed = true;
+        return [...docs.keys()].map((docId) => ({ docId, arrivedAt: new Date(0) }));
+      },
+    };
+    const store = {
+      getById: async (_c: string, id: string) => docs.get(id) ?? null,
+      getChunks: async () => [{ seq: 0, text: 'x', charStart: 0, charEnd: 1 }],
+      setStatus: async () => undefined,
+    };
+    let inFlight = 0;
+    let peak = 0;
+    const runs = {
+      runGeneral: async () => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 10));
+        inFlight -= 1;
+        return { status: 'succeeded' };
+      },
+    };
+    const attempts = new Map<string, number>();
+    const order: string[] = [];
+    const commit = {
+      commitIfRunsSettled: async (_c: string, d: { id: string }) => {
+        const n = (attempts.get(d.id) ?? 0) + 1;
+        attempts.set(d.id, n);
+        if (d.id === 'source_document:a' && n === 1) {
+          throw new Error('Transaction conflict: Resource busy. This transaction can be retried');
+        }
+        if (d.id === 'source_document:b') throw new Error('boom');
+        order.push(d.id);
+        return { committed: true, deferred: false, entityIds: [], factIds: [], edgeIds: [] };
+      },
+    };
+    const pass = new ExtractionBatchService(
+      store as never,
+      candidates as never,
+      runs as never,
+      commit as never,
+    );
+    const out = await pass.runPass('co', { force: true });
+    expect(out).toMatchObject({ read: 3, failed: 0, committed: 2 });
+    expect(attempts.get('source_document:a')).toBe(2);
+    expect(order).toEqual(['source_document:a', 'source_document:c']);
+    expect(peak).toBeGreaterThan(1);
+  });
+});
