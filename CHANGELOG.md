@@ -4,6 +4,58 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.4.0](https://github.com/inite-ai/inite-brain-service/compare/v2.3.0...v2.4.0) (2026-09-26)
+
+
+### Features
+
+* **admin:** configuration the operator can actually reach ([#666](https://github.com/inite-ai/inite-brain-service/issues/666)) ([9e17357](https://github.com/inite-ai/inite-brain-service/commit/9e173577223f3b5aab6c3d7513cbe1de56028e05))
+* **deploy:** the source plane is switched on where it runs ([#663](https://github.com/inite-ai/inite-brain-service/issues/663)) ([d3cbd5b](https://github.com/inite-ai/inite-brain-service/commit/d3cbd5b5368059063646898f935445d1470b020c))
+* **documents:** a new extraction contract re-reads the stored documents ([#686](https://github.com/inite-ai/inite-brain-service/issues/686)) ([761ab91](https://github.com/inite-ai/inite-brain-service/commit/761ab917b7984e7b3dd86ae58f8017850df668c0))
+* **documents:** D1 triage in shadow, durable relearn, extraction read metrics ([#700](https://github.com/inite-ai/inite-brain-service/issues/700)) ([6fd3e99](https://github.com/inite-ai/inite-brain-service/commit/6fd3e99577b1d70974e3e2575b1a69c7db30a02a))
+* **documents:** raw-first ingest — remember at once, extract in the background ([#698](https://github.com/inite-ai/inite-brain-service/issues/698)) ([5ff3064](https://github.com/inite-ai/inite-brain-service/commit/5ff30640832a257934f9b7de16cb332fb77bcbbe))
+* **embedder:** bge-m3 served over HTTP first, the local model as its fallback ([#672](https://github.com/inite-ai/inite-brain-service/issues/672)) ([0dd01ea](https://github.com/inite-ai/inite-brain-service/commit/0dd01ea35f864cfcc4a1bf76ddc9687f7d913b2e))
+* **extractor:** every extracted fact is checked against the text it came from ([#673](https://github.com/inite-ai/inite-brain-service/issues/673)) ([fb3c1a5](https://github.com/inite-ai/inite-brain-service/commit/fb3c1a5b005deded15a19a5f348dc42530a36d70))
+* **facts:** a fact can say when it stopped holding ([#690](https://github.com/inite-ai/inite-brain-service/issues/690)) ([d19a0f6](https://github.com/inite-ai/inite-brain-service/commit/d19a0f6cc56ed25dde5dc2aa990a3bd2aca6715b))
+* **fovea:** memory relearns from the answers it had to read raw ([#681](https://github.com/inite-ai/inite-brain-service/issues/681)) ([3a33d22](https://github.com/inite-ai/inite-brain-service/commit/3a33d2239bbc0fbb932f3bdff042644899e225d9))
+* **graph:** relations hold for a period — edges are bitemporal ([#685](https://github.com/inite-ai/inite-brain-service/issues/685)) ([0b86c6f](https://github.com/inite-ai/inite-brain-service/commit/0b86c6fb1e8f127915cd3227dd9bddd87882ecc2))
+* **llm:** chat completions fail over to a second provider ([#691](https://github.com/inite-ai/inite-brain-service/issues/691)) ([cb87bc2](https://github.com/inite-ai/inite-brain-service/commit/cb87bc2b034fe2fa314a71e2ece56a144c76d18a))
+* **memory:** a temporary state carries when it is expected to be over ([#687](https://github.com/inite-ai/inite-brain-service/issues/687)) ([7986f5c](https://github.com/inite-ai/inite-brain-service/commit/7986f5c864fc941ae0a5f0d30005943578861c06))
+
+
+### Bug Fixes
+
+* **answer-cache:** only an answer that answers is kept ([#678](https://github.com/inite-ai/inite-brain-service/issues/678)) ([1e33535](https://github.com/inite-ai/inite-brain-service/commit/1e335356b262254c49a941ec63dbba2cb380b759))
+* **ci:** the client publish workflow parses again, and every workflow is checked ([#665](https://github.com/inite-ai/inite-brain-service/issues/665)) ([37634e4](https://github.com/inite-ai/inite-brain-service/commit/37634e400a5fe08edd7fff588a555a137a70c51b))
+* **communities:** the nightly dreams job no longer fails on a cluster with nothing to summarise ([#679](https://github.com/inite-ai/inite-brain-service/issues/679)) ([fed937c](https://github.com/inite-ai/inite-brain-service/commit/fed937c80065f5d7e6d12e5256acfb583eb717d3))
+* **deploy:** smoke waits for the load balancer to route to the new replica ([#693](https://github.com/inite-ai/inite-brain-service/issues/693)) ([a388423](https://github.com/inite-ai/inite-brain-service/commit/a388423b10f0739dc8be951eb45c9a36ff51e0bf))
+* **documents:** a contract re-read survives a provider outage ([#695](https://github.com/inite-ai/inite-brain-service/issues/695)) ([2ee87ef](https://github.com/inite-ai/inite-brain-service/commit/2ee87efff6f47011bd1524267954e866e1c3bacb))
+* **documents:** a pass reads its groups concurrently and survives a commit conflict ([#701](https://github.com/inite-ai/inite-brain-service/issues/701)) ([eaa398d](https://github.com/inite-ai/inite-brain-service/commit/eaa398d1b9c955079da1463148821e3c88f5760d))
+* **documents:** documents stored before [#676](https://github.com/inite-ai/inite-brain-service/issues/676) get their raw turns; the episodes API reads a user token's own turns ([#677](https://github.com/inite-ai/inite-brain-service/issues/677)) ([749d169](https://github.com/inite-ai/inite-brain-service/commit/749d16948f8e0af4c192e6659497ca51f4fbf137))
+* **documents:** one extraction pass per tenant; a drain reads to the end ([#704](https://github.com/inite-ai/inite-brain-service/issues/704)) ([d085a89](https://github.com/inite-ai/inite-brain-service/commit/d085a899fa07b1efa574ad7bb8146edd68c54d53))
+* **documents:** one memory scope is read in the order it was told ([#703](https://github.com/inite-ai/inite-brain-service/issues/703)) ([d7580cd](https://github.com/inite-ai/inite-brain-service/commit/d7580cde6af36bb2072e0bdbe6733fb959627469))
+* **dreams:** the nightly passes that judge facts sweep every memory slice ([#680](https://github.com/inite-ai/inite-brain-service/issues/680)) ([26825f5](https://github.com/inite-ai/inite-brain-service/commit/26825f51ecbe00c5f4169e613f3606dc65f381c7))
+* **entities:** a relative named by role is the speaker's own ([#689](https://github.com/inite-ai/inite-brain-service/issues/689)) ([d8896c7](https://github.com/inite-ai/inite-brain-service/commit/d8896c7d3f822d967660be804f117b9ac622dbd5))
+* **extraction:** a reminder is a task, not a standing instruction ([#694](https://github.com/inite-ai/inite-brain-service/issues/694)) ([672c303](https://github.com/inite-ai/inite-brain-service/commit/672c303cc3359937126532b6dbde156c1f719f35))
+* **extraction:** the document check reads relations too ([#708](https://github.com/inite-ai/inite-brain-service/issues/708)) ([a567f69](https://github.com/inite-ai/inite-brain-service/commit/a567f6960c031b916549699fec7b89423c650d1e))
+* **extraction:** the output allowance grows with what the call reads ([#702](https://github.com/inite-ai/inite-brain-service/issues/702)) ([a8cde85](https://github.com/inite-ai/inite-brain-service/commit/a8cde855fc29fad1156b1c47152acbd84313178e))
+* **extractor:** a dialogue value is self-contained, not the speaker's "my" ([#696](https://github.com/inite-ai/inite-brain-service/issues/696)) ([7047d61](https://github.com/inite-ai/inite-brain-service/commit/7047d61d7a7a3006d73ef7aa7aaf8b6d7fae32b5))
+* **fovea:** a document keeps its raw text, and memory reads it before saying it does not know ([#676](https://github.com/inite-ai/inite-brain-service/issues/676)) ([bc34bd0](https://github.com/inite-ai/inite-brain-service/commit/bc34bd034cdf6852fbc1ed0910ac9e241e4945be))
+* **fovea:** questions reach the raw turns that answer them ([#683](https://github.com/inite-ai/inite-brain-service/issues/683)) ([b684cd1](https://github.com/inite-ai/inite-brain-service/commit/b684cd12d26bcf492b5d37cfc15307a7fd22349f))
+* **ingest:** a stated day that is the day it was said starts at the turn ([#707](https://github.com/inite-ai/inite-brain-service/issues/707)) ([80a6c89](https://github.com/inite-ai/inite-brain-service/commit/80a6c89db622761fdfb54c3fe1f2a692ed7a2e64))
+* **llm:** fail over on the quota refusal OpenAI actually sends ([#692](https://github.com/inite-ai/inite-brain-service/issues/692)) ([8c58074](https://github.com/inite-ai/inite-brain-service/commit/8c580745c50f0b862fa9d4798af1dac786175506))
+* **read:** a user's token reads its own memory on the profile, why and memory_diff ([#674](https://github.com/inite-ai/inite-brain-service/issues/674)) ([d85cbe2](https://github.com/inite-ai/inite-brain-service/commit/d85cbe2e2fe15483e75c78eff5af034b98e623ee))
+* **synthesize:** a refine round that abstains no longer replaces round 1's answer ([#675](https://github.com/inite-ai/inite-brain-service/issues/675)) ([26e16c3](https://github.com/inite-ai/inite-brain-service/commit/26e16c332b89afc1bc08f7c4f0349fdb5a2bcde5))
+* **synthesize:** an answer that says the data does not say is not an answer ([#682](https://github.com/inite-ai/inite-brain-service/issues/682)) ([844a735](https://github.com/inite-ai/inite-brain-service/commit/844a73547d161e1f1f2a055a7b74d037ea439298))
+* **synthesize:** the raw path reads the working memory too ([#699](https://github.com/inite-ai/inite-brain-service/issues/699)) ([cf24ec3](https://github.com/inite-ai/inite-brain-service/commit/cf24ec3e616460ea81fb9144bf625a39bdf552f5))
+* **test:** the storage contract runs against an S3 surface we can still pull ([#668](https://github.com/inite-ai/inite-brain-service/issues/668)) ([6ed32e4](https://github.com/inite-ai/inite-brain-service/commit/6ed32e462e7d097ad723c9b3b162a7e60eda2975))
+* **verifier:** evidence about a similar subject does not answer the question ([#706](https://github.com/inite-ai/inite-brain-service/issues/706)) ([f6cfeba](https://github.com/inite-ai/inite-brain-service/commit/f6cfebab010462fe53619dfae9cc00c9b0cd0ce0))
+
+
+### Performance Improvements
+
+* **commit:** the judge is asked for a document's mentions at once ([#705](https://github.com/inite-ai/inite-brain-service/issues/705)) ([4314558](https://github.com/inite-ai/inite-brain-service/commit/43145588c3c00dc6df158bc9ae6d7fcd9f84b771))
+
 ## [2.3.0](https://github.com/inite-ai/inite-brain-service/compare/v2.2.0...v2.3.0) (2026-09-24)
 
 
