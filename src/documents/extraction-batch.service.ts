@@ -194,16 +194,49 @@ export class ExtractionBatchService implements OnModuleInit {
       ? { ready: candidates, nextAt: undefined }
       : releaseSettled(candidates, new Date(), { ...settleRule(), maxChars: budget.maxChars });
     const groups = planExtractionGroups(ready, budget);
-    // Groups are read concurrently (each is independent: the commits come
-    // after every read of the page, in the order the documents were said).
+    // One memory scope reads in the order it was told, each group committed
+    // before the next is read: the extractor reads a document against what
+    // the memory already holds and supersedes it by handle (known facts),
+    // so a later document read before an earlier one's facts are committed
+    // cannot replace them. Scopes are independent and read concurrently.
+    const byScope = new Map<string, GroupDoc[][]>();
+    for (const group of groups) {
+      const key = group[0]?.userId ?? '';
+      byScope.set(key, [...(byScope.get(key) ?? []), group]);
+    }
     const limiter = new Semaphore(passConcurrency());
-    const reads = await Promise.all(
-      groups.map((group) => limiter.run(() => this.readGroup(ctx, group, { byId, texts }))),
+    const outcomes = await Promise.all(
+      [...byScope.values()].map((scoped) =>
+        limiter.run(() => this.readScope(ctx, scoped, { byId, texts })),
+      ),
     );
-    const done = reads.flatMap((r) => (r.ok ? r.members : []));
-    const failed = reads.reduce((n, r) => n + (r.ok ? 0 : r.members.length), 0);
-    const committed = await this.commitInOrder(ctx.companyId, done);
-    return { read: done.length, failed, committed, ...(nextAt ? { nextAt } : {}) };
+    const sum = (k: 'read' | 'failed' | 'committed') => outcomes.reduce((n, o) => n + o[k], 0);
+    return {
+      read: sum('read'),
+      failed: sum('failed'),
+      committed: sum('committed'),
+      ...(nextAt ? { nextAt } : {}),
+    };
+  }
+
+  /** One scope's groups, oldest first: read, commit, then the next. */
+  private async readScope(
+    ctx: { companyId: string; abortSignal?: AbortSignal | undefined },
+    groups: GroupDoc[][],
+    page: { byId: Map<string, StoredDocument>; texts: Map<string, string> },
+  ): Promise<{ read: number; failed: number; committed: number }> {
+    const out = { read: 0, failed: 0, committed: 0 };
+    const first = (g: GroupDoc[]) => g[0]?.occurredAt.getTime() ?? 0;
+    for (const group of [...groups].sort((a, b) => first(a) - first(b))) {
+      const r = await this.readGroup(ctx, group, page);
+      if (!r.ok) {
+        out.failed += r.members.length;
+        continue;
+      }
+      out.read += r.members.length;
+      out.committed += await this.commitInOrder(ctx.companyId, r.members);
+    }
+    return out;
   }
 
   /** One group's read (with its shadow triage beside it). Never throws. */
@@ -343,7 +376,7 @@ function settleRule(): { settleMs: number; maxWaitMs: number } {
   };
 }
 
-/** EXTRACTION_PASS_CONCURRENCY: groups one pass reads at once (default 4). */
+/** EXTRACTION_PASS_CONCURRENCY: memory scopes one pass reads at once (default 4). */
 function passConcurrency(): number {
   const n = Number(process.env.EXTRACTION_PASS_CONCURRENCY);
   return Number.isInteger(n) && n > 0 ? n : 4;

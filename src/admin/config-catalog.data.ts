@@ -70,7 +70,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      'Groups one extract_documents pass reads at once. The reads are independent (commits follow, in the order the documents were said); a backlog of 150 documents read one at a time took over an hour. The LLM concurrency cap (OPENAI_CONCURRENCY) still bounds the calls.',
+      "Memory scopes (users, and the tenant's shared memory) one extract_documents pass reads at once. Within a scope documents are read in the order they were said, each group committed before the next is read — the extractor supersedes what the memory already holds, so a later document must see an earlier one's facts. The LLM concurrency cap (OPENAI_CONCURRENCY) still bounds the calls.",
   },
   {
     key: 'EXTRACTION_GROUP_MAX_DOCS',

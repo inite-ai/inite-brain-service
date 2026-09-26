@@ -51,68 +51,112 @@ describe('ExtractionBatchService.schedule', () => {
 });
 
 describe('ExtractionBatchService pass', () => {
-  const doc = (id: string, minute: number) => ({
+  const doc = (id: string, minute: number, userId?: string) => ({
     id,
     occurredAt: new Date(Date.UTC(2026, 8, 26, 10, minute)),
     chunkCount: 1,
     meta: {},
     status: 'indexing',
+    ...(userId ? { userId } : {}),
   });
 
-  it('reads groups concurrently, retries a conflicted commit, and a failed commit does not fail the pass', async () => {
-    const docs = new Map([
-      ['source_document:a', doc('source_document:a', 1)],
-      ['source_document:b', doc('source_document:b', 2)],
-      ['source_document:c', doc('source_document:c', 3)],
-    ]);
+  function harness(
+    docs: Map<string, ReturnType<typeof doc>>,
+    commitImpl?: (id: string, n: number) => void,
+  ) {
     let listed = false;
-    const candidates = {
-      listAwaitingRuns: async () => {
-        if (listed) return [];
-        listed = true;
-        return [...docs.keys()].map((docId) => ({ docId, arrivedAt: new Date(0) }));
-      },
-    };
-    const store = {
-      getById: async (_c: string, id: string) => docs.get(id) ?? null,
-      getChunks: async () => [{ seq: 0, text: 'x', charStart: 0, charEnd: 1 }],
-      setStatus: async () => undefined,
-    };
+    const events: string[] = [];
     let inFlight = 0;
     let peak = 0;
-    const runs = {
-      runGeneral: async () => {
-        inFlight += 1;
-        peak = Math.max(peak, inFlight);
-        await new Promise((r) => setTimeout(r, 10));
-        inFlight -= 1;
-        return { status: 'succeeded' };
-      },
-    };
     const attempts = new Map<string, number>();
-    const order: string[] = [];
-    const commit = {
-      commitIfRunsSettled: async (_c: string, d: { id: string }) => {
-        const n = (attempts.get(d.id) ?? 0) + 1;
-        attempts.set(d.id, n);
-        if (d.id === 'source_document:a' && n === 1) {
+    const pass = new ExtractionBatchService(
+      {
+        getById: async (_c: string, id: string) => docs.get(id) ?? null,
+        getChunks: async () => [{ seq: 0, text: 'x', charStart: 0, charEnd: 1 }],
+        setStatus: async () => undefined,
+      } as never,
+      {
+        listAwaitingRuns: async () => {
+          if (listed) return [];
+          listed = true;
+          return [...docs.keys()].map((docId) => ({ docId, arrivedAt: new Date(0) }));
+        },
+      } as never,
+      {
+        runGeneral: async (p: { doc: { id: string } }) => {
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          events.push(`read ${p.doc.id}`);
+          await new Promise((r) => setTimeout(r, 10));
+          inFlight -= 1;
+          return { status: 'succeeded' };
+        },
+      } as never,
+      {
+        commitIfRunsSettled: async (_c: string, d: { id: string }) => {
+          const n = (attempts.get(d.id) ?? 0) + 1;
+          attempts.set(d.id, n);
+          commitImpl?.(d.id, n);
+          events.push(`commit ${d.id}`);
+          return { committed: true, deferred: false, entityIds: [], factIds: [], edgeIds: [] };
+        },
+      } as never,
+    );
+    return { pass, events, attempts, peak: () => peak };
+  }
+
+  it('reads one scope in order, committing each document before the next is read', async () => {
+    const h = harness(
+      new Map([
+        ['source_document:b', doc('source_document:b', 2)],
+        ['source_document:a', doc('source_document:a', 1)],
+      ]),
+    );
+    await h.pass.runPass('co', { force: true });
+    // The later document is read against the earlier one's committed facts.
+    expect(h.events).toEqual([
+      'read source_document:a',
+      'commit source_document:a',
+      'read source_document:b',
+      'commit source_document:b',
+    ]);
+  });
+
+  it('reads different scopes concurrently', async () => {
+    const h = harness(
+      new Map([
+        ['source_document:u1', doc('source_document:u1', 1, 'u1')],
+        ['source_document:u2', doc('source_document:u2', 1, 'u2')],
+        ['source_document:g', doc('source_document:g', 1)],
+      ]),
+    );
+    expect(await h.pass.runPass('co', { force: true })).toMatchObject({ read: 3, committed: 3 });
+    expect(h.peak()).toBeGreaterThan(1);
+  });
+
+  it('retries a conflicted commit, and a failed commit does not fail the pass', async () => {
+    const h = harness(
+      new Map([
+        ['source_document:a', doc('source_document:a', 1)],
+        ['source_document:b', doc('source_document:b', 2)],
+        ['source_document:c', doc('source_document:c', 3)],
+      ]),
+      (id, n) => {
+        if (id === 'source_document:a' && n === 1) {
           throw new Error('Transaction conflict: Resource busy. This transaction can be retried');
         }
-        if (d.id === 'source_document:b') throw new Error('boom');
-        order.push(d.id);
-        return { committed: true, deferred: false, entityIds: [], factIds: [], edgeIds: [] };
+        if (id === 'source_document:b') throw new Error('boom');
       },
-    };
-    const pass = new ExtractionBatchService(
-      store as never,
-      candidates as never,
-      runs as never,
-      commit as never,
     );
-    const out = await pass.runPass('co', { force: true });
-    expect(out).toMatchObject({ read: 3, failed: 0, committed: 2 });
-    expect(attempts.get('source_document:a')).toBe(2);
-    expect(order).toEqual(['source_document:a', 'source_document:c']);
-    expect(peak).toBeGreaterThan(1);
+    expect(await h.pass.runPass('co', { force: true })).toMatchObject({
+      read: 3,
+      failed: 0,
+      committed: 2,
+    });
+    expect(h.attempts.get('source_document:a')).toBe(2);
+    expect(h.events.filter((e) => e.startsWith('commit'))).toEqual([
+      'commit source_document:a',
+      'commit source_document:c',
+    ]);
   });
 });
