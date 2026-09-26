@@ -90,6 +90,25 @@ export class CommitWriterService {
   ): Promise<Map<string, string>> {
     const entityIds = new Map<string, string>();
     const participants = participantsFromMeta(p.doc.meta);
+    // The judge (the ladder's slow rung, an LLM call per mention) is asked
+    // for every mention at once; the ladder below still runs mention by
+    // mention and consumes the answers in order. Once a mention CREATES an
+    // entity the answers asked before it may be stale (a later mention may
+    // be the one just created), so from then on the judge is asked live —
+    // the outcome is exactly the sequential one.
+    // A mention anchored by the caller (a record id, a participant) or pinned
+    // by the extractor (`known`) is resolved before the judge's rung.
+    const prejudged = new Map(
+      p.merge.entities
+        .filter(
+          (me) => !me.externalId && !me.known && !coreferentParticipant(me.name, participants),
+        )
+        .map((me) => [
+          me.key,
+          this.entities.prejudge({ db, e: me, incomingFacts: incomingFactsFor(p.merge, me.key) }),
+        ]),
+    );
+    let createdSince = false;
     for (const me of p.merge.entities) {
       const eid = await traceSpan(
         'brain.commit.entity',
@@ -113,6 +132,10 @@ export class CommitWriterService {
                 relativeHint(me, p.doc.userId)),
             _contextRef: { vertical: p.doc.vertical },
             incomingFacts: incomingFactsFor(p.merge, me.key),
+            prejudged: createdSince ? undefined : prejudged.get(me.key),
+            onStep: (step) => {
+              if (step === 'created') createdSince = true;
+            },
           }),
         { name: me.name, type: me.type },
       );
