@@ -58,13 +58,8 @@ type Snapshot = {
 export interface RunOverrides {
   model?: string;
   scPasses?: number;
-  /**
-   * Background extraction (nobody is waiting on it): the offline
-   * processing tier, and an output allowance scaled to the several turns
-   * one call reads (extraction-group.ts).
-   */
+  /** Background extraction (nobody is waiting on it): the offline processing tier. */
   tier?: ServiceTier | undefined;
-  visibleCap?: number | undefined;
 }
 
 /**
@@ -264,7 +259,6 @@ export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplica
       temperature: 0.1,
       model: overrides?.model,
       tier: overrides?.tier,
-      visibleCap: overrides?.visibleCap,
     });
     if (!rawJson) return null;
     return this.assembleResult({ companyId, trimmed, snapshot, rawJson, context });
@@ -293,7 +287,6 @@ export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplica
             temperature: t,
             model: args.overrides?.model,
             tier: args.overrides?.tier,
-            visibleCap: args.overrides?.visibleCap,
           })
           .catch((e) => {
             this.logger.warn(`sc-pass T=${t.toFixed(2)} failed: ${(e as Error).message}`);
@@ -384,7 +377,6 @@ export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplica
             temperature: 0.1,
             model: args.overrides?.model,
             tier: args.overrides?.tier,
-            visibleCap: args.overrides?.visibleCap,
           })
           .catch((e) => {
             // A specialist failing costs its extra recall, nothing else — the

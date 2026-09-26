@@ -136,8 +136,6 @@ export class ExtractorLlmService {
     contextPrefix?: string | undefined;
     /** Offline processing tier — background extraction only. */
     tier?: ServiceTier | undefined;
-    /** Visible-output allowance; a multi-turn read needs more than one turn's 1500. */
-    visibleCap?: number | undefined;
   }): Promise<unknown> {
     const { trimmed, systemPrompt } = args;
     const temperature = args.temperature ?? 0.1;
@@ -176,7 +174,7 @@ export class ExtractorLlmService {
               },
               ...chatCallParams(model, {
                 temperature,
-                visibleCap: args.visibleCap ?? 1500,
+                visibleCap: extractionOutputAllowance(trimmed.length),
                 tier: args.tier,
               }),
             },
@@ -193,4 +191,19 @@ export class ExtractorLlmService {
       return null;
     }
   }
+}
+
+/**
+ * The visible-output allowance of one extraction call, from the size of
+ * what it reads. The output copies its clauses verbatim from the input and
+ * adds a fact per clause, so it grows with the input — a fixed 1500 tokens
+ * (6000 with reasoning) cut every dense document of more than a few
+ * kilobytes mid-JSON: all three samples unparseable, the document read as
+ * holding nothing. Measured on 150 merged-PR descriptions: responses
+ * truncated at ~24 000 characters, exactly the old ceiling. About one
+ * visible token per two input characters covers the verbatim copy with
+ * room for the facts; the ceiling bounds a pathological input.
+ */
+export function extractionOutputAllowance(inputChars: number): number {
+  return Math.min(Math.max(1500, Math.ceil(inputChars / 2)), 16_000);
 }
