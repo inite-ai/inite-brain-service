@@ -1,4 +1,5 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
+import type { IndexerRunOutcome } from './indexer-run-outcome';
 import {
   Counter,
   Gauge,
@@ -1216,10 +1217,7 @@ export class MetricsService implements OnModuleInit {
     this.documentsCount.inc({ result } as LabelValues<'result'>);
   }
 
-  countIndexerRun(
-    outcome:
-      'succeeded' | 'failed' | 'skipped_duplicate' | 'reopened' | 'stale_reaped' | 'claim_released',
-  ): void {
+  countIndexerRun(outcome: IndexerRunOutcome): void {
     this.indexerRunsCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 

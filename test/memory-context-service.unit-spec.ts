@@ -22,6 +22,8 @@ function make(opts: { fail?: boolean; predicates?: string[]; own?: string } = {}
     query: jest.fn(async (sql: string, params?: Record<string, unknown>) => {
       queries.push({ sql, params });
       if (opts.fail) throw new Error('db down');
+      // The in-use read (inUse): nothing in conflict, expected or used.
+      if (sql.includes('FROM memory_outcome_stat')) return [[], []];
       if (sql.includes('FROM episode')) {
         if (params?.c !== 'conv') return [[]];
         return [
@@ -240,6 +242,23 @@ describe('MemoryContextService.build', () => {
     await svc.build({ companyId: 'co', text: 'current' });
     expect(factQ().sql).not.toContain('$said');
     expect(edgeQ().sql).not.toContain('$said');
+  });
+
+  it('inUse: asks about the entities the text names — never the user — and reads either signal', async () => {
+    const { svc, queries, users } = make({ own: 'knowledge_entity:me' });
+    // 'current' names Rui (NER) → knowledge_entity:rui; the store answers
+    // nothing for the in-use query → not in use.
+    expect(await svc.inUse({ companyId: 'co', text: 'current', userId: 'u1' })).toBe(false);
+    const q = queries.find((x) => x.sql.includes('FROM memory_outcome_stat'))!;
+    expect(q.sql).toContain("status = 'competing'");
+    expect(q.sql).toContain('expectedUntil > time::now()');
+    expect(q.sql).toContain('verifiedUseCount + confirmedCount > 0');
+    expect((q.params?.ids as unknown[]).map(String)).toEqual(['knowledge_entity:rui']);
+    expect(users.lookup).not.toHaveBeenCalled();
+    // A text naming nothing known asks nothing.
+    const before = queries.length;
+    expect(await svc.inUse({ companyId: 'co', text: 'nothing named' })).toBe(false);
+    expect(queries.length).toBe(before);
   });
 
   it("the user's own entity is known first on every turn of theirs, resolved by key", async () => {

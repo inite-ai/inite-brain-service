@@ -5,17 +5,18 @@ import type { DecisionAnswer } from '../ai/decisions/decision.types';
  * D1 — the first, cheap read of captured text: what it is worth reading
  * deeply (docs/roadmap/raw-processing-triggers-2026-09.md §4.1).
  *
- * One decision-plane request per extraction group (the text exactly as
- * the extractor will read it): five noul questions and the salience
- * rubric of the importance-scoring design, all answered against the same
- * state in parallel — a fraction of a cent per group, two orders below a
- * full extraction.
+ * One decision-plane request per waiting text — a standalone document, or
+ * a conversation's unread turns rendered together (a turn alone says
+ * little) — with five noul questions and the salience rubric of the
+ * importance-scoring design, all answered against the same state in
+ * parallel: a fraction of a cent, two orders below a full extraction.
  *
- * SHADOW ONLY. The stamp lands on the document and nothing reads it for a
- * decision: whether a triage may skip or shallow a read is decided by its
- * measured recall (a document a correct answer later cited must never
- * have looked like noise), not by the hope that the classifier is right.
- * The lane off, unkeyed or failing stamps nothing.
+ * The stamp decides WHEN and HOW DEEP the text is read (read-depth.ts,
+ * extraction-batch.service.ts): an urgent text is read at once, noise is
+ * kept raw until something asks for it, routine text is read with one
+ * sample. Asymmetric: an unanswered question reads as "maybe", and a text
+ * with no stamp — the lane off, unkeyed or failing — is read in full, as
+ * it was before triage existed.
  */
 
 /** Stamp version — bumped when the questions change meaning. */
@@ -81,16 +82,19 @@ const NOUL = {
   },
 } as const;
 
+/** The salience rubric's levels, 0..3 (importance-scoring design). */
+export const SALIENCE_LEVELS = [
+  'incidental detail (small talk, one-off logistics)',
+  'routine fact — the neutral default',
+  'notable: decisions, changes, plans, recurring topics',
+  'identity-central: job, family, health, home, long-term goals',
+];
+
 const SALIENCE = {
   type: 'score' as const,
   instructions:
     'How important is what the text states, for a long-lived memory of this person or team?',
-  criteria: [
-    'incidental detail (small talk, one-off logistics)',
-    'routine fact — the neutral default',
-    'notable: decisions, changes, plans, recurring topics',
-    'identity-central: job, family, health, home, long-term goals',
-  ],
+  criteria: SALIENCE_LEVELS,
 };
 
 export async function triageText(

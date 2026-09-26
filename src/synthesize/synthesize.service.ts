@@ -59,6 +59,7 @@ import {
 } from './evidence-collector.service';
 import { L3EscalationService } from './l3-escalation.service';
 import { RelearnFromRawService } from '../documents/relearn-from-raw.service';
+import { rawLessonOf } from './raw-lesson';
 import {
   escalateToL3,
   isNoAnswer,
@@ -638,7 +639,6 @@ export class SynthesizeService {
         focusSignal: this.focusSignal,
         logger: this.logger,
         decisions: this.decisions,
-        relearn: this.relearn,
         openai: this.openai,
         finalize: (ctx, verdict, a) => this.finalizeAndAdmit(ctx, verdict, a),
       },
@@ -747,10 +747,25 @@ export class SynthesizeService {
       verdict: servedVerdict,
       decisionId: ctx.decisionId,
     });
+    this.learnFromRaw(ctx, final);
     if (ctx.cache?.ctx) {
       await this.answerCache?.admit(ctx.cache.ctx, final, verdict);
     }
     return final;
+  }
+
+  /**
+   * A served answer that cites raw turns tells the memory what it needed
+   * and did not have understood (relearn-from-raw.service.ts): a cited
+   * turn nobody has read yet — or one kept raw — is read in full ahead of
+   * the backlog, and one that was read but still had to be quoted raw
+   * (the facts did not carry the answer) is read again with the question
+   * as its focus. Both serving paths land here, after every gate; queued,
+   * never awaited.
+   */
+  private learnFromRaw(ctx: FinalizeContext, final: SynthesizeResult): void {
+    const lesson = rawLessonOf(ctx, final);
+    if (lesson) this.relearn?.schedule(lesson);
   }
 
   /**

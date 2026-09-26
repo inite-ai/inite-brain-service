@@ -1,4 +1,4 @@
-import type { TriageStamp } from './triage';
+import { TRIAGE_VERSION, type TriageStamp } from './triage';
 import { createHash } from 'node:crypto';
 import {
   BadRequestException,
@@ -59,6 +59,8 @@ export interface StoredDocument {
    * episode-metadata projection.
    */
   meta?: Record<string, unknown>;
+  /** The D1 triage stamp (0167) — what the first cheap read thought of it; absent = not triaged. */
+  triage?: TriageStamp | undefined;
 }
 
 export interface CreateDocumentResult {
@@ -427,7 +429,13 @@ function mapDoc(row: Record<string, unknown>): StoredDocument {
     ...(row.meta && typeof row.meta === 'object'
       ? { meta: row.meta as Record<string, unknown> }
       : {}),
+    ...(isCurrentTriage(row.triage) ? { triage: row.triage } : {}),
   };
+}
+
+/** A stamp of the current triage version (an older one asked other questions). */
+function isCurrentTriage(v: unknown): v is TriageStamp {
+  return typeof v === 'object' && v !== null && (v as { v?: unknown }).v === TRIAGE_VERSION;
 }
 
 function envInt(key: string, fallback: number): number {

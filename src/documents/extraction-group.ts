@@ -35,6 +35,8 @@ export interface GroupDoc {
   addresseeName?: string | undefined;
   /** When the document arrived (its read was queued) — not when it says it happened. */
   arrivedAt?: Date | undefined;
+  /** Read now, whatever the settle rule says (an urgent or a promoted turn). */
+  urgent?: boolean | undefined;
 }
 
 export interface GroupBudget {
@@ -100,7 +102,9 @@ export interface SettleRule {
  * once it goes quiet — the session gap is the natural boundary of a group
  * (the scenes' settle rule) — and not later than the wait bound; until
  * then its turns reach answers as working memory (pending turns in the
- * transcript). A standalone document is ready at once. `nextAt` is the
+ * transcript). A conversation with an urgent turn (a correction, an
+ * instruction, a change — or one something asked for) is read at once. A
+ * standalone document is ready at once. `nextAt` is the
  * earliest moment a held conversation becomes ready.
  */
 export function releaseSettled(
@@ -125,7 +129,13 @@ export function releaseSettled(
     const first = Math.min(...arrivals);
     const chars = turns.reduce((n, t) => n + t.text.length, 0);
     const t = now.getTime();
-    if (t - last >= rule.settleMs || t - first >= rule.maxWaitMs || chars >= rule.maxChars) {
+    const urgent = turns.some((d) => d.urgent);
+    if (
+      urgent ||
+      t - last >= rule.settleMs ||
+      t - first >= rule.maxWaitMs ||
+      chars >= rule.maxChars
+    ) {
       ready.push(...turns);
       continue;
     }

@@ -70,7 +70,16 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      "Memory scopes (users, and the tenant's shared memory) one extract_documents pass reads at once. Within a scope documents are read in the order they were said, each group committed before the next is read — the extractor supersedes what the memory already holds, so a later document must see an earlier one's facts. The LLM concurrency cap (OPENAI_CONCURRENCY) still bounds the calls.",
+      "Memory scopes (users, and the tenant's shared memory) one extract_documents pass reads at once. Within a scope groups are read one after another, what something asked for first, then in the order they were said — each committed before the next is read, and each read against what was said before it. The LLM concurrency cap (OPENAI_CONCURRENCY) still bounds the calls.",
+  },
+  {
+    key: 'EXTRACTION_TRIAGE_FLOOR',
+    category: 'extractor',
+    defaultValue: '0.5',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Probability at or above which a D1 triage question (durable, change, correction, instruction, identity) counts as yes when deciding how deep captured text is read (documents/read-depth.ts): noise on every question and incidental is kept raw (served from its turns, read when something asks for it); routine and durable is read with one sample; a change, correction, instruction or identity — or text naming an entity in use — is read at once and in full. Default = the decision boundary; to be fitted on labelled corpora to the declared gate recall.',
   },
   {
     key: 'EXTRACTION_GROUP_MAX_DOCS',

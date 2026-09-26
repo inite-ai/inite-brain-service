@@ -18,6 +18,7 @@ import type { DocumentChunk } from './chunker';
 import type { StoredDocument } from './document-store.service';
 import { renderGroup, splitGroupResult, type GroupDoc } from './extraction-group';
 import { Semaphore } from '../common/semaphore';
+import type { ReadDepth } from './read-depth';
 
 export interface IndexerRunResult {
   runId: string;
@@ -51,6 +52,8 @@ export interface IndexerRunSpec {
    * createRun then reopens it on the retry. Absent on the sync HTTP path.
    */
   abortSignal?: AbortSignal | undefined;
+  /** The read's depth, recorded on the run (read-depth.ts). */
+  depth?: ReadDepth | undefined;
 }
 
 /**
@@ -86,6 +89,8 @@ export class IndexerRunService {
     abortSignal?: AbortSignal;
     /** Queued extraction of a captured document (extractor `background`). */
     background?: boolean;
+    /** How deep the queued read goes (read-depth.ts); default the configured samples. */
+    depth?: Exclude<ReadDepth, 'raw'>;
   }): Promise<IndexerRunResult> {
     return this.runIndexer({
       companyId: p.companyId,
@@ -99,10 +104,16 @@ export class IndexerRunService {
       extract: async (chunkText) => {
         const context = await this.extractionContext(p.companyId, p.doc, chunkText);
         return p.background
-          ? this.extractor.extractBackground({ text: chunkText, companyId: p.companyId, context })
+          ? this.extractor.extractBackground({
+              text: chunkText,
+              companyId: p.companyId,
+              context,
+              passes: passesOf(p.depth),
+            })
           : this.extractor.extract(chunkText, p.companyId, context);
       },
       abortSignal: p.abortSignal,
+      ...(p.depth ? { depth: p.depth } : {}),
     });
   }
 
@@ -160,6 +171,28 @@ export class IndexerRunService {
       ...(addresseeName ? { addresseeName } : {}),
       ...(withFocus ? { memory: withFocus } : {}),
     };
+  }
+
+  /**
+   * Keep a captured document raw (read-depth `raw`): its generalist run is
+   * claimed and closed `skipped` with the depth recorded — no extraction.
+   * The document stays served from its raw turns; a promotion
+   * (CandidateStoreService.promote) reopens exactly these runs.
+   */
+  async keepRaw(p: { companyId: string; doc: StoredDocument }): Promise<IndexerRunResult> {
+    const run = await this.candidates.createRun(p.companyId, {
+      docId: p.doc.id,
+      packId: GENERAL_INDEXER_ID,
+      packVersion: GENERAL_INDEXER_VERSION,
+      model: this.extractor.modelId(),
+    });
+    if (!run.created) {
+      return { runId: run.runId, packId: GENERAL_INDEXER_ID, status: 'skipped' };
+    }
+    const stats = { chunks: 0, entities: 0, facts: 0, relations: 0, durationMs: 0, depth: 'raw' };
+    await this.candidates.finalizeRun(p.companyId, { runId: run.runId, status: 'skipped', stats });
+    this.metrics?.countIndexerRun('skipped_raw');
+    return { runId: run.runId, packId: GENERAL_INDEXER_ID, status: 'skipped', stats };
   }
 
   /**
@@ -225,6 +258,7 @@ export class IndexerRunService {
     docs: StoredDocument[];
     texts: Map<string, string>;
     abortSignal?: AbortSignal;
+    depth?: Exclude<ReadDepth, 'raw'>;
   }): Promise<IndexerRunResult[]> {
     const startedAt = Date.now();
     const model = this.extractor.modelId();
@@ -258,6 +292,7 @@ export class IndexerRunService {
               turns: rendered.turns,
               ...(await this.groupMemory(p.companyId, claimed, groupDocs)),
             },
+            passes: passesOf(p.depth),
           }),
         { packId: GENERAL_INDEXER_ID, documents: claimed.length },
       );
@@ -280,7 +315,12 @@ export class IndexerRunService {
             relations: part.edges,
           },
         });
-        const stats = { chunks: 1, ...counts, durationMs: Date.now() - startedAt };
+        const stats = {
+          chunks: 1,
+          ...counts,
+          durationMs: Date.now() - startedAt,
+          ...(p.depth ? { depth: p.depth } : {}),
+        };
         await this.candidates.finalizeRun(p.companyId, { runId, status: 'succeeded', stats });
         this.metrics?.countIndexerRun('succeeded');
         results.push({ runId, packId: GENERAL_INDEXER_ID, status: 'succeeded', stats });
@@ -371,7 +411,14 @@ export class IndexerRunService {
       return { runId: run.runId, packId: spec.packId, status: 'skipped' };
     }
 
-    const stats = { chunks: 0, entities: 0, facts: 0, relations: 0, durationMs: 0 };
+    const stats = {
+      chunks: 0,
+      entities: 0,
+      facts: 0,
+      relations: 0,
+      durationMs: 0,
+      ...(spec.depth ? { depth: spec.depth } : {}),
+    };
     // The chunks of one document are read at once: each is read against
     // the same memory (nothing is committed until every chunk is staged),
     // so reading them one after another only added their latencies.
@@ -452,6 +499,11 @@ export function groupDocOf(doc: StoredDocument, text: string): GroupDoc {
     speakerIsUser: isUserEntityRef(speaker, doc.userId) || undefined,
     addresseeName: addressee?.name,
   };
+}
+
+/** The extraction samples of a depth: one for `single`, the configured count for `full`. */
+function passesOf(depth: ReadDepth | undefined): number | undefined {
+  return depth === 'single' ? 1 : undefined;
 }
 
 /** Chunks of one document read at once. */

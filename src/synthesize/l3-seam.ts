@@ -17,7 +17,6 @@ import type { L3EscalationService } from './l3-escalation.service';
 import type { finalizeVerdict } from './verdict';
 import type { SynthesizeResult } from './synthesize.types';
 import type { Asker } from './asker';
-import type { RelearnFromRawService } from '../documents/relearn-from-raw.service';
 
 /**
  * The L3 seam, out of synthesize.service.ts (file-size gate): the one
@@ -74,8 +73,6 @@ export interface L3SeamDeps {
   focusSignal?: FocusSignalService | undefined;
   logger: Logger;
   decisions?: MemoryDecisionService | undefined;
-  /** Relearn from raw: the turns an L3 answer was read from are extracted again. */
-  relearn?: Pick<RelearnFromRawService, 'schedule'> | undefined;
   openai: OpenAI;
   finalize: (
     ctx: FinalizeContext,
@@ -152,19 +149,8 @@ export async function escalateToL3(
     ...(onDecision ? { onDecision } : {}),
   });
   if (!l3) return null;
-  // The facts could not answer this and the raw turns could: the memory
-  // reads those turns again with the question as its focus, so the next
-  // time the facts hold the answer (relearn-from-raw.service.ts).
-  const episodeIds = l3.evidenceCitations.flatMap((c) => (c.episodeId ? [c.episodeId] : []));
-  if (episodeIds.length > 0 && l3.answer) {
-    deps.relearn?.schedule({
-      companyId,
-      userId: args.dto.userId,
-      episodeIds,
-      question: args.dto.query,
-      answer: l3.answer,
-    });
-  }
+  // What the answer read raw is learned in finalize (learnFromRaw), after
+  // the gates, like every served answer that cites raw turns.
   // Route the L3 supported answer through the SAME answer-integrity gate as
   // the primary serve (Parts A + C) by carrying dto/profile/model into the
   // finalize context. The L3 answer grounds on the RAW TRANSCRIPT — the path

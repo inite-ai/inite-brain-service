@@ -179,6 +179,58 @@ export class MemoryContextService {
     }
   }
 
+  /**
+   * Whether the text names an entity the memory is using now — one with a
+   * fact in open conflict (COMPETING), a state expected to end but not yet
+   * ended (expectedUntil ahead), or a fact an answer has verifiably used
+   * (0107). New raw about such an entity is read in full and never left
+   * raw: it is where the memory is being asked and where it may be wrong
+   * (docs/roadmap/raw-processing-triggers-2026-09.md §4.2 T-5).
+   *
+   * Only the entities the text itself names count — not the user's own
+   * entity (every first-person turn would be "in use") nor what the
+   * conversation was about before. Read-only; a failure reads as not in
+   * use (the triage still decides).
+   */
+  async inUse(p: {
+    companyId: string;
+    text: string;
+    userId?: string | undefined;
+    participants?: string[] | undefined;
+  }): Promise<boolean> {
+    try {
+      return await this.surreal.withCompany(p.companyId, async (db) => {
+        const names = await this.candidateNames({ ...p, participants: [] }, []);
+        const ids = await this.lookupIds(db, {
+          own: undefined,
+          names,
+          userId: p.userId,
+          remembered: [],
+        });
+        if (ids.length === 0) return false;
+        const userGate = p.userId ? '(userId IS NONE OR userId = $u)' : 'userId IS NONE';
+        const [open, used] = await db.query<[Array<unknown>, Array<unknown>]>(
+          `SELECT VALUE id FROM knowledge_fact
+             WHERE entityId IN $ids AND retractedAt IS NONE AND ${userGate}
+               AND (status = 'competing'
+                 OR (status = 'active' AND validUntil IS NONE
+                     AND expectedUntil != NONE AND expectedUntil > time::now()))
+             LIMIT 1;
+           SELECT VALUE id FROM memory_outcome_stat
+             WHERE subjectId IN (SELECT VALUE id FROM knowledge_fact
+                                   WHERE entityId IN $ids AND retractedAt IS NONE AND ${userGate})
+               AND verifiedUseCount + confirmedCount > 0
+             LIMIT 1;`,
+          { ids: ids.map(recordRef), u: p.userId },
+        );
+        return (open ?? []).length > 0 || (used ?? []).length > 0;
+      });
+    } catch (e) {
+      this.logger.warn(`in-use check failed (companyId=${p.companyId}): ${(e as Error).message}`);
+      return false;
+    }
+  }
+
   private async recentTurns(db: Surreal, p: MemoryContextInput): Promise<MemoryTurn[]> {
     if (!p.conversationId) return [];
     const userGate = p.userId ? '(userId IS NONE OR userId = $u)' : 'userId IS NONE';
