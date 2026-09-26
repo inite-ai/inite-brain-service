@@ -285,6 +285,8 @@ describe('CommitWriterService writes the contract', () => {
       supersedes: ['knowledge_fact:old'],
       objectMeta: { date: '2026-09-12' },
       userId: 'u1',
+      // The subject's type rides along (the slot canonicalization's guard).
+      entityType: 'customer',
     });
     // An occurred day is the validity start.
     expect((factCalls[0]?.validFrom as Date).toISOString()).toBe('2026-09-12T00:00:00.000Z');
