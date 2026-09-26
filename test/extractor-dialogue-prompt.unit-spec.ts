@@ -79,3 +79,19 @@ describe('object normalization prompt/schema lockstep (E3b)', () => {
     expect(factsSchema.required).toContain('object');
   });
 });
+
+describe('valueSpan follows the profile', () => {
+  const desc = (opts?: { dialogue?: boolean }) =>
+    (buildExtractionSchema(opts) as any).properties.facts.items.properties.valueSpan.description;
+
+  it('the span-grounded profile keeps the verbatim contract its gate enforces', () => {
+    expect(desc()).toMatch(/^VERBATIM substring/);
+    expect(desc({ dialogue: false })).toBe(desc());
+  });
+
+  it('the dialogue profile asks for a self-contained value, pronouns resolved', () => {
+    expect(desc({ dialogue: true })).not.toMatch(/VERBATIM/);
+    expect(desc({ dialogue: true })).toMatch(/pronoun/);
+    expect(desc({ dialogue: true })).toMatch(/not a sentence about the subject/);
+  });
+});
