@@ -21,13 +21,14 @@ describe('triageText (D1, shadow)', () => {
     expect(await triageText(undefined, 'text')).toBeNull();
   });
 
-  it('asks the five questions and the salience rubric in ONE request over the text', async () => {
+  it('asks the six questions and the salience rubric in ONE request over the text', async () => {
     const { svc, asked } = plane({
       durable: { type: 'noul', noul: 0.92 },
       change: { type: 'noul', noul: 0.81 },
       instruction: { type: 'noul', noul: 0.03 },
       correction: { type: 'noul', noul: 0.4 },
       identity: { type: 'noul', noul: 0.1 },
+      state: { type: 'noul', noul: 0.88 },
       salience: {
         type: 'score',
         // The expected value, not a level: the level is the argmax.
@@ -43,7 +44,7 @@ describe('triageText (D1, shadow)', () => {
     const stamp = await triageText(svc, 'Budget moved from 4000 to 2500.');
     expect(asked).toHaveLength(1);
     expect(Object.keys(asked[0]!.questions).sort()).toEqual(
-      ['change', 'correction', 'durable', 'identity', 'instruction', 'salience'].sort(),
+      ['change', 'correction', 'durable', 'identity', 'instruction', 'salience', 'state'].sort(),
     );
     expect(asked[0]!.state).toBe('TEXT:\nBudget moved from 4000 to 2500.');
     expect(stamp).toMatchObject({
@@ -53,6 +54,7 @@ describe('triageText (D1, shadow)', () => {
       instruction: 0.03,
       correction: 0.4,
       identity: 0.1,
+      state: 0.88,
       // Found by the level's description, whatever the plane numbers it.
       salience: 2,
     });

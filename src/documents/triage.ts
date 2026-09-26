@@ -7,7 +7,7 @@ import type { DecisionAnswer } from '../ai/decisions/decision.types';
  *
  * One decision-plane request per waiting text — a standalone document, or
  * a conversation's unread turns rendered together (a turn alone says
- * little) — with five noul questions and the salience rubric of the
+ * little) — with six noul questions and the salience rubric of the
  * importance-scoring design, all answered against the same state in
  * parallel: a fraction of a cent, two orders below a full extraction.
  *
@@ -20,7 +20,7 @@ import type { DecisionAnswer } from '../ai/decisions/decision.types';
  */
 
 /** Stamp version — bumped when the questions change meaning. */
-export const TRIAGE_VERSION = 1;
+export const TRIAGE_VERSION = 2;
 
 /** The plane reads what one extraction call reads, and no more. */
 const TEXT_CHARS = 12_000;
@@ -34,6 +34,8 @@ export interface TriageStamp {
   instruction: number;
   correction: number;
   identity: number;
+  /** It states the current value of something that can later change (a baseline a later change replaces). */
+  state: number;
   /** 0 incidental · 1 routine · 2 notable · 3 identity-central. */
   salience: number;
 }
@@ -70,6 +72,15 @@ const NOUL = {
     criteria: {
       true: 'Yes — an earlier statement is corrected or withdrawn.',
       false: 'Nothing earlier is corrected.',
+    },
+  },
+  state: {
+    instructions:
+      'Does the text state the current value of something that can later change — where someone lives or works, what they own or use, who holds a role, a status, an amount, a date or deadline, a plan in force?',
+    criteria: {
+      true: 'Yes — a current value that a later statement could replace.',
+      false:
+        'No — only events, opinions, feelings, stories, or talk with no value that holds from now on.',
     },
   },
   identity: {
@@ -123,6 +134,7 @@ export async function triageText(
     instruction: p('instruction'),
     correction: p('correction'),
     identity: p('identity'),
+    state: p('state'),
     salience: salienceLevel(salience),
   };
 }

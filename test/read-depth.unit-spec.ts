@@ -3,7 +3,9 @@
  * demand, not on arrival:
  *  - read at once, in full: urgent, notable, in use, untriaged, or asked
  *    for by an answer / beside an urgent read;
- *  - the idle budget reads the deferred backlog with one sample;
+ *  - a current value of something that can change is read with one
+ *    sample (the baseline a later change replaces), and so is the
+ *    deferred backlog the idle budget asks for;
  *  - everything else is kept raw;
  *  - urgency = a change, correction, instruction or identity at the floor;
  *  - a run's priority maps to what asked for the read.
@@ -19,6 +21,7 @@ const stamp = (over: Partial<TriageStamp> = {}): TriageStamp => ({
   instruction: 0.1,
   correction: 0.1,
   identity: 0.1,
+  state: 0.1,
   salience: 0,
   ...over,
 });
@@ -28,6 +31,12 @@ describe('readDepth', () => {
   it('keeps raw what nothing asks for: noise, and routine durable text alike', () => {
     expect(readDepth({ ...base, stamps: [stamp()] })).toBe('raw');
     expect(readDepth({ ...base, stamps: [stamp({ durable: 0.9, salience: 1 })] })).toBe('raw');
+  });
+
+  it('reads a current value of something that can change with one sample — the baseline', () => {
+    expect(readDepth({ ...base, stamps: [stamp({ durable: 0.9, state: 0.8, salience: 1 })] })).toBe(
+      'single',
+    );
   });
 
   it('reads the deferred backlog with one sample when the idle budget asks', () => {

@@ -13,8 +13,10 @@ import type { TriageStamp } from './triage';
  *    identification), notable (salience ≥ 2), naming an entity in use,
  *    untriaged (the judge unavailable — the asymmetric default), or asked
  *    for by an answer or beside an urgent read;
- *  - `single` — one sample: the idle budget reading the deferred backlog;
- *  - `raw` — everything else, kept as raw turns until something asks for
+ *  - `single` — one sample: a current value of something that can change
+ *    (the baseline a later change replaces), or the idle budget reading
+ *    the deferred backlog;
+ *  - `raw` — everything else — events, opinions, stories, logistics, kept as raw turns until something asks for
  *    it (CandidateStoreService.promote).
  */
 export type ReadDepth = 'raw' | 'single' | 'full';
@@ -53,8 +55,11 @@ export function readDepth(p: DepthSignals): ReadDepth {
   if (isUrgent(stamps, p.floor)) return 'full';
   // Notable or identity-central: read as carefully as we read.
   if (Math.max(...stamps.map((s) => s.salience)) >= 2) return 'full';
-  // The idle budget reads the deferred backlog, one sample each.
-  if (p.asked === 'idle') return 'single';
+  // A current value of something that can change is read when it
+  // arrives, one sample: it is the baseline a later change replaces, and
+  // a change arriving against nothing has nothing to supersede. The idle
+  // budget reads the deferred backlog the same way.
+  if (stamps.some((s) => s.state >= p.floor) || p.asked === 'idle') return 'single';
   return 'raw';
 }
 

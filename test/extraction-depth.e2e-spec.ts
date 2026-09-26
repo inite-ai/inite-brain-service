@@ -34,6 +34,7 @@ function triageOf(text: string) {
       instruction: p(0.05),
       correction: p(correction ? 0.95 : 0.05),
       identity: p(0.05),
+      state: p(0.05),
       salience: {
         type: 'score' as const,
         score: level,

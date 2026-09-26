@@ -60,6 +60,7 @@ function answers(v: Verdict) {
       instruction: p(0.05),
       correction: p(v === 'correction' ? 0.95 : 0.05),
       identity: p(0.05),
+      state: p(0.05),
       salience: {
         type: 'score',
         score: level,
@@ -216,13 +217,14 @@ describe('ExtractionBatchService — triage, urgency, depth', () => {
 
   it('does not triage what already carries a stamp', async () => {
     const stamp = {
-      v: 1,
+      v: 2,
       at: 'x',
       durable: 0.9,
       change: 0.1,
       instruction: 0.1,
       correction: 0.1,
       identity: 0.1,
+      state: 0.1,
       salience: 1,
     };
     const h = harness({
