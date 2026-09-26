@@ -16,7 +16,15 @@ import {
 import { MemoryContextService } from '../ingest/memory-context.service';
 import { DecisionService } from '../ai/decisions/decision.service';
 import { triageText, type TriageStamp } from './triage';
-import { isUrgent, readDepth, triageFloor, type ReadDepth } from './read-depth';
+import {
+  PRIORITY,
+  askOf,
+  isUrgent,
+  readDepth,
+  triageFloor,
+  type ReadAsk,
+  type ReadDepth,
+} from './read-depth';
 import { ExtractionMetrics } from './extraction.metrics';
 import { LeaderLeaseService } from '../jobs/leader-lease.service';
 import { Semaphore } from '../common/semaphore';
@@ -33,13 +41,13 @@ import { IndexerRunService, groupDocOf } from './indexer-run.service';
  * one extraction call per group on the offline tier, and commits the
  * documents in the order they were said.
  *
- * Not everything is read, and not all of it alike (read-depth.ts): every
- * waiting text is first triaged (D1, one cheap decision request); a
- * correction, a change, an instruction or a self-identification — or a
- * text an answer had to cite, or one beside such a text — is read at once
- * and in full, ahead of the rest; routine text is read with one sample;
- * noise is kept raw until something asks for it (CandidateStoreService.
- * promote).
+ * Read on demand, not on arrival (read-depth.ts): every waiting text is
+ * first triaged (D1, one cheap decision request). A correction, a change,
+ * an instruction, a self-identification, notable text or text naming an
+ * entity in use is read at once and in full; the rest is kept raw —
+ * served from its raw turns — until something asks for it: an answer that
+ * cites it, a correction beside it (read in full, ahead of the rest), or
+ * the nightly idle budget (one sample, most salient first).
  *
  * A failed group fails its runs; the pass then schedules a backed-off
  * retry pass (which also lists failed runs) — the document stays
@@ -97,6 +105,33 @@ export class ExtractionBatchService implements OnModuleInit {
       payload: { retry },
       visibleAfter: new Date(at),
     });
+  }
+
+  /**
+   * The idle budget (§4.2 T-6): reopen the most salient of the deferred
+   * backlog — text kept raw that is not noise — up to the tenant's nightly
+   * budget, and ask for a pass. Each is read with one sample; what an
+   * answer needs meanwhile is read at once, in full, by the answer's own
+   * promotion. Returns how many reads were reopened.
+   */
+  async readDeferred(companyId: string): Promise<number> {
+    const budget = idleBudget();
+    if (budget === 0) return 0;
+    const docIds = await this.candidates.listDeferred(companyId, {
+      packId: GENERAL_INDEXER_ID,
+      packVersion: GENERAL_INDEXER_VERSION,
+      floor: triageFloor(),
+      limit: budget,
+    });
+    const reopened = await this.candidates.promote(companyId, {
+      packId: GENERAL_INDEXER_ID,
+      packVersion: GENERAL_INDEXER_VERSION,
+      priority: PRIORITY.idle,
+      target: { docIds },
+    });
+    this.metrics?.promoted('idle', reopened);
+    if (reopened > 0) await this.schedule(companyId, { delayMs: 1000 });
+    return reopened;
   }
 
   private async handle(ctx: JobContext): Promise<Record<string, unknown>> {
@@ -266,7 +301,7 @@ export class ExtractionBatchService implements OnModuleInit {
       arrivedAt: arrived.get(d.id),
       // Read now: something asked for it, or it changes what the memory
       // holds or how it answers.
-      urgent: isPromoted(d, priority) || isUrgent([stamps.get(d.id)], floor),
+      urgent: askedOf(d, priority) !== undefined || isUrgent([stamps.get(d.id)], floor),
       // A re-read aimed at one question reads its turn alone.
       solo: !!internalMetaString(d.meta, 'focusQuestion'),
     }));
@@ -480,7 +515,7 @@ export class ExtractionBatchService implements OnModuleInit {
     const members = group.map((g) => page.byId.get(g.id) as StoredDocument);
     const signals = {
       stamps: group.map((g) => page.stamps.get(g.id)),
-      promoted: members.some((d) => isPromoted(d, page.priority)),
+      asked: strongestAsk(members.map((d) => askedOf(d, page.priority))),
       hot: false,
       floor: page.floor,
     };
@@ -527,7 +562,7 @@ export class ExtractionBatchService implements OnModuleInit {
       .promote(companyId, {
         packId: GENERAL_INDEXER_ID,
         packVersion: GENERAL_INDEXER_VERSION,
-        priority: PRIORITY_NEIGHBOUR,
+        priority: PRIORITY.neighbour,
         target: { conversationId, userId: group[0]?.userId },
       })
       .catch(() => 0);
@@ -566,6 +601,15 @@ function settleRule(): { settleMs: number; maxWaitMs: number } {
   };
 }
 
+/**
+ * EXTRACTION_IDLE_BUDGET_DOCS: deferred documents the nightly idle pass
+ * reads per tenant (default 64; 0 = read only on demand).
+ */
+function idleBudget(): number {
+  const n = Number(process.env.EXTRACTION_IDLE_BUDGET_DOCS);
+  return Number.isInteger(n) && n >= 0 ? n : 64;
+}
+
 /** EXTRACTION_PASS_CONCURRENCY: memory scopes one pass reads at once (default 4). */
 function passConcurrency(): number {
   const n = Number(process.env.EXTRACTION_PASS_CONCURRENCY);
@@ -593,12 +637,22 @@ interface Page {
 }
 
 /**
- * Something asked for this read: an answer that cited it or a correction
- * beside it raised its priority (0168), or it is a re-read aimed at a
- * question.
+ * What asked for this read: its run's priority (an answer that cited it, a
+ * correction beside it, the idle budget — 0168), or a re-read aimed at a
+ * question (always an answer's).
  */
-function isPromoted(doc: StoredDocument, priority: Map<string, number>): boolean {
-  return (priority.get(doc.id) ?? 0) > 0 || !!internalMetaString(doc.meta, 'focusQuestion');
+function askedOf(doc: StoredDocument, priority: Map<string, number>): ReadAsk | undefined {
+  if (internalMetaString(doc.meta, 'focusQuestion')) return 'answer';
+  return askOf(priority.get(doc.id) ?? 0);
+}
+
+/** A group is asked for as strongly as its most asked-for member. */
+function strongestAsk(asks: Array<ReadAsk | undefined>): ReadAsk | undefined {
+  const rank = (a: ReadAsk | undefined): number => (a === undefined ? 0 : PRIORITY[a]);
+  return asks.reduce<ReadAsk | undefined>(
+    (best, a) => (rank(a) > rank(best) ? a : best),
+    undefined,
+  );
 }
 
 /** What one pass carries down to its reads. */
@@ -618,8 +672,6 @@ const LEASE_WAIT_MS = 60 * 60_000;
 
 /** Triage requests in flight at once. */
 const TRIAGE_CONCURRENCY = 8;
-/** Priority of a raw-kept turn reopened beside an urgent read (0168). */
-const PRIORITY_NEIGHBOUR = 1;
 /** Documents of a page loaded at once. */
 const LOAD_CONCURRENCY = 8;
 /** Documents one page of a pass lists. */

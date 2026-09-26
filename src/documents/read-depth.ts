@@ -2,29 +2,33 @@ import type { TriageStamp } from './triage';
 
 /**
  * How deep a captured text is read (docs/roadmap/raw-processing-triggers-
- * 2026-09.md §4.1–4.2), decided from its D1 triage stamp and what the
- * memory already knows about it. Pure — no DB, no LLM.
+ * 2026-09.md §4.1–4.2), decided from its D1 triage stamp, what the memory
+ * is using now, and what asked for it. Pure — no DB, no LLM.
  *
- *  - `raw`: kept as raw turns only (D0/D1). Still served — every raw lane
- *    reads it — and read in full the moment something needs it (an
- *    answer cites it, a correction lands next to it: promotion).
- *  - `single`: one extraction sample (D2a).
- *  - `full`: the self-consistency samples (D2b) — the configured default.
- *
- * Asymmetric by construction: only a text the triage found to be noise on
- * EVERY question is left raw, and anything unknown (no stamp, a failed
- * triage, an unanswered question) reads as worth reading — a wrong "noise"
- * costs a later promotion, a wrong "worth it" costs one extraction.
+ * Read on demand, not on arrival. Extraction is the expensive step; most
+ * of what is said is never asked about again, and until it is, the raw
+ * turns serve it (every raw lane reads them). So only what would be wrong
+ * on the very next turn is read at once:
+ *  - `full` — urgent (a change, a correction, an instruction, a self-
+ *    identification), notable (salience ≥ 2), naming an entity in use,
+ *    untriaged (the judge unavailable — the asymmetric default), or asked
+ *    for by an answer or beside an urgent read;
+ *  - `single` — one sample: the idle budget reading the deferred backlog;
+ *  - `raw` — everything else, kept as raw turns until something asks for
+ *    it (CandidateStoreService.promote).
  */
 export type ReadDepth = 'raw' | 'single' | 'full';
+
+/** Why a read was asked for (the run's priority, 0168). */
+export type ReadAsk = 'idle' | 'neighbour' | 'answer';
 
 export interface DepthSignals {
   /** The stamps of every document read as one text; `undefined` = not triaged. */
   stamps: Array<TriageStamp | undefined>;
   /** A known entity the text mentions is in use (verified use, an open conflict, a pending expectation). */
   hot: boolean;
-  /** Something asked for this text (an answer cited it; a correction beside it). */
-  promoted: boolean;
+  /** What asked for this text, if anything. */
+  asked: ReadAsk | undefined;
   /** P(true) at or above which a triage question counts as yes. */
   floor: number;
 }
@@ -43,18 +47,30 @@ export function isUrgent(stamps: Array<TriageStamp | undefined>, floor: number):
 }
 
 export function readDepth(p: DepthSignals): ReadDepth {
-  if (p.promoted || p.hot) return 'full';
+  if (p.asked === 'answer' || p.asked === 'neighbour' || p.hot) return 'full';
   if (p.stamps.length === 0 || p.stamps.some((s) => s === undefined)) return 'full';
   const stamps = p.stamps as TriageStamp[];
   if (isUrgent(stamps, p.floor)) return 'full';
-  const salience = Math.max(...stamps.map((s) => s.salience));
   // Notable or identity-central: read as carefully as we read.
-  if (salience >= 2) return 'full';
-  const durable = stamps.some((s) => s.durable >= p.floor);
-  // Nothing worth knowing next week, nothing urgent, incidental: noise.
-  if (!durable && salience === 0) return 'raw';
-  return 'single';
+  if (Math.max(...stamps.map((s) => s.salience)) >= 2) return 'full';
+  // The idle budget reads the deferred backlog, one sample each.
+  if (p.asked === 'idle') return 'single';
+  return 'raw';
 }
+
+/** A run's priority (0168) as what asked for the read. */
+export function askOf(priority: number): ReadAsk | undefined {
+  return priority >= PRIORITY.answer
+    ? 'answer'
+    : priority >= PRIORITY.neighbour
+      ? 'neighbour'
+      : priority >= PRIORITY.idle
+        ? 'idle'
+        : undefined;
+}
+
+/** Run priorities (0168): what asked for a read, highest first in the queue. */
+export const PRIORITY = { idle: 1, neighbour: 2, answer: 3 } as const;
 
 /**
  * EXTRACTION_TRIAGE_FLOOR: the probability at or above which a triage

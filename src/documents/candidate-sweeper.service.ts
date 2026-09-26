@@ -157,6 +157,9 @@ export class CandidateSweeperService implements OnModuleInit {
     // failed last — a read is never left for good because the pass that
     // would have retried it did not happen.
     await this.batch?.schedule(companyId, { retry: 1 }).catch(() => undefined);
+    // The idle budget: the most salient of what was kept raw is read now,
+    // while nothing waits on it.
+    await this.batch?.readDeferred(companyId).catch(() => 0);
     const docs = await this.candidates.findDocsNeedingCommit(companyId);
     let recommitted = 0;
     if (this.claim) {

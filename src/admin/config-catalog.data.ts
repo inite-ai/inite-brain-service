@@ -79,7 +79,16 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      'Probability at or above which a D1 triage question (durable, change, correction, instruction, identity) counts as yes when deciding how deep captured text is read (documents/read-depth.ts): noise on every question and incidental is kept raw (served from its turns, read when something asks for it); routine and durable is read with one sample; a change, correction, instruction or identity — or text naming an entity in use — is read at once and in full. Default = the decision boundary; to be fitted on labelled corpora to the declared gate recall.',
+      'Probability at or above which a D1 triage question (durable, change, correction, instruction, identity) counts as yes when deciding how deep captured text is read (documents/read-depth.ts): only a change, correction, instruction or identity, notable text, or text naming an entity in use is read when it arrives (in full); the rest is kept raw — served from its turns — and read when an answer cites it, a correction lands beside it, or the nightly idle budget (EXTRACTION_IDLE_BUDGET_DOCS) reaches it. Default = the decision boundary; to be fitted on labelled corpora to the declared gate recall.',
+  },
+  {
+    key: 'EXTRACTION_IDLE_BUDGET_DOCS',
+    category: 'extractor',
+    defaultValue: '64',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Deferred documents the nightly idle pass reads per tenant, one sample each, most salient first (by the triage stamps). Text is read on demand: only what is urgent, notable, in use or asked for is read when it arrives; routine text is kept raw — served from its turns — until an answer cites it, a correction lands beside it, or this budget reaches it. 0 = read only on demand.',
   },
   {
     key: 'EXTRACTION_GROUP_MAX_DOCS',

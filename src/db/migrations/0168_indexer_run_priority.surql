@@ -8,7 +8,7 @@
 -- highest first, oldest first within a priority
 -- (docs/roadmap/raw-processing-triggers-2026-09.md §4.2).
 --
--- Values: NONE/0 = captured, read in turn; 1 = promoted beside an urgent
--- read (a correction's raw neighbours); 2 = promoted by an answer that
--- cited the text.
+-- Values (read-depth.ts PRIORITY): NONE/0 = captured, read in turn;
+-- 1 = the idle budget reading the deferred backlog; 2 = beside an urgent
+-- read (a correction's raw neighbours); 3 = an answer cited the text.
 DEFINE FIELD IF NOT EXISTS priority ON indexer_run TYPE option<int>;

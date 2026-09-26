@@ -330,29 +330,29 @@ the hope that the classifier is right.
 
 Built — one A/B leg against main, not yet run:
 
-| Design item                                                                                                                                                                                        | Where                                                                                 |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| D1 triage on every waiting text (a conversation as its unread turns together), judged again when a turn arrives                                                                                    | `ExtractionBatchService.triageWaiting`                                                |
-| E-1/E-2 urgency: change / correction / instruction / identity ≥ floor reads its conversation at once                                                                                               | `read-depth.ts isUrgent`, `releaseSettled` (`urgent`)                                 |
-| T-2 depth: raw (noise on every question, incidental) / single sample (routine durable) / full                                                                                                      | `read-depth.ts readDepth`, runs record `stats.depth`, raw = run `skipped`             |
-| T-5 in use: text naming an entity with an open conflict, a pending `expectedUntil`, or a verified use is read in full                                                                              | `MemoryContextService.inUse`                                                          |
-| T-3 generalised: ANY served answer citing raw turns → an unread / raw-kept document is promoted (priority 2), a read one the facts did not carry is re-read with focus                             | `raw-lesson.ts`, `RelearnFromRawService` (the L3-only trigger is gone)                |
-| T-8 retroactive capture: an urgent read reopens the raw-kept turns of its conversation (priority 1)                                                                                                | `ExtractionBatchService.captureNeighbours`                                            |
-| Priority queue: asked-for first, then in the order said                                                                                                                                            | 0168 `indexer_run.priority`, `listAwaitingRuns`                                       |
-| Residency, continuous: ACT-R base-level activation from creation + verified uses (d = 0.5, τ from the predicate half-life) replaces the exponential decay and the separate verified-use multiplier | `search/internals/activation.ts`                                                      |
-| Safety: waiting generalist reads are not reaped; the nightly sweep schedules a retry pass                                                                                                          | `reapStaleRuns`, `CandidateSweeperService.reconcileRuns`                              |
-| D2a is checked against the text like D2b (`extraction_check` on the single-sample and facet reads too)                                                                                             | `ExtractorRunnerService.checkRead`                                                    |
-| Metrics: depth distribution, promotions by reason                                                                                                                                                  | `brain_extraction_depth_documents_total`, `brain_extraction_promoted_documents_total` |
+| Design item                                                                                                                                                                                             | Where                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| D1 triage on every waiting text (a conversation as its unread turns together), judged again when a turn arrives                                                                                         | `ExtractionBatchService.triageWaiting`                                                |
+| E-1/E-2 urgency: change / correction / instruction / identity ≥ floor reads its conversation at once                                                                                                    | `read-depth.ts isUrgent`, `releaseSettled` (`urgent`)                                 |
+| T-2 depth, on demand (`feat/raw-lazy`): full at once only for urgent / notable / in use / untriaged; everything else raw until asked for — answer (T-3) or neighbour (T-8) → full, idle budget → single | `read-depth.ts readDepth`, runs record `stats.depth`, raw = run `skipped`             |
+| T-5 in use: text naming an entity with an open conflict, a pending `expectedUntil`, or a verified use is read in full                                                                                   | `MemoryContextService.inUse`                                                          |
+| T-3 generalised: ANY served answer citing raw turns → an unread / raw-kept document is promoted (priority 2), a read one the facts did not carry is re-read with focus                                  | `raw-lesson.ts`, `RelearnFromRawService` (the L3-only trigger is gone)                |
+| T-8 retroactive capture: an urgent read reopens the raw-kept turns of its conversation (priority 1)                                                                                                     | `ExtractionBatchService.captureNeighbours`                                            |
+| Priority queue: asked-for first, then in the order said                                                                                                                                                 | 0168 `indexer_run.priority`, `listAwaitingRuns`                                       |
+| Residency, continuous: ACT-R base-level activation from creation + verified uses (d = 0.5, τ from the predicate half-life) replaces the exponential decay and the separate verified-use multiplier      | `search/internals/activation.ts`                                                      |
+| Safety: waiting generalist reads are not reaped; the nightly sweep schedules a retry pass                                                                                                               | `reapStaleRuns`, `CandidateSweeperService.reconcileRuns`                              |
+| D2a is checked against the text like D2b (`extraction_check` on the single-sample and facet reads too)                                                                                                  | `ExtractorRunnerService.checkRead`                                                    |
+| Metrics: depth distribution, promotions by reason                                                                                                                                                       | `brain_extraction_depth_documents_total`, `brain_extraction_promoted_documents_total` |
 
 Not built, deliberately:
 
 - **T-4 as its own counter** — a turn cited again by a question the facts
   could not carry is re-read (T-3) each time; a separate distinct-question
   count adds nothing until T-3's fire rate is measured.
-- **T-6 idle backlog / T-7 learned priority** — what is kept raw is noise by
-  construction (every question below the floor, incidental); reading it
-  idle is the cost the gate saves. A learned priority needs the outcome
-  labels this build starts producing.
+- **T-7 learned priority** — needs the outcome labels this build starts
+  producing. T-6 is built on `feat/raw-lazy`: the nightly sweep reopens
+  the most salient deferred reads (the triage stamps rank them) up to
+  `EXTRACTION_IDLE_BUDGET_DOCS` (64) per tenant, one sample each.
 - **Cold tier (out of the vector leg)** — needs a capacity budget or a
   quantile, i.e. a number nobody has measured; activation already ranks
   a cooled fact down. Revisit when a tenant's active set strains the

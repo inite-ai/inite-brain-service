@@ -1,11 +1,14 @@
 /**
- * How deep a captured text is read (src/documents/read-depth.ts):
- *  - noise on every question, incidental, nothing in use → raw;
- *  - worth knowing, routine → one sample; urgent, notable, in use,
- *    promoted, or untriaged → full;
- *  - urgency = a change, correction, instruction or identity at the floor.
+ * How deep a captured text is read (src/documents/read-depth.ts) — on
+ * demand, not on arrival:
+ *  - read at once, in full: urgent, notable, in use, untriaged, or asked
+ *    for by an answer / beside an urgent read;
+ *  - the idle budget reads the deferred backlog with one sample;
+ *  - everything else is kept raw;
+ *  - urgency = a change, correction, instruction or identity at the floor;
+ *  - a run's priority maps to what asked for the read.
  */
-import { isUrgent, readDepth, triageFloor } from '../src/documents/read-depth';
+import { PRIORITY, askOf, isUrgent, readDepth, triageFloor } from '../src/documents/read-depth';
 import type { TriageStamp } from '../src/documents/triage';
 
 const stamp = (over: Partial<TriageStamp> = {}): TriageStamp => ({
@@ -19,30 +22,32 @@ const stamp = (over: Partial<TriageStamp> = {}): TriageStamp => ({
   salience: 0,
   ...over,
 });
-const base = { hot: false, promoted: false, floor: 0.5 };
+const base = { hot: false, asked: undefined, floor: 0.5 };
 
 describe('readDepth', () => {
-  it('keeps noise raw', () => {
+  it('keeps raw what nothing asks for: noise, and routine durable text alike', () => {
     expect(readDepth({ ...base, stamps: [stamp()] })).toBe('raw');
+    expect(readDepth({ ...base, stamps: [stamp({ durable: 0.9, salience: 1 })] })).toBe('raw');
   });
 
-  it('reads a routine durable text once', () => {
-    expect(readDepth({ ...base, stamps: [stamp({ durable: 0.9, salience: 1 })] })).toBe('single');
-    // Routine salience alone, even with durable below the floor, is not noise.
-    expect(readDepth({ ...base, stamps: [stamp({ salience: 1 })] })).toBe('single');
+  it('reads the deferred backlog with one sample when the idle budget asks', () => {
+    expect(
+      readDepth({ ...base, asked: 'idle', stamps: [stamp({ durable: 0.9, salience: 1 })] }),
+    ).toBe('single');
   });
 
-  it('reads in full what is urgent, notable, in use, asked for or untriaged', () => {
+  it('reads in full, at once, what is urgent, notable, in use, untriaged or asked for', () => {
     expect(readDepth({ ...base, stamps: [stamp({ correction: 0.7 })] })).toBe('full');
     expect(readDepth({ ...base, stamps: [stamp({ salience: 2 })] })).toBe('full');
     expect(readDepth({ ...base, hot: true, stamps: [stamp()] })).toBe('full');
-    expect(readDepth({ ...base, promoted: true, stamps: [stamp()] })).toBe('full');
+    expect(readDepth({ ...base, asked: 'answer', stamps: [stamp()] })).toBe('full');
+    expect(readDepth({ ...base, asked: 'neighbour', stamps: [stamp()] })).toBe('full');
     expect(readDepth({ ...base, stamps: [] })).toBe('full');
     expect(readDepth({ ...base, stamps: [stamp(), undefined] })).toBe('full');
   });
 
   it('a group is as deep as its deepest member', () => {
-    expect(readDepth({ ...base, stamps: [stamp(), stamp({ durable: 0.8 })] })).toBe('single');
+    expect(readDepth({ ...base, stamps: [stamp(), stamp({ durable: 0.8 })] })).toBe('raw');
     expect(readDepth({ ...base, stamps: [stamp(), stamp({ identity: 0.9 })] })).toBe('full');
   });
 });
@@ -54,6 +59,15 @@ describe('isUrgent', () => {
     }
     expect(isUrgent([stamp({ durable: 0.99, salience: 3 })], 0.5)).toBe(false);
     expect(isUrgent([undefined], 0.5)).toBe(false);
+  });
+});
+
+describe('askOf', () => {
+  it('maps a run priority to what asked for the read', () => {
+    expect(askOf(0)).toBeUndefined();
+    expect(askOf(PRIORITY.idle)).toBe('idle');
+    expect(askOf(PRIORITY.neighbour)).toBe('neighbour');
+    expect(askOf(PRIORITY.answer)).toBe('answer');
   });
 });
 

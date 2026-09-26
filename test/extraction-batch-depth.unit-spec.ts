@@ -5,9 +5,10 @@
  *  - triage: one request per waiting text — a conversation as its unread
  *    turns together — skipped for what already carries a stamp;
  *  - a held conversation is read at once when a turn is urgent;
- *  - depth: noise kept raw (no read), routine read with one sample,
- *    in-use / promoted / untriaged read in full; in-use asked only when
- *    the text would otherwise be read shallow;
+ *  - depth: noise and routine text kept raw (no read); urgent, in-use,
+ *    asked-for or untriaged read in full; in-use asked only when the text
+ *    would otherwise be kept raw; the idle budget reads the most salient
+ *    of the deferred backlog, one sample each;
  *  - an urgent read reopens its conversation's raw-kept turns;
  *  - the pass lists what it has not taken yet, and steps back — asking
  *    again later — when another replica holds the tenant.
@@ -231,18 +232,18 @@ describe('ExtractionBatchService — triage, urgency, depth', () => {
     });
     await h.svc.runPass('co', { force: true });
     expect(h.triaged).toHaveLength(0);
-    expect(h.reads).toEqual([{ ids: ['source_document:n'], depth: 'single' }]);
+    expect(h.keptRaw).toEqual(['source_document:n']);
   });
 
-  it('keeps noise raw — no read — and reads routine text with one sample', async () => {
+  it('keeps noise and routine text raw — no read', async () => {
     const h = harness({
       docs: [note('noise'), note('fact')],
       texts: { 'source_document:noise': 'Ок, спасибо!', 'source_document:fact': 'Офис переехал.' },
       verdict: verdictOf,
     });
     await h.svc.runPass('co', { force: true });
-    expect(h.keptRaw).toEqual(['source_document:noise']);
-    expect(h.reads).toEqual([{ ids: ['source_document:fact'], depth: 'single' }]);
+    expect(h.keptRaw.sort()).toEqual(['source_document:fact', 'source_document:noise']);
+    expect(h.reads).toEqual([]);
   });
 
   it('reads in full what names an entity in use — asking only when it would be shallow', async () => {
@@ -278,7 +279,7 @@ describe('ExtractionBatchService — triage, urgency, depth', () => {
       docs: [turn('t', 'cp', 1)],
       texts: { 'source_document:t': 'Ок, спасибо!' },
       verdict: verdictOf,
-      priority: { 'source_document:t': 2 },
+      priority: { 'source_document:t': 3 },
     });
     // Not forced, the conversation still talking: promoted → read now.
     await h.svc.runPass('co');
@@ -309,7 +310,7 @@ describe('ExtractionBatchService — triage, urgency, depth', () => {
       { ids: ['source_document:a', 'source_document:b'], depth: 'full' },
     ]);
     expect(urgent.promotions).toEqual([
-      expect.objectContaining({ priority: 1, target: { conversationId: 'c3', userId: undefined } }),
+      expect.objectContaining({ priority: 2, target: { conversationId: 'c3', userId: undefined } }),
     ]);
   });
 
@@ -329,5 +330,42 @@ describe('ExtractionBatchService — triage, urgency, depth', () => {
     expect(h.reads).toEqual([]);
     expect(h.scheduled).toHaveLength(1);
     expect(h.scheduled[0]!.delayMs).toBeGreaterThanOrEqual(110_000);
+  });
+
+  it('the idle budget reopens the most salient deferred reads and asks for a pass; 0 reads on demand only', async () => {
+    const listed: unknown[] = [];
+    const h = harness({ docs: [], texts: {}, verdict: verdictOf });
+    const candidates = (h.svc as unknown as { candidates: Record<string, unknown> }).candidates;
+    candidates.listDeferred = async (_c: string, p: unknown) => {
+      listed.push(p);
+      return ['source_document:d1', 'source_document:d2'];
+    };
+    expect(await h.svc.readDeferred('co')).toBe(1);
+    expect(listed).toEqual([expect.objectContaining({ limit: 64, floor: 0.5 })]);
+    expect(h.promotions).toEqual([
+      expect.objectContaining({
+        priority: 1,
+        target: { docIds: ['source_document:d1', 'source_document:d2'] },
+      }),
+    ]);
+    expect(h.scheduled).toHaveLength(1);
+    process.env.EXTRACTION_IDLE_BUDGET_DOCS = '0';
+    try {
+      expect(await h.svc.readDeferred('co')).toBe(0);
+      expect(listed).toHaveLength(1);
+    } finally {
+      delete process.env.EXTRACTION_IDLE_BUDGET_DOCS;
+    }
+  });
+
+  it('an idle-reopened read is read with one sample', async () => {
+    const h = harness({
+      docs: [note('n')],
+      texts: { 'source_document:n': 'Офис переехал.' },
+      verdict: verdictOf,
+      priority: { 'source_document:n': 1 },
+    });
+    await h.svc.runPass('co', { force: true });
+    expect(h.reads).toEqual([{ ids: ['source_document:n'], depth: 'single' }]);
   });
 });

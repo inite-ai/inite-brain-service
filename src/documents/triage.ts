@@ -12,9 +12,9 @@ import type { DecisionAnswer } from '../ai/decisions/decision.types';
  * parallel: a fraction of a cent, two orders below a full extraction.
  *
  * The stamp decides WHEN and HOW DEEP the text is read (read-depth.ts,
- * extraction-batch.service.ts): an urgent text is read at once, noise is
- * kept raw until something asks for it, routine text is read with one
- * sample. Asymmetric: an unanswered question reads as "maybe", and a text
+ * extraction-batch.service.ts): an urgent or notable text is read at once
+ * and in full; everything else is kept raw until something asks for it,
+ * and the stamps rank the deferred backlog for the idle budget. Asymmetric: an unanswered question reads as "maybe", and a text
  * with no stamp — the lane off, unkeyed or failing — is read in full, as
  * it was before triage existed.
  */
