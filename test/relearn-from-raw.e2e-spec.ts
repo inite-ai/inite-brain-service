@@ -121,4 +121,59 @@ describe('relearn from raw (e2e)', () => {
     expect(out.facts).toBe(0);
     expect(f.extractor.contexts).toHaveLength(0);
   });
+
+  it('teaches a conversation turn too — the turn that IS its document is read again', async () => {
+    process.env.INGEST_MENTION_VIA_DOCUMENT = '1';
+    try {
+      f.extractor.setScript({
+        entities: [{ name: 'Acme', type: 'customer' }],
+        facts: [{ entityIndex: 0, predicate: 'tier', object: 'gold', confidence: 0.9 }],
+        edges: [],
+      });
+      const said = 'Acme перешли на gold, потому что им нужен SSO.';
+      const r = await f.http
+        .post('/v1/ingest/mention')
+        .set(auth())
+        .send({
+          text: said,
+          emittedAt: '2026-09-24T18:00:00.000Z',
+          contextRef: { vertical: 'relearn_e2e', conversationId: 'c_relearn', messageId: 'm_1' },
+        });
+      expect(r.status).toBe(201);
+      const [turn] = await query<{ id: unknown }>(
+        `SELECT id FROM episode WHERE conversationId = 'c_relearn'`,
+        {},
+      );
+
+      f.extractor.setScript({
+        entities: [{ name: 'Acme', type: 'customer' }],
+        facts: [
+          { entityIndex: 0, predicate: 'upgrade_reason', object: 'им нужен SSO', confidence: 0.9 },
+        ],
+        edges: [],
+      });
+      f.extractor.contexts.length = 0;
+      const lesson = {
+        companyId: f.companyId,
+        episodeIds: [String(turn!.id)],
+        question: 'Почему Acme перешли на gold?',
+        answer: 'Им нужен SSO.',
+      };
+      const out = await f.app.get(RelearnFromRawService).relearn(lesson);
+      expect(out).toMatchObject({ turns: 1 });
+      expect(out.facts).toBeGreaterThanOrEqual(1);
+      expect(JSON.stringify(f.extractor.contexts)).toContain('Почему Acme перешли на gold?');
+      // The lesson is its own run of the turn's document; taught once.
+      const runs = await query<{ packId: string }>(
+        `SELECT packId FROM indexer_run WHERE packId = '_relearn'`,
+        {},
+      );
+      expect(runs.length).toBeGreaterThanOrEqual(1);
+      f.extractor.contexts.length = 0;
+      expect(await f.app.get(RelearnFromRawService).relearn(lesson)).toMatchObject({ facts: 0 });
+      expect(f.extractor.contexts).toHaveLength(0);
+    } finally {
+      delete process.env.INGEST_MENTION_VIA_DOCUMENT;
+    }
+  });
 });

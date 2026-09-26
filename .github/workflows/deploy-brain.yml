@@ -260,7 +260,10 @@ jobs:
           # were exactly the misbound facts. Batteries, same stand, A = main
           # / B = with the lane: memory-fitness 30/32 → 31/32,
           # state-transitions 10/12 · 23/25 → 10/12 · 23/25.
-          DECISIONS_LANES=entity_judge,predicate_identity,verifier,extraction_check
+          # triage (2026-09-26) stamps what a first cheap read thinks of each
+          # captured document (documents/triage.ts) — SHADOW: nothing gates
+          # on it until its recall is measured (0167, raw-processing roadmap).
+          DECISIONS_LANES=entity_judge,predicate_identity,verifier,extraction_check,triage
           INGEST_INLINE_RESOLUTION_ENABLED=1
           INGEST_CONTEXTUAL_FACT_EMBEDDING=1
           INGEST_EVENT_TIME_EXTRACTION=1

@@ -1,4 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { JobClaimService } from '../jobs/job-claim.service';
+import { WorkerLoopService } from '../jobs/worker-loop.service';
+import { idTailOf } from '../ingest/ingest-utils';
+import { CandidateCommitService } from './candidate-commit.service';
+import { DocumentStoreService, type StoredDocument } from './document-store.service';
+import { IndexerRunService } from './indexer-run.service';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import { DocumentIngestService } from './document-ingest.service';
@@ -38,65 +45,119 @@ const MAX_TURNS = 4;
  * it was, and so does everything that reads facts rather than turns —
  * the profile, the timeline, the conflict machinery, the nightly passes.
  *
- * So the turns the answer cites are read again, through the document
- * pipeline the rest of the memory is written by, with the question and
- * the answer as the extractor's focus (memory-context `focus`). The
- * document names the turn it re-reads (`episodeId`), so no turn is
- * captured twice and every fact it yields walks back to the same raw
- * text; the resolver decides as always — a fact the memory already held
- * corroborates, a new one is inserted, a changed one supersedes.
- * Grounding is unchanged: a fact's value must still be a verbatim span
- * of the turn, so the focus can direct the reading, never invent it.
+ * So the turns the answer cites are read again with the question and the
+ * answer as the extractor's focus (memory-context `focus`), as a run of
+ * their own document (IndexerRunService.runFocused: one read per
+ * document and question); the resolver decides as always — a fact the
+ * memory already held corroborates, a new one is inserted, a changed one
+ * supersedes. Grounding is unchanged: a fact's value must still be a
+ * verbatim span of the turn, so the focus can direct the reading, never
+ * invent it.
  *
- * Off the request path and best-effort: a failure costs nothing but the
- * lesson, and the next escalation on the same question teaches it again.
- * One lesson per (turn, question) per process.
+ * A lesson is a job on the queue (`relearn_turn`, keyed by turn and
+ * question): it survives a restart, runs on the offline tier, retries,
+ * and is taught once. It used to be a promise chain in the process that
+ * re-posted the turn as a document — which the content hash deduplicated
+ * onto the turn's own, already-read document whenever the turn WAS the
+ * document (every conversation turn): the lesson read nothing.
  */
 @Injectable()
-export class RelearnFromRawService {
+export class RelearnFromRawService implements OnModuleInit {
   private readonly logger = new Logger(RelearnFromRawService.name);
-  private readonly taught = new Set<string>();
-  private chain: Promise<void> = Promise.resolve();
 
+  // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token
   constructor(
     private readonly surreal: SurrealService,
     private readonly documents: DocumentIngestService,
+    private readonly runs: IndexerRunService,
+    private readonly commit: CandidateCommitService,
+    private readonly store: DocumentStoreService,
+    @Optional() private readonly workerLoop?: WorkerLoopService,
+    @Optional() private readonly claim?: JobClaimService,
   ) {}
 
-  /** Queue the lesson and return at once — the caller is serving an answer. */
-  schedule(req: RelearnRequest): void {
-    const episodeIds = [...new Set(req.episodeIds)]
-      .filter((id) => !this.taught.has(`${id}|${req.question}`))
-      .slice(0, MAX_TURNS);
-    if (episodeIds.length === 0) return;
-    for (const id of episodeIds) this.taught.add(`${id}|${req.question}`);
-    // One lesson at a time: each is a handful of extractor calls, and a
-    // burst of escalations must not become a burst of them.
-    this.chain = this.chain
-      .then(async () => {
-        await this.relearn({ ...req, episodeIds });
-      })
-      .catch((e: Error) => this.logger.warn(`[relearn] ${req.companyId}: ${e.message}`));
+  onModuleInit(): void {
+    this.workerLoop?.register(
+      'relearn_turn',
+      async (ctx) => {
+        const p = ctx.payload ?? {};
+        const out = await this.relearnTurn({
+          companyId: ctx.companyId,
+          userId: typeof p.userId === 'string' ? p.userId : undefined,
+          episodeId: String(p.episodeId ?? ''),
+          question: String(p.question ?? ''),
+          answer: String(p.answer ?? ''),
+        });
+        return { ...out };
+      },
+      { ttlSeconds: 600, maxAttempts: 3 },
+    );
   }
 
-  /** The lesson itself; exposed for the admin path and the tests. */
+  /** Queue the lessons and return at once — the caller is serving an answer. */
+  schedule(req: RelearnRequest): void {
+    const episodeIds = [...new Set(req.episodeIds)].slice(0, MAX_TURNS);
+    if (episodeIds.length === 0) return;
+    if (!this.claim) {
+      void this.relearn({ ...req, episodeIds }).catch((e: Error) =>
+        this.logger.warn(`[relearn] ${req.companyId}: ${e.message}`),
+      );
+      return;
+    }
+    for (const episodeId of episodeIds) {
+      void this.claim
+        .enqueue({
+          jobType: 'relearn_turn',
+          companyId: req.companyId,
+          triggeredBy: 'manual',
+          dedupKey: `relearn_${idTailOf(episodeId)}_${questionKey(req.question)}`,
+          payload: {
+            episodeId,
+            question: clip(req.question),
+            answer: clip(req.answer),
+            ...(req.userId !== undefined ? { userId: req.userId } : {}),
+          },
+        })
+        .catch((e: Error) => this.logger.warn(`[relearn] enqueue ${req.companyId}: ${e.message}`));
+    }
+  }
+
+  /** Every lesson of one answer, now; exposed for the admin path and the tests. */
   async relearn(req: RelearnRequest): Promise<{ turns: number; facts: number }> {
-    const turns = await this.surreal.withCompany(req.companyId, (db) =>
-      queryRows<EpisodeRow>(
-        db,
-        `SELECT id, text, speaker, conversationId, messageId, occurredAt, userId,
-                source.vertical AS vertical
-           FROM episode WHERE id INSIDE $ids`,
-        { ids: req.episodeIds.map((id) => new StringRecordId(id)) },
-      ),
-    );
+    let turns = 0;
     let facts = 0;
-    for (const turn of turns) {
-      // A turn is relearned in its own scope: the lesson from one user's
-      // raw text lands in that user's memory, never the tenant's.
-      const userId = turn.userId ?? undefined;
-      if (userId !== (req.userId ?? undefined) && userId !== undefined) continue;
-      const res = await this.documents.ingestDocument(
+    for (const episodeId of [...new Set(req.episodeIds)].slice(0, MAX_TURNS)) {
+      const out = await this.relearnTurn({ ...req, episodeId });
+      turns += out.turns;
+      facts += out.facts;
+    }
+    traceArtifact('relearn.from_raw', { turns, facts });
+    this.logger.log(
+      `[relearn] ${req.companyId}: ${turns} raw turn(s) read again for «${clip(req.question, 80)}» — ${facts} fact(s) committed`,
+    );
+    return { turns, facts };
+  }
+
+  /** One lesson: read the turn again with the focus, then commit its document. */
+  private async relearnTurn(req: {
+    companyId: string;
+    userId?: string | undefined;
+    episodeId: string;
+    question: string;
+    answer: string;
+  }): Promise<{ turns: number; facts: number }> {
+    const turn = await this.turnOf(req.companyId, req.episodeId);
+    if (!turn) return { turns: 0, facts: 0 };
+    // A turn is relearned in its own scope: the lesson from one user's
+    // raw text lands in that user's memory, never the tenant's.
+    const userId = turn.userId ?? undefined;
+    if (userId !== undefined && userId !== (req.userId ?? undefined)) return { turns: 0, facts: 0 };
+    const focus = { question: clip(req.question), answer: clip(req.answer) };
+    const doc = await this.documentOf(req.companyId, turn);
+    if (!doc) {
+      // A turn no document holds (written before documents carried their
+      // turns): it becomes one, read with the focus by the queue.
+      await this.documents.ingestDocument(
         req.companyId,
         {
           kind: 'chat',
@@ -105,7 +166,6 @@ export class RelearnFromRawService {
           ...(userId !== undefined ? { userId } : {}),
           contextRef: { vertical: turn.vertical ?? 'relearn', recorder: 'relearn' },
           indexers: 'general',
-          mode: 'sync',
         },
         {
           channel: 'relearn',
@@ -114,19 +174,69 @@ export class RelearnFromRawService {
             conversationId: turn.conversationId ?? undefined,
             messageId: turn.messageId ?? undefined,
             speakerName: turn.speaker ?? undefined,
-            focusQuestion: clip(req.question),
-            focusAnswer: clip(req.answer),
+            focusQuestion: focus.question,
+            focusAnswer: focus.answer,
           }),
         },
       );
-      facts += res.committed.factIds.length;
+      return { turns: 1, facts: 0 };
     }
-    traceArtifact('relearn.from_raw', { turns: turns.length, facts });
-    this.logger.log(
-      `[relearn] ${req.companyId}: ${turns.length} raw turn(s) read again for «${clip(req.question, 80)}» — ${facts} fact(s) committed`,
-    );
-    return { turns: turns.length, facts };
+    const run = await this.runs.runFocused({
+      companyId: req.companyId,
+      doc,
+      text: turn.text,
+      focus,
+    });
+    if (run.status !== 'succeeded') return { turns: 1, facts: 0 };
+    const result = await this.commit.commitIfRunsSettled(req.companyId, doc);
+    if (result.committed) {
+      await this.store
+        .setStatus({ companyId: req.companyId, docId: doc.id, status: 'committed' })
+        .catch(() => undefined);
+    }
+    return { turns: 1, facts: result.factIds.length };
   }
+
+  private async turnOf(companyId: string, episodeId: string): Promise<EpisodeRow | null> {
+    const [turn] = await this.surreal.withCompany(companyId, (db) =>
+      queryRows<EpisodeRow>(
+        db,
+        `SELECT id, text, speaker, conversationId, messageId, occurredAt, userId,
+                source.vertical AS vertical
+           FROM episode WHERE id = $id`,
+        { id: new StringRecordId(episodeId) },
+      ),
+    );
+    return turn ?? null;
+  }
+
+  /**
+   * The document that holds the turn: a conversation turn's own document
+   * names it (meta.episodeId); a posted document keeps its turns under
+   * `document:<id>`.
+   */
+  private async documentOf(companyId: string, turn: EpisodeRow): Promise<StoredDocument | null> {
+    const conv = turn.conversationId ?? '';
+    const docId = conv.startsWith('document:')
+      ? conv.slice('document:'.length)
+      : await this.surreal.withCompany(companyId, async (db) => {
+          const [row] = await queryRows<{ id: unknown }>(
+            db,
+            `SELECT id FROM source_document WHERE meta.episodeId = $ep LIMIT 1`,
+            { ep: String(turn.id) },
+          );
+          return row ? String(row.id) : null;
+        });
+    return docId ? this.store.getById(companyId, docId) : null;
+  }
+}
+
+/** One lesson per turn and question: the question is the key. */
+function questionKey(question: string): string {
+  return createHash('sha256')
+    .update(question.replace(/\s+/g, ' ').trim())
+    .digest('hex')
+    .slice(0, 16);
 }
 
 function clip(text: string, n = INTERNAL_DOCUMENT_META_MAX_CHARS): string {
