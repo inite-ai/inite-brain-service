@@ -20,9 +20,9 @@ describe('background extraction (e2e)', () => {
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
 
   beforeAll(async () => {
-    // The queued job never becomes visible inside a spec: the pass runs
-    // when the spec calls it, so what one call read is deterministic.
-    process.env.EXTRACTION_BATCH_WINDOW_SECONDS = '3600';
+    // No worker runs the queued jobs: the pass runs when the spec calls
+    // it, so what one call read is deterministic.
+    process.env.WORKER_LOOP_ENABLED = '0';
     process.env.DOCUMENT_INGEST_ENABLED = '1';
     process.env.INGEST_MENTION_VIA_DOCUMENT = '1';
     f = await createApp({ backgroundExtraction: true });
@@ -30,7 +30,7 @@ describe('background extraction (e2e)', () => {
   });
 
   afterAll(async () => {
-    delete process.env.EXTRACTION_BATCH_WINDOW_SECONDS;
+    delete process.env.WORKER_LOOP_ENABLED;
     delete process.env.DOCUMENT_INGEST_ENABLED;
     delete process.env.INGEST_MENTION_VIA_DOCUMENT;
     await f.close();

@@ -59,15 +59,17 @@ export class ExtractionBatchService implements OnModuleInit {
   async schedule(companyId: string, p: { retry?: number; delayMs?: number } = {}): Promise<void> {
     if (!this.claim) return;
     const retry = p.retry ?? 0;
-    const windowMs = p.delayMs ?? batchWindowMs();
-    const bucket = Math.floor(Date.now() / Math.max(windowMs, 1000));
+    // The pass runs at the first window boundary at least `delayMs` from
+    // now; every request aiming at the same boundary is one job (the key).
+    const window = Math.max(batchWindowMs(), 1000);
+    const at = Math.ceil((Date.now() + (p.delayMs ?? 0)) / window) * window;
     await this.claim.enqueue({
       jobType: 'extract_documents',
       companyId,
       triggeredBy: 'manual',
-      dedupKey: `xdoc_${retry > 0 ? `r${retry}_` : ''}${bucket}`,
+      dedupKey: `xdoc_${retry > 0 ? `r${retry}_` : ''}${at}`,
       payload: { retry },
-      visibleAfter: new Date((bucket + 1) * Math.max(windowMs, 1000)),
+      visibleAfter: new Date(at),
     });
   }
 
