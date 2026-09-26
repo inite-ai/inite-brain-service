@@ -40,8 +40,8 @@ paper's own setup (a `gpt-4o` judge, a Mem0-style answerer) is not reproduced.
 
 | Step | Here |
 |---|---|
-| add | each session is one chat document (`POST /v1/ingest/document`, the user's own `userId`) |
-| extracted memories | what the document committed, rendered `Entity — predicate: object` |
+| add | each session is one chat document (`POST /v1/ingest/document`, the user's own `userId`), `mode: 'async'` by default: the runner waits until the document's status is `committed` before probing it |
+| extracted memories | what the document committed (the `commitRef`s of its committed candidates), rendered `Entity — predicate: object` |
 | update probe | `POST /v1/search` for the new point, `limit: 10`, rendered `YYYY-MM-DD: Entity — predicate: object` |
 | QA | brain's own answer (`POST /v1/synthesize`, strict guardrails); an abstention is answered as "I don't know", which is what Memory Boundary questions reward |
 | judge | HaluMem's four judge prompts, verbatim, on `gpt-6-luna` (`HALUMEM_JUDGE_MODEL`) |
@@ -54,7 +54,12 @@ number from this harness.
 **The stand has to run the production flags**, not the defaults. On defaults,
 extraction F1 read 59.7%; on production flags it read 86.3%. Source the
 `enablement.env` heredoc from `.github/workflows/deploy-brain.yml`, and add
-`EMBEDDER_PROVIDER=bge-m3`.
+`EMBEDDER_PROVIDER=bge-m3`. Async ingest needs `DOCUMENT_MULTI_INDEXER_ENABLED=1` and
+the job worker running.
+
+The scorecard reports the median time per session to the write's
+acknowledgement and to the document being fully processed. Async is
+meant to separate those two numbers.
 
 ## Running
 
@@ -72,6 +77,8 @@ pnpm eval:halumem
 | `HALUMEM_CONCURRENCY` | 2 | users in parallel (sessions of one user always run in order) |
 | `HALUMEM_JUDGE_CONCURRENCY` | 8 | judge calls in parallel |
 | `HALUMEM_JUDGE_MODEL` | `gpt-6-luna` | |
+| `HALUMEM_INGEST` | `async` | `sync` writes with the synchronous document path |
+| `HALUMEM_SETTLE_TIMEOUT_MS` | 900000 | longest wait for one async document to be processed |
 | `HALUMEM_OPENAI_BASE_URL` | | an OpenAI-compatible endpoint for the judge |
 | `HALUMEM_RUN_ID` | generated | a re-run with the same id resumes; finished users are skipped |
 | `HALUMEM_SYSTEM_FILE` | | judge an existing `halumem-system-*.jsonl` again, with no stand |
