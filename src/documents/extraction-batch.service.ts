@@ -5,6 +5,7 @@ import { GENERAL_INDEXER_ID, GENERAL_INDEXER_VERSION } from '../indexers/candida
 import { CandidateCommitService } from './candidate-commit.service';
 import { CandidateStoreService } from './candidate-store.service';
 import { DocumentStoreService, StoredDocument } from './document-store.service';
+import type { DocumentChunk } from './chunker';
 import { internalMetaString } from './document-meta';
 import {
   planExtractionGroups,
@@ -232,15 +233,26 @@ export class ExtractionBatchService implements OnModuleInit {
     waiting: Array<{ docId: string; arrivedAt: Date }>,
     force: boolean,
   ): Promise<{ read: number; failed: number; committed: number; nextAt?: Date }> {
+    const arrived = new Map(waiting.map((w) => [w.docId, w.arrivedAt]));
+    // The page is loaded at once (bounded), in its listed order.
+    const loader = new Semaphore(LOAD_CONCURRENCY);
+    const loaded = await Promise.all(
+      waiting.map(({ docId }) =>
+        loader.run(async () => {
+          const doc = await this.store.getById(ctx.companyId, docId);
+          if (!doc) return null;
+          return { doc, chunks: await this.store.getChunks(ctx.companyId, docId) };
+        }),
+      ),
+    );
     const docs: StoredDocument[] = [];
     const texts = new Map<string, string>();
-    const arrived = new Map(waiting.map((w) => [w.docId, w.arrivedAt]));
-    for (const { docId } of waiting) {
-      const doc = await this.store.getById(ctx.companyId, docId);
-      if (!doc) continue;
-      const chunks = await this.store.getChunks(ctx.companyId, docId);
-      docs.push(doc);
-      texts.set(docId, chunks.map((c) => c.text).join('\n'));
+    const chunksOf = new Map<string, DocumentChunk[]>();
+    for (const l of loaded) {
+      if (!l) continue;
+      docs.push(l.doc);
+      chunksOf.set(l.doc.id, l.chunks);
+      texts.set(l.doc.id, l.chunks.map((c) => c.text).join('\n'));
     }
     const byId = new Map(docs.map((d) => [d.id, d]));
     const candidates = docs.map((d) => ({
@@ -269,7 +281,7 @@ export class ExtractionBatchService implements OnModuleInit {
     const limiter = new Semaphore(passConcurrency());
     const outcomes = await Promise.all(
       [...byScope.values()].map((scoped) =>
-        limiter.run(() => this.readScope(ctx, scoped, { byId, texts })),
+        limiter.run(() => this.readScope(ctx, scoped, { byId, texts, chunksOf })),
       ),
     );
     const sum = (k: 'read' | 'failed' | 'committed') => outcomes.reduce((n, o) => n + o[k], 0);
@@ -285,7 +297,7 @@ export class ExtractionBatchService implements OnModuleInit {
   private async readScope(
     ctx: PassContext,
     groups: GroupDoc[][],
-    page: { byId: Map<string, StoredDocument>; texts: Map<string, string> },
+    page: Page,
   ): Promise<{ read: number; failed: number; committed: number }> {
     const out = { read: 0, failed: 0, committed: 0 };
     const first = (g: GroupDoc[]) => g[0]?.occurredAt.getTime() ?? 0;
@@ -309,7 +321,7 @@ export class ExtractionBatchService implements OnModuleInit {
   private async readGroup(
     ctx: PassContext,
     group: GroupDoc[],
-    page: { byId: Map<string, StoredDocument>; texts: Map<string, string> },
+    page: Page,
   ): Promise<{ ok: boolean; members: StoredDocument[] }> {
     const members = group.map((g) => page.byId.get(g.id) as StoredDocument);
     const { texts } = page;
@@ -318,7 +330,7 @@ export class ExtractionBatchService implements OnModuleInit {
     try {
       if (members.length === 1) {
         const doc = members[0] as StoredDocument;
-        const chunks = await this.store.getChunks(ctx.companyId, doc.id);
+        const chunks = page.chunksOf.get(doc.id) ?? [];
         await this.runs.runGeneral({
           companyId: ctx.companyId,
           doc,
@@ -448,6 +460,13 @@ function passConcurrency(): number {
   return Number.isInteger(n) && n > 0 ? n : 4;
 }
 
+/** One loaded page of waiting documents. */
+interface Page {
+  byId: Map<string, StoredDocument>;
+  texts: Map<string, string>;
+  chunksOf: Map<string, DocumentChunk[]>;
+}
+
 /** What one pass carries down to its reads. */
 interface PassContext {
   companyId: string;
@@ -463,6 +482,8 @@ const LEASE_TTL_SECONDS = 120;
 /** How long a drain waits for another replica's pass to finish. */
 const LEASE_WAIT_MS = 60 * 60_000;
 
+/** Documents of a page loaded at once. */
+const LOAD_CONCURRENCY = 8;
 /** Documents one page of a pass lists. */
 const PASS_DOCS = 64;
 /** A pass stops taking pages after this (the job lease is 15 minutes). */
