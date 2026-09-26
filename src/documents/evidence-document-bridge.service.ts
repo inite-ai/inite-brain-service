@@ -241,7 +241,6 @@ export class EvidenceDocumentBridgeService {
       meta: { evidence_bridge: true, ...p.labels },
       // Stored content keeps the document re-indexable and span-groundable.
       storeContent: true,
-      mode: 'sync',
       // The pack whose processor produced the text reads it first; with
       // DOCUMENT_MULTI_INDEXER_ENABLED off this is the union pass.
       indexers: [p.packId],

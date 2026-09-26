@@ -145,7 +145,6 @@ describe('EvidenceDocumentBridgeService', () => {
       contextRef: { vertical: 'contracts', recorder: 'upload_bot' },
       meta: { evidence_bridge: true },
       storeContent: true,
-      mode: 'sync',
       indexers: ['legal'],
     });
     expect(origin).toEqual({
