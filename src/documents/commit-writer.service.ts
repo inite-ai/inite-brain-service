@@ -14,6 +14,7 @@ import { traceSpan } from '../common/debug-trace';
 import { originKeyOf, StoredDocument } from './document-store.service';
 import { internalMetaString, participantsFromMeta } from './document-meta';
 import { coreferentParticipant, participantHint } from '../ingest/participants';
+import { relativeHint } from '../ingest/relative-role';
 import { sanitizeSourceMeta } from '../policy/source-meta';
 import { sourceVersionFromHeader } from './document-meta';
 import { incomingFactsFor, MergedFact, MergedRelation, MergeResult } from './candidate-merge';
@@ -105,9 +106,11 @@ export class CommitWriterService {
             // addressee) anchors it to the caller's externalRef — the same
             // rule as the direct path (participants.ts), and the user's own
             // ref carries their scope.
+            // A relative named by role is the speaker's own (relative-role.ts).
             hint: me.externalId
               ? { vertical: p.doc.vertical, id: me.externalId }
-              : participantHint(coreferentParticipant(me.name, participants), p.doc.userId),
+              : (participantHint(coreferentParticipant(me.name, participants), p.doc.userId) ??
+                relativeHint(me, p.doc.userId)),
             _contextRef: { vertical: p.doc.vertical },
             incomingFacts: incomingFactsFor(p.merge, me.key),
           }),
