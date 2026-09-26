@@ -16,6 +16,7 @@ import { MemoryContextService } from '../ingest/memory-context.service';
 import { DecisionService } from '../ai/decisions/decision.service';
 import { triageText } from './triage';
 import { ExtractionMetrics } from './extraction.metrics';
+import { LeaderLeaseService } from '../jobs/leader-lease.service';
 import { Semaphore } from '../common/semaphore';
 import { retryOnReadConflict } from '../db/surreal-retry';
 import { IndexerRunService, groupDocOf } from './indexer-run.service';
@@ -37,6 +38,8 @@ import { IndexerRunService, groupDocOf } from './indexer-run.service';
 @Injectable()
 export class ExtractionBatchService implements OnModuleInit {
   private readonly logger = new Logger(ExtractionBatchService.name);
+  /** The pass each tenant is running in this process (exclusive()). */
+  private readonly running = new Map<string, Promise<void>>();
 
   // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token
   constructor(
@@ -49,6 +52,7 @@ export class ExtractionBatchService implements OnModuleInit {
     @Optional() private readonly memory?: MemoryContextService,
     @Optional() private readonly decisions?: DecisionService,
     @Optional() private readonly metrics?: ExtractionMetrics,
+    @Optional() private readonly lease?: LeaderLeaseService,
   ) {}
 
   onModuleInit(): void {
@@ -106,9 +110,67 @@ export class ExtractionBatchService implements OnModuleInit {
       force?: boolean;
     } = {},
   ): Promise<{ read: number; failed: number; committed: number; retry: number }> {
+    return this.exclusive(companyId, opts.force === true, () => this.pass(companyId, opts));
+  }
+
+  /**
+   * One pass at a time per tenant — in this process (a drain waits for the
+   * scheduled pass and then reads what is left) and across replicas (a
+   * lease renewed before every group). Two passes over one scope would
+   * read its documents out of order: each would miss what the other
+   * commits. A scheduled pass that finds another replica holding the
+   * tenant steps back and asks again later; a drain waits for it.
+   */
+  private async exclusive<T extends { retry: number }>(
+    companyId: string,
+    wait: boolean,
+    body: () => Promise<T & { read: number; failed: number; committed: number }>,
+  ): Promise<T & { read: number; failed: number; committed: number }> {
+    const previous = this.running.get(companyId) ?? Promise.resolve();
+    let release!: () => void;
+    const mine = new Promise<void>((r) => (release = r));
+    const chained = previous.then(() => mine);
+    this.running.set(companyId, chained);
+    await previous;
+    const name = `extract_documents:${companyId}`;
+    try {
+      const deadline = Date.now() + LEASE_WAIT_MS;
+      while (this.lease && !(await this.lease.tryAcquire(name, LEASE_TTL_SECONDS))) {
+        if (!wait || Date.now() > deadline) {
+          await this.schedule(companyId, { delayMs: LEASE_TTL_SECONDS * 1000 });
+          return { read: 0, failed: 0, committed: 0, retry: 0 } as T & {
+            read: number;
+            failed: number;
+            committed: number;
+          };
+        }
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+      return await body();
+    } finally {
+      await this.lease?.release(name).catch(() => undefined);
+      release();
+      if (this.running.get(companyId) === chained) this.running.delete(companyId);
+    }
+  }
+
+  private async pass(
+    companyId: string,
+    opts: { retry?: number; abortSignal?: AbortSignal | undefined; force?: boolean },
+  ): Promise<{ read: number; failed: number; committed: number; retry: number }> {
     const retry = opts.retry ?? 0;
-    const ctx = { companyId, abortSignal: opts.abortSignal };
-    const deadline = Date.now() + PASS_BUDGET_MS;
+    // A drain reads until nothing is left; a scheduled pass stops within
+    // its job lease and a fresh pass continues.
+    const deadline = opts.force ? Number.POSITIVE_INFINITY : Date.now() + PASS_BUDGET_MS;
+    const name = `extract_documents:${companyId}`;
+    const ctx = {
+      companyId,
+      abortSignal: opts.abortSignal,
+      deadline,
+      renew: async () => {
+        await this.lease?.tryAcquire(name, LEASE_TTL_SECONDS);
+      },
+    };
     let read = 0;
     let failed = 0;
     let committed = 0;
@@ -166,7 +228,7 @@ export class ExtractionBatchService implements OnModuleInit {
    * `force`; `nextAt` says when the first of them goes quiet.
    */
   private async readDocuments(
-    ctx: { companyId: string; abortSignal?: AbortSignal | undefined },
+    ctx: PassContext,
     waiting: Array<{ docId: string; arrivedAt: Date }>,
     force: boolean,
   ): Promise<{ read: number; failed: number; committed: number; nextAt?: Date }> {
@@ -221,13 +283,17 @@ export class ExtractionBatchService implements OnModuleInit {
 
   /** One scope's groups, oldest first: read, commit, then the next. */
   private async readScope(
-    ctx: { companyId: string; abortSignal?: AbortSignal | undefined },
+    ctx: PassContext,
     groups: GroupDoc[][],
     page: { byId: Map<string, StoredDocument>; texts: Map<string, string> },
   ): Promise<{ read: number; failed: number; committed: number }> {
     const out = { read: 0, failed: 0, committed: 0 };
     const first = (g: GroupDoc[]) => g[0]?.occurredAt.getTime() ?? 0;
     for (const group of [...groups].sort((a, b) => first(a) - first(b))) {
+      // Past the budget the rest waits for the next pass (still pending),
+      // so a pass never outlives its job lease by more than one group.
+      if (ctx.abortSignal?.aborted || Date.now() > ctx.deadline) break;
+      await ctx.renew();
       const r = await this.readGroup(ctx, group, page);
       if (!r.ok) {
         out.failed += r.members.length;
@@ -241,7 +307,7 @@ export class ExtractionBatchService implements OnModuleInit {
 
   /** One group's read (with its shadow triage beside it). Never throws. */
   private async readGroup(
-    ctx: { companyId: string; abortSignal?: AbortSignal | undefined },
+    ctx: PassContext,
     group: GroupDoc[],
     page: { byId: Map<string, StoredDocument>; texts: Map<string, string> },
   ): Promise<{ ok: boolean; members: StoredDocument[] }> {
@@ -381,6 +447,21 @@ function passConcurrency(): number {
   const n = Number(process.env.EXTRACTION_PASS_CONCURRENCY);
   return Number.isInteger(n) && n > 0 ? n : 4;
 }
+
+/** What one pass carries down to its reads. */
+interface PassContext {
+  companyId: string;
+  abortSignal?: AbortSignal | undefined;
+  /** Epoch ms after which no further group is started. */
+  deadline: number;
+  /** Renew the tenant's pass lease (before each group). */
+  renew: () => Promise<void>;
+}
+
+/** The tenant's pass lease: renewed before every group, so a crashed holder frees it within this. */
+const LEASE_TTL_SECONDS = 120;
+/** How long a drain waits for another replica's pass to finish. */
+const LEASE_WAIT_MS = 60 * 60_000;
 
 /** Documents one page of a pass lists. */
 const PASS_DOCS = 64;
