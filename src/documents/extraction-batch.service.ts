@@ -6,8 +6,16 @@ import { CandidateCommitService } from './candidate-commit.service';
 import { CandidateStoreService } from './candidate-store.service';
 import { DocumentStoreService, StoredDocument } from './document-store.service';
 import { internalMetaString } from './document-meta';
-import { planExtractionGroups, releaseSettled } from './extraction-group';
+import {
+  planExtractionGroups,
+  releaseSettled,
+  renderGroup,
+  type GroupDoc,
+} from './extraction-group';
 import { MemoryContextService } from '../ingest/memory-context.service';
+import { DecisionService } from '../ai/decisions/decision.service';
+import { triageText } from './triage';
+import { ExtractionMetrics } from './extraction.metrics';
 import { IndexerRunService, groupDocOf } from './indexer-run.service';
 
 /**
@@ -37,6 +45,8 @@ export class ExtractionBatchService implements OnModuleInit {
     @Optional() private readonly workerLoop?: WorkerLoopService,
     @Optional() private readonly claim?: JobClaimService,
     @Optional() private readonly memory?: MemoryContextService,
+    @Optional() private readonly decisions?: DecisionService,
+    @Optional() private readonly metrics?: ExtractionMetrics,
   ) {}
 
   onModuleInit(): void {
@@ -187,6 +197,8 @@ export class ExtractionBatchService implements OnModuleInit {
     const done: StoredDocument[] = [];
     for (const group of groups) {
       const members = group.map((g) => byId.get(g.id) as StoredDocument);
+      // D1 triage, in shadow: stamped beside the read, deciding nothing.
+      const triaged = this.triage(ctx.companyId, group);
       try {
         if (members.length === 1) {
           const doc = members[0] as StoredDocument;
@@ -208,6 +220,12 @@ export class ExtractionBatchService implements OnModuleInit {
         }
         read += members.length;
         done.push(...members);
+        this.metrics?.read(
+          members.length > 1 ? 'group' : 'solo',
+          members.length,
+          group.reduce((n, d) => n + d.text.length, 0),
+        );
+        await triaged;
       } catch (err) {
         failed += members.length;
         this.logger.warn(
@@ -239,6 +257,26 @@ export class ExtractionBatchService implements OnModuleInit {
       }
     }
     return { read, failed, committed, ...(nextAt ? { nextAt } : {}) };
+  }
+
+  /**
+   * The D1 stamp for a group (triage.ts), on every member document — the
+   * group is one text, it gets one judgement. Shadow: nothing reads it for
+   * a decision yet. Never throws; a failed or skipped triage stamps nothing.
+   */
+  private async triage(companyId: string, group: GroupDoc[]): Promise<void> {
+    try {
+      const text = group.length === 1 ? (group[0]?.text ?? '') : renderGroup(group).text;
+      const stamp = await triageText(this.decisions, text);
+      if (stamp)
+        await this.store.setTriage(
+          companyId,
+          group.map((d) => d.id),
+          stamp,
+        );
+    } catch (e) {
+      this.logger.warn(`triage failed (${companyId}): ${(e as Error).message}`);
+    }
   }
 }
 

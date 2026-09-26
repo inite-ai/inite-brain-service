@@ -1,0 +1,15 @@
+-- 0167_document_triage — what a first, cheap read thought of a document.
+--
+-- WHY. Every captured document is read in full (extraction, three samples)
+-- whatever it holds: a greeting costs what a decision costs. Most memory
+-- systems — and brains — do not process all raw input to the same depth.
+-- Before any depth is decided by it, the decision-plane's triage
+-- (documents/triage.ts) runs in SHADOW: it stamps what it would say and
+-- changes nothing, so its recall — would it have skipped a document a
+-- correct answer later needed? — is measured on the batteries before it
+-- is allowed to gate (docs/roadmap/raw-processing-triggers-2026-09.md §4.4).
+--
+-- Shape: { v, at, durable, change, instruction, correction, identity:
+-- P(true) 0..1 each, salience: 0..3 (importance-scoring rubric) }.
+-- NONE = never triaged (the lane off, or written before this migration).
+DEFINE FIELD IF NOT EXISTS triage ON source_document TYPE option<object> FLEXIBLE;

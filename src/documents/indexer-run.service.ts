@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Injectable, Optional } from '@nestjs/common';
 import { ExtractorService, type ConversationContext } from '../ai/extractor.service';
 import type { ExtractionResult } from '../ai/extractor-internals/types';
@@ -158,6 +159,55 @@ export class IndexerRunService {
       ...(addresseeName ? { addresseeName } : {}),
       ...(withFocus ? { memory: withFocus } : {}),
     };
+  }
+
+  /**
+   * A focused re-read (relearn-from-raw): one turn of an already-read
+   * document read again with the question it had to answer from raw as
+   * the extractor's focus. It is its OWN run in the ledger —
+   * `_relearn@<general version>.<question key>` — because the document's
+   * generalist run is long terminal and a second read of it is not a
+   * retry of the first: one read per (document, question), idempotent
+   * like every run. Its candidates join the document's next commit.
+   */
+  async runFocused(p: {
+    companyId: string;
+    doc: StoredDocument;
+    text: string;
+    focus: { question: string; answer: string };
+    abortSignal?: AbortSignal;
+  }): Promise<IndexerRunResult> {
+    const key = createHash('sha256').update(p.focus.question).digest('hex').slice(0, 16);
+    return this.runIndexer({
+      companyId: p.companyId,
+      doc: p.doc,
+      chunks: [{ seq: 0, text: p.text, charStart: 0, charEnd: p.text.length }],
+      packId: RELEARN_INDEXER_ID,
+      packVersion: `${GENERAL_INDEXER_VERSION}.${key}`,
+      executionMode: 'virtual',
+      model: this.extractor.modelId(),
+      registryVersionHash: await this.extractor.vocabularyVersionHash(p.companyId),
+      extract: async (text) =>
+        this.extractor.extractBackground({
+          text,
+          companyId: p.companyId,
+          // The focus rides the header, as it does for a document written
+          // to be relearned (the stored row is not touched).
+          context: await this.extractionContext(
+            p.companyId,
+            {
+              ...p.doc,
+              meta: {
+                ...p.doc.meta,
+                focusQuestion: p.focus.question,
+                focusAnswer: p.focus.answer,
+              },
+            },
+            text,
+          ),
+        }),
+      abortSignal: p.abortSignal,
+    });
   }
 
   /**
@@ -389,3 +439,6 @@ export function groupDocOf(doc: StoredDocument, text: string): GroupDoc {
     addresseeName: addressee?.name,
   };
 }
+
+/** The ledger's pack id of a focused re-read (runFocused). */
+export const RELEARN_INDEXER_ID = '_relearn';
