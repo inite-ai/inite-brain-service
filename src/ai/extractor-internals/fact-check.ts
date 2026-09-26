@@ -54,7 +54,10 @@ export async function checkExtraction(args: {
   decisions: DecisionService | undefined;
 }): Promise<FactCheck> {
   const { result, decisions } = args;
-  if (result.facts.length === 0 || !decisions?.enabled('extraction_check')) {
+  if (
+    (result.facts.length === 0 && result.edges.length === 0) ||
+    !decisions?.enabled('extraction_check')
+  ) {
     return { result, asked: 0, rejected: 0 };
   }
   const keyOf = (f: ExtractionResult['facts'][number]) =>
@@ -81,31 +84,71 @@ export async function checkExtraction(args: {
       },
     };
   }
+  // Relations are bound by position too ("Jev — made by — OpenRouter" when
+  // the text says OpenRouter only SERVES it): the same question, asked of
+  // the pair.
+  const edgeKeyOf = (e: ExtractionResult['edges'][number]) =>
+    `${e.fromEntityIndex}\u0000${e.kind}\u0000${e.toEntityIndex}`;
+  const edgeQuestionOf = new Map<string, string>();
+  for (const e of result.edges) {
+    const key = edgeKeyOf(e);
+    const from = result.entities[e.fromEntityIndex]?.name;
+    const to = result.entities[e.toEntityIndex]?.name;
+    if (edgeQuestionOf.has(key) || !from || !to) continue;
+    const q = `r${edgeQuestionOf.size}`;
+    edgeQuestionOf.set(key, q);
+    questions[q] = {
+      type: 'noul',
+      instructions:
+        `Does the text, read with its context, state this relation: «${from}» — ${e.kind.replace(/_/g, ' ')} — «${to}»? ` +
+        'Judge which of the two is which as well as the relation itself.',
+      criteria: {
+        true: `The text says «${from}» ${e.kind.replace(/_/g, ' ')} «${to}» (by name or by reference).`,
+        false:
+          'The text relates them differently, relates other things, or does not say it at all.',
+      },
+    };
+  }
   const text = `TEXT:\n${args.text.slice(0, TEXT_CHARS)}`;
   const context = args.context?.trim();
   const res = await decisions.decide('extraction_check', {
     state: context ? [`CONTEXT:\n${context.slice(-CONTEXT_CHARS)}`, text] : text,
     questions,
   });
-  if (!res) return { result, asked: questionOf.size, rejected: 0 };
-  const dropped = new Set<string>();
-  for (const [key, q] of questionOf) {
-    const answer = res.answers[q];
-    if (answer?.type !== 'noul') continue;
-    // Asked of every answer, not only the noes: confident() is where the
-    // lane's acted/escalated counter ticks, and a counter that saw only the
-    // doubts would read as a plane that never agrees.
-    const sure = decisions.confident('extraction_check', answer);
-    if (answer.noul < 0.5 && sure) dropped.add(key);
-  }
-  if (dropped.size === 0) return { result, asked: questionOf.size, rejected: 0 };
+  const asked = questionOf.size + edgeQuestionOf.size;
+  if (!res) return { result, asked, rejected: 0 };
+  const noOf = (map: Map<string, string>): Set<string> => {
+    const out = new Set<string>();
+    for (const [key, q] of map) {
+      const answer = res.answers[q];
+      if (answer?.type !== 'noul') continue;
+      // Asked of every answer, not only the noes: confident() is where the
+      // lane's acted/escalated counter ticks, and a counter that saw only the
+      // doubts would read as a plane that never agrees.
+      const sure = decisions.confident('extraction_check', answer);
+      if (answer.noul < 0.5 && sure) out.add(key);
+    }
+    return out;
+  };
+  const dropped = noOf(questionOf);
+  const droppedEdges = noOf(edgeQuestionOf);
+  if (dropped.size === 0 && droppedEdges.size === 0) return { result, asked, rejected: 0 };
   const facts = result.facts.filter((f) => !dropped.has(keyOf(f)));
+  const edges = result.edges.filter((e) => !droppedEdges.has(edgeKeyOf(e)));
   return {
-    result: { ...result, facts },
-    asked: questionOf.size,
-    rejected: result.facts.length - facts.length,
-    droppedFacts: result.facts
-      .filter((f) => dropped.has(keyOf(f)))
-      .map((f) => `${result.entities[f.entityIndex]?.name} · ${f.predicate} · ${f.object}`),
+    result: { ...result, facts, edges },
+    asked,
+    rejected: result.facts.length - facts.length + (result.edges.length - edges.length),
+    droppedFacts: [
+      ...result.facts
+        .filter((f) => dropped.has(keyOf(f)))
+        .map((f) => `${result.entities[f.entityIndex]?.name} · ${f.predicate} · ${f.object}`),
+      ...result.edges
+        .filter((e) => droppedEdges.has(edgeKeyOf(e)))
+        .map(
+          (e) =>
+            `${result.entities[e.fromEntityIndex]?.name} —${e.kind}→ ${result.entities[e.toEntityIndex]?.name}`,
+        ),
+    ],
   };
 }
