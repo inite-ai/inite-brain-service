@@ -102,6 +102,11 @@ export async function createApp(
   // The capability probe is on by default in production; a spec that wants
   // its timer (test/capability-probe.e2e-spec.ts) arms it explicitly.
   process.env.CAPABILITY_PROBE_ENABLED = '0';
+  // Extraction runs off the write path in production (a document is
+  // remembered, then read by the batch pass). A spec asserts on what a
+  // write committed, so the fixture reads inline unless the spec asks for
+  // the queue (test/extraction-background.e2e-spec.ts).
+  process.env.EXTRACTION_BACKGROUND = process.env.EXTRACTION_BACKGROUND_E2E ?? '0';
   if (opts.enableScopedPool) {
     process.env.SURREALDB_SCOPED_USER = 'brain_caller';
     process.env.SURREALDB_SCOPED_PASS = 'brain-caller-password-must-be-overridden-via-env';

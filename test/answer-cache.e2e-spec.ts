@@ -10,6 +10,9 @@ import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 import { mockSynthesizeOpenAi } from './test-doubles';
 import { SurrealService } from '../src/db/surreal.service';
+import { DocumentStoreService } from '../src/documents/document-store.service';
+import { CandidateStoreService } from '../src/documents/candidate-store.service';
+import { GENERAL_INDEXER_ID, GENERAL_INDEXER_VERSION } from '../src/indexers/candidate.types';
 
 interface CacheRow {
   hitCount: number;
@@ -293,5 +296,60 @@ describe('G1 answer cache e2e', () => {
     expect(rA2.body.cached).toBe(true);
     expect(rA2.body.answer).toBe('Jade-07 for user A.');
     expect(sA2.calls.length).toBe(0);
+  });
+
+  it('a document waiting for its read → the entry is not served, and serves again once read', async () => {
+    const ingest = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'cust_answer_cache_pending' },
+        predicate: 'tier',
+        object: 'opal-3',
+        validFrom: new Date('2026-04-05').toISOString(),
+        source: { vertical: 'rent', messageId: 'm_ac_pending_1' },
+        confidence: 0.9,
+      });
+    const pendingFactId = ingest.body.factId as string;
+    const q = 'tier: opal-3';
+    mockRound('Opal-3.', pendingFactId);
+    expect((await f.http.post('/v1/synthesize').set(auth()).send({ query: q })).body.cached).toBe(
+      undefined,
+    );
+
+    // A correction arrives and is remembered, raw: its generalist read is
+    // still waiting, so no fact has changed yet.
+    const { doc } = await f.app.get(DocumentStoreService).createOrGet(
+      f.companyId,
+      {
+        kind: 'chat',
+        text: 'Correction: the pending customer is on opal-4 now.',
+        occurredAt: new Date('2026-04-06').toISOString(),
+        contextRef: { vertical: 'rent' },
+      },
+      { channel: 'ingest_async', internal: undefined },
+    );
+    const candidates = f.app.get(CandidateStoreService);
+    await candidates.ensureRunPending(f.companyId, {
+      docId: doc.id,
+      packId: GENERAL_INDEXER_ID,
+      packVersion: GENERAL_INDEXER_VERSION,
+    });
+    const fresh = mockRound('Opal-3 (answered fresh).', pendingFactId);
+    const r2 = await f.http.post('/v1/synthesize').set(auth()).send({ query: q });
+    expect(r2.body.cached).toBeUndefined();
+    expect(fresh.calls.length).toBe(2);
+
+    // Read (nothing new committed on the cited entity): served again.
+    const run = await candidates.createRun(f.companyId, {
+      docId: doc.id,
+      packId: GENERAL_INDEXER_ID,
+      packVersion: GENERAL_INDEXER_VERSION,
+    });
+    await candidates.finalizeRun(f.companyId, { runId: run.runId, status: 'succeeded' });
+    const again = mockRound('MUST NOT SURFACE.', pendingFactId);
+    const r3 = await f.http.post('/v1/synthesize').set(auth()).send({ query: q });
+    expect(r3.body.cached).toBe(true);
+    expect(again.calls.length).toBe(0);
   });
 });

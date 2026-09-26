@@ -2,6 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { StringRecordId, type Surreal } from 'surrealdb';
+import { GENERAL_INDEXER_ID } from '../indexers/candidate.types';
 import { SurrealService } from '../db/surreal.service';
 import { traceArtifact } from '../common/debug-trace';
 import { envFlagEnabled } from '../common/env-validation';
@@ -747,6 +748,15 @@ export class AnswerCacheService {
       traceArtifact('synthesize.answer_cache', { decision: 'miss' });
       return null;
     }
+    if (await this.understandingPending(ctx)) {
+      // Something said in this scope is remembered but not yet read: a
+      // correction there has changed no fact yet, so no fact-lifecycle
+      // check can see it. Answer fresh (the raw lanes serve the turn) and
+      // keep the entry — once the read lands, the freshness probe judges it.
+      this.metrics?.countAnswerCache('miss');
+      traceArtifact('synthesize.answer_cache', { decision: 'miss_pending_extraction' });
+      return null;
+    }
     const verdict = await this.checkOnRead(ctx, row, callerScopes);
     if ('cause' in verdict) {
       await this.invalidate(ctx, verdict.cause);
@@ -772,6 +782,26 @@ export class AnswerCacheService {
       results: [],
       cached: true,
     };
+  }
+
+  /**
+   * True while a document of this answer's scope waits for its generalist
+   * read (extraction-batch.service.ts): the answer's own user's documents
+   * and tenant-global ones for a user-scoped answer, tenant-global only
+   * for a tenant-global one — the scope its retrieval would read.
+   */
+  private async understandingPending(ctx: AnswerCacheStoreContext): Promise<boolean> {
+    const rows = await this.surreal.withCompany(ctx.companyId, async (db) => {
+      const [found] = await db.query<[Array<{ id: unknown }>]>(
+        `SELECT id FROM indexer_run
+          WHERE status IN ['pending', 'running'] AND packId = $pack AND external != true
+            AND ${ctx.userId ? '(docId.userId IS NONE OR docId.userId = $userId)' : 'docId.userId IS NONE'}
+          LIMIT 1`,
+        { pack: GENERAL_INDEXER_ID, ...(ctx.userId ? { userId: ctx.userId } : {}) },
+      );
+      return found ?? [];
+    });
+    return rows.length > 0;
   }
 
   /**

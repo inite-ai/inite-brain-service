@@ -354,6 +354,34 @@ export class CandidateStoreService {
     });
   }
 
+  /**
+   * Documents whose run of one pack is waiting to be read, oldest
+   * document first — the background extraction's work list
+   * (extraction-batch.service.ts). `failed` adds the runs a previous
+   * pass failed (its retry pass); external work items are never listed.
+   */
+  async listAwaitingRuns(
+    companyId: string,
+    p: { packId: string; packVersion: string; includeFailed: boolean; limit: number },
+  ): Promise<string[]> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      const rows = await queryRows<{ docId: unknown }>(
+        db,
+        `SELECT docId, docId.occurredAt AS at FROM indexer_run
+           WHERE packId = $pack AND packVersion = $ver AND external != true
+             AND status IN $statuses
+           ORDER BY at ASC LIMIT $limit`,
+        {
+          pack: p.packId,
+          ver: p.packVersion,
+          statuses: p.includeFailed ? ['pending', 'failed'] : ['pending'],
+          limit: p.limit,
+        },
+      );
+      return rows.map((r) => String(r.docId));
+    });
+  }
+
   async finalizeRun(
     companyId: string,
     p: {

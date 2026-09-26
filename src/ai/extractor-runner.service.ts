@@ -34,6 +34,7 @@ import {
   type TransitionClassifier,
 } from './extractor-internals/transition-classifier';
 import { EmbedderService } from './embedder.service';
+import type { ServiceTier } from './openai-client';
 import { resolveExtractionProfile } from './extraction-profile';
 import {
   buildConversationContext,
@@ -57,6 +58,13 @@ type Snapshot = {
 export interface RunOverrides {
   model?: string;
   scPasses?: number;
+  /**
+   * Background extraction (nobody is waiting on it): the offline
+   * processing tier, and an output allowance scaled to the several turns
+   * one call reads (extraction-group.ts).
+   */
+  tier?: ServiceTier | undefined;
+  visibleCap?: number | undefined;
 }
 
 /**
@@ -255,6 +263,8 @@ export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplica
       contextPrefix,
       temperature: 0.1,
       model: overrides?.model,
+      tier: overrides?.tier,
+      visibleCap: overrides?.visibleCap,
     });
     if (!rawJson) return null;
     return this.assembleResult({ companyId, trimmed, snapshot, rawJson, context });
@@ -282,6 +292,8 @@ export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplica
             contextPrefix: args.contextPrefix,
             temperature: t,
             model: args.overrides?.model,
+            tier: args.overrides?.tier,
+            visibleCap: args.overrides?.visibleCap,
           })
           .catch((e) => {
             this.logger.warn(`sc-pass T=${t.toFixed(2)} failed: ${(e as Error).message}`);
@@ -371,6 +383,8 @@ export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplica
             contextPrefix: args.contextPrefix,
             temperature: 0.1,
             model: args.overrides?.model,
+            tier: args.overrides?.tier,
+            visibleCap: args.overrides?.visibleCap,
           })
           .catch((e) => {
             // A specialist failing costs its extra recall, nothing else — the
@@ -469,9 +483,11 @@ export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplica
     // entity array. Known participants (speaker/addressee) are allow-listed:
     // a coreference-resolved speaker name is legitimately absent from a
     // first-person-only turn ("I decided …") yet must survive.
-    const allowedNames = [context?.speakerName, context?.addresseeName].filter(
-      (n): n is string => !!n,
-    );
+    const allowedNames = [
+      context?.speakerName,
+      context?.addresseeName,
+      ...(context?.turns ?? []).flatMap((t) => [t.speakerName, t.addresseeName]),
+    ].filter((n): n is string => !!n);
     const groundedMask = groundEntities(trimmed, parsedEntities, allowedNames);
     const remap = new Map<number, number>();
     const entities: ExtractedEntity[] = [];

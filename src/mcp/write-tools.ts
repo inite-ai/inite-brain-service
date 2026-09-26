@@ -478,7 +478,6 @@ function registerIngestDocumentTool({
           ...(args.toolObservationRef !== undefined
             ? { toolObservationRef: args.toolObservationRef }
             : {}),
-          mode: 'sync',
         },
         { channel: 'mcp' },
       );

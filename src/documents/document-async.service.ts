@@ -1,4 +1,5 @@
 import { CommitWriterService } from './commit-writer.service';
+import { ExtractionBatchService } from './extraction-batch.service';
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService, JobContext } from '../jobs/worker-loop.service';
@@ -8,6 +9,7 @@ import { IndexerDispatchService } from './indexer-dispatch.service';
 import { CandidateCommitService } from './candidate-commit.service';
 import { CandidateStoreService } from './candidate-store.service';
 import { IngestDocumentDto } from './dto/ingest-document.dto';
+import type { DocumentChunk } from './chunker';
 import { pinUserScope } from '../auth/user-scope';
 import {
   internalDocumentMeta,
@@ -60,6 +62,7 @@ export class DocumentAsyncService implements OnModuleInit {
     @Optional() private readonly claim?: JobClaimService,
     @Optional() private readonly toolObservations?: ToolObservationService,
     @Optional() private readonly writer?: CommitWriterService,
+    @Optional() private readonly batch?: ExtractionBatchService,
   ) {}
 
   onModuleInit(): void {
@@ -113,14 +116,43 @@ export class DocumentAsyncService implements OnModuleInit {
     // Remembered before it is understood: the raw turns land now, the
     // extraction reads them later (commit-writer captureDocumentTurns).
     await this.writer?.captureDocumentTurns(companyId, doc);
+    const runs = await this.fanOut({ companyId, doc, chunks, indexers: dto.indexers });
+    return {
+      documentId: doc.id,
+      deduplicated,
+      chunkCount: doc.chunkCount,
+      mode: 'async',
+      runs,
+    };
+  }
+
+  /**
+   * Queue every read a captured document gets: the generalist pass (the
+   * batch pass when background extraction is on, else its own job), the
+   * routed dedicated packs as jobs, and the external packs as pull-API
+   * work items. Every run row is pending before anything is enqueued —
+   * the commit settles only once all of them are terminal.
+   */
+  async fanOut(p: {
+    companyId: string;
+    doc: StoredDocument;
+    chunks: DocumentChunk[];
+    indexers: IngestDocumentDto['indexers'];
+    /** False = no generalist pass (a rendered record whose facts arrive as candidates). */
+    general?: boolean;
+  }): Promise<DocumentAsyncResponse['runs']> {
+    const { companyId, doc, chunks, indexers, general = true } = p;
+    if (!this.claim) {
+      throw new Error('async ingest unavailable: job queue not wired');
+    }
     const dedicated = await this.dispatch.selectDedicated({
       companyId,
       doc,
       chunks,
-      indexers: dto.indexers,
+      indexers,
     });
     const specs = [
-      { packId: GENERAL_INDEXER_ID, packVersion: GENERAL_INDEXER_VERSION },
+      ...(general ? [{ packId: GENERAL_INDEXER_ID, packVersion: GENERAL_INDEXER_VERSION }] : []),
       ...dedicated.map((b) => ({ packId: b.indexerId, packVersion: b.packVersion })),
     ];
 
@@ -138,6 +170,13 @@ export class DocumentAsyncService implements OnModuleInit {
         packId: spec.packId,
         packVersion: spec.packVersion,
       });
+      if (spec.packId === GENERAL_INDEXER_ID && this.batch?.enabled()) {
+        // The generalist read waits for the window's batch pass, grouped
+        // with the other documents captured meanwhile.
+        await this.batch.schedule(companyId);
+        runs.push({ packId: spec.packId, status: 'enqueued' });
+        continue;
+      }
       // Version-aware dedupKey mirrors the indexer_run UNIQUE triple: a
       // re-POST of the same content collapses; a pack upgrade re-opens
       // the slot.
@@ -159,17 +198,11 @@ export class DocumentAsyncService implements OnModuleInit {
       companyId,
       doc,
       chunks,
-      indexers: dto.indexers,
+      indexers,
     })) {
       runs.push({ packId: planned.packId, status: 'planned' });
     }
-    return {
-      documentId: doc.id,
-      deduplicated,
-      chunkCount: doc.chunkCount,
-      mode: 'async',
-      runs,
-    };
+    return runs;
   }
 
   private async handleIndexJob(ctx: JobContext): Promise<Record<string, unknown>> {

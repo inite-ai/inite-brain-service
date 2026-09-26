@@ -12,6 +12,7 @@ import { ExtractorRunnerService } from './extractor-runner.service';
 import type { ExtractionResult } from './extractor-internals/types';
 import type { ConversationContext } from './extractor-internals/prompts';
 import { memoryContextDigest } from './extractor-internals/memory-context';
+import { offlineServiceTier } from './openai-client';
 
 export type { ConversationContext } from './extractor-internals/prompts';
 
@@ -69,6 +70,33 @@ export class ExtractorService {
     companyId: string,
     context?: ConversationContext,
   ): Promise<ExtractionResult> {
+    return this.read({ text, companyId, context });
+  }
+
+  /**
+   * A read nobody is waiting on — the queued extraction of captured
+   * documents. It asks for the offline processing tier, and a transient
+   * LLM failure THROWS instead of reading as "nothing here", so the
+   * documents stay waiting and are read again rather than committed
+   * empty. `visibleCap` widens the output allowance for a read of several
+   * turns.
+   */
+  async extractBackground(p: {
+    text: string;
+    companyId: string;
+    context?: ConversationContext | undefined;
+    visibleCap?: number | undefined;
+  }): Promise<ExtractionResult> {
+    return this.read({ ...p, background: { visibleCap: p.visibleCap } });
+  }
+
+  private async read(p: {
+    text: string;
+    companyId: string;
+    context?: ConversationContext | undefined;
+    background?: { visibleCap?: number | undefined } | undefined;
+  }): Promise<ExtractionResult> {
+    const { text, companyId, context } = p;
     // Defence in depth — DTOs already cap at 16K, but MCP and the
     // admin-demo inline body shapes don't pass through class-validator.
     const { value: trimmed, truncated } = clampLlmInputText(text, 'mentionText');
@@ -92,6 +120,12 @@ export class ExtractorService {
       speaker: context?.speakerName,
       speakerIsUser: context?.speakerIsUser,
       addressee: context?.addresseeName,
+      turns: context?.turns
+        ?.map(
+          (t) =>
+            `${t.label}\x1f${t.speakerName ?? ''}\x1f${t.speakerIsUser ? 'u' : ''}\x1f${t.addresseeName ?? ''}`,
+        )
+        .join('\x1e'),
       // So does the memory the extractor reads: the same sentence said
       // when the graph already holds the budget it changes must not
       // replay the extraction made when it held nothing.
@@ -112,7 +146,18 @@ export class ExtractorService {
       registryVersionHash: snapshot.versionHash,
     });
 
-    const result = await this.runner.run({ trimmed, companyId, snapshot, context });
+    const result = await this.runner.run({
+      trimmed,
+      companyId,
+      snapshot,
+      context,
+      ...(p.background
+        ? { overrides: { tier: offlineServiceTier(), visibleCap: p.background.visibleCap } }
+        : {}),
+    });
+    if (!result && p.background) {
+      throw new Error('extraction produced no usable response (transient LLM failure)');
+    }
     if (!result) {
       // Transient LLM failure (null JSON / all SC passes failed). Return
       // empty WITHOUT caching — the no-TTL LRU would otherwise pin this

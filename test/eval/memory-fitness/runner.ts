@@ -357,6 +357,24 @@ async function recordDirectFacts(cfg: Config, mcp: McpClient): Promise<void> {
   }
 }
 
+/**
+ * Wait until what was written is understood. The server reads captured
+ * turns in the background (extraction-batch.service.ts); this asks it to
+ * read everything waiting now and answers once it has. 404 = a server
+ * that still extracts on the write path — nothing is waiting.
+ */
+async function drainExtraction(cfg: Config): Promise<void> {
+  const res = await restRaw<Record<string, unknown>>(
+    cfg,
+    'POST',
+    '/v1/admin/maintenance/extraction',
+    {},
+  );
+  console.error(
+    `[build] extraction: ${res.status === 404 ? 'inline (404)' : res.status >= 200 && res.status < 300 ? JSON.stringify(res.json) : `error: HTTP ${res.status}`}`,
+  );
+}
+
 async function runBuilds(cfg: Config): Promise<Record<string, string>> {
   // scenes -> (enrich happens in-build when SCENES_LLM_ENRICHMENT is on)
   // -> backlink -> beliefs. Every step is best-effort: a 404 means the
@@ -808,6 +826,7 @@ async function main(): Promise<void> {
     let builds: Record<string, string> = { scenes: 'skipped: MEMFIT_SKIP_INGEST' };
     if (!cfg.skipIngest) {
       await ingestCorpus(cfg, brain);
+      await drainExtraction(cfg);
       await recordDirectFacts(cfg, mcp);
       await recordScopedFacts(cfg, mcp);
       builds = await runBuilds(cfg);

@@ -106,7 +106,7 @@ export class StubEmbedder implements Pick<
  */
 export class StubExtractor implements Pick<
   ExtractorService,
-  'extract' | 'modelId' | 'vocabularyVersionHash'
+  'extract' | 'extractBackground' | 'modelId' | 'vocabularyVersionHash'
 > {
   private script: ExtractionResult | null = null;
   private failure: Error | null = null;
@@ -131,6 +131,15 @@ export class StubExtractor implements Pick<
 
   /** The context of every extract call, in order — what the extractor was told. */
   readonly contexts: unknown[] = [];
+
+  /** The queued read: same script, same record of what it was told. */
+  async extractBackground(p: {
+    text: string;
+    companyId: string;
+    context?: unknown;
+  }): Promise<ExtractionResult> {
+    return this.extract(p.text, p.companyId, p.context);
+  }
 
   async extract(text: string, _companyId?: string, context?: unknown): Promise<ExtractionResult> {
     this.contexts.push(context);
