@@ -78,23 +78,21 @@ export class ExtractorService {
    * documents. It asks for the offline processing tier, and a transient
    * LLM failure THROWS instead of reading as "nothing here", so the
    * documents stay waiting and are read again rather than committed
-   * empty. `visibleCap` widens the output allowance for a read of several
-   * turns.
+   * empty.
    */
   async extractBackground(p: {
     text: string;
     companyId: string;
     context?: ConversationContext | undefined;
-    visibleCap?: number | undefined;
   }): Promise<ExtractionResult> {
-    return this.read({ ...p, background: { visibleCap: p.visibleCap } });
+    return this.read({ ...p, background: true });
   }
 
   private async read(p: {
     text: string;
     companyId: string;
     context?: ConversationContext | undefined;
-    background?: { visibleCap?: number | undefined } | undefined;
+    background?: boolean | undefined;
   }): Promise<ExtractionResult> {
     const { text, companyId, context } = p;
     // Defence in depth — DTOs already cap at 16K, but MCP and the
@@ -151,9 +149,7 @@ export class ExtractorService {
       companyId,
       snapshot,
       context,
-      ...(p.background
-        ? { overrides: { tier: offlineServiceTier(), visibleCap: p.background.visibleCap } }
-        : {}),
+      ...(p.background ? { overrides: { tier: offlineServiceTier() } } : {}),
     });
     if (!result && p.background) {
       throw new Error('extraction produced no usable response (transient LLM failure)');

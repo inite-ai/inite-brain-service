@@ -222,8 +222,3 @@ export function splitGroupResult(docs: GroupDoc[], result: ExtractionResult): Ex
     };
   });
 }
-
-/** Output allowance for a group: one turn's worth per turn read, bounded. */
-export function groupVisibleCap(docCount: number): number {
-  return Math.min(1500 * Math.max(1, docCount), 12_000);
-}

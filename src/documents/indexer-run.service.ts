@@ -16,7 +16,7 @@ import {
 import { CandidateStoreService } from './candidate-store.service';
 import type { DocumentChunk } from './chunker';
 import type { StoredDocument } from './document-store.service';
-import { groupVisibleCap, renderGroup, splitGroupResult, type GroupDoc } from './extraction-group';
+import { renderGroup, splitGroupResult, type GroupDoc } from './extraction-group';
 
 export interface IndexerRunResult {
   runId: string;
@@ -257,7 +257,6 @@ export class IndexerRunService {
               turns: rendered.turns,
               ...(await this.groupMemory(p.companyId, claimed, groupDocs)),
             },
-            visibleCap: groupVisibleCap(claimed.length),
           }),
         { packId: GENERAL_INDEXER_ID, documents: claimed.length },
       );
