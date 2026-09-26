@@ -38,9 +38,9 @@ export class DocumentReindexService implements OnModuleInit {
   onModuleInit(): void {
     // A new extraction contract re-reads the memory it was written by:
     // each tenant's stored documents are read again by the generalist
-    // pass once per GENERAL_INDEXER_VERSION (the job's stable dedup key
-    // is the once; the run ledger skips a document already read at that
-    // version, so a restart mid-pass resumes rather than repeats).
+    // pass at GENERAL_INDEXER_VERSION (the run ledger skips a document
+    // already read at that version, so a restart mid-pass resumes rather
+    // than repeats, and a failed one is reopened).
     // Without it a contract change (edges gaining the period they held,
     // 0164) reached only what was written after the deploy, and every
     // earlier document kept the timeless reading.
@@ -48,6 +48,10 @@ export class DocumentReindexService implements OnModuleInit {
       void this.enqueueReindex(companyId, {
         packId: GENERAL_INDEXER_ID,
         packVersion: GENERAL_INDEXER_VERSION,
+        // Once per day, not once ever: a pass whose documents failed (a
+        // provider outage) is walked again on the next boot of a new day
+        // — the ledger skips what succeeded, so the walk is reads only.
+        nonce: new Date().toISOString().slice(0, 10),
       }).catch((e: Error) =>
         this.logger.warn(`[reindex] ${companyId}: general pass not enqueued: ${e.message}`),
       );
@@ -94,16 +98,27 @@ export class DocumentReindexService implements OnModuleInit {
   /** Enqueue a backfill for one pack (install hook + admin endpoint). */
   async enqueueReindex(
     companyId: string,
-    p: { packId: string; packVersion: string; cursor?: string; nonce?: string },
+    p: {
+      packId: string;
+      packVersion: string;
+      cursor?: string;
+      nonce?: string;
+      /** Which retry pass this is (0 = the first pass). */
+      retry?: number;
+      visibleAfter?: Date;
+    },
   ): Promise<{ enqueued: boolean }> {
     if (!this.claim) return { enqueued: false };
+    const retry = p.retry ?? 0;
+    const pass = retry > 0 ? `retry${retry}_` : '';
     const suffix = p.cursor ?? (p.nonce ? `start_${p.nonce}` : 'start');
     const { created } = await this.claim.enqueue({
       jobType: 'reindex_documents',
       companyId,
       triggeredBy: 'manual',
-      dedupKey: `reindex_${p.packId}_${p.packVersion}_${suffix}`,
-      payload: { packId: p.packId, packVersion: p.packVersion, cursor: p.cursor },
+      dedupKey: `reindex_${p.packId}_${p.packVersion}_${pass}${suffix}`,
+      payload: { packId: p.packId, packVersion: p.packVersion, cursor: p.cursor, retry },
+      ...(p.visibleAfter ? { visibleAfter: p.visibleAfter } : {}),
     });
     return { enqueued: created };
   }
@@ -112,6 +127,7 @@ export class DocumentReindexService implements OnModuleInit {
     const packId = String(ctx.payload?.packId ?? '');
     const packVersion = String(ctx.payload?.packVersion ?? '');
     const cursor = ctx.payload?.cursor ? String(ctx.payload.cursor) : undefined;
+    const retry = Number(ctx.payload?.retry ?? 0) || 0;
     if (!packId) return { skipped: 'missing_packId' };
 
     const budget = envInt('REINDEX_MAX_DOCS_PER_RUN', 500);
@@ -122,6 +138,7 @@ export class DocumentReindexService implements OnModuleInit {
 
     let processed = 0;
     let skipped = 0;
+    let failed = 0;
     let lastDocId = cursor;
     for (const doc of docs) {
       if (ctx.abortSignal.aborted) {
@@ -136,12 +153,21 @@ export class DocumentReindexService implements OnModuleInit {
         skipped++;
         continue;
       }
-      const run = await this.dispatch.runOne({
-        companyId: ctx.companyId,
-        doc,
-        chunks,
-        packId,
-      });
+      // One document's failure is that document's: the run row is left
+      // 'failed' (the ledger reopens it on the next pass) and the walk
+      // goes on. It used to throw out of the whole job, whose three
+      // attempts then burned inside the same outage — on 2026-09-25 a
+      // provider credit outage failed every document of a contract
+      // re-read, the job gave up, and its stable dedup key kept it from
+      // ever running again.
+      let run: Awaited<ReturnType<IndexerDispatchService['runOne']>>;
+      try {
+        run = await this.dispatch.runOne({ companyId: ctx.companyId, doc, chunks, packId });
+      } catch (e) {
+        failed++;
+        this.logger.warn(`[reindex] ${packId}@${packVersion} ${doc.id}: ${(e as Error).message}`);
+        continue;
+      }
       if (run.status === 'skipped') {
         skipped++;
         continue;
@@ -163,12 +189,38 @@ export class DocumentReindexService implements OnModuleInit {
         cursor: lastDocId,
       });
     }
+    const retryAt =
+      failed > 0 ? await this.scheduleRetry(ctx.companyId, { packId, packVersion, retry }) : null;
     this.logger.log(
-      `reindex ${packId}@${packVersion} for ${ctx.companyId}: processed=${processed} skipped=${skipped} requeued=${!exhausted}`,
+      `reindex ${packId}@${packVersion} for ${ctx.companyId}: processed=${processed} skipped=${skipped} failed=${failed} requeued=${!exhausted}` +
+        (retryAt ? ` retry=${retry + 1} at ${retryAt.toISOString()}` : ''),
     );
-    return { processed, skipped, requeued: !exhausted, cursor: lastDocId };
+    return { processed, skipped, failed, requeued: !exhausted, cursor: lastDocId };
+  }
+
+  /**
+   * A later pass over the whole set for the documents that failed: the
+   * ledger skips what succeeded and reopens what failed. Backed off
+   * (15 min, doubling) so it lands after an outage rather than inside it,
+   * and bounded — a document that fails every time is a defect to read in
+   * the logs, not a loop. Every batch of a failed pass asks for the SAME
+   * retry key, so one retry pass runs however many batches failed.
+   */
+  private async scheduleRetry(
+    companyId: string,
+    pass: { packId: string; packVersion: string; retry: number },
+  ): Promise<Date | null> {
+    const { packId, packVersion, retry } = pass;
+    if (retry >= REINDEX_MAX_RETRIES) return null;
+    const visibleAfter = new Date(Date.now() + REINDEX_RETRY_BASE_MS * 2 ** retry);
+    await this.enqueueReindex(companyId, { packId, packVersion, retry: retry + 1, visibleAfter });
+    return visibleAfter;
   }
 }
+
+/** Retry passes after a pass with failed documents, and the first backoff. */
+const REINDEX_MAX_RETRIES = 5;
+const REINDEX_RETRY_BASE_MS = 15 * 60_000;
 
 function envInt(key: string, fallback: number): number {
   const v = process.env[key];
