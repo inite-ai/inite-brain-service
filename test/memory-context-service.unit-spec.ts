@@ -217,6 +217,31 @@ describe('MemoryContextService.build', () => {
     expect(rels[0]?.since).toBe('2026-09-17');
   });
 
+  it('shows only what was said by the text: before, or the saidBy a group reads up to', async () => {
+    const { svc, queries } = make();
+    await svc.build({ companyId: 'co', text: 'current', before: '2026-03-01T00:00:00.000Z' });
+    const factQ = () => queries.filter((q) => q.sql.includes('FROM knowledge_fact')).at(-1)!;
+    const edgeQ = () => queries.filter((q) => q.sql.includes('FROM knowledge_edge')).at(-1)!;
+    // Said = the occurrence of the document it was read from, else the write.
+    expect(factQ().sql).toContain(
+      '((IF source.documentId != NONE THEN type::record(source.documentId).occurredAt END) ?? recordedAt) <= type::datetime($said)',
+    );
+    expect(edgeQ().sql).toContain('?? createdAt) <= type::datetime($said)');
+    expect(factQ().params?.said).toBe('2026-03-01T00:00:00.000Z');
+    expect(edgeQ().params?.said).toBe('2026-03-01T00:00:00.000Z');
+    await svc.build({
+      companyId: 'co',
+      text: 'current',
+      before: '2026-03-01T00:00:00.000Z',
+      saidBy: new Date('2026-03-02T00:00:00.000Z'),
+    });
+    expect(factQ().params?.said).toBe('2026-03-02T00:00:00.000Z');
+    // A live read without a cutoff shows everything, as before.
+    await svc.build({ companyId: 'co', text: 'current' });
+    expect(factQ().sql).not.toContain('$said');
+    expect(edgeQ().sql).not.toContain('$said');
+  });
+
   it("the user's own entity is known first on every turn of theirs, resolved by key", async () => {
     const { svc, users, lookups } = make({ own: 'knowledge_entity:rk' });
     const ctx = await svc.build({ companyId: 'co', text: 'current', userId: 'u1' });

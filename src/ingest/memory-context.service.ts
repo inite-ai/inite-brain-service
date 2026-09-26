@@ -28,6 +28,18 @@ const CONVERSATION_ENTITIES_MAX = 12;
 const PREDICATES_TTL_MS = 60_000;
 const PREDICATES_CACHE_MAX = 512;
 
+/**
+ * When a stored fact or relation was SAID: the occurrence of the document
+ * it was read from, else (written without one — record_fact, the direct
+ * mention path) the instant it was written, which is when it was said.
+ */
+const SAID_AT = (written: string): string =>
+  `((IF source.documentId != NONE THEN type::record(source.documentId).occurredAt END) ?? ${written})`;
+
+function isoOf(v: string | Date | undefined): string | undefined {
+  return v instanceof Date ? v.toISOString() : v;
+}
+
 export interface MemoryContextInput {
   companyId: string;
   /** The current turn (PII-redacted, as the extractor will see it). */
@@ -42,6 +54,14 @@ export interface MemoryContextInput {
    * already hold turns that came after it.
    */
   before?: string | Date | undefined;
+  /**
+   * The facts and relations shown are the ones SAID no later than this
+   * instant (defaults to `before`). A text is read against what was said
+   * up to it: an old document read after a newer one (an import out of
+   * order, a retry, a re-read) must not see the newer values, or it names
+   * them as what it replaces and the stale value becomes current.
+   */
+  saidBy?: string | Date | undefined;
   /** Scope key of the end user; omitted → tenant-global memory only. */
   userId?: string | undefined;
   /** Participant names the caller asserted (speaker / addressee). */
@@ -131,9 +151,11 @@ export class MemoryContextService {
             this.knownEntities(db, ids),
             this.predicates(db, p.companyId),
           ]);
-          const facts = await this.knownFacts(db, entities, p.userId);
+          const saidBy = isoOf(p.saidBy ?? p.before);
+          const facts = await this.knownFacts(db, entities, { userId: p.userId, saidBy });
           const edges = await this.knownEdges(db, entities, {
             userId: p.userId,
+            saidBy,
             offset: facts.length,
           });
           return { occurredAt, recentTurns, entities, facts: [...facts, ...edges], predicates };
@@ -275,8 +297,9 @@ export class MemoryContextService {
   private async knownFacts(
     db: Surreal,
     entities: MemoryEntity[],
-    userId: string | undefined,
+    opts: { userId: string | undefined; saidBy: string | undefined },
   ): Promise<MemoryFact[]> {
+    const { userId, saidBy } = opts;
     if (entities.length === 0) return [];
     const ids = entities.map((e) => e.id);
     const handleOf = new Map(entities.map((e) => [e.id, e.handle]));
@@ -296,9 +319,9 @@ export class MemoryContextService {
     >(
       `SELECT id, entityId, predicate, object, validFrom, validUntil, expectedUntil FROM knowledge_fact
         WHERE entityId IN $ids AND status IN ['active', 'competing'] AND retractedAt IS NONE
-          AND ${userGate}
+          AND ${userGate}${saidBy ? ` AND ${SAID_AT('recordedAt')} <= type::datetime($said)` : ''}
         ORDER BY validFrom DESC LIMIT $k`,
-      { ids: ids.map(recordRef), u: userId, k: MEMORY_FACTS_PER_ENTITY * ids.length },
+      { ids: ids.map(recordRef), u: userId, said: saidBy, k: MEMORY_FACTS_PER_ENTITY * ids.length },
     );
     const perEntity = new Map<string, number>();
     const out: MemoryFact[] = [];
@@ -340,9 +363,9 @@ export class MemoryContextService {
   private async knownEdges(
     db: Surreal,
     entities: MemoryEntity[],
-    opts: { userId: string | undefined; offset: number },
+    opts: { userId: string | undefined; saidBy: string | undefined; offset: number },
   ): Promise<MemoryFact[]> {
-    const { userId, offset } = opts;
+    const { userId, saidBy, offset } = opts;
     if (entities.length === 0) return [];
     const ids = entities.map((e) => e.id);
     const handleOf = new Map(entities.map((e) => [e.id, e.handle]));
@@ -363,9 +386,9 @@ export class MemoryContextService {
     >(
       `SELECT id, in, out, kind, in.canonicalName AS fromName, out.canonicalName AS toName, createdAt, validFrom
          FROM knowledge_edge
-        WHERE (in IN $ids OR out IN $ids) AND invalidatedAt IS NONE AND ${userGate}
+        WHERE (in IN $ids OR out IN $ids) AND invalidatedAt IS NONE AND ${userGate}${saidBy ? ` AND ${SAID_AT('createdAt')} <= type::datetime($said)` : ''}
         ORDER BY createdAt DESC LIMIT $k`,
-      { ids: ids.map(recordRef), u: userId, k: MEMORY_EDGES_PER_ENTITY * ids.length },
+      { ids: ids.map(recordRef), u: userId, said: saidBy, k: MEMORY_EDGES_PER_ENTITY * ids.length },
     );
     const perEntity = new Map<string, number>();
     const out: MemoryFact[] = [];
