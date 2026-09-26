@@ -6,6 +6,7 @@ import { PredicateSemanticsJudgeService } from './predicate-semantics-judge.serv
 import { cosineSimilarity } from '../common/vector-math';
 import { LRUCache } from '../common/lru-cache';
 import { traceArtifact } from '../common/debug-trace';
+import { isUniqueViolation } from '../db/surreal-retry';
 import type { FactCardinality } from './extractor-internals/types';
 
 import {
@@ -76,6 +77,8 @@ export class PredicateRegistryService {
    * tenants.
    */
   private readonly cache: LRUCache<string, { snapshot: PredicateSnapshot; loadedAt: number }>;
+  /** Novel predicates being registered now, by tenant and id (canonicalize). */
+  private readonly canonicalizing = new Map<string, Promise<CanonicalizeDecision>>();
   /**
    * Per-tenant bootstrap flag — ensureBootstrap runs once per process
    * per tenant. Bounded so a fleet rotating through thousands of
@@ -703,6 +706,32 @@ export class PredicateRegistryService {
     predicate: string,
     context: CanonicalizeContext,
   ): Promise<CanonicalizeDecision> {
+    // One registration per novel predicate at a time, in this process: the
+    // samples, chunks and groups of a read coin the same predicate at once,
+    // and every one of them used to embed it, classify it (an LLM call)
+    // and race to insert it — the losers hit the unique index and never
+    // put its classification into effect. A concurrent caller waits for
+    // the one registration and gets the predicate it registered.
+    const key = `${companyId}\u0000${predicate}`;
+    const running = this.canonicalizing.get(key);
+    if (running) {
+      const first = await running;
+      return { kind: 'matched', canonicalId: first.canonicalId };
+    }
+    const mine = this.canonicalizeOnce(companyId, predicate, context);
+    this.canonicalizing.set(key, mine);
+    try {
+      return await mine;
+    } finally {
+      this.canonicalizing.delete(key);
+    }
+  }
+
+  private async canonicalizeOnce(
+    companyId: string,
+    predicate: string,
+    context: CanonicalizeContext,
+  ): Promise<CanonicalizeDecision> {
     const contextText = context.text;
     const snapshot = await this.getSnapshot(companyId);
 
@@ -884,9 +913,15 @@ export class PredicateRegistryService {
         },
       });
     } catch (e) {
-      this.logger.warn(
-        `canonicalize: proposed insert failed for '${predicate}': ${(e as Error).message}`,
-      );
+      if (isUniqueViolation(e)) {
+        // Another replica registered it first: its row is the definition —
+        // reload so it is in effect here too.
+        this.invalidate(companyId);
+      } else {
+        this.logger.warn(
+          `canonicalize: proposed insert failed for '${predicate}': ${(e as Error).message}`,
+        );
+      }
     }
     return {
       kind: 'proposed',
