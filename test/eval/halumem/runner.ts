@@ -3,16 +3,14 @@
  * agent memory (arXiv 2511.03506; toolkit github.com/MemTensor/HaluMem).
  *
  * Phase 1 (the system) drives a booted stand over the wire, user by user,
- * session by session, in order — the protocol of the toolkit's adapters:
+ * session by session, in order:
  *  - add:      each session is ONE chat document (POST /v1/ingest/document,
  *              the user's own scope); what it committed is the session's
  *              extracted memory, rendered `Entity — predicate: object`;
  *  - update:   for every gold point that updates an earlier one, the
  *              top-10 memories a search for it returns;
- *  - QA:       every question, answered two ways —
- *                protocol: search (top-K) → the toolkit's answer prompt →
- *                          the answer model (the adapters' own recipe);
- *                synthesize: brain's own answer (abstention = "I don't know").
+ *  - QA:       every question, answered by brain's own synthesize
+ *              (abstention = "I don't know").
  * Phase 2 (the judge) runs the toolkit's four judge prompts, verbatim, on
  * the judge model, and aggregates exactly as evaluation.py does.
  *
@@ -63,18 +61,13 @@ interface Config {
   repo: string;
   users: number;
   sessions: number;
-  topK: number;
   concurrency: number;
   judgeConcurrency: number;
   judgeModel: string;
-  answerModel: string;
   runId: string;
   reportDir: string;
   systemFile: string | undefined;
-  arms: Arm[];
 }
-
-type Arm = 'protocol' | 'synthesize';
 
 const intEnv = (k: string, d: number) => {
   const v = Number(process.env[k]);
@@ -100,25 +93,20 @@ function loadConfig(): Config {
     repo: need('HALUMEM_REPO', 'path to a checkout of github.com/MemTensor/HaluMem'),
     users: intEnv('HALUMEM_USERS', 2),
     sessions: intEnv('HALUMEM_SESSIONS', 10),
-    topK: intEnv('HALUMEM_TOP_K', 20),
     concurrency: intEnv('HALUMEM_CONCURRENCY', 2),
     judgeConcurrency: intEnv('HALUMEM_JUDGE_CONCURRENCY', 8),
     judgeModel: process.env.HALUMEM_JUDGE_MODEL ?? 'gpt-6-luna',
-    answerModel: process.env.HALUMEM_ANSWER_MODEL ?? 'gpt-6-luna',
     runId: process.env.HALUMEM_RUN_ID ?? `hm${Date.now().toString(36)}`,
     reportDir: process.env.HALUMEM_REPORT_DIR ?? 'var/halumem',
     systemFile,
-    arms: (process.env.HALUMEM_ARMS ?? 'protocol,synthesize')
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s): s is Arm => s === 'protocol' || s === 'synthesize'),
   };
 }
 
 // ── the system's output (phase 1), in the toolkit's shape ────────────
 
 interface SystemQuestion extends HaluMemQuestion {
-  arm: Arm;
+  /** 'protocol' only on system files written before the arm was dropped — not judged. */
+  arm?: string;
   system_response: string;
   context?: string;
 }
@@ -266,11 +254,6 @@ async function judge(cfg: Config, prompt: string): Promise<Record<string, unknow
 
 // ── phase 1: the system ──────────────────────────────────────────────
 
-/** The Mem0 adapter's context template (eval_memzero.py TEMPLATE_MEM0). */
-function mem0Context(userName: string, lines: string[]): string {
-  return `Memories for user ${userName}:\n\n    ${JSON.stringify(lines, null, 4)}\n`;
-}
-
 async function runUser(
   cfg: Config,
   brain: Brain,
@@ -318,24 +301,11 @@ async function runUser(
 
     const questions: SystemQuestion[] = [];
     for (const q of session.questions ?? []) {
-      if (cfg.arms.includes('protocol')) {
-        const context = mem0Context(
-          userName,
-          await brain.memoryLines(q.question, userId, cfg.topK),
-        );
-        const response = await complete(
-          cfg.answerModel,
-          pyFormat(prompts.answer, { context, question: q.question }),
-        );
-        questions.push({ ...q, arm: 'protocol', system_response: response, context });
-      }
-      if (cfg.arms.includes('synthesize')) {
-        const r = await brain.call<{ answer: string | null }>('POST', '/v1/synthesize', {
-          query: q.question,
-          userId,
-        });
-        questions.push({ ...q, arm: 'synthesize', system_response: r.answer ?? "I don't know." });
-      }
+      const r = await brain.call<{ answer: string | null }>('POST', '/v1/synthesize', {
+        query: q.question,
+        userId,
+      });
+      questions.push({ ...q, system_response: r.answer ?? "I don't know." });
     }
     out.sessions.push({
       dialogue_for_judge: judgeDialogue(session),
@@ -357,7 +327,7 @@ interface Judged {
   integrity: IntegrityRecord[];
   accuracy: AccuracyRecord[];
   updates: UpdateRecord[];
-  qa: Record<Arm, QaRecord[]>;
+  qa: QaRecord[];
 }
 
 async function judgeAll(
@@ -369,7 +339,7 @@ async function judgeAll(
     integrity: [],
     accuracy: [],
     updates: [],
-    qa: { protocol: [], synthesize: [] },
+    qa: [],
   };
   const jobs: Array<() => Promise<void>> = [];
   for (const u of users) {
@@ -430,7 +400,7 @@ async function judgeAll(
           });
         });
       }
-      for (const q of s.questions) {
+      for (const q of s.questions.filter((x) => x.arm !== 'protocol')) {
         jobs.push(async () => {
           const r = await judge(
             cfg,
@@ -441,7 +411,7 @@ async function judgeAll(
               response: q.system_response,
             }),
           );
-          out.qa[q.arm].push({ questionType: q.question_type, verdict: str(r?.evaluation_result) });
+          out.qa.push({ questionType: q.question_type, verdict: str(r?.evaluation_result) });
         });
       }
     }
@@ -473,7 +443,7 @@ async function main(): Promise<void> {
     const done = await loadCheckpoint<SystemUser>(systemPath, (u) => u.uuid);
     const brain = new Brain(cfg);
     console.log(
-      `[halumem] run ${cfg.runId}: ${users.length} users × ≤${cfg.sessions || 'all'} sessions, arms ${cfg.arms.join('+')}, ${done.size} already done`,
+      `[halumem] run ${cfg.runId}: ${users.length} users × ≤${cfg.sessions || 'all'} sessions, ${done.size} already done`,
     );
     await runPool(cfg.concurrency, users, async (u) => {
       if (done.has(u.uuid)) return;
@@ -492,7 +462,6 @@ async function main(): Promise<void> {
   const report = {
     runId: cfg.runId,
     judgeModel: cfg.judgeModel,
-    answerModel: cfg.answerModel,
     slice: { users: system.length, sessions: system.reduce((n, u) => n + u.sessions.length, 0) },
     memory_extraction: {
       memory_integrity: integrity,
@@ -500,9 +469,7 @@ async function main(): Promise<void> {
       memory_extraction_f1: f1(accuracy['target_accuracy(all)'], integrity['recall(all)']),
     },
     memory_update: scoreUpdates(j.updates),
-    question_answering: Object.fromEntries(
-      cfg.arms.map((a) => [a, { overall: scoreQa(j.qa[a]), by_type: scoreQaByType(j.qa[a]) }]),
-    ),
+    question_answering: { overall: scoreQa(j.qa), by_type: scoreQaByType(j.qa) },
   };
   const reportPath = join(cfg.reportDir, `halumem-${cfg.runId}.json`);
   writeFileSync(reportPath, JSON.stringify(report, null, 2));
@@ -518,7 +485,7 @@ function printScorecard(r: {
     memory_extraction_f1: number | null;
   };
   memory_update: ReturnType<typeof scoreUpdates>;
-  question_answering: Record<string, { overall: ReturnType<typeof scoreQa> }>;
+  question_answering: { overall: ReturnType<typeof scoreQa> };
 }): void {
   const pct = (v: number | null | undefined) =>
     v === null || v === undefined ? '—' : `${(v * 100).toFixed(2)}%`;
@@ -538,11 +505,10 @@ function printScorecard(r: {
   console.log(
     `update      correct ${pct(u['correct_ratio(all)'])}  hallucination ${pct(u['hallucination_ratio(all)'])}  omission ${pct(u['omission_ratio(all)'])}  (n=${u.num})`,
   );
-  for (const [arm, q] of Object.entries(r.question_answering)) {
-    console.log(
-      `QA ${arm.padEnd(10)} correct ${pct(q.overall['correct_ratio(all)'])}  hallucination ${pct(q.overall['hallucination_ratio(all)'])}  omission ${pct(q.overall['omission_ratio(all)'])}  (n=${q.overall.num})`,
-    );
-  }
+  const q = r.question_answering;
+  console.log(
+    `QA          correct ${pct(q.overall['correct_ratio(all)'])}  hallucination ${pct(q.overall['hallucination_ratio(all)'])}  omission ${pct(q.overall['omission_ratio(all)'])}  (n=${q.overall.num})`,
+  );
 }
 
 main().catch((e) => {

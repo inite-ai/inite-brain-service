@@ -1,12 +1,14 @@
 /**
- * The HaluMem evaluation protocol (Chen et al., 2025, arXiv 2511.03506), as
- * the reference toolkit runs it (github.com/MemTensor/HaluMem, eval/).
+ * HaluMem's per-operation judging (arXiv 2511.03506, toolkit
+ * github.com/MemTensor/HaluMem, eval/): its dataset and its four judge
+ * prompts. The paper's own setup (gpt-4o, a Mem0-style answerer) is not
+ * reproduced — this harness measures brain against brain.
  *
  * HaluMem is licensed CC BY-NC-ND 4.0, so neither its data nor its judge
  * prompts are copied into this repository: the runner reads the prompts
  * from an operator-supplied checkout of the toolkit at run time
  * (HALUMEM_REPO) and the dataset from a downloaded file (HALUMEM_DATA).
- * That also keeps the judge verbatim — the protocol is theirs, unedited.
+ * That also keeps the judge prompts verbatim.
  * What lives here is the machinery around it: reading the Python string
  * constants, Python's str.format, the judge's JSON extraction and the
  * metric arithmetic of evaluation.py, re-implemented.
@@ -14,14 +16,12 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** The four judge prompts (eval/eval_tools.py) and the answer prompt (eval/prompts.py). */
+/** The four judge prompts (eval/eval_tools.py). */
 export interface HaluMemPrompts {
   memoryIntegrity: string;
   memoryAccuracy: string;
   updateMemory: string;
   question: string;
-  /** The Mem0 adapter's answer prompt — the generic one the toolkit's adapters share. */
-  answer: string;
 }
 
 /**
@@ -50,15 +50,11 @@ export function loadHaluMemPrompts(repoDir: string): HaluMemPrompts {
       'EVALUATION_PROMPT_FOR_QUESTION',
     ],
   );
-  const answer = pythonStringConstants(readFileSync(join(repoDir, 'eval', 'prompts.py'), 'utf8'), [
-    'PROMPT_MEMZERO',
-  ]);
   return {
     memoryIntegrity: tools.EVALUATION_PROMPT_FOR_MEMORY_INTEGRITY!,
     memoryAccuracy: tools.EVALUATION_PROMPT_FOR_MEMORY_ACCURACY!,
     updateMemory: tools.EVALUATION_PROMPT_FOR_UPDATE_MEMORY!,
     question: tools.EVALUATION_PROMPT_FOR_QUESTION!,
-    answer: answer.PROMPT_MEMZERO!,
   };
 }
 
@@ -189,7 +185,7 @@ export function scoreQa(records: QaRecord[]) {
   );
 }
 
-/** QA broken down by question type — the paper's per-type table. */
+/** QA broken down by question type. */
 export function scoreQaByType(records: QaRecord[]) {
   const byType = new Map<string, QaRecord[]>();
   for (const r of records) byType.set(r.questionType, [...(byType.get(r.questionType) ?? []), r]);

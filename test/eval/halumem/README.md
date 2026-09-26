@@ -33,30 +33,28 @@ The prompts are taken verbatim from `eval/eval_tools.py` (the four judges) and
 `eval/prompts.py` (`PROMPT_MEMZERO`, the answer prompt). If a constant is renamed,
 the run fails instead of judging with nothing.
 
-## Protocol
+## What runs
 
-These are the toolkit's own adapter choices, kept so the numbers compare:
+The runner measures brain against brain, `main` vs a branch on the same slice. The
+paper's own setup (a `gpt-4o` judge, a Mem0-style answerer) is not reproduced.
 
-| Step | Toolkit (Mem0 adapter) | Here |
-|---|---|---|
-| add | the whole session in one `add` | the session as one chat document (`POST /v1/ingest/document`, the user's own `userId`) |
-| extracted memories | what `add` returned | what the document committed, rendered `Entity — predicate: object` |
-| update probe | top-10 search for the new point | `POST /v1/search`, `limit: 10`, rendered `YYYY-MM-DD: Entity — predicate: object` |
-| QA context | top-20 search, `TEMPLATE_MEM0` | top-20 search (`HALUMEM_TOP_K`), the same template |
-| QA answer | `PROMPT_MEMZERO` → `gpt-4o`, temperature 0 | `PROMPT_MEMZERO` → `gpt-6-luna` by default (`HALUMEM_ANSWER_MODEL`) |
-| judge | `gpt-4o`, temperature 0 | `gpt-6-luna` by default (`HALUMEM_JUDGE_MODEL`) |
+| Step | Here |
+|---|---|
+| add | each session is one chat document (`POST /v1/ingest/document`, the user's own `userId`) |
+| extracted memories | what the document committed, rendered `Entity — predicate: object` |
+| update probe | `POST /v1/search` for the new point, `limit: 10`, rendered `YYYY-MM-DD: Entity — predicate: object` |
+| QA | brain's own answer (`POST /v1/synthesize`, strict guardrails); an abstention is answered as "I don't know", which is what Memory Boundary questions reward |
+| judge | HaluMem's four judge prompts, verbatim, on `gpt-6-luna` (`HALUMEM_JUDGE_MODEL`) |
 
-**Models.** The paper judges and answers with `gpt-4o`. Here both default to `gpt-6-luna`, the model the rest of brain runs on, which is 20–25× cheaper. An A/B (main vs branch) only needs the same judge on both arms, not the paper's judge. Set both to `gpt-4o` for a one-off run that should sit next to the paper's table.
+The judge only has to be the same on both arms of an A/B, so it runs on the cheap
+model brain itself runs on. The judges are lenient LLM judges (0/1/2 scores,
+three- or four-way verdicts). Read a HaluMem number only against another HaluMem
+number from this harness.
 
-QA runs a second arm, **synthesize**: brain's own answer from `POST /v1/synthesize`.
-Strict guardrails apply, and an abstention is answered as "I don't know."
-Memory Boundary questions reward exactly that. The `protocol` arm is the one to
-compare with published numbers; `synthesize` is what a client of brain gets.
-
-The judges are LLM judges with 0/1/2 scores and three- or four-way verdicts.
-That is lenient compared with the strict binary judge of
-[docs/eval-protocol.md](../../../docs/eval-protocol.md). Quote HaluMem numbers
-as HaluMem numbers, next to the paper's own table and not next to ours.
+**The stand has to run the production flags**, not the defaults. On defaults,
+extraction F1 read 59.7%; on production flags it read 86.3%. Source the
+`enablement.env` heredoc from `.github/workflows/deploy-brain.yml`, and add
+`EMBEDDER_PROVIDER=bge-m3`.
 
 ## Running
 
@@ -71,12 +69,10 @@ pnpm eval:halumem
 | Env | Default | |
 |---|---|---|
 | `HALUMEM_USERS` / `HALUMEM_SESSIONS` | 2 / 10 | the slice: the first N users, and the first M sessions of each, in order (0 = all) |
-| `HALUMEM_ARMS` | `protocol,synthesize` | QA arms |
-| `HALUMEM_TOP_K` | 20 | QA search depth |
 | `HALUMEM_CONCURRENCY` | 2 | users in parallel (sessions of one user always run in order) |
 | `HALUMEM_JUDGE_CONCURRENCY` | 8 | judge calls in parallel |
-| `HALUMEM_JUDGE_MODEL` / `HALUMEM_ANSWER_MODEL` | `gpt-6-luna` | `gpt-4o` reproduces the paper's setup, at 20–25× the price |
-| `HALUMEM_OPENAI_BASE_URL` | | an OpenAI-compatible endpoint for both |
+| `HALUMEM_JUDGE_MODEL` | `gpt-6-luna` | |
+| `HALUMEM_OPENAI_BASE_URL` | | an OpenAI-compatible endpoint for the judge |
 | `HALUMEM_RUN_ID` | generated | a re-run with the same id resumes; finished users are skipped |
 | `HALUMEM_SYSTEM_FILE` | | judge an existing `halumem-system-*.jsonl` again, with no stand |
 | `HALUMEM_REPORT_DIR` | `var/halumem` | |
@@ -85,7 +81,7 @@ Scale: HaluMem-Medium has 20 users, 1,387 sessions, 60k turns, 15k memory points
 and 3.5k questions. The whole set means about 40k judge calls, so start from a
 slice. One session writes in about 25–35 s on a local stand. A 20-session slice
 means about 1.5–2k judge calls, and the accuracy judge reads the whole session
-each time. On `gpt-4o` that burned the day's credits in three runs.
+each time. Count the cost before a run.
 
 ## Output
 
