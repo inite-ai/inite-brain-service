@@ -2787,7 +2787,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Verified-use successor decay (profile field verifiedUseDecay; 0107 outcome telemetry, Brain v2 gap #7): attach memory_outcome_stat.lastVerifiedUseAt to fused candidates so the decay clock restarts at the last VERIFIED use (verifier-supported / user-confirmed) — not at mere retrieval. With SEARCH_USAGE_DECAY_ENABLED off and this on, surfacing a fact never extends its life; both on = max of both anchors. Needs OUTCOME_TELEMETRY_ENABLED writers to have accrued stats. Default off = byte-identical.',
+      "Verified-use activation, time (profile field verifiedUseDecay; 0107 outcome telemetry): attach memory_outcome_stat.lastVerifiedUseAt to fused candidates — the last VERIFIED use (verifier-supported / user-confirmed) is a trace in the fact's ACT-R activation (search/internals/activation.ts: every event a power-law trace, d = 0.5, the predicate half-life sets the scale). Mere retrieval is not a use. Needs OUTCOME_TELEMETRY_ENABLED writers to have accrued stats. Off = the fact fades from its creation.",
   },
   {
     key: 'RETRIEVAL_VERIFIED_USE_RANKING',
@@ -2796,7 +2796,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Verified-use successor ranking (profile field verifiedUseRanking; 0107): attach verifiedUseScore (memory_outcome_stat verifiedUseCount + confirmedCount) and fold it into ranking as a bounded saturating multiplier (× (1 + SEARCH_VERIFIED_USE_BETA·squash(score))) — the G8 shape over a VERIFIED signal instead of the self-reinforcing readCount. Needs SEARCH_VERIFIED_USE_BETA > 0 and OUTCOME_TELEMETRY_ENABLED writers for data. Default off = byte-identical.',
+      "Verified-use activation, count (profile field verifiedUseRanking; 0107): attach verifiedUseScore (memory_outcome_stat verifiedUseCount + confirmedCount) — how many verified uses the fact's ACT-R activation sums (search/internals/activation.ts), so a fact used often stays available though its last use is old. A VERIFIED signal, never the self-reinforcing readCount. Needs OUTCOME_TELEMETRY_ENABLED writers for data. Off = one use when a last-use time is attached.",
   },
   {
     key: 'RETRIEVAL_TENANT_DECAY',
@@ -2806,24 +2806,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: true,
     description:
       'Tenant-aware read-time decay (profile field tenantDecayPolicy): scoring resolves decay half-lives through the per-tenant knowledge_predicate registry lookup already warmed for the row fence (zero extra IO) instead of the legacy code-seed policyFor — an operator-set decayHalfLifeDays on a tenant predicate actually shapes read-time decay. Registry absent / predicate miss falls back to the seed / 60-day default = legacy-identical. Default off = byte-identical.',
-  },
-  {
-    key: 'SEARCH_VERIFIED_USE_BETA',
-    category: 'search',
-    defaultValue: '0',
-    runtimeMutable: true,
-    isBooleanFlag: false,
-    description:
-      'Strength of the verified-use ranking factor: factor = 1 + β·squash(verifiedUseScore), same multiplicative shape as SEARCH_USAGE_BETA. 0 (default) = off (factor 1.0, byte-identical ranking). Only takes effect with RETRIEVAL_VERIFIED_USE_RANKING on and outcome telemetry having accrued verified events. Start small, e.g. 0.1.',
-  },
-  {
-    key: 'SEARCH_VERIFIED_USE_SATURATION',
-    category: 'search',
-    defaultValue: '10',
-    runtimeMutable: true,
-    isBooleanFlag: false,
-    description:
-      'verifiedUseScore at which the verified-use squash saturates (~1.0), so the boost ceiling is 1 + SEARCH_VERIFIED_USE_BETA. log1p-shaped. Positive integer; default 10 — verified outcomes are far rarer than raw reads, so the knee sits lower than SEARCH_USAGE_SATURATION.',
   },
   {
     key: 'SEARCH_USAGE_BETA',

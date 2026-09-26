@@ -679,13 +679,6 @@ export class SearchService {
       // Multilingual Tier 1: same-language ranking boost, only in softBoost
       // mode (soft flag on + high-confidence query language). Null → 1.0.
       langBoost: softBoost && langFilter ? { lang: langFilter } : null,
-      // Verified-use successor ranking (0107): the per-tenant profile
-      // flag gates, the deployment knobs set strength/saturation.
-      verifiedUse: {
-        beta: ctx.tuning.verifiedUseBeta,
-        saturation: ctx.tuning.verifiedUseSaturation,
-        rankingOn: ctx.profile.verifiedUseRanking,
-      },
       // Tenant-aware decay (profile.tenantDecayPolicy): reuse the
       // registry lookup already resolved for the row fence — zero extra
       // IO, one snapshot read per query. Registry absent (positional

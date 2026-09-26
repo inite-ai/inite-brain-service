@@ -311,7 +311,6 @@ jobs:
           SEARCH_USAGE_BETA=0.1
           RETRIEVAL_VERIFIED_USE_DECAY=1
           RETRIEVAL_VERIFIED_USE_RANKING=1
-          SEARCH_VERIFIED_USE_BETA=0.1
           RETRIEVAL_TENANT_DECAY=1
           # ── Retrieval profile boolean points (V8-V13 + G2 L3) ──
           RETRIEVAL_ENTITY_EXPANSION=1

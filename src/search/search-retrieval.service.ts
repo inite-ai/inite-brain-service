@@ -309,13 +309,6 @@ export class SearchRetrievalService {
        */
       langBoost?: { lang: string } | null;
       /**
-       * Verified-use successor ranking (0107): rankingOn is the
-       * per-tenant profile gate (RETRIEVAL_VERIFIED_USE_RANKING),
-       * beta/saturation the deployment knobs. Omitted → β 0 → factor
-       * exactly 1.0, byte-identical ranking.
-       */
-      verifiedUse?: { beta: number; saturation: number; rankingOn: boolean };
-      /**
        * Tenant-aware decay resolution (profile tenantDecayPolicy): the
        * registry-backed predicate lookup the orchestrator already
        * resolved for the row fence — zero extra IO. Null/omitted →
@@ -344,12 +337,6 @@ export class SearchRetrievalService {
       // unattached readCount.
       usageBeta: tuning.usageRanking ? tuning.usageBeta : 0,
       usageSaturation: tuning.usageSaturation,
-      // Verified-use successor factor (0107): the same belt-and-
-      // suspenders — the profile flag gates β (and the enrichment that
-      // attaches verifiedUseScore at all), so flag-off is byte-identical
-      // even if a stale score somehow reached the rows.
-      verifiedUseBeta: opts?.verifiedUse?.rankingOn ? opts.verifiedUse.beta : 0,
-      ...(opts?.verifiedUse ? { verifiedUseSaturation: opts.verifiedUse.saturation } : {}),
       policyResolver: opts?.policyResolver ?? null,
       langBoost: opts?.langBoost ?? null,
     });
