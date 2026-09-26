@@ -67,6 +67,9 @@ interface Config {
   runId: string;
   reportDir: string;
   systemFile: string | undefined;
+  ingest: 'async' | 'sync';
+  /** Longest wait for one async document to be processed, ms. */
+  settleTimeoutMs: number;
 }
 
 const intEnv = (k: string, d: number) => {
@@ -99,6 +102,8 @@ function loadConfig(): Config {
     runId: process.env.HALUMEM_RUN_ID ?? `hm${Date.now().toString(36)}`,
     reportDir: process.env.HALUMEM_REPORT_DIR ?? 'var/halumem',
     systemFile,
+    ingest: process.env.HALUMEM_INGEST === 'sync' ? 'sync' : 'async',
+    settleTimeoutMs: intEnv('HALUMEM_SETTLE_TIMEOUT_MS', 900_000),
   };
 }
 
@@ -117,6 +122,8 @@ interface SystemSession {
   extracted_memories: string[];
   questions: SystemQuestion[];
   add_duration_ms: number;
+  /** Until the write was acknowledged (async: receipt; sync: == add_duration_ms). */
+  ack_ms?: number;
 }
 
 interface SystemUser {
@@ -148,6 +155,60 @@ class Brain {
       }
       throw new Error(`HTTP ${res.status} ${method} ${path}: ${text.slice(0, 300)}`);
     }
+  }
+
+  /**
+   * Write one session and wait until brain has processed it; what it
+   * committed comes back either way. The one place the ingest contract
+   * lives — swap it here when the contract moves.
+   *
+   * async (default): POST `mode: 'async'` returns at receipt; the
+   * document's status runs indexing → indexed → committed (or failed),
+   * and the committed ids are the `commitRef`s of its candidates.
+   * sync: the POST returns after the commit with the ids inline.
+   */
+  async ingestSession(body: Record<string, unknown>): Promise<IngestOutcome> {
+    const started = Date.now();
+    if (this.cfg.ingest === 'sync') {
+      const doc = await this.call<{ committed: { entityIds: string[]; factIds: string[] } }>(
+        'POST',
+        '/v1/ingest/document',
+        body,
+      );
+      const ms = Date.now() - started;
+      return { ...doc.committed, ackMs: ms, settledMs: ms };
+    }
+    const ack = await this.call<{ documentId: string }>('POST', '/v1/ingest/document', {
+      ...body,
+      mode: 'async',
+    });
+    const ackMs = Date.now() - started;
+    const path = `/v1/documents/${encodeURIComponent(ack.documentId)}`;
+    for (;;) {
+      const doc = await this.call<{ status?: string }>('GET', path);
+      if (doc.status === 'committed') break;
+      if (doc.status === 'failed') throw new Error(`document ${ack.documentId} failed`);
+      if (Date.now() - started > this.cfg.settleTimeoutMs) {
+        throw new Error(
+          `document ${ack.documentId} still ${doc.status} after ${this.cfg.settleTimeoutMs} ms`,
+        );
+      }
+      await new Promise((r) => setTimeout(r, 2_000));
+    }
+    const settledMs = Date.now() - started;
+    const { candidates } = await this.call<{
+      candidates: Array<{ kind: string; status: string; commitRef?: string }>;
+    }>('GET', `${path}/candidates`);
+    const refs = (kind: string) => [
+      ...new Set(
+        candidates
+          .filter(
+            (c) => c.kind === kind && c.commitRef && ['committed', 'duplicate'].includes(c.status),
+          )
+          .map((c) => c.commitRef!),
+      ),
+    ];
+    return { entityIds: refs('entity'), factIds: refs('fact'), ackMs, settledMs };
   }
 
   /** Search hits as memory lines: `YYYY-MM-DD: Entity — predicate: object`. */
@@ -207,6 +268,15 @@ class Brain {
   }
 }
 
+interface IngestOutcome {
+  entityIds: string[];
+  factIds: string[];
+  /** Until the write was acknowledged. */
+  ackMs: number;
+  /** Until it was fully processed (== ackMs in sync mode). */
+  settledMs: number;
+}
+
 interface Timeline {
   events?: Array<{ factId?: string; predicate?: string; object?: string }>;
 }
@@ -264,30 +334,21 @@ async function runUser(
   const userId = `halumem-${user.uuid}`;
   const out: SystemUser = { uuid: user.uuid, user_name: userName, sessions: [] };
   for (const [i, session] of user.sessions.entries()) {
-    const started = Date.now();
-    const doc = await brain.call<{ committed: { entityIds: string[]; factIds: string[] } }>(
-      'POST',
-      '/v1/ingest/document',
-      {
-        kind: 'chat',
-        title: `HaluMem ${userName} session ${i + 1}`,
-        text: sessionTranscript(session, userName),
-        occurredAt: haluMemTime(session.start_time),
-        userId,
-        contextRef: { vertical: 'halumem', conversationId: `${cfg.runId}-${user.uuid}-s${i}` },
-      },
-    );
-    const add_duration_ms = Date.now() - started;
+    const doc = await brain.ingestSession({
+      kind: 'chat',
+      title: `HaluMem ${userName} session ${i + 1}`,
+      text: sessionTranscript(session, userName),
+      occurredAt: haluMemTime(session.start_time),
+      userId,
+      contextRef: { vertical: 'halumem', conversationId: `${cfg.runId}-${user.uuid}-s${i}` },
+    });
+    const add_duration_ms = doc.settledMs;
     const tag = `[${userName} ${i + 1}/${user.sessions.length}]`;
     if (session.is_generated_qa_session) {
       console.log(`${tag} qa-only session written (${add_duration_ms} ms)`);
       continue;
     }
-    const extracted = await brain.committedLines(
-      doc.committed.entityIds,
-      doc.committed.factIds,
-      userId,
-    );
+    const extracted = await brain.committedLines(doc.entityIds, doc.factIds, userId);
 
     const points: SystemSession['memory_points'] = [];
     for (const p of session.memory_points) {
@@ -313,6 +374,7 @@ async function runUser(
       extracted_memories: extracted,
       questions,
       add_duration_ms,
+      ack_ms: doc.ackMs,
     });
     console.log(
       `${tag} ${extracted.length} memories, ${points.filter((p) => p.memories_from_system).length} updates, ${questions.length} answers (${add_duration_ms} ms add)`,
@@ -424,6 +486,12 @@ async function judgeAll(
   return out;
 }
 
+function median(xs: number[]): number | null {
+  if (xs.length === 0) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)]!;
+}
+
 const num = (v: unknown): number | null => {
   const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
   return Number.isFinite(n) ? Math.trunc(n) : null;
@@ -463,6 +531,13 @@ async function main(): Promise<void> {
     runId: cfg.runId,
     judgeModel: cfg.judgeModel,
     slice: { users: system.length, sessions: system.reduce((n, u) => n + u.sessions.length, 0) },
+    ingest: {
+      mode: cfg.ingest,
+      ack_ms_median: median(
+        system.flatMap((u) => u.sessions.map((x) => x.ack_ms ?? x.add_duration_ms)),
+      ),
+      settled_ms_median: median(system.flatMap((u) => u.sessions.map((x) => x.add_duration_ms))),
+    },
     memory_extraction: {
       memory_integrity: integrity,
       memory_accuracy: accuracy,
@@ -479,6 +554,7 @@ async function main(): Promise<void> {
 
 function printScorecard(r: {
   slice: { users: number; sessions: number };
+  ingest: { mode: string; ack_ms_median: number | null; settled_ms_median: number | null };
   memory_extraction: {
     memory_integrity: ReturnType<typeof scoreIntegrity>;
     memory_accuracy: ReturnType<typeof scoreAccuracy>;
@@ -492,6 +568,9 @@ function printScorecard(r: {
   const e = r.memory_extraction;
   console.log(`\nHaluMem scorecard — ${r.slice.users} users, ${r.slice.sessions} sessions`);
   console.log('─'.repeat(72));
+  console.log(
+    `ingest      ${r.ingest.mode}: ack ${r.ingest.ack_ms_median ?? '—'} ms, processed ${r.ingest.settled_ms_median ?? '—'} ms (median per session)`,
+  );
   console.log(
     `extraction  recall ${pct(e.memory_integrity['recall(all)'])}  weighted recall ${pct(e.memory_integrity['weighted_recall(all)'])}`,
   );
