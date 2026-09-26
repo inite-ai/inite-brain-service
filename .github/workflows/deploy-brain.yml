@@ -239,6 +239,10 @@ jobs:
           # multilingual T0 = baseline; latency unchanged (parallel),
           # three extractor calls per turn.
           EXTRACTOR_SC_PASSES=3
+          # Extraction is off the write path (extraction-batch.service.ts):
+          # nobody waits on it, so it — like scenes, beliefs and the dream
+          # jobs — runs on the flex tier: the same model at half the price.
+          OPENAI_OFFLINE_SERVICE_TIER=flex
           # The three decision lanes measured on the prod-parity stand
           # (2026-09-24): with all of them on, memory-fitness 32/32 and
           # state-transitions ru 11/12 · 24/25 — identical to the same assembly

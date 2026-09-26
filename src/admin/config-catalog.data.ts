@@ -28,6 +28,59 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Opt-in gate that allows the local pre-pass to skip the extractor LLM call when intent + mentions + collapse-patterns all hit.',
   },
   {
+    key: 'EXTRACTION_BACKGROUND',
+    category: 'extractor',
+    defaultValue: '1',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Extraction off the write path (default on). A write remembers the document — stored, chunked, raw turns captured — and answers at once; the extract_documents pass reads it later, a conversation's turns together in one call, on the offline tier. Until then its turns reach answers as working memory (\"just said, not yet filed\") and the answer cache is not served for that scope. 0 = every write extracts before it answers. `mode: 'sync'` on a request always does.",
+  },
+  {
+    key: 'EXTRACTION_BATCH_WINDOW_SECONDS',
+    category: 'extractor',
+    defaultValue: '20',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'How long captures gather before one extract_documents pass reads them: every write of one window asks for the same job.',
+  },
+  {
+    key: 'EXTRACTION_CONVERSATION_SETTLE_SECONDS',
+    category: 'extractor',
+    defaultValue: '120',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "A conversation's turns are read once no turn has arrived on it for this long — the whole stretch in one extraction call instead of a call per turn. Standalone documents do not wait.",
+  },
+  {
+    key: 'EXTRACTION_CONVERSATION_MAX_WAIT_SECONDS',
+    category: 'extractor',
+    defaultValue: '600',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Upper bound on the settle wait: a conversation that never goes quiet is read once its oldest unread turn has waited this long (or once its unread turns fill one group).',
+  },
+  {
+    key: 'EXTRACTION_GROUP_MAX_CHARS',
+    category: 'extractor',
+    defaultValue: '12000',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Characters of turn text one extraction call reads. A longer stretch is split; a single turn or document over it is read alone, chunk by chunk.',
+  },
+  {
+    key: 'EXTRACTION_GROUP_MAX_DOCS',
+    category: 'extractor',
+    defaultValue: '16',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description: 'Turns one extraction call reads at most.',
+  },
+  {
     key: 'EXTRACTOR_SC_PASSES',
     category: 'extractor',
     defaultValue: '3',
@@ -1342,7 +1395,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      'Processing tier for the calls nobody is waiting on — scene building, belief promotion, the composers, the dream jobs, strategy distillation, code indexing. `flex` is the SAME model at the Batch price (half) in exchange for slower service and an occasional 429 when capacity is short, which is not charged; `auto` falls back to standard on a retry. Unset (default) = the standard tier and a byte-identical request. The request path — extraction, search, synthesis — never asks for it: there latency is the product. Probed 2026-09-23: gpt-5.6-luna, gpt-6-luna and gpt-6-sol all accept it.',
+      'Processing tier for the calls nobody is waiting on — the background extraction of captured documents, scene building, belief promotion, the composers, the dream jobs, strategy distillation, code indexing. `flex` is the SAME model at the Batch price (half) in exchange for slower service and an occasional 429 when capacity is short, which is not charged; `auto` falls back to standard on a retry. Unset (default) = the standard tier and a byte-identical request. The request path — search, synthesis, and an explicit sync ingest — never asks for it: there latency is the product. Probed 2026-09-23: gpt-5.6-luna, gpt-6-luna and gpt-6-sol all accept it.',
   },
   {
     key: 'OPENAI_BASE_URL',

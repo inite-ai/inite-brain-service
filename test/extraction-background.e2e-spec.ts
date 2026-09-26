@@ -136,7 +136,13 @@ describe('background extraction (e2e)', () => {
     expect(f.extractor.contexts.length).toBe(calls);
 
     script();
+    // Still talking (its last turn arrived a moment ago): held, read later.
+    expect(await batch.runPass(f.companyId)).toMatchObject({ read: 0, failed: 0 });
+    expect(f.extractor.contexts.length).toBe(calls);
+    // Quiet now: the three turns are read together.
+    process.env.EXTRACTION_CONVERSATION_SETTLE_SECONDS = '0';
     const pass = await batch.runPass(f.companyId);
+    delete process.env.EXTRACTION_CONVERSATION_SETTLE_SECONDS;
     expect(pass).toMatchObject({ read: 3, failed: 0, committed: 3 });
 
     // ONE extraction call read the three turns, each under its header.
@@ -160,7 +166,7 @@ describe('background extraction (e2e)', () => {
     await say(conv, 'Юрист Acme — Марта.', '2026-09-24T10:01:00.000Z');
 
     f.extractor.setFailure(new Error('429 credit_balance_exhausted'));
-    const failed = await batch.runPass(f.companyId);
+    const failed = await batch.runPass(f.companyId, { force: true });
     expect(failed).toMatchObject({ read: 0, failed: 2, committed: 0 });
     expect((await docsOf(conv)).every((d) => d.status !== 'committed')).toBe(true);
 
@@ -189,9 +195,9 @@ describe('background extraction (e2e)', () => {
       ],
       edges: [],
     });
-    expect(await batch.runPass(f.companyId)).toMatchObject({ read: 0, failed: 0 });
+    expect(await batch.runPass(f.companyId, { force: true })).toMatchObject({ read: 0, failed: 0 });
     // … the backed-off retry pass reads it.
-    expect(await batch.runPass(f.companyId, { retry: 1 })).toMatchObject({
+    expect(await batch.runPass(f.companyId, { retry: 1, force: true })).toMatchObject({
       read: 2,
       failed: 0,
       committed: 2,
@@ -247,7 +253,7 @@ describe('background extraction (e2e)', () => {
       ],
       edges: [],
     });
-    await batch.runPass(f.companyId);
+    await batch.runPass(f.companyId, { force: true });
     expect(await ask()).not.toContain(PENDING_MARK);
   });
 });

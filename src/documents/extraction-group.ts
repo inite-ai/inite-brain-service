@@ -33,6 +33,8 @@ export interface GroupDoc {
   speakerName?: string | undefined;
   speakerIsUser?: boolean | undefined;
   addresseeName?: string | undefined;
+  /** When the document arrived (its read was queued) — not when it says it happened. */
+  arrivedAt?: Date | undefined;
 }
 
 export interface GroupBudget {
@@ -82,6 +84,55 @@ export function planExtractionGroups(docs: GroupDoc[], budget: GroupBudget): Gro
     flush();
   }
   return groups;
+}
+
+export interface SettleRule {
+  /** A conversation is read once no turn has arrived on it for this long … */
+  settleMs: number;
+  /** … or once its oldest unread turn has waited this long … */
+  maxWaitMs: number;
+  /** … or once its unread turns fill one group. */
+  maxChars: number;
+}
+
+/**
+ * Which waiting documents to read now. A conversation is read as a whole
+ * once it goes quiet — the session gap is the natural boundary of a group
+ * (the scenes' settle rule) — and not later than the wait bound; until
+ * then its turns reach answers as working memory (pending turns in the
+ * transcript). A standalone document is ready at once. `nextAt` is the
+ * earliest moment a held conversation becomes ready.
+ */
+export function releaseSettled(
+  docs: GroupDoc[],
+  now: Date,
+  rule: SettleRule,
+): { ready: GroupDoc[]; nextAt?: Date } {
+  const ready: GroupDoc[] = [];
+  const conversations = new Map<string, GroupDoc[]>();
+  for (const d of docs) {
+    if (!d.conversationId) {
+      ready.push(d);
+      continue;
+    }
+    const key = `${d.userId ?? ''}\x1e${d.conversationId}`;
+    conversations.set(key, [...(conversations.get(key) ?? []), d]);
+  }
+  let nextAt: number | undefined;
+  for (const turns of conversations.values()) {
+    const arrivals = turns.map((t) => (t.arrivedAt ?? t.occurredAt).getTime());
+    const last = Math.max(...arrivals);
+    const first = Math.min(...arrivals);
+    const chars = turns.reduce((n, t) => n + t.text.length, 0);
+    const t = now.getTime();
+    if (t - last >= rule.settleMs || t - first >= rule.maxWaitMs || chars >= rule.maxChars) {
+      ready.push(...turns);
+      continue;
+    }
+    const at = Math.min(last + rule.settleMs, first + rule.maxWaitMs);
+    nextAt = nextAt === undefined ? at : Math.min(nextAt, at);
+  }
+  return nextAt === undefined ? { ready } : { ready, nextAt: new Date(nextAt) };
 }
 
 export interface RenderedGroup {

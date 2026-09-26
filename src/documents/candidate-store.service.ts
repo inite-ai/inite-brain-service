@@ -357,17 +357,18 @@ export class CandidateStoreService {
   /**
    * Documents whose run of one pack is waiting to be read, oldest
    * document first — the background extraction's work list
-   * (extraction-batch.service.ts). `failed` adds the runs a previous
-   * pass failed (its retry pass); external work items are never listed.
+   * (extraction-batch.service.ts), with when each arrived. `failed` adds
+   * the runs a previous pass failed (its retry pass); external work items
+   * are never listed.
    */
   async listAwaitingRuns(
     companyId: string,
     p: { packId: string; packVersion: string; includeFailed: boolean; limit: number },
-  ): Promise<string[]> {
+  ): Promise<Array<{ docId: string; arrivedAt: Date }>> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const rows = await queryRows<{ docId: unknown }>(
+      const rows = await queryRows<{ docId: unknown; createdAt: unknown }>(
         db,
-        `SELECT docId, docId.occurredAt AS at FROM indexer_run
+        `SELECT docId, createdAt, docId.occurredAt AS at FROM indexer_run
            WHERE packId = $pack AND packVersion = $ver AND external != true
              AND status IN $statuses
            ORDER BY at ASC LIMIT $limit`,
@@ -378,7 +379,12 @@ export class CandidateStoreService {
           limit: p.limit,
         },
       );
-      return rows.map((r) => String(r.docId));
+      // The run row is written when the document arrives: its createdAt is
+      // the arrival, whatever the document says about when it happened.
+      return rows.map((r) => ({
+        docId: String(r.docId),
+        arrivedAt: new Date(String(r.createdAt)),
+      }));
     });
   }
 

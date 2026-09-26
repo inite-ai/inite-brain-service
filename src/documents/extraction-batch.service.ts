@@ -7,7 +7,7 @@ import { CandidateCommitService } from './candidate-commit.service';
 import { CandidateStoreService } from './candidate-store.service';
 import { DocumentStoreService, StoredDocument } from './document-store.service';
 import { internalMetaString } from './document-meta';
-import { planExtractionGroups } from './extraction-group';
+import { planExtractionGroups, releaseSettled } from './extraction-group';
 import { MemoryContextService } from '../ingest/memory-context.service';
 import { IndexerRunService, groupDocOf } from './indexer-run.service';
 
@@ -86,7 +86,12 @@ export class ExtractionBatchService implements OnModuleInit {
    */
   async runPass(
     companyId: string,
-    opts: { retry?: number; abortSignal?: AbortSignal | undefined } = {},
+    opts: {
+      retry?: number;
+      abortSignal?: AbortSignal | undefined;
+      /** Read every waiting conversation now, quiet or not (an operator drain). */
+      force?: boolean;
+    } = {},
   ): Promise<{ read: number; failed: number; committed: number; retry: number }> {
     const retry = opts.retry ?? 0;
     const ctx = { companyId, abortSignal: opts.abortSignal };
@@ -97,13 +102,14 @@ export class ExtractionBatchService implements OnModuleInit {
     // A document is read at most once per pass: a failed one waits for
     // the retry pass instead of being listed again by the next page.
     const attempted = new Set<string>();
+    let nextAt: Date | undefined;
     for (;;) {
       if (ctx.abortSignal?.aborted || Date.now() > deadline) {
         // Out of lease budget with work left: a fresh pass continues.
         await this.schedule(ctx.companyId, { delayMs: 1000 });
         break;
       }
-      const docIds = (
+      const waiting = (
         await this.candidates.listAwaitingRuns(ctx.companyId, {
           packId: GENERAL_INDEXER_ID,
           packVersion: GENERAL_INDEXER_VERSION,
@@ -111,14 +117,21 @@ export class ExtractionBatchService implements OnModuleInit {
           limit: PASS_DOCS + attempted.size,
         })
       )
-        .filter((id) => !attempted.has(id))
+        .filter((w) => !attempted.has(w.docId))
         .slice(0, PASS_DOCS);
-      if (docIds.length === 0) break;
-      for (const id of docIds) attempted.add(id);
-      const outcome = await this.readDocuments(ctx, docIds);
+      if (waiting.length === 0) break;
+      for (const w of waiting) attempted.add(w.docId);
+      const outcome = await this.readDocuments(ctx, waiting, opts.force === true);
       read += outcome.read;
       failed += outcome.failed;
       committed += outcome.committed;
+      if (outcome.nextAt && (!nextAt || outcome.nextAt < nextAt)) nextAt = outcome.nextAt;
+    }
+    if (nextAt) {
+      // A conversation still talking: read it when it goes quiet.
+      await this.schedule(ctx.companyId, {
+        delayMs: Math.max(1000, nextAt.getTime() - Date.now()),
+      });
     }
     if (failed > 0 && retry < MAX_RETRIES) {
       await this.schedule(ctx.companyId, {
@@ -134,31 +147,40 @@ export class ExtractionBatchService implements OnModuleInit {
     return { read, failed, committed, retry };
   }
 
-  /** Read one page of waiting documents group by group, then commit them in order. */
+  /**
+   * Read one page of waiting documents group by group, then commit them in
+   * order. Conversations still talking are held (releaseSettled) unless
+   * `force`; `nextAt` says when the first of them goes quiet.
+   */
   private async readDocuments(
     ctx: { companyId: string; abortSignal?: AbortSignal | undefined },
-    docIds: string[],
-  ): Promise<{ read: number; failed: number; committed: number }> {
+    waiting: Array<{ docId: string; arrivedAt: Date }>,
+    force: boolean,
+  ): Promise<{ read: number; failed: number; committed: number; nextAt?: Date }> {
     const docs: StoredDocument[] = [];
     const texts = new Map<string, string>();
-    for (const id of docIds) {
-      const doc = await this.store.getById(ctx.companyId, id);
+    const arrived = new Map(waiting.map((w) => [w.docId, w.arrivedAt]));
+    for (const { docId } of waiting) {
+      const doc = await this.store.getById(ctx.companyId, docId);
       if (!doc) continue;
-      const chunks = await this.store.getChunks(ctx.companyId, id);
+      const chunks = await this.store.getChunks(ctx.companyId, docId);
       docs.push(doc);
-      texts.set(id, chunks.map((c) => c.text).join('\n'));
+      texts.set(docId, chunks.map((c) => c.text).join('\n'));
     }
     const byId = new Map(docs.map((d) => [d.id, d]));
-    const groups = planExtractionGroups(
-      docs.map((d) => ({
-        ...groupDocOf(d, texts.get(d.id) ?? ''),
-        // A re-read aimed at one question reads its turn alone.
-        ...(internalMetaString(d.meta, 'focusQuestion')
-          ? { chunkCount: Number.MAX_SAFE_INTEGER }
-          : {}),
-      })),
-      groupBudget(),
-    );
+    const candidates = docs.map((d) => ({
+      ...groupDocOf(d, texts.get(d.id) ?? ''),
+      arrivedAt: arrived.get(d.id),
+      // A re-read aimed at one question reads its turn alone.
+      ...(internalMetaString(d.meta, 'focusQuestion')
+        ? { chunkCount: Number.MAX_SAFE_INTEGER }
+        : {}),
+    }));
+    const budget = groupBudget();
+    const { ready, nextAt } = force
+      ? { ready: candidates, nextAt: undefined }
+      : releaseSettled(candidates, new Date(), { ...settleRule(), maxChars: budget.maxChars });
+    const groups = planExtractionGroups(ready, budget);
     let read = 0;
     let failed = 0;
     const done: StoredDocument[] = [];
@@ -215,7 +237,7 @@ export class ExtractionBatchService implements OnModuleInit {
           .catch(() => undefined);
       }
     }
-    return { read, failed, committed };
+    return { read, failed, committed, ...(nextAt ? { nextAt } : {}) };
   }
 }
 
@@ -238,6 +260,20 @@ function groupBudget(): { maxChars: number; maxDocs: number } {
   return {
     maxChars: Number.isFinite(chars) && chars > 0 ? chars : 12_000,
     maxDocs: Number.isFinite(count) && count > 0 ? count : 16,
+  };
+}
+
+/**
+ * EXTRACTION_CONVERSATION_SETTLE_SECONDS / EXTRACTION_CONVERSATION_MAX_WAIT_SECONDS:
+ * a conversation is read once quiet this long, and never later than the
+ * wait bound after its oldest unread turn (defaults 120 s / 600 s).
+ */
+function settleRule(): { settleMs: number; maxWaitMs: number } {
+  const settle = Number(process.env.EXTRACTION_CONVERSATION_SETTLE_SECONDS);
+  const wait = Number(process.env.EXTRACTION_CONVERSATION_MAX_WAIT_SECONDS);
+  return {
+    settleMs: (Number.isFinite(settle) && settle >= 0 ? settle : 120) * 1000,
+    maxWaitMs: (Number.isFinite(wait) && wait >= 0 ? wait : 600) * 1000,
   };
 }
 

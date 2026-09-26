@@ -1,5 +1,6 @@
 import {
   planExtractionGroups,
+  releaseSettled,
   renderGroup,
   splitGroupResult,
   type GroupDoc,
@@ -182,5 +183,34 @@ describe('splitGroupResult', () => {
     );
     expect(parts[0]!.facts).toEqual([]);
     expect(parts[1]!.facts.map((f) => f.object)).toEqual(['client', 'gold']);
+  });
+});
+
+describe('releaseSettled', () => {
+  const rule = { settleMs: 120_000, maxWaitMs: 600_000, maxChars: 100 };
+  const now = new Date(Date.UTC(2026, 8, 25, 12, 0, 0));
+  const ago = (s: number) => new Date(now.getTime() - s * 1000);
+  const turn = (id: string, conv: string, arrivedSecondsAgo: number, text = 'x') =>
+    doc(id, text, 25, { conversationId: conv, arrivedAt: ago(arrivedSecondsAgo) });
+
+  it('holds a conversation still talking and says when it goes quiet', () => {
+    const r = releaseSettled([turn('a', 'c', 90), turn('b', 'c', 30)], now, rule);
+    expect(r.ready).toEqual([]);
+    expect(r.nextAt).toEqual(new Date(ago(30).getTime() + 120_000));
+  });
+
+  it('reads it once quiet, once its oldest turn waited long enough, or once it fills a group', () => {
+    const quiet = releaseSettled([turn('a', 'c', 400), turn('b', 'c', 130)], now, rule);
+    expect(quiet.ready.map((d) => d.id)).toEqual(['a', 'b']);
+    const waited = releaseSettled([turn('a', 'c', 601), turn('b', 'c', 5)], now, rule);
+    expect(waited.ready.map((d) => d.id)).toEqual(['a', 'b']);
+    const full = releaseSettled([turn('a', 'c', 5, 'x'.repeat(100))], now, rule);
+    expect(full.ready.map((d) => d.id)).toEqual(['a']);
+  });
+
+  it('a standalone document is ready at once', () => {
+    const r = releaseSettled([doc('n', 'note', 25, { arrivedAt: ago(1) })], now, rule);
+    expect(r.ready.map((d) => d.id)).toEqual(['n']);
+    expect(r.nextAt).toBeUndefined();
   });
 });
