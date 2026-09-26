@@ -14,7 +14,7 @@ import { ExtractorLlmService } from '../src/ai/extractor-llm.service';
 import { ExtractorLocalService } from '../src/ai/extractor-local.service';
 import { ExtractorRefineService } from '../src/ai/extractor-refine.service';
 
-function mkExtractor(scPasses: number, scripted: any[]): ExtractorService {
+function mkExtractor(scPasses: number, scripted: any[], decisions?: any): ExtractorService {
   const config = {
     get: (k: string, def?: string) => {
       if (k === 'EXTRACTOR_SC_PASSES') return String(scPasses);
@@ -61,7 +61,7 @@ function mkExtractor(scPasses: number, scripted: any[]): ExtractorService {
   // branch directly.
   (local as any).trySkip = async () => null;
   const refine = new ExtractorRefineService(registry, localPredicates);
-  const runner = new ExtractorRunnerService(llm, local, refine);
+  const runner = new ExtractorRunnerService(llm, local, refine, undefined, decisions);
   return new ExtractorService(extractionCache, registry, runner);
 }
 
@@ -89,6 +89,47 @@ describe('ExtractorService N-pass driver', () => {
     expect(res.facts).toHaveLength(1);
     expect(res.facts[0]!.extractionEntropy).toBeUndefined();
     expect(res.facts[0]!.extractionAgreement).toBeUndefined();
+  });
+
+  it('one sample is checked against the text too (the document check drops what it does not state)', async () => {
+    const asked: string[] = [];
+    const decisions = {
+      enabled: (lane: string) => lane === 'extraction_check',
+      confident: () => true,
+      decide: async (_lane: string, req: { questions: Record<string, unknown> }) => {
+        asked.push(...Object.keys(req.questions));
+        return {
+          model: 'stub',
+          usage: { inputTokens: 0, outputTokens: 0 },
+          answers: Object.fromEntries(
+            Object.keys(req.questions).map((q) => [q, { type: 'noul', noul: 0.02 }]),
+          ),
+        };
+      },
+    };
+    const svc = mkExtractor(
+      1,
+      [
+        {
+          entities: [{ name: 'A', type: 'customer' }],
+          facts: [
+            {
+              entityIndex: 0,
+              clauseIndex: 0,
+              predicate: 'name',
+              valueSpan: 'A',
+              confidence: 0.9,
+            },
+          ],
+          clauses: [{ index: 0, span: 'A' }],
+          edges: [],
+        },
+      ],
+      decisions,
+    );
+    const res = await svc.extract('hello A', 'co_test');
+    expect(asked.length).toBeGreaterThan(0);
+    expect(res.facts).toHaveLength(0);
   });
 
   it('three-pass consensus → entropy ≈ 0, agreement = 1', async () => {

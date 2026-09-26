@@ -208,6 +208,17 @@ describe('releaseSettled', () => {
     expect(full.ready.map((d) => d.id)).toEqual(['a']);
   });
 
+  it('an urgent turn reads its whole conversation at once, still talking or not', () => {
+    const r = releaseSettled(
+      [turn('a', 'c', 90), { ...turn('b', 'c', 1), urgent: true }, turn('z', 'other', 5)],
+      now,
+      rule,
+    );
+    expect(r.ready.map((d) => d.id)).toEqual(['a', 'b']);
+    // The other conversation is still held.
+    expect(r.nextAt).toEqual(new Date(ago(5).getTime() + 120_000));
+  });
+
   it('a standalone document is ready at once', () => {
     const r = releaseSettled([doc('n', 'note', 25, { arrivedAt: ago(1) })], now, rule);
     expect(r.ready.map((d) => d.id)).toEqual(['n']);

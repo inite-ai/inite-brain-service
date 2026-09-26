@@ -352,4 +352,45 @@ describe('G1 answer cache e2e', () => {
     expect(r3.body.cached).toBe(true);
     expect(again.calls.length).toBe(0);
   });
+
+  it('a document already waiting when the answer was made does not keep it from being served', async () => {
+    const ingest = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'cust_answer_cache_before' },
+        predicate: 'tier',
+        object: 'amber-5',
+        validFrom: new Date('2026-04-05').toISOString(),
+        source: { vertical: 'rent', messageId: 'm_ac_before_1' },
+        confidence: 0.9,
+      });
+    const factId = ingest.body.factId as string;
+    // Waiting before the question is asked: the answer reads it as
+    // working memory, so a later ask may be served from the entry.
+    const { doc } = await f.app.get(DocumentStoreService).createOrGet(
+      f.companyId,
+      {
+        kind: 'chat',
+        text: 'A note about the amber customer, not read yet.',
+        occurredAt: new Date('2026-04-06').toISOString(),
+        contextRef: { vertical: 'rent' },
+      },
+      { channel: 'ingest_async', internal: undefined },
+    );
+    await f.app.get(CandidateStoreService).ensureRunPending(f.companyId, {
+      docId: doc.id,
+      packId: GENERAL_INDEXER_ID,
+      packVersion: GENERAL_INDEXER_VERSION,
+    });
+    const q = 'tier: amber-5';
+    mockRound('Amber-5.', factId);
+    expect((await f.http.post('/v1/synthesize').set(auth()).send({ query: q })).body.cached).toBe(
+      undefined,
+    );
+    const again = mockRound('MUST NOT SURFACE.', factId);
+    const r2 = await f.http.post('/v1/synthesize').set(auth()).send({ query: q });
+    expect(r2.body.cached).toBe(true);
+    expect(again.calls.length).toBe(0);
+  });
 });

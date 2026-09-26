@@ -86,8 +86,9 @@ export class IndexerDispatchService {
     packId: string;
     abortSignal?: AbortSignal;
   }): Promise<IndexerRunResult> {
+    // Queued (a job, a re-index): nobody waits on the read.
     if (p.packId === GENERAL_INDEXER_ID) {
-      return this.runs.runGeneral(p);
+      return this.runs.runGeneral({ ...p, background: true });
     }
     const binding = await this.bindingFor(p.companyId, p.packId);
     if (!binding) {
@@ -107,7 +108,7 @@ export class IndexerDispatchService {
       this.pushHint(p.companyId, p.doc.id, binding);
       return planned;
     }
-    return this.runBinding({ ...p, binding });
+    return this.runBinding({ ...p, binding, background: true });
   }
 
   /** Dedicated bindings this document should get, honoring flag + selection. */
@@ -207,6 +208,8 @@ export class IndexerDispatchService {
     chunks: DocumentChunk[];
     binding: IndexerBinding;
     abortSignal?: AbortSignal;
+    /** A queued read (runOne): offline tier, a failed call fails the run. */
+    background?: boolean;
   }): Promise<IndexerRunResult> {
     const { binding } = p;
     return this.runs.runIndexer({
@@ -223,6 +226,7 @@ export class IndexerDispatchService {
           companyId: p.companyId,
           packId: binding.indexerId,
           options: binding.dedicated,
+          ...(p.background ? { background: true } : {}),
         }),
       abortSignal: p.abortSignal,
     });

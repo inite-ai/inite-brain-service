@@ -28,6 +28,18 @@ const CONVERSATION_ENTITIES_MAX = 12;
 const PREDICATES_TTL_MS = 60_000;
 const PREDICATES_CACHE_MAX = 512;
 
+/**
+ * When a stored fact or relation was SAID: the occurrence of the document
+ * it was read from, else (written without one — record_fact, the direct
+ * mention path) the instant it was written, which is when it was said.
+ */
+const SAID_AT = (written: string): string =>
+  `((IF source.documentId != NONE THEN type::record(source.documentId).occurredAt END) ?? ${written})`;
+
+function isoOf(v: string | Date | undefined): string | undefined {
+  return v instanceof Date ? v.toISOString() : v;
+}
+
 export interface MemoryContextInput {
   companyId: string;
   /** The current turn (PII-redacted, as the extractor will see it). */
@@ -42,6 +54,14 @@ export interface MemoryContextInput {
    * already hold turns that came after it.
    */
   before?: string | Date | undefined;
+  /**
+   * The facts and relations shown are the ones SAID no later than this
+   * instant (defaults to `before`). A text is read against what was said
+   * up to it: an old document read after a newer one (an import out of
+   * order, a retry, a re-read) must not see the newer values, or it names
+   * them as what it replaces and the stale value becomes current.
+   */
+  saidBy?: string | Date | undefined;
   /** Scope key of the end user; omitted → tenant-global memory only. */
   userId?: string | undefined;
   /** Participant names the caller asserted (speaker / addressee). */
@@ -131,9 +151,11 @@ export class MemoryContextService {
             this.knownEntities(db, ids),
             this.predicates(db, p.companyId),
           ]);
-          const facts = await this.knownFacts(db, entities, p.userId);
+          const saidBy = isoOf(p.saidBy ?? p.before);
+          const facts = await this.knownFacts(db, entities, { userId: p.userId, saidBy });
           const edges = await this.knownEdges(db, entities, {
             userId: p.userId,
+            saidBy,
             offset: facts.length,
           });
           return { occurredAt, recentTurns, entities, facts: [...facts, ...edges], predicates };
@@ -154,6 +176,58 @@ export class MemoryContextService {
       return occurredAt
         ? { occurredAt, recentTurns: [], entities: [], facts: [], predicates: [] }
         : undefined;
+    }
+  }
+
+  /**
+   * Whether the text names an entity the memory is using now — one with a
+   * fact in open conflict (COMPETING), a state expected to end but not yet
+   * ended (expectedUntil ahead), or a fact an answer has verifiably used
+   * (0107). New raw about such an entity is read in full and never left
+   * raw: it is where the memory is being asked and where it may be wrong
+   * (docs/roadmap/raw-processing-triggers-2026-09.md §4.2 T-5).
+   *
+   * Only the entities the text itself names count — not the user's own
+   * entity (every first-person turn would be "in use") nor what the
+   * conversation was about before. Read-only; a failure reads as not in
+   * use (the triage still decides).
+   */
+  async inUse(p: {
+    companyId: string;
+    text: string;
+    userId?: string | undefined;
+    participants?: string[] | undefined;
+  }): Promise<boolean> {
+    try {
+      return await this.surreal.withCompany(p.companyId, async (db) => {
+        const names = await this.candidateNames({ ...p, participants: [] }, []);
+        const ids = await this.lookupIds(db, {
+          own: undefined,
+          names,
+          userId: p.userId,
+          remembered: [],
+        });
+        if (ids.length === 0) return false;
+        const userGate = p.userId ? '(userId IS NONE OR userId = $u)' : 'userId IS NONE';
+        const [open, used] = await db.query<[Array<unknown>, Array<unknown>]>(
+          `SELECT VALUE id FROM knowledge_fact
+             WHERE entityId IN $ids AND retractedAt IS NONE AND ${userGate}
+               AND (status = 'competing'
+                 OR (status = 'active' AND validUntil IS NONE
+                     AND expectedUntil != NONE AND expectedUntil > time::now()))
+             LIMIT 1;
+           SELECT VALUE id FROM memory_outcome_stat
+             WHERE subjectId IN (SELECT VALUE id FROM knowledge_fact
+                                   WHERE entityId IN $ids AND retractedAt IS NONE AND ${userGate})
+               AND verifiedUseCount + confirmedCount > 0
+             LIMIT 1;`,
+          { ids: ids.map(recordRef), u: p.userId },
+        );
+        return (open ?? []).length > 0 || (used ?? []).length > 0;
+      });
+    } catch (e) {
+      this.logger.warn(`in-use check failed (companyId=${p.companyId}): ${(e as Error).message}`);
+      return false;
     }
   }
 
@@ -275,8 +349,9 @@ export class MemoryContextService {
   private async knownFacts(
     db: Surreal,
     entities: MemoryEntity[],
-    userId: string | undefined,
+    opts: { userId: string | undefined; saidBy: string | undefined },
   ): Promise<MemoryFact[]> {
+    const { userId, saidBy } = opts;
     if (entities.length === 0) return [];
     const ids = entities.map((e) => e.id);
     const handleOf = new Map(entities.map((e) => [e.id, e.handle]));
@@ -296,9 +371,9 @@ export class MemoryContextService {
     >(
       `SELECT id, entityId, predicate, object, validFrom, validUntil, expectedUntil FROM knowledge_fact
         WHERE entityId IN $ids AND status IN ['active', 'competing'] AND retractedAt IS NONE
-          AND ${userGate}
+          AND ${userGate}${saidBy ? ` AND ${SAID_AT('recordedAt')} <= type::datetime($said)` : ''}
         ORDER BY validFrom DESC LIMIT $k`,
-      { ids: ids.map(recordRef), u: userId, k: MEMORY_FACTS_PER_ENTITY * ids.length },
+      { ids: ids.map(recordRef), u: userId, said: saidBy, k: MEMORY_FACTS_PER_ENTITY * ids.length },
     );
     const perEntity = new Map<string, number>();
     const out: MemoryFact[] = [];
@@ -340,9 +415,9 @@ export class MemoryContextService {
   private async knownEdges(
     db: Surreal,
     entities: MemoryEntity[],
-    opts: { userId: string | undefined; offset: number },
+    opts: { userId: string | undefined; saidBy: string | undefined; offset: number },
   ): Promise<MemoryFact[]> {
-    const { userId, offset } = opts;
+    const { userId, saidBy, offset } = opts;
     if (entities.length === 0) return [];
     const ids = entities.map((e) => e.id);
     const handleOf = new Map(entities.map((e) => [e.id, e.handle]));
@@ -363,9 +438,9 @@ export class MemoryContextService {
     >(
       `SELECT id, in, out, kind, in.canonicalName AS fromName, out.canonicalName AS toName, createdAt, validFrom
          FROM knowledge_edge
-        WHERE (in IN $ids OR out IN $ids) AND invalidatedAt IS NONE AND ${userGate}
+        WHERE (in IN $ids OR out IN $ids) AND invalidatedAt IS NONE AND ${userGate}${saidBy ? ` AND ${SAID_AT('createdAt')} <= type::datetime($said)` : ''}
         ORDER BY createdAt DESC LIMIT $k`,
-      { ids: ids.map(recordRef), u: userId, k: MEMORY_EDGES_PER_ENTITY * ids.length },
+      { ids: ids.map(recordRef), u: userId, said: saidBy, k: MEMORY_EDGES_PER_ENTITY * ids.length },
     );
     const perEntity = new Map<string, number>();
     const out: MemoryFact[] = [];

@@ -2,8 +2,6 @@ import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
-import { envFlagEnabled } from '../common/env-validation';
-import { MentionViaDocumentService } from '../documents/mention-via-document.service';
 import { IngestService } from './ingest.service';
 import { IngestFactDto } from './dto/ingest-fact.dto';
 import { IngestMentionDto } from './dto/ingest-mention.dto';
@@ -13,10 +11,7 @@ import { AuthenticatedRequest } from '../auth/api-key.types';
 @Controller('v1/ingest')
 @UseGuards(ApiKeyGuard)
 export class IngestController {
-  constructor(
-    private readonly ingest: IngestService,
-    private readonly mentionViaDocument: MentionViaDocumentService,
-  ) {}
+  constructor(private readonly ingest: IngestService) {}
 
   @Post('fact')
   @RequireScopes('brain:write')
@@ -31,12 +26,8 @@ export class IngestController {
   // Mention ingest runs the LLM extractor; cap per-credential rate.
   @Throttle({ expensive: { limit: 10, ttl: 60_000 } })
   async ingestMention(@Req() req: AuthenticatedRequest, @Body() body: IngestMentionDto) {
-    // INGEST_MENTION_VIA_DOCUMENT (default off): route the mention through
-    // the document pipeline — same response contract, one decision engine.
-    // Flag off = the legacy path, untouched.
-    if (envFlagEnabled(process.env.INGEST_MENTION_VIA_DOCUMENT)) {
-      return this.mentionViaDocument.ingest(req.brainAuth.companyId, body);
-    }
+    // Direct or through the document pipeline: IngestService decides
+    // (INGEST_MENTION_VIA_DOCUMENT), for every caller alike.
     return this.ingest.ingestMention(req.brainAuth.companyId, body);
   }
 

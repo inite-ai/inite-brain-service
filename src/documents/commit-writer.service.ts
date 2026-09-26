@@ -77,8 +77,13 @@ export class CommitWriterService {
   }): Promise<WriteMergedResult> {
     return this.surreal.withCompany(p.companyId, async (db) => {
       const entityIds = await this.resolveEntities(db, p);
-      const turns = await this.captureTurns(db, p.companyId, p.doc);
-      const facts = await this.writeFacts(db, { ...p, entityIds, turns });
+      const turns = await this.commitTurns(db, p.companyId, p.doc);
+      const facts = await this.writeFacts(db, {
+        ...p,
+        entityIds,
+        turns,
+        entityTypes: new Map(p.merge.entities.map((me) => [me.key, me.type])),
+      });
       const relations = await this.writeRelations(db, { ...p, entityIds });
       return { entityIds, facts, relations };
     });
@@ -152,6 +157,8 @@ export class CommitWriterService {
       factsToWrite: MergedFact[];
       embeddings: number[][];
       entityIds: Map<string, string>;
+      /** The subject's extraction type, per entity key. */
+      entityTypes: Map<string, string>;
       turns: CapturedTurns | null;
     },
   ): Promise<FactWriteOutcome[]> {
@@ -206,6 +213,10 @@ export class CommitWriterService {
               // path's machinery (mention-persist passes dto.userId here).
               // Tenant-global docs leave it undefined — byte-identical.
               userId: p.doc.userId,
+              // The subject's extraction type — read by the slot
+              // canonicalization's non-person guard, as on the direct
+              // path; absent, a guarded alias never reaches its slot.
+              entityType: p.entityTypes.get(mf.entityKey),
             }),
           { predicate: mf.predicate, entityId },
         );
@@ -251,6 +262,27 @@ export class CommitWriterService {
     companyId: string,
     doc: StoredDocument,
   ): Promise<CapturedTurns | null> {
+    return this.documentTurns(db, { companyId, doc, reuse: false });
+  }
+
+  /**
+   * The turns a commit stamps its facts with: captured when the document
+   * arrived, so their ids are read in one query; captured here only when
+   * any is missing (a document stored before arrival captured its turns).
+   */
+  async commitTurns(
+    db: Surreal,
+    companyId: string,
+    doc: StoredDocument,
+  ): Promise<CapturedTurns | null> {
+    return this.documentTurns(db, { companyId, doc, reuse: true });
+  }
+
+  private async documentTurns(
+    db: Surreal,
+    p: { companyId: string; doc: StoredDocument; reuse: boolean },
+  ): Promise<CapturedTurns | null> {
+    const { companyId, doc } = p;
     if (!this.episodes?.isEnabled() || !doc.hasContent) return null;
     if (internalMetaString(doc.meta, 'episodeId')) return null;
     try {
@@ -267,6 +299,8 @@ export class CommitWriterService {
       );
       if (turns.length === 0) return null;
       const conversationId = `document:${idTailOf(doc.id)}`;
+      const captured = p.reuse ? await capturedTurnIds(db, conversationId, turns.length) : null;
+      if (captured) return { turns, ids: captured };
       const fallbackSpeaker = header?.[0]?.title ?? doc.vertical;
       // The mention path's own capture, one turn at a time: same row,
       // redaction, scope and idempotence — the unique (conversationId,
@@ -502,4 +536,29 @@ export function episodeForSpans(
     }
   }
   return null;
+}
+
+/**
+ * The ids of a document's turns captured when it arrived, in turn order —
+ * one read instead of capturing every turn again (a no-op write per turn
+ * that answered the same ids). Null when any turn is missing (a document
+ * stored before its turns were captured on arrival): the caller captures.
+ */
+async function capturedTurnIds(
+  db: Surreal,
+  conversationId: string,
+  count: number,
+): Promise<string[] | null> {
+  const [rows] = await db.query<[Array<{ id: unknown; messageId?: string }>]>(
+    `SELECT id, messageId FROM episode WHERE conversationId = $c AND kind = 'turn'`,
+    { c: conversationId },
+  );
+  const byMessage = new Map((rows ?? []).map((r) => [r.messageId, String(r.id)]));
+  const ids: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const id = byMessage.get(`turn:${i}`);
+    if (!id) return null;
+    ids.push(id);
+  }
+  return ids;
 }

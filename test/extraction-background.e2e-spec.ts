@@ -204,6 +204,41 @@ describe('background extraction (e2e)', () => {
     expect((await docsOf(conv)).map((d) => d.status)).toEqual(['committed', 'committed']);
   });
 
+  it('a turn read after a later one does not see what was said after it', async () => {
+    const conv = 'xb-conv-order';
+    const one = (object: string, clause: string) =>
+      f.extractor.setScript({
+        entities: [{ name: 'Orbis', type: 'customer' }],
+        facts: [{ entityIndex: 0, predicate: 'budget', object, confidence: 0.9, clause }],
+        edges: [],
+      });
+    // The May turn is read first (an import out of order, a retry) …
+    one('3000 евро', 'Бюджет Orbis — 3000 евро.');
+    await say(conv, 'Бюджет Orbis — 3000 евро.', '2026-05-01T10:00:00.000Z');
+    expect(await batch.runPass(f.companyId, { force: true })).toMatchObject({ committed: 1 });
+    const [may] = await query<{ id: unknown }>(
+      `SELECT id FROM knowledge_fact WHERE predicate = 'budget' AND object = '3000 евро'`,
+    );
+    expect(may).toBeDefined();
+
+    // … then the January one, of the same conversation (its entity is known).
+    one('1000 евро', 'Бюджет Orbis — 1000 евро.');
+    const calls = f.extractor.contexts.length;
+    await say(conv, 'Бюджет Orbis — 1000 евро.', '2026-01-10T10:00:00.000Z');
+    expect(await batch.runPass(f.companyId, { force: true })).toMatchObject({ committed: 1 });
+    const ctx = f.extractor.contexts[calls] as ConversationContext;
+    // Orbis is known to the January read, its May budget is not: the read
+    // cannot name it as what it replaces.
+    expect(ctx.memory?.entities.map((e) => e.name)).toContain('Orbis');
+    expect(ctx.memory?.facts.map((m) => m.id)).not.toContain(String(may!.id));
+    // The May value stays current; January's is its history.
+    const budgets = await query<{ object: string; status: string }>(
+      `SELECT object, status FROM knowledge_fact WHERE predicate = 'budget'
+         AND object IN ['3000 евро', '1000 евро'] ORDER BY object`,
+    );
+    expect(budgets.find((b) => b.object === '3000 евро')?.status).toBe('active');
+  });
+
   it("a document answers mode 'background'; mode 'sync' still reads before answering", async () => {
     const body = {
       kind: 'markdown',

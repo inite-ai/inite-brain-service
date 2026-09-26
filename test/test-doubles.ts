@@ -133,12 +133,17 @@ export class StubExtractor implements Pick<
   /** The context of every extract call, in order — what the extractor was told. */
   readonly contexts: unknown[] = [];
 
+  /** The samples each queued read asked for (undefined = the configured count). */
+  readonly passes: Array<number | undefined> = [];
+
   /** The queued read: same script, same record of what it was told. */
   async extractBackground(p: {
     text: string;
     companyId: string;
     context?: unknown;
+    passes?: number | undefined;
   }): Promise<ExtractionResult> {
+    this.passes.push(p.passes);
     return this.extract(p.text, p.companyId, p.context);
   }
 

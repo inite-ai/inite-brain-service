@@ -576,23 +576,20 @@ export interface RetrievalProfile {
   /** Coverage floor: minimum evidence fact count. */
   abstentionMinEvidence: number;
   /**
-   * Verified-use successor decay (0107 outcome telemetry, Brain v2 gap
+   * Verified-use activation, time (0107 outcome telemetry, Brain v2 gap
    * #7 read side): attach memory_outcome_stat.lastVerifiedUseAt to the
-   * fused candidates so the decay clock can restart at the last
-   * VERIFIED use (verifier-supported / user-confirmed) instead of — as
-   * the legacy SEARCH_USAGE_DECAY_ENABLED does — at the last time
-   * search merely SURFACED the fact. With the legacy decay flag off and
-   * this on, retrieval alone never extends a memory's life; both on =
-   * max of both anchors (monotone). Off = byte-identical.
+   * fused candidates — the last verified use (verifier-supported /
+   * user-confirmed) is a trace in the fact's activation
+   * (search/internals/activation.ts). Off = the fact fades from its
+   * creation (and the legacy last-retrieval stamp, when attached).
    */
   verifiedUseDecay: boolean;
   /**
-   * Verified-use successor ranking: attach verifiedUseScore
-   * (memory_outcome_stat verifiedUseCount + confirmedCount) and fold it
-   * into ranking as a bounded saturating multiplier
-   * (SEARCH_VERIFIED_USE_BETA / SEARCH_VERIFIED_USE_SATURATION) — the
-   * G8 usage-factor shape over a VERIFIED signal instead of the
-   * self-reinforcing readCount. Off = byte-identical.
+   * Verified-use activation, count: attach verifiedUseScore
+   * (memory_outcome_stat verifiedUseCount + confirmedCount) — how many
+   * verified uses the fact's activation sums. A VERIFIED signal, never
+   * the self-reinforcing readCount. Off = one use when a last-use time is
+   * attached, none otherwise.
    */
   verifiedUseRanking: boolean;
   /**
@@ -1037,21 +1034,6 @@ export interface SearchTuning {
   usageRanking: boolean;
   usageBeta: number;
   usageSaturation: number;
-  /**
-   * Verified-use successor ranking strength (0107 outcome telemetry):
-   * SEARCH_VERIFIED_USE_BETA scales verifiedUseScore (verifiedUseCount +
-   * confirmedCount from memory_outcome_stat) into a saturating
-   * multiplicative factor — the G8 usage shape over a VERIFIED signal.
-   * 0 (default) = factor exactly 1.0. Gated by the per-tenant profile
-   * flag RETRIEVAL_VERIFIED_USE_RANKING (belt-and-suspenders: the flag
-   * also controls whether verifiedUseScore is attached at all).
-   */
-  verifiedUseBeta: number;
-  /** SEARCH_VERIFIED_USE_SATURATION — verifiedUseScore at which the
-   *  squash reaches ~1.0 (boost ceiling 1 + β). Default 10: verified
-   *  outcomes are far rarer than raw reads, so the knee sits lower than
-   *  SEARCH_USAGE_SATURATION's 20. */
-  verifiedUseSaturation: number;
   /** SEARCH_PPR_ENABLED / SEARCH_PPR_AUTO_THRESHOLD. */
   pprEnabled: boolean;
   pprAutoThreshold: number;
@@ -1135,8 +1117,6 @@ export function resolveSearchTuning(env: NodeJS.ProcessEnv = process.env): Searc
     usageRanking: envFlagEnabled(env.SEARCH_USAGE_RANKING_ENABLED),
     usageBeta: nonNegativeFloat(env, 'SEARCH_USAGE_BETA'),
     usageSaturation: tuningInt(env, 'SEARCH_USAGE_SATURATION', 20),
-    verifiedUseBeta: nonNegativeFloat(env, 'SEARCH_VERIFIED_USE_BETA'),
-    verifiedUseSaturation: tuningInt(env, 'SEARCH_VERIFIED_USE_SATURATION', 10),
     pprEnabled: envFlagEnabled(env.SEARCH_PPR_ENABLED),
     pprAutoThreshold: tuningInt(env, 'SEARCH_PPR_AUTO_THRESHOLD', 0),
     trustBeta: nonNegativeFloat(env, 'SEARCH_TRUST_BETA'),

@@ -147,8 +147,6 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Verified-use successor ranking (0107 outcome telemetry) ────────
   // Same shape as the G8 pair: β = strength (0 = off); saturation = the
   // verifiedUseScore at which the boost tops out.
-  nonNegativeFloat(env, 'SEARCH_VERIFIED_USE_BETA', errors);
-  positiveInt(env, 'SEARCH_VERIFIED_USE_SATURATION', errors);
 
   // ── Retrieval fact-shaping (chatter demotion) ──────────────────────
   // Penalty is read with a (0,1] clamp; nonNegativeFloat only guards the

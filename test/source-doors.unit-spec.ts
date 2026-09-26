@@ -111,7 +111,6 @@ describe('SourceDoorsService', () => {
       contextRef: { vertical: 'wiki', recorder: 'srcconn_c1' },
       meta: { source_connection: 'c1', source_pack: 'wiki_pack', source_id: 'wiki' },
       storeContent: true,
-      mode: 'sync',
       indexers: ['wiki_pack'],
     });
     expect(origin).toEqual({

@@ -189,12 +189,12 @@ export const KNOWN_BOOLEAN_FLAGS = [
   'RETRIEVAL_L3_DIRECT_ANCHOR',
   'RETRIEVAL_L3_SEGMENT_ANCHOR',
   'RETRIEVAL_L3_TEMPORAL_ANCHOR',
-  // Verified-use successor decay (0107): decay clock may restart at the
-  // last VERIFIED use (memory_outcome_stat.lastVerifiedUseAt) instead
-  // of the last mere retrieval. Default off.
+  // Verified-use activation, time (0107): the last VERIFIED use
+  // (memory_outcome_stat.lastVerifiedUseAt) is a trace in the fact's
+  // activation (search/internals/activation.ts). Default off.
   'RETRIEVAL_VERIFIED_USE_DECAY',
-  // Verified-use successor ranking (0107): verifiedUseScore feeds a
-  // saturating ranking factor (SEARCH_VERIFIED_USE_BETA). Default off.
+  // Verified-use activation, count (0107): verifiedUseScore is how many
+  // verified uses the activation sums. Default off.
   'RETRIEVAL_VERIFIED_USE_RANKING',
   // Tenant-aware read-time decay: half-lives resolve through the
   // per-tenant predicate registry instead of the code seed. Default off.
