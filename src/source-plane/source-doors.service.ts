@@ -148,7 +148,6 @@ export class SourceDoorsService {
         ...p.meta,
       },
       storeContent: true,
-      mode: 'sync',
       indexers: [p.connection.packId],
     };
     const internal = internalDocumentMeta({

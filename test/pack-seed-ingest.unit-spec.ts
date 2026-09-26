@@ -139,7 +139,8 @@ describe('PackSeedIngestService.runForPack', () => {
       pack_seed_doc: 'primer',
     });
     expect(dto.storeContent).toBe(true);
-    expect(dto.mode).toBe('sync');
+    // Read in the background with everything else captured, not inline.
+    expect(dto.mode).toBeUndefined();
     expect(dto.indexers).toEqual(['gardening']);
     // occurredAt defaults to ingest time (valid ISO, roughly now).
     const at = Date.parse(dto.occurredAt);

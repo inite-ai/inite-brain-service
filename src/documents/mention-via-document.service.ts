@@ -24,6 +24,8 @@ export interface MentionCompatResult {
   extractedEntityIds: string[];
   extractedFactIds: string[];
   extractedEdgeIds?: string[];
+  /** The L0 turn captured for this mention — the direct path's contract too. */
+  episodeId?: string;
 }
 
 /**
@@ -152,7 +154,8 @@ export class MentionViaDocumentService {
         },
         { channel: 'mention', internal },
       );
-      return this.shape(companyId, dto.contextRef.conversationId, res);
+      const out = this.shape(companyId, dto.contextRef.conversationId, res);
+      return episodeId ? { ...out, episodeId } : out;
     } catch (err) {
       this.metrics?.countIngestMention('failed');
       throw err;
