@@ -28,15 +28,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Opt-in gate that allows the local pre-pass to skip the extractor LLM call when intent + mentions + collapse-patterns all hit.',
   },
   {
-    key: 'EXTRACTION_BACKGROUND',
-    category: 'extractor',
-    defaultValue: '1',
-    runtimeMutable: true,
-    isBooleanFlag: true,
-    description:
-      "Extraction off the write path (default on). A write remembers the document — stored, chunked, raw turns captured — and answers at once; the extract_documents pass reads it later, a conversation's turns together in one call, on the offline tier. Until then its turns reach answers as working memory (\"just said, not yet filed\") and the answer cache is not served for that scope. 0 = every write extracts before it answers. `mode: 'sync'` on a request always does.",
-  },
-  {
     key: 'EXTRACTION_BATCH_WINDOW_SECONDS',
     category: 'extractor',
     defaultValue: '20',

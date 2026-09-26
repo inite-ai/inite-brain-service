@@ -1,5 +1,4 @@
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
-import { envFlagEnabled } from '../common/env-validation';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService, JobContext } from '../jobs/worker-loop.service';
 import { GENERAL_INDEXER_ID, GENERAL_INDEXER_VERSION } from '../indexers/candidate.types';
@@ -47,9 +46,9 @@ export class ExtractionBatchService implements OnModuleInit {
     });
   }
 
-  /** True when captured documents are read in the background (the default). */
+  /** Captured documents are read by the queue — wherever there is one to read them. */
   enabled(): boolean {
-    return !!this.claim && backgroundExtractionEnabled();
+    return !!this.claim;
   }
 
   /**
@@ -239,12 +238,6 @@ export class ExtractionBatchService implements OnModuleInit {
     }
     return { read, failed, committed, ...(nextAt ? { nextAt } : {}) };
   }
-}
-
-/** EXTRACTION_BACKGROUND: captured documents are read by the queue (default on). */
-export function backgroundExtractionEnabled(): boolean {
-  const raw = process.env.EXTRACTION_BACKGROUND;
-  return raw === undefined || raw.trim() === '' ? true : envFlagEnabled(raw);
 }
 
 /** EXTRACTION_BATCH_WINDOW_SECONDS: how long captures gather before one pass reads them. */

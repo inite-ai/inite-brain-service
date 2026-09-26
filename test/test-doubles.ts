@@ -1,3 +1,4 @@
+import type { ExtractionBatchService } from '../src/documents/extraction-batch.service';
 import { createHash } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { EmbedderService, EmbedderWarmupStatus } from '../src/ai/embedder.service';
@@ -342,4 +343,26 @@ function hashToVector(text: string, dim: number): number[] {
   norm = Math.sqrt(norm) || 1;
   for (let i = 0; i < dim; i++) out[i] = out[i]! / norm;
   return out;
+}
+
+/**
+ * The e2e default for ExtractionBatchService: no queue to read captured
+ * documents, so every write extracts before it answers (the ingest
+ * services take the inline path when `enabled()` is false). A spec
+ * asserts on what a write committed; the one that exercises the queue
+ * boots the real service (createApp({ backgroundExtraction: true })).
+ */
+export class InlineExtractionBatch implements Pick<
+  ExtractionBatchService,
+  'enabled' | 'schedule' | 'runPass'
+> {
+  enabled(): boolean {
+    return false;
+  }
+
+  async schedule(): Promise<void> {}
+
+  async runPass(): Promise<{ read: number; failed: number; committed: number; retry: number }> {
+    return { read: 0, failed: 0, committed: 0, retry: 0 };
+  }
 }
