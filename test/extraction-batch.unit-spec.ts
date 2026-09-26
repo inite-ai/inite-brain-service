@@ -77,6 +77,7 @@ describe('ExtractionBatchService pass', () => {
       } as never,
       {
         listAwaitingRuns: async () => {
+          events.push('list');
           if (listed) return [];
           listed = true;
           return [...docs.keys()].map((docId) => ({ docId, arrivedAt: new Date(0) }));
@@ -114,7 +115,7 @@ describe('ExtractionBatchService pass', () => {
     );
     await h.pass.runPass('co', { force: true });
     // The later document is read against the earlier one's committed facts.
-    expect(h.events).toEqual([
+    expect(h.events.filter((e) => e !== 'list')).toEqual([
       'read source_document:a',
       'commit source_document:a',
       'read source_document:b',
@@ -158,5 +159,24 @@ describe('ExtractionBatchService pass', () => {
       'commit source_document:a',
       'commit source_document:c',
     ]);
+  });
+
+  it('one pass at a time per tenant: a concurrent drain waits for the running pass', async () => {
+    const h = harness(
+      new Map([
+        ['source_document:a', doc('source_document:a', 1)],
+        ['source_document:b', doc('source_document:b', 2)],
+      ]),
+    );
+    await Promise.all([
+      h.pass.runPass('co', { force: true }),
+      h.pass.runPass('co', { force: true }),
+    ]);
+    // The second pass lists only after the first committed everything.
+    const lastCommit = h.events.lastIndexOf('commit source_document:b');
+    const lists = h.events.map((e, i) => (e === 'list' ? i : -1)).filter((i) => i >= 0);
+    expect(lists.filter((i) => i > lastCommit).length).toBeGreaterThanOrEqual(1);
+    expect(h.events.filter((e) => e.startsWith('read'))).toHaveLength(2);
+    expect(h.peak()).toBe(1);
   });
 });
