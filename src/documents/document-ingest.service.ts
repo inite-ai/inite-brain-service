@@ -1,3 +1,4 @@
+import { CommitWriterService } from './commit-writer.service';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { traceSpan } from '../common/debug-trace';
 import { DocumentStoreService } from './document-store.service';
@@ -47,6 +48,7 @@ export class DocumentIngestService {
     // @Optional so positionally-constructed unit fixtures stay valid
     // (the OutcomesModule injection discipline).
     @Optional() private readonly toolObservations?: ToolObservationService,
+    @Optional() private readonly writer?: CommitWriterService,
   ) {}
 
   /**
@@ -85,6 +87,9 @@ export class DocumentIngestService {
         channel: 'ingest_sync',
         internal,
       });
+      // Remembered before it is understood: the raw turns land now, the
+      // extraction reads them later (commit-writer captureDocumentTurns).
+      await this.writer?.captureDocumentTurns(companyId, doc);
 
       try {
         await this.store.setStatus({ companyId, docId: doc.id, status: 'indexing' });

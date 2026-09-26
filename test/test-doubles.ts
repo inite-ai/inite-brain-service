@@ -109,9 +109,15 @@ export class StubExtractor implements Pick<
   'extract' | 'modelId' | 'vocabularyVersionHash'
 > {
   private script: ExtractionResult | null = null;
+  private failure: Error | null = null;
 
   setScript(result: ExtractionResult | null) {
     this.script = result;
+  }
+
+  /** Every extract call throws this until cleared (a provider outage). */
+  setFailure(err: Error | null) {
+    this.failure = err;
   }
 
   modelId(): string {
@@ -128,6 +134,7 @@ export class StubExtractor implements Pick<
 
   async extract(text: string, _companyId?: string, context?: unknown): Promise<ExtractionResult> {
     this.contexts.push(context);
+    if (this.failure) throw this.failure;
     if (this.script) return this.script;
     if (!text.trim()) return { entities: [], facts: [], edges: [] };
     return {

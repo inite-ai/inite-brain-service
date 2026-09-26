@@ -189,6 +189,19 @@ export class CommitWriterService {
   }
 
   /**
+   * The document's raw turns, captured when it ARRIVES — before any
+   * extraction runs. The raw text is what the read lanes serve first
+   * (episodic lane, segment windows, L3, verbatim quotes), and it used to
+   * exist only after the extraction had finished and committed: a minute
+   * later on a ten-kilobyte document, and never when the extraction
+   * failed. The commit captures again and gets the same turns back (the
+   * capture is idempotent), which is how its facts point at them.
+   */
+  async captureDocumentTurns(companyId: string, doc: StoredDocument): Promise<void> {
+    await this.surreal.withCompany(companyId, (db) => this.captureTurns(db, companyId, doc));
+  }
+
+  /**
    * A document posted directly has no L0 turn behind it — only the
    * mention wrapper captures one — so every raw read lane (excerpts, raw
    * windows, grounding quotes, the episodic lane, L3 sessions) came back

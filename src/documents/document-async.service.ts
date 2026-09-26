@@ -1,3 +1,4 @@
+import { CommitWriterService } from './commit-writer.service';
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService, JobContext } from '../jobs/worker-loop.service';
@@ -58,6 +59,7 @@ export class DocumentAsyncService implements OnModuleInit {
     @Optional() private readonly workerLoop?: WorkerLoopService,
     @Optional() private readonly claim?: JobClaimService,
     @Optional() private readonly toolObservations?: ToolObservationService,
+    @Optional() private readonly writer?: CommitWriterService,
   ) {}
 
   onModuleInit(): void {
@@ -108,6 +110,9 @@ export class DocumentAsyncService implements OnModuleInit {
       channel: 'ingest_async',
       internal,
     });
+    // Remembered before it is understood: the raw turns land now, the
+    // extraction reads them later (commit-writer captureDocumentTurns).
+    await this.writer?.captureDocumentTurns(companyId, doc);
     const dedicated = await this.dispatch.selectDedicated({
       companyId,
       doc,
