@@ -55,7 +55,7 @@ export interface EvidenceFences {
  * unscoped (M2M) caller sees tenant-global rows ONLY — the same
  * fail-closed shape the SQL legs compose.
  */
-export function ownerVisible(owner: unknown, userId: string | undefined): boolean {
+function ownerVisible(owner: unknown, userId: string | undefined): boolean {
   const stamped = typeof owner === 'string' && owner.length > 0 ? owner : null;
   if (stamped === null) return true;
   return userId !== undefined && stamped === userId;

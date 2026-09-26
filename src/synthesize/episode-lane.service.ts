@@ -2,10 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
-import { episodeVisible, ownerVisible, type EvidenceCaller } from './evidence-visibility';
-import { GENERAL_INDEXER_ID } from '../indexers/candidate.types';
+import { episodeVisible, type EvidenceCaller } from './evidence-visibility';
 import { PENDING_MARK } from './pending-mark';
-import { idTailOf } from '../ingest/ingest-utils';
 
 interface EpisodeQuoteRow {
   id?: unknown;
@@ -30,8 +28,7 @@ const FACT_EPISODES_BY_ID_SQL = `SELECT id, source.episodeIds AS eps FROM knowle
  *  fact line — an unbudgeted turn would blow up every line it rides). */
 const GROUNDING_QUOTE_CHAR_CAP = 240;
 
-/** Documents still waiting that one answer looks at, and turns it renders. */
-const PENDING_DOCS_CAP = 50;
+/** Turns of the working memory one answer renders. */
 const PENDING_TURNS_CAP = 8;
 
 /** Per-line budget of the assistant lane (audit 2026-08-21 #7): a turn
@@ -116,29 +113,13 @@ export class EpisodeLaneService {
     userId?: string | undefined;
   }): Promise<string[]> {
     try {
-      const caller: EvidenceCaller = { callerScopes: opts.callerScopes, userId: opts.userId };
-      const rows = await this.surreal.withCompany(opts.companyId, async (db) => {
-        const [runs] = await db.query<[Array<{ docId: unknown; ep?: unknown; u?: unknown }>]>(
-          `SELECT docId, docId.meta.episodeId AS ep, docId.userId AS u FROM indexer_run
-            WHERE packId = $pack AND status IN ['pending', 'running'] AND external != true
-            LIMIT ${PENDING_DOCS_CAP}`,
-          { pack: GENERAL_INDEXER_ID },
-        );
-        const mine = (runs ?? []).filter((r) => ownerVisible(r.u, opts.userId));
-        if (mine.length === 0) return [];
-        const episodeIds = mine
-          .map((r) => (typeof r.ep === 'string' ? r.ep : undefined))
-          .filter((id): id is string => !!id?.startsWith('episode:'));
-        // A document posted directly keeps its turns under `document:<id>`.
-        const conversations = mine.map((r) => `document:${idTailOf(String(r.docId))}`);
-        const [found] = await db.query<[EpisodeQuoteRow[]]>(
-          `SELECT id, conversationId, speaker, text, occurredAt, piiClass, userId FROM episode
-            WHERE kind = 'turn' AND (id INSIDE $ids OR conversationId INSIDE $convs)
-            ORDER BY occurredAt DESC LIMIT ${PENDING_TURNS_CAP}`,
-          { ids: episodeIds.map((id) => new StringRecordId(id)), convs: conversations },
-        );
-        return found ?? [];
+      const rows = await this.episodes.pendingTurns({
+        companyId: opts.companyId,
+        limit: PENDING_TURNS_CAP,
+        includePii: opts.callerScopes.includes('brain:read_pii'),
+        ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
       });
+      const caller: EvidenceCaller = { callerScopes: opts.callerScopes, userId: opts.userId };
       return renderQuoteLines(
         rows
           .filter((r) => episodeVisible(r, caller))

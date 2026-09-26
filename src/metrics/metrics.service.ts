@@ -1096,7 +1096,7 @@ export class MetricsService implements OnModuleInit {
     this.l3TriggerPathCount.inc({ path } as LabelValues<'path'>);
   }
 
-  countL3AnchorSource(source: 'fact' | 'direct' | 'segment' | 'temporal'): void {
+  countL3AnchorSource(source: 'fact' | 'direct' | 'segment' | 'temporal' | 'pending'): void {
     this.l3AnchorSourceCount.inc({ source } as LabelValues<'source'>);
   }
 
