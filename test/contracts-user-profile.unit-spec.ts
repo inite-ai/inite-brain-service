@@ -23,6 +23,7 @@ const fullFact: Required<ProfileFactWire> = {
   confidence: 0.85,
   lastSeenAt: '2026-08-15T00:00:00.000Z',
   kind: 'persona_attr',
+  expectedUntil: '2026-09-28T00:00:00.000Z',
 };
 
 const fullSection: ProfileSectionWire = {

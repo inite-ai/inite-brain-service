@@ -5,6 +5,7 @@ import { makeRowPolicyFilter, type PolicyFilterableRow } from '../policy/row-fil
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { UserEntityService } from '../ingest/user-entity.service';
+import { formatExpectation } from '../ingest/fact-expectation';
 import {
   PER_ASPECT_CAP,
   type ProfileFactWire,
@@ -47,13 +48,14 @@ const FETCH_CAP = 1000;
  *  profile's own columns (the row filter reads source / trustSnapshot /
  *  corroboration / userId — audit 2026-08-19 P1). */
 const PROFILE_PROJECTION =
-  'id, predicate, object, confidence, validFrom, validUntil, ' +
+  'id, predicate, object, confidence, validFrom, validUntil, expectedUntil, ' +
   'source, trustSnapshot, corroboration, userId';
 
 interface ProfileRow extends PolicyFilterableRow {
   object: string;
   confidence?: number;
   validFrom: Date | string;
+  expectedUntil?: Date | string | null;
 }
 
 function toIso(v: Date | string): string {
@@ -71,6 +73,7 @@ function toWireFact(r: ProfileRow): ProfileFactWire {
     confidence: typeof r.confidence === 'number' ? r.confidence : 0,
     ...(lastAt !== undefined ? { lastSeenAt: toIso(lastAt) } : {}),
     ...(kind !== undefined ? { kind } : {}),
+    ...(r.expectedUntil ? { expectedUntil: toIso(r.expectedUntil) } : {}),
   };
 }
 
@@ -142,7 +145,11 @@ function renderProfileText(
   ];
   for (const s of sections) {
     for (const f of s.facts) {
-      lines.push(`- [${s.aspect}] ${f.statement} (as of ${f.validFrom.slice(0, 10)})`);
+      // 0166: a temporary state reads with its expectation, judged now —
+      // the profile is pasted into prompts as the user's current state.
+      lines.push(
+        `- [${s.aspect}] ${f.statement} (as of ${f.validFrom.slice(0, 10)})${formatExpectation(f.expectedUntil)}`,
+      );
     }
   }
   return lines.join('\n');

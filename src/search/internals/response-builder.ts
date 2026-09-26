@@ -97,6 +97,7 @@ export function assembleHits({
         confidence: row.confidence,
         validFrom: row.validFrom,
         validUntil: row.validUntil ?? undefined,
+        ...(row.expectedUntil ? { expectedUntil: toIsoString(row.expectedUntil) } : {}),
         status: row.status,
         sourceKey: row.trustSnapshot?.sourceKey ?? undefined,
         ...(row.highlight ? { highlight: row.highlight } : {}),
@@ -282,4 +283,9 @@ export async function applyOutputShaping(
     }
   }
   return results;
+}
+
+/** A datetime column as an ISO string, whether the driver handed a Date or a string. */
+function toIsoString(v: unknown): string {
+  return v instanceof Date ? v.toISOString() : String(v);
 }

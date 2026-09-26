@@ -18,6 +18,8 @@ export const ProfileFactSchema = z.object({
   lastSeenAt: z.string().optional(),
   /** Typed-atom kind (`source.kind`, DERIVER_TYPED_ATOMS), when stamped. */
   kind: z.string().optional(),
+  /** ISO instant a temporary state is expected to be over (0166), when inferred. */
+  expectedUntil: z.string().optional(),
 });
 
 export const ProfileSectionSchema = z.object({
@@ -35,7 +37,7 @@ export const UserProfileResponseSchema = z.object({
   /** Facts included after the per-aspect and global caps. */
   factCount: z.number().int(),
   sections: z.array(ProfileSectionSchema),
-  /** The identity line, then one line per fact: `- [aspect] statement (as of YYYY-MM-DD)`. */
+  /** The identity line, then one line per fact: `- [aspect] statement (as of YYYY-MM-DD)`, a temporary state followed by its expectation. */
   profileText: z.string(),
 });
 

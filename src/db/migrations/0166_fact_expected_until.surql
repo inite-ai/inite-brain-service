@@ -1,0 +1,25 @@
+-- 0166_fact_expected_until — a temporary state carries when it should be over.
+--
+-- WHY. "I have the flu" said on the 1st stays an open, current fact until
+-- a later turn closes it. When nobody ever says "I'm better", memory keeps
+-- answering "you have the flu" a month later. validUntil cannot hold the
+-- answer: it is when the value STOPPED holding, and nobody said that. An
+-- inferred end written there would disappear a state the user may still
+-- be in.
+--
+-- expectedUntil is the day the extractor expects a temporary state it read
+-- to be over, inferred from what the state is: an illness, a trip, a stay,
+-- being away or busy with something. It is an expectation, not a fact
+-- about reality:
+--   * valid time is untouched — the fact stays current, asOf and every
+--     "actual now" read still return it;
+--   * the answer plane renders it next to the value and, once the day is
+--     past, says the state was expected to be over and nothing confirmed
+--     it since — instead of stating it as current (synthesize/fact-index);
+--   * a later turn that says the state still holds re-states the fact and
+--     moves the expectation (fact-resolver stampExpectation);
+--   * a cached answer citing the fact is re-derived once the day passes
+--     (answer-cache: the rendered line changed).
+-- NONE = no expectation — everything that holds until something changes
+-- it, and every row written before this migration.
+DEFINE FIELD IF NOT EXISTS expectedUntil ON knowledge_fact TYPE option<datetime>;

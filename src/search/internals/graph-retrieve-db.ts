@@ -244,6 +244,7 @@ export async function fetchFactsForEntities({
     confidence: number;
     validFrom: string;
     validUntil?: string;
+    expectedUntil?: string;
     status: string;
     recordedAt: string;
     source?: unknown;
@@ -259,7 +260,7 @@ export async function fetchFactsForEntities({
   // never surfaces them in the response.
   const [rows] = await db.query<[FactSelect[]]>(
     `SELECT id, entityId, predicate, predicateAlias, object, objectMeta, confidence,
-            validFrom, validUntil, status, recordedAt,
+            validFrom, validUntil, expectedUntil, status, recordedAt,
             source, trustSnapshot, corroboration
        FROM knowledge_fact
       WHERE ${where}${predicateClause}
@@ -280,6 +281,7 @@ export async function fetchFactsForEntities({
       confidence: r.confidence,
       validFrom: r.validFrom,
       ...(r.validUntil ? { validUntil: r.validUntil } : {}),
+      ...(r.expectedUntil ? { expectedUntil: r.expectedUntil } : {}),
       status: r.status,
       recordedAt: r.recordedAt,
       ...(r.source !== undefined ? { source: r.source } : {}),

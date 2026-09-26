@@ -51,6 +51,7 @@ const fullFact: Required<SearchHit['facts'][number]> = {
   confidence: 0.85,
   validFrom: '2026-09-01T10:00:00.000Z',
   validUntil: '2026-10-01T00:00:00.000Z',
+  expectedUntil: '2026-09-28T00:00:00.000Z',
   status: 'active',
   sourceKey: 'rent:tenant_bot',
   mentionedAt: '2026-09-01T09:59:00.000Z',

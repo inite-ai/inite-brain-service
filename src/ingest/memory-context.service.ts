@@ -277,10 +277,11 @@ export class MemoryContextService {
           object: string;
           validFrom: unknown;
           validUntil?: unknown;
+          expectedUntil?: unknown;
         }>,
       ]
     >(
-      `SELECT id, entityId, predicate, object, validFrom, validUntil FROM knowledge_fact
+      `SELECT id, entityId, predicate, object, validFrom, validUntil, expectedUntil FROM knowledge_fact
         WHERE entityId IN $ids AND status IN ['active', 'competing'] AND retractedAt IS NONE
           AND ${userGate}
         ORDER BY validFrom DESC LIMIT $k`,
@@ -306,6 +307,8 @@ export class MemoryContextService {
         // turn may correct that period, and the extractor must see it is
         // history rather than read it as the current value.
         until: toIso(r.validUntil).slice(0, 10) || undefined,
+        // An ended value has no expectation to show; its end is known.
+        expectedUntil: r.validUntil ? undefined : toIso(r.expectedUntil).slice(0, 10) || undefined,
       });
     }
     return out;

@@ -38,6 +38,8 @@ export interface GraphFactRow {
   confidence: number;
   validFrom: string;
   validUntil?: string;
+  /** When a temporary state is expected to be over (0166). */
+  expectedUntil?: string;
   status: string;
   recordedAt?: string;
   /**
@@ -68,6 +70,7 @@ export interface GraphRetrieveHit {
     confidence: number;
     validFrom: string;
     validUntil?: string | undefined;
+    expectedUntil?: string | undefined;
     status: string;
     score: number;
     breakdown?: ScoreBreakdown;
@@ -174,6 +177,7 @@ function renderHit({
         confidence: f.confidence,
         validFrom: f.validFrom,
         validUntil: f.validUntil,
+        ...(f.expectedUntil ? { expectedUntil: f.expectedUntil } : {}),
         status: f.status,
         score: factScore,
         breakdown: {

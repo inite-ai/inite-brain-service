@@ -268,6 +268,8 @@ interface CitedFactRow {
   entityId?: unknown;
   status: string;
   validUntil?: Date | string | null;
+  /** When a temporary state is expected to be over (0166). */
+  expectedUntil?: Date | string | null;
   retractedAt?: Date | string | null;
   userId?: string | null;
   source?: unknown;
@@ -839,7 +841,7 @@ export class AnswerCacheService {
           [CitedFactRow[], Array<{ id: unknown; canonicalName: string }>, CitedFactRow[]]
         >(
           `SELECT id, predicate, predicateAlias, object, entityId, status, validUntil,
-                  retractedAt, userId, source, trustSnapshot, corroboration
+                  expectedUntil, retractedAt, userId, source, trustSnapshot, corroboration
              FROM knowledge_fact WHERE id INSIDE $ids;
            SELECT id, canonicalName FROM knowledge_entity
             WHERE id INSIDE $entityIds;
@@ -902,7 +904,7 @@ export class AnswerCacheService {
       policyLookup: await this.predicateRegistry?.rowPolicyLookup(ctx.companyId),
     });
     const fences: ReadFences = { scopeUserId, rowPolicy };
-    const cited = this.evaluateCitedFacts(ids, { byId, nameById }, fences);
+    const cited = this.evaluateCitedFacts(ids, { byId, nameById, answerCreatedAt }, fences);
     // Precedence, most specific first: a dead cited fact, then a dead or
     // changed non-fact dependency (0136), then the additive-write freshness
     // probe (audit F1) — which runs ONLY when everything the answer rests
@@ -1097,10 +1099,15 @@ export class AnswerCacheService {
    */
   private evaluateCitedFacts(
     ids: string[],
-    lookups: { byId: Map<string, CitedFactRow>; nameById: Map<string, string> },
+    lookups: {
+      byId: Map<string, CitedFactRow>;
+      nameById: Map<string, string>;
+      /** When the answer was cached — an expectation passing after it invalidates (0166). */
+      answerCreatedAt: Date;
+    },
     fences: ReadFences,
   ): { cause: InvalidationCause } | { citations: Citation[] } {
-    const { byId, nameById } = lookups;
+    const { byId, nameById, answerCreatedAt } = lookups;
     const { scopeUserId, rowPolicy } = fences;
     const citations: Citation[] = [];
     for (const id of ids) {
@@ -1115,6 +1122,12 @@ export class AnswerCacheService {
       // competing/compacted — left the servable lifecycle state; fail closed.
       if (fact.status !== 'active') return { cause: 'missing' };
       if (fact.validUntil && toMs(fact.validUntil) <= Date.now()) {
+        return { cause: 'expired_validity' };
+      }
+      // 0166: an expectation that passed after the answer was written
+      // changed how the fact reads ("expected until D" → "expected over
+      // by D; not confirmed since") — the answer said the state holds.
+      if (expectationPassedSince(fact.expectedUntil, answerCreatedAt)) {
         return { cause: 'expired_validity' };
       }
       citations.push({
@@ -1209,4 +1222,14 @@ export class AnswerCacheService {
       );
     }
   }
+}
+
+/** True when a temporary state's expectation (0166) passed between `since` and now. */
+function expectationPassedSince(
+  expectedUntil: Date | string | null | undefined,
+  since: Date,
+): boolean {
+  if (!expectedUntil) return false;
+  const at = toMs(expectedUntil);
+  return at > since.getTime() && at <= Date.now();
 }

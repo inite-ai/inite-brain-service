@@ -1521,6 +1521,9 @@
           "confidence": {
             "type": "number"
           },
+          "expectedUntil": {
+            "type": "string"
+          },
           "factId": {
             "type": "string"
           },
@@ -3850,6 +3853,9 @@
           "entityRef": {
             "$ref": "#/components/schemas/EntityRef"
           },
+          "expectedUntil": {
+            "type": "string"
+          },
           "explain": {
             "type": "boolean"
           },
@@ -5455,6 +5461,9 @@
           "confidence": {
             "type": "number"
           },
+          "expectedUntil": {
+            "type": "string"
+          },
           "factId": {
             "type": "string"
           },
@@ -6860,6 +6869,9 @@
             "type": "number"
           },
           "date": {
+            "type": "string"
+          },
+          "expectedUntil": {
             "type": "string"
           },
           "factId": {

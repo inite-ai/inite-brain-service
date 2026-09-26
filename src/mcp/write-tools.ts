@@ -49,6 +49,11 @@ const RECORD_FACT_INPUT = {
   object: z.string(),
   validFrom: isoDateTime(),
   validUntil: isoDateTime().optional(),
+  expectedUntil: isoDateTime()
+    .optional()
+    .describe(
+      'For a temporary state with no stated end (ill, travelling, away): when it should be over. Not an end — the fact stays current; answers say it was expected to be over once this passes',
+    ),
   confidence: z.number().min(0).max(1).optional(),
   sourceVertical: z.string().describe('Vertical name attributed as source (e.g. "rent")'),
   userId: z
@@ -130,6 +135,7 @@ export function registerWriteTools({
         object: args.object,
         validFrom: args.validFrom,
         ...(args.validUntil !== undefined ? { validUntil: args.validUntil } : {}),
+        ...(args.expectedUntil !== undefined ? { expectedUntil: args.expectedUntil } : {}),
         ...(args.confidence !== undefined ? { confidence: args.confidence } : {}),
         ...(args.userId !== undefined ? { userId: args.userId } : {}),
         source: {

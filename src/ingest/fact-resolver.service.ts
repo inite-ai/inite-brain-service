@@ -38,6 +38,7 @@ import { factIndexText } from './fact-index-text';
 import { MemoryOutcomeService, type OutcomeEventInput } from '../outcomes/memory-outcome.service';
 import { followNameFact } from './entity-name';
 import { UNKNOWN_START } from './event-time';
+import { stampExpectation } from './fact-expectation';
 
 /**
  * V9 §1 — aspect classes for the derived-world lifecycle. The deriver's
@@ -489,6 +490,14 @@ export class FactResolverService {
       confidence: number;
       validFrom: Date;
       validUntil?: Date | undefined;
+      /**
+       * When the temporary state this fact states is expected to be over
+       * (0166, event-time factExpectation). Stamped on the row the
+       * resolve lands on — the new one, or the one a restatement
+       * corroborated — by stampExpectation; never part of the conflict
+       * decision. Undefined = no expectation.
+       */
+      expectedUntil?: Date | undefined;
       source: unknown;
       entropy?: number | undefined;
       /** Per-user scope (migration 0055); undefined = tenant-global. */
@@ -826,6 +835,7 @@ export class FactResolverService {
     result: ResolveOutcome,
   ): Promise<void> {
     await this.applyExplicitSupersession(db, p, result);
+    await stampExpectation({ db, p, result, logger: this.logger });
     const outcome = result?.outcome;
     // A `name` fact that is now the current one names a reference-minted
     // entity — the user's own above all (entity-name.ts).

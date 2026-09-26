@@ -81,6 +81,13 @@ export class IngestFactDto {
 
   @IsOptional() @IsISO8601() validUntil?: string;
 
+  /**
+   * When a temporary state is expected to be over (0166) — an
+   * expectation, never an end: the fact stays current. Only for a state
+   * whose end is not known, so not together with validUntil.
+   */
+  @IsOptional() @IsISO8601() expectedUntil?: string;
+
   @IsOptional()
   @IsNumber()
   @Min(0)

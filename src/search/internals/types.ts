@@ -48,6 +48,12 @@ export interface FactRow {
   lang?: string | null;
   validFrom: string;
   validUntil?: string;
+  /**
+   * When a temporary state is expected to be over (0166) — an
+   * expectation, not an end: valid time is untouched and every
+   * current-state read still returns the row. Projected by the fact legs.
+   */
+  expectedUntil?: string | null;
   recordedAt: string;
   retractedAt?: string;
   status: string;

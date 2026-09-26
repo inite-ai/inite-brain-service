@@ -68,6 +68,7 @@ export class FactIngestService {
         throw new BadRequestException('validUntil must be strictly after validFrom');
       }
     }
+    assertExpectation(dto);
     assertEntityRefShape(dto.entityRef);
     // source is an opaque @IsObject (union shape) — nested evidence[] must
     // be shape-checked here, not by class-validator.
@@ -163,6 +164,7 @@ export class FactIngestService {
         confidence: dto.confidence ?? 0.7,
         validFrom: new Date(dto.validFrom),
         validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
+        expectedUntil: dto.expectedUntil ? new Date(dto.expectedUntil) : undefined,
         source: source as unknown as typeof dto.source,
         entropy: undefined,
         userId: dto.userId,
@@ -218,4 +220,27 @@ function assertEntityRefShape(entityRef: unknown): void {
   throw new BadRequestException(
     'entityRef must be { vertical, id } (an external reference) or { entityId } (a known entity)',
   );
+}
+
+/**
+ * An expectation (0166) belongs to a state whose end nobody stated: one
+ * that sits with a stated end, or does not lie after the value's start,
+ * says nothing the row can hold.
+ */
+function assertExpectation(dto: {
+  validFrom: string;
+  validUntil?: string;
+  expectedUntil?: string;
+}): void {
+  if (dto.expectedUntil === undefined) return;
+  if (dto.validUntil !== undefined) {
+    throw new BadRequestException(
+      'expectedUntil is for a state with no stated end — validUntil already states it',
+    );
+  }
+  const from = Date.parse(dto.validFrom);
+  const expected = Date.parse(dto.expectedUntil);
+  if (Number.isFinite(from) && Number.isFinite(expected) && expected <= from) {
+    throw new BadRequestException('expectedUntil must be strictly after validFrom');
+  }
 }

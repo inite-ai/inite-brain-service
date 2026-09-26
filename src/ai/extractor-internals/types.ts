@@ -47,6 +47,14 @@ export interface ExtractedFact {
    */
   endTime?: string | undefined;
   /**
+   * YYYY-MM-DD a TEMPORARY state is expected to be over — an illness, a
+   * trip, being away — inferred by the extractor from what the state is
+   * when the clause names no end. An expectation, not an end: it becomes
+   * the row's expectedUntil (0166), never its validUntil. Absent for
+   * everything that holds until something changes it.
+   */
+  expectedEnd?: string | undefined;
+  /**
    * knowledge_fact ids this fact replaces: the KNOWN FACTS of the memory
    * context the extractor judged to be the previous value of the same
    * attribute (a cut budget, a moved date, a changed state). The
@@ -132,6 +140,8 @@ export interface RawExtractedFact {
   eventTime?: string;
   /** YYYY-MM-DD the value stopped holding; absent while it still holds. */
   endTime?: string;
+  /** YYYY-MM-DD a temporary state is expected to be over; absent when none. */
+  expectedEnd?: string;
   /** knowledge_fact ids this one replaces — handles already mapped by the parser. */
   supersedes?: string[];
   /** "one" | "many" — the attribute's cardinality over time (memory-context contract). */

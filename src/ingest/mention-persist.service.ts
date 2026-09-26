@@ -20,6 +20,7 @@ import { coreferentParticipant, participantHint, participantsOf } from './partic
 import { envFlagEnabled } from '../common/env-validation';
 import {
   edgeTiming,
+  factExpectation,
   factTiming,
   resolveEventTimeOpts,
   type EdgeTiming,
@@ -150,6 +151,10 @@ export class MentionPersistService {
       const eid = entityIds[f.entityIndex];
       if (!eid) continue;
       const { validFrom, validUntil, objectMeta } = factTiming(f, dto.emittedAt, timeOpts);
+      // A value with a stated end carries no expectation (0166).
+      const expectedUntil = validUntil
+        ? undefined
+        : factExpectation(f.expectedEnd, dto.emittedAt, validFrom);
       const factId = await traceSpan(
         'ingest.fact.upsert',
         () =>
@@ -160,6 +165,7 @@ export class MentionPersistService {
             source,
             validFrom,
             validUntil,
+            expectedUntil,
             objectMeta,
             precomputedEmbedding: factEmbeddings[i],
             userId: dto.userId,
@@ -203,6 +209,10 @@ export class MentionPersistService {
       const eid = entityIds[f.entityIndex];
       if (!eid) continue;
       const { validFrom, validUntil, objectMeta } = factTiming(f, dto.emittedAt, timeOpts);
+      // A value with a stated end carries no expectation (0166).
+      const expectedUntil = validUntil
+        ? undefined
+        : factExpectation(f.expectedEnd, dto.emittedAt, validFrom);
       specs.push({
         f,
         input: {
@@ -214,6 +224,7 @@ export class MentionPersistService {
           confidence: f.confidence,
           validFrom,
           validUntil,
+          expectedUntil,
           objectMeta,
           supersedes: f.supersedes,
           source,
@@ -272,6 +283,8 @@ export class MentionPersistService {
       source: MentionSource;
       validFrom: Date;
       validUntil?: Date | undefined;
+      /** When a temporary state is expected to be over (0166). */
+      expectedUntil?: Date | undefined;
       objectMeta?: { date: string } | undefined;
       precomputedEmbedding: number[] | undefined;
       /** Per-user scope (audit 2026-08-21 P0) — stamps the fact row. */
@@ -291,6 +304,7 @@ export class MentionPersistService {
       confidence: f.confidence,
       validFrom: p.validFrom,
       validUntil: p.validUntil,
+      expectedUntil: p.expectedUntil,
       objectMeta: p.objectMeta,
       supersedes: f.supersedes,
       source: p.source,
