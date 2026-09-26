@@ -1,4 +1,4 @@
-import { resolveEventTime } from '../src/ingest/event-time';
+import { edgeTiming, factTiming, resolveEventTime } from '../src/ingest/event-time';
 
 /**
  * Event-time resolution (chrono-node backed, multilingual). Anchored on the
@@ -223,5 +223,24 @@ describe('time-of-day expressions carry no event date', () => {
     expect(ymd(resolveEventTime('I saw them yesterday', '2026-03-25T14:35:00Z')?.date)).toBe(
       '2026-03-24',
     );
+  });
+});
+
+describe('a stated day that is the day it was said', () => {
+  const said = '2026-09-19T14:00:00.000Z';
+
+  it("starts at the turn's own instant, not the day's midnight (asOf earlier that day must not see it)", () => {
+    expect(
+      factTiming({ predicate: 'scope', eventTime: '2026-09-19' }, said, { on: false }).validFrom,
+    ).toEqual(new Date(said));
+    expect(edgeTiming({ kind: 'runs_on', eventTime: '2026-09-19' }, said).validFrom).toEqual(
+      new Date(said),
+    );
+  });
+
+  it('an earlier day still starts at its midnight', () => {
+    expect(
+      factTiming({ predicate: 'scope', eventTime: '2026-09-17' }, said, { on: false }).validFrom,
+    ).toEqual(new Date('2026-09-17T00:00:00.000Z'));
   });
 });
