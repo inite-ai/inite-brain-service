@@ -43,8 +43,10 @@ These are the toolkit's own adapter choices, kept so the numbers compare:
 | extracted memories | what `add` returned | what the document committed, rendered `Entity — predicate: object` |
 | update probe | top-10 search for the new point | `POST /v1/search`, `limit: 10`, rendered `YYYY-MM-DD: Entity — predicate: object` |
 | QA context | top-20 search, `TEMPLATE_MEM0` | top-20 search (`HALUMEM_TOP_K`), the same template |
-| QA answer | `PROMPT_MEMZERO` → `gpt-4o`, temperature 0 | the same (`HALUMEM_ANSWER_MODEL`) |
-| judge | `gpt-4o`, temperature 0 | the same (`HALUMEM_JUDGE_MODEL`) |
+| QA answer | `PROMPT_MEMZERO` → `gpt-4o`, temperature 0 | `PROMPT_MEMZERO` → `gpt-6-luna` by default (`HALUMEM_ANSWER_MODEL`) |
+| judge | `gpt-4o`, temperature 0 | `gpt-6-luna` by default (`HALUMEM_JUDGE_MODEL`) |
+
+**Models.** The paper judges and answers with `gpt-4o`. Here both default to `gpt-6-luna`, the model the rest of brain runs on, which is 20–25× cheaper. An A/B (main vs branch) only needs the same judge on both arms, not the paper's judge. Set both to `gpt-4o` for a one-off run that should sit next to the paper's table.
 
 QA runs a second arm, **synthesize**: brain's own answer from `POST /v1/synthesize`.
 Strict guardrails apply, and an abstention is answered as "I don't know."
@@ -73,7 +75,7 @@ pnpm eval:halumem
 | `HALUMEM_TOP_K` | 20 | QA search depth |
 | `HALUMEM_CONCURRENCY` | 2 | users in parallel (sessions of one user always run in order) |
 | `HALUMEM_JUDGE_CONCURRENCY` | 8 | judge calls in parallel |
-| `HALUMEM_JUDGE_MODEL` / `HALUMEM_ANSWER_MODEL` | `gpt-4o` | |
+| `HALUMEM_JUDGE_MODEL` / `HALUMEM_ANSWER_MODEL` | `gpt-6-luna` | `gpt-4o` reproduces the paper's setup, at 20–25× the price |
 | `HALUMEM_OPENAI_BASE_URL` | | an OpenAI-compatible endpoint for both |
 | `HALUMEM_RUN_ID` | generated | a re-run with the same id resumes; finished users are skipped |
 | `HALUMEM_SYSTEM_FILE` | | judge an existing `halumem-system-*.jsonl` again, with no stand |
@@ -82,7 +84,8 @@ pnpm eval:halumem
 Scale: HaluMem-Medium has 20 users, 1,387 sessions, 60k turns, 15k memory points
 and 3.5k questions. The whole set means about 40k judge calls, so start from a
 slice. One session writes in about 25–35 s on a local stand. A 20-session slice
-costs about 1k `gpt-4o` judge calls.
+means about 1.5–2k judge calls, and the accuracy judge reads the whole session
+each time. On `gpt-4o` that burned the day's credits in three runs.
 
 ## Output
 
