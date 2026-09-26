@@ -237,9 +237,10 @@ export function rankL3Sessions(
 }
 
 /** Where an anchor came from: the fact grounding stamps (the original
- *  path) or one of the auxiliary sources consulted only when the fact
- *  path yields zero anchors (L3 anchor independence). */
-export type L3AnchorSourceName = 'fact' | 'direct' | 'segment' | 'temporal';
+ *  path), one of the auxiliary sources consulted only when the fact
+ *  path yields zero anchors (L3 anchor independence), or the working
+ *  memory — the conversations remembered but not yet read. */
+export type L3AnchorSourceName = 'fact' | 'direct' | 'segment' | 'temporal' | 'pending';
 
 /** One aux source's contribution, pre-merge. */
 export interface L3AnchorSource {

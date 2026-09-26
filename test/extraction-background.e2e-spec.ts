@@ -9,6 +9,7 @@
  */
 import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
+import { MetricsService } from '../src/metrics/metrics.service';
 import { ExtractionBatchService } from '../src/documents/extraction-batch.service';
 import type { ConversationContext } from '../src/ai/extractor.service';
 import { PENDING_MARK } from '../src/synthesize/pending-mark';
@@ -253,5 +254,34 @@ describe('background extraction (e2e)', () => {
     });
     await batch.runPass(f.companyId, { force: true });
     expect(await ask()).not.toContain(PENDING_MARK);
+  });
+
+  it('the raw path reads the working memory: L3 escalates to the unread conversation', async () => {
+    process.env.RETRIEVAL_L3_ESCALATION = '1';
+    try {
+      const said = 'Пароль от стенда на время проверки — «бирюзовый ёж».';
+      await say('xb-conv-wm', said, '2026-09-25T12:00:00.000Z');
+      const metrics = f.app.get(MetricsService);
+      const pendingSource = async () => {
+        const { body } = await metrics.serialize();
+        const m = /brain_l3_anchor_source_total\{[^}]*source="pending"[^}]*\} (\d+)/.exec(body);
+        return m ? parseInt(m[1]!, 10) : 0;
+      };
+      const before = await pendingSource();
+      // Round 1 cannot answer from the facts it has; the raw path can.
+      const state = mockSynthesizeOpenAi(f.app, [
+        JSON.stringify({ answer: 'A guess.', citedFactIds: [] }),
+        JSON.stringify({
+          verdict: 'unsupported',
+          unsupportedClaims: ['A guess.'],
+          questionAnswered: false,
+        }),
+      ]);
+      await f.http.post('/v1/synthesize').set(auth()).send({ query: 'Какой пароль от стенда?' });
+      expect(await pendingSource()).toBe(before + 1);
+      expect(state.calls.some((c) => c.user.includes('бирюзовый ёж'))).toBe(true);
+    } finally {
+      delete process.env.RETRIEVAL_L3_ESCALATION;
+    }
   });
 });
