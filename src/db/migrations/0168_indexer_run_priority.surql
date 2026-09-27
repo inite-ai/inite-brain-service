@@ -2,13 +2,13 @@
 --
 -- WHY. The background reader (extract_documents) read the waiting
 -- documents strictly by when they happened. A read that something asked
--- for — an answer that had to cite a turn nobody had read, a correction
--- landing next to turns kept raw — waited behind the whole backlog. The
+-- for — an answer that had to cite a turn nobody had read — waited
+-- behind the whole backlog. The
 -- run of a waiting read now carries its priority; the pass lists the
 -- highest first, oldest first within a priority
 -- (docs/roadmap/raw-processing-triggers-2026-09.md §4.2).
 --
 -- Values (read-depth.ts PRIORITY): NONE/0 = captured, read in turn;
--- 1 = the idle budget reading the deferred backlog; 2 = beside an urgent
--- read (a correction's raw neighbours); 3 = an answer cited the text.
+-- 1 = the idle budget reading the deferred backlog; 2 = an answer cited
+-- the text.
 DEFINE FIELD IF NOT EXISTS priority ON indexer_run TYPE option<int>;

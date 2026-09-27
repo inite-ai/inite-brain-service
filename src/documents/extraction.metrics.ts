@@ -45,7 +45,7 @@ export class ExtractionMetrics {
       (metrics.registry.getSingleMetric(PROMOTED) as Counter<'reason'> | undefined) ??
       new Counter({
         name: PROMOTED,
-        help: 'Reads something asked for (answer = an answer cited raw text; neighbour = beside an urgent read; idle = the nightly budget over the deferred backlog)',
+        help: 'Reads something asked for (answer = an answer cited raw text; idle = the nightly budget over the deferred backlog)',
         labelNames: ['reason'] as const,
         registers: [metrics.registry],
       });
@@ -55,7 +55,7 @@ export class ExtractionMetrics {
     this.depths?.inc({ depth }, docs);
   }
 
-  promoted(reason: 'answer' | 'neighbour' | 'idle', docs: number): void {
+  promoted(reason: 'answer' | 'idle', docs: number): void {
     if (docs > 0) this.promotions?.inc({ reason }, docs);
   }
 

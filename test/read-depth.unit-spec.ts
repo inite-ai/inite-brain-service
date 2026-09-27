@@ -50,7 +50,6 @@ describe('readDepth', () => {
     expect(readDepth({ ...base, stamps: [stamp({ salience: 2 })] })).toBe('full');
     expect(readDepth({ ...base, hot: true, stamps: [stamp()] })).toBe('full');
     expect(readDepth({ ...base, asked: 'answer', stamps: [stamp()] })).toBe('full');
-    expect(readDepth({ ...base, asked: 'neighbour', stamps: [stamp()] })).toBe('full');
     expect(readDepth({ ...base, stamps: [] })).toBe('full');
     expect(readDepth({ ...base, stamps: [stamp(), undefined] })).toBe('full');
   });
@@ -75,7 +74,6 @@ describe('askOf', () => {
   it('maps a run priority to what asked for the read', () => {
     expect(askOf(0)).toBeUndefined();
     expect(askOf(PRIORITY.idle)).toBe('idle');
-    expect(askOf(PRIORITY.neighbour)).toBe('neighbour');
     expect(askOf(PRIORITY.answer)).toBe('answer');
   });
 });

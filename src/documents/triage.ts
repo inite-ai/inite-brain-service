@@ -6,8 +6,10 @@ import type { DecisionAnswer } from '../ai/decisions/decision.types';
  * deeply (docs/roadmap/raw-processing-triggers-2026-09.md §4.1).
  *
  * One decision-plane request per waiting text — a standalone document, or
- * a conversation's unread turns rendered together (a turn alone says
- * little) — with six noul questions and the salience rubric of the
+ * one turn of a conversation read with the turns before it as context (a
+ * turn alone — "yes, let's" — says little, but it is the turn that is
+ * judged: a greeting in a conversation about a budget is still a
+ * greeting) — with six noul questions and the salience rubric of the
  * importance-scoring design, all answered against the same state in
  * parallel: a fraction of a cent, two orders below a full extraction.
  *
@@ -24,6 +26,8 @@ export const TRIAGE_VERSION = 2;
 
 /** The plane reads what one extraction call reads, and no more. */
 const TEXT_CHARS = 12_000;
+/** The conversation before a turn, read for its sense. */
+const CONTEXT_CHARS = 3_000;
 
 export interface TriageStamp {
   v: number;
@@ -111,6 +115,8 @@ const SALIENCE = {
 export async function triageText(
   decisions: DecisionService | undefined,
   text: string,
+  /** What was said before it (a conversation's earlier turns) — read for sense, not judged. */
+  context?: string,
 ): Promise<TriageStamp | null> {
   if (!decisions?.enabled('triage') || !text.trim()) return null;
   const questions = {
@@ -119,8 +125,11 @@ export async function triageText(
     ),
     salience: SALIENCE,
   };
+  const judged = `TEXT:\n${text.slice(0, TEXT_CHARS)}`;
   const res = await decisions.decide('triage', {
-    state: `TEXT:\n${text.slice(0, TEXT_CHARS)}`,
+    state: context?.trim()
+      ? [`CONTEXT (said before the text; not judged):\n${context.slice(-CONTEXT_CHARS)}`, judged]
+      : judged,
     questions,
   });
   if (!res) return null;

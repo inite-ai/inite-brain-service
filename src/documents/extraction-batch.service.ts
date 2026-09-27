@@ -7,12 +7,7 @@ import { CandidateStoreService } from './candidate-store.service';
 import { DocumentStoreService, StoredDocument } from './document-store.service';
 import type { DocumentChunk } from './chunker';
 import { internalMetaString } from './document-meta';
-import {
-  planExtractionGroups,
-  releaseSettled,
-  renderGroup,
-  type GroupDoc,
-} from './extraction-group';
+import { planExtractionGroups, releaseSettled, type GroupDoc } from './extraction-group';
 import { MemoryContextService } from '../ingest/memory-context.service';
 import { DecisionService } from '../ai/decisions/decision.service';
 import { triageText, type TriageStamp } from './triage';
@@ -46,8 +41,8 @@ import { IndexerRunService, groupDocOf } from './indexer-run.service';
  * an instruction, a self-identification, notable text or text naming an
  * entity in use is read at once and in full; the rest is kept raw —
  * served from its raw turns — until something asks for it: an answer that
- * cites it, a correction beside it (read in full, ahead of the rest), or
- * the nightly idle budget (one sample, most salient first).
+ * cites it (read in full, ahead of the rest), or the nightly idle budget
+ * (one sample, most salient first).
  *
  * A failed group fails its runs; the pass then schedules a backed-off
  * retry pass (which also lists failed runs) — the document stays
@@ -309,7 +304,17 @@ export class ExtractionBatchService implements OnModuleInit {
     const { ready, nextAt } = force
       ? { ready: candidates, nextAt: undefined }
       : releaseSettled(candidates, new Date(), { ...settleRule(), maxChars: budget.maxChars });
-    const groups = planExtractionGroups(ready, budget);
+    // Each turn's own depth: what is kept raw never joins a group, so a
+    // conversation's extraction reads only the turns worth reading.
+    const depthOf = new Map<string, ReadDepth>();
+    for (const g of ready) {
+      depthOf.set(g.id, await this.depthOfDoc(ctx.companyId, g, { byId, stamps, priority, floor }));
+    }
+    const toRead = ready.filter((g) => depthOf.get(g.id) !== 'raw');
+    const kept = ready.filter((g) => depthOf.get(g.id) === 'raw');
+    this.metrics?.depth('raw', kept.length);
+    await this.keepRaw(ctx.companyId, kept, byId);
+    const groups = planExtractionGroups(toRead, budget);
     // One memory scope reads in the order it was told, each group committed
     // before the next is read: the extractor reads a document against what
     // the memory already holds and supersedes it by handle (known facts),
@@ -324,7 +329,15 @@ export class ExtractionBatchService implements OnModuleInit {
     const outcomes = await Promise.all(
       [...byScope.values()].map((scoped) =>
         limiter.run(() =>
-          this.readScope(ctx, scoped, { byId, texts, chunksOf, stamps, priority, floor }),
+          this.readScope(ctx, scoped, {
+            byId,
+            texts,
+            chunksOf,
+            depthOf,
+            stamps,
+            priority,
+            floor,
+          }),
         ),
       ),
     );
@@ -345,23 +358,19 @@ export class ExtractionBatchService implements OnModuleInit {
   ): Promise<{ read: number; failed: number; committed: number }> {
     const out = { read: 0, failed: 0, committed: 0 };
     const first = (g: GroupDoc[]) => g[0]?.occurredAt.getTime() ?? 0;
-    const asked = (g: GroupDoc[]) => Math.max(...g.map((d) => page.priority.get(d.id) ?? 0));
-    // What something asked for first, then in the order it was said (a
-    // text is read against what was said before it, so the order is not
-    // what keeps a later value from being replaced by an earlier one).
-    const ordered = [...groups].sort((a, b) => asked(b) - asked(a) || first(a) - first(b));
+    const urgent = (g: GroupDoc[]) => (g.some((d) => d.urgent) ? 1 : 0);
+    // What something asked for or what is urgent first, then in the order
+    // it was said (a text is read against what was said before it, so the
+    // order is not what keeps a later value from being replaced).
+    const ordered = [...groups].sort((a, b) => urgent(b) - urgent(a) || first(a) - first(b));
     for (const group of ordered) {
       // Past the budget the rest waits for the next pass (still pending),
       // so a pass never outlives its job lease by more than one group.
       if (ctx.abortSignal?.aborted || Date.now() > ctx.deadline) break;
       await ctx.renew();
-      const depth = await this.depthOf(ctx.companyId, group, page);
+      // A group is read as deep as its deepest turn.
+      const depth = group.some((g) => page.depthOf.get(g.id) === 'full') ? 'full' : 'single';
       this.metrics?.depth(depth, group.length);
-      if (depth === 'raw') {
-        await this.keepRaw(ctx.companyId, group, page);
-        continue;
-      }
-      await this.captureNeighbours(ctx.companyId, group);
       const r = await this.readGroup(ctx, { group, depth }, page);
       if (!r.ok) {
         out.failed += r.members.length;
@@ -473,30 +482,21 @@ export class ExtractionBatchService implements OnModuleInit {
   ): Promise<Map<string, TriageStamp>> {
     const stamps = new Map<string, TriageStamp>();
     for (const d of docs) if (d.triage) stamps.set(d.id, d.triage);
-    const units = new Map<string, StoredDocument[]>();
-    for (const d of docs) {
-      const conversationId = internalMetaString(d.meta, 'conversationId');
-      const key = conversationId ? `${d.userId ?? ''}\x1e${conversationId}` : d.id;
-      units.set(key, [...(units.get(key) ?? []), d]);
-    }
-    const stale = [...units.values()].filter((u) => u.some((d) => !stamps.has(d.id)));
-    if (stale.length === 0 || !this.decisions?.enabled('triage')) return stamps;
+    const unstamped = docs.filter((d) => !stamps.has(d.id));
+    if (unstamped.length === 0 || !this.decisions?.enabled('triage')) return stamps;
     const limiter = new Semaphore(TRIAGE_CONCURRENCY);
     await Promise.all(
-      stale.map((unit) =>
+      unstamped.map((doc) =>
         limiter.run(async () => {
           try {
-            const members = unit.map((d) => groupDocOf(d, texts.get(d.id) ?? ''));
-            const text =
-              members.length === 1 ? (members[0]?.text ?? '') : renderGroup(members).text;
-            const stamp = await triageText(this.decisions, text);
-            if (!stamp) return;
-            await this.store.setTriage(
-              companyId,
-              unit.map((d) => d.id),
-              stamp,
+            const stamp = await triageText(
+              this.decisions,
+              texts.get(doc.id) ?? '',
+              conversationBefore(doc, docs, texts),
             );
-            for (const d of unit) stamps.set(d.id, stamp);
+            if (!stamp) return;
+            await this.store.setTriage(companyId, [doc.id], stamp);
+            stamps.set(doc.id, stamp);
           } catch (e) {
             this.logger.warn(`triage failed (${companyId}): ${(e as Error).message}`);
           }
@@ -507,38 +507,41 @@ export class ExtractionBatchService implements OnModuleInit {
   }
 
   /**
-   * How deep one group is read (read-depth.ts): its triage, whether
-   * something asked for it, and — only when that would leave it shallow —
-   * whether it names an entity the memory is using now.
+   * How deep one turn is read (read-depth.ts): its triage, what asked for
+   * it, and — only when that would leave it shallow — whether it names an
+   * entity the memory is using now.
    */
-  private async depthOf(companyId: string, group: GroupDoc[], page: Page): Promise<ReadDepth> {
-    const members = group.map((g) => page.byId.get(g.id) as StoredDocument);
+  private async depthOfDoc(
+    companyId: string,
+    g: GroupDoc,
+    page: Pick<Page, 'byId' | 'stamps' | 'priority' | 'floor'>,
+  ): Promise<ReadDepth> {
+    const doc = page.byId.get(g.id) as StoredDocument;
     const signals = {
-      stamps: group.map((g) => page.stamps.get(g.id)),
-      asked: strongestAsk(members.map((d) => askedOf(d, page.priority))),
+      stamps: [page.stamps.get(g.id)],
+      asked: askedOf(doc, page.priority),
       hot: false,
       floor: page.floor,
     };
     const depth = readDepth(signals);
     if (depth === 'full' || !this.memory) return depth;
-    const first = members[0] as StoredDocument;
-    const hot = await this.memory.inUse({
-      companyId,
-      text: group.map((g) => g.text).join('\n\n'),
-      userId: first.userId,
-    });
+    const hot = await this.memory.inUse({ companyId, text: g.text, userId: doc.userId });
     return hot ? readDepth({ ...signals, hot }) : depth;
   }
 
   /**
-   * Keep a group raw (depth `raw`): its runs close as `skipped` with the
+   * Keep turns raw (depth `raw`): their runs close as `skipped` with the
    * depth recorded, the documents stay remembered and served from their
    * raw turns, and any later need reopens them (CandidateStoreService.
    * promote). No extraction runs.
    */
-  private async keepRaw(companyId: string, group: GroupDoc[], page: Page): Promise<void> {
-    for (const g of group) {
-      const doc = page.byId.get(g.id) as StoredDocument;
+  private async keepRaw(
+    companyId: string,
+    kept: GroupDoc[],
+    byId: Map<string, StoredDocument>,
+  ): Promise<void> {
+    for (const g of kept) {
+      const doc = byId.get(g.id) as StoredDocument;
       try {
         await this.runs.keepRaw({ companyId, doc });
         await this.store.setStatus({ companyId, docId: doc.id, status: 'indexed' });
@@ -546,28 +549,6 @@ export class ExtractionBatchService implements OnModuleInit {
         this.logger.warn(`keep-raw of ${doc.id} failed: ${(e as Error).message}`);
       }
     }
-  }
-
-  /**
-   * Retroactive capture (§4.2 T-8): an urgent read — a correction, a
-   * change, an instruction, or one something asked for — reopens the
-   * turns of its conversation that were kept raw, so they are read now
-   * with it in mind. Their priority puts them ahead of the backlog.
-   */
-  private async captureNeighbours(companyId: string, group: GroupDoc[]): Promise<void> {
-    const urgent = group.some((g) => g.urgent);
-    const conversationId = group[0]?.conversationId;
-    if (!urgent || !conversationId) return;
-    const reopened = await this.candidates
-      .promote(companyId, {
-        packId: GENERAL_INDEXER_ID,
-        packVersion: GENERAL_INDEXER_VERSION,
-        priority: PRIORITY.neighbour,
-        target: { conversationId, userId: group[0]?.userId },
-      })
-      .catch(() => 0);
-    this.metrics?.promoted('neighbour', reopened);
-    if (reopened > 0) await this.schedule(companyId, { delayMs: 1000 });
   }
 }
 
@@ -629,6 +610,8 @@ interface Page {
   byId: Map<string, StoredDocument>;
   texts: Map<string, string>;
   chunksOf: Map<string, DocumentChunk[]>;
+  /** How deep each turn to read is read (read-depth.ts). */
+  depthOf: Map<string, ReadDepth>;
   /** D1 stamps, per document. */
   stamps: Map<string, TriageStamp>;
   /** The waiting run's priority (0168), per document. */
@@ -646,13 +629,29 @@ function askedOf(doc: StoredDocument, priority: Map<string, number>): ReadAsk | 
   return askOf(priority.get(doc.id) ?? 0);
 }
 
-/** A group is asked for as strongly as its most asked-for member. */
-function strongestAsk(asks: Array<ReadAsk | undefined>): ReadAsk | undefined {
-  const rank = (a: ReadAsk | undefined): number => (a === undefined ? 0 : PRIORITY[a]);
-  return asks.reduce<ReadAsk | undefined>(
-    (best, a) => (rank(a) > rank(best) ? a : best),
-    undefined,
-  );
+/**
+ * What a turn's conversation said before it, among the documents waiting
+ * with it — the context its triage reads it in. Empty for a standalone
+ * document.
+ */
+function conversationBefore(
+  doc: StoredDocument,
+  docs: StoredDocument[],
+  texts: Map<string, string>,
+): string {
+  const conversationId = internalMetaString(doc.meta, 'conversationId');
+  if (!conversationId) return '';
+  return docs
+    .filter(
+      (d) =>
+        d.id !== doc.id &&
+        (d.userId ?? '') === (doc.userId ?? '') &&
+        internalMetaString(d.meta, 'conversationId') === conversationId &&
+        d.occurredAt.getTime() <= doc.occurredAt.getTime(),
+    )
+    .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime())
+    .map((d) => texts.get(d.id) ?? '')
+    .join('\n');
 }
 
 /** What one pass carries down to its reads. */

@@ -9,8 +9,8 @@
  *    raw, the turn still remembered;
  *  - a routine text is kept raw too (read on demand), an urgent one in
  *    full at once; the idle budget reads it with one sample;
- *  - an urgent turn reads its conversation at once, not when it goes quiet;
- *  - it reopens the turns of its conversation kept raw (retroactive capture);
+ *  - an urgent turn is read at once, not when its conversation goes quiet,
+ *    and its raw-kept neighbours stay raw;
  *  - an answer that cites a raw-kept turn gets it read, ahead of the backlog.
  */
 import { AppFixture, createApp } from './app-fixture';
@@ -63,7 +63,12 @@ describe('read depth and promotion (e2e)', () => {
     jest.spyOn(decisions, 'enabled').mockImplementation((lane) => lane === 'triage');
     jest
       .spyOn(decisions, 'decide')
-      .mockImplementation(async (_lane, req) => triageOf(String(req.state)) as never);
+      // The judged text is the last part of the state (the turns before it
+      // ride as context).
+      .mockImplementation(
+        async (_lane, req) =>
+          triageOf(String(Array.isArray(req.state) ? req.state.at(-1) : req.state)) as never,
+      );
   });
 
   afterAll(async () => {
@@ -134,7 +139,7 @@ describe('read depth and promotion (e2e)', () => {
     expect(f.extractor.passes.slice(passes)).toContain(1);
   });
 
-  it('an urgent turn reads its conversation at once, and reopens its raw-kept turns', async () => {
+  it('an urgent turn is read at once, in full; its raw-kept neighbour stays raw', async () => {
     const conv = 'xd-correct';
     await say(conv, 'Ок, спасибо!!', '2026-09-21T10:00:00.000Z');
     await batch.runPass(f.companyId, { force: true });
@@ -144,12 +149,10 @@ describe('read depth and promotion (e2e)', () => {
     const passes = f.extractor.passes.length;
     await say(conv, 'Нет, бюджет Orbis теперь 2500 евро.', '2026-09-21T10:01:00.000Z');
     const pass = await batch.runPass(f.companyId);
-    // The correction, read at once in full — and its raw-kept neighbour,
-    // reopened beside it (priority 2) and read in full by the same pass.
-    expect(pass.read).toBe(2);
-    expect(f.extractor.passes.slice(passes)).toEqual([undefined, undefined]);
+    expect(pass.read).toBe(1);
+    expect(f.extractor.passes.slice(passes)).toEqual([undefined]);
     expect(await runsOf(conv)).toMatchObject([
-      { status: 'succeeded', depth: 'full', priority: 2 },
+      { status: 'skipped', depth: 'raw' },
       { status: 'succeeded', depth: 'full' },
     ]);
   });
@@ -170,7 +173,7 @@ describe('read depth and promotion (e2e)', () => {
       answer: 'До связи.',
       factCited: false,
     });
-    expect(await runsOf(conv)).toMatchObject([{ status: 'pending', priority: 3 }]);
+    expect(await runsOf(conv)).toMatchObject([{ status: 'pending', priority: 2 }]);
     const passes = f.extractor.passes.length;
     await batch.runPass(f.companyId, { force: true });
     expect(await runsOf(conv)).toMatchObject([{ status: 'succeeded', depth: 'full' }]);

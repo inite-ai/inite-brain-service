@@ -298,13 +298,12 @@ describe('ExtractionMetrics', () => {
     m.depth('raw', 2);
     m.depth('single', 1);
     m.promoted('answer', 1);
-    m.promoted('neighbour', 0);
+    m.promoted('answer', 0);
     m.promoted('idle', 3);
     const text = await registry.metrics();
     expect(text).toContain('brain_extraction_depth_documents_total{depth="raw"} 2');
     expect(text).toContain('brain_extraction_depth_documents_total{depth="single"} 1');
     expect(text).toContain('brain_extraction_promoted_documents_total{reason="answer"} 1');
-    expect(text).not.toContain('reason="neighbour"');
     expect(text).toContain('brain_extraction_promoted_documents_total{reason="idle"} 3');
   });
 });

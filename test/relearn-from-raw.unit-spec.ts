@@ -129,7 +129,7 @@ describe('RelearnFromRawService', () => {
     const { svc, calls } = harness({ promoted: 1 });
     expect(await svc.relearn(lesson)).toEqual({ turns: 1, facts: 0 });
     expect(calls.promoted).toEqual([
-      expect.objectContaining({ priority: 3, target: { docIds: ['source_document:d1'] } }),
+      expect.objectContaining({ priority: 2, target: { docIds: ['source_document:d1'] } }),
     ]);
     expect(calls.scheduled).toBe(1);
     expect(calls.focused).toEqual([]);

@@ -2,14 +2,14 @@
  * The batch pass's decisions, with every collaborator stubbed
  * (ExtractionBatchService; read-depth.ts; docs/roadmap/raw-processing-
  * triggers-2026-09.md §4.1–4.2):
- *  - triage: one request per waiting text — a conversation as its unread
- *    turns together — skipped for what already carries a stamp;
+ *  - triage: one request per waiting turn, read with the turns before it
+ *    as context — skipped for what already carries a stamp;
  *  - a held conversation is read at once when a turn is urgent;
  *  - depth: noise and routine text kept raw (no read); urgent, in-use,
  *    asked-for or untriaged read in full; in-use asked only when the text
  *    would otherwise be kept raw; the idle budget reads the most salient
  *    of the deferred backlog, one sample each;
- *  - an urgent read reopens its conversation's raw-kept turns;
+ *  - a turn kept raw never joins its conversation's group;
  *  - the pass lists what it has not taken yet, and steps back — asking
  *    again later — when another replica holds the tenant.
  */
@@ -160,9 +160,11 @@ function harness(opts: {
   };
   const decisions = {
     enabled: (lane: string) => lane === 'triage' && !opts.triageOff,
-    decide: async (_lane: string, req: { state: string }) => {
-      triaged.push(req.state);
-      return answers(opts.verdict(req.state));
+    decide: async (_lane: string, req: { state: string | string[] }) => {
+      // The judged text is the last part; the turns before it ride as context.
+      const parts = Array.isArray(req.state) ? req.state : [req.state];
+      triaged.push(parts.join('\n'));
+      return answers(opts.verdict(parts.at(-1) ?? ''));
     },
   };
   const lease = {
@@ -198,7 +200,7 @@ const verdictOf = (text: string): Verdict =>
   /Нет,/.test(text) ? 'correction' : /спасибо/.test(text) ? 'noise' : 'routine';
 
 describe('ExtractionBatchService — triage, urgency, depth', () => {
-  it('triages a conversation as its unread turns together, and a note alone', async () => {
+  it('triages each turn, with the turns before it as context, and a note alone', async () => {
     const h = harness({
       docs: [turn('a', 'c1', 300), turn('b', 'c1', 200), note('n')],
       texts: {
@@ -209,10 +211,12 @@ describe('ExtractionBatchService — triage, urgency, depth', () => {
       verdict: verdictOf,
     });
     await h.svc.runPass('co', { force: true });
-    expect(h.triaged).toHaveLength(2);
-    const conv = h.triaged.find((t) => t.includes('Orbis'))!;
-    expect(conv).toContain('Созвон в четверг.');
-    expect(h.stamped.map((s) => s.ids.length).sort()).toEqual([1, 2]);
+    expect(h.triaged).toHaveLength(3);
+    const second = h.triaged.find((t) => t.includes('TEXT:\nСозвон в четверг.'))!;
+    // The earlier turn is context, not what is judged.
+    expect(second).toContain('CONTEXT');
+    expect(second).toContain('Бюджет Orbis — 3000.');
+    expect(h.stamped.map((s) => s.ids.length)).toEqual([1, 1, 1]);
   });
 
   it('does not triage what already carries a stamp', async () => {
@@ -281,14 +285,14 @@ describe('ExtractionBatchService — triage, urgency, depth', () => {
       docs: [turn('t', 'cp', 1)],
       texts: { 'source_document:t': 'Ок, спасибо!' },
       verdict: verdictOf,
-      priority: { 'source_document:t': 3 },
+      priority: { 'source_document:t': 2 },
     });
     // Not forced, the conversation still talking: promoted → read now.
     await h.svc.runPass('co');
     expect(h.reads).toEqual([{ ids: ['source_document:t'], depth: 'full' }]);
   });
 
-  it('holds a talking conversation — unless a turn is urgent; an urgent read reopens raw-kept neighbours', async () => {
+  it('holds a talking conversation — unless a turn is urgent; then reads only the turns worth reading', async () => {
     const calm = harness({
       docs: [turn('a', 'c2', 10), turn('b', 'c2', 5)],
       texts: { 'source_document:a': 'Бюджет — 3000.', 'source_document:b': 'Созвон в четверг.' },
@@ -302,18 +306,15 @@ describe('ExtractionBatchService — triage, urgency, depth', () => {
     const urgent = harness({
       docs: [turn('a', 'c3', 10), turn('b', 'c3', 5)],
       texts: {
-        'source_document:a': 'Бюджет — 3000.',
+        'source_document:a': 'Ок, спасибо!',
         'source_document:b': 'Нет, бюджет теперь 2500.',
       },
       verdict: verdictOf,
     });
     await urgent.svc.runPass('co');
-    expect(urgent.reads).toEqual([
-      { ids: ['source_document:a', 'source_document:b'], depth: 'full' },
-    ]);
-    expect(urgent.promotions).toEqual([
-      expect.objectContaining({ priority: 2, target: { conversationId: 'c3', userId: undefined } }),
-    ]);
+    expect(urgent.reads).toEqual([{ ids: ['source_document:b'], depth: 'full' }]);
+    expect(urgent.keptRaw).toEqual(['source_document:a']);
+    expect(urgent.promotions).toEqual([]);
   });
 
   it('lists only what it has not taken yet', async () => {

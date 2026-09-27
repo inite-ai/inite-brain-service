@@ -12,7 +12,7 @@ import type { TriageStamp } from './triage';
  *  - `full` — urgent (a change, a correction, an instruction, a self-
  *    identification), notable (salience ≥ 2), naming an entity in use,
  *    untriaged (the judge unavailable — the asymmetric default), or asked
- *    for by an answer or beside an urgent read;
+ *    for by an answer that cited it;
  *  - `single` — one sample: a current value of something that can change
  *    (the baseline a later change replaces), or the idle budget reading
  *    the deferred backlog;
@@ -22,7 +22,7 @@ import type { TriageStamp } from './triage';
 export type ReadDepth = 'raw' | 'single' | 'full';
 
 /** Why a read was asked for (the run's priority, 0168). */
-export type ReadAsk = 'idle' | 'neighbour' | 'answer';
+export type ReadAsk = 'idle' | 'answer';
 
 export interface DepthSignals {
   /** The stamps of every document read as one text; `undefined` = not triaged. */
@@ -49,7 +49,7 @@ export function isUrgent(stamps: Array<TriageStamp | undefined>, floor: number):
 }
 
 export function readDepth(p: DepthSignals): ReadDepth {
-  if (p.asked === 'answer' || p.asked === 'neighbour' || p.hot) return 'full';
+  if (p.asked === 'answer' || p.hot) return 'full';
   if (p.stamps.length === 0 || p.stamps.some((s) => s === undefined)) return 'full';
   const stamps = p.stamps as TriageStamp[];
   if (isUrgent(stamps, p.floor)) return 'full';
@@ -65,17 +65,11 @@ export function readDepth(p: DepthSignals): ReadDepth {
 
 /** A run's priority (0168) as what asked for the read. */
 export function askOf(priority: number): ReadAsk | undefined {
-  return priority >= PRIORITY.answer
-    ? 'answer'
-    : priority >= PRIORITY.neighbour
-      ? 'neighbour'
-      : priority >= PRIORITY.idle
-        ? 'idle'
-        : undefined;
+  return priority >= PRIORITY.answer ? 'answer' : priority >= PRIORITY.idle ? 'idle' : undefined;
 }
 
 /** Run priorities (0168): what asked for a read, highest first in the queue. */
-export const PRIORITY = { idle: 1, neighbour: 2, answer: 3 } as const;
+export const PRIORITY = { idle: 1, answer: 2 } as const;
 
 /**
  * EXTRACTION_TRIAGE_FLOOR: the probability at or above which a triage
