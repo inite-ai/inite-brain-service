@@ -180,6 +180,23 @@ describe('CandidateStoreService — the reader queue', () => {
     ).toBe(0);
   });
 
+  it('lists the deferred backlog — kept raw, not noise — most salient first', async () => {
+    const { surreal, queries } = captureDb([[{ docId: 'source_document:a' }]]);
+    const store = new CandidateStoreService(surreal as never);
+    const out = await store.listDeferred('co', {
+      packId: '_general',
+      packVersion: 'v',
+      floor: 0.5,
+      limit: 64,
+    });
+    expect(out).toEqual(['source_document:a']);
+    expect(queries[0]!.sql).toContain("status = 'skipped' AND stats.depth = 'raw'");
+    expect(queries[0]!.sql).toContain(
+      'docId.triage.durable >= $floor OR docId.triage.salience >= 1',
+    );
+    expect(queries[0]!.sql).toContain('ORDER BY s DESC, d DESC, at DESC');
+  });
+
   it('promotes by conversation within one scope', async () => {
     const { surreal, queries } = captureDb([[], []]);
     const store = new CandidateStoreService(surreal as never);
@@ -224,8 +241,9 @@ describe('EpisodeReadStoreService.pendingTurns', () => {
 });
 
 describe('CandidateSweeperService.reconcileRuns', () => {
-  it("schedules the reader's retry pass — its safety net", async () => {
+  it("schedules the reader's retry pass — its safety net — and the idle budget", async () => {
     const scheduled: unknown[] = [];
+    let idle = 0;
     const candidates = {
       reapStaleRuns: async () => 0,
       findDocsNeedingCommit: async () => [],
@@ -237,10 +255,14 @@ describe('CandidateSweeperService.reconcileRuns', () => {
       undefined,
       undefined,
       undefined,
-      { schedule: async (_c: string, p: unknown) => scheduled.push(p) } as never,
+      {
+        schedule: async (_c: string, p: unknown) => scheduled.push(p),
+        readDeferred: async () => (idle += 1),
+      } as never,
     );
     await sweeper.reconcileRuns('co');
     expect(scheduled).toEqual([{ retry: 1 }]);
+    expect(idle).toBe(1);
   });
 });
 
@@ -276,11 +298,12 @@ describe('ExtractionMetrics', () => {
     m.depth('raw', 2);
     m.depth('single', 1);
     m.promoted('answer', 1);
-    m.promoted('neighbour', 0);
+    m.promoted('answer', 0);
+    m.promoted('idle', 3);
     const text = await registry.metrics();
     expect(text).toContain('brain_extraction_depth_documents_total{depth="raw"} 2');
     expect(text).toContain('brain_extraction_depth_documents_total{depth="single"} 1');
     expect(text).toContain('brain_extraction_promoted_documents_total{reason="answer"} 1');
-    expect(text).not.toContain('reason="neighbour"');
+    expect(text).toContain('brain_extraction_promoted_documents_total{reason="idle"} 3');
   });
 });

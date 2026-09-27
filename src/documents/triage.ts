@@ -6,24 +6,28 @@ import type { DecisionAnswer } from '../ai/decisions/decision.types';
  * deeply (docs/roadmap/raw-processing-triggers-2026-09.md §4.1).
  *
  * One decision-plane request per waiting text — a standalone document, or
- * a conversation's unread turns rendered together (a turn alone says
- * little) — with five noul questions and the salience rubric of the
+ * one turn of a conversation read with the turns before it as context (a
+ * turn alone — "yes, let's" — says little, but it is the turn that is
+ * judged: a greeting in a conversation about a budget is still a
+ * greeting) — with six noul questions and the salience rubric of the
  * importance-scoring design, all answered against the same state in
  * parallel: a fraction of a cent, two orders below a full extraction.
  *
  * The stamp decides WHEN and HOW DEEP the text is read (read-depth.ts,
- * extraction-batch.service.ts): an urgent text is read at once, noise is
- * kept raw until something asks for it, routine text is read with one
- * sample. Asymmetric: an unanswered question reads as "maybe", and a text
+ * extraction-batch.service.ts): an urgent or notable text is read at once
+ * and in full; everything else is kept raw until something asks for it,
+ * and the stamps rank the deferred backlog for the idle budget. Asymmetric: an unanswered question reads as "maybe", and a text
  * with no stamp — the lane off, unkeyed or failing — is read in full, as
  * it was before triage existed.
  */
 
 /** Stamp version — bumped when the questions change meaning. */
-export const TRIAGE_VERSION = 1;
+export const TRIAGE_VERSION = 2;
 
 /** The plane reads what one extraction call reads, and no more. */
 const TEXT_CHARS = 12_000;
+/** The conversation before a turn, read for its sense. */
+const CONTEXT_CHARS = 3_000;
 
 export interface TriageStamp {
   v: number;
@@ -34,6 +38,8 @@ export interface TriageStamp {
   instruction: number;
   correction: number;
   identity: number;
+  /** It states the current value of something that can later change (a baseline a later change replaces). */
+  state: number;
   /** 0 incidental · 1 routine · 2 notable · 3 identity-central. */
   salience: number;
 }
@@ -72,6 +78,15 @@ const NOUL = {
       false: 'Nothing earlier is corrected.',
     },
   },
+  state: {
+    instructions:
+      'Does the text state the current value of something that can later change — where someone lives or works, what they own or use, who holds a role, a status, an amount, a date or deadline, a plan in force?',
+    criteria: {
+      true: 'Yes — a current value that a later statement could replace.',
+      false:
+        'No — only events, opinions, feelings, stories, or talk with no value that holds from now on.',
+    },
+  },
   identity: {
     instructions:
       'Does the speaker state who they are — their name, role, job, family, home or another identity-central fact about themselves?',
@@ -100,6 +115,8 @@ const SALIENCE = {
 export async function triageText(
   decisions: DecisionService | undefined,
   text: string,
+  /** What was said before it (a conversation's earlier turns) — read for sense, not judged. */
+  context?: string,
 ): Promise<TriageStamp | null> {
   if (!decisions?.enabled('triage') || !text.trim()) return null;
   const questions = {
@@ -108,8 +125,11 @@ export async function triageText(
     ),
     salience: SALIENCE,
   };
+  const judged = `TEXT:\n${text.slice(0, TEXT_CHARS)}`;
   const res = await decisions.decide('triage', {
-    state: `TEXT:\n${text.slice(0, TEXT_CHARS)}`,
+    state: context?.trim()
+      ? [`CONTEXT (said before the text; not judged):\n${context.slice(-CONTEXT_CHARS)}`, judged]
+      : judged,
     questions,
   });
   if (!res) return null;
@@ -123,6 +143,7 @@ export async function triageText(
     instruction: p('instruction'),
     correction: p('correction'),
     identity: p('identity'),
+    state: p('state'),
     salience: salienceLevel(salience),
   };
 }

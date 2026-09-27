@@ -15,6 +15,7 @@ import { CandidateStoreService } from './candidate-store.service';
 import { ExtractionBatchService } from './extraction-batch.service';
 import { ExtractionMetrics } from './extraction.metrics';
 import { GENERAL_INDEXER_ID, GENERAL_INDEXER_VERSION } from '../indexers/candidate.types';
+import { PRIORITY } from './read-depth';
 
 export interface RelearnRequest {
   companyId: string;
@@ -41,9 +42,6 @@ interface EpisodeRow {
   userId?: string | null;
   vertical?: string | null;
 }
-
-/** Priority of a read an answer cited before it was understood (0168). */
-const PRIORITY_ANSWER = 2;
 
 /** Turns relearned per answer — the ones the answer cites, not the session. */
 const MAX_TURNS = 4;
@@ -207,7 +205,7 @@ export class RelearnFromRawService implements OnModuleInit {
       .promote(req.companyId, {
         packId: GENERAL_INDEXER_ID,
         packVersion: GENERAL_INDEXER_VERSION,
-        priority: PRIORITY_ANSWER,
+        priority: PRIORITY.answer,
         target: { docIds: [doc.id] },
       })
       .catch(() => 0);

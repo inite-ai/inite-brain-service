@@ -407,6 +407,32 @@ export class CandidateStoreService {
   }
 
   /**
+   * The deferred backlog: documents kept raw that are not noise — worth
+   * knowing next week, or more than incidental (read-depth.ts isDeferred)
+   * — most salient first, then the most durable, then the newest. What the
+   * idle budget reads; the triage stamps that rank it are the decision
+   * plane's own judgement, made when the text arrived.
+   */
+  async listDeferred(
+    companyId: string,
+    p: { packId: string; packVersion: string; floor: number; limit: number },
+  ): Promise<string[]> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      const rows = await queryRows<{ docId: unknown }>(
+        db,
+        `SELECT docId, docId.triage.salience AS s, docId.triage.durable AS d, docId.occurredAt AS at
+           FROM indexer_run
+          WHERE packId = $pack AND packVersion = $ver
+            AND status = 'skipped' AND stats.depth = 'raw'
+            AND (docId.triage.durable >= $floor OR docId.triage.salience >= 1)
+          ORDER BY s DESC, d DESC, at DESC LIMIT $limit`,
+        { pack: p.packId, ver: p.packVersion, floor: p.floor, limit: p.limit },
+      );
+      return rows.map((r) => String(r.docId));
+    });
+  }
+
+  /**
    * Ask for documents to be read (0168): a read kept raw (a `skipped`
    * run of depth `raw`) is reopened as waiting, and a waiting one is moved
    * up — never down. Documents are named by id, or as the raw-kept turns
