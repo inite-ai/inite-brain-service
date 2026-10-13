@@ -15,6 +15,7 @@ import { ConfluenceConnector } from './connectors/confluence.connector';
 import { GmailConnector } from './connectors/gmail.connector';
 import { ImapConnector } from './connectors/imap.connector';
 import { GithubConnector } from './connectors/github.connector';
+import { GitlabConnector } from './connectors/gitlab.connector';
 import { SlackConnector } from './connectors/slack.connector';
 import { TelegramConnector } from './connectors/telegram.connector';
 import { DropboxConnector } from './connectors/dropbox.connector';
@@ -112,6 +113,7 @@ import { SourceSyncService } from './source-sync.service';
     GmailConnector,
     ImapConnector,
     GithubConnector,
+    GitlabConnector,
     SlackConnector,
     TelegramConnector,
     PipedriveConnector,
@@ -136,6 +138,7 @@ import { SourceSyncService } from './source-sync.service';
         GmailConnector,
         ImapConnector,
         GithubConnector,
+        GitlabConnector,
         SlackConnector,
         TelegramConnector,
         PipedriveConnector,

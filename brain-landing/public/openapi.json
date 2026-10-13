@@ -8558,7 +8558,8 @@
                     "notion",
                     "atlassian",
                     "slack",
-                    "github"
+                    "github",
+                    "gitlab"
                   ],
                   "type": "string"
                 },
@@ -8688,7 +8689,8 @@
               "notion",
               "atlassian",
               "slack",
-              "github"
+              "github",
+              "gitlab"
             ],
             "type": "string"
           }

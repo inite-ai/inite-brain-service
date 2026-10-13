@@ -469,6 +469,7 @@ export const SourceOAuthProviderIdSchema = z.enum([
   'atlassian',
   'slack',
   'github',
+  'gitlab',
 ]);
 
 export const SourceOAuthStartRequestSchema = z.object({

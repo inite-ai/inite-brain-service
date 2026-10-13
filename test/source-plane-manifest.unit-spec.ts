@@ -180,7 +180,7 @@ describe('sources consent', () => {
     expect(wantsInstallSecret(base(undefined))).toBe(false);
   });
 
-  it('code_memory is the first source pack — the structure source, the agent-run docs entry and the forge (W4.8)', () => {
+  it('code_memory is the first source pack — the structure source, the agent-run docs entry and both forges (W4.8 / W4.9)', () => {
     expect(CODE_MEMORY_PACK.sources).toEqual([
       expect.objectContaining({ id: 'repository', kind: 'external', shape: 'structure' }),
       expect.objectContaining({
@@ -201,6 +201,18 @@ describe('sources consent', () => {
         id: 'github_docs',
         kind: 'native',
         connector: 'github',
+        shape: 'document',
+      }),
+      expect.objectContaining({
+        id: 'gitlab_issues',
+        kind: 'native',
+        connector: 'gitlab',
+        shape: 'conversation',
+      }),
+      expect.objectContaining({
+        id: 'gitlab_docs',
+        kind: 'native',
+        connector: 'gitlab',
         shape: 'document',
       }),
     ]);

@@ -55,7 +55,7 @@ import { composePredicateId, type DomainPackManifest } from './manifest';
  */
 export const CODE_MEMORY_PACK: DomainPackManifest = {
   id: 'code_memory',
-  version: '0.10.0',
+  version: '0.11.0',
   description:
     'Non-derivable engineering "why" of a codebase — decisions, rationale, invariants, gotchas, ownership, flag/config defaults, dependency pins, and decision supersession anchored to code, with a domain extraction profile and memory model.',
   // Retro-declaration, documentation-true: code-memory has ALWAYS been an
@@ -114,6 +114,28 @@ export const CODE_MEMORY_PACK: DomainPackManifest = {
       title: 'GitHub repository docs',
       description:
         'The text documents of a GitHub repository read over the API (no clone) — README, docs/**, ADRs, changelogs — from one recursive tree call, the blob sha as the revision. config: { repo, baseUrl?, ref?, paths?, extensions?, maxFiles?, maxFileBytes? }; same credential as `github_issues`.',
+      defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '4h' },
+    },
+    // ── The other forge (W4.9): the same two shapes on GitLab, where an
+    // issue and a merge request are numbered SEPARATELY.
+    {
+      id: 'gitlab_issues',
+      kind: 'native',
+      connector: 'gitlab',
+      shape: 'conversation',
+      title: 'GitLab issues and merge requests',
+      description:
+        'Every issue and merge request of a GitLab project as one conversation — the description and then every note, each speaking as its author; GitLab\'s own activity notes ("changed the description") are not turns, and `updated_at` is the revision, so a new note brings the thread back whole. An issue #5 and a merge request !5 are two threads. config: { project, baseUrl?, includeMergeRequests?, labels?, since?, maxItems? }; credential: a connected GitLab account or a token with read_api.',
+      defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '1h' },
+    },
+    {
+      id: 'gitlab_docs',
+      kind: 'native',
+      connector: 'gitlab',
+      shape: 'document',
+      title: 'GitLab repository docs',
+      description:
+        'The text documents of a GitLab project read over the API (no clone) — README, docs/**, ADRs, changelogs — from the recursive tree listing, the blob id as the revision. config: { project, baseUrl?, ref?, paths?, extensions?, maxFiles?, maxFileBytes? }; same credential as `gitlab_issues`.',
       defaults: { contentPolicy: 'text', deletePolicy: 'close', schedule: '4h' },
     },
   ],
