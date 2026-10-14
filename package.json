@@ -76,7 +76,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",
     "@aws-sdk/client-s3": "^3.1136.0",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "@nestjs/common": "^11.2.4",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.29",
