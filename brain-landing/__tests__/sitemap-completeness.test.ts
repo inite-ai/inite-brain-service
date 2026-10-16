@@ -22,10 +22,10 @@ describe('sitemap()', () => {
   const sm = sitemap()
   const urls = sm.map((e) => e.url)
 
-  it('emits root + (home/docs-index/blog-index + docs + blog) × locale', () => {
+  it('emits root + (home/privacy/docs-index/blog-index + docs + blog) × locale', () => {
     const docs = DOCS_PAGES.length
     const blog = getBlogSlugs().length
-    const perLocale = 3 + docs + blog // home, docs index, blog index, docs, posts
+    const perLocale = 4 + docs + blog // home, privacy, docs index, blog index, docs, posts
     const expected = 1 + perLocale * LANGS.length // +1 for the bare root
     expect(sm.length).toBe(expected)
   })
