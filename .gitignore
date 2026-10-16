@@ -27,3 +27,6 @@ var/
 # Local compose overrides (see docker-compose.override.yml.example) — a
 # laptop-specific port mapping is never source.
 docker-compose.override.yml
+
+# local env variants (e.g. .env.local.<experiment>) never belong in git
+.env.local*
