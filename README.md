@@ -103,6 +103,8 @@ service, running from source, and production:
 [INITE Billing](https://github.com/inite-ai/inite-billing-service) does; the
 contract between them is
 [triad-compatibility.md](https://github.com/inite-ai/inite-ecosystem/blob/main/docs/triad-compatibility.md).
+Run all three with one compose file:
+[inite-ai/inite-triad](https://github.com/inite-ai/inite-triad).
 
 ## What Brain is
 
