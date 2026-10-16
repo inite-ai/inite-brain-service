@@ -158,7 +158,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
     {
       title: 'Multi-hop search across the knowledge graph',
       description:
-        'Planner-LLM decomposes the query into ≤ maxHops anchored sub-queries; later hops are anchored to the running entity set so the engine never spends compute on candidates already disqualified. Use for questions that combine evidence across turns / sessions, or that require reasoning over multiple entities ("tenants who complained in April AND upgraded after"). Set synthesize=true to get a grounded answer with citations alongside the per-hop trace. Returns finalEntityIds + supportingFactIds (HotpotQA-style evidence chain) so the caller can audit which facts drove the answer.' +
+        'Planner-LLM decomposes the query into ≤ maxHops anchored sub-queries; later hops are anchored to the running entity set so the engine never spends compute on candidates already disqualified. Built for questions that combine evidence across turns / sessions, or that require reasoning over multiple entities ("tenants who complained in April AND upgraded after"). Set synthesize=true to get a grounded answer with citations alongside the per-hop trace. Returns finalEntityIds + supportingFactIds (HotpotQA-style evidence chain) so the caller can audit which facts drove the answer.' +
         embedderHint,
       inputSchema: {
         query: z.string().describe('Natural-language query'),
@@ -233,7 +233,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
     {
       title: 'Synthesize a grounded answer from retrieved facts',
       description:
-        'Runs hybrid search then feeds the retrieved facts to a generator LLM that produces a citation-bearing answer (each claim ends with [factId]); a verifier LLM then judges whether every claim is supported. Three guardrail modes: strict (default) returns null on partial / unsupported / verifier outage (fail-closed); lenient returns the answer alongside the verifier verdict; off skips the verifier. Use when you need a direct natural-language answer rather than raw search results.' +
+        'Runs hybrid search then feeds the retrieved facts to a generator LLM that produces a citation-bearing answer (each claim ends with [factId]); a verifier LLM then judges whether every claim is supported. Three guardrail modes: strict (default) returns null on partial / unsupported / verifier outage (fail-closed); lenient returns the answer alongside the verifier verdict; off skips the verifier. Returns a direct natural-language answer rather than raw search results.' +
         embedderHint,
       inputSchema: {
         query: z.string().describe('Natural-language question'),
@@ -349,7 +349,7 @@ function registerGraphRetrieveTool({
     {
       title: 'Graph-first retrieval around named entities',
       description:
-        'Resolves the named entities by canonical name, walks their 1-hop neighbourhood over knowledge_edge, and returns facts across seeds ∪ neighbours, optionally filtered by predicate hints. Use when you already know WHICH entities the question is about and want what the graph knows around them ("who runs engineering at Acme" — the answer lives on a neighbour, not on Acme itself); use search_knowledge when you only have free text. Seeds score 1.0, neighbours 0.7; soft-fails to an empty result so you can fall back to search_knowledge.',
+        'Resolves the named entities by canonical name, walks their 1-hop neighbourhood over knowledge_edge, and returns facts across seeds ∪ neighbours, optionally filtered by predicate hints. Works from entities named up front and returns what the graph holds around them ("who runs engineering at Acme" — the answer lives on a neighbour, not on Acme itself). Seeds score 1.0, neighbours 0.7; soft-fails to an empty result.',
       inputSchema: {
         entityNames: z
           .array(z.string())
@@ -401,7 +401,7 @@ function registerEntityReadTools({
     {
       title: 'Get entity profile',
       description:
-        'Full profile of one entity: canonical name, type, externalRefs (cross-vertical ids), and active facts. Use externalRefs to rehydrate fresh state from the originating vertical via @inite/api-kit.',
+        'Full profile of one entity: canonical name, type, externalRefs (cross-vertical ids), and active facts. externalRefs point back to the originating vertical, where fresh state can be rehydrated via @inite/api-kit.',
       inputSchema: {
         entityId: z.string().describe('Brain entity id (knowledge_entity:...) or short id'),
         asOf: isoDateTime()
@@ -463,7 +463,7 @@ function registerEntityReadTools({
     {
       title: 'One-line briefing for an entity',
       description:
-        "Returns a short one-line briefing about the entity — name, type, the most-confident active facts, external refs — suitable for dropping into an LLM context window. Caches in-process (per companyId / entityId / asOf / styleHint) so a hot entity touched across many turns doesn't reload the profile. styleHint='neutral' | 'sales' | 'support' are template-rendered (no LLM call). styleHint='client_llm' opts into MCP SAMPLING: brain asks the connected client (Claude Desktop / agent runtime) to write the one-liner with its own model — zero brain-side OpenAI cost, perfect for self-hosters who don't want brain holding an LLM key. Falls back to neutral template + sampledBy='local_template' when the client doesn't advertise sampling capability. Use INSTEAD of profile+timeline+competing when you only need a briefing.",
+        "Returns a short one-line briefing about the entity — name, type, the most-confident active facts, external refs — suitable for dropping into an LLM context window. Caches in-process (per companyId / entityId / asOf / styleHint) so a hot entity touched across many turns doesn't reload the profile. styleHint='neutral' | 'sales' | 'support' are template-rendered (no LLM call). styleHint='client_llm' opts into MCP SAMPLING: brain asks the connected client (Claude Desktop / agent runtime) to write the one-liner with its own model — zero brain-side OpenAI cost, perfect for self-hosters who don't want brain holding an LLM key. Falls back to neutral template + sampledBy='local_template' when the client doesn't advertise sampling capability. A briefing in place of the full profile, timeline and competing facts.",
       inputSchema: {
         entityId: z.string().describe('Brain entity id (knowledge_entity:...) or short id'),
         asOf: isoDateTime().optional().describe('Summarize what was known at this ISO 8601 moment'),
@@ -518,7 +518,7 @@ function registerEntityReadTools({
     {
       title: 'List competing facts for an entity',
       description:
-        'Returns facts in COMPETING status — those the conflict resolver couldn\'t auto-supersede because two same-predicate bitemporal facts overlap in valid-time and are too cosine-close within margin. Grouped by (entityId, predicate); 2-fact groups are pairs the resolver left for adjudication, 3+-fact groups are multi-way disagreements escalated for human review. Use as preflight before record_fact ("is this entity already conflicted on this predicate?") or to drive an in-product reviewer queue. asOf filters to disagreements that were live at that moment.',
+        'Returns facts in COMPETING status — those the conflict resolver couldn\'t auto-supersede because two same-predicate bitemporal facts overlap in valid-time and are too cosine-close within margin. Grouped by (entityId, predicate); 2-fact groups are pairs the resolver left for adjudication, 3+-fact groups are multi-way disagreements escalated for human review. Answers "is this entity already conflicted on this predicate?" and can drive an in-product reviewer queue. asOf filters to disagreements that were live at that moment.',
       inputSchema: {
         entityId: z.string().describe('Brain entity id (knowledge_entity:...) or short id'),
         predicate: z
@@ -629,7 +629,7 @@ function registerFactReadTools({
     {
       title: 'Get one fact by id',
       description:
-        'Read a single fact as stored — predicate (aspect), object (statement), confidence, validity window, source attribution (vertical / recorder / conversationId), and lifecycle state. Retracted facts still resolve (retracted: true) — "why did I stop remembering this" is part of the trust story; only visibility fences turn into not-found. groundingStatus (grounded | ungrounded) appears on facts stamped by the claim-grounding plane (EVIDENCE_GROUNDING_STAMP); legacy rows carry no key. Same shape as GET /v1/facts/:id. Use after search_knowledge / record_fact when you hold a factId and need the full trust record behind it.',
+        'Read a single fact as stored — predicate (aspect), object (statement), confidence, validity window, source attribution (vertical / recorder / conversationId), and lifecycle state. Retracted facts still resolve (retracted: true) — "why did I stop remembering this" is part of the trust story; only visibility fences turn into not-found. groundingStatus (grounded | ungrounded) appears on facts stamped by the claim-grounding plane (EVIDENCE_GROUNDING_STAMP); legacy rows carry no key. Same shape as GET /v1/facts/:id. Takes a factId as returned by searches and writes and returns the full trust record behind it.',
       inputSchema: {
         factId: z.string().describe('Fact id (knowledge_fact:...) or short id'),
       },
@@ -652,7 +652,7 @@ function registerFactReadTools({
     {
       title: 'Show why a fact is remembered (grounding provenance)',
       description:
-        'Return the grounding provenance behind one fact: the verbatim conversation turns it was derived from (episodes, chronological, with char-span quotes when the deriver stamped them). When the server runs with the recursive-closure flag the response additionally carries derivedFacts + closure (the transitive derivedFrom support graph); a plain deployment returns episodes only — the response is a passthrough of GET /v1/facts/:id/provenance, no field filtering. Traversal depth is a server-side policy (flag + caps), not a caller knob. Use to audit a surprising fact before trusting or retracting it.',
+        'Return the grounding provenance behind one fact: the verbatim conversation turns it was derived from (episodes, chronological, with char-span quotes when the deriver stamped them). When the server runs with the recursive-closure flag the response additionally carries derivedFacts + closure (the transitive derivedFrom support graph); a plain deployment returns episodes only — the response is a passthrough of GET /v1/facts/:id/provenance, no field filtering. Traversal depth is a server-side policy (flag + caps), not a caller knob. Lets a surprising fact be audited before it is trusted or retracted.',
       inputSchema: {
         factId: z.string().describe('Fact id (knowledge_fact:...) or short id'),
       },
@@ -684,7 +684,7 @@ function registerDetectContradictionTool({
     {
       title: 'Predict the conflict-resolver outcome for a candidate fact',
       description:
-        'Dry-run preflight against fn::resolve_fact. Answers "if I were to record this fact right now, what would the resolver decide?" without writing to the database. wouldOutcome ∈ {INSERTED, SUPERSEDED, COMPETING, REJECTED}; reasoning explains which rule fired (semantics class, score gap vs margin, cosine threshold, etc); opposingFacts lists the same-predicate priors the resolver would have weighed against. Use before record_fact when the cost of a contested write is high (e.g. agent loops that pay an ingest credit). Fidelity: this preflight uses the SEED source-trust table and authority 0 — the live resolver scores opponents with the learned domain-scoped rates (migration 0045) and declared source authority (migration 0046), so predictions can differ for sources with conflict history or a registered authLevel; check get_source_reputation when precision matters.',
+        'Dry-run preflight against fn::resolve_fact. Answers "if I were to record this fact right now, what would the resolver decide?" without writing to the database. wouldOutcome ∈ {INSERTED, SUPERSEDED, COMPETING, REJECTED}; reasoning explains which rule fired (semantics class, score gap vs margin, cosine threshold, etc); opposingFacts lists the same-predicate priors the resolver would have weighed against. Useful where the cost of a contested write is high (e.g. agent loops that pay an ingest credit). Fidelity: this preflight uses the SEED source-trust table and authority 0 — the live resolver scores opponents with the learned domain-scoped rates (migration 0045) and declared source authority (migration 0046), so predictions can differ for sources with conflict history or a registered authLevel.',
       inputSchema: {
         entityRef: z.union([
           z.object({ vertical: z.string(), id: z.string() }),
