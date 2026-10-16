@@ -16,7 +16,7 @@ All v1 endpoints are live; MCP transport is mounted per tenant. Every
 v1 call requires `Authorization: Bearer <credential>` — an
 auth-service JWT (verified via JWKS; `org`+`sub` = tenant+user,
 bare `sub` = M2M tenant; `iss`/`aud` rules in the
-[Triad token contract](https://github.com/inite-ai/inite-ecosystem/blob/main/docs/triad-compatibility.md)), a long-lived `ik_…` API key (resolved via
+[Triad token contract](https://github.com/inite-ai/inite-triad/blob/main/docs/compatibility.md)), a long-lived `ik_…` API key (resolved via
 RFC 7662 introspection), or a static `BRAIN_API_KEYS` entry (dev
 fallback). Admin endpoints require `brain:admin` scope on top of base
 auth; PII surfaces require `brain:read_pii`. Tokens may additionally

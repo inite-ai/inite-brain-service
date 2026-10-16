@@ -86,7 +86,7 @@ rules, trust review, and audits.
 ## Promote a tenant from dev to prod auth
 
 1. Make sure `AUTH_SERVICE_JWKS_URL` points to the prod auth-service (`https://auth.inite.ai/.well-known/jwks.json`).
-2. Set `AUTH_SERVICE_ISSUER` to the auth-service's `JWT_ISSUER` (the `iss` it signs — in INITE's own deployment `https://auth-api.inite.ai`, not the `auth.inite.ai` JWKS host) and `BRAIN_PUBLIC_URL` to this deployment's public URL; `AUTH_SERVICE_AUDIENCE` stays `brain`. The full rule set is the [Triad token contract](https://github.com/inite-ai/inite-ecosystem/blob/main/docs/triad-compatibility.md).
+2. Set `AUTH_SERVICE_ISSUER` to the auth-service's `JWT_ISSUER` (the `iss` it signs — in INITE's own deployment `https://auth-api.inite.ai`, not the `auth.inite.ai` JWKS host) and `BRAIN_PUBLIC_URL` to this deployment's public URL; `AUTH_SERVICE_AUDIENCE` stays `brain`. The full rule set is the [Triad token contract](https://github.com/inite-ai/inite-triad/blob/main/docs/compatibility.md).
 3. Set `NODE_ENV=production`. The boot log should say `Static BRAIN_API_KEYS disabled in production with a remote verifier enabled`.
 4. Have the vertical re-issue its credentials. Brain accepts JWTs whose `scopes` (array, M2M tokens) or `scope` (space-delimited, user tokens) claim contains the brain scopes (`brain:read`, `brain:write`, optionally `brain:read_pii`, `brain:admin`). Tenant/user mapping: an `org` claim makes it a user-bound token (tenant = `org`, end-user = `sub`, per-user memory pinned to that user); without `org`, `sub` is the company ID (M2M).
 5. Verify with a single `curl` that uses the JWT — expect `200 OK` on `GET /v1/entities/<id>` for the company's data.

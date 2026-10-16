@@ -102,7 +102,7 @@ service, running from source, and production:
 [INITE Auth](https://github.com/inite-ai/inite-auth-service) issues, as
 [INITE Billing](https://github.com/inite-ai/inite-billing-service) does; the
 contract between them is
-[triad-compatibility.md](https://github.com/inite-ai/inite-ecosystem/blob/main/docs/triad-compatibility.md).
+[the Triad contract](https://github.com/inite-ai/inite-triad/blob/main/docs/compatibility.md).
 Run all three with one compose file:
 [inite-ai/inite-triad](https://github.com/inite-ai/inite-triad).
 

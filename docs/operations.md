@@ -672,7 +672,7 @@ things have to be true, and three of them are configuration.
 | Edge routing for `/.well-known/oauth-protected-resource` | The 401 points at it. On a host that also serves a marketing site, the proxy must route this prefix to the API — otherwise discovery dead-ends on an HTML 404 and the client shows nothing useful. The deploy workflow's Traefik rule covers it, and the post-deploy smoke asserts the JSON body. |
 
 The rules every Auth / Billing / Brain deployment shares (`iss`, `aud`, `sub`, `org`, scopes, upgrade order) are the
-[Triad token contract](https://github.com/inite-ai/inite-ecosystem/blob/main/docs/triad-compatibility.md).
+[Triad token contract](https://github.com/inite-ai/inite-triad/blob/main/docs/compatibility.md).
 
 **On the auth-service** (both are settings, not env):
 
