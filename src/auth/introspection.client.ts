@@ -19,6 +19,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { ApiKeyRecord, BrainScope } from './api-key.types';
 import { extractPolicyNames } from './claim-parsers';
+import { acceptedAudiences } from './token-audience';
 
 /**
  * Scopes an introspected (operator-issued) key may carry. Superset of the
@@ -72,7 +73,8 @@ export class IntrospectionClient {
       url: string;
       clientId: string;
       clientSecret: string;
-      audience: string;
+      /** Accepted `aud` values — the same set the JWKS path accepts. */
+      audience: string | readonly string[];
     },
   ) {}
 
@@ -89,7 +91,9 @@ export class IntrospectionClient {
     const clientId = config.get<string>('AUTH_SERVICE_INTROSPECTION_CLIENT_ID');
     const clientSecret = config.get<string>('AUTH_SERVICE_INTROSPECTION_CLIENT_SECRET');
     if (!url || !clientId || !clientSecret) return null;
-    const audience = config.get<string>('AUTH_SERVICE_AUDIENCE', 'brain') ?? 'brain';
+    // One audience set for both remote verifiers: a key the JWKS path would
+    // accept by `aud` is accepted here too (AUTH_SERVICE_AUDIENCES included).
+    const audience = acceptedAudiences((key) => config.get<string>(key));
     return new IntrospectionClient({ url, clientId, clientSecret, audience });
   }
 
@@ -148,11 +152,14 @@ export class IntrospectionClient {
 export function mapIntrospectionRecord(
   payload: Record<string, unknown>,
   tokenHash: string,
-  audience: string,
+  audience: string | readonly string[],
 ): ApiKeyRecord | null {
   if (payload.active !== true) return null;
+  const accepted: readonly string[] = typeof audience === 'string' ? [audience] : audience;
   const aud = payload.aud;
-  const audOk = Array.isArray(aud) ? aud.includes(audience) : aud === audience;
+  const audOk = (Array.isArray(aud) ? aud : [aud]).some(
+    (a) => typeof a === 'string' && accepted.includes(a),
+  );
   if (!audOk) return null;
 
   const org = typeof payload.org === 'string' ? payload.org : undefined;

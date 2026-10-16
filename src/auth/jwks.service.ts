@@ -12,6 +12,7 @@ import {
   extractScopes,
   resolveTokenIdentity,
 } from './claim-parsers';
+import { acceptedAudiences, acceptedIssuers, audienceAccepted } from './token-audience';
 
 const VALID_SCOPES: ReadonlySet<BrainScope> = new Set([
   'brain:read',
@@ -24,9 +25,10 @@ const VALID_SCOPES: ReadonlySet<BrainScope> = new Set([
  * JWT verification against the @inite/auth-service JWKS endpoint.
  *
  * When AUTH_SERVICE_JWKS_URL is set, Bearer tokens shaped like JWTs are
- * verified against that URL's keys. The token's `sub` claim is the
- * companyId. Scopes come from `scopes` (array) or `scope` (space-delimited
- * string). Issuer and audience are validated when configured.
+ * verified against that URL's keys. Tenant = `org` (user-bound token,
+ * end-user = `sub`) or `sub` (M2M token, no `org`). Scopes come from
+ * `scopes` (array) or `scope` (space-delimited string). `iss` and `aud`
+ * follow the INITE Triad token contract (see token-audience.ts).
  *
  * In development, leaving JWKS_URL unset disables this verifier and the
  * guard falls back to the static BRAIN_API_KEYS map (sha256 lookup).
@@ -35,7 +37,8 @@ const VALID_SCOPES: ReadonlySet<BrainScope> = new Set([
 export class JwksService implements OnModuleInit {
   private readonly logger = new Logger(JwksService.name);
   private jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
-  private issuer?: string | undefined;
+  /** Accepted `iss` values; empty = unvalidated (dev only). */
+  private issuers: string[] = [];
   /**
    * Every audience this deployment answers to. More than one, because a
    * token can be addressed at us in more than one way: the vertical name
@@ -64,9 +67,9 @@ export class JwksService implements OnModuleInit {
       return;
     }
     this.jwks = createRemoteJWKSet(new URL(url));
-    this.issuer = this.configService.get<string>('AUTH_SERVICE_ISSUER');
+    this.issuers = acceptedIssuers(this.configService.get<string>('AUTH_SERVICE_ISSUER'));
     this.publicUrl = this.configService.get<string>('BRAIN_PUBLIC_URL');
-    this.audiences = this.resolveAudiences();
+    this.audiences = acceptedAudiences((key) => this.configService.get<string>(key));
     // Pin the accepted signature algorithms. Without this, jwtVerify accepts
     // ANY alg advertised in the JWKS, which is the classic algorithm-confusion
     // surface (e.g. a symmetric key smuggled into the key set). Configurable
@@ -78,7 +81,7 @@ export class JwksService implements OnModuleInit {
     // In production an unvalidated issuer means a token minted by ANY trusted
     // JWKS (e.g. another tenant's auth realm sharing the key infra) would pass.
     // Refuse to boot rather than fail open.
-    if (this.configService.get<string>('NODE_ENV') === 'production' && !this.issuer) {
+    if (this.configService.get<string>('NODE_ENV') === 'production' && this.issuers.length === 0) {
       throw new Error(
         'AUTH_SERVICE_ISSUER must be set in production when JWKS verification ' +
           'is enabled — without it the `iss` claim is not validated and any ' +
@@ -87,29 +90,9 @@ export class JwksService implements OnModuleInit {
     }
     this.logger.log(
       `JWKS verifier enabled — url=${url}, audiences=[${this.audiences.join(',')}], ` +
-        `issuer=${this.issuer ?? '(unvalidated)'}, algs=[${this.algorithms.join(',')}]`,
+        `issuer=${this.issuers.length > 0 ? this.issuers.join(',') : '(unvalidated)'}, ` +
+        `algs=[${this.algorithms.join(',')}]`,
     );
-  }
-
-  /**
-   * The accepted `aud` set: the configured vertical name, plus the
-   * resource identifiers an RFC 8707-aware client would name — this
-   * deployment's public URL and its MCP endpoint. `AUTH_SERVICE_AUDIENCES`
-   * (comma-separated) replaces the derived list outright for deployments
-   * that need something else.
-   */
-  private resolveAudiences(): string[] {
-    const explicit = this.configService.get<string>('AUTH_SERVICE_AUDIENCES');
-    if (explicit) {
-      const list = explicit
-        .split(',')
-        .map((a) => a.trim())
-        .filter(Boolean);
-      if (list.length > 0) return list;
-    }
-    const vertical = this.configService.get<string>('AUTH_SERVICE_AUDIENCE', 'brain');
-    const base = this.publicUrl?.replace(/\/+$/, '');
-    return [...new Set([vertical, ...(base ? [base, `${base}/mcp`] : [])])].filter(Boolean);
   }
 
   enabled(): boolean {
@@ -138,9 +121,10 @@ export class JwksService implements OnModuleInit {
     if (!this.jwks) return null;
     let payload: JWTPayload;
     try {
+      // `aud` is checked below, once the tenant is known: the per-tenant
+      // resource `<url>/mcp/<companyId>` is only valid for its own tenant.
       ({ payload } = await jwtVerify(token, this.jwks, {
-        ...(this.issuer !== undefined ? { issuer: this.issuer } : {}),
-        ...(this.audiences.length > 0 ? { audience: this.audiences } : {}),
+        ...(this.issuers.length > 0 ? { issuer: this.issuers } : {}),
         algorithms: this.algorithms,
       }));
     } catch (e) {
@@ -155,6 +139,17 @@ export class JwksService implements OnModuleInit {
     const identity = resolveTokenIdentity(payload);
     if (!identity) {
       this.logger.debug('JWT rejected: no valid tenant identity in org/sub');
+      return null;
+    }
+    if (
+      this.audiences.length > 0 &&
+      !audienceAccepted(payload.aud, {
+        accepted: this.audiences,
+        publicUrl: this.publicUrl,
+        companyId: identity.companyId,
+      })
+    ) {
+      this.logger.debug('JWT verification failed: unexpected "aud" claim value');
       return null;
     }
 
