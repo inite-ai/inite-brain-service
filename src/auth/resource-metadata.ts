@@ -42,11 +42,31 @@ export function requestBaseUrl(req: RequestLike): string | null {
   return `${proto}://${host}`;
 }
 
-/** Absolute URL of the RFC 9728 metadata document, or null without a host. */
-export function resourceMetadataUrl(req: RequestLike): string | null {
+/**
+ * Absolute URL of the RFC 9728 metadata document, or null without a host.
+ *
+ * The tenant-less MCP endpoint is named by its own path-suffixed document,
+ * whose `resource` is `<base>/mcp`: Claude requires `resource` to equal
+ * the URL exactly as the user entered it, path included, and the URL a
+ * user enters (and a directory lists) is `/mcp`. Every other route keeps
+ * the deployment-wide document — tokens already minted for `<base>` and
+ * for the per-tenant endpoints depend on the audience it names.
+ */
+export function resourceMetadataUrl(req: RequestLike & { path?: string }): string | null {
   const base = requestBaseUrl(req);
-  return base ? `${base}${PROTECTED_RESOURCE_PATH}` : null;
+  if (!base) return null;
+  const path = (req.path ?? '').replace(/\/+$/, '');
+  return path === '/mcp'
+    ? `${base}${PROTECTED_RESOURCE_PATH}/mcp`
+    : `${base}${PROTECTED_RESOURCE_PATH}`;
 }
+
+/**
+ * What the 401 challenge asks a client to request. Without it Claude asks
+ * for every scope the metadata lists — admin and PII included — and the
+ * consent screen offers far more than reading and writing memory needs.
+ */
+export const CHALLENGE_SCOPE = 'brain:read brain:write';
 
 /**
  * A resource identified by a path (our per-tenant `/mcp/<companyId>`)

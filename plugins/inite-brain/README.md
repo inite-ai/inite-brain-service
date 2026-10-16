@@ -21,10 +21,11 @@ than in a config file.
 | `.mcp.json` | Registers `brain` as an HTTP MCP server at `<base_url>/mcp`, authenticated with your key. The tenant comes from the key, so there is nothing else to paste. |
 | `skills/` | Six skills — recall, search, write, bitemporal reasoning, conflict handling, setup — so the model knows *when* to reach for memory, not just that the tools exist. |
 | `hooks/` | `SessionStart` injects what brain already knows about this repo; `PreCompact` and `SessionEnd` write the session back. |
+| `hooks/live.tsx` | A Claude Code mod (needs a version with mods): every prompt is looked up in brain before the model reads it, and what comes back rides beside it as context; a band above the prompt says what was recalled; `/brain [question]` opens a pane to ask memory directly; the status line names the workspace. |
 
 ## Settings
 
-All five are prompted at enable time and changeable later with
+All six are prompted at enable time and changeable later with
 `/plugin`:
 
 - **Brain API key** (required, stored as a secret)
@@ -33,6 +34,8 @@ All five are prompted at enable time and changeable later with
   still keeps your memory yours
 - **Recall at session start** — on by default
 - **Capture sessions into memory** — on by default
+- **Recall on every prompt** — on by default; at most 2.5 s per prompt,
+  and nothing is attached when brain is slow or finds nothing
 
 ## What the hooks actually send
 
@@ -43,7 +46,9 @@ and why — is on your side of the conversation anyway. Brain's extractor
 turns that text into facts; the raw text is stored as the episode behind
 them, so every fact can be traced to the turn it came from.
 
-Both hooks fail silent and fail open. No key, no `node` on PATH, or a
+Both hooks fail silent and fail open, and so does the per-prompt recall:
+a recall that errors or runs past its 2.5 s is dropped and the prompt
+goes on as typed. No key, no `node` on PATH, or a
 brain that is down costs you nothing: the hook exits 0 and prints
 nothing. A memory layer that can break a coding session is worse than no
 memory layer.
@@ -55,5 +60,6 @@ record?"* — or call `memory_diff` over the last hour.
 
 Leave the plugin installed and flip the switches: set **Capture sessions
 into memory** to off for a read-only setup, or **Recall at session
-start** to off if you would rather pull memory in explicitly. Removing
+start** and **Recall on every prompt** to off if you would rather pull
+memory in explicitly. Removing
 the plugin removes the MCP server, the skills and the hooks together.

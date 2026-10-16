@@ -12,7 +12,7 @@ import { CredentialResolverService } from './credential-resolver.service';
 import { PolicyGateService } from '../policy/policy-gate.service';
 import { POLICY_ACTION_KEY } from '../policy/action-registry';
 import { getRequestContext } from '../common/request-context';
-import { resourceMetadataUrl } from './resource-metadata';
+import { CHALLENGE_SCOPE, resourceMetadataUrl } from './resource-metadata';
 import { BrainScope, AuthenticatedRequest, ApiKeyRecord } from './api-key.types';
 import { envFlagEnabled } from '../common/env-validation';
 import { PLATFORM_TENANT_SCOPE } from './tenant-scope';
@@ -63,7 +63,10 @@ function unauthorized(context: ExecutionContext, message: string): UnauthorizedE
   const res = typeof httpCtx.getResponse === 'function' ? httpCtx.getResponse() : undefined;
   const metadata = resourceMetadataUrl(req);
   if (metadata && typeof res?.setHeader === 'function') {
-    res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${metadata}"`);
+    res.setHeader(
+      'WWW-Authenticate',
+      `Bearer resource_metadata="${metadata}", scope="${CHALLENGE_SCOPE}"`,
+    );
   }
   return new UnauthorizedException(message);
 }
