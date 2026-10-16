@@ -12,7 +12,7 @@
       "source": "./plugins/inite-brain",
       "displayName": "INITE Brain — persistent memory",
       "description": "Persistent, bitemporal memory for Claude Code: MCP tools, six skills, recall at session start and on every prompt, capture before compaction.",
-      "version": "0.2.1",
+      "version": "0.3.0",
       "category": "memory",
       "keywords": [
         "memory",

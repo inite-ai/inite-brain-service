@@ -1,9 +1,6 @@
 {
   "brain": {
     "type": "http",
-    "url": "${user_config.base_url}/mcp",
-    "headers": {
-      "Authorization": "Bearer ${user_config.api_key}"
-    }
+    "url": "https://brain.inite.ai/mcp"
   }
 }
