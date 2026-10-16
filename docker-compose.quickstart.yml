@@ -1,0 +1,71 @@
+# Quick start: the released multi-arch image (linux/amd64 + linux/arm64)
+# with SurrealDB. No clone or build needed — see "Quick start" in
+# README.md. Settings come from a .env next to this file:
+#
+#   OPENAI_API_KEY=…   BRAIN_API_KEYS='[{"keyHash":"sha256:…",…}]'
+#   SURREALDB_PASSWORD=…  SURREALDB_SCOPED_PASS=…  FORGET_HMAC_KEY=…
+#
+#   docker compose -f docker-compose.quickstart.yml up -d --wait
+#
+# One process on one machine, for trying Brain. For replicas, the split
+# api/worker roles and production credentials see docs/DEPLOY.md and
+# docs/operations.md; docker-compose.yml is the development stack.
+#
+# BRAIN_VERSION pins the image tag. `X.Y` follows the newest patch of that
+# minor release; `vX.Y.Z` pins one build. Do not use `:latest` — the main
+# branch deploy overwrites it.
+
+services:
+  surrealdb:
+    image: surrealdb/surrealdb:v3.2.4
+    user: root # the image needs root to write rocksdb files
+    restart: unless-stopped
+    command:
+      - start
+      - --user=root
+      - --pass=${SURREALDB_PASSWORD:?set SURREALDB_PASSWORD in .env}
+      - --bind=0.0.0.0:8000
+      - rocksdb:/data/db
+    volumes:
+      - surrealdb-data:/data/db
+    healthcheck:
+      test: ["CMD", "/surreal", "is-ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  brain:
+    image: mikefluff/inite-brain-service:${BRAIN_VERSION:-2.4}
+    restart: unless-stopped
+    depends_on:
+      surrealdb:
+        condition: service_healthy
+    ports:
+      - "${BRAIN_PORT:-3030}:3000"
+    environment:
+      - PORT=3000
+      - SURREALDB_URL=ws://surrealdb:8000
+      - SURREALDB_USERNAME=root
+      - SURREALDB_PASSWORD=${SURREALDB_PASSWORD:?set SURREALDB_PASSWORD in .env}
+      - SURREALDB_NAMESPACE=brain
+      - SURREALDB_SCOPED_USER=brain_caller
+      - SURREALDB_SCOPED_PASS=${SURREALDB_SCOPED_PASS:?set SURREALDB_SCOPED_PASS in .env}
+      - FORGET_HMAC_KEY=${FORGET_HMAC_KEY:?set FORGET_HMAC_KEY in .env}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:?set OPENAI_API_KEY in .env}
+      - BRAIN_API_KEYS=${BRAIN_API_KEYS:?set BRAIN_API_KEYS in .env}
+    volumes:
+      # ONNX model cache: the first start downloads the local models once.
+      - brain-model-cache:/app/.cache
+    init: true
+    stop_grace_period: 30s
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+
+volumes:
+  surrealdb-data:
+  brain-model-cache:
