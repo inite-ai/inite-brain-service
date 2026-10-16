@@ -121,7 +121,7 @@ export function registerWriteTools({
     {
       title: 'Record a fact about an entity',
       description:
-        'Insert a fact about an entity. Triggers brain conflict resolution (INSERTED / SUPERSEDED / COMPETING / REJECTED). Use sparingly from agents — most facts should come from event ingestion.',
+        'Insert a fact about an entity. Triggers brain conflict resolution (INSERTED / SUPERSEDED / COMPETING / REJECTED). Most facts come from event ingestion; this records one directly.',
       inputSchema: RECORD_FACT_INPUT,
     },
     async (args) => {
@@ -175,7 +175,7 @@ export function registerWriteTools({
     {
       title: 'Declare a typed edge between two entities',
       description:
-        'Insert an edge between two entities. `kind` is the edge type — `identity_of` merges the `from` entity into `to` (cross-vertical identity reconciliation), other typed edges (`paid_for`, `mentioned_in`, `worked_with`, …) are surfaced by find_related_entities and contribute to PPR / SubgraphRAG context. Use sparingly from agents — most edges come from event ingestion. identity_of rejects a request that names the same end twice and any merge that would close a cycle; declaring an identity that already holds answers `alreadyIdentical: true` with no edge, so a replay is safe.',
+        'Insert an edge between two entities. `kind` is the edge type — `identity_of` merges the `from` entity into `to` (cross-vertical identity reconciliation), other typed edges (`paid_for`, `mentioned_in`, `worked_with`, …) are surfaced in related-entity reads and contribute to PPR / SubgraphRAG context. Most edges come from event ingestion; this inserts one directly. identity_of rejects a request that names the same end twice and any merge that would close a cycle; declaring an identity that already holds answers `alreadyIdentical: true` with no edge, so a replay is safe.',
       inputSchema: {
         from: z.union([
           z.object({ vertical: z.string(), id: z.string() }),
@@ -264,7 +264,7 @@ export function registerWriteTools({
     {
       title: 'Record a procedural memory (behaviour rule)',
       description:
-        'Record a \'how to\' pattern that match_procedure can surface when a similar context appears later. trigger = the context phrase the rule should match against (e.g. "user asks about pricing"); action = the behaviour to apply (e.g. "mention they\'re on platinum tier; they get 20% off"). priority orders ties when multiple procedures match the same context (lower is higher priority; default 100). decayHalfLifeDays is a forward hook for v0.2 relevance decay; v1 ignores it at read time.',
+        'Record a \'how to\' pattern that is surfaced when a similar context appears later. trigger = the context phrase the rule should match against (e.g. "user asks about pricing"); action = the behaviour to apply (e.g. "mention they\'re on platinum tier; they get 20% off"). priority orders ties when multiple procedures match the same context (lower is higher priority; default 100). decayHalfLifeDays is a forward hook for v0.2 relevance decay; v1 ignores it at read time.',
       inputSchema: {
         trigger: z.string().min(1),
         action: z.string().min(1),
@@ -299,7 +299,7 @@ export function registerWriteTools({
     {
       title: 'Soft-retire a procedural memory entry',
       description:
-        'Mark a procedural memory row as retired (sets retiredAt). Excluded from match_procedure / list_procedures by default. Use when an operator decides the rule no longer applies — distinct from a hard delete because the row stays for audit.',
+        'Mark a procedural memory row as retired (sets retiredAt). A retired procedure is no longer matched or listed by default. For a rule that no longer applies — distinct from a hard delete because the row stays for audit.',
       inputSchema: {
         procedureId: z.string().describe('procedural_memory:<tail> or just the tail'),
       },
@@ -342,7 +342,7 @@ function registerFeedbackTool({
     {
       title: 'Report whether a retrieved fact was useful',
       description:
-        "Close the retrieval loop: after using a fact from search_knowledge / synthesize, report 'helpful' (it answered the question), 'incorrect' (the fact is wrong — counts against its source's learned reputation at the nightly refit), or 'not_helpful' (irrelevant hit; stored, but not a reliability signal). One standing vote per caller key per fact — repeat calls replace your previous verdict.",
+        "Reports how a retrieved fact served: 'helpful' (it answered the question), 'incorrect' (the fact is wrong — counts against its source's learned reputation at the nightly refit), or 'not_helpful' (irrelevant hit; stored, but not a reliability signal). One standing vote per caller key per fact — repeat calls replace your previous verdict.",
       inputSchema: {
         factId: z.string(),
         verdict: z.enum(['helpful', 'not_helpful', 'incorrect']),
@@ -376,7 +376,7 @@ export function registerAdminTools(
     {
       title: 'GDPR-forget an entity (destructive, synchronous cascade)',
       description:
-        'Hard delete one entity and ALL of its facts, edges, and embeddings; an HMAC-hashed tombstone stays in `forgotten_entity` for proof-of-erasure. THIS IS DESTRUCTIVE AND IRREVERSIBLE. Use only when responding to a GDPR Art. 17 right-to-erasure request or operator-grade cleanup. Reason + requestId are required for the audit trail.',
+        'Hard delete one entity and ALL of its facts, edges, and embeddings; an HMAC-hashed tombstone stays in `forgotten_entity` for proof-of-erasure. THIS IS DESTRUCTIVE AND IRREVERSIBLE. Intended for GDPR Art. 17 right-to-erasure requests and operator-grade cleanup. Reason + requestId are required for the audit trail.',
       inputSchema: {
         entityId: z.string().describe('Brain entity id (knowledge_entity:...) or short id'),
         reason: z
@@ -431,7 +431,7 @@ function registerIngestDocumentTool({
     {
       title: 'Ingest a normalized document',
       description:
-        "Feed a normalized document (meeting transcript, email body, markdown…) through the Source → Indexer → Candidates → Brain pipeline: it is stored (content-hash deduped), read by the generalist indexer, staged as candidates, and committed through conflict resolution. Pass indexers:'auto' to additionally route relevant installed domain packs (requires DOCUMENT_MULTI_INDEXER_ENABLED on the server; default 'general' runs only the generalist union pass). Prefer this over record_fact for anything longer than one claim.",
+        "Feed a normalized document (meeting transcript, email body, markdown…) through the Source → Indexer → Candidates → Brain pipeline: it is stored (content-hash deduped), read by the generalist indexer, staged as candidates, and committed through conflict resolution. Pass indexers:'auto' to additionally route relevant installed domain packs (requires DOCUMENT_MULTI_INDEXER_ENABLED on the server; default 'general' runs only the generalist union pass). Suited to text that holds more than one claim: extraction and conflict resolution run over it.",
       inputSchema: {
         kind: z.string().max(64).describe('Container kind: chat | email | markdown | pdf | …'),
         text: z.string().max(DOC_TEXT_HARD_CAP).describe('Normalized document text'),

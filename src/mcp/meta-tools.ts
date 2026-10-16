@@ -88,8 +88,8 @@ export function registerMetaTools({ server, catalogue, removed, listed }: MetaTo
         'profile and get their exact input schemas. This server lists a small core surface by ' +
         'default to keep the context budget low; everything else — competing facts, provenance, ' +
         'communities, procedures, code memory, document ingest, admin — lives here. Search by ' +
-        'intent ("who disagrees", "what changed", "store a document"), then call the winner with ' +
-        'run_tool. Returns name, description and JSON-Schema arguments.',
+        'intent ("who disagrees", "what changed", "store a document"). Returns name, description ' +
+        'and JSON-Schema arguments; each result can be executed through the dispatch tool.',
       inputSchema: {
         query: z.string().max(200).describe('What you are trying to do, in your own words'),
         limit: z.number().int().min(1).max(MAX_RESULTS).optional(),
@@ -132,8 +132,8 @@ export function registerMetaTools({ server, catalogue, removed, listed }: MetaTo
     {
       title: 'Run a brain tool by name',
       description:
-        'Execute any brain tool that find_tool returned. `args` must match the JSON schema ' +
-        'find_tool gave for that tool. Permissions are identical to calling the tool directly — ' +
+        'Execute any brain tool by name, including those not listed in this profile. `args` must ' +
+        "match that tool's JSON schema. Permissions are identical to calling the tool directly — " +
         'this is a dispatch shortcut, not a way around scopes or policy.',
       inputSchema: {
         name: z.string().max(120).describe('Tool name, exactly as find_tool reported it'),

@@ -24,7 +24,7 @@ export function registerSourceReadTools(opts: {
     {
       title: 'Inspect the reputation of a fact source',
       description:
-        'Return everything brain knows ABOUT a source (not its facts): the operator-declared identity (type, authLevel — authority in conflict resolution), the learned per-domain agreement rates (domain = predicate; null domain = the global blended rate; rates need >=8 samples before the resolver trusts them over the neutral 0.5), and the reputation-over-time history. sourceKey is `vertical:recorder` (recorder falls back to `_`) — the same key facts carry in trustSnapshot.sourceKey. Use to decide how much weight to give a fact whose trustSnapshot looks surprising.',
+        'Return everything brain knows ABOUT a source (not its facts): the operator-declared identity (type, authLevel — authority in conflict resolution), the learned per-domain agreement rates (domain = predicate; null domain = the global blended rate; rates need >=8 samples before the resolver trusts them over the neutral 0.5), and the reputation-over-time history. sourceKey is `vertical:recorder` (recorder falls back to `_`) — the same key facts carry in trustSnapshot.sourceKey. Shows how much weight a fact whose trustSnapshot looks surprising deserves.',
       inputSchema: {
         sourceKey: z.string().max(512).describe('Source key, e.g. "rent:tenant_bot" or "code:_"'),
       },
