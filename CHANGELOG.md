@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.4.1](https://github.com/inite-ai/inite-brain-service/compare/v2.4.0...v2.4.1) (2026-10-16)
+
+
+### Bug Fixes
+
+* **ci:** the client publish workflow runs — one pnpm version, from packageManager ([#751](https://github.com/inite-ai/inite-brain-service/issues/751)) ([bff99f6](https://github.com/inite-ai/inite-brain-service/commit/bff99f6781a4c0b86b5aa3f6adbb2820bb5c909f))
+* **release:** the version bump reaches the landing copy of the openapi document ([#742](https://github.com/inite-ai/inite-brain-service/issues/742)) ([f66e079](https://github.com/inite-ai/inite-brain-service/commit/f66e0797d0806ac0a36a543ab91bd5c5ef60ffd2))
+
 ## [2.4.0](https://github.com/inite-ai/inite-brain-service/compare/v2.3.0...v2.4.0) (2026-10-16)
 
 
