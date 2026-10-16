@@ -56,6 +56,28 @@ memory layer.
 To see exactly what was written, ask in-session: *"what did you just
 record?"* — or call `memory_diff` over the last hour.
 
+## What runs on your machine, and what leaves it
+
+Everything the plugin sends goes to one place: the brain at your **Brain base URL** (`https://brain.inite.ai` unless you changed it). Nothing is sent anywhere else, and the plugin starts no other processes.
+
+**The credential.** The only secret is the **Brain API key** you enter in the plugin settings (`userConfig`, `sensitive: true`). Claude Code keeps it in the OS keychain and hands it to the command hooks as `CLAUDE_PLUGIN_OPTION_API_KEY`, and to the MCP server as its `Authorization` header. The plugin reads no other credential, file or environment variable from your machine.
+
+**The command hooks** (`hooks/brain-hook.sh` → `hooks/brain-hook.mjs`, Node only, no installs):
+
+| Hook | Reads | Sends |
+|---|---|---|
+| `SessionStart` (recall) | The repository's `.git/config`, to name the project | `POST /v1/search` with the project name; `GET /v1/users/<id>/profile` when a personal scope is set |
+| `PreCompact`, `SessionEnd` (capture) | The session transcript Claude Code passes it | `POST /v1/ingest/mention` with **your** messages only (never the model's replies, never tool output) |
+
+**The mod** (`hooks/live.tsx`) runs no commands and makes no network requests of its own: every call goes through the plugin's `brain` MCP connection (`$.mcp.call`).
+
+- **At session start** it calls the `workspace_status` tool, to show the workspace name and size in the status line, and registers the `/brain` command.
+- **On every prompt** (`prompt.submit`), unless *Recall on every prompt* is off, it calls the `search_knowledge` tool with the prompt's text. Short prompts (under 15 characters) and slash commands are skipped. Whatever comes back is attached beside the prompt as context the model reads. The prompt itself is never changed. A recall that errors or takes longer than 2.5 s is dropped, and the prompt goes on as typed.
+- **`/brain [question]`** (`command.run`) calls `search_knowledge` with the question and shows the results in a pane. No model turn is started.
+- **Drawing** (`ui.render`): a band above the prompt says what was recalled; the pane shows the workspace and results. Neither sends anything.
+
+Turn these off with **Capture sessions into memory**, **Recall at session start** and **Recall on every prompt**. The [privacy policy](https://brain.inite.ai/en/privacy) says what brain does with what it receives.
+
 ## Turning pieces off
 
 Leave the plugin installed and flip the switches: set **Capture sessions

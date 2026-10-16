@@ -1,7 +1,7 @@
 {
   "name": "inite-brain",
   "displayName": "INITE Brain — persistent memory",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Persistent, bitemporal memory for Claude Code: the MCP tool surface, six skills that teach the model to use it, recall injected at session start, and capture before compaction.",
   "author": {
     "name": "INITE",
@@ -11,6 +11,8 @@
   "homepage": "https://brain.inite.ai/en/docs/mcp/setup",
   "repository": "https://github.com/inite-ai/inite-brain-service",
   "license": "AGPL-3.0-only",
+  "privacyPolicyUrl": "https://brain.inite.ai/en/privacy",
+  "icon": "./.claude-plugin/icon.png",
   "keywords": [
     "memory",
     "knowledge-graph",
@@ -20,7 +22,6 @@
     "rag"
   ],
   "mcpServers": "./.mcp.json",
-  "hooks": "./hooks/hooks.json",
   "types": "./types/index.d.ts",
   "userConfig": {
     "api_key": {

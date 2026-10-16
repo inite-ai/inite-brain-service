@@ -45,11 +45,22 @@ describe('claude-plugin marketplace', () => {
 
 describe('plugin manifest', () => {
   it('points every component path at a file that exists', () => {
-    for (const key of ['mcpServers', 'hooks'] as const) {
+    for (const key of ['mcpServers', 'icon'] as const) {
       const rel = manifest[key] as string;
       expect(rel.startsWith('./')).toBe(true);
-      expect(() => readFileSync(join(PLUGIN, rel), 'utf8')).not.toThrow();
+      expect(() => readFileSync(join(PLUGIN, rel))).not.toThrow();
     }
+  });
+
+  // hooks/hooks.json is loaded by convention; naming it in the manifest
+  // as well makes the loader report a duplicate hooks file.
+  it('does not re-list the conventional hooks file', () => {
+    expect(manifest.hooks).toBeUndefined();
+    expect(() => readFileSync(join(PLUGIN, 'hooks/hooks.json'), 'utf8')).not.toThrow();
+  });
+
+  it('names the privacy policy the directory listing shows', () => {
+    expect(manifest.privacyPolicyUrl).toBe('https://brain.inite.ai/en/privacy');
   });
 
   it('registers the MCP server against the configured base URL, not a hardcoded host', () => {
