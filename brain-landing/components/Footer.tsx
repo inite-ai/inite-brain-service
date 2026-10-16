@@ -39,6 +39,7 @@ export function footerColumns(lang: Lang) {
         { label: f.columns.project.license, href: `https://github.com/${REPO}/blob/main/LICENSE`, ext: true },
         { label: f.columns.project.contributing, href: `https://github.com/${REPO}/blob/main/CONTRIBUTING.md`, ext: true },
         { label: f.columns.project.security, href: `https://github.com/${REPO}/blob/main/SECURITY.md`, ext: true },
+        { label: f.columns.project.privacy, href: `/${lang}/privacy` },
       ],
     },
     {

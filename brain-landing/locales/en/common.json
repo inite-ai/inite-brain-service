@@ -276,7 +276,8 @@
         "github": "GitHub",
         "license": "License",
         "contributing": "Contributing",
-        "security": "Security"
+        "security": "Security",
+        "privacy": "Privacy"
       },
       "resources": {
         "title": "Resources",
