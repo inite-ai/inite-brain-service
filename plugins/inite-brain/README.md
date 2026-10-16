@@ -9,16 +9,19 @@ without the model having to remember to write.
 /plugin install inite-brain@inite
 ```
 
-Claude Code asks for your API key at enable time (issue one at
-[brain.inite.ai/en/app/keys](https://brain.inite.ai/en/app/keys); it starts
-with `brain_` and is shown once) and stores it in the OS keychain rather
-than in a config file.
+The first time Claude reaches for memory, it asks you to sign in with your
+INITE account (a personal workspace is created on first sign-in). No key to
+copy. The session hooks — recall at session start, capture before
+compaction — additionally need an API key: add one in the plugin settings
+(issue it at [brain.inite.ai/en/app/keys](https://brain.inite.ai/en/app/keys);
+Claude Code keeps it in the OS keychain), or leave it empty and those two
+hooks stay off.
 
 ## What you get
 
 | Piece | What it does |
 |---|---|
-| `.mcp.json` | Registers `brain` as an HTTP MCP server at `<base_url>/mcp`, authenticated with your key. The tenant comes from the key, so there is nothing else to paste. |
+| `.mcp.json` | Registers `brain` as an HTTP MCP server at `https://brain.inite.ai/mcp`. Claude signs you in with OAuth the first time a memory tool is used; the tenant comes from your account. |
 | `skills/` | Six skills — recall, search, write, bitemporal reasoning, conflict handling, setup — so the model knows *when* to reach for memory, not just that the tools exist. |
 | `hooks/` | `SessionStart` injects what brain already knows about this repo; `PreCompact` and `SessionEnd` write the session back. |
 | `hooks/live.tsx` | A Claude Code mod (needs a version with mods): every prompt is looked up in brain before the model reads it, and what comes back rides beside it as context; a band above the prompt says what was recalled; `/brain [question]` opens a pane to ask memory directly; the status line names the workspace. |
@@ -28,8 +31,8 @@ than in a config file.
 All six are prompted at enable time and changeable later with
 `/plugin`:
 
-- **Brain API key** (required, stored as a secret)
-- **Brain base URL** — only for self-hosted deployments
+- **Brain API key** — optional, stored as a secret; only the session hooks use it
+- **Brain base URL** — where the session hooks send requests; only for self-hosted deployments
 - **Personal memory scope** — an end-user id, so a shared workspace key
   still keeps your memory yours
 - **Recall at session start** — on by default
@@ -60,7 +63,7 @@ record?"* — or call `memory_diff` over the last hour.
 
 Everything the plugin sends goes to one place: the brain at your **Brain base URL** (`https://brain.inite.ai` unless you changed it). Nothing is sent anywhere else, and the plugin starts no other processes.
 
-**The credential.** The only secret is the **Brain API key** you enter in the plugin settings (`userConfig`, `sensitive: true`). Claude Code keeps it in the OS keychain and hands it to the command hooks as `CLAUDE_PLUGIN_OPTION_API_KEY`, and to the MCP server as its `Authorization` header. The plugin reads no other credential, file or environment variable from your machine.
+**Credentials.** The MCP server signs in with OAuth: Claude holds the token, the plugin never sees it. The only secret the plugin itself handles is the optional **Brain API key** from the plugin settings (`userConfig`, `sensitive: true`). Claude Code keeps it in the OS keychain and hands it to the command hooks as `CLAUDE_PLUGIN_OPTION_API_KEY`. Without it, the hooks exit without doing anything. The plugin reads no other credential, file or environment variable from your machine.
 
 **The command hooks** (`hooks/brain-hook.sh` → `hooks/brain-hook.mjs`, Node only, no installs):
 
