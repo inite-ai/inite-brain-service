@@ -14,7 +14,7 @@ mkdir -p "$work/build" "$work/bundle/server"
 cp -R "$shim/src" "$shim/package.json" "$shim/tsconfig.json" "$work/build/"
 (cd "$work/build" && npm install --ignore-scripts --no-audit --no-fund >/dev/null && npm run build >/dev/null)
 
-cp "$here/manifest.json" "$here/README.md" "$work/bundle/"
+cp "$here/manifest.json" "$here/README.md" "$here/icon.png" "$work/bundle/"
 cp "$work/build"/dist/*.js "$work/build/package.json" "$work/bundle/server/"
 (cd "$work/bundle/server" && npm install --omit=dev --ignore-scripts --no-package-lock --no-audit --no-fund >/dev/null)
 

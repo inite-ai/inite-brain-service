@@ -17,12 +17,15 @@
     "type": "git",
     "url": "https://github.com/inite-ai/inite-brain-service"
   },
+  "icon": "icon.png",
   "server": {
     "type": "node",
     "entry_point": "server/index.js",
     "mcp_config": {
       "command": "node",
-      "args": ["${__dirname}/server/index.js"],
+      "args": [
+        "${__dirname}/server/index.js"
+      ],
       "env": {
         "BRAIN_API_KEY": "${user_config.api_key}",
         "BRAIN_MCP_URL": "${user_config.base_url}/mcp"
@@ -46,11 +49,25 @@
     }
   },
   "tools_generated": true,
-  "keywords": ["memory", "knowledge-graph", "bitemporal", "rag", "mcp"],
+  "keywords": [
+    "memory",
+    "knowledge-graph",
+    "bitemporal",
+    "rag",
+    "mcp"
+  ],
   "license": "AGPL-3.0-or-later",
-  "privacy_policies": ["https://inite.ai/en/privacy"],
+  "privacy_policies": [
+    "https://inite.ai/en/privacy"
+  ],
   "compatibility": {
-    "platforms": ["darwin", "win32", "linux"],
-    "runtimes": { "node": ">=18.0.0" }
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
   }
 }
