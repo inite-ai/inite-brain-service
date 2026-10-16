@@ -15,6 +15,16 @@
 # `apk add gcompat libc6-compat` is unreliable for native ABIs this
 # specific.
 #
+# Multi-arch: release images are built for linux/amd64 AND linux/arm64
+# (.github/workflows/release-image.yml, one native runner per arch). The
+# natives cover both on glibc: onnxruntime-node ships
+# bin/napi-v3/linux/{x64,arm64} (the arm64 binding links
+# ld-linux-aarch64.so.1, which slim provides), sharp resolves
+# @img/sharp-linux-arm64 at install time, tesseract.js runs WASM, and the
+# ONNX model files fetched on warmup are architecture-independent. Nothing
+# in this file may hardcode an architecture — the release smoke test boots
+# each arch and fails unless the local NER and NLI warmups report ready.
+#
 # Pinned by digest, not the floating `:22-slim` tag, so a base-image
 # republish can't silently change the build under us — reproducible
 # images + an auditable bump. Refresh both FROMs together with the new

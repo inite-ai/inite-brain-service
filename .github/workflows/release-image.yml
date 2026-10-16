@@ -1,8 +1,10 @@
 name: Release image
 
-# Build and push a versioned Docker image — :vX.Y.Z, :X.Y, and :latest — so
+# Build and push a versioned, multi-arch Docker image — :vX.Y.Z, :X.Y, and
+# :latest, each a manifest list covering linux/amd64 AND linux/arm64 — so
 # releases map to immutable images instead of only :latest from the rolling
-# main deploy.
+# main deploy, and the same tag runs on x86 hosts and on ARM ones (Oracle
+# Ampere, Graviton, Apple Silicon) without anyone choosing a variant.
 #
 # Triggers:
 #   * workflow_call  — invoked by release-please.yml when it cuts a release
@@ -10,6 +12,24 @@ name: Release image
 #     `push: tags` workflow, so this is the path that actually fires).
 #   * workflow_dispatch — build a specific tag on demand.
 #   * push: tags — still fires if a human (non-GITHUB_TOKEN) pushes a v* tag.
+#   * pull_request — only when something that shapes the image changes. It
+#     builds and smoke-tests BOTH architectures and publishes nothing, so a
+#     change that breaks the arm64 image is found on its PR, not on the next
+#     release. (ci.yml's `docker` job keeps covering amd64 on every engine PR.)
+#
+# How the two architectures are built — native runners, not emulation:
+# each platform builds on a runner of its own architecture
+# (ubuntu-24.04 / ubuntu-24.04-arm), pushes its image BY DIGEST only (no tag),
+# and the `manifest` job stitches the digests into one manifest list under the
+# release tags with `docker buildx imagetools create`. QEMU would let a single
+# amd64 runner build both, but this image is heavy to build: `pnpm install`
+# materialises sharp and onnxruntime-node natives and the TypeScript build is
+# large, and under emulation every one of those instructions runs several
+# times slower — the arm64 leg would dominate the release. Worse, an emulated
+# build proves nothing about the ONNX runtime actually loading on real arm64
+# hardware, which is the one thing that silently degrades (see the smoke step).
+# Native runners keep the build as fast as today's and boot the image on the
+# CPU it is for.
 on:
   workflow_call:
     inputs:
@@ -25,19 +45,185 @@ on:
         type: string
   push:
     tags: ['v*']
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/release-image.yml'
 
 permissions:
   contents: read
 
+env:
+  # Publishing happens on every trigger except a pull request. (Under
+  # workflow_call the event is the caller's — release-please's push.)
+  PUBLISH: ${{ github.event_name != 'pull_request' }}
+
 jobs:
   image:
-    runs-on: ubuntu-latest
+    name: image (${{ matrix.platform }})
+    strategy:
+      # One architecture failing must stop the release: a manifest list
+      # missing arm64 would be published under a tag that claims both.
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The tag ref when invoked by release-please / dispatch; the pushed
-          # tag otherwise.
+          # tag (or the PR merge ref) otherwise.
           ref: ${{ inputs.tag || github.ref }}
+      - id: pair
+        run: |
+          P="${{ matrix.platform }}"
+          echo "pair=${P//\//-}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        if: env.PUBLISH == 'true'
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # Labels only — the tags are applied once, to the manifest list.
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: inite-brain-service
+
+      # Build for this runner's own platform and load it into the local
+      # daemon, so the smoke test below runs the very build that is pushed.
+      # The amd64 leg also reads the registry cache ci.yml's main publish
+      # writes (amd64-only); both legs keep a per-arch GHA cache.
+      - name: Build (${{ matrix.platform }})
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: inite-brain-service:smoke
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=gha,scope=release-${{ steps.pair.outputs.pair }}
+            ${{ env.PUBLISH == 'true' && format('type=registry,ref={0}/inite-brain-service:buildcache', secrets.DOCKERHUB_USERNAME) || '' }}
+          cache-to: type=gha,scope=release-${{ steps.pair.outputs.pair }},mode=max
+
+      # Boot the image against SurrealDB (the same pinned, multi-arch image
+      # docker-compose.yml and ci.yml use) and require two things:
+      #   1. /health answers — the process is up and SurrealDB is reachable;
+      #   2. the local ONNX models warm up. onnxruntime-node is a native
+      #      binding (bin/napi-v3/linux/{x64,arm64}); when it fails to load,
+      #      the services DO NOT crash — LocalNerService falls back to
+      #      LLM-only NER and IntentClassifierService to punctuation-only
+      #      intent — so /health stays green over a degraded image. The only
+      #      observable is the warmup line, so the step waits for both
+      #      "Local NER ready" and "NLI classifier ready" and fails on either
+      #      warmup failure. (The models download from Hugging Face on first
+      #      use; .onnx weights are architecture-independent.)
+      - name: Smoke run (${{ matrix.platform }})
+        run: |
+          set -euo pipefail
+          docker image inspect inite-brain-service:smoke --format 'image platform: {{.Os}}/{{.Architecture}}'
+          docker network create brain-smoke
+          docker run -d --name surreal --network brain-smoke \
+            surrealdb/surrealdb:v3.2.4 \
+            start --user=root --pass=root --bind=0.0.0.0:8000 memory
+          sleep 5
+          docker run -d --name brain --network brain-smoke -p 3030:3000 \
+            -e SURREALDB_URL=ws://surreal:8000 \
+            -e SURREALDB_USERNAME=root \
+            -e SURREALDB_PASSWORD=root \
+            -e SURREALDB_NAMESPACE=brain \
+            -e SURREALDB_SCOPED_USER=brain_caller \
+            -e SURREALDB_SCOPED_PASS=ci-scoped-pass \
+            -e OPENAI_API_KEY=sk-ci-stub \
+            -e BRAIN_API_KEYS='[]' \
+            -e FORGET_HMAC_KEY=ci-hmac-key-must-be-at-least-32-chars \
+            -e EXTRACTOR_LOCAL_NER_ENABLED=true \
+            inite-brain-service:smoke
+
+          healthy=""
+          for _ in $(seq 1 60); do
+            if curl -fs http://localhost:3030/health >/dev/null; then
+              healthy=1
+              echo "service healthy on $(docker exec brain uname -m)"
+              curl -s http://localhost:3030/health; echo
+              break
+            fi
+            sleep 2
+          done
+          if [ -z "$healthy" ]; then
+            echo "service did not become healthy"
+            docker logs brain
+            exit 1
+          fi
+
+          # Up to 10 minutes for both models to download and load.
+          for _ in $(seq 1 120); do
+            logs="$(docker logs brain 2>&1)"
+            if grep -qE 'Local NER warmup failed|NLI classifier warmup attempt [0-9]+ failed' <<< "$logs"; then
+              echo "ONNX warmup FAILED on ${{ matrix.platform }}:"
+              grep -E 'Local NER|NLI classifier|onnx|shared library' <<< "$logs" || true
+              exit 1
+            fi
+            if grep -q 'Local NER ready' <<< "$logs" && grep -q 'NLI classifier ready' <<< "$logs"; then
+              grep -E 'Local NER ready|NLI classifier ready|cross-encoder ready' <<< "$logs"
+              curl -s http://localhost:3030/ready; echo
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "ONNX warmup did not finish in time"
+          docker logs brain
+          exit 1
+
+      # Same build again, this time pushed by digest with no tag. Every layer
+      # is already in the builder from the step above, so this only uploads.
+      - name: Push by digest (${{ matrix.platform }})
+        id: push
+        if: env.PUBLISH == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=release-${{ steps.pair.outputs.pair }}
+      - name: Export digest
+        if: env.PUBLISH == 'true'
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [ -n "$DIGEST" ] || { echo "no digest from the push"; exit 1; }
+          mkdir -p "${{ runner.temp }}/digests"
+          touch "${{ runner.temp }}/digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: env.PUBLISH == 'true'
+        with:
+          name: digests-${{ steps.pair.outputs.pair }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  manifest:
+    needs: image
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -54,11 +240,29 @@ jobs:
             type=semver,pattern=v{{version}},value=${{ inputs.tag || github.ref_name }}
             type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag || github.ref_name }}
             type=raw,value=latest
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64
-          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:buildcache
+      - name: Create the manifest list
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service
+        run: |
+          set -euo pipefail
+          # Both architectures, or nothing: a list with one entry would be
+          # published under a tag that promises two.
+          N="$(find . -maxdepth 1 -type f | wc -l)"
+          [ "$N" -eq 2 ] || { echo "expected 2 digests, got $N"; exit 1; }
+          TAGS="$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON")"
+          [ -n "$TAGS" ] || { echo "metadata produced no tags"; exit 1; }
+          # shellcheck disable=SC2046,SC2086
+          docker buildx imagetools create $TAGS $(printf "$IMAGE@sha256:%s " *)
+      - name: Verify both platforms are in the list
+        env:
+          IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "$IMAGE"
+          RAW="$(docker buildx imagetools inspect "$IMAGE" --raw)"
+          for p in linux/amd64 linux/arm64; do
+            jq -e --arg p "$p" '[.manifests[] | (.platform.os + "/" + .platform.architecture)] | index($p) != null' <<< "$RAW" >/dev/null \
+              || { echo "manifest list is missing $p"; exit 1; }
+          done
+          echo "manifest list carries linux/amd64 and linux/arm64"
