@@ -51,6 +51,14 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 1.0,
       alternates: alternates(''),
     })
+    // privacy policy
+    entries.push({
+      url: `${SITE_URL}/${lang}/privacy`,
+      lastModified: gitMtime(`content/legal/${lang}/privacy.mdx`),
+      changeFrequency: 'yearly',
+      priority: 0.3,
+      alternates: alternates('/privacy'),
+    })
     // docs index
     entries.push({
       url: `${SITE_URL}/${lang}/docs`,

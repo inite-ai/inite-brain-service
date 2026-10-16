@@ -276,7 +276,8 @@
         "github": "GitHub",
         "license": "Лицензия",
         "contributing": "Контрибьютинг",
-        "security": "Безопасность"
+        "security": "Безопасность",
+        "privacy": "Конфиденциальность"
       },
       "resources": {
         "title": "Ресурсы",
