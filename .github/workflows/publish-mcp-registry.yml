@@ -73,3 +73,20 @@ jobs:
 
       - name: Publish
         run: ./mcp-publisher publish
+
+      # Every version stays `active` until it is told otherwise, so a client
+      # browsing the registry could still pick an old entry (0.1.0 had no
+      # OAuth endpoint at all). Mark everything but what was just published
+      # deprecated; `deprecated` keeps them listed and reversible.
+      - name: Deprecate older versions
+        run: |
+          CURRENT="$(jq -r .version server.json)"
+          NAME="$(jq -r .name server.json)"
+          curl -fsSL "https://registry.modelcontextprotocol.io/v0/servers?search=${NAME#*/}&limit=100" \
+            | jq -r --arg n "$NAME" --arg c "$CURRENT" \
+                '.servers[] | select(.server.name == $n and .server.version != $c) | .server.version' \
+            | sort -u \
+            | while read -r v; do
+                ./mcp-publisher status --status deprecated \
+                  --message "Superseded by $CURRENT" "$NAME" "$v" || echo "::warning::could not deprecate $v"
+              done
