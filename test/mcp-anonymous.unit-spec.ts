@@ -119,3 +119,57 @@ describe('the optional-auth guard', () => {
     ).resolves.toBe(false);
   });
 });
+
+describe('the anonymous tool list — lazy authentication', () => {
+  // A client starts sign-in when a tools/call comes back 401, and it only
+  // calls tools it saw listed. Two public tools alone meant no client ever
+  // reached the challenge.
+  async function publicServer() {
+    const { McpService } = await import('../src/mcp/mcp.service');
+    const none = {} as never;
+    const svc = new McpService(
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+    );
+    return svc.buildPublicServer('https://brain.example') as unknown as {
+      _registeredTools: Record<string, { handler: (...a: unknown[]) => unknown }>;
+    };
+  }
+
+  it('lists the memory tools beside the public ones', async () => {
+    const names = Object.keys((await publicServer())._registeredTools);
+    for (const name of PUBLIC_TOOL_NAMES) expect(names).toContain(name);
+    expect(names).toEqual(
+      expect.arrayContaining(['search_knowledge', 'synthesize', 'record_fact']),
+    );
+    // Admin-scoped tools are not what the challenge asks for.
+    expect(names).not.toContain('forget_entity');
+  });
+
+  it('every listed memory tool is gated by the guard and refuses on its own', async () => {
+    const tools = (await publicServer())._registeredTools;
+    const gated = Object.keys(tools).filter((n) => !PUBLIC_TOOL_NAMES.includes(n));
+    expect(gated.length).toBeGreaterThan(5);
+    for (const name of gated) {
+      expect(isAnonymousJsonRpc({ method: 'tools/call', params: { name } })).toBe(false);
+      expect(() => tools[name]!.handler({}, {})).toThrow(UnauthorizedException);
+    }
+  });
+});
