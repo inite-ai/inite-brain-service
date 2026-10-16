@@ -9,7 +9,7 @@
  *     issueClientCredentialsToken
  *   - token exchange (RFC 8693): oauth-m2m.service.ts → exchangeToken
  * signed RS256 with `kid` in the header, served by a stub JWKS. The
- * contract itself: inite-ecosystem/docs/triad-compatibility.md.
+ * contract itself: inite-triad/docs/compatibility.md.
  */
 import * as http from 'node:http';
 import { ConfigService } from '@nestjs/config';

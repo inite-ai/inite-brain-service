@@ -5,7 +5,7 @@
  * correctly-issued token looks like.
  *
  * The rules are the INITE Triad token contract
- * (inite-ecosystem/docs/triad-compatibility.md):
+ * (inite-triad/docs/compatibility.md):
  *  - `iss` is compared exactly, but the configured value may be a list
  *    (an issuer migration accepts old and new for one minor) and a
  *    trailing slash on either side is not a different issuer.
