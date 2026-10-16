@@ -37,7 +37,13 @@ const SURFACE_KINDS: Readonly<Record<string, ActionKind>> = {
 const DESTRUCTIVE = new Set(['forget_entity', 'retract_fact', 'retire_procedure', 'run_tool']);
 
 export interface ToolClassification {
-  annotations: ToolAnnotations & { title: string };
+  /**
+   * The tool's top-level `title`. Not repeated inside `annotations`: the
+   * spec's annotation title is the legacy spelling of the same thing, and
+   * every byte here rides in every `tools/list`.
+   */
+  title: string;
+  annotations: ToolAnnotations;
   /** False when the name is in no table and the conservative default was used. */
   known: boolean;
 }
@@ -65,17 +71,18 @@ export function classifyTool(
   const title = opts.title ?? ACTIONS[name]?.title ?? humanize(name);
   if (kind === undefined) {
     return {
-      annotations: { title, readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+      title,
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
       known: false,
     };
   }
   const external = packKind !== undefined && packKind !== 'read';
   if (kind === 'read') {
-    return { annotations: { title, readOnlyHint: true, openWorldHint: false }, known: true };
+    return { title, annotations: { readOnlyHint: true, openWorldHint: false }, known: true };
   }
   return {
+    title,
     annotations: {
-      title,
       readOnlyHint: false,
       destructiveHint: external || DESTRUCTIVE.has(name),
       openWorldHint: external,
@@ -99,12 +106,12 @@ export function applyToolAnnotations(
     config: { title?: string; annotations?: ToolAnnotations } & Record<string, unknown>,
     handler: unknown,
   ) => {
-    const { annotations } = classifyTool(name, { title: config?.title, packKinds });
+    const { title, annotations } = classifyTool(name, { title: config?.title, packKinds });
     return raw(
       name as never,
       {
         ...config,
-        title: config?.title ?? annotations.title,
+        title,
         annotations: { ...annotations, ...config?.annotations },
       } as never,
       handler as never,

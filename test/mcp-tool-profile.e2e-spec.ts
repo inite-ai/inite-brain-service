@@ -127,8 +127,10 @@ describe('MCP tool profiles over HTTP', () => {
     // are prose and prose grows; a single `z.string().datetime()` adds
     // 200 tokens of regex; nothing else in the build would notice
     // either. Measured at the time of writing: full 7 078, core 2 052,
-    // down from 10 120 before the schema fix and the profile.
-    expect(full).toBeLessThan(8_500);
+    // down from 10 120 before the schema fix and the profile. Tool
+    // annotations (tool-annotations.ts, required by Claude's connector
+    // directory) cost ~510 on the full surface: 8 322 → 8 830.
+    expect(full).toBeLessThan(9_000);
     expect(core).toBeLessThan(2_600);
   });
 

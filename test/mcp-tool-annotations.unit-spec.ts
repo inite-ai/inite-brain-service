@@ -72,7 +72,6 @@ function service(): McpService {
 interface Registered {
   title?: string;
   annotations?: {
-    title?: string;
     readOnlyHint?: boolean;
     destructiveHint?: boolean;
     openWorldHint?: boolean;
@@ -180,8 +179,8 @@ describe('MCP tool annotations', () => {
 
   it('an unknown name falls back to the conservative hints and says so', () => {
     expect(classifyTool('brand_new_tool')).toEqual({
+      title: 'Brand new tool',
       annotations: {
-        title: 'Brand new tool',
         readOnlyHint: false,
         destructiveHint: true,
         openWorldHint: true,

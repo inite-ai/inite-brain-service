@@ -70,8 +70,8 @@ describe('which JSON-RPC messages may be served without a key', () => {
 });
 
 describe('the optional-auth guard', () => {
-  const ctx = (body: unknown): ExecutionContext => {
-    const req: Record<string, unknown> = { body };
+  const ctx = (body: unknown, headers: Record<string, string> = {}): ExecutionContext => {
+    const req: Record<string, unknown> = { body, headers };
     return {
       switchToHttp: () => ({ getRequest: () => req }),
     } as unknown as ExecutionContext;
@@ -110,6 +110,21 @@ describe('the optional-auth guard', () => {
     });
     await expect(g.canActivate(c)).resolves.toBe(true);
     expect(c.switchToHttp().getRequest<{ mcpAnonymous?: boolean }>().mcpAnonymous).toBe(true);
+  });
+
+  // A refused credential is a 401, never a quiet downgrade: a mistyped key
+  // must not look like a working two-tool connection, and an expired
+  // token must reach the 401 its client refreshes on.
+  it('RE-THROWS for a presented-but-refused credential, even on initialize', async () => {
+    const boom = new UnauthorizedException('Invalid API key');
+    const g = guardWith({
+      canActivate: async () => {
+        throw boom;
+      },
+    });
+    await expect(
+      g.canActivate(ctx({ method: 'initialize' }, { authorization: 'Bearer brain_typo' })),
+    ).rejects.toBe(boom);
   });
 
   it('a guard that returns false without throwing is still a refusal', async () => {
