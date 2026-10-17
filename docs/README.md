@@ -58,6 +58,7 @@ Platform and community extension points — none require a PR to this repo.
 | [External indexer protocol](indexer-protocol.md) | Build a service that reads stored documents and submits candidate facts: poll → claim → content → submit. |
 | [MCP pack tools](mcp-pack-tools.md) | Packs extending the tenant MCP surface: query tools + HMAC-proxied external tools, consent flow, security model. |
 | [`examples/reference-indexer.ts`](../examples/reference-indexer.ts) | Dependency-free reference external indexer (`pnpm indexer:reference`). |
+| [`examples/sdk-quickstart/`](../examples/sdk-quickstart/) | Runnable TypeScript SDK quickstart: remember, recall, answer with citations, and timeline. |
 | [Listing playbook](distribution.md) | Where to list Brain itself — MCP Registry, awesome-list PRs, ready-to-paste rows. |
 | [Code memory](roadmap/code-memory-domain.md) | The `code_memory` Domain Pack: remembering the *why* of a codebase. |
 | [Distillation dataset](code-memory/distillation-dataset.md) | Data plan + harness for the trained code-memory decision gate. |
