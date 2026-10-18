@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.5.0](https://github.com/inite-ai/inite-brain-service/compare/v2.4.0...v2.5.0) (2026-10-18)
+
+
+### Features
+
+* **auth:** the membership plane — an org connection mirrors its source's ACL, and a group becomes a scope tag (W5, G6 steps 3–5) ([#669](https://github.com/inite-ai/inite-brain-service/issues/669)) ([c2e0828](https://github.com/inite-ai/inite-brain-service/commit/c2e082834496551b63c604f0cf8d584fc1f115ae))
+* **source-plane:** progressive indexing, and the quality tier of document text (W6) ([#670](https://github.com/inite-ai/inite-brain-service/issues/670)) ([87d8320](https://github.com/inite-ai/inite-brain-service/commit/87d8320a6ed74a3adec881ce997f9c4cc992813e))
+* **source-plane:** the linked lane — a source that keeps its own index is asked, not copied (W7) ([#671](https://github.com/inite-ai/inite-brain-service/issues/671)) ([03f1c68](https://github.com/inite-ai/inite-brain-service/commit/03f1c684326b12560345e22a1ac98d8ab45d4bb6))
+* **source-plane:** the other forge — a GitLab project over the v4 API, its issues and merge requests as conversations (W4.9) ([#667](https://github.com/inite-ai/inite-brain-service/issues/667)) ([b9e8f04](https://github.com/inite-ai/inite-brain-service/commit/b9e8f047d4397bcfe1241e8c743c047978f4e1a2))
+
+
+### Bug Fixes
+
+* **ci:** the client publish workflow runs — one pnpm version, from packageManager ([#751](https://github.com/inite-ai/inite-brain-service/issues/751)) ([bff99f6](https://github.com/inite-ai/inite-brain-service/commit/bff99f6781a4c0b86b5aa3f6adbb2820bb5c909f))
+* **release:** the version bump reaches the landing copy of the openapi document ([#742](https://github.com/inite-ai/inite-brain-service/issues/742)) ([f66e079](https://github.com/inite-ai/inite-brain-service/commit/f66e0797d0806ac0a36a543ab91bd5c5ef60ffd2))
+
 ## [2.4.0](https://github.com/inite-ai/inite-brain-service/compare/v2.3.0...v2.4.0) (2026-10-16)
 
 
