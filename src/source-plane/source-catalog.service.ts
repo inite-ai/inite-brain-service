@@ -8,6 +8,7 @@ import {
 import {
   sourceEgressAllowPrivate,
   sourceFsRoots,
+  sourceLinkedEnabled,
   sourceMcpOAuthEnabled,
   sourcePrincipalsEnabled,
   sourceWebhooksEnabled,
@@ -87,6 +88,7 @@ export class SourceCatalogService {
       egressAllowPrivate: sourceEgressAllowPrivate(),
       webhooks: sourceWebhooksEnabled(),
       principals: sourcePrincipalsEnabled(),
+      linked: sourceLinkedEnabled(),
     };
   }
 
@@ -224,5 +226,6 @@ function describeConnector(c: Connector): SourceConnectorState {
     kind: c.kind,
     state: c.enabled === undefined || c.enabled() ? 'ready' : 'disabled',
     flag: `SOURCE_KIND_${c.kind.toUpperCase()}`,
+    ...(typeof c.search === 'function' ? { linked: true } : {}),
   };
 }

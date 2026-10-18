@@ -305,6 +305,7 @@ export const SourceConnectorStateSchema = z.object({
   kind: z.string(),
   state: z.enum(['ready', 'disabled']),
   flag: z.string(),
+  linked: z.boolean().optional(),
 });
 
 export const SourceCatalogResponseSchema = z.object({
@@ -315,6 +316,7 @@ export const SourceCatalogResponseSchema = z.object({
   /** SOURCE_WEBHOOKS is on. */
   webhooks: z.boolean(),
   principals: z.boolean().optional(),
+  linked: z.boolean().optional(),
 });
 
 // ── Inspection (the operator's drill-down) ─────────────────────────────
