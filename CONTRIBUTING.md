@@ -159,10 +159,11 @@ expected — we keep the trail honest.
 
 ## What we DO welcome
 
-- **New predicates / vertical-specific evaluators.** Brain's vocabulary
-  lives in `inite-ecosystem/core/capabilities/knowledge.yaml`; the
-  resolver in this repo reads it. Adding a vertical means a PR to the
-  spec repo PLUS a scenario file under `src/eval/scenarios/`.
+- **New predicates / vertical-specific evaluators.** Brain's core
+  vocabulary is seeded from
+  `src/ai/predicate-registry-internals/core-seed.ts`; a vertical's own
+  predicates ship as a [Domain Pack](docs/domain-packs.md). Adding a
+  vertical means a pack PLUS a scenario file under `src/eval/scenarios/`.
 - **Alternative embedders.** The `EmbedderProvider` interface in
   `src/ai/embedder/` is the seam. Wire a new provider, set
   `EMBEDDER_PROVIDER=<your-id>`, run the eval to prove it doesn't
