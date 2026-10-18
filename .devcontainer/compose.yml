@@ -1,0 +1,30 @@
+# Services for the devcontainer (see devcontainer.json). The app container
+# shares SurrealDB's network namespace, so the stock .env.example
+# (SURREALDB_URL=ws://localhost:8000) works unchanged inside it.
+services:
+  app:
+    image: mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm
+    command: sleep infinity
+    volumes:
+      - ../..:/workspaces:cached
+    network_mode: service:surrealdb
+    depends_on:
+      - surrealdb
+
+  surrealdb:
+    # Same version and backend as docker-compose.yml and the e2e fixture
+    # (test/global-setup.ts).
+    image: surrealdb/surrealdb:v3.2.4
+    user: root
+    command:
+      - start
+      - --user=root
+      - --pass=root
+      - --bind=0.0.0.0:8000
+      - rocksdb:/data/db
+    volumes:
+      - surrealdb-data:/data/db
+    restart: unless-stopped
+
+volumes:
+  surrealdb-data:
