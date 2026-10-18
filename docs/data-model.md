@@ -32,9 +32,8 @@ Brain governs how facts are merged via per-predicate policies
 (semantics, decay half-life, PII class). The live vocabulary is each
 tenant's **predicate registry** (`knowledge_predicate`, managed via
 `/v1/admin/predicates`), seeded from the core set plus any installed
-[Domain Packs](domain-packs.md); the core set and the
-conflict-resolution algorithm are declared in the spec at
-`inite-ecosystem/core/capabilities/knowledge.yaml`.
+[Domain Packs](domain-packs.md). The core set is
+`src/ai/predicate-registry-internals/core-seed.ts`.
 
 Quick reference (core predicates):
 
