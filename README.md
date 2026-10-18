@@ -636,6 +636,28 @@ Next.js, React and Tailwind CSS.
 
 ## Contributing
 
+### Contribute with an AI agent
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/inite-ai/inite-brain-service)
+
+You don't need to be an engineer. Open the repo (Codespaces above gives a
+ready environment with SurrealDB running), start your coding agent and
+describe the idea in plain words:
+
+- **Claude Code:** `/contribute` — it restates the idea, writes a short spec,
+  builds it with tests, runs the gates and opens a PR. `/spec-idea` only files
+  the idea as an issue.
+- **Any other agent** (Cursor, Codex, Copilot, Gemini CLI, Windsurf…): "Read
+  AGENTS.md and help me add …".
+
+[AGENTS.md](AGENTS.md) is the source of truth for agents: commands, zones
+(what is safe to change and what needs a maintainer first) and the idea → PR
+loop. Prefer to just propose? Use the
+[Product idea](https://github.com/inite-ai/inite-brain-service/issues/new?template=product-idea.yml)
+form.
+
+### The workflow
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community guidelines.
 

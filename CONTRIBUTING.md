@@ -5,6 +5,17 @@ working production service, not a hobby project, so the bar for changes is
 "would I sign off on this PR if I'd never met you?" Here's what that means
 concretely.
 
+## Working with an AI agent
+
+[AGENTS.md](AGENTS.md) is the source of truth for AI coding agents — and a
+good map for humans: the exact CI gate commands, the zones (green / yellow /
+red — red needs an approved issue before code), where to add an MCP tool,
+REST route, migration or extraction lane, and the idea → PR loop. In Claude
+Code, `/contribute` runs that loop; `/spec-idea` files an idea without code.
+[Open in Codespaces](https://codespaces.new/inite-ai/inite-brain-service) for
+a ready environment. Where this file and AGENTS.md disagree on a command,
+AGENTS.md matches CI (the stale test commands below are tracked in #745).
+
 ## Before you start
 
 - **New here?** Browse [`good first issue`](https://github.com/inite-ai/inite-brain-service/issues?q=is%3Aopen+label%3A%22good+first+issue%22)
