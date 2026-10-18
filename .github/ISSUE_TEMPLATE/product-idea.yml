@@ -1,0 +1,39 @@
+name: Product idea
+description: Describe something you'd like Brain to do, in plain words. No technical detail needed.
+labels: ['idea']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Plain words are perfect — you don't need to know how Brain works inside.
+        If an AI agent helped you (for example `/contribute` or `/spec-idea` in
+        Claude Code), paste its spec in the last box. Already know the exact API
+        or config you want? The "Feature request" form fits better.
+  - type: textarea
+    id: what
+    attributes:
+      label: What do you want to be possible?
+      description: Describe the outcome, not the implementation.
+      placeholder: 'When my agent asks what changed about a customer this week, it should get a short list it can read out.'
+    validations:
+      required: true
+  - type: textarea
+    id: who
+    attributes:
+      label: Who is it for, and why does it matter?
+      description: Who hits this, when, and what it costs them today.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: How would you know it works?
+      description: What you would try, and what you would expect to see.
+    validations:
+      required: true
+  - type: textarea
+    id: spec
+    attributes:
+      label: Spec (if an agent wrote one)
+      description: Problem, behaviour, API/MCP/UI change, data change, risks, out of scope, zone (see AGENTS.md).
+      render: markdown
