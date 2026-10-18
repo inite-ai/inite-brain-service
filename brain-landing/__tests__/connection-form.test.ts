@@ -53,6 +53,46 @@ function ctxFor(e: SourceCatalogEntry, over: Partial<FormContext> = {}): FormCon
 }
 
 describe('connect form specs', () => {
+  it('a forge shows only the half being connected — and both halves under "Both"', () => {
+    const issues = entry({
+      packId: 'code_memory',
+      sourceId: 'gitlab_issues',
+      connector: 'gitlab',
+      shape: 'conversation',
+    })
+    const docs = entry({
+      packId: 'code_memory',
+      sourceId: 'gitlab_docs',
+      connector: 'gitlab',
+      shape: 'document',
+    })
+    const form = formFor(issues)!
+    const keysFor = (ctx: FormContext) =>
+      visibleFields(form, initialValues(form, issues), ctx, true).map((f) => f.key)
+    expect(keysFor(ctxFor(issues))).toEqual([
+      'project',
+      'since',
+      'includeMergeRequests',
+      'labels',
+      'baseUrl',
+      'maxItems',
+    ])
+    expect(keysFor(ctxFor(docs))).toEqual([
+      'project',
+      'paths',
+      'ref',
+      'baseUrl',
+      'extensions',
+      'maxFiles',
+      'maxFileBytes',
+    ])
+    // "Both" creates a connection per shape from ONE form: every field
+    // either half needs has to be on it.
+    const both = keysFor(ctxFor(docs, { shapes: ['document', 'conversation'] }))
+    expect(both).toContain('since')
+    expect(both).toContain('paths')
+  })
+
   it('fs: the root is typed by the operator, lists split on newlines or commas, booleans only when they differ', () => {
     const e = entry({})
     const form = formFor(e)!

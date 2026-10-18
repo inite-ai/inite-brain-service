@@ -27,6 +27,7 @@ export type SourceFamily =
   | 'slack'
   | 'telegram'
   | 'github'
+  | 'gitlab'
   | 'records'
   | 'db'
   | 'external'
@@ -76,6 +77,7 @@ export function groupOf(family: SourceFamily): SourceGroup {
       return 'mcp';
     case 'repo':
     case 'github':
+    case 'gitlab':
       return 'code';
     case 'records':
     case 'db':
@@ -109,6 +111,7 @@ export function familyOf(e: { kind: string; connector: string }): SourceFamily {
     case 'slack':
     case 'telegram':
     case 'github':
+    case 'gitlab':
       return e.connector;
     case 'pipedrive':
     case 'hubspot':
@@ -164,10 +167,11 @@ const FAMILY_ORDER: Record<SourceFamily, number> = {
   mcp: 12,
   repo: 13,
   github: 14,
-  records: 15,
-  db: 16,
-  external: 17,
-  other: 18,
+  gitlab: 15,
+  records: 16,
+  db: 17,
+  external: 18,
+  other: 19,
 };
 const AVAILABILITY_RANK: Record<SourceAvailability, number> = {
   ready: 0,
@@ -252,18 +256,31 @@ export function cardsOf(sources: SourceCatalogEntry[]): SourceCard[] {
   );
 }
 
-/** The choice the flow offers when a kind comes in more than one shape: its text (documents, or a mailbox's messages), its files, or both. */
-export type ShapeChoice = 'document' | 'binary' | 'both';
+/** The choice the flow offers when a kind comes in more than one shape: what was said in it, its text, its files, or all of them. */
+export type ShapeChoice = 'document' | 'conversation' | 'binary' | 'both';
 
-/** A document or a conversation: what the "document" choice stands for. */
+/** A document or a conversation: both are read as text. */
 export function isTextShape(shape: string): boolean {
   return shape === 'document' || shape === 'conversation';
 }
 
+/**
+ * A kind's shapes as choices. One text shape and no files = no choice
+ * at all (a folder, a channel). One text shape and files = the familiar
+ * text / files / both (a mailbox's messages and its attachments — the
+ * text choice is `document` whatever that text's shape is). BOTH text
+ * shapes — a forge, where a repository is at once what was discussed in
+ * it and what is committed to it — makes the conversation a choice of
+ * its own, first, because it is the half the other hosts cannot read.
+ */
 export function shapeChoices(card: SourceCard): ShapeChoice[] {
-  const text = card.entries.some((e) => isTextShape(e.shape));
+  const conversation = card.entries.some((e) => e.shape === 'conversation');
+  const document = card.entries.some((e) => e.shape === 'document');
   const binary = card.entries.some((e) => e.shape === 'binary');
-  return text && binary ? ['document', 'binary', 'both'] : [];
+  const text: ShapeChoice[] =
+    conversation && document ? ['conversation', 'document'] : conversation || document ? ['document'] : [];
+  const out: ShapeChoice[] = [...text, ...(binary ? (['binary'] as ShapeChoice[]) : [])];
+  return out.length > 1 ? [...out, 'both'] : [];
 }
 
 /** The entries a choice creates connections for (no choice = the card's first, text-shaped, entry). */
@@ -271,7 +288,16 @@ export function entriesFor(card: SourceCard, choice: ShapeChoice | null): Source
   if (choice === 'both') {
     return card.entries.filter((e) => isTextShape(e.shape) || e.shape === 'binary');
   }
-  if (choice === 'document') return card.entries.filter((e) => isTextShape(e.shape)).slice(0, 1);
+  if (choice === 'conversation') {
+    return card.entries.filter((e) => e.shape === 'conversation').slice(0, 1);
+  }
+  if (choice === 'document') {
+    // A kind whose only text is a conversation (a mailbox, a channel)
+    // still answers the `document` choice with it.
+    const own = card.entries.filter((e) => e.shape === 'document');
+    const text = own.length > 0 ? own : card.entries.filter((e) => isTextShape(e.shape));
+    return text.slice(0, 1);
+  }
   if (choice === 'binary') return card.entries.filter((e) => e.shape === 'binary').slice(0, 1);
   return card.entries.slice(0, 1);
 }
