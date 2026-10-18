@@ -3,7 +3,7 @@
 This guide is for AI agents (Claude Code, Cursor, openclaw, custom MCP
 clients) consuming **INITE Brain** — a bitemporal, per-tenant knowledge-graph
 memory service on SurrealDB. Humans: start at
-[docs/getting-started.md](docs/getting-started.md) instead.
+[docs/getting-started.md](getting-started.md) instead.
 
 ## Connect
 
@@ -21,7 +21,7 @@ claim, not from the path. `GET /mcp/health` answers unauthenticated.
 
 Harnesses with native remote-MCP support connect by URL + header. Harnesses
 that can only spawn stdio servers use the first-party shim
-[`@inite/brain-mcp`](clients/brain-mcp/README.md):
+[`@inite/brain-mcp`](../clients/brain-mcp/README.md):
 
 ```json
 { "command": "npx", "args": ["-y", "@inite/brain-mcp"],
@@ -96,7 +96,7 @@ synchronous cascade and tombstones.
   after T still shows (a backdated fact is not disappeared by a late
   ingest). It is NOT a knowledge-time snapshot; that exists only on
   `GET /v1/entities/:id?recordedAt=` and the entity timeline. See
-  [docs/bitemporal-semantics.md](docs/bitemporal-semantics.md) for the
+  [docs/bitemporal-semantics.md](bitemporal-semantics.md) for the
   per-surface table.
 - **Conflicts are explicit.** A new fact meeting an overlapping same-predicate
   prior is auto-superseded, or parked as COMPETING when too close to call —
@@ -113,7 +113,7 @@ synchronous cascade and tombstones.
   record the new fact or retract.
 - **Provenance is first-class.** Every fact is attributable:
   `get_fact` / `get_fact_provenance` (and their REST twins) return the
-  source chain ([docs/fact-provenance-api.md](docs/fact-provenance-api.md));
+  source chain ([docs/fact-provenance-api.md](fact-provenance-api.md));
   `search_multi_hop` returns supporting fact ids; `synthesize` cites
   `[factId]` per claim and a verifier judges support.
 - **Ground your writes.** `record_fact` accepts `conversationId` (the
@@ -172,22 +172,22 @@ synchronous cascade and tombstones.
 
 When you cite brain's memory-accuracy numbers, cite them with the protocol:
 strict binary judge, own full-context baseline, paired stats, held-out split
-([docs/eval-protocol.md](docs/eval-protocol.md)). Do not quote numbers from
+([docs/eval-protocol.md](eval-protocol.md)). Do not quote numbers from
 other systems' self-reported benchmarks as comparable — most published
 memory scores use lenient judges and are inflated; ours are deliberately
 hard to inflate. The in-repo memory-fitness numbers come from the
 mechanical, judge-free battery (`pnpm eval:memory-fitness`,
 `pnpm eval:state-transitions` — see
-[docs/eval-methodology.md](docs/eval-methodology.md)).
+[docs/eval-methodology.md](eval-methodology.md)).
 
 ## More
 
-- API reference: [docs/api.md](docs/api.md) · data model:
-  [docs/data-model.md](docs/data-model.md)
+- API reference: [docs/api.md](api.md) · data model:
+  [docs/data-model.md](data-model.md)
 - Domain packs (tenant ontology extensions, pack-declared MCP tools):
-  [docs/domain-packs.md](docs/domain-packs.md),
-  [docs/mcp-pack-tools.md](docs/mcp-pack-tools.md)
-- Per-user rolling profile: [docs/user-profile-api.md](docs/user-profile-api.md)
-- Operations & self-hosting: [docs/operations.md](docs/operations.md)
+  [docs/domain-packs.md](domain-packs.md),
+  [docs/mcp-pack-tools.md](mcp-pack-tools.md)
+- Per-user rolling profile: [docs/user-profile-api.md](user-profile-api.md)
+- Operations & self-hosting: [docs/operations.md](operations.md)
 
 License: AGPL-3.0-or-later.

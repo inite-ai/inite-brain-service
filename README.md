@@ -35,7 +35,7 @@
   <a href="#domain-packs">Domain Packs</a> ·
   <a href="#getting-started">Getting started</a> ·
   <a href="https://brain.inite.ai/en/docs">Docs</a> ·
-  <a href="AGENTS.md">Agent guide</a>
+  <a href="docs/agents-using-brain.md">Agent guide</a>
 </p>
 
 ## Quick start
@@ -410,7 +410,7 @@ export BRAIN_API_KEY="brain_..."
 gemini extensions install https://github.com/inite-ai/inite-brain-service
 ```
 
-MCP server, the six skills, and [AGENTS.md](AGENTS.md) loaded as context.
+MCP server, the six skills, and the [agent memory guide](docs/agents-using-brain.md) loaded as context.
 The key stays in your environment — the manifest references
 `${BRAIN_API_KEY}` and Gemini expands it at connect time.
 
@@ -488,7 +488,7 @@ MCP sampling when the client supports it. See the
 | Remember engineering rationale | `record_decision`, `why`, `recall_decisions` |
 | Find out what you just connected to | `workspace_status` |
 
-Read [AGENTS.md](AGENTS.md) for memory semantics and the
+Read the [agent memory guide](docs/agents-using-brain.md) for memory semantics and the
 [skills guide](skills/README.md) for reusable agent workflows.
 Synthesis keeps fact references in `citations` and other evidence references
 (episodes, fragments, scenes and beliefs) in `evidenceCitations`; preserve both
@@ -627,7 +627,7 @@ Next.js, React and Tailwind CSS.
 
 | Task | Read |
 | --- | --- |
-| Integrate | [Getting started](docs/getting-started.md), [API](docs/api.md), [MCP agent guide](AGENTS.md) |
+| Integrate | [Getting started](docs/getting-started.md), [API](docs/api.md), [MCP agent guide](docs/agents-using-brain.md) |
 | Understand memory | [Architecture](docs/architecture.md), [Data model](docs/data-model.md), [Bitemporal semantics](docs/bitemporal-semantics.md), [Retrieval profiles](docs/architecture-manifest.md) |
 | Inspect provenance and access | [Fact provenance](docs/fact-provenance-api.md), [User profiles](docs/user-profile-api.md), [Source trust](docs/source-reputation.md), [ABAC](docs/abac.md) |
 | Extend | [Domain Packs](docs/domain-packs.md), [Document pipeline](docs/document-pipeline.md), [MCP pack tools](docs/mcp-pack-tools.md) |
