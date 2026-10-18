@@ -30,3 +30,9 @@ docker-compose.override.yml
 
 # local env variants (e.g. .env.local.<experiment>) never belong in git
 .env.local*
+
+# Claude Code per-machine state — local settings, scheduler/session locks
+# and agent worktrees are never source.
+.claude/settings.local.json
+.claude/*.lock
+.claude/worktrees/
