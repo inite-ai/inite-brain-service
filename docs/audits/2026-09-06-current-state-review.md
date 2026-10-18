@@ -163,7 +163,7 @@ Summary получает `validUntil: last.validUntil ?? last.validFrom`, а и�
 
 ### F11 — P2: инструкция агентам неверно описывает asOf
 
-**Место:** `AGENTS.md:86`, `:147` против `src/search/internals/where-builder.ts:198` и `docs/bitemporal-semantics.md:26`.
+**Место:** `AGENTS.md:86`, `:147` (гайд теперь в `docs/agents-using-brain.md`) против `src/search/internals/where-builder.ts:198` и `docs/bitemporal-semantics.md:26`.
 
 AGENTS утверждает, что `asOf` — исключительно knowledge/belief time, а ожидать valid-time фильтрацию неправильно. Реальный search намеренно фильтрует `validFrom/validUntil` и специально **не ограничивает recordedAt**: поздно узнанный факт может попадать в исторический запрос.
 

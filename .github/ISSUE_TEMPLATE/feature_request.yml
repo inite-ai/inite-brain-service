@@ -1,5 +1,5 @@
 name: Feature request
-description: Propose a capability, improvement, or new retrieval leg.
+description: Propose a capability, improvement, or new retrieval leg when you already have the API shape or behaviour in mind. For an idea in plain words, use "Product idea".
 labels: ["enhancement"]
 body:
   - type: markdown

@@ -1,0 +1,43 @@
+{
+  // One-click dev environment for INITE Brain (GitHub Codespaces or any
+  // devcontainer-capable editor). Node 22 + pnpm (version pinned by
+  // package.json "packageManager"), dependencies installed, .env copied from
+  // .env.example, SurrealDB running on localhost:8000, and Docker-in-Docker
+  // so the testcontainers-based e2e suites work exactly as in CI.
+  // Validated in CI by .github/workflows/devcontainer.yml.
+  "name": "INITE Brain",
+  "dockerComposeFile": "compose.yml",
+  "service": "app",
+  "runServices": ["app", "surrealdb"],
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  "shutdownAction": "stopCompose",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "forwardPorts": [3000, 8000, 3030],
+  "portsAttributes": {
+    "3000": { "label": "Brain API (pnpm start:dev)" },
+    "8000": { "label": "SurrealDB", "onAutoForward": "silent" },
+    "3030": { "label": "Landing / admin (brain-landing: pnpm dev)" }
+  },
+  "hostRequirements": { "cpus": 4, "memory": "8gb" },
+  "remoteUser": "node",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "orta.vscode-jest",
+        "surrealdb.surrealql",
+        "github.vscode-github-actions"
+      ],
+      "settings": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true,
+        "jest.runMode": "on-demand"
+      }
+    }
+  }
+}
