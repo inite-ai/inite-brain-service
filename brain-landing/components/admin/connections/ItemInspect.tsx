@@ -9,7 +9,7 @@ import type {
   SourceItemFact,
   SourceItemInspectResponse,
 } from '../../../lib/contracts/admin-source-connections'
-import { connectionPath, errorMessage, stamp, type ConnectionsT } from './shared'
+import { accentBtn, connectionPath, errorMessage, fill, stamp, type ConnectionsT } from './shared'
 
 /**
  * One catalogue row followed all the way: what it is at the source, the
@@ -21,17 +21,23 @@ import { connectionPath, errorMessage, stamp, type ConnectionsT } from './shared
 export function ItemInspect({
   connectionId,
   item,
+  catalogueOnly,
   t,
   onClose,
+  onRead,
 }: {
   connectionId: string
   item: SourceItem
+  /** The connection only catalogues (contentPolicy: manifest) — this row can be READ on demand (W6). */
+  catalogueOnly: boolean
   t: ConnectionsT
   onClose: () => void
+  onRead: () => Promise<void>
 }) {
   const s = t.item
   const [data, setData] = useState<SourceItemInspectResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [reading, setReading] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -48,8 +54,33 @@ export function ItemInspect({
     }
   }, [connectionId, item.id])
 
-  const { loading } = useLoader(load)
+  const { loading, reload } = useLoader(load)
   const row = data?.item ?? item
+
+  /**
+   * Read this one row now. A catalogued item is a filename the brain
+   * has never opened; this is the operator's own version of what a
+   * retrieval hit schedules — the same deepening, asked for by hand.
+   */
+  const readNow = async () => {
+    setReading(true)
+    setError(null)
+    try {
+      const res = await fetch(connectionPath(connectionId, '/sync'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ inline: true, itemIds: [row.id] }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(errorMessage(json, res.status))
+      await reload()
+      await onRead()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setReading(false)
+    }
+  }
 
   return (
     <Modal title={`${s.title}: ${row.path ?? row.title ?? row.externalId}`} onClose={onClose} wide>
@@ -58,6 +89,17 @@ export function ItemInspect({
         {loading && !data && (
           <div className="flex items-center gap-2 text-[var(--text-muted)]">
             <Loader2 className="w-3 h-3 animate-spin" />
+          </div>
+        )}
+
+        {catalogueOnly && row.state !== 'gone' && (
+          <div className="flex items-center gap-2 flex-wrap rounded-md border border-[var(--border)] p-2">
+            <button className={accentBtn} disabled={reading} onClick={() => void readNow()}>
+              {reading ? <Loader2 className="w-3 h-3 animate-spin" /> : s.readNow}
+            </button>
+            <span className="text-[10px] text-[var(--text-muted)]">
+              {row.deepenedAt ? fill(s.readAlready, { at: stamp(row.deepenedAt) }) : s.readHint}
+            </span>
           </div>
         )}
 
