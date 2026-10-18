@@ -9,6 +9,7 @@ import {
   sourceEgressAllowPrivate,
   sourceFsRoots,
   sourceMcpOAuthEnabled,
+  sourcePrincipalsEnabled,
   sourceWebhooksEnabled,
 } from '../common/source-plane-flags';
 import { SurrealService, queryRows } from '../db/surreal.service';
@@ -85,6 +86,7 @@ export class SourceCatalogService {
       fsRoots: sourceFsRoots(),
       egressAllowPrivate: sourceEgressAllowPrivate(),
       webhooks: sourceWebhooksEnabled(),
+      principals: sourcePrincipalsEnabled(),
     };
   }
 

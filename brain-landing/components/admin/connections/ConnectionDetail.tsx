@@ -22,6 +22,7 @@ import {
   type SyncNowResponse,
 } from '../../../lib/contracts/admin-source-connections'
 import { ItemInspect } from './ItemInspect'
+import { PrincipalsSection } from './PrincipalsSection'
 import { WebhookSection } from './WebhookSection'
 import {
   accentBtn,
@@ -48,6 +49,7 @@ export function ConnectionDetail({
   connection,
   entry,
   webhooksOn,
+  principalsOn,
   t,
   onClose,
   onChanged,
@@ -57,6 +59,8 @@ export function ConnectionDetail({
   entry: SourceCatalogEntry | null
   /** SOURCE_WEBHOOKS on this brain (the catalogue says). */
   webhooksOn: boolean
+  /** The catalogue's `principals` — SOURCE_PRINCIPALS on this brain. */
+  principalsOn: boolean
   t: ConnectionsT
   onClose: () => void
   onChanged: () => Promise<void>
@@ -265,6 +269,8 @@ export function ConnectionDetail({
       {agentId === null && (
         <WebhookSection connection={connection} entry={entry} webhooksOn={webhooksOn} t={t} onChanged={onChanged} />
       )}
+
+      <PrincipalsSection connection={connection} principalsOn={principalsOn} t={t} />
 
       {runs && <RunsTable runs={runs} t={t} lang={lang} />}
 

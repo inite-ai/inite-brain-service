@@ -4,6 +4,7 @@ import { SurrealService, queryFirst } from '../db/surreal.service';
 import { EvidenceStoreService } from '../evidence/evidence-store.service';
 import { idTailOf } from '../ingest/ingest-utils';
 import { DocumentIngestService } from './document-ingest.service';
+import { runWithWriteScope } from '../auth/write-scope';
 import { internalDocumentMeta } from './document-meta';
 import { DOC_TEXT_HARD_CAP, type IngestDocumentDto } from './dto/ingest-document.dto';
 
@@ -68,6 +69,19 @@ function sourceHeaderOf(asset: AssetRow): {
     if (typeof v === 'string' && v.length > 0) labels[k] = v;
   }
   return { internal, labels };
+}
+
+/**
+ * The scope a source-plane asset was stored under (`sourceScope` in its
+ * meta, written by the source plane's binary door). Strings only, and
+ * fail-closed: a scope we cannot read is an empty one — tenant-global —
+ * because the alternative is inventing a tag nobody holds, which hides
+ * the row from everyone including its owner.
+ */
+export function assetScopeOf(asset: AssetRow): string[] {
+  const raw = (asset.meta ?? {})['sourceScope'];
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((t): t is string => typeof t === 'string' && t.length > 0);
 }
 
 /** `kind` on the source_document rows the bridge writes. */
@@ -175,10 +189,12 @@ export class EvidenceDocumentBridgeService {
         labels: header.labels,
       });
       try {
-        const r = await this.ingest.ingestDocument(companyId, dto, {
-          channel: 'evidence',
-          internal,
-        });
+        // W5: the asset carries the scope its item belonged to, because
+        // this work runs in a JOB — long after the door's own span. The
+        // documents, chunks and facts made here inherit it.
+        const r = await runWithWriteScope(assetScopeOf(asset), () =>
+          this.ingest.ingestDocument(companyId, dto, { channel: 'evidence', internal }),
+        );
         if (r.deduplicated) result.deduplicated++;
         else result.ingested++;
       } catch (err) {

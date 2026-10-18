@@ -6,6 +6,7 @@ import { IngestModule } from '../ingest/ingest.module';
 import { SourcesModule } from '../sources/sources.module';
 import { AdminSourceConnectionsController } from './admin-source-connections.controller';
 import { AdminSourceInspectController } from './admin-source-inspect.controller';
+import { AdminSourcePrincipalsController } from './admin-source-principals.controller';
 import { AgentRunService } from './agent-run.service';
 import { AgentSourceConnectionsController } from './agent-source-connections.controller';
 import { AgentSyncService } from './agent-sync.service';
@@ -52,6 +53,7 @@ import { SourceInspectService } from './source-inspect.service';
 import { SourceItemEffectsService } from './source-item-effects.service';
 import { SourceItemIngestService } from './source-item-ingest.service';
 import { SourceItemService } from './source-item.service';
+import { SourcePrincipalsService } from './source-principals.service';
 import { SourceRunHistoryService } from './source-run-history.service';
 import { SourceSyncQueueService } from './source-sync-queue.service';
 import { SourceSyncService } from './source-sync.service';
@@ -95,6 +97,7 @@ import { SourceSyncService } from './source-sync.service';
     AdminSourceOAuthController,
     AdminSourceConnectionsController,
     AdminSourceInspectController,
+    AdminSourcePrincipalsController,
     AdminSourceWebhookController,
     SourceWebhookController,
     AgentSourceConnectionsController,
@@ -167,6 +170,7 @@ import { SourceSyncService } from './source-sync.service';
     SourceItemEffectsService,
     SourceSyncService,
     SourceSyncQueueService,
+    SourcePrincipalsService,
     SourceRunHistoryService,
     SourceInspectService,
     AgentSyncService,
