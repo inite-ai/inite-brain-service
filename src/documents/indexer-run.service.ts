@@ -323,6 +323,9 @@ export class IndexerRunService {
       text: groupDocs.map((d) => d.text).join('\n\n'),
       occurredAt: first.occurredAt,
       before: first.occurredAt,
+      // The group states things up to its last turn: what was said by then
+      // is what its turns may replace.
+      saidBy: new Date(Math.max(...claimed.map(({ doc }) => doc.occurredAt.getTime()))),
       conversationId: groupDocs[0]?.conversationId,
       userId: first.userId,
       participants: [...new Set(names.filter((n): n is string => !!n))],
