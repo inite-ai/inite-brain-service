@@ -24,6 +24,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { HttpBrainClient } from '../http-brain-client';
 import { longRequestJson } from '../long-request';
+import { batteryPhase, loadBuilds, saveBuilds } from '../phase';
 import {
   CORPUS_TURNS,
   CORPUS_VERTICAL,
@@ -114,7 +115,7 @@ function loadConfig(): Config {
     userId: process.env.MEMFIT_USER_ID ?? 'memfit-agent',
     runId: process.env.MEMFIT_RUN_ID ?? `mf${Date.now().toString(36)}`,
     guardrails: guardrailsRaw,
-    skipIngest: process.env.MEMFIT_SKIP_INGEST === '1',
+    skipIngest: process.env.MEMFIT_SKIP_INGEST === '1' || batteryPhase() === 'ask',
     reportDir: process.env.MEMFIT_REPORT_DIR ?? join('var', 'memory-fitness'),
   };
 }
@@ -821,13 +822,22 @@ async function main(): Promise<void> {
     const tools = new Set(toolList.tools.map((t) => t.name));
     console.error(`[mcp] connected, ${tools.size} tools visible`);
 
-    let builds: Record<string, string> = { scenes: 'skipped: MEMFIT_SKIP_INGEST' };
+    let builds: Record<string, string> = loadBuilds(cfg.reportDir, cfg.runId) ?? {
+      scenes: 'skipped: MEMFIT_SKIP_INGEST',
+    };
     if (!cfg.skipIngest) {
       await ingestCorpus(cfg, brain);
       await drainExtraction(cfg);
       await recordDirectFacts(cfg, mcp);
       await recordScopedFacts(cfg, mcp);
       builds = await runBuilds(cfg);
+      saveBuilds(cfg.reportDir, cfg.runId, builds);
+    }
+    if (batteryPhase() === 'ingest') {
+      console.log(
+        `memory-fitness: ingested run ${cfg.runId}, nothing asked (BATTERY_PHASE=ingest)`,
+      );
+      return;
     }
 
     const questions = await askAll({ cfg, mcp, tools, builds });

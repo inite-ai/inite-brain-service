@@ -87,6 +87,13 @@ construction — the coach and the assistant are both M2M keys.
   see ∩ the circles the agent belongs to;
 - `TENANT_WIDE` stays for operator and background contexts, and for
   existing clients until they opt in (§5).
+- **The asker is the agent, not the user.** Today a call with `userId`
+  renders the asker as that user (#643). Measured 2026-10-26: the coach
+  asking "what did I promise Ana?" was read as Ana asking what she
+  promised, and with the promise correctly stored on the Coach entity the
+  verifier abstained in 3 of 4 runs. An agent acting for a user asks as
+  itself, about the user — "I" is the agent, "you" in the answer is the
+  agent, and the user is named.
 
 ### 3.3 The acting circle
 

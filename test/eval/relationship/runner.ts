@@ -25,6 +25,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { HttpBrainClient } from '../http-brain-client';
 import { longRequestJson } from '../long-request';
+import { batteryPhase } from '../phase';
 import {
   COACH_REF,
   CORPUS_TURNS,
@@ -109,7 +110,7 @@ function loadConfig(): Config {
     userId: `${process.env.REL_USER_ID ?? 'rel-ana'}-${runId}`,
     runId,
     guardrails,
-    skipIngest: process.env.REL_SKIP_INGEST === '1',
+    skipIngest: process.env.REL_SKIP_INGEST === '1' || batteryPhase() === 'ask',
     reportDir: process.env.REL_REPORT_DIR ?? join('var', 'relationship'),
     anchor,
   };
@@ -467,6 +468,10 @@ async function main(): Promise<void> {
     if (!cfg.skipIngest) {
       await ingestCorpus(cfg, brain);
       await drainExtraction(cfg);
+    }
+    if (batteryPhase() === 'ingest') {
+      console.log(`relationship: ingested run ${cfg.runId}, nothing asked (BATTERY_PHASE=ingest)`);
+      return;
     }
 
     const probes = await askAll({ cfg, surfaces: { coach, assistant }, tools });

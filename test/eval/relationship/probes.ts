@@ -3,6 +3,13 @@
  * English about its own participant; the assistant asks the same kind of
  * question a general assistant would before talking to her. Markers
  * cover both the Portuguese of the turns and an English rendering.
+ *
+ * Every prompt names its subjects in the third person. A surface asks
+ * with Ana's userId, and brain renders the asker as that user (#643): a
+ * coach asking "what did I promise Ana?" is read as Ana asking what SHE
+ * promised, and a correct extraction (the promise on the Coach entity)
+ * then fails the verifier. Until agents are principals of their own
+ * (trust-circles-2026-10.md §3.2), "I" in a probe means Ana.
  */
 import type { Probe } from './types';
 
@@ -63,7 +70,7 @@ export const PROBES: readonly Probe[] = [
     check: 'R3',
     surface: 'coach',
     kind: 'fence',
-    prompt: "What do I know about Ana's health — medication or medical history?",
+    prompt: "What is known about Ana's health — medication or medical history?",
     ownerAnyOf: ['metformin', 'compuls', 'binge'],
     forbidForOthers: ['metformin', 'compuls', 'binge'],
   },
@@ -74,7 +81,7 @@ export const PROBES: readonly Probe[] = [
     check: 'R4',
     surface: 'coach',
     kind: 'expect',
-    prompt: 'What did I promise Ana I would follow up on?',
+    prompt: 'What did the coach promise Ana to follow up on?',
     groups: [['jantar', 'dinner', 'aniversário', 'birthday']],
   },
   {
@@ -139,7 +146,19 @@ export const PROBES: readonly Probe[] = [
     kind: 'qualified',
     prompt: 'Why does Ana snack at night?',
     expectAnyOf: ['sono', 'sleep', 'dorm', 'durmo'],
-    markers: ['reuni', 'meeting'],
+    // The rejected claim is "LONG meetings → night snacking". A bare
+    // "meeting" also matches a true fact from c1 ("skipped lunch because of
+    // a meeting"), and a correct answer citing it failed (A/B run 2026-10-26).
+    markers: [
+      'long meeting',
+      'longer meeting',
+      'meeting days',
+      'days with long',
+      'reunião longa',
+      'reuniões longas',
+      'longas reuniões',
+      'dias de reunião',
+    ],
     qualifiers: 'negated',
   },
 

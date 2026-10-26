@@ -23,6 +23,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { HttpBrainClient } from '../http-brain-client';
 import { longRequestJson } from '../long-request';
+import { batteryPhase, loadBuilds, saveBuilds } from '../phase';
 import { interleaveRoundRobin } from '../memory-fitness/interleave';
 import { walkProvenance } from '../memory-fitness/scorers';
 import { BORIS_REF, CORPUS_VERTICAL, speakerFor } from './scenarios';
@@ -130,7 +131,7 @@ function loadConfig(): Config {
     runId,
     variant,
     guardrails: guardrailsRaw,
-    skipIngest: process.env.STEV_SKIP_INGEST === '1',
+    skipIngest: process.env.STEV_SKIP_INGEST === '1' || batteryPhase() === 'ask',
     reportDir: process.env.STEV_REPORT_DIR ?? join('var', 'state-transitions'),
   };
 }
@@ -636,11 +637,20 @@ async function main(): Promise<void> {
     const tools = new Set(toolList.tools.map((t) => t.name));
     console.error(`[mcp] connected, ${tools.size} tools visible`);
 
-    let builds: Record<string, string> = { scenes: 'skipped: STEV_SKIP_INGEST' };
+    let builds: Record<string, string> = loadBuilds(cfg.reportDir, cfg.runId) ?? {
+      scenes: 'skipped: STEV_SKIP_INGEST',
+    };
     if (!cfg.skipIngest) {
       await ingestTurns(cfg, brain, turns);
       await drainExtraction(cfg);
       builds = await runBuilds(cfg);
+      saveBuilds(cfg.reportDir, cfg.runId, builds);
+    }
+    if (batteryPhase() === 'ingest') {
+      console.log(
+        `state-transitions: ingested run ${cfg.runId}, nothing asked (BATTERY_PHASE=ingest)`,
+      );
+      return;
     }
 
     const ctx: CheckContext = { cfg, mcp, tools, builds };
