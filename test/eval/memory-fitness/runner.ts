@@ -23,6 +23,7 @@ import { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { HttpBrainClient } from '../http-brain-client';
+import { longRequestJson } from '../long-request';
 import {
   CORPUS_TURNS,
   CORPUS_VERTICAL,
@@ -168,17 +169,14 @@ async function restRaw<T>(
   path: string,
   body?: unknown,
 ): Promise<RestResult<T>> {
-  const res = await fetch(`${cfg.baseUrl}${path}`, {
+  // Admin builds can outlive fetch's 300 s header deadline (long-request.ts).
+  const res = await longRequestJson(
+    `${cfg.baseUrl}${path}`,
     method,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${cfg.apiKey}`,
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
-  const ct = res.headers.get('content-type') ?? '';
-  if (!ct.includes('application/json')) return { status: res.status, json: null };
-  return { status: res.status, json: (await res.json()) as T };
+    { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+    body,
+  );
+  return { status: res.status, json: res.json as T | null };
 }
 
 // ── MCP ─────────────────────────────────────────────────────────────

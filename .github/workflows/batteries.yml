@@ -36,8 +36,8 @@ on:
         default: 'main'
         required: true
       batteries:
-        description: 'Comma-separated: memory-fitness,state-transitions,relationship'
-        default: 'memory-fitness,state-transitions,relationship'
+        description: 'Comma-separated; name*N repeats a battery'
+        default: 'memory-fitness,state-transitions,relationship*3'
         required: true
 
 permissions:
@@ -52,7 +52,7 @@ jobs:
     name: ${{ matrix.arm }}
     if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-batteries'
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
@@ -136,16 +136,23 @@ jobs:
       - name: Run batteries
         working-directory: harness
         env:
-          BATTERIES: ${{ inputs.batteries || 'memory-fitness,state-transitions,relationship' }}
+          BATTERIES: ${{ inputs.batteries || 'memory-fitness,state-transitions,relationship*3' }}
           ARM: ${{ matrix.arm }}
         run: |
           set -a; . ../battery.env; set +a
           export BRAIN_BASE_URL=http://127.0.0.1:3000
-          for b in $(echo "$BATTERIES" | tr ',' ' '); do
-            echo "::group::$b"
-            pnpm --ignore-workspace "eval:$b" 2>&1 | tee "../$b.log" || echo "[warn] $b exited non-zero"
-            echo "::endgroup::"
-            { echo "### $ARM — $b"; echo '```'; sed -n '/scorecard/,$p' "../$b.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          # `name*N` runs a battery N times (each run writes a fresh participant):
+          # one run of a 14-probe battery cannot tell a regression from noise.
+          for entry in $(echo "$BATTERIES" | tr ',' ' '); do
+            b="${entry%%\**}"; n=1
+            [ "$b" != "$entry" ] && n="${entry##*\*}"
+            for k in $(seq 1 "$n"); do
+              log="../$b-$k.log"
+              echo "::group::$b #$k"
+              pnpm --ignore-workspace "eval:$b" 2>&1 | tee "$log" || echo "[warn] $b #$k exited non-zero"
+              echo "::endgroup::"
+              { echo "### $ARM — $b #$k"; echo '```'; sed -n '/scorecard/,$p' "$log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            done
           done
 
       - name: Upload reports

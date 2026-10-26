@@ -24,6 +24,7 @@ import { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { HttpBrainClient } from '../http-brain-client';
+import { longRequestJson } from '../long-request';
 import {
   COACH_REF,
   CORPUS_TURNS,
@@ -251,13 +252,18 @@ async function ingestCorpus(cfg: Config, brain: HttpBrainClient): Promise<void> 
 
 /** Ask the server to read everything waiting; 404 = it reads on the write path. */
 async function drainExtraction(cfg: Config): Promise<void> {
-  const res = await fetch(`${cfg.baseUrl}/v1/admin/maintenance/extraction`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.coachKey}` },
-    body: '{}',
-  });
+  // Can outlive fetch's 300 s header deadline (long-request.ts). Behind a
+  // proxy it can also outlive the proxy (Cloudflare answers 524 at 100 s):
+  // re-ask with REL_SKIP_INGEST once a second drain answers `read: 0`.
+  const res = await longRequestJson(
+    `${cfg.baseUrl}/v1/admin/maintenance/extraction`,
+    'POST',
+    { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.coachKey}` },
+    {},
+  );
+  const ok = res.status >= 200 && res.status < 300;
   console.error(
-    `[build] extraction: ${res.status === 404 ? 'inline (404)' : res.ok ? 'drained' : `HTTP ${res.status} — probes may see a partial read`}`,
+    `[build] extraction: ${res.status === 404 ? 'inline (404)' : ok ? `drained ${JSON.stringify(res.json)}` : `HTTP ${res.status} — probes may see a partial read`}`,
   );
 }
 
