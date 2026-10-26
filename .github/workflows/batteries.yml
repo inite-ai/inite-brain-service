@@ -1,0 +1,159 @@
+# Memory batteries, A/B, on a GitHub runner instead of a laptop.
+#
+# The mechanical batteries (memory-fitness, state-transitions,
+# relationship — see their READMEs under test/eval/) drive a LIVE brain.
+# Production measures main; a branch needs a stand of its own, and
+# multi-service stacks on a developer's machine are off the table. This
+# workflow boots one SurrealDB and one brain per arm, with the
+# production enablement flags read from deploy-brain.yml of the SAME
+# ref, and runs the chosen batteries against each:
+#
+#   base — inputs.base_ref (default main), or the PR's base
+#   head — the ref this workflow is dispatched on, or the PR's head
+#
+# Two triggers: a manual dispatch (only once this file is on main —
+# GitHub dispatches workflows from the default branch), and the label
+# `run-batteries` on a pull request, which runs the PR's own copy of
+# this file and so works for the PR that introduces it.
+#
+# Parity caveats, stated once: the enablement block is production's,
+# the compose-level env and admin-panel settings are not, and the
+# decision-plane lanes stay inert without TYPESAFE_API_KEY. Both arms
+# share every caveat, so the comparison is fair even where the absolute
+# numbers are not production's.
+#
+# Spend: the stand's own model calls (extraction, synthesis) on the
+# default cheap model — roughly $0.5–1 per arm for all three batteries.
+name: Memory batteries (A/B)
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: 'Baseline ref (the head is the ref you dispatch on)'
+        default: 'main'
+        required: true
+      batteries:
+        description: 'Comma-separated: memory-fitness,state-transitions,relationship'
+        default: 'memory-fitness,state-transitions,relationship'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: batteries-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  arm:
+    name: ${{ matrix.arm }}
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-batteries'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [base, head]
+    steps:
+      - name: Start SurrealDB
+        # Same image the e2e suites pin (test/global-setup.ts).
+        run: |
+          docker run -d --name stand-surreal -p 8001:8000 surrealdb/surrealdb:v3.2.4 \
+            start --user root --pass root rocksdb:/tmp/stand.db
+          for _ in $(seq 1 30); do curl -sf http://127.0.0.1:8001/health && break; sleep 1; done
+
+      - name: Resolve the arm's ref
+        id: ref
+        env:
+          ARM: ${{ matrix.arm }}
+          BASE_REF: ${{ inputs.base_ref || github.event.pull_request.base.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ "$ARM" = base ]; then echo "ref=$BASE_REF" >> "$GITHUB_OUTPUT"; else echo "ref=$HEAD_REF" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+
+      # The batteries themselves come from the head: a battery added on a
+      # branch must be able to measure main too.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: harness
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install and build the arm
+        run: |
+          pnpm install --frozen-lockfile --ignore-workspace
+          pnpm build
+
+      - name: Install the harness
+        working-directory: harness
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
+      - name: Production enablement flags
+        # The literal heredoc deploy-brain.yml writes to enablement.env,
+        # taken from this arm's own ref.
+        run: |
+          awk '/tee "\$\{PROJECT_DIR\}\/enablement.env" > \/dev\/null << .EOF./{on=1;next} on&&/^[[:space:]]*EOF[[:space:]]*$/{exit} on' \
+            .github/workflows/deploy-brain.yml \
+            | sed 's/^[[:space:]]*//' | grep -E '^[A-Z0-9_]+=' > stand.env
+          echo "[ok] $(wc -l < stand.env) flags"
+
+      - name: Start brain
+        env:
+          OPENAI_API_KEY: ${{ secrets.BRAIN_OPENAI_API_KEY }}
+        run: |
+          node -e '
+            const c=require("crypto"),fs=require("fs");
+            const mk=()=>"brain_"+c.randomBytes(24).toString("hex");
+            const h=k=>"sha256:"+c.createHash("sha256").update(k).digest("hex");
+            const co="co_battery_"+c.randomBytes(4).toString("hex");
+            const admin=mk(), reader=mk();
+            const keys=[{keyHash:h(admin),companyId:co,scopes:["brain:read","brain:write","brain:admin","brain:read_pii"]},
+                        {keyHash:h(reader),companyId:co,scopes:["brain:read"]}];
+            fs.writeFileSync("keys.json",JSON.stringify(keys));
+            fs.writeFileSync("battery.env",`BRAIN_COMPANY_ID=${co}\nBRAIN_API_KEY=${admin}\nREL_ASSISTANT_API_KEY=${reader}\n`);'
+          set -a; . ./stand.env; set +a
+          BRAIN_API_KEYS="$(cat keys.json)"
+          export PORT=3000 BRAIN_API_KEYS \
+            SURREALDB_URL=ws://127.0.0.1:8001 SURREALDB_USERNAME=root SURREALDB_PASSWORD=root SURREALDB_NAMESPACE=brain \
+            FORGET_HMAC_KEY=battery-hmac-key-must-be-at-least-32-chars THROTTLE_DISABLED=1
+          nohup node dist/main > brain.log 2>&1 &
+          for i in $(seq 1 180); do curl -sf http://127.0.0.1:3000/health >/dev/null && echo "[ok] up after ${i}s" && exit 0; sleep 1; done
+          tail -50 brain.log; exit 1
+
+      - name: Run batteries
+        working-directory: harness
+        env:
+          BATTERIES: ${{ inputs.batteries || 'memory-fitness,state-transitions,relationship' }}
+          ARM: ${{ matrix.arm }}
+        run: |
+          set -a; . ../battery.env; set +a
+          export BRAIN_BASE_URL=http://127.0.0.1:3000
+          for b in $(echo "$BATTERIES" | tr ',' ' '); do
+            echo "::group::$b"
+            pnpm --ignore-workspace "eval:$b" 2>&1 | tee "../$b.log" || echo "[warn] $b exited non-zero"
+            echo "::endgroup::"
+            { echo "### $ARM — $b"; echo '```'; sed -n '/scorecard/,$p' "../$b.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: batteries-${{ matrix.arm }}
+          path: |
+            harness/var/
+            *.log
+          retention-days: 14
