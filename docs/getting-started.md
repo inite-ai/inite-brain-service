@@ -1,13 +1,13 @@
 # Getting started
 
 Zero to a running Brain with one ingested fact — for anyone standing up
-the service for the first time. Brain runs on Node 22 + SurrealDB 3.2.4
+the service for the first time. Brain runs on Node 24 + SurrealDB 3.2.4
 + OpenAI. The fast path is five commands; everything else is in the
 linked docs.
 
 ## Prerequisites
 
-- Node 22 (`pnpm` recommended)
+- Node 24.9+ (`pnpm` recommended)
 - Docker (for the local SurrealDB)
 - An OpenAI API key
 

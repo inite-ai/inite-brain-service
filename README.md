@@ -274,7 +274,7 @@ self-hosted deployment, so the env-var key below is only ever a bootstrap.
 
 ### Run from source
 
-Prerequisites: **Node.js 22**, **pnpm 10** and **Docker Compose**. The default
+Prerequisites: **Node.js 24.9+**, **pnpm 10** and **Docker Compose**. The default
 model configuration needs an OpenAI API key. Local embeddings and alternative
 model providers are configuration choices; see [operations](docs/operations.md).
 
@@ -616,7 +616,7 @@ Battery guides: [memory fitness](test/eval/memory-fitness/README.md) ·
 
 ## Stack
 
-Node.js 22 · NestJS · TypeScript · SurrealDB 3.x · configurable embedding and
+Node.js 24 · NestJS · TypeScript · SurrealDB 3.x · configurable embedding and
 LLM providers · local BGE-M3 option · configurable reranking · SurrealDB-backed
 jobs and leases · worker threads · OpenTelemetry. The web app and docs use
 Next.js, React and Tailwind CSS.
