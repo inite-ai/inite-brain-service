@@ -6,6 +6,8 @@
 // patch via require-hooks; late init silently misses every prior
 // require. No-op when OTEL_ENABLED!=1.
 import { initTracing } from './common/tracing';
+// Record ids keep their public string form across driver versions.
+import './db/record-id-format';
 initTracing();
 
 import { NestFactory } from '@nestjs/core';

@@ -1,3 +1,4 @@
+import './record-id-format';
 import {
   Injectable,
   Logger,
