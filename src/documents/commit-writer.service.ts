@@ -403,7 +403,13 @@ export class CommitWriterService {
     const circles = actingCircleTags();
     if (circles.length === 0 || !doc.userId || !this.users) return null;
     const own = await this.users.lookup(db, doc.userId);
-    return own ? { ownEntityId: String(own.id), circles } : null;
+    if (!own) {
+      this.logger.log(
+        `[brain.commit.share] ${doc.id}: no entity for the person yet — nothing shared`,
+      );
+      return null;
+    }
+    return { ownEntityId: idTailOf(String(own.id)), circles };
   }
 
   /**
@@ -430,6 +436,9 @@ export class CommitWriterService {
     },
   ): Promise<void> {
     const meta = (p.source.meta as Record<string, unknown> | undefined) ?? {};
+    this.logger.log(
+      `[brain.commit.share] ${p.factId}: instruction shared out of ${p.circles.join(',')}`,
+    );
     try {
       await runOutsideCircle(() =>
         this.factResolver.resolve(db, {
@@ -610,5 +619,6 @@ export function episodeForSpans(
 
 /** The default share rule (trust circles §3.8): an instruction about the person, on their own entity. */
 function isPortable(mf: MergedFact, entityId: string, target: { ownEntityId: string }): boolean {
-  return mf.predicate === 'instruction' && entityId === target.ownEntityId;
+  // Compared by record-id tail: the two sources render the id differently.
+  return mf.predicate === 'instruction' && idTailOf(entityId) === target.ownEntityId;
 }

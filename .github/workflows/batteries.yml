@@ -252,7 +252,7 @@ jobs:
         run: |
           set -a; . snap/battery.env; set +a
           mkdir -p out
-          echo "SELECT entityId.canonicalName AS entity, predicate, object, statement, status, userId FROM knowledge_fact ORDER BY entity, predicate;" \
+          echo "SELECT entityId.canonicalName AS entity, predicate, object, statement, status, userId, scope, source.meta.sharedFrom AS sharedFrom FROM knowledge_fact ORDER BY entity, predicate;" \
             | $SURREAL sql -e http://127.0.0.1:8000 -u root -p root --ns brain --db "co_${BRAIN_COMPANY_ID}" --hide-welcome --json -l none \
             > out/facts.json || echo "[warn] facts dump failed"
           echo "[ok] $(wc -c < out/facts.json) bytes of facts"
