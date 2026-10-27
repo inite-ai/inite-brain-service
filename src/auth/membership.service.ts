@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { parseTeamTag, teamTag, userTag } from './scope-tags';
+import { CIRCLE_ID_RE, isCircleTag } from './circle-scope';
 
 /**
  * The membership plane (G6 step 3–5, W5): who a brain user IS in the
@@ -71,6 +72,8 @@ export class MembershipService {
   private readonly logger = new Logger(MembershipService.name);
   /** companyId → { epoch, byUser } — dropped whole the moment the epoch moves. */
   private readonly cache = new Map<string, { epoch: number; byUser: Map<string, string[]> }>();
+  /** (tenant, subject, circle) memberships already known to exist. */
+  private readonly joined = new Set<string>();
 
   constructor(private readonly surreal: SurrealService) {}
 
@@ -119,8 +122,10 @@ export class MembershipService {
       const next: string[] = [];
       for (const row of groups) {
         // A group tag that does not parse is not a group: it is never
-        // held, so a malformed tuple cannot widen anyone.
-        if (parseTeamTag(row.object) === null) continue;
+        // held, so a malformed tuple cannot widen anyone. A trust circle
+        // is held like a group (a person sees their own circles' memory).
+        const circle = isCircleTag(row.object) && CIRCLE_ID_RE.test(row.object.slice(7));
+        if (!circle && parseTeamTag(row.object) === null) continue;
         if (held.has(row.object)) continue;
         if (held.size >= MAX_TAGS) {
           this.logger.warn(`scope expansion for ${subject} hit the tag cap (${String(MAX_TAGS)})`);
@@ -373,6 +378,43 @@ export class MembershipService {
       }
       return changed;
     });
+  }
+
+  /**
+   * Record that a person is in a trust circle — called when something is
+   * written for them while acting in it (auth/circle-scope.ts), so the
+   * person reading their own memory holds the circle's tag. Idempotent:
+   * known pairs are skipped in-process, and the tuple's UNIQUE index
+   * absorbs a race. Only a new membership moves the epoch.
+   */
+  async joinCircle(companyId: string, userId: string, circle: string): Promise<void> {
+    const subject = userTag(userId);
+    const memo = `${companyId}\x1f${subject}\x1f${circle}`;
+    if (this.joined.has(memo)) return;
+    const created = await this.surreal.withCompany(companyId, async (db) => {
+      const [rows] = await db.query<[Array<{ id: unknown }>]>(
+        `SELECT id FROM external_principal
+          WHERE subject = $subject AND relation = 'member' AND object = $circle LIMIT 1`,
+        { subject, circle },
+      );
+      if ((rows ?? []).length > 0) return false;
+      try {
+        await db.query(`CREATE external_principal CONTENT $row`, {
+          row: {
+            subject,
+            object: circle,
+            relation: 'member',
+            connectionId: 'brain',
+            source: 'brain',
+          },
+        });
+        return true;
+      } catch {
+        return false; // another writer got there first (UNIQUE)
+      }
+    });
+    this.joined.add(memo);
+    if (created) await this.bump(companyId, `circle membership: ${circle}`);
   }
 
   /** Move the tenant's consistency token — every cached expansion dies with it. */

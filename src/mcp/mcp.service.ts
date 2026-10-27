@@ -22,6 +22,11 @@ import { registerReadTools, READ_RESOURCE_ACTIONS } from './read-tools';
 import { registerProceduralReadTools } from './procedural-tools';
 import { registerWriteTools, registerAdminTools } from './write-tools';
 import { registerCodeMemoryReadTools, registerCodeMemoryWriteTools } from './code-memory-tools';
+import {
+  RELATIONSHIP_PACK_ID,
+  RELATIONSHIP_RESOURCE_ACTIONS,
+  registerRelationshipTools,
+} from './relationship-tools';
 import { registerSourceReadTools } from './source-tools';
 import { registerOnboardingTools } from './onboarding-tools';
 import { registerPublicTools } from './public-tools';
@@ -635,7 +640,10 @@ export class McpService {
     // grant/policy over get_entity_profile governs the brain://entity/<id>
     // resource identically. An unmapped resource name falls through to
     // itself → write-kind → fail-closed under any restriction.
-    const resourceActionOf = (name: string): string => READ_RESOURCE_ACTIONS.get(name) ?? name;
+    const resourceActionOf = (name: string): string =>
+      READ_RESOURCE_ACTIONS.get(name) ?? RELATIONSHIP_RESOURCE_ACTIONS.get(name) ?? name;
+    // Read before the wrappers, like the bindings: registration below is sync.
+    const relationshipPack = await this.packToolsReader.isActive(companyId, RELATIONSHIP_PACK_ID);
     // Applied BEFORE every other patch = innermost at registration =
     // it captures each handler with all the other gates already wrapped
     // around it. run_tool depends on exactly that; see applyToolProfile.
@@ -717,6 +725,13 @@ export class McpService {
       server,
       companyId,
       deps: { sources: this.sources },
+    });
+    registerRelationshipTools({
+      server,
+      companyId,
+      scopes,
+      enabled: relationshipPack,
+      deps: { entities: this.entities },
     });
     if (this.workspaceStatus) {
       // `named` decides whether the rename tool is registered at all, so

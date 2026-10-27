@@ -67,6 +67,7 @@ describe('first-party pack library', () => {
       'mail_memory',
       'medical',
       'real_estate',
+      'relationship',
       'web_memory',
     ]);
   });

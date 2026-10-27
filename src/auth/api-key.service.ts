@@ -1,3 +1,4 @@
+import { CIRCLE_ID_RE } from './circle-scope';
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
@@ -72,6 +73,15 @@ export class ApiKeyService implements OnModuleInit {
         }
         k.policyNames = names;
         delete legacy.policies;
+      }
+      // Optional trust circle: `"circle": "coach-ana"`. A malformed value is
+      // a boot error — an operator who typed it believes the key is fenced.
+      if (k.circle !== undefined) {
+        if (typeof k.circle !== 'string' || !CIRCLE_ID_RE.test(k.circle)) {
+          throw new Error(
+            `BRAIN_API_KEYS entry has malformed circle (expected [A-Za-z0-9._-]{1,120}): companyId=${k.companyId}`,
+          );
+        }
       }
       // Optional per-pack indexer binding: `"packIds": ["my_pack", …]`.
       // Same malformed-is-a-boot-error stance as policies — an operator

@@ -20,6 +20,7 @@
  */
 import { getRequestContext } from '../common/request-context';
 import { userTag } from './scope-tags';
+import { actingCircleTags, isCircleTag } from './circle-scope';
 
 /** The per-request memo: the expanded tag set of each user we resolved. */
 export interface ScopeTagMemo {
@@ -46,5 +47,19 @@ export function rememberScopeTags(userId: string, tags: readonly string[]): void
 export function heldTagsFor(userId: string): readonly string[] {
   const memo = scopeTagMemo();
   const tags = memo?.byUser.get(userId);
-  return tags && tags.length > 0 ? tags : [userTag(userId)];
+  return boundToActingCircle(tags && tags.length > 0 ? tags : [userTag(userId)]);
+}
+
+/**
+ * Trust circles §3.3 — a read is bound to ONE circle. A principal acting
+ * in a circle holds that circle's tag and none of the others it may also
+ * belong to: a facilitator speaking in the group must not read the
+ * private lines it also holds. Without an acting circle the expansion is
+ * left as resolved (a person reading their own memory holds every circle
+ * they are a member of).
+ */
+export function boundToActingCircle(tags: readonly string[]): readonly string[] {
+  const acting = actingCircleTags();
+  if (acting.length === 0) return tags;
+  return [...tags.filter((t) => !isCircleTag(t)), ...acting];
 }

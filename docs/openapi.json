@@ -409,6 +409,9 @@
       "ApiKeySummary": {
         "additionalProperties": false,
         "properties": {
+          "circle": {
+            "type": "string"
+          },
           "createdAt": {
             "type": "string"
           },
@@ -4173,6 +4176,10 @@
       "IssueKeyRequest": {
         "additionalProperties": false,
         "properties": {
+          "circle": {
+            "pattern": "^[A-Za-z0-9._-]{1,120}$",
+            "type": "string"
+          },
           "expiresInDays": {
             "maximum": 3650,
             "minimum": 1,

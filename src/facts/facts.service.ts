@@ -15,7 +15,7 @@ import { BrainScope } from '../auth/api-key.types';
 import { pinUserScope } from '../auth/user-scope';
 import {
   principalScopeTags,
-  scopeTagsEnabled,
+  scopeFenceActive,
   visibleUnderScope,
   type PrincipalScope,
 } from '../auth/scope-visibility';
@@ -541,7 +541,7 @@ export class FactsService {
     root: FactReadRow,
   ): Promise<FactProvenanceResult> {
     const scopeUserId = pinUserScope(undefined);
-    const principalTags = scopeTagsEnabled() ? principalScopeTags() : null;
+    const principalTags = scopeFenceActive() ? principalScopeTags() : null;
     const rowPolicy = makeRowPolicyFilter({
       callerScopes: opts.scopes,
       surface: 'fact_read',
@@ -740,7 +740,7 @@ export class FactsService {
     });
     const visible = factVisible(fact, {
       scopeUserId: pinUserScope(undefined),
-      principalTags: scopeTagsEnabled() ? principalScopeTags() : null,
+      principalTags: scopeFenceActive() ? principalScopeTags() : null,
       rowPolicy,
     });
     rowPolicy.finish();

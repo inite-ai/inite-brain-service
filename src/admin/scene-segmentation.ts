@@ -27,6 +27,7 @@ export const SEGMENTER_VERSION = 'scene-segmenter-v1';
 /** Member turn shape — the raw L0 read row (piiClass rides for folding). */
 export interface SceneTurnRow extends EpisodeRow {
   piiClass?: string[];
+  scope?: string[];
 }
 
 /** Options for the within-session boundary detector. */

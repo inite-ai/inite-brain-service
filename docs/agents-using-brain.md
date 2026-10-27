@@ -24,8 +24,11 @@ that can only spawn stdio servers use the first-party shim
 [`@inite/brain-mcp`](../clients/brain-mcp/README.md):
 
 ```json
-{ "command": "npx", "args": ["-y", "@inite/brain-mcp"],
-  "env": { "BRAIN_API_KEY": "brain_…", "BRAIN_COMPANY_ID": "…" } }
+{
+  "command": "npx",
+  "args": ["-y", "@inite/brain-mcp"],
+  "env": { "BRAIN_API_KEY": "brain_…", "BRAIN_COMPANY_ID": "…" }
+}
 ```
 
 Self-hosted: add `BRAIN_BASE_URL` (or `BRAIN_MCP_URL`). The shim (v0.2) is a
@@ -45,30 +48,32 @@ evidence — stricter than `brain:read_pii`, not implied by it) and
 
 Read (with `brain:read`):
 
-| Tool | One-line semantics |
-|---|---|
-| `search_knowledge` | Semantic search over the graph; entities + top facts; `asOf` for "what was TRUE on X" (valid time — a fact learned later still shows) |
-| `search_multi_hop` | Planner-LLM decomposes into ≤5 anchored hops; returns an auditable evidence chain (`finalEntityIds` + `supportingFactIds`); `synthesize=true` for a grounded answer |
-| `graph_retrieve` | Graph-first retrieval around named entities (1-hop neighbourhood); use when you already know WHICH entities |
-| `synthesize` | Hybrid search → citation-bearing answer (each claim ends `[factId]`) → verifier LLM; guardrails `strict`/`lenient`/`off` |
-| `memory_diff` | Everything learned / retracted / superseded / forgotten between two ISO cursors `[from, to)` — "what changed since last conversation?" |
-| `get_entity_profile` | One entity: canonical name, type, externalRefs, active facts |
-| `get_entity_timeline` | Chronological audit of all facts about an entity, retracted included |
-| `summarize_entity` | One-line briefing; `styleHint='client_llm'` delegates wording to YOUR model via MCP sampling |
-| `get_competing_facts` | Unresolved same-predicate disagreements (COMPETING status) for an entity |
-| `detect_contradiction` | Dry-run the conflict resolver: "if I recorded this fact, what would happen?" (`INSERTED`/`SUPERSEDED`/`COMPETING`/`REJECTED`) |
-| `find_related_entities` | Entities connected via graph edges; here `asOf` cuts EDGES on knowledge time (as they were believed at T) — the one read surface where it is not valid time |
-| `match_procedure`, `list_procedures` | Procedural memory: reusable how-to recipes |
-| `search_communities`, `list_communities`, `find_entity_communities` | Graph community summaries (thematic clusters) |
-| `why`, `recall_decisions` | Code-memory: why code is the way it is; past recorded decisions |
-| `get_source_reputation` | Learned trust profile of a source vertical |
-| `workspace_status` | Which tenant this connection writes to, what is already in its memory, and `nextSteps` — the setup actions that would change something. First call after connecting |
-| `rename_workspace` | Name the workspace (`brain:write`). Offered only while it has none, and gone once it does |
-| `get_fact` | One fact as stored: statement, validity, source attribution, lifecycle (`retracted: true` still resolves), and `groundingStatus` (`grounded`/`ungrounded`; absent = legacy row). Registered when the server runs `FACTS_API_ENABLED` |
-| `get_fact_provenance` | Why a fact is remembered: the verbatim grounding turns (with char-span quotes when stamped); plus `derivedFacts`/`closure`/`supportEdges` on servers running the closure/support-graph read flags. Same `FACTS_API_ENABLED` gate |
+| Tool                                                                | One-line semantics                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `search_knowledge`                                                  | Semantic search over the graph; entities + top facts; `asOf` for "what was TRUE on X" (valid time — a fact learned later still shows)                                                                                                                                                                |
+| `search_multi_hop`                                                  | Planner-LLM decomposes into ≤5 anchored hops; returns an auditable evidence chain (`finalEntityIds` + `supportingFactIds`); `synthesize=true` for a grounded answer                                                                                                                                  |
+| `graph_retrieve`                                                    | Graph-first retrieval around named entities (1-hop neighbourhood); use when you already know WHICH entities                                                                                                                                                                                          |
+| `synthesize`                                                        | Hybrid search → citation-bearing answer (each claim ends `[factId]`) → verifier LLM; guardrails `strict`/`lenient`/`off`                                                                                                                                                                             |
+| `memory_diff`                                                       | Everything learned / retracted / superseded / forgotten between two ISO cursors `[from, to)` — "what changed since last conversation?"                                                                                                                                                               |
+| `get_entity_profile`                                                | One entity: canonical name, type, externalRefs, active facts                                                                                                                                                                                                                                         |
+| `get_entity_timeline`                                               | Chronological audit of all facts about an entity, retracted included                                                                                                                                                                                                                                 |
+| `summarize_entity`                                                  | One-line briefing; `styleHint='client_llm'` delegates wording to YOUR model via MCP sampling                                                                                                                                                                                                         |
+| `get_competing_facts`                                               | Unresolved same-predicate disagreements (COMPETING status) for an entity                                                                                                                                                                                                                             |
+| `detect_contradiction`                                              | Dry-run the conflict resolver: "if I recorded this fact, what would happen?" (`INSERTED`/`SUPERSEDED`/`COMPETING`/`REJECTED`)                                                                                                                                                                        |
+| `find_related_entities`                                             | Entities connected via graph edges; here `asOf` cuts EDGES on knowledge time (as they were believed at T) — the one read surface where it is not valid time                                                                                                                                          |
+| `match_procedure`, `list_procedures`                                | Procedural memory: reusable how-to recipes                                                                                                                                                                                                                                                           |
+| `search_communities`, `list_communities`, `find_entity_communities` | Graph community summaries (thematic clusters)                                                                                                                                                                                                                                                        |
+| `why`, `recall_decisions`                                           | Code-memory: why code is the way it is; past recorded decisions                                                                                                                                                                                                                                      |
+| `get_source_reputation`                                             | Learned trust profile of a source vertical                                                                                                                                                                                                                                                           |
+| `workspace_status`                                                  | Which tenant this connection writes to, what is already in its memory, and `nextSteps` — the setup actions that would change something. First call after connecting                                                                                                                                  |
+| `rename_workspace`                                                  | Name the workspace (`brain:write`). Offered only while it has none, and gone once it does                                                                                                                                                                                                            |
+| `get_fact`                                                          | One fact as stored: statement, validity, source attribution, lifecycle (`retracted: true` still resolves), and `groundingStatus` (`grounded`/`ungrounded`; absent = legacy row). Registered when the server runs `FACTS_API_ENABLED`                                                                 |
+| `get_fact_provenance`                                               | Why a fact is remembered: the verbatim grounding turns (with char-span quotes when stamped); plus `derivedFacts`/`closure`/`supportEdges` on servers running the closure/support-graph read flags. Same `FACTS_API_ENABLED` gate                                                                     |
+| `relationship_context`                                              | Before speaking to a person: their boundaries, tone, open threads, commitments made to them (overdue first), their state as they last said it (`known: false` once past its span) and what helped — from their own memory, each with a factId. Listed only for a tenant with the `relationship` pack |
 
 MCP resources (droppable into context without a tool call):
-`brain://entity/<id>` (profile) and `brain://entity/<id>/timeline`.
+`brain://entity/<id>` (profile) and `brain://entity/<id>/timeline`; with the
+`relationship` pack, `brain://relationship/<userId>`.
 
 Write (adds with `brain:write`): `record_fact` (accepts `conversationId` +
 `evidence[]` — see grounding below), `link_entities`, `retract_fact`,
@@ -84,8 +89,8 @@ synchronous cascade and tombstones.
 
 ## Memory semantics you must know
 
-- **Facts vs episodes.** Brain ingests raw conversation/document *episodes*
-  and derives typed *facts* (entity, predicate, object, confidence) from
+- **Facts vs episodes.** Brain ingests raw conversation/document _episodes_
+  and derives typed _facts_ (entity, predicate, object, confidence) from
   them. Reads serve facts; provenance points back at the raw source.
 - **Bitemporal by default.** Every fact carries valid time
   (`validFrom`/`validUntil` — when it held in reality) and knowledge time

@@ -34,6 +34,8 @@ export interface EpisodeTurnRow {
   occurredAt: Date | string;
   piiClass?: string[];
   userId?: string;
+  /** The turn's scope tags — derivers fold its trust circle into what they build. */
+  scope?: string[];
 }
 
 export interface EpisodeQuoteRow {
@@ -141,7 +143,7 @@ export class EpisodeReadStoreService {
    */
   async conversationTurnsRaw(db: EpisodeDb, conversationId: string): Promise<EpisodeTurnRow[]> {
     const [rows] = await db.query<[EpisodeTurnRow[]]>(
-      `SELECT id, speaker, text, occurredAt, piiClass, userId FROM episode
+      `SELECT id, speaker, text, occurredAt, piiClass, userId, scope FROM episode
         WHERE conversationId = $conv ORDER BY occurredAt ASC LIMIT ${CONVERSATION_TURNS_CAP}`,
       { conv: conversationId },
     );

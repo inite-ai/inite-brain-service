@@ -3,6 +3,7 @@ import { StringRecordId, type Surreal } from 'surrealdb';
 import { SurrealService, runTransaction } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
 import { scopeForUser } from '../auth/scope-tags';
+import { withSourceCircles } from '../auth/circle-scope';
 import { privacyComposerUserScopeEnabled } from '../common/privacy-flags';
 import { emptyBatchOutcome, foldBatchOutcome, type BatchOutcome } from '../common/batch-outcome';
 
@@ -33,6 +34,8 @@ export interface FactRowLite {
   id: unknown;
   predicate: string;
   object: string;
+  /** Scope tags — the trust circles a composed row must inherit. */
+  scope?: string[];
   validFrom?: string | Date;
   /**
    * `source.episodeIds AS episodeIds` — the member's grounding stamp
@@ -205,7 +208,7 @@ async function composeEntity<P>(
   );
   const name = entity?.canonicalName ?? entityId;
   const [facts] = await db.query<[FactRowLite[]]>(
-    `SELECT id, predicate, object, validFrom, userId, source.episodeIds AS episodeIds
+    `SELECT id, predicate, object, validFrom, userId, scope, source.episodeIds AS episodeIds
        FROM knowledge_fact
       WHERE entityId = $eid AND status = 'active'
         ${spec.sourceExclusionSql}
@@ -259,9 +262,17 @@ async function composeEntity<P>(
     });
     // Kernel-central stamp AFTER buildRow — both composers inherit it,
     // the specs stay untouched (D2).
-    return x.scopeUser !== undefined
-      ? { ...row, userId: x.scopeUser, scope: scopeForUser(x.scopeUser) }
-      : row;
+    // Trust circles §3.5: a summary of facts said in a circle stays in it.
+    const members = proposalMemberFacts(x.proposal, facts);
+    if (x.scopeUser !== undefined) {
+      return {
+        ...row,
+        userId: x.scopeUser,
+        scope: withSourceCircles(scopeForUser(x.scopeUser), members),
+      };
+    }
+    const circles = withSourceCircles([], members);
+    return circles.length > 0 ? { ...row, scope: circles } : row;
   });
   // Wholesale replace: composed rows are derived state, a re-run owns
   // them. Atomic swap (audit W2 #10/#11): the delete and the insert
@@ -290,6 +301,18 @@ async function composeEntity<P>(
  * untouched. A proposal without a members array folds to [] (global),
  * as do members whose facts carry no userId (tenant-global sources).
  */
+/** The facts a proposal's `members` indices name (out-of-range ignored). */
+function proposalMemberFacts(proposal: unknown, facts: FactRowLite[]): FactRowLite[] {
+  const members = (proposal as { members?: unknown }).members;
+  if (!Array.isArray(members)) return [];
+  return members
+    .filter(
+      (m): m is number =>
+        typeof m === 'number' && Number.isInteger(m) && m >= 0 && m < facts.length,
+    )
+    .map((m) => facts[m] as FactRowLite);
+}
+
 function proposalScopeUsers(proposal: unknown, facts: FactRowLite[]): string[] {
   const members = (proposal as { members?: unknown }).members;
   if (!Array.isArray(members)) return [];

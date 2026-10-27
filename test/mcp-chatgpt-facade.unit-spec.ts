@@ -16,7 +16,7 @@ const stubEmbedder = {
   cacheStats: () => ({ provider: 'openai:text-embedding-3-small' }),
   getDimensions: () => 1536,
 };
-const stubPackToolsReader = { installedPackTools: async () => [] };
+const stubPackToolsReader = { isActive: async () => false, installedPackTools: async () => [] };
 
 const HIT = {
   entityId: 'cuid_maria',

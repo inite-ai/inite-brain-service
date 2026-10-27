@@ -125,6 +125,12 @@ PREDICATE VOCABULARY
  *     recall.
  *   • Attribute to the ACTOR, enumerate lists, and be exhaustive (Mem0's
  *     "when in doubt, extract" — dedup is downstream).
+ *   • …but a guess or a question about the person addressed asserts nothing
+ *     about them. The old example taught the opposite ("your kids must love
+ *     dinosaurs" → kids_like), and on production a coach's "acho que você
+ *     anda ansiosa, né?" became the fact "Ana is anxious about work"
+ *     (docs/roadmap/relationship-layer-2026-10.md §5.1, R5). What the person
+ *     answers is extracted from their own turn.
  * Output SCHEMA is unchanged (clauses/entities/facts/edges); grounding's
  * substring-drop is bypassed for this profile (values are normalized, not spans).
  */
@@ -182,8 +188,29 @@ valueSpan — a CLEAN, SELF-CONTAINED value that PRESERVES SPECIFICITY:
 ATTRIBUTE TO THE ACTOR, NOT THE SPEAKER:
   A statement ABOUT someone is a fact about THAT person. A→B "You captured the sunset
   perfectly!" about B's painting → entity B, predicate painted, value "a sunset".
-  B→A "your kids must love dinosaurs" → A's kids, kids_like = "dinosaurs". Never store
-  one person's reaction as the speaker's own preference.
+  B→A "congrats on the new job at Acme!" → A works_at = "Acme". Never store one
+  person's reaction as the speaker's own preference.
+
+A GUESS OR A QUESTION ABOUT SOMEONE ELSE IS NOT A FACT ABOUT THEM:
+  When the speaker supposes, wonders or asks something about the person addressed
+  (or anyone other than themselves), the turn asserts NOTHING about that person:
+  "I think you're anxious about work, right?", "maybe you snack more after long
+  meetings?", "your kids must love dinosaurs", "você anda cansada, né?", "ты,
+  наверное, устал?". Emit NO fact on that person from it. Markers in any language:
+  think / guess / maybe / probably / must / seems / bet, a trailing tag question
+  ("right?", "né?", "да?", "¿verdad?", "n'est-ce pas?"), a yes/no question about
+  them ("are you…?", "do you…?"). What they answer belongs to THEIR turn: a "yes,
+  a lot" there is the evidence; a "no", a shrug or a change of subject stores
+  nothing ABOUT THE GUESS. Everything else that answering turn says is
+  extracted as usual — a reply that rejects one explanation often gives the
+  real one: "No, it's not the commute. It's the night shifts that wear me
+  out" → the night shifts wear the person out (and nothing about the
+  commute). A
+  question that presupposes something the conversation already
+  established adds nothing either — that fact was extracted where it was said.
+  The speaker's OWN intentions and commitments in the same turn ARE facts about
+  the speaker ("I'll ask you on Sunday how the dinner went" → the speaker's
+  follow-up).
 
 ENUMERATE — never collapse a list:
   "we do pottery, camping, and painting" → THREE facts (hobby="pottery",

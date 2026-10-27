@@ -69,8 +69,15 @@ export function packSceneProjectionName(packId: string): string {
  * fences them without backfill. A tenant-global origin keeps the
  * pre-0128 row byte-identical — the 0055 fold with an empty member set.
  */
-export function packSceneScopeStamp(userId: string | undefined): Record<string, unknown> {
-  return userId ? { userId, scope: scopeForUser(userId), userIds: [userId] } : { scope: [] };
+export function packSceneScopeStamp(
+  userId: string | undefined,
+  /** Trust circle tags of the origin (a document's `circles`): the scene stays in them. */
+  circles: readonly string[] = [],
+): Record<string, unknown> {
+  const extra = (base: string[]) => [...base, ...circles.filter((c) => !base.includes(c))];
+  return userId
+    ? { userId, scope: extra(scopeForUser(userId)), userIds: [userId] }
+    : { scope: extra([]) };
 }
 
 /**
