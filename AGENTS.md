@@ -11,8 +11,8 @@ disagree, this file wins (and please fix the other one).
 ## What this is
 
 INITE Brain is a bitemporal, per-tenant knowledge-graph memory service for AI
-agents, served over MCP (Streamable HTTP) and REST, on SurrealDB. NestJS 12 +
-TypeScript, pnpm, Node 24 (≥24.9: Jest runs Nest 12 ESM via `--experimental-vm-modules`). Also in the repo: the landing/admin app
+agents, served over MCP (Streamable HTTP) and REST, on SurrealDB. NestJS 11 +
+TypeScript, pnpm, Node 22. Also in the repo: the landing/admin app
 (`brain-landing/`, Next.js), npm clients (`clients/*`), the agent skills
 (`skills/`) and the Claude Code plugin (`plugins/inite-brain/`).
 
@@ -80,7 +80,7 @@ Brain's side of it is `src/auth/token-audience.ts`, pinned by
 | `src/auth/`, `src/keys/`, `src/policy/` (engine)                                       | Token/API-key verification, audience, scopes, key minting, ABAC       | 🔴 red                      |
 | `src/entities/*forget*`, `src/documents/document-purge.util.ts`                        | GDPR forget cascades                                                  | 🔴 red                      |
 | `src/ingest/conflict-resolver.ts`, `src/ingest/fact-resolver.service.ts`, `src/facts/` | Conflict resolution, fact lifecycle (supersede / COMPETING / retract) | 🔴 red                      |
-| `src/common/*-flags.ts`, `src/admin/config-catalog.data.ts`, `test/golden/`            | Flag readers, config catalogue, flag budget                           | 🔴 red (new flags)          |
+| `src/common/*-flags.ts`, `src/admin/config-catalog*`, `test/golden/`                 | Flag readers, config catalogue, flag budget                           | 🔴 red (new flags)          |
 | `test/eval/**`                                                                         | Eval batteries, golden baselines                                      | 🔴 red                      |
 | `.github/workflows/`, `scripts/ci/`, `Dockerfile`, `docker-compose*.yml`               | CI, deploy (every green `main` deploys to prod)                       | 🔴 red                      |
 | Published API shapes (breaking changes to `src/contracts/`, MCP tool schemas)          | What integrators code against                                         | 🔴 red                      |
@@ -92,11 +92,11 @@ approves the design before code.
 ## Setup
 
 **One click:** [Open in GitHub Codespaces](https://codespaces.new/inite-ai/inite-brain-service)
-— `.devcontainer/` gives Node 24, pnpm 10, deps installed, a `.env` copied from
+— `.devcontainer/` gives Node 22, pnpm 10, deps installed, a `.env` copied from
 `.env.example`, SurrealDB running on `localhost:8000` and Docker-in-Docker for
 the e2e suites.
 
-**Local** (Node 24.9+, pnpm 10 via `corepack enable`, Docker for SurrealDB):
+**Local** (Node 22, pnpm 10 via `corepack enable`, Docker for SurrealDB):
 
 ```bash
 pnpm install --frozen-lockfile
@@ -162,7 +162,7 @@ credential's scopes allow.
 | Read path        | `src/search/` (legs, rerank, `retrieval-profile.ts`), `src/synthesize/` (answer lanes, verifier, citations), `src/multi-hop/`, `src/entities/`, `src/facts/`    |
 | Background       | `src/jobs/` (Surreal-native queue), `src/dreams/`, `src/compaction/`, `src/communities/`, `src/scenes/`, `src/beliefs/`                                         |
 | Connectors       | `src/source-plane/`, `src/sources/`                                                                                                                             |
-| Operator surface | `src/admin/` (operator routes behind `brain:platform_admin`; tenant pack admin under `brain:admin`), config catalogue `src/admin/config-catalog.data.ts`        |
+| Operator surface | `src/admin/` (operator routes behind `brain:platform_admin`; tenant pack admin under `brain:admin`), config catalogue `src/admin/config-catalog/` (parts) |
 | Wire contracts   | `src/contracts/` (zod; feed `docs/openapi.json` via `scripts/build-openapi.ts`)                                                                                 |
 | Domain packs     | `src/ai/domain-packs/`, `packs/*.pack.json` ([docs/domain-packs.md](docs/domain-packs.md))                                                                      |
 
