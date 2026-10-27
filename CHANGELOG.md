@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.5.1](https://github.com/inite-ai/inite-brain-service/compare/v2.5.0...v2.5.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* **extraction:** a flex-tier call gets minutes, not 30 s; a failed group is read in halves ([#786](https://github.com/inite-ai/inite-brain-service/issues/786)) ([fc52e59](https://github.com/inite-ai/inite-brain-service/commit/fc52e597482e75567f9b90d7d81c5467e09808c4))
+* **relationship:** an answered guess leaves `open`; batteries read negations and report ranges ([#785](https://github.com/inite-ai/inite-brain-service/issues/785)) ([7405db5](https://github.com/inite-ai/inite-brain-service/commit/7405db5cea7ce48accc7eeae4f498b5f310a6b10))
+* **security:** the CodeQL findings in shipped code are fixed, not carried ([#782](https://github.com/inite-ai/inite-brain-service/issues/782)) ([d233fdd](https://github.com/inite-ai/inite-brain-service/commit/d233fdd0d8e56dcfe14685414032af7aaa33013c))
+
 ## [2.5.0](https://github.com/inite-ai/inite-brain-service/compare/v2.4.0...v2.5.0) (2026-10-27)
 
 
