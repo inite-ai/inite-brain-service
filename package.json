@@ -81,7 +81,7 @@
     "@nestjs/common": "^11.2.4",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.29",
-    "@nestjs/platform-express": "^11.1.29",
+    "@nestjs/platform-express": "^11.2.8",
     "@nestjs/schedule": "^6.1.1",
     "@nestjs/throttler": "^6.7.1",
     "@opentelemetry/api": "^1.10.0",
