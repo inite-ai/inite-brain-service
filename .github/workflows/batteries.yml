@@ -174,7 +174,9 @@ jobs:
           set -a; . snap/battery.env; set +a
           for f in snap/db-*.surql; do
             db=$(basename "$f" .surql); db=${db#db-}
-            $SURREAL import -e http://127.0.0.1:8000 -u root -p root --ns brain --db "$db" < "$f"
+            # `surreal import` takes a path, not stdin; the image has no shell.
+            docker cp "$f" "stand-surreal:/tmp/$db.surql"
+            $SURREAL import -e http://127.0.0.1:8000 -u root -p root --ns brain --db "$db" "/tmp/$db.surql"
             echo "[snap] imported $db"
           done
 
